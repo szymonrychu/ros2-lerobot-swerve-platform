@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import Alert from '@mui/material/Alert'
 import AppBar from '@mui/material/AppBar'
@@ -37,6 +37,7 @@ import { TiltBanner } from './components/TiltBanner'
 import { useRosBridge } from './hooks/useRosBridge'
 import { OverlayBar } from './overlays/OverlayBar'
 import { usePhotoLayer } from './photos/usePhotoLayer'
+import type { PhotoLayerData } from './photos/usePhotoLayer'
 import { toPoiItems } from './poi/poiItems'
 import type { PendingFocus, PoiItem } from './poi/poiItems'
 import { parsePoiList } from './poi/style'
@@ -90,7 +91,7 @@ function renderTab(
   publish: (t: string, mt: string, d: unknown) => void,
   battery: BatteryStatus,
   tilt: TiltStatus,
-  poi: { items: PoiItem[]; onShowOnMap: (focus: PendingFocus) => void },
+  poi: { items: PoiItem[]; onShowOnMap: (focus: PendingFocus) => void; photos: PhotoLayerData },
   pendingFocus: PendingFocus | null,
   onFocusConsumed: () => void,
 ) {
@@ -100,7 +101,8 @@ function renderTab(
     case 'sensor_graph': return <SensorGraphTab {...props} />
     case 'poi': return <PoiTab items={poi.items} onShowOnMap={poi.onShowOnMap} />
     case 'rgbd_camera': return <RgbdCameraTab {...props} />
-    case 'map_nav': return <MapNavTab {...props} tilt={tilt} pendingFocus={pendingFocus} onFocusConsumed={onFocusConsumed} />
+    case 'map_nav':
+      return <MapNavTab {...props} tilt={tilt} photos={poi.photos} pendingFocus={pendingFocus} onFocusConsumed={onFocusConsumed} />
     case 'agent_chat': return <AgentChatTab {...props} battery={battery} />
     default:
       return (
@@ -157,12 +159,15 @@ export default function App() {
 
   const { topicData, connected, publish } = useRosBridge(allTopics, (e) => setErrorToast(e.message))
 
-  // POI tab data: the latched /poi/list plus the photo store (refetched when its /poi/photos revision moves).
+  // POI data: the latched /poi/list plus the one photo store shared by the POI tab and the map's photo layer
+  // (refetched when its /poi/photos revision moves).
   const poiTabCfg = config?.tabs.find((t) => t.type === 'poi')
+  const photoTabCfg = poiTabCfg ?? config?.tabs.find((t) => t.type === 'map_nav')
   const poiList = useMemo(() => parsePoiList(topicData[poiTabCfg?.poi_list_topic ?? POI_LIST_TOPIC]), [topicData, poiTabCfg?.poi_list_topic])
-  const photoSummary = topicData[poiTabCfg?.poi_photos_topic ?? POI_PHOTOS_TOPIC] as { revision?: unknown } | null | undefined
+  const photoSummary = topicData[photoTabCfg?.poi_photos_topic ?? POI_PHOTOS_TOPIC] as { revision?: unknown } | null | undefined
   const photoRevision = typeof photoSummary?.revision === 'number' ? photoSummary.revision : null
-  const poiPhotos = usePhotoLayer(poiTabCfg !== undefined, 'all', photoRevision)
+  const poiPhotos = usePhotoLayer(photoTabCfg !== undefined, 'all', photoRevision)
+  const clearPendingFocus = useCallback(() => setPendingFocus(null), [])
   const poiItems = useMemo(() => toPoiItems(poiList?.pois ?? [], poiPhotos.photos), [poiList, poiPhotos.photos])
 
   const tilt = tiltStatus(topicData[TILT_GUARD_STATE_KEY] as TiltPayload | null | undefined)
@@ -299,7 +304,7 @@ export default function App() {
             </Centered>
           }
         >
-          {tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap }, pendingFocus, () => setPendingFocus(null))}
+          {tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap, photos: poiPhotos }, pendingFocus, clearPendingFocus)}
         </Suspense>
       </Box>
 

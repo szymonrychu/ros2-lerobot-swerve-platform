@@ -68,10 +68,10 @@ import { TabConfig } from '../types'
 import { PhotoList } from '../photos/PhotoList'
 import { PhotoPanel } from '../photos/PhotoPanel'
 import type { Photo } from '../photos/api'
-import { LAYER_MAX_PHOTOS, PHOTO_AGE_LABELS, PHOTO_AGES, type PhotoAge } from '../photos/geometry'
-import type { PendingFocus } from '../poi/poiItems'
-import { usePhotoLayer } from '../photos/usePhotoLayer'
-import { resolveFocus } from '../map3d/mapFocus'
+import { ageCutoff, LAYER_MAX_PHOTOS, PHOTO_AGE_LABELS, PHOTO_AGES, type PhotoAge } from '../photos/geometry'
+import { itemId, type PendingFocus, type PoiItem } from '../poi/poiItems'
+import type { PhotoLayerData } from '../photos/usePhotoLayer'
+import { consumeFocus, resolveFocus, whenController } from '../map3d/mapFocus'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
 import { PoiLegend } from '../poi/PoiLegend'
 import { canFinishArea, isClick } from '../poi/editor'
@@ -122,6 +122,8 @@ interface Props {
   publish: (topic: string, msgType: string, data: unknown) => void
   /** Tilt guard state; at warning/error goal setting is disabled. */
   tilt?: TiltStatus
+  /** Photos App fetches for the POI tab and the map photo layer (newest first, all ages). */
+  photos: PhotoLayerData
   /** Map focus requested from the POI tab; the map clears it through onFocusConsumed once handled. */
   pendingFocus?: PendingFocus | null
   onFocusConsumed?: () => void
@@ -155,7 +157,15 @@ function Centered({ children }: { children: ReactNode }) {
   )
 }
 
-export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(undefined), pendingFocus = null, onFocusConsumed }: Props) {
+export default function MapNavTab({
+  tab,
+  topicData,
+  publish,
+  tilt = tiltStatus(undefined),
+  photos,
+  pendingFocus = null,
+  onFocusConsumed,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<SceneController | null>(null)
   const pointersRef = useRef<Set<number>>(new Set())
@@ -221,13 +231,13 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
   // Fit the first map once the scene is up.
   useEffect(() => {
     if (fittedRef.current || !mapBox) return
-    const timer = setInterval(() => {
-      if (!controllerRef.current) return
-      controllerRef.current.fit(mapBox)
-      fittedRef.current = true
-      clearInterval(timer)
-    }, 100)
-    return () => clearInterval(timer)
+    return whenController(
+      () => controllerRef.current,
+      (c) => {
+        c.fit(mapBox)
+        fittedRef.current = true
+      },
+    )
   }, [mapBox])
 
   // Armed two-step buttons disarm after the confirm window.
@@ -271,31 +281,60 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
   const photoSummary = topicData[tab.poi_photos_topic ?? '/poi/photos'] as { revision?: unknown } | null | undefined
   const photoRevision = typeof photoSummary?.revision === 'number' ? photoSummary.revision : null
   const [photoAge, setPhotoAge] = useState<PhotoAge>('7d')
-  const layerPhotos = usePhotoLayer(layers.photos, photoAge, photoRevision)
+  // App's photo store (one fetch path for the POI tab and the map), narrowed to the layer's age filter.
+  const layerPhotos = useMemo<PhotoLayerData>(() => {
+    const cutoff = ageCutoff(photoAge, Date.now() / 1000)
+    const shown = cutoff === null ? photos.photos : photos.photos.filter((p) => p.ts >= cutoff)
+    return { photos: shown, total: cutoff === null ? photos.total : shown.length, error: photos.error }
+  }, [photos, photoAge])
   const [pickedPhoto, setPickedPhoto] = useState<Photo | null>(null)
-  // The open photo follows the refetched layer data (name, note and links change after a save).
-  const openPhoto = pickedPhoto && (layerPhotos.photos.find((p) => p.id === pickedPhoto.id) ?? pickedPhoto)
+  // The open photo follows the refetched data (name, note and links change after a save).
+  const openPhoto = pickedPhoto && (photos.photos.find((p) => p.id === pickedPhoto.id) ?? pickedPhoto)
   const selectPhotoOnMap = useCallback(
-    (id: string) => setPickedPhoto(layerPhotos.photos.find((p) => p.id === id) ?? null),
-    [layerPhotos.photos],
+    (id: string) => setPickedPhoto(photos.photos.find((p) => p.id === id) ?? null),
+    [photos.photos],
   )
 
-  // "Show on map" from the POI tab: make the target's layer visible, centre on it and open its panel (the popup).
+  // "Show on map" from the POI tab (the request survives the tab switch in App): make the target visible, then
+  // once the scene controller exists centre on it, open the popup and clear the request.
+  const [popupRequest, setPopupRequest] = useState<PendingFocus | null>(null)
+  const onFocusConsumedRef = useRef(onFocusConsumed)
+  onFocusConsumedRef.current = onFocusConsumed
   useEffect(() => {
     if (!pendingFocus) return
-    if (pendingFocus.kind === 'photo') {
-      if (!layers.photos) setLayers((s) => ({ ...s, photos: true }))
-      if (photoAge !== 'all') setPhotoAge('all')
-    } else if (!layers.pois) {
-      setLayers((s) => ({ ...s, pois: true }))
+    if (pendingFocus.kind === 'poi') {
+      setLayers((s) => (s.pois ? s : { ...s, pois: true }))
+      return
     }
-    const target = resolveFocus(pendingFocus, poi.pois, layerPhotos.photos)
-    if (!target) return
-    controllerRef.current?.centerOn(target.point)
-    if (target.photo) setPickedPhoto(target.photo)
-    else poi.select(target.poiId)
-    onFocusConsumed?.()
-  }, [pendingFocus, layers.photos, layers.pois, photoAge, poi.pois, layerPhotos.photos, onFocusConsumed]) // eslint-disable-line react-hooks/exhaustive-deps
+    setLayers((s) => (s.photos ? s : { ...s, photos: true }))
+    const cutoff = ageCutoff(photoAge, Date.now() / 1000)
+    const target = photos.photos.find((p) => p.id === pendingFocus.id)
+    if (target && cutoff !== null && target.ts < cutoff) setPhotoAge('all')
+  }, [pendingFocus, photos.photos, photoAge])
+  useEffect(() => {
+    if (!pendingFocus) return
+    return consumeFocus(pendingFocus, poi.pois, photos.photos, () => controllerRef.current, () => {
+      fittedRef.current = true // a map arriving later must not move the view off the focused item
+      setPopupRequest(pendingFocus)
+      onFocusConsumedRef.current?.()
+    })
+  }, [pendingFocus, poi.pois, photos.photos])
+  // The popup re-resolves so it follows edits and disappears when its item is deleted.
+  const popup = useMemo(
+    () => (popupRequest ? resolveFocus(popupRequest, poi.pois, photos.photos) : null),
+    [popupRequest, poi.pois, photos.photos],
+  )
+  const closePopup = useCallback(() => setPopupRequest(null), [])
+  const selectPoi = poi.select
+  const openPopupItem = useCallback(
+    (item: PoiItem) => {
+      setPopupRequest(null)
+      const id = itemId(item)
+      if (item.source === 'photo') setPickedPhoto(photos.photos.find((p) => p.id === id) ?? null)
+      else selectPoi(id)
+    },
+    [photos.photos, selectPoi],
+  )
 
   const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
   const grasp = useGrasp({ tabId: tab.id, topicData, mount: armMount, notify: setAction })
@@ -754,6 +793,9 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
             selectedPhotoId={openPhoto?.id ?? null}
             onSelectPhoto={goalMode || poiAdding || graspPicking ? null : selectPhotoOnMap}
             graspPreview={graspOpen ? grasp.preview : null}
+            popup={popup}
+            onPopupClose={closePopup}
+            onPopupOpen={openPopupItem}
             controllerRef={controllerRef}
             mapFrame={mapFrame}
           />

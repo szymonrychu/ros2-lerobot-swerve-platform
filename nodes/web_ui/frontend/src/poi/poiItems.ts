@@ -88,6 +88,16 @@ export function isLocated(item: PoiItem): boolean {
 }
 
 /**
+ * The POI or photo id of an item (its key without the source prefix).
+ *
+ * @param item - item
+ * @returns the id in its source store
+ */
+export function itemId(item: PoiItem): string {
+  return item.key.slice(item.source.length + KEY_SEPARATOR.length)
+}
+
+/**
  * The map focus request for an item.
  *
  * @param item - item
@@ -95,5 +105,5 @@ export function isLocated(item: PoiItem): boolean {
  */
 export function focusRequestFor(item: PoiItem): PendingFocus | null {
   if (!isLocated(item)) return null
-  return { kind: item.source, id: item.key.slice(item.source.length + KEY_SEPARATOR.length) }
+  return { kind: item.source, id: itemId(item) }
 }
