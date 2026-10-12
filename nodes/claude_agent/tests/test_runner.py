@@ -181,10 +181,12 @@ class FakeClearer:
 
     def __init__(self) -> None:
         self.calls = 0
+        self.statuses: list[list[str] | None] = []
         self.result = PoiClearResult(False, "removed 2")
 
-    async def __call__(self) -> PoiClearResult:
+    async def __call__(self, statuses: list[str] | None = None) -> PoiClearResult:
         self.calls += 1
+        self.statuses.append(statuses)
         return self.result
 
 
@@ -499,6 +501,21 @@ async def test_reset_clears_agent_made_pois_through_the_mcp_server(tmp_path: Pat
     assert clearer.calls == 0, "nothing is cleared on start"
     assert await runner.reset() is True
     assert clearer.calls == 1
+
+
+async def test_reset_keep_open_clears_only_done_and_cancelled_agent_pois(tmp_path: Path) -> None:
+    clearer = FakeClearer()
+    runner, _, _ = make_runner(tmp_path, clearer=clearer)
+    assert runner.config.agent_poi_reset == "keep_open"
+    assert await runner.reset() is True
+    assert clearer.statuses == [["done", "cancelled"]]
+
+
+async def test_reset_clear_all_clears_every_agent_poi(tmp_path: Path) -> None:
+    clearer = FakeClearer()
+    runner, _, _ = make_runner(tmp_path, config=ClaudeAgentConfig(agent_poi_reset="clear_all"), clearer=clearer)
+    assert await runner.reset() is True
+    assert clearer.statuses == [None]
 
 
 async def test_refused_reset_does_not_clear_pois(tmp_path: Path) -> None:

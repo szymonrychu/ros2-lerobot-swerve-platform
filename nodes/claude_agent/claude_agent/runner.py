@@ -85,6 +85,7 @@ from .tools import (
 
 REMOVED_ENV_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # Sources of the stop call shown in the chat (the `source` field of its tool_call/tool_result events).
+CLEAR_STATUSES_KEEP_OPEN = ["done", "cancelled"]
 STOP_SOURCE_USER = "user_stop"
 STOP_SOURCE_RESET = "reset"
 STOP_SOURCE_SHUTDOWN = "shutdown"
@@ -279,7 +280,7 @@ class AgentRunner:
         base_env: Mapping[str, str] | None = None,
         logger: Any = None,
         robot_stopper: Callable[[], Awaitable[RobotToolResult]] | None = None,
-        poi_clearer: Callable[[], Awaitable[PoiClearResult]] | None = None,
+        poi_clearer: Callable[[list[str] | None], Awaitable[PoiClearResult]] | None = None,
         mcp_prober: Callable[[], Awaitable[str | None]] | None = None,
         robot_tool_caller: Callable[[str, dict[str, Any], float], Awaitable[RobotToolResult]] | None = None,
         retry_ledger_path: Path | None = None,
@@ -294,7 +295,7 @@ class AgentRunner:
             logger (Any): Object with info/warning/error(str); defaults to the stdlib logger (the node passes the ROS2 logger).
             robot_stopper (Callable[[], Awaitable[RobotToolResult]] | None): Calls the robot MCP stop tool directly;
                 defaults to call_robot_stop with the configured URL, token file and stop_timeout_s.
-            poi_clearer (Callable[[], Awaitable[PoiClearResult]] | None): Clears the agent-made POIs through the
+            poi_clearer (Callable[[list[str] | None], Awaitable[PoiClearResult]] | None): Clears the agent-made POIs through the
                 mcp_server admin route (used by reset()); defaults to call_clear_agent_pois with the configured URL,
                 token file and stop_timeout_s.
             mcp_prober (Callable[[], Awaitable[str | None]] | None): Tells whether mcp_server answers (None) or why not;
@@ -483,13 +484,18 @@ class AgentRunner:
         """
         return await call_robot_tool(self.config.mcp_url, self.config.mcp_token_file, timeout_s, name, args)
 
-    async def default_poi_clearer(self) -> PoiClearResult:
+    async def default_poi_clearer(self, statuses: list[str] | None = None) -> PoiClearResult:
         """Call the mcp_server admin route that clears the agent-made POIs.
+
+        Args:
+            statuses (list[str] | None): Only clear POIs in these statuses; None clears every status.
 
         Returns:
             PoiClearResult: Outcome (never raises).
         """
-        return await call_clear_agent_pois(self.config.mcp_url, self.config.mcp_token_file, self.config.stop_timeout_s)
+        return await call_clear_agent_pois(
+            self.config.mcp_url, self.config.mcp_token_file, self.config.stop_timeout_s, statuses
+        )
 
     async def default_mcp_prober(self) -> str | None:
         """Probe mcp_server's /metrics route with the configured endpoint.
@@ -1454,12 +1460,14 @@ class AgentRunner:
         return True
 
     async def clear_agent_pois(self) -> None:
-        """Ask poi_store (via the mcp_server admin route) to delete every POI the agent made, objects included.
+        """Ask poi_store (via the mcp_server admin route) to delete the POIs the agent made, objects included.
 
+        ``agent_poi_reset`` keep_open clears only done and cancelled ones, clear_all every one.
         The person's POIs stay. A failing call is logged and does not stop the reset.
         """
         try:
-            result = await self.poi_clearer()
+            statuses = CLEAR_STATUSES_KEEP_OPEN if self.config.agent_poi_reset == "keep_open" else None
+            result = await self.poi_clearer(statuses)
         except Exception as exc:  # noqa: BLE001 - a dead clearer must not break "New session"
             self.logger.warning(f"could not clear the agent POIs: {type(exc).__name__}: {exc}")
             return

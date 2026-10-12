@@ -42,13 +42,17 @@ def clear_url(mcp_url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, CLEAR_PATH, "", ""))
 
 
-async def call_clear_agent_pois(mcp_url: str, token_file: Path | str, timeout_s: float) -> PoiClearResult:
+async def call_clear_agent_pois(
+    mcp_url: str, token_file: Path | str, timeout_s: float, statuses: list[str] | None = None
+) -> PoiClearResult:
     """POST the clear route; never raises, so a failure cannot break the caller's reset.
 
     Args:
         mcp_url (str): Robot MCP URL; the route is derived from it.
         token_file (Path | str): Bearer token file (read now).
         timeout_s (float): Upper bound for the whole call.
+        statuses (list[str] | None): Only clear agent POIs in these statuses, sent as the JSON body
+            {"statuses": [...]}; None sends no body and clears every status.
 
     Returns:
         PoiClearResult: The outcome, or is_error with the reason.
@@ -58,7 +62,9 @@ async def call_clear_agent_pois(mcp_url: str, token_file: Path | str, timeout_s:
         http_client = create_mcp_http_client(headers={"Authorization": f"Bearer {token}"})
         async with asyncio.timeout(timeout_s):
             async with http_client:
-                response = await http_client.post(clear_url(mcp_url))
+                response = await http_client.post(
+                    clear_url(mcp_url), json=None if statuses is None else {"statuses": statuses}
+                )
         if response.status_code != 200:
             return PoiClearResult(True, f"clear failed: HTTP {response.status_code} {response.text[:200]}")
         return PoiClearResult(False, f"removed {response.json().get('removed', 0)} agent POIs")

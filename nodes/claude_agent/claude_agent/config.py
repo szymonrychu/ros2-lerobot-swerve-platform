@@ -139,6 +139,8 @@ class ClaudeAgentConfig(BaseModel):
         sensor_tools: Short names of read-only tools (counted for telemetry, never capped or refused).
         mcp_url: Robot MCP server Streamable HTTP URL.
         mcp_token_file: File holding the MCP bearer token (``MCP_SERVER_TOKEN=<token>`` or the bare token); read at each session start.
+        agent_poi_reset: What a new session does with the agent-made POIs: ``keep_open`` clears only those with status
+            done or cancelled (open ones survive), ``clear_all`` clears every one.
         http_host: Bind address of the API (loopback only; the web UI proxies it).
         http_port: Port of the HTTP/WebSocket API.
         history_size: Number of most recent events kept in RAM (older ones are read from the session log on demand).
@@ -203,6 +205,7 @@ class ClaudeAgentConfig(BaseModel):
     sensor_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_SENSOR_TOOLS))
     mcp_url: str = "http://127.0.0.1:18200/mcp"
     mcp_token_file: str = "/etc/ros2/mcp_server/token"
+    agent_poi_reset: Literal["keep_open", "clear_all"] = "keep_open"
     http_host: str = "127.0.0.1"
     http_port: int = Field(default=18300, ge=1, le=65535)
     history_size: int = Field(default=500, ge=1)

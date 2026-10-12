@@ -334,6 +334,10 @@ that path, bearer token from `mcp_token_file`). It is not a DDS publish on `/poi
 user (matched but never delivered), while mcp_server runs as the robot user and relays the `clear` to poi_store. The route is
 plain HTTP, not an MCP tool, so the model cannot call it. A failing call is logged and the reset still completes.
 
+The config flag `agent_poi_reset` (`keep_open` default, or `clear_all`) decides what a reset clears. `keep_open` sends the JSON body
+`{"statuses": ["done", "cancelled"]}` so only finished or cancelled agent POIs are removed and open ones (and their map markers)
+survive the new session; `clear_all` sends no body and removes every agent POI, as before.
+
 A background `SingleThreadedExecutor` thread runs the callback, which hands the raw text to the asyncio loop with
 `loop.call_soon_threadsafe` (`AgentRunner.post_robot_event`); invalid payloads are dropped.
 

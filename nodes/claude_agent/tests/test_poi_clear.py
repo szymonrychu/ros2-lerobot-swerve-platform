@@ -1,6 +1,7 @@
 """call_clear_agent_pois against a real HTTP app (uvicorn on an ephemeral port) standing in for mcp_server."""
 
 import asyncio
+import json
 import socket
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -17,9 +18,11 @@ from claude_agent.poi_clear import CLEAR_PATH, call_clear_agent_pois, clear_url
 TOKEN = "t" * 48
 
 
-def make_app(seen: list[str], status: int = 200) -> Starlette:
+def make_app(seen: list[str], status: int = 200, bodies: list[bytes] | None = None) -> Starlette:
     async def route(request: Request) -> JSONResponse:
         seen.append(request.headers.get("authorization", ""))
+        if bodies is not None:
+            bodies.append(await request.body())
         if request.headers.get("authorization") != f"Bearer {TOKEN}":
             return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
         if status != 200:
@@ -104,3 +107,18 @@ async def test_timeout_is_bounded(tmp_path: Path) -> None:
     srv.close()
     assert loop.time() - started < 5
     assert result.is_error is True and "timed out" in result.text
+
+
+async def test_statuses_are_sent_as_the_json_body(serve, tmp_path: Path) -> None:
+    bodies: list[bytes] = []
+    url = await serve(make_app([], bodies=bodies))
+    result = await call_clear_agent_pois(url, token_file(tmp_path), 10, ["done", "cancelled"])
+    assert result.is_error is False
+    assert json.loads(bodies[0]) == {"statuses": ["done", "cancelled"]}
+
+
+async def test_no_statuses_sends_no_body(serve, tmp_path: Path) -> None:
+    bodies: list[bytes] = []
+    url = await serve(make_app([], bodies=bodies))
+    await call_clear_agent_pois(url, token_file(tmp_path), 10)
+    assert bodies == [b""]
