@@ -2,7 +2,7 @@
 import type { Photo } from './api'
 
 /** Length of a viewing-direction wedge, m. */
-export const WEDGE_LENGTH_M = 0.35
+export const WEDGE_LENGTH_M = 0.175
 /** Display-only wedge width when the field of view is unknown (60 deg; not data, the wedge is dashed). */
 export const DEFAULT_HFOV_RAD = Math.PI / 3
 /** Most photos the map layer draws. */

@@ -11,6 +11,14 @@ function photo(id: string, over: Partial<Photo> = {}): Photo {
 }
 
 describe('photoWedge', () => {
+  it('is half the original 0.35 m long, apex to each edge', () => {
+    expect(WEDGE_LENGTH_M).toBeCloseTo(0.175)
+    const w = photoWedge(photo('a'))!
+    for (const edge of [w.vertices[1], w.vertices[2]]) {
+      expect(Math.hypot(edge[0] - w.vertices[0][0], edge[1] - w.vertices[0][1])).toBeCloseTo(WEDGE_LENGTH_M)
+    }
+  })
+
   it('puts the apex at the view and the two corners at +-hfov/2 around the yaw, in map coordinates', () => {
     const w = photoWedge(photo('a'))!
     expect(w.dashed).toBe(false)
