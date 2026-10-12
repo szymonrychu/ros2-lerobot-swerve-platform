@@ -276,3 +276,65 @@ def test_default_yaml_arm_tab_replaces_gripper_cam_tab() -> None:
     assert cfg.tabs[1].type == "arm" and cfg.tabs[1].label == "Arm"
     assert ids.index("overview_camera") == 2
     assert cfg.tabs[1].arm_urdf == "so101_arm.urdf"
+
+
+HEAD_TAB_YAML = """
+tabs:
+  - id: head
+    type: head
+    label: Head
+    rgb_camera_topic: /head_camera/image_raw/compressed
+    tof_depth_topic: /tof/depth/image_raw
+    tof_amplitude_topic: /tof/amplitude/image_raw
+    tof_range_m: 3.0
+overlays: []
+"""
+
+
+def test_head_tab_type_is_valid() -> None:
+    """head is a valid tab type."""
+    assert "head" in VALID_TAB_TYPES
+
+
+def test_head_tab_fields_load_and_are_subscribed(tmp_path: Path) -> None:
+    """The three head topics load and reach all_subscribed_topics()."""
+    p = tmp_path / "cfg.yaml"
+    p.write_text(HEAD_TAB_YAML)
+    cfg = load_config(p)
+    tab = cfg.tabs[0]
+    assert tab.rgb_camera_topic == "/head_camera/image_raw/compressed"
+    assert tab.tof_depth_topic == "/tof/depth/image_raw"
+    assert tab.tof_amplitude_topic == "/tof/amplitude/image_raw"
+    assert tab.tof_range_m == 3.0
+    topics = cfg.all_subscribed_topics()
+    for topic in (tab.rgb_camera_topic, tab.tof_depth_topic, tab.tof_amplitude_topic):
+        assert topic in topics
+
+
+def test_head_tab_topics_default_to_none_and_range_to_4m() -> None:
+    """Unset head topics are None and tof_range_m defaults to 4.0."""
+    tab = TabConfig(id="h", type="head", label="Head")
+    assert tab.rgb_camera_topic is None
+    assert tab.tof_depth_topic is None
+    assert tab.tof_amplitude_topic is None
+    assert tab.tof_range_m == 4.0
+
+
+@pytest.mark.parametrize("bad", [0, -1.5])
+def test_head_tab_rejects_non_positive_range(bad: float) -> None:
+    """tof_range_m must be positive."""
+    with pytest.raises(ValidationError):
+        TabConfig(id="h", type="head", label="Head", tof_range_m=bad)
+
+
+def test_head_topic_roles_and_ranges(tmp_path: Path) -> None:
+    """Head topics get head roles; the depth topic carries its range."""
+    p = tmp_path / "cfg.yaml"
+    p.write_text(HEAD_TAB_YAML)
+    cfg = load_config(p)
+    assert cfg.topic_roles() == {
+        "/head_camera/image_raw/compressed": "head_rgb",
+        "/tof/depth/image_raw": "head_depth",
+        "/tof/amplitude/image_raw": "head_amplitude",
+    }
+    assert cfg.tof_ranges() == {"/tof/depth/image_raw": 3.0}

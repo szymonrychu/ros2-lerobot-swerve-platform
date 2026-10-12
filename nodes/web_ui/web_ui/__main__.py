@@ -47,6 +47,7 @@ def main() -> None:
         topics=config.all_subscribed_topics(),
         allowed_publish_topics=set(config.publish_topics()),
         topic_roles=config.topic_roles(),
+        tof_ranges=config.tof_ranges(),
         robot_pose_frames=config.robot_pose_frames(),
         frame_id_defaults=config.frame_id_defaults(),
         pose_rate_hz=config.ws_broadcast_hz,

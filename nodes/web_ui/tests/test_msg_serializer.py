@@ -179,3 +179,90 @@ def test_stereo_depth_16uc1_320x240_serializes() -> None:
     assert result["depth_preview_b64"] is not None
     assert (result["depth_width"], result["depth_height"]) == (160, 120)
     assert len(base64.b64decode(result["depth_b64"])) == 160 * 120 * 2
+
+
+def _jpeg_gray(b64: str) -> np.ndarray:
+    """Decode a base64 JPEG to a BGR array."""
+    import cv2
+
+    return cv2.imdecode(np.frombuffer(base64.b64decode(b64), dtype=np.uint8), cv2.IMREAD_COLOR)
+
+
+def _depth_row_msg(values_mm: list[int]) -> MagicMock:
+    """Return a 16UC1 Image of one repeated row, 4 rows high."""
+    arr = np.tile(np.array(values_mm, dtype=np.uint16), (4, 1))
+    msg = MagicMock()
+    msg.__class__.__name__ = "Image"
+    msg.encoding = "16UC1"
+    msg.width = arr.shape[1]
+    msg.height = 4
+    msg.step = arr.shape[1] * 2
+    msg.data = arr.tobytes()
+    return msg
+
+
+def test_tof_range_depth_preview_is_greyscale_near_bright_far_dark_invalid_black() -> None:
+    """With tof_range_m the depth preview is grey: near bright, far dark, 0 black; raw fields unchanged."""
+    width = 64
+    row = [500] * 16 + [2000] * 16 + [3900] * 16 + [0] * 16
+    result = msg_to_dict(_depth_row_msg(row), topic="/tof/depth", tof_range_m=4.0)
+    img = _jpeg_gray(result["depth_preview_b64"])
+    assert np.abs(img[..., 0].astype(int) - img[..., 1].astype(int)).max() <= 3
+    near, mid, far, invalid = (int(img[2, 8 + 16 * i, 1]) for i in range(4))
+    assert near > mid > far > invalid
+    assert near > 200 and invalid < 10 and width == img.shape[1]
+    assert result["depth_width"] == 160 and result["depth_height"] == 120
+    assert result["depth_b64"] and result["depth_preview_b64"]
+
+
+def test_depth_beyond_tof_range_is_black() -> None:
+    """Depth at or beyond the range clips to dark."""
+    result = msg_to_dict(_depth_row_msg([6000] * 16), topic="/tof/depth", tof_range_m=4.0)
+    assert int(_jpeg_gray(result["depth_preview_b64"])[2, 8, 1]) < 10
+
+
+def test_depth_without_range_keeps_red_green_preview() -> None:
+    """The rgbd tab path (no tof_range_m) keeps the red-green colormap."""
+    result = msg_to_dict(_depth_row_msg([1000] * 16), topic="/stereo/depth/image_rect")
+    img = _jpeg_gray(result["depth_preview_b64"])
+    assert abs(int(img[2, 8, 2]) - int(img[2, 8, 1])) > 20
+
+
+def _amp_msg(encoding: str, dtype: type, fill: int) -> MagicMock:
+    arr = np.full((4, 8), fill, dtype=dtype)
+    msg = MagicMock()
+    msg.__class__.__name__ = "Image"
+    msg.encoding = encoding
+    msg.width = 8
+    msg.height = 4
+    msg.step = 8 * arr.itemsize
+    msg.data = arr.tobytes()
+    return msg
+
+
+def test_mono8_amplitude_serialises_to_grey_jpeg() -> None:
+    result = msg_to_dict(_amp_msg("mono8", np.uint8, 120), topic="/tof/amp")
+    img = _jpeg_gray(result["jpeg_b64"])
+    assert img.shape[:2] == (4, 8)
+    assert abs(int(img[1, 1, 1]) - 120) <= 6
+
+
+def test_mono16_amplitude_serialises_to_grey_jpeg_scaled_to_frame() -> None:
+    """mono16 is scaled so the brightest value of the frame is white."""
+    arr = np.zeros((4, 8), dtype=np.uint16)
+    arr[:, :4] = 1000
+    arr[:, 4:] = 4000
+    msg = _amp_msg("mono16", np.uint16, 0)
+    msg.data = arr.tobytes()
+    img = _jpeg_gray(msg_to_dict(msg, topic="/tof/amp")["jpeg_b64"])
+    assert img[2, 6, 1] > 240
+    assert 40 < int(img[2, 1, 1]) < 90
+
+
+@pytest.mark.parametrize("encoding", ["32FC1", "16UC3", "bayer_rggb8"])
+def test_unknown_or_float_encoding_is_not_decoded_as_colour(encoding: str) -> None:
+    """32FC1 and other unknown encodings return an error and no image."""
+    msg = _amp_msg(encoding, np.float32, 1)
+    result = msg_to_dict(msg, topic="/tof/amp")
+    assert result["jpeg_b64"] is None
+    assert "encoding" in result["error"]

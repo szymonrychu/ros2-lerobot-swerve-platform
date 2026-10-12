@@ -34,7 +34,16 @@ from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from .config import ACTIVE_SOURCE_ROLE, BATTERY_ROLE, GPS_STATUS_ROLE, GRASP_RESULT_ROLE, POI_RESULT_ROLE
+from .config import (
+    ACTIVE_SOURCE_ROLE,
+    BATTERY_ROLE,
+    GPS_STATUS_ROLE,
+    GRASP_RESULT_ROLE,
+    HEAD_AMPLITUDE_ROLE,
+    HEAD_DEPTH_ROLE,
+    HEAD_RGB_ROLE,
+    POI_RESULT_ROLE,
+)
 from .gps_anchor import (
     CALIBRATION_MAX_AGE_S,
     COMPASS_IMU_MAX_AGE_S,
@@ -105,6 +114,11 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/overview_camera/image_raw/compressed": CompressedImage,
 }
 
+# Minimum seconds between two serialised previews of one head topic (ToF drivers publish at 30 Hz; the browser
+# gets at most this rate, and the Pi skips the JPEG encode of the frames in between).
+HEAD_PREVIEW_MIN_INTERVAL_S = 0.1
+HEAD_ROLES: frozenset[str] = frozenset({HEAD_RGB_ROLE, HEAD_DEPTH_ROLE, HEAD_AMPLITUDE_ROLE})
+
 SENSOR_SUB_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     history=HistoryPolicy.KEEP_LAST,
@@ -169,7 +183,41 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
 }
 
 
-def subscription_spec(topic: str, role: str | None) -> tuple[type, Any, Serializer] | None:
+HEAD_ROLE_MSG_TYPES: dict[str, type] = {
+    HEAD_RGB_ROLE: CompressedImage,
+    HEAD_DEPTH_ROLE: Image,
+    HEAD_AMPLITUDE_ROLE: Image,
+}
+
+
+def head_spec(topic: str, role: str, tof_range_m: float | None) -> tuple[type, Any, Serializer]:
+    """Subscription spec of a head tab topic; works for any topic name.
+
+    The serializer raises when the frame cannot be decoded (unsupported encoding, corrupt data), so the bridge
+    logs it and caches nothing instead of showing an error frame.
+
+    Args:
+        topic (str): ROS2 topic name.
+        role (str): HEAD_RGB_ROLE, HEAD_DEPTH_ROLE or HEAD_AMPLITUDE_ROLE.
+        tof_range_m (float | None): Depth range of the greyscale preview (HEAD_DEPTH_ROLE only).
+
+    Returns:
+        tuple[type, Any, Serializer]: (msg class, QoS profile, serializer).
+    """
+    depth_range = tof_range_m if role == HEAD_DEPTH_ROLE else None
+
+    def serializer(msg: Any) -> dict[str, Any]:
+        data = msg_to_dict(msg, topic=topic, tof_range_m=depth_range)
+        if "error" in data:
+            raise ValueError(data["error"])
+        return data
+
+    return (HEAD_ROLE_MSG_TYPES[role], SENSOR_SUB_QOS, serializer)
+
+
+def subscription_spec(
+    topic: str, role: str | None, tof_range_m: float | None = None
+) -> tuple[type, Any, Serializer] | None:
     """Choose message class, QoS and serializer for a topic.
 
     map_nav topics (role given) take their type from the role, independent of TOPIC_TYPE_HINTS;
@@ -177,11 +225,14 @@ def subscription_spec(topic: str, role: str | None) -> tuple[type, Any, Serializ
 
     Args:
         topic (str): ROS2 topic name.
-        role (str | None): map_nav role (a ROLE_SPECS key) or None.
+        role (str | None): map_nav role (a ROLE_SPECS key), a head role or None.
+        tof_range_m (float | None): Depth range in metres of a head depth topic's greyscale preview.
 
     Returns:
         tuple[type, Any, Serializer] | None: (msg class, QoS profile or depth, serializer), or None if unknown.
     """
+    if role in HEAD_ROLES:
+        return head_spec(topic, role, tof_range_m)
     if role is not None:
         return ROLE_SPECS[role]
     msg_cls = TOPIC_TYPE_HINTS.get(topic)
@@ -226,6 +277,7 @@ class BridgeNode(Node):
         topics: list[str],
         allowed_publish_topics: set[str],
         topic_roles: dict[str, str] | None = None,
+        tof_ranges: dict[str, float] | None = None,
         robot_pose_frames: tuple[str, str] | None = None,
         frame_id_defaults: dict[str, str] | None = None,
         pose_rate_hz: float = 20.0,
@@ -244,7 +296,8 @@ class BridgeNode(Node):
         Args:
             topics (list[str]): ROS2 topic strings to subscribe to.
             allowed_publish_topics (set[str]): Allowlist of topics this node may publish to.
-            topic_roles (dict[str, str] | None): map_nav topic -> role ("map", "path", "goal").
+            topic_roles (dict[str, str] | None): map_nav topic -> role ("map", "path", "goal"), head topic -> head role.
+            tof_ranges (dict[str, float] | None): head depth topic -> range (m) of its greyscale preview.
             robot_pose_frames (tuple[str, str] | None): (map_frame, base_frame) for the TF robot pose,
                 or None to disable TF tracking.
             frame_id_defaults (dict[str, str] | None): Publish topic -> header.frame_id used when the
@@ -324,7 +377,7 @@ class BridgeNode(Node):
             if roles.get(topic) == GRASP_RESULT_ROLE:
                 self.create_subscription(String, topic, self.on_grasp_result, DEFAULT_SUB_QOS_DEPTH)
                 continue
-            spec = subscription_spec(topic, roles.get(topic))
+            spec = subscription_spec(topic, roles.get(topic), (tof_ranges or {}).get(topic))
             if spec is None:
                 self.get_logger().warning(f"Unknown msg type for topic {topic!r} - skipping")
                 continue
@@ -361,7 +414,15 @@ class BridgeNode(Node):
             Callable[[Any], None]: Subscription callback.
         """
 
+        last_preview_at = -HEAD_PREVIEW_MIN_INTERVAL_S
+
         def callback(msg: Any) -> None:
+            nonlocal last_preview_at
+            if role in HEAD_ROLES:
+                now = time.monotonic()
+                if now - last_preview_at < HEAD_PREVIEW_MIN_INTERVAL_S:
+                    return
+                last_preview_at = now
             try:
                 data = self.to_map_frame(serializer(msg), role)
             except Exception as exc:

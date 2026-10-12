@@ -36,6 +36,7 @@ VALID_TAB_TYPES: frozenset[str] = frozenset(
         "map_nav",
         "agent_chat",
         "arm",
+        "head",
     }
 )
 
@@ -43,6 +44,9 @@ MAP_NAV_TAB_TYPE = "map_nav"
 POI_TAB_TYPE = "poi"
 AGENT_CHAT_TAB_TYPE = "agent_chat"
 ARM_TAB_TYPE = "arm"
+HEAD_TAB_TYPE = "head"
+# Default ToF depth range (metres) of a head tab's greyscale depth preview: near is bright, this far is black.
+DEFAULT_TOF_RANGE_M = 4.0
 # Default claude_agent API base URL proxied by the agent_chat tab (claude_agent http_port in client.yml).
 DEFAULT_AGENT_URL = "http://127.0.0.1:18300"
 
@@ -116,6 +120,9 @@ POI_RESULT_ROLE = "poi_result"
 GRASP_RESULT_ROLE = "grasp_result"
 ACTIVE_SOURCE_ROLE = "active_source"
 GPS_STATUS_ROLE = "gps_status"
+HEAD_RGB_ROLE = "head_rgb"
+HEAD_DEPTH_ROLE = "head_depth"
+HEAD_AMPLITUDE_ROLE = "head_amplitude"
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
 GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
@@ -130,6 +137,9 @@ GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "color_topic",
     "depth_topic",
     "camera_info_topic",
+    "rgb_camera_topic",
+    "tof_depth_topic",
+    "tof_amplitude_topic",
 )
 
 # map_nav tab attribute -> bridge subscription role (decides message type, QoS and serializer).
@@ -256,6 +266,12 @@ class TabConfig(BaseModel):
     active_source_topic: str | None = None  # arm: std_msgs/String of the filter_node command source in control
     arm_take_control_service: str | None = None  # arm: std_srvs/Trigger taking the arm lease for the web UI
     arm_release_control_service: str | None = None  # arm: std_srvs/Trigger releasing the lease to the leader
+    rgb_camera_topic: str | None = None  # head: sensor_msgs/CompressedImage of the head RGB camera
+    tof_depth_topic: str | None = None  # head: sensor_msgs/Image 16UC1 (mm, 0 = invalid) ToF depth
+    tof_amplitude_topic: str | None = None  # head: sensor_msgs/Image mono8 or mono16 ToF amplitude
+    tof_range_m: float = Field(
+        default=DEFAULT_TOF_RANGE_M, gt=0
+    )  # head: depth shown in the greyscale preview (m); near is bright, this far or beyond is black
     color_topic: str | None = None
     depth_topic: str | None = None
     camera_info_topic: str | None = None
@@ -464,6 +480,22 @@ class AppConfig(BaseModel):
         """
         return [tab for tab in self.tabs if tab.type == ARM_TAB_TYPE]
 
+    def head_tabs(self) -> list[TabConfig]:
+        """Return all head tabs.
+
+        Returns:
+            list[TabConfig]: Tabs whose type is head, in config order.
+        """
+        return [tab for tab in self.tabs if tab.type == HEAD_TAB_TYPE]
+
+    def tof_ranges(self) -> dict[str, float]:
+        """Map each head tab's ToF depth topic to the depth range of its greyscale preview.
+
+        Returns:
+            dict[str, float]: Depth topic -> tof_range_m in metres.
+        """
+        return {tab.tof_depth_topic: tab.tof_range_m for tab in self.head_tabs() if tab.tof_depth_topic}
+
     def map_reset_services(self) -> list[str]:
         """Return the slam_toolbox Reset services of all map_nav tabs.
 
@@ -538,7 +570,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" (CompressedImage), "head_depth" and "head_amplitude" (Image) of head tabs and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -551,6 +583,14 @@ class AppConfig(BaseModel):
             for attr, role in MAP_NAV_TOPIC_ROLES:
                 topic = getattr(tab, attr)
                 if topic and (tab.type == MAP_NAV_TAB_TYPE or attr in POI_TAB_DEFAULTS):
+                    roles[topic] = role
+        for tab in self.head_tabs():
+            for topic, role in (
+                (tab.rgb_camera_topic, HEAD_RGB_ROLE),
+                (tab.tof_depth_topic, HEAD_DEPTH_ROLE),
+                (tab.tof_amplitude_topic, HEAD_AMPLITUDE_ROLE),
+            ):
+                if topic:
                     roles[topic] = role
         for tab in self.arm_tabs():
             if tab.active_source_topic:
