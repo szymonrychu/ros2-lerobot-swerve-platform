@@ -240,13 +240,12 @@ def test_full_client_playbook_deploys_overview_camera_and_not_realsense_before_i
     assert deployed.index("realsense_d435i") < deployed.index("overview_camera")
 
 
-def test_retired_stereo_nodes_are_gone_from_the_client_wiring() -> None:
-    text = DEPLOY_CLIENT.read_text() + CLIENT_VARS.read_text()
-    for retired in ("stereo_depth", "stereo_camera", "STEREO_"):
-        assert retired not in text, retired
-    assert not (REPO_ROOT / "nodes" / "stereo_depth").exists()
+def test_imx708_stereo_camera_stays_retired_and_stereo_depth_is_a_registered_uv_node() -> None:
+    # The IMX708-era stereo_camera node stays retired; stereo_depth is back as the IMX219 stereo uv node.
+    assert "stereo_camera" not in DEPLOY_CLIENT.read_text() + CLIENT_VARS.read_text()
     assert not (REPO_ROOT / "nodes" / "stereo_camera").exists()
-    assert "stereo_depth" not in (REPO_ROOT / "scripts" / "lint-all-nodes.sh").read_text()
+    assert (REPO_ROOT / "nodes" / "stereo_depth" / "pyproject.toml").is_file()
+    assert "stereo_depth" in (REPO_ROOT / "scripts" / "lint-all-nodes.sh").read_text()
 
 
 # --- colcon multi-source build ---------------------------------------------------------------------------------------
