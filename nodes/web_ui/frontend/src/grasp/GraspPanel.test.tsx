@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render as rtlRender, screen } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
-import { theme } from '../theme'
+import { PANEL_BG, theme } from '../theme'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { GraspPanel } from './GraspPanel'
 import { DEFAULT_FORM } from './grasp'
@@ -153,7 +153,24 @@ describe('GraspPanel on OverlayPanel', () => {
     const panel = screen.getByTestId('overlay-panel')
     expect(panel.getAttribute('data-layout')).toBe('phone')
     expect(screen.getByTestId('overlay-panel-handle')).toBeTruthy()
-    expect(panel.style.background).not.toContain('0.94')
+    expect(panel.style.background).toBe(PANEL_BG)
+  })
+
+  it('hides the form but keeps the pick banner while picking on a phone', () => {
+    viewportWidth = 390
+    installMatchMedia()
+    rtlRender(<ThemeProvider theme={theme}><GraspPanel state={state({ pickMode: true, pickStrategy: 'scoop' })} onClose={() => undefined} /></ThemeProvider>)
+    expect(screen.getByText(/Click the object on the map/)).toBeTruthy()
+    const form = screen.getByText('Object').closest('button')!.parentElement!
+    expect(getComputedStyle(form).display).toBe('none')
+  })
+
+  it('keeps the form visible while picking on desktop', () => {
+    viewportWidth = 1400
+    installMatchMedia()
+    rtlRender(<ThemeProvider theme={theme}><GraspPanel state={state({ pickMode: true, pickStrategy: 'scoop' })} onClose={() => undefined} /></ThemeProvider>)
+    const form = screen.getByText('Object').closest('button')!.parentElement!
+    expect(getComputedStyle(form).display).not.toBe('none')
   })
 
   it('is a floating card without a handle on desktop, and closes', () => {
