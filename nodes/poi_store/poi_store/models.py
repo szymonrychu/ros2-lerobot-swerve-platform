@@ -158,6 +158,7 @@ class Command(BaseModel):
         poi: add: the POI (kind "photo": a PhotoAdd payload plus kind); update: id plus changed fields; delete: id;
             clear and delete_photos: unused.
         created_by: clear: delete every POI created by this creator ("agent" or "user"); photos are never cleared.
+        statuses: clear: only delete POIs whose status is in this list (None: every status; empty list: nothing).
         selector: delete_photos: which photos (exactly one of ids, older_than_s, keep_newest; optional dry_run).
     """
 
@@ -167,6 +168,7 @@ class Command(BaseModel):
     request_id: str = ""
     poi: dict[str, Any] = Field(default_factory=dict)
     created_by: Literal["agent", "user"] | None = None
+    statuses: list[Literal["open", "done", "cancelled"]] | None = None
     selector: PhotoSelector | None = None
 
     @model_validator(mode="after")

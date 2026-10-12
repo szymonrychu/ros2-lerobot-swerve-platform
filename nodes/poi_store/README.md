@@ -37,7 +37,7 @@ All numbers must be finite. Files written before `object` existed load unchanged
 |---|---|---|
 | `/poi/list` | std_msgs/String, reliable + transient_local (latched) | `{"pois": [...], "revision": int}`; published on start and after every change of a non-photo POI; never contains photos |
 | `/poi/photos` | std_msgs/String, reliable + transient_local (latched) | photo summary `{"revision", "count", "bytes", "oldest_ts", "newest_ts", "limits": {"max_records", "max_bytes", "max_age_days"}}`; topic is `photos.summary_topic` |
-| `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete"\|"clear"\|"delete_photos", "request_id": str, "poi": {...}, "created_by": "agent"\|"user", "selector": {...}}` |
+| `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete"\|"clear"\|"delete_photos", "request_id": str, "poi": {...}, "created_by": "agent"\|"user", "statuses": [...], "selector": {...}}` |
 | `/poi/result` | std_msgs/String, reliable, volatile | `{"request_id": str, "ok": bool, "message": str, "poi": {...}\|null}` |
 
 - `add`: `poi` is a full POI; `id`, `created_at`, `updated_at` are assigned when absent.
@@ -50,6 +50,9 @@ All numbers must be finite. Files written before `object` existed load unchanged
   claude_agent sends it for "New session" so agent-made POIs and objects go while the person's POIs stay. Photos are
   never cleared (agent-made ones included): they outlive the session and go only through retention or a delete.
   A cleared POI is stripped from every photo's `poi_ids`, as with `delete`.
+  Optional `statuses` (list of `open`/`done`/`cancelled`) limits the clear to that creator's POIs in those statuses
+  (e.g. `["done", "cancelled"]` drops finished agent POIs and keeps open ones); absent or `null` clears every status,
+  an empty list deletes nothing.
 - `delete_photos`: `{"op": "delete_photos", "selector": {...}, "request_id": ...}` bulk-deletes photos; `selector` is
   required (the error names it) and is a `PhotoSelector`: exactly one of `ids` (1..500), `older_than_s` (> 0) or
   `keep_newest` (>= 0), optionally narrowed by `created_by` and `camera`, plus `dry_run` (default false). The result

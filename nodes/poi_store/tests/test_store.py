@@ -585,3 +585,45 @@ def test_poi_delete_survives_strip_links_failure(pstore, photos, monkeypatch):
     ok, msg, _ = pstore.apply(Command(op="delete", poi={"id": target}))
     assert ok, msg
     assert target not in pstore.pois
+
+
+def seed_statuses(store):
+    store.apply(Command(op="add", poi=point(name="open", status="open")))
+    store.apply(Command(op="add", poi=point(name="done", status="done")))
+    store.apply(Command(op="add", poi=point(name="cancelled", status="cancelled")))
+    store.apply(Command(op="add", poi=area(name="user done", status="done")))
+
+
+def test_clear_statuses_none_removes_every_poi_of_creator(store):
+    seed_statuses(store)
+    ok, _, result = store.apply(Command(op="clear", created_by="agent", statuses=None))
+    assert ok and result == {"removed": 3}
+    assert [p["name"] for p in store.list_pois()] == ["user done"]
+
+
+def test_clear_statuses_limits_to_done_and_cancelled(store, tmp_path):
+    seed_statuses(store)
+    ok, _, result = store.apply(Command(op="clear", created_by="agent", statuses=["done", "cancelled"]))
+    assert ok and result == {"removed": 2}
+    assert sorted(p["name"] for p in store.list_pois()) == ["open", "user done"]
+    assert sorted(p["name"] for p in PoiStore(tmp_path / "poi.json").list_pois()) == ["open", "user done"]
+
+
+def test_clear_statuses_empty_list_deletes_nothing(store):
+    seed_statuses(store)
+    revision = store.revision
+    ok, _, result = store.apply(Command(op="clear", created_by="agent", statuses=[]))
+    assert ok and result == {"removed": 0} and store.revision == revision
+    assert len(store.list_pois()) == 4
+
+
+def test_clear_statuses_rejects_unknown_status():
+    with pytest.raises(ValidationError):
+        Command(op="clear", created_by="agent", statuses=["bogus"])
+
+
+def test_clear_statuses_via_handle_message(store):
+    seed_statuses(store)
+    raw = json.dumps({"op": "clear", "created_by": "agent", "statuses": ["done"], "request_id": "s"})
+    out = json.loads(store.handle_message(raw))
+    assert out["ok"] and out["poi"] == {"removed": 1}

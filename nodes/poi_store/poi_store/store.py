@@ -113,7 +113,7 @@ class PoiStore:
         pois_before, revision_before = dict(self.pois), self.revision
         try:
             if command.op == "clear":
-                return self.op_clear(command.created_by)
+                return self.op_clear(command.created_by, command.statuses)
             if command.op == "delete_photos":
                 return self.op_delete_photos(command.selector)
             return getattr(self, "op_" + command.op)(command.poi)
@@ -336,16 +336,21 @@ class PoiStore:
             return True, f"would delete {result['would_remove']} photo(s)", result
         return True, f"deleted {result['removed']} photo(s)", result
 
-    def op_clear(self, created_by: str | None) -> Result:
-        """Delete every POI created by one creator and strip them from photo links (photos themselves stay).
+    def op_clear(self, created_by: str | None, statuses: list[str] | None = None) -> Result:
+        """Delete the POIs created by one creator and strip them from photo links (photos themselves stay).
 
         Args:
             created_by: "agent" or "user".
+            statuses: Only delete POIs whose status is in this list; None deletes every status, [] deletes nothing.
 
         Returns:
             Result: Result triple; the third item is {"removed": count}.
         """
-        doomed = [poi_id for poi_id, poi in self.pois.items() if poi.created_by == created_by]
+        doomed = [
+            poi_id
+            for poi_id, poi in self.pois.items()
+            if poi.created_by == created_by and (statuses is None or poi.status in statuses)
+        ]
         for poi_id in doomed:
             del self.pois[poi_id]
         if doomed:
