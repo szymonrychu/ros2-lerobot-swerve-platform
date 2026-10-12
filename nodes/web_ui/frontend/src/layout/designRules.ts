@@ -1,11 +1,18 @@
 /** Design-rules guard: the declutter rules as one machine check, so slop cannot creep back file by file. */
+import selfSource from './designRules.ts?raw'
 
-/** Raw text of every non-test source file below src, keyed by its path relative to src (e.g. "tabs/MapNavTab.tsx"). */
-export const SOURCES: Record<string, string> = Object.fromEntries(
-  Object.entries(import.meta.glob(['../**/*.ts', '../**/*.tsx', '!../**/*.test.ts', '!../**/*.test.tsx'], { query: '?raw', import: 'default', eager: true })).map(
-    ([path, text]) => [path.replace(/^\.\.\//, ''), text as string],
+/** This file's own raw text: the glob below cannot see the module that runs it. */
+export const SELF_PATH = 'layout/designRules.ts'
+
+/** Raw text of every non-test source file below src, keyed by its path relative to src (e.g. "tabs/MapNavTab.tsx"), this file included. */
+export const SOURCES: Record<string, string> = {
+  ...Object.fromEntries(
+    Object.entries(import.meta.glob(['../**/*.ts', '../**/*.tsx', '!../**/*.test.ts', '!../**/*.test.tsx'], { query: '?raw', import: 'default', eager: true })).map(
+      ([path, text]) => [path.replace(/^\.\.\//, ''), text as string],
+    ),
   ),
-)
+  [SELF_PATH]: selfSource,
+}
 
 /** Files allowed to hold colour literals: the theme tokens and the map palette. */
 const COLOUR_FILES = ['theme.ts', 'map3d/palette.ts']
@@ -17,7 +24,7 @@ const COLOUR_LITERAL = /(?<![\w&])#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|\b0x[0
 const EFFECT = /\b(boxShadow|backdropFilter|textShadow)\b|gradient/i
 const SECONDARY_COLOUR = /\bcolor\s*=\s*\{?\s*['"]secondary['"]/
 /** Smart quotes, dashes, ellipsis, bullets, arrows, box drawing, geometric shapes, symbols, dingbats, emoji. */
-const DECORATIVE = /[–—‘-”•…←-⇿─-➿⬀-⯿]|\p{Extended_Pictographic}/u
+const DECORATIVE = /[\u2013\u2014\u2018-\u201D\u2022\u2026\u2190-\u21FF\u2500-\u27BF\u2B00-\u2BFF]|\p{Extended_Pictographic}/u
 
 /** Index just past the `>` closing the JSX opening tag that starts at `start`, skipping braces and quoted strings. */
 function tagEnd(source: string, start: number): number {
@@ -37,12 +44,13 @@ function tagEnd(source: string, start: number): number {
 
 /**
  * Check one source file against the declutter rules.
- * @param path - path relative to src; theme.ts and map3d/palette.ts may hold colour literals.
+ * @param path - path relative to src; this rules file is exempt (its patterns spell out the banned words, its glyphs are escaped); theme.ts and map3d/palette.ts may hold colour literals.
  * @param source - raw file text.
  * @returns one message per violation, "<rule>: <path> line <n>: <what>"; empty when clean.
  */
 export function designViolations(path: string, source: string): string[] {
   const out: string[] = []
+  if (path === SELF_PATH) return out
   const lineAt = (index: number): number => source.slice(0, index).split('\n').length
   const add = (rule: string, line: number, what: string): void => {
     out.push(`${rule}: ${path} line ${line}: ${what}`)

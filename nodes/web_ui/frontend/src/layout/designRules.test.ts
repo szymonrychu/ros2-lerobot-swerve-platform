@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SOURCES, designViolations } from './designRules'
+import { SELF_PATH, SOURCES, designViolations } from './designRules'
 
 const PATH = 'tabs/Example.tsx'
 
@@ -101,6 +101,12 @@ describe('designViolations on shipped sources', () => {
     expect(SOURCES['main.tsx']).toBeDefined()
     expect(SOURCES['theme.ts']).toBeDefined()
     expect(Object.keys(SOURCES).some((f) => f.endsWith('.test.ts') || f.endsWith('.test.tsx'))).toBe(false)
+  })
+
+  it('SOURCES includes the rules file itself and it holds only ASCII', () => {
+    expect(SOURCES[SELF_PATH]).toBeDefined()
+    expect([...SOURCES[SELF_PATH]].every((ch) => ch.charCodeAt(0) < 128)).toBe(true)
+    expect(designViolations(SELF_PATH, SOURCES[SELF_PATH])).toEqual([])
   })
 
   it.each(['theme.ts', 'main.tsx'])('%s has no violations', (file) => {
