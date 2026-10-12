@@ -803,7 +803,8 @@ def test_mcp_server_get_camera_image_docs_name_the_imx219_left_camera() -> None:
         assert "Camera Module 3" not in text, name
         assert "640x480 overhead" not in text, name
         assert "640x480 here" not in text, name
-    row = next(line for line in texts[str(mcp_dir / "README.md")].splitlines() if line.startswith("| `get_camera_image("))
+    readme_lines = texts[str(mcp_dir / "README.md")].splitlines()
+    row = next(line for line in readme_lines if line.startswith("| `get_camera_image("))
     assert "IMX219" in row and "480x360" in row
 
 
