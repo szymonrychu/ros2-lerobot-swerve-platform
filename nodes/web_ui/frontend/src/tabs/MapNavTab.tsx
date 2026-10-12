@@ -71,6 +71,7 @@ import type { Photo } from '../photos/api'
 import { LAYER_MAX_PHOTOS, PHOTO_AGE_LABELS, PHOTO_AGES, type PhotoAge } from '../photos/geometry'
 import { usePhotoLayer } from '../photos/usePhotoLayer'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
+import { PoiLegend } from '../poi/PoiLegend'
 import { canFinishArea, isClick } from '../poi/editor'
 import { DEFAULT_ARM_OFFSET, GraspStrategy } from '../grasp/grasp'
 import { GRASP_MENU } from '../grasp/pick'
@@ -943,6 +944,7 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
                       </Box>
                     )
                   })}
+                  {g.title === 'Points of interest' && <PoiLegend />}
                 </Box>
               ))}
               <Divider sx={{ my: 1 }} />
