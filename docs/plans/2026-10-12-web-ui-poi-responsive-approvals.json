@@ -1,0 +1,115 @@
+[
+  {
+    "id": "A1",
+    "text": "A POI tab replaces the IMU tab (IMU tab removed entirely): one unified list of POIs including photos, each with a button that centres it on the map and opens a popup.",
+    "decisions": [
+      "D1",
+      "D2",
+      "D3",
+      "D4"
+    ],
+    "tasks": [
+      "T2",
+      "T6",
+      "T7",
+      "T8"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A2",
+    "text": "Map markers coloured by POI kind and areas by zone; photo triangles smaller.",
+    "decisions": [
+      "D5"
+    ],
+    "tasks": [
+      "T3",
+      "T4",
+      "T5"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A3",
+    "text": "The agent's job tasks (phases) shown as a dropdown.",
+    "decisions": [
+      "D6"
+    ],
+    "tasks": [
+      "T9"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A4",
+    "text": "Responsive overhaul of the whole web UI for desktop, tablet and mobile.",
+    "decisions": [
+      "D7"
+    ],
+    "tasks": [
+      "T1",
+      "T10",
+      "T11",
+      "T12",
+      "T13",
+      "T14",
+      "T15",
+      "T16"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A5",
+    "text": "The agent places POIs reliably: persistence across sessions, auto stuck points, nudges in tool results, one turn-end POI review, and a Map marking prompt section (D8a-e).",
+    "decisions": [
+      "D8"
+    ],
+    "tasks": [
+      "T17",
+      "T18",
+      "T19",
+      "T20",
+      "T21",
+      "T22",
+      "T23",
+      "T24",
+      "T25",
+      "T26"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A6",
+    "text": "An Arm tab: gripper and overview cameras, arm-glued 3D views, a jog panel (cartesian and joint steps, gripper), Take control / Release / Home, and leader teleop restored through a dedicated bridge (D9a-e).",
+    "decisions": [
+      "D9"
+    ],
+    "tasks": [
+      "T27",
+      "T28",
+      "T29",
+      "T30",
+      "T31",
+      "T32",
+      "T33",
+      "T34",
+      "T35",
+      "T36"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A7",
+    "text": "Generous agent job limits with a timer per task: set_task_plan declares a time budget instead of a fixed 15-minute timer, higher caps, repeatable budget raises, budget and time left in the web UI job header (D10a-c).",
+    "decisions": [
+      "D10"
+    ],
+    "tasks": [
+      "T37",
+      "T38",
+      "T39",
+      "T40"
+    ],
+    "status": "approved"
+  }
+]
