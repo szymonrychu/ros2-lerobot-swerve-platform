@@ -10,7 +10,7 @@ import type { Vec2 } from '../map/mapMath'
 import { rosToThree, ThreeTuple } from '../map3d/coords'
 import { MapLabel } from '../map3d/MapLabel'
 import { SCENE_COLORS } from '../map3d/palette'
-import { KIND_SHAPE, markerColors, objectDetails, poiStyle, zoneLabel, zoneStyle } from './style'
+import { markerColors, markerSides, objectDetails, poiStyle, zoneLabel, zoneStyle } from './style'
 import type { Poi } from './types'
 
 /** Stacking heights (three y, metres), above the goal marker. */
@@ -19,8 +19,6 @@ const DISC_SEGMENTS = 40
 const HANDLE_RADIUS_M = 0.06
 const DRAFT_COLOR = SCENE_COLORS.draft
 /** Half diagonal of the diamond that marks a remembered object, m. */
-/** Polygon sides of the filled marker mesh per shape (circle: a fine polygon). */
-const SHAPE_SIDES = { circle: DISC_SEGMENTS, square: 4, diamond: 4, triangle: 3 } as const
 const OBJECT_MARKER_RADIUS_M = 0.07
 
 function closedOutline(polygon: [number, number][], lift: number): ThreeTuple[] {
@@ -59,7 +57,7 @@ const PointMarker = memo(function PointMarker({ poi, selected }: { poi: Poi; sel
   return (
     <group position={rosToThree(poi, POI_LIFT.fill)}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
-        <circleGeometry args={[poi.radius_m, SHAPE_SIDES[KIND_SHAPE.point]]} />
+        <circleGeometry args={[poi.radius_m, markerSides('point')]} />
         <meshBasicMaterial color={colors.fill} transparent opacity={style.opacity} depthWrite={false} toneMapped={false} />
       </mesh>
       <group position={[0, POI_LIFT.outline - POI_LIFT.fill, 0]}>
@@ -94,7 +92,7 @@ const ObjectMarker = memo(function ObjectMarker({ poi, selected }: { poi: Poi; s
   return (
     <group position={rosToThree(poi, POI_LIFT.fill)}>
       <mesh rotation={[-Math.PI / 2, 0, Math.PI / 4]} renderOrder={2}>
-        <circleGeometry args={[OBJECT_MARKER_RADIUS_M * Math.SQRT2, SHAPE_SIDES[KIND_SHAPE.object]]} />
+        <circleGeometry args={[OBJECT_MARKER_RADIUS_M * Math.SQRT2, markerSides('object')]} />
         <meshBasicMaterial color={colors.fill} transparent opacity={Math.min(1, style.opacity + 0.3)} depthWrite={false} toneMapped={false} />
       </mesh>
       <group position={[0, POI_LIFT.outline - POI_LIFT.fill, 0]}>

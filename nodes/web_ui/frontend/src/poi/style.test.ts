@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { designViolations, SOURCES } from '../layout/designRules'
-import { formatUpdated, KIND_COLORS, KIND_SHAPE, markerColors, ZONE_COLORS, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
+import { formatUpdated, KIND_COLORS, KIND_SHAPE, markerColors, markerSides, ZONE_COLORS, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
 import type { Poi, PoiKind } from './types'
 
 function poi(over: Partial<Poi>): Poi {
@@ -209,6 +209,20 @@ describe('KIND_SHAPE', () => {
   it('gives every kind its own shape', () => {
     expect(Object.keys(KIND_SHAPE).sort()).toEqual([...kinds].sort())
     expect(new Set(kinds.map((k) => KIND_SHAPE[k])).size).toBe(kinds.length)
+  })
+
+  it('draws each kind with the polygon sides of its shape', () => {
+    expect(markerSides('point')).toBeGreaterThan(8)
+    expect(markerSides('object')).toBe(4)
+    expect(markerSides('area')).toBe(4)
+    expect(markerSides('photo')).toBe(3)
+  })
+
+  it('has PoiLayer take the sides of the point and object markers from their kind shape', () => {
+    const layer = SOURCES['poi/PoiLayer.tsx']
+    expect(layer).toContain("markerSides('point')")
+    expect(layer).toContain("markerSides('object')")
+    expect(layer).not.toContain('SHAPE_SIDES')
   })
 
   it('keeps the poi marker sources free of design-rule violations', () => {

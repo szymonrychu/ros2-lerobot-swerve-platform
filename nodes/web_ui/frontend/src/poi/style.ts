@@ -11,6 +11,19 @@ export type MarkerShape = 'circle' | 'square' | 'diamond' | 'triangle'
 /** Shape of each POI kind on the map and in the legend; all distinct. */
 export const KIND_SHAPE: Record<PoiKind, MarkerShape> = { point: 'circle', area: 'square', object: 'diamond', photo: 'triangle' }
 
+const CIRCLE_SEGMENTS = 40
+const SHAPE_SIDES: Record<MarkerShape, number> = { circle: CIRCLE_SEGMENTS, square: 4, diamond: 4, triangle: 3 }
+
+/**
+ * Polygon sides of the filled marker mesh of a kind (a circle is a fine polygon).
+ *
+ * @param kind - the POI kind
+ * @returns the number of polygon sides of KIND_SHAPE[kind]
+ */
+export function markerSides(kind: PoiKind): number {
+  return SHAPE_SIDES[KIND_SHAPE[kind]]
+}
+
 export { CREATOR_OUTLINE, KIND_COLORS, OBJECT_COLOR, STATUS_COLORS, ZONE_COLORS }
 const CLOSED_OPACITY = 0.35
 const OPEN_OPACITY = 0.6
