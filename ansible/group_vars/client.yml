@@ -1606,6 +1606,14 @@ ros2_nodes:
       objects:
         store_path: /var/lib/ros2/objects/objects.json
         merge_radius_m: 0.25
+      # Auto stuck-spot POIs: a collision_stop or Nav2 abort with a pose newer than max_pose_age_s becomes a point POI (merged
+      # within merge_radius_m, never a keepout). hint_after_images camera/look_around results without a POI write add a poi_hint.
+      auto_poi:
+        enabled: true
+        merge_radius_m: 0.5
+        event_types: [collision_stop, nav_abort]
+        max_pose_age_s: 2.0
+        hint_after_images: 3
       # look_around: equal in-place headings; refused when an obstacle is inside footprint radius + margin. mode spin:
       # one continuous slow rotation (frames while turning), steps: one precise Nav2 rotation per heading. The turn
       # ends facing the last heading unless the agent passes return_to_start=true.
@@ -1969,6 +1977,12 @@ ros2_nodes:
       # A warning type interrupts at most once per this many seconds (mcp_server re-emits bump every 2 s on rough floor).
       warning_interrupt_debounce_s: 10
       robot_events_topic: /robot_events
+      # Agent POIs persist across sessions: a new session clears only done/cancelled ones (clear_all clears every one).
+      agent_poi_reset: keep_open
+      # One extra "POI REVIEW" turn per instruction that used camera/motion tools and wrote no POI.
+      poi_review_followup: true
+      # complete_phase flags summary map coordinates with no POI within this radius (m).
+      poi_hint_radius_m: 0.5
       http_host: "127.0.0.1"
       http_port: 18300
       mcp_url: http://127.0.0.1:18200/mcp

@@ -651,6 +651,16 @@ def test_claude_agent_config_has_budget_maxima_and_robot_events_topic() -> None:
     assert "poi_command_topic" not in raw, "the POI clear goes over HTTP to mcp_server, not DDS"
 
 
+def test_claude_agent_config_pins_poi_behaviour() -> None:
+    """The robot runs the POI behaviour of design D8a/c/d by explicit config, not by code defaults."""
+    pytest.importorskip("pydantic")
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    assert raw["agent_poi_reset"] == "keep_open"
+    assert raw["poi_review_followup"] is True
+    assert raw["poi_hint_radius_m"] == 0.5
+    load_agent_config_module().ClaudeAgentConfig.model_validate(raw)
+
+
 def test_motion_queue_tools_classified_in_group_vars_and_defaults() -> None:
     """enqueue_motions is an effector, cancel_motions uncapped (like stop), status and wait are sensors."""
     pytest.importorskip("pydantic")

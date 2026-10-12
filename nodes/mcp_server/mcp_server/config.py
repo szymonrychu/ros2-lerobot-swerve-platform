@@ -682,6 +682,16 @@ class ObjectSettings(StrictModel):
     merge_radius_m: float = Field(default=0.25, gt=0.0)  # same label within this distance is the same object
 
 
+class AutoPoiSettings(StrictModel):
+    """Auto stuck-spot POIs and the poi_hint nudge (T22 owns the marker; this is the minimum for the deployed block)."""
+
+    enabled: bool = True
+    merge_radius_m: float = Field(default=0.5, gt=0.0)  # a repeat within this distance updates the POI
+    event_types: list[str] = Field(default_factory=lambda: ["collision_stop", "nav_abort"])
+    max_pose_age_s: float = Field(default=2.0, gt=0.0)  # older pose: no POI (no placeholder)
+    hint_after_images: int = Field(default=3, ge=1)  # camera/look_around results without a POI write before poi_hint
+
+
 class ControlSettings(StrictModel):
     """Per-subsystem control leases (take_control / release_control): the base reset on release."""
 
@@ -1419,6 +1429,7 @@ class McpServerConfig(StrictModel):
     footprint: FootprintSettings = FootprintSettings()
     topdown: TopdownSettings = TopdownSettings()
     objects: ObjectSettings = ObjectSettings()
+    auto_poi: AutoPoiSettings = Field(default_factory=AutoPoiSettings)
     look_around: LookAroundSettings = LookAroundSettings()
     motion_queue: MotionQueueSettings = MotionQueueSettings()
     control: ControlSettings = ControlSettings()

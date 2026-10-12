@@ -205,11 +205,24 @@ def test_mcp_server_node_entry_and_config() -> None:
         "guard_rules",
         "reach_map",
         "approach",
+        "auto_poi",
     }
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
     assert cfg["arm"]["urdf_path"] == "nodes/web_ui/urdf/so101_arm.urdf"
     assert (REPO_ROOT / cfg["arm"]["urdf_path"]).is_file()
+
+
+def test_mcp_server_auto_poi_block_is_deployed() -> None:
+    """Auto stuck-spot POIs and the poi_hint nudge (design D8b/c) are configured explicitly on the robot."""
+    auto = node_config("mcp_server")["auto_poi"]
+    assert auto == {
+        "enabled": True,
+        "merge_radius_m": 0.5,
+        "event_types": ["collision_stop", "nav_abort"],
+        "max_pose_age_s": 2.0,
+        "hint_after_images": 3,
+    }
 
 
 def test_mcp_server_topics_match_filter_node_lease() -> None:
