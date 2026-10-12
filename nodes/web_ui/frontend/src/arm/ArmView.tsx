@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import PanToolIcon from '@mui/icons-material/PanTool'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import Box from '@mui/material/Box'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import type { URDFRobot } from 'urdf-loader'
+import { ToolButton, ToolGroup } from '../components/ToolButton'
 import { InteractiveArm } from '../components3d/InteractiveArm'
 import { RobotModel } from '../components3d/RobotModel'
 import type { ArmCameraMode, ArmCameraMount } from '../map3d/armCamera'
@@ -18,6 +21,12 @@ const MODE_LABELS: Record<ArmCameraMode, string> = {
   'side-right': 'Side R',
   above: 'Above',
   gripper: 'Gripper',
+}
+const MODE_ICONS: Record<ArmCameraMode, ReactNode> = {
+  'side-left': <ChevronLeftIcon />,
+  'side-right': <ChevronRightIcon />,
+  above: <ExpandLessIcon />,
+  gripper: <PanToolIcon />,
 }
 const DEFAULT_MODE: ArmCameraMode = 'side-left'
 const DEFAULT_MOUNT: ArmCameraMount = { xyz: [0, 0, 0], rpy: [0, 0, 0] }
@@ -121,20 +130,13 @@ export default function ArmView({ tab, topicData, publish }: Props) {
       >
         <ArmScene tab={tab} armJoints={armJoints} mode={mode} publish={publish} />
       </Canvas>
-      <ToggleButtonGroup
-        exclusive
-        size="small"
-        value={mode}
-        onChange={(_, next: ArmCameraMode | null) => setMode(next)}
-        aria-label="arm camera"
-        sx={{ position: 'absolute', top: 8, left: 8, flexDirection: 'column', bgcolor: 'background.paper' }}
-      >
-        {ARM_CAMERA_MODES.map((m) => (
-          <ToggleButton key={m} value={m} sx={{ minHeight: 44, minWidth: 44 }}>
-            {MODE_LABELS[m]}
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
+      <Box sx={{ position: 'absolute', top: 8, left: 8, bgcolor: TOKENS.bgPanel }}>
+        <ToolGroup label="arm camera">
+          {ARM_CAMERA_MODES.map((m) => (
+            <ToolButton key={m} label={MODE_LABELS[m]} icon={MODE_ICONS[m]} pressed={mode === m} onClick={() => setMode(mode === m ? null : m)} />
+          ))}
+        </ToolGroup>
+      </Box>
     </Box>
   )
 }

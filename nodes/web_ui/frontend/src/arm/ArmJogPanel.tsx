@@ -1,19 +1,41 @@
-import { useEffect, useState } from 'react'
-import { Alert, Box, Button, Chip, Stack, Typography } from '@mui/material'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Alert, Box, Button, Stack, Tooltip, Typography } from '@mui/material'
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
+import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
+import NorthIcon from '@mui/icons-material/North'
+import OpenInFullIcon from '@mui/icons-material/OpenInFull'
+import RotateLeftIcon from '@mui/icons-material/RotateLeft'
+import RotateRightIcon from '@mui/icons-material/RotateRight'
+import SouthIcon from '@mui/icons-material/South'
+import UndoIcon from '@mui/icons-material/Undo'
+import RedoIcon from '@mui/icons-material/Redo'
+import { StatusItem } from '../components/StatusItem'
+import { ToolButton, ToolGroup } from '../components/ToolButton'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { useLayout } from '../layout/useLayout'
 import { confirmClick, RESET_CONFIRM_MS } from '../map/mapActions'
-import { TOUCH_TARGET_PX } from '../theme'
 import { TabConfig } from '../types'
 import { ArmAction, ArmResult, JogSpec, postArm } from './armApi'
 
 /** filter_node reports `autonomy` while the mcp_server lease taken by Take control is held. */
 export const HELD_SOURCE = 'autonomy'
 const DEFAULT_SOURCE_TOPIC = '/filter/active_source'
-const TOUCH_SX = { minWidth: TOUCH_TARGET_PX, minHeight: TOUCH_TARGET_PX } as const
+const LEASE_ACTIONS = ['take_control', 'release', 'home'] as const
+type LeaseAction = (typeof LEASE_ACTIONS)[number]
+const LEASE_LABELS: Record<LeaseAction, { label: string; confirm: string; hint: string }> = {
+  take_control: { label: 'Take control', confirm: 'Confirm take control', hint: 'Take the arm from the current source. Click twice to confirm.' },
+  release: { label: 'Release', confirm: 'Confirm release', hint: 'Hand the arm back. Click twice to confirm.' },
+  home: { label: 'Home', confirm: 'Confirm home', hint: 'Move the arm to its saved home pose. Click twice to confirm.' },
+}
 
 interface JogButton {
   label: string
+  icon: ReactNode
   jog: JogSpec
 }
 
@@ -21,30 +43,30 @@ const JOG_GROUPS: { title: string; buttons: JogButton[] }[] = [
   {
     title: 'Tool',
     buttons: [
-      { label: 'Up', jog: { kind: 'cartesian', direction: 'up' } },
-      { label: 'Down', jog: { kind: 'cartesian', direction: 'down' } },
-      { label: 'Forward', jog: { kind: 'cartesian', direction: 'forward' } },
-      { label: 'Back', jog: { kind: 'cartesian', direction: 'back' } },
-      { label: 'Left', jog: { kind: 'cartesian', direction: 'left' } },
-      { label: 'Right', jog: { kind: 'cartesian', direction: 'right' } },
+      { label: 'Up', icon: <ArrowUpwardIcon />, jog: { kind: 'cartesian', direction: 'up' } },
+      { label: 'Down', icon: <ArrowDownwardIcon />, jog: { kind: 'cartesian', direction: 'down' } },
+      { label: 'Forward', icon: <NorthIcon />, jog: { kind: 'cartesian', direction: 'forward' } },
+      { label: 'Back', icon: <SouthIcon />, jog: { kind: 'cartesian', direction: 'back' } },
+      { label: 'Left', icon: <ArrowBackIcon />, jog: { kind: 'cartesian', direction: 'left' } },
+      { label: 'Right', icon: <ArrowForwardIcon />, jog: { kind: 'cartesian', direction: 'right' } },
     ],
   },
   {
     title: 'Joints',
     buttons: [
-      { label: 'Pan left', jog: { kind: 'shoulder_pan', direction: 'left' } },
-      { label: 'Pan right', jog: { kind: 'shoulder_pan', direction: 'right' } },
-      { label: 'Wrist up', jog: { kind: 'wrist_pitch', direction: 'up' } },
-      { label: 'Wrist down', jog: { kind: 'wrist_pitch', direction: 'down' } },
-      { label: 'Roll left', jog: { kind: 'wrist_roll', direction: 'left' } },
-      { label: 'Roll right', jog: { kind: 'wrist_roll', direction: 'right' } },
+      { label: 'Pan left', icon: <UndoIcon />, jog: { kind: 'shoulder_pan', direction: 'left' } },
+      { label: 'Pan right', icon: <RedoIcon />, jog: { kind: 'shoulder_pan', direction: 'right' } },
+      { label: 'Wrist up', icon: <KeyboardArrowUpIcon />, jog: { kind: 'wrist_pitch', direction: 'up' } },
+      { label: 'Wrist down', icon: <KeyboardArrowDownIcon />, jog: { kind: 'wrist_pitch', direction: 'down' } },
+      { label: 'Roll left', icon: <RotateLeftIcon />, jog: { kind: 'wrist_roll', direction: 'left' } },
+      { label: 'Roll right', icon: <RotateRightIcon />, jog: { kind: 'wrist_roll', direction: 'right' } },
     ],
   },
   {
     title: 'Gripper',
     buttons: [
-      { label: 'Gripper open', jog: { kind: 'gripper', direction: 'open' } },
-      { label: 'Gripper close', jog: { kind: 'gripper', direction: 'close' } },
+      { label: 'Gripper open', icon: <OpenInFullIcon />, jog: { kind: 'gripper', direction: 'open' } },
+      { label: 'Gripper close', icon: <CloseFullscreenIcon />, jog: { kind: 'gripper', direction: 'close' } },
     ],
   },
 ]
@@ -64,17 +86,17 @@ interface Props {
 export default function ArmJogPanel({ tab, topicData }: Props) {
   const layout = useLayout()
   const [result, setResult] = useState<ArmResult | null>(null)
-  const [homeArmedAt, setHomeArmedAt] = useState<number | null>(null)
+  const [armed, setArmed] = useState<{ action: LeaseAction; at: number } | null>(null)
   const [busy, setBusy] = useState(false)
 
   const source = (topicData[tab.active_source_topic ?? DEFAULT_SOURCE_TOPIC] as { data?: string } | null | undefined)?.data
   const held = source === HELD_SOURCE
 
   useEffect(() => {
-    if (homeArmedAt === null) return
-    const timer = setTimeout(() => setHomeArmedAt(null), RESET_CONFIRM_MS)
+    if (armed === null) return
+    const timer = setTimeout(() => setArmed(null), RESET_CONFIRM_MS)
     return () => clearTimeout(timer)
-  }, [homeArmedAt])
+  }, [armed])
 
   const run = async (action: ArmAction, jog?: JogSpec) => {
     setBusy(true)
@@ -82,45 +104,52 @@ export default function ArmJogPanel({ tab, topicData }: Props) {
     setBusy(false)
   }
 
-  const onHome = () => {
-    const next = confirmClick(homeArmedAt, Date.now())
-    setHomeArmedAt(next.armedAt)
-    if (next.fire) void run('home')
+  /** Robot motion: the first click arms the action, a second click on the same one within the window fires it. */
+  const onLease = (action: LeaseAction) => {
+    const next = confirmClick(armed?.action === action ? armed.at : null, Date.now())
+    setArmed(next.armedAt === null ? null : { action, at: next.armedAt })
+    if (next.fire) void run(action)
   }
 
-  const homeArmed = homeArmedAt !== null
+  const leaseDisabled: Record<LeaseAction, boolean> = { take_control: busy, release: !held || busy, home: busy }
 
   return (
     <OverlayPanel title="Arm control" open anchor="bottom" docked={layout !== 'phone'}>
       <Stack spacing={1} sx={{ p: 1, overflowY: 'auto' }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="body2">Active source</Typography>
-          <Chip data-testid="arm-active-source" size="small" color={held ? 'success' : 'default'} label={source ?? 'unknown'} />
-        </Stack>
+        <Box data-testid="arm-active-source">
+          <StatusItem label="Control" value={source ?? 'unknown'} tooltip="Source currently commanding the arm" />
+        </Box>
         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-          <Button variant="contained" disabled={busy} onClick={() => void run('take_control')}>
-            Take control
-          </Button>
-          <Button variant="outlined" disabled={!held || busy} onClick={() => void run('release')}>
-            Release
-          </Button>
-          <Button variant={homeArmed ? 'contained' : 'outlined'} color={homeArmed ? 'warning' : 'primary'} disabled={busy} onClick={onHome} title="Move the arm to its saved home pose. Click twice to confirm.">
-            {homeArmed ? 'Confirm home' : 'Home'}
-          </Button>
+          {LEASE_ACTIONS.map((action) => {
+            const text = LEASE_LABELS[action]
+            const isArmed = armed?.action === action
+            return (
+              <Tooltip key={action} title={text.hint}>
+                <span>
+                  <Button
+                    variant={isArmed ? 'contained' : 'outlined'}
+                    color={isArmed ? 'warning' : 'primary'}
+                    disabled={leaseDisabled[action]}
+                    onClick={() => onLease(action)}
+                  >
+                    {isArmed ? text.confirm : text.label}
+                  </Button>
+                </span>
+              </Tooltip>
+            )
+          })}
         </Stack>
         {JOG_GROUPS.map((group) => (
-          <Box key={group.title} role="group" aria-label={group.title}>
-            <Typography variant="caption" color="text.secondary">
+          <Stack key={group.title} direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 64 }}>
               {group.title}
             </Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 0.5 }}>
+            <ToolGroup label={group.title}>
               {group.buttons.map((b) => (
-                <Button key={b.label} variant="outlined" size="small" sx={TOUCH_SX} disabled={!held || busy} onClick={() => void run('jog', b.jog)}>
-                  {b.label}
-                </Button>
+                <ToolButton key={b.label} label={b.label} icon={b.icon} disabled={!held || busy} onClick={() => void run('jog', b.jog)} />
               ))}
-            </Box>
-          </Box>
+            </ToolGroup>
+          </Stack>
         ))}
         {!held && <Typography variant="caption" color="text.secondary">Take control to jog the arm.</Typography>}
         {result && (

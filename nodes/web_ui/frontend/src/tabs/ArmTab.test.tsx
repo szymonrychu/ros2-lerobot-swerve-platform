@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
+import { ARM_COLORS } from '../map3d/palette'
 import { TabConfig } from '../types'
 import ArmTab from './ArmTab'
+import { designViolations, SOURCES } from '../layout/designRules'
 
 const GRIPPER = '/gripper/image_raw'
 const OVERVIEW = '/overview/image_raw'
@@ -60,5 +62,23 @@ describe('ArmTab', () => {
     expect(screen.getByText(`Waiting for ${GRIPPER}…`)).toBeTruthy()
     expect(screen.queryByAltText('gripper camera')).toBeNull()
     expect(screen.getByAltText('overview camera')).toBeTruthy()
+  })
+
+  it.each(['tabs/ArmTab.tsx', 'arm/ArmView.tsx', 'components3d/InteractiveArm.tsx'])('%s has no design violations', (path) => {
+    expect(SOURCES[path], path).toBeTruthy()
+    expect(designViolations(path, SOURCES[path])).toEqual([])
+  })
+
+  it('ArmView switches camera mode with a ToolGroup of ToolButtons, colours from the palette', () => {
+    const src = SOURCES['arm/ArmView.tsx']
+    expect(src).toContain('ToolGroup')
+    expect(src).toContain('ToolButton')
+    expect(src).not.toContain('ToggleButton')
+  })
+
+  it('arm colours in the palette are achromatic', () => {
+    const channels = (n: number): number[] => [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+    const all = [...Object.values(ARM_COLORS.handle), ...Object.values(ARM_COLORS.endEffector), ...Object.values(ARM_COLORS.axis), ARM_COLORS.ghost, ARM_COLORS.mesh]
+    for (const c of all) expect(new Set(channels(c)).size).toBe(1)
   })
 })

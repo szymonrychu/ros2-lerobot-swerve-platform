@@ -6,6 +6,7 @@ import { CONTROL_PX, theme } from '../theme'
 import { TabConfig } from '../types'
 import { postArm } from './armApi'
 import ArmJogPanel from './ArmJogPanel'
+import { designViolations, SOURCES } from '../layout/designRules'
 
 const SOURCE_TOPIC = '/filter/active_source'
 const TAB = { id: 'arm', type: 'arm', label: 'Arm', active_source_topic: SOURCE_TOPIC } as TabConfig
@@ -92,6 +93,26 @@ describe('ArmJogPanel', () => {
     expect(screen.getByTestId('arm-active-source').textContent).toContain('leader')
   })
 
+  it('shows the control owner once, as a status item and not a chip', () => {
+    const { container } = renderPanel('leader')
+    expect(screen.getAllByText('leader')).toHaveLength(1)
+    expect(container.querySelector('.MuiChip-root')).toBeNull()
+    expect(screen.getByTestId('arm-active-source').querySelector('[data-testid="status-mark"]')).toBeNull()
+  })
+
+  it('jog controls are icon ToolButtons named by aria-label', () => {
+    renderPanel('autonomy')
+    for (const [label] of JOGS) {
+      const b = screen.getByRole('button', { name: label })
+      expect(b.querySelector('svg'), label).toBeTruthy()
+      expect(b.textContent, label).toBe('')
+    }
+  })
+
+  it('has no design violations', () => {
+    expect(designViolations('arm/ArmJogPanel.tsx', SOURCES['arm/ArmJogPanel.tsx'])).toEqual([])
+  })
+
   it('shows an unknown source before the first message', () => {
     renderPanel(undefined)
     expect(screen.getByTestId('arm-active-source').textContent).toContain('unknown')
@@ -119,11 +140,15 @@ describe('ArmJogPanel', () => {
     expect((screen.getByRole('button', { name: 'Release' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('Take control and Release post to their routes', async () => {
+  it('Take control and Release post to their routes after a second click', async () => {
     renderPanel('autonomy')
     fireEvent.click(screen.getByRole('button', { name: 'Take control' }))
+    expect(fetchMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm take control' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Release' }))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm release' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/arm/take_control?tab=arm', '/api/arm/release?tab=arm'])
   })
@@ -148,6 +173,7 @@ describe('ArmJogPanel', () => {
     fetchMock.mockRejectedValue(new Error('offline'))
     renderPanel('leader')
     fireEvent.click(screen.getByRole('button', { name: 'Take control' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm take control' }))
     expect((await screen.findByRole('alert')).textContent).toContain('offline')
   })
 
@@ -155,6 +181,7 @@ describe('ArmJogPanel', () => {
     reply(true, 'arm control taken')
     renderPanel('leader')
     fireEvent.click(screen.getByRole('button', { name: 'Take control' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm take control' }))
     expect((await screen.findByRole('status')).textContent).toContain('arm control taken')
     expect(screen.queryByRole('alert')).toBeNull()
   })
