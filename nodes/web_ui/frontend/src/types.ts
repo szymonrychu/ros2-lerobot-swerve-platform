@@ -13,6 +13,12 @@ export interface TabTopicSpec {
   fields: TabFieldSpec[]
 }
 
+/** Camera pose relative to its parent URDF link: translation in metres, roll/pitch/yaw in radians. */
+export interface CameraMount {
+  xyz: [number, number, number]
+  rpy: [number, number, number]
+}
+
 export interface TabConfig {
   id: string
   type: string
@@ -54,6 +60,15 @@ export interface TabConfig {
   grasp_command_topic?: string // default /grasp/command (grasp requests go through POST /api/grasp)
   grasp_result_topic?: string // default /grasp/result
   grasp_timeout_s?: number // seconds POST /api/grasp waits for a plan (default 30)
+  // arm tab: cameras, arm-glued 3D view and arm control (backend fills defaults for unset fields)
+  gripper_camera_topic?: string // sensor_msgs/CompressedImage of the gripper camera
+  overview_camera_topic?: string // sensor_msgs/CompressedImage of the overview camera
+  gripper_camera_mount?: CameraMount // gripper camera pose in the URDF link gripper_link (same as mcp_server)
+  active_source_topic?: string // default /filter/active_source (which command source drives the arm)
+  arm_home_service?: string // default /arm/home
+  arm_set_home_service?: string // default /arm/set_home
+  arm_take_control_service?: string // default /arm/take_control
+  arm_release_control_service?: string // default /arm/release_control
   agent_url?: string // agent_chat tab: claude_agent API base URL proxied by the backend (default http://127.0.0.1:18300)
 }
 

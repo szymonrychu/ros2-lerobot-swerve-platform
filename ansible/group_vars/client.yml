@@ -1331,10 +1331,18 @@ ros2_nodes:
           type: agent_chat
           label: "Agent"
           agent_url: http://127.0.0.1:18300
-        - id: camera
-          type: camera
-          label: "Gripper Cam"
-          topic: /camera_0/image_raw/compressed
+        # Arm tab: gripper + overview cameras, arm-glued 3D views and arm control. The gripper camera mount is the
+        # one of mcp_server cameras.gripper.mount below (a test pins them equal).
+        - id: arm
+          type: arm
+          label: "Arm"
+          gripper_camera_topic: /camera_0/image_raw/compressed
+          overview_camera_topic: /overview_camera/image_raw/compressed
+          arm_joint_states_topic: /follower/joint_states
+          arm_offset: [0.0592, -0.05, 0.100]
+          gripper_camera_mount:
+            xyz: [-0.0046, 0.0364, -0.0364]
+            rpy: [-1.5622, 1.1950, -1.4466]
         - id: overview_camera
           type: camera
           label: "Overview"

@@ -10,7 +10,7 @@ Runs as a native service on the client RPi. Accessible at `http://client.ros2.la
 |---|---|---|
 | Map | `map_nav` | Primary tab, listed first and opened by default. One 3D view: SLAM map, local costmap, GPS tiles, Nav2 plans, goal, footprint, the robot URDF at its TF pose and an interactive arm, plus stop / save / reset / arm home (see below) |
 | Agent | `agent_chat` | Chat with the `claude_agent` node (Claude with the robot MCP tools): see [Agent tab](#agent-tab-agent_chat) |
-| Gripper Cam | `camera` | Live JPEG from the arm camera (`/camera_0/image_raw/compressed`) |
+| Arm | `arm` | Gripper camera (`gripper_camera_topic`, default `/camera_0/image_raw/compressed`) and overview camera (`overview_camera_topic`, default `/overview_camera/image_raw/compressed`) beside the arm view and jog panel. Other fields (defaults filled by the backend): `arm_joint_states_topic`, `arm_offset`, `gripper_camera_mount` (`xyz`, `rpy` in `gripper_link`, equal to the mcp_server mount), `active_source_topic` (`/filter/active_source`), `arm_home_service`, `arm_set_home_service`, `arm_take_control_service` (`/arm/take_control`), `arm_release_control_service` (`/arm/release_control`); its Trigger services are in `trigger_services()` |
 | Overview | `camera` | Live JPEG from the overhead camera (`/overview_camera/image_raw/compressed`, 640x480, 15 Hz) looking down at the front of the robot and the arm |
 | POI | `poi` | One list of POIs and photos (kind chips, search, sort); each row's button centres it on the map and opens its popup. Reads `poi_list_topic` / `poi_photos_topic` (default `/poi/list`, `/poi/photos`) |
 

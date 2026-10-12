@@ -11,7 +11,7 @@ import type { Vec2 } from '../map/mapMath'
 import { capturedAt, photoThumbUrl } from '../photos/api'
 import { isClick } from '../poi/editor'
 import { itemId, type PoiItem } from '../poi/poiItems'
-import { KIND_COLORS, STATUS_COLORS, ZONE_COLORS } from '../poi/style'
+import { fillColor, STATUS_COLORS, ZONE_COLORS } from '../poi/style'
 import { PANEL_BG, SANS_FONT, TOUCH_TARGET_PX } from '../theme'
 import { rosToThree } from './coords'
 import type { FocusTarget } from './mapFocus'
@@ -24,7 +24,6 @@ const ARROW_PX = 9
 const CARD_WIDTH_PX = 240
 const THUMB_HEIGHT_PX = 120
 const BORDER_COLOR = '#30363d'
-const AREA_COLOR = KIND_COLORS['area-none']
 
 export interface MapPopupProps {
   target: FocusTarget
@@ -44,10 +43,6 @@ function Tag({ text, color }: { text: string; color: string }) {
       {text}
     </span>
   )
-}
-
-function kindColor(item: PoiItem): string {
-  return item.kind === 'area' ? AREA_COLOR : KIND_COLORS[item.kind]
 }
 
 /**
@@ -130,7 +125,7 @@ export function MapPopup({ target, onClose, onOpen }: MapPopupProps) {
           </button>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '6px 0' }}>
-          <Tag text={item.kind} color={kindColor(item)} />
+          <Tag text={item.kind} color={fillColor(item.kind, item.zone, item.status)} />
           {item.zone && item.zone !== 'none' && <Tag text={item.zone} color={ZONE_COLORS[item.zone]} />}
           {item.status && <Tag text={item.status} color={STATUS_COLORS[item.status]} />}
         </div>

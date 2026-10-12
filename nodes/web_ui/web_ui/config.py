@@ -35,12 +35,14 @@ VALID_TAB_TYPES: frozenset[str] = frozenset(
         "rgbd_camera",
         "map_nav",
         "agent_chat",
+        "arm",
     }
 )
 
 MAP_NAV_TAB_TYPE = "map_nav"
 POI_TAB_TYPE = "poi"
 AGENT_CHAT_TAB_TYPE = "agent_chat"
+ARM_TAB_TYPE = "arm"
 # Default claude_agent API base URL proxied by the agent_chat tab (claude_agent http_port in client.yml).
 DEFAULT_AGENT_URL = "http://127.0.0.1:18300"
 
@@ -78,6 +80,22 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
 }
 # Topics a poi tab reads (defaults filled for unset fields; same values as the map_nav defaults).
 POI_TAB_DEFAULTS: dict[str, str] = {key: MAP_NAV_DEFAULTS[key] for key in ("poi_list_topic", "poi_photos_topic")}
+# Defaults filled into arm tabs for fields left unset (topics, services; same service names as the map_nav defaults).
+ARM_TAB_DEFAULTS: dict[str, str] = {
+    "gripper_camera_topic": "/camera_0/image_raw/compressed",
+    "overview_camera_topic": "/overview_camera/image_raw/compressed",
+    "arm_joint_states_topic": MAP_NAV_DEFAULTS["arm_joint_states_topic"],
+    "active_source_topic": "/filter/active_source",
+    "arm_home_service": MAP_NAV_DEFAULTS["arm_home_service"],
+    "arm_set_home_service": MAP_NAV_DEFAULTS["arm_set_home_service"],
+    "arm_take_control_service": "/arm/take_control",
+    "arm_release_control_service": "/arm/release_control",
+}
+# Arm mount in the base frame (ROS x, y, z metres); the same value as ansible mcp_server arm.base_in_base_link.
+ARM_TAB_DEFAULT_ARM_OFFSET: tuple[float, float, float] = (0.0592, -0.05, 0.100)
+# Gripper camera mount relative to the arm URDF link gripper_link; the same value as ansible cameras.gripper.mount.
+ARM_TAB_DEFAULT_CAMERA_XYZ: tuple[float, float, float] = (-0.0046, 0.0364, -0.0364)
+ARM_TAB_DEFAULT_CAMERA_RPY: tuple[float, float, float] = (-1.5622, 1.1950, -1.4466)
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
 DEFAULT_TILE_MAX_ZOOM = 18
@@ -103,6 +121,8 @@ GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "fix_topic",
     "base_joint_states_topic",
     "arm_joint_states_topic",
+    "gripper_camera_topic",
+    "overview_camera_topic",
     "color_topic",
     "depth_topic",
     "camera_info_topic",
@@ -178,6 +198,18 @@ class TileSourceConfig(BaseModel):
     attribution: str | None = None
 
 
+class CameraMount(BaseModel):
+    """Pose of a camera relative to its parent URDF link.
+
+    Attributes:
+        xyz: Translation in metres.
+        rpy: Roll, pitch, yaw in radians (URDF fixed-axis convention).
+    """
+
+    xyz: tuple[float, float, float]
+    rpy: tuple[float, float, float]
+
+
 class TabConfig(BaseModel):
     id: str
     type: str
@@ -214,6 +246,12 @@ class TabConfig(BaseModel):
     arm_joint_states_topic: str | None = None  # map_nav: sensor_msgs/JointState driving the arm URDF
     arm_offset: tuple[float, float, float] | None = None
     arm_command_topic: str | None = None
+    gripper_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the gripper camera
+    overview_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the overview camera
+    gripper_camera_mount: CameraMount | None = None  # arm: gripper camera pose in gripper_link (= mcp_server mount)
+    active_source_topic: str | None = None  # arm: std_msgs/String of the filter_node command source in control
+    arm_take_control_service: str | None = None  # arm: std_srvs/Trigger taking the arm lease for the web UI
+    arm_release_control_service: str | None = None  # arm: std_srvs/Trigger releasing the lease to the leader
     color_topic: str | None = None
     depth_topic: str | None = None
     camera_info_topic: str | None = None
@@ -267,6 +305,27 @@ class TabConfig(BaseModel):
         if v not in VALID_TAB_TYPES:
             raise ValueError(f"tab type must be one of {sorted(VALID_TAB_TYPES)}, got {v!r}")
         return v
+
+    @model_validator(mode="after")
+    def apply_arm_defaults(self) -> TabConfig:
+        """Fill unset arm-tab fields (ARM_TAB_DEFAULTS, arm offset, camera mount) and reject empty ones.
+
+        Returns:
+            TabConfig: This tab with arm defaults applied; other tab types are untouched.
+        """
+        if self.type != ARM_TAB_TYPE:
+            return self
+        for field, default in ARM_TAB_DEFAULTS.items():
+            value = getattr(self, field)
+            if value is None:
+                setattr(self, field, default)
+            elif not value.strip():
+                raise ValueError(f"arm tab {self.id!r}: {field} must not be empty")
+        if self.arm_offset is None:
+            self.arm_offset = ARM_TAB_DEFAULT_ARM_OFFSET
+        if self.gripper_camera_mount is None:
+            self.gripper_camera_mount = CameraMount(xyz=ARM_TAB_DEFAULT_CAMERA_XYZ, rpy=ARM_TAB_DEFAULT_CAMERA_RPY)
+        return self
 
     @model_validator(mode="after")
     def apply_map_nav_defaults(self) -> TabConfig:
@@ -410,14 +469,25 @@ class AppConfig(BaseModel):
         return sorted({tab.navigate_action for tab in self.map_nav_tabs() if tab.navigate_action})
 
     def trigger_services(self) -> list[str]:
-        """Return the std_srvs/Trigger arm services (home, set home) of all map_nav tabs.
+        """Return the std_srvs/Trigger arm services of all map_nav and arm tabs.
 
         Returns:
-            list[str]: Sorted unique service names.
+            list[str]: Sorted unique service names (home, set home and, on arm tabs, take / release control).
         """
         services: set[str] = set()
-        for tab in self.map_nav_tabs():
-            services.update(s for s in (tab.arm_home_service, tab.arm_set_home_service) if s)
+        for tab in self.tabs:
+            if tab.type not in (MAP_NAV_TAB_TYPE, ARM_TAB_TYPE):
+                continue
+            services.update(
+                s
+                for s in (
+                    tab.arm_home_service,
+                    tab.arm_set_home_service,
+                    tab.arm_take_control_service,
+                    tab.arm_release_control_service,
+                )
+                if s
+            )
         return sorted(services)
 
     def gps_anchor_estimator(self) -> GpsAnchorEstimator | None:

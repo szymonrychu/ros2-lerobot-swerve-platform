@@ -3,11 +3,8 @@ import { CameraStream } from '../components/CameraStream'
 import { useLayout } from '../layout/useLayout'
 import { TabConfig } from '../types'
 
-/** Arm tab fields defined by the backend config (T28); optional until the shared type carries them. */
-type ArmTabConfig = TabConfig & { gripper_camera_topic?: string; overview_camera_topic?: string }
-
 interface Props {
-  tab: ArmTabConfig
+  tab: TabConfig
   topicData: Record<string, unknown>
   publish: (topic: string, msgType: string, data: unknown) => void
 }

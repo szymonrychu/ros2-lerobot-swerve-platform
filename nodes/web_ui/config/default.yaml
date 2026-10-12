@@ -59,10 +59,11 @@ tabs:
     tile_cache_dir: /var/cache/web_ui/tiles
     tile_cache_max_mb: 256
 
-  - id: camera
-    type: camera
-    label: "Gripper Cam"
-    topic: /camera_0/image_raw/compressed
+  - id: arm
+    type: arm
+    label: "Arm"
+    gripper_camera_topic: /camera_0/image_raw/compressed
+    overview_camera_topic: /overview_camera/image_raw/compressed
 
   - id: overview_camera
     type: camera

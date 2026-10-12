@@ -63,7 +63,7 @@ AUTONOMY = {
 TILE_CACHE_DIR = "/var/cache/web_ui/tiles"
 TILE_CACHE_TASKS = PLAYBOOKS_DIR / "tasks" / "web_ui_tile_cache_dir.yml"
 LEGACY_MAP_KEYS = {"urdf_file", "topic", "arm_urdf_file", "arm_joint_topic", "scan_topic", "costmap_topic"}
-WEB_UI_TABS = ["map", "agent", "camera", "overview_camera", "poi"]
+WEB_UI_TABS = ["map", "agent", "arm", "overview_camera", "poi"]
 REMOVED_WEB_UI_TABS = {"arm_servos", "local_nav", "gps_nav", "scene3d", "robot_status"}
 
 
@@ -471,9 +471,12 @@ def test_web_ui_tab_set() -> None:
     assert not REMOVED_WEB_UI_TABS & {t["id"] for t in tabs}
     assert tabs[0]["type"] == "map_nav"
     assert tabs[1]["type"] == "agent_chat"
-    camera = tabs[2]
-    assert camera["type"] == "camera"
-    assert camera["topic"] == "/camera_0/image_raw/compressed"
+    arm = tabs[2]
+    assert arm["type"] == "arm"
+    assert arm["label"] == "Arm"
+    assert arm["gripper_camera_topic"] == "/camera_0/image_raw/compressed"
+    assert arm["overview_camera_topic"] == "/overview_camera/image_raw/compressed"
+    assert "topic" not in arm
     overview = tabs[3]
     assert overview["id"] == "overview_camera"
     assert overview["type"] == "camera"
@@ -483,6 +486,16 @@ def test_web_ui_tab_set() -> None:
     assert poi["type"] == "poi"
     assert poi["id"] == "poi"
     assert poi["label"] == "POI"
+
+
+def test_web_ui_arm_tab_mount_equals_mcp_server_gripper_camera_mount() -> None:
+    """The Arm tab places the gripper camera with the mount mcp_server calibrated (client.yml cameras.gripper.mount)."""
+    mount = node_config("mcp_server")["cameras"]["gripper"]["mount"]
+    arm = node_config("web_ui")["tabs"][2]
+    assert arm["gripper_camera_mount"] == {
+        "xyz": [mount["x"], mount["y"], mount["z"]],
+        "rpy": [mount["roll"], mount["pitch"], mount["yaw"]],
+    }
 
 
 def test_web_ui_map_tab_uses_contract_fields() -> None:

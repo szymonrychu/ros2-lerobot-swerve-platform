@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Photo } from '../photos/api'
 import type { PhotoLayerData } from '../photos/usePhotoLayer'
 import { itemId } from '../poi/poiItems'
+import { fillColor, KIND_COLORS } from '../poi/style'
 import type { Poi } from '../poi/types'
 import { TOUCH_TARGET_PX } from '../theme'
 import type { TabConfig } from '../types'
@@ -183,6 +184,11 @@ describe('whenController / consumeFocus', () => {
   })
 })
 
+function hexToRgb(hex: string): string {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 function target(over: Partial<FocusTarget['item']> = {}): FocusTarget {
   return {
     anchor: { x: 1, y: 2 },
@@ -210,6 +216,15 @@ describe('MapPopup', () => {
     expect(screen.getByText('done')).toBeTruthy()
     expect(screen.getByText('mind the step')).toBeTruthy()
     expect(screen.getByTestId('map-popup-arrow')).toBeTruthy()
+  })
+
+  it('colours the kind tag with the shared marker rule (zone colour for an area, kind colour otherwise)', () => {
+    const { unmount } = render(<MapPopup target={target()} onClose={vi.fn()} onOpen={vi.fn()} />)
+    expect(screen.getByText('area').style.color).toBe(hexToRgb(fillColor('area', 'keepout', 'done')))
+    expect(fillColor('area', 'keepout', 'done')).not.toBe(KIND_COLORS['area-none'])
+    unmount()
+    render(<MapPopup target={target({ kind: 'object', zone: undefined })} onClose={vi.fn()} onOpen={vi.fn()} />)
+    expect(screen.getByText('object').style.color).toBe(hexToRgb(KIND_COLORS.object))
   })
 
   it('shows a photo thumbnail and capture time', () => {

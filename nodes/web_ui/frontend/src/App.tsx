@@ -22,6 +22,7 @@ import VideocamIcon from '@mui/icons-material/Videocam'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
 import PlaceIcon from '@mui/icons-material/Place'
 import CameraIcon from '@mui/icons-material/Camera'
+import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import TabIcon from '@mui/icons-material/Tab'
 import log from './logging'
@@ -48,6 +49,7 @@ import { TILT_GUARD_STATE_KEY, tiltEntered, tiltStatus } from './tilt/tiltStatus
 import type { TiltLevel, TiltPayload, TiltStatus } from './tilt/tiltStatus'
 import { feedAllGraphBuffers } from './utils/graphBuffers'
 
+const ArmTab = lazy(() => import('./tabs/ArmTab'))
 const CameraTab = lazy(() => import('./tabs/CameraTab'))
 const SensorGraphTab = lazy(() => import('./tabs/SensorGraphTab'))
 const PoiTab = lazy(() => import('./tabs/PoiTab'))
@@ -67,6 +69,7 @@ const TILT_TOAST_MS = 15000
 
 const TAB_ICONS: Record<string, ReactElement> = {
   map_nav: <MapIcon />,
+  arm: <PrecisionManufacturingIcon />,
   camera: <VideocamIcon />,
   rgbd_camera: <CameraIcon />,
   sensor_graph: <ShowChartIcon />,
@@ -98,6 +101,7 @@ function renderTab(
 ) {
   const props = { tab, topicData, publish }
   switch (tab.type) {
+    case 'arm': return <ArmTab {...props} />
     case 'camera': return <CameraTab {...props} />
     case 'sensor_graph': return <SensorGraphTab {...props} />
     case 'poi': return <PoiTab items={poi.items} onShowOnMap={poi.onShowOnMap} />
@@ -149,6 +153,7 @@ export default function App() {
           t.topic,
           ...(t.topics?.map((ts) => ts.topic) ?? []),
           t.color_topic, t.depth_topic, t.camera_info_topic,
+          t.gripper_camera_topic, t.overview_camera_topic,
           t.map_topic, t.global_plan_topic, t.local_plan_topic, t.footprint_topic,
           t.local_costmap_topic, t.base_joint_states_topic, t.arm_joint_states_topic,
           ...(t.type === 'map_nav' ? [t.goal_topic] : []),
