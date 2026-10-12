@@ -34,7 +34,6 @@ export interface TiltStatus {
   navBlockedReason: string | null
 }
 
-const SEVERITY: Record<TiltLevel, number> = { ok: 0, warning: 1, error: 2 }
 
 const OK_STATUS: TiltStatus = { level: 'ok', navBlocked: false, driveBlocked: false, banner: null, navBlockedReason: null }
 
