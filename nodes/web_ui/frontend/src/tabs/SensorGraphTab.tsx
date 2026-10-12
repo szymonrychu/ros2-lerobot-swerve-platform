@@ -72,7 +72,7 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
     const plot = new uPlot(opts, buf as uPlot.AlignedData, container)
     plotRef.current = plot
     fitPlot(plot, container)
-    log.debug('[graph] mounted tab', tab.id, '— buffer has', buf[0].length, 'points')
+    log.debug('[graph] mounted tab', tab.id, '- buffer has', buf[0].length, 'points')
 
     // Follow the container: window resize, rotation, overlay bar wrapping.
     const ro = new ResizeObserver(() => fitPlot(plot, container))
