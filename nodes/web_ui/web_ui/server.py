@@ -90,6 +90,8 @@ POI_TIMEOUT_S = 3.0
 POI_OPS = frozenset({"add", "update", "delete", "delete_photos"})
 # Seconds to wait for mcp_server's answer to a grasp stop (it answers at once).
 GRASP_STOP_TIMEOUT_S = 3.0
+# Seconds to wait for mcp_server's answer to one jog step (a step is a short motion; refusals come at once).
+JOG_TIMEOUT_S = 10.0
 # Grasp actions POST /api/grasp accepts ("stop" has its own endpoint) and those that need an "object".
 GRIP_PRESETS = ("gentle", "soft", "normal", "firm")
 GRASP_ACTIONS = frozenset({"plan", "execute", "release"})
@@ -762,13 +764,16 @@ def build_app(
 
         return await coalesce(inflight_calls, f"nav_stop:{action}", run_stop, max_age_s=NAV_STOP_COALESCE_S)
 
+    def find_arm_tab(tab: str) -> TabConfig | None:
+        return next((t for t in config.arm_tabs() if t.id == tab), None)
+
     async def call_arm_trigger(action: str, tab: str, service_attr: str) -> JSONResponse:
         if (blocked := battery_block(action)) is not None:
             return blocked
-        tab_cfg = find_map_nav_tab(tab)
+        tab_cfg = find_map_nav_tab(tab) or find_arm_tab(tab)
         service = getattr(tab_cfg, service_attr) if tab_cfg is not None else None
         if not service:
-            return action_response(action, False, f"no map_nav tab {tab!r}", 404)
+            return action_response(action, False, f"no map_nav or arm tab {tab!r}", 404)
         if bridge_node is None:
             return action_response(action, False, "ROS bridge unavailable", 503)
         response, error = await call_ros_service(
@@ -787,6 +792,41 @@ def build_app(
     @app.post("/api/arm/set_home")
     async def arm_set_home(tab: str) -> JSONResponse:
         return await call_arm_trigger("arm_set_home", tab, "arm_set_home_service")
+
+    @app.post("/api/arm/take_control")
+    async def arm_take_control(tab: str) -> JSONResponse:
+        return await call_arm_trigger("arm_take_control", tab, "arm_take_control_service")
+
+    @app.post("/api/arm/release")
+    async def arm_release(tab: str) -> JSONResponse:
+        return await call_arm_trigger("arm_release", tab, "arm_release_control_service")
+
+    @app.post("/api/arm/jog")
+    async def arm_jog(tab: str, request: Request) -> JSONResponse:
+        if (blocked := battery_block("arm_jog")) is not None:
+            return blocked
+        if find_arm_tab(tab) is None:
+            return action_response("arm_jog", False, f"no arm tab {tab!r}", 404)
+        try:
+            spec = await request.json()
+        except ValueError:
+            spec = None
+        if (
+            not isinstance(spec, dict)
+            or not isinstance(spec.get("kind"), str)
+            or not isinstance(spec.get("direction"), str)
+        ):
+            return action_response("arm_jog", False, 'body must be {"kind": ..., "direction": ..., "step"?: ...}', 422)
+        if bridge_node is None:
+            return action_response("arm_jog", False, "ROS bridge unavailable", 503)
+        sent = bridge_node.grasp_request_async({"action": "jog", "jog": spec})
+        if sent is None:
+            return action_response("arm_jog", False, "mcp_server is not running", 503)
+        try:
+            result = await await_ros_future(sent[1], JOG_TIMEOUT_S)
+        except TimeoutError:
+            return action_response("arm_jog", False, f"mcp_server did not answer within {JOG_TIMEOUT_S:g} s", 504)
+        return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
     @app.post("/api/poi")
     async def poi_command(tab: str, request: Request) -> JSONResponse:

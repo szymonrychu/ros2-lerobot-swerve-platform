@@ -624,3 +624,15 @@ def serialize_poi_list(msg: Any) -> dict[str, Any]:
     ):
         raise ValueError("POI list must be an object with a pois list and an integer revision")
     return {"pois": data["pois"], "revision": data["revision"]}
+
+
+def serialize_active_source(msg: Any) -> dict[str, Any]:
+    """Serialize filter_node's /filter/active_source std_msgs/String.
+
+    Args:
+        msg (Any): std_msgs/String naming the command source in control.
+
+    Returns:
+        dict[str, Any]: {"data": source name}.
+    """
+    return {"data": str(msg.data)}

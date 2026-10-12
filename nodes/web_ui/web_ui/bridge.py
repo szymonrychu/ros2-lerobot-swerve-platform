@@ -34,7 +34,7 @@ from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from .config import BATTERY_ROLE, GPS_STATUS_ROLE, GRASP_RESULT_ROLE, POI_RESULT_ROLE
+from .config import ACTIVE_SOURCE_ROLE, BATTERY_ROLE, GPS_STATUS_ROLE, GRASP_RESULT_ROLE, POI_RESULT_ROLE
 from .gps_anchor import (
     CALIBRATION_MAX_AGE_S,
     COMPASS_IMU_MAX_AGE_S,
@@ -54,6 +54,7 @@ from .metrics import BATTERY_CUTOFF_ACTIVE, MAP_UPDATES, ROBOT_POSE_OK, TOPIC_ST
 from .msg_serializer import (
     msg_to_dict,
     quaternion_to_yaw,
+    serialize_active_source,
     serialize_battery,
     serialize_costmap,
     serialize_goal_pose,
@@ -131,7 +132,7 @@ GPS_ANCHOR_TOPIC = "/web_ui/gps_anchor"
 # ...the mcp_server answer once done}.
 GRASP_RESULT_TOPIC = "/web_ui/grasp_result"
 # Grasp actions that move the arm: their progress is streamed on GRASP_RESULT_TOPIC.
-GRASP_MOTION_ACTIONS = frozenset({"execute", "release"})
+GRASP_MOTION_ACTIONS = frozenset({"execute", "release", "jog"})
 # A GPS fix is paired with the latest map -> base TF only if their stamps differ by at most this (seconds).
 GPS_TF_MAX_SKEW_S = 0.25
 SERIALIZE_MAP_SERVICE = "/slam_toolbox/serialize_map"
@@ -163,6 +164,8 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "poi_list": (String, MAP_SUB_QOS, serialize_poi_list),
     # poi_store latches the photo store summary like the list: a (re)connecting UI gets the current revision.
     "poi_photos": (String, MAP_SUB_QOS, serialize_poi_photos),
+    # filter_node's command source in control (leader | autonomy | none ...), shown on the Arm tab.
+    ACTIVE_SOURCE_ROLE: (String, DEFAULT_SUB_QOS_DEPTH, serialize_active_source),
 }
 
 

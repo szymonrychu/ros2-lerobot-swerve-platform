@@ -44,6 +44,7 @@ Single Python process: FastAPI (uvicorn) on port 8080 serves:
 - `POST /api/map/reset?tab=<tab id>` - ask slam_toolbox to drop the current map and start a new one (see below)
 - `POST /api/nav/stop?tab=<tab id>` - cancel all Nav2 NavigateToPose goals (see below)
 - `POST /api/arm/home?tab=<tab id>` and `POST /api/arm/set_home?tab=<tab id>` - call the mcp_server arm Trigger services (see below)
+- `POST /api/arm/take_control?tab=<arm tab id>`, `POST /api/arm/release?tab=<arm tab id>` and `POST /api/arm/jog?tab=<arm tab id>` - the Arm tab's control routes (see [Arm tab routes](#arm-tab-routes)); `POST /api/arm/home` also accepts an arm tab id
 - `POST /api/grasp?tab=<tab id>` and `POST /api/grasp/stop?tab=<tab id>` - grasp plan / execute / release and stop through the mcp_server `GraspService` (see [Grasp panel](#grasp-panel))
 - `GET /api/tiles/{source}/{z}/{x}/{y}.png` - cached map tile proxy per tile source; `GET /api/tiles/{z}/{x}/{y}.png` serves the default source (see below)
 - `GET /api/agent/state`, `GET /api/agent/history`, `GET /api/agent/retry_outcomes`, `POST /api/agent/message`, `POST /api/agent/stop`, `POST /api/agent/reset` and `WS /ws/agent` - proxy of the claude_agent API (see [Agent tab](#agent-tab-agent_chat))
@@ -68,7 +69,7 @@ battery:
 
 - **Guard (`ros2_common.battery.BatteryGuard`, shared package `shared/`, also used by mcp_server):** enters cut-off when the voltage is below `cells * cutoff_cell_v` and leaves it only above `cells * resume_cell_v` (hysteresis). With no reading, or a reading older than `stale_s`, the state is unknown and **nothing is blocked**. Thread-safe: the ROS callback thread updates it, the asyncio server reads it.
 - **Broadcast:** the reading is serialized (`voltage`, `cells`, `cell_voltage` = voltage / cells, `stamp`, `frame_id`) together with the guard state (`cutoff`, `stale`, `cutoff_v`, `resume_v`, thresholds) and sent to clients as a normal envelope on the battery topic. `/api/config` carries the `battery` section so the frontend knows topic and thresholds.
-- **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home`, `/api/agent/message` and `/api/agent/reset` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` and `POST /api/agent/stop` stay allowed (safety), as do `/api/agent/state`, `/api/agent/history` and `/ws/agent`. `POST /api/poi` is also allowed: POI edits are not robot motion. `POST /api/grasp` with action `execute` or `release` is rejected the same way (503), while action `plan` (a dry run) and `POST /api/grasp/stop` stay allowed. Rejections are logged.
+- **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home`, `/api/arm/take_control`, `/api/arm/release`, `/api/arm/jog`, `/api/agent/message` and `/api/agent/reset` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` and `POST /api/agent/stop` stay allowed (safety), as do `/api/agent/state`, `/api/agent/history` and `/ws/agent`. `POST /api/poi` is also allowed: POI edits are not robot motion. `POST /api/grasp` with action `execute` or `release` is rejected the same way (503), while action `plan` (a dry run) and `POST /api/grasp/stop` stay allowed. Rejections are logged.
 - **Frontend:** a voltage chip in the AppBar (e.g. `11.4 V`, per-cell in the tooltip): green above the resume threshold, amber between cut-off and resume, red in cut-off, grey `--` without a recent reading. In cut-off a red banner under the AppBar reads "Battery below cut-off (x.xx V/cell) - commands are disabled"; everything else keeps rendering. Error frames from the WebSocket appear as a toast; the 503 message of a failed Map tab action appears in the existing action snackbar. Level/colour logic is in `frontend/src/battery/batteryStatus.ts` (vitest `batteryStatus.test.ts`).
 
 ## GPS status chips (optional `gps_status` section)
@@ -407,3 +408,16 @@ After code changes, run from repo root:
 ```bash
 ./scripts/deploy-nodes.sh client web_ui
 ```
+
+### Arm tab routes
+
+All take `tab=<arm tab id>` (404 for an unknown tab or one that is not an `arm` tab; `/api/arm/home` and `/api/arm/set_home` accept `map_nav` and `arm` tabs), are refused with 503 in battery cut-off, and answer 503 without the ROS bridge or when the service / mcp_server is not running. Replies are `{"ok", "message"}`.
+
+| Route | What it does |
+|---|---|
+| `POST /api/arm/jog` | Body `{"kind": "cartesian"\|"shoulder_pan"\|"wrist_pitch"\|"wrist_roll"\|"gripper", "direction": ..., "step"?: number}` (422 otherwise; the mcp_server validates direction and step, see its README "Jog"). Forwarded as `{"action": "jog", "jog": {...}}` on `grasp_command_topic`; returns the mcp_server answer (200, or 400 for a refusal such as `jog refused: ...`), 504 after 10 s. A jog also streams `running` / `done` on `/web_ui/grasp_result` |
+| `POST /api/arm/take_control` | Calls `arm_take_control_service` (`/arm/take_control`, `std_srvs/Trigger`): web UI takes the arm lease. 500 with the service message on failure, 504 after `arm_service_timeout_s` |
+| `POST /api/arm/release` | Calls `arm_release_control_service` (`/arm/release_control`): hands the arm back to the leader |
+| `POST /api/arm/home` | Calls `arm_home_service` (`/arm/home`) |
+
+The bridge subscribes the arm tab's `active_source_topic` (`/filter/active_source`, `std_msgs/String`) and relays it to the frontend as `{"data": "<source>"}`, and subscribes the arm tab's `grasp_result_topic` for jog answers.

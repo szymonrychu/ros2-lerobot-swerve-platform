@@ -86,6 +86,8 @@ ARM_TAB_DEFAULTS: dict[str, str] = {
     "overview_camera_topic": "/overview_camera/image_raw/compressed",
     "arm_joint_states_topic": MAP_NAV_DEFAULTS["arm_joint_states_topic"],
     "active_source_topic": "/filter/active_source",
+    "grasp_command_topic": MAP_NAV_DEFAULTS["grasp_command_topic"],
+    "grasp_result_topic": MAP_NAV_DEFAULTS["grasp_result_topic"],
     "arm_home_service": MAP_NAV_DEFAULTS["arm_home_service"],
     "arm_set_home_service": MAP_NAV_DEFAULTS["arm_set_home_service"],
     "arm_take_control_service": "/arm/take_control",
@@ -111,6 +113,7 @@ DEFAULT_GRASP_ACCEPT_WAIT_S = 1.0
 BATTERY_ROLE = "battery"
 POI_RESULT_ROLE = "poi_result"
 GRASP_RESULT_ROLE = "grasp_result"
+ACTIVE_SOURCE_ROLE = "active_source"
 GPS_STATUS_ROLE = "gps_status"
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
@@ -452,6 +455,14 @@ class AppConfig(BaseModel):
         """
         return [tab for tab in self.tabs if tab.type == MAP_NAV_TAB_TYPE]
 
+    def arm_tabs(self) -> list[TabConfig]:
+        """Return all arm tabs.
+
+        Returns:
+            list[TabConfig]: Tabs whose type is arm, in config order.
+        """
+        return [tab for tab in self.tabs if tab.type == ARM_TAB_TYPE]
+
     def map_reset_services(self) -> list[str]:
         """Return the slam_toolbox Reset services of all map_nav tabs.
 
@@ -526,7 +537,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -540,6 +551,11 @@ class AppConfig(BaseModel):
                 topic = getattr(tab, attr)
                 if topic and (tab.type == MAP_NAV_TAB_TYPE or attr in POI_TAB_DEFAULTS):
                     roles[topic] = role
+        for tab in self.arm_tabs():
+            if tab.active_source_topic:
+                roles[tab.active_source_topic] = ACTIVE_SOURCE_ROLE
+            if tab.grasp_result_topic:
+                roles[tab.grasp_result_topic] = GRASP_RESULT_ROLE
         if self.battery is not None:
             roles[self.battery.topic] = BATTERY_ROLE
         if self.gps_status is not None and self.gps_status.rover_topic:
@@ -556,12 +572,12 @@ class AppConfig(BaseModel):
         return tab.poi_command_topic if tab is not None else None
 
     def grasp_command_topic(self) -> str | None:
-        """Return the grasp command topic of the first map_nav tab.
+        """Return the grasp command topic of the first map_nav tab, else of the first arm tab.
 
         Returns:
-            str | None: Topic the bridge publishes grasp requests on, or None without a map_nav tab.
+            str | None: Topic the bridge publishes grasp requests on, or None without a map_nav or arm tab.
         """
-        tab = next(iter(self.map_nav_tabs()), None)
+        tab = next(iter(self.map_nav_tabs() or self.arm_tabs()), None)
         return tab.grasp_command_topic if tab is not None else None
 
     def robot_pose_frames(self) -> tuple[str, str] | None:
