@@ -2,6 +2,9 @@
 
 import collections
 import logging
+import threading
+import time
+from collections.abc import Callable
 from typing import Any
 
 import rclpy
@@ -12,10 +15,10 @@ from std_msgs.msg import String
 
 from . import metrics
 from .config import GpsRtkConfig
-from .nmea_parser import build_nav_sat_fix, drift_from_mean, parse_gga, quality_label
+from .nmea_parser import build_nav_sat_fix, drift_from_mean, parse_gga, parse_gga_status, quality_label
 from .ntrip_client import NtripClient
 from .serial_handler import SerialHandler
-from .status import rover_status, status_json
+from .status import build_rover_status, status_json
 
 LOG = logging.getLogger(__name__)
 
@@ -28,13 +31,25 @@ DIAG_INTERVAL_TICKS = 100  # at 10 Hz → every 10 s
 class GpsRtkRoverNode(Node):
     """ROS2 node for GPS RTK rover: serial in/out, NavSatFix out, NTRIP v1 client."""
 
-    def __init__(self, config: GpsRtkConfig) -> None:
+    def __init__(self, config: GpsRtkConfig, clock: Callable[[], float] = time.monotonic) -> None:
+        """Create publishers; serial and NTRIP start in run().
+
+        Args:
+            config (GpsRtkConfig): Rover config.
+            clock (Callable[[], float]): Monotonic clock in seconds (receiver silence timing).
+        """
         super().__init__(NODE_NAME)
         self.config = config
+        self._clock = clock
+        self._started_s = clock()
         self._latest_fix: NavSatFix | None = None
         self._latest_gga: dict[str, Any] | None = None
         self._latest_gga_sentence: str | None = None
-        self._fix_lock = __import__("threading").Lock()
+        # Receiver state of the latest GGA (also without a fix) and when NMEA / GGA last arrived.
+        self._latest_gga_state: dict[str, Any] | None = None
+        self._last_nmea_s: float | None = None
+        self._last_gga_s: float | None = None
+        self._fix_lock = threading.Lock()
         self._position_history: collections.deque[tuple[float, float, float]] = collections.deque(
             maxlen=POSITION_HISTORY_LEN
         )
@@ -46,12 +61,21 @@ class GpsRtkRoverNode(Node):
         self._diag_counter = 0
 
     def _on_nmea(self, sentence: str) -> None:
+        now = self._clock()
+        with self._fix_lock:
+            self._last_nmea_s = now
         if "GGA" not in sentence:
             return
-        parsed = parse_gga(sentence)
-        if parsed is None:
+        state = parse_gga_status(sentence)
+        if state is None:
             return
-        metrics.record_gga(parsed)
+        metrics.record_gga(state)
+        with self._fix_lock:
+            self._latest_gga_state = state
+            self._last_gga_s = now
+        parsed = parse_gga(sentence)
+        if parsed is None:  # no position: status only, never a NavSatFix
+            return
         try:
             msg = build_nav_sat_fix(
                 lat=parsed["latitude"],
@@ -118,17 +142,28 @@ class GpsRtkRoverNode(Node):
         rclpy.spin(self)
 
     def _publish_status(self) -> None:
-        """Publish compact JSON status; skipped until a real GGA has been parsed."""
-        with self._fix_lock:
-            gga = self._latest_gga
-        if gga is None or self._status_pub is None:
+        """Publish compact JSON status from the latest GGA (also no-fix), or "receiver silent" after nmea_timeout_s.
+
+        Skipped while there is nothing real to report (startup within the timeout, or NMEA without a fresh GGA).
+        """
+        if self._status_pub is None:
             return
-        status = rover_status(
-            gga,
+        with self._fix_lock:
+            gga = self._latest_gga_state
+            last_nmea_s = self._last_nmea_s
+            last_gga_s = self._last_gga_s
+        status = build_rover_status(
+            now_s=self._clock(),
+            started_s=self._started_s,
+            last_nmea_s=last_nmea_s,
+            last_gga_s=last_gga_s,
+            gga=gga,
+            nmea_timeout_s=self.config.nmea_timeout_s,
             ntrip_connected=self._ntrip is not None and self._ntrip.is_connected,
             ntrip_rx_bytes=self._ntrip.rx_bytes if self._ntrip is not None else 0,
         )
-        self._status_pub.publish(String(data=status_json(status)))
+        if status is not None:
+            self._status_pub.publish(String(data=status_json(status)))
 
     def _publish_cb(self) -> None:
         with self._fix_lock:

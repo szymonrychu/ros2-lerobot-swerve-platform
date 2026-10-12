@@ -328,3 +328,43 @@ def test_activate_base_fixed_position_warns_if_no_ecef(caplog: pytest.LogCapture
         with caplog.at_level(logging.WARNING, logger="gps_rtk.serial_handler"):
             handler._activate_base_fixed_position()  # must not raise
     assert any("zero" in r.message.lower() or "calibration" in r.message.lower() for r in caplog.records)
+
+
+# --- survey_state: base calibration (survey-in) state reported in the base status ---
+
+
+def make_handler() -> SerialHandler:
+    handler = SerialHandler(port="/dev/ttyAMA0", baud_rate=115200, on_nmea=lambda s: None, on_rtcm3=lambda _: None)
+    handler._ser = _make_mock_serial()
+    return handler
+
+
+def test_survey_state_starts_not_checked() -> None:
+    assert make_handler().survey_state == "not_checked"
+
+
+@pytest.mark.parametrize(
+    ("response", "state"),
+    [
+        ("$PQTMCFGSVIN,OK,1,3600,1.0,3920123.45,-123456.78,5000000.00*XX", "fixed_position"),
+        (None, "uncalibrated"),
+        ("$PQTMCFGSVIN,OK,1,3600,15.0,0.0,0.0,0.0*XX", "uncalibrated"),
+        ("$PQTMCFGSVIN,ERROR*XX", "unreadable"),
+    ],
+)
+def test_activate_base_fixed_position_sets_survey_state(response: str | None, state: str) -> None:
+    handler = make_handler()
+    with patch.object(handler, "send_nmea_wait", return_value=response):
+        with patch.object(handler, "send_nmea"):
+            with patch("gps_rtk.serial_handler.time.sleep"):
+                handler._activate_base_fixed_position()
+    assert handler.survey_state == state
+
+
+def test_send_base_configure_failure_sets_survey_state() -> None:
+    handler = make_handler()
+    handler._ser.in_waiting = 1
+    with patch.object(handler, "send_nmea", side_effect=OSError("always fails")):
+        with patch("gps_rtk.serial_handler.time.sleep"):
+            handler.send_base_configure()
+    assert handler.survey_state == "configure_failed"

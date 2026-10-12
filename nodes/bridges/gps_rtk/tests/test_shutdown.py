@@ -1,7 +1,6 @@
 """gps_rtk main exits 0 on SIGTERM and still runs the node's own shutdown (NTRIP client and serial closed)."""
 
 import importlib
-import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -9,7 +8,6 @@ import pytest
 from ros_stubs import FakeRclpy, context_invalid, external_shutdown, install_ros_stubs
 
 install_ros_stubs("sensor_msgs", "sensor_msgs.msg", "std_msgs", "std_msgs.msg")
-sys.modules["rclpy.node"].Node = type("Node", (), {})
 
 
 @pytest.fixture

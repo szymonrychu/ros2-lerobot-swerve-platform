@@ -2,6 +2,7 @@
 
 import collections
 import logging
+import threading
 from typing import Any
 
 import rclpy
@@ -10,10 +11,10 @@ from sensor_msgs.msg import NavSatFix
 from std_msgs.msg import String
 
 from .config import GpsRtkConfig
-from .nmea_parser import build_nav_sat_fix, drift_from_mean, parse_gga, quality_label
+from .nmea_parser import build_nav_sat_fix, drift_from_mean, parse_gga, parse_gga_status, quality_label
 from .ntrip_caster import NtripCaster
 from .rtcm3 import parse_rtcm3_message_type
-from .serial_handler import SerialHandler
+from .serial_handler import SURVEY_NOT_CHECKED, SerialHandler
 from .status import base_status, status_json
 
 LOG = logging.getLogger(__name__)
@@ -37,7 +38,10 @@ class GpsRtkBaseNode(Node):
         self.config = config
         self._latest_fix: NavSatFix | None = None
         self._latest_gga: dict[str, Any] | None = None
-        self._fix_lock = __import__("threading").Lock()
+        # Receiver state of the latest GGA (with position when it had one) and the GGA count, for the status.
+        self._latest_gga_state: dict[str, Any] | None = None
+        self._gga_seq = 0
+        self._fix_lock = threading.Lock()
         self._position_history: collections.deque[tuple[float, float, float]] = collections.deque(
             maxlen=POSITION_HISTORY_LEN
         )
@@ -56,7 +60,13 @@ class GpsRtkBaseNode(Node):
     def _on_nmea(self, sentence: str) -> None:
         if "GGA" not in sentence:
             return
+        state = parse_gga_status(sentence)
+        if state is None:
+            return
         parsed = parse_gga(sentence)
+        with self._fix_lock:
+            self._latest_gga_state = parsed if parsed is not None else state
+            self._gga_seq += 1
         if parsed is None:
             return
         try:
@@ -79,7 +89,8 @@ class GpsRtkBaseNode(Node):
         self._rtcm_frames_seen += 1
         msg_type = parse_rtcm3_message_type(frame)
         if msg_type is not None:
-            self._rtcm_types_seen.add(msg_type)
+            with self._fix_lock:
+                self._rtcm_types_seen.add(msg_type)
         if self._caster is not None:
             self._caster.broadcast_rtcm(frame)
 
@@ -92,6 +103,7 @@ class GpsRtkBaseNode(Node):
             user=self.config.ntrip_user,
             password=self.config.ntrip_password,
             logger=self.get_logger(),
+            status_provider=self.current_status,
         )
         self._caster.start()
 
@@ -113,19 +125,37 @@ class GpsRtkBaseNode(Node):
             self._status_timer = self.create_timer(1.0 / self.config.status_hz, self._publish_status)
         rclpy.spin(self)
 
-    def _publish_status(self) -> None:
-        """Publish compact JSON status; skipped until a real GGA has been parsed."""
+    def current_status(self) -> dict[str, Any] | None:
+        """Build the base status from the latest GGA (also a no-fix one) and the caster state.
+
+        Called from the status timer and from the caster's GET /status thread.
+
+        Returns:
+            dict[str, Any] | None: The status published on status_topic and served on GET /status, or None
+                until a GGA has been received.
+        """
         with self._fix_lock:
-            gga = self._latest_gga
-        if gga is None or self._status_pub is None:
-            return
-        status = base_status(
+            gga = self._latest_gga_state
+            seq = self._gga_seq
+            rtcm_types = set(self._rtcm_types_seen)
+        if gga is None:
+            return None
+        caster = self._caster
+        return base_status(
             gga,
-            ntrip_clients=self._caster.client_count if self._caster else 0,
-            rtcm_tx_frames=self._caster.tx_frames if self._caster else 0,
-            rtcm_tx_bytes=self._caster.tx_bytes if self._caster else 0,
-            rtcm_types=set(self._rtcm_types_seen),
+            ntrip_clients=caster.client_count if caster else 0,
+            rtcm_tx_frames=caster.tx_frames if caster else 0,
+            rtcm_tx_bytes=caster.tx_bytes if caster else 0,
+            rtcm_types=rtcm_types,
+            survey_state=self.serial.survey_state if self.serial is not None else SURVEY_NOT_CHECKED,
+            gga_seq=seq,
         )
+
+    def _publish_status(self) -> None:
+        """Publish compact JSON status; skipped until a GGA has been received."""
+        status = self.current_status()
+        if status is None or self._status_pub is None:
+            return
         self._status_pub.publish(String(data=status_json(status)))
 
     def _publish_cb(self) -> None:

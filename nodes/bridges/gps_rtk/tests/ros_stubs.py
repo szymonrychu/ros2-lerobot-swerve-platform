@@ -1,5 +1,6 @@
-"""Stubs for the shutdown tests: rclpy is not installed on dev machines, so fake it before importing node modules."""
+"""Stubs for the node tests: rclpy is not installed on dev machines, so fake it before importing node modules."""
 
+import logging
 import sys
 from typing import Any
 from unittest.mock import MagicMock
@@ -19,14 +20,67 @@ EXCEPTIONS = (
 RCL_ALREADY_SHUTDOWN = "failed to shutdown: rcl_shutdown already called on the given context"
 
 
+class FakeNode:
+    """rclpy Node double: records publishers by topic, timers and the logger are mocks."""
+
+    def __init__(self, name: str, *_args: Any, **_kwargs: Any) -> None:
+        """Create the double.
+
+        Args:
+            name (str): Node name.
+        """
+        self.node_name = name
+        self.publishers: dict[str, MagicMock] = {}
+        self.logger = MagicMock(name="logger")
+        self.logger.get_effective_level.return_value = logging.INFO
+
+    def create_publisher(self, _msg_type: Any, topic: str, _qos: Any) -> MagicMock:
+        """Return a mock publisher, kept under its topic.
+
+        Returns:
+            MagicMock: The publisher.
+        """
+        self.publishers[topic] = MagicMock(name=f"publisher {topic}")
+        return self.publishers[topic]
+
+    def create_timer(self, *_args: Any, **_kwargs: Any) -> MagicMock:
+        """Return a mock timer (callbacks are called directly by the tests).
+
+        Returns:
+            MagicMock: The timer.
+        """
+        return MagicMock(name="timer")
+
+    def get_logger(self) -> MagicMock:
+        """Return the shared mock logger.
+
+        Returns:
+            MagicMock: The logger.
+        """
+        return self.logger
+
+    def get_clock(self) -> MagicMock:
+        """Return a mock ROS clock.
+
+        Returns:
+            MagicMock: The clock.
+        """
+        return MagicMock(name="clock")
+
+
 def install_ros_stubs(*extra_modules: str) -> None:
     """Register MagicMock modules for rclpy (and extra ROS packages) without replacing existing stubs.
+
+    rclpy.node.Node becomes FakeNode when rclpy.node is a stub, so node classes can be built in tests.
 
     Args:
         *extra_modules (str): Further module names to stub (e.g. "sensor_msgs.msg").
     """
     for name in (*STUBBED_MODULES, *extra_modules):
         sys.modules.setdefault(name, MagicMock(name=name))
+    node_module = sys.modules["rclpy.node"]
+    if isinstance(node_module, MagicMock) and not isinstance(node_module.Node, type):
+        node_module.Node = FakeNode
     for module_name, attr in EXCEPTIONS:
         module = sys.modules[module_name]
         current = getattr(module, attr, None)

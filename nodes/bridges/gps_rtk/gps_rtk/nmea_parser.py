@@ -88,18 +88,14 @@ def _safe_float(s: str) -> float | None:
         return None
 
 
-def parse_gga(sentence: str) -> dict[str, Any] | None:
-    """Parse GGA sentence into a rich dict.
-
-    Extracted fields:
-        latitude, longitude, altitude, quality, status (NavSatStatus),
-        num_satellites, hdop, diff_age_s, diff_ref_id.
+def split_gga(sentence: str) -> list[str] | None:
+    """Split a GGA sentence into its fields (checksum suffix removed).
 
     Args:
         sentence: Full NMEA sentence including $ and *XX.
 
     Returns:
-        Dict or None if the sentence is invalid / not GGA.
+        Comma-split fields, or None if the sentence is not a GGA with at least 10 fields.
     """
     if "GGA" not in sentence or not sentence.startswith("$"):
         return None
@@ -109,30 +105,67 @@ def parse_gga(sentence: str) -> dict[str, Any] | None:
     parts = body.split(",")
     if len(parts) < 10:
         return None
+    return parts
+
+
+def gga_status_fields(parts: list[str]) -> dict[str, Any]:
+    """Extract the receiver-state fields of a split GGA (no position).
+
+    Args:
+        parts: Output of split_gga.
+
+    Returns:
+        Dict with quality, status (NavSatStatus), num_satellites, hdop, diff_age_s, diff_ref_id; fields the
+        receiver left empty are None.
+    """
+    quality = parse_gga_quality(parts)
+    return {
+        "quality": quality,
+        "status": GGA_QUALITY_TO_STATUS.get(quality, -1),
+        "num_satellites": int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else None,
+        "hdop": _safe_float(parts[8]) if len(parts) > 8 else None,
+        "diff_age_s": _safe_float(parts[13]) if len(parts) > 13 else None,
+        "diff_ref_id": parts[14].strip() if len(parts) > 14 and parts[14].strip() else None,
+    }
+
+
+def parse_gga_status(sentence: str) -> dict[str, Any] | None:
+    """Parse the receiver state of any GGA sentence, also one without a fix or position.
+
+    Unlike parse_gga this never needs latitude/longitude, so a no-fix GGA (quality 0, empty position) still
+    yields the fix quality and the satellites and HDOP the receiver reports.
+
+    Args:
+        sentence: Full NMEA sentence including $ and *XX.
+
+    Returns:
+        Dict with quality, status, num_satellites, hdop, diff_age_s, diff_ref_id, or None if not a GGA.
+    """
+    parts = split_gga(sentence)
+    return gga_status_fields(parts) if parts is not None else None
+
+
+def parse_gga(sentence: str) -> dict[str, Any] | None:
+    """Parse a GGA sentence with a position into a rich dict.
+
+    Extracted fields:
+        latitude, longitude, altitude plus the parse_gga_status fields (quality, status (NavSatStatus),
+        num_satellites, hdop, diff_age_s, diff_ref_id).
+
+    Args:
+        sentence: Full NMEA sentence including $ and *XX.
+
+    Returns:
+        Dict or None if the sentence is invalid / not GGA / has no position.
+    """
+    parts = split_gga(sentence)
+    if parts is None:
+        return None
     lat_lon = parse_gga_lat_lon(parts)
     if lat_lon is None:
         return None
     lat, lon = lat_lon
-    alt = parse_gga_altitude(parts)
-    quality = parse_gga_quality(parts)
-    status = GGA_QUALITY_TO_STATUS.get(quality, -1)
-
-    num_sats = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else None
-    hdop = _safe_float(parts[8]) if len(parts) > 8 else None
-    diff_age = _safe_float(parts[13]) if len(parts) > 13 else None
-    diff_ref = parts[14].strip() if len(parts) > 14 and parts[14].strip() else None
-
-    return {
-        "latitude": lat,
-        "longitude": lon,
-        "altitude": alt,
-        "quality": quality,
-        "status": status,
-        "num_satellites": num_sats,
-        "hdop": hdop,
-        "diff_age_s": diff_age,
-        "diff_ref_id": diff_ref,
-    }
+    return {"latitude": lat, "longitude": lon, "altitude": parse_gga_altitude(parts), **gga_status_fields(parts)}
 
 
 def quality_label(quality: int) -> str:

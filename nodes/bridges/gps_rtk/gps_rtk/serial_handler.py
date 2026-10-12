@@ -22,6 +22,13 @@ SERIAL_OPEN_MAX_RETRIES = 5
 SERIAL_OPEN_RETRY_DELAY_S = 2.0
 CONFIGURE_MAX_RETRIES = 3
 
+# Base calibration (survey-in) states, reported as survey_state in the base status.
+SURVEY_NOT_CHECKED = "not_checked"  # configure_on_start off, or configure not run yet
+SURVEY_FIXED_POSITION = "fixed_position"  # stored survey-in ECEF found, fixed-position base mode re-activated
+SURVEY_UNCALIBRATED = "uncalibrated"  # no stored ECEF (no response or zero): run rtk_calibrate.sh
+SURVEY_UNREADABLE = "unreadable"  # PQTMCFGSVIN answer not parseable
+SURVEY_CONFIGURE_FAILED = "configure_failed"  # configure commands could not be written
+
 
 def nmea_checksum(sentence: str) -> str:
     """Compute NMEA XOR checksum for sentence after $ and before *.
@@ -198,6 +205,7 @@ class SerialHandler:
         # Waiter for send_nmea_wait: (expect_substring, event, result_list) or None
         self._nmea_waiter: tuple[str, threading.Event, list[str]] | None = None
         self._waiter_lock = threading.Lock()
+        self.survey_state: str = SURVEY_NOT_CHECKED
 
     def open(self) -> None:
         """Open serial port with retry and start read thread.
@@ -351,11 +359,13 @@ class SerialHandler:
         automatically re-enter fixed-position mode after a power cycle. This method
         reads the stored position with PQTMCFGSVIN,R and, if non-zero ECEF is found,
         re-sends the PQTMCFGSVIN,W,2 command to activate base mode. Safe to call on
-        an uncalibrated module — logs a warning and returns without raising.
+        an uncalibrated module - logs a warning and returns without raising. The outcome is kept in
+        survey_state (SURVEY_FIXED_POSITION, SURVEY_UNCALIBRATED or SURVEY_UNREADABLE).
         """
         response = self.send_nmea_wait("$PQTMCFGSVIN,R", "PQTMCFGSVIN", timeout_s=5.0)
         if not response:
             LOG.warning("No PQTMCFGSVIN response — base calibration (survey-in) may not have been run yet")
+            self.survey_state = SURVEY_UNCALIBRATED
             return
         m = re.search(
             r"PQTMCFGSVIN,OK,1,\d+,[\d.]+,([-\d.]+),([-\d.]+),([-\d.]+)",
@@ -363,21 +373,25 @@ class SerialHandler:
         )
         if not m:
             LOG.warning("PQTMCFGSVIN response not parseable: %s", response)
+            self.survey_state = SURVEY_UNREADABLE
             return
         x, y, z = m.group(1), m.group(2), m.group(3)
         try:
             xf, yf, zf = float(x), float(y), float(z)
         except ValueError:
             LOG.warning("PQTMCFGSVIN ECEF values not numeric: %s %s %s", x, y, z)
+            self.survey_state = SURVEY_UNREADABLE
             return
         if (xf == 0.0 and yf == 0.0 and zf == 0.0) or abs(xf) < 1e-6:
             LOG.warning("PQTMCFGSVIN ECEF is zero — base calibration (survey-in) needed")
+            self.survey_state = SURVEY_UNCALIBRATED
             return
         LOG.info("Stored ECEF X=%s Y=%s Z=%s — activating fixed-position base mode", x, y, z)
         self.send_nmea(f"$PQTMCFGSVIN,W,2,0,0,{x},{y},{z}")
         time.sleep(0.1)
         self.send_nmea("$PQTMSAVEPAR")
         LOG.info("Fixed-position base mode activated and saved to flash")
+        self.survey_state = SURVEY_FIXED_POSITION
 
     def send_base_configure(self) -> None:
         """Send LC29H-BS configure commands (MSM7, ref 1005, ephemeris, NMEA) and save to flash.
@@ -420,3 +434,4 @@ class SerialHandler:
             "Failed to send configure commands after %d attempts — node will continue without configure",
             CONFIGURE_MAX_RETRIES,
         )
+        self.survey_state = SURVEY_CONFIGURE_FAILED

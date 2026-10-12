@@ -7,6 +7,7 @@ from gps_rtk.nmea_parser import (
     parse_gga_altitude,
     parse_gga_lat_lon,
     parse_gga_quality,
+    parse_gga_status,
     quality_label,
 )
 
@@ -130,3 +131,62 @@ def test_drift_from_mean_offset() -> None:
     assert result is not None
     d2d, _ = result
     assert d2d > 5.0  # 0.0001° ≈ 11 m offset from mean
+
+
+# --- parse_gga_status: receiver state from every GGA, with or without a position ---
+
+NO_FIX_GGA = "$GNGGA,000012.000,,,,,0,00,99.99,,,,,,*7A"
+NO_FIX_SATS_GGA = "$GNGGA,120000.00,,,,,0,05,2.5,,,,,,*4F"
+NO_FIX_EMPTY_GGA = "$GNGGA,,,,,,0,,,,,,,,*66"
+FIX_GGA = "$GNGGA,162123.000,5436.320777,N,01818.578046,E,5,27,0.58,11.965,M,33.666,M,1.0,3335*64"
+
+
+def test_parse_gga_status_no_fix_without_position() -> None:
+    out = parse_gga_status(NO_FIX_GGA)
+    assert out == {
+        "quality": 0,
+        "status": -1,
+        "num_satellites": 0,
+        "hdop": 99.99,
+        "diff_age_s": None,
+        "diff_ref_id": None,
+    }
+
+
+def test_parse_gga_status_no_fix_reports_tracked_satellites() -> None:
+    out = parse_gga_status(NO_FIX_SATS_GGA)
+    assert out is not None
+    assert out["quality"] == 0
+    assert out["num_satellites"] == 5
+    assert out["hdop"] == 2.5
+
+
+def test_parse_gga_status_empty_fields_are_none() -> None:
+    out = parse_gga_status(NO_FIX_EMPTY_GGA)
+    assert out is not None
+    assert out["quality"] == 0
+    assert out["num_satellites"] is None
+    assert out["hdop"] is None
+
+
+def test_parse_gga_status_has_no_position_keys() -> None:
+    out = parse_gga_status(FIX_GGA)
+    assert out is not None
+    assert not {"latitude", "longitude", "altitude"} & out.keys()
+
+
+def test_parse_gga_status_matches_position_parser_fields() -> None:
+    status = parse_gga_status(FIX_GGA)
+    full = parse_gga(FIX_GGA)
+    assert status is not None and full is not None
+    assert {k: full[k] for k in status} == status
+
+
+def test_parse_gga_status_rejects_non_gga_and_truncated() -> None:
+    assert parse_gga_status("$GNRMC,123519.00,A,1,2,3*00") is None
+    assert parse_gga_status("GNGGA,000012.000,,,,,0,00,99.99,,,,,,*7A") is None
+    assert parse_gga_status("$GNGGA,000012.000,,,*00") is None
+
+
+def test_parse_gga_still_rejects_no_fix_without_position() -> None:
+    assert parse_gga(NO_FIX_GGA) is None

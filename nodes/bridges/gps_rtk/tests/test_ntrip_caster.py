@@ -1,7 +1,10 @@
 """Tests for NtripCaster: request parsing, auth, broadcasting."""
 
+import json
 import socket
 import time
+from collections.abc import Callable
+from typing import Any
 
 from gps_rtk.ntrip_caster import NtripCaster
 
@@ -178,3 +181,129 @@ def test_disconnected_client_removed() -> None:
         assert caster.client_count == 0
     finally:
         caster.stop()
+
+
+# --- GET /status: base status JSON next to the NTRIP mountpoint ---
+
+BASE_STATUS = {"role": "base", "quality": 4, "fix": "RTK Fixed", "num_satellites": 18, "ntrip_clients": 1}
+
+
+def free_port() -> int:
+    """Return a free localhost TCP port."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
+
+
+def exchange(caster: NtripCaster, port: int, request: bytes) -> tuple[bytes, int]:
+    """Start caster, send request, read until the caster closes or 1 s passes, stop caster.
+
+    Args:
+        caster (NtripCaster): Caster bound to port.
+        port (int): Its TCP port.
+        request (bytes): Raw request.
+
+    Returns:
+        tuple[bytes, int]: Response bytes and the caster's client count right after the exchange.
+    """
+    caster.start()
+    time.sleep(0.05)
+    chunks: list[bytes] = []
+    try:
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(1.0)
+        client.connect(("127.0.0.1", port))
+        client.sendall(request)
+        try:
+            while chunk := client.recv(4096):
+                chunks.append(chunk)
+        except TimeoutError:
+            pass
+        time.sleep(0.05)
+        clients = caster.client_count
+        client.close()
+    finally:
+        caster.stop()
+    return b"".join(chunks), clients
+
+
+def make_caster(
+    port: int,
+    provider: Callable[[], dict[str, Any] | None] | None = None,
+    user: str = "",
+    password: str = "",
+) -> NtripCaster:
+    return NtripCaster(
+        bind="127.0.0.1",
+        port=port,
+        mountpoint="/rtk",
+        user=user,
+        password=password,
+        status_provider=provider,
+    )
+
+
+def split_http(response: bytes) -> tuple[str, dict[str, str], bytes]:
+    head, _, body = response.partition(b"\r\n\r\n")
+    lines = head.decode("ascii").split("\r\n")
+    headers = dict(line.split(": ", 1) for line in lines[1:])
+    return lines[0], {k.lower(): v for k, v in headers.items()}, body
+
+
+def test_status_route_serves_status_json() -> None:
+    port = free_port()
+    response, clients = exchange(make_caster(port, lambda: BASE_STATUS), port, _make_request("/status"))
+    status_line, headers, body = split_http(response)
+    assert status_line == "HTTP/1.1 200 OK"
+    assert headers["content-type"] == "application/json"
+    assert int(headers["content-length"]) == len(body)
+    assert headers["connection"] == "close"
+    assert json.loads(body) == BASE_STATUS
+    assert clients == 0  # a status request never joins the RTCM broadcast
+
+
+def test_status_route_without_status_yet_says_so() -> None:
+    port = free_port()
+    response, _ = exchange(make_caster(port, lambda: None), port, _make_request("/status"))
+    status_line, headers, body = split_http(response)
+    assert status_line == "HTTP/1.1 503 Service Unavailable"
+    assert headers["content-type"] == "application/json"
+    assert json.loads(body) == {"error": "no status yet"}
+
+
+def test_status_route_needs_no_ntrip_auth() -> None:
+    port = free_port()
+    caster = make_caster(port, lambda: BASE_STATUS, user="admin", password="secret")
+    response, _ = exchange(caster, port, _make_request("/status"))
+    assert response.startswith(b"HTTP/1.1 200 OK")
+
+
+def test_status_route_absent_without_provider() -> None:
+    port = free_port()
+    response, _ = exchange(make_caster(port), port, _make_request("/status"))
+    assert response == b"HTTP/1.1 404 Not Found\r\n\r\n"
+
+
+def test_source_table_request_unchanged_with_status_route() -> None:
+    """GET / (the NTRIP source-table request) still gets the bare 404 it always got."""
+    port = free_port()
+    response, clients = exchange(make_caster(port, lambda: BASE_STATUS), port, _make_request("/"))
+    assert response == b"HTTP/1.1 404 Not Found\r\n\r\n"
+    assert clients == 0
+
+
+def test_mountpoint_unchanged_with_status_route() -> None:
+    port = free_port()
+    response, clients = exchange(make_caster(port, lambda: BASE_STATUS), port, _make_request("/rtk"))
+    assert response == b"ICY 200 OK\r\n\r\n"
+    assert clients == 1
+
+
+def test_mountpoint_auth_unchanged_with_status_route() -> None:
+    port = free_port()
+    caster = make_caster(port, lambda: BASE_STATUS, user="admin", password="secret")
+    response, clients = exchange(caster, port, _make_request("/rtk"))
+    assert response == b"HTTP/1.1 401 Unauthorized\r\n\r\n"
+    assert clients == 0

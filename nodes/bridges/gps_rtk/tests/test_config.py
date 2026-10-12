@@ -114,3 +114,14 @@ def test_config_metrics_port_optional() -> None:
     base = {"mode": "rover", "topic": "/client/gps/fix", "rtcm_server_host": "server.ros2.lan"}
     assert GpsRtkConfig.model_validate(base).metrics_port is None
     assert GpsRtkConfig.model_validate({**base, "metrics_port": 19104}).metrics_port == 19104
+
+
+def test_config_nmea_timeout_default() -> None:
+    cfg = GpsRtkConfig.model_validate({"mode": "rover", "topic": "/client/gps/fix"})
+    assert cfg.nmea_timeout_s == 3.0
+
+
+@pytest.mark.parametrize("timeout", [0, -2.0])
+def test_config_nmea_timeout_must_be_positive(timeout: float) -> None:
+    with pytest.raises(Exception):
+        GpsRtkConfig.model_validate({"mode": "rover", "topic": "/gps/fix", "nmea_timeout_s": timeout})

@@ -1,9 +1,11 @@
-"""Minimal NTRIP v1 caster: accepts rover connections and streams RTCM3 frames."""
+"""Minimal NTRIP v1 caster: accepts rover connections, streams RTCM3 frames and serves GET /status."""
 
 import base64
+import json
 import logging
 import socket
 import threading
+from collections.abc import Callable
 from typing import Any
 
 LOG = logging.getLogger(__name__)
@@ -13,6 +15,10 @@ _REQUEST_READ_SIZE = 4096
 _REQUEST_TIMEOUT_S = 5.0
 
 NTRIP_USER_AGENT = "gps_rtk-caster/1.0"
+
+# Base status route served next to the mountpoint (plain HTTP/1.1 JSON, no NTRIP auth: read-only LAN status).
+STATUS_PATH = "/status"
+NO_STATUS_BODY = {"error": "no status yet"}
 
 
 class NtripCaster:
@@ -44,13 +50,27 @@ class NtripCaster:
         user: str,
         password: str,
         logger: Any | None = None,
+        status_provider: Callable[[], dict[str, Any] | None] | None = None,
     ) -> None:
+        """Configure the caster (call start() to listen).
+
+        Args:
+            bind (str): Bind address.
+            port (int): TCP port.
+            mountpoint (str): NTRIP mountpoint (leading slash optional).
+            user (str): NTRIP user; empty disables auth.
+            password (str): NTRIP password.
+            logger (Any | None): ROS logger, or None for the module logger.
+            status_provider (Callable[[], dict[str, Any] | None] | None): Returns the current base status for
+                GET /status (None while there is none yet: 503); None disables the route (404 as before).
+        """
         self._bind = bind
         self._port = port
         self._mountpoint = mountpoint.lstrip("/")
         self._auth_required = bool(user)
         self._expected_token = base64.b64encode(f"{user}:{password}".encode()).decode() if user else ""
         self._logger = logger
+        self._status_provider = status_provider
 
         self._server_socket: socket.socket | None = None
         self._clients: list[socket.socket] = []
@@ -169,6 +189,10 @@ class NtripCaster:
             sock.close()
             return
 
+        if parts[1] == STATUS_PATH and self._status_provider is not None:
+            self.send_status(sock)
+            return
+
         # Check mountpoint (strip leading /)
         requested = parts[1].lstrip("/")
         if requested != self._mountpoint:
@@ -197,6 +221,25 @@ class NtripCaster:
         with self._lock:
             self._clients.append(sock)
         self._log_info("NTRIP client %s connected to /%s", addr[0], self._mountpoint)
+
+    def send_status(self, sock: socket.socket) -> None:
+        """Answer GET /status with the provider's status JSON (200), or 503 while there is none, then close.
+
+        Args:
+            sock (socket.socket): Client socket.
+        """
+        status = self._status_provider() if self._status_provider is not None else None
+        code = "200 OK" if status is not None else "503 Service Unavailable"
+        body = json.dumps(status if status is not None else NO_STATUS_BODY, separators=(",", ":")).encode()
+        head = (
+            f"HTTP/1.1 {code}\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n"
+        )
+        try:
+            sock.sendall(head.encode("ascii") + body)
+        except OSError:
+            pass
+        sock.close()
 
     @staticmethod
     def _extract_auth(lines: list[str]) -> str:
