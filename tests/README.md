@@ -955,6 +955,15 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   expected/achieved/duration and Cartesian tool poses; drive interrupt (zero twist, status, duration), twist
   integration and relative pose; navigation via a fake Nav port (success, interrupt cancels goal and zeroes the base,
   stop, timeout, rejected, unavailable, real monitor collision stop)
+- on-demand subscriptions (`test_on_demand_subscriptions.py`, `conftest.py` `ros_iface` fixture): an idle `RosRobot`
+  has no camera, `/scan_filtered` or `/tf` subscription (only `/tf_static`); `camera_image` subscribes the asked camera
+  and returns a real JPEG frame from a fake publisher thread, or fails after `image_timeout_s` without one; the reaper
+  destroys a camera subscription only after `on_demand.linger_s` unused (a call restarts the linger) and the next call
+  subscribes again; `scan_points` subscribes, waits at most `timeouts.state_stale_s` for a first scan (once) and a
+  reaped scan drops its sample; a TF lookup subscribes `/tf`, feeds `set_transform`, waits longer right after
+  subscribing, and reaping clears the buffer and re-inserts the static transforms; every `MOTION_CRITICAL_TOPICS` topic
+  and the battery topic is subscribed once at start and never destroyed; the reaper timer period, the `linger_s`
+  default and validation, and the `client.yml` value
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
 - lazy swerve joint states (`test_ros_iface_steer.py`, the `conftest.py` `ros_iface` fixture imports `ros_iface` against
   mocked ROS packages): `RosRobot` does not subscribe `/swerve_drive/joint_states` at startup; the first

@@ -36,7 +36,8 @@ from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import BatteryState, CompressedImage, Imu, JointState, LaserScan
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
-from tf2_ros import Buffer, TransformException, TransformListener
+from tf2_msgs.msg import TFMessage
+from tf2_ros import Buffer, TransformException
 
 from .approach import CostGrid, PathInfo
 from .arm import ArmController, ArmError, JointSample
@@ -143,6 +144,36 @@ FOOTPRINT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=Histo
 # collision_monitor ArmStop subscribes transient local (polygon_subscribe_transient_local: true): latched shape.
 ARM_STOP_QOS = MAP_QOS
 PARAM_WARN_THROTTLE_S = 30.0
+# tf2_ros listener QoS (DynamicListenerQoS / StaticListenerQoS): /tf volatile, /tf_static latched.
+TF_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=100)
+TF_STATIC_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=100,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+)
+TF_AUTHORITY = "default_authority"
+ON_DEMAND_REAP_CHECKS = 4  # idle checks of the on-demand subscriptions per on_demand.linger_s
+# Topic fields subscribed at start at full rate and never on demand or destroyed (plus config.battery.topic): arm
+# settle / convergence and the grasp band (joint states, currents), the body monitor's stall, slip, bump, tilt, temperature
+# and human-takeover feeds behind the robot events, interrupts and guards, the tilt guard, the collision monitor and the
+# leader motion check of take_control.
+MOTION_CRITICAL_TOPICS = (
+    "follower_joint_states",
+    "follower_joint_currents",
+    "active_source",
+    "odom",
+    "swerve_odom",
+    "rf2o_twist",
+    "imu",
+    "cmd_vel",
+    "servo_registers",
+    "tilt_guard_state",
+    "collision_monitor_state",
+    "leader_joint_updates",
+    "grasp_command",
+    "tf_static",
+)
 
 
 def polygon_msg(points: list[Point2]) -> PolygonMsg:
@@ -286,6 +317,73 @@ class RosNavPort(NavPort):
         return self.robot.robot_pose()
 
 
+class OnDemandSubscription:
+    """A subscription that exists only while it is used: the first touch creates it, reap destroys it once unused.
+
+    reap runs from an executor timer (never from a tool thread); spin_forever tolerates the InvalidHandle a destroy can
+    cause in a concurrent wait-set build.
+    """
+
+    def __init__(
+        self,
+        create: Callable[[], Any],
+        destroy: Callable[[Any], None],
+        linger_s: float,
+        wait_s: float,
+        clock: Callable[[], float],
+        on_destroy: Callable[[], None] | None = None,
+    ) -> None:
+        """Create the (unsubscribed) handle.
+
+        Args:
+            create (Callable[[], Any]): Creates and returns the rclpy subscription.
+            destroy (Callable[[Any], None]): Destroys a subscription (node.destroy_subscription).
+            linger_s (float): Seconds without a touch after which reap destroys the subscription.
+            wait_s (float): First-message window after a subscription is created (s).
+            clock (Callable[[], float]): Monotonic seconds.
+            on_destroy (Callable[[], None] | None): Called after the destroy (drop cached samples).
+        """
+        self.create = create
+        self.destroy = destroy
+        self.linger_s = linger_s
+        self.wait_s = wait_s
+        self.clock = clock
+        self.on_destroy = on_destroy
+        self.lock = threading.Lock()
+        self.sub: Any = None
+        self.subscribed_at = 0.0
+        self.last_use = 0.0
+
+    def touch(self) -> float:
+        """Mark a use, subscribing first when needed.
+
+        Returns:
+            float: Seconds left of the first-message window (0.0 once wait_s after the subscription has passed).
+        """
+        with self.lock:
+            now = self.clock()
+            self.last_use = now
+            if self.sub is None:
+                self.sub = self.create()
+                self.subscribed_at = now
+            return max(0.0, self.subscribed_at + self.wait_s - now)
+
+    def reap(self) -> bool:
+        """Destroy the subscription when unused for linger_s.
+
+        Returns:
+            bool: True when it was destroyed by this call.
+        """
+        with self.lock:
+            if self.sub is None or self.clock() - self.last_use < self.linger_s:
+                return False
+            sub, self.sub = self.sub, None
+            self.destroy(sub)
+        if self.on_destroy is not None:
+            self.on_destroy()
+        return True
+
+
 class RosRobot:
     """RobotApi + ArmBackend implementation on rclpy (spun by a MultiThreadedExecutor in a background thread)."""
 
@@ -310,8 +408,18 @@ class RosRobot:
         self.base_stop = threading.Event()
         self.base_motion = threading.Lock()
 
+        # On-demand subscriptions (cameras, scan, /tf): created by the first tool use, destroyed by reap_on_demand.
+        self.demand_clock: Callable[[], float] = time.monotonic
+        self.demand_sleep: Callable[[float], None] = time.sleep
+        self.on_demand: list[OnDemandSubscription] = []
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self.node, spin_thread=False)
+        self.tf_static: dict[str, Any] = {}  # child frame -> latest static transform (re-inserted after a clear)
+        self.subscribe(TFMessage, t.tf_static, self.on_tf_static, TF_STATIC_QOS)
+        self.tf_sub = self.on_demand_subscription(
+            lambda: self.node.create_subscription(TFMessage, t.tf, self.on_tf, TF_QOS, callback_group=self.group),
+            config.timeouts.state_stale_s,
+            self.clear_dynamic_tf,
+        )
 
         self.monitor = monitor or RobotMonitor(
             config.monitor, battery_guard, autonomy_source=config.arm.autonomy_source_name
@@ -323,7 +431,11 @@ class RosRobot:
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
         )
         self.cache_raw(Odometry, t.odom, "odom", SENSOR_QOS, lambda msg: self.monitor.on_odom(*twist_xyw(msg)))
-        self.cache(LaserScan, t.scan, "scan", SENSOR_QOS)
+        self.scan_sub = self.on_demand_subscription(
+            lambda: self.cache(LaserScan, t.scan, "scan", SENSOR_QOS),
+            config.timeouts.state_stale_s,
+            lambda: self.drop_sample("scan"),
+        )
         self.cache(OccupancyGrid, t.map, "map", MAP_QOS)
         self.cache(
             CollisionMonitorState,
@@ -357,12 +469,17 @@ class RosRobot:
         )
         self.subscribe(Twist, t.cmd_vel, lambda m: self.monitor.on_cmd_vel(m.linear.x, m.linear.y, m.angular.z))
         self.subscribe(String, t.servo_registers, self.on_servo_registers)
-        # Persistent camera subscriptions: per-call subscriptions destroyed from tool threads raced the executor's
-        # wait set (rclpy InvalidHandle killed the executor thread, 2026-10-08).
+        # On-demand camera subscriptions, destroyed only by the reaper timer: per-call subscriptions destroyed from tool
+        # threads raced the executor's wait set (rclpy InvalidHandle killed the executor thread, 2026-10-08).
         self.camera_topics = {"gripper": t.gripper_camera, "front": t.front_camera}
         self.camera_frames = {name: FrameCache() for name in self.camera_topics}
-        for name, topic in self.camera_topics.items():
-            self.subscribe(CompressedImage, topic, self.camera_frames[name].update)
+        self.camera_subs = {
+            name: self.on_demand_subscription(
+                functools.partial(self.subscribe, CompressedImage, topic, self.camera_frames[name].update),
+                config.timeouts.image_timeout_s,
+            )
+            for name, topic in self.camera_topics.items()
+        }
 
         if config.battery is not None and battery_guard is not None:
 
@@ -445,6 +562,9 @@ class RosRobot:
         )
         self.subscribe(String, t.grasp_command, self.on_grasp_command, COMMAND_QOS)
         self.node.create_timer(MONITOR_TICK_S, self.monitor.tick, callback_group=self.group)
+        self.node.create_timer(
+            config.on_demand.linger_s / ON_DEMAND_REAP_CHECKS, self.reap_on_demand, callback_group=self.group
+        )
         self.node.create_timer(1.0 / config.monitor.monitor_feed_hz, self.flush_feeds, callback_group=self.group)
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
@@ -762,7 +882,7 @@ class RosRobot:
 
     def subscribe(
         self, msg_type: type, topic: str, callback: Callable[[Any], None], qos: QoSProfile = SENSOR_QOS
-    ) -> None:
+    ) -> Any:
         """Subscribe a monitor feed (no caching).
 
         Args:
@@ -770,8 +890,109 @@ class RosRobot:
             topic (str): Topic name.
             callback (Callable[[Any], None]): Message handler.
             qos (QoSProfile): Subscription QoS.
+
+        Returns:
+            Any: The rclpy subscription.
         """
-        self.node.create_subscription(msg_type, topic, callback, qos, callback_group=self.group)
+        return self.node.create_subscription(msg_type, topic, callback, qos, callback_group=self.group)
+
+    def on_demand_subscription(
+        self, create: Callable[[], Any], wait_s: float, on_destroy: Callable[[], None] | None = None
+    ) -> OnDemandSubscription:
+        """Register an on-demand subscription (lingers on_demand.linger_s, reaped by reap_on_demand).
+
+        Args:
+            create (Callable[[], Any]): Creates the rclpy subscription.
+            wait_s (float): First-message window after subscribing (s).
+            on_destroy (Callable[[], None] | None): Called after it is destroyed.
+
+        Returns:
+            OnDemandSubscription: The handle; touch() before every read.
+        """
+        handle = OnDemandSubscription(
+            create,
+            self.node.destroy_subscription,
+            self.cfg.on_demand.linger_s,
+            wait_s,
+            lambda: self.demand_clock(),
+            on_destroy,
+        )
+        self.on_demand.append(handle)
+        return handle
+
+    def reap_on_demand(self) -> None:
+        """Timer callback: destroy every on-demand subscription unused for on_demand.linger_s."""
+        for handle in self.on_demand:
+            handle.reap()
+
+    def drop_sample(self, key: str) -> None:
+        """Forget a cached sample (its subscription was destroyed, so feed_ages must not report it).
+
+        Args:
+            key (str): Cache key.
+        """
+        with self.lock:
+            self.latest.pop(key, None)
+
+    def on_tf(self, msg: Any) -> None:
+        """Feed a /tf message into the TF buffer.
+
+        Args:
+            msg (Any): tf2_msgs/TFMessage.
+        """
+        for transform in msg.transforms:
+            self.tf_buffer.set_transform(transform, TF_AUTHORITY)
+
+    def on_tf_static(self, msg: Any) -> None:
+        """Feed a /tf_static message into the TF buffer and keep it for clear_dynamic_tf.
+
+        Args:
+            msg (Any): tf2_msgs/TFMessage.
+        """
+        for transform in msg.transforms:
+            with self.lock:
+                self.tf_static[transform.child_frame_id] = transform
+            self.tf_buffer.set_transform_static(transform, TF_AUTHORITY)
+
+    def clear_dynamic_tf(self) -> None:
+        """Drop the dynamic transforms once /tf is unsubscribed (a later lookup must wait for fresh ones, not return
+        the old latest pose) and re-insert the static ones (/tf_static is latched, it is not sent again)."""
+        self.tf_buffer.clear()
+        with self.lock:
+            static = list(self.tf_static.values())
+        for transform in static:
+            self.tf_buffer.set_transform_static(transform, TF_AUTHORITY)
+
+    def tf_lookup(self, frame: str, child: str) -> Any:
+        """Latest transform child -> frame, subscribing /tf on demand.
+
+        Waits up to timeouts.tf_timeout_s, or for the rest of the first-message window (timeouts.state_stale_s) right
+        after /tf was subscribed.
+
+        Args:
+            frame (str): Target frame.
+            child (str): Source frame.
+
+        Returns:
+            Any: geometry_msgs/TransformStamped.
+
+        Raises:
+            TransformException: When the transform is unavailable.
+        """
+        timeout = max(self.cfg.timeouts.tf_timeout_s, self.tf_sub.touch())
+        return self.tf_buffer.lookup_transform(frame, child, Time(), timeout=Duration(seconds=timeout))
+
+    def scan_sample(self) -> Stamped[Any] | LazyStamped | None:
+        """Fresh topics.scan sample, subscribing on demand; waits for a first message inside the first-message window.
+
+        Returns:
+            Stamped[Any] | LazyStamped | None: The scan, or None when none is fresher than timeouts.state_stale_s.
+        """
+        deadline = self.demand_clock() + self.scan_sub.touch()
+        stale = self.cfg.timeouts.state_stale_s
+        while self.get("scan", stale) is None and self.demand_clock() < deadline:
+            self.demand_sleep(NAV_POLL_S)
+        return self.get("scan", stale)
 
     def on_servo_registers(self, msg: String) -> None:
         """Feed a /follower/servo_registers JSON dump to the monitor (bad JSON is logged and dropped).
@@ -843,9 +1064,7 @@ class RosRobot:
             BasePose | None: Pose, or None when the transform is unavailable.
         """
         try:
-            tf = self.tf_buffer.lookup_transform(
-                frame, child, Time(), timeout=Duration(seconds=self.cfg.timeouts.tf_timeout_s)
-            )
+            tf = self.tf_lookup(frame, child)
         except TransformException:
             return None
         q = tf.transform.rotation
@@ -1136,7 +1355,7 @@ class RosRobot:
         return state
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:
-        """Wait for the next frame on the camera's persistent subscription.
+        """Wait for the next frame on the camera's on-demand subscription (subscribed by the first call).
 
         Args:
             camera (str): 'gripper' or 'front' (overhead camera); both are CompressedImage topics.
@@ -1149,6 +1368,7 @@ class RosRobot:
             raise RobotError(f"unknown camera {camera!r}")
         topic = self.camera_topics[camera]
         cache = self.camera_frames[camera]
+        self.camera_subs[camera].touch()
         msg = cache.wait_newer(cache.clock(), self.cfg.timeouts.image_timeout_s)
         if msg is None:
             raise RobotError(f"no frame on {topic} within {self.cfg.timeouts.image_timeout_s} s")
@@ -1182,17 +1402,12 @@ class RosRobot:
             ScanPoints | None: Valid returns as (x, y, z, range), or None when the scan is missing/stale or the
                 base_link <- laser transform is unavailable.
         """
-        scan = self.get("scan", self.cfg.timeouts.state_stale_s)
+        scan = self.scan_sample()
         if scan is None:
             return None
         msg = scan.value
         try:
-            tf = self.tf_buffer.lookup_transform(
-                self.cfg.topics.base_frame,
-                msg.header.frame_id,
-                Time(),
-                timeout=Duration(seconds=self.cfg.timeouts.tf_timeout_s),
-            )
+            tf = self.tf_lookup(self.cfg.topics.base_frame, msg.header.frame_id)
         except TransformException:
             return None
         t, q = tf.transform.translation, tf.transform.rotation
@@ -1218,7 +1433,7 @@ class RosRobot:
         """
         now = time.monotonic()
         summary = MapSummary()
-        scan = self.get("scan", self.cfg.timeouts.state_stale_s)
+        scan = self.scan_sample()
         if scan is None:
             summary.notes.append("lidar scan missing or stale")
         else:
@@ -1475,7 +1690,7 @@ class RosRobot:
         while self.get("costmap", td.costmap_stale_s) is None and time.monotonic() < deadline:
             time.sleep(NAV_POLL_S)
         self.grid_inputs("costmap", td.costmap_stale_s, t.local_costmap, inputs)
-        scan = self.get("scan", self.cfg.timeouts.state_stale_s)
+        scan = self.scan_sample()
         if scan is None:
             inputs.missing["lidar"] = "lidar scan missing or stale"
         else:

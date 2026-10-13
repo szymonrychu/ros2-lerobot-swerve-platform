@@ -143,6 +143,8 @@ class TopicSettings(StrictModel):
     base_frame: str = "base_link"
     home_service: str = "/arm/home"
     swerve_joint_states: str = "/swerve_drive/joint_states"  # steer joints for the release_control base reset
+    tf: str = "/tf"  # subscribed on demand (on_demand.linger_s) by the TF lookups of the tools
+    tf_static: str = "/tf_static"  # always subscribed (latched, about 0 msg/s)
     set_home_service: str = "/arm/set_home"
     # std_srvs/Trigger services of the web UI Arm tab (ControlManager.take_web_ui / release_web_ui).
     take_control_service: str = "/arm/take_control"
@@ -1441,6 +1443,17 @@ class GraspCheckSettings(StrictModel):
     image_px: int = Field(default=640, ge=1)  # longest side of the attached image (capped to limits.max_image_px)
 
 
+class OnDemandSettings(StrictModel):
+    """Subscriptions that exist only while a tool uses them: the cameras, topics.scan and topics.tf.
+
+    The first use subscribes and waits a bounded time for a first message (timeouts.image_timeout_s for a camera,
+    timeouts.state_stale_s for the scan and TF); the subscription is destroyed after linger_s without a use. The
+    motion-critical topics (ros_iface.MOTION_CRITICAL_TOPICS) are never on demand.
+    """
+
+    linger_s: float = Field(default=30.0, gt=0.0)
+
+
 class McpServerConfig(StrictModel):
     """Top-level mcp_server configuration."""
 
@@ -1459,6 +1472,7 @@ class McpServerConfig(StrictModel):
     look_around: LookAroundSettings = LookAroundSettings()
     motion_queue: MotionQueueSettings = MotionQueueSettings()
     control: ControlSettings = ControlSettings()
+    on_demand: OnDemandSettings = OnDemandSettings()
     # None: no footprint is published (the Nav2 / laser_filter configs keep their static polygons).
     nav_footprint: NavFootprintSettings | None = None
     poi: PoiSettings = PoiSettings()

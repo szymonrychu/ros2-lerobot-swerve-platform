@@ -41,6 +41,8 @@ ROS_MODULES = (
     "std_msgs.msg",
     "std_srvs",
     "std_srvs.srv",
+    "tf2_msgs",
+    "tf2_msgs.msg",
     "tf2_ros",
 )
 

@@ -1965,6 +1965,11 @@ ros2_nodes:
       control:
         steer_states_wait_s: 0.5
         steer_states_idle_s: 30.0
+      # Cameras, /scan_filtered and /tf are subscribed only while a tool reads them (bounded first-message wait) and
+      # destroyed after linger_s unused. Joint states, odom, IMU, tilt guard, battery and the other motion and monitor
+      # feeds stay subscribed at full rate (ros_iface.MOTION_CRITICAL_TOPICS).
+      on_demand:
+        linger_s: 30.0
       # Object memory (remember_object / list_objects / forget_object): objects are object POIs in poi_store; store_path is
       # only the legacy objects.json, imported once into poi_store and renamed *.migrated (directory made by mcp_server_setup.yml).
       objects:

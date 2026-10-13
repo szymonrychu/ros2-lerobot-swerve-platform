@@ -24,7 +24,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | Tool | What it does |
 |---|---|
 | `get_robot_state` | map -> base_link pose (TF), odometry twist, latest Nav2 goal status, collision monitor action (if published), arm joints/efforts, gripper effort, filter_node active source, lease state, data age per source. Stale data is omitted and listed in `notes`. |
-| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: 640x480 is about 400 tokens). Waits for the next frame on a persistent per-camera subscription (created at startup, never destroyed: per-call subscriptions raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/overview_camera/image_raw/compressed`, overhead left IMX219 of the stereo pair, 480x360 at 5 Hz, looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + metadata: capture stamp, the picture's `width` x `height`, `calibrated_image` (the size the pixel tools work in: the camera's intrinsics size, `null` for `front` until intrinsics are configured), `scale_to_calibrated` and a `pixel_note` saying to pass `image_width` / `image_height` with pixels read from this picture, and `lookup_id` (the picture's photo POI id, null when it was not recorded; see [Photos (photo POIs)](#photos-photo-pois)); error if no frame within `image_timeout_s` or the frame is older than 1 s. |
+| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: 640x480 is about 400 tokens). Waits for the next frame on an on-demand per-camera subscription (created by the first call, destroyed by the executor's reaper timer after `on_demand.linger_s` unused, never from the tool thread: per-call subscriptions destroyed from tool threads raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/overview_camera/image_raw/compressed`, overhead left IMX219 of the stereo pair, 480x360 at 5 Hz, looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + metadata: capture stamp, the picture's `width` x `height`, `calibrated_image` (the size the pixel tools work in: the camera's intrinsics size, `null` for `front` until intrinsics are configured), `scale_to_calibrated` and a `pixel_note` saying to pass `image_width` / `image_height` with pixels read from this picture, and `lookup_id` (the picture's photo POI id, null when it was not recorded; see [Photos (photo POIs)](#photos-photo-pois)); error if no frame within `image_timeout_s` or the frame is older than 1 s. |
 | `list_lookups(since, until, near{x,y,radius_m}, poi_id, text, camera, mcp_session, limit<=20)` | Past camera images (photo POIs), metadata only, newest first (default 10). Sensor. See [Photos (photo POIs)](#photos-photo-pois). |
 | `get_lookup_image(lookup_id, max_px)` | One recorded image (JPEG, exactly as the model received it; `max_px` only downscales) plus its metadata. Sensor. |
 | `annotate_lookup(lookup_id, note, poi_ids)` | Set a photo's note and/or POI links (replacing them; omitted fields stay) through a poi_store `update`; errors when poi_store is down. Sensor. |
@@ -232,6 +232,24 @@ only when a reader asks for it (`RosRobot.get`, the tools), at most once per rec
 by a timer at `monitor.monitor_feed_hz` (default 20, must be > 0) with the latest message only; a topic with no new message since the
 previous tick feeds nothing. `mcp_sample_age_seconds` is unchanged (it reads the receive time, never the message). Thresholds are the `monitor` config section
 (`MonitorSettings`, also in `ansible/group_vars/client.yml`).
+
+On-demand subscriptions (`on_demand` config section, `ros_iface.OnDemandSubscription`): profiling showed most of the
+idle CPU was rclpy executor wake-ups for messages no tool read. The two cameras (`topics.gripper_camera`,
+`topics.front_camera`), `topics.scan` (`/scan_filtered`) and `topics.tf` (`/tf`) are subscribed only while a tool uses
+them. The first use subscribes and waits a bounded time for a first message: a camera waits `timeouts.image_timeout_s`
+for the next frame; the scan waits up to `timeouts.state_stale_s`; a TF lookup waits `max(timeouts.tf_timeout_s, the
+rest of a timeouts.state_stale_s window)` right after `/tf` was subscribed, then `tf_timeout_s`. Every read restarts
+the linger. A reaper timer (every quarter of `on_demand.linger_s`, default 30 s) destroys a subscription unused for
+`linger_s`. A reaped scan drops its cached sample. A reaped `/tf` clears the TF buffer and re-inserts the stored static
+transforms, so a later lookup waits for fresh dynamic transforms instead of returning the old pose. `/tf_static` stays
+subscribed (latched, about 0 msg/s). The node subscribes `/tf` and `/tf_static` itself (into a `tf2_ros.Buffer`), not
+through a `TransformListener`.
+
+Never on demand (`ros_iface.MOTION_CRITICAL_TOPICS`, subscribed at start at full rate and never destroyed): the
+follower joint states and currents (arm settle and convergence, the grasp band), `/filter/active_source` (human takeover),
+`/odometry/filtered`, swerve `/odom` and `/odom_rf2o_twist` (stall and slip), `/imu/data` (bump and tilt), `/cmd_vel_nav`,
+`/follower/servo_registers` (temperatures, servo errors), `/tilt_guard/state`, `/collision_monitor_state`,
+`/filter/input_joint_updates` (take_control leader check), `/grasp/command`, `/tf_static`, and the battery topic.
 
 | Event `type` | Severity | Condition (default threshold) |
 |---|---|---|
@@ -2412,6 +2430,8 @@ control:                  # control leases: release_control base reset (see Cont
   steer_poll_s: 0.1
   steer_states_wait_s: 0.5    # lazy /swerve_drive/joint_states: first-message wait after subscribing
   steer_states_idle_s: 30.0   # ... destroyed once unread this long
+on_demand:                # cameras, /scan_filtered and /tf subscribed only while used (see Body awareness)
+  linger_s: 30.0            # destroyed after this long unused (checked every quarter of it), must be > 0
 nav_footprint:            # optional; published navigation footprint (see Navigation footprint)
   circle_segments: 16       # generated by scripts/gen_nav_footprint.py (do not edit by hand) ...
   close_gap_m: 0.01
