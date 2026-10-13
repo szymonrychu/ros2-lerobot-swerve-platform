@@ -25,7 +25,7 @@ from mcp_server.arm_reach import ReachEnvelope, joint_range, point_reach
 from mcp_server.camera_candidates import CandidateStore, RobotSnapshot
 from mcp_server.config import REPO_ROOT, McpServerConfig, ReachMapSettings
 from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel, base_link_to_arm
-from mcp_server.grasp import GraspPlanner, ObjectSpec, grasp_params
+from mcp_server.grasp import GraspPlanner, ObjectSpec, grasp_params, kernel_params
 from mcp_server.grasp_check import GripMeasurements, band_verdict, fuse, grip_evidence
 from mcp_server.ik import ArmKinematics
 from mcp_server.jaw_crop import jaw_crop
@@ -226,6 +226,97 @@ def grasp_plan_call(strategy: str | None) -> Call:
             plan.plan(obj, strategy or case["strategy"], params, surface, dict(SEED), case["pitch"])
 
     return call
+
+
+class SolveLineRecorder(GraspPlanner):
+    """GraspPlanner that records the keyword arguments of each waypoint IK call (solve_point / line) it makes."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Build the planner with an empty record.
+
+        Args:
+            *args (Any): GraspPlanner arguments.
+            **kwargs (Any): GraspPlanner keyword arguments.
+        """
+        super().__init__(*args, **kwargs)
+        self.cases: list[dict[str, Any]] = []
+
+    def solve_waypoints(
+        self,
+        label: str,
+        start: Any,
+        end: Any,
+        pitch: float,
+        seed: dict[str, float],
+        extra: Any,
+        params: Any,
+        budget: Any,
+    ) -> tuple[list[dict[str, float]], str | None]:
+        """Record the solve_line case, then solve (see GraspPlanner.solve_waypoints)."""
+        self.cases.append(
+            {
+                "geometry": self.geometry,
+                "label": label,
+                "start": None if start is None else [float(v) for v in start],
+                "end": [float(v) for v in end],
+                "pitch": float(pitch),
+                "seed": {j: float(seed[j]) for j in self.kin.joint_names},
+                "extra": None if extra is None else [float(v) for v in extra],
+                "heading_bias": float(self.kin.last_heading_bias),
+                "params": kernel_params(params),
+                "budget_limit": None if budget is None else budget.limit,
+                "budget_used": 0 if budget is None else self.kin.solve_count - budget.start,
+            }
+        )
+        return super().solve_waypoints(label, start, end, pitch, seed, extra, params, budget)
+
+
+def grasp_solve_line_cases() -> list[dict[str, Any]]:
+    """solve_line cases: every waypoint IK call of the recorded grasp scenarios, plus the failure paths.
+
+    The recorded scenarios (tests/data/grasp_golden.json) are planned cold with their strategy; each solve_point /
+    line call is one case. The edge cases reuse a recorded line: a target beyond reach, a target out of the joint
+    limits, a spent budget, a too small max_joint_jump_rad, a stall threshold every pose violates, and a kinematics
+    without tool offset.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments of mcp_core_cpp.grasp.solve_line (and its reference).
+    """
+    cfg, kin = config(), kinematics()
+    mount = cfg.arm.base_in_base_link
+    assert mount is not None
+    recorder = SolveLineRecorder(kin, cfg, FloorGuard(kin, cfg.floor_guard, mount, jaw()), jaw())
+    params = grasp_params(cfg.grasp, None)
+    for case in grasp_cases():
+        kin.solutions.clear()
+        obj = ObjectSpec(
+            frame="arm",
+            x=case["x"],
+            y=case["y"],
+            support_z=case["support_z"],
+            depth_m=case["size"][0],
+            width_m=case["size"][1],
+            height_m=case["size"][2],
+            gap_below_m=case["gap"],
+        )
+        surface = SurfaceModel(surface_z_m=case["surface_z"] + mount.z, tilt=None, tilt_source="none", mount=mount)
+        recorder.plan(obj, case["strategy"], params, surface, dict(SEED), case["pitch"])
+    cases = recorder.cases
+    line = next(c for c in cases if c["start"] is not None)
+    no_tool = line["geometry"] | {"tool_offset": [0.0, 0.0, 0.0]}
+    edge = [
+        line | {"label": "far", "start": None, "end": [1.0, 0.0, 0.1]},
+        line | {"label": "behind", "start": None, "end": [-0.1, 0.0, -0.15]},
+        line | {"label": "spent", "budget_limit": 10, "budget_used": 10},
+        line | {"label": "jumpy", "params": line["params"] | {"max_joint_jump_rad": 1e-4}},
+        line
+        | {
+            "label": "stall",
+            "params": line["params"] | {"stall_shoulder_lift_rad": -3.0, "stretched_elbow_max_rad": 3.0},
+        },
+        line | {"label": "no_tool_offset", "geometry": no_tool, "extra": None},
+    ]
+    return cases + edge
 
 
 def band_verdict_call() -> Call:

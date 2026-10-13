@@ -22,8 +22,12 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import numpy as np
+from ikpy.utils import geometry as ik_geometry
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+import mcp_core_cpp
+
+from . import ik
 from .arm_geometry import FOREARM_CAPSULE, GRIPPER_BODY, GRIPPER_BODY_POINTS, JAW_POINTS, WRIST_CAPSULE
 from .config import GraspSettings, GripProfileOverride, LimitSettings, McpServerConfig
 from .floor_guard import FloorGuard, JawModel, SurfaceModel, arm_to_base_link, base_link_to_arm, rotate
@@ -61,6 +65,8 @@ MAX_IK_SOLVES_PER_STRATEGY = 8000
 # Extra strategy budget factor when the step candidates (object beyond a step) are tried as well.
 STEP_BUDGET_FACTOR = 3
 MIN_STEP_M = 1e-3
+# Grasp parameters the C++ waypoint IK (mcp_core_cpp.grasp.solve_line) reads.
+KERNEL_PARAMS = ("interpolation_step_m", "max_joint_jump_rad", "stall_shoulder_lift_rad", "stretched_elbow_max_rad")
 
 WaypointLabel = Literal["pre_grasp", "open", "approach", "grasp", "close", "lift", "retreat"]
 GripperAction = Literal["set", "close", "keep"]
@@ -668,6 +674,70 @@ def is_stall_pose(joints: dict[str, float], params: GraspParams) -> bool:
     )
 
 
+def solver_geometry(kin: ArmKinematics) -> dict[str, Any]:
+    """Everything mcp_core_cpp.grasp.solve_line needs of the arm kinematics, as plain (JSON-able) values.
+
+    The links after ikpy's origin link carry their URDF origin (translation, rpy), joint axis, IK bounds (URDF limits
+    minus the margin, as set on the ikpy chain) and the origin transform ikpy multiplies with the joint rotation; the
+    ik module's solver constants come along so the C++ IK never drifts from ArmKinematics.inverse.
+
+    Args:
+        kin (ArmKinematics): Arm kinematics.
+
+    Returns:
+        dict[str, Any]: links, joints, active, index, offsets, limits, margin, tool_offset, max_reach_m,
+            pan_axis_xy and the ik constants (see the C++ GeometryModel).
+    """
+    links: list[dict[str, Any]] = []
+    for link in kin.chain.links[1:]:
+        origin = ik_geometry.homogeneous_translation_matrix(*link.origin_translation) @ (
+            ik_geometry.cartesian_to_homogeneous(ik_geometry.rpy_matrix(*link.origin_orientation))
+        )
+        revolute = link.joint_type == "revolute"
+        links.append(
+            {
+                "name": link.name,
+                "joint_type": link.joint_type,
+                "translation": [float(v) for v in link.origin_translation],
+                "orientation": [float(v) for v in link.origin_orientation],
+                "axis": [float(v) for v in link.rotation] if revolute else None,
+                "bounds": [float(b) for b in link.bounds] if revolute else None,
+                "origin": origin.tolist(),
+            }
+        )
+    return {
+        "links": links,
+        "joints": list(ik.ARM_CHAIN_JOINTS),
+        "active": list(ik.IK_ACTIVE_JOINTS),
+        "index": dict(kin.index),
+        "offsets": dict(kin.offsets),
+        "limits": {j: list(v) for j, v in kin.limits.items()},
+        "margin": float(kin.margin),
+        "tool_offset": [float(v) for v in kin.tool_offset],
+        "max_reach_m": float(kin.max_reach_m),
+        "pan_axis_xy": list(kin.pan_axis_xy),
+        "position_tolerance_m": ik.POSITION_TOLERANCE_M,
+        "pitch_tolerance_rad": ik.PITCH_TOLERANCE_RAD,
+        "heading_refinements": ik.HEADING_REFINEMENTS,
+        "tool_iterations": ik.TOOL_ITERATIONS,
+        "tool_convergence_m": ik.TOOL_CONVERGENCE_M,
+        "extra_seeds": [list(s) for s in ik.EXTRA_SEEDS],
+        "cache_size": ik.SOLUTION_CACHE_SIZE,
+    }
+
+
+def kernel_params(params: GraspParams) -> dict[str, float]:
+    """The grasp parameters solve_line reads.
+
+    Args:
+        params (GraspParams): Grasp parameters.
+
+    Returns:
+        dict[str, float]: interpolation_step_m, max_joint_jump_rad, stall_shoulder_lift_rad, stretched_elbow_max_rad.
+    """
+    return {name: float(getattr(params, name)) for name in KERNEL_PARAMS}
+
+
 def roll_guard_violations(waypoints: list[Waypoint], limits: LimitSettings) -> list[str]:
     """Check that the wrist roll changes only at the lifted pre-grasp, with the gripper at most half open.
 
@@ -719,6 +789,7 @@ class GraspPlanner:
         self.guard = guard
         self.jaw = jaw
         self.body = body or SelfCollisionChecker.from_config(kin, config, jaw)
+        self.geometry = solver_geometry(kin)  # the arm model the C++ waypoint IK (solve_waypoints) runs on
 
     def body_problem(self, label: str, samples: list[dict[str, float]], escape: bool = False) -> str | None:
         """Robot body check of plan samples: a sample within body_check.hard_margin_m makes the candidate infeasible.
@@ -1296,7 +1367,7 @@ class GraspPlanner:
         params: GraspParams,
         budget: IkBudget | None = None,
     ) -> tuple[list[dict[str, float]], str | None]:
-        """IK of one waypoint with the pose checks.
+        """IK of one waypoint with the pose checks (limit margin, shoulder stall), in C++ (solve_line).
 
         Args:
             label (str): Waypoint label (for reasons).
@@ -1310,34 +1381,7 @@ class GraspPlanner:
         Returns:
             tuple[list[dict[str, float]], str | None]: [solution] and None, or ([], reason).
         """
-        if budget is not None and budget.spent():
-            return [], f"{label}: IK budget of {budget.limit} solves spent (planning effort cap)"
-        try:
-            sol = self.kin.inverse(*point, pitch, seed, extra, self.kin.last_heading_bias)
-        except UnreachableError as exc:
-            return [], f"{label} unreachable: {exc}"
-        problem = self.pose_problem(label, sol, params)
-        return ([sol], None) if problem is None else ([], problem)
-
-    def pose_problem(self, label: str, joints: dict[str, float], params: GraspParams) -> str | None:
-        """Limit-margin and shoulder-stall checks of one pose.
-
-        Args:
-            label (str): Waypoint label.
-            joints (dict[str, float]): Measured joint angles.
-            params (GraspParams): Thresholds.
-
-        Returns:
-            str | None: Reason, or None when the pose is fine.
-        """
-        if not self.kin.within_limits(self.kin.to_urdf(joints)):
-            return f"{label}: joints outside the limits minus the {self.kin.margin} rad margin"
-        if is_stall_pose(joints, params):
-            return (
-                f"{label}: stretched arm (elbow_flex {joints[ELBOW_FLEX]:.2f} rad) with shoulder_lift "
-                f"{joints[SHOULDER_LIFT]:.2f} rad above {params.stall_shoulder_lift_rad} rad would stall the shoulder"
-            )
-        return None
+        return self.solve_waypoints(label, None, point, pitch, seed, extra, params, budget)
 
     def line(
         self,
@@ -1352,6 +1396,9 @@ class GraspPlanner:
     ) -> tuple[list[dict[str, float]], str | None]:
         """Straight tool-point line sampled every interpolation_step_m, each IK seeded from the previous sample.
 
+        Every sample gets solve_point's checks plus the max_joint_jump_rad check against the previous one; runs in
+        C++ (solve_line).
+
         Args:
             label (str): Waypoint label.
             start (np.ndarray): Line start (arm frame).
@@ -1365,24 +1412,54 @@ class GraspPlanner:
         Returns:
             tuple[list[dict[str, float]], str | None]: Samples (end included) and None, or ([], reason).
         """
-        n = max(1, math.ceil(float(np.linalg.norm(end - start)) / params.interpolation_step_m))
-        samples: list[dict[str, float]] = []
-        prev = seed
-        for i in range(1, n + 1):
-            point = start + (end - start) * i / n
-            solved, problem = self.solve_point(label, point, pitch, prev, extra, params, budget)
-            if problem is not None:
-                return [], problem
-            sol = solved[0]
-            jump = max(abs(sol[j] - prev[j]) for j in self.kin.joint_names)
-            if jump > params.max_joint_jump_rad:
-                return [], (
-                    f"{label}: joint jump {jump:.2f} rad between straight-line samples at "
-                    f"({point[0]:.3f}, {point[1]:.3f}, {point[2]:.3f}) exceeds max_joint_jump_rad {params.max_joint_jump_rad}"
-                )
-            samples.append(sol)
-            prev = sol
-        return samples, None
+        return self.solve_waypoints(label, start, end, pitch, seed, extra, params, budget)
+
+    def solve_waypoints(
+        self,
+        label: str,
+        start: np.ndarray | None,
+        end: np.ndarray,
+        pitch: float,
+        seed: dict[str, float],
+        extra: tuple[float, float, float] | None,
+        params: GraspParams,
+        budget: IkBudget | None,
+    ) -> tuple[list[dict[str, float]], str | None]:
+        """Run mcp_core_cpp.grasp.solve_line on this planner's kinematics and fold its effort back into them.
+
+        The kernel shares ArmKinematics.solutions (the IK answer cache); its ikpy-equivalent runs are added to
+        solve_count (what IkBudget watches) and its last heading bias becomes last_heading_bias, as the Python IK did.
+
+        Args:
+            label (str): Waypoint label.
+            start (np.ndarray | None): Line start, or None for the single waypoint end.
+            end (np.ndarray): Line end / waypoint.
+            pitch (float): Approach pitch (rad).
+            seed (dict[str, float]): Pose at the start.
+            extra (tuple[float, float, float] | None): Centring tool offset.
+            params (GraspParams): Thresholds.
+            budget (IkBudget | None): Effort cap.
+
+        Returns:
+            tuple[list[dict[str, float]], str | None]: Samples and None, or ([], reason).
+        """
+        out = mcp_core_cpp.grasp.solve_line(
+            geometry=self.geometry,
+            label=label,
+            start=None if start is None else [float(v) for v in start],
+            end=[float(v) for v in end],
+            pitch=float(pitch),
+            seed=seed,
+            extra=None if extra is None else [float(v) for v in extra],
+            heading_bias=self.kin.last_heading_bias,
+            params=kernel_params(params),
+            budget_limit=None if budget is None else budget.limit,
+            budget_used=0 if budget is None else self.kin.solve_count - budget.start,
+            cache=self.kin.solutions,
+        )
+        self.kin.solve_count += out["solves"]
+        self.kin.last_heading_bias = out["heading_bias"]
+        return out["samples"], out["problem"]
 
     def annotate(self, label: str, samples: list[dict[str, float]], surface: SurfaceModel) -> dict[str, Any]:
         """Slow-zone annotation of one plan step.
