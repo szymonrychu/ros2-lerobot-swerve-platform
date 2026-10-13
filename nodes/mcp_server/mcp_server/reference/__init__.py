@@ -1,9 +1,10 @@
 """Python reference implementations of the kernels ported to mcp_core_cpp, one module per kernel family.
 
 Each family module (``camera``, ``grasp``, ``ik_reach``, ``collision``, ``frontiers``) holds a ``KERNELS`` registry:
-kernel name -> ``ReferenceKernel``. A port registers the Python version of its kernel there (normally a thin call into
-the existing mcp_server code it replaces), names the bench/inputs.py function that builds its input cases, and sets the
-per-output tolerances. tests/regenerate_core_golden.py runs the reference on those cases and writes the golden that
+kernel name -> ``ReferenceKernel``. A port moves the original Python body of its kernel there (the mcp_server entry
+point then calls the C++ kernel, so the reference is the only Python copy and a golden never compares C++ with C++),
+names the bench/inputs.py function that builds its input cases, and sets the per-output tolerances.
+tests/regenerate_core_golden.py runs the reference on those cases and writes the golden that
 tests/core_parity.py checks the C++ kernel against.
 """
 

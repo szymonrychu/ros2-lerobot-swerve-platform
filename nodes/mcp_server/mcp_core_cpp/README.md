@@ -46,10 +46,17 @@ The family list appears in three places that must agree: `MCP_CORE_FAMILIES` in 
 
 ## Porting a kernel
 
-A port touches only its own family: `src/<family>/`, `mcp_server/reference/<family>.py`, its golden and its test.
+A port touches only its own family: `src/<family>/`, the Python module(s) whose kernel it ports,
+`mcp_server/reference/<family>.py`, its goldens, its parity test and `docs/<family>.md`.
 
-1. **Pick it from the profile.** Only kernels above the threshold in `../bench/REPORT.md` are ported.
-2. **Register the Python reference** in `mcp_server/reference/<family>.py`:
+The golden must always come from Python, never from the C++ kernel. So the original Python body is **moved** (not
+called) into `mcp_server/reference/<family>.py`, and the Python entry point then calls the C++ kernel. Regenerating a
+golden after the switch still runs the original Python code, never C++ against C++.
+
+1. **Pick it from the profile.** Only kernels with verdict `port` in `../bench/report.json` (see `../bench/REPORT.md`)
+   are ported. List every kernel of the family in `docs/<family>.md` with its median ms and either `ported` or
+   `below threshold, not ported`.
+2. **Move the Python body into the reference** `mcp_server/reference/<family>.py` and register it:
 
    ```python
    KERNELS: dict[str, ReferenceKernel] = {
@@ -61,23 +68,27 @@ A port touches only its own family: `src/<family>/`, `mcp_server/reference/<fami
    }
    ```
 
-   The reference calls the existing Python code (it is the behaviour the C++ must match). Add the input function to
-   `bench/inputs.py` next to the bench's own inputs (deployed config, recorded grasp cases, fixed-seed data).
+   `plan_segments_reference` holds the original Python implementation, moved verbatim from the mcp_server module; the
+   reference is used only by the golden generator. Add the input function to `bench/inputs.py` next to the bench's own
+   inputs (deployed config, recorded grasp cases, fixed-seed data).
 3. **Write the golden:** `uv run python -m tests.regenerate_core_golden --family grasp --kernel plan_segments` writes
    `tests/data/core_golden/grasp/plan_segments.json`. Commit it; regenerate only when the reference changes by design.
-4. **Write the parity test first** (`tests/test_core_<family>.py`) and see it fail (the kernel does not exist yet):
+4. **Write the parity test first** (`tests/test_core_parity_<family>.py`) and see it fail (the kernel does not exist
+   yet):
 
    ```python
    golden = core_parity.load_golden("grasp", "plan_segments")
    core_parity.assert_parity(golden, mcp_core_cpp.grasp.plan_segments)
    ```
 
-   The kernel is called with each case's keyword arguments and returns a mapping of the same named outputs.
+   The kernel is called with each case's keyword arguments and returns a mapping of the same named outputs. The test
+   also asserts `docs/<family>.md` matches `report.json` for the family.
 5. **Implement** in `src/<family>/<kernel>.cpp` (+ `.hpp`), bind it in `src/<family>/bind.cpp` with
    `m.def("plan_segments", ..., "a"_a, ...)`. New `.cpp` files in the family directory are picked up by CMake's glob
    (`CONFIGURE_DEPENDS`); no CMakeLists change.
 6. **Bump `version`** in `pyproject.toml`, run `uv lock` and `uv sync` in `nodes/mcp_server`.
-7. **Switch the Python entry point** to call the C++ kernel; the existing tool tests keep exercising it.
+7. **Switch the Python entry point** (same signature) to call the C++ kernel; the existing tool tests keep exercising
+   it, and the bench re-run shows the kernel faster than its Python median.
 
 ## Parity workflow
 
