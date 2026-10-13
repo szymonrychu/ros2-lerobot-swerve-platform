@@ -2011,10 +2011,18 @@ ros2_nodes:
         steer_states_wait_s: 0.5
         steer_states_idle_s: 30.0
       # Cameras, /scan_filtered and /tf are subscribed only while a tool reads them (bounded first-message wait) and
-      # destroyed after linger_s unused. Joint states, odom, IMU, tilt guard, battery and the other motion and monitor
-      # feeds stay subscribed at full rate (ros_iface.MOTION_CRITICAL_TOPICS).
+      # destroyed after linger_s unused. Odom, IMU, tilt guard, battery and the other motion and monitor feeds stay
+      # subscribed at full rate (ros_iface.MOTION_CRITICAL_TOPICS); the joint states follow joint_state_rate.
       on_demand:
         linger_s: 30.0
+      # /follower/joint_states and /swerve_drive/joint_states (95 Hz) are read from their 10 Hz topic_tools copies
+      # (joint_state_throttle_* nodes, <topic><throttled_suffix>) while the arm / base is idle, and at full rate from
+      # just before a motion of that subsystem until linger_s after it ended. A missing or silent copy falls back to
+      # full rate (logged once). Rollback: enabled: false (full rate always). Audit: nodes/mcp_server/README.md.
+      joint_state_rate:
+        enabled: true
+        throttled_suffix: /throttled
+        linger_s: 5.0
       # Object memory (remember_object / list_objects / forget_object): objects are object POIs in poi_store; store_path is
       # only the legacy objects.json, imported once into poi_store and renamed *.migrated (directory made by mcp_server_setup.yml).
       objects:

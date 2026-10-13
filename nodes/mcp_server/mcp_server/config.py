@@ -1451,6 +1451,18 @@ class OnDemandSettings(StrictModel):
     linger_s: float = Field(default=30.0, gt=0.0)
 
 
+class JointStateRateSettings(StrictModel):
+    """Dual-rate joint states (ros_iface.DualRateTopic): topics.follower_joint_states and topics.swerve_joint_states are
+    read from their 10 Hz topic_tools throttle copy '<topic><throttled_suffix>' while their subsystem (arm / base) is
+    idle, and from the full-rate topic from just before a motion of that subsystem until linger_s after the last one
+    ended. A missing or silent throttled copy (throttle node down) falls back to the full-rate topic, logged once.
+    """
+
+    enabled: bool = True  # False: always the full-rate topics (no throttled subscription)
+    throttled_suffix: str = Field(default="/throttled", pattern=r"^/[A-Za-z0-9_/]+$")
+    linger_s: float = Field(default=5.0, gt=0.0)
+
+
 class McpServerConfig(StrictModel):
     """Top-level mcp_server configuration."""
 
@@ -1470,6 +1482,7 @@ class McpServerConfig(StrictModel):
     motion_queue: MotionQueueSettings = MotionQueueSettings()
     control: ControlSettings = ControlSettings()
     on_demand: OnDemandSettings = OnDemandSettings()
+    joint_state_rate: JointStateRateSettings = JointStateRateSettings()
     # None: no footprint is published (the Nav2 / laser_filter configs keep their static polygons).
     nav_footprint: NavFootprintSettings | None = None
     poi: PoiSettings = PoiSettings()

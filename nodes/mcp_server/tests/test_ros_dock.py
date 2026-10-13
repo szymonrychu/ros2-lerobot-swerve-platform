@@ -423,6 +423,7 @@ def wired_robot(module: ModuleType, handle: FakeHandle | None = None) -> Any:
     robot.group = None
     robot.log = MagicMock()
     robot.cfg = McpServerConfig()
+    robot.joint_rates = {}  # no joint-state feeds: begin_motion / end_motion switch nothing
     robot.cancel_client = MagicMock()
     robot.cancel_client.wait_for_service.return_value = True
     robot.cancel_client.call_async.side_effect = lambda request: FakeFuture(object())

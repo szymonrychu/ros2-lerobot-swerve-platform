@@ -250,6 +250,66 @@ follower joint states and currents (arm settle and convergence, the grasp band),
 `/odometry/filtered`, swerve `/odom` and `/odom_rf2o_twist` (stall and slip), `/imu/data` (bump and tilt), `/cmd_vel_nav`,
 `/follower/servo_registers` (temperatures, servo errors), `/tilt_guard/state`, `/collision_monitor_state`,
 `/filter/input_joint_updates` (take_control leader check), `/grasp/command`, `/tf_static`, and the battery topic.
+The follower joint states are always subscribed, at the rate below.
+
+### Dual-rate joint states
+
+`/follower/joint_states` and `/swerve_drive/joint_states` arrive at 95 Hz, and each message wakes the rclpy executor
+(about 0.3-0.4 core while nothing moves, see `docs/plans/2026-10-13-cpp-nodes-briefs/webui-mcp-cpu-debug.md`). The
+`joint_state_throttle_follower` / `joint_state_throttle_swerve` nodes (`ros-jazzy-topic-tools` `throttle messages
+<topic> 10.0 <topic>/throttled`, see `ansible/README.md`) publish 10 Hz copies. `ros_iface.DualRateTopic`
+(`joint_state_rate` config section) reads them like this:
+
+- **Idle:** only `<topic><throttled_suffix>` (default `/throttled`) is subscribed. It is a raw subscription for the
+  follower and best effort, which matches the source and the copy. The cache key and every reader stay the same.
+- **Motion:** `RosRobot.begin_motion(subsystem)` runs before a motion of that subsystem. It subscribes the full-rate
+  topic and waits, at most `timeouts.state_stale_s`, until a full-rate sample is cached. The motion's start pose,
+  planning and first setpoint come after that wait. The arm switches in `ArmController`'s `MotionGuard`, which every
+  arm motion enters: move, cartesian, blend, path, gripper open and close (before the rest baseline), home, grasp,
+  release and jogs, from the MCP tools, the queue, the web UI `/grasp/command`, `/arm/home` and the `release_control`
+  park. The base (only the swerve feed) switches in `RosRobot.navigate`, `move_relative`, `drive`, `spin` and `dock`.
+  The MCP server also switches once per tool for the whole tool body (`tools.RATE_SUBSYSTEMS`: every lease-checked
+  motion tool for its subsystem, plus `release_control` for both).
+- **Back to idle:** full rate stays until `joint_state_rate.linger_s` (default 5 s) after the last motion of the
+  subsystem ended (overlapping motions are counted). Then the throttled copy is subscribed again.
+- **No gap, no placeholder:** until the newly selected subscription delivers, the old one keeps feeding the cache.
+  After that, only the selected one does. Subscriptions are destroyed only from the executor's 4 Hz monitor tick,
+  never from a tool thread. A throttled sample is subject to the same freshness limits as before
+  (`timeouts.follower_stale_s` for the arm, `timeouts.state_stale_s` for the steering), so a stale one is never acted
+  on. Nothing is ever synthesised.
+- **Fallback:** the copy may have no publisher (throttle node down), or it may be silent for `timeouts.state_stale_s`.
+  Either way the feed reads the full-rate topic and logs one warning per outage. It retries the copy one
+  `linger_s` later, once it has a publisher again.
+- `joint_state_rate.enabled: false` reads only the full-rate topics (rollback). A topic field in
+  `ros_iface.FULL_RATE_AT_REST` (a consumer that needs full rate at rest, per the audit below) is also read at full
+  rate permanently. The list is empty: no consumer needs full rate at rest.
+- `mcp_sample_age_seconds{key="joint_states"}` reads up to about 0.1 s while idle, instead of about 0.01 s.
+
+### Joint-state consumer audit
+
+Every reader of the two dual-rate topics in this node (`ros_iface`, `arm`, `jog`, `tools`, `models`, `monitor`,
+guards, grasp, settle, effort/contact and stall/collision detection) and whether it needs the full rate while its
+subsystem is idle. A `yes` row would put its topic field in `ros_iface.FULL_RATE_AT_REST` (checked by
+`tests/test_joint_state_dual_rate.py`).
+
+| Consumer | Topic | Full rate when idle | Why |
+|---|---|---|---|
+| `ArmController.stream` (all arm motions): stale-feedback abort, tracking-error abort, convergence, settled residual, close-until-effort contact (load delta, effort, target load), jaw stall contact | `follower_joint_states` | no | Runs only inside a motion, and `MotionGuard` switches to full rate before it reads the start pose |
+| `ArmController.rest_baseline` (gripper close baseline, `contact_baseline_samples` distinct samples) | `follower_joint_states` | no | Runs inside `set_gripper`'s `MotionGuard`, after the switch |
+| `hold_report`, `retighten_hold`, `grasp_check` (slip, crush risk, hold current and jaw) | `follower_joint_states` | no | Run inside the grasp's `MotionGuard`, or within the linger right after the close |
+| `keepalive_tick` hold republish, `relax_due_locked` (`arm_settle_hold_s` 2 s), settle probe (1 s after a trajectory end) | `follower_joint_states` | no | The republish sends the last setpoint and reads no sample. Relax and probe read one fresh sample, inside the 5 s linger (at 10 Hz still well within `follower_stale_s` 0.3 s) |
+| `acquire` / `take_lease` / `ensure_lease` (take_control holds the measured pose), `stop_hold`, `finish` holds | `follower_joint_states` | no | One fresh sample (at most about 0.1 s old at 10 Hz, limit 0.3 s); a hold is not a motion |
+| `ArmController.state`, `at_home`, `measured`, `get_arm_state`, `get_robot_state`, `get_control_state`, `ControlManager.carrying_state` | `follower_joint_states` | no | Point-in-time reads of the measured pose and load |
+| Guards: `GuardState.fresh`, `measured_pose`, the watch-constraint sampler (`motion_queue.watch_rate_hz` 10 Hz) | `follower_joint_states` | no | Point reads at tool entry and dispatch; the sampler runs while queued motions run (full rate) |
+| Motion queue: `read_live_state`, `state_digest`, `body_reasons`, `solve` | `follower_joint_states` | no | Point reads before dispatch; each step enters its own `MotionGuard` |
+| `jog.py` (web UI jogs: base pose, opening, preview) | `follower_joint_states` | no | Point reads; the jog itself is a `move_joints` / `move_cartesian` / `set_gripper` motion (`MotionGuard`) |
+| Grasp and approach planning: `grasp_tools` plan, `intent_errors`, `held_pose`, `jaw_crop_jpeg`; `approach_tools` IK seed; `lookup_tools.arm_joints`; `body_tools.get_arm_reach`; `camera_tools` arm pose | `follower_joint_states` | no | Point-in-time reads of the measured pose |
+| Navigation footprint (`RosRobot.arm_parts`, `ControlManager.publish_footprint`) and self-collision preview | `follower_joint_states` | no | The measured pose of an arm at rest, one sample per footprint tick |
+| `RobotMonitor` (overheat, servo error, stall, slip, bump, collision stop, tilt, human takeover) | `follower_joint_states` | no | Gets no joint-state feed: its arm interrupts come from servo registers, active source and the arm controller |
+| `models` (`ArmState`, `JointSample` results) and `metrics` (`mcp_sample_age_seconds`) | `follower_joint_states` | no | Built from the samples above or from the receive time; the age gauge reads about 0.1 s while idle |
+| `RosRobot.steer_positions` (release_control steering check, `get_control_state`) | `swerve_joint_states` | no | One fresh sample within `timeouts.state_stale_s` 1 s; still lazy (subscribed on first read, reaped after `control.steer_states_idle_s`) |
+| Base motions (`navigate`, `move_relative`, `drive`, `spin`, `dock`) and the base monitor | `swerve_joint_states` | no | Read odometry, TF, IMU and cmd_vel, never the swerve joint states; they switch it to full rate anyway (contract) |
+| `LeaderActivity` (take_control refused while the leader arm moves) | `leader_joint_updates` | no | Not a follower or swerve state and not dual-rate: the leader relay publishes only while the leader arm streams (under 1 Hz in the 2026-10-13 idle profile), so its subscription is unchanged |
 
 | Event `type` | Severity | Condition (default threshold) |
 |---|---|---|
@@ -2432,6 +2492,10 @@ control:                  # control leases: release_control base reset (see Cont
   steer_states_idle_s: 30.0   # ... destroyed once unread this long
 on_demand:                # cameras, /scan_filtered and /tf subscribed only while used (see Body awareness)
   linger_s: 30.0            # destroyed after this long unused (checked every quarter of it), must be > 0
+joint_state_rate:         # 10 Hz throttled joint states while idle, full rate around motions (see Dual-rate joint states)
+  enabled: true             # false: always the full-rate topics
+  throttled_suffix: /throttled  # copy topic = <topic><suffix> (joint_state_throttle_* topic_tools nodes)
+  linger_s: 5.0             # full rate kept this long after the last motion of the subsystem, must be > 0
 nav_footprint:            # optional; published navigation footprint (see Navigation footprint)
   circle_segments: 16       # generated by scripts/gen_nav_footprint.py (do not edit by hand) ...
   close_gap_m: 0.01

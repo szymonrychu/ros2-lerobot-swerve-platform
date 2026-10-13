@@ -9,7 +9,8 @@ import json
 import math
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
@@ -154,8 +155,8 @@ TF_STATIC_QOS = QoSProfile(
 )
 TF_AUTHORITY = "default_authority"
 ON_DEMAND_REAP_CHECKS = 4  # idle checks of the on-demand subscriptions per on_demand.linger_s
-# Topic fields subscribed at start at full rate and never on demand or destroyed (plus config.battery.topic): arm
-# settle / convergence and the grasp band (joint states, currents), the body monitor's stall, slip, bump, tilt, temperature
+# Topic fields subscribed at start and never on demand or destroyed (plus config.battery.topic): arm
+# settle / convergence and the grasp band (joint states, at the rate DualRateTopic selects; currents), the body monitor's stall, slip, bump, tilt, temperature
 # and human-takeover feeds behind the robot events, interrupts and guards, the tilt guard, the collision monitor and the
 # leader motion check of take_control.
 MOTION_CRITICAL_TOPICS = (
@@ -174,6 +175,12 @@ MOTION_CRITICAL_TOPICS = (
     "grasp_command",
     "tf_static",
 )
+# Dual-rate joint-state topic fields (joint_state_rate) and the subsystem whose motions switch each to full rate.
+DUAL_RATE_SUBSYSTEM = {"follower_joint_states": "arm", "swerve_joint_states": "base"}
+DUAL_RATE_TOPICS = tuple(DUAL_RATE_SUBSYSTEM)
+# Dual-rate topic fields with a consumer that needs full rate while its subsystem is idle (README joint-state consumer
+# audit): read at full rate permanently. The audit found none.
+FULL_RATE_AT_REST: tuple[str, ...] = ()
 
 
 def polygon_msg(points: list[Point2]) -> PolygonMsg:
@@ -384,6 +391,198 @@ class OnDemandSubscription:
         return True
 
 
+class DualRateTopic:
+    """A joint-state feed read from its 10 Hz '<topic>/throttled' copy while its subsystem is idle and from the
+    full-rate topic around the subsystem's motions (joint_state_rate in the config, audit in the README).
+
+    begin (tool or motion thread) subscribes the full-rate topic and waits, bounded by first_sample_s, for a full-rate
+    sample; end starts the linger. tick (the executor's monitor timer, never a tool thread) destroys a superseded
+    subscription once the one replacing it delivered, returns to the throttled copy linger_s after the last motion
+    ended, and falls back to full rate (logged once per outage) when the throttled copy has no publisher or stays silent
+    for first_sample_s. Until the newly selected subscription delivers, the previous one keeps feeding store, so the
+    cache never has a gap; after that only the selected one does. Nothing is ever synthesised: store only gets messages.
+    """
+
+    def __init__(
+        self,
+        topic: str,
+        throttled_topic: str,
+        subscribe: Callable[[str, Callable[[Any], None]], Any],
+        destroy: Callable[[Any], None],
+        store: Callable[[Any], None],
+        publishers: Callable[[str], int],
+        clock: Callable[[], float],
+        sleep: Callable[[float], None],
+        log: Any,
+        linger_s: float,
+        first_sample_s: float,
+        fresh_s: float,
+        switching: bool = True,
+    ) -> None:
+        """Create the (unsubscribed) feed; start() subscribes it.
+
+        Args:
+            topic (str): Full-rate topic.
+            throttled_topic (str): Its 10 Hz copy.
+            subscribe (Callable[[str, Callable[[Any], None]], Any]): Creates a subscription on a topic with a callback.
+            destroy (Callable[[Any], None]): Destroys a subscription (node.destroy_subscription).
+            store (Callable[[Any], None]): Caches one accepted message.
+            publishers (Callable[[str], int]): Publisher count of a topic (node.count_publishers).
+            clock (Callable[[], float]): Monotonic seconds.
+            sleep (Callable[[float], None]): Sleeps the calling thread.
+            log (Any): rclpy logger (warning, info).
+            linger_s (float): Full rate kept this long after the last motion ended (s).
+            first_sample_s (float): Wait for a first full-rate sample in begin, and the silence that counts the
+                throttled copy as absent (s).
+            fresh_s (float): A full-rate sample at most this old satisfies begin at once (s).
+            switching (bool): False reads the full-rate topic only (disabled, or a full-rate-at-rest consumer).
+        """
+        self.topic = topic
+        self.throttled_topic = throttled_topic
+        self.subscribe = subscribe
+        self.destroy = destroy
+        self.store = store
+        self.publishers = publishers
+        self.clock = clock
+        self.sleep = sleep
+        self.log = log
+        self.linger_s = linger_s
+        self.first_sample_s = first_sample_s
+        self.fresh_s = fresh_s
+        self.switching = switching
+        self.lock = threading.Lock()
+        self.mode: str | None = None  # "full" | "throttled" | None (not subscribed)
+        self.subs: dict[str, Any] = {}  # kind -> subscription
+        self.delivered: dict[str, float] = {}  # kind -> clock() of its latest message
+        self.switched_at = 0.0
+        self.active = 0
+        self.last_end = -math.inf
+        self.outage_logged = False
+
+    def start(self) -> None:
+        """Subscribe at the idle rate, or at full rate while a motion of the subsystem runs (no-op when subscribed)."""
+        with self.lock:
+            if self.mode is None:
+                self.select_locked("full" if self.active > 0 else self.idle_kind_locked())
+
+    def stop(self) -> None:
+        """Destroy every subscription (executor timer only)."""
+        with self.lock:
+            subs, self.subs, self.mode = list(self.subs.values()), {}, None
+            self.delivered.clear()
+        for sub in subs:
+            self.destroy(sub)
+
+    def idle_kind_locked(self) -> str:
+        """Rate to read at while idle: throttled unless switching is off or the copy has no publisher (lock held).
+
+        Returns:
+            str: "throttled" or "full".
+        """
+        if not self.switching:
+            return "full"
+        if int(self.publishers(self.throttled_topic)) > 0:
+            return "throttled"
+        self.note_outage_locked("has no publisher")
+        return "full"
+
+    def note_outage_locked(self, why: str) -> None:
+        """Log the fall back to full rate once per outage (lock held).
+
+        Args:
+            why (str): Reason.
+        """
+        if not self.outage_logged:
+            self.outage_logged = True
+            self.log.warning(f"{self.throttled_topic} {why} (throttle node down?): reading {self.topic} at full rate")
+
+    def select_locked(self, kind: str) -> None:
+        """Make kind the rate the cache follows, subscribing it when needed (lock held).
+
+        Args:
+            kind (str): "full" or "throttled".
+        """
+        if self.mode == kind:
+            return
+        self.mode = kind
+        self.switched_at = self.clock()
+        if kind not in self.subs:
+            self.delivered.pop(kind, None)
+            topic = self.topic if kind == "full" else self.throttled_topic
+            self.subs[kind] = self.subscribe(topic, functools.partial(self.on_message, kind))
+
+    def on_message(self, kind: str, msg: Any) -> None:
+        """Subscription callback: cache the message when its rate is selected, or while the selected one is silent.
+
+        Args:
+            kind (str): "full" or "throttled".
+            msg (Any): The message (raw bytes or decoded, as subscribe delivers it).
+        """
+        with self.lock:
+            now = self.clock()
+            self.delivered[kind] = now
+            mode = self.mode
+            if mode is None:
+                return
+            if kind == "throttled" and self.outage_logged and mode == "throttled":
+                self.outage_logged = False  # the copy is back: a later outage is logged again
+            accept = kind == mode or self.delivered.get(mode, -math.inf) < self.switched_at
+        if accept:
+            self.store(msg)
+
+    def begin(self) -> None:
+        """A motion of the subsystem starts: switch to full rate and wait (bounded) for a fresh full-rate sample.
+
+        Not subscribed (a lazy feed nobody reads yet): only counted, nothing waits.
+        """
+        with self.lock:
+            self.active += 1
+            if self.mode is None:
+                return
+            self.select_locked("full")
+            since = max(self.switched_at if "full" not in self.delivered else -math.inf, self.clock() - self.fresh_s)
+            deadline = self.clock() + self.first_sample_s
+        while self.clock() < deadline:
+            with self.lock:
+                if self.delivered.get("full", -math.inf) >= since:
+                    return
+            self.sleep(NAV_POLL_S)
+
+    def end(self) -> None:
+        """A motion of the subsystem ended: full rate stays linger_s after the last one."""
+        with self.lock:
+            self.active = max(0, self.active - 1)
+            self.last_end = self.clock()
+
+    def tick(self) -> None:
+        """Executor timer: drop a superseded subscription, return to throttled after the linger, fall back on silence."""
+        doomed: list[Any] = []
+        with self.lock:
+            if self.mode is None:
+                return
+            now = self.clock()
+            mode = self.mode
+            if mode == "throttled" and self.delivered.get("throttled", -math.inf) < now - self.first_sample_s:
+                if now - self.switched_at >= self.first_sample_s:
+                    self.note_outage_locked(f"silent for {self.first_sample_s:g} s")
+                    self.select_locked("full")
+                    self.last_end = now  # retry the copy one linger later
+            elif (
+                mode == "full"
+                and self.switching
+                and self.active == 0
+                and now - self.last_end >= self.linger_s
+                and now - self.switched_at >= self.linger_s
+            ):
+                self.select_locked(self.idle_kind_locked())
+            if self.delivered.get(self.mode, -math.inf) >= self.switched_at:
+                for kind in [k for k in self.subs if k != self.mode]:
+                    doomed.append(self.subs.pop(kind))
+                    self.delivered.pop(kind, None)
+        for sub in doomed:
+            self.destroy(sub)
+
+
 class RosRobot:
     """RobotApi + ArmBackend implementation on rclpy (spun by a MultiThreadedExecutor in a background thread)."""
 
@@ -425,7 +624,17 @@ class RosRobot:
             config.monitor, battery_guard, autonomy_source=config.arm.autonomy_source_name
         )
         self.feeds: list[MonitorFeed] = []  # raw subscriptions whose monitor hook runs from the monitor tick
-        self.cache_raw(JointState, t.follower_joint_states, "joint_states", SENSOR_QOS)
+        self.follower_rate = self.dual_rate_topic(
+            "follower_joint_states",
+            lambda topic, cb: self.node.create_subscription(
+                JointState, topic, cb, SENSOR_QOS, callback_group=self.group, raw=True
+            ),
+            self.raw_store(JointState, "joint_states"),
+            lambda: self.demand_clock(),
+            lambda seconds: self.demand_sleep(seconds),
+            config.timeouts.follower_stale_s,
+        )
+        self.follower_rate.start()
         self.cache(JointState, t.follower_joint_currents, "joint_currents", SENSOR_QOS)
         self.cache(
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
@@ -449,6 +658,7 @@ class RosRobot:
         self.cache(String, t.poi_list, "poi_list", MAP_QOS)  # poi_store latches it (reliable + transient_local)
         self.costmap_subscribed = False  # /local_costmap/costmap is subscribed on the first get_topdown_view
         self.init_steer_states()  # /swerve_drive/joint_states is subscribed on the first steer_positions
+        self.joint_rates = {"follower_joint_states": self.follower_rate, "swerve_joint_states": self.steer_rate}
         self.stops = 0
         self.cache_raw(
             Odometry, t.swerve_odom, None, SENSOR_QOS, lambda msg: self.monitor.on_swerve_odom(msg.twist.covariance[0])
@@ -860,6 +1070,21 @@ class RosRobot:
         feed = MonitorFeed(hook) if hook is not None else None
         if feed is not None:
             self.feeds.append(feed)
+        store = self.raw_store(msg_type, key, feed)
+        return self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group, raw=True)
+
+    def raw_store(self, msg_type: type, key: str | None, feed: MonitorFeed | None = None) -> Callable[[bytes], None]:
+        """Callback keeping the latest serialized message as a LazyStamped (decoded on first read) and offering it to
+        a monitor feed.
+
+        Args:
+            msg_type (type): Message class.
+            key (str | None): Cache key, or None for a feed-only topic.
+            feed (MonitorFeed | None): Monitor feed fed from the monitor tick.
+
+        Returns:
+            Callable[[bytes], None]: The store callback.
+        """
 
         def decode(raw: bytes) -> Any:
             return deserialize_message(raw, msg_type)
@@ -872,10 +1097,97 @@ class RosRobot:
             if feed is not None:
                 feed.offer(sample)
 
-        return self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group, raw=True)
+        return store
+
+    def dual_rate_topic(
+        self,
+        field: str,
+        subscribe: Callable[[str, Callable[[Any], None]], Any],
+        store: Callable[[Any], None],
+        clock: Callable[[], float],
+        sleep: Callable[[float], None],
+        fresh_s: float,
+    ) -> DualRateTopic:
+        """A DualRateTopic of a topics field configured from joint_state_rate (full rate only when disabled or the
+        field is in FULL_RATE_AT_REST).
+
+        Args:
+            field (str): TopicSettings field (one of DUAL_RATE_TOPICS).
+            subscribe (Callable[[str, Callable[[Any], None]], Any]): Creates a subscription on a topic.
+            store (Callable[[Any], None]): Caches one message.
+            clock (Callable[[], float]): Monotonic seconds.
+            sleep (Callable[[float], None]): Sleep.
+            fresh_s (float): The topic's freshness limit (s).
+
+        Returns:
+            DualRateTopic: The unsubscribed feed.
+        """
+        rate = self.cfg.joint_state_rate
+        topic = getattr(self.cfg.topics, field)
+        return DualRateTopic(
+            topic,
+            topic + rate.throttled_suffix,
+            subscribe,
+            self.node.destroy_subscription,
+            store,
+            self.node.count_publishers,
+            clock,
+            sleep,
+            self.log,
+            rate.linger_s,
+            self.cfg.timeouts.state_stale_s,
+            fresh_s,
+            switching=rate.enabled and field not in FULL_RATE_AT_REST,
+        )
+
+    def begin_motion(self, subsystems: Iterable[str]) -> None:
+        """A motion of these subsystems starts: their joint states switch to full rate, waiting (bounded by
+        timeouts.state_stale_s) for a fresh full-rate sample. Pair every call with end_motion.
+
+        Args:
+            subsystems (Iterable[str]): "arm" and / or "base".
+        """
+        wanted = set(subsystems)
+        for field, rate in self.joint_rates.items():
+            if DUAL_RATE_SUBSYSTEM[field] in wanted:
+                rate.begin()
+
+    def end_motion(self, subsystems: Iterable[str]) -> None:
+        """A motion of these subsystems ended: full rate lingers joint_state_rate.linger_s after the last one.
+
+        Args:
+            subsystems (Iterable[str]): "arm" and / or "base".
+        """
+        wanted = set(subsystems)
+        for field, rate in self.joint_rates.items():
+            if DUAL_RATE_SUBSYSTEM[field] in wanted:
+                rate.end()
+
+    @contextmanager
+    def motion_rate(self, *subsystems: str) -> Iterator[None]:
+        """Full-rate joint states of these subsystems for the body (begin_motion / end_motion).
+
+        Args:
+            *subsystems (str): "arm" and / or "base".
+
+        Yields:
+            None: Inside the motion.
+        """
+        self.begin_motion(subsystems)
+        try:
+            yield
+        finally:
+            self.end_motion(subsystems)
+
+    def tick_joint_rates(self) -> None:
+        """Monitor timer: run every dual-rate feed's tick (switch back after the linger, fall back, drop old subs)."""
+        for rate in self.joint_rates.values():
+            rate.tick()
 
     def monitor_tick(self) -> None:
-        """Monitor timer callback: feed every raw monitor hook its latest new message, then run the monitor tick."""
+        """Monitor timer callback: the joint-state rate ticks, feed every raw monitor hook its latest new message, then
+        run the monitor tick."""
+        self.tick_joint_rates()
         for feed in self.feeds:
             feed.flush()
         self.monitor.tick()
@@ -1802,7 +2114,7 @@ class RosRobot:
             raise BaseMotionBusyError("another base motion is running; call stop first")
         try:
             self.base_stop.clear()
-            with self.monitor.base_motion():
+            with self.monitor.base_motion(), self.motion_rate("base"):
                 watch = self.monitor.watch(BASE_INTERRUPTS)
                 return run_nav(
                     RosNavPort(self),
@@ -1838,7 +2150,7 @@ class RosRobot:
             raise BaseMotionBusyError("another base motion is running; call stop first")
         try:
             self.base_stop.clear()
-            with self.monitor.base_motion():
+            with self.monitor.base_motion(), self.motion_rate("base"):
                 watch = self.monitor.watch(BASE_INTERRUPTS)
                 port = RosDockPort(
                     self.dock_client,
@@ -1929,7 +2241,7 @@ class RosRobot:
         try:
             self.base_stop.clear()
             start = self.robot_pose()
-            with self.monitor.base_motion():
+            with self.monitor.base_motion(), self.motion_rate("base"):
                 watch = self.monitor.watch(BASE_INTERRUPTS)
                 outcome = run_drive(
                     self.publish_twist,
@@ -1981,7 +2293,7 @@ class RosRobot:
             raise BaseMotionBusyError("another base motion is running; call stop first")
         try:
             self.base_stop.clear()
-            with self.monitor.base_motion():
+            with self.monitor.base_motion(), self.motion_rate("base"):
                 watch = self.monitor.watch(BASE_INTERRUPTS)
 
                 def yaw() -> float | None:
@@ -2054,26 +2366,40 @@ class RosRobot:
         )
 
     def init_steer_states(self) -> None:
-        """State of the lazy topics.swerve_joint_states subscription (swerve publishes it at 50 Hz, only release_control
-        and get_control_state read it) and the timer that destroys it after control.steer_states_idle_s unread."""
+        """State of the lazy topics.swerve_joint_states subscription (swerve publishes it at 95 Hz, only release_control
+        and get_control_state read it; a DualRateTopic: its throttled copy while the base is idle) and the timer that
+        destroys it after control.steer_states_idle_s unread."""
         self.steer_lock = threading.Lock()
-        self.steer_sub: Any = None
         self.steer_subscribed_at = 0.0
         self.steer_last_use = 0.0
         self.steer_clock: Callable[[], float] = time.monotonic
         self.steer_sleep: Callable[[float], None] = time.sleep
+
+        def store(msg: Any) -> None:
+            with self.lock:
+                self.latest[SWERVE_STATES_KEY] = Stamped(value=msg, stamp=time.monotonic())
+
+        self.steer_rate = self.dual_rate_topic(
+            "swerve_joint_states",
+            lambda topic, cb: self.node.create_subscription(
+                JointState, topic, cb, SENSOR_QOS, callback_group=self.group
+            ),
+            store,
+            lambda: self.steer_clock(),
+            lambda seconds: self.steer_sleep(seconds),
+            self.cfg.timeouts.state_stale_s,
+        )
         period = self.cfg.control.steer_states_idle_s / STEER_REAP_CHECKS
         self.node.create_timer(period, self.reap_steer_states, callback_group=self.group)
 
     def reap_steer_states(self) -> None:
         """Destroy the swerve joint states subscription (and drop its sample) once unread for steer_states_idle_s."""
         with self.steer_lock:
-            if self.steer_sub is None:
+            if self.steer_rate.mode is None:
                 return
             if self.steer_clock() - self.steer_last_use < self.cfg.control.steer_states_idle_s:
                 return
-            sub, self.steer_sub = self.steer_sub, None
-            self.node.destroy_subscription(sub)
+            self.steer_rate.stop()
         with self.lock:
             self.latest.pop(SWERVE_STATES_KEY, None)
 
@@ -2090,10 +2416,8 @@ class RosRobot:
         with self.steer_lock:
             now = self.steer_clock()
             self.steer_last_use = now
-            if self.steer_sub is None:
-                self.steer_sub = self.cache(
-                    JointState, self.cfg.topics.swerve_joint_states, SWERVE_STATES_KEY, SENSOR_QOS
-                )
+            if self.steer_rate.mode is None:
+                self.steer_rate.start()
                 self.steer_subscribed_at = now
             deadline = self.steer_subscribed_at + c.steer_states_wait_s
         stale = self.cfg.timeouts.state_stale_s

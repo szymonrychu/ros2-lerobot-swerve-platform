@@ -87,6 +87,7 @@ LOGGER = logging.getLogger("mcp_server.arm")
 # A trajectory_end motion's settle record (commanded vs settled pose, for the sag fit) is logged by the keepalive this
 # long after the motion returned, unless another motion started meanwhile.
 SETTLE_PROBE_S = 1.0
+ARM_SUBSYSTEM = ("arm",)  # ArmBackend.begin_motion / end_motion of every MotionGuard
 SAG_LOGGER = logging.getLogger("mcp_server.sag")
 # Safe intermediates tried by home() when the straight joint path to home would hit the robot body, in order; the
 # 'lift' entries move the tool point straight up by that much first (IK seeded from the start, same pitch).
@@ -413,6 +414,14 @@ class ArmBackend(Protocol):
 
     def sleep(self, seconds: float) -> None:
         """Sleep."""
+        ...
+
+    def begin_motion(self, subsystems: tuple[str, ...]) -> None:
+        """A motion starts: full-rate joint states for these subsystems, waiting (bounded) for a fresh sample."""
+        ...
+
+    def end_motion(self, subsystems: tuple[str, ...]) -> None:
+        """The motion ended: full-rate joint states linger, then the throttled copy returns."""
         ...
 
 
@@ -3147,9 +3156,15 @@ class MotionGuard:
         self.controller = controller
 
     def __enter__(self) -> None:
-        """Take the motion lock or refuse."""
+        """Take the motion lock or refuse, then switch the arm joint states to full rate (waiting for a fresh
+        full-rate sample) before the motion reads its start pose or publishes anything."""
         if not self.controller._motion_lock.acquire(blocking=False):
             raise ArmBusyError("another arm motion is running; call stop first")
+        try:
+            self.controller.backend.begin_motion(ARM_SUBSYSTEM)
+        except BaseException:
+            self.controller._motion_lock.release()
+            raise
         self.controller._stop.clear()
         self.controller._interrupted_by = None
         self.controller._slow_zone = None
@@ -3157,6 +3172,9 @@ class MotionGuard:
         self.controller._watch = None if monitor is None else monitor.watch(ARM_INTERRUPTS)
 
     def __exit__(self, *exc: object) -> None:
-        """Release the motion lock."""
+        """End the full-rate motion window and release the motion lock."""
         self.controller._watch = None
-        self.controller._motion_lock.release()
+        try:
+            self.controller.backend.end_motion(ARM_SUBSYSTEM)
+        finally:
+            self.controller._motion_lock.release()

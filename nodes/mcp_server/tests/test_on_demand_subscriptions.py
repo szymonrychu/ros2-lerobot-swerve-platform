@@ -267,8 +267,13 @@ def test_first_tf_lookup_after_subscribing_waits_longer_than_tf_timeout(
 
 
 def critical_topics(module: ModuleType, config: McpServerConfig) -> list[str]:
-    """Every motion-critical topic name of the config (topic fields plus the battery topic)."""
-    topics = [getattr(config.topics, field) for field in module.MOTION_CRITICAL_TOPICS]
+    """Every motion-critical topic name of the config (topic fields plus the battery topic); an idle node reads a
+    dual-rate joint-state field from its throttled copy (test_joint_state_dual_rate.py)."""
+    suffix = config.joint_state_rate.throttled_suffix
+    topics = [
+        getattr(config.topics, field) + (suffix if field in module.DUAL_RATE_TOPICS else "")
+        for field in module.MOTION_CRITICAL_TOPICS
+    ]
     if config.battery is not None:
         topics.append(config.battery.topic)
     return topics

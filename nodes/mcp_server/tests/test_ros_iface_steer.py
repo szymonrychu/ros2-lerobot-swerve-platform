@@ -13,7 +13,8 @@ from unittest.mock import MagicMock
 
 from mcp_server.config import McpServerConfig
 
-SWERVE_JOINT_STATES = "/swerve_drive/joint_states"
+# The base is idle in these tests: the lazy subscription reads the 10 Hz copy (test_joint_state_dual_rate.py).
+SWERVE_JOINT_STATES = "/swerve_drive/joint_states/throttled"
 
 
 def swerve_topics(node: MagicMock) -> list[str]:

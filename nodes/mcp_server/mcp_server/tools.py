@@ -188,6 +188,14 @@ TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
 # Tools that may move while parking (release_control homes the arm): counted as a running blocking motion so the queue
 # does not start meanwhile; their own queue-busy refusal lives in the tool (control.QUEUE_BUSY_REFUSAL).
 PARKING_TOOLS = frozenset({"release_control"})
+# Subsystems whose joint states a tool switches to full rate (RosRobot.begin_motion) before its body runs, until it
+# returns plus joint_state_rate.linger_s: every lease-checked motion tool for its subsystem ("any" = both) and
+# release_control (parks the arm and resets the base). Queued steps and the web UI / service motions switch in
+# ArmController's MotionGuard and RosRobot's base motions.
+RATE_SUBSYSTEMS: dict[str, tuple[Subsystem, ...]] = {
+    **{name: ("arm", "base") if need == "any" else (need,) for name, need in TOOL_SUBSYSTEM.items()},
+    **{name: ("arm", "base") for name in PARKING_TOOLS},
+}
 DIGEST_EVENTS_KEY = "robot_events_since_last_call"
 DIGEST_VITALS_KEY = "vitals"
 # Base motion tools whose structured result is a NavigationResult: status "aborted" means Nav2 aborted the goal, which
@@ -371,6 +379,10 @@ class RobotMCPServer(MCPServer):
         self.blocking: dict[str, int] = {}  # running blocking motion tools (QUEUE_EXCLUSIVE_TOOLS) -> count
         self.poi_writes = PoiWriteCounter()  # shared with the ToolContext (register_tools)
         self.poi_hint_after = 3  # auto_poi.hint_after_images (register_tools)
+        # The robot's begin_motion / end_motion (full-rate joint states around RATE_SUBSYSTEMS tools); None: no
+        # dual-rate joint states (register_tools binds them when the robot has them).
+        self.begin_motion: Callable[[tuple[Subsystem, ...]], None] | None = None
+        self.end_motion: Callable[[tuple[Subsystem, ...]], None] | None = None
 
     def blocking_tool(self) -> str | None:
         """Name of a blocking motion tool running now (the motion queue refuses to start meanwhile).
@@ -462,9 +474,18 @@ class RobotMCPServer(MCPServer):
                 self.blocking[name] = self.blocking.get(name, 0) + 1
             session = lookup_tools.CURRENT_SESSION.set(session_key(context))
             origin = GUARD_ORIGIN.set(name)  # the guard rule arm phase checks this tool's arm motions by its name
+            begin, end = self.begin_motion, self.end_motion
+            rate = RATE_SUBSYSTEMS.get(name) if begin is not None and end is not None else None
             try:
                 with self.lease_scope(need):
-                    result = await super().call_tool(name, arguments, context)
+                    if rate is not None and begin is not None:
+                        # threadpool: waits (bounded) for a full-rate joint-state sample before the tool body acts
+                        await run_in_threadpool(begin, rate)
+                    try:
+                        result = await super().call_tool(name, arguments, context)
+                    finally:
+                        if rate is not None and end is not None:
+                            end(rate)
             finally:
                 GUARD_ORIGIN.reset(origin)
                 lookup_tools.CURRENT_SESSION.reset(session)
@@ -592,6 +613,8 @@ def register_tools(
         server.control = control
         server.guard_engine = engine
         server.poi_hint_after = config.auto_poi.hint_after_images
+        server.begin_motion = getattr(robot, "begin_motion", None)  # RosRobot; tool test doubles have none
+        server.end_motion = getattr(robot, "end_motion", None)
     ctx = ToolContext(
         server=server,
         robot=robot,

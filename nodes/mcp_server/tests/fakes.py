@@ -104,6 +104,12 @@ class FakeArmBackend:
         if self.on_sleep is not None:
             self.on_sleep(self)
 
+    def begin_motion(self, subsystems: tuple[str, ...]) -> None:
+        """Full-rate joint states for a motion: the simulated follower is always at full rate."""
+
+    def end_motion(self, subsystems: tuple[str, ...]) -> None:
+        """End of the full-rate motion window: nothing to do for the simulated follower."""
+
 
 class DelayedFollower:
     """Follower whose joints reach each published command only after a per-joint delay (an on_sleep hook).

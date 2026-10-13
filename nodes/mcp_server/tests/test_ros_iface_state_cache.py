@@ -16,7 +16,7 @@ from mcp_server.config import McpServerConfig
 
 MONITOR_TICK_S = 0.25
 TOPICS = {
-    "joint_states": "/follower/joint_states",
+    "joint_states": "/follower/joint_states/throttled",  # the idle 10 Hz copy (test_joint_state_dual_rate.py)
     "odom": "/odometry/filtered",
     "swerve_odom": "/odom",
     "rf2o": "/odom_rf2o_twist",

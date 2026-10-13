@@ -962,8 +962,22 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   subscribes again; `scan_points` subscribes, waits at most `timeouts.state_stale_s` for a first scan (once) and a
   reaped scan drops its sample; a TF lookup subscribes `/tf`, feeds `set_transform`, waits longer right after
   subscribing, and reaping clears the buffer and re-inserts the static transforms; every `MOTION_CRITICAL_TOPICS` topic
-  and the battery topic is subscribed once at start and never destroyed; the reaper timer period, the `linger_s`
-  default and validation, and the `client.yml` value
+  and the battery topic is subscribed once at start (a dual-rate joint-state field on its throttled copy) and never
+  destroyed; the reaper timer period, the `linger_s` default and validation, and the `client.yml` value
+- dual-rate joint states (`test_joint_state_dual_rate.py`, `conftest.py` `ros_iface` fixture, a fake clock, fake
+  `FakeArmBackend` / `FakeRobot` recorders): an idle `RosRobot` subscribes only `/follower/joint_states/throttled`
+  (raw, best effort); `begin_motion` subscribes the full-rate topic and returns once a full-rate sample is cached,
+  bounded by `timeouts.state_stale_s` (the throttled feed keeps the cache fresh meanwhile and is ignored once full rate
+  delivers); subscriptions are destroyed only by the monitor tick; full rate stays during a motion and until
+  `joint_state_rate.linger_s` after the last one (overlapping motions counted), then the copy returns and the full-rate
+  subscription is dropped once it delivers; the fallback to full rate (one warning) when the copy has no publisher or
+  stays silent, and the recovery; a throttled sample older than `follower_stale_s` is not fresh; the README consumer
+  audit names both topics and its full-rate-at-rest rows equal `FULL_RATE_AT_REST`, and a field in that list stays on
+  full rate; `enabled: false`; the lazy swerve joint states read the copy while the base is idle and full rate while it
+  moves (also when first read during a base motion); `drive` and `navigate` hold the base at full rate; an arm motion
+  and a gripper close begin full rate before their first command and the rest baseline; the base and arm MCP tools
+  begin before the command and end after it, `release_control` switches both, sensor tools none; the
+  `JointStateRateSettings` defaults and validation and the `client.yml` block matching the throttle node commands
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
 - lazy swerve joint states (`test_ros_iface_steer.py`, the `conftest.py` `ros_iface` fixture imports `ros_iface` against
   mocked ROS packages): `RosRobot` does not subscribe `/swerve_drive/joint_states` at startup; the first
