@@ -1,0 +1,2137 @@
+{
+ "format": 1,
+ "family": "collision",
+ "kernel": "self_collision.pose",
+ "tolerances": {
+  "per_obstacle": {
+   "atol": 1e-09,
+   "rtol": 0.0
+  },
+  "soft": {
+   "atol": 1e-09,
+   "rtol": 0.0
+  },
+  "min_clearance": {
+   "atol": 1e-09,
+   "rtol": 0.0
+  },
+  "min_soft_clearance": {
+   "atol": 1e-09,
+   "rtol": 0.0
+  }
+ },
+ "cases": [
+  {
+   "inputs": {
+    "joints": {
+     "gripper": 0.3,
+     "shoulder_pan": 0.17369083117490494,
+     "shoulder_lift": -0.16104706839859254,
+     "elbow_flex": 1.0970087822101717,
+     "wrist_flex": -0.09325306393209637,
+     "wrist_roll": 0.0
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.1431615257621298,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.035754814993605485,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09912368994966952,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.13023528322406516,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.058390429166417505,
+      "gripper body"
+     ],
+     "wheel_rl": [
+      0.27275492775801646,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.22093705538639732,
+      "upper arm"
+     ],
+     "lidar": [
+      0.03153804145663109,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.1629923276852051,
+     "frame_right": 0.035754814993605485,
+     "crossbar": 0.09912368994966952,
+     "wheel_fl": 0.15543106274019186,
+     "wheel_fr": 0.058390429166417505,
+     "wheel_rl": 0.2792569465425095,
+     "wheel_rr": 0.22093705538639732,
+     "lidar": 0.05986058244886164
+    },
+    "min_clearance": 0.03153804145663109,
+    "min_soft_clearance": 0.035754814993605485,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "gripper": 0.3,
+     "shoulder_pan": -0.04215623443672772,
+     "shoulder_lift": -0.9706042275494482,
+     "elbow_flex": 0.7997158367381897,
+     "wrist_flex": 0.8135976008201283,
+     "wrist_roll": 0.0
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.13722060836283068,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.04056529626404286,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10011935478217919,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.1241793232754707,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07688104466007246,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.22890001924103032,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.19568683118616845,
+      "upper arm"
+     ],
+     "lidar": [
+      0.02394053606696603,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.1669618740983374,
+     "frame_right": 0.04056529626404286,
+     "crossbar": 0.10011935478217919,
+     "wheel_fl": 0.14987100700095032,
+     "wheel_fr": 0.07688104466007246,
+     "wheel_rl": 0.24283620691974359,
+     "wheel_rr": 0.21014026921130227,
+     "lidar": 0.05290116457450457
+    },
+    "min_clearance": 0.02394053606696603,
+    "min_soft_clearance": 0.04056529626404286,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "gripper": 0.3,
+     "shoulder_pan": -0.0138,
+     "shoulder_lift": -1.3622,
+     "elbow_flex": 1.5769,
+     "wrist_flex": -0.0752,
+     "wrist_roll": -1.6245
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.1385590129066992,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.03987679814169598,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09999786842251433,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.12585740698791714,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07683448853811825,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.18868380685617883,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.14904757277635503,
+      "upper arm"
+     ],
+     "lidar": [
+      0.024761295852621747,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.14248910419404262,
+     "frame_right": 0.03987679814169598,
+     "crossbar": 0.09999786842251433,
+     "wheel_fl": 0.14986453037000266,
+     "wheel_fr": 0.07683448853811825,
+     "wheel_rl": 0.2055168102045499,
+     "wheel_rr": 0.16853914728182928,
+     "lidar": 0.040358928184298766
+    },
+    "min_clearance": 0.024761295852621747,
+    "min_soft_clearance": 0.03987679814169598,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "gripper": 0.3,
+     "shoulder_pan": -1.1115570342883692,
+     "shoulder_lift": -0.6700497596346144,
+     "elbow_flex": 0.7957845635749882,
+     "wrist_flex": 1.4877730198384231,
+     "wrist_roll": 0.0
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.04584950483198665,
+      "moving_jaw_tip"
+     ],
+     "frame_right": [
+      0.07199332235667075,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.08267490648133606,
+      "jaw_tip"
+     ],
+     "wheel_fl": [
+      0.04486248155258202,
+      "moving_jaw_tip"
+     ],
+     "wheel_fr": [
+      0.0854352472970012,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.23055174849089163,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.21700787270241967,
+      "upper arm"
+     ],
+     "lidar": [
+      -0.03670792925058821,
+      "tool_point"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.04584950483198665,
+     "frame_right": 0.07199332235667075,
+     "crossbar": 0.08267490648133606,
+     "wheel_fl": 0.04486248155258202,
+     "wheel_fr": 0.0854352472970012,
+     "wheel_rl": 0.2523422981769616,
+     "wheel_rr": 0.2351526473248237,
+     "lidar": -0.03670792925058821
+    },
+    "min_clearance": -0.03670792925058821,
+    "min_soft_clearance": -0.03670792925058821,
+    "obstacle": "lidar",
+    "part": "tool_point",
+    "hard_clear": false,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "gripper": 0.3,
+     "shoulder_pan": -1.111556235683493,
+     "shoulder_lift": -0.6286646764457895,
+     "elbow_flex": 1.068803924179056,
+     "wrist_flex": 1.1733685760455828,
+     "wrist_roll": 0.0
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.03317985917787008,
+      "gripper body"
+     ],
+     "frame_right": [
+      0.07199500544109855,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.054286027968219554,
+      "jaw_tip"
+     ],
+     "wheel_fl": [
+      0.005795066431856887,
+      "moving_jaw_tip"
+     ],
+     "wheel_fr": [
+      0.08543523651584543,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.2306100495604133,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.218167491901068,
+      "upper arm"
+     ],
+     "lidar": [
+      -0.030901607098412113,
+      "gripper body"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.03317985917787008,
+     "frame_right": 0.07199500544109855,
+     "crossbar": 0.054286027968219554,
+     "wheel_fl": 0.005795066431856887,
+     "wheel_fr": 0.08543523651584543,
+     "wheel_rl": 0.2376934071258165,
+     "wheel_rr": 0.23515265263194443,
+     "lidar": -0.030901607098412113
+    },
+    "min_clearance": -0.030901607098412113,
+    "min_soft_clearance": -0.030901607098412113,
+    "obstacle": "lidar",
+    "part": "gripper body",
+    "hard_clear": false,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "gripper": 0.3,
+     "shoulder_pan": -0.5252687549092521,
+     "shoulder_lift": -0.8688606484982139,
+     "elbow_flex": 0.8279105017226804,
+     "wrist_flex": 0.8836605870662607,
+     "wrist_roll": 0.0
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.09661556546661255,
+      "gripper body"
+     ],
+     "frame_right": [
+      0.0542340945259126,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10131295681837718,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.11950500671235102,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07902003149434396,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.24612659941440657,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.2090811577702352,
+      "upper arm"
+     ],
+     "lidar": [
+      0.01714128471450588,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.09661556546661255,
+     "frame_right": 0.0542340945259126,
+     "crossbar": 0.10131295681837718,
+     "wheel_fl": 0.12530389925717408,
+     "wheel_fr": 0.07902003149434396,
+     "wheel_rl": 0.26518618174274816,
+     "wheel_rr": 0.2235301460942992,
+     "lidar": 0.03608822351889626
+    },
+    "min_clearance": 0.01714128471450588,
+    "min_soft_clearance": 0.03608822351889626,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "gripper": 0.6,
+     "shoulder_pan": -0.5252685401490951,
+     "shoulder_lift": -0.8974355460029206,
+     "elbow_flex": 0.9761182632575348,
+     "wrist_flex": 0.7640277230360378,
+     "wrist_roll": 0.0
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.09069955244385763,
+      "gripper body"
+     ],
+     "frame_right": [
+      0.05423408790227974,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10131295674630507,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.11149256083600671,
+      "gripper body"
+     ],
+     "wheel_fr": [
+      0.07902002987753844,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.24529709642140235,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.2055950843965916,
+      "upper arm"
+     ],
+     "lidar": [
+      0.017403197289243978,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.09069955244385763,
+     "frame_right": 0.05423408790227974,
+     "crossbar": 0.10131295674630507,
+     "wheel_fl": 0.11149256083600671,
+     "wheel_fr": 0.07902002987753844,
+     "wheel_rl": 0.2644793264508299,
+     "wheel_rr": 0.22115365799735895,
+     "lidar": 0.026731470178816445
+    },
+    "min_clearance": 0.017403197289243978,
+    "min_soft_clearance": 0.026731470178816445,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "gripper": 0.3,
+     "shoulder_pan": -0.6134408325879243,
+     "shoulder_lift": -0.4098923316127997,
+     "elbow_flex": 0.6822475306423514,
+     "wrist_flex": 1.341151755806987,
+     "wrist_roll": 0.0
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.0750167333161141,
+      "gripper body"
+     ],
+     "frame_right": [
+      0.05696951940244288,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10130450025869157,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.07050472831405304,
+      "jaw_tip"
+     ],
+     "wheel_fr": [
+      0.07973592999984602,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.24549563072807085,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.2348945430651246,
+      "upper arm"
+     ],
+     "lidar": [
+      0.00672757917884273,
+      "gripper body"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.0750167333161141,
+     "frame_right": 0.05696951940244288,
+     "crossbar": 0.10130450025869157,
+     "wheel_fl": 0.07050472831405304,
+     "wheel_fr": 0.07973592999984602,
+     "wheel_rl": 0.2725421151840726,
+     "wheel_rr": 0.2348945430651246,
+     "lidar": 0.00672757917884273
+    },
+    "min_clearance": 0.00672757917884273,
+    "min_soft_clearance": 0.00672757917884273,
+    "obstacle": "lidar",
+    "part": "gripper body",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "gripper": 0.2,
+     "shoulder_pan": -0.6134406658640011,
+     "shoulder_lift": -0.3980363592604337,
+     "elbow_flex": 0.7471091485829693,
+     "wrist_flex": 1.2644341655136784,
+     "wrist_roll": 0.0
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.07023505695291238,
+      "gripper body"
+     ],
+     "frame_right": [
+      0.056969514207517655,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10130450034654201,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.06556611977044695,
+      "jaw_tip"
+     ],
+     "wheel_fr": [
+      0.07973592854875228,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.24544888433426926,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.23489454178705568,
+      "upper arm"
+     ],
+     "lidar": [
+      -0.0024306735132244156,
+      "gripper body"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.07023505695291238,
+     "frame_right": 0.056969514207517655,
+     "crossbar": 0.10130450034654201,
+     "wheel_fl": 0.06556611977044695,
+     "wheel_fr": 0.07973592854875228,
+     "wheel_rl": 0.2725421184237493,
+     "wheel_rr": 0.23489454178705568,
+     "lidar": -0.0024306735132244156
+    },
+    "min_clearance": -0.0024306735132244156,
+    "min_soft_clearance": -0.0024306735132244156,
+    "obstacle": "lidar",
+    "part": "gripper body",
+    "hard_clear": false,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 1.0375238859372709,
+     "shoulder_lift": 0.02959102448120343,
+     "elbow_flex": -1.1526288572441208,
+     "wrist_flex": 1.091556555047562,
+     "wrist_roll": 0.646340677430107,
+     "gripper": 0.6100646652093223
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.17205452093053816,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.02754089549808812,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09659990590690218,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.1529948638404466,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07719016809808518,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.266195268072684,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.19461625236287894,
+      "upper arm"
+     ],
+     "lidar": [
+      0.058260041158049745,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.18455974538056977,
+     "frame_right": 0.02754089549808812,
+     "crossbar": 0.09659990590690218,
+     "wheel_fl": 0.16961542590238396,
+     "wheel_fr": 0.07719016809808518,
+     "wheel_rl": 0.266195268072684,
+     "wheel_rr": 0.19461625236287894,
+     "lidar": 0.07937358724727166
+    },
+    "min_clearance": 0.02754089549808812,
+    "min_soft_clearance": 0.02754089549808812,
+    "obstacle": "frame_right",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 0.2313091749001864,
+     "shoulder_lift": 0.928437905608016,
+     "elbow_flex": 0.1985765702729019,
+     "wrist_flex": -0.5752070432743068,
+     "wrist_roll": 0.10263230007158998,
+     "gripper": 1.4872870081367875
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.14585704056818077,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.03464822198917823,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09884284017631177,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.13033915671443205,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07203038957431754,
+      "forearm"
+     ],
+     "wheel_rl": [
+      0.27361410294610927,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.21939178777335802,
+      "upper arm"
+     ],
+     "lidar": [
+      0.03332415769522475,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.17449306466263187,
+     "frame_right": 0.03464822198917823,
+     "crossbar": 0.09884284017631177,
+     "wheel_fl": 0.1568175003779631,
+     "wheel_fr": 0.07203038957431754,
+     "wheel_rl": 0.2790310681589172,
+     "wheel_rr": 0.21939178777335802,
+     "lidar": 0.06161148946981872
+    },
+    "min_clearance": 0.03332415769522475,
+    "min_soft_clearance": 0.03464822198917823,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -0.5201758950591037,
+     "shoulder_lift": 1.1957735395417148,
+     "elbow_flex": 0.019487629657637826,
+     "wrist_flex": 0.7225824654416559,
+     "wrist_roll": 0.8993524146029475,
+     "gripper": 0.3056585312881076
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.05826253984113941,
+      "wrist link"
+     ],
+     "frame_right": [
+      0.054077088401108364,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10131112096998253,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.0451889165505578,
+      "wrist link"
+     ],
+     "wheel_fr": [
+      0.07898186567677534,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.24864899025029996,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.23405783904255043,
+      "upper arm"
+     ],
+     "lidar": [
+      0.009286361432479236,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.05826253984113941,
+     "frame_right": 0.054077088401108364,
+     "crossbar": 0.10131112096998253,
+     "wheel_fl": 0.0451889165505578,
+     "wheel_fr": 0.07898186567677534,
+     "wheel_rl": 0.2742445722958085,
+     "wheel_rr": 0.23405783904255043,
+     "lidar": 0.018610060866482207
+    },
+    "min_clearance": 0.009286361432479236,
+    "min_soft_clearance": 0.018610060866482207,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 1.4252385840923816,
+     "shoulder_lift": 0.9215868350126435,
+     "elbow_flex": 1.5860109825240443,
+     "wrist_flex": 1.0002153088559174,
+     "wrist_roll": 1.4118610772243367,
+     "gripper": 0.4088167608832148
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.05303597404214167,
+      "moving_jaw_tip"
+     ],
+     "frame_right": [
+      -0.012865025679608285,
+      "forearm"
+     ],
+     "crossbar": [
+      0.047848565008705365,
+      "forearm"
+     ],
+     "wheel_fl": [
+      0.08554928645103117,
+      "moving_jaw_tip"
+     ],
+     "wheel_fr": [
+      0.02953750654723386,
+      "forearm"
+     ],
+     "wheel_rl": [
+      0.1926784312577201,
+      "gripper body"
+     ],
+     "wheel_rr": [
+      0.1647499910516206,
+      "forearm"
+     ],
+     "lidar": [
+      0.008000512507538277,
+      "moving_jaw_tip"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.05303597404214167,
+     "frame_right": -0.012865025679608285,
+     "crossbar": 0.047848565008705365,
+     "wheel_fl": 0.08554928645103117,
+     "wheel_fr": 0.02953750654723386,
+     "wheel_rl": 0.1926784312577201,
+     "wheel_rr": 0.1647499910516206,
+     "lidar": 0.008000512507538277
+    },
+    "min_clearance": -0.012865025679608285,
+    "min_soft_clearance": -0.012865025679608285,
+    "obstacle": "frame_right",
+    "part": "forearm",
+    "hard_clear": false,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 1.4598170689496,
+     "shoulder_lift": 0.48028823671410625,
+     "elbow_flex": 0.6233181389651666,
+     "wrist_flex": -1.0856622259300415,
+     "wrist_roll": 1.767383614479021,
+     "gripper": 1.1998072686824806
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.18112028657202411,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.02984538893085587,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09659991518623742,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.1661313274345934,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07009614768828441,
+      "forearm"
+     ],
+     "wheel_rl": [
+      0.25390154898644435,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.1826911317268562,
+      "upper arm"
+     ],
+     "lidar": [
+      0.07076267752558439,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.18112028657202411,
+     "frame_right": 0.02984538893085587,
+     "crossbar": 0.09659991518623742,
+     "wheel_fl": 0.17017200943099414,
+     "wheel_fr": 0.07009614768828441,
+     "wheel_rl": 0.25390154898644435,
+     "wheel_rr": 0.1826911317268562,
+     "lidar": 0.08253388258336787
+    },
+    "min_clearance": 0.02984538893085587,
+    "min_soft_clearance": 0.02984538893085587,
+    "obstacle": "frame_right",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 1.3422342433129635,
+     "shoulder_lift": 0.04533111871088146,
+     "elbow_flex": 1.3305166248667528,
+     "wrist_flex": 1.4260143710480755,
+     "wrist_roll": 1.4635748972641471,
+     "gripper": 0.86976382205213
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.12907170481392183,
+      "jaw_tip"
+     ],
+     "frame_right": [
+      -0.014364502089368483,
+      "wrist link"
+     ],
+     "crossbar": [
+      0.03876239199741907,
+      "gripper body"
+     ],
+     "wheel_fl": [
+      0.08872345715121455,
+      "moving_jaw_tip"
+     ],
+     "wheel_fr": [
+      0.02728923366329735,
+      "gripper body"
+     ],
+     "wheel_rl": [
+      0.21200381632675822,
+      "gripper body"
+     ],
+     "wheel_rr": [
+      0.16279437838123,
+      "gripper body"
+     ],
+     "lidar": [
+      0.02090239535509788,
+      "moving_jaw_tip"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.12907170481392183,
+     "frame_right": -0.014364502089368483,
+     "crossbar": 0.03876239199741907,
+     "wheel_fl": 0.08872345715121455,
+     "wheel_fr": 0.02728923366329735,
+     "wheel_rl": 0.21200381632675822,
+     "wheel_rr": 0.16279437838123,
+     "lidar": 0.02090239535509788
+    },
+    "min_clearance": -0.014364502089368483,
+    "min_soft_clearance": -0.014364502089368483,
+    "obstacle": "frame_right",
+    "part": "wrist link",
+    "hard_clear": false,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 0.6189357437656323,
+     "shoulder_lift": -0.6824427761224185,
+     "elbow_flex": -0.9345407126993367,
+     "wrist_flex": 0.9894745118804489,
+     "wrist_roll": -1.482058455852089,
+     "gripper": 1.1191285432677183
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.15244953272750233,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.029296286670550942,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09717520847258186,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.14208101013390098,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07663239904913875,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.2652814959127715,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.20787466765933565,
+      "upper arm"
+     ],
+     "lidar": [
+      0.042328498744313034,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.1719595177812263,
+     "frame_right": 0.029296286670550942,
+     "crossbar": 0.09717520847258186,
+     "wheel_fl": 0.1646905061389843,
+     "wheel_fr": 0.07663239904913875,
+     "wheel_rl": 0.27214592999620313,
+     "wheel_rr": 0.20787466765933565,
+     "lidar": 0.07152754989057494
+    },
+    "min_clearance": 0.029296286670550942,
+    "min_soft_clearance": 0.029296286670550942,
+    "obstacle": "frame_right",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 1.0312954555163578,
+     "shoulder_lift": -0.9900896204020554,
+     "elbow_flex": -0.9289820637843335,
+     "wrist_flex": -0.22214909059664004,
+     "wrist_roll": -0.7742807791177284,
+     "gripper": 0.3824015295961909
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.12382287536945022,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.027537631033773356,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09659990589332682,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.14973400431411554,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07717156759301125,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.2238482186318217,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.19480912283539076,
+      "upper arm"
+     ],
+     "lidar": [
+      0.04096724477971365,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.14416019910328637,
+     "frame_right": 0.027537631033773356,
+     "crossbar": 0.09659990589332682,
+     "wheel_fl": 0.16902263789057584,
+     "wheel_fr": 0.07717156759301125,
+     "wheel_rl": 0.24372616478509504,
+     "wheel_rr": 0.19480912283539076,
+     "lidar": 0.07049791432897648
+    },
+    "min_clearance": 0.027537631033773356,
+    "min_soft_clearance": 0.027537631033773356,
+    "obstacle": "frame_right",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -0.7417333387364493,
+     "shoulder_lift": -0.16135957965837797,
+     "elbow_flex": 1.0821525499832398,
+     "wrist_flex": 1.2664575210154707,
+     "wrist_roll": 0.5813777459857108,
+     "gripper": 1.2234904250253043
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.05815019241817691,
+      "wrist link"
+     ],
+     "frame_right": [
+      0.060970673304847386,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.03497616019284667,
+      "jaw_tip"
+     ],
+     "wheel_fl": [
+      0.01082020037164988,
+      "moving_jaw_tip"
+     ],
+     "wheel_fr": [
+      0.036874242333117056,
+      "gripper body"
+     ],
+     "wheel_rl": [
+      0.24080046218392348,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.23078269648234212,
+      "upper arm"
+     ],
+     "lidar": [
+      -0.030523070883476357,
+      "gripper body"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.05815019241817691,
+     "frame_right": 0.060970673304847386,
+     "crossbar": 0.03497616019284667,
+     "wheel_fl": 0.01082020037164988,
+     "wheel_fr": 0.036874242333117056,
+     "wheel_rl": 0.25923275745670027,
+     "wheel_rr": 0.23564424204535192,
+     "lidar": -0.030523070883476357
+    },
+    "min_clearance": -0.030523070883476357,
+    "min_soft_clearance": -0.030523070883476357,
+    "obstacle": "lidar",
+    "part": "gripper body",
+    "hard_clear": false,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -0.2923413105989903,
+     "shoulder_lift": -1.5509793170347022,
+     "elbow_flex": -0.3910974237823674,
+     "wrist_flex": -1.4728843619585805,
+     "wrist_roll": -0.943711491533854,
+     "gripper": 0.9209535976911148
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.12913176878379964,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.02930505237640111,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10091454199455242,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.12089486835564296,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07763198498952877,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.1911774372807754,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.13441827757187688,
+      "upper arm"
+     ],
+     "lidar": [
+      0.0180480092031532,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.15894849170902936,
+     "frame_right": 0.04321884777005566,
+     "crossbar": 0.10091454199455242,
+     "wheel_fl": 0.1429482254448233,
+     "wheel_fr": 0.07763198498952877,
+     "wheel_rl": 0.2048786976658362,
+     "wheel_rr": 0.15093412753129873,
+     "lidar": 0.044278734759560304
+    },
+    "min_clearance": 0.0180480092031532,
+    "min_soft_clearance": 0.04321884777005566,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 0.7396994886055337,
+     "shoulder_lift": -0.6972434043306598,
+     "elbow_flex": 0.3386399150977283,
+     "wrist_flex": -0.6340818359371516,
+     "wrist_roll": -0.2097531075751474,
+     "gripper": 0.49134975630079836
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.1526232863875098,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.02837281133183712,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09684406764887314,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.14635985411411773,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07668643464573434,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.2619565562558479,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.204044718586417,
+      "upper arm"
+     ],
+     "lidar": [
+      0.04477150075542443,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.1693642081739345,
+     "frame_right": 0.02837281133183712,
+     "crossbar": 0.09684406764887314,
+     "wheel_fl": 0.16653031676510346,
+     "wheel_fr": 0.07668643464573434,
+     "wheel_rl": 0.26955341871486754,
+     "wheel_rr": 0.204044718586417,
+     "lidar": 0.07357763629563041
+    },
+    "min_clearance": 0.02837281133183712,
+    "min_soft_clearance": 0.02837281133183712,
+    "obstacle": "frame_right",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 1.4862808069185172,
+     "shoulder_lift": -1.5573765013285805,
+     "elbow_flex": 0.01791361999115751,
+     "wrist_flex": 0.3034080320528179,
+     "wrist_roll": 0.3119944347226306,
+     "gripper": 0.3293343055896474
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.0708240106917835,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.03013024837594386,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09659991629604989,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.08941294091800273,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07981003511860707,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.19134063901133244,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.18204871844141823,
+      "upper arm"
+     ],
+     "lidar": [
+      -0.004138205919821171,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.08431484762220841,
+     "frame_right": 0.03013024837594386,
+     "crossbar": 0.09659991629604989,
+     "wheel_fl": 0.10665546784019798,
+     "wheel_fr": 0.07981003511860707,
+     "wheel_rl": 0.1996944485478581,
+     "wheel_rr": 0.18204871844141823,
+     "lidar": 0.011242592955463898
+    },
+    "min_clearance": -0.004138205919821171,
+    "min_soft_clearance": 0.011242592955463898,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": false,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 1.4286550467937802,
+     "shoulder_lift": 0.7979046161184262,
+     "elbow_flex": 0.6563956319391385,
+     "wrist_flex": -0.23639092567644765,
+     "wrist_roll": -0.4587505950787884,
+     "gripper": 0.7845710567324771
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.1815763223315707,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.028798800424446058,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09394642891743084,
+      "wrist link"
+     ],
+     "wheel_fl": [
+      0.16711818010030802,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.011999287984714715,
+      "wrist link"
+     ],
+     "wheel_rl": [
+      0.2548874830518868,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.18346714845002102,
+      "upper arm"
+     ],
+     "lidar": [
+      0.06916544742507473,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.1815763223315707,
+     "frame_right": 0.028798800424446058,
+     "crossbar": 0.09394642891743084,
+     "wheel_fl": 0.17028755427211986,
+     "wheel_fr": 0.011999287984714715,
+     "wheel_rl": 0.2548874830518868,
+     "wheel_rr": 0.18346714845002102,
+     "lidar": 0.08245938631600819
+    },
+    "min_clearance": 0.011999287984714715,
+    "min_soft_clearance": 0.011999287984714715,
+    "obstacle": "wheel_fr",
+    "part": "wrist link",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -0.6405938869579295,
+     "shoulder_lift": -0.48403902193769194,
+     "elbow_flex": 0.3765564459562165,
+     "wrist_flex": -1.555953274155908,
+     "wrist_roll": 2.5969020229382775,
+     "gripper": 1.3662056339498108
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.12098206006013974,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.057816195181687416,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10128660969043606,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.12105491491271965,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07997704993955942,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.24484429790692294,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.2345709047983061,
+      "upper arm"
+     ],
+     "lidar": [
+      0.017126959026100043,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.14698861613650518,
+     "frame_right": 0.057816195181687416,
+     "crossbar": 0.10128660969043606,
+     "wheel_fl": 0.13322433792740065,
+     "wheel_fr": 0.07997704993955942,
+     "wheel_rl": 0.2720054102597468,
+     "wheel_rr": 0.23509228183758787,
+     "lidar": 0.03211707138770209
+    },
+    "min_clearance": 0.017126959026100043,
+    "min_soft_clearance": 0.03211707138770209,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -0.8670530837022133,
+     "shoulder_lift": -1.2310999504185771,
+     "elbow_flex": 0.9410968070159664,
+     "wrist_flex": -1.3931514804984693,
+     "wrist_roll": 0.3221156311159375,
+     "gripper": 0.2624284583241986
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.12151618868374785,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.053148092832156484,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10086976463864519,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.11977590792411516,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.08233556697058134,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.23839973272827839,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.16512890907456157,
+      "upper arm"
+     ],
+     "lidar": [
+      0.024805504585528413,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.13932440348988706,
+     "frame_right": 0.05672421557381674,
+     "crossbar": 0.10086976463864519,
+     "wheel_fl": 0.12737123329127203,
+     "wheel_fr": 0.08233556697058134,
+     "wheel_rl": 0.26230657028797416,
+     "wheel_rr": 0.18146581254595234,
+     "lidar": 0.024805504585528413
+    },
+    "min_clearance": 0.024805504585528413,
+    "min_soft_clearance": 0.024805504585528413,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 0.656168217259129,
+     "shoulder_lift": 1.7066281250228792,
+     "elbow_flex": 1.3006048903024854,
+     "wrist_flex": 1.2228941549153847,
+     "wrist_roll": -0.9505802522488148,
+     "gripper": 0.5997517555708225
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.11740133312605226,
+      "wrist link"
+     ],
+     "frame_right": [
+      -0.03393529426105908,
+      "forearm"
+     ],
+     "crossbar": [
+      0.015609894806547387,
+      "forearm"
+     ],
+     "wheel_fl": [
+      0.094419615824322,
+      "wrist link"
+     ],
+     "wheel_fr": [
+      0.0016691146597848337,
+      "forearm"
+     ],
+     "wheel_rl": [
+      0.20510479100144893,
+      "gripper body"
+     ],
+     "wheel_rr": [
+      0.17273940305343444,
+      "gripper body"
+     ],
+     "lidar": [
+      0.02815495295617173,
+      "gripper body"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.11740133312605226,
+     "frame_right": -0.03393529426105908,
+     "crossbar": 0.015609894806547387,
+     "wheel_fl": 0.094419615824322,
+     "wheel_fr": 0.0016691146597848337,
+     "wheel_rl": 0.20510479100144893,
+     "wheel_rr": 0.17273940305343444,
+     "lidar": 0.02815495295617173
+    },
+    "min_clearance": -0.03393529426105908,
+    "min_soft_clearance": -0.03393529426105908,
+    "obstacle": "frame_right",
+    "part": "forearm",
+    "hard_clear": false,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -0.7372570011485545,
+     "shoulder_lift": -1.0754535952551325,
+     "elbow_flex": 1.0978791600797322,
+     "wrist_flex": 0.558308053334676,
+     "wrist_roll": 0.7143461754376333,
+     "gripper": 0.6113587695900168
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.07219118652248885,
+      "jaw_tip"
+     ],
+     "frame_right": [
+      0.05938839611927042,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.10116562470469599,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.11844261269916306,
+      "gripper body"
+     ],
+     "wheel_fr": [
+      0.08091092732515373,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.2411934841089759,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.181929384254662,
+      "upper arm"
+     ],
+     "lidar": [
+      0.022713279206064495,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.07219118652248885,
+     "frame_right": 0.05938839611927042,
+     "crossbar": 0.10116562470469599,
+     "wheel_fl": 0.11844261269916306,
+     "wheel_fr": 0.08091092732515373,
+     "wheel_rl": 0.26419404222621595,
+     "wheel_rr": 0.1991153960026186,
+     "lidar": 0.02889586076456919
+    },
+    "min_clearance": 0.022713279206064495,
+    "min_soft_clearance": 0.02889586076456919,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -0.16339491157191718,
+     "shoulder_lift": 0.09243023117864309,
+     "elbow_flex": 0.9074103174738642,
+     "wrist_flex": 0.9666554043508009,
+     "wrist_roll": -0.08720228384765814,
+     "gripper": 0.11776582367126348
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.11117157310689306,
+      "wrist link"
+     ],
+     "frame_right": [
+      0.043681227110460116,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.08309637439908268,
+      "gripper body"
+     ],
+     "wheel_fl": [
+      0.09397263056374303,
+      "gripper body"
+     ],
+     "wheel_fr": [
+      0.031290197215310164,
+      "gripper body"
+     ],
+     "wheel_rl": [
+      0.2592644199533246,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.2287137954666928,
+      "upper arm"
+     ],
+     "lidar": [
+      0.020470237296271468,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.11117157310689306,
+     "frame_right": 0.043681227110460116,
+     "crossbar": 0.08309637439908268,
+     "wheel_fl": 0.09397263056374303,
+     "wheel_fr": 0.031290197215310164,
+     "wheel_rl": 0.2785797581897078,
+     "wheel_rr": 0.2287137954666928,
+     "lidar": 0.029666886653158107
+    },
+    "min_clearance": 0.020470237296271468,
+    "min_soft_clearance": 0.029666886653158107,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 0.10691541425965753,
+     "shoulder_lift": -0.3256460100271225,
+     "elbow_flex": -1.3459079336831883,
+     "wrist_flex": -0.8747219405178462,
+     "wrist_roll": -2.574016227389028,
+     "gripper": 0.6096164352539659
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.1414233573388178,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.037133740462200984,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09944533792503307,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.12830943199591024,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07669926773013507,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.27175544499231813,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.22265669945897595,
+      "upper arm"
+     ],
+     "lidar": [
+      0.02906186353834276,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.17126302636488397,
+     "frame_right": 0.037133740462200984,
+     "crossbar": 0.09944533792503307,
+     "wheel_fl": 0.15376810739590488,
+     "wheel_fr": 0.07669926773013507,
+     "wheel_rl": 0.2793940730816961,
+     "wheel_rr": 0.22265669945897595,
+     "lidar": 0.057770838160518825
+    },
+    "min_clearance": 0.02906186353834276,
+    "min_soft_clearance": 0.037133740462200984,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -1.3731740750173074,
+     "shoulder_lift": -1.3997403252893785,
+     "elbow_flex": 0.5782916865751252,
+     "wrist_flex": 0.26896855581539,
+     "wrist_roll": -0.8069253045613519,
+     "gripper": 0.8995602538039931
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.12472476905020465,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.04070733353900326,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09873201544803444,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.11751445386727606,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.08890633932838884,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.22327297549489813,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.17330465259597364,
+      "upper arm"
+     ],
+     "lidar": [
+      0.013555882708393283,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.12472476905020465,
+     "frame_right": 0.04856272705501338,
+     "crossbar": 0.09873201544803444,
+     "wheel_fl": 0.11751445386727606,
+     "wheel_fr": 0.08890633932838884,
+     "wheel_rl": 0.2520588561541485,
+     "wheel_rr": 0.18422626737892422,
+     "lidar": 0.013555882708393283
+    },
+    "min_clearance": 0.013555882708393283,
+    "min_soft_clearance": 0.013555882708393283,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -1.6382422116994204,
+     "shoulder_lift": -1.5652065384165565,
+     "elbow_flex": -0.8994639944168874,
+     "wrist_flex": 1.3770318586426222,
+     "wrist_roll": -1.3214937902293367,
+     "gripper": 1.0859989415656948
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.11942756112122728,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.024845631243926136,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09753490731872837,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.11488745235772342,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.08484563418352398,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.21816554888808243,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.18263094057008472,
+      "upper arm"
+     ],
+     "lidar": [
+      0.012164993871200337,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.11942756112122728,
+     "frame_right": 0.03647606696395868,
+     "crossbar": 0.09753490731872837,
+     "wheel_fl": 0.11488745235772342,
+     "wheel_fr": 0.08716098383236716,
+     "wheel_rl": 0.24336486893698403,
+     "wheel_rr": 0.19164344525253638,
+     "lidar": 0.012164993871200337
+    },
+    "min_clearance": 0.012164993871200337,
+    "min_soft_clearance": 0.012164993871200337,
+    "obstacle": "lidar",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": false
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 1.4910209310582345,
+     "shoulder_lift": -0.014662602144294018,
+     "elbow_flex": 0.707199460966284,
+     "wrist_flex": -0.24907869311428243,
+     "wrist_roll": -0.5361942315835301,
+     "gripper": 0.2656050239703133
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.18063309866514413,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.03018307094147991,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09659991650105001,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.16709438988757033,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07985196026383472,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.25290578280126785,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.1819353070861759,
+      "upper arm"
+     ],
+     "lidar": [
+      0.07528912005487431,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.18063309866514413,
+     "frame_right": 0.03018307094147991,
+     "crossbar": 0.09659991650105001,
+     "wheel_fl": 0.17003145645981194,
+     "wheel_fr": 0.07985196026383472,
+     "wheel_rl": 0.25290578280126785,
+     "wheel_rr": 0.1819353070861759,
+     "lidar": 0.08258283279148876
+    },
+    "min_clearance": 0.03018307094147991,
+    "min_soft_clearance": 0.03018307094147991,
+    "obstacle": "frame_right",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": 0.36623896754590074,
+     "shoulder_lift": -1.0642422375180762,
+     "elbow_flex": 1.3944998601475778,
+     "wrist_flex": -0.9209436759310287,
+     "wrist_roll": -2.4235855141140017,
+     "gripper": 0.6575350544450425
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.13613338507814413,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.032368466001522975,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.0981963776590085,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.13573763031826208,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07661442708908377,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.21414769799224112,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.19064862898476012,
+      "upper arm"
+     ],
+     "lidar": [
+      0.03631731726924253,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.15219070236709867,
+     "frame_right": 0.032368466001522975,
+     "crossbar": 0.0981963776590085,
+     "wheel_fl": 0.15986533947748338,
+     "wheel_fr": 0.07661442708908377,
+     "wheel_rl": 0.234209669813216,
+     "wheel_rr": 0.2037797664483748,
+     "lidar": 0.06538447022674221
+    },
+    "min_clearance": 0.032368466001522975,
+    "min_soft_clearance": 0.032368466001522975,
+    "obstacle": "frame_right",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  },
+  {
+   "inputs": {
+    "joints": {
+     "shoulder_pan": -0.5782623333791953,
+     "shoulder_lift": -1.643472563800518,
+     "elbow_flex": 0.9729389204173406,
+     "wrist_flex": -1.4985458510797105,
+     "wrist_roll": -1.0389145237121895,
+     "gripper": 0.9105575102026136
+    }
+   },
+   "outputs": {
+    "per_obstacle": {
+     "frame_left": [
+      0.12216757933509954,
+      "upper arm"
+     ],
+     "frame_right": [
+      0.01475045434519187,
+      "upper arm"
+     ],
+     "crossbar": [
+      0.09475048244720408,
+      "upper arm"
+     ],
+     "wheel_fl": [
+      0.11854348259353946,
+      "upper arm"
+     ],
+     "wheel_fr": [
+      0.07943788749880135,
+      "upper arm"
+     ],
+     "wheel_rl": [
+      0.20988286334897197,
+      "upper arm"
+     ],
+     "wheel_rr": [
+      0.12500642826608852,
+      "upper arm"
+     ],
+     "lidar": [
+      0.018189562077522467,
+      "upper arm"
+     ]
+    },
+    "soft": {
+     "frame_left": 0.1491434759291411,
+     "frame_right": 0.03100297866378532,
+     "crossbar": 0.10046013283984975,
+     "wheel_fl": 0.13492596112065552,
+     "wheel_fr": 0.07943788749880135,
+     "wheel_rl": 0.21706477325987453,
+     "wheel_rr": 0.1392251824453657,
+     "lidar": 0.03425009514237498
+    },
+    "min_clearance": 0.01475045434519187,
+    "min_soft_clearance": 0.03100297866378532,
+    "obstacle": "frame_right",
+    "part": "upper arm",
+    "hard_clear": true,
+    "soft_clear": true
+   }
+  }
+ ]
+}

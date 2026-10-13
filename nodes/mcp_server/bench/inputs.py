@@ -20,10 +20,11 @@ import yaml
 from ros2_common.camera_geometry import pixel_to_ground
 
 from mcp_server import arm_geometry, body_model, camera_overlay, camera_scene, footprint_geometry, frontiers, perception
-from mcp_server.arm_reach import ReachEnvelope, point_reach
+from mcp_server.arm_geometry import JAW_POINTS
+from mcp_server.arm_reach import ReachEnvelope, joint_range, point_reach
 from mcp_server.camera_candidates import CandidateStore, RobotSnapshot
 from mcp_server.config import REPO_ROOT, McpServerConfig, ReachMapSettings
-from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel
+from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel, base_link_to_arm
 from mcp_server.grasp import GraspPlanner, ObjectSpec, grasp_params
 from mcp_server.grasp_check import GripMeasurements, band_verdict, fuse, grip_evidence
 from mcp_server.ik import ArmKinematics
@@ -32,7 +33,7 @@ from mcp_server.reach_map import build as build_reach_map
 from mcp_server.reach_map import checker_from_config
 from mcp_server.reference.ik_reach import robot_inputs
 from mcp_server.sag import GravityModel, SagCompensator, compensate
-from mcp_server.self_collision import SelfCollisionChecker
+from mcp_server.self_collision import SelfCollisionChecker, joint_line
 from tests.camera_helpers import FRONT_MOUNT, HFOV
 
 Call = Callable[[], Any]
@@ -58,6 +59,18 @@ IMAGE_W, IMAGE_H = 640, 480
 LIDAR_POINTS = 720
 PATH_SAMPLES = 40
 BODY_POINTS = 4000
+# Home pose of the 2026-10-10 calibration (tests/test_self_collision.py HOME).
+COLLISION_HOME = {
+    "shoulder_pan": -0.0138,
+    "shoulder_lift": -1.3622,
+    "elbow_flex": 1.5769,
+    "wrist_flex": -0.0752,
+    "wrist_roll": -1.6245,
+}
+# Gripper opening (rad) of the collision scenario poses that do not set one.
+COLLISION_GRIPPER = 0.3
+# Joint step (rad) of the collision golden's joint lines (coarser than the planner's: keeps the golden small).
+COLLISION_LINE_STEP_RAD = 0.05
 SAG_JOINTS_POSE = {"shoulder_lift": -0.8, "elbow_flex": 1.4, "wrist_flex": 0.2}
 SAG_GAINS = {"shoulder_lift": 0.1, "elbow_flex": 0.1, "wrist_flex": 0.1}
 SAG_MAX_RAD = 0.12
@@ -647,6 +660,102 @@ def collision_call(kind: str) -> Call:
             chk.geometry(samples)
 
     return call
+
+
+def collision_target(x: float, y: float, z: float, pitch: float) -> dict[str, float]:
+    """Joints placing the tool point at a base_link point with an approach pitch (deployed kinematics and mount).
+
+    Args:
+        x (float): base_link x (m).
+        y (float): base_link y (m).
+        z (float): base_link z (m).
+        pitch (float): Approach pitch (rad).
+
+    Returns:
+        dict[str, float]: Joint configuration (measured space).
+    """
+    mount = config().arm.base_in_base_link
+    assert mount is not None
+    return kinematics().inverse(*base_link_to_arm((x, y, z), mount), pitch, seed=SEED)
+
+
+def collision_poses() -> list[dict[str, float]]:
+    """Scenario poses of the body check on the deployed config: clear, raised, home, into / deep in / beside the lidar
+    dome and inside its hard margin (the shapes of tests/test_self_collision.py), gripper COLLISION_GRIPPER unless set.
+
+    Returns:
+        list[dict[str, float]]: Joint configurations.
+    """
+    lidar = checker().body.by_name("lidar")
+    lx, ly = lidar.center_xy
+    down = math.pi / 2
+    poses = [
+        collision_target(0.33, -0.10, 0.12, 0.8),
+        collision_target(0.30, -0.05, 0.25, 0.6),
+        COLLISION_HOME,
+        collision_target(lx, ly, lidar.z_max - 0.04, down),
+        collision_target(lx, ly, lidar.z_max - 0.08, down),
+        collision_target(lx + 0.12, ly, lidar.z_max + 0.008, 0.8),
+        collision_target(lx + 0.12, ly, lidar.z_max - 0.01, 0.8) | {"gripper": 0.6},
+        collision_target(lx + 0.06, ly - 0.02, lidar.z_max - 0.05, down),
+        collision_target(lx + 0.06, ly - 0.02, lidar.z_max - 0.06, down) | {"gripper": 0.2},
+    ]
+    return [{"gripper": COLLISION_GRIPPER} | pose for pose in poses]
+
+
+def random_collision_pose(rng: np.random.Generator) -> dict[str, float]:
+    """Uniform pose inside the usable joint ranges, gripper between closed and open.
+
+    Args:
+        rng (np.random.Generator): Seeded generator.
+
+    Returns:
+        dict[str, float]: Joint configuration.
+    """
+    pose = {j: float(rng.uniform(*joint_range(checker(), j))) for j in SEED}
+    return pose | {"gripper": float(rng.uniform(0.0, 1.5))}
+
+
+def collision_path_cases() -> list[dict[str, Any]]:
+    """path() inputs of the self_collision.path golden: the bench path, the joint lines between every pair of
+    scenario poses (allow_escape, and held to the hard margin from the poses inside it), unpruned lines, a gripper-only
+    motion and seeded random lines.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments (samples, allow_escape, prune, moving_parts).
+    """
+    poses = collision_poses()
+    lines = [joint_line(a, b, COLLISION_LINE_STEP_RAD) for i, a in enumerate(poses) for b in poses[i + 1 :]]
+    rng = np.random.default_rng(RNG_SEED)
+    randoms = [
+        joint_line(random_collision_pose(rng), random_collision_pose(rng), COLLISION_LINE_STEP_RAD) for _ in range(6)
+    ]
+    lidar_open = poses[3] | {"gripper": 0.0}
+    gripper_only = joint_line(lidar_open, lidar_open | {"gripper": 1.4})
+
+    def case(samples: list[dict[str, float]], **kw: Any) -> dict[str, Any]:
+        return {"samples": samples, "allow_escape": True, "prune": True, "moving_parts": None} | kw
+
+    return (
+        [case(arm_path_samples())]
+        + [case(line) for line in lines + randoms]
+        + [
+            case(joint_line(start, poses[0], COLLISION_LINE_STEP_RAD), allow_escape=False)
+            for start in poses[3:5] + poses[7:]
+        ]
+        + [case(lines[k], prune=False) for k in (0, 2, 7)]
+        + [case(gripper_only, moving_parts=["moving_jaw_tip"]), case(gripper_only, moving_parts=list(JAW_POINTS))]
+    )
+
+
+def collision_pose_cases() -> list[dict[str, Any]]:
+    """pose() inputs of the self_collision.pose golden: the scenario poses and seeded random poses.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments (joints).
+    """
+    rng = np.random.default_rng(RNG_SEED + 1)
+    return [{"joints": pose} for pose in collision_poses() + [random_collision_pose(rng) for _ in range(24)]]
 
 
 def body_outline_call(kind: str) -> Call:

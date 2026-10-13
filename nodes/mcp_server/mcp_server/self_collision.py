@@ -19,6 +19,12 @@ a block or capsule whose sphere lower bound is beyond every threshold it could m
 clearance, bounded from above by the nearest sphere, and the hard limit) is skipped. Results equal the full
 computation (clearance_matrix) bit for bit wherever a verdict or a reported value depends on them; points are placed
 element by element (rigid) so a point gets the same bits in any batch.
+
+The clearance computations (path, pose, closest, clear_of, clearance_matrix, clearances_of, bounded_clearances) run in
+the C++ kernel mcp_core_cpp.collision.BodyChecker (mcp_core_cpp/src/collision/, docs/collision.md); the forward
+kinematics (geometry, part_points) and the report stay in Python. The original Python bodies are
+mcp_server/reference/collision.py, which writes the goldens tests/test_core_parity_collision.py checks the kernel
+against.
 """
 
 import math
@@ -27,6 +33,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import numpy as np
+from mcp_core_cpp.collision import BodyChecker
 
 from .arm_geometry import (
     BOX_POINT_SPACING_M,
@@ -40,7 +47,7 @@ from .arm_geometry import (
     WRIST_CAPSULE,
     box_surface_points,
 )
-from .body_model import BodyModel, Obstacle, capsule_signed_distance
+from .body_model import BodyModel, BoxObstacle, CylinderObstacle, Obstacle
 from .config import ArmBaseOffset, BodyCheckSettings, McpServerConfig
 from .floor_guard import GRIPPER_LINK, JawModel, yaw_matrix
 from .ik import ArmKinematics
@@ -84,6 +91,9 @@ CLEAR_OF_BLOCK = 32
 # Slack on the bounding-sphere bounds of the pruned checks (m): covers float rounding, far below any margin.
 PRUNE_SLACK_M = 1e-9
 ROUND_M = 4
+# Obstacle kinds of the C++ kernel's obstacle table (obstacle_rows).
+BOX_KIND = 0.0
+CYLINDER_KIND = 1.0
 
 
 def link_model_description() -> dict[str, Any]:
@@ -167,6 +177,7 @@ class PointBlocks:
     points: np.ndarray  # (B, size, 3)
     centres: np.ndarray  # (B, 3)
     radii: np.ndarray  # (B,)
+    count: int  # points before the padding of the last block
 
 
 def link_blocks() -> tuple[PointBlocks, ...]:
@@ -181,7 +192,7 @@ def link_blocks() -> tuple[PointBlocks, ...]:
     out = []
     for part, link, contact, points in entries:
         blocks, centres, radii = point_blocks(np.asarray(points, dtype=np.float64)[None])
-        out.append(PointBlocks(part, link, contact, blocks[0], centres[0], radii[0]))
+        out.append(PointBlocks(part, link, contact, blocks[0], centres[0], radii[0], len(points)))
     return tuple(out)
 
 
@@ -219,26 +230,76 @@ class SampleGeometry:
             {link: (rotation[pick], translation[pick]) for link, (rotation, translation) in self.poses.items()},
         )
 
+    def arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """The geometry as the C++ kernel takes it (mcp_core_cpp.collision.BodyChecker).
 
-def capsule_distances(obstacle: Obstacle, ends: list[np.ndarray]) -> list[np.ndarray]:
-    """Signed distances of the CAPSULES to one obstacle in a single vectorised axis search (same values as one
-    capsule_signed_distance call per capsule: the rows are searched independently).
+        Returns:
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: capsule axis ends (N, C, 2, 3) in CAPSULES order,
+                jaw points (N, J, 3) in JAW_POINTS order, rotations (N, L, 3, 3) and translations (N, L, 3) of the
+                BLOCK_LINKS.
+        """
+        return (
+            np.stack([self.fixed[name] for name, *_ in CAPSULES], axis=1),
+            np.concatenate([self.fixed[name] for name in JAW_POINTS], axis=1),
+            np.stack([self.poses[link][0] for link in BLOCK_LINKS], axis=1),
+            np.stack([self.poses[link][1] for link in BLOCK_LINKS], axis=1),
+        )
+
+
+def obstacle_rows(body: BodyModel) -> np.ndarray:
+    """The body obstacles as the C++ kernel's obstacle table: kind 0 (box) lo xyz hi xyz, kind 1 (vertical cylinder)
+    x y radius z_min z_max 0.
 
     Args:
-        obstacle (Obstacle): Convex obstacle.
-        ends (list[np.ndarray]): Per capsule of CAPSULES, (R, >= 2, 3) points whose first two are its axis ends.
+        body (BodyModel): Body obstacles.
 
     Returns:
-        list[np.ndarray]: Per capsule, (R,) distances (m).
+        np.ndarray: (M, 7) table.
+
+    Raises:
+        TypeError: For an obstacle that is neither a BoxObstacle nor a CylinderObstacle.
     """
-    axis = capsule_signed_distance(
-        obstacle, np.concatenate([e[:, 0] for e in ends]), np.concatenate([e[:, 1] for e in ends]), 0.0
+    rows = []
+    for obstacle in body.obstacles:
+        if isinstance(obstacle, BoxObstacle):
+            rows.append([BOX_KIND, *obstacle.lo, *obstacle.hi])
+        elif isinstance(obstacle, CylinderObstacle):
+            x, y = obstacle.center_xy
+            rows.append([CYLINDER_KIND, x, y, obstacle.radius, obstacle.z_min, obstacle.z_max, 0.0])
+        else:
+            raise TypeError(f"no C++ kernel for obstacle {obstacle!r}")
+    return np.array(rows, dtype=np.float64).reshape(len(rows), 7)
+
+
+def body_kernel(body: BodyModel, mount_rotation: np.ndarray, mount_offset: np.ndarray) -> BodyChecker:
+    """The C++ kernel of a body and arm mount, holding CAPSULES, LINK_BLOCKS and the part layout of CHECKED_PARTS.
+
+    Args:
+        body (BodyModel): Body obstacles.
+        mount_rotation (np.ndarray): (3, 3) arm mount rotation in base_link.
+        mount_offset (np.ndarray): (3,) arm mount position in base_link.
+
+    Returns:
+        BodyChecker: The kernel.
+    """
+    return BodyChecker(
+        obstacle_rows(body),
+        np.array([radius for *_, radius in CAPSULES], dtype=np.float64),
+        [b.part for b in LINK_BLOCKS],
+        [BLOCK_LINKS.index(b.link) for b in LINK_BLOCKS],
+        [b.contact_only for b in LINK_BLOCKS],
+        [b.count for b in LINK_BLOCKS],
+        [b.points for b in LINK_BLOCKS],
+        [b.centres for b in LINK_BLOCKS],
+        [b.radii for b in LINK_BLOCKS],
+        np.asarray(mount_rotation, dtype=np.float64),
+        np.asarray(mount_offset, dtype=np.float64),
+        len(CHECKED_PARTS),
+        len(JAW_POINTS),
+        len(BLOCK_LINKS),
+        PRUNE_SLACK_M,
+        ESCAPE_TOLERANCE_M,
     )
-    out, start = [], 0
-    for e, (*_name, radius) in zip(ends, CAPSULES, strict=True):
-        out.append(axis[start : start + len(e)] - radius)
-        start += len(e)
-    return out
 
 
 def combine_scales(floor: list[float], body: list[float]) -> list[float]:
@@ -447,6 +508,8 @@ class SelfCollisionChecker:
         self.gripper = gripper_joint
         self.rotation = yaw_matrix(mount.yaw)
         self.offset = np.array([mount.x, mount.y, mount.z])
+        # The C++ kernels (path, pose, closest, clear_of and the clearance matrices run in it).
+        self.core = body_kernel(body, self.rotation, self.offset)
         # Exact distances evaluated ('points': part points, 'capsules': capsule axis searches), for the pruning tests.
         self.distance_counts: Counter[str] = Counter()
 
@@ -527,7 +590,7 @@ class SelfCollisionChecker:
     def clearance_matrix(
         self, samples: list[dict[str, float]]
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Clearance of every sample to every obstacle and the closest part.
+        """Clearance of every sample to every obstacle and the closest part, every distance in full (C++ kernel).
 
         Args:
             samples (list[dict[str, float]]): Joint configurations.
@@ -539,7 +602,7 @@ class SelfCollisionChecker:
         if n == 0 or m == 0:
             empty, parts = np.zeros((n, m)), np.zeros((n, m), dtype=int)
             return empty, parts, empty, parts
-        return self.clearances_of(self.stacked_points(samples))
+        return self.counted(self.core.full(*self.geometry(samples).arrays(), self.settings.hard_margin_m))
 
     def stacked_points(self, samples: list[dict[str, float]]) -> dict[str, np.ndarray]:
         """part_points of every sample stacked per part.
@@ -553,8 +616,25 @@ class SelfCollisionChecker:
         geometry = [self.part_points(s) for s in samples]
         return {key: np.stack([g[key] for g in geometry]) for key in geometry[0]}
 
+    def counted(
+        self, result: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Add a C++ clearance kernel's distance counts to distance_counts and return its clearances.
+
+        Args:
+            result (tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]): values, parts, soft, soft parts,
+                point and capsule distances evaluated.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: values, parts, soft, soft parts.
+        """
+        values, parts, soft, soft_parts, points, capsules = result
+        self.distance_counts["points"] += points
+        self.distance_counts["capsules"] += capsules
+        return values, parts, soft, soft_parts
+
     def clearances_of(self, stacked: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Clearance of stacked part points to every obstacle and the closest part.
+        """Clearance of stacked part points to every obstacle and the closest part (C++ kernel).
 
         The hard check's clearance of a contact-only box is its signed distance plus hard_margin_m (it breaks the
         hard margin exactly when it touches); the soft clearance leaves those boxes out (they never slow a motion).
@@ -567,30 +647,16 @@ class SelfCollisionChecker:
                 CHECKED_PARTS of the closest part as the hard check sees them, then the same two without the
                 contact-only boxes (the soft clearances the slow band uses).
         """
-        n, m = stacked[CHECKED_PARTS[0]].shape[0], len(self.body.obstacles)
-        counts = self.distance_counts
-        out = np.empty((n, m, len(CHECKED_PARTS)))
-        for k, obstacle in enumerate(self.body.obstacles):
-            capsules = capsule_distances(obstacle, [stacked[name] for name, *_rest in CAPSULES])
-            counts["capsules"] += n * len(CAPSULES)
-            for p, (name, *_rest) in enumerate(CAPSULES):
-                ends = stacked[name]
-                out[:, k, p] = capsules[p]
-                if ends.shape[1] > 2:
-                    out[:, k, p] = np.minimum(out[:, k, p], obstacle.signed_distance(ends[:, 2:]).min(axis=1))
-                    counts["points"] += n * (ends.shape[1] - 2)
-            for p in range(len(CAPSULES), len(CHECKED_PARTS)):
-                out[:, k, p] = obstacle.signed_distance(stacked[CHECKED_PARTS[p]]).min(axis=1)
-                counts["points"] += stacked[CHECKED_PARTS[p]][:, :, 0].size
-        soft, soft_parts = out.min(axis=2), out.argmin(axis=2)
-        for p, (name, *_rest) in enumerate(CAPSULES):
-            if contact_key(name) in stacked:
-                contact = np.stack(
-                    [o.signed_distance(stacked[contact_key(name)]).min(axis=1) for o in self.body.obstacles], axis=1
-                )
-                counts["points"] += m * stacked[contact_key(name)][:, :, 0].size
-                out[:, :, p] = np.minimum(out[:, :, p], contact + self.settings.hard_margin_m)
-        return out.min(axis=2), out.argmin(axis=2), soft, soft_parts
+        n = stacked[CHECKED_PARTS[0]].shape[0]
+        none = np.empty((n, 0, 3))
+        return self.counted(
+            self.core.points_full(
+                [stacked[name] for name, *_ in CAPSULES],
+                [stacked.get(contact_key(name), none) for name, *_ in CAPSULES],
+                [stacked[part] for part in CHECKED_PARTS[len(CAPSULES) :]],
+                self.settings.hard_margin_m,
+            )
+        )
 
     def geometry(self, samples: list[dict[str, float]]) -> SampleGeometry:
         """What the pruned checks need of each configuration: one FK pass, the capsule axis ends and jaw points in
@@ -640,78 +706,8 @@ class SelfCollisionChecker:
             tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: (N, M) hard clearances (m), (N, M) indices into
                 CHECKED_PARTS, (N, M) soft clearances, (N, M) soft part indices, exact as described above.
         """
-        obstacles = self.body.obstacles
-        n, m = geometry.n, len(obstacles)
-        hm = self.settings.hard_margin_m
-        counts = self.distance_counts
-        fixed, poses = geometry.fixed, geometry.poses
-        centres = [
-            self.to_base_link(rigid(poses[b.link][0][:, None], poses[b.link][1][:, None], b.centres))
-            for b in LINK_BLOCKS
-        ]
-        jaw_parts = range(len(CAPSULES) + 1, len(CHECKED_PARTS))
-        out = np.full((n, m, len(CHECKED_PARTS)), np.inf)
-        # Pass 1: bounds (and the jaw points, single points evaluated exactly).
-        cap_lo = np.empty((m, len(CAPSULES), n))
-        block_lo: list[list[np.ndarray]] = [[] for _ in range(m)]
-        soft_up = np.full(n, np.inf)
-        hard_up = np.full(n, np.inf)
-        for k, obstacle in enumerate(obstacles):
-            for p, (name, *_r, radius) in enumerate(CAPSULES):
-                a, b = fixed[name][:, 0], fixed[name][:, 1]
-                half = np.linalg.norm(b - a, axis=-1) / 2.0
-                cap_lo[k, p] = obstacle.signed_distance((a + b) / 2.0) - half - radius
-                soft_up = np.minimum(
-                    soft_up, np.minimum(obstacle.signed_distance(a), obstacle.signed_distance(b)) - radius
-                )
-            for blocks, centre in zip(LINK_BLOCKS, centres, strict=True):
-                at = obstacle.signed_distance(centre)
-                block_lo[k].append(at - blocks.radii)
-                upper = (at + blocks.radii).min(axis=1)
-                if blocks.contact_only:
-                    hard_up = np.minimum(hard_up, upper + hm)
-                else:
-                    soft_up = np.minimum(soft_up, upper)
-            for p in jaw_parts:
-                out[:, k, p] = obstacle.signed_distance(fixed[CHECKED_PARTS[p]]).min(axis=1)
-                soft_up = np.minimum(soft_up, out[:, k, p])
-                counts["points"] += n
-        hard_up = np.minimum(hard_up, soft_up)
-        soft_t = soft_up + PRUNE_SLACK_M if soft else np.full(n, -np.inf)
-        limit = hard_up[:, None] if hard_limit is None else hard_limit
-        hard_t = np.broadcast_to(limit + PRUNE_SLACK_M, (n, m))
-        need = np.maximum(soft_t[:, None], hard_t)  # (N, M): held parts can matter below this
-        # Pass 2: exact distances of what can matter, the three capsules of an obstacle in one axis search.
-        for k, obstacle in enumerate(obstacles):
-            rows = [np.nonzero(cap_lo[k, p] <= need[:, k])[0] for p in range(len(CAPSULES))]
-            if sum(len(r) for r in rows):
-                found = capsule_distances(
-                    obstacle, [fixed[name][r] for r, (name, *_r) in zip(rows, CAPSULES, strict=True)]
-                )
-                for p, (r, distances) in enumerate(zip(rows, found, strict=True)):
-                    out[r, k, p] = distances
-                    counts["capsules"] += len(r)
-        contact_min = np.full((n, m, len(CAPSULES)), np.inf)
-        for g, blocks in enumerate(LINK_BLOCKS):
-            required = hard_t - hm if blocks.contact_only else need
-            near = np.stack([block_lo[k][g] <= required[:, k, None] for k in range(m)])  # (M, N, B)
-            ni, bi = np.nonzero(near.any(axis=0))
-            if not len(ni):
-                continue
-            rotation, translation = poses[blocks.link]
-            placed = self.to_base_link(rigid(rotation[ni][:, None], translation[ni][:, None], blocks.points[bi]))
-            for k, obstacle in enumerate(obstacles):
-                pick = near[k, ni, bi]
-                if not pick.any():
-                    continue
-                found = np.full(near.shape[1:], np.inf)
-                found[ni[pick], bi[pick]] = obstacle.signed_distance(placed[pick]).min(axis=1)
-                counts["points"] += int(pick.sum()) * blocks.points.shape[1]
-                target = contact_min[:, k] if blocks.contact_only else out[:, k]
-                target[:, blocks.part] = np.minimum(target[:, blocks.part], found.min(axis=1))
-        soft_values, soft_parts = out.min(axis=2), out.argmin(axis=2)
-        out[:, :, : len(CAPSULES)] = np.minimum(out[:, :, : len(CAPSULES)], contact_min + hm)
-        return out.min(axis=2), out.argmin(axis=2), soft_values, soft_parts
+        limit = None if hard_limit is None else np.ascontiguousarray(hard_limit, dtype=np.float64)
+        return self.counted(self.core.bounded(*geometry.arrays(), self.settings.hard_margin_m, limit, soft))
 
     def clear_of(self, geometry: SampleGeometry, margin: float) -> np.ndarray:
         """Whether every checked part of each sample keeps at least margin from every obstacle (the hard verdict).
@@ -766,67 +762,6 @@ class SelfCollisionChecker:
         names = [o.name for o in self.body.obstacles]
         return [(float(values[i, k]), names[int(k)], CHECKED_PARTS[int(parts[i, k])]) for i, k in enumerate(worst)]
 
-    def hard_limit(self, start: np.ndarray, allow_escape: bool) -> np.ndarray:
-        """Per-obstacle hard limit of a path: the hard margin, or for a start already inside it (when it may escape)
-        the start clearance minus ESCAPE_TOLERANCE_M.
-
-        Args:
-            start (np.ndarray): (M,) hard clearances of the start pose (m).
-            allow_escape (bool): Whether a start inside the hard margin may move out.
-
-        Returns:
-            np.ndarray: (M,) limits (m).
-        """
-        cfg = self.settings
-        return np.where(
-            (start >= cfg.hard_margin_m) | (not allow_escape), cfg.hard_margin_m, start - ESCAPE_TOLERANCE_M
-        )
-
-    def pruned_path_clearances(
-        self, samples: list[dict[str, float]], allow_escape: bool, geometry: SampleGeometry | None = None
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """clearance_matrix of a path through bounded_clearances: first the start (exact below the hard margin, which
-        is all its escape limits need), then the rest to those limits.
-
-        Args:
-            samples (list[dict[str, float]]): Joint samples, start first (at least one; the body has obstacles).
-            allow_escape (bool): Whether a start inside the hard margin may move out (sets the limits).
-            geometry (SampleGeometry | None): geometry(samples) when the caller has it already.
-
-        Returns:
-            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: clearances_of output, exact where path() reads it.
-        """
-        m = len(self.body.obstacles)
-        geometry = geometry or self.geometry(samples)
-        start = self.bounded_clearances(geometry.rows(slice(0, 1)), np.full((1, m), self.settings.hard_margin_m))
-        if len(samples) == 1:
-            return start
-        limit = self.hard_limit(start[0][0], allow_escape)
-        rest = self.bounded_clearances(geometry.rows(slice(1, None)), np.broadcast_to(limit, (len(samples) - 1, m)))
-        values, parts, soft, soft_parts = (np.concatenate([a, b]) for a, b in zip(start, rest, strict=True))
-        return values, parts, soft, soft_parts
-
-    def moving_soft_clearances(
-        self, geometry: SampleGeometry, moving_parts: tuple[str, ...]
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Soft clearances of the given single-point parts only (the parts a gripper-only motion moves).
-
-        Args:
-            geometry (SampleGeometry): geometry(samples).
-            moving_parts (tuple[str, ...]): Jaw point parts (JAW_POINTS).
-
-        Returns:
-            tuple[np.ndarray, np.ndarray]: (N, M) clearances (m) and (N, M) indices into CHECKED_PARTS of the closest
-                moving part.
-        """
-        n, m = geometry.n, len(self.body.obstacles)
-        out = np.empty((n, m, len(moving_parts)))
-        for k, obstacle in enumerate(self.body.obstacles):
-            for p, part in enumerate(moving_parts):
-                out[:, k, p] = obstacle.signed_distance(geometry.fixed[part]).min(axis=1)
-        index = np.array([CHECKED_PARTS.index(part) for part in moving_parts])
-        return out.min(axis=2), index[out.argmin(axis=2)]
-
     def path(
         self,
         samples: list[dict[str, float]],
@@ -836,7 +771,8 @@ class SelfCollisionChecker:
     ) -> BodyReport:
         """Speed scale of every sample and the hard verdict of a trajectory (samples[0] = the start pose).
 
-        With prune (pruned_path_clearances) the report is the same as with the full clearances, field for field.
+        Runs in the C++ kernel (BodyChecker.path). With prune (bounding-sphere pruning: the start exact below the hard
+        margin, then the rest to its limits) the report is the same as with the full clearances, field for field.
         With moving_parts (a gripper-only motion: GRIPPER_MOVING_PARTS) the soft band (scales, clearances, obstacles,
         parts) covers only those parts: the clearance of a link that does not move cannot change during the motion, so
         it never slows it. The hard verdict still covers every part.
@@ -860,33 +796,28 @@ class SelfCollisionChecker:
         n = len(samples)
         if not cfg.enabled or n == 0:
             return BodyReport([NORMAL_SCALE] * n, [math.inf] * n, [""] * n, [""] * n, cfg, enabled=False)
-        geometry = self.geometry(samples) if self.body.obstacles and (prune or moving_parts) else None
-        if prune and geometry is not None:
-            values, parts, soft, soft_parts = self.pruned_path_clearances(samples, allow_escape, geometry)
-        else:
-            values, parts, soft, soft_parts = self.clearance_matrix(samples)
-        if moving_parts and geometry is not None:
-            soft, soft_parts = self.moving_soft_clearances(geometry, moving_parts)
+        if not self.body.obstacles:
+            return BodyReport([NORMAL_SCALE] * n, [math.inf] * n, [""] * n, [""] * n, cfg)
+        moving = [CHECKED_PARTS.index(part) for part in moving_parts or ()]
+        clearances, worst, soft_parts, violation, violation_obstacle, violation_part, violation_clearance, *counts = (
+            self.core.path(*self.geometry(samples).arrays(), cfg.hard_margin_m, allow_escape, prune, moving)
+        )
+        self.distance_counts["points"] += counts[0]
+        self.distance_counts["capsules"] += counts[1]
         names = [o.name for o in self.body.obstacles]
-        worst = soft.argmin(axis=1)
-        clearances = [float(soft[i, worst[i]]) for i in range(n)]
         report = BodyReport(
-            scales=[cfg.slow_speed_scale if c < cfg.soft_margin_m else NORMAL_SCALE for c in clearances],
-            clearances=clearances,
-            obstacles=[names[int(worst[i])] for i in range(n)],
-            parts=[CHECKED_PARTS[int(soft_parts[i, worst[i]])] for i in range(n)],
+            scales=[cfg.slow_speed_scale if c < cfg.soft_margin_m else NORMAL_SCALE for c in clearances.tolist()],
+            clearances=clearances.tolist(),
+            obstacles=[names[k] for k in worst.tolist()],
+            parts=[CHECKED_PARTS[p] for p in soft_parts.tolist()],
             settings=cfg,
             hints={o.name: obstacle_hint(o, "arm", cfg) for o in self.body.obstacles},
         )
-        limit = self.hard_limit(values[0], allow_escape)
-        broken = values < limit[None, :]
-        if broken.any():
-            i = int(np.argmax(broken.any(axis=1)))
-            k = int(np.argmin(np.where(broken[i], values[i], np.inf)))
-            part = CHECKED_PARTS[int(parts[i, k])]
-            report.violation = i
-            report.violation_obstacle = names[k]
+        if violation >= 0:
+            part = CHECKED_PARTS[violation_part]
+            report.violation = violation
+            report.violation_obstacle = names[violation_obstacle]
             report.violation_part = part
-            report.violation_clearance = float(values[i, k])
-            report.hints[names[k]] = obstacle_hint(self.body.obstacles[k], part, cfg)
+            report.violation_clearance = violation_clearance
+            report.hints[names[violation_obstacle]] = obstacle_hint(self.body.obstacles[violation_obstacle], part, cfg)
         return report
