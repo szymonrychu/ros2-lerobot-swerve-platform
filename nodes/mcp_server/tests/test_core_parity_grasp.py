@@ -9,6 +9,7 @@ bodies on ikpy + scipy, run on every waypoint IK call of the recorded grasp scen
 import inspect
 import json
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,10 @@ from tests import core_parity
 NODE_ROOT = Path(__file__).resolve().parents[1]
 REPORT = NODE_ROOT / "bench" / "report.json"
 DOC = NODE_ROOT / "mcp_core_cpp" / "docs" / "grasp.md"
+CORE_PYPROJECT = NODE_ROOT / "mcp_core_cpp" / "pyproject.toml"
+LOCK = NODE_ROOT / "uv.lock"
+# mcp_core_cpp version before the grasp kernels: the Pi re-runs uv sync only when uv.lock changes.
+PRE_GRASP_VERSION = (0, 1, 0)
 FAMILY = "grasp"
 PORT = "port"
 PORTED = "ported"
@@ -202,3 +207,11 @@ def test_kernel_params_and_geometry_are_plain_values() -> None:
     geometry = solver_geometry(plan.kin)
     json.dumps(geometry)
     assert geometry["joints"] == list(grasp.ik.ARM_CHAIN_JOINTS)
+
+
+def test_core_version_is_bumped_past_the_pre_grasp_release_and_locked() -> None:
+    """The grasp C++ sources ship with a new mcp_core_cpp version, recorded in uv.lock, so the Pi deploy rebuilds."""
+    version = tomllib.loads(CORE_PYPROJECT.read_text())["project"]["version"]
+    locked = {pkg["name"]: pkg["version"] for pkg in tomllib.loads(LOCK.read_text())["package"]}
+    assert tuple(int(part) for part in version.split(".")) > PRE_GRASP_VERSION
+    assert locked["mcp-core-cpp"] == version

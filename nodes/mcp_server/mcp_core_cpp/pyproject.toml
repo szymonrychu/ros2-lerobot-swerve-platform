@@ -2,7 +2,7 @@
 name = "mcp-core-cpp"
 # Bump on every C++ change: uv.lock records this version, and the Pi deploy re-runs uv sync (and so rebuilds the
 # extension) only when nodes/mcp_server/pyproject.toml or uv.lock changed.
-version = "0.2.1"
+version = "0.3.0"
 description = "C++ compute kernels of mcp_server (nanobind extension), proven equal to the Python references by golden tests"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
