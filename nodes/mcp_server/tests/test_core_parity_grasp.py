@@ -11,6 +11,8 @@ mcp_core_cpp.
 import inspect
 import json
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -54,6 +56,39 @@ PITCH = 1.2
 # Kernel families of mcp_core_cpp; the reference must reach none of them (goldens never compare C++ with C++).
 CORE_FAMILIES = ("camera", "grasp", "ik_reach", "collision", "frontiers")
 REFERENCE_CASES = 5
+NANOBIND_LEAK = "nanobind: leaked"
+# A grasp planner solves on ArmKinematics.core_model() (mcp_core_cpp.ik_reach.ArmModel). One held by a module global
+# (a test module's planner) and one on the stack of a never-stopped daemon thread are not freed by shutdown on their own.
+EXIT_WITH_HELD_MODELS = """
+import threading
+from mcp_server.config import McpServerConfig
+from mcp_server.ik import ArmKinematics
+config = McpServerConfig()
+def kinematics():
+    kin = ArmKinematics(config.arm.urdf_path, margin=config.limits.arm_limit_margin_rad)
+    kin.core_model()
+    return kin
+held = kinematics()
+started = threading.Event()
+def park(kin):
+    started.set()
+    threading.Event().wait()
+threading.Thread(target=park, args=(kinematics(),), daemon=True).start()
+started.wait(10.0)
+"""
+# release_core_models runs at exit; called early here (in a child) to show a released kinematics refuses the model.
+CALL_AFTER_RELEASE = """
+from mcp_server.config import McpServerConfig
+from mcp_server.ik import ArmKinematics, release_core_models
+config = McpServerConfig()
+kin = ArmKinematics(config.arm.urdf_path, margin=config.limits.arm_limit_margin_rad)
+kin.core_model()
+release_core_models()
+try:
+    kin.core_model()
+except RuntimeError as error:
+    print(error)
+"""
 
 
 class NoCore:
@@ -307,3 +342,22 @@ def test_mcp_core_cpp_has_one_least_squares_solver() -> None:
     assert iks == [("ik_reach/kinematics.cpp", "inverse_flange")], iks
     assert not list((CORE_SRC / FAMILY).glob("trf.*")) and not list((CORE_SRC / FAMILY).glob("arm_ik.*"))
     assert all(path.parent == SOLVER_HOME for path in CORE_SRC.rglob("trf*"))
+
+
+def test_exit_with_held_kinematics_frees_the_arm_model() -> None:
+    """Interpreter exit releases the C++ ArmModel of every live ArmKinematics, so a module global or a never-stopped
+    daemon thread holding the grasp planner's kinematics leaves no ArmModel for nanobind to report as leaked."""
+    done = subprocess.run(
+        [sys.executable, "-c", EXIT_WITH_HELD_MODELS], cwd=NODE_ROOT, capture_output=True, text=True, timeout=120
+    )
+    assert done.returncode == 0, done.stderr
+    assert NANOBIND_LEAK not in done.stderr
+
+
+def test_released_kinematics_refuses_the_arm_model() -> None:
+    """After release_core_models (interpreter exit) core_model raises instead of building a model nobody frees."""
+    done = subprocess.run(
+        [sys.executable, "-c", CALL_AFTER_RELEASE], cwd=NODE_ROOT, capture_output=True, text=True, timeout=120
+    )
+    assert done.returncode == 0, done.stderr
+    assert "released at interpreter exit" in done.stdout

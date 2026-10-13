@@ -48,6 +48,11 @@ parameter it copies changes, and `ArmKinematics.clear_solutions()` clears both c
 `ArmKinematics.solutions` is not shared with the kernel; `solves` counts the model's IK runs, which the planner adds
 to `kin.solve_count` for its `IkBudget`.
 
+**Release at exit.** A planner's kinematics can outlive interpreter shutdown (a module-global planner, or one on the
+stack of a daemon thread that was never stopped), and nanobind would then report its `ArmModel` as leaked.
+`mcp_server.ik.release_core_models` (registered with `atexit`) drops the model of every live `ArmKinematics`; a
+`core_model()` call after it raises `RuntimeError` instead of building a model nobody frees.
+
 The original Python bodies live in `mcp_server/reference/grasp.py` (`solve_line_reference`, run on an ikpy chain
 rebuilt by `kinematics_from_geometry` from the case's `mcp_server.grasp.solver_geometry`; the parity test runs the
 kernel on that rebuilt kinematics' `core_model()`) and only write the golden `tests/data/core_golden/grasp/solve_line.json`: every

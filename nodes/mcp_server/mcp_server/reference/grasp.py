@@ -18,7 +18,7 @@ import ikpy.link
 import numpy as np
 
 from mcp_server.grasp import IkBudget, is_stall_pose
-from mcp_server.ik import ArmKinematics, UnreachableError
+from mcp_server.ik import KINEMATICS, ArmKinematics, UnreachableError
 from mcp_server.reference import ReferenceKernel, Tolerance
 
 SAMPLES_ATOL_RAD = 1e-9  # joint samples: the C++ TRF follows scipy's steps, only float rounding differs
@@ -66,6 +66,8 @@ def kinematics_from_geometry(geometry: dict[str, Any]) -> ArmKinematics:
     kin.last_heading_bias = 0.0
     kin.solutions = OrderedDict()
     kin.core = None  # core_model() builds the C++ ArmModel on demand (the reference itself never does)
+    kin.core_released = False
+    KINEMATICS.add(kin)  # so release_core_models frees a model the C++ side of the golden built on it
     return kin
 
 

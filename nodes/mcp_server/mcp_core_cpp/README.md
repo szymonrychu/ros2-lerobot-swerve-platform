@@ -113,7 +113,7 @@ golden after the switch still runs the original Python code, never C++ against C
   (0.2.0) locked in `uv.lock`.
 - `tests/test_core_parity_grasp.py`: golden parity of `grasp.solve_line` (111 cases from `bench/inputs.py`
   `grasp_solve_line_cases`, run on `ArmKinematics.core_model()` of the case's geometry), the reference staying pure
-  Python, `docs/grasp.md` against `bench/report.json`, the planner entry points calling the kernel (cache, budget),
+  Python, `docs/grasp.md` against `bench/report.json`, the planner entry points calling the kernel (cache, budget), the ArmModel released at interpreter exit (no nanobind leak),
   exactly one least-squares solver and one arm IK under `src/` (both in `ik_reach`), and the version carrying the
   grasp kernels (0.3.0) locked in `uv.lock`. `tests/test_ik.py::test_heading_refinement_survives_a_repeated_heading`: every pitch
   of a target whose heading refinement repeats a heading ends in a solution or `UnreachableError`.

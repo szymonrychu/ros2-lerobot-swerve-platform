@@ -1,7 +1,9 @@
 """SO101 arm kinematics on the repo URDF via ikpy: 5-DOF chain, position + approach pitch IK, URDF joint limits."""
 
+import atexit
 import math
 import warnings
+import weakref
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -27,6 +29,8 @@ TOOL_ITERATIONS = 6
 SOLUTION_CACHE_SIZE = 8192  # ikpy solves kept (identical queries repeat across seeds, refinements and strategies)
 TOOL_CONVERGENCE_M = 0.0005
 EXTRA_SEEDS = ((0.0, 0.0, 0.0), (-0.8, 0.8, 0.5), (0.5, -0.5, 1.0), (-1.2, 1.4, 0.0), (0.8, 0.8, -0.5))
+# Every live kinematics, so interpreter exit can drop their C++ models (release_core_models).
+KINEMATICS: "weakref.WeakSet[ArmKinematics]" = weakref.WeakSet()
 
 
 class UnreachableError(ValueError):
@@ -168,6 +172,9 @@ class ArmKinematics:
         self.solutions: OrderedDict[bytes, dict[str, float]] = OrderedDict()
         # The C++ kinematics (core_model) and the parameters it was built from.
         self.core: tuple[tuple[object, ...], mcp_core_cpp.ik_reach.ArmModel] | None = None
+        # Set by release_core_models at interpreter exit: core_model then refuses to build a model nobody frees.
+        self.core_released = False
+        KINEMATICS.add(self)
         pan_origin = self.chain.forward_kinematics(np.zeros(len(self.chain.links)), full_kinematics=True)[
             self.index["shoulder_pan"]
         ]
@@ -189,7 +196,10 @@ class ArmKinematics:
 
         Raises:
             ValueError: For a chain link that is neither revolute nor fixed.
+            RuntimeError: After release_core_models (interpreter exit).
         """
+        if self.core_released:
+            raise RuntimeError("arm kinematics C++ model released at interpreter exit (ArmModel)")
         params = (
             tuple(self.tool_offset.tolist()),
             tuple(self.offsets.values()),
@@ -561,3 +571,16 @@ class ArmKinematics:
             j: min(max(joints.get(j, 0.0), self.limits[j][0] + self.margin), self.limits[j][1] - self.margin)
             for j in ARM_CHAIN_JOINTS
         }
+
+
+@atexit.register
+def release_core_models() -> None:
+    """Drop the C++ model of every live ArmKinematics (registered to run at interpreter exit).
+
+    Kinematics still referenced at shutdown (a grasp planner in a module global, or on the stack of a daemon thread
+    that was never stopped) are never freed by Python, and nanobind reports their mcp_core_cpp.ik_reach.ArmModel as
+    leaked. Releasing the model here frees it; a later core_model call on such kinematics raises RuntimeError.
+    """
+    for kin in list(KINEMATICS):
+        kin.core = None
+        kin.core_released = True
