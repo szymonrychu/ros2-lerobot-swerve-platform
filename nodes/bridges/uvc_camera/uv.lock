@@ -187,6 +187,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyturbojpeg"
+version = "1.8.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f2/2b/5fc7a7f51af947708a5d75d7637e923d2d4e60f43f6a4cfe55ae1ea241a2/pyturbojpeg-1.8.3.tar.gz", hash = "sha256:c131591a3990cc57f45a8b2705d6261c25df913a19b1fe88de5e911dbe04a1d4", size = 12757, upload-time = "2026-02-17T02:32:53.192Z" }
+
+[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -275,6 +284,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "opencv-python-headless" },
     { name = "prometheus-client" },
+    { name = "pyturbojpeg" },
     { name = "pyyaml" },
     { name = "ros2-metrics" },
 ]
@@ -291,6 +301,7 @@ dev = [
 requires-dist = [
     { name = "opencv-python-headless", specifier = ">=4.8.0,<5" },
     { name = "prometheus-client", specifier = ">=0.20" },
+    { name = "pyturbojpeg", specifier = ">=1.8,<2" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ros2-metrics", editable = "../../../shared/ros2_metrics" },
 ]

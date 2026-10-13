@@ -12,6 +12,9 @@ ENV_ROTATE_DEG_KEY = "UVC_ROTATE_DEG"
 DEFAULT_ROTATE_DEG = 0
 ALLOWED_ROTATE_DEG = (0, 90, 180, 270)
 ENV_MAX_FPS_KEY = "UVC_MAX_FPS"
+ENV_CAPTURE_FORMAT_KEY = "UVC_CAPTURE_FORMAT"
+ALLOWED_CAPTURE_FORMATS = ("mjpeg", "raw")
+DEFAULT_CAPTURE_FORMAT = "mjpeg"
 
 
 def get_config() -> tuple[str | int, str, str]:
@@ -71,3 +74,21 @@ def get_max_fps() -> float | None:
     if value <= 0:
         raise ValueError(f"{ENV_MAX_FPS_KEY} must be a positive number, got {raw!r}")
     return value
+
+
+def get_capture_format() -> str:
+    """Read how frames are captured from UVC_CAPTURE_FORMAT.
+
+    Returns:
+        str: 'mjpeg' (default: the camera's JPEG is published without a CPU re-encode) or 'raw' (decoded BGR
+        frames, JPEG-encoded on the CPU).
+
+    Raises:
+        ValueError: When UVC_CAPTURE_FORMAT is not one of ALLOWED_CAPTURE_FORMATS.
+    """
+    raw = (os.environ.get(ENV_CAPTURE_FORMAT_KEY) or "").strip().lower()
+    if not raw:
+        return DEFAULT_CAPTURE_FORMAT
+    if raw not in ALLOWED_CAPTURE_FORMATS:
+        raise ValueError(f"{ENV_CAPTURE_FORMAT_KEY} must be one of {ALLOWED_CAPTURE_FORMATS}, got {raw!r}")
+    return raw

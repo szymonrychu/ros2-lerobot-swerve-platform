@@ -9,6 +9,7 @@ dependencies = [
     "pyyaml>=6.0",
     "prometheus-client>=0.20",
     "ros2-metrics",
+    "pyturbojpeg>=1.8,<2",  # 1.x also loads libjpeg-turbo 2.1 (Ubuntu 24.04 libturbojpeg0); 2.x needs 3.x
 ]
 
 [dependency-groups]
