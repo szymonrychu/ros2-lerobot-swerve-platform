@@ -1,6 +1,10 @@
 """Frontier detection on the slam /map without ROS: a vectorised wavefront-frontier (WFD) extraction, traversability,
 geodesic distance, observation poses, id tracking across map versions, and the lookup / POI joins.
 
+traversability, geodesic_from, frontier_field and the traversability + field stages of FrontierTracker.update run in
+C++ (mcp_core_cpp.frontiers, mcp_core_cpp/docs/frontiers.md); their original Python bodies are the golden references
+in mcp_server/reference/frontiers.py.
+
 Cells are (row, col) of an OccupancyGrid: row along the grid y axis, col along its x axis. Values: -1 unknown, 0..100
 occupancy (free at or below FREE_THRESHOLD, occupied at or above OCCUPIED_THRESHOLD, as in perception.py).
 """
@@ -17,9 +21,9 @@ import numpy as np
 from ros2_common.lookups import LookupRecord
 from scipy import ndimage
 from scipy.optimize import linear_sum_assignment
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import dijkstra
 from scipy.spatial.transform import Rotation
+
+from mcp_core_cpp import frontiers as core
 
 from .config import FootprintSettings, FrontierSettings
 from .metrics import FRONTIER_COMPUTE, FRONTIER_COUNT
@@ -310,6 +314,18 @@ def min_cells_for(length_m: float, resolution: float) -> int:
     return max(1, math.ceil(round(length_m / resolution, LENGTH_ROUND_DIGITS)))
 
 
+def grid_cells(grid: MapGrid) -> np.ndarray:
+    """The grid's cell values as the C-contiguous int16 array the C++ kernels take (no copy when already so).
+
+    Args:
+        grid (MapGrid): The grid.
+
+    Returns:
+        np.ndarray: int16 H x W.
+    """
+    return np.ascontiguousarray(grid.data, dtype=np.int16)
+
+
 def known_bbox(data: np.ndarray, margin: int = 1) -> tuple[int, int, int, int] | None:
     """Bounding box of the known cells grown by a margin, clipped to the grid.
 
@@ -405,16 +421,9 @@ def traversability(grid: MapGrid, pass_clearance_m: float) -> tuple[np.ndarray, 
         tuple[np.ndarray, np.ndarray]: (trav bool H x W: known free with clearance >= pass_clearance_m,
         clearance_m float32 H x W: cell centre to the nearest obstacle cell edge (m), 0 on obstacles).
     """
-    data = grid.data
-    clearance = np.zeros(data.shape, dtype=np.float32)
-    box = known_bbox(data)
-    if box is not None:
-        r0, c0, r1, c1 = box
-        sub = data[r0:r1, c0:c1]
-        open_cells = np.pad((sub >= 0) & (sub < OCCUPIED_THRESHOLD), 1, constant_values=False)
-        cells = ndimage.distance_transform_edt(open_cells)[1:-1, 1:-1]
-        clearance[r0:r1, c0:c1] = np.maximum(cells - 0.5, 0.0) * grid.resolution
-    return free_mask(data) & (clearance >= pass_clearance_m), clearance
+    return core.traversability(
+        grid_cells(grid), float(grid.resolution), float(pass_clearance_m), FREE_THRESHOLD, OCCUPIED_THRESHOLD
+    )
 
 
 def snap_to_traversable(
@@ -465,45 +474,12 @@ def geodesic_from(trav: np.ndarray, start_rc: tuple[int, int], downsample: int, 
     Returns:
         np.ndarray: float H x W distances (m), inf where unreachable or not traversable.
     """
-    out = np.full(trav.shape, np.inf)
-    snapped = snap_to_traversable(trav, start_rc, resolution)
+    mask = np.ascontiguousarray(trav, dtype=bool)
+    snapped = snap_to_traversable(mask, start_rc, resolution)
     if snapped is None:
-        return out
+        return np.full(mask.shape, np.inf)
     (sr, sc), snap_m = snapped
-    ds = int(downsample)
-    rows = np.flatnonzero(trav.any(axis=1))
-    cols = np.flatnonzero(trav.any(axis=0))
-    r0, r1, c0, c1 = int(rows[0]), int(rows[-1]) + 1, int(cols[0]), int(cols[-1]) + 1
-    sub = trav[r0:r1, c0:c1]
-    h, w = -(-sub.shape[0] // ds), -(-sub.shape[1] // ds)
-    padded = np.zeros((h * ds, w * ds), dtype=bool)
-    padded[: sub.shape[0], : sub.shape[1]] = sub
-    coarse = padded.reshape(h, ds, w, ds).any(axis=(1, 3))
-    index = np.full((h, w), -1, dtype=np.int64)
-    nodes = np.flatnonzero(coarse)
-    index.flat[nodes] = np.arange(nodes.size)
-    src_parts: list[np.ndarray] = []
-    dst_parts: list[np.ndarray] = []
-    cost_parts: list[np.ndarray] = []
-    for dr, dc, cost in ((0, 1, 1.0), (1, 0, 1.0), (1, 1, math.sqrt(2.0)), (1, -1, math.sqrt(2.0))):
-        src_win = (slice(0, h - dr), slice(max(0, -dc), w - max(0, dc)))
-        dst_win = (slice(dr, h), slice(max(0, dc), w - max(0, -dc)))
-        both = coarse[src_win] & coarse[dst_win]
-        src_parts.append(index[src_win][both])
-        dst_parts.append(index[dst_win][both])
-        cost_parts.append(np.full(int(both.sum()), cost))
-    graph = csr_matrix(
-        (np.concatenate(cost_parts), (np.concatenate(src_parts), np.concatenate(dst_parts))),
-        shape=(nodes.size, nodes.size),
-    )
-    start = int(index[(sr - r0) // ds, (sc - c0) // ds])
-    reach = dijkstra(graph, directed=False, indices=start)
-    coarse_dist = np.full(h * w, np.inf)
-    coarse_dist[nodes] = reach * ds * resolution + snap_m
-    fine = np.repeat(np.repeat(coarse_dist.reshape(h, w), ds, axis=0), ds, axis=1)
-    out[r0:r1, c0:c1] = fine[: sub.shape[0], : sub.shape[1]]
-    out[~trav] = np.inf
-    return out
+    return core.geodesic_from(mask, sr, sc, snap_m, int(downsample), float(resolution))
 
 
 def frontier_field(grid: MapGrid, found: Sequence[RawFrontier]) -> FrontierField:
@@ -516,23 +492,8 @@ def frontier_field(grid: MapGrid, found: Sequence[RawFrontier]) -> FrontierField
     Returns:
         FrontierField: The field (empty arrays when there is no frontier or nothing is known).
     """
-    box = known_bbox(grid.data)
-    if box is None or not found:
-        empty = np.zeros((0, 0), dtype=np.int32)
-        return FrontierField(0, 0, np.zeros((0, 0)), empty, empty, empty)
-    r0, c0, r1, c1 = box
-    label = np.zeros((r1 - r0, c1 - c0), dtype=np.int32)
-    for f in found:
-        label[f.cells[:, 0] - r0, f.cells[:, 1] - c0] = f.label
-    cells, (near_r, near_c) = ndimage.distance_transform_edt(label == 0, return_indices=True)
-    return FrontierField(
-        row0=r0,
-        col0=c0,
-        distance_m=cells * grid.resolution,
-        label=label[near_r, near_c],
-        nearest_row=(near_r + r0).astype(np.int32),
-        nearest_col=(near_c + c0).astype(np.int32),
-    )
+    cells = [np.ascontiguousarray(f.cells, dtype=np.int64) for f in found]
+    return FrontierField(**core.frontier_field(grid_cells(grid), cells, [f.label for f in found], grid.resolution))
 
 
 def line_of_sight(grid: MapGrid, from_rc: tuple[int, int], to_rc: tuple[int, int]) -> bool:
@@ -750,9 +711,15 @@ class FrontierTracker:
             t0 = time.perf_counter()
             found = extract_frontiers(grid, min_cells_for(self.settings.min_length_m, grid.resolution))
             t1 = time.perf_counter()
-            trav, clearance = traversability(grid, self.pass_clearance_m)
-            t2 = time.perf_counter()
-            field = frontier_field(grid, found)
+            stages = core.tracker_update(
+                grid_cells(grid),
+                [np.ascontiguousarray(f.cells, dtype=np.int64) for f in found],
+                [f.label for f in found],
+                float(grid.resolution),
+                float(self.pass_clearance_m),
+                FREE_THRESHOLD,
+                OCCUPIED_THRESHOLD,
+            )
             t3 = time.perf_counter()
             current, retired_entries, self.next_id = match_ids(
                 previous, found, self.settings.match_radius_m, self.next_id
@@ -764,13 +731,13 @@ class FrontierTracker:
                 epoch=self.epoch,
                 grid=grid,
                 frontiers=tuple(current),
-                trav=trav,
-                clearance_m=clearance,
-                field=field,
+                trav=stages["trav"],
+                clearance_m=stages["clearance_m"],
+                field=FrontierField(**stages["field"]),
                 timings_ms={
                     "extract": (t1 - t0) * 1000.0,
-                    "traversability": (t2 - t1) * 1000.0,
-                    "field": (t3 - t2) * 1000.0,
+                    "traversability": stages["traversability_ms"],
+                    "field": stages["field_ms"],
                     "match": (t4 - t3) * 1000.0,
                 },
                 notes=tuple(notes),

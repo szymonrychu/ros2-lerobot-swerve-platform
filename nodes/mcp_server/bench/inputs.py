@@ -55,6 +55,11 @@ RNG_SEED = 20261013
 SCAN_BEAMS = 1440
 MAP_SIDE_CELLS = 800
 MAP_RESOLUTION_M = 0.05
+# Golden cases of the frontiers kernels (mcp_core_cpp parity): small maps, so the golden JSON stays small.
+FRONTIER_CASE_RES_M = 0.025
+FRONTIER_CASE_COARSE_RES_M = 0.05
+FRONTIER_CASE_PASS_M = 0.13  # 0.2 m footprint / 2 + the deployed 0.03 m margin
+FRONTIER_CASE_FOOTPRINT_M = 0.2
 IMAGE_W, IMAGE_H = 640, 480
 LIDAR_POINTS = 720
 PATH_SAMPLES = 40
@@ -1040,4 +1045,156 @@ def reach_map_cases() -> list[dict[str, Any]]:
     robot = robot_inputs(config())
     return [
         {"robot": robot, "settings": s.model_dump(mode="json", exclude={"file"})} for s in (REACH_MAP, REACH_MAP_DENSE)
+    ]
+
+
+def frontier_case_room(h: int, w: int, known_cols: int, doors: list[tuple[int, int]]) -> np.ndarray:
+    """A walled room (rows/cols 4..h-5, w-5) with an interior wall and its gap, known up to column known_cols.
+
+    Args:
+        h (int): Map rows.
+        w (int): Map columns.
+        known_cols (int): Columns from this one on stay unknown (the unexplored part).
+        doors (list[tuple[int, int]]): (col_from, col_to) gaps of the top wall opening into unknown space.
+
+    Returns:
+        np.ndarray: int16 h x w map.
+    """
+    data = np.full((h, w), frontiers.UNKNOWN, np.int16)
+    data[3 : h - 3, 3 : w - 3] = frontiers.OCCUPIED
+    data[4 : h - 4, 4 : w - 4] = frontiers.FREE
+    data[h // 2, 4 : w - 14] = frontiers.OCCUPIED
+    data[h // 2, 12:16] = frontiers.FREE
+    for lo, hi in doors:
+        data[3:5, lo:hi] = frontiers.UNKNOWN
+    data[:, known_cols:] = frontiers.UNKNOWN
+    return data
+
+
+def frontier_case_clutter(h: int, w: int, seed: int) -> np.ndarray:
+    """A map of mostly free space with occupied blobs, unknown holes, mid-range values and free space at the border.
+
+    Args:
+        h (int): Map rows.
+        w (int): Map columns.
+        seed (int): RNG seed.
+
+    Returns:
+        np.ndarray: int16 h x w map.
+    """
+    rng = np.random.default_rng(seed)
+    data = np.full((h, w), frontiers.UNKNOWN, np.int16)
+    data[4:, 6:] = rng.choice(np.array([0, 0, 0, 0, 0, 0, 10, 25, 26, 30], np.int16), size=(h - 4, w - 6))
+    for value, count, size in ((frontiers.OCCUPIED, 14, 3), (frontiers.UNKNOWN, 10, 4), (64, 4, 2), (65, 4, 2)):
+        for _ in range(count):
+            r, c = int(rng.integers(0, h - size)), int(rng.integers(0, w - size))
+            data[r : r + size, c : c + size] = value
+    return data
+
+
+@cache
+def frontier_case_maps() -> dict[str, np.ndarray]:
+    """The golden case maps of the frontiers kernels.
+
+    Returns:
+        dict[str, np.ndarray]: Name -> int16 map (room, clutter, wide clutter, all unknown, one free cell).
+    """
+    single = np.full((9, 9), frontiers.UNKNOWN, np.int16)
+    single[4, 4] = frontiers.FREE
+    return {
+        "room": frontier_case_room(56, 64, 64, [(10, 22), (30, 34)]),
+        "clutter": frontier_case_clutter(60, 52, RNG_SEED),
+        "wide_clutter": frontier_case_clutter(30, 90, RNG_SEED + 1),
+        "unknown": np.full((12, 12), frontiers.UNKNOWN, np.int16),
+        "single": single,
+    }
+
+
+def frontier_traversability_cases() -> list[dict[str, Any]]:
+    """Golden cases of frontiers.traversability.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments (data, resolution, pass_clearance_m).
+    """
+    maps = frontier_case_maps()
+    return [
+        {"data": maps["room"], "resolution": FRONTIER_CASE_RES_M, "pass_clearance_m": FRONTIER_CASE_PASS_M},
+        {"data": maps["clutter"], "resolution": FRONTIER_CASE_RES_M, "pass_clearance_m": FRONTIER_CASE_PASS_M},
+        {"data": maps["wide_clutter"], "resolution": FRONTIER_CASE_COARSE_RES_M, "pass_clearance_m": 0.0},
+        {"data": maps["clutter"], "resolution": FRONTIER_CASE_COARSE_RES_M, "pass_clearance_m": 0.075},
+        {"data": maps["unknown"], "resolution": FRONTIER_CASE_RES_M, "pass_clearance_m": FRONTIER_CASE_PASS_M},
+        {"data": maps["single"], "resolution": FRONTIER_CASE_RES_M, "pass_clearance_m": 0.0},
+    ]
+
+
+def frontier_geodesic_cases() -> list[dict[str, Any]]:
+    """Golden cases of frontiers.geodesic_from: starts inside, on a wall (snapped), far away and off the map.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments (trav, start_rc, downsample, resolution).
+    """
+    maps = frontier_case_maps()
+    room = frontiers.MapGrid.from_array(maps["room"], FRONTIER_CASE_RES_M, 0.0, 0.0, 0.0, (1,))
+    room_trav, _ = frontiers.traversability(room, FRONTIER_CASE_PASS_M)
+    clutter_trav = frontiers.free_mask(maps["clutter"])
+    wide_trav = frontiers.free_mask(maps["wide_clutter"])
+    res = FRONTIER_CASE_RES_M
+    return [
+        {"trav": room_trav, "start_rc": [10, 10], "downsample": 2, "resolution": res},
+        {"trav": room_trav, "start_rc": [40, 50], "downsample": 1, "resolution": res},
+        {"trav": room_trav, "start_rc": [28, 30], "downsample": 3, "resolution": res},  # on the interior wall
+        {"trav": clutter_trav, "start_rc": [30, 30], "downsample": 2, "resolution": res},
+        {"trav": clutter_trav, "start_rc": [59, 51], "downsample": 1, "resolution": res},
+        {"trav": wide_trav, "start_rc": [15, 45], "downsample": 4, "resolution": FRONTIER_CASE_COARSE_RES_M},
+        {"trav": room_trav, "start_rc": [0, 0], "downsample": 2, "resolution": res},  # nothing within the snap
+        {"trav": room_trav, "start_rc": [-3, 5], "downsample": 2, "resolution": res},  # off the map
+    ]
+
+
+def frontier_field_cases() -> list[dict[str, Any]]:
+    """Golden cases of frontiers.frontier_field (frontiers from extract_frontiers).
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments (data, resolution, min_cells).
+    """
+    maps = frontier_case_maps()
+    res = FRONTIER_CASE_RES_M
+    return [
+        {"data": maps["room"], "resolution": res, "min_cells": 12},
+        {"data": maps["clutter"], "resolution": res, "min_cells": 1},
+        {"data": maps["clutter"], "resolution": res, "min_cells": 12},
+        {"data": maps["wide_clutter"], "resolution": FRONTIER_CASE_COARSE_RES_M, "min_cells": 3},
+        {"data": maps["unknown"], "resolution": res, "min_cells": 1},
+        {"data": maps["single"], "resolution": res, "min_cells": 1},
+    ]
+
+
+def frontier_tracker_cases() -> list[dict[str, Any]]:
+    """Golden cases of FrontierTracker.update: map sequences that keep, retire, split and reset frontier ids.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments (maps, settings, footprint_width_m).
+    """
+    res = FRONTIER_CASE_RES_M
+    settings = config().frontiers.model_dump()
+    split = frontier_case_room(40, 48, 48, [(8, 34)])
+    split[3:5, 20:22] = frontiers.OCCUPIED
+    exploring = [
+        {"data": frontier_case_room(40, 48, 24, [(10, 26)]), "resolution": res},
+        {"data": frontier_case_room(40, 48, 30, [(10, 26)]), "resolution": res},
+        {"data": frontier_case_room(40, 48, 48, [(8, 34)]), "resolution": res},
+        {"data": split, "resolution": res},
+        {"data": frontier_case_room(40, 48, 48, []), "resolution": res},
+        {"data": frontier_case_room(40, 48, 14, [(10, 12)]), "resolution": res},  # most of the map lost: new epoch
+        {"data": frontier_case_room(40, 48, 30, [(10, 26)]), "resolution": FRONTIER_CASE_COARSE_RES_M},
+    ]
+    clutter = frontier_case_clutter(44, 40, RNG_SEED + 2)
+    growing = []
+    for known in (20, 30, 40):
+        data = clutter.copy()
+        data[:, known:] = frontiers.UNKNOWN
+        growing.append({"data": data, "resolution": res})
+    return [
+        {"maps": exploring, "settings": settings, "footprint_width_m": FRONTIER_CASE_FOOTPRINT_M},
+        {"maps": growing, "settings": settings, "footprint_width_m": FRONTIER_CASE_FOOTPRINT_M},
     ]
