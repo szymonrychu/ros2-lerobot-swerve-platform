@@ -1,0 +1,23 @@
+[
+ {
+  "id": "K1",
+  "text": "The C++ scaffolding (ros2_common_cpp, docker test script, CI amd64 job, Ansible local-source build at nice 19 without stopping the robot) and the cheap fixes: web_ui lazy serialization and JPEG pass-through, uvc MJPEG pass-through, mcp_server latest-only state cache in Python (web_ui and mcp_server stay Python), plus the per-node CPU before/after measurement.",
+  "decisions": ["D1", "D4"],
+  "tasks": ["T1", "T2", "T5", "T6", "T7", "T8"],
+  "status": "approved"
+ },
+ {
+  "id": "K2",
+  "text": "The two rewrites: stereo_depth_cpp (standalone, background tier) and map_guard_cpp, side by side as _cpp node types with the Python nodes kept present and disabled for rollback.",
+  "decisions": ["D1", "D2", "D3"],
+  "tasks": ["T3", "T4", "T8"],
+  "status": "approved"
+ },
+ {
+  "id": "K3",
+  "text": "mcp_server stays a Python node; its measured heavy compute kernels move to the mcp_core_cpp extension (nanobind or pybind11, scikit-build-core, in mcp_server's uv venv): profile first, port only kernels above the stated threshold, golden parity against the Python versions. master2master is not rewritten.",
+  "decisions": ["D5"],
+  "tasks": ["T9", "T10", "T11", "T12", "T13", "T14", "T15"],
+  "status": "approved"
+ }
+]
