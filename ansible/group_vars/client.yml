@@ -450,7 +450,7 @@ ros2_node_type_defaults:
     env:
       - LASER_FILTER_CONFIG={{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml
     # Not measured yet as a Python node (rclpy + numpy + shapely + scipy; the C++ filter chain was 35.7/37.6 MiB):
-    # MemoryLow is an estimate, MemoryMax 4x it.
+    # MemoryLow is an estimate, MemoryMax 4x it (the cgroup test floor is 32M).
     memory_low: "64M"
     memory_max: "256M"
     cpu_weight: 500
@@ -513,6 +513,43 @@ ros2_node_type_defaults:
       - ros-jazzy-tf2
       - ros-jazzy-tf2-ros
       - ros-jazzy-tf2-geometry-msgs
+  # 10 Hz copies of the 95 Hz joint states for idle consumers (mcp_server reads them at full rate only around motion).
+  joint_state_throttle_follower:
+    deploy_mode: native
+    # topic_tools throttle (apt): /follower/joint_states -> /follower/joint_states/throttled at 10 Hz, same type and QoS as the source.
+    node_launch_command: >-
+      ros2 run topic_tools throttle messages /follower/joint_states 10.0 /follower/joint_states/throttled
+      --ros-args -r __node:=joint_state_throttle_follower
+    node_src_dir: ""
+    # Runs no repo file: nothing in the repo restarts it.
+    src_paths: []
+    apt_packages:
+      - ros-jazzy-topic-tools
+    # Not measured yet (C++ relay, one subscription and one publisher): MemoryLow is an estimate, MemoryMax 4x it (the cgroup test floor is 32M).
+    # Background tier: the idle feed loses every contention with the robot.
+    memory_low: "32M"
+    memory_max: "128M"
+    cpu_weight: 100
+    io_weight: 100
+    oom_score_adjust: 0
+  joint_state_throttle_swerve:
+    deploy_mode: native
+    # topic_tools throttle (apt): /swerve_drive/joint_states -> /swerve_drive/joint_states/throttled at 10 Hz, same type and QoS as the source.
+    node_launch_command: >-
+      ros2 run topic_tools throttle messages /swerve_drive/joint_states 10.0 /swerve_drive/joint_states/throttled
+      --ros-args -r __node:=joint_state_throttle_swerve
+    node_src_dir: ""
+    # Runs no repo file: nothing in the repo restarts it.
+    src_paths: []
+    apt_packages:
+      - ros-jazzy-topic-tools
+    # Not measured yet (C++ relay, one subscription and one publisher): MemoryLow is an estimate, MemoryMax 4x it (the cgroup test floor is 32M).
+    # Background tier: the idle feed loses every contention with the robot.
+    memory_low: "32M"
+    memory_max: "128M"
+    cpu_weight: 100
+    io_weight: 100
+    oom_score_adjust: 0
   # rf2o publishes zero covariance, a laser-frame x speed and vy = 0: this relay turns its pose into a body twist with a real covariance.
   rf2o_odom_relay:
     deploy_mode: native
@@ -1369,6 +1406,14 @@ ros2_nodes:
   # Lidar odometry for the EKF (see nodes/rf2o_laser_odometry/README.md); must start before the EKF fuses /odom_rf2o_twist.
   - name: rf2o_laser_odometry
     node_type: rf2o_laser_odometry
+    present: true
+    enabled: true
+  - name: joint_state_throttle_follower
+    node_type: joint_state_throttle_follower
+    present: true
+    enabled: true
+  - name: joint_state_throttle_swerve
+    node_type: joint_state_throttle_swerve
     present: true
     enabled: true
   - name: rf2o_odom_relay

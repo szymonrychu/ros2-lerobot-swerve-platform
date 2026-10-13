@@ -350,6 +350,24 @@
             _deploy_node_name: rf2o_laser_odometry
           tags: [rf2o_laser_odometry, apt, python, build, config]
 
+        - name: Deploy joint_state_throttle_follower
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [joint_state_throttle_follower]
+          vars:
+            _deploy_node_name: joint_state_throttle_follower
+          tags: [joint_state_throttle_follower, apt, python, build, config]
+
+        - name: Deploy joint_state_throttle_swerve
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [joint_state_throttle_swerve]
+          vars:
+            _deploy_node_name: joint_state_throttle_swerve
+          tags: [joint_state_throttle_swerve, apt, python, build, config]
+
         - name: Deploy rf2o_odom_relay
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

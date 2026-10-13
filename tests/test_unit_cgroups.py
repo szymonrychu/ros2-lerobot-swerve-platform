@@ -55,8 +55,12 @@ AGENT = {
     ],
 }
 # Background tier: work the robot can lose (stereo depth): the systemd default weight and no OOM protection, below
-# every robot and agent tier. stereo_depth_cpp is its side-by-side C++ port, in the same tier.
-BACKGROUND = {"weights": (100, 100, 0), "types": ["stereo_depth", "stereo_depth_cpp"]}
+# every robot and agent tier. stereo_depth_cpp is its side-by-side C++ port, in the same tier; the joint-state
+# throttles are the cheap 10 Hz relays for idle consumers.
+BACKGROUND = {
+    "weights": (100, 100, 0),
+    "types": ["stereo_depth", "stereo_depth_cpp", "joint_state_throttle_follower", "joint_state_throttle_swerve"],
+}
 TIERS = [CRITICAL, NORMAL, AGENT]
 ALL_TIERS = [*TIERS, BACKGROUND]
 ROBOT_TYPES = {t for tier in TIERS for t in tier["types"]}

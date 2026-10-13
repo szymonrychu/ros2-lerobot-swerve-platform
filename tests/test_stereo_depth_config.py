@@ -85,8 +85,8 @@ def test_node_type_is_the_only_member_of_the_background_tier() -> None:
         for name, entry in types.items()
         if (entry.get("cpu_weight"), entry.get("io_weight"), entry.get("oom_score_adjust")) == BACKGROUND_TIER
     ]
-    # Its C++ port (the enabled node since the cut-over) shares the tier.
-    assert members == [NODE, f"{NODE}_cpp"]
+    # Its C++ port (the enabled node since the cut-over) and the joint-state throttle relays share the tier.
+    assert members == [NODE, f"{NODE}_cpp", "joint_state_throttle_follower", "joint_state_throttle_swerve"]
     assert "cpu_quota" not in defaults and "memory_high" not in defaults
 
 

@@ -392,11 +392,22 @@ straight through (empty when unset, nothing is derived). A unit change queues th
 | critical | 1000 | 1000 | -900 | `feetech_servos` (lerobot_follower, swerve_drive_servos), `swerve_controller`, `ros2_master`, `filter_node`, `static_tf_publisher`, `bno055_imu` |
 | normal robot | 500 | 500 | -500 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `costmap_zones`, `overview_camera`, `uvc_camera`, `arducam_tof`, `realsense_d435i`, `test_joint_api`, `map_guard`, `map_guard_cpp` |
 | agent-facing | 300 | 300 | -200 | `mcp_server`, `claude_agent`, `web_ui`, `topic_scraper_api`, `master2master`, `haptic_controller` |
-| background | 100 | 100 | 0 | `stereo_depth`, `stereo_depth_cpp` (work the robot can lose: under contention the depth rate drops, and it is killed before any robot node) |
+| background | 100 | 100 | 0 | `stereo_depth`, `stereo_depth_cpp`, `joint_state_throttle_follower`, `joint_state_throttle_swerve` (work the robot can lose: under contention the depth rate drops, and it is killed before any robot node) |
 
 Background for comparison: other `system.slice` services 100, `user.slice` 50, deploy build scopes 20,
 `monitoring.slice` 20. Weights are shares under contention, not limits: a critical unit gets twice a normal one's share
 and ten times a default service's. `overview_camera` keeps `Nice=5` and `claude_agent` `Nice=10` inside their cgroups.
+
+### Joint-state throttles (client)
+
+Idle consumers (mcp_server) do not need the 95 Hz joint states. Two apt-binary nodes (`ros-jazzy-topic-tools`, installed through the type's `apt_packages`) publish 10 Hz copies, same message type and QoS as the source:
+
+| Node (= node type) | Command | Copy |
+|---|---|---|
+| `joint_state_throttle_follower` | `ros2 run topic_tools throttle messages /follower/joint_states 10.0 /follower/joint_states/throttled` | `/follower/joint_states/throttled` |
+| `joint_state_throttle_swerve` | `ros2 run topic_tools throttle messages /swerve_drive/joint_states 10.0 /swerve_drive/joint_states/throttled` | `/swerve_drive/joint_states/throttled` |
+
+These are exactly the topics mcp_server's config subscribes to (`topics.follower_joint_states`, `topics.swerve_joint_states`). Both are `present` and `enabled` in `group_vars/client.yml`, have a playbook step each (tags: node name, `apt`, `python`, `build`, `config`), run in the background weight tier and carry no `/metrics` (no repo code; health is the systemd collector and the unit's cgroup series). They run no repo file, so only a package or command change restarts them. Test: `tests/test_joint_state_throttle_config.py`.
 
 ### Client memory (measured 2026-10-11 08:23 UTC, Mimir, 24 h window)
 

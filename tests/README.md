@@ -2003,6 +2003,17 @@ The dev-only MuJoCo grasp replay harness has its own uv project and tests under 
 | `test_report.py` | SimReport schema and JSON round trip. |
 | `test_cli.py` | `grasp-sim example/run`, exit codes, report file, YAML scene, frames and GIF output, mjpython hint for `--render`. |
 
+### `test_joint_state_throttle_config.py`
+
+The 10 Hz joint-state copies (`ros-jazzy-topic-tools` `throttle messages`) deployed on the client.
+
+| Test | Description |
+|------|-------------|
+| `test_mcp_server_topic_defaults_are_the_throttled_sources` | The throttled sources are exactly the joint-state topics mcp_server's config subscribes to. |
+| `test_each_throttle_is_an_apt_topic_tools_throttle_with_exact_source_rate_dest` | Per node type: apt package `ros-jazzy-topic-tools`, command `throttle messages <topic> 10.0 <topic>/throttled`, node name remap, no repo source. |
+| `test_each_throttle_is_a_present_enabled_node_in_the_background_tier` | One present, enabled `ros2_nodes` entry per topic with the background tier weights and memory limits. |
+| `test_each_throttle_has_a_deploy_step_in_the_client_playbook` | The client playbook has a deploy step and tags for each throttle node. |
+
 ### `test_node_metrics_wiring.py`
 
 Node metrics wiring in `ansible/group_vars/client.yml` against the port contract, and the robot's Alloy node targets (`monitoring_agent_node_targets` in `group_vars/client.yml`). Node `config: |` blocks are rendered with jinja2 and parsed as YAML; env lists merge type and node entries as `resolve_and_deploy.yml` does.
@@ -2217,7 +2228,7 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_python_node_stays_present_and_disabled_for_rollback` | `stereo_depth` and `map_guard` stay `present: true`, `enabled: false` (rollback). |
 | `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19113, 19110). |
 | `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
-| `test_background_tier_holds_only_the_active_stereo_node` | Among running nodes the background tier (100/100/0) holds only `stereo_depth_cpp`. |
+| `test_background_tier_holds_only_the_active_stereo_node_and_the_throttles` | Among running nodes the background tier (100/100/0) holds only `stereo_depth_cpp` and the two joint-state throttle nodes. |
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |
 

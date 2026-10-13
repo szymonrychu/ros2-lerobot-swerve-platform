@@ -68,7 +68,7 @@ def test_map_guard_cpp_keeps_dry_run() -> None:
     assert yaml.safe_load(nodes()["map_guard_cpp"]["config"])["dry_run"] is True
 
 
-def test_background_tier_holds_only_the_active_stereo_node() -> None:
+def test_background_tier_holds_only_the_active_stereo_node_and_the_throttles() -> None:
     types = client()["ros2_node_type_defaults"]
     running = [
         name
@@ -81,7 +81,8 @@ def test_background_tier_holds_only_the_active_stereo_node() -> None:
         )
         == BACKGROUND_TIER
     ]
-    assert running == ["stereo_depth_cpp"]
+    # The joint-state throttle relays are the other background nodes.
+    assert running == ["stereo_depth_cpp", "joint_state_throttle_follower", "joint_state_throttle_swerve"]
 
 
 def test_only_the_running_node_of_each_pair_is_scraped() -> None:
