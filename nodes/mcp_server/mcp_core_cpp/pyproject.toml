@@ -1,0 +1,35 @@
+[project]
+name = "mcp-core-cpp"
+# Bump on every C++ change: uv.lock records this version, and the Pi deploy re-runs uv sync (and so rebuilds the
+# extension) only when nodes/mcp_server/pyproject.toml or uv.lock changed.
+version = "0.1.0"
+description = "C++ compute kernels of mcp_server (nanobind extension), proven equal to the Python references by golden tests"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = []
+
+[build-system]
+# cmake and ninja are not listed here: scikit-build-core adds the PyPI cmake / ninja wheels to the build requirements
+# when the machine has no cmake / ninja of the versions below, so neither the Mac nor the Pi needs them installed (only
+# a C++17 compiler and the Python headers: python3-dev on the Pi).
+requires = ["scikit-build-core==1.1.0", "nanobind==3.1.0"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
+build.verbose = false
+cmake.version = ">=3.26"
+cmake.build-type = "Release"
+ninja.version = ">=1.11"
+wheel.packages = []
+wheel.license-files = []
+
+[tool.uv]
+# uv rebuilds the extension when any of these change (by default it only watches pyproject.toml).
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "CMakeLists.txt" },
+    { file = "src/**/*.cpp" },
+    { file = "src/**/*.hpp" },
+]

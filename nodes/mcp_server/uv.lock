@@ -349,12 +349,18 @@ wheels = [
 ]
 
 [[package]]
+name = "mcp-core-cpp"
+version = "0.1.0"
+source = { directory = "mcp_core_cpp" }
+
+[[package]]
 name = "mcp-server"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "ikpy" },
     { name = "mcp" },
+    { name = "mcp-core-cpp" },
     { name = "numpy" },
     { name = "opencv-python-headless" },
     { name = "pydantic" },
@@ -379,6 +385,7 @@ dev = [
 requires-dist = [
     { name = "ikpy", specifier = "==4.1.0" },
     { name = "mcp", specifier = "==2.3.0" },
+    { name = "mcp-core-cpp", directory = "mcp_core_cpp" },
     { name = "numpy", specifier = "==2.4.3" },
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
     { name = "pydantic", specifier = "==2.13.5" },

@@ -16,6 +16,7 @@ dependencies = [
     "ros2-common",
     "ros2-metrics",
     "shapely==2.2.0",
+    "mcp-core-cpp",
 ]
 
 [dependency-groups]
@@ -30,6 +31,8 @@ dev = [
 [tool.uv.sources]
 ros2-common = { path = "../../shared", editable = true }
 ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
+# C++ kernels (scikit-build-core + nanobind): uv sync compiles it into this venv, see mcp_core_cpp/README.md.
+mcp-core-cpp = { path = "mcp_core_cpp" }
 
 [build-system]
 requires = ["hatchling"]

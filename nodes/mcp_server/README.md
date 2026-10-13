@@ -2167,6 +2167,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `metrics.py` | no | Prometheus `mcp_*` metric objects, the per-feed sample age collector |
 | `serve.py` | no | uvicorn config; `timeout_graceful_shutdown` 3 s so the claude_agent's open MCP stream cannot stall `systemctl stop` until the 30 s SIGKILL |
 | `__main__.py` | yes | entry point: executor thread + uvicorn |
+| `reference/<family>.py` | no | Python references of the kernels ported to `mcp_core_cpp` (`KERNELS` registry per family: reference, bench input function, tolerances) |
 
 ## Metrics
 
@@ -2474,6 +2475,11 @@ uv sync    # also installs the shared `ros2-common` package (path dependency ../
 uv run pytest tests -q   # rclpy-free unit tests (rclpy is only imported by ros_iface.py / __main__.py)
 uv run poe lint          # ruff check, ruff format --check, vulture
 ```
+
+C++ kernels: `mcp_core_cpp/` is a nanobind extension (scikit-build-core) that `uv sync` compiles into this venv as a
+uv path dependency; it needs a C++17 compiler and the Python headers. Layout, how to port a kernel, the golden parity
+workflow (`tests/core_parity.py`, `tests/regenerate_core_golden.py`, `tests/data/core_golden/`) and the version-bump
+rule for C++ changes are in [mcp_core_cpp/README.md](mcp_core_cpp/README.md).
 
 Frontier tests: `tests/test_frontiers.py` (pure core on synthetic grids: detection, geodesic, observation pose, tracker ids
 / epochs / successors, facing lookup, nearest POI, a 1200x1200 timing guard), `tests/test_ros_iface_frontiers.py`
