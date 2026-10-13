@@ -541,6 +541,9 @@ class MonitorSettings(StrictModel):
     cpu_temp_critical_c: float = Field(default=82.0, gt=0.0)
     temp_hysteresis_c: float = Field(default=2.0, ge=0.0)  # a temperature event clears this far below its threshold
     cpu_poll_s: float = Field(default=5.0, gt=0.0)
+    monitor_feed_hz: float = Field(
+        default=20.0, gt=0.0
+    )  # rate of the odom / swerve odom / rf2o hooks (latest message only)
     cpu_temp_path: Path = Path("/sys/class/thermal/thermal_zone0/temp")
     # Firmware throttling bits (Raspberry Pi get_throttled); unreadable -> throttled is null.
     throttled_paths: tuple[Path, ...] = (

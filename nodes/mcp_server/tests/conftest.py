@@ -19,6 +19,7 @@ ROS_MODULES = (
     "rclpy.duration",
     "rclpy.node",
     "rclpy.qos",
+    "rclpy.serialization",
     "rclpy.signals",
     "rclpy.time",
     "action_msgs",

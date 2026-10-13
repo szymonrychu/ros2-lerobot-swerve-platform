@@ -28,6 +28,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.serialization import deserialize_message
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
@@ -101,7 +102,7 @@ from .ros_dock import (
     wait_future,
 )
 from .spin import FrameCache
-from .staleness import Stamped, sample_ages
+from .staleness import LazyStamped, MonitorFeed, Stamped, sample_ages
 from .topdown import TopdownInputs, grid_layer, transform_points
 
 NODE_NAME = "mcp_server"
@@ -304,7 +305,7 @@ class RosRobot:
         self.log = self.node.get_logger()
         self.group = ReentrantCallbackGroup()
         self.lock = threading.Lock()
-        self.latest: dict[str, Stamped[Any]] = {}
+        self.latest: dict[str, Stamped[Any] | LazyStamped] = {}
         set_sample_age_source(self.feed_ages)
         self.base_stop = threading.Event()
         self.base_motion = threading.Lock()
@@ -315,12 +316,13 @@ class RosRobot:
         self.monitor = monitor or RobotMonitor(
             config.monitor, battery_guard, autonomy_source=config.arm.autonomy_source_name
         )
-        self.cache(JointState, t.follower_joint_states, "joint_states", SENSOR_QOS)
+        self.feeds: list[MonitorFeed] = []  # raw subscriptions whose monitor hook runs from the monitor_feed_hz timer
+        self.cache_raw(JointState, t.follower_joint_states, "joint_states", SENSOR_QOS)
         self.cache(JointState, t.follower_joint_currents, "joint_currents", SENSOR_QOS)
         self.cache(
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
         )
-        self.cache(Odometry, t.odom, "odom", SENSOR_QOS, lambda msg: self.monitor.on_odom(*twist_xyw(msg)))
+        self.cache_raw(Odometry, t.odom, "odom", SENSOR_QOS, lambda msg: self.monitor.on_odom(*twist_xyw(msg)))
         self.cache(LaserScan, t.scan, "scan", SENSOR_QOS)
         self.cache(OccupancyGrid, t.map, "map", MAP_QOS)
         self.cache(
@@ -336,8 +338,10 @@ class RosRobot:
         self.costmap_subscribed = False  # /local_costmap/costmap is subscribed on the first get_topdown_view
         self.init_steer_states()  # /swerve_drive/joint_states is subscribed on the first steer_positions
         self.stops = 0
-        self.subscribe(Odometry, t.swerve_odom, lambda msg: self.monitor.on_swerve_odom(msg.twist.covariance[0]))
-        self.subscribe(Odometry, t.rf2o_twist, lambda msg: self.monitor.on_rf2o(*twist_xyw(msg)))
+        self.cache_raw(
+            Odometry, t.swerve_odom, None, SENSOR_QOS, lambda msg: self.monitor.on_swerve_odom(msg.twist.covariance[0])
+        )
+        self.cache_raw(Odometry, t.rf2o_twist, None, SENSOR_QOS, lambda msg: self.monitor.on_rf2o(*twist_xyw(msg)))
         self.subscribe(
             Imu,
             t.imu,
@@ -441,6 +445,7 @@ class RosRobot:
         )
         self.subscribe(String, t.grasp_command, self.on_grasp_command, COMMAND_QOS)
         self.node.create_timer(MONITOR_TICK_S, self.monitor.tick, callback_group=self.group)
+        self.node.create_timer(1.0 / config.monitor.monitor_feed_hz, self.flush_feeds, callback_group=self.group)
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
         # Web UI Arm tab: take / release the arm lease through the ControlManager (bound by bind_control).
@@ -715,6 +720,46 @@ class RosRobot:
 
         return self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group)
 
+    def cache_raw(
+        self, msg_type: type, topic: str, key: str | None, qos: QoSProfile, hook: Callable[[Any], None] | None = None
+    ) -> Any:
+        """Raw (serialized) subscription keeping only the latest bytes; deserialized lazily, at most once per message.
+
+        Readers (get) decode on demand; the monitor hook is fed from the monitor_feed_hz timer with the latest
+        message only, and not at all for a topic without a new message since the previous tick.
+
+        Args:
+            msg_type (type): Message class.
+            topic (str): Topic name.
+            key (str | None): Cache key, or None for a monitor feed that is not cached (no feed_ages entry).
+            qos (QoSProfile): Subscription QoS.
+            hook (Callable[[Any], None] | None): Monitor feed called with the decoded latest message.
+
+        Returns:
+            Any: The rclpy subscription.
+        """
+        feed = MonitorFeed(hook) if hook is not None else None
+        if feed is not None:
+            self.feeds.append(feed)
+
+        def decode(raw: bytes) -> Any:
+            return deserialize_message(raw, msg_type)
+
+        def store(raw: bytes) -> None:
+            sample = LazyStamped(raw, time.monotonic(), decode)
+            if key is not None:
+                with self.lock:
+                    self.latest[key] = sample
+            if feed is not None:
+                feed.offer(sample)
+
+        return self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group, raw=True)
+
+    def flush_feeds(self) -> None:
+        """Timer callback: feed every raw monitor hook its latest new message."""
+        for feed in self.feeds:
+            feed.flush()
+
     def subscribe(
         self, msg_type: type, topic: str, callback: Callable[[Any], None], qos: QoSProfile = SENSOR_QOS
     ) -> None:
@@ -760,7 +805,7 @@ class RosRobot:
             latest = dict(self.latest)
         return sample_ages(latest, time.monotonic())
 
-    def get(self, key: str, max_age_s: float | None = None) -> Stamped[Any] | None:
+    def get(self, key: str, max_age_s: float | None = None) -> Stamped[Any] | LazyStamped | None:
         """Latest cached message, optionally only when fresh.
 
         Args:
@@ -768,7 +813,7 @@ class RosRobot:
             max_age_s (float | None): Freshness bound, or None for any age.
 
         Returns:
-            Stamped[Any] | None: Cached message or None.
+            Stamped[Any] | LazyStamped | None: Cached message or None.
         """
         with self.lock:
             item = self.latest.get(key)

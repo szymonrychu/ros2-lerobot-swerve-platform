@@ -224,7 +224,13 @@ centre pushes the fixed jaw into the object.
 `present_voltage` x 0.1 V, `status` bits), `/imu/data`, the swerve `/odom` twist covariance, `/odometry/filtered`,
 `/odom_rf2o_twist`, `/cmd_vel_nav`, `/collision_monitor_state`, `/filter/active_source`, `/tilt_guard/state`, the battery guard and the CPU
 temperature (`/sys/class/thermal/thermal_zone0/temp`, throttling from the firmware sysfs `get_throttled`, null if
-missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresholds are the `monitor` config section
+missing). A 4 Hz timer runs the stall, latched-collision and CPU checks.
+
+State cache (raw, latest-only): the 95 Hz `/follower/joint_states` and the odometry topics (`/odometry/filtered`, swerve `/odom`,
+`/odom_rf2o_twist`) are raw (serialized) subscriptions that keep only the latest bytes and the receive time. A message is deserialized
+only when a reader asks for it (`RosRobot.get`, the tools), at most once per received message. The monitor hooks of these topics are fed
+by a timer at `monitor.monitor_feed_hz` (default 20, must be > 0) with the latest message only; a topic with no new message since the
+previous tick feeds nothing. `mcp_sample_age_seconds` is unchanged (it reads the receive time, never the message). Thresholds are the `monitor` config section
 (`MonitorSettings`, also in `ansible/group_vars/client.yml`).
 
 | Event `type` | Severity | Condition (default threshold) |
