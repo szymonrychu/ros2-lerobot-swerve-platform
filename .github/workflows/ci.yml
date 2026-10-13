@@ -99,6 +99,7 @@ jobs:
         # tests/test_ci_workflow.py and tests/test_node_lint_coverage.py keep this in sync.
         package:
           - ros2_common_cpp
+          - map_guard_cpp
     steps:
       - uses: actions/checkout@v4
       - name: Build, test and lint in ros:jazzy-ros-base
