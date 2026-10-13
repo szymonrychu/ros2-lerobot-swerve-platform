@@ -311,6 +311,8 @@ TEST_F(RosTest, NodeScoresScansAndDetectsACarriedRobotInDryRun)
     return gauge(node->metrics(), "map_guard_agreement_ratio") > 0.95;
   }));
   EXPECT_EQ(node->state(), mg::State::OK);
+  // The guard loop keeps the process_* series of the Python node's prometheus_client.
+  EXPECT_TRUE(wait_for([&]() { return gauge(node->metrics(), "process_resident_memory_bytes") > 0.0; }));
 
   // Carried: lidar odometry moves at 0.2 m/s while the wheels report still, for more than carried_s.
   nav_msgs::msg::Odometry lidar;

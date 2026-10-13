@@ -35,7 +35,8 @@ add_library(map_guard_core STATIC
   src/timing.cpp
   src/backup.cpp
   src/agent.cpp
-  src/config.cpp)
+  src/config.cpp
+  src/process_metrics.cpp)
 target_include_directories(map_guard_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
@@ -88,6 +89,9 @@ if(BUILD_TESTING)
     target_link_libraries(test_${name} map_guard_core)
     target_compile_definitions(test_${name} PRIVATE MAP_GUARD_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
   endforeach()
+  # The process_* series of prometheus_client's ProcessCollector (no Python test file: they come with the library).
+  ament_add_gtest(test_process_metrics test/test_process_metrics.cpp TIMEOUT 120)
+  target_link_libraries(test_process_metrics map_guard_core)
   # The ROS wiring (test_node.py): service calls against a fake slam_toolbox and an end-to-end dry run.
   ament_add_gtest(test_node test/test_node.cpp TIMEOUT 120)
   target_link_libraries(test_node map_guard_component)

@@ -166,13 +166,15 @@ library is prometheus-cpp, through `ros2_common_cpp::Metrics`.
 | `map_guard_dry_run` | | 1 in dry run |
 | `robot_node_info` | `node="map_guard_cpp"` | Always 1 |
 | `robot_node_start_time_seconds` | `node="map_guard_cpp"` | Process start (epoch s) |
+| `process_cpu_seconds_total`, `process_resident_memory_bytes`, `process_virtual_memory_bytes`, `process_start_time_seconds`, `process_open_fds`, `process_max_fds` | | The series of prometheus_client's ProcessCollector, read from `/proc/self` at most once a second by the guard loop (`src/process_metrics.cpp`); absent until the first read |
 
 The metric names and labels are those of `map_guard/metrics.py`, so the Grafana panels and alerts carry over. There
 are two differences:
 
 - `map_guard_agreement_ratio`, `map_guard_tilt_deg` and `map_guard_unexplained_speed_mps` appear only with their
   first real value. Python exports a placeholder 0 before that.
-- The C++ node does not export the Python runtime's `process_*` and `python_*` series.
+- The C++ node exports the same `process_*` series (so the CPU comparison reads `process_cpu_seconds_total` for
+  both), but not the Python runtime's `python_*` series (`python_info`, `python_gc_*`), which have no C++ meaning.
 
 ## Tests
 
@@ -198,6 +200,7 @@ uv run --frozen python ../map_guard_cpp/test/gen_fixtures.py --check  # exit 1 w
 | `tests/test_agent.py` | `test/test_agent.cpp` | `agent.json`: busy parsing, severities, built events. Also a real cpp-httplib GET against a local server (busy, 404, timeout, unreachable) |
 | `tests/test_config.py` | `test/test_config.cpp` | `config.json`: defaults, and the pydantic verdict and parsed values for 102 YAML documents. Also exit 78 |
 | `tests/test_node.py` | `test/test_node.cpp` | No fixture. Covers grid conversion and QoS, and the service calls against a fake slam_toolbox (parameter read, toggle status, result codes, unavailable, timeout). Ends with an end-to-end dry run: map, TF and scans give an agreement ratio, and a carried robot reaches DISTURBED with no service call |
+| none (prometheus_client's ProcessCollector) | `test/test_process_metrics.cpp` | No fixture. Every `process_*` series is set after an update, unlabelled, absent before it; CPU seconds follow a CPU burn; updates are rate limited |
 | `tests/test_shutdown.py` | none | rclpy-specific shutdown race. The C++ worker stops on node destruction |
 
 The core library is compiled with `-ffp-contract=off`, so no fused multiply-add changes the rounding against numpy.
