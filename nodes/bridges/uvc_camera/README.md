@@ -9,7 +9,7 @@
 - **Environment:** `UVC_DEVICE` (default `/dev/video0`, or use integer index e.g. `0`), `UVC_TOPIC` (default `/camera/image_raw`), `UVC_FRAME_ID` (default `camera_optical_frame`), `UVC_ROTATE_DEG` (`0`/`90`/`180`/`270` clockwise, default `0`; any other value fails at startup), `UVC_MAX_FPS` (positive number, default unset = publish every frame; requested from the device and enforced by dropping frames before rotation/encoding, any other value fails at startup), `UVC_CAPTURE_FORMAT` (`mjpeg` default or `raw`; see MJPEG pass-through; any other value fails at startup).
 - **Device:** The camera device path is configured in `group_vars/client.yml` via `extra_args`; with native install the process runs as the ansible_user who has system group membership. On open failure the process exits with a clear error.
 - **`METRICS_PORT`** (robot `gripper_uvc_camera`: `19105`): Prometheus `/metrics` on 127.0.0.1 via `ros2-metrics`; unset disables it (see Metrics).
-- Base: ROS2 Jazzy; uses `rclpy`, `sensor_msgs/Image`, `opencv-python-headless` and `pyturbojpeg` (pinned to 1.x, which loads libjpeg-turbo 2.1; Ubuntu 24.04 `libturbojpeg0`, installed by the `uvc_camera` node type's `apt_packages`).
+- Base: ROS2 Jazzy; uses `rclpy`, `sensor_msgs/Image`, `opencv-python-headless` and `pyturbojpeg` (pinned to 1.x, which loads libjpeg-turbo 2.1; Ubuntu 24.04 `libturbojpeg`, installed by the `uvc_camera` node type's `apt_packages`).
 
 ## Code layout
 

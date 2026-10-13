@@ -123,7 +123,7 @@ ros2_node_type_defaults:
     pythonpath_parent: true
     # libjpeg-turbo for PyTurboJPEG: lossless JPEG rotation of the camera's MJPEG frames.
     apt_packages:
-      - libturbojpeg0
+      - libturbojpeg
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
     # Working set MiB p50/24 h peak 66.7/68.2 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.

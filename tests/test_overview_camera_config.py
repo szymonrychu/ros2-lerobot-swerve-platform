@@ -630,3 +630,12 @@ def test_gripper_uvc_camera_uses_a_stable_device_path() -> None:
     env = node_entry("gripper_uvc_camera")["env"]
     device = next(e.split("=", 1)[1] for e in env if e.startswith("UVC_DEVICE="))
     assert device.startswith("/dev/v4l/by-id/") and "Arducam" in device, device
+
+
+def test_uvc_camera_installs_the_noble_turbojpeg_package() -> None:
+    """PyTurboJPEG needs libjpeg-turbo's TurboJPEG library. Ubuntu 24.04 ships it as `libturbojpeg` (libturbojpeg.so.0);
+    `libturbojpeg0` does not exist on noble, and asking for it failed the whole client deploy on 2026-10-13."""
+    types = load_yaml(CLIENT_VARS)["ros2_node_type_defaults"]
+    packages = types["uvc_camera"]["apt_packages"]
+    assert "libturbojpeg" in packages
+    assert "libturbojpeg0" not in packages
