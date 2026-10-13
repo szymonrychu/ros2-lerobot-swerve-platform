@@ -206,6 +206,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "guard_rules",
         "reach_map",
         "approach",
+        "on_demand",
     }
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
