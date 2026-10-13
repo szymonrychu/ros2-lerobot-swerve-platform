@@ -28,6 +28,7 @@ from mcp_server.reach_map import (
     reach_inputs,
     reach_map_key,
 )
+from mcp_server.reference import ik_reach as reference
 from mcp_server.self_collision import SampleGeometry, SelfCollisionChecker, link_model_description
 
 CONFIG = McpServerConfig()
@@ -309,7 +310,8 @@ def test_build_peak_memory_is_bounded(coarse_traced: tuple[ReachMap, int]) -> No
     assert peak < MEMORY_LIMIT_BYTES
 
 
-def test_build_checks_bounded_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reference_build_checks_bounded_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Python reference build (the golden source of the C++ kernel) body checks at most a batch at a time."""
     sizes: list[int] = []
     original = CHECKER.geometry
 
@@ -318,7 +320,7 @@ def test_build_checks_bounded_batches(monkeypatch: pytest.MonkeyPatch) -> None:
         return original(samples)
 
     monkeypatch.setattr(CHECKER, "geometry", recording)
-    build(CHECKER, ReachMapSettings(**TINY))
+    reference.build(CHECKER, ReachMapSettings(**TINY))
     assert sizes and max(sizes) <= ENVELOPE_BATCH_SAMPLES
 
 

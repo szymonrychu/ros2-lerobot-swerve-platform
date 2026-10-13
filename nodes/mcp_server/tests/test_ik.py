@@ -5,6 +5,7 @@ import math
 import numpy as np
 import pytest
 
+from bench import inputs
 from mcp_server.config import McpServerConfig
 from mcp_server.ik import ARM_CHAIN_JOINTS, ArmKinematics, UnreachableError, grasp_offset, load_joint_limits
 
@@ -406,3 +407,25 @@ def test_a_heading_bias_start_does_not_change_the_solution_beyond_tolerance(kin_
     cold = kin_tcp.inverse(0.30, 0.02, -0.10, math.radians(45.0), seed)
     warm = kin_tcp.inverse(0.30, 0.02, -0.10, math.radians(45.0), seed, heading_bias=kin_tcp.last_heading_bias)
     assert max(abs(cold[j] - warm[j]) for j in cold) < 2e-3
+
+
+# A pitched target (arm base frame) and seed whose heading refinement repeats a heading exactly: the secant step then
+# divided by a zero heading change (ZeroDivisionError) instead of falling back to the reached heading.
+REPEATED_HEADING_TARGET = (-0.11074221794843593, -0.05587178864434088, 0.336844962224659)
+REPEATED_HEADING_SEED = {
+    "shoulder_pan": -0.23974061970965255,
+    "shoulder_lift": 0.5374641689892652,
+    "elbow_flex": -0.38260157671558903,
+    "wrist_flex": 0.6078724925584991,
+    "wrist_roll": -0.8244794748834174,
+}
+
+
+def test_heading_refinement_survives_a_repeated_heading() -> None:
+    """Every pitch of a target whose refinement repeats a heading ends in a solution or UnreachableError."""
+    kin = inputs.kinematics()  # the deployed kinematics (offsets, tool point, limits) the case was found with
+    for pitch_deg in (-30.0, -15.0, 0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0):
+        try:
+            kin.inverse(*REPEATED_HEADING_TARGET, math.radians(pitch_deg), seed=REPEATED_HEADING_SEED)
+        except UnreachableError:
+            pass

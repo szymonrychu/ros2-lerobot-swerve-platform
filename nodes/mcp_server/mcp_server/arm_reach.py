@@ -12,7 +12,10 @@ BodyCheckSettings.reach_cache_file, on disk under a key of every input, so a res
 
 Per point (base_link x, y, z and optional pitch): IK within the joint limits for the given pitch, or for every pitch
 of POINT_PITCHES_DEG, the body clearance of each solution, the pitches that are reachable and collision-free, the
-limiting obstacle/link and a suggestion when the point does not work.
+limiting obstacle/link and a suggestion when the point does not work. The IK and the body clearance run in the C++
+kernel mcp_core_cpp.ik_reach.point_reach (the same solver, seeds and pruned clearance pass as ArmKinematics.inverse and
+SelfCollisionChecker.closest, proven equal by tests/test_core_parity_ik_reach.py; the Python original is
+mcp_server/reference/ik_reach.py).
 """
 
 import hashlib
@@ -22,15 +25,20 @@ import math
 import os
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+import mcp_core_cpp
+
+from .arm_geometry import LINK_ORIGINS
+from .body_model import BoxObstacle, CylinderObstacle
 from .config import BodyCheckSettings
-from .floor_guard import arm_to_base_link, base_link_to_arm
-from .ik import UnreachableError
-from .self_collision import SelfCollisionChecker, link_model_description
+from .floor_guard import GRIPPER_LINK, TOOL_FRAME_LINK, arm_to_base_link, base_link_to_arm
+from .ik import ARM_CHAIN_JOINTS
+from .self_collision import CAPSULES, CHECKED_PARTS, LINK_BLOCKS, SelfCollisionChecker, link_model_description
 
 SHOULDER_PAN = "shoulder_pan"
 ENVELOPE_JOINTS = ("shoulder_lift", "elbow_flex")
@@ -45,6 +53,8 @@ ROUND_M = 3
 CACHE_VERSION = 1
 
 log = logging.getLogger(__name__)
+# The C++ body model of each checker (core_body) with the parameters it was built from.
+CORE_BODIES: "weakref.WeakKeyDictionary[SelfCollisionChecker, tuple[Any, Any]]" = weakref.WeakKeyDictionary()
 
 
 def joint_range(checker: SelfCollisionChecker, joint: str) -> tuple[float, float]:
@@ -279,6 +289,153 @@ class ReachEnvelope:
         return cell | {"heading_deg": row["heading_deg"]}
 
 
+def obstacle_spec(obstacle: Any) -> tuple[str, list[float]]:
+    """An obstacle as mcp_core_cpp.ik_reach.BodyModel takes it.
+
+    Args:
+        obstacle (Any): BoxObstacle or CylinderObstacle.
+
+    Returns:
+        tuple[str, list[float]]: ('box', lo + hi) or ('cylinder', [x, y, radius, z_min, z_max]).
+
+    Raises:
+        TypeError: For another obstacle type.
+    """
+    if isinstance(obstacle, BoxObstacle):
+        return "box", [*map(float, obstacle.lo), *map(float, obstacle.hi)]
+    if isinstance(obstacle, CylinderObstacle):
+        x, y = obstacle.center_xy
+        return "cylinder", [x, y, obstacle.radius, obstacle.z_min, obstacle.z_max]
+    raise TypeError(f"the C++ body check knows boxes and vertical cylinders, not {type(obstacle).__name__}")
+
+
+def core_body(checker: SelfCollisionChecker) -> Any:
+    """The C++ body model of a checker (mcp_core_cpp.ik_reach.BodyModel: obstacles, mount, jaw, link capsules and
+    point blocks, margins), rebuilt when the body, mount, jaw or margins changed since.
+
+    Args:
+        checker (SelfCollisionChecker): Body checker.
+
+    Returns:
+        Any: mcp_core_cpp.ik_reach.BodyModel.
+    """
+    kin, jaw = checker.kin, checker.jaw
+    obstacles = [obstacle_spec(o) for o in checker.body.obstacles]
+    key = (
+        tuple(checker.rotation.ravel().tolist()),
+        tuple(checker.offset.tolist()),
+        tuple(jaw.closed_tip.tolist()),
+        tuple(jaw.pivot.tolist()),
+        tuple(jaw.axis.tolist()),
+        jaw.sign,
+        jaw.closed_rad,
+        tuple((kind, tuple(values)) for kind, values in obstacles),
+        checker.settings.hard_margin_m,
+        checker.settings.soft_margin_m,
+    )
+    cached = CORE_BODIES.get(checker)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    frame = kin.link_index
+    model = mcp_core_cpp.ik_reach.BodyModel(
+        rotation=checker.rotation.ravel().tolist(),
+        offset=checker.offset.tolist(),
+        jaw_closed_tip=jaw.closed_tip.tolist(),
+        jaw_pivot=jaw.pivot.tolist(),
+        jaw_axis=jaw.axis.tolist(),
+        jaw_sign=jaw.sign,
+        jaw_closed_rad=jaw.closed_rad,
+        tool_frame=frame[TOOL_FRAME_LINK],
+        gripper_frame=frame[GRIPPER_LINK],
+        capsules=[(frame[LINK_ORIGINS[a]], frame[LINK_ORIGINS[b]], radius) for _name, a, b, radius in CAPSULES],
+        groups=[
+            (
+                b.part,
+                frame[b.link],
+                b.contact_only,
+                b.points.shape[0],
+                b.points.shape[1],
+                b.points.ravel().tolist(),
+                b.centres.ravel().tolist(),
+                b.radii.tolist(),
+            )
+            for b in LINK_BLOCKS
+        ],
+        obstacles=obstacles,
+        hard_margin_m=checker.settings.hard_margin_m,
+        soft_margin_m=checker.settings.soft_margin_m,
+    )
+    CORE_BODIES[checker] = (key, model)
+    return model
+
+
+def reach_pitches(pitch: float | None) -> list[float]:
+    """The approach pitches point_reach tries.
+
+    Args:
+        pitch (float | None): One pitch (rad), or None for every POINT_PITCHES_DEG.
+
+    Returns:
+        list[float]: Pitches (rad).
+    """
+    return [float(pitch)] if pitch is not None else [math.radians(p) for p in POINT_PITCHES_DEG]
+
+
+def reach_kernel(
+    checker: SelfCollisionChecker, target: np.ndarray, pitches: list[float], seed: dict[str, float]
+) -> dict[str, Any]:
+    """Run the C++ point_reach kernel: ArmKinematics.inverse per pitch and SelfCollisionChecker.closest of the
+    solutions found, keeping the kinematics' heading bias and solve count as the Python IK does.
+
+    Args:
+        checker (SelfCollisionChecker): Body checker.
+        target (np.ndarray): Tool point in the arm base frame (m).
+        pitches (list[float]): Approach pitches (rad).
+        seed (dict[str, float]): IK seed (measured).
+
+    Returns:
+        dict[str, Any]: solutions (measured joint maps or None, per pitch) and closest ((clearance, obstacle, part)
+            per solution found).
+    """
+    kin = checker.kin
+    out = mcp_core_cpp.ik_reach.point_reach(
+        kin.core_model(),
+        core_body(checker),
+        [float(v) for v in target],
+        pitches,
+        kin.urdf_seed(seed),
+        kin.last_heading_bias,
+    )
+    kin.last_heading_bias = out["last_heading_bias"]
+    kin.solve_count += out["solves"]
+    names = [o.name for o in checker.body.obstacles]
+    return {
+        "solutions": [None if s is None else dict(zip(ARM_CHAIN_JOINTS, s, strict=True)) for s in out["solutions"]],
+        "closest": [
+            (value, names[k], CHECKED_PARTS[part]) if k >= 0 else (value, "", "") for value, k, part in out["closest"]
+        ],
+    }
+
+
+def point_solutions(
+    checker: SelfCollisionChecker, point: dict[str, float | None], seed: dict[str, float]
+) -> list[dict[str, float] | None]:
+    """The IK solution of every pitch point_reach tries (None where none is found).
+
+    Args:
+        checker (SelfCollisionChecker): Body checker (kinematics, mount).
+        point (dict[str, float | None]): x, y, z (base_link, m) and pitch (rad) or None for every POINT_PITCHES_DEG.
+        seed (dict[str, float]): IK seed.
+
+    Returns:
+        list[dict[str, float] | None]: Measured joint solutions, one per pitch.
+    """
+    target = base_link_to_arm(
+        (float(point["x"] or 0.0), float(point["y"] or 0.0), float(point["z"] or 0.0)), checker.mount
+    )
+    return reach_kernel(checker, target, reach_pitches(point.get("pitch")), seed)["solutions"]
+
+
 def point_reach(
     checker: SelfCollisionChecker,
     point: dict[str, float | None],
@@ -301,18 +458,12 @@ def point_reach(
     x, y, z = float(point["x"] or 0.0), float(point["y"] or 0.0), float(point["z"] or 0.0)
     target = base_link_to_arm((x, y, z), checker.mount)
     pitch = point.get("pitch")
-    pitches = [float(pitch)] if pitch is not None else [math.radians(p) for p in POINT_PITCHES_DEG]
-    reachable: list[float] = []
+    pitches = reach_pitches(pitch)
+    found = reach_kernel(checker, target, pitches, seed)
+    reachable = [p for p, s in zip(pitches, found["solutions"], strict=True) if s is not None]
     working: list[tuple[float, float]] = []
     limiting: dict[str, Any] | None = None
-    solutions: list[dict[str, float]] = []
-    for p in pitches:
-        try:
-            solutions.append(kin.inverse(*target, p, seed=seed))
-        except UnreachableError:
-            continue
-        reachable.append(p)
-    for p, (clearance, obstacle, part) in zip(reachable, checker.closest(solutions), strict=True):
+    for p, (clearance, obstacle, part) in zip(reachable, found["closest"], strict=True):
         if clearance >= cfg.hard_margin_m:
             working.append((p, clearance))
         elif limiting is None or clearance > limiting["clearance_m"]:

@@ -30,6 +30,7 @@ from mcp_server.ik import ArmKinematics
 from mcp_server.jaw_crop import jaw_crop
 from mcp_server.reach_map import build as build_reach_map
 from mcp_server.reach_map import checker_from_config
+from mcp_server.reference.ik_reach import robot_inputs
 from mcp_server.sag import GravityModel, SagCompensator, compensate
 from mcp_server.self_collision import SelfCollisionChecker
 from tests.camera_helpers import FRONT_MOUNT, HFOV
@@ -69,6 +70,15 @@ REACH_MAP = ReachMapSettings(
     z_max_m=0.45,
     planar_samples=(24, 24, 14),
     samples_per_cell=1,
+)
+# ik_reach golden cases (tests/regenerate_core_golden.py): random tool points in a box around the arm, pitched ones,
+# and a second, denser reach map grid.
+REACH_POINTS = 48
+REACH_PITCHED_POINTS = 16
+REACH_POINT_BOX = ((-0.05, 0.45), (-0.35, 0.25), (0.0, 0.45))
+REACH_PITCH_RANGE = (-0.5, 1.5)
+REACH_MAP_DENSE = REACH_MAP.model_copy(
+    update={"heading_step_deg": 30.0, "r_step_m": 0.03, "planar_samples": (20, 20, 12), "samples_per_cell": 2}
 )
 
 
@@ -743,3 +753,56 @@ def frontier_call(kind: str) -> Call:
                 )
 
     return call
+
+
+def point_reach_cases() -> list[dict[str, Any]]:
+    """Golden cases of point_reach: the bench point, points near the lidar and the deck, out-of-reach points and
+    fixed-seed random points (pitch None = every POINT_PITCHES_DEG, or one pitch), from two IK seeds.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments robot, point, seed.
+    """
+    robot = robot_inputs(config())
+    pose = kinematics().forward(SEED)
+    mount = config().arm.base_in_base_link
+    assert mount is not None
+    lidar = next(c for c in config().body.cylinders if c.name == "lidar")
+    points: list[dict[str, float | None]] = [
+        {"x": pose.x + mount.x, "y": pose.y + mount.y, "z": pose.z + mount.z, "pitch": None},
+        {"x": 0.30, "y": -0.05, "z": 0.12, "pitch": None},
+        {"x": lidar.x + 0.06, "y": lidar.y - 0.02, "z": lidar.z_max - 0.03, "pitch": None},
+        {"x": lidar.x, "y": lidar.y, "z": lidar.z_max - 0.04, "pitch": None},
+        {"x": 0.33, "y": -0.10, "z": 0.12, "pitch": 0.8},
+        {"x": 0.05, "y": -0.05, "z": 0.11, "pitch": None},
+        {"x": 0.80, "y": 0.0, "z": 0.2, "pitch": None},
+        {"x": -0.40, "y": -0.30, "z": 0.05, "pitch": 0.3},
+    ]
+    rng = random.Random(RNG_SEED)
+    for k in range(REACH_POINTS + REACH_PITCHED_POINTS):
+        x, y, z = (rng.uniform(lo, hi) for lo, hi in REACH_POINT_BOX)
+        pitch = rng.uniform(*REACH_PITCH_RANGE) if k >= REACH_POINTS else None
+        points.append({"x": x, "y": y, "z": z, "pitch": pitch})
+    seeds = [dict(SEED), dict(GRIPPER_VIEW)]
+    cases = [{"robot": robot, "point": p, "seed": seeds[i % len(seeds)]} for i, p in enumerate(points)]
+    # A point whose pitched IK repeats a heading during the refinement (tests/test_ik.py).
+    repeated = {"x": -0.05154221794843593, "y": -0.10587178864434088, "z": 0.436844962224659, "pitch": None}
+    seed = {
+        "shoulder_pan": -0.23974061970965255,
+        "shoulder_lift": 0.5374641689892652,
+        "elbow_flex": -0.38260157671558903,
+        "wrist_flex": 0.6078724925584991,
+        "wrist_roll": -0.8244794748834174,
+    }
+    return [*cases, {"robot": robot, "point": repeated, "seed": seed}]
+
+
+def reach_map_cases() -> list[dict[str, Any]]:
+    """Golden cases of reach_map.build: the bench grid and a denser one with two samples per cell.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments robot, settings.
+    """
+    robot = robot_inputs(config())
+    return [
+        {"robot": robot, "settings": s.model_dump(mode="json", exclude={"file"})} for s in (REACH_MAP, REACH_MAP_DENSE)
+    ]

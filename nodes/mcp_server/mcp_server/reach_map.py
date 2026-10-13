@@ -11,7 +11,9 @@ belongs to the cell nearest its (r, z) and to the nearest pitch within half the 
 whose required pan lies inside the pan range is a candidate; the samples_per_cell nearest each cell centre and pitch are
 body checked at that pan (ENVELOPE_BATCH_SAMPLES at a time). A cell's pitch bit is set when one of its checked samples
 keeps the hard margin (SelfCollisionChecker.clear_of's verdict); clearance holds the best body clearance of those samples,
-saturated at soft_margin_m. No numeric IK is used: a cell is reachable only where a real FK sample landed.
+saturated at soft_margin_m. No numeric IK is used: a cell is reachable only where a real FK sample landed. The sampling,
+binning and body checks run in the C++ kernel mcp_core_cpp.ik_reach.reach_map_build (the same steps, proven equal by
+tests/test_core_parity_ik_reach.py; the Python original is mcp_server/reference/ik_reach.py).
 
 Stored as .npz (pitch_mask uint16 [H, R, Z], clearance float16 [H, R, Z], meta JSON) under a key of every input
 (reach_inputs, tool point, jaw, margins, grid, REACH_MAP_VERSION): ReachMap.load refuses a file built for other inputs.
@@ -38,7 +40,9 @@ from typing import Any
 import numpy as np
 import yaml
 
-from .arm_reach import ENVELOPE_BATCH_SAMPLES, POINT_PITCHES_DEG, SHOULDER_PAN, joint_range, reach_inputs
+import mcp_core_cpp
+
+from .arm_reach import POINT_PITCHES_DEG, SHOULDER_PAN, core_body, joint_range, reach_inputs
 from .config import REPO_ROOT, McpServerConfig, ReachMapSettings
 from .floor_guard import JawModel
 from .ik import ArmKinematics
@@ -543,63 +547,31 @@ def build(checker: SelfCollisionChecker, settings: ReachMapSettings) -> ReachMap
     headings = heading_grid(pan, pan_lo, pan_hi, settings.heading_step_deg)
     radii = grid_values(settings.r_step_m, settings.r_max_m)
     heights = grid_values(settings.z_step_m, settings.z_max_m)
-    pitches = np.array(POINT_PITCHES_DEG)
-    shape = (len(headings), len(radii), len(heights))
     joint_grids = [
         np.linspace(*joint_range(checker, j), n) for j, n in zip(PLANAR_JOINTS, settings.planar_samples, strict=True)
     ]
-
-    def planar(index: int) -> dict[str, float]:
-        a, b, c = np.unravel_index(index, settings.planar_samples)
-        values = (joint_grids[0][a], joint_grids[1][b], joint_grids[2][c])
-        return dict(zip(PLANAR_JOINTS, (float(v) for v in values), strict=True)) | {"wrist_roll": 0.0}
-
-    total = math.prod(settings.planar_samples)
-    points = np.empty((total, 3))
-    pitch_rad = np.empty(total)
-    for start in range(0, total, ENVELOPE_BATCH_SAMPLES * 64):
-        chunk = [planar(i) | {SHOULDER_PAN: 0.0} for i in range(start, min(start + ENVELOPE_BATCH_SAMPLES * 64, total))]
-        points[start : start + len(chunk)], pitch_rad[start : start + len(chunk)] = tool_points(checker, chunk)
-    rel = points - pan.axis
-    r = np.hypot(rel[:, 0], rel[:, 1])
-    bearing = np.degrees(np.arctan2(rel[:, 1], rel[:, 0]))
-    ri = np.rint(r / settings.r_step_m).astype(np.int64) - 1
-    zi = np.rint(points[:, 2] / settings.z_step_m).astype(np.int64) - 1
-    gap = np.abs(np.degrees(pitch_rad)[:, None] - pitches[None, :])
-    pi = gap.argmin(axis=1)
-    keep = (
-        (ri >= 0)
-        & (ri < len(radii))
-        & (zi >= 0)
-        & (zi < len(heights))
-        & (gap.min(axis=1) <= PITCH_HALF_SPACING_DEG + 1e-9)
-    )
-    index = np.nonzero(keep)[0]
-    ri, zi, pi, bearing = ri[index], zi[index], pi[index], bearing[index]
-    distance = np.hypot(r[index] - np.array(radii)[ri], points[index, 2] - np.array(heights)[zi])
-    cell = (ri * len(heights) + zi) * len(pitches) + pi
-    order = np.lexsort((index, distance, cell))
-    del points, rel, r, gap, pitch_rad
-    mask = np.zeros(shape, dtype=np.uint16)
-    best = np.full(shape, np.nan)
-    checked = clear_count = 0
     pan_lo_deg, pan_hi_deg = math.degrees(pan_lo), math.degrees(pan_hi)
-    for h, heading in enumerate(headings):
-        pan_deg = wrap_deg(pan.sign * (heading - bearing))
-        allowed = (pan_deg >= pan_lo_deg) & (pan_deg <= pan_hi_deg)
-        candidates = order[allowed[order]]
-        chosen = candidates[rank_in_group(cell[candidates]) < settings.samples_per_cell]
-        for start in range(0, len(chosen), ENVELOPE_BATCH_SAMPLES):
-            batch = chosen[start : start + ENVELOPE_BATCH_SAMPLES]
-            samples = [planar(int(index[k])) | {SHOULDER_PAN: math.radians(float(pan_deg[k]))} for k in batch]
-            clearance = body_clearance(checker, checker.geometry(samples))
-            clear = clearance >= checker.settings.hard_margin_m
-            flat = np.ravel_multi_index((np.full(int(clear.sum()), h), ri[batch][clear], zi[batch][clear]), shape)
-            np.bitwise_or.at(mask.reshape(-1), flat, (1 << pi[batch][clear]).astype(np.uint16))
-            np.fmax.at(best.reshape(-1), flat, clearance[clear])
-            checked += len(batch)
-            clear_count += int(clear.sum())
-        log.info("reach map heading %g deg: %d samples checked", heading, len(chosen))
+    core = mcp_core_cpp.ik_reach.reach_map_build(
+        checker.kin.core_model(),
+        core_body(checker),
+        [grid.tolist() for grid in joint_grids],
+        list(settings.planar_samples),
+        pan.axis.tolist(),
+        pan.sign,
+        headings,
+        radii,
+        heights,
+        list(POINT_PITCHES_DEG),
+        settings.r_step_m,
+        settings.z_step_m,
+        pan_lo_deg,
+        pan_hi_deg,
+        settings.samples_per_cell,
+        PITCH_HALF_SPACING_DEG,
+    )
+    for heading, checked in zip(headings, core["checked_per_heading"], strict=True):
+        log.info("reach map heading %g deg: %d samples checked", heading, checked)
+    mask = np.asarray(core["mask"], dtype=np.uint16)
     bits = np.unpackbits(mask.view(np.uint8)).sum()
     meta = {
         "key": reach_map_key(checker, settings),
@@ -621,16 +593,16 @@ def build(checker: SelfCollisionChecker, settings: ReachMapSettings) -> ReachMap
         "compute_s": round(time.monotonic() - started, 3),
         "created_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         "counts": {
-            "planar_samples": total,
-            "binned_samples": len(index),
-            "checked_samples": checked,
-            "clear_samples": clear_count,
+            "planar_samples": math.prod(settings.planar_samples),
+            "binned_samples": core["binned"],
+            "checked_samples": core["checked"],
+            "clear_samples": core["clear"],
             "reachable_cells": int((mask > 0).sum()),
             "reachable_cell_pitches": int(bits),
             "cells": int(mask.size),
         },
     }
-    return ReachMap(mask, best.astype(np.float16), meta)
+    return ReachMap(mask, np.asarray(core["best"]).astype(np.float16), meta)
 
 
 def main(argv: list[str] | None = None) -> int:

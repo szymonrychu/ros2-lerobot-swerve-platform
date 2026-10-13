@@ -10,6 +10,8 @@ from pathlib import Path
 import ikpy.chain
 import numpy as np
 
+import mcp_core_cpp
+
 BASE_LINK = "base_link"
 ARM_CHAIN_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
 # Joints the IK solves; wrist_roll spins the gripper about its approach axis and is kept from the seed.
@@ -164,6 +166,8 @@ class ArmKinematics:
             0.0  # approach heading - target bearing of the last pitched solve (a start for the next)
         )
         self.solutions: OrderedDict[bytes, dict[str, float]] = OrderedDict()
+        # The C++ kinematics (core_model) and the parameters it was built from.
+        self.core: tuple[tuple[object, ...], mcp_core_cpp.ik_reach.ArmModel] | None = None
         pan_origin = self.chain.forward_kinematics(np.zeros(len(self.chain.links)), full_kinematics=True)[
             self.index["shoulder_pan"]
         ]
@@ -175,6 +179,63 @@ class ArmKinematics:
             child = joint.find("child")
             if child is not None and joint.attrib["name"] in names:
                 self.link_index[child.attrib["link"]] = names.index(joint.attrib["name"])
+
+    def core_model(self) -> mcp_core_cpp.ik_reach.ArmModel:
+        """The C++ kinematics of this chain (mcp_core_cpp.ik_reach.ArmModel: the same FK, IK and solution cache),
+        rebuilt when a parameter it copies (limits, margin, offsets, tool offset) changed since.
+
+        Returns:
+            mcp_core_cpp.ik_reach.ArmModel: The model; its IK keeps its own solution cache.
+
+        Raises:
+            ValueError: For a chain link that is neither revolute nor fixed.
+        """
+        params = (
+            tuple(self.tool_offset.tolist()),
+            tuple(self.offsets.values()),
+            self.margin,
+            tuple(self.limits.values()),
+            self.max_reach_m,
+            self.pan_axis_xy,
+        )
+        if self.core is None or self.core[0] != params:
+            links = self.chain.links
+            kinds = [getattr(link, "joint_type", "fixed") for link in links]
+            if not set(kinds) <= {"revolute", "fixed"}:
+                raise ValueError(f"the C++ kinematics supports revolute and fixed links only, not {kinds}")
+            fixed = [np.asarray(link.get_link_frame_matrix(0.0), dtype=np.float64) for link in links]
+            axes = [
+                np.asarray(link.rotation if kind == "revolute" else (0.0, 0.0, 0.0), dtype=np.float64)
+                for link, kind in zip(links, kinds, strict=True)
+            ]
+            model = mcp_core_cpp.ik_reach.ArmModel(
+                link_fixed=np.concatenate([f.ravel() for f in fixed]).tolist(),
+                link_axis=np.concatenate(axes).tolist(),
+                link_moves=[kind == "revolute" for kind in kinds],
+                joint_link=[self.index[j] for j in ARM_CHAIN_JOINTS],
+                lower=[self.limits[j][0] for j in ARM_CHAIN_JOINTS],
+                upper=[self.limits[j][1] for j in ARM_CHAIN_JOINTS],
+                margin=self.margin,
+                offsets=[self.offsets[j] for j in ARM_CHAIN_JOINTS],
+                tool_offset=self.tool_offset.tolist(),
+                max_reach_m=self.max_reach_m,
+                pan_axis_xy=list(self.pan_axis_xy),
+            )
+            self.core = (params, model)
+        return self.core[1]
+
+    def urdf_seed(self, seed: dict[str, float]) -> list[float]:
+        """A measured seed as the C++ IK takes it: URDF angles of every chain joint, missing joints 0 (URDF), which is
+        what inverse_flange makes of a partial seed.
+
+        Args:
+            seed (dict[str, float]): Measured joint name -> rad (may lack joints or carry others).
+
+        Returns:
+            list[float]: URDF rad in ARM_CHAIN_JOINTS order.
+        """
+        urdf = self.to_urdf(seed)
+        return [float(urdf.get(j, 0.0)) for j in ARM_CHAIN_JOINTS]
 
     def to_urdf(self, joints: dict[str, float]) -> dict[str, float]:
         """Measured joint angles -> URDF model angles (urdf = measured + offset); other joints pass through.
@@ -428,8 +489,10 @@ class ArmKinematics:
                 if math.hypot(float(approach[0]), float(approach[1])) > 1e-6:
                     reached_heading = math.atan2(float(approach[1]), float(approach[0]))
                     gap = math.remainder(reached_heading - heading, math.tau)
-                    if previous is not None and abs(gap - previous[1]) > 1e-12:
-                        slope = (gap - previous[1]) / math.remainder(heading - previous[0], math.tau)
+                    step = 0.0 if previous is None else math.remainder(heading - previous[0], math.tau)
+                    # A repeated heading (step 0) has no secant: fall back to the reached heading.
+                    if previous is not None and abs(gap - previous[1]) > 1e-12 and step != 0.0:
+                        slope = (gap - previous[1]) / step
                         next_heading = heading - gap / slope if abs(slope) > 1e-9 else reached_heading
                     else:
                         next_heading = reached_heading
