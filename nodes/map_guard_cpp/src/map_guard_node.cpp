@@ -133,7 +133,6 @@ MapGuardNode::MapGuardNode(const rclcpp::NodeOptions & options, const Config & c
   config_(config),
   metrics_(METRICS_NODE),
   guard_metrics_(metrics_),
-  process_metrics_(metrics_),
   detectors_(config_),
   agreement_limiter_(config_.agreement_hz)
 {
@@ -302,7 +301,6 @@ void MapGuardNode::run_guard()
       RCLCPP_ERROR(get_logger(), "map_guard tick failed: %s", exc.what());
     }
     state_ = guard_->state();
-    process_metrics_.update_if_due(now);
     std::unique_lock<std::mutex> lock(stop_lock_);
     if (stop_cv_.wait_for(lock, period, [this]() { return stop_; })) {
       return;

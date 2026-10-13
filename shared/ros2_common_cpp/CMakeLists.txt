@@ -22,7 +22,7 @@ target_include_directories(config PUBLIC
 target_link_libraries(config PUBLIC yaml-cpp::yaml-cpp)
 set_target_properties(config PROPERTIES OUTPUT_NAME ${PROJECT_NAME}_config POSITION_INDEPENDENT_CODE ON)
 
-add_library(metrics src/metrics.cpp)
+add_library(metrics src/metrics.cpp src/process_collector.cpp)
 add_library(${PROJECT_NAME}::metrics ALIAS metrics)
 target_include_directories(metrics PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

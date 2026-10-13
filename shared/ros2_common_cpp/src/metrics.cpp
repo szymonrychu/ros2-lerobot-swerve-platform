@@ -46,7 +46,8 @@ std::optional<std::uint16_t> resolve_metrics_port(std::optional<int> config_port
   return checked_port(std::stol(raw), source);
 }
 
-Metrics::Metrics(const std::string & node) : registry_(std::make_shared<prometheus::Registry>())
+Metrics::Metrics(const std::string & node)
+: registry_(std::make_shared<prometheus::Registry>()), process_(std::make_shared<ProcessCollector>())
 {
   gauge("robot_node_info", "Our ROS2 node is running (always 1)", {{"node", node}}).Set(1);
   const auto now = std::chrono::system_clock::now().time_since_epoch();
@@ -79,7 +80,15 @@ prometheus::Histogram & Metrics::histogram(
     .Add(labels, prometheus::Histogram::BucketBoundaries(buckets));
 }
 
-std::string Metrics::render() const { return prometheus::TextSerializer().Serialize(registry_->Collect()); }
+std::vector<prometheus::MetricFamily> Metrics::collect() const
+{
+  auto families = registry_->Collect();
+  auto process = process_->Collect();
+  families.insert(families.end(), process.begin(), process.end());
+  return families;
+}
+
+std::string Metrics::render() const { return prometheus::TextSerializer().Serialize(collect()); }
 
 std::uint16_t Metrics::serve(std::uint16_t port, const std::string & host)
 {
@@ -92,6 +101,7 @@ std::uint16_t Metrics::serve(std::uint16_t port, const std::string & host)
     throw std::runtime_error("cannot serve metrics on " + host + ":" + std::to_string(port) + ": " + e.what());
   }
   exposer_->RegisterCollectable(registry_);
+  exposer_->RegisterCollectable(process_);
   const std::vector<int> ports = exposer_->GetListeningPorts();
   if (ports.empty()) {
     exposer_.reset();

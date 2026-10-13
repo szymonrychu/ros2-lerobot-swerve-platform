@@ -1,10 +1,12 @@
-// ros2_common_cpp metrics: node info series, label escaping, histogram buckets and the HTTP exposition.
+// ros2_common_cpp metrics: node info series, label escaping, histogram buckets, the HTTP exposition and the
+// process_* series of prometheus_client's ProcessCollector.
 #include <arpa/inet.h>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <regex>
@@ -12,6 +14,7 @@
 #include <string>
 
 #include "ros2_common_cpp/metrics.hpp"
+#include "ros2_common_cpp/process_collector.hpp"
 
 namespace rc = ros2_common_cpp;
 
@@ -51,6 +54,29 @@ std::string http_get(std::uint16_t port, const std::string & path)
   }
   close(fd);
   return response;
+}
+
+// Value of the unlabelled series name in families, or -1 when absent.
+double value(const std::vector<prometheus::MetricFamily> & families, const std::string & name)
+{
+  for (const auto & family : families) {
+    if (family.name != name || family.metric.empty()) {
+      continue;
+    }
+    const auto & metric = family.metric.front();
+    EXPECT_TRUE(metric.label.empty()) << name;
+    return family.type == prometheus::MetricType::Counter ? metric.counter.value : metric.gauge.value;
+  }
+  return -1.0;
+}
+
+void burn_cpu(double seconds)
+{
+  const clock_t start = clock();
+  volatile double x = 0.0;
+  while (static_cast<double>(clock() - start) / CLOCKS_PER_SEC < seconds) {
+    x = x + 1.0;
+  }
 }
 
 }  // namespace
@@ -145,4 +171,47 @@ TEST(Metrics, ResolvePortConfigThenEnvThenDisabled)
   EXPECT_THROW(rc::resolve_metrics_port(std::nullopt), std::invalid_argument);
   unsetenv(rc::METRICS_PORT_ENV);
   EXPECT_THROW(rc::resolve_metrics_port(0), std::invalid_argument);
+}
+
+TEST(ProcessCollector, EverySeriesOfThePythonCollectorUnlabelled)
+{
+  const auto families = rc::ProcessCollector().Collect();
+  const double now = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+  EXPECT_GT(value(families, "process_resident_memory_bytes"), 1e5);
+  EXPECT_GE(value(families, "process_virtual_memory_bytes"), value(families, "process_resident_memory_bytes"));
+  EXPECT_GE(value(families, "process_cpu_seconds_total"), 0.0);
+  const double start = value(families, "process_start_time_seconds");
+  EXPECT_GT(start, now - 3600.0);
+  EXPECT_LE(start, now + 1.0);
+  EXPECT_GE(value(families, "process_open_fds"), 3.0);
+  EXPECT_GE(value(families, "process_max_fds"), value(families, "process_open_fds"));
+}
+
+TEST(ProcessCollector, NoSeriesWhenProcIsUnreadable)
+{
+  EXPECT_TRUE(rc::ProcessCollector("/nonexistent/proc/self").Collect().empty());
+}
+
+TEST(ProcessCollector, CpuSecondsFollowTheProcess)
+{
+  const rc::ProcessCollector process;
+  const double before = value(process.Collect(), "process_cpu_seconds_total");
+  burn_cpu(0.3);
+  const double after = value(process.Collect(), "process_cpu_seconds_total");
+  EXPECT_GE(after - before, 0.2);
+  EXPECT_LE(after - before, 1.0);
+}
+
+TEST(Metrics, EveryNodeExportsTheProcessSeries)
+{
+  rc::Metrics metrics("x");
+  const std::string text = metrics.render();
+  EXPECT_TRUE(has_line(text, "# TYPE process_cpu_seconds_total counter")) << text;
+  EXPECT_TRUE(has_line(text, "# TYPE process_resident_memory_bytes gauge")) << text;
+  EXPECT_TRUE(has_line(text, "# TYPE process_max_fds gauge")) << text;
+  EXPECT_GT(value(metrics.collect(), "process_resident_memory_bytes"), 1e5);
+  const std::uint16_t port = metrics.serve(0);
+  const std::string response = http_get(port, "/metrics");
+  EXPECT_NE(response.find("\nprocess_resident_memory_bytes "), std::string::npos) << response;
+  EXPECT_NE(response.find("\nprocess_cpu_seconds_total "), std::string::npos) << response;
 }

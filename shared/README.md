@@ -110,7 +110,13 @@ returns every error (`Errors` = `std::vector<std::string>`, one `"<key>: <proble
 
 - `counter(name, help, labels)`, `gauge(...)` and `histogram(name, help, buckets, labels)` return the prometheus-cpp
   child for those labels. The same name and labels return the same child.
-- `render()` returns the text exposition.
+- Every `Metrics` also exports the `process_*` series of prometheus_client's ProcessCollector
+  (`process_cpu_seconds_total`, `process_virtual_memory_bytes`, `process_resident_memory_bytes`,
+  `process_start_time_seconds`, `process_open_fds`, `process_max_fds`; unlabelled). `ProcessCollector`
+  (`process_collector.hpp`) reads them from `/proc/self` on every collect, render and scrape, and returns no series
+  where `/proc` cannot be read. So a C++ node and its Python counterpart have the same CPU and memory series.
+- `collect()` returns every family (the registry's plus the `process_*` ones); `render()` returns them as the text
+  exposition.
 - `serve(port, host = "127.0.0.1")` serves `GET /metrics` in a background thread and returns the bound port. Port 0
   picks a free port.
 - `resolve_metrics_port(config_port)` returns the config value, else `METRICS_PORT`, else `nullopt` (metrics off).

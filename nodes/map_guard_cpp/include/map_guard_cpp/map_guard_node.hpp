@@ -25,7 +25,6 @@
 #include "map_guard_cpp/config.hpp"
 #include "map_guard_cpp/detectors.hpp"
 #include "map_guard_cpp/guard.hpp"
-#include "map_guard_cpp/process_metrics.hpp"
 #include "map_guard_cpp/timing.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav_msgs/msg/odometry.hpp"
@@ -117,7 +116,6 @@ private:
   Config config_;
   ros2_common_cpp::Metrics metrics_;
   GuardMetrics guard_metrics_;
-  ProcessMetrics process_metrics_;
   std::mutex lock_;
   Disturbances detectors_;
   std::shared_ptr<const PreparedMap> prepared_;

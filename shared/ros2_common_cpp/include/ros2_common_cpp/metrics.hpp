@@ -1,5 +1,6 @@
 // Prometheus metrics for the robot's C++ nodes, the counterpart of shared/ros2_metrics (Python): the same
-// robot_node_info{node} = 1 and robot_node_start_time_seconds{node} series, served as Prometheus text on
+// robot_node_info{node} = 1 and robot_node_start_time_seconds{node} series plus the process_* series of
+// prometheus_client's ProcessCollector (process_collector.hpp), served as Prometheus text on
 // 127.0.0.1:<metrics_port> for Grafana Alloy to scrape. Built on prometheus-cpp (apt prometheus-cpp-dev).
 //
 //   auto port = ros2_common_cpp::resolve_metrics_port(cfg_metrics_port);   // config value, else METRICS_PORT
@@ -24,6 +25,8 @@
 #include <string>
 #include <vector>
 
+#include "ros2_common_cpp/process_collector.hpp"
+
 namespace ros2_common_cpp
 {
 
@@ -37,7 +40,8 @@ constexpr const char * DEFAULT_METRICS_HOST = "127.0.0.1";
 std::optional<std::uint16_t> resolve_metrics_port(std::optional<int> config_port);
 
 // One registry per node. The constructor registers robot_node_info{node} = 1 and
-// robot_node_start_time_seconds{node} = now (epoch seconds). counter / gauge / histogram return the child for the
+// robot_node_start_time_seconds{node} = now (epoch seconds), and collects the process_* series on every collect,
+// render and scrape. counter / gauge / histogram return the child for the
 // given labels, creating the family on first use; asking again with the same name and labels returns the same child.
 class Metrics
 {
@@ -54,7 +58,10 @@ public:
     const std::string & name, const std::string & help, const std::vector<double> & buckets,
     const prometheus::Labels & labels = {});
 
-  // The whole registry in the Prometheus text exposition format (what GET /metrics returns).
+  // Every family: the registry's, then the process_* series read now.
+  std::vector<prometheus::MetricFamily> collect() const;
+
+  // collect() in the Prometheus text exposition format (what GET /metrics returns).
   std::string render() const;
 
   // Serve GET /metrics on host:port in a background thread; port 0 picks a free port. Returns the bound port.
@@ -65,6 +72,7 @@ public:
 
 private:
   std::shared_ptr<prometheus::Registry> registry_;
+  std::shared_ptr<ProcessCollector> process_;
   std::unique_ptr<prometheus::Exposer> exposer_;
 };
 
