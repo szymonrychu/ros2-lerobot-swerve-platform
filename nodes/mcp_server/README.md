@@ -229,8 +229,8 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks.
 State cache (raw, latest-only): the 95 Hz `/follower/joint_states` and the odometry topics (`/odometry/filtered`, swerve `/odom`,
 `/odom_rf2o_twist`) are raw (serialized) subscriptions that keep only the latest bytes and the receive time. A message is deserialized
 only when a reader asks for it (`RosRobot.get`, the tools), at most once per received message. The monitor hooks of these topics are fed
-by a timer at `monitor.monitor_feed_hz` (default 20, must be > 0) with the latest message only; a topic with no new message since the
-previous tick feeds nothing. `mcp_sample_age_seconds` is unchanged (it reads the receive time, never the message). Thresholds are the `monitor` config section
+from the existing 4 Hz monitor tick (no timer of their own) with the latest message only; a topic with no new message since the
+previous tick feeds nothing. Messages are never logged individually. `mcp_sample_age_seconds` is unchanged (it reads the receive time, never the message). Thresholds are the `monitor` config section
 (`MonitorSettings`, also in `ansible/group_vars/client.yml`).
 
 On-demand subscriptions (`on_demand` config section, `ros_iface.OnDemandSubscription`): profiling showed most of the

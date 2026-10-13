@@ -1,9 +1,9 @@
 """ros_iface latest-only raw state cache (joint states, odom, swerve odom, rf2o odom) without ROS.
 
 Covers: the four high-rate subscriptions are raw (serialized) subscriptions; N messages between reads give one decode
-of the latest only; nothing is decoded without a reader or a monitor tick; the monitor feed timer (monitor_feed_hz)
-decodes only the latest message and feeds nothing for a topic without a new message; feed_ages stays correct;
-monitor_feed_hz config validation.
+of the latest only; nothing is decoded without a reader or a monitor tick; the monitor feeds ride the existing monitor tick
+(no dedicated feed timer) and decode only the latest message, feeding nothing for a topic without a new message;
+feed_ages stays correct; no logger call per message.
 """
 
 from types import ModuleType, SimpleNamespace
@@ -11,10 +11,10 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import ValidationError
 
-from mcp_server.config import McpServerConfig, MonitorSettings
+from mcp_server.config import McpServerConfig
 
+MONITOR_TICK_S = 0.25
 TOPICS = {
     "joint_states": "/follower/joint_states",
     "odom": "/odometry/filtered",
@@ -54,12 +54,11 @@ class Rig:
         raise AssertionError(f"no subscription on {topic}")
 
     def feed_tick(self) -> Any:
-        """The monitor feed timer callback."""
-        period = 1.0 / self.robot.cfg.monitor.monitor_feed_hz
+        """The monitor tick timer callback (the only periodic path that feeds the monitor)."""
         for call in self.robot.node.create_timer.call_args_list:
-            if call.args[0] == pytest.approx(period):
+            if call.args[0] == pytest.approx(MONITOR_TICK_S):
                 return call.args[1]
-        raise AssertionError("no monitor feed timer")
+        raise AssertionError("no monitor tick timer")
 
 
 @pytest.fixture
@@ -145,9 +144,23 @@ def test_stale_raw_sample_is_not_fresh(rig: Rig, monkeypatch: pytest.MonkeyPatch
     assert rig.robot.get("joint_states") is not None
 
 
-def test_monitor_feed_hz_default_and_validation() -> None:
-    assert MonitorSettings().monitor_feed_hz == 20.0
-    assert McpServerConfig(monitor={"monitor_feed_hz": 5}).monitor.monitor_feed_hz == 5.0
-    for bad in (0, -1):
-        with pytest.raises(ValidationError):
-            MonitorSettings(monitor_feed_hz=bad)
+def test_no_dedicated_feed_timer(rig: Rig) -> None:
+    periods = [call.args[0] for call in rig.robot.node.create_timer.call_args_list]
+    assert not any(p == pytest.approx(1.0 / 20.0) for p in periods)
+
+
+def test_monitor_tick_runs_monitor_tick_after_feeding(rig: Rig) -> None:
+    rig.callback(TOPICS["odom"])(b"4.0")
+    rig.feed_tick()()
+    rig.robot.monitor.on_odom.assert_called_once_with(4.0, 0.0, 0.0)
+    rig.robot.monitor.tick.assert_called_once_with()
+
+
+def test_no_logger_call_per_message(rig: Rig) -> None:
+    rig.robot.log = MagicMock()
+    for topic in TOPICS.values():
+        cb = rig.callback(topic)
+        for i in range(5):
+            cb(str(float(i)).encode())
+    rig.robot.get("joint_states")
+    assert rig.robot.log.method_calls == []

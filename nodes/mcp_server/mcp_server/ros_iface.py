@@ -424,7 +424,7 @@ class RosRobot:
         self.monitor = monitor or RobotMonitor(
             config.monitor, battery_guard, autonomy_source=config.arm.autonomy_source_name
         )
-        self.feeds: list[MonitorFeed] = []  # raw subscriptions whose monitor hook runs from the monitor_feed_hz timer
+        self.feeds: list[MonitorFeed] = []  # raw subscriptions whose monitor hook runs from the monitor tick
         self.cache_raw(JointState, t.follower_joint_states, "joint_states", SENSOR_QOS)
         self.cache(JointState, t.follower_joint_currents, "joint_currents", SENSOR_QOS)
         self.cache(
@@ -561,11 +561,10 @@ class RosRobot:
             publish=lambda answer: self.grasp_result_pub.publish(String(data=json.dumps(answer))),
         )
         self.subscribe(String, t.grasp_command, self.on_grasp_command, COMMAND_QOS)
-        self.node.create_timer(MONITOR_TICK_S, self.monitor.tick, callback_group=self.group)
+        self.node.create_timer(MONITOR_TICK_S, self.monitor_tick, callback_group=self.group)
         self.node.create_timer(
             config.on_demand.linger_s / ON_DEMAND_REAP_CHECKS, self.reap_on_demand, callback_group=self.group
         )
-        self.node.create_timer(1.0 / config.monitor.monitor_feed_hz, self.flush_feeds, callback_group=self.group)
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
         # Web UI Arm tab: take / release the arm lease through the ControlManager (bound by bind_control).
@@ -845,7 +844,7 @@ class RosRobot:
     ) -> Any:
         """Raw (serialized) subscription keeping only the latest bytes; deserialized lazily, at most once per message.
 
-        Readers (get) decode on demand; the monitor hook is fed from the monitor_feed_hz timer with the latest
+        Readers (get) decode on demand; the monitor hook is fed from the monitor tick (no timer of its own) with the latest
         message only, and not at all for a topic without a new message since the previous tick.
 
         Args:
@@ -875,10 +874,11 @@ class RosRobot:
 
         return self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group, raw=True)
 
-    def flush_feeds(self) -> None:
-        """Timer callback: feed every raw monitor hook its latest new message."""
+    def monitor_tick(self) -> None:
+        """Monitor timer callback: feed every raw monitor hook its latest new message, then run the monitor tick."""
         for feed in self.feeds:
             feed.flush()
+        self.monitor.tick()
 
     def subscribe(
         self, msg_type: type, topic: str, callback: Callable[[Any], None], qos: QoSProfile = SENSOR_QOS
