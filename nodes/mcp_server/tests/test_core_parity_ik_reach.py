@@ -10,6 +10,7 @@ import json
 import re
 import statistics
 import time
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,9 @@ NOT_PORTED_STATUS = "below threshold, not ported"
 # A kernel row of the family table: | `kernel` | median ms | status | (the status is words, not a number).
 DOC_ROW = re.compile(r"^\|\s*`?([\w.]+)`?\s*\|\s*([0-9.]+)\s*\|\s*([a-z][a-z, ]*?)\s*\|\s*$")
 HEADING_SENTINEL = 123.0
+# The first mcp_core_cpp version with the ik_reach kernels: the Pi re-runs uv sync (and so rebuilds the extension) only
+# when uv.lock changes, so an older locked version would leave point_reach without mcp_core_cpp.ik_reach.ArmModel.
+IK_REACH_CORE_VERSION = (0, 2, 0)
 TIMING_REPETITIONS = {"arm_reach.point_reach": 7, "reach_map.build": 3}
 TINY = ReachMapSettings(
     heading_step_deg=90.0,
@@ -99,6 +103,28 @@ def test_family_doc_lists_every_report_kernel_with_its_median_and_status() -> No
     for (name, ms, status), row in zip(rows, expected, strict=True):
         assert float(ms) == pytest.approx(row["median_ms"], abs=0.005), name
         assert status == (PORTED_STATUS if row["verdict"] == "port" else NOT_PORTED_STATUS), name
+
+
+def version_tuple(version: str) -> tuple[int, ...]:
+    """A dotted numeric version as a tuple of ints.
+
+    Args:
+        version (str): Version such as "0.2.0".
+
+    Returns:
+        tuple[int, ...]: The numeric parts, comparable in order.
+    """
+    return tuple(int(part) for part in version.split("."))
+
+
+def test_the_extension_version_carrying_ik_reach_is_bumped_and_locked() -> None:
+    """mcp_core_cpp is bumped to the ik_reach version, and uv.lock records it (so the Pi deploy rebuilds it)."""
+    project = tomllib.loads((NODE_DIR / "mcp_core_cpp" / "pyproject.toml").read_text())["project"]["version"]
+    lock = tomllib.loads((NODE_DIR / "uv.lock").read_text())
+    locked = [package["version"] for package in lock["package"] if package["name"] == "mcp-core-cpp"]
+    assert version_tuple(project) >= IK_REACH_CORE_VERSION
+    assert locked == [project]
+    assert mcp_core_cpp.__version__ == project
 
 
 def test_the_cpp_kernels_are_registered() -> None:

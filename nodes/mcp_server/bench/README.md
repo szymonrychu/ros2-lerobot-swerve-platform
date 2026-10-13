@@ -16,7 +16,7 @@ uv run python -m bench.bench_kernels --out /tmp/bench     # write the reports el
 |---|---|
 | `bench_kernels.py` | Kernel registry (`KERNELS`), timing, Mimir reader, ranking, report writers, CLI. |
 | `bench_kernels.yaml` | `repetitions`, `threshold_ms`, `families`, `prometheus_url`, `lookback_hours` (pydantic-validated, unknown keys rejected). |
-| `inputs.py` | Inputs of every kernel: the deployed `ansible/group_vars/client.yml` config, the recorded grasp cases of `tests/data/grasp_golden.json`, `tests/camera_helpers.py` for the front camera (not calibrated on the robot), and seeded synthetic scans, maps and images. Reused by the parity harness of `mcp_core_cpp`. |
+| `inputs.py` | Inputs of every kernel: the deployed `ansible/group_vars/client.yml` config, the recorded grasp cases of `tests/data/grasp_golden.json`, `tests/camera_helpers.py` for the front camera (not calibrated on the robot), and seeded synthetic scans, maps and images. Reused by the parity harness of `mcp_core_cpp`; golden case functions (`list[dict]` of keyword args): `point_reach_cases`, `reach_map_cases` (ik_reach). |
 | `REPORT.md` | The ranked table of the last committed run. |
 | `report.json` | The same rows, machine readable (also CPU times, tools, Mimir window). |
 

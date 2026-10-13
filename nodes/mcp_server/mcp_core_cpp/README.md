@@ -105,3 +105,10 @@ golden after the switch still runs the original Python code, never C++ against C
 - `tests/test_core_parity_harness.py` proves the harness on a toy kernel pair (pass within tolerance, fail outside it
   with the worst element named, shape mismatch, missing output, records, NaN, the regenerate entry point).
 - `tests/test_core_build.py` checks the extension imports, its version and that all five register functions ran.
+- `tests/test_core_parity_ik_reach.py`: golden parity of `arm_reach.point_reach` and `reach_map.build` (goldens
+  from `bench/inputs.py` `point_reach_cases` / `reach_map_cases`), `docs/ik_reach.md` against `bench/report.json`, the
+  entry points not running the Python IK, each port faster than its Python median, and the version carrying ik_reach
+  (0.2.0) locked in `uv.lock`. `tests/test_ik.py::test_heading_refinement_survives_a_repeated_heading`: every pitch
+  of a target whose heading refinement repeats a heading ends in a solution or `UnreachableError`.
+  `tests/test_reach_map.py::test_reference_build_checks_bounded_batches`: the Python reference build (the golden
+  source) body checks at most a batch at a time.
