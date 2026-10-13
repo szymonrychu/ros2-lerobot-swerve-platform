@@ -350,7 +350,7 @@ wheels = [
 
 [[package]]
 name = "mcp-core-cpp"
-version = "0.2.0"
+version = "0.2.1"
 source = { directory = "mcp_core_cpp" }
 
 [[package]]

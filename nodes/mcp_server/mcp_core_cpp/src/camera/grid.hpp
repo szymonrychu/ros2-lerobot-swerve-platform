@@ -10,12 +10,16 @@
 namespace mcp_core::camera
 {
 
-// perception.py thresholds and grey levels (OCCUPIED_THRESHOLD, FREE_THRESHOLD, *_GREY).
-constexpr int16_t OCCUPIED_THRESHOLD = 65;
-constexpr int16_t FREE_THRESHOLD = 25;
-constexpr uint8_t UNKNOWN_GREY = 160;
-constexpr uint8_t FREE_GREY = 255;
-constexpr uint8_t OCCUPIED_GREY = 0;
+// Thresholds and grey levels of perception.py (OCCUPIED_THRESHOLD, FREE_THRESHOLD, *_GREY): perception.py is their only
+// definition, its callers pass them in, so this code holds no copy that could drift.
+struct Occupancy
+{
+  int16_t occupied_threshold;  // cells >= this are occupied
+  int16_t free_threshold;      // cells in 0..this are free
+  uint8_t unknown_grey;
+  uint8_t free_grey;
+  uint8_t occupied_grey;
+};
 
 struct MapCounts
 {
@@ -26,11 +30,13 @@ struct MapCounts
 
 // Known, occupied and free cells of a grid (every cell read as numpy's int16 conversion would).
 // Throws nanobind::type_error for a non-integer item and raises OverflowError for an item outside int16.
-MapCounts map_counts(nanobind::handle data);
+MapCounts map_counts(nanobind::handle data, int16_t occupied_threshold, int16_t free_threshold);
 
 // Grey crop of size x size cells whose bottom-left cell is (x0, y0), flipped so the first row is the top (north up).
-// Cells outside the grid are UNKNOWN_GREY. Returns size * size bytes, row-major.
+// Cells outside the grid are occupancy.unknown_grey. Returns size * size bytes, row-major.
 // Throws nanobind::value_error when the grid does not hold width x height cells (numpy's reshape error).
-std::vector<uint8_t> map_crop(nanobind::handle data, int64_t width, int64_t height, int64_t x0, int64_t y0, int64_t size);
+std::vector<uint8_t> map_crop(
+  nanobind::handle data, int64_t width, int64_t height, int64_t x0, int64_t y0, int64_t size,
+  const Occupancy & occupancy);
 
 }  // namespace mcp_core::camera

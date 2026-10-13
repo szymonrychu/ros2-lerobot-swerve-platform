@@ -47,9 +47,9 @@ nb::tuple lidar_dots(
   return nb::make_tuple(to_numpy(std::move(dots.centres), {m, 2}), to_numpy(std::move(dots.values), {m}));
 }
 
-nb::dict map_counts(nb::handle data)
+nb::dict map_counts(nb::handle data, int16_t occupied_threshold, int16_t free_threshold)
 {
-  const mcp_core::camera::MapCounts counts = mcp_core::camera::map_counts(data);
+  const mcp_core::camera::MapCounts counts = mcp_core::camera::map_counts(data, occupied_threshold, free_threshold);
   nb::dict out;
   out["known_cells"] = counts.known;
   out["occupied_cells"] = counts.occupied;
@@ -58,9 +58,11 @@ nb::dict map_counts(nb::handle data)
 }
 
 nb::ndarray<nb::numpy, uint8_t> map_crop(
-  nb::handle data, int64_t width, int64_t height, int64_t x0, int64_t y0, int64_t size)
+  nb::handle data, int64_t width, int64_t height, int64_t x0, int64_t y0, int64_t size, int16_t occupied_threshold,
+  int16_t free_threshold, uint8_t unknown_grey, uint8_t free_grey, uint8_t occupied_grey)
 {
-  std::vector<uint8_t> crop = mcp_core::camera::map_crop(data, width, height, x0, y0, size);
+  const mcp_core::camera::Occupancy occupancy{occupied_threshold, free_threshold, unknown_grey, free_grey, occupied_grey};
+  std::vector<uint8_t> crop = mcp_core::camera::map_crop(data, width, height, x0, y0, size, occupancy);
   const auto side = static_cast<size_t>(size);
   return to_numpy(std::move(crop), {side, side});
 }
@@ -79,15 +81,19 @@ void register_camera(nb::module_ & m)
     "Returns (centres (M, 2) int32 rounded pixels, values (M,) uint8 JET colormap indices) of the points in front of"
     " the camera and inside the image, in input order.");
   m.def(
-    "map_counts", &map_counts, "data"_a,
+    "map_counts", &map_counts, "data"_a, "occupied_threshold"_a, "free_threshold"_a,
     "Known, occupied and free cells of an occupancy grid (perception.map_stats).\n\n"
-    "data: row-major cells as a buffer (array.array, numpy) or a sequence of ints.\n"
+    "data: row-major cells as a buffer (array.array, numpy) or a sequence of ints; occupied_threshold, free_threshold:"
+    " perception.OCCUPIED_THRESHOLD / FREE_THRESHOLD (occupied: cell >= occupied_threshold; free: 0 <= cell <="
+    " free_threshold).\n"
     "Returns {'known_cells', 'occupied_cells', 'free_cells'}.");
   m.def(
     "map_crop", &map_crop, "data"_a, "width"_a, "height"_a, "x0"_a, "y0"_a, "size"_a,
+    "occupied_threshold"_a, "free_threshold"_a, "unknown_grey"_a, "free_grey"_a, "occupied_grey"_a,
     "Grey crop of an occupancy grid (perception.render_map_crop).\n\n"
     "data: row-major width x height cells (buffer or sequence of ints); (x0, y0): bottom-left cell of the crop; size:"
-    " crop side in cells.\n"
-    "Returns a (size, size) uint8 array, north up (first row = largest y): 255 free, 0 occupied, 160 unknown or off the"
-    " map.");
+    " crop side in cells; occupied_threshold, free_threshold, unknown_grey, free_grey, occupied_grey: the"
+    " perception.py constants of the same names.\n"
+    "Returns a (size, size) uint8 array, north up (first row = largest y): free_grey free, occupied_grey occupied,"
+    " unknown_grey unknown or off the map.");
 }

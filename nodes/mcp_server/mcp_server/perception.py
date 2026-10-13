@@ -113,7 +113,7 @@ def map_stats(data: Sequence[int], width: int, height: int, resolution: float) -
     Returns:
         MapStats: Size and known/occupied/free counts.
     """
-    counts = core_camera.map_counts(contiguous(data))
+    counts = core_camera.map_counts(contiguous(data), OCCUPIED_THRESHOLD, FREE_THRESHOLD)
     return MapStats(
         width=width,
         height=height,
@@ -188,7 +188,19 @@ def render_map_crop(
     half = max(1, int(math.ceil(radius_m / resolution)))
     cx = int(math.floor((robot_x - origin_x) / resolution))
     cy = int(math.floor((robot_y - origin_y) / resolution))
-    crop = core_camera.map_crop(contiguous(data), width, height, cx - half, cy - half, 2 * half)  # north up
+    crop = core_camera.map_crop(
+        contiguous(data),
+        width,
+        height,
+        cx - half,
+        cy - half,
+        2 * half,
+        OCCUPIED_THRESHOLD,
+        FREE_THRESHOLD,
+        UNKNOWN_GREY,
+        FREE_GREY,
+        OCCUPIED_GREY,
+    )  # north up
     image = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
     w, h = fit_size(image.shape[1], image.shape[0], max_px)
     image = cv2.resize(image, (w, h), interpolation=cv2.INTER_NEAREST)

@@ -18,15 +18,15 @@ namespace
 constexpr int64_t INT16_MIN_VALUE = std::numeric_limits<int16_t>::min();
 constexpr int64_t INT16_MAX_VALUE = std::numeric_limits<int16_t>::max();
 
-uint8_t grey_of(int16_t cell)
+uint8_t grey_of(int16_t cell, const Occupancy & occupancy)
 {
-  if (cell >= OCCUPIED_THRESHOLD) {
-    return OCCUPIED_GREY;
+  if (cell >= occupancy.occupied_threshold) {
+    return occupancy.occupied_grey;
   }
-  if (cell >= 0 && cell <= FREE_THRESHOLD) {
-    return FREE_GREY;
+  if (cell >= 0 && cell <= occupancy.free_threshold) {
+    return occupancy.free_grey;
   }
-  return UNKNOWN_GREY;
+  return occupancy.unknown_grey;
 }
 
 // A Python sequence item as numpy's int16 conversion of a list reads it: ints range-checked, floats truncated,
@@ -178,20 +178,22 @@ private:
 
 }  // namespace
 
-MapCounts map_counts(nb::handle data)
+MapCounts map_counts(nb::handle data, int16_t occupied_threshold, int16_t free_threshold)
 {
   const Cells cells(data);
   MapCounts counts;
   cells.for_each(
-    [&counts](int16_t cell) {
+    [&counts, occupied_threshold, free_threshold](int16_t cell) {
       counts.known += cell >= 0;
-      counts.occupied += cell >= OCCUPIED_THRESHOLD;
-      counts.free += cell >= 0 && cell <= FREE_THRESHOLD;
+      counts.occupied += cell >= occupied_threshold;
+      counts.free += cell >= 0 && cell <= free_threshold;
     });
   return counts;
 }
 
-std::vector<uint8_t> map_crop(nb::handle data, int64_t width, int64_t height, int64_t x0, int64_t y0, int64_t size)
+std::vector<uint8_t> map_crop(
+  nb::handle data, int64_t width, int64_t height, int64_t x0, int64_t y0, int64_t size,
+  const Occupancy & occupancy)
 {
   const Cells cells(data);
   if (width < 0 || height < 0 || cells.size() != width * height) {
@@ -203,7 +205,7 @@ std::vector<uint8_t> map_crop(nb::handle data, int64_t width, int64_t height, in
   if (size < 0) {
     throw nb::value_error("negative crop size");
   }
-  std::vector<uint8_t> crop(static_cast<size_t>(size * size), UNKNOWN_GREY);
+  std::vector<uint8_t> crop(static_cast<size_t>(size * size), occupancy.unknown_grey);
   for (int64_t row = 0; row < size; ++row) {
     const int64_t y = y0 + size - 1 - row;  // flipped: the first output row is the crop's top (largest y)
     if (y < 0 || y >= height) {
@@ -213,7 +215,7 @@ std::vector<uint8_t> map_crop(nb::handle data, int64_t width, int64_t height, in
     for (int64_t col = 0; col < size; ++col) {
       const int64_t x = x0 + col;
       if (x >= 0 && x < width) {
-        out[col] = grey_of(cells[y * width + x]);
+        out[col] = grey_of(cells[y * width + x], occupancy);
       }
     }
   }

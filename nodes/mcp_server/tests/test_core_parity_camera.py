@@ -194,3 +194,33 @@ def test_png_outputs_decode_the_image() -> None:
     ok, buf = cv2.imencode(".png", image)
     assert ok
     assert np.array_equal(reference_camera.png_outputs(buf.tobytes())["image"], image)
+
+
+def test_map_stats_follows_the_perception_thresholds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """perception.py is the single source of the occupancy thresholds: changing them changes the C++ counts."""
+    cells = [-1, 0, 25, 26, 30, 64, 65, 100]
+    base = perception.map_stats(cells, 4, 2, 0.05)
+    assert (base.known_cells, base.occupied_cells, base.free_cells) == (7, 2, 2)
+    monkeypatch.setattr(perception, "OCCUPIED_THRESHOLD", 30)
+    monkeypatch.setattr(perception, "FREE_THRESHOLD", 0)
+    moved = perception.map_stats(cells, 4, 2, 0.05)
+    assert (moved.known_cells, moved.occupied_cells, moved.free_cells) == (7, 4, 1)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OCCUPIED_THRESHOLD", 40),
+        ("FREE_THRESHOLD", 60),
+        ("UNKNOWN_GREY", 90),
+        ("FREE_GREY", 200),
+        ("OCCUPIED_GREY", 30),
+    ],
+)
+def test_map_crop_follows_the_perception_constants(monkeypatch: pytest.MonkeyPatch, name: str, value: int) -> None:
+    """Each threshold and grey level of perception.py reaches map_crop: changing one changes the rendered PNG."""
+    cells = [-1, 0, 50, 100] * 4
+    args = (4, 4, 0.05, 0.0, 0.0, 0.1, 0.1, 0.0, 0.2, 64)
+    base = perception.render_map_crop(cells, *args)
+    monkeypatch.setattr(perception, name, value)
+    assert perception.render_map_crop(cells, *args) != base
