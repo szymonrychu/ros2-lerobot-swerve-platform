@@ -40,7 +40,9 @@ The original Python bodies live in `mcp_server/reference/grasp.py` (`solve_line_
 rebuilt from the same geometry) and only write the golden `tests/data/core_golden/grasp/solve_line.json`: every
 waypoint IK call of the recorded grasp scenarios (`tests/data/grasp_golden.json`) plus the failure paths (beyond
 reach, out of the joint limits, spent budget, joint jump, shoulder stall, no tool offset). Inputs come from
-`bench/inputs.py` `grasp_solve_line_cases`.
+`bench/inputs.py` `grasp_solve_line_cases`. The reference must stay pure Python (ikpy and scipy, never an
+`mcp_core_cpp` kernel), so a regenerated golden never compares C++ with C++: `test_reference_runs_pure_python`
+replays golden cases with every `mcp_core_cpp` family disabled.
 
 Parity: joint samples and heading bias within 1e-9 rad (seen: about 1e-12), reasons identical, solve count within 1
 (a fixed-point heading iteration can repeat a query bit-exactly in one implementation and an ulp off in the other,

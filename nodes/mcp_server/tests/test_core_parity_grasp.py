@@ -44,6 +44,24 @@ SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.4, "elbow_flex": 0.3, "wrist_fle
 LINE_START = np.array([0.25, 0.0, 0.0])
 LINE_END = np.array([0.25, 0.0, -0.05])
 PITCH = 1.2
+# Kernel families of mcp_core_cpp; the reference must reach none of them (goldens never compare C++ with C++).
+CORE_FAMILIES = ("camera", "grasp", "ik_reach", "collision", "frontiers")
+REFERENCE_CASES = 5
+
+
+class NoCore:
+    """Stand-in for an mcp_core_cpp family: any use fails the test."""
+
+    def __getattr__(self, name: str) -> Any:
+        """Fail on any attribute.
+
+        Args:
+            name (str): Attribute asked for.
+
+        Raises:
+            AssertionError: Always.
+        """
+        raise AssertionError(f"the grasp reference reached mcp_core_cpp ({name})")
 
 
 def report_rows() -> list[dict[str, Any]]:
@@ -106,6 +124,16 @@ def test_solve_line_matches_the_python_reference() -> None:
     golden = core_parity.load_golden(FAMILY, "solve_line")
     report = core_parity.assert_parity(golden, mcp_core_cpp.grasp.solve_line)
     assert report.cases == len(golden.cases)
+
+
+def test_reference_runs_pure_python(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The reference (ArmKinematics.inverse included) reproduces the golden with every C++ family disabled, so a
+    regenerated golden is never C++ compared with C++ (also once ik_reach ports parts of the kinematics)."""
+    for family in CORE_FAMILIES:
+        monkeypatch.setattr(mcp_core_cpp, family, NoCore(), raising=False)
+    golden = core_parity.load_golden(FAMILY, "solve_line")
+    subset = core_parity.Golden(golden.family, golden.kernel, golden.tolerances, golden.cases[:REFERENCE_CASES])
+    core_parity.assert_parity(subset, reference.solve_line_reference)
 
 
 def test_golden_covers_lines_points_and_every_failure_path() -> None:
