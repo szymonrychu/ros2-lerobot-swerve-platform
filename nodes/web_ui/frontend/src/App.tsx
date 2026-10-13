@@ -149,7 +149,7 @@ export default function App() {
   }, [])
 
   const activeTabConfig = tabs[Math.min(activeTab, tabs.length - 1)]
-  const subscription = config ? subscribedTopics(config.tabs, config.overlays.map((o) => o.topic), activeTabConfig) : []
+  const subscription = config ? subscribedTopics(config, activeTabConfig) : []
   const { topicData, connected, publish } = useRosBridge(subscription, needsColorSmall(activeTabConfig), (e) =>
     setErrorToast(e.message)
   )

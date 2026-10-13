@@ -320,7 +320,6 @@ class BridgeNode(Node):
         self._tilt_stale_s = tilt_stale_s
         self._latest: dict[str, dict[str, Any]] = {}
         self._pending: dict[str, tuple[Any, Serializer, str | None]] = {}
-        self._color_small = False
         self._dirty: set[str] = set()
         self._cleared: set[str] = set()
         self._lock = threading.Lock()
@@ -1076,18 +1075,21 @@ class BridgeNode(Node):
         envelopes.extend({"topic": t, "data": None} for t in cleared)
         return envelopes
 
-    def latest_envelopes(self, topics: Collection[str] | None = None) -> list[dict[str, Any]]:
+    def latest_envelopes(self, topics: Collection[str] | None = None, serialize: bool = True) -> list[dict[str, Any]]:
         """Return the latest cached envelope of every topic (snapshot for newly connected clients).
 
         Args:
             topics (Collection[str] | None): Restrict the snapshot to these topics, None for every topic.
+            serialize (bool): Serialize pending raw messages of those topics first; False returns only what is
+                already serialized.
 
         Returns:
             list[dict[str, Any]]: Envelopes, one per topic received so far.
         """
-        with self._lock:
-            pending = [t for t in self._pending if topics is None or t in topics]
-        self.serialize_pending(pending)
+        if serialize:
+            with self._lock:
+                pending = [t for t in self._pending if topics is None or t in topics]
+            self.serialize_pending(pending)
         with self._lock:
             return [e for t, e in self._latest.items() if topics is None or t in topics]
 

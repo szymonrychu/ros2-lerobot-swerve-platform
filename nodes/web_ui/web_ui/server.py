@@ -960,9 +960,11 @@ def build_app(
         receiver: asyncio.Task[None] | None = None
         try:
             # Latched data (e.g. the SLAM map) is only re-broadcast on change: offer the cache to late joiners.
+            # Only already-serialized data: pending raw messages are serialized for the topics the client then
+            # subscribes to (subscribe handler below), never for every topic.
             # Offering and registering happen without an await, so no broadcast frame is missed and a newer
             # broadcast frame of the same topic replaces its snapshot entry.
-            for envelope in bridge_node.latest_envelopes() if bridge_node is not None else []:
+            for envelope in bridge_node.latest_envelopes(serialize=False) if bridge_node is not None else []:
                 conn.offer(str(envelope["topic"]), serialize_envelope(frame_cache, envelope))
             clients[client_id] = conn
             WS_CLIENTS.set(len(clients))

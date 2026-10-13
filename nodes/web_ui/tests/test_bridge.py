@@ -17,7 +17,6 @@ def _make_bridge_node(topics=None, publish_topics=None):
         node._latest = {}
         node._dirty = set()
         node._pending = {}
-        node._color_small = False
         node._cleared = set()
         node._lock = threading.Lock()
         node.publishers_ = {}

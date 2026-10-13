@@ -288,7 +288,7 @@ def test_subscribe_message_sets_subscription_and_sends_snapshot_of_new_topics(tm
     from web_ui.server import build_app
 
     bridge = MagicMock()
-    bridge.latest_envelopes.side_effect = lambda topics=None: (
+    bridge.latest_envelopes.side_effect = lambda topics=None, serialize=True: (
         [{"topic": "/x", "data": {"v": 1}}] if topics == {"/x"} else []
     )
     bridge.tilt_state.return_value = None
@@ -297,3 +297,15 @@ def test_subscribe_message_sets_subscription_and_sends_snapshot_of_new_topics(tm
     with patch("web_ui.server.WS_RECONNECT_MIN_INTERVAL_S", 0.0), TestClient(app).websocket_connect("/ws") as ws:
         ws.send_json({"type": "subscribe", "topics": ["/x"], "color_small": True})
         assert ws.receive_json() == {"topic": "/x", "data": {"v": 1}}
+    assert bridge.latest_envelopes.call_args_list[0].kwargs == {"serialize": False}
+
+
+def test_latest_envelopes_without_serialize_leaves_pending_raw() -> None:
+    """The connect snapshot offers only already-serialized data; pending raw messages wait for a subscribe."""
+    node = make_node()
+    serializer = CountingSerializer()
+    node._make_callback(TOPIC, serializer, None)(1)
+    assert node.latest_envelopes(serialize=False) == []
+    assert serializer.messages == []
+    assert node.latest_envelopes({TOPIC}) == [{"topic": TOPIC, "data": {"value": 1}}]
+    assert serializer.messages == [1]

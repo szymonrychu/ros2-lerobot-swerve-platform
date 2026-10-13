@@ -1,4 +1,10 @@
-import { TabConfig } from '../types'
+import { AppConfig, TabConfig } from '../types'
+
+/** Topics the app reads regardless of tab config (pose, tilt banner, GPS anchor/base, grasp stream, POI, source). */
+export const ALWAYS_TOPICS = [
+  '/web_ui/robot_pose', '/web_ui/gps_anchor', '/web_ui/gps_base_status', '/tilt_guard/state',
+  '/web_ui/grasp_result', '/poi/list', '/poi/photos', '/filter/active_source',
+]
 
 /** Tab types that show camera frames: their image topics are only subscribed while the tab is open. */
 export const IMAGE_TAB_TYPES = ['camera', 'rgbd_camera', 'head']
@@ -16,16 +22,20 @@ export function tabTopics(t: TabConfig): string[] {
     t.map_topic, t.global_plan_topic, t.local_plan_topic, t.footprint_topic,
     t.local_costmap_topic, t.base_joint_states_topic, t.arm_joint_states_topic,
     ...(t.type === 'map_nav' ? [t.goal_topic] : []),
+    t.poi_list_topic, t.poi_photos_topic, t.grasp_result_topic, t.active_source_topic,
   ].filter((x): x is string => Boolean(x))
 }
 
 /**
- * Topics the backend should serialize for this client: everything the tabs and overlays use, except the topics
- * only an inactive image tab (camera, RGBD, head) shows.
+ * Topics the backend should serialize for this client: everything the app reads (fixed topics, battery, GPS,
+ * overlays and tab topics), except the topics only an inactive image tab (camera, RGBD, head) shows.
  */
-export function subscribedTopics(tabs: TabConfig[], overlayTopics: string[], active: TabConfig | undefined): string[] {
-  const topics = new Set<string>(overlayTopics)
-  for (const t of tabs) {
+export function subscribedTopics(config: AppConfig, active: TabConfig | undefined): string[] {
+  const topics = new Set<string>(ALWAYS_TOPICS)
+  config.overlays.forEach((o) => topics.add(o.topic))
+  if (config.battery?.topic) topics.add(config.battery.topic)
+  if (config.gps_status?.rover_topic) topics.add(config.gps_status.rover_topic)
+  for (const t of config.tabs) {
     if (t === active || !IMAGE_TAB_TYPES.includes(t.type)) tabTopics(t).forEach((x) => topics.add(x))
   }
   return [...topics].sort()
