@@ -9,6 +9,7 @@ nodes (stop_for_build.yml is for the pinned upstream builds only); only the node
 import hashlib
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,16 @@ CPP_TYPES = {
     "map_guard_cpp": ("map_guard", "MAP_GUARD_CONFIG", "ros2 run map_guard_cpp map_guard_node"),
 }
 METRICS_PORTS = {"stereo_depth_cpp": 19113, "map_guard_cpp": 19110}
+# rosdep keys of system (non-ROS) dependencies -> their Ubuntu 24.04 apt package.
+ROSDEP_APT = {
+    "yaml-cpp": "libyaml-cpp-dev",
+    "prometheus-cpp": "prometheus-cpp-dev",
+    "opencv": "libopencv-dev",
+    "nlohmann-json-dev": "nlohmann-json3-dev",
+    "cpp-httplib": "libcpp-httplib-dev",
+}
+# package.xml dependency tags that must be installed on the Pi to build and run (test_depend is not built there).
+BUILD_DEPEND_TAGS = ("buildtool_depend", "depend", "build_depend", "build_export_depend", "exec_depend")
 TIER_KEYS = ("memory_low", "memory_max", "cpu_weight", "io_weight", "oom_score_adjust")
 LOW_PRIORITY_FLAGS = (
     "systemd-run --quiet --scope",
@@ -157,6 +168,16 @@ def tree_key(workspace: Path, source: dict, apt_versions: list[str], chain_key: 
     )
 
 
+def require_rsync() -> None:
+    """Fail (never skip) when rsync is missing: the role syncs every local source with it.
+
+    Raises:
+        pytest.fail.Exception: rsync is not on PATH.
+    """
+    if shutil.which("rsync") is None:
+        pytest.fail("rsync not installed: it is an apt dependency of every local colcon source; install it")
+
+
 @pytest.fixture
 def synced(tmp_path: Path) -> tuple[Path, Path, dict]:
     """A repo checkout with a local package, synced into a workspace with the role's rsync command.
@@ -167,8 +188,7 @@ def synced(tmp_path: Path) -> tuple[Path, Path, dict]:
     Returns:
         tuple[Path, Path, dict]: (repo package dir, workspace, source item).
     """
-    if shutil.which("rsync") is None:
-        pytest.skip("rsync not installed")
+    require_rsync()
     repo, workspace = tmp_path / "repo", tmp_path / "ws"
     package = repo / "nodes" / "demo_cpp"
     (package / "src").mkdir(parents=True)
@@ -183,6 +203,13 @@ def synced(tmp_path: Path) -> tuple[Path, Path, dict]:
     }
     sync(repo, source)
     return package, workspace, source
+
+
+def test_missing_rsync_fails_instead_of_skipping(monkeypatch: pytest.MonkeyPatch) -> None:
+    """rsync is an apt dependency of every local source; without it the stamp tests must fail, not go quietly green."""
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    with pytest.raises(pytest.fail.Exception, match="rsync"):
+        require_rsync()
 
 
 def sync(repo: Path, source: dict) -> None:
@@ -398,6 +425,60 @@ def test_cpp_node_type_is_a_local_colcon_build(cpp_type: str) -> None:
     assert entry["config_path"] == f"/etc/ros2/{cpp_type}"
     assert entry["env"] == [f"{env_var}=/etc/ros2/{cpp_type}/config.yaml"]
     assert {k: entry[k] for k in TIER_KEYS} == {k: python[k] for k in TIER_KEYS}, "same tier as the Python node"
+
+
+def package_xml_apt_names(package_xml: Path, local_packages: set[str]) -> set[str]:
+    """Map the build/run dependencies of a package.xml to the apt packages that provide them.
+
+    Args:
+        package_xml (Path): The package's package.xml.
+        local_packages (set[str]): Package names built from the repo tree (no apt package).
+
+    Returns:
+        set[str]: Apt package names (ros-jazzy-<dashed> for ROS keys, ROSDEP_APT for system keys).
+    """
+    root = ET.parse(package_xml).getroot()
+    keys = {e.text.strip() for tag in BUILD_DEPEND_TAGS for e in root.iter(tag) if e.text}
+    names: set[str] = set()
+    for key in keys - local_packages:
+        if key in ROSDEP_APT:
+            names.add(ROSDEP_APT[key])
+        elif key.startswith("lib") and key.endswith("-dev"):
+            names.add(key)
+        else:
+            names.add("ros-jazzy-" + key.replace("_", "-"))
+    return names
+
+
+def test_package_xml_apt_names_maps_ros_system_and_local_keys(tmp_path: Path) -> None:
+    package_xml = tmp_path / "package.xml"
+    package_xml.write_text(
+        "<package format='3'><name>x</name><buildtool_depend>ament_cmake</buildtool_depend>"
+        "<depend>rclcpp</depend><depend>yaml-cpp</depend><depend>ros2_common_cpp</depend>"
+        "<exec_depend>libopencv-dev</exec_depend><test_depend>ament_lint_auto</test_depend></package>"
+    )
+    assert package_xml_apt_names(package_xml, {"ros2_common_cpp"}) == {
+        "ros-jazzy-ament-cmake",
+        "ros-jazzy-rclcpp",
+        "libyaml-cpp-dev",
+        "libopencv-dev",
+    }
+
+
+@pytest.mark.parametrize("cpp_type", sorted(CPP_TYPES))
+def test_cpp_node_apt_packages_cover_every_in_tree_package_xml(cpp_type: str) -> None:
+    """apt_packages installs every dependency the package.xml of each of its local sources declares.
+
+    A source whose package.xml is not in the tree yet (built by a parallel task) is checked as soon as it lands.
+    """
+    entry = client()["ros2_node_type_defaults"][cpp_type]
+    local_packages = {s["package"] for s in entry["colcon_source"]}
+    present = [REPO_ROOT / s["local"] / "package.xml" for s in entry["colcon_source"]]
+    present = [p for p in present if p.is_file()]
+    assert REPO_ROOT / COMMON_SOURCE["local"] / "package.xml" in present
+    for package_xml in present:
+        missing = package_xml_apt_names(package_xml, local_packages) - set(entry["apt_packages"])
+        assert not missing, f"{package_xml.relative_to(REPO_ROOT)}: {sorted(missing)} not in {cpp_type} apt_packages"
 
 
 def test_ros2_common_cpp_is_a_discovered_cpp_package() -> None:

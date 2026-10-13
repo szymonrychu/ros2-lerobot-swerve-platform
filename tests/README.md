@@ -78,6 +78,7 @@ In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_no
 
 | Test | Description |
 |---|---|
+| `test_missing_rsync_fails_instead_of_skipping` | The `synced` fixture fails (never skips) when rsync is missing, so the stamp-key tests cannot go quietly green on a runner without it. |
 | `test_stamp_key_is_stable_for_an_unchanged_tree` | Sync again and hash again: the rendered stamp key is the same 40-char sha1, so an unchanged deploy builds nothing. |
 | `test_stamp_key_changes_when_a_source_file_changes` | A same-size edit of a source file (rsync `--checksum`) changes the key. |
 | `test_stamp_key_covers_paths_deletions_and_apt_versions` | A rename (same contents), a removed file (`--delete`), an apt version and the chain key each change the key; renaming back restores it. |
@@ -89,6 +90,8 @@ In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_no
 | `test_local_build_runs_in_the_low_priority_scope` | Every configured local source renders `systemd-run --scope`, CPUWeight 20, IOWeight 10, nice 19, ionice idle, one worker, Release with `BUILD_TESTING=OFF`, `--base-paths` of its own tree, `MAKEFLAGS=-j2`, and a chained source sources the workspace. |
 | `test_pinned_build_command_is_unchanged` | A pinned source still renders Release only, no `--base-paths`, `MAKEFLAGS=-j4`. |
 | `test_cpp_node_type_is_a_local_colcon_build` | (per `_cpp` type) native, `node_src_dir ""`, `src_paths []`, the `ros2 run` launch command, `colcon_source` = local ros2_common_cpp then the node package in `/opt/ros2-ws` with stamped apt packages that are installed, the C++ build apt packages, config path and env var, and the Python node's tier and memory keys. |
+| `test_package_xml_apt_names_maps_ros_system_and_local_keys` | `package_xml_apt_names` maps ROS keys to `ros-jazzy-<dashed>`, system rosdep keys via `ROSDEP_APT`, keeps `lib*-dev` names, drops in-tree local packages and `test_depend`. |
+| `test_cpp_node_apt_packages_cover_every_in_tree_package_xml` | (per `_cpp` type) every build/run dependency of each local source's `package.xml` that is in the tree (ros2_common_cpp now, the node package once it lands) is in the type's `apt_packages`. |
 | `test_ros2_common_cpp_is_a_discovered_cpp_package` | The chained `shared/ros2_common_cpp` is a C++ package found by `discover_cpp_package_dirs`. |
 | `test_cpp_node_entry_is_absent_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: false`, `enabled: false`, the same `config: |` block (metrics ports 19113, 19110). |
 | `test_client_playbook_deploys_the_cpp_node_after_its_python_counterpart` | The `Deploy <name>_cpp` include follows the Python node's, with the node, build and config tags and the node tag applied. |
