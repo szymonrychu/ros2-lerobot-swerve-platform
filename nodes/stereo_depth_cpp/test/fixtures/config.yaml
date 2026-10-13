@@ -1,0 +1,718 @@
+defaults:
+  left_image_topic: /overview_camera/image_raw
+  right_image_topic: /stereo/right/image_raw
+  depth_topic: /stereo/depth/image_raw
+  camera_info_topic: /stereo/camera_info
+  publish_disparity: false
+  disparity_topic: /stereo/disparity
+  calibration_dir: /var/lib/ros2/camera_calibration
+  calibration_check_s: 5.0
+  num_disparities: 48
+  block_size: 5
+  p1: 200
+  p2: 800
+  uniqueness_ratio: 10
+  speckle_window_size: 100
+  speckle_range: 2
+  disp12_max_diff: 1
+  pre_filter_cap: 31
+  min_depth_m: 0.3
+  max_depth_m: 4.0
+  sync_slop_s: 0.002
+  max_rate_hz: 5.0
+  matcher_threads: 2
+  frame_id: stereo_left_optical_frame
+  metrics_port: 19113
+accepted:
+- text: ''
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'left_image_topic: /l
+
+    right_image_topic: /r
+
+    depth_topic: /d
+
+    camera_info_topic: /i
+
+    publish_disparity: true
+
+    disparity_topic: /disp
+
+    calibration_dir: /tmp/cal
+
+    calibration_check_s: 2.0
+
+    num_disparities: 64
+
+    block_size: 7
+
+    p1: 100
+
+    p2: 400
+
+    uniqueness_ratio: 5
+
+    speckle_window_size: 50
+
+    speckle_range: 1
+
+    disp12_max_diff: 2
+
+    pre_filter_cap: 63
+
+    min_depth_m: 0.5
+
+    max_depth_m: 3.0
+
+    sync_slop_s: 0.005
+
+    max_rate_hz: 2.5
+
+    matcher_threads: 1
+
+    frame_id: '' f ''
+
+    metrics_port: 19999
+
+    '
+  value:
+    left_image_topic: /l
+    right_image_topic: /r
+    depth_topic: /d
+    camera_info_topic: /i
+    publish_disparity: true
+    disparity_topic: /disp
+    calibration_dir: /tmp/cal
+    calibration_check_s: 2.0
+    num_disparities: 64
+    block_size: 7
+    p1: 100
+    p2: 400
+    uniqueness_ratio: 5
+    speckle_window_size: 50
+    speckle_range: 1
+    disp12_max_diff: 2
+    pre_filter_cap: 63
+    min_depth_m: 0.5
+    max_depth_m: 3.0
+    sync_slop_s: 0.005
+    max_rate_hz: 2.5
+    matcher_threads: 1
+    frame_id: f
+    metrics_port: 19999
+- text: 'metrics_port: null
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: null
+- text: 'metrics_port: 1
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 1
+- text: 'metrics_port: 65535
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 65535
+- text: 'block_size: 1
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 1
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'block_size: 11
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 11
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'pre_filter_cap: 1
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 1
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'disp12_max_diff: -1
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: -1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'uniqueness_ratio: 0
+
+    speckle_window_size: 0
+
+    speckle_range: 0
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 0
+    speckle_window_size: 0
+    speckle_range: 0
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'sync_slop_s: 0.1
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.1
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'max_rate_hz: 30
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 30.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'matcher_threads: 4
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 4
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'num_disparities: 16
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 16
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'p1: 1
+
+    p2: 2
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 1
+    p2: 2
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'min_depth_m: 0.1
+
+    max_depth_m: 0.2
+
+    '
+  value:
+    left_image_topic: /overview_camera/image_raw
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.1
+    max_depth_m: 0.2
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+- text: 'left_image_topic: ''  /padded  ''
+
+    '
+  value:
+    left_image_topic: /padded
+    right_image_topic: /stereo/right/image_raw
+    depth_topic: /stereo/depth/image_raw
+    camera_info_topic: /stereo/camera_info
+    publish_disparity: false
+    disparity_topic: /stereo/disparity
+    calibration_dir: /var/lib/ros2/camera_calibration
+    calibration_check_s: 5.0
+    num_disparities: 48
+    block_size: 5
+    p1: 200
+    p2: 800
+    uniqueness_ratio: 10
+    speckle_window_size: 100
+    speckle_range: 2
+    disp12_max_diff: 1
+    pre_filter_cap: 31
+    min_depth_m: 0.3
+    max_depth_m: 4.0
+    sync_slop_s: 0.002
+    max_rate_hz: 5.0
+    matcher_threads: 2
+    frame_id: stereo_left_optical_frame
+    metrics_port: 19113
+rejected:
+- 'unknown_key: 1
+
+  '
+- 'num_disparities: 40
+
+  '
+- 'num_disparities: 0
+
+  '
+- 'block_size: 4
+
+  '
+- 'block_size: 0
+
+  '
+- 'block_size: 13
+
+  '
+- 'p1: 800
+
+  p2: 200
+
+  '
+- 'p1: 0
+
+  '
+- 'uniqueness_ratio: -1
+
+  '
+- 'speckle_window_size: -1
+
+  '
+- 'speckle_range: -1
+
+  '
+- 'disp12_max_diff: -2
+
+  '
+- 'pre_filter_cap: 0
+
+  '
+- 'pre_filter_cap: 64
+
+  '
+- 'min_depth_m: 2.0
+
+  max_depth_m: 1.0
+
+  '
+- 'min_depth_m: 0
+
+  '
+- 'sync_slop_s: 0
+
+  '
+- 'sync_slop_s: 0.5
+
+  '
+- 'max_rate_hz: 0
+
+  '
+- 'max_rate_hz: 31
+
+  '
+- 'matcher_threads: 0
+
+  '
+- 'calibration_check_s: 0
+
+  '
+- 'frame_id: ''  ''
+
+  '
+- 'left_image_topic: ''''
+
+  '
+- 'metrics_port: 0
+
+  '
+- 'metrics_port: 70000
+
+  '
+- 'right_image_topic: ''''
+
+  '
+- 'depth_topic: '' ''
+
+  '
+- 'camera_info_topic: ''''
+
+  '
+- 'disparity_topic: ''''
+
+  '
+- 'num_disparities: -16
+
+  '
+- 'p2: 0
+
+  '
+- 'p1: 400
+
+  p2: 400
+
+  '
+- 'max_depth_m: 0
+
+  '
+- 'min_depth_m: 1.0
+
+  max_depth_m: 1.0
+
+  '
+- 'matcher_threads: 5
+
+  '
+- 'calibration_check_s: -1
+
+  '
+- 'num_disparities: abc
+
+  '
+- 'block_size: 5.5
+
+  '
+- 'min_depth_m: abc
+
+  '
+- 'publish_disparity: maybe
+
+  '
+- 'left_image_topic: null
+
+  '
+- 'frame_id: null
+
+  '
+- 'calibration_dir: null
+
+  '
+- 'num_disparities: null
+
+  '
+- 'metrics_port: abc
+
+  '
+- 'left_image_topic: [a]
+
+  '
+- 'max_rate_hz: [1]
+
+  '
+- 'extra_one: 1
+
+  extra_two: 2
+
+  '
+- '- 1
+
+  '
+- 'a: [1
+
+  '

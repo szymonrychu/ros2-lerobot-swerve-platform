@@ -1,0 +1,93 @@
+- disparity:
+  - 40.0
+  - 20.0
+  - 10.0
+  f: 400.0
+  t: 0.1
+  min_disparity: 0.0
+  min_depth_m: 0.2
+  max_depth_m: 4.0
+  depth_mm:
+  - 1000
+  - 2000
+  - 4000
+- disparity:
+  - 30.0
+  f: 400.0
+  t: 0.1
+  min_disparity: 0.0
+  min_depth_m: 0.2
+  max_depth_m: 4.0
+  depth_mm:
+  - 1333
+- disparity:
+  - 0.0
+  - -1.0
+  - 5.0
+  - 40.0
+  f: 400.0
+  t: 0.1
+  min_disparity: 8.0
+  min_depth_m: 0.2
+  max_depth_m: 4.0
+  depth_mm:
+  - 0
+  - 0
+  - 0
+  - 1000
+- disparity:
+  - .nan
+  - .inf
+  - -.inf
+  - 40.0
+  f: 400.0
+  t: 0.1
+  min_disparity: 0.0
+  min_depth_m: 0.2
+  max_depth_m: 4.0
+  depth_mm:
+  - 0
+  - 0
+  - 0
+  - 1000
+- disparity:
+  - 400.0
+  - 200.0
+  - 9.0
+  - 10.0
+  f: 400.0
+  t: 0.1
+  min_disparity: 0.0
+  min_depth_m: 0.2
+  max_depth_m: 4.0
+  depth_mm:
+  - 0
+  - 200
+  - 0
+  - 4000
+- disparity:
+  - 0.5
+  f: 400.0
+  t: 0.1
+  min_disparity: 0.0
+  min_depth_m: 0.2
+  max_depth_m: 1000.0
+  depth_mm:
+  - 65535
+- disparity:
+  - 16.0
+  - 16.0625
+  - 17.5
+  - 63.9375
+  - -0.0625
+  f: 400.0
+  t: 0.08
+  min_disparity: 0.0
+  min_depth_m: 0.3
+  max_depth_m: 4.0
+  depth_mm:
+  - 2000
+  - 1992
+  - 1829
+  - 500
+  - 0

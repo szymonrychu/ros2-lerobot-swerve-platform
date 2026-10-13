@@ -1,0 +1,1324 @@
+- name: missing_left
+  files:
+    stereo_left.yaml: null
+  python_reason: <dir>/stereo_left.yaml is missing
+- name: missing_right
+  files:
+    stereo_right.yaml: null
+  python_reason: <dir>/stereo_right.yaml is missing
+- name: missing_stereo
+  files:
+    stereo.yaml: null
+  python_reason: <dir>/stereo.yaml is missing
+- name: left_not_yaml
+  files:
+    stereo_left.yaml: 'a: [1
+
+      '
+  python_reason: "<dir>/stereo_left.yaml: unreadable: while parsing a flow sequence\n  in \"<unicode string>\", line 1, column\
+    \ 4:\n    a: [1\n       ^\nexpected ',' or ']', but got '<stream end>'\n  in \"<unicode string>\", line 2, column 1:\n\
+    \    \n    ^"
+- name: left_not_mapping
+  files:
+    stereo_left.yaml: '- 1
+
+      '
+  python_reason: '<dir>/stereo_left.yaml: expected a mapping at the top level'
+- name: stereo_not_mapping
+  files:
+    stereo.yaml: 'just text
+
+      '
+  python_reason: '<dir>/stereo.yaml: expected a mapping at the top level'
+- name: left_width_zero
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 0
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: image_width: Input should be greater than 0'
+- name: left_height_missing
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: image_height: Input should be a valid integer'
+- name: left_bad_distortion_model
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: fisheye
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: distortion_model: Input should be ''plumb_bob'' or ''rational_polynomial'''
+- name: left_distortion_model_missing
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: distortion_model: Input should be ''plumb_bob'' or ''rational_polynomial'''
+- name: left_wrong_coefficient_count
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: distortion_coefficients: data must hold rows x cols values'
+- name: left_k_missing
+  files:
+    stereo_left.yaml:
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: camera_matrix must be a mapping with rows, cols and data'
+- name: left_k_wrong_shape
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 2
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: camera_matrix: data must hold rows x cols values'
+- name: left_k_data_count
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: camera_matrix: data must hold rows x cols values'
+- name: left_k_focal_zero
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: Value error, focal lengths in K must be positive'
+- name: left_p_focal_negative
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - -1.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: Value error, focal lengths in P must be positive'
+- name: left_p_nan
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - .nan
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: p: Value error, P values must be finite'
+- name: left_r_not_list
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data: abc
+        rows: 3
+  python_reason: '<dir>/stereo_left.yaml: rectification_matrix must be a mapping with rows, cols and data'
+- name: stereo_t_wrong_shape
+  files:
+    stereo.yaml:
+      Q:
+        cols: 4
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - -240.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - -180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 0.0
+        - 0.0
+        - 12.5
+        - 0.0
+        rows: 4
+      R:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      T:
+        cols: 1
+        data:
+        - -0.08
+        - 0.0
+        - 0.0
+        rows: 1
+      image_height: 360
+      image_width: 480
+      rms: 0.2
+  python_reason: '<dir>/stereo.yaml: T: data must hold rows x cols values'
+- name: stereo_q_missing
+  files:
+    stereo.yaml:
+      R:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      T:
+        cols: 1
+        data:
+        - -0.08
+        - 0.0
+        - 0.0
+        rows: 3
+      image_height: 360
+      image_width: 480
+      rms: 0.2
+  python_reason: '<dir>/stereo.yaml: Q must be a mapping with rows, cols and data'
+- name: stereo_rms_negative
+  files:
+    stereo.yaml:
+      Q:
+        cols: 4
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - -240.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - -180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 0.0
+        - 0.0
+        - 12.5
+        - 0.0
+        rows: 4
+      R:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      T:
+        cols: 1
+        data:
+        - -0.08
+        - 0.0
+        - 0.0
+        rows: 3
+      image_height: 360
+      image_width: 480
+      rms: -0.1
+  python_reason: '<dir>/stereo.yaml: rms: Input should be greater than or equal to 0'
+- name: stereo_rms_inf
+  files:
+    stereo.yaml:
+      Q:
+        cols: 4
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - -240.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - -180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 0.0
+        - 0.0
+        - 12.5
+        - 0.0
+        rows: 4
+      R:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      T:
+        cols: 1
+        data:
+        - -0.08
+        - 0.0
+        - 0.0
+        rows: 3
+      image_height: 360
+      image_width: 480
+      rms: .inf
+  python_reason: '<dir>/stereo.yaml: rms: Input should be a finite number'
+- name: stereo_rms_missing
+  files:
+    stereo.yaml:
+      Q:
+        cols: 4
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - -240.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - -180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 0.0
+        - 0.0
+        - 12.5
+        - 0.0
+        rows: 4
+      R:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      T:
+        cols: 1
+        data:
+        - -0.08
+        - 0.0
+        - 0.0
+        rows: 3
+      image_height: 360
+      image_width: 480
+  python_reason: '<dir>/stereo.yaml: rms: Input should be a valid number'
+- name: stereo_width_differs
+  files:
+    stereo.yaml:
+      Q:
+        cols: 4
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - -240.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - -180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 0.0
+        - 0.0
+        - 12.5
+        - 0.0
+        rows: 4
+      R:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      T:
+        cols: 1
+        data:
+        - -0.08
+        - 0.0
+        - 0.0
+        rows: 3
+      image_height: 360
+      image_width: 640
+      rms: 0.2
+  python_reason: '<dir>: inconsistent stereo calibration: Value error, image size mismatch: left 480x360, right 480x360, stereo
+    640x360'
+- name: right_height_differs
+  files:
+    stereo_right.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_right
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 480
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - -32.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>: inconsistent stereo calibration: Value error, image size mismatch: left 480x360, right 480x480, stereo
+    480x360'
+- name: right_fx_differs
+  files:
+    stereo_right.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_right
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 401.0
+        - 0.0
+        - 240.0
+        - -32.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>: inconsistent stereo calibration: Value error, rectified left and right P must share fx, fy, cx and
+    cy (P[0] differs)'
+- name: right_cy_differs
+  files:
+    stereo_right.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_right
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - -32.0
+        - 0.0
+        - 400.0
+        - 181.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>: inconsistent stereo calibration: Value error, rectified left and right P must share fx, fy, cx and
+    cy (P[6] differs)'
+- name: left_tx_nonzero
+  files:
+    stereo_left.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_left
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - -1.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>: inconsistent stereo calibration: Value error, left P[3] must be 0: the left camera is the rectified
+    reference'
+- name: right_tx_positive
+  files:
+    stereo_right.yaml:
+      camera_matrix:
+        cols: 3
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      camera_name: stereo_right
+      distortion_coefficients:
+        cols: 5
+        data:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        rows: 1
+      distortion_model: plumb_bob
+      image_height: 360
+      image_width: 480
+      projection_matrix:
+        cols: 4
+        data:
+        - 400.0
+        - 0.0
+        - 240.0
+        - 32.0
+        - 0.0
+        - 400.0
+        - 180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        rows: 3
+      rectification_matrix:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+  python_reason: '<dir>: inconsistent stereo calibration: Value error, right P[3] must be -fx * B < 0 (a positive baseline,
+    right camera on the right)'
+- name: baseline_mismatch
+  files:
+    stereo.yaml:
+      Q:
+        cols: 4
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - -240.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - -180.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 400.0
+        - 0.0
+        - 0.0
+        - 12.5
+        - 0.0
+        rows: 4
+      R:
+        cols: 3
+        data:
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+        rows: 3
+      T:
+        cols: 1
+        data:
+        - -0.1
+        - 0.0
+        - 0.0
+        rows: 3
+      image_height: 360
+      image_width: 480
+      rms: 0.2
+  python_reason: '<dir>: inconsistent stereo calibration: Value error, baseline from right P (0.0800 m) does not match |T|
+    (0.1000 m)'

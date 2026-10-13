@@ -445,6 +445,15 @@ The **stereo_depth** node has tests under `nodes/stereo_depth/tests/`. Run from 
 - `test_calibrate.py` - the calibration tool: config, chessboard and ChArUco detection, the synthetic-board solve (baseline within 1%, RMS under 0.5 px), the files loading in the node loader and passing the overview_camera launch gate, the RMS gate, pair files and the capture node.
 - `test_bench.py` - the benchmark tool: config, synthetic pair, each matcher, one timed cell, the table shape and `main()`.
 
+### Per-node tests (stereo_depth_cpp)
+
+The **stereo_depth_cpp** package (rclcpp port of stereo_depth) has gtests under `nodes/stereo_depth_cpp/test/`. Run from the repo root: `./scripts/cpp-node-test.sh stereo_depth_cpp` (docker, ros:jazzy-ros-base; also runs clang-format, cppcheck and xmllint). Golden fixtures come from the Python node: `cd nodes/stereo_depth && uv run --frozen python ../stereo_depth_cpp/test/gen_fixtures.py --check` fails when they are stale. Details per test in `nodes/stereo_depth_cpp/README.md` ("Tests").
+
+- `test_config.cpp` - every DepthConfig key, the Python defaults, accepted bounds and every Python rejection (from `fixtures/config.yaml`), error texts, exit 78.
+- `test_depth.cpp` - disparity to depth mm, the SGBM matcher settings and the synthetic-shift cases; parity with the Python conversion and depth fixtures.
+- `test_calibration.cpp` - loads the Python-written calibration files, rejects every invalid set the Python loader rejects, rectification maps, the change signature.
+- `test_node_logic.cpp` - image decoding, rate cap with jitter, every drop reason in the Python order (skew, no_calibration, rate_limit, bad_image, size_mismatch, no_valid_pixels), reload, metric names; whole-path depth parity within 1 mm with an identical invalid mask.
+
 ### Per-node tests (lerobot_teleop)
 
 The **lerobot_teleop** node has tests under `nodes/lerobot_teleop/tests/`. Run from `nodes/lerobot_teleop`: `uv run pytest tests/ -v` (or `uv run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, empty env fallback. Config lives in `config.py` (no ROS deps) for testability.

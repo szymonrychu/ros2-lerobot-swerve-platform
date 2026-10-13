@@ -1,0 +1,18 @@
+# scripts/bench_compare.py settings (env BENCH_COMPARE_CONFIG replaces this path). Both paths run on the same input.
+pairs: 30          # timed pairs per path
+warmup: 2          # untimed pairs first (matcher allocation, page faults)
+encoding: bgr8     # camera Image encoding the pair is sent as (the IMX219 cameras publish bgr8)
+# Input pair and calibration; null = the parity fixtures (shifted synthetic 480x360 pair, ideal calibration).
+left_png: null
+right_png: null
+calibration_dir: null
+# stereo_depth config keys for both paths (matcher settings, depth limits, matcher_threads); {} = the node defaults.
+depth: {}
+# Runs the C++ bench binary (installed by colcon with the package); the job file path is appended (bash "$0").
+# On the client: the colcon workspace of the deploy (ros2 run finds lib/stereo_depth_cpp/stereo_depth_bench).
+cpp_command:
+  - bash
+  - -c
+  - source /opt/ros/jazzy/setup.bash && source /opt/ros2-ws/install/setup.bash && exec ros2 run stereo_depth_cpp stereo_depth_bench "$0"
+# Directory for the C++ job file; null = a temporary directory.
+work_dir: null
