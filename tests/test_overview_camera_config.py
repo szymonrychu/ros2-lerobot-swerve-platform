@@ -214,16 +214,31 @@ def include_names(tasks: list[dict]) -> list[str]:
     Returns:
         list[str]: The include_tasks targets.
     """
-    return [
-        t["ansible.builtin.include_tasks"] for t in tasks if isinstance(t.get("ansible.builtin.include_tasks"), str)
-    ]
+    return [name for t in tasks if (name := include_file(t))]
 
 
 def test_client_playbook_applies_the_camera_boot_overlay_in_pre_tasks_tagged_boot_and_node() -> None:
     pre = load_yaml(DEPLOY_CLIENT)[0]["pre_tasks"]
     assert "tasks/overview_camera_boot_config.yml" in include_names(pre)
-    task = next(t for t in pre if t.get("ansible.builtin.include_tasks") == "tasks/overview_camera_boot_config.yml")
+    task = next(t for t in pre if include_file(t) == "tasks/overview_camera_boot_config.yml")
     assert set(task["tags"]) == {"boot", "overview_camera"}, "firmware config only for a boot run or this node"
+    # include_tasks tags only the include itself: without apply, `--tags overview_camera` skips every task inside
+    # (the 2026-10-13 deploy left the IMX708/ToF overlays in place). Same pattern as the BNO055 boot config.
+    applied = task["ansible.builtin.include_tasks"]["apply"]["tags"]
+    assert set(applied) == {"boot", "overview_camera"}
+
+
+def include_file(task: dict) -> str | None:
+    """Return the file an include_tasks entry includes, for both the short and the file/apply form.
+
+    Args:
+        task (dict): Playbook task.
+
+    Returns:
+        str | None: Included file, or None when the task is not an include_tasks.
+    """
+    spec = task.get("ansible.builtin.include_tasks")
+    return spec.get("file") if isinstance(spec, dict) else spec
 
 
 def test_boot_overlays_are_only_written_on_aarch64_hosts() -> None:

@@ -79,7 +79,10 @@
       tags: [boot, gps_rtk_rover]
 
     - name: Camera boot overlays (IMX219 pair on cam0 and cam1), reboot only when changed
-      ansible.builtin.include_tasks: tasks/overview_camera_boot_config.yml
+      ansible.builtin.include_tasks:
+        file: tasks/overview_camera_boot_config.yml
+        apply:
+          tags: [boot, overview_camera]
       tags: [boot, overview_camera]
 
     - name: Arducam ToF SDK apt repo and package (non-fatal when unavailable)
