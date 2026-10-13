@@ -376,7 +376,8 @@ def invalid_calibrations(scratch: Path) -> list[dict[str, Any]]:
         ("left_distortion_model_missing", {"stereo_left.yaml": edit(left, ["distortion_model"], None)}),
         (
             "left_wrong_coefficient_count",
-            {"stereo_left.yaml": edit(left, ["distortion_coefficients", "data"], [0.0] * 4)},
+            # A consistent 1x4 entry, so only the plumb_bob coefficient count rejects it (not the shape check).
+            {"stereo_left.yaml": edit(left, ["distortion_coefficients"], {"rows": 1, "cols": 4, "data": [0.0] * 4})},
         ),
         ("left_k_missing", {"stereo_left.yaml": edit(left, ["camera_matrix"], None)}),
         ("left_k_wrong_shape", {"stereo_left.yaml": edit(left, ["camera_matrix", "rows"], 2)}),

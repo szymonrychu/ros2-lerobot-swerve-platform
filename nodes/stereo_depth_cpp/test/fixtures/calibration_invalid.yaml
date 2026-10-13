@@ -282,13 +282,13 @@
         rows: 3
       camera_name: stereo_left
       distortion_coefficients:
-        cols: 5
+        rows: 1
+        cols: 4
         data:
         - 0.0
         - 0.0
         - 0.0
         - 0.0
-        rows: 1
       distortion_model: plumb_bob
       image_height: 360
       image_width: 480
@@ -321,7 +321,7 @@
         - 0.0
         - 1.0
         rows: 3
-  python_reason: '<dir>/stereo_left.yaml: distortion_coefficients: data must hold rows x cols values'
+  python_reason: '<dir>/stereo_left.yaml: Value error, distortion_model plumb_bob needs 5 coefficients'
 - name: left_k_missing
   files:
     stereo_left.yaml:
