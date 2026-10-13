@@ -1,0 +1,22 @@
+---
+# ament_clang_format's style (ament_clang_format/configuration/.clang-format, ROS 2 Jazzy) with ColumnLimit 120 to
+# match ruff. clang-format has no named "ament" base, so the ament overrides are spelled out on top of Google.
+Language: Cpp
+BasedOnStyle: Google
+
+AccessModifierOffset: -2
+AlignAfterOpenBracket: AlwaysBreak
+BraceWrapping:
+  AfterClass: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterStruct: true
+  AfterEnum: true
+BreakBeforeBraces: Custom
+ColumnLimit: 120
+ConstructorInitializerIndentWidth: 0
+ContinuationIndentWidth: 2
+DerivePointerAlignment: false
+PointerAlignment: Middle
+ReflowComments: false
+...

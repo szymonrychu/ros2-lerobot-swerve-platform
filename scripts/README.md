@@ -200,6 +200,41 @@ overlay source commit in `ansible/group_vars/client.yml`; run the probe after ev
 mkdir -p .logs && ./scripts/probe-mppi-overlay-docker.sh 2>&1 | tee .logs/probe-mppi-overlay.log | tail -40
 ```
 
+## cpp-node-test.sh
+
+Builds and tests one in-repo C++ (ament_cmake) package in docker, identically on the Mac and in CI. Usage:
+`scripts/cpp-node-test.sh <pkg> [--lint-only]`, where `<pkg>` is `ros2_common_cpp` or the name of a `nodes/<name>_cpp`
+package (the directory name equals the `package.xml` name).
+
+1. Builds, or reuses, the local image `cpp-node-test:<hash>` from `scripts/cpp-node-test.Dockerfile`: `FROM
+   ros:jazzy-ros-base` on the native platform (arm64 on an Apple Silicon Mac, the Pi's architecture; amd64 in CI),
+   plus colcon and the rosdep keys of every in-repo C++ package. The tag is a hash of the Dockerfile and every
+   `package.xml`, so the image is rebuilt only when a dependency changes. The Dockerfile also maps the rosdep key
+   `prometheus-cpp` (no upstream rule) to apt `prometheus-cpp-dev`.
+2. Mounts the repo read-only at `/repo` and copies `shared/ros2_common_cpp`, `nodes/*_cpp` and `.clang-format` into
+   `/ws/src`, keeping the repo layout.
+3. `rosdep install`, then `colcon build --packages-up-to <pkg> --cmake-args -DBUILD_TESTING=ON
+   -DCMAKE_BUILD_TYPE=Release`.
+4. `colcon test --packages-select <pkg>` (with `--lint-only` only the ament linters: `ctest -L linter`), then
+   `colcon test-result --verbose`, which must report at least one test and no failure. `cppcheck` really runs
+   (`AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS=1`; ament skips cppcheck 2.x otherwise).
+
+Exits non-zero on any build, test or lint failure, and always ends with one line `cpp-node-test: <pkg> PASS` or
+`cpp-node-test: <pkg> FAIL`. An unknown package exits 2 and lists the known ones. It generalizes the container
+pattern of `probe-mppi-overlay-docker.sh` (`docker run --rm -i`, repo mounted `:ro`, inline script on stdin). The root
+poe tasks `test-cpp` and `lint-cpp` run it for every C++ package, and the `cpp` CI job runs it per package.
+
+```bash
+mkdir -p .logs && ./scripts/cpp-node-test.sh ros2_common_cpp 2>&1 | tee .logs/cpp-node-test.log | tail -20
+uv run poe test-cpp      # every C++ package, full build + gtests + lint
+uv run poe lint-cpp      # every C++ package, linters only
+```
+
+To fix a clang-format finding, reformat in the same image:
+`docker run --rm -v "$PWD:/repo" -w /repo cpp-node-test:<hash> bash -c 'source /opt/ros/jazzy/setup.bash &&
+ament_clang_format --config .clang-format --reformat shared/ros2_common_cpp'` (`docker images cpp-node-test` shows
+the tag).
+
 ## propose_unit_limits.py
 
 Prints proposed `MemoryLow`, `MemoryMax`, `CPUWeight` and `IOWeight` for the `ros2-*` systemd units in the robot-headroom model (no `CPUQuota`, no `MemoryHigh`) from metrics history (p99 CPU, typical (p50) and peak memory working set) next to the values configured in `ansible/group_vars/client.yml`: `MemoryLow` = typical working set rounded up to 8 MiB, `MemoryMax` = 2x the peak (a larger current cap kept), weights = the configured tier (else 500), plus the sum of the proposed `MemoryLow`. Flags: `oom risk`, `tight max`, `unprotected`, `throttle risk` (only where a `CPUQuota` is still set). It queries the Prometheus API of the server's Mimir (`prometheus_url: http://server.ros2.lan:9009/prometheus`, 1 d retention), which stores both hosts' series, and selects one host with `host: client` (the `host` label set by Alloy; use `server` together with `group_vars_path: ansible/group_vars/server.yml` for the server's units). Configured by `scripts/propose_unit_limits.yaml` (URL, host, window, percentiles, `memory_max_factor`, minimums, default weights, `format: table|yaml`); read-only, it never edits `client.yml`. See `ansible/README.md` (Node resource model).

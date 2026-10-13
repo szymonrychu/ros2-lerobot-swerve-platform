@@ -94,6 +94,20 @@ lint-nodes = { shell = """
   (cd nodes/steamdeck_ui/bridge && uv run --frozen poe lint)
   (cd nodes/stereo_depth && uv run --frozen poe lint)
 """ }
+# C++ (ament_cmake) packages: shared/ros2_common_cpp plus nodes/*_cpp, each built and tested in docker by
+# scripts/cpp-node-test.sh (see scripts/README.md). lint-cpp runs only the ament linters.
+test-cpp = { shell = """
+  set -e
+  for dir in shared/ros2_common_cpp nodes/*_cpp; do
+    if [ -f "$dir/package.xml" ]; then scripts/cpp-node-test.sh "$(basename "$dir")"; fi
+  done
+""" }
+lint-cpp = { shell = """
+  set -e
+  for dir in shared/ros2_common_cpp nodes/*_cpp; do
+    if [ -f "$dir/package.xml" ]; then scripts/cpp-node-test.sh "$(basename "$dir")" --lint-only; fi
+  done
+""" }
 lint-ansible = { shell = """
   set -e
   cd ansible && ansible-lint .

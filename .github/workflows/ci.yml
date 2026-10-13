@@ -88,3 +88,18 @@ jobs:
       - name: Test
         working-directory: nodes/${{ matrix.node }}
         run: uv run --frozen pytest -q
+
+  cpp:
+    # amd64 runner; scripts/cpp-node-test.sh builds its image for the native platform (arm64 on the Mac, like the Pi).
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every in-repo C++ package: shared/ros2_common_cpp plus nodes/*_cpp (ament_cmake, no pyproject.toml);
+        # tests/test_ci_workflow.py and tests/test_node_lint_coverage.py keep this in sync.
+        package:
+          - ros2_common_cpp
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, test and lint in ros:jazzy-ros-base
+        run: ./scripts/cpp-node-test.sh ${{ matrix.package }}

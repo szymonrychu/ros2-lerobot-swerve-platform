@@ -1,13 +1,19 @@
-"""Root lint tasks must cover every Python node project (discovered from the tree, not a hand-kept list)."""
+"""Root lint tasks must cover every Python node project and every C++ package (discovered from the tree, not a
+hand-kept list)."""
 
 import tomllib
 from pathlib import Path
+
+import yaml
+
+from tests.test_cpp_scaffolding import discover_cpp_package_dirs, poe_task_body
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LINT_SCRIPT = REPO_ROOT / "scripts" / "lint-all-nodes.sh"
 ROOT_PYPROJECT = REPO_ROOT / "pyproject.toml"
 EXCLUDED_PARTS = {".venv", "node_modules", "worktrees", "__pycache__"}
 LINT_COMMAND = "uv run --frozen poe lint"
+WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def discover_node_dirs() -> list[str]:
@@ -66,3 +72,20 @@ def test_root_lint_nodes_task_covers_every_node_project() -> None:
     missing = [d for d in discover_node_dirs() if d not in body]
     assert not missing, f"lint-nodes misses {missing}"
     assert LINT_COMMAND in body or body.count("uv run --frozen poe lint") >= len(discover_node_dirs())
+
+
+def test_every_cpp_node_has_a_ci_row_and_is_linted() -> None:
+    """A new nodes/<x>_cpp fails here until the cpp CI matrix lists it; lint-cpp reaches it through its glob."""
+    matrix = yaml.safe_load(WORKFLOW_PATH.read_text())["jobs"]["cpp"]["strategy"]["matrix"]["package"]
+    lint_cpp = poe_task_body("lint-cpp")
+    for pkg_dir in discover_cpp_package_dirs():
+        assert pkg_dir.name in matrix, f"{pkg_dir.name} has no row in the cpp CI matrix"
+        rel = pkg_dir.relative_to(REPO_ROOT).as_posix()
+        assert rel in lint_cpp or (rel.startswith("nodes/") and "nodes/*_cpp" in lint_cpp), f"lint-cpp misses {rel}"
+
+
+def test_cpp_packages_are_not_python_node_projects() -> None:
+    """The Python lint discovery never picks up a C++ package (they carry no pyproject.toml)."""
+    cpp_dirs = {d.relative_to(REPO_ROOT).as_posix() for d in discover_cpp_package_dirs()}
+    assert cpp_dirs, "C++ package discovery found nothing"
+    assert cpp_dirs.isdisjoint(discover_node_dirs())

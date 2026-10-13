@@ -6,7 +6,7 @@ Unit tests for the project. Run with `uv run pytest` or `mise exec -- uv run pyt
 
 ### `test_node_lint_coverage.py`
 
-Root lint tasks cover every Python node. Node projects are discovered dynamically (`nodes/**/pyproject.toml`, ignoring `.venv`, `worktrees`, `node_modules`), so a new node without a lint entry fails here.
+Root lint tasks cover every Python node and every C++ package. Node projects are discovered dynamically (`nodes/**/pyproject.toml`, ignoring `.venv`, `worktrees`, `node_modules`), so a new node without a lint entry fails here; C++ packages (`shared/ros2_common_cpp` plus `nodes/*_cpp`) come from `discover_cpp_package_dirs` in `test_cpp_scaffolding.py`.
 
 | Test | Description |
 |------|-------------|
@@ -14,6 +14,8 @@ Root lint tasks cover every Python node. Node projects are discovered dynamicall
 | `test_lint_all_nodes_script_covers_every_node_project` | `scripts/lint-all-nodes.sh` names every discovered node directory. |
 | `test_lint_all_nodes_script_uses_uv_and_fails_loudly` | The script runs `uv run --frozen poe lint` per node, uses `set -e`, has no Poetry and no pipe/`|| true` masking. |
 | `test_root_lint_nodes_task_covers_every_node_project` | The root `lint-nodes` poe task stops on the first failure and lists (or delegates to the script for) every discovered node. |
+| `test_every_cpp_node_has_a_ci_row_and_is_linted` | Every C++ package has a row in the `cpp` CI matrix and is reached by the `lint-cpp` poe task (by path or the `nodes/*_cpp` glob), so a new `nodes/<x>_cpp` without a CI row fails. |
+| `test_cpp_packages_are_not_python_node_projects` | C++ package discovery is non-empty and disjoint from the Python node discovery (C++ packages carry no `pyproject.toml`). |
 
 ### `test_master2master_config.py`
 
@@ -41,15 +43,34 @@ Unit tests for master2master topic proxy config parsing (`nodes/master2master/ma
 
 ### `test_ci_workflow.py`
 
-Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every node project.
+Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every Python node project and every C++ package.
 
 | Test | Description |
 |---|---|
 | `test_workflow_has_no_poetry` | The workflow never mentions Poetry. |
-| `test_uv_pinned_in_every_job` | Every job installs uv through `astral-sh/setup-uv` pinned to version 0.11.29. |
+| `test_uv_pinned_in_every_job` | Every job installs uv through `astral-sh/setup-uv` pinned to version 0.11.29, except the `cpp` job, which runs everything inside its docker image. |
 | `test_root_tests_job_present` | A job runs the root test suite (`uv run --frozen pytest tests`). |
 | `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q`, with no duplicate entries. The count is derived from the filesystem, not hardcoded, so adding a node only touches the matrix. |
+| `test_uv_node_matrix_skips_cpp_packages` | The uv `nodes` matrix has no `*_cpp` entry and no `nodes/*_cpp` carries a `pyproject.toml`. |
+| `test_cpp_matrix_equals_filesystem` | The `cpp` job runs on `ubuntu-latest` (amd64) with `fail-fast: false`; its `package` matrix equals the discovered C++ packages (no duplicates) and it runs `./scripts/cpp-node-test.sh ${{ matrix.package }}`. |
 | `test_ansible_job_installs_collections_before_syntax_check` | The `lint-ansible` job installs `ansible/requirements.yml` collections (`ansible.posix`, used by the mount tasks) before `poe test-ansible`. |
+
+### `test_cpp_scaffolding.py`
+
+Contract of the C++ scaffolding: root `.clang-format`, `scripts/cpp-node-test.sh` and `scripts/cpp-node-test.Dockerfile`, the `test-cpp` / `lint-cpp` poe tasks and the lint setup of `shared/ros2_common_cpp`. Also exports `discover_cpp_package_dirs` / `discover_cpp_packages` (shared/ros2_common_cpp plus nodes/*_cpp with a package.xml) and `poe_task_body`, used by `test_ci_workflow.py` and `test_node_lint_coverage.py`. The gtests of the package itself (`shared/ros2_common_cpp/test/test_config.cpp`, `test_metrics.cpp`) run through `./scripts/cpp-node-test.sh ros2_common_cpp` and are listed in [shared/README.md](../shared/README.md).
+
+| Test | Description |
+|---|---|
+| `test_cpp_package_discovery_finds_ros2_common_cpp` | Guard against vacuous passes: discovery finds `ros2_common_cpp`. |
+| `test_cpp_package_dir_name_equals_package_name` | Every C++ package directory is named like its `package.xml` `<name>` (the script, poe tasks and CI address packages by it). |
+| `test_clang_format_is_ament_style_at_120_columns` | `.clang-format` is the ament_clang_format style (Google base, `AccessModifierOffset -2`, `PointerAlignment Middle`, custom braces) with `ColumnLimit: 120`. |
+| `test_script_usage_and_result_line_contract` | Static: executable, `set -euo pipefail`, the usage line, the `cpp-node-test: ${PKG} PASS` / `FAIL` lines, the rosdep / colcon build (`--packages-up-to`, `BUILD_TESTING=ON`, Release) / colcon test / test-result steps, a read-only repo mount and no `--platform` (native image). |
+| `test_script_without_arguments_prints_usage_and_exits_2` | No argument: usage on stderr, exit 2 (docker is never touched). |
+| `test_script_unknown_package_exits_2_with_known_list` | Unknown package: exit 2, every known package listed on stderr, last stdout line `cpp-node-test: <pkg> FAIL`. |
+| `test_dockerfile_base_image_and_rosdep_preinstall` | The Dockerfile has exactly `FROM ros:jazzy-ros-base` and installs colcon and the packages' rosdep keys. |
+| `test_poe_tasks_run_the_script_for_every_cpp_package` | `test-cpp` and `lint-cpp` (the latter with `--lint-only`) run `scripts/cpp-node-test.sh` under `set -e` over `shared/ros2_common_cpp` and `nodes/*_cpp`. |
+| `test_ros2_common_cpp_declares_the_lint_packages` | `package.xml` test_depends on `ament_lint_auto`, `ament_cmake_clang_format`, `ament_cmake_cppcheck`, `ament_cmake_xmllint` and `ament_cmake_gtest`, not `ament_cmake_copyright`; build type `ament_cmake`; CMake calls `ament_lint_auto_find_test_dependencies()` and points clang-format at the root `.clang-format`. |
+| `test_ros2_common_cpp_libraries_do_not_link_rclcpp` | `CMakeLists.txt` and `package.xml` never mention rclcpp; the `config` and `metrics` library targets exist. |
 
 ### `test_precommit_config.py`
 
