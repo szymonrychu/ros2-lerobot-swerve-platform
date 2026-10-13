@@ -27,7 +27,9 @@ mcp_server/reference/collision.py, which writes the goldens tests/test_core_pari
 against.
 """
 
+import atexit
 import math
+import weakref
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -90,6 +92,8 @@ JOINT_LINE_STEP_RAD = 0.02
 CLEAR_OF_BLOCK = 32
 # Slack on the bounding-sphere bounds of the pruned checks (m): covers float rounding, far below any margin.
 PRUNE_SLACK_M = 1e-9
+# Every live checker, so interpreter exit can drop their kernels (release_kernels).
+CHECKERS: "weakref.WeakSet[SelfCollisionChecker]" = weakref.WeakSet()
 ROUND_M = 4
 # Obstacle kinds of the C++ kernel's obstacle table (obstacle_rows).
 BOX_KIND = 0.0
@@ -269,6 +273,21 @@ def obstacle_rows(body: BodyModel) -> np.ndarray:
         else:
             raise TypeError(f"no C++ kernel for obstacle {obstacle!r}")
     return np.array(rows, dtype=np.float64).reshape(len(rows), 7)
+
+
+class ReleasedKernel:
+    """Stands in for a checker's C++ kernel after release_kernels: any kernel call raises instead of running."""
+
+    def __getattr__(self, name: str) -> Any:
+        """Refuse every kernel attribute.
+
+        Args:
+            name (str): Kernel attribute asked for.
+
+        Raises:
+            RuntimeError: Always (the kernel was released at interpreter exit).
+        """
+        raise RuntimeError(f"self-collision kernel released at interpreter exit (BodyChecker.{name})")
 
 
 def body_kernel(body: BodyModel, mount_rotation: np.ndarray, mount_offset: np.ndarray) -> BodyChecker:
@@ -509,7 +528,8 @@ class SelfCollisionChecker:
         self.rotation = yaw_matrix(mount.yaw)
         self.offset = np.array([mount.x, mount.y, mount.z])
         # The C++ kernels (path, pose, closest, clear_of and the clearance matrices run in it).
-        self.core = body_kernel(body, self.rotation, self.offset)
+        self.core: BodyChecker | ReleasedKernel = body_kernel(body, self.rotation, self.offset)
+        CHECKERS.add(self)
         # Exact distances evaluated ('points': part points, 'capsules': capsule axis searches), for the pruning tests.
         self.distance_counts: Counter[str] = Counter()
 
@@ -821,3 +841,15 @@ class SelfCollisionChecker:
             report.violation_clearance = violation_clearance
             report.hints[names[violation_obstacle]] = obstacle_hint(self.body.obstacles[violation_obstacle], part, cfg)
         return report
+
+
+@atexit.register
+def release_kernels() -> None:
+    """Drop the C++ kernel of every live checker (registered to run at interpreter exit).
+
+    A checker still referenced at shutdown (from the stack of a daemon thread that was never stopped, such as a motion
+    queue worker, or from a module global) is never freed by Python, and nanobind reports its BodyChecker as leaked.
+    Releasing the kernel here frees it; a later call on such a checker raises RuntimeError (ReleasedKernel).
+    """
+    for checker in list(CHECKERS):
+        checker.core = ReleasedKernel()

@@ -39,6 +39,12 @@ obstacles, the capsule radii, the point blocks (`LINK_BLOCKS`) and the arm mount
 Python keeps the forward kinematics (`geometry`, `part_points`: one `ArmKinematics.link_frames` pass per sample), the
 `BodyReport` / `PoseClearance` assembly and the hint texts. Every entry point keeps its signature.
 
+Interpreter exit: a checker still referenced at shutdown (a daemon thread that was never stopped, such as a motion
+queue worker, or a module global) is never freed by Python, and nanobind would report its `BodyChecker` as leaked.
+`self_collision.release_kernels` (atexit) drops the kernel of every live checker (`CHECKERS`, a weak set); a call on a
+checker after that raises `RuntimeError`. The reach envelope additionally stops its running thread first
+(`arm_reach.stop_running_envelopes`).
+
 Sources:
 
 - `body_geometry.{hpp,cpp}`: box and vertical cylinder signed distances, the golden-section capsule axis search

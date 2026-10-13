@@ -51,6 +51,34 @@ envelope.start()
 time.sleep(0.2)
 assert envelope.get(0.0) is None, "envelope finished before exit, the test proves nothing"
 """
+# A worker thread that is never stopped (as the motion queue of a test or a killed node) parks with a checker on its
+# stack, and another checker sits in a module global: neither is freed by interpreter shutdown on its own.
+EXIT_WITH_PARKED_THREAD = """
+import threading
+from mcp_server.config import McpServerConfig
+from mcp_server.reach_map import checker_from_config
+config = McpServerConfig()
+held = checker_from_config(config)
+started = threading.Event()
+def park(checker):
+    started.set()
+    threading.Event().wait()
+threading.Thread(target=park, args=(checker_from_config(config),), daemon=True).start()
+started.wait(10.0)
+"""
+# release_kernels runs at exit; called early here (in a child, so this process keeps its kernels) to show a released
+# checker refuses kernel calls.
+CALL_AFTER_RELEASE = """
+from mcp_server.config import McpServerConfig
+from mcp_server.reach_map import checker_from_config
+from mcp_server.self_collision import release_kernels
+checker = checker_from_config(McpServerConfig())
+release_kernels()
+try:
+    checker.core.path
+except RuntimeError as error:
+    print(error)
+"""
 NANOBIND_LEAK = "nanobind: leaked"
 # First mcp_core_cpp version carrying the collision kernels: the Pi deploy rebuilds the extension only when uv.lock (which
 # records this version) changes, so the port must bump it.
@@ -219,6 +247,25 @@ def test_exit_during_envelope_computation_frees_the_kernel() -> None:
     )
     assert done.returncode == 0, done.stderr
     assert NANOBIND_LEAK not in done.stderr
+
+
+def test_exit_with_a_parked_thread_holding_a_checker_frees_the_kernel() -> None:
+    """Interpreter exit releases the C++ kernel of every live SelfCollisionChecker, so a never-stopped daemon thread
+    or a module global holding a checker leaves no BodyChecker for nanobind to report as leaked."""
+    done = subprocess.run(
+        [sys.executable, "-c", EXIT_WITH_PARKED_THREAD], cwd=NODE_DIR, capture_output=True, text=True, timeout=120
+    )
+    assert done.returncode == 0, done.stderr
+    assert NANOBIND_LEAK not in done.stderr
+
+
+def test_released_checker_refuses_kernel_calls() -> None:
+    """After release_kernels (interpreter exit) a checker raises a clear error instead of using a freed kernel."""
+    done = subprocess.run(
+        [sys.executable, "-c", CALL_AFTER_RELEASE], cwd=NODE_DIR, capture_output=True, text=True, timeout=120
+    )
+    assert done.returncode == 0, done.stderr
+    assert "released at interpreter exit (BodyChecker.path)" in done.stdout
 
 
 def test_stopped_envelope_computation_returns_without_a_result() -> None:
