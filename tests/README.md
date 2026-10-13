@@ -6,11 +6,12 @@ Unit tests for the project. Run with `uv run pytest` or `mise exec -- uv run pyt
 
 ### `test_node_lint_coverage.py`
 
-Root lint tasks cover every Python node and every C++ package. Node projects are discovered dynamically (`nodes/**/pyproject.toml`, ignoring `.venv`, `worktrees`, `node_modules`), so a new node without a lint entry fails here; C++ packages (`shared/ros2_common_cpp` plus `nodes/*_cpp`) come from `discover_cpp_package_dirs` in `test_cpp_scaffolding.py`.
+Root lint tasks cover every Python node and every C++ package. Node projects are discovered dynamically (`nodes/**/pyproject.toml` with a `uv.lock` beside it, ignoring `.venv`, `worktrees`, `node_modules`; a `pyproject.toml` without a lock, such as `nodes/mcp_server/mcp_core_cpp`, is a sub-package its node builds), so a new node without a lint entry fails here; C++ packages (`shared/ros2_common_cpp` plus `nodes/*_cpp`) come from `discover_cpp_package_dirs` in `test_cpp_scaffolding.py`.
 
 | Test | Description |
 |------|-------------|
 | `test_node_discovery_finds_the_known_projects` | Guard against vacuous passes: discovery finds at least 18 projects, including `mcp_server` and `steamdeck_ui/bridge`. |
+| `test_node_discovery_skips_sub_packages_without_a_lock` | `nodes/mcp_server/mcp_core_cpp` (no `uv.lock`) is not a node project, and every discovered node has its `uv.lock`. |
 | `test_lint_all_nodes_script_covers_every_node_project` | `scripts/lint-all-nodes.sh` names every discovered node directory. |
 | `test_lint_all_nodes_script_uses_uv_and_fails_loudly` | The script runs `uv run --frozen poe lint` per node, uses `set -e`, has no Poetry and no pipe/`|| true` masking. |
 | `test_root_lint_nodes_task_covers_every_node_project` | The root `lint-nodes` poe task stops on the first failure and lists (or delegates to the script for) every discovered node. |
@@ -43,7 +44,7 @@ Unit tests for master2master topic proxy config parsing (`nodes/master2master/ma
 
 ### `test_ci_workflow.py`
 
-Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every Python node project and every C++ package.
+Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every Python node project (a `pyproject.toml` with its own `uv.lock`) and every C++ package.
 
 | Test | Description |
 |---|---|

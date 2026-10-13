@@ -27,9 +27,14 @@ def discover_node_dirs() -> set[str]:
     """Find every node project on the filesystem.
 
     Returns:
-        Directories of nodes/**/pyproject.toml, relative to nodes/.
+        Directories of nodes/**/pyproject.toml with their own uv.lock, relative to nodes/ (a pyproject.toml without a
+        uv.lock, such as mcp_server/mcp_core_cpp, is a sub-package its node's uv sync builds and tests).
     """
-    return {p.parent.relative_to(NODES_DIR).as_posix() for p in NODES_DIR.rglob("pyproject.toml")}
+    return {
+        p.parent.relative_to(NODES_DIR).as_posix()
+        for p in NODES_DIR.rglob("pyproject.toml")
+        if (p.parent / "uv.lock").is_file()
+    }
 
 
 def test_workflow_has_no_poetry() -> None:

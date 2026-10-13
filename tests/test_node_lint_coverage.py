@@ -20,11 +20,15 @@ def discover_node_dirs() -> list[str]:
     """Find every node project directory.
 
     Returns:
-        list[str]: Repo-relative POSIX directories holding a pyproject.toml under nodes/, sorted.
+        list[str]: Repo-relative POSIX directories under nodes/ holding a pyproject.toml and its uv.lock, sorted (a
+            pyproject.toml without a uv.lock is a sub-package built by its node's uv sync).
     """
     found = []
     for pyproject in (REPO_ROOT / "nodes").rglob("pyproject.toml"):
-        if EXCLUDED_PARTS.isdisjoint(pyproject.relative_to(REPO_ROOT).parts):
+        if (
+            EXCLUDED_PARTS.isdisjoint(pyproject.relative_to(REPO_ROOT).parts)
+            and (pyproject.parent / "uv.lock").is_file()
+        ):
             found.append(pyproject.parent.relative_to(REPO_ROOT).as_posix())
     return sorted(found)
 
@@ -45,6 +49,14 @@ def test_node_discovery_finds_the_known_projects() -> None:
     dirs = discover_node_dirs()
     assert len(dirs) >= 18
     assert "nodes/mcp_server" in dirs and "nodes/steamdeck_ui/bridge" in dirs
+
+
+def test_node_discovery_skips_sub_packages_without_a_lock() -> None:
+    """A pyproject.toml without its own uv.lock (nodes/mcp_server/mcp_core_cpp, a path dependency built by its node's
+    uv sync) is part of its node project, not a node project of its own."""
+    dirs = discover_node_dirs()
+    assert "nodes/mcp_server/mcp_core_cpp" not in dirs
+    assert all((REPO_ROOT / d / "uv.lock").is_file() for d in dirs)
 
 
 def test_lint_all_nodes_script_covers_every_node_project() -> None:
