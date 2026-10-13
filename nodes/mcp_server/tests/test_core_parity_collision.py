@@ -23,6 +23,7 @@ from mcp_server.arm_reach import ReachEnvelope
 from mcp_server.body_model import BodyModel
 from mcp_server.config import McpServerConfig
 from mcp_server.reach_map import checker_from_config
+from mcp_server.reference import DEFAULT_TOLERANCE_KEY, Tolerance
 from mcp_server.reference import collision as reference
 from mcp_server.self_collision import NORMAL_SCALE, SelfCollisionChecker
 from tests import core_parity
@@ -36,6 +37,8 @@ PORTED = "ported"
 NOT_PORTED = "below threshold, not ported"
 DOC_ROW = re.compile(r"^\| `?([\w.]+)`? \| ([0-9.]+) \| ([a-z, ]+) \|$")
 MEDIAN_DECIMALS = 3
+# Golden inputs regenerated on another platform (the Pi) differ from the committed ones by up to about 1e-10 rad / m.
+INPUT_TOLERANCE = {DEFAULT_TOLERANCE_KEY: Tolerance(atol=1e-9, rtol=0.0)}
 # A process that exits while the reach envelope is still being computed in its daemon thread (the robot's server start).
 EXIT_DURING_ENVELOPE = """
 import time
@@ -144,16 +147,20 @@ def test_verdicts_are_identical_on_every_golden_input(kernel: str) -> None:
 
 @pytest.mark.parametrize("kernel", sorted(ENTRIES))
 def test_golden_comes_from_the_python_reference(kernel: str) -> None:
-    """Regenerating the golden from mcp_server/reference/collision.py gives the committed golden (never C++ output)."""
+    """Regenerating the golden from mcp_server/reference/collision.py gives the committed golden (never C++ output),
+    within tolerances: on the Pi (aarch64 Linux numpy) the bench inputs come out of the IK up to about 1e-10 rad off the
+    dev Mac's (INPUT_TOLERANCE) and the reference outputs follow within the golden's tolerances."""
     entry = reference.KERNELS[kernel]
     fresh = build_golden(FAMILY, kernel, entry, bench_cases(entry.inputs))
     committed = core_parity.load_golden(FAMILY, kernel)
-    assert [c.inputs for c in fresh.cases] == [
-        core_parity.decode(core_parity.encode(c.inputs)) for c in committed.cases
-    ]
     for i, (new, old) in enumerate(zip(fresh.cases, committed.cases, strict=True)):
-        mismatches, _worst = core_parity.compare_case(old.outputs, new.outputs, {}, i)
-        assert not mismatches, mismatches
+        inputs = core_parity.decode(core_parity.encode(new.inputs))
+        for expected, actual, tolerances in (
+            (old.inputs, inputs, INPUT_TOLERANCE),
+            (old.outputs, new.outputs, committed.tolerances),
+        ):
+            mismatches, _worst = core_parity.compare_case(expected, actual, tolerances, i)
+            assert not mismatches, mismatches
 
 
 def test_path_covers_rejected_slowed_escape_and_gripper_only_cases() -> None:

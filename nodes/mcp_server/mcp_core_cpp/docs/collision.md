@@ -45,7 +45,9 @@ Sources:
   (48 iterations, as `body_model.capsule_signed_distance`) and the element-by-element rigid placement.
 - `body_checker.{hpp,cpp}`: the full, pruned and path computations, step for step as the references.
 - `fp_contract.hpp`: no floating-point contraction (fused multiply-add) in these files, so each value rounds as numpy
-  rounds it.
+  rounds it. Checked on 2026-10-13 with both compilers: Apple clang (dev Mac) and GCC 13.3.0 aarch64 on the client
+  Pi 5 build (`-Wall -Wextra`, no warnings), where the C++ path and pose outputs are bit-identical to the Python
+  reference run on the same machine for every golden input (3767 floats, 0 differing).
 - `bind.cpp`: `register_collision`, the nanobind class.
 
 ## Parity
