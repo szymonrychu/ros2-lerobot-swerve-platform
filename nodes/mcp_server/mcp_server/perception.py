@@ -6,6 +6,8 @@ from collections.abc import Sequence
 import cv2
 import numpy as np
 
+from mcp_core_cpp import camera as core_camera
+
 from .models import MapStats, SectorObstacle
 
 # Eight 45 deg sectors counter-clockwise from the robot's front (base_link +x), centred on their direction.
@@ -111,18 +113,27 @@ def map_stats(data: Sequence[int], width: int, height: int, resolution: float) -
     Returns:
         MapStats: Size and known/occupied/free counts.
     """
-    cells = np.asarray(data, dtype=np.int16)
-    known = cells >= 0
+    counts = core_camera.map_counts(contiguous(data))
     return MapStats(
         width=width,
         height=height,
         resolution=resolution,
         width_m=round(width * resolution, 3),
         height_m=round(height * resolution, 3),
-        known_cells=int(known.sum()),
-        occupied_cells=int((cells >= OCCUPIED_THRESHOLD).sum()),
-        free_cells=int((known & (cells <= FREE_THRESHOLD)).sum()),
+        **counts,
     )
+
+
+def contiguous(data: Sequence[int]) -> Sequence[int]:
+    """The grid as the C++ map kernels read it: a numpy array made C-contiguous, anything else unchanged.
+
+    Args:
+        data (Sequence[int]): Row-major cells (list, array.array or numpy array).
+
+    Returns:
+        Sequence[int]: The same cells.
+    """
+    return np.ascontiguousarray(data) if isinstance(data, np.ndarray) else data
 
 
 def fit_size(width: int, height: int, max_px: int) -> tuple[int, int]:
@@ -174,20 +185,11 @@ def render_map_crop(
     Returns:
         bytes: PNG image.
     """
-    grid = np.asarray(data, dtype=np.int16).reshape(height, width)
-    grey = np.full(grid.shape, UNKNOWN_GREY, np.uint8)
-    grey[(grid >= 0) & (grid <= FREE_THRESHOLD)] = FREE_GREY
-    grey[grid >= OCCUPIED_THRESHOLD] = OCCUPIED_GREY
     half = max(1, int(math.ceil(radius_m / resolution)))
     cx = int(math.floor((robot_x - origin_x) / resolution))
     cy = int(math.floor((robot_y - origin_y) / resolution))
-    crop = np.full((2 * half, 2 * half), UNKNOWN_GREY, np.uint8)
-    x0, y0 = cx - half, cy - half
-    sx0, sy0 = max(x0, 0), max(y0, 0)
-    sx1, sy1 = min(x0 + 2 * half, width), min(y0 + 2 * half, height)
-    if sx1 > sx0 and sy1 > sy0:
-        crop[sy0 - y0 : sy1 - y0, sx0 - x0 : sx1 - x0] = grey[sy0:sy1, sx0:sx1]
-    image = cv2.cvtColor(np.flipud(crop), cv2.COLOR_GRAY2BGR)
+    crop = core_camera.map_crop(contiguous(data), width, height, cx - half, cy - half, 2 * half)  # north up
+    image = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
     w, h = fit_size(image.shape[1], image.shape[0], max_px)
     image = cv2.resize(image, (w, h), interpolation=cv2.INTER_NEAREST)
     scale = w / (2 * half)

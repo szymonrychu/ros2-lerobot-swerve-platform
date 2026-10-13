@@ -455,17 +455,25 @@ def scan_call(summarize: bool) -> Call:
     return call
 
 
-def occupancy_cells() -> list[int]:
-    """A synthetic 800 x 800 occupancy grid (room walls, free interior, unknown outside) as a flat list.
+def occupancy_cells(side: int = MAP_SIDE_CELLS) -> list[int]:
+    """A synthetic square occupancy grid (room walls, free interior, unknown outside) as a flat list.
+
+    Args:
+        side (int): Cells per side; the room layout scales with it (800 is the bench map).
 
     Returns:
         list[int]: Row-major cells.
     """
-    grid = np.full((MAP_SIDE_CELLS, MAP_SIDE_CELLS), -1, np.int16)
-    grid[100:700, 100:700] = 0
-    grid[100:104, 100:700] = grid[696:700, 100:700] = 100
-    grid[100:700, 100:104] = grid[100:700, 696:700] = 100
-    grid[300:304, 100:500] = 100
+
+    def at(cell: int) -> int:
+        return cell * side // MAP_SIDE_CELLS
+
+    wall = max(1, at(4))
+    grid = np.full((side, side), -1, np.int16)
+    grid[at(100) : at(700), at(100) : at(700)] = 0
+    grid[at(100) : at(100) + wall, at(100) : at(700)] = grid[at(700) - wall : at(700), at(100) : at(700)] = 100
+    grid[at(100) : at(700), at(100) : at(100) + wall] = grid[at(100) : at(700), at(700) - wall : at(700)] = 100
+    grid[at(300) : at(300) + wall, at(100) : at(500)] = 100
     return grid.ravel().tolist()
 
 
@@ -489,6 +497,124 @@ def map_call(render: bool) -> Call:
             perception.map_stats(cells, MAP_SIDE_CELLS, MAP_SIDE_CELLS, MAP_RESOLUTION_M)
 
     return call
+
+
+# Golden cases of the ported camera kernels (mcp_server/reference/camera.py). The maps use the bench room layout at
+# GOLDEN_MAP_SIDE cells per side (the 800 x 800 bench map would make a golden of several MB) plus edge cases.
+GOLDEN_MAP_SIDE = 200
+GOLDEN_SMALL_MAP_SIDE = 100
+# Lidar points of the distorted-camera goldens (a third of the scan keeps the golden small).
+DISTORTED_POINTS = 240
+GOLDEN_MAP_ORIGIN_M = -5.0
+# Plumb-bob and rational (8 coefficient) distortion for the lidar goldens, on top of the deployed (distortion-free)
+# front camera.
+PLUMB_BOB = [-0.28, 0.09, 0.0012, -0.0009, -0.012]
+RATIONAL = [-0.28, 0.09, 0.0012, -0.0009, -0.012, 0.03, -0.01, 0.002]
+
+
+def map_edge_cells() -> list[int]:
+    """A small fixed-seed grid with every occupancy value class, the thresholds and their neighbours.
+
+    Returns:
+        list[int]: 50 x 40 row-major cells in -1..100.
+    """
+    rng = np.random.default_rng(RNG_SEED)
+    cells = rng.integers(-1, 101, 50 * 40)
+    cells[:8] = [-1, 0, 25, 26, 64, 65, 100, -1]
+    return cells.tolist()
+
+
+def map_stats_cases() -> list[dict[str, Any]]:
+    """map_stats inputs: the bench room (list of ints, as the bench passes it), threshold edges, int8 / int64 arrays
+    (rclpy and numpy grids), an empty map and a resolution that rounds.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments of map_stats.
+    """
+    room = occupancy_cells(GOLDEN_MAP_SIDE)
+    edge = map_edge_cells()
+    return [
+        {"data": room, "width": GOLDEN_MAP_SIDE, "height": GOLDEN_MAP_SIDE, "resolution": MAP_RESOLUTION_M},
+        {"data": edge, "width": 50, "height": 40, "resolution": 0.05},
+        {"data": np.array(edge, np.int8), "width": 50, "height": 40, "resolution": 0.0333},
+        {"data": np.array(room, np.int64), "width": GOLDEN_MAP_SIDE, "height": GOLDEN_MAP_SIDE, "resolution": 0.025},
+        {"data": [], "width": 0, "height": 0, "resolution": 0.05},
+    ]
+
+
+def render_map_crop_cases() -> list[dict[str, Any]]:
+    """render_map_crop inputs: the bench call on the room map (downscaled PNG), a crop over the map corner, a robot
+    off the map, an upscale-free small crop, and an int8 array grid.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments of render_map_crop.
+    """
+    edge = map_edge_cells()
+    origin = GOLDEN_MAP_ORIGIN_M
+    side, small = GOLDEN_MAP_SIDE, GOLDEN_SMALL_MAP_SIDE
+    corner = {"origin_x": origin, "origin_y": origin}
+    room = {"data": occupancy_cells(side), "width": side, "height": side, "resolution": MAP_RESOLUTION_M, **corner}
+    grid = {"data": occupancy_cells(small), "width": small, "height": small, "resolution": 0.1, **corner}
+    return [
+        {**room, "robot_x": 0.0, "robot_y": 0.0, "robot_yaw": 0.5, "radius_m": 4.0, "max_px": 120},
+        {**grid, "robot_x": -4.6, "robot_y": 4.3, "robot_yaw": -2.0, "radius_m": 1.5, "max_px": 96},
+        {**grid, "robot_x": 9.0, "robot_y": -9.0, "robot_yaw": 3.0, "radius_m": 1.0, "max_px": 64},
+        {**grid, "robot_x": 0.73, "robot_y": -1.21, "robot_yaw": 1.2, "radius_m": 0.6, "max_px": 160},
+        {
+            "data": np.array(edge, np.int8),
+            "width": 50,
+            "height": 40,
+            "resolution": 0.05,
+            "origin_x": 0.0,
+            "origin_y": 0.0,
+            "robot_x": 1.27,
+            "robot_y": 0.61,
+            "robot_yaw": -0.7,
+            "radius_m": 0.9,
+            "max_px": 48,
+        },
+    ]
+
+
+def draw_lidar_cases() -> list[dict[str, Any]]:
+    """draw_lidar inputs: the bench scan in the deployed front and gripper scenes, the front camera with plumb-bob and
+    rational distortion, a scan with invalid rows, an unknown arm offset and an empty scan.
+
+    Returns:
+        list[dict[str, Any]]: Keyword arguments of reference.camera.lidar_case.
+    """
+    pts = lidar_points()
+    odd = pts[:40].copy()
+    odd[0] = [-2.0, 0.0, 0.1, 2.0]  # behind the camera
+    odd[1, :3] = np.nan  # invalid return
+    odd[2, 3] = math.inf  # colour clamps to the far end
+    odd[3, 3] = -1.0  # colour clamps to the near end
+    odd[4] = [0.3, 0.0, -2.0, 0.3]  # far below the image
+    cases = []
+    for camera, points, distortion in (
+        ("front", pts, None),
+        ("gripper", pts, None),
+        ("front", pts[:DISTORTED_POINTS], PLUMB_BOB),
+        ("front", pts[:DISTORTED_POINTS], RATIONAL),
+        ("front", odd, None),
+    ):
+        sc = scene(camera)
+        intrinsics = sc.intr.model_dump()
+        if distortion is not None:
+            intrinsics["distortion"] = distortion
+        cases.append(
+            {
+                "image_shape": [IMAGE_H, IMAGE_W, 3],
+                "fill": 90,
+                "points": points,
+                "t_base_ref": sc.t_base_ref,
+                "t_ref_optical": sc.t_ref_optical,
+                "intrinsics": intrinsics,
+            }
+        )
+    cases.append({**cases[0], "t_base_ref": None})
+    cases.append({**cases[0], "points": np.zeros((0, 4))})
+    return cases
 
 
 def image() -> np.ndarray:

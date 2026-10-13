@@ -7,6 +7,8 @@ import cv2
 import numpy as np
 from ros2_common.camera_geometry import CameraIntrinsics
 
+from mcp_core_cpp import camera as core_camera
+
 from .camera_scene import FRAME_ARM, FRAME_BASE, Scene
 
 # Floor extent drawn per reference frame: (x_min, x_max, y_min, y_max) in metres.
@@ -27,6 +29,10 @@ COLOR_PLANNED = (255, 0, 255)
 COLOR_LABEL = (255, 255, 255)
 COLOR_CANDIDATE = (0, 0, 255)
 MAX_PROJECTED_PX = 1.0e5  # drop samples that project absurdly far outside the image (cv2 drawing overflow)
+# BGR of every JET colormap index (range_color's colormap), for the dots of draw_lidar.
+JET_BGR = [
+    tuple(c) for c in cv2.applyColorMap(np.arange(256, dtype=np.uint8)[:, None], cv2.COLORMAP_JET)[:, 0].tolist()
+]
 
 
 @dataclass(frozen=True)
@@ -309,19 +315,21 @@ def draw_lidar(img: np.ndarray, scene: Scene, points: np.ndarray) -> int:
     Returns:
         int: Number of dots inside the image.
     """
-    if len(points) == 0:
+    if len(points) == 0 or scene.t_base_ref is None:
         return 0
-    converted = [(scene.base_to_ref(p[:3]), float(p[3])) for p in points]
-    keep = [(ref, rng) for ref, rng in converted if ref is not None]
-    if not keep:
-        return 0
-    uv, depth = project_points(scene.intr, scene.t_ref_optical, np.array([ref for ref, _ in keep]))
-    shown = 0
-    for (u, v), d, (_, rng) in zip(uv, depth, keep, strict=True):
-        if d > MIN_DEPTH and 0 <= u < scene.intr.width and 0 <= v < scene.intr.height:
-            cv2.circle(img, ipt((u, v)), LIDAR_RADIUS_PX, range_color(rng), -1, cv2.LINE_AA)
-            shown += 1
-    return shown
+    centres, values = core_camera.lidar_dots(
+        np.ascontiguousarray(np.asarray(points, dtype=np.float64)[:, :4]),
+        np.ascontiguousarray(scene.t_base_ref, dtype=np.float64),
+        np.ascontiguousarray(scene.t_ref_optical, dtype=np.float64),
+        np.ascontiguousarray(scene.intr.matrix(), dtype=np.float64),
+        list(scene.intr.distortion),
+        scene.intr.width,
+        scene.intr.height,
+        LIDAR_COLOR_MAX_RANGE_M,
+    )
+    for centre, value in zip(centres.tolist(), values.tolist(), strict=True):
+        cv2.circle(img, centre, LIDAR_RADIUS_PX, JET_BGR[value], -1, cv2.LINE_AA)
+    return len(values)
 
 
 def draw_legend(img: np.ndarray, lines: list[str]) -> None:
