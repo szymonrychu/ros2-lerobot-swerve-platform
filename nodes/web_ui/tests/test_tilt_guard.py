@@ -93,7 +93,7 @@ def make_bridge() -> Any:
         node._pending = {}
         node._cleared = set()
         node._lock = threading.Lock()
-        node._topic_last_rx = {}
+        node._topic_last_rx = {TILT_GUARD_STATE_TOPIC: 0.0}  # always on and health-checked, as __init__ registers it
         return node
 
 
@@ -117,6 +117,7 @@ def test_bridge_subscribes_reliable_transient_local_and_tracks_staleness() -> No
 
         node = BridgeNode.__new__(BridgeNode)
         node._topic_last_rx = {}
+        node._always_on = set()
         node.create_subscription = MagicMock()
         node.subscribe_tilt_guard()
     args = node.create_subscription.call_args.args
@@ -125,6 +126,7 @@ def test_bridge_subscribes_reliable_transient_local_and_tracks_staleness() -> No
     assert args[3].reliability is ReliabilityPolicy.RELIABLE
     assert args[3].durability is DurabilityPolicy.TRANSIENT_LOCAL
     assert TILT_GUARD_STATE_TOPIC in node._topic_last_rx
+    assert node.always_on_topics() == {TILT_GUARD_STATE_TOPIC}
 
 
 def test_bridge_marks_state_stale_after_the_limit_and_broadcasts_it() -> None:

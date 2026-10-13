@@ -397,12 +397,14 @@ def test_bridge_init_subscribes_map_nav_topics_by_role() -> None:
         patch("web_ui.bridge.Buffer"),
         patch("web_ui.bridge.TransformListener"),
     ):
-        BridgeNode(
+        node = BridgeNode(
             topics=["/map", "/plan", "/goal_pose"],
             allowed_publish_topics={"/goal_pose"},
             topic_roles={"/map": "map", "/plan": "path", "/goal_pose": "goal"},
             robot_pose_frames=("map", "base_link"),
         )
+        assert {t for _, t in created} == {"/map", MAP_GUARD_RESET_TOPIC, TILT_GUARD_STATE_TOPIC}  # always on
+        node.update_demand(None)
     topics = {t for _, t in created}
     assert topics == {"/map", "/plan", "/goal_pose", MAP_GUARD_RESET_TOPIC, TILT_GUARD_STATE_TOPIC}
     assert (OccupancyGrid, "/map") in created

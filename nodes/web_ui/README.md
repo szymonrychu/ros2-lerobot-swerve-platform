@@ -57,11 +57,56 @@ Inbound publish frames (`{"type": "publish", "topic", "msg_type", "data"}`) are 
 
 ### Serialization model (lazy, with JPEG pass-through)
 
-Subscription callbacks do not serialize. They keep the raw latest message per topic (`BridgeNode.store_raw`) and mark the topic dirty. `flush_dirty(topics)` (called by the broadcaster only while a client is connected, and only for the topics some client subscribes to) and `latest_envelopes(topics)` (the snapshot of a newly subscribed topic set) serialize the pending message, at most once however many messages arrived since the last flush (`serialize_pending`); a message that cannot be serialized, or has no TF into the map frame, is dropped and the previous envelope stays cached. With no browser connected nothing is serialized, so unwatched camera, costmap and map topics cost only the rclpy receive. The `gps` role is the exception: its fixes are serialized on arrival because the anchor fit needs them. The WS envelope (`{"topic", "data"}`) is unchanged.
+Subscription callbacks do not serialize. They keep the raw latest message per topic (`BridgeNode.store_raw`) and mark the topic dirty. `flush_dirty(topics)` (called by the broadcaster only while a client is connected, and only for the topics some client subscribes to) and `latest_envelopes(topics)` (the snapshot of a newly subscribed topic set) serialize the pending message, at most once however many messages arrived since the last flush (`serialize_pending`); a message that cannot be serialized, or has no TF into the map frame, is dropped and the previous envelope stays cached. With no browser connected nothing is serialized; most topics are not even subscribed then (see below). The `gps` role is the exception: its fixes are serialized on arrival because the anchor fit needs them. The WS envelope (`{"topic", "data"}`) is unchanged.
 
 A `CompressedImage` whose `format` names JPEG (and whose data starts with the JPEG marker) is forwarded without decode or re-encode: `jpeg_b64` is the base64 of the ROS message bytes. Other compressed formats are still decoded and re-encoded to JPEG. The downscaled `color_small_b64` (RGBD color topics, `RGBD_COLOR_TOPICS`) is built only at flush time, only while a connected client's open tab needs it (the RGBD tab), and is the only reason a JPEG frame is decoded (`msg_to_dict(..., color_small=False)` skips it). Tests: `tests/test_lazy_serialization.py`.
 
 **Subscription message.** A client tells the server what it needs with `{"type": "subscribe", "topics": [...], "color_small": bool}` (frontend: `src/hooks/subscription.ts`, sent by `useRosBridge` on connect and whenever the tab changes). `topics` is every topic the app reads (fixed topics such as robot pose, tilt, GPS anchor/base, grasp stream, POI and active source, plus battery, rover GPS, overlays and every `*_topic` of the tabs) except those only an inactive camera, RGBD or head tab shows; `color_small` is true while the RGBD tab is open. The broadcaster serializes the union of all clients' topics, enables `color_small` if any client wants it (`BridgeNode.set_color_small`) and offers each frame only to clients subscribed to its topic. A newly subscribed topic is sent from the latest message at once; the connect snapshot (`latest_envelopes(serialize=False)`) offers only data already serialized and never serializes pending camera or costmap messages. A client that never sends `subscribe` receives every topic and no `color_small_b64`. Envelope format is unchanged.
+
+### On-demand ROS subscriptions
+
+Profiling showed 75-80% of web_ui CPU was rclpy executor wake-ups (wait-set rebuild per message, ~366 msg/s), even
+with no browser. So the bridge creates a topic's rclpy subscription only while at least one connected client wants it:
+
+- **Demand.** The server computes the union of the clients' `subscribe` topic sets (`demanded_topics` in
+  `web_ui/server.py`) and passes it to `BridgeNode.update_demand` on every connect, `subscribe` message and
+  disconnect, and on every broadcaster tick (also with no client). A client that has not sent `subscribe` yet counts
+  only after `UNSUBSCRIBED_GRACE_S` (1 s), and then wants every topic; the dashboard subscribes right after connecting,
+  so a page load never subscribes every topic.
+- **Create once, destroy after a linger.** A wanted topic gets one subscription however many clients want it. When
+  the last client stops wanting it, the subscription lives on for `DEMAND_LINGER_S` (5 s) so a page reload or tab
+  switch does not churn; wanted again within that time it is kept. On destroy the topic's cached sample and its
+  stale-topic health check are dropped, so a later subscriber never gets an old sample replayed (no placeholder data:
+  a topic without a subscription simply has no sample). Late messages of a destroyed subscription do not restart the
+  health check.
+- **Latched topics** (`/poi/list`, `/poi/photos`, costmap, all `MAP_SUB_QOS` roles) are re-created reliable +
+  transient_local, so the publisher re-delivers the last value on every re-subscription.
+- **Synthetic topics.** `/web_ui/robot_pose` runs the 20 Hz TF pose timer only while wanted (the cached pose is dropped
+  when it stops); `/web_ui/gps_anchor` subscribes the compass IMU and calibration topics only while wanted (their last
+  values are forgotten when it stops). The TF listener runs while an active topic needs it (robot pose, GPS anchor and
+  the map-frame roles `path`, `goal`, `footprint`, `costmap`) and is unregistered (buffer cleared) otherwise.
+  `webui_robot_pose_ok` is refreshed by the 10 s health tick while the pose timer is off, and is absent (unknown)
+  while TF is off too.
+- **Always on** (`BridgeNode.always_on_topics()`), because safety checks or server-side state need them with no
+  client connected:
+
+  | Topic | Why |
+  |---|---|
+  | `/tilt_guard/state` | Gates WS navigation goal publishes (`tilt_goal_rejection`) |
+  | battery role topic (only with a `battery` section) | Feeds the `BatteryGuard` that blocks commands in cut-off |
+  | `poi_result_topic` (`/poi/result`) | Resolves `POST /api/poi` |
+  | `grasp_result_topic` (`/grasp/result`) | Resolves `POST /api/grasp`, `/api/grasp/stop`, `/api/arm/jog` and the grasp stream |
+  | `/map_guard/map_reset` | Drops the cached map and the GPS anchor after a map_guard reset |
+  | `map` role (`/map`) | Feeds `webui_map_updates_total` / `webui_map_age_seconds` (SLAM dashboard) and the latched map cache |
+  | `gps` role fix (only with a GPS anchor fit) | Each fix feeds the anchor fit, which accumulates over the whole drive |
+  | TF (`/tf`, `/tf_static`, only with a GPS anchor fit) | The fit pairs every fix with the TF robot pose |
+
+  Everything else (camera, head, joint states, odometry, IMU, scan, costmap, plans, goal, footprint, POI list and
+  photos, active source, rover GPS status, overlays) is on demand.
+
+Log events `ros_demand_started` / `ros_demand_stopped` (info, with `topic`) mark each change. The per-message
+`ros2_msg_rx` and per-frame `ws_msg_offered` debug logs were removed (structlog built the event on every message even
+when filtered). Tests: `tests/test_bridge_on_demand.py`.
 
 ## Design rules
 
@@ -355,14 +400,14 @@ Because tiles come from the same origin, the Content-Security-Policy keeps `img-
 | `webui_broadcast_duration_seconds` | histogram | | Work time of each broadcaster cycle that had data |
 | `webui_broadcaster_slow_total` | counter | | Cycles over `SlowCycleTracker.threshold_ms` (every one, not only the rate-limited warning) |
 | `webui_topic_stale_total` | counter | `topic` | A subscribed topic going stale (once per outage) |
-| `webui_topics_stale` | gauge | | Number of subscribed topics that are stale right now (every topic stale shows as the full topic count), updated every health check (10 s) |
+| `webui_topics_stale` | gauge | | Number of currently subscribed topics (always-on plus active on-demand) that are stale right now (every topic stale shows as the full topic count), updated every health check (10 s) |
 | `webui_ws_pending_frames_max` | gauge | | Pending frames of the most backed-up WebSocket client, sampled each broadcaster tick |
 | `webui_ws_pending_bytes_max` | gauge | | Pending bytes of the most backed-up WebSocket client, sampled each broadcaster tick |
 | `webui_ws_clients_dropped_slow_total` | counter | | Clients dropped because a send exceeded `SEND_TIMEOUT_S` or the ordered queue overflowed (plain disconnects are not counted) |
 | `webui_http_requests_total` | counter | `route`, `status` | Middleware; `route` is the matched template, `static` for the SPA mount |
 | `webui_map_updates_total` | counter | | Each cached SLAM map message |
 | `webui_map_age_seconds` | gauge | | Computed at scrape time; absent before the first map |
-| `webui_robot_pose_ok` | gauge | | 1 when TF map to base_link is fresh, 0 when missing or stale; absent before the first lookup |
+| `webui_robot_pose_ok` | gauge | | 1 when TF map to base_link is fresh, 0 when missing or stale; absent before the first lookup and while TF is off (no client and no GPS anchor fit) |
 | `webui_battery_cutoff_active` | gauge | | Battery guard state after each valid reading; absent without battery data |
 
 ## Configuration

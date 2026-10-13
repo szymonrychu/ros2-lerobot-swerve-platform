@@ -101,7 +101,7 @@ def test_head_roles_pick_message_types_for_arbitrary_topic_names() -> None:
 
 
 def test_bridge_subscribes_head_topics() -> None:
-    """The bridge creates one subscription per head topic with the right message type."""
+    """While wanted, the bridge creates one subscription per head topic with the right message type."""
     from sensor_msgs.msg import CompressedImage, Image
 
     created: list[tuple[type, str]] = []
@@ -118,12 +118,14 @@ def test_bridge_subscribes_head_topics() -> None:
         patch.object(BridgeNode, "get_logger", create=True),
         patch.object(BridgeNode, "create_client", create=True),
     ):
-        BridgeNode(
+        node = BridgeNode(
             topics=["/h/rgb", "/h/depth", "/h/amp"],
             allowed_publish_topics=set(),
             topic_roles={"/h/rgb": "head_rgb", "/h/depth": "head_depth", "/h/amp": "head_amplitude"},
             tof_ranges={"/h/depth": 2.5},
         )
+        assert not {"/h/rgb", "/h/depth", "/h/amp"} & {t for _, t in created}  # on demand only
+        node.update_demand(None)
     assert (CompressedImage, "/h/rgb") in created
     assert (Image, "/h/depth") in created
     assert (Image, "/h/amp") in created

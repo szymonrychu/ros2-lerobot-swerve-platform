@@ -704,6 +704,8 @@ def test_bridge_init_wires_costmap_gps_and_trigger_clients() -> None:
             trigger_services=["/arm/home", "/arm/set_home"],
             gps_anchor=MagicMock(),
         )
+        assert (NavSatFix, "/client/gps/fix") in created  # always on: feeds the anchor fit
+        node.update_demand({"/local_costmap/costmap"})
     assert (OccupancyGrid, "/local_costmap/costmap") in created
     assert (NavSatFix, "/client/gps/fix") in created
     assert (Trigger, "/arm/home") in clients

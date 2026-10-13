@@ -81,6 +81,9 @@ NAV_STOP_COALESCE_S = 0.5
 WS_RECONNECT_MIN_INTERVAL_S = 0.5
 # Remotes remembered by the reconnect limiter before expired entries are pruned.
 WS_RECONNECT_REMOTES_MAX = 256
+# Seconds a client that has not sent its subscribe message yet does not count towards the on-demand ROS
+# subscriptions (the dashboard subscribes right after connecting); after it, such a client wants every topic.
+UNSUBSCRIBED_GRACE_S = 1.0
 # Appended to a nav stop timeout message: the request was sent, so nav2 may still cancel. web_ui itself commands nothing else.
 NAV_STOP_TIMEOUT_NOTE = "the cancel request was sent and may still complete; web_ui did not command the base to zero"
 # action_msgs/srv/CancelGoal.Response return codes.
@@ -256,6 +259,30 @@ def serialize_envelope(cache: dict[str, tuple[dict[str, Any], str]], envelope: d
     return frame
 
 
+def demanded_topics(clients: dict[str, Any], connected_at: dict[str, float], now: float) -> set[str] | None:
+    """Union of the topics the clients want, which drives the bridge's on-demand ROS subscriptions.
+
+    A client without a subscribe message wants every topic, but only once it has been connected for
+    UNSUBSCRIBED_GRACE_S: the dashboard narrows its subscription right after connecting, and counting it before that
+    would subscribe every topic on each page load.
+
+    Args:
+        clients (dict[str, Any]): Client id -> connection (with a topics attribute, None before subscribe).
+        connected_at (dict[str, float]): Client id -> monotonic connect time.
+        now (float): Monotonic time in seconds.
+
+    Returns:
+        set[str] | None: Wanted topics, None when some client wants every topic.
+    """
+    wanted: set[str] = set()
+    for cid, conn in clients.items():
+        if conn.topics is not None:
+            wanted |= conn.topics
+        elif now - connected_at.get(cid, now) >= UNSUBSCRIBED_GRACE_S:
+            return None
+    return wanted
+
+
 async def broadcast_envelopes(
     envelopes: list[dict[str, Any]],
     clients: dict[str, ClientConnection],
@@ -280,11 +307,10 @@ async def broadcast_envelopes(
             frame = json.dumps(envelope)
         else:
             frame = serialize_envelope(frame_cache, envelope)
-        for cid, conn in list(clients.items()):
+        for conn in list(clients.values()):
             if not conn.subscribes(key):
                 continue
             conn.offer(key, frame)
-            logger.debug("ws_msg_offered", client_id=cid, payload_bytes=len(frame))
         await asyncio.sleep(0)
 
 
@@ -371,8 +397,12 @@ def _make_start_broadcaster(
     broadcast_interval: float,
     logger: Any,
     frame_cache: dict[str, tuple[dict[str, Any], str]],
+    connected_at: dict[str, float] | None = None,
 ) -> Any:
     """Return an async startup handler that spawns a single shared broadcast task.
+
+    Every tick, with or without clients, also updates the bridge's on-demand subscriptions (so lingering ones
+    expire after the last client left).
 
     Args:
         app: The FastAPI application instance.
@@ -381,6 +411,7 @@ def _make_start_broadcaster(
         broadcast_interval: Seconds between broadcast ticks.
         logger: structlog logger.
         frame_cache: Serialized frames by topic, shared with the connect snapshot (see serialize_envelope).
+        connected_at: Client id -> monotonic connect time (see demanded_topics), None for an empty table.
 
     Returns:
         Async callable suitable for use as a startup event handler.
@@ -393,7 +424,10 @@ def _make_start_broadcaster(
                 await asyncio.sleep(broadcast_interval)
                 WS_PENDING_FRAMES_MAX.set(max((c.pending_frames for c in clients.values()), default=0))
                 WS_PENDING_BYTES_MAX.set(max((c.pending_bytes for c in clients.values()), default=0))
-                if bridge_node is None or not clients:
+                if bridge_node is None:
+                    continue
+                bridge_node.update_demand(demanded_topics(clients, connected_at or {}, time.monotonic()))
+                if not clients:
                     continue
                 t0 = time.monotonic()
                 bridge_node.set_color_small(wants_color_small(clients.values()))
@@ -572,6 +606,13 @@ def build_app(
 
     broadcast_interval = 1.0 / config.ws_broadcast_hz
     clients: dict[str, ClientConnection] = {}
+    # Client id -> monotonic connect time, for demanded_topics.
+    connected_at: dict[str, float] = {}
+
+    def update_demand() -> None:
+        """Re-evaluate the bridge's on-demand ROS subscriptions after a client change."""
+        if bridge_node is not None:
+            bridge_node.update_demand(demanded_topics(clients, connected_at, time.monotonic()))
 
     def battery_block(action: str) -> JSONResponse | None:
         """Reject a command while the battery is below cut-off.
@@ -941,7 +982,8 @@ def build_app(
         return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
     app.router.add_event_handler(
-        "startup", _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log, frame_cache)
+        "startup",
+        _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log, frame_cache, connected_at),
     )
 
     @app.websocket("/ws")
@@ -953,7 +995,9 @@ def build_app(
 
         def drop_client(_: ClientConnection) -> None:
             clients.pop(client_id, None)
+            connected_at.pop(client_id, None)
             WS_CLIENTS.set(len(clients))
+            update_demand()
 
         conn = ClientConnection(ws, on_dead=drop_client, send_timeout_s=SEND_TIMEOUT_S)
         conn.start()
@@ -967,6 +1011,7 @@ def build_app(
             for envelope in bridge_node.latest_envelopes(serialize=False) if bridge_node is not None else []:
                 conn.offer(str(envelope["topic"]), serialize_envelope(frame_cache, envelope))
             clients[client_id] = conn
+            connected_at[client_id] = time.monotonic()
             WS_CLIENTS.set(len(clients))
             log.info("ws_client_connected", client_id=client_id, remote_addr=remote, total_clients=len(clients))
 
@@ -980,6 +1025,7 @@ def build_app(
                             conn.subscribe(
                                 None if topics is None else [str(t) for t in topics], bool(msg.get("color_small"))
                             )
+                            update_demand()
                             if bridge_node is not None and conn.topics is not None:
                                 for envelope in bridge_node.latest_envelopes(set(conn.topics)):
                                     conn.offer(str(envelope["topic"]), serialize_envelope(frame_cache, envelope))
@@ -1015,6 +1061,8 @@ def build_app(
                 receiver.cancel()
             conn.close()
             clients.pop(client_id, None)
+            connected_at.pop(client_id, None)
+            update_demand()
             WS_CLIENTS.set(len(clients))
             WS_DISCONNECTS.inc()
             log.info("ws_client_disconnected", client_id=client_id, total_clients=len(clients))

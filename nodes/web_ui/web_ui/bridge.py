@@ -1,5 +1,9 @@
 """ROS2 bridge node: subscribes to topics, stores latest value, broadcasts at 20 Hz.
 
+Most topics are subscribed on demand: a ROS subscription exists only while a connected WebSocket client wants the
+topic (plus a short linger), so with no browser the rclpy executor does not wake for messages nobody reads. The
+topics behind safety checks and server-side state (ALWAYS-ON in the README) stay subscribed for the node's lifetime.
+
 Also tracks the robot pose in the map frame via TF and, for the map_nav tab, calls slam_toolbox's
 serialize_map and reset services, cancels Nav2 NavigateToPose goals, calls the arm home Trigger services and
 fits the GPS anchor of the map frame from GPS fixes paired with TF robot positions. A map reset done by the
@@ -16,6 +20,7 @@ import time
 import uuid
 from collections.abc import Callable, Collection, Iterable
 from concurrent.futures import Future, InvalidStateError
+from dataclasses import dataclass
 from typing import Any
 
 import rclpy  # noqa: F401  # kept as module attribute for test patching
@@ -158,6 +163,8 @@ CANCEL_GOAL_SERVICE_SUFFIX = "/_action/cancel_goal"
 # A zero goal id with a zero stamp asks the action server to cancel all of its goals.
 CANCEL_ALL_GOAL_UUID: tuple[int, ...] = (0,) * 16
 TOPIC_STALE_S = 10.0
+# Seconds an on-demand subscription outlives the last client that wanted it (a page reload reconnects within this).
+DEMAND_LINGER_S = 5.0
 # A robot pose whose TF stamp is older than this (vs the node clock) is dropped, never replayed to late joiners.
 ROBOT_POSE_STALE_S = 2.0
 # map_nav roles whose messages are re-expressed in map_frame (plans, goals, robot footprint, costmap origin);
@@ -166,6 +173,22 @@ MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint", "costm
 
 # Serializers take the message; those of RGBD color topics also take color_small (bool, default True).
 Serializer = Callable[..., dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class DemandEntry:
+    """What a WS topic needs from ROS while some client wants it.
+
+    Attributes:
+        start (Callable[[], Any]): Creates the ROS entities (subscriptions, timer) and returns their handle.
+        stop (Callable[[Any], None]): Destroys what start returned and drops the topic's cached state.
+        needs_tf (bool): Whether the topic needs the TF listener while it is active.
+    """
+
+    start: Callable[[], Any]
+    stop: Callable[[Any], None]
+    needs_tf: bool = False
+
 
 # map_nav subscription role -> (message class, QoS, serializer). Roles come from the tab config.
 ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
@@ -292,8 +315,12 @@ class BridgeNode(Node):
         grasp_command_topic: str | None = None,
         gps_compass: CompassSettings | None = None,
         tilt_stale_s: float = TILT_STALE_S_DEFAULT,
+        demand_linger_s: float = DEMAND_LINGER_S,
     ) -> None:
         """Initialise BridgeNode.
+
+        Only the always-on topics are subscribed here; the others are registered and subscribed by update_demand
+        while a client wants them.
 
         Args:
             topics (list[str]): ROS2 topic strings to subscribe to.
@@ -315,8 +342,19 @@ class BridgeNode(Node):
             grasp_command_topic (str | None): std_msgs/String topic grasp requests are published on, or None to disable.
             gps_compass (CompassSettings | None): Compass (IMU heading) anchor settings, or None to disable it.
             tilt_stale_s (float): Age in seconds after which the cached tilt guard state is marked stale.
+            demand_linger_s (float): Seconds an on-demand subscription outlives the last client wanting it.
         """
         super().__init__("web_ui_bridge")
+        self._demand: dict[str, DemandEntry] = {}
+        self._active: dict[str, Any] = {}
+        self._linger_until: dict[str, float] = {}
+        self._always_on: set[str] = set()
+        self._demand_linger_s = demand_linger_s
+        self._demand_lock = threading.Lock()
+        self._tf_listener: Any = None
+        # The GPS anchor fit pairs every fix with the TF robot pose, so with a fit TF is always on.
+        self._tf_always = gps_anchor is not None
+        self._pose_period_s = 1.0 / pose_rate_hz
         self._tilt_stale_s = tilt_stale_s
         self._latest: dict[str, dict[str, Any]] = {}
         self._pending: dict[str, tuple[Any, Serializer, str | None]] = {}
@@ -350,55 +388,219 @@ class BridgeNode(Node):
         )
         roles = topic_roles or {}
         self._map_topics = [topic for topic in topics if roles.get(topic) == "map"]
-        self.create_subscription(Empty, MAP_GUARD_RESET_TOPIC, self.on_map_guard_reset, DEFAULT_SUB_QOS_DEPTH)
+        self.subscribe_always_on(Empty, MAP_GUARD_RESET_TOPIC, self.on_map_guard_reset, DEFAULT_SUB_QOS_DEPTH)
         self.subscribe_tilt_guard()
         if gps_compass is not None:
-            # Dedicated subscriptions: the same topics may also feed UI tabs through the generic loop below.
-            self.create_subscription(Imu, gps_compass.imu_topic, self.on_anchor_imu, SENSOR_SUB_QOS)
-            if gps_compass.calibration_topic:
-                self.create_subscription(
-                    String, gps_compass.calibration_topic, self.on_anchor_calibration, DEFAULT_SUB_QOS_DEPTH
-                )
+            self._demand[GPS_ANCHOR_TOPIC] = DemandEntry(self.start_compass_inputs, self.stop_compass_inputs, True)
 
         for topic in topics:
-            if roles.get(topic) == BATTERY_ROLE:
+            role = roles.get(topic)
+            if role == BATTERY_ROLE:
                 if battery_guard is not None:
-                    self.create_subscription(
-                        BatteryState, topic, lambda msg, t=topic: self.on_battery(t, msg), SENSOR_SUB_QOS
-                    )
-                    self._topic_last_rx[topic] = time.monotonic()
+                    callback = self.make_topic_callback(self.on_battery, topic)
+                    self.subscribe_always_on(BatteryState, topic, callback, SENSOR_SUB_QOS, monitored=True)
                 continue
-            if roles.get(topic) == GPS_STATUS_ROLE:
-                self.create_subscription(
-                    String, topic, lambda msg, t=topic: self.on_gps_status(t, msg), DEFAULT_SUB_QOS_DEPTH
-                )
-                self._topic_last_rx[topic] = time.monotonic()
+            if role == GPS_STATUS_ROLE:
+                callback = self.make_topic_callback(self.on_gps_status, topic)
+                self.register_on_demand(topic, String, callback, DEFAULT_SUB_QOS_DEPTH)
                 continue
-            if roles.get(topic) == POI_RESULT_ROLE:
-                self.create_subscription(String, topic, self.on_poi_result, DEFAULT_SUB_QOS_DEPTH)
+            if role == POI_RESULT_ROLE:
+                self.subscribe_always_on(String, topic, self.on_poi_result, DEFAULT_SUB_QOS_DEPTH)
                 continue
-            if roles.get(topic) == GRASP_RESULT_ROLE:
-                self.create_subscription(String, topic, self.on_grasp_result, DEFAULT_SUB_QOS_DEPTH)
+            if role == GRASP_RESULT_ROLE:
+                self.subscribe_always_on(String, topic, self.on_grasp_result, DEFAULT_SUB_QOS_DEPTH)
                 continue
-            spec = subscription_spec(topic, roles.get(topic), (tof_ranges or {}).get(topic))
+            spec = subscription_spec(topic, role, (tof_ranges or {}).get(topic))
             if spec is None:
                 self.get_logger().warning(f"Unknown msg type for topic {topic!r} - skipping")
                 continue
             msg_cls, qos, serializer = spec
-            self.create_subscription(msg_cls, topic, self._make_callback(topic, serializer, roles.get(topic)), qos)
-            self._topic_last_rx[topic] = time.monotonic()
+            callback = self._make_callback(topic, serializer, role)
+            # The SLAM map feeds the map metrics and the map_guard reset; gps fixes feed the anchor fit.
+            if role == "map" or (role == "gps" and gps_anchor is not None):
+                self.subscribe_always_on(msg_cls, topic, callback, qos, monitored=True)
+            else:
+                self.register_on_demand(topic, msg_cls, callback, qos, needs_tf=role in MAP_FRAME_ROLES)
 
         if robot_pose_frames is not None:
             self._tf_buffer = Buffer()
-            self._tf_listener = TransformListener(self._tf_buffer, self)
-            self.create_timer(1.0 / pose_rate_hz, self.update_robot_pose)
+            self._demand[ROBOT_POSE_TOPIC] = DemandEntry(self.start_pose_timer, self.stop_pose_timer, True)
             self._serialize_map_client = self.create_client(SerializePoseGraph, SERIALIZE_MAP_SERVICE)
+            self.reconcile_tf()
         self.create_service_clients(map_reset_services or [], navigate_actions or [])
         for service in trigger_services or []:
             self._trigger_clients[service] = self.create_client(Trigger, service)
 
-        log.info("ros2_node_ready", node_name="web_ui_bridge", topics_subscribed=len(self._topic_last_rx))
-        self.create_timer(TOPIC_STALE_S, self._check_topic_health)
+        log.info(
+            "ros2_node_ready", node_name="web_ui_bridge", always_on=len(self._always_on), on_demand=len(self._demand)
+        )
+        self.create_timer(TOPIC_STALE_S, self.on_health_tick)
+
+    @staticmethod
+    def make_topic_callback(handler: Callable[[str, Any], None], topic: str) -> Callable[[Any], None]:
+        """Bind a (topic, msg) handler to one topic.
+
+        Args:
+            handler (Callable[[str, Any], None]): Handler taking the topic and the message.
+            topic (str): Topic the callback serves.
+
+        Returns:
+            Callable[[Any], None]: Subscription callback.
+        """
+        return lambda msg: handler(topic, msg)
+
+    def subscribe_always_on(
+        self, msg_cls: type, topic: str, callback: Callable[[Any], None], qos: Any, monitored: bool = False
+    ) -> None:
+        """Subscribe a topic for the node's lifetime (safety checks and server-side state need it with no client).
+
+        Args:
+            msg_cls (type): Message class.
+            topic (str): ROS topic.
+            callback (Callable[[Any], None]): Subscription callback.
+            qos (Any): QoS profile or depth.
+            monitored (bool): Whether the stale-topic health check watches it.
+        """
+        self.create_subscription(msg_cls, topic, callback, qos)
+        self._always_on.add(topic)
+        if monitored:
+            self._topic_last_rx[topic] = time.monotonic()
+
+    def register_on_demand(
+        self, topic: str, msg_cls: type, callback: Callable[[Any], None], qos: Any, needs_tf: bool = False
+    ) -> None:
+        """Register a topic that is subscribed only while a client wants it (see update_demand).
+
+        Args:
+            topic (str): ROS topic (also its WS topic).
+            msg_cls (type): Message class.
+            callback (Callable[[Any], None]): Subscription callback.
+            qos (Any): QoS profile or depth; a transient_local profile re-delivers the latched value on each
+                (re)subscription.
+            needs_tf (bool): Whether the topic's messages are transformed with TF.
+        """
+
+        def start() -> Any:
+            subscription = self.create_subscription(msg_cls, topic, callback, qos)
+            with self._lock:
+                self._topic_last_rx[topic] = time.monotonic()
+            return subscription
+
+        def stop(subscription: Any) -> None:
+            self.destroy_subscription(subscription)
+            with self._lock:
+                self._topic_last_rx.pop(topic, None)
+            self._stale_topics.discard(topic)
+            # No client wants it: the cache would only replay an old sample to a later subscriber.
+            self.clear(topic)
+
+        self._demand[topic] = DemandEntry(start, stop, needs_tf)
+
+    def update_demand(self, wanted: Collection[str] | None, now: float | None = None) -> None:
+        """Subscribe the on-demand topics clients want and unsubscribe those unwanted for longer than the linger.
+
+        Called by the server on every client change and on every broadcast tick (also with no client, so the
+        linger expires). A topic wanted again within the linger keeps its subscription. Always-on topics are
+        never touched.
+
+        Args:
+            wanted (Collection[str] | None): WS topics connected clients want, None for every topic.
+            now (float | None): Monotonic time in seconds, None for time.monotonic().
+        """
+        now = time.monotonic() if now is None else now
+        with self._demand_lock:
+            for topic, entry in self._demand.items():
+                if wanted is None or topic in wanted:
+                    self._linger_until.pop(topic, None)
+                    if topic not in self._active:
+                        self._active[topic] = entry.start()
+                        log.info("ros_demand_started", topic=topic)
+                    continue
+                if topic not in self._active:
+                    continue
+                deadline = self._linger_until.setdefault(topic, now + self._demand_linger_s)
+                if now >= deadline:
+                    del self._linger_until[topic]
+                    entry.stop(self._active.pop(topic))
+                    log.info("ros_demand_stopped", topic=topic)
+            self.reconcile_tf()
+
+    def reconcile_tf(self) -> None:
+        """Run the TF listener while the anchor fit or an active topic needs it; drop old transforms when off."""
+        if self._tf_buffer is None:
+            return
+        needed = self._tf_always or any(self._demand[topic].needs_tf for topic in self._active)
+        if needed and self._tf_listener is None:
+            self._tf_listener = TransformListener(self._tf_buffer, self)
+        elif not needed and self._tf_listener is not None:
+            self._tf_listener.unregister()
+            self._tf_listener = None
+            self._tf_buffer.clear()
+
+    def always_on_topics(self) -> set[str]:
+        """Return the topics subscribed for the node's lifetime.
+
+        Returns:
+            set[str]: ROS topics.
+        """
+        return set(self._always_on)
+
+    def lingering_topics(self) -> set[str]:
+        """Return the on-demand topics no client wants that are still subscribed until their linger ends.
+
+        Returns:
+            set[str]: WS topics.
+        """
+        with self._demand_lock:
+            return set(self._linger_until)
+
+    def start_pose_timer(self) -> Any:
+        """Start the robot pose lookups (a client wants ROBOT_POSE_TOPIC).
+
+        Returns:
+            Any: The rclpy timer.
+        """
+        return self.create_timer(self._pose_period_s, self.update_robot_pose)
+
+    def stop_pose_timer(self, timer: Any) -> None:
+        """Stop the robot pose lookups and drop the cached pose.
+
+        Args:
+            timer (Any): The rclpy timer start_pose_timer returned.
+        """
+        self.destroy_timer(timer)
+        self.clear(ROBOT_POSE_TOPIC)
+
+    def start_compass_inputs(self) -> list[Any]:
+        """Subscribe the compass anchor IMU (and calibration) topics (a client wants GPS_ANCHOR_TOPIC).
+
+        These are dedicated subscriptions: the same topics may also feed UI tabs as on-demand topics.
+
+        Returns:
+            list[Any]: The rclpy subscriptions.
+        """
+        compass = self._compass
+        if compass is None:
+            return []
+        subscriptions = [self.create_subscription(Imu, compass.imu_topic, self.on_anchor_imu, SENSOR_SUB_QOS)]
+        if compass.calibration_topic:
+            subscriptions.append(
+                self.create_subscription(
+                    String, compass.calibration_topic, self.on_anchor_calibration, DEFAULT_SUB_QOS_DEPTH
+                )
+            )
+        return subscriptions
+
+    def stop_compass_inputs(self, subscriptions: list[Any]) -> None:
+        """Unsubscribe the compass inputs and forget their last values (they would be stale on restart).
+
+        Args:
+            subscriptions (list[Any]): What start_compass_inputs returned.
+        """
+        for subscription in subscriptions:
+            self.destroy_subscription(subscription)
+        self._imu_heading = None
+        self._imu_calibration = None
 
     def _make_callback(self, topic: str, serializer: Serializer, role: str | None) -> Callable[[Any], None]:
         """Build a subscription callback that keeps the raw latest message and marks the topic dirty.
@@ -426,7 +628,6 @@ class BridgeNode(Node):
                 if now - last_preview_at < HEAD_PREVIEW_MIN_INTERVAL_S:
                     return
                 last_preview_at = now
-            log.debug("ros2_msg_rx", topic=topic, msg_type=type(msg).__name__)
             if role == "gps":
                 self.store_eager(topic, serializer, role, msg)
                 return
@@ -450,7 +651,8 @@ class BridgeNode(Node):
             self._pending[topic] = (msg, serializer, role)
             self._dirty.add(topic)
             self._cleared.discard(topic)
-            self._topic_last_rx[topic] = time.monotonic()
+            if topic in self._topic_last_rx:
+                self._topic_last_rx[topic] = time.monotonic()
 
     def set_color_small(self, wanted: bool) -> None:
         """Set whether RGBD color frames get the downscaled second JPEG (some connected client's tab needs it).
@@ -569,9 +771,9 @@ class BridgeNode(Node):
         self.store(topic, data)
 
     def subscribe_tilt_guard(self) -> None:
-        """Subscribe to the latched tilt guard state; the 1 Hz stream feeds the stale-topic health check."""
-        self.create_subscription(String, TILT_GUARD_STATE_TOPIC, self.on_tilt_guard_state, MAP_SUB_QOS)
-        self._topic_last_rx[TILT_GUARD_STATE_TOPIC] = time.monotonic()
+        """Subscribe to the latched tilt guard state (always on: it gates goal publishes); the 1 Hz stream feeds the
+        stale-topic health check."""
+        self.subscribe_always_on(String, TILT_GUARD_STATE_TOPIC, self.on_tilt_guard_state, MAP_SUB_QOS, monitored=True)
 
     def on_tilt_guard_state(self, msg: Any) -> None:
         """Cache the tilt guard state JSON for the WebSocket clients; invalid state is logged and dropped.
@@ -594,7 +796,8 @@ class BridgeNode(Node):
             envelope = self._latest.get(TILT_GUARD_STATE_TOPIC)
             if envelope is None or envelope["data"].get("stale"):
                 return
-            if time.monotonic() - self._topic_last_rx[TILT_GUARD_STATE_TOPIC] <= self._tilt_stale_s:
+            last_rx = self._topic_last_rx.get(TILT_GUARD_STATE_TOPIC)
+            if last_rx is None or time.monotonic() - last_rx <= self._tilt_stale_s:
                 return
             self._latest[TILT_GUARD_STATE_TOPIC] = {
                 "topic": TILT_GUARD_STATE_TOPIC,
@@ -712,7 +915,8 @@ class BridgeNode(Node):
             self._latest[topic] = {"topic": topic, "data": data}
             self._dirty.add(topic)
             self._cleared.discard(topic)
-            self._topic_last_rx[topic] = time.monotonic()
+            if topic in self._topic_last_rx:  # health-checked topics only (not a late message of a dropped one)
+                self._topic_last_rx[topic] = time.monotonic()
 
     def to_map_frame(self, data: dict[str, Any], role: str | None) -> dict[str, Any] | None:
         """Re-express a serialized path/footprint ("points"), goal ("x", "y", "yaw") or costmap ("origin") in the map frame.
@@ -766,28 +970,53 @@ class BridgeNode(Node):
         """
         if self._robot_pose_frames is None or self._tf_buffer is None:
             return False
-        map_frame, base_frame = self._robot_pose_frames
-        try:
-            tf = self._tf_buffer.lookup_transform(map_frame, base_frame, Time())
-        except TransformException as exc:
-            log.debug("robot_pose_unavailable", error=str(exc))
-            ROBOT_POSE_OK.set(0)
+        pose = self.lookup_robot_pose()
+        if pose is None:
             self.clear(ROBOT_POSE_TOPIC)
             return False
-        pose = transform_to_pose_dict(tf)
-        age_s = self.get_clock().now().nanoseconds / 1e9 - pose["stamp"]
-        if age_s > ROBOT_POSE_STALE_S:
-            log.debug("robot_pose_stale", age_s=round(age_s, 2))
-            ROBOT_POSE_OK.set(0)
-            self.clear(ROBOT_POSE_TOPIC)
-            return False
-        ROBOT_POSE_OK.set(1)
         with self._lock:
             cached = self._latest.get(ROBOT_POSE_TOPIC)
             if cached is not None and cached["data"] == pose:
                 return False
         self.store(ROBOT_POSE_TOPIC, pose)
         return True
+
+    def lookup_robot_pose(self) -> dict[str, Any] | None:
+        """Look up map_frame -> base_frame and set webui_robot_pose_ok from the result.
+
+        Returns:
+            dict[str, Any] | None: Fresh pose, or None when the transform is unavailable or older than
+                ROBOT_POSE_STALE_S.
+        """
+        map_frame, base_frame = self._robot_pose_frames or ("", "")
+        try:
+            tf = self._tf_buffer.lookup_transform(map_frame, base_frame, Time())
+        except TransformException as exc:
+            log.debug("robot_pose_unavailable", error=str(exc))
+            ROBOT_POSE_OK.set(0)
+            return None
+        pose = transform_to_pose_dict(tf)
+        age_s = self.get_clock().now().nanoseconds / 1e9 - pose["stamp"]
+        if age_s > ROBOT_POSE_STALE_S:
+            log.debug("robot_pose_stale", age_s=round(age_s, 2))
+            ROBOT_POSE_OK.set(0)
+            return None
+        ROBOT_POSE_OK.set(1)
+        return pose
+
+    def on_health_tick(self) -> None:
+        """Every TOPIC_STALE_S: check topic staleness and keep webui_robot_pose_ok current without the pose timer.
+
+        While no client wants the pose its timer is off; the gauge is then refreshed here when TF is on, and
+        reported as unknown (not exported) when TF is off too.
+        """
+        self._check_topic_health()
+        if self._robot_pose_frames is None or ROBOT_POSE_TOPIC in self._active:
+            return
+        if self._tf_listener is None:
+            ROBOT_POSE_OK.value = None
+            return
+        self.lookup_robot_pose()
 
     def feed_gps_anchor(self, fix: dict[str, Any]) -> None:
         """Pair a valid fix with the robot's map-frame position and refit the GPS anchor.
