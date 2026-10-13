@@ -374,6 +374,57 @@ ros2_node_type_defaults:
     apt_packages:
       - ros-jazzy-message-filters
       - ros-jazzy-stereo-msgs
+  # C++ (rclcpp) port of stereo_depth (nodes/stereo_depth_cpp/README.md), side by side: same topics, QoS, config
+  # keys and metrics port (19113, config metrics_port). Cut-over enables this entry and disables stereo_depth; the
+  # Python node stays installed as the rollback. Built on the Pi from the repo tree (colcon local source, see
+  # roles/ros2_node_deploy/tasks/colcon_source_package.yml): low-priority scope, no stop of the running nodes, a
+  # rebuild only when the synced tree or a stamped apt version changes. Same background tier as stereo_depth.
+  stereo_depth_cpp:
+    deploy_mode: native
+    node_launch_command: "ros2 run stereo_depth_cpp stereo_depth_node"
+    node_src_dir: ""
+    # Runs no repo file (the binary is in /opt/ros2-ws/install): the build stamp restarts it when its source changes.
+    src_paths: []
+    colcon_source:
+      - local: shared/ros2_common_cpp
+        package: ros2_common_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [libyaml-cpp-dev, prometheus-cpp-dev]
+      - local: nodes/stereo_depth_cpp
+        package: stereo_depth_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [ros-jazzy-rclcpp, ros-jazzy-cv-bridge, ros-jazzy-message-filters, libopencv-dev]
+    memory_low: "96M"
+    memory_max: "384M"
+    cpu_weight: 100
+    io_weight: 100
+    oom_score_adjust: 0
+    config_path: /etc/ros2/stereo_depth_cpp
+    env:
+      - STEREO_DEPTH_CONFIG=/etc/ros2/stereo_depth_cpp/config.yaml
+    apt_packages:
+      - build-essential
+      - cmake
+      - rsync
+      - python3-colcon-common-extensions
+      - ros-jazzy-ament-cmake
+      - ros-jazzy-rclcpp
+      - ros-jazzy-rclcpp-components
+      - ros-jazzy-sensor-msgs
+      - ros-jazzy-stereo-msgs
+      - ros-jazzy-message-filters
+      - ros-jazzy-cv-bridge
+      - libopencv-dev
+      - libyaml-cpp-dev
+      - prometheus-cpp-dev
   swerve_controller:
     deploy_mode: native
     node_launch_command: "python3 -m swerve_drive_controller"
@@ -495,6 +546,62 @@ ros2_node_type_defaults:
       - ros-jazzy-slam-toolbox
     env:
       - MAP_GUARD_CONFIG=/etc/ros2/map_guard/config.yaml
+  # C++ (rclcpp) port of map_guard (nodes/map_guard_cpp/README.md), side by side: same topics, services, config keys
+  # and metrics port (19110, config metrics_port). Cut-over enables this entry and disables map_guard; the Python node
+  # stays installed as the rollback. Built from the repo tree like stereo_depth_cpp. Same tier and memory as map_guard.
+  map_guard_cpp:
+    deploy_mode: native
+    node_launch_command: "ros2 run map_guard_cpp map_guard_node"
+    node_src_dir: ""
+    # Runs no repo file (the binary is in /opt/ros2-ws/install): the build stamp restarts it when its source changes.
+    src_paths: []
+    colcon_source:
+      - local: shared/ros2_common_cpp
+        package: ros2_common_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [libyaml-cpp-dev, prometheus-cpp-dev]
+      - local: nodes/map_guard_cpp
+        package: map_guard_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [ros-jazzy-rclcpp, ros-jazzy-tf2-ros, ros-jazzy-slam-toolbox, libcpp-httplib-dev]
+    memory_low: "64M"
+    memory_max: "160M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
+    config_path: /etc/ros2/map_guard_cpp
+    env:
+      - MAP_GUARD_CONFIG=/etc/ros2/map_guard_cpp/config.yaml
+    # slam_toolbox for its Pause/Reset/SerializePoseGraph services, cpp-httplib for the claude_agent state poll and the
+    # /robot_events POST, nlohmann-json for their bodies.
+    apt_packages:
+      - build-essential
+      - cmake
+      - rsync
+      - python3-colcon-common-extensions
+      - ros-jazzy-ament-cmake
+      - ros-jazzy-rclcpp
+      - ros-jazzy-rclcpp-components
+      - ros-jazzy-sensor-msgs
+      - ros-jazzy-nav-msgs
+      - ros-jazzy-geometry-msgs
+      - ros-jazzy-std-msgs
+      - ros-jazzy-std-srvs
+      - ros-jazzy-rcl-interfaces
+      - ros-jazzy-tf2-ros
+      - ros-jazzy-slam-toolbox
+      - libcpp-httplib-dev
+      - nlohmann-json3-dev
+      - libyaml-cpp-dev
+      - prometheus-cpp-dev
   robot_localization_ekf:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/robot_localization_ekf/launch/ekf.launch.py"
@@ -1038,6 +1145,41 @@ ros2_nodes:
       frame_id: stereo_left_optical_frame
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
       metrics_port: 19113
+  # C++ port of stereo_depth (side by side, not installed until the cut-over): the same config block, so either node
+  # reads it. Cut-over: present/enabled true here, enabled false on stereo_depth (never both: one metrics port).
+  - name: stereo_depth_cpp
+    node_type: stereo_depth_cpp
+    present: false
+    enabled: false
+    config: |
+      # Every DepthConfig key at its default (nodes/stereo_depth/README.md, "Config").
+      left_image_topic: /overview_camera/image_raw
+      right_image_topic: /stereo/right/image_raw
+      depth_topic: /stereo/depth/image_raw
+      camera_info_topic: /stereo/camera_info
+      publish_disparity: false
+      disparity_topic: /stereo/disparity
+      calibration_dir: /var/lib/ros2/camera_calibration
+      calibration_check_s: 5.0
+      # StereoSGBM MODE_SGBM_3WAY on 480x360 grey rectified pairs.
+      num_disparities: 48
+      block_size: 5
+      p1: 200
+      p2: 800
+      uniqueness_ratio: 10
+      speckle_window_size: 100
+      speckle_range: 2
+      disp12_max_diff: 1
+      pre_filter_cap: 31
+      # Depth outside [min_depth_m, max_depth_m] is published as 0 (invalid).
+      min_depth_m: 0.3
+      max_depth_m: 4.0
+      sync_slop_s: 0.002
+      max_rate_hz: 5.0
+      matcher_threads: 2
+      frame_id: stereo_left_optical_frame
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
+      metrics_port: 19113
   - name: lerobot_follower
     node_type: feetech_servos
     present: true
@@ -1297,6 +1439,76 @@ ros2_nodes:
     node_type: map_guard
     present: true
     enabled: true
+    config: |
+      # Prometheus /metrics on 127.0.0.1.
+      metrics_port: 19110
+      # true: never call slam_toolbox services or publish /map_guard/map_reset; set false once tuned in Grafana.
+      dry_run: true
+      reasons: [mismatch, lifted, carried, rotated]
+      scan_topic: /scan_filtered
+      map_topic: /map
+      imu_topic: /imu/data
+      wheel_odom_topic: /odom
+      lidar_odom_topic: /odom_rf2o
+      cmd_vel_topic: /cmd_vel
+      map_frame: map
+      reset_topic: /map_guard/map_reset
+      events_topic: /robot_events
+      pause_service: /slam_toolbox/pause_new_measurements
+      reset_service: /slam_toolbox/reset
+      serialize_service: /slam_toolbox/serialize_map
+      parameters_service: /slam_toolbox/get_parameters
+      service_timeout_s: 5.0
+      agent_state_url: http://127.0.0.1:18300/api/state
+      agent_poll_s: 2.0
+      agent_timeout_s: 0.5
+      tick_hz: 10.0
+      # Scan-to-map agreement.
+      max_range_m: 8.0
+      hit_radius_cells: 1
+      occupied_threshold: 65
+      min_points: 40
+      agreement_hz: 2.0
+      median_window: 5
+      mismatch_ratio: 0.3
+      mismatch_s: 5.0
+      healthy_ratio: 0.6
+      min_map_cells_known: 2000
+      # LIFTED: tilt from the level baseline, or vertical acceleration confirmed by tilt / lidar motion.
+      lift_tilt_deg: 12.0
+      lift_s: 1.0
+      level_window_s: 3.0
+      level_tolerance_deg: 2.0
+      level_rebaseline_s: 30.0
+      lift_accel_z: 1.5
+      lift_accel_s: 0.4
+      lift_confirm_s: 2.0
+      lift_confirm_tilt_deg: 4.0
+      gravity_band: 2.0
+      # CARRIED: lidar odometry moves, wheels do not, nothing commanded.
+      carried_speed_mps: 0.08
+      wheel_still_mps: 0.02
+      cmd_timeout_s: 0.5
+      cmd_eps: 0.01
+      carried_s: 1.0
+      input_timeout_s: 0.5
+      # ROTATED: IMU yaw rate without wheel yaw rate or angular command.
+      rotate_rate_rad_s: 0.3
+      wheel_still_rad_s: 0.05
+      rotate_s: 0.8
+      # Response.
+      settle_s: 3.0
+      evaluate_s: 4.0
+      cooldown_s: 30.0
+      backup_dir: /var/lib/ros2/maps
+      backup_prefix: map_guard_backup
+      keep_backups: 5
+  # C++ port of map_guard (side by side, not installed until the cut-over): the same config block, so either node
+  # reads it. Cut-over: present/enabled true here, enabled false on map_guard (never both: one metrics port).
+  - name: map_guard_cpp
+    node_type: map_guard_cpp
+    present: false
+    enabled: false
     config: |
       # Prometheus /metrics on 127.0.0.1.
       metrics_port: 19110

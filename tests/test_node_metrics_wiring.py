@@ -26,7 +26,11 @@ CONFIG_METRICS_PORTS = {
     "costmap_zones": 19111,
     "arducam_tof": 19112,
     "stereo_depth": 19113,
+    # Side-by-side C++ ports: the Python node's port (the same config block); only one of a pair is ever enabled.
+    "map_guard_cpp": 19110,
+    "stereo_depth_cpp": 19113,
 }
+CPP_SUFFIX = "_cpp"
 ENV_METRICS_PORTS = {"gripper_uvc_camera": 19105, "rplidar_a1": 19106}
 # Nodes with an HTTP server serve /metrics on it: node -> key path of the port in its config.
 HTTP_PORT_KEYS = {
@@ -197,6 +201,47 @@ def test_server_group_vars_untouched() -> None:
     assert yaml.safe_load(AGENT_DEFAULTS.read_text())["monitoring_agent_node_targets"] == []
 
 
+def all_contract_ports() -> dict[str, int]:
+    """Return the contract port of every contract node.
+
+    Returns:
+        dict[str, int]: Node name to its contract port.
+    """
+    return {**CONFIG_METRICS_PORTS, **ENV_METRICS_PORTS, **HTTP_PORTS}
+
+
+def is_running(entry: dict) -> bool:
+    """Return whether a ros2_nodes entry is installed and enabled.
+
+    Args:
+        entry (dict): A ros2_nodes entry.
+
+    Returns:
+        bool: True when present and enabled.
+    """
+    return bool(entry.get("present", True) and entry.get("enabled", True))
+
+
+def test_a_port_is_shared_only_by_a_python_and_cpp_pair() -> None:
+    """Two contract nodes share a port only as <name>/<name>_cpp (the C++ port of the same node)."""
+    by_port: dict[int, list[str]] = {}
+    for name, port in all_contract_ports().items():
+        by_port.setdefault(port, []).append(name)
+    shared = {port: sorted(names) for port, names in by_port.items() if len(names) > 1}
+    assert shared, "the _cpp ports are in the contract"
+    for port, names in shared.items():
+        assert len(names) == 2 and names[1] == names[0] + CPP_SUFFIX, (port, names)
+
+
+def test_a_python_and_cpp_pair_is_never_both_enabled() -> None:
+    """Both would bind the same 127.0.0.1 port and publish the same topics: a cut-over flips both entries."""
+    nodes = client_nodes()
+    pairs = [(n[: -len(CPP_SUFFIX)], n) for n in nodes if n.endswith(CPP_SUFFIX)]
+    assert {cpp for _, cpp in pairs} >= {"map_guard_cpp", "stereo_depth_cpp"}
+    for python, cpp in pairs:
+        assert not (is_running(nodes[python]) and is_running(nodes[cpp])), (python, cpp)
+
+
 def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
     """Each enabled contract node in client ros2_nodes is scraped on 127.0.0.1:<its configured port>/metrics."""
     targets = node_targets()
@@ -204,15 +249,18 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
     checked = 0
     for name in sorted(CONTRACT_NODES):
         entry = nodes[name]
-        if not (entry.get("present", True) and entry.get("enabled", True)):
+        if not is_running(entry):
             continue
         target = targets[name]
         assert target["address"] == f"127.0.0.1:{expected_port(entry)}", name
         assert target.get("path", "/metrics") == "/metrics", name
         checked += 1
-    disabled = {n for n in CONTRACT_NODES if not nodes[n].get("enabled", True)}
-    # topic_scraper_api disabled 2026-10-11; arducam_tof until the camera is plugged in.
-    assert disabled == {"topic_scraper_api", "arducam_tof"}
+    disabled = {n for n in CONTRACT_NODES if not is_running(nodes[n])}
+    # topic_scraper_api disabled 2026-10-11; arducam_tof until the camera is plugged in. Of each <name>/<name>_cpp pair
+    # exactly one runs (test_a_python_and_cpp_pair_is_never_both_enabled).
+    pair_members = {n for n in CONTRACT_NODES if n.endswith(CPP_SUFFIX)}
+    pair_members |= {n[: -len(CPP_SUFFIX)] for n in pair_members}
+    assert disabled - pair_members == {"topic_scraper_api", "arducam_tof"}
     assert checked == len(CONTRACT_NODES - disabled)
     # Only enabled nodes are scraped: a disabled target would read as down. Add a target when enabling the node.
     assert set(targets) == CONTRACT_NODES - disabled

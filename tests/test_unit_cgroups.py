@@ -39,7 +39,7 @@ NORMAL = {
     "types": [
         "rplidar_a1", "rf2o_laser_odometry", "rf2o_odom_relay", "robot_localization_ekf", "nav2_bringup",
         "slam_toolbox", "laser_filter", "gps_rtk", "poi_store", "overview_camera", "uvc_camera", "realsense_d435i",
-        "test_joint_api", "map_guard", "costmap_zones", "arducam_tof",
+        "test_joint_api", "map_guard", "map_guard_cpp", "costmap_zones", "arducam_tof",
     ],
 }  # fmt: skip
 AGENT = {
@@ -55,8 +55,8 @@ AGENT = {
     ],
 }
 # Background tier: work the robot can lose (stereo depth): the systemd default weight and no OOM protection, below
-# every robot and agent tier.
-BACKGROUND = {"weights": (100, 100, 0), "types": ["stereo_depth"]}
+# every robot and agent tier. stereo_depth_cpp is its side-by-side C++ port, in the same tier.
+BACKGROUND = {"weights": (100, 100, 0), "types": ["stereo_depth", "stereo_depth_cpp"]}
 TIERS = [CRITICAL, NORMAL, AGENT]
 ALL_TIERS = [*TIERS, BACKGROUND]
 ROBOT_TYPES = {t for tier in TIERS for t in tier["types"]}

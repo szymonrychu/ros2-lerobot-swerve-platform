@@ -310,7 +310,7 @@ def test_colcon_package_build_keeps_the_limits_and_stamp_logic() -> None:
 
 def test_colcon_stamp_key_is_unchanged_for_the_first_source_and_chained_after() -> None:
     text = COLCON_ONE_TASKS.read_text()
-    assert "colcon_src.commit ~ (_colcon_patch_stats" in text
+    assert "(colcon_src.commit | default('')) ~ (_colcon_patch_stats" in text
     # Later sources are rebuilt when an earlier one (their dependency) changes.
     assert "_colcon_chain_key" in text
 

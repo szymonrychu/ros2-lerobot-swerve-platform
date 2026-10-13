@@ -72,6 +72,28 @@ Contract of the C++ scaffolding: root `.clang-format`, `scripts/cpp-node-test.sh
 | `test_ros2_common_cpp_declares_the_lint_packages` | `package.xml` test_depends on `ament_lint_auto`, `ament_cmake_clang_format`, `ament_cmake_cppcheck`, `ament_cmake_xmllint` and `ament_cmake_gtest`, not `ament_cmake_copyright`; build type `ament_cmake`; CMake calls `ament_lint_auto_find_test_dependencies()` and points clang-format at the root `.clang-format`. |
 | `test_ros2_common_cpp_libraries_do_not_link_rclcpp` | `CMakeLists.txt` and `package.xml` never mention rclcpp; the `config` and `metrics` library targets exist. |
 
+### `test_cpp_node_deploy.py`
+
+In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_node_deploy/tasks/colcon_source_package.yml` and the `stereo_depth_cpp` / `map_guard_cpp` node types. Task fields are rendered with jinja2 plus Ansible's core filters (`hash`, `regex_replace`) and the `group_vars/all.yml` build limits; the sync and hash scripts run with bash and rsync on a temporary repo and workspace.
+
+| Test | Description |
+|---|---|
+| `test_stamp_key_is_stable_for_an_unchanged_tree` | Sync again and hash again: the rendered stamp key is the same 40-char sha1, so an unchanged deploy builds nothing. |
+| `test_stamp_key_changes_when_a_source_file_changes` | A same-size edit of a source file (rsync `--checksum`) changes the key. |
+| `test_stamp_key_covers_paths_deletions_and_apt_versions` | A rename (same contents), a removed file (`--delete`), an apt version and the chain key each change the key; renaming back restores it. |
+| `test_python_caches_do_not_reach_the_synced_tree` | A `__pycache__` in the package neither syncs nor changes the key. |
+| `test_pinned_sources_keep_their_key_inputs` | A pinned source (skipped tree hash) keys on `sha1(commit + patch checksums)` as before, so existing rf2o/libcamera/MPPI stamps stay valid. |
+| `test_local_only_tasks_run_only_for_local_sources` | Sync and hash run only for a `local` source, before the key and the stamp check; clone and patch only for a pinned one. |
+| `test_local_builds_never_include_stop_for_build` | The only `stop_for_build.yml` include is skipped for a local source and still runs for a pinned source with a missing stamp; the file never calls systemctl. |
+| `test_a_local_build_restarts_only_its_own_node` | The build notifies the restart handler and queues only `node_name`. |
+| `test_local_build_runs_in_the_low_priority_scope` | Every configured local source renders `systemd-run --scope`, CPUWeight 20, IOWeight 10, nice 19, ionice idle, one worker, Release with `BUILD_TESTING=OFF`, `--base-paths` of its own tree, `MAKEFLAGS=-j2`, and a chained source sources the workspace. |
+| `test_pinned_build_command_is_unchanged` | A pinned source still renders Release only, no `--base-paths`, `MAKEFLAGS=-j4`. |
+| `test_cpp_node_type_is_a_local_colcon_build` | (per `_cpp` type) native, `node_src_dir ""`, `src_paths []`, the `ros2 run` launch command, `colcon_source` = local ros2_common_cpp then the node package in `/opt/ros2-ws` with stamped apt packages that are installed, the C++ build apt packages, config path and env var, and the Python node's tier and memory keys. |
+| `test_ros2_common_cpp_is_a_discovered_cpp_package` | The chained `shared/ros2_common_cpp` is a C++ package found by `discover_cpp_package_dirs`. |
+| `test_cpp_node_entry_is_absent_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: false`, `enabled: false`, the same `config: |` block (metrics ports 19113, 19110). |
+| `test_client_playbook_deploys_the_cpp_node_after_its_python_counterpart` | The `Deploy <name>_cpp` include follows the Python node's, with the node, build and config tags and the node tag applied. |
+| `test_docs_describe_the_local_source_build_and_the_cpp_nodes` | `ansible/README.md`, `nodes/README.md` and the ansible-deploy skill describe the local build and both node types. |
+
 ### `test_precommit_config.py`
 
 Guards `.pre-commit-config.yaml` against the legacy toolchain.
@@ -178,7 +200,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `stereo_depth_cpp` background, `map_guard_cpp` normal. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -1437,7 +1459,7 @@ Static checks of the `stereo_depth` deployment (SGBM depth from the IMX219 pair 
 | Test | Description |
 |------|-------------|
 | `test_node_type_is_declared_on_the_client` | Native `python3 -m stereo_depth` from `nodes/stereo_depth`, `src_shared`, `/etc/ros2/stereo_depth` with `STEREO_DEPTH_CONFIG`, apt `ros-jazzy-message-filters` and `ros-jazzy-stereo-msgs`. |
-| `test_node_type_is_the_only_member_of_the_background_tier` | cpu/io_weight 100, `oom_score_adjust` 0, no other type with those weights, no `cpu_quota` or `memory_high`. |
+| `test_node_type_is_the_only_member_of_the_background_tier` | cpu/io_weight 100, `oom_score_adjust` 0, no other type with those weights except its C++ port `stereo_depth_cpp`, no `cpu_quota` or `memory_high`. |
 | `test_node_type_memory_estimate` | `memory_low` 96M, `memory_max` 384M, marked as an estimate in the comment. |
 | `test_ros2_nodes_entry_is_present_and_enabled` | The `ros2_nodes` entry is present, enabled and has a `config: |` block. |
 | `test_deployed_config_makes_every_default_explicit` | The deployed config lists every `DepthConfig` field at its default, `metrics_port` 19113. |
@@ -1911,8 +1933,8 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_web_ui_npm_steps_run_only_when_their_inputs_changed` | `npm ci` / `npm run build` are conditioned on the frontend probe, copy and stamps follow only a build, stamp written last. |
 | `test_dependency_probe_detects_source_dependency_and_shared_changes` | Runs the probe in a temp repo: new venv is stale; matching stamp is not; a source commit changes only `src_key`; `shared/` source restarts dependents without reinstall; shared metadata or `uv.lock` change the dependency hash; a stale `.poetry-deps` stamp never skips `uv sync`. |
 | `test_web_ui_probe_builds_only_when_frontend_inputs_change` | Runs the web_ui probe: first run needs ci + build; with stamps and outputs neither; a source commit builds without ci; a lock change runs ci; missing static output rebuilds. |
-| `test_heavy_steps_stop_the_nodes_only_when_they_will_run` | The stop-before-build include is conditional (uv sync stale, web_ui build, colcon stamp missing), runs once per play, and no playbook stops nodes up front. |
-| `test_colcon_clone_patch_and_build_are_skipped_when_the_stamp_exists` | Clone, patch and build only when the stamp is missing; the stamp check comes before the clone. |
+| `test_heavy_steps_stop_the_nodes_only_when_they_will_run` | The stop-before-build include is conditional (uv sync stale, web_ui build, colcon stamp missing for a pinned, not local, source), runs once per play, and no playbook stops nodes up front. |
+| `test_colcon_clone_patch_and_build_are_skipped_when_the_stamp_exists` | Clone, patch and build only when the stamp is missing (clone and patch only for pinned sources); the stamp check comes before the clone. |
 | `test_start_script_restarts_the_queue_starts_stopped_nodes_in_scope_and_clears_the_queue` | Runs the rendered start script against a fake `systemctl`: queued nodes restart, stopped nodes in scope start, running unchanged ones are skipped, the queue file is emptied. |
 | `test_start_script_with_a_node_filter_only_starts_selected_nodes_but_restarts_every_queued_one` | Scope limited to one node: only it is started, a queued node outside the scope is still restarted, others untouched. |
 | `test_start_script_fails_on_a_failed_restart_and_keeps_the_queue` | A failing `systemctl restart` fails the script and the queue file keeps its entries for the next run. |
@@ -1963,13 +1985,15 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, stereo_depth) `metrics_port` 19101-19113 at the top level of the config. |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, stereo_depth, and the side-by-side C++ ports map_guard_cpp 19110 and stereo_depth_cpp 19113) `metrics_port` 19101-19113 at the top level of the config. |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
 | `test_node_types_using_ros2_metrics_declare_src_shared` | Every venv node type that imports ros2_metrics (stereo_depth included) sets `src_shared: true`. |
 | `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
-| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. |
+| `test_a_port_is_shared_only_by_a_python_and_cpp_pair` | Two contract nodes share a port only as `<name>`/`<name>_cpp` (at least one such pair exists). |
+| `test_a_python_and_cpp_pair_is_never_both_enabled` | Of every `<name>`/`<name>_cpp` pair in `ros2_nodes` (map_guard, stereo_depth at least) at most one is present and enabled: both would bind the same port and publish the same topics. |
+| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api and arducam_tof are only members of a Python/C++ pair. |
 
 ### `monitoring_helpers.py`
 

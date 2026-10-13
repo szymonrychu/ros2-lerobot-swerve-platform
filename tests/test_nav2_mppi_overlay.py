@@ -108,7 +108,10 @@ def test_apt_version_feeds_the_stamp_key_only_for_a_non_empty_list() -> None:
     expr = key["ansible.builtin.set_fact"]["_colcon_patch_key"]
     assert "stamp_apt_packages" in expr and "length > 0" in expr
     # The original formula is untouched, so rf2o/libcamera/camera_ros stamps stay byte-identical.
-    assert "(colcon_src.commit ~ (_colcon_patch_stats.results | map(attribute='stat.checksum') | join(''))" in expr
+    assert (
+        "(colcon_src.commit | default('')) ~ (_colcon_patch_stats.results | map(attribute='stat.checksum') | join(''))"
+        in expr
+    )
     assert "~ (_colcon_chain_key | default(''))" in expr
 
 

@@ -569,7 +569,8 @@ def test_heavy_steps_stop_the_nodes_only_when_they_will_run() -> None:
     assert len(stops) == 2 and all("when" in t for t in stops)
     colcon = load(ROLE_DIR / "tasks" / "colcon_source_package.yml")
     colcon_stop = next(t for t in colcon if "stop_for_build.yml" in str(t.get("ansible.builtin.include_tasks", "")))
-    assert colcon_stop["when"] == "not _colcon_stamp_stat.stat.exists"
+    # Pinned upstream sources only: a local in-repo package never stops the nodes (tests/test_cpp_node_deploy.py).
+    assert colcon_stop["when"] == ["colcon_src.local is not defined", "not _colcon_stamp_stat.stat.exists"]
     for text in (PLAYBOOKS_DIR / "deploy_nodes_client.yml", PLAYBOOKS_DIR / "deploy_nodes_server.yml"):
         assert "stop_for_build" not in text.read_text() and "stop_ros_nodes" not in text.read_text()
     stop_tasks = load(ROLE_DIR / "tasks" / "stop_for_build.yml")
@@ -580,8 +581,10 @@ def test_heavy_steps_stop_the_nodes_only_when_they_will_run() -> None:
 def test_colcon_clone_patch_and_build_are_skipped_when_the_stamp_exists() -> None:
     tasks = load(ROLE_DIR / "tasks" / "colcon_source_package.yml")
     by_module = {next(k for k in t if k.startswith("ansible.builtin.")): t for t in tasks}
-    for module in ("ansible.builtin.git", "ansible.builtin.patch", "ansible.builtin.command"):
-        assert by_module[module]["when"] == "not _colcon_stamp_stat.stat.exists", module
+    pinned_only = ["colcon_src.local is not defined", "not _colcon_stamp_stat.stat.exists"]
+    assert by_module["ansible.builtin.git"]["when"] == pinned_only
+    assert by_module["ansible.builtin.patch"]["when"] == pinned_only
+    assert by_module["ansible.builtin.command"]["when"] == "not _colcon_stamp_stat.stat.exists"
     names = [t["name"] for t in tasks]
     assert names.index("Look for the build stamp") < names.index("Clone the pinned source commit")
     assert names.index("Drop the build stamp when the installed workspace is missing") < names.index(

@@ -1,8 +1,10 @@
 ---
-# Build the pinned source packages of a node type into a colcon workspace (packages that are not in the apt
-# distribution). node_colcon_source is either ONE source dict (rf2o_laser_odometry) or a LIST of them, built in list
-# order so dependencies come first (libcamera before camera_ros). Each source is {repo, commit, package, workspace,
-# patches, cmake_args, meson_args}: see colcon_source_package.yml for the fields, the stamp logic and the build limits.
+# Build the source packages of a node type into a colcon workspace: pinned upstream packages that are not in the apt
+# distribution, and local in-repo ament packages (the _cpp nodes). node_colcon_source is either ONE source dict
+# (rf2o_laser_odometry) or a LIST of them, built in list order so dependencies come first (libcamera before camera_ros,
+# ros2_common_cpp before stereo_depth_cpp). A pinned source is {repo, commit, package, workspace, patches, cmake_args,
+# meson_args}, a local one {local, package, workspace, stamp_apt_packages}: see colcon_source_package.yml for the
+# fields, the stamp logic, the build limits and why a local build never stops the running nodes.
 
 - name: Normalise the colcon sources to a list
   ansible.builtin.set_fact:
@@ -10,7 +12,7 @@
     _colcon_chain_key: ""
   tags: [build]
 
-- name: Build each pinned source in order
+- name: Build each source in order
   ansible.builtin.include_tasks: colcon_source_package.yml
   loop: "{{ _colcon_sources }}"
   loop_control:

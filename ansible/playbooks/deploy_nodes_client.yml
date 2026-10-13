@@ -294,6 +294,17 @@
             _deploy_node_name: stereo_depth
           tags: [stereo_depth, apt, python, build, config]
 
+        # C++ port of stereo_depth, side by side (present: false until the cut-over), right after it as in ros2_nodes. Its colcon
+        # local-source build never stops the running nodes.
+        - name: Deploy stereo_depth_cpp
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [stereo_depth_cpp]
+          vars:
+            _deploy_node_name: stereo_depth_cpp
+          tags: [stereo_depth_cpp, apt, python, build, config]
+
         - name: Deploy lerobot_follower
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml
@@ -389,6 +400,17 @@
           vars:
             _deploy_node_name: map_guard
           tags: [map_guard, apt, python, build, config]
+
+        # C++ port of map_guard, side by side (present: false until the cut-over), right after it as in ros2_nodes. Its colcon
+        # local-source build never stops the running nodes.
+        - name: Deploy map_guard_cpp
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [map_guard_cpp]
+          vars:
+            _deploy_node_name: map_guard_cpp
+          tags: [map_guard_cpp, apt, python, build, config]
 
         - name: Deploy nav2_bringup
           ansible.builtin.include_tasks:

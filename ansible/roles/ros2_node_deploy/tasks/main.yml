@@ -4,12 +4,14 @@
 #   node_name, node_present, node_enabled, node_deploy_mode
 #   Native: node_launch_command, node_src_dir (optional), node_apt_packages, the cgroup keys (node_cpu_quota,
 #     node_memory_max, node_memory_low, node_memory_high, node_cpu_weight, node_io_weight, node_oom_score_adjust),
-#     node_colcon_source (optional {repo, commit, package, workspace} or a list of them: built from source, see colcon_source_build.yml)
+#     node_colcon_source (optional {repo, commit, package, workspace} or {local, package, workspace}, or a list of them:
+#     built from source, see colcon_source_build.yml)
 #   Both: node_config_path, node_config, node_env, repo_dest
 # Deploy speed (see ansible/README.md, "Deploy performance"): nothing here restarts or stops a node directly. Changes
 # queue a restart (handler "Restart ROS2 node" appends the node to the host file ros2_restart_queue) that playbooks/tasks/start_ros_nodes.yml
-# carries out once, in ros2_nodes order, at the end of the deploy. Heavy steps (npm, colcon, uv sync) run only when
-# their stamp changed and stop all running nodes first (stop_for_build.yml, once per play). Every task carries a tag
+# carries out once, in ros2_nodes order, at the end of the deploy. Heavy steps (npm, pinned colcon sources, uv sync) run
+# only when their stamp changed and stop all running nodes first (stop_for_build.yml, once per play); a local in-repo
+# colcon package (the _cpp nodes) builds at the lowest priority without stopping anything. Every task carries a tag
 # (apt, python, build, config, always) so partial runs work; the playbook adds the node name tag.
 
 - name: Validate required variables
@@ -127,7 +129,7 @@
         - not (ros2_apt_batched | default(false) | bool)
       tags: [apt]
 
-    - name: Build the pinned source workspace (colcon)
+    - name: Build the source workspace (colcon, pinned or local)
       ansible.builtin.include_tasks: colcon_source_build.yml
       when: (node_colcon_source | default({})) | length > 0
       tags: [build]

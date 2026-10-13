@@ -1,6 +1,14 @@
 ---
-# Build ONE pinned source package into a colcon workspace (included once per source by colcon_source_build.yml).
-# Expects colcon_src: {repo, commit (SHA, tag or branch), package, workspace, patches (optional list of unified diffs,
+# Build ONE source package into a colcon workspace (included once per source by colcon_source_build.yml).
+# A source is either PINNED upstream or LOCAL (an in-repo ament package such as nodes/stereo_depth_cpp).
+# Local: colcon_src: {local (repo-relative package dir), package, workspace, stamp_apt_packages, and the shared fields
+# cmake_args, base_paths, jobs: the _cpp node types set -DBUILD_TESTING=OFF, base_paths [.] and jobs 2}. The tree is rsynced from
+# the repo checkout into <workspace>/src/<package> on every deploy (a no-op when unchanged) and its stamp key is a hash
+# of the synced tree (every file path and content) plus the stamped apt versions and the chain key, so an unchanged
+# deploy builds nothing and any changed source file rebuilds. With base_paths [.] colcon discovers only that tree. A local
+# build never stops the running nodes (stop_for_build.yml): an in-repo package is small and builds at the lowest
+# priority next to the robot; only the node's own unit restarts afterwards (the restart queue).
+# Pinned: colcon_src: {repo, commit (SHA, tag or branch), package, workspace, patches (optional list of unified diffs,
 # strip 1), cmake_args (optional, default -DCMAKE_BUILD_TYPE=Release), meson_args (optional: build with colcon-meson),
 # base_paths (optional directories inside the checkout, colcon --base-paths: for a multi-package repo, so its unbuilt
 # siblings do not shadow the apt ones), stamp_apt_packages (optional list of apt packages whose installed version is
@@ -28,6 +36,35 @@
   become: true
   tags: [build]
 
+# --checksum: a same-size edit within the same second still syncs. --delete-excluded keeps the synced tree equal to the
+# repo's: Python caches left by a fixture generator never sync. Plain rsync, not ansible.posix.synchronize: both ends
+# are on the host (the synced repo checkout and the workspace), and --itemize-changes drives changed_when.
+- name: Sync the local source tree into the workspace
+  ansible.builtin.command:  # noqa: command-instead-of-module
+    cmd: >-
+      rsync -a --checksum --delete --delete-excluded --itemize-changes --exclude=__pycache__/ --exclude=*.pyc
+      {{ repo_dest }}/{{ colcon_src.local }}/ {{ colcon_src.workspace }}/src/{{ colcon_src.package }}/
+  register: _colcon_local_sync
+  changed_when: _colcon_local_sync.stdout | length > 0
+  when: colcon_src.local is defined
+  become: true
+  tags: [build]
+
+# Read-only: runs in check mode too (a tree that was never synced hashes to "missing", so the build shows as pending).
+- name: Hash the synced local source tree
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ colcon_src.workspace }}/src/{{ colcon_src.package }}" 2>/dev/null || { echo missing; exit 0; }
+    find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+  args:
+    executable: /bin/bash
+  register: _colcon_tree_hash
+  changed_when: false
+  check_mode: false
+  when: colcon_src.local is defined
+  become: true
+  tags: [build]
+
 - name: Checksum the patches
   ansible.builtin.stat:
     path: "{{ item }}"
@@ -46,10 +83,13 @@
   loop: "{{ colcon_src.stamp_apt_packages | default([]) }}"
   tags: [build]
 
-- name: Derive the build stamp key from the commit, the patch contents and the apt versions
+# Pinned: commit, patches, build args. Local: the synced tree hash (no commit) and build args. Both: the stamped apt
+# versions and the chain key. A skipped tree hash (pinned source) has no stdout and adds nothing.
+- name: Derive the build stamp key from the source, the patch contents and the apt versions
   ansible.builtin.set_fact:
     _colcon_patch_key: >-
-      {{ (colcon_src.commit ~ (_colcon_patch_stats.results | map(attribute='stat.checksum') | join(''))
+      {{ ((colcon_src.commit | default('')) ~ (_colcon_patch_stats.results | map(attribute='stat.checksum') | join(''))
+      ~ (_colcon_tree_hash.stdout | default(''))
       ~ (colcon_src.meson_args | default([]) | join(' ')) ~ (colcon_src.cmake_args | default([]) | join(' '))
       ~ (_colcon_apt_versions.results | map(attribute='stdout') | join(' ')
       if colcon_src.stamp_apt_packages | default([]) | length > 0 else '')
@@ -86,7 +126,9 @@
     version: "{{ colcon_src.commit }}"
     force: true
   become: true
-  when: not _colcon_stamp_stat.stat.exists
+  when:
+    - colcon_src.local is not defined
+    - not _colcon_stamp_stat.stat.exists
   tags: [build]
 
 - name: Apply the repo patches to the checkout
@@ -97,12 +139,17 @@
     remote_src: true
   loop: "{{ colcon_src.patches | default([]) }}"
   become: true
-  when: not _colcon_stamp_stat.stat.exists
+  when:
+    - colcon_src.local is not defined
+    - not _colcon_stamp_stat.stat.exists
   tags: [build]
 
+# Pinned upstream builds only (heavy: libcamera, xtensor MPPI). A local source never stops the robot (D4).
 - name: Stop the running nodes before the colcon build
   ansible.builtin.include_tasks: stop_for_build.yml
-  when: not _colcon_stamp_stat.stat.exists
+  when:
+    - colcon_src.local is not defined
+    - not _colcon_stamp_stat.stat.exists
   tags: [build]
 
 - name: Build the workspace for the pinned commit, patches and build args

@@ -102,12 +102,14 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `realsense_d435i` | Removed (present: false): replaced by `overview_camera` |
 | `overview_camera` | Two IMX219 cameras on the Pi 5 CSI ports (left cam0, right cam1); libcamera fork + camera_ros (with the SyncMode patch `camera_ros-0001-expose-sync-controls.patch`) built from source into `/opt/ros2-ws` (first deploy compiles for a long time at lowest priority); sets `camera_auto_detect=0` + `dtoverlay=imx219,cam0` + `dtoverlay=imx219,cam1` in `/boot/firmware/config.txt`, removes `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` (the Arducam ToF has no CSI port and stays disabled) and reboots the client only when something changed; publishes `/overview_camera/image_raw`, `/overview_camera/image_raw/compressed`, `camera_info` |
 | `stereo_depth` | SGBM depth from the synced IMX219 pair (native uv node, background cgroup tier, metrics 19113); publishes `/stereo/depth/image_raw` (16UC1 mm) and `/stereo/camera_info` only with a valid calibration in `/var/lib/ros2/camera_calibration` (`python3 -m stereo_depth.calibrate`); deploy after `overview_camera` |
+| `stereo_depth_cpp` | C++ port of `stereo_depth`, side by side (`present: false` until the cut-over; never enabled together with `stereo_depth`, same metrics port 19113); built on the Pi from `nodes/stereo_depth_cpp` + `shared/ros2_common_cpp` into `/opt/ros2-ws` at lowest priority without stopping the running nodes, only when the synced tree changed; rollback: re-enable `stereo_depth` |
 | `lerobot_follower` | SO-101 follower arm + swerve servos group `swerve_drive` (feetech, one USB bus) |
 | `swerve_drive_servos` | Removed (present: false): swerve servos now run inside `lerobot_follower` (shared bus) |
 | `swerve_controller` | Swerve drive kinematics |
 | `static_tf_publisher` | TF frame publisher |
 | `rf2o_laser_odometry` | rf2o lidar odometry (source-built colcon workspace `/opt/ros2-ws`, pinned commit; first deploy compiles at lowest priority) |
 | `rf2o_odom_relay` | rf2o pose -> body twist with covariance for the EKF |
+| `map_guard_cpp` | C++ port of `map_guard`, side by side (`present: false` until the cut-over; never enabled together with `map_guard`, same metrics port 19110); built like `stereo_depth_cpp` from `nodes/map_guard_cpp`; rollback: re-enable `map_guard` |
 | `robot_localization_ekf` | EKF odometry fusion |
 | `nav2_bringup` | Nav2 navigation stack |
 | `web_ui` | Browser dashboard (FastAPI + React) |
