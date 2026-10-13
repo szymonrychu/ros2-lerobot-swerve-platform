@@ -99,7 +99,7 @@ def run(
 
 
 def timed(strategy: str, pitch: float | None = None, **override: Any) -> tuple[float, GraspPlan]:
-    KIN.solutions.clear()  # cold: no IK solved by an earlier test
+    KIN.clear_solutions()  # cold: no IK solved by an earlier test
     start = time.perf_counter()
     plan = run(**(REFERENCE | override), strategy=strategy, pitch=pitch)
     return time.perf_counter() - start, plan
@@ -150,7 +150,7 @@ ANGLED_CASES = [c for c in json.loads(GOLDEN.read_text()) if c["strategy"] in ("
 @timing
 @pytest.mark.parametrize("case", ANGLED_CASES, ids=lambda c: c["key"])
 def test_feasible_angled_and_auto_golden_scenarios_plan_under_a_second(case: dict[str, Any]) -> None:
-    KIN.solutions.clear()
+    KIN.clear_solutions()
     start = time.perf_counter()
     plan = run(
         case["x"],
@@ -205,7 +205,7 @@ def test_scoop_with_a_gap_under_the_object_plans_under_budget() -> None:
 
 @timing
 def test_feasible_angled_plan_at_the_reach_edge_stays_inside_the_ik_cap() -> None:
-    KIN.solutions.clear()
+    KIN.clear_solutions()
     before = KIN.solve_count
     elapsed, plan = timed("angled", 45.0, **ANGLED_EDGE)
     assert plan.feasible, plan.reasons
@@ -226,7 +226,7 @@ def test_replanning_the_same_object_is_served_from_the_ik_cache() -> None:
 def test_ik_budget_per_candidate_stops_the_search(monkeypatch: pytest.MonkeyPatch) -> None:
     budget = 60
     monkeypatch.setattr(grasp, "MAX_IK_SOLVES_PER_CANDIDATE", budget)
-    KIN.solutions.clear()
+    KIN.clear_solutions()
     before = KIN.solve_count
     plan = run(**(REFERENCE | ANGLED_EDGE), strategy="angled", pitch=45.0)
     assert not plan.feasible
@@ -236,7 +236,7 @@ def test_ik_budget_per_candidate_stops_the_search(monkeypatch: pytest.MonkeyPatc
 
 def test_ik_budget_per_strategy_stops_trying_more_pitches(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(grasp, "MAX_IK_SOLVES_PER_STRATEGY", 1)
-    KIN.solutions.clear()
+    KIN.clear_solutions()
     plan = run(**(REFERENCE | {"gap": 0.02, "bottom": FLOOR + 0.02}), strategy="scoop", pitch=None)
     assert not plan.feasible
     assert any("IK budget" in r for r in plan.reasons), plan.reasons

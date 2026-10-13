@@ -65,6 +65,7 @@ def kinematics_from_geometry(geometry: dict[str, Any]) -> ArmKinematics:
     kin.solve_count = 0
     kin.last_heading_bias = 0.0
     kin.solutions = OrderedDict()
+    kin.core = None  # core_model() builds the C++ ArmModel on demand (the reference itself never does)
     return kin
 
 

@@ -8,7 +8,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -66,6 +69,27 @@ Vec3 rotate_offset(const Mat4 &frame, const Vec3 &offset) {
   Vec3 out{};
   for (int r = 0; r < 3; ++r) out[r] = frame[r][0] * offset[0] + frame[r][1] * offset[1] + frame[r][2] * offset[2];
   return out;
+}
+
+// printf-style formatting into a std::string (Python's f"{v:.3f}" rounds the exact binary value as printf does).
+std::string format(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+std::string format(const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  va_list copy;
+  va_copy(copy, args);
+  const int size = std::vsnprintf(nullptr, 0, fmt, copy);
+  va_end(copy);
+  std::string out(static_cast<std::size_t>(size), '\0');
+  std::vsnprintf(out.data(), out.size() + 1, fmt, args);
+  va_end(args);
+  return out;
+}
+
+// Sets *reason (when asked for) and returns no solution.
+std::nullopt_t unreachable(std::string *reason, std::string message) {
+  if (reason != nullptr) *reason = std::move(message);
+  return std::nullopt;
 }
 
 template <class T>
@@ -205,9 +229,9 @@ Joints ArmModel::solve(const Vec3 &target, const std::optional<Vec3> &orientatio
 }
 
 std::optional<Joints> ArmModel::inverse_flange(double x, double y, double z, std::optional<double> pitch,
-                                               const Joints &seed_urdf, double heading_bias) {
+                                               const Joints &seed_urdf, double heading_bias, std::string *reason) {
   if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || (pitch && !std::isfinite(*pitch)))
-    return std::nullopt;
+    return unreachable(reason, "target must be finite");
   const double roll = std::min(std::max(seed_urdf[WRIST_ROLL], params_.lower[WRIST_ROLL] + params_.margin),
                                params_.upper[WRIST_ROLL] - params_.margin);
   const Vec3 target = {x, y, z};
@@ -218,6 +242,7 @@ std::optional<Joints> ArmModel::inverse_flange(double x, double y, double z, std
   for (std::size_t k = 0; k < EXTRA_SEEDS.size(); ++k)
     seeds[k + 1] = {-heading, EXTRA_SEEDS[k][0], EXTRA_SEEDS[k][1], EXTRA_SEEDS[k][2], 0.0};
   const double pitch_tolerance = PITCH_TOLERANCE_DEG * DEG_TO_RAD;
+  double best_error = std::numeric_limits<double>::infinity();
   for (Joints candidate : seeds) {
     candidate[WRIST_ROLL] = roll;
     Joints sol = clamp_seed(candidate);
@@ -235,6 +260,7 @@ std::optional<Joints> ArmModel::inverse_flange(double x, double y, double z, std
       const double ax = frame[0][2], ay = frame[1][2], az = frame[2][2];
       const double error = length3(frame[0][3] - x, frame[1][3] - y, frame[2][3] - z);
       const double reached_pitch = pitch_of(ax, ay, az);
+      best_error = std::min(best_error, error);
       const bool pitch_ok = !pitch || std::abs(reached_pitch - *pitch) <= pitch_tolerance;
       if (error <= POSITION_TOLERANCE_M && pitch_ok && within_limits(sol)) {
         if (pitch) last_heading_bias = std::remainder(heading - bearing, TAU);
@@ -257,11 +283,15 @@ std::optional<Joints> ArmModel::inverse_flange(double x, double y, double z, std
       }
     }
   }
-  return std::nullopt;
+  if (reason == nullptr) return std::nullopt;
+  return unreachable(reason, format("target (%.3f, %.3f, %.3f)", x, y, z) +
+                                 (pitch ? format(" pitch %.2f rad", *pitch) : std::string()) +
+                                 format(" is unreachable within joint limits (closest %.0f mm)", best_error * 1000));
 }
 
 std::optional<Joints> ArmModel::inverse(double x, double y, double z, std::optional<double> pitch,
-                                        const Joints &seed_urdf, const Vec3 &extra_offset, double heading_bias) {
+                                        const Joints &seed_urdf, const Vec3 &extra_offset, double heading_bias,
+                                        std::string *reason) {
   Vec3 offset{};
   bool any_offset = false;
   bool any_extra = false;
@@ -271,21 +301,25 @@ std::optional<Joints> ArmModel::inverse(double x, double y, double z, std::optio
     any_extra = any_extra || extra_offset[i] != 0.0;
   }
   const double tool_reach = length3(offset[0], offset[1], offset[2]);
-  if (std::sqrt(x * x + y * y + z * z) > params_.max_reach_m + tool_reach + POSITION_TOLERANCE_M) return std::nullopt;
-  if (!(any_offset || any_extra)) return inverse_flange(x, y, z, pitch, seed_urdf, heading_bias);
+  if (std::sqrt(x * x + y * y + z * z) > params_.max_reach_m + tool_reach + POSITION_TOLERANCE_M)
+    return unreachable(reason, format("unreachable: target (%.3f, %.3f, %.3f) is beyond the arm's reach of %.3f m", x,
+                                      y, z, params_.max_reach_m + tool_reach));
+  if (!(any_offset || any_extra)) return inverse_flange(x, y, z, pitch, seed_urdf, heading_bias, reason);
   Vec3 flange = {x, y, z};
-  std::optional<Joints> sol = inverse_flange(x, y, z, pitch, seed_urdf, heading_bias);
+  std::optional<Joints> sol = inverse_flange(x, y, z, pitch, seed_urdf, heading_bias, reason);
   if (!sol) return std::nullopt;
   for (int it = 0; it < TOOL_ITERATIONS; ++it) {
     const Vec3 reached = tool_point(*sol, extra_offset, nullptr);
     const Vec3 residual = {x - reached[0], y - reached[1], z - reached[2]};
     if (length3(residual[0], residual[1], residual[2]) < TOOL_CONVERGENCE_M) break;
     for (int i = 0; i < 3; ++i) flange[i] = flange[i] + residual[i];
-    sol = inverse_flange(flange[0], flange[1], flange[2], pitch, to_urdf(*sol), last_heading_bias);
+    sol = inverse_flange(flange[0], flange[1], flange[2], pitch, to_urdf(*sol), last_heading_bias, reason);
     if (!sol) return std::nullopt;
   }
   const Vec3 reached = tool_point(*sol, extra_offset, nullptr);
-  if (length3(reached[0] - x, reached[1] - y, reached[2] - z) > POSITION_TOLERANCE_M) return std::nullopt;
+  if (length3(reached[0] - x, reached[1] - y, reached[2] - z) > POSITION_TOLERANCE_M)
+    return unreachable(reason, format("target (%.3f, %.3f, %.3f) tool point did not converge within joint limits", x,
+                                      y, z));
   return sol;
 }
 

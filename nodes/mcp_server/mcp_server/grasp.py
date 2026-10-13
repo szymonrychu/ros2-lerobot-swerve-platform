@@ -675,11 +675,12 @@ def is_stall_pose(joints: dict[str, float], params: GraspParams) -> bool:
 
 
 def solver_geometry(kin: ArmKinematics) -> dict[str, Any]:
-    """Everything mcp_core_cpp.grasp.solve_line needs of the arm kinematics, as plain (JSON-able) values.
+    """The arm kinematics as plain (JSON-able) values: the golden's description of the arm solve_line runs on.
 
     The links after ikpy's origin link carry their URDF origin (translation, rpy), joint axis, IK bounds (URDF limits
     minus the margin, as set on the ikpy chain) and the origin transform ikpy multiplies with the joint rotation; the
-    ik module's solver constants come along so the C++ IK never drifts from ArmKinematics.inverse.
+    ik module's solver constants come along. reference/grasp.py kinematics_from_geometry rebuilds an ArmKinematics
+    from it (its core_model() is what the C++ kernel solves on).
 
     Args:
         kin (ArmKinematics): Arm kinematics.
@@ -789,7 +790,6 @@ class GraspPlanner:
         self.guard = guard
         self.jaw = jaw
         self.body = body or SelfCollisionChecker.from_config(kin, config, jaw)
-        self.geometry = solver_geometry(kin)  # the arm model the C++ waypoint IK (solve_waypoints) runs on
 
     def body_problem(self, label: str, samples: list[dict[str, float]], escape: bool = False) -> str | None:
         """Robot body check of plan samples: a sample within body_check.hard_margin_m makes the candidate infeasible.
@@ -1427,8 +1427,9 @@ class GraspPlanner:
     ) -> tuple[list[dict[str, float]], str | None]:
         """Run mcp_core_cpp.grasp.solve_line on this planner's kinematics and fold its effort back into them.
 
-        The kernel shares ArmKinematics.solutions (the IK answer cache); its ikpy-equivalent runs are added to
-        solve_count (what IkBudget watches) and its last heading bias becomes last_heading_bias, as the Python IK did.
+        The kernel solves on ArmKinematics.core_model() (mcp_core_cpp.ik_reach.ArmModel, whose solution cache lasts
+        as long as the model); its IK runs are added to solve_count (what IkBudget watches) and its last heading bias
+        becomes last_heading_bias, as the Python IK did.
 
         Args:
             label (str): Waypoint label.
@@ -1444,7 +1445,7 @@ class GraspPlanner:
             tuple[list[dict[str, float]], str | None]: Samples and None, or ([], reason).
         """
         out = mcp_core_cpp.grasp.solve_line(
-            geometry=self.geometry,
+            arm=self.kin.core_model(),
             label=label,
             start=None if start is None else [float(v) for v in start],
             end=[float(v) for v in end],
@@ -1455,7 +1456,6 @@ class GraspPlanner:
             params=kernel_params(params),
             budget_limit=None if budget is None else budget.limit,
             budget_used=0 if budget is None else self.kin.solve_count - budget.start,
-            cache=self.kin.solutions,
         )
         self.kin.solve_count += out["solves"]
         self.kin.last_heading_bias = out["heading_bias"]

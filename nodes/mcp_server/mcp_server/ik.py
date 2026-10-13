@@ -224,6 +224,11 @@ class ArmKinematics:
             self.core = (params, model)
         return self.core[1]
 
+    def clear_solutions(self) -> None:
+        """Forget every cached IK answer: the Python solution cache and the C++ model's (rebuilt cold on next use)."""
+        self.solutions.clear()
+        self.core = None
+
     def urdf_seed(self, seed: dict[str, float]) -> list[float]:
         """A measured seed as the C++ IK takes it: URDF angles of every chain joint, missing joints 0 (URDF), which is
         what inverse_flange makes of a partial seed.

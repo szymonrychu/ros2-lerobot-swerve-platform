@@ -24,6 +24,10 @@ constexpr int ACTIVE_JOINTS = 4;
 constexpr int WRIST_ROLL = 4;
 constexpr int MAX_LINKS = 12;
 using Joints = std::array<double, CHAIN_JOINTS>;
+constexpr std::array<const char *, CHAIN_JOINTS> CHAIN_JOINT_NAMES = {"shoulder_pan", "shoulder_lift", "elbow_flex",
+                                                                      "wrist_flex", "wrist_roll"};
+constexpr int SHOULDER_LIFT = 1;
+constexpr int ELBOW_FLEX = 2;
 using LinkVector = std::array<double, MAX_LINKS>;
 using Frames = std::array<Mat4, MAX_LINKS>;
 
@@ -82,19 +86,21 @@ class ArmModel {
   Joints to_measured(const Joints &urdf) const;
 
   // ArmKinematics.inverse: tool point at (x, y, z) in the arm base frame, optional approach pitch, URDF seed
-  // (missing seed joints 0), extra tool offset. Updates last_heading_bias as the Python solver does.
+  // (missing seed joints 0), extra tool offset. Updates last_heading_bias as the Python solver does. When unreachable
+  // and reason is given, it gets the message of the UnreachableError the Python solver raises.
   std::optional<Joints> inverse(double x, double y, double z, std::optional<double> pitch, const Joints &seed_urdf,
-                                const Vec3 &extra_offset, double heading_bias);
-  // ArmKinematics.inverse_flange (gripper_frame_link at the target).
+                                const Vec3 &extra_offset, double heading_bias, std::string *reason = nullptr);
+  // ArmKinematics.inverse_flange (gripper_frame_link at the target); reason as for inverse.
   std::optional<Joints> inverse_flange(double x, double y, double z, std::optional<double> pitch,
-                                       const Joints &seed_urdf, double heading_bias);
+                                       const Joints &seed_urdf, double heading_bias, std::string *reason = nullptr);
+  // ArmKinematics.within_limits of URDF chain joint angles (each limit minus the margin, 1e-9 slack).
+  bool within_limits(const Joints &urdf) const;
 
   double last_heading_bias = 0.0;  // approach heading - target bearing of the last pitched solve
   long solve_count = 0;            // solves run (cache hits excluded)
 
  private:
   Joints clamp_seed(const Joints &joints) const;
-  bool within_limits(const Joints &urdf) const;
   // Tool point (base frame) and pitch of measured joints with an extra offset (forward()).
   Vec3 tool_point(const Joints &measured, const Vec3 &extra_offset, double *pitch) const;
   // One ikpy solve from a URDF start (inside bounds), cached.

@@ -25,7 +25,7 @@ from mcp_server.arm_reach import ReachEnvelope, joint_range, point_reach
 from mcp_server.camera_candidates import CandidateStore, RobotSnapshot
 from mcp_server.config import REPO_ROOT, McpServerConfig, ReachMapSettings
 from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel, base_link_to_arm
-from mcp_server.grasp import GraspPlanner, ObjectSpec, grasp_params, kernel_params
+from mcp_server.grasp import GraspPlanner, ObjectSpec, grasp_params, kernel_params, solver_geometry
 from mcp_server.grasp_check import GripMeasurements, band_verdict, fuse, grip_evidence
 from mcp_server.ik import ArmKinematics
 from mcp_server.jaw_crop import jaw_crop
@@ -210,7 +210,7 @@ def grasp_plan_call(strategy: str | None) -> Call:
     cases = grasp_cases()[:1]
 
     def call() -> None:
-        kin.solutions.clear()
+        kin.clear_solutions()
         for case in cases:
             obj = ObjectSpec(
                 frame="arm",
@@ -255,7 +255,7 @@ class SolveLineRecorder(GraspPlanner):
         """Record the solve_line case, then solve (see GraspPlanner.solve_waypoints)."""
         self.cases.append(
             {
-                "geometry": self.geometry,
+                "geometry": solver_geometry(self.kin),
                 "label": label,
                 "start": None if start is None else [float(v) for v in start],
                 "end": [float(v) for v in end],
@@ -288,7 +288,7 @@ def grasp_solve_line_cases() -> list[dict[str, Any]]:
     recorder = SolveLineRecorder(kin, cfg, FloorGuard(kin, cfg.floor_guard, mount, jaw()), jaw())
     params = grasp_params(cfg.grasp, None)
     for case in grasp_cases():
-        kin.solutions.clear()
+        kin.clear_solutions()
         obj = ObjectSpec(
             frame="arm",
             x=case["x"],

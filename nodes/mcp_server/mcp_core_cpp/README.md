@@ -27,8 +27,10 @@ mcp_core_cpp/
     families.hpp          declarations of register_<family>(nanobind::module_&)
     module.cpp            NB_MODULE: __version__, build_info(), one submodule per family, calls register_<family>
     camera/bind.cpp       register_camera     -> mcp_core_cpp.camera
-    grasp/bind.cpp        register_grasp      -> mcp_core_cpp.grasp
+    grasp/bind.cpp        register_grasp      -> mcp_core_cpp.grasp (solve_line: waypoint IK on ik_reach::ArmModel)
     ik_reach/bind.cpp     register_ik_reach   -> mcp_core_cpp.ik_reach
+    ik_reach/trf.hpp      the one least-squares solver (scipy TRF port), shared by every IK kernel
+    ik_reach/kinematics.* the one arm IK (ik_reach::ArmModel), shared by ik_reach and grasp
     collision/bind.cpp    register_collision  -> mcp_core_cpp.collision
     frontiers/bind.cpp    register_frontiers  -> mcp_core_cpp.frontiers
 ```
@@ -108,7 +110,12 @@ golden after the switch still runs the original Python code, never C++ against C
 - `tests/test_core_parity_ik_reach.py`: golden parity of `arm_reach.point_reach` and `reach_map.build` (goldens
   from `bench/inputs.py` `point_reach_cases` / `reach_map_cases`), `docs/ik_reach.md` against `bench/report.json`, the
   entry points not running the Python IK, each port faster than its Python median, and the version carrying ik_reach
-  (0.2.0) locked in `uv.lock`. `tests/test_ik.py::test_heading_refinement_survives_a_repeated_heading`: every pitch
+  (0.2.0) locked in `uv.lock`.
+- `tests/test_core_parity_grasp.py`: golden parity of `grasp.solve_line` (111 cases from `bench/inputs.py`
+  `grasp_solve_line_cases`, run on `ArmKinematics.core_model()` of the case's geometry), the reference staying pure
+  Python, `docs/grasp.md` against `bench/report.json`, the planner entry points calling the kernel (cache, budget),
+  exactly one least-squares solver and one arm IK under `src/` (both in `ik_reach`), and the version carrying the
+  grasp kernels (0.3.0) locked in `uv.lock`. `tests/test_ik.py::test_heading_refinement_survives_a_repeated_heading`: every pitch
   of a target whose heading refinement repeats a heading ends in a solution or `UnreachableError`.
   `tests/test_reach_map.py::test_reference_build_checks_bounded_batches`: the Python reference build (the golden
   source) body checks at most a batch at a time.

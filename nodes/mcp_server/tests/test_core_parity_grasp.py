@@ -3,7 +3,9 @@
 bench/report.json ranks grasp.plan_auto above the porting threshold; its time is the waypoint IK of the planner
 (GraspPlanner.solve_point / GraspPlanner.line on ArmKinematics.inverse), which is mcp_core_cpp.grasp.solve_line. The
 golden (tests/data/core_golden/grasp/solve_line.json) comes from mcp_server/reference/grasp.py, the original Python
-bodies on ikpy + scipy, run on every waypoint IK call of the recorded grasp scenarios plus the failure paths.
+bodies on ikpy + scipy, run on every waypoint IK call of the recorded grasp scenarios plus the failure paths. The
+kernel solves on mcp_core_cpp.ik_reach.ArmModel (ArmKinematics.core_model), the one IK and least-squares solver of
+mcp_core_cpp.
 """
 
 import inspect
@@ -28,8 +30,13 @@ REPORT = NODE_ROOT / "bench" / "report.json"
 DOC = NODE_ROOT / "mcp_core_cpp" / "docs" / "grasp.md"
 CORE_PYPROJECT = NODE_ROOT / "mcp_core_cpp" / "pyproject.toml"
 LOCK = NODE_ROOT / "uv.lock"
-# mcp_core_cpp version before the grasp kernels: the Pi re-runs uv sync only when uv.lock changes.
-PRE_GRASP_VERSION = (0, 1, 0)
+# mcp_core_cpp version before the grasp kernels (the ik_reach release): the Pi re-runs uv sync only when uv.lock changes.
+PRE_GRASP_VERSION = (0, 2, 0)
+CORE_SRC = NODE_ROOT / "mcp_core_cpp" / "src"
+# The one least-squares solver (scipy TRF port) and the one arm IK of mcp_core_cpp.
+SOLVER_HOME = CORE_SRC / "ik_reach"
+# A C++ function definition head: return type, optionally qualified name, parameter list, then a body.
+DEFINITION_HEAD = re.compile(r"\b[A-Za-z_][\w:<>,]*[&*]?\s+(?:\w+::)*(?P<name>\w+)\s*\(")
 FAMILY = "grasp"
 PORT = "port"
 PORTED = "ported"
@@ -87,6 +94,49 @@ def doc_rows() -> dict[str, tuple[float, str]]:
     return rows
 
 
+def solve_line_on_geometry(geometry: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    """mcp_core_cpp.grasp.solve_line on a fresh C++ arm model of a golden case's solver_geometry.
+
+    Args:
+        geometry (dict[str, Any]): solver_geometry recorded in the case.
+        **kwargs (Any): The other solve_line arguments of the case.
+
+    Returns:
+        dict[str, Any]: The kernel output.
+    """
+    arm = reference.kinematics_from_geometry(geometry).core_model()
+    return mcp_core_cpp.grasp.solve_line(arm=arm, **kwargs)
+
+
+def function_definitions(pattern: str) -> list[tuple[str, str]]:
+    """Function definitions (with a body, not declarations or calls) in mcp_core_cpp/src whose name matches pattern.
+
+    Args:
+        pattern (str): Regular expression the function name must contain a match of.
+
+    Returns:
+        list[tuple[str, str]]: (source path relative to src, function name) per definition.
+    """
+    found: list[tuple[str, str]] = []
+    for path in sorted(CORE_SRC.rglob("*")):
+        if path.suffix not in {".hpp", ".cpp", ".h", ".cc"}:
+            continue
+        text = path.read_text()
+        for match in DEFINITION_HEAD.finditer(text):
+            if not re.search(pattern, match["name"]):
+                continue
+            depth, i = 1, match.end()
+            while i < len(text) and depth:
+                depth += {"(": 1, ")": -1}.get(text[i], 0)
+                i += 1
+            rest = text[i:].lstrip()
+            for qualifier in ("const", "noexcept", "override"):
+                rest = rest.removeprefix(qualifier).lstrip()
+            if rest.startswith("{"):
+                found.append((str(path.relative_to(CORE_SRC)), match["name"]))
+    return found
+
+
 def planner() -> GraspPlanner:
     """The bench's planner on the deployed config.
 
@@ -122,7 +172,7 @@ def params() -> grasp.GraspParams:
 def test_solve_line_matches_the_python_reference() -> None:
     """Every recorded waypoint IK call and failure path: same samples (1e-9 rad), reasons, solve counts and bias."""
     golden = core_parity.load_golden(FAMILY, "solve_line")
-    report = core_parity.assert_parity(golden, mcp_core_cpp.grasp.solve_line)
+    report = core_parity.assert_parity(golden, solve_line_on_geometry)
     assert report.cases == len(golden.cases)
 
 
@@ -188,29 +238,32 @@ def test_entry_points_call_the_cpp_kernel(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(mcp_core_cpp.grasp, "solve_line", spy)
     plan = planner()
-    plan.kin.solutions.clear()
+    plan.kin.core = None
     before = plan.kin.solve_count
     start = start_pose(plan)
     samples, problem = plan.line("approach", LINE_START, LINE_END, PITCH, start, None, params())
     assert problem is None and len(samples) == 10
     assert [c["start"] is None for c in calls] == [True, False]
     assert plan.kin.solve_count - before > 0
-    expected = reference.solve_line_reference(**{k: v for k, v in calls[1].items() if k != "cache"})
+    assert calls[1]["arm"] is plan.kin.core_model()
+    expected = reference.solve_line_reference(
+        geometry=solver_geometry(plan.kin), **{k: v for k, v in calls[1].items() if k != "arm"}
+    )
     assert len(samples) == len(expected["samples"])
     for got, want in zip(samples, expected["samples"], strict=True):
         assert got == pytest.approx(want, abs=1e-9)
     assert plan.kin.last_heading_bias == pytest.approx(expected["heading_bias"], abs=1e-9)
 
 
-def test_kernel_shares_the_kinematics_solution_cache() -> None:
-    """A repeated query hits ArmKinematics.solutions: no new solve is counted, the samples are the cached ones."""
+def test_kernel_reuses_the_core_model_solution_cache() -> None:
+    """A repeated query hits the C++ arm model's solution cache: no new solve is counted, the samples are the same."""
     plan = planner()
-    plan.kin.solutions.clear()
+    plan.kin.core = None  # a fresh ArmModel, so a cold cache
     start = start_pose(plan)
     first, problem = plan.line("approach", LINE_START, LINE_END, PITCH, start, None, params())
     assert problem is None
     count = plan.kin.solve_count
-    assert len(plan.kin.solutions) > 0
+    assert plan.kin.core_model().solve_count > 0
     again, _ = plan.line("approach", LINE_START, LINE_END, PITCH, start, None, params())
     assert plan.kin.solve_count == count
     assert again == first
@@ -219,7 +272,7 @@ def test_kernel_shares_the_kinematics_solution_cache() -> None:
 def test_budget_counts_kernel_solves() -> None:
     """A budget spent inside a line stops it with the planner's budget reason."""
     plan = planner()
-    plan.kin.solutions.clear()
+    plan.kin.core = None
     start = start_pose(plan)
     budget = IkBudget(plan.kin, 3)
     samples, problem = plan.line("approach", LINE_START, LINE_END, PITCH, start, None, params(), budget)
@@ -243,3 +296,14 @@ def test_core_version_is_bumped_past_the_pre_grasp_release_and_locked() -> None:
     locked = {pkg["name"]: pkg["version"] for pkg in tomllib.loads(LOCK.read_text())["package"]}
     assert tuple(int(part) for part in version.split(".")) > PRE_GRASP_VERSION
     assert locked["mcp-core-cpp"] == version
+
+
+def test_mcp_core_cpp_has_one_least_squares_solver() -> None:
+    """Exactly one least-squares solver is defined in mcp_core_cpp (ik_reach::trf::least_squares), and one arm IK
+    (ik_reach::ArmModel); the grasp kernels call those instead of carrying their own."""
+    solvers = function_definitions(r"least_squares|levenberg|gauss_newton")
+    assert solvers == [("ik_reach/trf.hpp", "least_squares")], solvers
+    iks = function_definitions(r"inverse_flange")
+    assert iks == [("ik_reach/kinematics.cpp", "inverse_flange")], iks
+    assert not list((CORE_SRC / FAMILY).glob("trf.*")) and not list((CORE_SRC / FAMILY).glob("arm_ik.*"))
+    assert all(path.parent == SOLVER_HOME for path in CORE_SRC.rglob("trf*"))
