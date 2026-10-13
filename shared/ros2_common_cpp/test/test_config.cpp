@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -187,4 +188,108 @@ TEST(ConfigDeathTest, MissingFileFromDefaultPathExits78)
   EXPECT_EXIT(
     rc::load_config_or_exit("ROS2_COMMON_CPP_TEST_CONFIG", "/nonexistent/default.yaml", validate_example),
     ::testing::ExitedWithCode(78), "cannot read config file /nonexistent/default.yaml");
+}
+
+// Coercion::LAX is pydantic lax mode on top of the PyYAML 1.1 resolver, as the Python nodes' models read yaml.safe_load.
+
+TEST(ConfigLax, FloatTakesBoolIntFloatAndNumericStrings)
+{
+  const YAML::Node n = YAML::Load("{a: 2, b: 2.5, c: yes, d: '3.5', e: ' 1_0 ', f: 1_000, g: .inf, h: 1:30}");
+  rc::Errors errors;
+  const auto lax = rc::Coercion::LAX;
+  EXPECT_EQ(rc::get_or<double>(n, "a", -1.0, errors, lax), 2.0);
+  EXPECT_EQ(rc::get_or<double>(n, "b", -1.0, errors, lax), 2.5);
+  EXPECT_EQ(rc::get_or<double>(n, "c", -1.0, errors, lax), 1.0);
+  EXPECT_EQ(rc::get_or<double>(n, "d", -1.0, errors, lax), 3.5);
+  EXPECT_EQ(rc::get_or<double>(n, "e", -1.0, errors, lax), 10.0);
+  EXPECT_EQ(rc::get_or<double>(n, "f", -1.0, errors, lax), 1000.0);
+  EXPECT_TRUE(std::isinf(rc::get_or<double>(n, "g", -1.0, errors, lax)));
+  EXPECT_EQ(rc::get_or<double>(n, "h", -1.0, errors, lax), 90.0);
+  EXPECT_TRUE(errors.empty());
+}
+
+TEST(ConfigLax, FloatRejectsWordsHexNullAndContainers)
+{
+  const YAML::Node n = YAML::Load("{a: abc, b: '0x10', c: ~, d: [1], e: {x: 1}}");
+  const auto lax = rc::Coercion::LAX;
+  for (const char * key : {"a", "b", "c", "d", "e"}) {
+    rc::Errors errors;
+    EXPECT_EQ(rc::get_or<double>(n, key, -1.0, errors, lax), -1.0) << key;
+    EXPECT_EQ(errors, rc::Errors{std::string(key) + ": expected float"}) << key;
+  }
+}
+
+TEST(ConfigLax, IntTakesBoolIntegralFloatAndIntegerStringsButNotFractions)
+{
+  const YAML::Node n =
+    YAML::Load("{a: 7, b: 3.0, c: '4', d: '5.0', e: true, f: 0x10, g: 0o7, h: 2.5, i: '2.5', j: .nan}");
+  const auto lax = rc::Coercion::LAX;
+  rc::Errors errors;
+  EXPECT_EQ(rc::get_or<long>(n, "a", -1, errors, lax), 7);   // NOLINT(runtime/int)
+  EXPECT_EQ(rc::get_or<long>(n, "b", -1, errors, lax), 3);   // NOLINT(runtime/int)
+  EXPECT_EQ(rc::get_or<long>(n, "c", -1, errors, lax), 4);   // NOLINT(runtime/int)
+  EXPECT_EQ(rc::get_or<long>(n, "d", -1, errors, lax), 5);   // NOLINT(runtime/int)
+  EXPECT_EQ(rc::get_or<long>(n, "e", -1, errors, lax), 1);   // NOLINT(runtime/int)
+  EXPECT_EQ(rc::get_or<long>(n, "f", -1, errors, lax), 16);  // NOLINT(runtime/int)
+  EXPECT_TRUE(errors.empty());
+  for (const char * key : {"h", "i", "j"}) {
+    rc::Errors bad;
+    EXPECT_EQ(rc::get_or<long>(n, key, -1, bad, lax), -1) << key;  // NOLINT(runtime/int)
+    EXPECT_EQ(bad, rc::Errors{std::string(key) + ": expected int"}) << key;
+  }
+}
+
+TEST(ConfigLax, BoolTakesWordsAndZeroOneButNotOtherNumbers)
+{
+  const YAML::Node n = YAML::Load("{a: yes, b: Off, c: 1, d: 0, e: 'on', f: 'N', g: 2, h: maybe, i: 1.0}");
+  const auto lax = rc::Coercion::LAX;
+  rc::Errors errors;
+  EXPECT_TRUE(rc::get_or<bool>(n, "a", false, errors, lax));
+  EXPECT_FALSE(rc::get_or<bool>(n, "b", true, errors, lax));
+  EXPECT_TRUE(rc::get_or<bool>(n, "c", false, errors, lax));
+  EXPECT_FALSE(rc::get_or<bool>(n, "d", true, errors, lax));
+  EXPECT_TRUE(rc::get_or<bool>(n, "e", false, errors, lax));
+  EXPECT_FALSE(rc::get_or<bool>(n, "f", true, errors, lax));
+  EXPECT_TRUE(rc::get_or<bool>(n, "i", false, errors, lax));
+  EXPECT_TRUE(errors.empty());
+  for (const char * key : {"g", "h"}) {
+    rc::Errors bad;
+    rc::get_or<bool>(n, key, false, bad, lax);
+    EXPECT_EQ(bad, rc::Errors{std::string(key) + ": expected bool"}) << key;
+  }
+}
+
+TEST(ConfigLax, StringOnlyTakesWhatPyYamlReadsAsAString)
+{
+  const YAML::Node n = YAML::Load("{a: /scan, b: '5', c: 5, d: yes, e: ~, f: 1.5, g: [x]}");
+  const auto lax = rc::Coercion::LAX;
+  rc::Errors errors;
+  EXPECT_EQ(rc::get_or<std::string>(n, "a", "", errors, lax), "/scan");
+  EXPECT_EQ(rc::get_or<std::string>(n, "b", "", errors, lax), "5");
+  EXPECT_TRUE(errors.empty());
+  for (const char * key : {"c", "d", "e", "f", "g"}) {
+    rc::Errors bad;
+    EXPECT_EQ(rc::get_or<std::string>(n, key, "dflt", bad, lax), "dflt") << key;
+    EXPECT_EQ(bad, rc::Errors{std::string(key) + ": expected string"}) << key;
+  }
+}
+
+TEST(ConfigLax, RequireAndStrictModeAreUnchanged)
+{
+  const YAML::Node n = YAML::Load("{a: 3.0, b: abc}");
+  rc::Errors errors;
+  EXPECT_EQ(*rc::require<int>(n, "a", errors, rc::Coercion::LAX), 3);
+  EXPECT_FALSE(rc::require<int>(n, "a", errors).has_value());  // strict: yaml-cpp does not read 3.0 as an int
+  EXPECT_FALSE(rc::require<double>(n, "b", errors).has_value());
+  EXPECT_FALSE(rc::require<double>(n, "missing", errors, rc::Coercion::LAX).has_value());
+  EXPECT_EQ(errors, (rc::Errors{"a: expected int", "b: expected float", "missing: field required"}));
+}
+
+TEST(ConfigLax, NullDetectionFollowsPyYaml)
+{
+  EXPECT_TRUE(rc::is_yaml_null(YAML::Load("~")));
+  EXPECT_TRUE(rc::is_yaml_null(YAML::Load("null")));
+  EXPECT_TRUE(rc::is_yaml_null(YAML::Load("Null")));
+  EXPECT_FALSE(rc::is_yaml_null(YAML::Load("'null'")));
+  EXPECT_FALSE(rc::is_yaml_null(YAML::Load("0")));
 }

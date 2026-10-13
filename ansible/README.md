@@ -323,13 +323,28 @@ Packages missing from the Jazzy apt distribution are built from a pinned git com
 
 **Stereo depth (`stereo_depth`).** Native node type in `group_vars/client.yml` (`python3 -m stereo_depth` from `nodes/stereo_depth`, `src_shared: true` for `shared/ros2_metrics`, config in `/etc/ros2/stereo_depth/config.yaml` via `STEREO_DEPTH_CONFIG`, apt `ros-jazzy-message-filters` and `ros-jazzy-stereo-msgs`, background cgroup tier, `memory_low` 96M / `memory_max` 384M estimate). Its `ros2_nodes` entry is present and enabled; the `config: |` block makes every `DepthConfig` default explicit with `metrics_port: 19113`, scraped by Alloy (`monitoring_agent_node_targets`). Deployed by the tagged `Deploy stereo_depth` block right after `overview_camera`: `./scripts/deploy-nodes.sh client stereo_depth`. It publishes `/stereo/depth/image_raw` (16UC1 mm, read by the web UI head tab) only once `/var/lib/ros2/camera_calibration` holds a valid stereo calibration. See `nodes/stereo_depth/README.md`.
 
-**C++ ports (`stereo_depth_cpp`, `map_guard_cpp`).** Side-by-side native node types in `group_vars/client.yml` for the rclcpp ports in `nodes/stereo_depth_cpp` and `nodes/map_guard_cpp`: `node_src_dir: ""`, `src_paths: []` (the build stamp restarts them), `colcon_source` = the local `shared/ros2_common_cpp` package then the node's own local package (workspace `/opt/ros2-ws`, see above), launch `ros2 run stereo_depth_cpp stereo_depth_node` / `ros2 run map_guard_cpp map_guard_node`, config in `/etc/ros2/<name>/config.yaml` through the Python node's variable (`STEREO_DEPTH_CONFIG`, `MAP_GUARD_CONFIG`) and the C++ build dependencies in `apt_packages` (build-essential, cmake, rsync, colcon, ament_cmake, rclcpp, rclcpp_components, yaml-cpp, prometheus-cpp, plus OpenCV/cv_bridge/message_filters or tf2_ros/slam_toolbox/cpp-httplib/nlohmann-json). `stereo_depth_cpp` is in the background tier exactly like `stereo_depth`, `map_guard_cpp` in the normal tier with map_guard's memory. Their `ros2_nodes` entries sit right after the Python node's, with `present: false`, `enabled: false` and a `config: |` block identical to the Python node's, so they share its metrics port (19113, 19110): only one of a pair may run (`tests/test_node_metrics_wiring.py`). Deployed by the tagged `Deploy stereo_depth_cpp` / `Deploy map_guard_cpp` blocks right after the Python counterparts. Cut-over: `present: true`, `enabled: true` on the `_cpp` entry, `enabled: false` on the Python entry (which stays installed as the rollback), rename the `monitoring_agent_node_targets` node, then `./scripts/deploy-nodes.sh client stereo_depth stereo_depth_cpp`. Rollback is the reverse.
+**C++ ports (`stereo_depth_cpp`, `map_guard_cpp`).** Side-by-side native node types in `group_vars/client.yml` for the rclcpp ports in `nodes/stereo_depth_cpp` and `nodes/map_guard_cpp`: `node_src_dir: ""`, `src_paths: []` (the build stamp restarts them), `colcon_source` = the local `shared/ros2_common_cpp` package then the node's own local package (workspace `/opt/ros2-ws`, see above), launch `ros2 run stereo_depth_cpp stereo_depth_node` / `ros2 run map_guard_cpp map_guard_node`, config in `/etc/ros2/<name>/config.yaml` through the Python node's variable (`STEREO_DEPTH_CONFIG`, `MAP_GUARD_CONFIG`) and the C++ build dependencies in `apt_packages` (build-essential, cmake, rsync, colcon, ament_cmake, rclcpp, rclcpp_components, yaml-cpp, prometheus-cpp, plus OpenCV/cv_bridge/message_filters or tf2_ros/slam_toolbox/cpp-httplib/nlohmann-json). `stereo_depth_cpp` is in the background tier exactly like `stereo_depth`, `map_guard_cpp` in the normal tier with map_guard's memory. Their `ros2_nodes` entries sit right after the Python node's, with a `config: |` block identical to the Python node's, so they share its metrics port (19113, 19110): only one of a pair may run (`tests/test_node_metrics_wiring.py`). Deployed by the tagged `Deploy stereo_depth_cpp` / `Deploy map_guard_cpp` blocks right after the Python counterparts. Both are live since the cut-over, see [Cut-over and rollback](#cut-over-and-rollback).
 
 **Arducam ToF SDK apt task.** `playbooks/tasks/arducam_tof_sdk.yml` (included from `pre_tasks` of `deploy_nodes_client.yml`, tags `arducam_tof` and `apt`, aarch64 only) adds the Arducam arm64 apt repo (`deb [arch=arm64 trusted=yes] https://arducam.github.io/arducam_ppa linux main`, file `arducam`; `trusted=yes` because Arducam publishes no signing key the playbook could pin) and installs `arducam-tof-sdk-dev`. It never fails a deploy: the repo targets Raspberry Pi OS and is unproven on Ubuntu noble, so when the repo or the package is unavailable a `rescue` removes the repo file again (a dead repo would break the batched node apt run) and prints a warning; the node then stays down until the SDK installs. It is idempotent (no change once the repo and package are present). The node itself is deployed by the tagged `Deploy arducam_tof` block of the same playbook.
 
 ## ROS package sync
 
 `--all` deploys (`deploy_nodes_client.yml`, `deploy_nodes_server.yml`) run `playbooks/tasks/ros_packages_sync.yml` right after the repo sync. It refreshes the apt index (at most hourly), upgrades every installed `ros-jazzy-*` package that has an update, and restarts the running `ros2-*` services when anything was upgraded. Mixing packages from different packages.ros.org syncs breaks ABI: on 2026-10-03 a freshly installed `laser_filters` failed with an undefined `diagnostic_updater` symbol.
+
+## Cut-over and rollback
+
+`stereo_depth_cpp` and `map_guard_cpp` are `present: true`, `enabled: true`; `stereo_depth` and `map_guard` stay `present: true`, `enabled: false` (installed, stopped, disabled) so the rollback is one line. The `_cpp` config blocks equal the Python ones (`map_guard_cpp` keeps `dry_run: true`), and `monitoring_agent_node_targets` scrapes the `_cpp` names on the shared ports (19113, 19110). `tests/test_cpp_cutover.py` pins all of this.
+
+Deploy the cut-over (first deploy builds the packages on the Pi at nice 19 without stopping the robot):
+
+```bash
+mkdir -p .logs
+./scripts/deploy-nodes.sh client stereo_depth stereo_depth_cpp map_guard map_guard_cpp 2>&1 | tee .logs/deploy-client-cutover.log
+```
+
+Rollback, per node: in `group_vars/client.yml` set `enabled: true` on the Python entry (`stereo_depth` / `map_guard`) and `enabled: false` on its `_cpp` entry, rename the matching `monitoring_agent_node_targets` node back, then run the same `scripts/deploy-nodes.sh client <python> <cpp>` command. Never enable both of a pair (one metrics port, duplicate publishers).
+
+Measure the saving with `scripts/node_cpu_compare.py` (per-node mean and p95 cores before and after, from Mimir; see `scripts/README.md`).
 
 ## Node resource model: robot headroom guaranteed, background constrained
 
@@ -413,7 +428,7 @@ estimate.
 | gripper_uvc_camera (`uvc_camera`) | 66.7 / 68.2 | 72M | 256M |
 | arducam_tof (disabled) | no data (estimate from uvc_camera plus the SDK and numpy; re-measure once enabled) | 64M | 192M |
 | stereo_depth | no data (estimate: rclpy, numpy, OpenCV and the 480x360 SGBM buffers; re-measure once it runs) | 96M | 384M |
-| stereo_depth_cpp (not installed) | no data (same values as stereo_depth until measured) | 96M | 384M |
+| stereo_depth_cpp | no data (same values as stereo_depth until measured) | 96M | 384M |
 | test_joint_api | 57.6 / 58.2 | 64M | 128M |
 | mcp_server | 177.9 / 383.4 | 184M | 1G |
 | claude_agent | 93.4 / 386.5 | 96M | 1G |
@@ -655,11 +670,11 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 | `rf2o_odom_relay` | 19108 | `metrics_port` |
 | `poi_store` | 19109 | `metrics_port` |
 | `map_guard` | 19110 | `metrics_port` |
-| `map_guard_cpp` (side by side, never enabled together with `map_guard`) | 19110 | `metrics_port` |
+| `map_guard_cpp` (live; `map_guard` is the disabled rollback, never both enabled) | 19110 | `metrics_port` |
 | `costmap_zones` | 19111 | `metrics_port` |
 | `arducam_tof` (disabled: add its target when enabling) | 19112 | `metrics_port` |
 | `stereo_depth` | 19113 | `metrics_port` |
-| `stereo_depth_cpp` (side by side, never enabled together with `stereo_depth`) | 19113 | `metrics_port` |
+| `stereo_depth_cpp` (live; `stereo_depth` is the disabled rollback, never both enabled) | 19113 | `metrics_port` |
 | `web_ui` | 8080 | `http_port` (own server) |
 | `test_joint_api` | 18080 | `port` (own server) |
 | `topic_scraper_api` | 18100 | `port` (own server) |

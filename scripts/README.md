@@ -182,6 +182,14 @@ Compares the CPU of `ros2-nav2_bringup.service` before and after the overlay dep
 uv run python scripts/mppi_cpu_compare.py
 ```
 
+## node_cpu_compare.py
+
+Per-node CPU before/after table from the server's Mimir, for the C++ cut-over (stereo_depth -> stereo_depth_cpp, map_guard -> map_guard_cpp) and the cheap Python fixes (web_ui, gripper_uvc_camera, mcp_server). For each entry `{name, before_unit, after_unit, switch_time}` of `scripts/node_cpu_compare.yaml` (pydantic-validated, with `prometheus_url`, `host`, `window_h` 6, `settle_min` 10) it queries `rate(container_cpu_usage_seconds_total[1m])` of `/system.slice/<before_unit>` over `[switch - window_h, switch]` and of `<after_unit>` over `[switch + settle_min, switch + settle_min + window_h]`, and prints mean and p95 in cores, plus a `total` row (the sum of the rows' statistics). The query and statistics functions are imported from `mppi_cpu_compare.py`. An empty series or an unreachable Mimir exits 2, never a result. Set each `switch_time` to the epoch of that node's deploy (`date +%s` right after it; the shipped `1` fails the run on purpose); Mimir keeps 1 d, so the before window must still be in retention. Run from the repo root after the deploy of `docs/plans/2026-10-13-cpp-nodes-plan.md` (Execution):
+
+```bash
+uv run python -m scripts.node_cpu_compare
+```
+
 ## probe-mppi-overlay-docker.sh
 
 Docker probe (arm64 `ros:jazzy-ros-base`, runs natively on an Apple Silicon Mac) for the nav2 MPPI overlay patch

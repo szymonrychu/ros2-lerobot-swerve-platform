@@ -1,8 +1,9 @@
 """Static invariants of the stereo_depth deployment (Ansible group_vars, background cgroup tier, playbook wiring).
 
 stereo_depth runs on the client, matches the synced IMX219 pair (overview_camera) and publishes 16UC1 mm depth on
-/stereo/depth/image_raw. It is deployed enabled in its own background tier, below every robot and agent tier, and its
-metrics port is scraped by Alloy.
+/stereo/depth/image_raw. Its C++ port stereo_depth_cpp is the enabled node since the cut-over; this entry is kept
+disabled for rollback, in the same background tier (below every robot and agent tier). The enabled node's metrics
+port is scraped by Alloy.
 """
 
 import importlib.util
@@ -84,7 +85,7 @@ def test_node_type_is_the_only_member_of_the_background_tier() -> None:
         for name, entry in types.items()
         if (entry.get("cpu_weight"), entry.get("io_weight"), entry.get("oom_score_adjust")) == BACKGROUND_TIER
     ]
-    # Its side-by-side C++ port (present: false until the cut-over) shares the tier.
+    # Its C++ port (the enabled node since the cut-over) shares the tier.
     assert members == [NODE, f"{NODE}_cpp"]
     assert "cpu_quota" not in defaults and "memory_high" not in defaults
 
@@ -99,11 +100,12 @@ def test_node_type_memory_estimate() -> None:
     assert "stimate" in block, "the memory figures are marked as an estimate"
 
 
-def test_ros2_nodes_entry_is_present_and_enabled() -> None:
+def test_ros2_nodes_entry_is_present_and_disabled_after_the_cutover() -> None:
+    """stereo_depth_cpp took over (tests/test_cpp_cutover.py); this entry stays installed as the rollback."""
     node = client_node(NODE)
     assert node["node_type"] == NODE
     assert node["present"] is True
-    assert node["enabled"] is True
+    assert node["enabled"] is False
     assert isinstance(node["config"], str)
 
 
@@ -131,10 +133,11 @@ def test_deployed_config_loads_in_the_node_load_config(tmp_path: Path) -> None:
     assert loaded.metrics_port == METRICS_PORT
 
 
-def test_metrics_port_is_scraped_because_the_node_is_enabled() -> None:
+def test_metrics_port_is_scraped_from_the_enabled_cpp_node() -> None:
     targets = {t["node"]: t for t in load_group("client")["monitoring_agent_node_targets"]}
-    assert targets[NODE]["address"] == f"127.0.0.1:{METRICS_PORT}"
-    assert targets[NODE]["path"] == "/metrics"
+    assert NODE not in targets
+    assert targets[f"{NODE}_cpp"]["address"] == f"127.0.0.1:{METRICS_PORT}"
+    assert targets[f"{NODE}_cpp"]["path"] == "/metrics"
 
 
 def test_client_playbook_deploys_the_node_after_overview_camera() -> None:

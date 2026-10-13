@@ -1,0 +1,20 @@
+# Config for scripts/node_cpu_compare.py (validated by its pydantic Settings model).
+# Per-node CPU before/after the C++ cut-over and the cheap Python fixes, from the server's Mimir.
+prometheus_url: http://server.ros2.lan:9009/prometheus
+# `host` label of the series (client = robot).
+host: client
+# Length of each compared window (hours): [switch - window, switch] and [switch + settle, switch + settle + window].
+window_h: 6
+# Minutes after the switch left out of the "after" window (restart, warm-up).
+settle_min: 10
+# switch_time: epoch seconds of the deploy that switched the node (`date +%s` right after the deploy; Mimir keeps 1 d,
+# so the before window must still be in retention). Set it before running; 1 is a placeholder that fails the run
+# (the series is empty).
+entries:
+  # Cut-over: Python unit before, C++ unit after.
+  - {name: stereo_depth, before_unit: ros2-stereo_depth.service, after_unit: ros2-stereo_depth_cpp.service, switch_time: 1}
+  - {name: map_guard, before_unit: ros2-map_guard.service, after_unit: ros2-map_guard_cpp.service, switch_time: 1}
+  # Cheap Python fixes: the same unit before and after the deploy.
+  - {name: web_ui, before_unit: ros2-web_ui.service, after_unit: ros2-web_ui.service, switch_time: 1}
+  - {name: gripper_uvc_camera, before_unit: ros2-gripper_uvc_camera.service, after_unit: ros2-gripper_uvc_camera.service, switch_time: 1}
+  - {name: mcp_server, before_unit: ros2-mcp_server.service, after_unit: ros2-mcp_server.service, switch_time: 1}

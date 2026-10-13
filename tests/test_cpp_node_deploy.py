@@ -486,12 +486,12 @@ def test_ros2_common_cpp_is_a_discovered_cpp_package() -> None:
 
 
 @pytest.mark.parametrize("cpp_type", sorted(CPP_TYPES))
-def test_cpp_node_entry_is_absent_with_the_python_config(cpp_type: str) -> None:
-    """Side by side: the _cpp entry is not installed until the cut-over (T8) and carries the Python node's config."""
+def test_cpp_node_entry_is_live_with_the_python_config(cpp_type: str) -> None:
+    """Side by side: the _cpp entry (live since the cut-over) carries the Python node's config."""
     nodes = {n["name"]: n for n in client()["ros2_nodes"]}
     entry, python = nodes[cpp_type], nodes[CPP_TYPES[cpp_type][0]]
     assert entry["node_type"] == cpp_type
-    assert entry["present"] is False and entry["enabled"] is False
+    assert entry["present"] is True and entry["enabled"] is True
     assert entry["config"] == python["config"]
     assert yaml.safe_load(entry["config"])["metrics_port"] == METRICS_PORTS[cpp_type]
     names = list(nodes)

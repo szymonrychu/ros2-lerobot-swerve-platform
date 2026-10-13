@@ -93,7 +93,7 @@ In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_no
 | `test_package_xml_apt_names_maps_ros_system_and_local_keys` | `package_xml_apt_names` maps ROS keys to `ros-jazzy-<dashed>`, system rosdep keys via `ROSDEP_APT`, keeps `lib*-dev` names, drops in-tree local packages and `test_depend`. |
 | `test_cpp_node_apt_packages_cover_every_in_tree_package_xml` | (per `_cpp` type) every build/run dependency of each local source's `package.xml` that is in the tree (ros2_common_cpp now, the node package once it lands) is in the type's `apt_packages`. |
 | `test_ros2_common_cpp_is_a_discovered_cpp_package` | The chained `shared/ros2_common_cpp` is a C++ package found by `discover_cpp_package_dirs`. |
-| `test_cpp_node_entry_is_absent_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: false`, `enabled: false`, the same `config: |` block (metrics ports 19113, 19110). |
+| `test_cpp_node_entry_is_live_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: true`, `enabled: true` (since the cut-over), the same `config: |` block (metrics ports 19113, 19110). |
 | `test_client_playbook_deploys_the_cpp_node_after_its_python_counterpart` | The `Deploy <name>_cpp` include follows the Python node's, with the node, build and config tags and the node tag applied. |
 | `test_docs_describe_the_local_source_build_and_the_cpp_nodes` | `ansible/README.md`, `nodes/README.md` and the ansible-deploy skill describe the local build and both node types. |
 
@@ -1473,10 +1473,10 @@ Static checks of the `stereo_depth` deployment (SGBM depth from the IMX219 pair 
 | `test_node_type_is_declared_on_the_client` | Native `python3 -m stereo_depth` from `nodes/stereo_depth`, `src_shared`, `/etc/ros2/stereo_depth` with `STEREO_DEPTH_CONFIG`, apt `ros-jazzy-message-filters` and `ros-jazzy-stereo-msgs`. |
 | `test_node_type_is_the_only_member_of_the_background_tier` | cpu/io_weight 100, `oom_score_adjust` 0, no other type with those weights except its C++ port `stereo_depth_cpp`, no `cpu_quota` or `memory_high`. |
 | `test_node_type_memory_estimate` | `memory_low` 96M, `memory_max` 384M, marked as an estimate in the comment. |
-| `test_ros2_nodes_entry_is_present_and_enabled` | The `ros2_nodes` entry is present, enabled and has a `config: |` block. |
+| `test_ros2_nodes_entry_is_present_and_disabled_after_the_cutover` | The `ros2_nodes` entry stays present, is disabled (rollback of `stereo_depth_cpp`) and has a `config: |` block. |
 | `test_deployed_config_makes_every_default_explicit` | The deployed config lists every `DepthConfig` field at its default, `metrics_port` 19113. |
 | `test_deployed_config_loads_in_the_node_load_config` | The deployed YAML passes the node's own `load_config` (depth, left and right topics, metrics port). |
-| `test_metrics_port_is_scraped_because_the_node_is_enabled` | `monitoring_agent_node_targets` has `127.0.0.1:19113` `/metrics` for stereo_depth. |
+| `test_metrics_port_is_scraped_from_the_enabled_cpp_node` | `monitoring_agent_node_targets` has `127.0.0.1:19113` `/metrics` for `stereo_depth_cpp` and no target for the disabled `stereo_depth`. |
 | `test_client_playbook_deploys_the_node_after_overview_camera` | The tagged `Deploy stereo_depth` block (`apply` tag, phase tags) follows `Deploy overview_camera`. |
 | `test_boot_include_display_name_names_the_imx219_pair` | The camera boot include is named for the IMX219 pair, not the IMX708. |
 | `test_docs_list_the_node_tier_memory_and_port` | `ansible/README.md` names stereo_depth, 19113 and the background tier; the deploy skill has a stereo_depth row. |
@@ -2194,6 +2194,36 @@ Static derivation of MPPI `model_delay_*` from the swerve steering kinematics (`
 | `test_window_bounds_exclude_the_settle_period` / `test_settle_period_samples_are_never_requested` | The after window starts `settle_min` after the switch and no query touches the settle period. |
 | `test_empty_series_is_an_error_not_a_pass` | An empty before or after series raises `NoDataError`. |
 | `test_default_config_loads_with_the_documented_values` / `test_config_validation_rejects_bad_values` | The YAML defaults, and negative limits, zero window, bad switch_time are rejected. |
+
+## test_cpp_cutover.py
+
+Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.yml`, `ansible/README.md`).
+
+| Test | Description |
+|---|---|
+| `test_cpp_node_is_live` | (per pair) `stereo_depth_cpp` and `map_guard_cpp` are `present: true`, `enabled: true`. |
+| `test_python_node_stays_present_and_disabled_for_rollback` | `stereo_depth` and `map_guard` stay `present: true`, `enabled: false` (rollback). |
+| `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19113, 19110). |
+| `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
+| `test_background_tier_holds_only_the_active_stereo_node` | Among running nodes the background tier (100/100/0) holds only `stereo_depth_cpp`. |
+| `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
+| `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |
+
+## test_node_cpu_compare.py
+
+`scripts/node_cpu_compare.py` against a mocked httpx transport (no network).
+
+| Test | Description |
+|---|---|
+| `test_reports_each_entry_with_before_unit_before_and_after_unit_after` | The before unit is read over the window before the switch, the after unit over the window after the settle period. |
+| `test_total_row_sums_before_and_after` | The `total` row sums the entries' means and p95s. |
+| `test_render_table_lists_every_row_and_the_total` | The table names every entry and the total. |
+| `test_reuses_the_query_and_statistics_functions_of_mppi_cpu_compare` | `query_window`, `summarize` and `window_bounds` are the objects of `mppi_cpu_compare`, not copies. |
+| `test_empty_series_raises_no_data` | An empty series raises `NoDataError`. |
+| `test_main_exits_2_on_an_empty_series` / `test_main_prints_and_exits_0` | Exit 2 on no data, exit 0 and a table otherwise. |
+| `test_queries_use_the_configured_host_and_both_windows` | Two queries per entry, at the before and after window starts, with the configured host. |
+| `test_entry_requires_all_fields_and_a_positive_switch_time` | pydantic rejects a missing field and a non-positive switch_time. |
+| `test_shipped_config_lists_the_five_nodes` | `node_cpu_compare.yaml` lists stereo_depth, map_guard, web_ui, gripper_uvc_camera, mcp_server with the right units. |
 
 ### test_shared_photos.py / test_shared_lookups.py (photo contract)
 

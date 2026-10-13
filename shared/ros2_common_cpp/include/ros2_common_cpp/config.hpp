@@ -105,11 +105,59 @@ inline std::string type_name<std::vector<std::string>>()
   return "list of string";
 }
 
-// Convert node[key] to T. Records "<key>: expected <type>" in errors and returns nullopt when it does not convert
-// (a null value never converts, a string never converts to bool or a number).
-template <typename T>
-std::optional<T> convert(const YAML::Node & value, const std::string & key, Errors & errors)
+// How a scalar is read. STRICT (default): yaml-cpp's own conversion, a string never converts to a bool or a number.
+// LAX: pydantic lax mode over the PyYAML 1.1 resolver, i.e. what the Python nodes' models accept from yaml.safe_load:
+//   float  <- bool, int, float, numeric string ("3.5", " 1_0 "; not hex), YAML 1.1 sexagesimal and .inf/.nan
+//   int    <- bool, int (binary, octal, hex, sexagesimal), integral float, integer or integral-float string
+//   bool   <- yes/no/on/off/true/false words and 0/1 numbers (and the strings "1" "0" "t" "f" "y" "n" ...)
+//   string <- only what PyYAML reads as a string (quoted, or not a bool, number or null word)
+// LAX applies to double, float, int, long, unsigned int, bool and std::string; other types convert strictly.
+enum class Coercion
 {
+  STRICT,
+  LAX
+};
+
+// True for a YAML null as PyYAML reads it (~, null, Null, NULL or an empty plain scalar), not for 'null' in quotes.
+bool is_yaml_null(const YAML::Node & node);
+
+// The LAX readers; nullopt when the value does not convert.
+std::optional<double> lax_float(const YAML::Node & node);
+std::optional<long> lax_int(const YAML::Node & node);  // NOLINT(runtime/int)
+std::optional<bool> lax_bool(const YAML::Node & node);
+std::optional<std::string> lax_string(const YAML::Node & node);
+
+// Convert node[key] to T. Records "<key>: expected <type>" in errors and returns nullopt when it does not convert
+// (STRICT: a null value never converts, a string never converts to bool or a number).
+template <typename T>
+std::optional<T> convert(
+  const YAML::Node & value, const std::string & key, Errors & errors, Coercion mode = Coercion::STRICT)
+{
+  if (mode == Coercion::LAX) {
+    std::optional<T> lax;
+    if constexpr (std::is_same_v<T, bool>) {
+      lax = lax_bool(value);
+    } else if constexpr (std::is_same_v<T, std::string>) {
+      lax = lax_string(value);
+    } else if constexpr (std::is_floating_point_v<T>) {
+      if (const auto f = lax_float(value)) {
+        lax = static_cast<T>(*f);
+      }
+    } else if constexpr (std::is_integral_v<T>) {
+      if (const auto i = lax_int(value)) {
+        lax = static_cast<T>(*i);
+      }
+    }
+    if constexpr (
+      std::is_same_v<T, bool> || std::is_same_v<T, std::string> || std::is_floating_point_v<T> ||
+      std::is_integral_v<T>) {
+      if (lax) {
+        return lax;
+      }
+      errors.push_back(key + ": expected " + type_name<T>());
+      return std::nullopt;
+    }
+  }
   bool ok = !value.IsNull();
   if constexpr (std::is_same_v<T, std::string>) {
     ok = ok && value.IsScalar();
@@ -126,25 +174,28 @@ std::optional<T> convert(const YAML::Node & value, const std::string & key, Erro
 
 // Required field: "<key>: field required" when missing, "<key>: expected <type>" when it does not convert.
 template <typename T>
-std::optional<T> require(const YAML::Node & node, const std::string & key, Errors & errors)
+std::optional<T> require(
+  const YAML::Node & node, const std::string & key, Errors & errors, Coercion mode = Coercion::STRICT)
 {
   const YAML::Node value = node[key];
   if (!value.IsDefined()) {
     errors.push_back(key + ": field required");
     return std::nullopt;
   }
-  return convert<T>(value, key, errors);
+  return convert<T>(value, key, errors, mode);
 }
 
 // Optional field: fallback when missing; "<key>: expected <type>" (and the fallback) when it does not convert.
 template <typename T>
-T get_or(const YAML::Node & node, const std::string & key, const T & fallback, Errors & errors)
+T get_or(
+  const YAML::Node & node, const std::string & key, const T & fallback, Errors & errors,
+  Coercion mode = Coercion::STRICT)
 {
   const YAML::Node value = node[key];
   if (!value.IsDefined()) {
     return fallback;
   }
-  return convert<T>(value, key, errors).value_or(fallback);
+  return convert<T>(value, key, errors, mode).value_or(fallback);
 }
 
 // Reject keys outside allowed (pydantic extra="forbid"): "<key>: extra field not permitted" per unknown key,

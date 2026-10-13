@@ -1117,7 +1117,7 @@ ros2_nodes:
   - name: stereo_depth
     node_type: stereo_depth
     present: true
-    enabled: true
+    enabled: false
     config: |
       # Every DepthConfig key at its default (nodes/stereo_depth/README.md, "Config").
       left_image_topic: /overview_camera/image_raw
@@ -1147,12 +1147,13 @@ ros2_nodes:
       frame_id: stereo_left_optical_frame
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
       metrics_port: 19113
-  # C++ port of stereo_depth (side by side, not installed until the cut-over): the same config block, so either node
-  # reads it. Cut-over: present/enabled true here, enabled false on stereo_depth (never both: one metrics port).
+  # C++ port of stereo_depth, live since the cut-over: the same config block, so either node reads it. stereo_depth
+  # above stays present and disabled as the rollback (ansible/README.md, "Cut-over and rollback"); never both
+  # enabled: one metrics port.
   - name: stereo_depth_cpp
     node_type: stereo_depth_cpp
-    present: false
-    enabled: false
+    present: true
+    enabled: true
     config: |
       # Every DepthConfig key at its default (nodes/stereo_depth/README.md, "Config").
       left_image_topic: /overview_camera/image_raw
@@ -1440,7 +1441,7 @@ ros2_nodes:
   - name: map_guard
     node_type: map_guard
     present: true
-    enabled: true
+    enabled: false
     config: |
       # Prometheus /metrics on 127.0.0.1.
       metrics_port: 19110
@@ -1505,12 +1506,13 @@ ros2_nodes:
       backup_dir: /var/lib/ros2/maps
       backup_prefix: map_guard_backup
       keep_backups: 5
-  # C++ port of map_guard (side by side, not installed until the cut-over): the same config block, so either node
-  # reads it. Cut-over: present/enabled true here, enabled false on map_guard (never both: one metrics port).
+  # C++ port of map_guard, live since the cut-over: the same config block, so either node reads it. map_guard above
+  # stays present and disabled as the rollback (ansible/README.md, "Cut-over and rollback"); never both enabled: one
+  # metrics port.
   - name: map_guard_cpp
     node_type: map_guard_cpp
-    present: false
-    enabled: false
+    present: true
+    enabled: true
     config: |
       # Prometheus /metrics on 127.0.0.1.
       metrics_port: 19110
@@ -2458,10 +2460,10 @@ monitoring_agent_node_targets:
   - {node: swerve_controller, address: "127.0.0.1:19107", path: /metrics}
   - {node: rf2o_odom_relay, address: "127.0.0.1:19108", path: /metrics}
   - {node: poi_store, address: "127.0.0.1:19109", path: /metrics}
-  - {node: map_guard, address: "127.0.0.1:19110", path: /metrics}
+  - {node: map_guard_cpp, address: "127.0.0.1:19110", path: /metrics}
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
   # arducam_tof (127.0.0.1:19112) is added here when the node is enabled: only enabled nodes are scraped.
-  - {node: stereo_depth, address: "127.0.0.1:19113", path: /metrics}
+  - {node: stereo_depth_cpp, address: "127.0.0.1:19113", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
   - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}

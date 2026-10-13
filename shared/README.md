@@ -94,8 +94,9 @@ returns every error (`Errors` = `std::vector<std::string>`, one `"<key>: <proble
 
 | Helper | Behaviour |
 |---|---|
-| `require<T>(node, key, errors)` | `std::optional<T>`. Missing key gives `"<key>: field required"`. A value that does not convert (including null) gives `"<key>: expected <type>"`. Types: `int`, `double`, `bool`, `std::string`, vectors of those, anything `YAML::convert` knows. |
-| `get_or<T>(node, key, fallback, errors)` | Optional field. Returns the fallback when the key is missing. A wrong type adds an error and returns the fallback. |
+| `require<T>(node, key, errors, mode)` | `std::optional<T>`. Missing key gives `"<key>: field required"`. A value that does not convert (including null) gives `"<key>: expected <type>"`. Types: `int`, `double`, `bool`, `std::string`, vectors of those, anything `YAML::convert` knows. |
+| `get_or<T>(node, key, fallback, errors, mode)` | Optional field. Returns the fallback when the key is missing. A wrong type adds an error and returns the fallback. |
+| `Coercion::LAX` (the optional `mode` of `convert`, `require`, `get_or`) | Reads a scalar as pydantic lax mode does over `yaml.safe_load`: float from bool, int, float, numeric string, sexagesimal, `.inf`/`.nan`; int from bool, int (bin, oct, hex), integral float, integer string; bool from `yes/no/on/off/true/false` words and 0/1; string only when PyYAML reads a string. Default `Coercion::STRICT` is yaml-cpp's own conversion. Helpers `lax_float`, `lax_int`, `lax_bool`, `lax_string`, `is_yaml_null` (PyYAML null words). map_guard_cpp uses LAX so it accepts exactly what its pydantic model accepts. |
 | `forbid_unknown(node, allowed, errors, where = "")` | `"<where.>key: extra field not permitted"` for each key not in `allowed`. A non-mapping gives `"<where>: expected mapping"`. |
 | `ge` / `gt` / `le(key, value, bound, errors)` | Range checks: `"<key>: must be >= <bound> (got <value>)"`. |
 | `config_path_from_env(env_var, default_path)` | The env var when it is set and not empty, else the default (`<NAME>_CONFIG`, `/etc/ros2/<name>/config.yaml`). |
