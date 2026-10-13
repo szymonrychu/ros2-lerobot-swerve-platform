@@ -972,6 +972,9 @@ axis, the margins and a collision-free reach envelope; with up to `reach_max_poi
 a `suggestion`. The envelope (`arm_reach.py`) is computed once in a background thread in batches of `ENVELOPE_BATCH_SAMPLES` (32) poses, about 30 MB of arrays and 70 MB RSS (a whole heading at once peaked at about 2.4 GB and OOM-looped the 256M unit on 2026-10-10) (about 5.4 s on the dev Mac with the 2.5 mm box points, 17 s before the link-frame blocks of Check cost, 3.6 s with the 1 cm points; on the busy RPi5 it took about 95 s with the 1 cm points
 while the unit still had a CPU limit (measured before 2026-10-11, when robot units moved to CPU weights with no limit), measure it again after deploying;
 `SelfCollisionChecker.clear_of` places and evaluates only the blocks of 32 box points whose bounding sphere comes within the hard margin; a call waits up to `reach_wait_s` and otherwise reports `computing`).
+Interpreter exit stops a still-running computation at its next batch (`stop_running_envelopes`, atexit, up to
+`EXIT_STOP_TIMEOUT_S` = 10 s), so the daemon thread does not hold the C++ body kernel through shutdown (nanobind would
+report the `BodyChecker` as leaked); nothing partial is stored or cached.
 With `reach_cache_file` set (the robot: `/var/lib/ros2/arm/reach_envelope.json`) it starts when the server is built
 and is saved to that file under a hash of every input (body, arm link model, mount, joint limits and offsets, grid,
 hard margin), so

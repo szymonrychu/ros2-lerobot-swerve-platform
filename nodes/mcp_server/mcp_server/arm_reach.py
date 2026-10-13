@@ -18,6 +18,7 @@ SelfCollisionChecker.closest, proven equal by tests/test_core_parity_ik_reach.py
 mcp_server/reference/ik_reach.py).
 """
 
+import atexit
 import hashlib
 import json
 import logging
@@ -41,6 +42,8 @@ from .ik import ARM_CHAIN_JOINTS
 from .self_collision import CAPSULES, CHECKED_PARTS, LINK_BLOCKS, SelfCollisionChecker, link_model_description
 
 SHOULDER_PAN = "shoulder_pan"
+# How long interpreter exit waits for a running envelope computation to stop (it stops at its next batch).
+EXIT_STOP_TIMEOUT_S = 10.0
 ENVELOPE_JOINTS = ("shoulder_lift", "elbow_flex")
 ENVELOPE_SAMPLES_PER_JOINT = 13
 ENVELOPE_WRIST_SAMPLES = 7
@@ -114,6 +117,7 @@ class ReachEnvelope:
         self._result: dict[str, Any] | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._stop = threading.Event()
 
     def headings_deg(self) -> list[float]:
         """Pan headings of the grid (deg, measured shoulder_pan), symmetric about 0 within the pan range.
@@ -196,7 +200,19 @@ class ReachEnvelope:
                 self._result = cached
                 return
             self._thread = threading.Thread(target=self.compute, name="arm-reach-envelope", daemon=True)
+            RUNNING.add(self)
             self._thread.start()
+
+    def stop(self, timeout_s: float) -> None:
+        """Stop a running computation at its next batch and wait for its thread (no result is stored or cached).
+
+        Args:
+            timeout_s (float): How long to wait for the thread (s).
+        """
+        self._stop.set()
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout_s)
 
     def get(self, wait_s: float) -> dict[str, Any] | None:
         """The envelope, starting its computation in a background thread on the first call.
@@ -236,6 +252,8 @@ class ReachEnvelope:
             ]
             tip_parts, clear_parts = [], []
             for start in range(0, len(samples), ENVELOPE_BATCH_SAMPLES):
+                if self._stop.is_set():
+                    return
                 batch = samples[start : start + ENVELOPE_BATCH_SAMPLES]
                 geometry = checker.geometry(batch)
                 tip_parts.append(geometry.fixed["tool_point"][:, 0])
@@ -434,6 +452,18 @@ def point_solutions(
         (float(point["x"] or 0.0), float(point["y"] or 0.0), float(point["z"] or 0.0)), checker.mount
     )
     return reach_kernel(checker, target, reach_pitches(point.get("pitch")), seed)["solutions"]
+
+
+# Envelopes whose computation thread was started; stopped at interpreter exit (stop_running_envelopes).
+RUNNING: weakref.WeakSet[ReachEnvelope] = weakref.WeakSet()
+
+
+@atexit.register
+def stop_running_envelopes() -> None:
+    """Stop every envelope computation still running at interpreter exit, so its daemon thread does not hold the C++
+    body kernel (mcp_core_cpp.collision.BodyChecker) through shutdown, which nanobind reports as a leak."""
+    for envelope in list(RUNNING):
+        envelope.stop(EXIT_STOP_TIMEOUT_S)
 
 
 def point_reach(

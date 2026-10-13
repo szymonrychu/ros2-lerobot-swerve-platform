@@ -9,6 +9,8 @@ which call the C++ kernels) on every golden input.
 import json
 import math
 import re
+import subprocess
+import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -17,7 +19,10 @@ import pytest
 
 import bench.inputs
 import mcp_core_cpp
+from mcp_server.arm_reach import ReachEnvelope
 from mcp_server.body_model import BodyModel
+from mcp_server.config import McpServerConfig
+from mcp_server.reach_map import checker_from_config
 from mcp_server.reference import collision as reference
 from mcp_server.self_collision import NORMAL_SCALE, SelfCollisionChecker
 from tests import core_parity
@@ -31,6 +36,22 @@ PORTED = "ported"
 NOT_PORTED = "below threshold, not ported"
 DOC_ROW = re.compile(r"^\| `?([\w.]+)`? \| ([0-9.]+) \| ([a-z, ]+) \|$")
 MEDIAN_DECIMALS = 3
+# A process that exits while the reach envelope is still being computed in its daemon thread (the robot's server start).
+EXIT_DURING_ENVELOPE = """
+import time
+from mcp_server.arm_reach import ReachEnvelope
+from mcp_server.config import McpServerConfig
+from mcp_server.reach_map import checker_from_config
+config = McpServerConfig()
+envelope = ReachEnvelope(checker_from_config(config), config.body_check)
+envelope.start()
+time.sleep(0.2)
+assert envelope.get(0.0) is None, "envelope finished before exit, the test proves nothing"
+"""
+NANOBIND_LEAK = "nanobind: leaked"
+# First mcp_core_cpp version carrying the collision kernels: the Pi deploy rebuilds the extension only when uv.lock (which
+# records this version) changes, so the port must bump it.
+COLLISION_SINCE = (0, 2, 0)
 
 
 def report_rows() -> list[dict[str, Any]]:
@@ -181,3 +202,29 @@ def test_family_doc_matches_the_report() -> None:
     }
     assert expected
     assert doc_rows() == expected
+
+
+def test_exit_during_envelope_computation_frees_the_kernel() -> None:
+    """A process exiting while the envelope thread runs stops that thread first, so no BodyChecker is alive at
+    interpreter shutdown (nanobind reports such an instance as a leak)."""
+    done = subprocess.run(
+        [sys.executable, "-c", EXIT_DURING_ENVELOPE], cwd=NODE_DIR, capture_output=True, text=True, timeout=120
+    )
+    assert done.returncode == 0, done.stderr
+    assert NANOBIND_LEAK not in done.stderr
+
+
+def test_stopped_envelope_computation_returns_without_a_result() -> None:
+    """ReachEnvelope.stop ends a running computation early; nothing is stored or cached."""
+    config = McpServerConfig()
+    envelope = ReachEnvelope(checker_from_config(config), config.body_check)
+    envelope.start()
+    envelope.stop(timeout_s=10.0)
+    assert envelope.get(0.0) is None
+    assert envelope.compute_count == 0
+
+
+def test_package_version_carries_the_collision_port() -> None:
+    """The installed mcp_core_cpp (the version uv.lock records) is at least the one that ships the collision kernels."""
+    installed = tuple(int(part) for part in mcp_core_cpp.__version__.split("."))
+    assert installed >= COLLISION_SINCE
