@@ -14,7 +14,7 @@ import math
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from concurrent.futures import Future, InvalidStateError
 from typing import Any
 
@@ -61,6 +61,7 @@ from .gps_anchor import (
 from .gps_status import parse_status_json
 from .metrics import BATTERY_CUTOFF_ACTIVE, MAP_UPDATES, ROBOT_POSE_OK, TOPIC_STALE, TOPICS_STALE, touch_map
 from .msg_serializer import (
+    RGBD_COLOR_TOPICS,
     msg_to_dict,
     quaternion_to_yaw,
     serialize_active_source,
@@ -163,7 +164,8 @@ ROBOT_POSE_STALE_S = 2.0
 # every other topic passes through.
 MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint", "costmap"})
 
-Serializer = Callable[[Any], dict[str, Any]]
+# Serializers take the message; those of RGBD color topics also take color_small (bool, default True).
+Serializer = Callable[..., dict[str, Any]]
 
 # map_nav subscription role -> (message class, QoS, serializer). Roles come from the tab config.
 ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
@@ -206,8 +208,8 @@ def head_spec(topic: str, role: str, tof_range_m: float | None) -> tuple[type, A
     """
     depth_range = tof_range_m if role == HEAD_DEPTH_ROLE else None
 
-    def serializer(msg: Any) -> dict[str, Any]:
-        data = msg_to_dict(msg, topic=topic, tof_range_m=depth_range)
+    def serializer(msg: Any, color_small: bool = True) -> dict[str, Any]:
+        data = msg_to_dict(msg, topic=topic, tof_range_m=depth_range, color_small=color_small)
         if "error" in data:
             raise ValueError(data["error"])
         return data
@@ -240,8 +242,8 @@ def subscription_spec(
         return None
     qos = SENSOR_SUB_QOS if msg_cls in SENSOR_TYPES else DEFAULT_SUB_QOS_DEPTH
 
-    def serializer(msg: Any) -> dict[str, Any]:
-        return msg_to_dict(msg, topic=topic)
+    def serializer(msg: Any, color_small: bool = True) -> dict[str, Any]:
+        return msg_to_dict(msg, topic=topic, color_small=color_small)
 
     return (msg_cls, qos, serializer)
 
@@ -318,6 +320,7 @@ class BridgeNode(Node):
         self._tilt_stale_s = tilt_stale_s
         self._latest: dict[str, dict[str, Any]] = {}
         self._pending: dict[str, tuple[Any, Serializer, str | None]] = {}
+        self._color_small = False
         self._dirty: set[str] = set()
         self._cleared: set[str] = set()
         self._lock = threading.Lock()
@@ -450,6 +453,14 @@ class BridgeNode(Node):
             self._cleared.discard(topic)
             self._topic_last_rx[topic] = time.monotonic()
 
+    def set_color_small(self, wanted: bool) -> None:
+        """Set whether RGBD color frames get the downscaled second JPEG (some connected client's tab needs it).
+
+        Args:
+            wanted (bool): True while a connected client has an RGBD tab open.
+        """
+        self._color_small = wanted
+
     def serialize_pending(self, topics: Iterable[str]) -> set[str]:
         """Serialize the pending raw message of each topic (at most once per message) into the latest cache.
 
@@ -492,7 +503,8 @@ class BridgeNode(Node):
             dict[str, Any] | None: Payload, or None when the message was dropped.
         """
         try:
-            data = self.to_map_frame(serializer(msg), role)
+            payload = serializer(msg, color_small=self._color_small) if topic in RGBD_COLOR_TOPICS else serializer(msg)
+            data = self.to_map_frame(payload, role)
         except Exception as exc:
             log.warning("serialize_error", topic=topic, error=str(exc))
             return None
@@ -1034,14 +1046,18 @@ class BridgeNode(Node):
         """Indirection used in tests to verify warning logging."""
         log.warning(msg)
 
-    def flush_dirty(self) -> list[dict[str, Any]]:
+    def flush_dirty(self, topics: Collection[str] | None = None) -> list[dict[str, Any]]:
         """Return envelopes for all topics updated or cleared since last call; clear the pending sets.
 
         Raw messages stored by the subscription callbacks are serialized here, once per topic however many
         messages arrived since the last flush. The broadcaster only calls it while a client is connected, so with
-        no client nothing is serialized.
+        no client nothing is serialized. Dirty topics outside topics (no connected client subscribes to them) are
+        not serialized; their raw message stays pending for a client that subscribes later.
 
         Cleared topics yield {"topic": topic, "data": None}.
+
+        Args:
+            topics (Collection[str] | None): Topics some client subscribes to, None for every topic.
 
         Returns:
             list[dict[str, Any]]: Envelopes ready to broadcast.
@@ -1052,23 +1068,28 @@ class BridgeNode(Node):
             cleared = list(self._cleared)
             self._dirty.clear()
             self._cleared.clear()
+        if topics is not None:
+            dirty = [t for t in dirty if t in topics]
         dropped = self.serialize_pending(dirty)
         with self._lock:
             envelopes = [self._latest[t] for t in dirty if t in self._latest and t not in dropped]
         envelopes.extend({"topic": t, "data": None} for t in cleared)
         return envelopes
 
-    def latest_envelopes(self) -> list[dict[str, Any]]:
+    def latest_envelopes(self, topics: Collection[str] | None = None) -> list[dict[str, Any]]:
         """Return the latest cached envelope of every topic (snapshot for newly connected clients).
+
+        Args:
+            topics (Collection[str] | None): Restrict the snapshot to these topics, None for every topic.
 
         Returns:
             list[dict[str, Any]]: Envelopes, one per topic received so far.
         """
         with self._lock:
-            pending = list(self._pending)
+            pending = [t for t in self._pending if topics is None or t in topics]
         self.serialize_pending(pending)
         with self._lock:
-            return list(self._latest.values())
+            return [e for t, e in self._latest.items() if topics is None or t in topics]
 
     def create_publisher_for(self, topic: str, msg_type_str: str) -> None:
         """Create a ROS2 publisher for an allowlisted topic.

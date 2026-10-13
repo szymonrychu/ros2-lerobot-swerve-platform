@@ -35,6 +35,7 @@ import { GPS_BASE_STATUS_KEY, baseGpsStatus, roverGpsStatus } from './gps/gpsSta
 import type { BaseGpsPayload, RoverGpsPayload } from './gps/gpsStatus'
 import { StateBanner } from './components/StateBanner'
 import { useRosBridge } from './hooks/useRosBridge'
+import { needsColorSmall, subscribedTopics } from './hooks/subscription'
 import { tabBarMode } from './layout/tabBarMode'
 import { useLayout } from './layout/useLayout'
 import { TOUCH_TARGET_PX } from './theme'
@@ -147,22 +148,11 @@ export default function App() {
       .catch((e) => log.warn('[app] Failed to load config:', e))
   }, [])
 
-  const allTopics = config
-    ? [
-        ...config.tabs.flatMap((t) => [
-          t.topic,
-          ...(t.topics?.map((ts) => ts.topic) ?? []),
-          t.color_topic, t.depth_topic, t.camera_info_topic,
-          t.gripper_camera_topic, t.overview_camera_topic,
-          t.map_topic, t.global_plan_topic, t.local_plan_topic, t.footprint_topic,
-          t.local_costmap_topic, t.base_joint_states_topic, t.arm_joint_states_topic,
-          ...(t.type === 'map_nav' ? [t.goal_topic] : []),
-        ]),
-        ...config.overlays.map((o) => o.topic),
-      ].filter((t): t is string => Boolean(t))
-    : []
-
-  const { topicData, connected, publish } = useRosBridge(allTopics, (e) => setErrorToast(e.message))
+  const activeTabConfig = tabs[Math.min(activeTab, tabs.length - 1)]
+  const subscription = config ? subscribedTopics(config.tabs, config.overlays.map((o) => o.topic), activeTabConfig) : []
+  const { topicData, connected, publish } = useRosBridge(subscription, needsColorSmall(activeTabConfig), (e) =>
+    setErrorToast(e.message)
+  )
 
   // POI data: the latched /poi/list plus the one photo store shared by the POI tab and the map's photo layer
   // (refetched when its /poi/photos revision moves).

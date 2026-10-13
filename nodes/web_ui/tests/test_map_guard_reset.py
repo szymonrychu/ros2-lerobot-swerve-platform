@@ -15,6 +15,7 @@ def make_bridge(**attrs: Any) -> Any:
     node._latest = {}
     node._dirty = set()
     node._pending = {}
+    node._color_small = False
     node._cleared = set()
     node._lock = threading.Lock()
     node._gps_anchor = None

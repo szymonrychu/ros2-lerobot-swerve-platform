@@ -245,7 +245,7 @@ def test_broadcaster_stalled_endpoint_client_is_dropped_and_others_served(urdf_d
     bridge.latest_envelopes.return_value = []
     counter = {"n": 0}
 
-    def flush() -> list[dict[str, Any]]:
+    def flush(_topics: Any = None) -> list[dict[str, Any]]:
         counter["n"] += 1
         return [{"topic": "/live", "data": {"v": counter["n"]}}]
 

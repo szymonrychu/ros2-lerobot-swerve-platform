@@ -101,7 +101,7 @@ def test_ws_clients_gauge_and_disconnects(build: Any) -> None:
 def test_broadcast_duration_and_slow_cycles(build: Any) -> None:
     """Each broadcast cycle with work is observed; one over the slow threshold also bumps the slow counter."""
 
-    def slow_flush() -> list[dict[str, Any]]:
+    def slow_flush(_topics: Any = None) -> list[dict[str, Any]]:
         time.sleep(0.08)
         return [{"topic": "/live", "data": {"v": 1}}]
 

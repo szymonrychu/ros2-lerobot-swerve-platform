@@ -20,7 +20,15 @@ export interface UseRosBridgeReturn {
 
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]
 
-export function useRosBridge(_topics: string[], onError?: (error: BridgeError) => void): UseRosBridgeReturn {
+/**
+ * topics: what the backend should serialize for this client; colorSmall: whether the open tab needs the downscaled
+ * color JPEG. The subscription is sent on connect and whenever either changes.
+ */
+export function useRosBridge(
+  topics: string[],
+  colorSmall: boolean,
+  onError?: (error: BridgeError) => void
+): UseRosBridgeReturn {
   const [topicData, setTopicData] = useState<TopicData>({})
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
@@ -28,6 +36,11 @@ export function useRosBridge(_topics: string[], onError?: (error: BridgeError) =
   const unmounted = useRef(false)
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
+  const subscriptionRef = useRef('')
+  subscriptionRef.current = JSON.stringify({ type: 'subscribe', topics, color_small: colorSmall })
+  const sendSubscription = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(subscriptionRef.current)
+  }, [])
 
   const connect = useCallback(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -41,6 +54,7 @@ export function useRosBridge(_topics: string[], onError?: (error: BridgeError) =
       log.info('[bridge] WebSocket connected to', url)
       setConnected(true)
       reconnectAttempt.current = 0
+      sendSubscription()
     }
 
     ws.onmessage = (evt) => {
@@ -67,7 +81,7 @@ export function useRosBridge(_topics: string[], onError?: (error: BridgeError) =
     ws.onerror = () => {
       ws.close()
     }
-  }, [])
+  }, [sendSubscription])
 
   useEffect(() => {
     unmounted.current = false
@@ -77,6 +91,11 @@ export function useRosBridge(_topics: string[], onError?: (error: BridgeError) =
       wsRef.current?.close()
     }
   }, [connect])
+
+  const subscriptionKey = subscriptionRef.current
+  useEffect(() => {
+    if (subscriptionKey) sendSubscription()
+  }, [subscriptionKey, sendSubscription])
 
   const publish = useCallback((topic: string, msgType: string, data: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

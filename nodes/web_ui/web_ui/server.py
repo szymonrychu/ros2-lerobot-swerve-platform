@@ -53,7 +53,13 @@ from .tiles import (
 )
 from .tilt_guard import TILT_GUARD_ERROR_SOURCE, nav_rejection_message
 from .urdf_scanner import scan_urdf_directory
-from .ws_clients import SEND_TIMEOUT_S, BackpressureWebSocketsProtocol, ClientConnection
+from .ws_clients import (
+    SEND_TIMEOUT_S,
+    BackpressureWebSocketsProtocol,
+    ClientConnection,
+    wanted_topics,
+    wants_color_small,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -275,6 +281,8 @@ async def broadcast_envelopes(
         else:
             frame = serialize_envelope(frame_cache, envelope)
         for cid, conn in list(clients.items()):
+            if not conn.subscribes(key):
+                continue
             conn.offer(key, frame)
             logger.debug("ws_msg_offered", client_id=cid, payload_bytes=len(frame))
         await asyncio.sleep(0)
@@ -388,7 +396,8 @@ def _make_start_broadcaster(
                 if bridge_node is None or not clients:
                     continue
                 t0 = time.monotonic()
-                envelopes = bridge_node.flush_dirty()
+                bridge_node.set_color_small(wants_color_small(clients.values()))
+                envelopes = bridge_node.flush_dirty(wanted_topics(clients.values()))
                 if not envelopes:
                     continue
                 logger.debug("broadcaster_cycle", dirty_topics=len(envelopes), client_count=len(clients))
@@ -964,7 +973,15 @@ def build_app(
                     log.debug("ws_msg_recv", client_id=client_id, raw=raw[:200])
                     try:
                         msg = json.loads(raw)
-                        if msg.get("type") == "publish" and battery_guard is not None and battery_guard.is_cutoff():
+                        if msg.get("type") == "subscribe":
+                            topics = msg.get("topics")
+                            conn.subscribe(
+                                None if topics is None else [str(t) for t in topics], bool(msg.get("color_small"))
+                            )
+                            if bridge_node is not None and conn.topics is not None:
+                                for envelope in bridge_node.latest_envelopes(set(conn.topics)):
+                                    conn.offer(str(envelope["topic"]), serialize_envelope(frame_cache, envelope))
+                        elif msg.get("type") == "publish" and battery_guard is not None and battery_guard.is_cutoff():
                             error = battery_guard.rejection_message()
                             log.warning(
                                 "ws_publish_rejected_battery_cutoff", client_id=client_id, topic=msg.get("topic", "")

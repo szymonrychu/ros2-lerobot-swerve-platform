@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import structlog
@@ -64,11 +64,36 @@ class ClientConnection:
         self.on_dead = on_dead
         self.send_timeout_s = send_timeout_s
         self.max_queued = max_queued
+        # Topics the client wants (None: every topic, the state before it sends a subscribe message) and whether its
+        # open tab needs the downscaled color_small JPEG.
+        self.topics: frozenset[str] | None = None
+        self.color_small = False
         self.mailbox: dict[str, str] = {}
         self.ordered: deque[str] = deque()
         self.wakeup = asyncio.Event()
         self.closed = False
         self.sender_task: asyncio.Task[None] | None = None
+
+    def subscribes(self, topic: str) -> bool:
+        """Whether the client wants frames of topic.
+
+        Args:
+            topic (str): WS topic name.
+
+        Returns:
+            bool: True when the client subscribed to topic or has not narrowed its subscription.
+        """
+        return self.topics is None or topic in self.topics
+
+    def subscribe(self, topics: Iterable[str] | None, color_small: bool) -> None:
+        """Replace the client's subscription.
+
+        Args:
+            topics (Iterable[str] | None): Topics to receive, None for every topic.
+            color_small (bool): Whether the client's open tab needs the downscaled color JPEG.
+        """
+        self.topics = None if topics is None else frozenset(topics)
+        self.color_small = color_small
 
     @property
     def pending_frames(self) -> int:
@@ -165,3 +190,32 @@ class ClientConnection:
             WS_CLIENTS_DROPPED_SLOW.inc()
             log.warning("ws_client_dropped_slow", reason=reason)
         self.on_dead(self)
+
+
+def wanted_topics(clients: Iterable[ClientConnection]) -> set[str] | None:
+    """Union of the topics the clients subscribe to.
+
+    Args:
+        clients (Iterable[ClientConnection]): Connected clients.
+
+    Returns:
+        set[str] | None: Topics any client wants, None when some client wants every topic.
+    """
+    wanted: set[str] = set()
+    for conn in clients:
+        if conn.topics is None:
+            return None
+        wanted |= conn.topics
+    return wanted
+
+
+def wants_color_small(clients: Iterable[ClientConnection]) -> bool:
+    """Whether any client's open tab needs the downscaled color JPEG.
+
+    Args:
+        clients (Iterable[ClientConnection]): Connected clients.
+
+    Returns:
+        bool: True when at least one client needs color_small.
+    """
+    return any(conn.color_small for conn in clients)
