@@ -420,6 +420,7 @@ ros2_node_type_defaults:
       - ros-jazzy-rclcpp-components
       - ros-jazzy-sensor-msgs
       - ros-jazzy-stereo-msgs
+      - ros-jazzy-std-msgs
       - ros-jazzy-message-filters
       - ros-jazzy-cv-bridge
       - libopencv-dev
@@ -596,6 +597,7 @@ ros2_node_type_defaults:
       - ros-jazzy-std-msgs
       - ros-jazzy-std-srvs
       - ros-jazzy-rcl-interfaces
+      - ros-jazzy-tf2
       - ros-jazzy-tf2-ros
       - ros-jazzy-slam-toolbox
       - libcpp-httplib-dev
