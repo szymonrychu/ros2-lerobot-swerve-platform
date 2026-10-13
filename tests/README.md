@@ -976,7 +976,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   full rate; `enabled: false`; the lazy swerve joint states read the copy while the base is idle and full rate while it
   moves (also when first read during a base motion); `drive` and `navigate` hold the base at full rate; an arm motion
   and a gripper close begin full rate before their first command and the rest baseline; the base and arm MCP tools
-  begin before the command and end after it, `release_control` switches both, sensor tools none; the
+  begin before the command and end after it, `release_control` switches both, sensor tools none; a tool cancelled
+  while `begin_motion` waits still calls `end_motion` (no leaked active count); the
   `JointStateRateSettings` defaults and validation and the `client.yml` block matching the throttle node commands
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
 - lazy swerve joint states (`test_ros_iface_steer.py`, the `conftest.py` `ros_iface` fixture imports `ros_iface` against

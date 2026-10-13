@@ -13,12 +13,14 @@ fields and their client.yml values.
 """
 
 import re
+import threading
 import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
+import anyio
 import pytest
 import yaml
 from pydantic import ValidationError
@@ -473,6 +475,41 @@ def test_arm_tool_switches_the_arm(rate_server: tuple[Any, RateRobot]) -> None:
     call(server, "move_arm_joints", {"targets": {"gripper": 0.3}})
     assert ("begin_motion", ("arm",)) in robot.calls
     assert robot.calls[-1] == ("end_motion", ("arm",))
+
+
+class SlowBeginRobot(RateRobot):
+    """RateRobot whose begin_motion blocks (like the bounded full-rate wait) until released."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path)
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def begin_motion(self, subsystems: tuple[str, ...]) -> None:
+        self.started.set()
+        self.release.wait(5.0)
+        super().begin_motion(subsystems)
+
+
+def test_a_tool_cancelled_while_begin_waits_still_ends_the_motion(tmp_path: Path) -> None:
+    """anyio runs begin_motion to completion under a shield, and the cancellation lands at the next checkpoint
+    (the tool body, inside the try), so end_motion still runs and the active count does not leak."""
+    robot = SlowBeginRobot(tmp_path)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server)
+    robot.calls.clear()
+
+    async def run() -> None:
+        async with anyio.create_task_group() as group:
+            group.start_soon(server.call_tool, "drive", {"vx": 0.1, "vy": 0.0, "wz": 0.0, "duration_s": 0.5})
+            await anyio.to_thread.run_sync(robot.started.wait, 5.0)
+            group.cancel_scope.cancel()  # the client cancels the call during the full-rate wait
+            robot.release.set()
+
+    anyio.run(run)
+    names = [c[0] for c in robot.calls]
+    assert "drive" not in names
+    assert names.count("begin_motion") == names.count("end_motion") == 1
 
 
 def test_release_control_switches_both_and_sensor_tools_switch_nothing(rate_server: tuple[Any, RateRobot]) -> None:
