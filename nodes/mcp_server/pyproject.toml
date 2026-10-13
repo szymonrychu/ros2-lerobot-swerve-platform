@@ -53,13 +53,13 @@ ignore_names = ["cls"]
 [tool.poe.tasks]
 lint = { shell = """
   set -e
-  ruff check mcp_server tests
-  ruff format --check mcp_server tests
-  vulture mcp_server tests --min-confidence 80
+  ruff check mcp_server tests bench
+  ruff format --check mcp_server tests bench
+  vulture mcp_server tests bench --min-confidence 80
 """ }
 lint-fix = { shell = """
-  ruff check --fix mcp_server tests
-  ruff format mcp_server tests
+  ruff check --fix mcp_server tests bench
+  ruff format mcp_server tests bench
 """ }
 test = { shell = "pytest tests/ -v" }
 

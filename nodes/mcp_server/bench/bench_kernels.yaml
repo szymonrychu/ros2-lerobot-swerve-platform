@@ -1,0 +1,11 @@
+# Bench of the mcp_server compute kernels (bench/bench_kernels.py). 
+# repetitions: timed calls per kernel (after one warm-up call); a kernel may cap it lower (very slow ones).
+repetitions: 15
+# A kernel whose median wall time is at or above this gets the verdict "port". 5 ms on the dev Mac;
+# the client Pi 5 is about 3x slower, so set 15 for a run on the Pi.
+threshold_ms: 5.0
+families: [camera, grasp, ik_reach, collision, frontiers]
+# Mimir (Prometheus API) on the server; mcp_tool_calls_total and mcp_tool_duration_seconds give calls/day per tool.
+prometheus_url: http://server.ros2.lan:9009/prometheus
+# How far back to look; Mimir keeps 1 day, so the window actually available is reported.
+lookback_hours: 24

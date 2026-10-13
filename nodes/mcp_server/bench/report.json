@@ -1,0 +1,689 @@
+{
+  "generated_at": "2026-10-13T06:51:10+00:00",
+  "machine": "arm64",
+  "system": "Darwin",
+  "repetitions": 15,
+  "threshold_ms": 5.0,
+  "families": [
+    "camera",
+    "grasp",
+    "ik_reach",
+    "collision",
+    "frontiers"
+  ],
+  "mimir": {
+    "reachable": true,
+    "error": null,
+    "window_hours": 22.333333333333332,
+    "calls_per_day": {
+      "add_poi": 0.0,
+      "annotate_lookup": 0.0,
+      "confirm_grasp": 0.0,
+      "delete_photos": 0.0,
+      "drive": 1.0746268656716418,
+      "enqueue_motions": 2.1492537313432836,
+      "get_arm_state": 0.0,
+      "get_body_state": 0.0,
+      "get_camera_image": 7.522388059701493,
+      "get_control_state": 1.0746268656716418,
+      "get_map_summary": 6.447761194029851,
+      "get_robot_state": 2.1492537313432836,
+      "get_topdown_view": 4.298507462686567,
+      "go_to_frontier": 8.597014925373134,
+      "grasp_object": 0.0,
+      "list_frontiers": 3.2238805970149254,
+      "list_lookups": 0.0,
+      "list_pois": 1.0746268656716418,
+      "look_around": 3.2238805970149254,
+      "mark_candidate_points": 0.0,
+      "move_arm_cartesian": 1.0746268656716418,
+      "move_arm_joints": 3.2238805970149254,
+      "move_relative": 1.0746268656716418,
+      "navigate_to_pose": 5.3731343283582085,
+      "pixel_to_ground": 0.0,
+      "plan_frontier_visit": 0.0,
+      "plan_grasp": 0.0,
+      "release_control": 1.0746268656716418,
+      "release_object": 0.0,
+      "remember_object": 4.298507462686567,
+      "set_gripper": 1.0746268656716418,
+      "stop": 3.2238805970149254,
+      "take_control": 4.298507462686567,
+      "update_poi": 1.0746268656716418,
+      "wait_for_event": 2.1492537313432836
+    },
+    "mean_duration_ms": {
+      "drive": 2619.741175019726,
+      "enqueue_motions": 1667.4698019999141,
+      "get_camera_image": 896.5755262857361,
+      "get_control_state": 25.24734099995385,
+      "get_map_summary": 52.59685449940813,
+      "get_robot_state": 79.56819300000006,
+      "get_topdown_view": 1054.0078255000508,
+      "go_to_frontier": 10930.747189125,
+      "list_frontiers": 1288.450240999926,
+      "list_pois": 22.620336000045427,
+      "look_around": 16396.42507866235,
+      "move_arm_cartesian": 9441.89316500001,
+      "move_arm_joints": 7770.150022000091,
+      "move_relative": 3206.1756840000157,
+      "navigate_to_pose": 18177.886885800035,
+      "release_control": 9783.536492000054,
+      "remember_object": 79.75445324248653,
+      "set_gripper": 2658.6441050000076,
+      "stop": 134.08084266670053,
+      "take_control": 110.1312392499949,
+      "update_poi": 37.99031699441002,
+      "wait_for_event": 10273.524103499994
+    }
+  },
+  "rows": [
+    {
+      "kernel": "reach_map.build",
+      "family": "ik_reach",
+      "median_ms": 1265.954333008267,
+      "p95_ms": 1275.892807985656,
+      "cpu_median_ms": 1264.6076875000003,
+      "cpu_p95_ms": 1274.4635312500004,
+      "calls_per_day": 0.0,
+      "verdict": "port",
+      "tools": [
+        "get_arm_reach"
+      ]
+    },
+    {
+      "kernel": "grasp.plan_auto",
+      "family": "grasp",
+      "median_ms": 214.99541692901403,
+      "p95_ms": 215.0088045047596,
+      "cpu_median_ms": 214.82466600000015,
+      "cpu_p95_ms": 214.85526690000012,
+      "calls_per_day": 0.0,
+      "verdict": "port",
+      "tools": [
+        "plan_grasp",
+        "grasp_object",
+        "confirm_grasp"
+      ]
+    },
+    {
+      "kernel": "camera_overlay.draw_lidar",
+      "family": "camera",
+      "median_ms": 27.10466703865677,
+      "p95_ms": 27.6420624461025,
+      "cpu_median_ms": 27.05958399999997,
+      "cpu_p95_ms": 27.62135869999991,
+      "calls_per_day": 0.0,
+      "verdict": "port",
+      "tools": [
+        "get_annotated_camera_image"
+      ]
+    },
+    {
+      "kernel": "frontiers.tracker_update",
+      "family": "frontiers",
+      "median_ms": 15.358041040599346,
+      "p95_ms": 15.73022851953283,
+      "cpu_median_ms": 15.347540999999687,
+      "cpu_p95_ms": 15.698766200000058,
+      "calls_per_day": 11.82089552238806,
+      "verdict": "port",
+      "tools": [
+        "list_frontiers",
+        "plan_frontier_visit",
+        "go_to_frontier",
+        "look_toward_frontier"
+      ]
+    },
+    {
+      "kernel": "self_collision.path",
+      "family": "collision",
+      "median_ms": 14.897375018335879,
+      "p95_ms": 15.067733079195023,
+      "cpu_median_ms": 14.890874999999859,
+      "cpu_p95_ms": 15.062703699999869,
+      "calls_per_day": 6.447761194029851,
+      "verdict": "port",
+      "tools": [
+        "move_arm_cartesian",
+        "move_arm_joints",
+        "enqueue_motions",
+        "get_body_state",
+        "plan_grasp",
+        "grasp_object"
+      ]
+    },
+    {
+      "kernel": "frontiers.geodesic_from",
+      "family": "frontiers",
+      "median_ms": 13.838417013175786,
+      "p95_ms": 14.348587684798986,
+      "cpu_median_ms": 13.81883400000028,
+      "cpu_p95_ms": 14.32841680000001,
+      "calls_per_day": 11.82089552238806,
+      "verdict": "port",
+      "tools": [
+        "list_frontiers",
+        "plan_frontier_visit",
+        "go_to_frontier",
+        "look_toward_frontier"
+      ]
+    },
+    {
+      "kernel": "arm_reach.point_reach",
+      "family": "ik_reach",
+      "median_ms": 12.611541897058487,
+      "p95_ms": 12.903283082414418,
+      "cpu_median_ms": 12.600250000000202,
+      "cpu_p95_ms": 12.883066199999949,
+      "calls_per_day": 1.0746268656716418,
+      "verdict": "port",
+      "tools": [
+        "get_arm_reach",
+        "move_arm_cartesian"
+      ]
+    },
+    {
+      "kernel": "perception.render_map_crop",
+      "family": "camera",
+      "median_ms": 9.399875067174435,
+      "p95_ms": 9.83166245277971,
+      "cpu_median_ms": 9.397958000000095,
+      "cpu_p95_ms": 9.831929299999963,
+      "calls_per_day": 10.746268656716417,
+      "verdict": "port",
+      "tools": [
+        "get_topdown_view",
+        "get_map_summary"
+      ]
+    },
+    {
+      "kernel": "perception.map_stats",
+      "family": "camera",
+      "median_ms": 9.388874983415008,
+      "p95_ms": 9.797078825067729,
+      "cpu_median_ms": 9.391790999999872,
+      "cpu_p95_ms": 9.797295600000066,
+      "calls_per_day": 6.447761194029851,
+      "verdict": "port",
+      "tools": [
+        "get_map_summary"
+      ]
+    },
+    {
+      "kernel": "frontiers.traversability",
+      "family": "frontiers",
+      "median_ms": 6.939791026525199,
+      "p95_ms": 7.179595669731498,
+      "cpu_median_ms": 6.926874999999555,
+      "cpu_p95_ms": 7.167691900000328,
+      "calls_per_day": 11.82089552238806,
+      "verdict": "port",
+      "tools": [
+        "list_frontiers",
+        "plan_frontier_visit",
+        "go_to_frontier",
+        "look_toward_frontier"
+      ]
+    },
+    {
+      "kernel": "self_collision.pose",
+      "family": "collision",
+      "median_ms": 6.429707980714738,
+      "p95_ms": 6.526625191327184,
+      "cpu_median_ms": 6.429125000000369,
+      "cpu_p95_ms": 6.51810000000026,
+      "calls_per_day": 0.0,
+      "verdict": "port",
+      "tools": [
+        "get_body_state",
+        "get_arm_state"
+      ]
+    },
+    {
+      "kernel": "frontiers.frontier_field",
+      "family": "frontiers",
+      "median_ms": 5.051541025750339,
+      "p95_ms": 5.2525953855365515,
+      "cpu_median_ms": 5.044625000000025,
+      "cpu_p95_ms": 5.236220699999716,
+      "calls_per_day": 11.82089552238806,
+      "verdict": "port",
+      "tools": [
+        "list_frontiers",
+        "plan_frontier_visit",
+        "go_to_frontier",
+        "look_toward_frontier"
+      ]
+    },
+    {
+      "kernel": "frontiers.extract_frontiers",
+      "family": "frontiers",
+      "median_ms": 3.3128749346360564,
+      "p95_ms": 3.4442910575307906,
+      "cpu_median_ms": 3.310500000000438,
+      "cpu_p95_ms": 3.4410666999994177,
+      "calls_per_day": 11.82089552238806,
+      "verdict": "below threshold",
+      "tools": [
+        "list_frontiers",
+        "plan_frontier_visit",
+        "go_to_frontier",
+        "look_toward_frontier"
+      ]
+    },
+    {
+      "kernel": "self_collision.geometry",
+      "family": "collision",
+      "median_ms": 2.33279203530401,
+      "p95_ms": 2.42962857009843,
+      "cpu_median_ms": 2.3334999999997663,
+      "cpu_p95_ms": 2.41916679999985,
+      "calls_per_day": 6.447761194029851,
+      "verdict": "below threshold",
+      "tools": [
+        "move_arm_cartesian",
+        "move_arm_joints",
+        "enqueue_motions",
+        "get_body_state",
+        "plan_grasp",
+        "grasp_object"
+      ]
+    },
+    {
+      "kernel": "ik.inverse",
+      "family": "ik_reach",
+      "median_ms": 1.7670419765636325,
+      "p95_ms": 2.0550543908029795,
+      "cpu_median_ms": 1.7675420000000663,
+      "cpu_p95_ms": 2.0473786999998467,
+      "calls_per_day": 4.298507462686567,
+      "verdict": "below threshold",
+      "tools": [
+        "move_arm_cartesian",
+        "move_arm_joints",
+        "get_arm_reach",
+        "plan_grasp",
+        "grasp_object"
+      ]
+    },
+    {
+      "kernel": "camera_candidates.candidate_store",
+      "family": "camera",
+      "median_ms": 1.6511660069227219,
+      "p95_ms": 1.7129831947386265,
+      "cpu_median_ms": 1.6514579999999945,
+      "cpu_p95_ms": 1.7072622999999676,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "mark_candidate_points"
+      ]
+    },
+    {
+      "kernel": "geometry.pixel_to_ground",
+      "family": "camera",
+      "median_ms": 1.386375050060451,
+      "p95_ms": 1.4230956323444843,
+      "cpu_median_ms": 1.3866660000000364,
+      "cpu_p95_ms": 1.4238706000000212,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "pixel_to_ground",
+        "mark_candidate_points"
+      ]
+    },
+    {
+      "kernel": "perception.recompress_jpeg",
+      "family": "camera",
+      "median_ms": 1.302416087128222,
+      "p95_ms": 1.388071314431727,
+      "cpu_median_ms": 1.302667000000035,
+      "cpu_p95_ms": 1.3785875000000836,
+      "calls_per_day": 7.522388059701493,
+      "verdict": "below threshold",
+      "tools": [
+        "get_camera_image"
+      ]
+    },
+    {
+      "kernel": "perception.encode_jpeg",
+      "family": "camera",
+      "median_ms": 1.0250839404761791,
+      "p95_ms": 1.1331751476973295,
+      "cpu_median_ms": 0.9892080000000192,
+      "cpu_p95_ms": 1.0876963000000073,
+      "calls_per_day": 7.522388059701493,
+      "verdict": "below threshold",
+      "tools": [
+        "get_camera_image"
+      ]
+    },
+    {
+      "kernel": "camera_overlay.draw_grid",
+      "family": "camera",
+      "median_ms": 0.7662080461159348,
+      "p95_ms": 0.868166354484856,
+      "cpu_median_ms": 0.7666670000000542,
+      "cpu_p95_ms": 0.8655499999999927,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "get_annotated_camera_image"
+      ]
+    },
+    {
+      "kernel": "ik.inverse_flange",
+      "family": "ik_reach",
+      "median_ms": 0.6735420320183039,
+      "p95_ms": 0.7676829118281603,
+      "cpu_median_ms": 0.6739590000002238,
+      "cpu_p95_ms": 0.763621299999917,
+      "calls_per_day": 4.298507462686567,
+      "verdict": "below threshold",
+      "tools": [
+        "move_arm_cartesian",
+        "move_arm_joints",
+        "get_arm_reach",
+        "plan_grasp",
+        "grasp_object"
+      ]
+    },
+    {
+      "kernel": "arm_geometry.box_surface_points",
+      "family": "ik_reach",
+      "median_ms": 0.5460829706862569,
+      "p95_ms": 0.556566403247416,
+      "cpu_median_ms": 0.546583999999406,
+      "cpu_p95_ms": 0.5570080000005362,
+      "calls_per_day": 6.447761194029851,
+      "verdict": "below threshold",
+      "tools": [
+        "move_arm_cartesian",
+        "move_arm_joints",
+        "enqueue_motions",
+        "get_body_state",
+        "plan_grasp",
+        "grasp_object"
+      ]
+    },
+    {
+      "kernel": "camera_scene.build_scene_gripper",
+      "family": "camera",
+      "median_ms": 0.5301249912008643,
+      "p95_ms": 0.5804292857646942,
+      "cpu_median_ms": 0.5306250000000068,
+      "cpu_p95_ms": 0.5809038000000211,
+      "calls_per_day": 7.522388059701493,
+      "verdict": "below threshold",
+      "tools": [
+        "get_camera_image",
+        "get_annotated_camera_image",
+        "pixel_to_ground",
+        "mark_candidate_points"
+      ]
+    },
+    {
+      "kernel": "body_model.signed_distance",
+      "family": "collision",
+      "median_ms": 0.45720802154392004,
+      "p95_ms": 0.4811499849893152,
+      "cpu_median_ms": 0.4575410000002833,
+      "cpu_p95_ms": 0.48056619999981004,
+      "calls_per_day": 6.447761194029851,
+      "verdict": "below threshold",
+      "tools": [
+        "move_arm_cartesian",
+        "move_arm_joints",
+        "enqueue_motions",
+        "get_body_state",
+        "plan_grasp",
+        "grasp_object"
+      ]
+    },
+    {
+      "kernel": "footprint_geometry.shapes",
+      "family": "collision",
+      "median_ms": 0.43891696259379387,
+      "p95_ms": 0.6824919953942299,
+      "cpu_median_ms": 0.43929100000017485,
+      "cpu_p95_ms": 0.6714831000000031,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "get_body_state"
+      ]
+    },
+    {
+      "kernel": "camera_overlay.grid_polylines",
+      "family": "camera",
+      "median_ms": 0.32479106448590755,
+      "p95_ms": 0.3383830306120217,
+      "cpu_median_ms": 0.3251250000000372,
+      "cpu_p95_ms": 0.340320500000002,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "get_annotated_camera_image"
+      ]
+    },
+    {
+      "kernel": "footprint_geometry.body_outline",
+      "family": "collision",
+      "median_ms": 0.24337496142834425,
+      "p95_ms": 0.30441633425652975,
+      "cpu_median_ms": 0.24375000000009805,
+      "cpu_p95_ms": 0.30500370000012816,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "get_body_state"
+      ]
+    },
+    {
+      "kernel": "frontiers.observation_pose",
+      "family": "frontiers",
+      "median_ms": 0.20308292005211115,
+      "p95_ms": 0.2581168664619326,
+      "cpu_median_ms": 0.20341599999973425,
+      "cpu_p95_ms": 0.2573877000000557,
+      "calls_per_day": 11.82089552238806,
+      "verdict": "below threshold",
+      "tools": [
+        "list_frontiers",
+        "plan_frontier_visit",
+        "go_to_frontier",
+        "look_toward_frontier"
+      ]
+    },
+    {
+      "kernel": "sag.compensate",
+      "family": "ik_reach",
+      "median_ms": 0.1888750120997429,
+      "p95_ms": 0.22087930701673025,
+      "cpu_median_ms": 0.1891660000001849,
+      "cpu_p95_ms": 0.22130440000003299,
+      "calls_per_day": 4.298507462686567,
+      "verdict": "below threshold",
+      "tools": [
+        "move_arm_joints",
+        "move_arm_cartesian"
+      ]
+    },
+    {
+      "kernel": "sag.deflection",
+      "family": "ik_reach",
+      "median_ms": 0.18283410463482141,
+      "p95_ms": 0.1955456915311515,
+      "cpu_median_ms": 0.18308299999958422,
+      "cpu_p95_ms": 0.19592849999980896,
+      "calls_per_day": 4.298507462686567,
+      "verdict": "below threshold",
+      "tools": [
+        "move_arm_joints",
+        "move_arm_cartesian"
+      ]
+    },
+    {
+      "kernel": "jaw_crop.jaw_crop",
+      "family": "grasp",
+      "median_ms": 0.10583305265754461,
+      "p95_ms": 0.1261922065168619,
+      "cpu_median_ms": 0.10616600000012966,
+      "cpu_p95_ms": 0.1267418999999048,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "confirm_grasp",
+        "grasp_object"
+      ]
+    },
+    {
+      "kernel": "perception.summarize_scan",
+      "family": "camera",
+      "median_ms": 0.0914580887183547,
+      "p95_ms": 0.10105360997840762,
+      "cpu_median_ms": 0.0917090000001064,
+      "cpu_p95_ms": 0.10141249999986446,
+      "calls_per_day": 2.1492537313432836,
+      "verdict": "below threshold",
+      "tools": [
+        "get_robot_state"
+      ]
+    },
+    {
+      "kernel": "camera_overlay.project_points",
+      "family": "camera",
+      "median_ms": 0.06454205140471458,
+      "p95_ms": 0.07089098216965795,
+      "cpu_median_ms": 0.06479200000009122,
+      "cpu_p95_ms": 0.07128360000006051,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "get_annotated_camera_image"
+      ]
+    },
+    {
+      "kernel": "camera_overlay.circle_runs",
+      "family": "camera",
+      "median_ms": 0.06450002547353506,
+      "p95_ms": 0.06963309133425354,
+      "cpu_median_ms": 0.06470800000002441,
+      "cpu_p95_ms": 0.06998749999997943,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "get_annotated_camera_image"
+      ]
+    },
+    {
+      "kernel": "perception.scan_points",
+      "family": "camera",
+      "median_ms": 0.03829202614724636,
+      "p95_ms": 0.052054401021450744,
+      "cpu_median_ms": 0.03850000000005238,
+      "cpu_p95_ms": 0.05074100000010961,
+      "calls_per_day": 12.895522388059701,
+      "verdict": "below threshold",
+      "tools": [
+        "get_map_summary",
+        "get_topdown_view",
+        "get_robot_state"
+      ]
+    },
+    {
+      "kernel": "camera_scene.build_scene",
+      "family": "camera",
+      "median_ms": 0.028665992431342602,
+      "p95_ms": 0.04773330874741075,
+      "cpu_median_ms": 0.028958000000023354,
+      "cpu_p95_ms": 0.048616199999940136,
+      "calls_per_day": 7.522388059701493,
+      "verdict": "below threshold",
+      "tools": [
+        "get_camera_image",
+        "get_annotated_camera_image",
+        "pixel_to_ground",
+        "mark_candidate_points"
+      ]
+    },
+    {
+      "kernel": "ik.forward",
+      "family": "ik_reach",
+      "median_ms": 0.018625054508447647,
+      "p95_ms": 0.029432866722345335,
+      "cpu_median_ms": 0.01883400000002311,
+      "cpu_p95_ms": 0.02837489999971686,
+      "calls_per_day": 4.298507462686567,
+      "verdict": "below threshold",
+      "tools": [
+        "move_arm_cartesian",
+        "move_arm_joints",
+        "get_arm_reach",
+        "plan_grasp",
+        "grasp_object"
+      ]
+    },
+    {
+      "kernel": "ik.link_frames",
+      "family": "ik_reach",
+      "median_ms": 0.018125050701200962,
+      "p95_ms": 0.01950426958501339,
+      "cpu_median_ms": 0.01829200000003084,
+      "cpu_p95_ms": 0.019779200000114017,
+      "calls_per_day": 4.298507462686567,
+      "verdict": "below threshold",
+      "tools": [
+        "move_arm_cartesian",
+        "move_arm_joints",
+        "get_arm_reach",
+        "plan_grasp",
+        "grasp_object"
+      ]
+    },
+    {
+      "kernel": "perception.image_to_bgr",
+      "family": "camera",
+      "median_ms": 0.01225003506988287,
+      "p95_ms": 0.013733108062297104,
+      "cpu_median_ms": 0.012459000000131226,
+      "cpu_p95_ms": 0.014045800000084261,
+      "calls_per_day": 7.522388059701493,
+      "verdict": "below threshold",
+      "tools": [
+        "get_camera_image"
+      ]
+    },
+    {
+      "kernel": "grasp.plan_scoop",
+      "family": "grasp",
+      "median_ms": 0.009874929673969746,
+      "p95_ms": 0.014000607188791037,
+      "cpu_median_ms": 0.01020799999995603,
+      "cpu_p95_ms": 0.01448299999995406,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "plan_grasp",
+        "grasp_object",
+        "confirm_grasp"
+      ]
+    },
+    {
+      "kernel": "grasp_check.band_verdict",
+      "family": "grasp",
+      "median_ms": 0.002374988980591297,
+      "p95_ms": 0.0036043580621480924,
+      "cpu_median_ms": 0.0025830000001114684,
+      "cpu_p95_ms": 0.003862500000018086,
+      "calls_per_day": 0.0,
+      "verdict": "below threshold",
+      "tools": [
+        "confirm_grasp",
+        "grasp_object"
+      ]
+    }
+  ]
+}
