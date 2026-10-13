@@ -14,7 +14,7 @@ import math
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import Future, InvalidStateError
 from typing import Any
 
@@ -317,6 +317,7 @@ class BridgeNode(Node):
         super().__init__("web_ui_bridge")
         self._tilt_stale_s = tilt_stale_s
         self._latest: dict[str, dict[str, Any]] = {}
+        self._pending: dict[str, tuple[Any, Serializer, str | None]] = {}
         self._dirty: set[str] = set()
         self._cleared: set[str] = set()
         self._lock = threading.Lock()
@@ -398,12 +399,12 @@ class BridgeNode(Node):
         self.create_timer(TOPIC_STALE_S, self._check_topic_health)
 
     def _make_callback(self, topic: str, serializer: Serializer, role: str | None) -> Callable[[Any], None]:
-        """Build a subscription callback that serializes and caches each message.
+        """Build a subscription callback that keeps the raw latest message and marks the topic dirty.
 
-        MAP_FRAME_ROLES messages whose frame differs from the map frame are transformed into it; if that
-        transform is unavailable the message is dropped rather than shown in the wrong place. "gps" fixes
-        without a fix (status < 0) are dropped; valid ones also feed the GPS anchor fit. All other topics
-        are cached as serialized.
+        Nothing is serialized here: flush_dirty (or latest_envelopes for a connecting client) serializes the
+        latest message, once, and only when a client is connected. "gps" fixes are the exception: the anchor fit
+        needs the data on arrival, so they are serialized immediately; fixes without a fix (status < 0) are
+        dropped. Head topics are rate limited to HEAD_PREVIEW_MIN_INTERVAL_S.
 
         Args:
             topic (str): Topic the callback serves.
@@ -423,26 +424,102 @@ class BridgeNode(Node):
                 if now - last_preview_at < HEAD_PREVIEW_MIN_INTERVAL_S:
                     return
                 last_preview_at = now
-            try:
-                data = self.to_map_frame(serializer(msg), role)
-            except Exception as exc:
-                log.warning("serialize_error", topic=topic, error=str(exc))
-                return
-            if data is None:
-                log.debug("msg_dropped_no_tf", topic=topic)
-                return
-            if role == "gps" and data["status"] < 0:
-                log.debug("gps_no_fix_dropped", topic=topic)
-                return
             log.debug("ros2_msg_rx", topic=topic, msg_type=type(msg).__name__)
-            self.store(topic, data)
+            if role == "gps":
+                self.store_eager(topic, serializer, role, msg)
+                return
+            self.store_raw(topic, msg, serializer, role)
             if role == "map":
                 MAP_UPDATES.inc()
                 touch_map()
-            if role == "gps":
-                self.feed_gps_anchor(data)
 
         return callback
+
+    def store_raw(self, topic: str, msg: Any, serializer: Serializer, role: str | None) -> None:
+        """Keep msg as the latest raw message of topic and mark it for serialization at the next flush.
+
+        Args:
+            topic (str): WS topic name.
+            msg (Any): ROS2 message.
+            serializer (Serializer): Converts msg into a JSON-serializable dict.
+            role (str | None): map_nav role of the topic or None.
+        """
+        with self._lock:
+            self._pending[topic] = (msg, serializer, role)
+            self._dirty.add(topic)
+            self._cleared.discard(topic)
+            self._topic_last_rx[topic] = time.monotonic()
+
+    def serialize_pending(self, topics: Iterable[str]) -> set[str]:
+        """Serialize the pending raw message of each topic (at most once per message) into the latest cache.
+
+        A message that cannot be serialized, or has no transform into the map frame, is dropped: the previous
+        envelope of the topic stays cached.
+
+        Args:
+            topics (Iterable[str]): WS topic names.
+
+        Returns:
+            set[str]: Topics whose pending message was dropped.
+        """
+        with self._lock:
+            work = [(t, self._pending.pop(t)) for t in topics if t in self._pending]
+        dropped: set[str] = set()
+        for topic, (msg, serializer, role) in work:
+            data = self.serialize_message(topic, msg, serializer, role)
+            if data is None:
+                dropped.add(topic)
+                continue
+            with self._lock:
+                self._latest[topic] = {"topic": topic, "data": data}
+        return dropped
+
+    def serialize_message(
+        self, topic: str, msg: Any, serializer: Serializer, role: str | None
+    ) -> dict[str, Any] | None:
+        """Serialize one message and re-express it in the map frame when its role needs that.
+
+        MAP_FRAME_ROLES messages whose frame differs from the map frame are transformed into it; if that
+        transform is unavailable the message is dropped rather than shown in the wrong place.
+
+        Args:
+            topic (str): WS topic name.
+            msg (Any): ROS2 message.
+            serializer (Serializer): Converts msg into a JSON-serializable dict.
+            role (str | None): map_nav role of the topic or None.
+
+        Returns:
+            dict[str, Any] | None: Payload, or None when the message was dropped.
+        """
+        try:
+            data = self.to_map_frame(serializer(msg), role)
+        except Exception as exc:
+            log.warning("serialize_error", topic=topic, error=str(exc))
+            return None
+        if data is None:
+            log.debug("msg_dropped_no_tf", topic=topic)
+        return data
+
+    def store_eager(self, topic: str, serializer: Serializer, role: str | None, msg: Any) -> None:
+        """Serialize msg now and cache it (roles whose consumers need the data on arrival).
+
+        Fixes without a fix (status < 0) are dropped; valid ones also feed the GPS anchor fit.
+
+        Args:
+            topic (str): WS topic name.
+            serializer (Serializer): Converts msg into a JSON-serializable dict.
+            role (str | None): map_nav role of the topic.
+            msg (Any): ROS2 message.
+        """
+        data = self.serialize_message(topic, msg, serializer, role)
+        if data is None:
+            return
+        if role == "gps" and data["status"] < 0:
+            log.debug("gps_no_fix_dropped", topic=topic)
+            return
+        self.store(topic, data)
+        if role == "gps":
+            self.feed_gps_anchor(data)
 
     def on_battery(self, topic: str, msg: Any) -> None:
         """Feed a BatteryState to the guard and cache the serialized reading with the guard state.
@@ -620,6 +697,7 @@ class BridgeNode(Node):
             data (dict[str, Any]): Serialized payload.
         """
         with self._lock:
+            self._pending.pop(topic, None)
             self._latest[topic] = {"topic": topic, "data": data}
             self._dirty.add(topic)
             self._cleared.discard(topic)
@@ -856,6 +934,7 @@ class BridgeNode(Node):
         """
         with self._lock:
             self._latest.pop(topic, None)
+            self._pending.pop(topic, None)
             self._dirty.discard(topic)
 
     def clear_and_notify(self, topic: str) -> None:
@@ -869,6 +948,7 @@ class BridgeNode(Node):
         """
         with self._lock:
             self._latest.pop(topic, None)
+            self._pending.pop(topic, None)
             self._dirty.discard(topic)
             self._cleared.add(topic)
 
@@ -957,6 +1037,10 @@ class BridgeNode(Node):
     def flush_dirty(self) -> list[dict[str, Any]]:
         """Return envelopes for all topics updated or cleared since last call; clear the pending sets.
 
+        Raw messages stored by the subscription callbacks are serialized here, once per topic however many
+        messages arrived since the last flush. The broadcaster only calls it while a client is connected, so with
+        no client nothing is serialized.
+
         Cleared topics yield {"topic": topic, "data": None}.
 
         Returns:
@@ -964,10 +1048,14 @@ class BridgeNode(Node):
         """
         self.mark_tilt_stale()
         with self._lock:
-            envelopes = [self._latest[t] for t in self._dirty if t in self._latest]
-            envelopes.extend({"topic": t, "data": None} for t in self._cleared)
+            dirty = list(self._dirty)
+            cleared = list(self._cleared)
             self._dirty.clear()
             self._cleared.clear()
+        dropped = self.serialize_pending(dirty)
+        with self._lock:
+            envelopes = [self._latest[t] for t in dirty if t in self._latest and t not in dropped]
+        envelopes.extend({"topic": t, "data": None} for t in cleared)
         return envelopes
 
     def latest_envelopes(self) -> list[dict[str, Any]]:
@@ -976,6 +1064,9 @@ class BridgeNode(Node):
         Returns:
             list[dict[str, Any]]: Envelopes, one per topic received so far.
         """
+        with self._lock:
+            pending = list(self._pending)
+        self.serialize_pending(pending)
         with self._lock:
             return list(self._latest.values())
 

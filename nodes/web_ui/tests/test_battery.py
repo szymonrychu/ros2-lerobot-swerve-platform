@@ -209,6 +209,7 @@ def make_bridge(guard: BatteryGuard | None) -> Any:
         node = BridgeNode.__new__(BridgeNode)
         node._latest = {}
         node._dirty = set()
+        node._pending = {}
         node._cleared = set()
         node._lock = threading.Lock()
         node._topic_last_rx = {}

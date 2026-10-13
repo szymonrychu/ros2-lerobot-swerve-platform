@@ -55,6 +55,12 @@ A `rclpy` node (`web_ui_bridge`) subscribes to ROS2 topics and stores the latest
 
 Inbound publish frames (`{"type": "publish", "topic", "msg_type", "data"}`) are only accepted for allowlisted topics (tab `goal_topic` / `arm_command_topic`). JSON values are converted to each message field's type (int fields such as `header.stamp.sec` get ints, float fields get floats, numeric arrays are converted element-wise); a value that does not fit its field is rejected and logged, not silently dropped. A zero `header.stamp` is filled with the node clock, and an empty `header.frame_id` on a `map_nav` goal topic is filled with the tab's `map_frame`.
 
+### Serialization model (lazy, with JPEG pass-through)
+
+Subscription callbacks do not serialize. They keep the raw latest message per topic (`BridgeNode.store_raw`) and mark the topic dirty. `flush_dirty()` (called by the broadcaster only while a client is connected) and `latest_envelopes()` (the connect snapshot) serialize the pending message, at most once however many messages arrived since the last flush (`serialize_pending`); a message that cannot be serialized, or has no TF into the map frame, is dropped and the previous envelope stays cached. With no browser connected nothing is serialized, so unwatched camera, costmap and map topics cost only the rclpy receive. The `gps` role is the exception: its fixes are serialized on arrival because the anchor fit needs them. The WS envelope (`{"topic", "data"}`) is unchanged.
+
+A `CompressedImage` whose `format` names JPEG (and whose data starts with the JPEG marker) is forwarded without decode or re-encode: `jpeg_b64` is the base64 of the ROS message bytes. Other compressed formats are still decoded and re-encoded to JPEG. The downscaled `color_small_b64` (RGBD color topics, `RGBD_COLOR_TOPICS`) is built only at flush time, so only while a client is connected, and is the only reason a JPEG frame is decoded (`msg_to_dict(..., color_small=False)` skips it). Tests: `tests/test_lazy_serialization.py`.
+
 ## Design rules
 
 The UI is a neutral dark theme in the style of Grafana without its colour detail. The rules are enforced by a test, so read them here before adding UI.

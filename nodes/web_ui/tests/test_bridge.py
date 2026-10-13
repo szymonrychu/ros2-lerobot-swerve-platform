@@ -16,6 +16,7 @@ def _make_bridge_node(topics=None, publish_topics=None):
         node = BridgeNode.__new__(BridgeNode)
         node._latest = {}
         node._dirty = set()
+        node._pending = {}
         node._cleared = set()
         node._lock = threading.Lock()
         node.publishers_ = {}
@@ -168,9 +169,11 @@ def test_head_previews_are_rate_limited_per_topic() -> None:
         cb(_amplitude_msg())
         clock.return_value = 100.0 + bridge.HEAD_PREVIEW_MIN_INTERVAL_S / 2
         cb(_amplitude_msg())
+        node.flush_dirty()
         assert len(calls) == 1
         clock.return_value = 100.0 + bridge.HEAD_PREVIEW_MIN_INTERVAL_S * 1.1
         cb(_amplitude_msg())
+        node.flush_dirty()
     assert len(calls) == 2
 
 

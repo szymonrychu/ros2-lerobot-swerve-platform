@@ -86,6 +86,7 @@ def make_bridge(**attrs: Any) -> Any:
     node = BridgeNode.__new__(BridgeNode)
     node._latest = {}
     node._dirty = set()
+    node._pending = {}
     node._lock = threading.Lock()
     node.publishers_ = {}
     node._allowed_publish_topics = set()

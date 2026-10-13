@@ -48,7 +48,9 @@ COSTMAP_LETHAL_RGBA: tuple[int, int, int, int] = (230, 0, 0, 240)
 PATH_MAX_POINTS = 500
 
 
-def msg_to_dict(msg: Any, topic: str = "", tof_range_m: float | None = None) -> dict[str, Any]:
+def msg_to_dict(
+    msg: Any, topic: str = "", tof_range_m: float | None = None, color_small: bool = True
+) -> dict[str, Any]:
     """Convert a ROS2 message object to a JSON-serializable dict.
 
     Handles nested messages, arrays, and Image/CameraInfo types with special encoding.
@@ -60,6 +62,7 @@ def msg_to_dict(msg: Any, topic: str = "", tof_range_m: float | None = None) -> 
         topic: ROS2 topic string the message arrived on (used to select RGBD-specific handling).
         tof_range_m: Head tab ToF range in metres; when set a 16UC1 depth Image gets the greyscale preview over
             [0, tof_range_m] instead of the red-green colormap.
+        color_small: Whether an RGBD color topic also gets the downscaled color_small_b64 JPEG.
 
     Returns:
         dict[str, Any]: JSON-serializable representation.
@@ -68,7 +71,7 @@ def msg_to_dict(msg: Any, topic: str = "", tof_range_m: float | None = None) -> 
     if msg_type == "CameraInfo":
         return _serialize_camera_info(msg)
     if msg_type in ("Image", "CompressedImage"):
-        return _serialize_image(msg, topic, tof_range_m)
+        return _serialize_image(msg, topic, tof_range_m, color_small)
     return _serialize_msg(msg)
 
 
@@ -158,7 +161,23 @@ def _serialize_camera_info(msg: Any) -> dict[str, Any]:
     }
 
 
-def _serialize_image(msg: Any, topic: str = "", tof_range_m: float | None = None) -> dict[str, Any]:
+def is_jpeg(image_format: str, data: bytes) -> bool:
+    """Tell whether a CompressedImage carries a plain JPEG that can be forwarded as is.
+
+    Args:
+        image_format (str): CompressedImage.format (for example "jpeg" or "bgr8; jpeg compressed bgr8").
+        data (bytes): CompressedImage.data.
+
+    Returns:
+        bool: True when the format names JPEG (not compressedDepth) and the data starts with the JPEG SOI marker.
+    """
+    fmt = str(image_format).lower()
+    return ("jpeg" in fmt or "jpg" in fmt) and "compresseddepth" not in fmt and data[:2] == b"\xff\xd8"
+
+
+def _serialize_image(
+    msg: Any, topic: str = "", tof_range_m: float | None = None, color_small: bool = True
+) -> dict[str, Any]:
     """Serialize Image or CompressedImage message to a dict with JPEG base64.
 
     For 16UC1 depth images: returns red-green colormap preview JPEG and downscaled
@@ -166,12 +185,14 @@ def _serialize_image(msg: Any, topic: str = "", tof_range_m: float | None = None
     For rgb8/bgr8 Image: returns full-res JPEG. For mono8/mono16 Image (ToF amplitude): returns a greyscale JPEG,
     mono16 scaled so the brightest value of the frame is white. Any other encoding returns an error dict. Also returns a downscaled JPEG
     (color_small_b64) when the topic is a known RGBD color topic.
-    For CompressedImage: decodes then re-encodes to JPEG.
+    For CompressedImage in JPEG format: the bytes are passed through unchanged (no decode, no re-encode); the
+    image is decoded only to build color_small_b64. Other CompressedImage formats are decoded and re-encoded to JPEG.
 
     Args:
         msg: Image or CompressedImage ROS2 message.
         topic: Topic name used to decide whether to add color_small_b64.
         tof_range_m: Depth range in metres for the greyscale depth preview, or None for the red-green colormap.
+        color_small: Whether to build color_small_b64 for an RGBD color topic.
 
     Returns:
         dict[str, Any]: Dict with image data keys, or {"jpeg_b64": None, "error": ...} when the frame is undecodable.
@@ -181,10 +202,15 @@ def _serialize_image(msg: Any, topic: str = "", tof_range_m: float | None = None
         if msg_type == "Image" and msg.encoding.lower() == "16uc1":
             return _serialize_depth_image(msg, tof_range_m)
 
+        want_small = color_small and topic in RGBD_COLOR_TOPICS
+        img = None
+        jpeg_bytes: bytes | None = None
         if msg_type == "CompressedImage":
             raw = bytes(msg.data)
-            arr = np.frombuffer(raw, dtype=np.uint8)
-            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if is_jpeg(msg.format, raw):
+                jpeg_bytes = raw
+            else:
+                img = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
         else:
             encoding = msg.encoding.lower()
             if encoding not in COLOUR_ENCODINGS | GREY_ENCODINGS:
@@ -203,16 +229,21 @@ def _serialize_image(msg: Any, topic: str = "", tof_range_m: float | None = None
                     if encoding == "rgb8":
                         img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-        if img is None:
-            return {"jpeg_b64": None, "error": "decode_failed"}
+        if jpeg_bytes is None:
+            if img is None:
+                return {"jpeg_b64": None, "error": "decode_failed"}
+            success, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if not success:
+                return {"jpeg_b64": None, "error": "encode_failed"}
+            jpeg_bytes = buf.tobytes()
 
-        success, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        if not success:
-            return {"jpeg_b64": None, "error": "encode_failed"}
+        result: dict[str, Any] = {"jpeg_b64": base64.b64encode(jpeg_bytes).decode("ascii")}
 
-        result: dict[str, Any] = {"jpeg_b64": base64.b64encode(buf.tobytes()).decode("ascii")}
-
-        if topic in RGBD_COLOR_TOPICS:
+        if want_small:
+            if img is None:
+                img = cv2.imdecode(np.frombuffer(jpeg_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+                if img is None:
+                    return {"jpeg_b64": None, "error": "decode_failed"}
             img_small = cv2.resize(img, (_MESH_W, _MESH_H))
             ok_s, buf_s = cv2.imencode(".jpg", img_small, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok_s:
