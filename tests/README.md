@@ -2301,6 +2301,24 @@ The Jetson as an Ansible host, kept out of the Pi plays; the deploy script runs 
 | `test_jetson_link_is_a_client_target_only` | jetson_link is accepted for client, rejected for server and jetson. |
 | `test_unknown_target_error_lists_jetson` | An unknown target is rejected and the error names jetson. |
 
+## test_jetson_link_role.py
+
+The `jetson_link` role (design D8): both chrony templates and the nft template rendered with jinja2, the task file read as data; nothing runs ansible.
+
+| Test | Description |
+|---|---|
+| `test_server_chrony_keeps_pool_serves_the_link_and_works_offline` | Pi: pool upstream, `allow 10.77.0.0/30`, `local stratum 10`, no `server 10.77.0.1`. |
+| `test_client_chrony_prefers_the_pi_and_falls_back_to_the_pool` | Jetson: `server 10.77.0.1 iburst prefer`, pool fallback, no `allow` / `local`. |
+| `test_server_chrony_also_steps_on_a_large_offset` | `makestep 1.0 3` on both sides. |
+| `test_nat_masquerades_the_link_out_of_the_primary_interface` | `masquerade` for 10.77.0.0/30 on the primary interface. |
+| `test_nat_forwards_only_between_the_link_and_the_primary_interface` | Forward accepts link to primary, replies back, drops the rest of the link's traffic. |
+| `test_nat_table_is_replaced_not_appended` | Declare-delete-declare, so reloading never stacks rules. |
+| `test_every_service_restart_is_conditional_on_a_registered_change` / `test_commands_run_only_when_something_changed` | Every restart / command has `when: <register> is changed` (idempotence). |
+| `test_timesyncd_is_disabled_before_chrony_is_installed` / `test_chrony_is_enabled_and_started` | timesyncd stopped and disabled, chrony installed, enabled, started. |
+| `test_server_enables_ipv4_forwarding_through_a_sysctl_dropin` / `test_server_installs_the_nat_table_and_loads_it_on_boot` | sysctl drop-in, nftables install, include line, enable. |
+| `test_hosts_entries_per_side` / `test_side_is_validated` | `10.77.0.2 jetson.ros2.lan` on the Pi, `10.77.0.1 client.ros2.lan` on the Jetson; bad side fails. |
+| `test_client_play_applies_network_then_jetson_link_under_one_tag` / `test_no_other_client_task_carries_the_jetson_link_tag` | The tagged "Direct link to the Jetson" block in deploy_nodes_client.yml, and nothing else carries the tag. |
+
 ## test_network_link.py
 
 The network role's static point-to-point link (design D8), rendered with jinja2; nothing runs ansible.
