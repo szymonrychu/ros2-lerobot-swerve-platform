@@ -1956,7 +1956,7 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_ansible_cfg_gathers_minimal_facts_and_caches_them` | `gather_subset = min`, smart gathering, jsonfile fact cache (cache dir gitignored). |
 | `test_documented_tag_set_lists_every_phase_tag` | The "Deploy tags" table in `ansible/README.md` lists exactly sync, apt, python, build, config, boot, setup, restart, verify, always. |
 | `test_every_task_in_role_and_task_files_carries_a_documented_tag` | (parametrized per file) every task (block tags inherited) in the role, the verify role and `playbooks/tasks/*.yml` has a documented tag. |
-| `test_non_node_targets_are_parsed` | `non_node_targets` reads the `monitoring` target of both the client and the server from `scripts/deploy-nodes.sh`. |
+| `test_non_node_targets_are_parsed` | `non_node_targets` reads `monitoring` and `jetson_link` for the client and `monitoring` for the server from `scripts/deploy-nodes.sh`. |
 | `test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag` | (client, server) every pre/main/post task of the deploy playbooks has a documented, node-name or non-node-target (`monitoring`) tag. |
 | `test_every_node_has_a_tagged_deploy_step` | (client, server) each `ros2_nodes` entry has exactly one deploy include tagged with its name plus apt/python/build/config, applying the node tag to the included tasks. |
 | `test_node_specific_setup_files_carry_their_node_tag` | The mcp_server token, claude_agent token, poi_store, slam maps, web_ui tile cache and overview_camera boot task files carry their node tag. |
@@ -2277,3 +2277,26 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_selector_accepts_exactly_one_criterion` / `test_selector_rejects_other_shapes` / `test_selector_accepts_500_ids_and_defaults_dry_run_false` | Exactly-one rule and bounds. |
 | `test_write_atomic_writes_world_readable_file` / `test_write_atomic_fsyncs_before_replace` / `test_write_atomic_cleans_temp_on_failure` / `test_module_exposes_write_atomic` | Atomic write, mode 0644, fsync order, temp cleanup. |
 | `test_legacy_index_line_parses_with_photo_defaults` / `test_photo_fields_round_trip` / `test_photo_fields_reject_bad_values` | `LookupRecord` photo fields: legacy line parses, round trip, bad values rejected. |
+
+## test_jetson_ansible.py
+
+The Jetson as an Ansible host, kept out of the Pi plays; the deploy script runs against a stub `ansible-playbook`.
+
+| Test | Description |
+|---|---|
+| `test_inventory_example_has_a_jetson_group_with_the_nano` | `[jetson]` holds `jetson-nano ansible_host=192.168.1.32`. |
+| `test_inventory_example_says_the_jetson_keeps_wifi` | A comment above the group says the Jetson keeps WiFi for development. |
+| `test_jetson_group_vars_pin_user_python_hostname_and_network` | ansible_user, interpreter, hostname nano, address and gateway. |
+| `test_jetson_nameservers_match_the_client` | DNS vars equal client.yml's. |
+| `test_jetson_group_vars_header_says_no_ros_and_no_pi_roles` | The header comment states no ROS and no Pi roles. |
+| `test_jetson_group_vars_have_no_ros2_nodes` | No `ros2_nodes` key. |
+| `test_provision_plays_target_server_and_client_only` | site.yml and optimize.yml Pi-role plays have hosts `server:client` (parametrized). |
+| `test_no_play_with_pi_roles_has_hosts_all_or_jetson` | No play anywhere with common/network/hostname/system_optimize targets all or jetson. |
+| `test_deploy_script_uses_no_associative_arrays` | Bash 3.2: no `declare -A`. |
+| `test_deploy_script_header_usage_and_errors_list_the_jetson_targets` | Header, usage and error text list jetson and its targets. |
+| `test_jetson_non_node_targets_run_the_jetson_playbook` | base, build_deps, depthd each run deploy_nodes_jetson.yml -l jetson with that tag (parametrized). |
+| `test_jetson_accepts_several_targets_in_one_run` | Several targets become one comma-joined tag list. |
+| `test_jetson_all_runs_without_a_tag_filter` | `jetson --all` passes no tags. |
+| `test_jetson_rejects_a_ros2_node_name` | A ros2 node name fails and the error lists the jetson targets. |
+| `test_jetson_link_is_a_client_target_only` | jetson_link is accepted for client, rejected for server and jetson. |
+| `test_unknown_target_error_lists_jetson` | An unknown target is rejected and the error names jetson. |

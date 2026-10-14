@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Deploy ROS2 nodes to client or server with ONE ansible-playbook run of playbooks/deploy_nodes_<target>.yml.
+# Deploy ROS2 nodes to client, server or jetson with ONE ansible-playbook run of playbooks/deploy_nodes_<target>.yml.
 # Every node's steps are tagged with the node name, so a node list is just a tag filter:
 #
 # Usage:
 #   deploy-nodes.sh <target> <node1> [node2 ...] [ansible-playbook options]   # = --tags node1,node2
-#   (a name may also be a non-node target of the target, see non_node_targets: both have "monitoring")
+#   (a name may also be a non-node target of the target, see non_node_targets: client and server have "monitoring")
 #   deploy-nodes.sh <target> --all [ansible-playbook options]                # every node, no tag filter
 #
-# Targets:  client | server
+# Targets:  client | server | jetson
+# Non-node targets: client: monitoring jetson_link | server: monitoring | jetson: base build_deps depthd
+#   (jetson runs no ROS: it has no ros2_nodes entries and only these targets)
 # Phase tags (see ansible/README.md, "Deploy tags"): apt, python, build, config, boot, setup, sync, restart, verify.
 # --tags / --skip-tags (and any other ansible-playbook option) are passed through; --tags cannot be combined with a node
 # list because ansible would run the union of both.
@@ -27,27 +29,30 @@
 #   ./scripts/deploy-nodes.sh client --all --skip-tags verify
 set -euo pipefail
 
-TARGET="${1:?Usage: deploy-nodes.sh <client|server> <node1> [node2...] | --all [ansible-playbook options]}"
+TARGET="${1:?Usage: deploy-nodes.sh <client|server|jetson> <node1> [node2...] | --all [ansible-playbook options]}"
 shift
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANSIBLE_DIR="$SCRIPT_DIR/../ansible"
 
 case "$TARGET" in
-  client | server) ;;
+  client | server | jetson) ;;
   *)
-    echo "ERROR: Unknown target '$TARGET'. Use: client or server" >&2
+    echo "ERROR: Unknown target '$TARGET'. Use: client, server or jetson" >&2
     exit 1
     ;;
 esac
 
-# Deploy targets that are not ros2_nodes entries, one per line (bash 3.2: no associative arrays).
+# Deploy targets that are not ros2_nodes entries, space separated (bash 3.2: no associative arrays).
 #   monitoring - client: Alloy + nginx (roles/monitoring_agent, roles/web_proxy)
+#   jetson_link - client: the direct link to the Jetson (roles/jetson_link)
+#   base, build_deps, depthd - jetson: OS base, build dependencies, the depthd service (playbooks/deploy_nodes_jetson.yml)
 #                server: Mimir + Loki + Grafana + nginx + Alloy (roles/monitoring, roles/web_proxy, roles/monitoring_agent)
 non_node_targets() {
   case "$1" in
-    client) echo "monitoring" ;;
+    client) echo "monitoring jetson_link" ;;
     server) echo "monitoring" ;;
+    jetson) echo "base build_deps depthd" ;;
     *) echo "" ;;
   esac
 }
@@ -81,7 +86,7 @@ if [[ "$ALL" == false ]]; then
   # Every requested name must be a ros2_nodes entry of the target or one of its non-node targets (roles tagged with
   # their name in playbooks/deploy_nodes_<target>.yml).
   KNOWN="$(sed -n 's/^  - name: \([A-Za-z0-9_-]*\)$/\1/p' "$ANSIBLE_DIR/group_vars/${TARGET}.yml")"
-  EXTRA_TARGETS="$(non_node_targets "$TARGET")"
+  EXTRA_TARGETS="$(non_node_targets "$TARGET" | tr ' ' '\n')"
   for NODE in "${NODES[@]}"; do
     if ! grep -qxF -- "$NODE" <<<"$KNOWN" && ! grep -qxF -- "$NODE" <<<"$EXTRA_TARGETS"; then
       echo "ERROR: '$NODE' is not a ros2_nodes entry in group_vars/${TARGET}.yml nor a deploy target of $TARGET." >&2

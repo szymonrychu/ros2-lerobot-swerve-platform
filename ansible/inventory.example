@@ -9,6 +9,10 @@ server-rpi4 ansible_host=server.ros2.lan
 [client]
 client-rpi5 ansible_host=client.ros2.lan
 
+# Jetson Nano vision coprocessor: no ROS, no Pi roles; the Jetson keeps WiFi for development (ssh, apt, git).
+[jetson]
+jetson-nano ansible_host=192.168.1.32
+
 [all:vars]
 ansible_user=szymonri
 ansible_python_interpreter=/usr/bin/python3

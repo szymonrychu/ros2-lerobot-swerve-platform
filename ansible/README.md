@@ -269,6 +269,15 @@ raspi-gpio get 4
 i2cdetect -y -r 1
 ```
 
+## Jetson (vision coprocessor)
+
+The Jetson Nano computes stereo depth and runs no ROS and no Pi roles.
+
+- **Group:** `[jetson]` in the inventory (`jetson-nano ansible_host=192.168.1.32`), vars in `group_vars/jetson.yml` (`ansible_user: jetson`, Python 3.8, hostname `nano`, `192.168.1.32/24`).
+- **Kept out of the Pi plays:** `site.yml` (provision) and `playbooks/optimize.yml` target `server:client`, so `common`, `network`, `hostname` and `system_optimize` never run on it. `tests/test_jetson_ansible.py` pins this.
+- **Deploy targets:** `./scripts/deploy-nodes.sh jetson base build_deps depthd` (or `jetson --all`) runs `playbooks/deploy_nodes_jetson.yml -l jetson`; it has no `ros2_nodes` entries, only those three targets. The Pi side of the cable is `./scripts/deploy-nodes.sh client jetson_link`.
+- **WiFi kept:** the Jetson stays on WiFi (192.168.1.32) for development; only the depth stream uses the cabled link.
+
 ## Network and hostname (provision)
 
 The **network** role sets a static IP on the primary interface (ethernet or WiFi, auto-detected), sets all other interfaces to DHCP, and disables IPv6 in netplan.

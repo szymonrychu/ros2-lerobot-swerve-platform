@@ -1,0 +1,15 @@
+---
+# Jetson Nano (JetPack, Ubuntu 18.04): vision coprocessor for stereo depth. The host runs no ROS and no Pi roles: it is
+# kept out of site.yml and playbooks/optimize.yml (hosts server:client) and is deployed only by
+# playbooks/deploy_nodes_jetson.yml (./scripts/deploy-nodes.sh jetson ...). It keeps its WiFi for development.
+ansible_user: jetson
+# JetPack 4.x ships Python 3.8 as /usr/bin/python3 here.
+ansible_python_interpreter: /usr/bin/python3
+hostname: "nano"
+network_address: "192.168.1.32/24"
+network_gateway: "192.168.1.1"
+primary_dns_server: "192.168.1.1"
+secondary_dns_server: "1.1.1.1"
+network_nameservers:
+  - "{{ primary_dns_server }}"
+  - "{{ secondary_dns_server }}"

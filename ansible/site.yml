@@ -1,10 +1,10 @@
 ---
-# Full site: provision all hosts (Server + Client), then deploy ROS2 nodes on each.
+# Full site: provision the Pis (Server + Client; the jetson group is never provisioned here), then deploy ROS2 nodes on each.
 # Run from ansible/: ansible-playbook -i inventory site.yml
 # Set network_address, network_gateway, hostname in group_vars (server.yml / client.yml) or host_vars.
 
-- name: Provision all
-  hosts: all
+- name: Provision the Pis
+  hosts: server:client
   become: true
   roles:
     - common
