@@ -2351,7 +2351,7 @@ The `jetson_depthd` role, part 1 (build dependencies) and part 2 (sync, build, c
 | `test_sources_sync_from_the_controller_checkout_without_build_dirs` | Both synchronize tasks read `ros2_repo_root`, exclude `build/`, never delete, no git clone. |
 | `test_build_runs_only_when_the_stamp_is_missing` | Tree hash, `.built-<hash>` stamp, Release build of target `depthd` with `-j3` and `nice -n 10`. |
 | `test_binary_is_installed_to_usr_local_bin_and_reports_change` | `/usr/local/bin/depthd` 0755 registered for the restart condition. |
-| `test_no_engine_build_in_the_minimum_scope` | No `trtexec` anywhere in the role tasks. |
+| `test_engine_step_copies_onnx_and_builds_fp16_only_on_sha_change` | `engines.yml`: ONNX existence assert (T17 export message), copy to `/var/lib/depthd/models`, `trtexec --fp16` gated on the ONNX sha256, imported under `depthd`. |
 | `test_calibrate_tool_is_synced_and_runs_on_system_python` | `jetson/calibrate` to `/opt/depthd/calibrate`, import check with python3, no venv. |
 | `test_template_keys_equal_the_depthd_yaml_keys` | `depthd_config` has exactly the keys of `config/depthd.yaml`; `cuda_sgm`, mono off. |
 | `test_config_is_rendered_and_validated_before_restart` | Template validated with `depthd --check-config %s`, before the restart task. |

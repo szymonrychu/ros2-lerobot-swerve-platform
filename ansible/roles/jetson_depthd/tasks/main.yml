@@ -9,6 +9,10 @@
   ansible.builtin.import_tasks: build.yml
   tags: [depthd]
 
+- name: Build the TensorRT engines from the exported ONNX models
+  ansible.builtin.import_tasks: engines.yml
+  tags: [depthd]
+
 - name: Configure and run the depthd service
   ansible.builtin.import_tasks: service.yml
   tags: [depthd]

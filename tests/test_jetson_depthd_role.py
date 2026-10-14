@@ -290,9 +290,21 @@ def test_binary_is_installed_to_usr_local_bin_and_reports_change() -> None:
     assert build_task("Install the depthd binary")["register"] == "jetson_depthd_binary"
 
 
-def test_no_engine_build_in_the_minimum_scope() -> None:
-    for path in (ROLE_DIR / "tasks").glob("*.yml"):
-        assert "trtexec" not in path.read_text()
+def test_engine_step_copies_onnx_and_builds_fp16_only_on_sha_change() -> None:
+    text = (ROLE_DIR / "tasks" / "engines.yml").read_text()
+    tasks = load(ROLE_DIR / "tasks" / "engines.yml")
+    names = [t["name"] for t in tasks]
+    assert defaults()["jetson_depthd_engine_models"] == ["dav2_small_266", "midas_small_256"]
+    assert "jetson/models/build/{{ item }}.onnx" in text
+    assert "T17 export" in text and "ansible.builtin.assert" in text
+    copy = next(t for t in tasks if "ansible.builtin.copy" in t)
+    assert copy["ansible.builtin.copy"]["dest"].startswith("{{ jetson_depthd_data_dir }}/models/")
+    build = next(t for t in tasks if "trtexec" in str(t.get("ansible.builtin.shell", "")))
+    assert "--fp16" in build["ansible.builtin.shell"]["cmd"] and "--saveEngine" in build["ansible.builtin.shell"]["cmd"]
+    assert "checksum" in build["when"] and "!=" in build["when"]
+    assert any("sha256" in n.lower() for n in names)
+    main = load(ROLE_DIR / "tasks" / "main.yml")
+    assert any(t.get("ansible.builtin.import_tasks") == "engines.yml" and t["tags"] == ["depthd"] for t in main)
 
 
 def test_calibrate_tool_is_synced_and_runs_on_system_python() -> None:

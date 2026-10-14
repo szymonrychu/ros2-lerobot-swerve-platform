@@ -57,9 +57,12 @@ jetson_depthd_src_dir: "{{ jetson_depthd_prefix }}/src"
 jetson_depthd_build_dir: "{{ jetson_depthd_prefix }}/build"
 jetson_depthd_binary_path: /usr/local/bin/depthd
 jetson_depthd_group: video
+jetson_depthd_engine_models: [dav2_small_266, midas_small_256]   # jetson/models/build/<name>.onnx -> <name>.engine
+jetson_depthd_trtexec: /usr/src/tensorrt/bin/trtexec
+jetson_depthd_engine_workspace_mb: 1024
 
 # The depthd.yaml the service reads: every key of jetson/depthd/config/depthd.yaml (a test pins the key sets equal).
-# Matcher cuda_sgm (cv::cuda::StereoSGM); mono is off because the monocular engine is outside the minimum scope.
+# Matcher cuda_sgm (cv::cuda::StereoSGM); mono stays off until the engine is benchmarked (the role builds the engines).
 depthd_config:
   capture:
     left_sensor_id: 0            # nvarguscamerasrc sensor-id of the left IMX219
@@ -107,7 +110,7 @@ depthd_config:
       enabled: false             # WLS disparity filter (costly on the Nano)
 
   mono:                          # monocular depth fused into the stereo holes
-    enabled: false               # [live] off: the monocular engine is not built in the minimum scope
+    enabled: false               # [live] off until the built engine is benchmarked
     model: dav2_small            # dav2_small | midas_small
     engine_path: /var/lib/depthd/models/dav2_small_266.engine
     rate_hz: 2.0                 # [live] inference rate, > 0
