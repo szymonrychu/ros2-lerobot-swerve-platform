@@ -70,3 +70,18 @@ ros2_agent_quiet_min: 5
 ros2_agent_idle_wait_min: 15
 ros2_agent_idle_poll_s: 15
 ros2_deploy_ignore_agent: false
+
+# Direct Pi <-> Jetson cable (design D8): a static /30 on eth0 of both hosts, one place for both. The Pi is .1, the Jetson
+# .2. The network role renders network_link_ethernets as static ethernets; the Jetson keeps WiFi and gets a default route
+# via the Pi at metric 1000, so WiFi's route keeps winning while it is up.
+jetson_link_interface: eth0
+jetson_link_pi_address: "10.77.0.1/30"
+jetson_link_jetson_address: "10.77.0.2/30"
+jetson_link_pi_ip: "10.77.0.1"
+jetson_link_jetson_ip: "10.77.0.2"
+jetson_link_route_metric: 1000
+network_link_ethernets: >-
+  {{ [{'iface': jetson_link_interface, 'address': jetson_link_pi_address}] if 'client' in group_names
+  else [{'iface': jetson_link_interface, 'address': jetson_link_jetson_address,
+  'default_route_via': jetson_link_pi_ip, 'route_metric': jetson_link_route_metric}] if 'jetson' in group_names
+  else [] }}

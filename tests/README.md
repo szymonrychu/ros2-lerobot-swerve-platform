@@ -2300,3 +2300,15 @@ The Jetson as an Ansible host, kept out of the Pi plays; the deploy script runs 
 | `test_jetson_rejects_a_ros2_node_name` | A ros2 node name fails and the error lists the jetson targets. |
 | `test_jetson_link_is_a_client_target_only` | jetson_link is accepted for client, rejected for server and jetson. |
 | `test_unknown_target_error_lists_jetson` | An unknown target is rejected and the error names jetson. |
+
+## test_network_link.py
+
+The network role's static point-to-point link (design D8), rendered with jinja2; nothing runs ansible.
+
+| Test | Description |
+|---|---|
+| `test_client_link_renders_a_static_ethernet` / `test_jetson_link_renders_a_high_metric_default_route` | Static eth0 with `ignore-carrier` and `optional`; the Jetson's default route via 10.77.0.1 at metric 1000. |
+| `test_link_interface_is_not_in_the_dhcp_list` / `test_dhcp_ethernets_still_render_next_to_the_link` / `test_no_link_renders_no_ethernets_for_a_wifi_primary` | Link interfaces leave the DHCP list; other ethernets still render; no link adds no ethernets block. |
+| `test_wifi_stanza_is_identical_with_and_without_a_link` | The `wifis` block renders exactly as before for client and Jetson vars. |
+| `test_probe_flags_a_foreign_ipv4` / `test_probe_flags_a_foreign_secondary_address` / `test_probe_passes_planned_address_and_missing_ipv4` / `test_probe_fails_with_a_message_naming_the_address_and_runs_before_netplan` | The probe task finds foreign addresses, passes the planned or none, and fails before netplan is written. |
+| `test_all_yml_defines_the_link_vars_and_names_d8` / `test_all_yml_keys_the_link_by_group_membership` / `test_no_client_or_jetson_group_vars_edit_defines_the_link` / `test_role_default_is_an_empty_list` | `jetson_link_*` vars, group-keyed `network_link_ethernets`, no client.yml or jetson.yml edit, empty role default. |

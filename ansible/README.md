@@ -292,6 +292,10 @@ In **`group_vars/server.yml`** or **`group_vars/client.yml`** (or host_vars), se
 - **`hostname`** — Short hostname (e.g. `server-rpi4`). Optional; when set, the hostname role runs.
 - **`ros2_extend_etc_hosts`** — (default `false`) When true, hostname role adds `ros2_hosts_entries` (server.ros2.lan, client.ros2.lan) to `/etc/hosts`. Default false: rely on primary DNS.
 
+- **`network_link_ethernets`** — Optional list of static point-to-point ethernets (default `[]`). Each entry has `iface`, `address` (CIDR) and optionally `default_route_via` and `route_metric`. Entries render with `dhcp4: false`, `ignore-carrier: true` (the address exists before the peer is up) and `optional: true`, and are left out of the DHCP list. Before writing netplan the role probes each link interface and fails, naming the address, if it holds an IPv4 address other than the planned one.
+
+**Direct Pi-Jetson link (design D8).** `group_vars/all.yml` defines `jetson_link_*` (interface `eth0`, Pi `10.77.0.1/30`, Jetson `10.77.0.2/30`) and sets `network_link_ethernets` by group: the client gets `10.77.0.1/30`; the Jetson gets `10.77.0.2/30` plus a default route via `10.77.0.1` at metric 1000, so the Jetson's WiFi route keeps winning while it is up. The WiFi stanza is unchanged. The Pi picks this up only in a deploy of its own.
+
 The network role writes a netplan file under `/etc/netplan/` and runs `netplan apply`. The **hostname** role runs `hostnamectl set-hostname` and updates `/etc/hostname` and `/etc/hosts`.
 
 ## ROS2 network setup (DDS discovery)
