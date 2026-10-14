@@ -1516,7 +1516,6 @@ Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and
 | `test_background_tier_has_no_stereo_type` | The 100/100 weight tier holds only the two joint-state throttle types. |
 | `test_metrics_target_is_removed` | `monitoring_agent_node_targets` has no stereo node and no `:19113` address. |
 | `test_client_playbook_still_deploys_both_names_so_the_uninstall_runs` | The client playbook still has a deploy step for each name. |
-| `test_boot_include_display_name_names_the_imx219_pair` | The camera boot include is named for the IMX219 pair, not the IMX708. |
 | `test_ansible_readme_documents_the_retirement` | `ansible/README.md` "Cut-over and rollback" names D7 and `present: false`, has no 19113 and no stereo row in the tier or memory tables. |
 | `test_tests_readme_metrics_wiring_rows_have_no_stereo_node` | The `test_config_metrics_port` and `src_shared` rows of this README name no stereo node and no 19113. |
 | `test_tests_readme_lists_every_test_of_this_file` | This README has a row for every test of this file. |
@@ -1881,83 +1880,26 @@ Static checks of the web_ui Agent tab in `ansible/group_vars/client.yml` (no ROS
 | `test_agent_tab_url_matches_claude_agent_port` | `agent_url` is 127.0.0.1 with the same port as the claude_agent `http_port` (18300). |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_web_ui_agent_tab.py` is listed in this section. |
 
-### `test_overview_camera_config.py`
+### `test_pi_cameras_retired.py`
 
-Static checks of the overview_camera node from the repo files (YAML via `yaml.safe_load`, launch file via `ast`; no ROS needed): IMX219 pair boot overlays and reboot, the camera_ros SyncMode patch, the arducam_tof port note, the docs, the multi-source colcon build (rf2o unchanged, libcamera meson args, camera_ros pin, patches, no apt camera stack), node type / entry / resources, retired stereo wiring, RealSense removal, `camera_link` removal, params defaults and launch structure.
+Static checks of the Pi camera retirement (D7: no cameras on the Pi), read as YAML and text.
 
-| Test | Description |
+| Test | What it pins |
 |---|---|
-| `test_boot_tasks_set_the_imx219_pair_overlays_in_firmware_config` | `overview_camera_boot_config.yml` writes `camera_auto_detect=0`, `dtoverlay=imx219,cam0` (left) and `dtoverlay=imx219,cam1` (right), in that order and nothing else, to `/boot/firmware/config.txt`, each with a regexp that matches its own line (no duplicates on rerun). |
-| `test_boot_tasks_remove_the_imx708_and_tof_overlays_and_never_imx219` | Two leading `state: absent` tasks delete `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` (one each); none matches an imx219 line, `camera_auto_detect` or a commented line, and no task mentions imx219 for removal. |
-| `test_boot_tasks_register_results_and_reboot_only_when_changed` | All five lineinfile tasks register distinct results and the single reboot task (last) runs only when one of them changed. |
-| `test_boot_tasks_carry_the_boot_tag_like_the_bno055_boot_config` | Every task of the boot file, the reboot included, is tagged `boot` (the `bno055_i2c_boot_config.yml` pattern). |
-| `test_boot_overlays_use_the_same_path_as_the_uart_task` | The camera overlay edits the same config.txt path as the existing UART task in `deploy_nodes_client.yml`. |
-| `test_client_playbook_applies_the_camera_boot_overlay_in_pre_tasks_tagged_boot_and_node` | The client playbook includes the boot task file in `pre_tasks`, tagged only `boot` and `overview_camera`. |
-| `test_boot_overlays_are_only_written_on_aarch64_hosts` | Overlay tasks are guarded by `ansible_machine == "aarch64"`. |
-| `test_full_client_playbook_deploys_overview_camera_and_not_realsense_before_it` | `deploy_nodes_client.yml` deploys `overview_camera`, after the `realsense_d435i` uninstall. |
-| `test_imx708_stereo_camera_stays_retired_and_stereo_depth_is_a_registered_uv_node` | The IMX708-era `stereo_camera` node stays out of the client playbook, group vars and `nodes/`; `nodes/stereo_depth` is a uv node (`pyproject.toml`) listed in `scripts/lint-all-nodes.sh`. |
-| `test_rf2o_build_inputs_are_unchanged` | rf2o keeps its single-dict `colcon_source` with the exact repo, commit, package, workspace and patch. |
-| `test_colcon_build_accepts_one_dict_or_a_list_of_sources` | `colcon_source_build.yml` wraps a single dict into a list and builds each source in list order through `colcon_source_package.yml`. |
-| `test_colcon_package_build_keeps_the_limits_and_stamp_logic` | The per-source build keeps systemd-run (with the background CPU weight)/nice/ionice, `--merge-install`, one worker, `MAKEFLAGS=-j{{ colcon_src.jobs | default(ros2_build_jobs) }}`, the git `force`, the `creates` stamp, the restart handler and the Release default; supports `--meson-args` and `--cmake-args`. |
-| `test_colcon_stamp_key_is_unchanged_for_the_first_source_and_chained_after` | The stamp key still starts from commit + patch checksums (rf2o unchanged) and later sources chain the earlier keys so a libcamera rebuild rebuilds camera_ros. |
-| `test_overview_camera_node_type_builds_libcamera_then_camera_ros` | `overview_camera` builds libcamera (tag `v0.7.2+rpt20260817`, all required meson args) before camera_ros (pinned full SHA) in `/opt/ros2-ws`. |
-| `test_builds_use_all_cores_at_lowest_priority_and_nodes_start_quickly` | `all.yml`: `ros2_build_jobs` 4 and `ros2_build_cpu_quota` 400% for source/frontend builds (still nice 19, idle IO), `ros2_node_start_interval_s` 2. |
-| `test_gripper_uvc_camera_uses_a_stable_device_path` | The gripper UVC camera is configured by its `/dev/v4l/by-id` path, since the overview CSI camera's driver takes `/dev/video0..9`. |
-| `test_uvc_camera_installs_the_noble_turbojpeg_package` | The `uvc_camera` node type installs `libturbojpeg` (the Ubuntu 24.04 name of the TurboJPEG library PyTurboJPEG loads), never the non-existent `libturbojpeg0`. |
-| `test_gripper_camera_is_calibrated_with_a_repo_intrinsics_file` | mcp_server's gripper camera has a calibrated mount on `gripper_link` and intrinsics from `nodes/mcp_server/calibration/gripper_camera.yaml` (640x480, 3x3 matrix, 5 distortion terms). |
-| `test_camera_image_wait_covers_discovery_on_a_loaded_pi` | mcp_server `timeouts.image_timeout_s` >= 5 s: each camera call subscribes afresh and discovery exceeds 2 s with the full stack running. |
-| `test_source_patches_are_listed_and_exist_in_the_repo` | libcamera lists its `package.xml` patch and camera_ros lists `camera_ros-0001-expose-sync-controls.patch`; both files exist in `nodes/overview_camera/patches/` and nothing else does. |
-| `test_camera_ros_patch_exposes_the_sync_controls` | The camera_ros patch edits `src/type_extent.cpp` to add `IF(rpi::SyncMode)` and `IF(rpi::SyncFrames)`, and not the output controls `SyncReady` / `SyncTimer`. |
-| `test_libcamera_patch_adds_a_meson_package_xml` | The libcamera patch adds a `package.xml` with `build_type` meson. |
-| `test_apt_packages_carry_the_build_deps_and_never_the_apt_camera_stack` | The apt list has the build dependencies and the image_transport compressed plugins, no stereo/image_proc/calibration packages, and no node type installs `ros-jazzy-camera-ros` or `ros-jazzy-libcamera`. |
-| `test_launcher_template_sources_the_first_source_workspace_for_a_list` | The launcher template sources the workspace of a dict source or of the first list item. |
-| `test_overview_camera_node_type_resources_and_launch_command` | Node type: native, no `CPUQuota`, `MemoryLow` 128M and `MemoryMax` 384M (estimate for two cameras), `CPUWeight` 500 (normal robot tier), `Nice` 5, config path/env and the `ros2 launch` command. |
-| `test_overview_camera_node_entry_is_present_and_enabled` | The `overview_camera` ros2_nodes entry is present and enabled and its config is exactly `left_camera_id: ""` and `right_camera_id: ""` (contract overview-camera-config, flat launch keys). |
-| `test_overview_camera_node_type_comment_names_the_imx219_pair` | The comment above the node type says two IMX219 (left cam0, right cam1); neither it nor the entry mentions IMX708. |
-| `test_arducam_tof_has_no_csi_port_and_stays_disabled` | The `arducam_tof` entry stays `enabled: false`, its comments say cam1 carries the right IMX219 and the node has no CSI port, and `nodes/bridges/arducam_tof/README.md` says the same. |
-| `test_docs_describe_the_imx219_pair_boot_overlays_and_memory` | `ansible/README.md` names both imx219 overlays and the SyncMode patch, its memory row for overview_camera is an estimate with 128M / 384M, and the ansible-deploy skill's overview_camera row says IMX219, not IMX708. |
-| `test_realsense_is_uninstalled` | `realsense_d435i` is `present: false`. |
-| `test_guessed_camera_link_frame_is_removed_from_the_static_tf_config` | `static_tf_publisher` no longer publishes `camera_link` (imu_link and laser_frame stay). |
-| `test_node_directory_layout_without_calibration_or_stereo_leftovers` | Node files exist and there is no `calibration/` directory. |
-| `test_readme_documents_both_cameras_sync_and_calibration` | The README names `cam -l`, both camera ID keys, IMX219 and both overlays, the left and right topics, SyncMode, the Wi-Fi multicast caveat, 480x360, `stereo_left.yaml` and links `nodes/stereo_depth/README.md`. |
-| `test_nodes_readme_lists_overview_camera_pair_and_stereo_depth` | `nodes/README.md` has a `stereo_depth/` line and its `overview_camera/` line names the IMX219 pair. |
-| `test_camera_defaults_match_the_requirements` | `params.yaml` `camera`: `sensor_mode` 1640:1232, 480x360, 5 fps limits, `AeExposureMode` short, video / RGB888, no `AfMode`; sections `launch`, `camera`, `left`, `right` only. |
-| `test_side_defaults_keep_the_overview_role_on_the_left` | Left: `/overview_camera`, sync server, `overview_camera_optical_frame`, JPEG 80. Right: `/stereo/right`, sync client, `stereo_right_optical_frame`. |
-| `test_launch_settings_default_to_no_camera_ids` | Empty `left_camera_id` / `right_camera_id` and the calibration dir `/var/lib/ros2/camera_calibration`. |
-| `test_launch_file_is_valid_python_with_a_launch_description` | The launch file parses and defines `generate_launch_description`. |
-| `test_launch_file_builds_the_two_camera_pipeline` | (parametrized) The launch file names the container, intra-process option, `camera::CameraNode`, the compressed / camera_info topics, `camera_info_url`, `camera_selector` and `SIDE_INDEX`. |
-| `test_launch_file_has_two_camera_nodes_in_one_container` | One container, one `ComposableNode` built per side in a `("left", "right")` loop. |
-| `test_launch_file_has_no_rectify_disparity_or_point_cloud_stages` | No rectify / disparity / point cloud / image_proc stages in the launch file. |
-| `test_every_new_root_test_file_is_documented` | Every `test_overview_camera*.py` file and test function is listed in this README. |
-
-### `test_overview_camera_launch_config.py`
-
-Unit tests of the pure-Python launch helper `nodes/overview_camera/launch/overview_camera_config.py` (imported via path setup): settings merge, camera selection by ID or side index, the calibration gate of `camera_info_url` and the camera_ros parameter dicts of the left and right IMX219.
-
-| Test | Description |
-|---|---|
-| `test_deep_merge_overrides_nested_keys_without_touching_the_base` | `deep_merge` merges nested dicts into a new dict. |
-| `test_load_settings_returns_defaults_when_the_override_is_missing_or_empty` | Missing or empty deployed config leaves the defaults (480 wide). |
-| `test_load_settings_applies_the_deployed_override` | A nested override replaces only the keys it sets. |
-| `test_load_settings_accepts_top_level_camera_ids_in_the_override` | The flat `left_camera_id` / `right_camera_id` land in the `launch` section. |
-| `test_camera_selector_prefers_the_libcamera_id` | A configured ID is used as is, without warning. |
-| `test_camera_selector_falls_back_to_the_side_index_with_a_warning` | (parametrized) No ID selects index 0 / 1 and returns a warning that mentions `cam -l` and the index. |
-| `test_camera_selector_treats_whitespace_as_unset` | A whitespace-only ID counts as unset. |
-| `test_side_indexes_keep_left_on_cam0_and_right_on_cam1` | `SIDE_INDEX` is left 0, right 1. |
-| `test_projection_is_valid_rejects_missing_short_zero_focal_or_non_numeric_matrices` | (parametrized) None, empty, all-zero, 11 elements, zero fy, non-numeric and NaN projections are rejected. |
-| `test_projection_is_valid_accepts_a_real_projection` | A finite 12-element P with non-zero focal terms is accepted. |
-| `test_calibration_problem_names_a_missing_file` | A missing file is reported by name. |
-| `test_calibration_problem_names_a_zero_projection` | A zero P is reported. |
-| `test_calibration_problem_names_invalid_yaml` | Unparsable YAML is reported. |
-| `test_calibration_problem_is_none_for_a_valid_file` | A valid file has no problem. |
-| `test_calibration_path_uses_the_stereo_depth_file_names` | `stereo_left.yaml` / `stereo_right.yaml` in the calibration dir. |
-| `test_camera_info_url_is_empty_with_a_reason_when_the_calibration_is_unusable` | No usable file: empty URL plus the reason. |
-| `test_camera_info_url_points_at_a_valid_calibration_file` | A valid file: `file://` URL, no reason. |
-| `test_left_camera_parameters_keep_the_overview_role` | Left params: ID, sensor mode, 480x360, 5 fps, AE short (1), SyncMode 1, overview frame id, JPEG 80, no `AfMode`, launch-only keys stripped. |
-| `test_right_camera_parameters_are_the_sync_client` | Right params: index, SyncMode 2, right frame id, the given `camera_info_url`, 480x360 at 5 fps, no `AfMode`. |
-| `test_namespaces_keep_the_overview_topics_on_the_left` | Left namespace `/overview_camera`, right `/stereo/right`. |
-| `test_enum_names_map_to_the_libcamera_values` | (parametrized) SyncMode off / server / client and AeExposureMode normal / short / long (any case) map to 0 / 1 / 2. |
-| `test_camera_parameters_reject_an_unknown_sync_mode` | An unknown `sync_mode` raises `ValueError`. |
+| `test_overview_camera_entry_is_uninstalled_by_the_next_deploy` | The `overview_camera` ros2_nodes entry is `present: false` with no config. |
+| `test_overview_camera_entry_names_d7_in_its_comment` | The comment above the entry names D7. |
+| `test_overview_camera_node_type_keeps_only_what_the_uninstall_path_needs` | The node type has only `deploy_mode: native` and a launch command: no source, build, tier or env keys. |
+| `test_client_vars_build_no_libcamera_or_camera_ros` | `client.yml` no longer names the libcamera or camera_ros repositories. |
+| `test_removal_tasks_delete_both_imx219_overlays` | `dtoverlay=imx219,cam0` and `dtoverlay=imx219,cam1` are removed from `/boot/firmware/config.txt` with `state: absent`. |
+| `test_camera_auto_detect_is_restored` | `camera_auto_detect=1` is written over any `camera_auto_detect=` line. |
+| `test_every_line_task_is_aarch64_only_and_registers_its_result` | Three `lineinfile` tasks, each aarch64-only, tagged `boot`, with its own registered result. |
+| `test_client_reboots_only_when_a_line_changed` | The last task reboots (timeout 120) when any registered result changed. |
+| `test_nothing_in_the_file_adds_a_camera_overlay` | No task writes a `dtoverlay` line. |
+| `test_old_boot_file_and_old_tests_are_deleted` | `overview_camera_boot_config.yml` and the two `test_overview_camera*.py` files are gone. |
+| `test_client_playbook_includes_the_removal_in_place_of_the_old_include` | `pre_tasks` includes `pi_camera_overlays_removed.yml` with tags `boot` and `overview_camera` (also on `apply`); the old file is not mentioned. |
+| `test_client_playbook_still_deploys_overview_camera_so_the_uninstall_runs` | The playbook still deploys the name so the uninstall runs. |
+| `test_ansible_readme_describes_the_removal` | `ansible/README.md` names the new task file and `camera_auto_detect=1`, and has no memory row for `overview_camera`. |
+| `test_tests_readme_lists_every_test_of_this_file` | Every test of this file is listed here. |
 
 ### test_ansible_deploy_speed.py
 
@@ -1972,7 +1914,7 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_non_node_targets_are_parsed` | `non_node_targets` reads `monitoring` and `jetson_link` for the client and `monitoring` for the server from `scripts/deploy-nodes.sh`. |
 | `test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag` | (client, server) every pre/main/post task of the deploy playbooks has a documented, node-name or non-node-target (`monitoring`) tag. |
 | `test_every_node_has_a_tagged_deploy_step` | (client, server) each `ros2_nodes` entry has exactly one deploy include tagged with its name plus apt/python/build/config, applying the node tag to the included tasks. |
-| `test_node_specific_setup_files_carry_their_node_tag` | The mcp_server token, claude_agent token, poi_store, slam maps, web_ui tile cache and overview_camera boot task files carry their node tag. |
+| `test_node_specific_setup_files_carry_their_node_tag` | The mcp_server token, claude_agent token, poi_store, slam maps, web_ui tile cache and Pi camera overlay removal task files carry their node tag. |
 | `test_shared_steps_run_under_any_node_filter` | (client, server) select_run, repo sync, ROS package sync, batched apt and the gradual restart are `always`-tagged; the verify role too; the apt steps are conditioned on `ros2_run_apt`. |
 | `test_deploy_script_runs_one_playbook_with_the_joined_node_tags` | `deploy-nodes.sh client web_ui mcp_server` calls ansible-playbook once with `--tags web_ui,mcp_server` (fake ansible-playbook on PATH). |
 | `test_deploy_script_all_passes_tags_and_other_options_through` | `--all` adds no tag filter by itself and passes `--tags` / `--skip-tags` through. |
@@ -2228,7 +2170,7 @@ Static derivation of MPPI `model_delay_*` from the swerve steering kinematics (`
 | `test_inplace_resteer_rounds_to_a_noop_step` | The 48.8 deg in-place re-steer (minus the steer error threshold, when drive resumes) is 1 step (MPPI treats an offset of 1 as no delay), so `wz` needs no delay. |
 | `test_keys_sit_in_the_mppi_namespace_only` | The three keys are in `controller_server.FollowPath`, not at the controller_server level. |
 
-`test_nav_stack_config.py::test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` and `test_overview_camera_config.py::test_colcon_package_build_keeps_the_limits_and_stamp_logic` now expect the `MAKEFLAGS` expression above.
+`test_nav_stack_config.py::test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` now expects the `MAKEFLAGS` expression above.
 
 ## test_mppi_cpu_compare.py
 

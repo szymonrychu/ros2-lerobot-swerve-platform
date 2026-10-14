@@ -30,7 +30,7 @@ SETUP_NODE = {
     "mcp_server_setup.yml": "mcp_server",
     "poi_store_dir.yml": "poi_store",
     "claude_agent_setup.yml": "claude_agent",
-    "overview_camera_boot_config.yml": "overview_camera",
+    "pi_camera_overlays_removed.yml": "overview_camera",
 }
 
 
@@ -194,7 +194,7 @@ def test_node_specific_setup_files_carry_their_node_tag() -> None:
     for filename, node in SETUP_NODE.items():
         task = next(t for t in includes if filename in str(t.get("ansible.builtin.include_tasks", "")))
         assert node in task["tags"], f"{filename} must carry the {node} tag"
-        if filename != "overview_camera_boot_config.yml":
+        if filename != "pi_camera_overlays_removed.yml":
             assert task["ansible.builtin.include_tasks"]["apply"]["tags"] == [node]
 
 

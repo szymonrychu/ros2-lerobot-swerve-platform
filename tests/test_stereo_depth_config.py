@@ -103,12 +103,6 @@ def test_client_playbook_still_deploys_both_names_so_the_uninstall_runs() -> Non
         assert f"_deploy_node_name: {name}" in text, name
 
 
-def test_boot_include_display_name_names_the_imx219_pair() -> None:
-    text = CLIENT_PLAYBOOK.read_text()
-    line = next(row for row in text.splitlines() if "Camera boot overlay" in row)
-    assert "IMX219 pair" in line and "IMX708" not in line
-
-
 def test_ansible_readme_documents_the_retirement() -> None:
     readme = ANSIBLE_README.read_text()
     section = readme[readme.index("Cut-over and rollback") :]
