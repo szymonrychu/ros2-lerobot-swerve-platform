@@ -9,8 +9,20 @@ capture:
     width: 1640
     height: 1232
     fps: 30
-  settle_frames: 30            # frames to let AE/AWB converge before locking
-  lock_exposure_after_settle: true  # lock AE/AWB on both sensors after settling
+  settle_frames: 30            # exposure.mode lock_after_settle: frames to let AE/AWB converge before locking
+  exposure:                    # auto exposure (README: Continuous AE/AWB)
+    mode: follow               # follow (right pinned to the left) | lock_after_settle (old aelock/awblock)
+    measure_interval_frames: 2 # left frames between readbacks and saturation measurements (>= 1)
+    follow_threshold: 0.05     # relative left exposure or gain change that re-pins the right (0..1, exclusive)
+    follow_settle_frames: 2    # right frames withheld from pairing after the right reached a new pin (>= 0)
+    max_exposure_us: 20000     # exposure cap against motion blur, both cameras (34..683709)
+    max_gain: 8.0              # analog gain cap, both cameras (1..10.625); ISP digital gain is pinned to 1x
+    saturation_level: 250      # a left grey pixel at or above this counts as saturated (1..255)
+    saturated_high: 0.02       # saturated fraction above which exposure compensation steps down (0..1)
+    saturated_low: 0.005       # ... below which it steps back toward 0 (>= 0, < saturated_high)
+    compensation_step: 0.25    # EV per step (0..2]
+    compensation_min: -2.0     # lowest exposure compensation, EV (-2..0)
+    compensation_hold_frames: 15 # left frames between two compensation steps (>= 0)
   pair_window_ms: 8.0          # max left/right capture-timestamp gap for a pair (> 0)
   zero_copy: true              # NVMM -> CUDA mapping via EGL instead of a host copy
   realign_skew_ms: 4.0        # re-align the camera phase when the median pair skew exceeds this (> 0)

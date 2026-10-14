@@ -1,6 +1,7 @@
 #include <gst/gst.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -25,7 +26,9 @@ const std::string kSink = " max-buffers=1 drop=true sync=false";
 std::string source(const std::string & side, int id)
 {
   return "nvarguscamerasrc name=" + side + "_src sensor-id=" + std::to_string(id) +
-         " sensor-mode=3 ee-mode=0 tnr-mode=1 aelock=false awblock=false ! " + kCameraCaps;
+         " sensor-mode=3 ee-mode=0 tnr-mode=1 aelock=false awblock=false exposuretimerange=\"34000 20000000\" "
+         "gainrange=\"1 8\" ispdigitalgainrange=\"1 1\" ! " +
+         kCameraCaps;
 }
 
 const std::string kJpegBranch =
@@ -111,6 +114,8 @@ TEST(CapturePipeline, FollowsConfig)
   c.rgb.width = 800;
   c.rgb.height = 600;
   c.rgb.jpeg_quality = 55;
+  c.capture.exposure.max_exposure_us = 15000;
+  c.capture.exposure.max_gain = 10.625;
   const auto left = depthd::build_pipeline_description(c, CameraSide::left);
   const auto right = depthd::build_pipeline_description(c, CameraSide::right);
   EXPECT_TRUE(contains(left, "name=left_src sensor-id=1 sensor-mode=4 ee-mode=0 tnr-mode=1"));
@@ -121,6 +126,10 @@ TEST(CapturePipeline, FollowsConfig)
   EXPECT_TRUE(contains(left, "width=800,height=600,format=I420 ! nvjpegenc name=rgb_jpeg quality=55"));
   EXPECT_FALSE(contains(right, "nvjpegenc"));
   EXPECT_FALSE(contains(left, "videorate"));  // drops the sensor timestamp metadata
+  for (const auto & d : {left, right}) {
+    EXPECT_TRUE(contains(d, "exposuretimerange=\"34000 15000000\" gainrange=\"1 10.625\" ispdigitalgainrange=\"1 1\""))
+      << d;
+  }
 }
 
 TEST(CapturePipeline, RgbDisabledHasNoJpegBranch)
@@ -351,6 +360,7 @@ TEST_P(LiveCapture, PairsLockedFramesAndJpegs)
   Config c;
   c.capture.zero_copy = GetParam();
   c.capture.settle_frames = 20;
+  c.capture.exposure.mode = "lock_after_settle";
   std::vector<std::string> logs;
   std::mutex mutex;
   // Only metadata is kept: holding the GpuMats would starve the capture's fixed frame pool.
@@ -403,6 +413,11 @@ TEST_P(LiveCapture, PairsLockedFramesAndJpegs)
   std::lock_guard<std::mutex> lock(mutex);
   EXPECT_EQ(status.state, depthd::CaptureState::ok) << status.reason;
   EXPECT_TRUE(status.exposure_locked);
+  // The caps hold on both cameras, also after the right-camera restarts of the phase alignment.
+  ASSERT_TRUE(stats.exposure.left.valid && stats.exposure.right.valid);
+  EXPECT_LE(stats.exposure.left.exposure_us, 20000 + 100);
+  EXPECT_LE(stats.exposure.right.exposure_us, 20000 + 100);
+  EXPECT_LE(stats.exposure.right.gain, 8.0 + 1e-9);
   bool logged_lock = false;
   for (const auto & l : logs) logged_lock |= contains(l, "exposure locked");
   EXPECT_TRUE(logged_lock);
@@ -434,6 +449,67 @@ TEST_P(LiveCapture, PairsLockedFramesAndJpegs)
 }
 
 INSTANTIATE_TEST_SUITE_P(ZeroCopy, LiveCapture, ::testing::Values(true, false));
+
+// Continuous AE on the cameras (exposure.mode follow): the right is pinned to the left's exposure and gain, pairs flow
+// once they match, both stay within the caps, and the saturation measurement runs. Prints the readbacks every second so
+// a scene change during the run (lights on/off) shows the right following.
+TEST(LiveExposureFollow, RightFollowsLeftAndPairsFlow)
+{
+  const char * hw = std::getenv("DEPTHD_HW_TEST");
+  if (!hw || std::string(hw) != "1") GTEST_SKIP() << "set DEPTHD_HW_TEST=1 to run on the cameras";
+  const char * secs_env = std::getenv("DEPTHD_HW_FOLLOW_S");
+  const int run_s = secs_env ? std::max(5, std::atoi(secs_env)) : 5;
+  Config c;
+  // DEPTHD_HW_SATURATION_LEVEL forces the overexposure path in a dark room: a low level counts most pixels as
+  // saturated, so the compensation steps down and the right must follow the left's falling gain.
+  if (const char * level = std::getenv("DEPTHD_HW_SATURATION_LEVEL")) c.capture.exposure.saturation_level = std::atoi(level);
+  std::vector<std::string> logs;
+  std::mutex mutex;
+  std::atomic<int> pairs{0};
+  depthd::StereoCapture capture(c, [&](const std::string & line) {
+    std::lock_guard<std::mutex> lock(mutex);
+    logs.push_back(line);
+    std::cerr << "[capture] " << line << "\n";
+  });
+  capture.set_pair_callback([&](const depthd::StereoPair &) { ++pairs; });
+  std::string error;
+  ASSERT_TRUE(capture.start(&error)) << error;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(45);
+  while (std::chrono::steady_clock::now() < deadline && capture.status().state != depthd::CaptureState::ok) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(capture.status().state, depthd::CaptureState::ok) << capture.status().reason;
+  pairs = 0;
+  for (int i = 0; i < run_s; ++i) {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    const auto e = capture.pairing_stats().exposure;
+    std::cerr << "t=" << i + 1 << "s left " << e.left.exposure_us << " us " << e.left.gain << "x, right "
+              << e.right.exposure_us << " us " << e.right.gain << "x, saturated " << e.saturated_fraction
+              << ", compensation " << e.compensation << ", pins " << e.follow_pins << ", mismatch drops "
+              << e.mismatch_drops << ", pairs " << pairs.load() << "\n";
+  }
+  const auto stats = capture.pairing_stats();
+  const auto status = capture.status();
+  capture.stop();
+  EXPECT_EQ(status.state, depthd::CaptureState::ok) << status.reason;
+  EXPECT_FALSE(status.exposure_locked);
+  const auto & e = stats.exposure;
+  ASSERT_TRUE(e.left.valid);
+  ASSERT_TRUE(e.right.valid);
+  EXPECT_GE(e.follow_pins, 1u);
+  EXPECT_LE(e.left.exposure_us, 20000 + 100);
+  EXPECT_LE(e.left.gain, 8.0 + 1e-9);
+  EXPECT_NEAR(static_cast<double>(e.right.exposure_us), static_cast<double>(e.left.exposure_us), 0.06 * e.left.exposure_us + 50);
+  EXPECT_NEAR(e.right.gain, e.left.gain, 0.06 * e.left.gain + 0.07);
+  EXPECT_TRUE(e.saturation_valid);
+  EXPECT_GE(e.saturated_fraction, 0.0);
+  EXPECT_LE(e.saturated_fraction, 1.0);
+  EXPECT_GT(pairs.load(), 20 * run_s);  // ~30 fps once matched, minus re-pin transitions
+  std::lock_guard<std::mutex> lock(mutex);
+  bool logged_follow = false;
+  for (const auto & l : logs) logged_follow |= contains(l, "right camera follows the left");
+  EXPECT_TRUE(logged_follow);
+}
 
 // A capture that cannot start reports both cameras failing, so the pipeline publishes nothing of either kind.
 TEST(StereoCaptureStatus, StartFailureMarksBothCamerasFailing)

@@ -55,6 +55,27 @@ struct SkewHistogram
   std::array<uint64_t, kBuckets + 1> cumulative() const;
 };
 
+// Continuous auto exposure state (filled in by StereoCapture, exposure_control.hpp). A camera's values are valid once
+// its V4L2 controls were read back; awb gains are not here because nvarguscamerasrc exposes no way to read them.
+struct CameraExposureStats
+{
+  bool valid = false;
+  int64_t exposure_us = 0;
+  double gain = 0.0;
+};
+
+struct ExposureStats
+{
+  CameraExposureStats left;
+  CameraExposureStats right;
+  bool saturation_valid = false;
+  double saturated_fraction = 0.0;  // of the left grey image, latest measurement
+  double compensation = 0.0;        // left Argus exposurecompensation, EV
+  uint64_t ae_adjustments = 0;      // exposurecompensation steps taken against (or after) saturation
+  uint64_t follow_pins = 0;         // right camera pinned to the left's exposure and gain
+  uint64_t mismatch_drops = 0;      // pairs withheld because the right did not yet match the left
+};
+
 struct PairingStats
 {
   uint64_t pairs_emitted = 0;
@@ -64,6 +85,7 @@ struct PairingStats
   // Runtime camera-phase re-alignments by reason (filled in by StereoCapture, not by the pairer).
   uint64_t realignments_skew = 0;
   uint64_t realignments_stall = 0;
+  ExposureStats exposure;  // filled in by StereoCapture
 };
 
 class StereoPairer

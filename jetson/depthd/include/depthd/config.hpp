@@ -17,13 +17,40 @@ struct SensorMode
   bool operator==(const SensorMode & o) const { return width == o.width && height == o.height && fps == o.fps; }
 };
 
+// capture.exposure: continuous AE with the right camera following the left (exposure_control.hpp), or the old
+// settle-then-lock mode.
+struct ExposureConfig
+{
+  std::string mode = "follow";  // follow | lock_after_settle
+  int measure_interval_frames = 2;
+  double follow_threshold = 0.05;
+  int follow_settle_frames = 2;
+  int max_exposure_us = 20000;
+  double max_gain = 8.0;
+  int saturation_level = 250;
+  double saturated_high = 0.02;
+  double saturated_low = 0.005;
+  double compensation_step = 0.25;
+  double compensation_min = -2.0;
+  int compensation_hold_frames = 15;
+  bool operator==(const ExposureConfig & o) const
+  {
+    return mode == o.mode && measure_interval_frames == o.measure_interval_frames &&
+           follow_threshold == o.follow_threshold && follow_settle_frames == o.follow_settle_frames &&
+           max_exposure_us == o.max_exposure_us && max_gain == o.max_gain && saturation_level == o.saturation_level &&
+           saturated_high == o.saturated_high && saturated_low == o.saturated_low &&
+           compensation_step == o.compensation_step && compensation_min == o.compensation_min &&
+           compensation_hold_frames == o.compensation_hold_frames;
+  }
+};
+
 struct Capture
 {
   int left_sensor_id = 0;
   int right_sensor_id = 1;
   SensorMode sensor_mode;
-  int settle_frames = 30;
-  bool lock_exposure_after_settle = true;
+  int settle_frames = 30;  // exposure.mode lock_after_settle: frames before aelock/awblock
+  ExposureConfig exposure;
   double pair_window_ms = 8.0;
   bool zero_copy = true;
   // Runtime phase re-alignment (PhaseDriftMonitor): re-run the right-camera alignment when the median pair skew of the
@@ -36,7 +63,7 @@ struct Capture
   bool operator==(const Capture & o) const
   {
     return left_sensor_id == o.left_sensor_id && right_sensor_id == o.right_sensor_id && sensor_mode == o.sensor_mode &&
-           settle_frames == o.settle_frames && lock_exposure_after_settle == o.lock_exposure_after_settle &&
+           settle_frames == o.settle_frames && exposure == o.exposure &&
            pair_window_ms == o.pair_window_ms && zero_copy == o.zero_copy && realign_skew_ms == o.realign_skew_ms &&
            realign_window_s == o.realign_window_s && realign_stall_s == o.realign_stall_s &&
            realign_cooldown_s == o.realign_cooldown_s;

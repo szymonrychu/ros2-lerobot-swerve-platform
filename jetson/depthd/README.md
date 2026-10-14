@@ -9,7 +9,7 @@ ROS 2 bridge on the Pi. This keeps stereo work off the saturated Pi 5 CPU.
 
 ```
 CMakeLists.txt        finds and links every dependency; globs src/*.cpp and test/test_*.cpp
-include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification; publisher.hpp, http_api.hpp: ZeroMQ publisher, HTTP API and metrics; matcher.hpp, depth.hpp: matching and depth; postprocess.hpp, temporal.hpp: disparity post-processing; pipeline.hpp, health.hpp, daemon.hpp: the service wired end to end)
+include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp, exposure_control.hpp, phase_monitor.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification; publisher.hpp, http_api.hpp: ZeroMQ publisher, HTTP API and metrics; matcher.hpp, depth.hpp: matching and depth; postprocess.hpp, temporal.hpp: disparity post-processing; pipeline.hpp, health.hpp, daemon.hpp: the service wired end to end)
 src/                  library sources; main.cpp -> depthd and bench_main.cpp -> depthd-bench when present
 config/depthd.yaml    the one example and default config (equals the struct defaults)
 test/                 gtest binaries, one per test_*.cpp
@@ -105,6 +105,7 @@ config error kept up, SIGTERM within 2 s).
 
 ```
 left:  nvarguscamerasrc name=left_src sensor-id=0 sensor-mode=3 ee-mode=0 tnr-mode=1 aelock=false awblock=false
+         exposuretimerange="34000 20000000" gainrange="1 8" ispdigitalgainrange="1 1"
          ! video/x-raw(memory:NVMM),width=1640,height=1232,format=NV12,framerate=30/1 ! tee name=left_tee
        left_tee. ! queue max-size-buffers=2 leaky=downstream ! nvvidconv
          ! video/x-raw(memory:NVMM),width=640,height=480,format=GRAY8 ! appsink name=left_sink max-buffers=1 drop=true sync=false
@@ -146,22 +147,62 @@ right: nvarguscamerasrc name=right_src sensor-id=1 ... ! nvvidconv ! video/x-raw
   the skew of every candidate the pairer judges and the time since the last pair while both cameras are healthy and
   aligned. When the median skew of the trailing `capture.realign_window_s` exceeds `capture.realign_skew_ms`, or no
   pair came for `capture.realign_stall_s`, the watchdog re-runs the startup alignment from a right-camera restart
-  (AE/AWB unlock and settle again), logs `camera phase drifted (...)` and counts it in
+  (the right is pinned to the left again, or in `lock_after_settle` mode AE/AWB unlock and settle again), logs `camera phase drifted (...)` and counts it in
   `depthd_camera_realignments_total{reason="skew"|"stall"}`. Re-alignments are at least `capture.realign_cooldown_s`
   apart. While aligning, at start or at runtime, no pair reaches the pipeline and no RGB is published.
 
-### AE/AWB lock
+### Continuous AE/AWB
 
-Auto exposure and white balance run for `capture.settle_frames` frames on each camera after the phase is aligned.
-Then, with `capture.lock_exposure_after_settle: true`, the capture sets `aelock` and `awblock` on both sources at
-once, so both cameras keep the same exposure for matching. About 10 frames later it reads the values back from each
-sensor's V4L2 controls (`/dev/video<sensor-id>`: `exposure` in microseconds, `gain` with 16 = 1x) and logs them once:
+`capture.exposure.mode` picks how the two cameras expose (`include/depthd/exposure_control.hpp`):
 
-```
-depthd capture: exposure locked: left (sensor-id 0) exposure 33329 us gain 6.31x (raw 101); right (sensor-id 1) exposure 33330 us gain 6.44x (raw 103);
-```
+- **`follow` (default).** Argus AE and AWB run continuously on both cameras; nothing is ever locked, so a lighting
+  change is followed instead of leaving the images too dark or too bright. Both sources are capped at
+  `capture.exposure.max_exposure_us` (motion blur) and `max_gain`, and the ISP digital gain is pinned to 1x
+  (`ispdigitalgainrange="1 1"`): it cannot be read back, so it could not be matched. Every
+  `measure_interval_frames` left frames the left sink thread reads both sensors' exposure and analog gain from their
+  V4L2 controls (`/dev/video<sensor-id>`, a cached fd) and `ExposureFollower` pins the right camera to the left's values
+  (`exposuretimerange` and `gainrange` with low == high, set on the running source) whenever the left moved more than
+  `follow_threshold` (relative) from the current pin. From a new pin until the right's readback equals it (within a few
+  sensor lines and one gain step) and `follow_settle_frames` more right frames arrived, every pair is withheld and
+  counted in `depthd_drops_total{reason="exposure_mismatch"}`; left changes under the threshold are tolerated. A right
+  restart (phase re-alignment) forgets the pin, so it is pinned and matched again. nvarguscamerasrc applies a range
+  property only when it is set, so a restarted source would come back uncapped (measured: 33 ms against a 20 ms cap);
+  the caps (and the left's compensation) are therefore set again before every pipeline start. The first pin is logged:
 
-Any camera restart unlocks both, and they settle and lock again together.
+  ```
+  depthd capture: right camera follows the left: pinned to exposure 19999 us gain 6.44x; pairs flow once it matches
+  ```
+
+- **Overexposure.** The same measurement counts the left grey pixels `>= saturation_level` on the GPU
+  (`cv::cuda::compare` + `countNonZero`). `SaturationCompensator` steps the left's Argus
+  `exposurecompensation` down by `compensation_step` EV while the fraction is above `saturated_high` (to
+  `compensation_min`) and back toward 0 while it is below `saturated_low`; in between it holds (hysteresis), and steps
+  are at least `compensation_hold_frames` left frames apart. The right follows through its pin. Each step is logged
+  (`saturated fraction 0.041: left exposure compensation -0.50 EV`).
+- **`lock_after_settle`** restores the old behaviour: AE/AWB run for `capture.settle_frames` frames per camera after the
+  phase is aligned, then `aelock` and `awblock` are set on both at once; about 10 frames later the locked values are
+  read back and logged once (`exposure locked: left (sensor-id 0) exposure 33329 us gain 6.31x (raw 101); ...`). Any
+  camera restart unlocks both, and they settle and lock again together. The caps apply in this mode too; there is no
+  following and no compensation, but the metrics below are still measured.
+
+Metrics: `depthd_camera_exposure_us{camera}` and `depthd_camera_gain{camera}` (V4L2 readback, absent until the first
+one), `depthd_camera_saturated_fraction` (left), `depthd_camera_exposure_compensation` (EV),
+`depthd_ae_adjustments_total` (compensation steps) and `depthd_exposure_follow_pins_total`.
+
+**AWB is not matched, and its gains are not exported.** nvarguscamerasrc on L4T R32.6.1 has no white-balance gains
+property (`wbmode=manual` takes none) and does not hand out the per-frame Argus metadata (the `sensor_data` pointer of
+its `GstBufferMetaData` is null, measured on this board), so the right camera cannot copy the left's AWB gains and no
+`awb gains` metric can be read. Both cameras run Argus AWB on their own. Matching only uses the luma plane, on which
+two identical sensors' independent AWB has a small effect; copying the gains needs depthd to drive the cameras through
+libargus (`ICaptureMetadata::getAwbGains`, `IAutoControlSettings::setWbGains`) instead of nvarguscamerasrc.
+
+**IMX219 pink cast.** The ISP overrides mechanism exists on L4T R32.6.1 and is already Ansible-managed: the
+`jetson_base` role installs the Waveshare `camera_overrides.isp` (URL and sha256 in its defaults) to
+`/var/nvidia/nvcam/settings/` and restarts `nvargus-daemon` when it changes (`ansible/README.md`). `nvargus-daemon`
+does load it (its journal shows `NvCameraIspConfigFileLoad ... camera_overrides.isp`; it rejects the file's `em.*`
+lines as invalid attributes and applies the rest). The old mode locked AWB 30 frames after start; `follow` mode never
+locks it. Whether a cast remains with continuous AWB is judged on the RGB stream; retuning the file's `awb.*` section
+for these modules is future work.
 
 ### Pairing
 
@@ -182,7 +223,7 @@ style `cumulative()`); T16 reads it to judge the window. `pairing_stats()` retur
 
 ### Health and failures
 
-`status()` is `starting` (phase alignment, settling, no pair yet), `ok`, or `camera_error` with a reason naming the
+`status()` is `starting` (phase alignment, settling or the right not yet matched, no pair yet), `ok`, or `camera_error` with a reason naming the
 camera (`left camera (sensor-id 0): ...`). A camera that delivers no frame for 2 s, or whose pipeline posts an error or
 EOS, raises `camera_error` (read by `/health`); queued frames are flushed and no pair is emitted while it lasts, and no
 RGB JPEG comes from a failing left camera. There is never a placeholder frame. The failed pipeline is restarted at
@@ -198,8 +239,11 @@ belong to one Argus client at a time and ctest must not take them from a running
 DEPTHD_HW_TEST=1 ./build/test_capture_pipeline --gtest_filter='*Live*'
 ```
 
-It asserts in-window pairs at about 30 fps, 640x480 CV_8UC1 frames with real content, the exposure-lock log, and JPEGs
-at about `rgb.fps`. The missing-camera test (sensor-ids 5 and 6) runs in the default suite and does not touch the
+It asserts in-window pairs at about 30 fps, 640x480 CV_8UC1 frames with real content, the exposure-lock log
+(`lock_after_settle`), and JPEGs at about `rgb.fps`. `LiveExposureFollow` runs the default `follow` mode: the right
+is pinned to the left within sensor quantisation, both stay under the caps, pairs flow, and it prints both readbacks
+every second (`DEPTHD_HW_FOLLOW_S=30` runs longer, to switch the lights during the run; `DEPTHD_HW_SATURATION_LEVEL=30` forces the
+overexposure compensation in a dark room, so the right has to follow a falling left gain). The missing-camera test (sensor-ids 5 and 6) runs in the default suite and does not touch the
 cameras.
 
 ## Config
@@ -211,8 +255,14 @@ rejected with a message naming the key. `[live]` keys can change at runtime (`de
 |---|---|---|
 | capture.left_sensor_id / right_sensor_id | 0 / 1 | >= 0, different |
 | capture.sensor_mode.{width,height,fps} | 1640 / 1232 / 30 | > 0 |
-| capture.settle_frames | 30 | >= 0 |
-| capture.lock_exposure_after_settle | true | |
+| capture.settle_frames | 30 | >= 0 (lock_after_settle only) |
+| capture.exposure.mode | follow | follow, lock_after_settle |
+| capture.exposure.measure_interval_frames | 2 | >= 1 |
+| capture.exposure.follow_threshold / follow_settle_frames | 0.05 / 2 | 0 < t < 1 / >= 0 |
+| capture.exposure.max_exposure_us / max_gain | 20000 / 8.0 | 34..683709 / 1..10.625 |
+| capture.exposure.saturation_level | 250 | 1..255 |
+| capture.exposure.saturated_high / saturated_low | 0.02 / 0.005 | 0..1, 0 <= low < high |
+| capture.exposure.compensation_step / compensation_min / compensation_hold_frames | 0.25 / -2.0 / 15 | 0 < step <= 2 / -2..0 / >= 0 |
 | capture.pair_window_ms | 8.0 | > 0 |
 | capture.zero_copy | true | |
 | processing.width / height | 640 / 480 | multiple of 8 |
@@ -405,7 +455,10 @@ in through `HttpApiHooks` (`health`, `capture_pair`, `apply_config`, `on_calibra
 Metrics: `depthd_frames_total{kind}`, `depthd_pairs_total`, `depthd_drops_total{reason}` (`skew`, `orphan`, plus
 `Metrics::inc_drop` reasons), `depthd_pair_skew_ms` (histogram), `depthd_stage_time_ms{stage}` (histogram, buckets
 1-500 ms), `depthd_fps`, `depthd_gpu_temp_celsius`, `depthd_nvgpu_errors_total`, `depthd_zmq_send_drops_total`,
-`depthd_camera_realignments_total{reason}` (`skew`, `stall`).
+`depthd_camera_realignments_total{reason}` (`skew`, `stall`), and the exposure metrics of Continuous AE/AWB
+(`depthd_camera_exposure_us{camera}`, `depthd_camera_gain{camera}`, `depthd_camera_saturated_fraction`,
+`depthd_camera_exposure_compensation`, `depthd_ae_adjustments_total`, `depthd_exposure_follow_pins_total`,
+`depthd_drops_total{reason="exposure_mismatch"}`).
 
 `third_party/httplib.h` is cpp-httplib v0.14.3 (MIT, Yuji Hirose) vendored unmodified as a single header. Tests:
 `test/test_publisher.cpp` (loopback SUB decodes depth, fused and rgb; a full high-water mark drops and counts) and

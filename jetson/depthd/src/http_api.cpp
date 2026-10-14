@@ -225,6 +225,7 @@ std::string Metrics::render() const
   o << "# HELP depthd_drops_total Dropped frames and pairs, by reason.\n# TYPE depthd_drops_total counter\n";
   o << "depthd_drops_total{reason=\"skew\"} " << pairing_.dropped_skew << "\n";
   o << "depthd_drops_total{reason=\"orphan\"} " << pairing_.dropped_orphan << "\n";
+  o << "depthd_drops_total{reason=\"exposure_mismatch\"} " << pairing_.exposure.mismatch_drops << "\n";
   for (const auto & kv : drops_) {
     o << "depthd_drops_total{reason=\"" << kv.first << "\"} " << kv.second << "\n";
   }
@@ -238,6 +239,27 @@ std::string Metrics::render() const
        "# TYPE depthd_camera_realignments_total counter\n";
   o << "depthd_camera_realignments_total{reason=\"skew\"} " << pairing_.realignments_skew << "\n";
   o << "depthd_camera_realignments_total{reason=\"stall\"} " << pairing_.realignments_stall << "\n";
+  const ExposureStats & ex = pairing_.exposure;
+  o << "# HELP depthd_camera_exposure_us Sensor exposure time read back from V4L2, microseconds.\n"
+       "# TYPE depthd_camera_exposure_us gauge\n";
+  o << "# HELP depthd_camera_gain Sensor analog gain read back from V4L2 (1 = 1x).\n# TYPE depthd_camera_gain gauge\n";
+  for (const auto & cam : {std::make_pair("left", &ex.left), std::make_pair("right", &ex.right)}) {
+    if (!cam.second->valid) continue;
+    o << "depthd_camera_exposure_us{camera=\"" << cam.first << "\"} " << cam.second->exposure_us << "\n";
+    o << "depthd_camera_gain{camera=\"" << cam.first << "\"} " << num(cam.second->gain) << "\n";
+  }
+  o << "# HELP depthd_camera_saturated_fraction Fraction of left grey pixels at or above "
+       "capture.exposure.saturation_level.\n# TYPE depthd_camera_saturated_fraction gauge\n";
+  if (ex.saturation_valid) o << "depthd_camera_saturated_fraction " << num(ex.saturated_fraction) << "\n";
+  o << "# HELP depthd_camera_exposure_compensation Left camera Argus exposure compensation, EV.\n"
+       "# TYPE depthd_camera_exposure_compensation gauge\n"
+    << "depthd_camera_exposure_compensation " << num(ex.compensation) << "\n";
+  o << "# HELP depthd_ae_adjustments_total Exposure compensation steps taken against saturation (and back).\n"
+       "# TYPE depthd_ae_adjustments_total counter\n"
+    << "depthd_ae_adjustments_total " << ex.ae_adjustments << "\n";
+  o << "# HELP depthd_exposure_follow_pins_total Right camera pinned to the left camera's exposure and gain.\n"
+       "# TYPE depthd_exposure_follow_pins_total counter\n"
+    << "depthd_exposure_follow_pins_total " << ex.follow_pins << "\n";
   o << "# HELP depthd_stage_time_ms Time spent in each pipeline stage, milliseconds.\n"
        "# TYPE depthd_stage_time_ms histogram\n";
   for (const auto & kv : stages_) {

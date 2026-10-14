@@ -35,7 +35,18 @@ TEST(Config, StructDefaultsMatchTheSpec)
   EXPECT_EQ(c.capture.sensor_mode.height, 1232);
   EXPECT_EQ(c.capture.sensor_mode.fps, 30);
   EXPECT_EQ(c.capture.settle_frames, 30);
-  EXPECT_TRUE(c.capture.lock_exposure_after_settle);
+  EXPECT_EQ(c.capture.exposure.mode, "follow");
+  EXPECT_EQ(c.capture.exposure.measure_interval_frames, 2);
+  EXPECT_DOUBLE_EQ(c.capture.exposure.follow_threshold, 0.05);
+  EXPECT_EQ(c.capture.exposure.follow_settle_frames, 2);
+  EXPECT_EQ(c.capture.exposure.max_exposure_us, 20000);
+  EXPECT_DOUBLE_EQ(c.capture.exposure.max_gain, 8.0);
+  EXPECT_EQ(c.capture.exposure.saturation_level, 250);
+  EXPECT_DOUBLE_EQ(c.capture.exposure.saturated_high, 0.02);
+  EXPECT_DOUBLE_EQ(c.capture.exposure.saturated_low, 0.005);
+  EXPECT_DOUBLE_EQ(c.capture.exposure.compensation_step, 0.25);
+  EXPECT_DOUBLE_EQ(c.capture.exposure.compensation_min, -2.0);
+  EXPECT_EQ(c.capture.exposure.compensation_hold_frames, 15);
   EXPECT_DOUBLE_EQ(c.capture.pair_window_ms, 8.0);
   EXPECT_TRUE(c.capture.zero_copy);
   EXPECT_DOUBLE_EQ(c.capture.realign_skew_ms, 4.0);
@@ -213,6 +224,40 @@ TEST(Config, RejectsOtherInvalidValues)
   expect_rejected("capture:\n  left_sensor_id: 0\n  right_sensor_id: 0\n", "capture.right_sensor_id");
 }
 
+TEST(Config, ExposureKeysParseAndValidate)
+{
+  const auto r = depthd::parse_config(
+    "capture:\n  exposure:\n    mode: lock_after_settle\n    max_exposure_us: 15000\n    max_gain: 10.625\n"
+    "    saturated_high: 0.05\n    saturated_low: 0.01\n    compensation_min: -1.0\n");
+  ASSERT_TRUE(r.ok()) << r.error;
+  EXPECT_EQ(r.config.capture.exposure.mode, "lock_after_settle");
+  EXPECT_EQ(r.config.capture.exposure.max_exposure_us, 15000);
+  EXPECT_DOUBLE_EQ(r.config.capture.exposure.max_gain, 10.625);
+  EXPECT_DOUBLE_EQ(r.config.capture.exposure.compensation_min, -1.0);
+  const std::string e = "capture:\n  exposure:\n    ";
+  expect_rejected(e + "mode: auto\n", "capture.exposure.mode");
+  expect_rejected(e + "measure_interval_frames: 0\n", "capture.exposure.measure_interval_frames");
+  expect_rejected(e + "follow_threshold: 0\n", "capture.exposure.follow_threshold");
+  expect_rejected(e + "follow_threshold: 1\n", "capture.exposure.follow_threshold");
+  expect_rejected(e + "follow_settle_frames: -1\n", "capture.exposure.follow_settle_frames");
+  expect_rejected(e + "max_exposure_us: 33\n", "capture.exposure.max_exposure_us");
+  expect_rejected(e + "max_exposure_us: 700000\n", "capture.exposure.max_exposure_us");
+  expect_rejected(e + "max_gain: 0.5\n", "capture.exposure.max_gain");
+  expect_rejected(e + "max_gain: 11\n", "capture.exposure.max_gain");
+  expect_rejected(e + "saturation_level: 0\n", "capture.exposure.saturation_level");
+  expect_rejected(e + "saturation_level: 256\n", "capture.exposure.saturation_level");
+  expect_rejected(e + "saturated_high: 1.5\n", "capture.exposure.saturated_high");
+  expect_rejected(e + "saturated_low: 0.03\n", "capture.exposure.saturated_low");  // not below saturated_high
+  expect_rejected(e + "saturated_low: -0.1\n", "capture.exposure.saturated_low");
+  expect_rejected(e + "compensation_step: 0\n", "capture.exposure.compensation_step");
+  expect_rejected(e + "compensation_min: -3\n", "capture.exposure.compensation_min");
+  expect_rejected(e + "compensation_min: 0.5\n", "capture.exposure.compensation_min");
+  expect_rejected(e + "compensation_hold_frames: -1\n", "capture.exposure.compensation_hold_frames");
+  expect_rejected(e + "nope: 1\n", "capture.exposure.nope");
+  // The removed boolean is an unknown key now: capture.exposure.mode replaces it.
+  expect_rejected("capture:\n  lock_exposure_after_settle: true\n", "capture.lock_exposure_after_settle");
+}
+
 TEST(Config, ValidateRejectsProgrammaticValues)
 {
   Config c;
@@ -231,9 +276,12 @@ TEST(Config, JsonRoundTrip)
   c.mono.rate_hz = 1.5;
   c.rgb.jpeg_quality = 55;
   c.transport.http_port = 9000;
+  c.capture.exposure.mode = "lock_after_settle";
+  c.capture.exposure.compensation_step = 0.5;
   const auto j = depthd::to_json(c);
   EXPECT_EQ(j.at("processing").at("matcher"), "vpi");
   EXPECT_EQ(j.at("capture").at("sensor_mode").at("width"), 1640);
+  EXPECT_EQ(j.at("capture").at("exposure").at("mode"), "lock_after_settle");
   EXPECT_EQ(j.at("frame_ids").at("depth"), "stereo_left_optical_frame");
   const auto r = depthd::from_json(j);
   ASSERT_TRUE(r.ok()) << r.error;
@@ -263,7 +311,7 @@ TEST(Config, RuntimeMutableSet)
     EXPECT_TRUE(depthd::runtime_mutable(k)) << k;
   }
   for (const char * k : {"mono.model", "mono.engine_path", "rgb.fps", "rgb.width", "processing.matcher",
-                         "processing.width", "processing.num_disparities", "capture.pair_window_ms",
+                         "processing.width", "processing.num_disparities", "capture.pair_window_ms", "capture.exposure.max_gain",
                          "transport.pub_port", "calibration.path", "frame_ids.depth", "postprocess", "postprocessx.y",
                          "nonsense", ""}) {
     EXPECT_FALSE(depthd::runtime_mutable(k)) << k;

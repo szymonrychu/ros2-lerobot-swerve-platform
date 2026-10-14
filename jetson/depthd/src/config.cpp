@@ -120,7 +120,21 @@ Config read_config(const json & root)
       m.get("fps", c.capture.sensor_mode.fps);
     });
     s.get("settle_frames", c.capture.settle_frames);
-    s.get("lock_exposure_after_settle", c.capture.lock_exposure_after_settle);
+    s.sub("exposure", [&](Section & e) {
+      auto & x = c.capture.exposure;
+      e.get("mode", x.mode);
+      e.get("measure_interval_frames", x.measure_interval_frames);
+      e.get("follow_threshold", x.follow_threshold);
+      e.get("follow_settle_frames", x.follow_settle_frames);
+      e.get("max_exposure_us", x.max_exposure_us);
+      e.get("max_gain", x.max_gain);
+      e.get("saturation_level", x.saturation_level);
+      e.get("saturated_high", x.saturated_high);
+      e.get("saturated_low", x.saturated_low);
+      e.get("compensation_step", x.compensation_step);
+      e.get("compensation_min", x.compensation_min);
+      e.get("compensation_hold_frames", x.compensation_hold_frames);
+    });
     s.get("pair_window_ms", c.capture.pair_window_ms);
     s.get("zero_copy", c.capture.zero_copy);
     s.get("realign_skew_ms", c.capture.realign_skew_ms);
@@ -251,6 +265,28 @@ void check(const Config & c)
   if (!(c.capture.realign_cooldown_s >= 0.0)) {
     fail("capture.realign_cooldown_s", "must be >= 0");
   }
+  const auto & x = c.capture.exposure;
+  if (!one_of<std::string>(x.mode, {"follow", "lock_after_settle"})) {
+    fail("capture.exposure.mode", "unknown mode '" + x.mode + "' (follow, lock_after_settle)");
+  }
+  range("capture.exposure.measure_interval_frames", x.measure_interval_frames, 1, 1000);
+  if (!(x.follow_threshold > 0.0 && x.follow_threshold < 1.0)) {
+    fail("capture.exposure.follow_threshold", "must be > 0 and < 1");
+  }
+  non_negative("capture.exposure.follow_settle_frames", x.follow_settle_frames);
+  // Argus limits nvarguscamerasrc enforces on the IMX219: 34 us (the plugin rejects less) .. 683709 us, gain 1..10.625.
+  range("capture.exposure.max_exposure_us", x.max_exposure_us, 34, 683709);
+  range("capture.exposure.max_gain", x.max_gain, 1.0, 10.625);
+  range("capture.exposure.saturation_level", x.saturation_level, 1, 255);
+  range("capture.exposure.saturated_high", x.saturated_high, 0.0, 1.0);
+  if (!(x.saturated_low >= 0.0 && x.saturated_low < x.saturated_high)) {
+    fail("capture.exposure.saturated_low", "must be >= 0 and < capture.exposure.saturated_high");
+  }
+  if (!(x.compensation_step > 0.0 && x.compensation_step <= 2.0)) {
+    fail("capture.exposure.compensation_step", "must be > 0 and <= 2");
+  }
+  range("capture.exposure.compensation_min", x.compensation_min, -2.0, 0.0);
+  non_negative("capture.exposure.compensation_hold_frames", x.compensation_hold_frames);
 
   div8("processing.width", c.processing.width);
   div8("processing.height", c.processing.height);
@@ -430,7 +466,19 @@ json to_json(const Config & c)
         {"height", c.capture.sensor_mode.height},
         {"fps", c.capture.sensor_mode.fps}}},
       {"settle_frames", c.capture.settle_frames},
-      {"lock_exposure_after_settle", c.capture.lock_exposure_after_settle},
+      {"exposure",
+       {{"mode", c.capture.exposure.mode},
+        {"measure_interval_frames", c.capture.exposure.measure_interval_frames},
+        {"follow_threshold", c.capture.exposure.follow_threshold},
+        {"follow_settle_frames", c.capture.exposure.follow_settle_frames},
+        {"max_exposure_us", c.capture.exposure.max_exposure_us},
+        {"max_gain", c.capture.exposure.max_gain},
+        {"saturation_level", c.capture.exposure.saturation_level},
+        {"saturated_high", c.capture.exposure.saturated_high},
+        {"saturated_low", c.capture.exposure.saturated_low},
+        {"compensation_step", c.capture.exposure.compensation_step},
+        {"compensation_min", c.capture.exposure.compensation_min},
+        {"compensation_hold_frames", c.capture.exposure.compensation_hold_frames}}},
       {"pair_window_ms", c.capture.pair_window_ms},
       {"zero_copy", c.capture.zero_copy},
       {"realign_skew_ms", c.capture.realign_skew_ms},

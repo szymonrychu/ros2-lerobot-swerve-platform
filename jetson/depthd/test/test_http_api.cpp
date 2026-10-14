@@ -449,6 +449,14 @@ TEST(HttpApiMetrics, ServesPrometheusTextWithEveryDepthdMetric)
   ps.skew.record(40.0);
   ps.realignments_skew = 2;
   ps.realignments_stall = 1;
+  ps.exposure.left = {true, 12000, 3.3125};
+  ps.exposure.right = {true, 12001, 3.25};
+  ps.exposure.saturation_valid = true;
+  ps.exposure.saturated_fraction = 0.0125;
+  ps.exposure.compensation = -0.5;
+  ps.exposure.ae_adjustments = 3;
+  ps.exposure.follow_pins = 7;
+  ps.exposure.mismatch_drops = 11;
   f.metrics.set_pairing(ps);
   f.metrics.observe_stage_ms("match", 7.5);
   f.metrics.observe_stage_ms("match", 12.0);
@@ -478,6 +486,21 @@ TEST(HttpApiMetrics, ServesPrometheusTextWithEveryDepthdMetric)
   has("# TYPE depthd_camera_realignments_total counter");
   has("depthd_camera_realignments_total{reason=\"skew\"} 2");
   has("depthd_camera_realignments_total{reason=\"stall\"} 1");
+  has("# TYPE depthd_camera_exposure_us gauge");
+  has("depthd_camera_exposure_us{camera=\"left\"} 12000");
+  has("depthd_camera_exposure_us{camera=\"right\"} 12001");
+  has("# TYPE depthd_camera_gain gauge");
+  has("depthd_camera_gain{camera=\"left\"} 3.3125");
+  has("depthd_camera_gain{camera=\"right\"} 3.25");
+  has("# TYPE depthd_camera_saturated_fraction gauge");
+  has("depthd_camera_saturated_fraction 0.0125");
+  has("# TYPE depthd_camera_exposure_compensation gauge");
+  has("depthd_camera_exposure_compensation -0.5");
+  has("# TYPE depthd_ae_adjustments_total counter");
+  has("depthd_ae_adjustments_total 3");
+  has("# TYPE depthd_exposure_follow_pins_total counter");
+  has("depthd_exposure_follow_pins_total 7");
+  has("depthd_drops_total{reason=\"exposure_mismatch\"} 11");
   has("# TYPE depthd_stage_time_ms histogram");
   has("depthd_stage_time_ms_bucket{stage=\"match\",le=\"10\"} 1");
   has("depthd_stage_time_ms_bucket{stage=\"match\",le=\"+Inf\"} 2");
@@ -498,6 +521,10 @@ TEST(HttpApiMetrics, EmptyMetricsStillRender)
   EXPECT_EQ(r->status, 200);
   EXPECT_NE(r->body.find("depthd_fps 0"), std::string::npos);
   EXPECT_NE(r->body.find("depthd_zmq_send_drops_total 0"), std::string::npos);
+  EXPECT_NE(r->body.find("depthd_ae_adjustments_total 0"), std::string::npos);
+  // No readback yet: no exposure, gain or saturation sample rather than a made-up 0.
+  EXPECT_EQ(r->body.find("depthd_camera_exposure_us{"), std::string::npos);
+  EXPECT_EQ(r->body.find("\ndepthd_camera_saturated_fraction "), std::string::npos);
 }
 
 TEST(HttpApi, UnknownPathIs404)

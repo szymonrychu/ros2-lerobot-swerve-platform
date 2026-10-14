@@ -1,7 +1,8 @@
 // Stereo capture on the Jetson Nano (part of depthd-capture).
 //
 // Two GStreamer pipelines, one per IMX219, built by build_pipeline_description():
-//   nvarguscamerasrc (1640x1232 binned mode, ee-mode 0, tnr-mode 1) -> NV12 NVMM -> nvvidconv -> GRAY8 at
+//   nvarguscamerasrc (1640x1232 binned mode, ee-mode 0, tnr-mode 1, exposure/gain capped, ISP digital gain 1x)
+//   -> NV12 NVMM -> nvvidconv -> GRAY8 at
 //   processing size -> appsink
 // The left pipeline tees a second branch (NVMM throughout) to nvvidconv -> nvjpegenc -> appsink for the RGB overview
 // stream, throttled to rgb.fps by a pad probe that drops buffers before scaling (no videorate: it loses the
@@ -28,6 +29,7 @@
 #include <string>
 
 #include "depthd/config.hpp"
+#include "depthd/exposure_control.hpp"
 #include "depthd/pairing.hpp"
 
 namespace depthd
@@ -143,14 +145,8 @@ private:
   bool due_set_ = false;
 };
 
-// Readback of the sensor's current exposure and gain from its V4L2 controls (/dev/video<sensor-id>), used to log the
-// locked values. exposure is in microseconds; gain is in sensor units where 16 = 1x (IMX219 gain_factor).
-struct SensorExposure
-{
-  int64_t exposure_us = 0;
-  int64_t gain_raw = 0;
-  double gain() const { return gain_raw / 16.0; }
-};
+// Readback of the sensor's current exposure and gain from its V4L2 controls (/dev/video<sensor-id>): the follower's
+// input and the locked values' log line.
 std::optional<SensorExposure> read_sensor_exposure(int sensor_id, std::string * error = nullptr);
 
 class StereoCapture

@@ -173,9 +173,12 @@ std::string build_pipeline_description(const Config & config, CameraSide side)
   const std::string name = side_name(side);
   const int sensor_id = left ? cap.left_sensor_id : cap.right_sensor_id;
 
+  // Both cameras: exposure and analog gain capped, ISP digital gain pinned to 1x (it cannot be read back to match).
   std::ostringstream s;
   s << "nvarguscamerasrc name=" << name << "_src sensor-id=" << sensor_id << " sensor-mode=" << mode
-    << " ee-mode=0 tnr-mode=1 aelock=false awblock=false ! video/x-raw(memory:NVMM),width=" << cap.sensor_mode.width
+    << " ee-mode=0 tnr-mode=1 aelock=false awblock=false exposuretimerange=\"" << kMinExposureNs << " "
+    << static_cast<int64_t>(cap.exposure.max_exposure_us) * 1000 << "\" gainrange=\"1 " << cap.exposure.max_gain
+    << "\" ispdigitalgainrange=\"1 1\" ! video/x-raw(memory:NVMM),width=" << cap.sensor_mode.width
     << ",height=" << cap.sensor_mode.height << ",format=NV12,framerate=" << cap.sensor_mode.fps << "/1";
 
   std::ostringstream gray;
@@ -299,40 +302,67 @@ void ExposureLockPolicy::reset()
   locked_ = false;
 }
 
+namespace
+{
+// Exposure and gain readback of one sensor through its V4L2 controls. The device stays open and the control ids are
+// looked up once; any failure closes it, so the next read starts over.
+class SensorReader
+{
+public:
+  explicit SensorReader(int sensor_id) : dev_("/dev/video" + std::to_string(sensor_id)) {}
+  ~SensorReader() { close_fd(); }
+  SensorReader(const SensorReader &) = delete;
+  SensorReader & operator=(const SensorReader &) = delete;
+
+  std::optional<SensorExposure> read(std::string * error)
+  {
+    auto fail = [&](const std::string & why) -> std::optional<SensorExposure> {
+      close_fd();
+      if (error) *error = dev_ + ": " + why;
+      return std::nullopt;
+    };
+    if (fd_ < 0) {
+      fd_ = ::open(dev_.c_str(), O_RDONLY | O_NONBLOCK);
+      if (fd_ < 0) return fail(std::strerror(errno));
+      v4l2_query_ext_ctrl q{};
+      q.id = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
+      while (::ioctl(fd_, VIDIOC_QUERY_EXT_CTRL, &q) == 0) {
+        if (strcasecmp(q.name, "exposure") == 0) exposure_id_ = q.id;
+        if (strcasecmp(q.name, "gain") == 0) gain_id_ = q.id;
+        q.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
+      }
+      if (!exposure_id_ || !gain_id_) return fail("no exposure/gain controls");
+    }
+    std::array<v4l2_ext_control, 2> ctrls{};
+    ctrls[0].id = exposure_id_;
+    ctrls[1].id = gain_id_;
+    v4l2_ext_controls req{};
+    req.which = V4L2_CTRL_WHICH_CUR_VAL;
+    req.count = ctrls.size();
+    req.controls = ctrls.data();
+    if (::ioctl(fd_, VIDIOC_G_EXT_CTRLS, &req) != 0) return fail(std::string("VIDIOC_G_EXT_CTRLS: ") + std::strerror(errno));
+    return SensorExposure{ctrls[0].value64, ctrls[1].value64};
+  }
+
+private:
+  void close_fd()
+  {
+    if (fd_ >= 0) ::close(fd_);
+    fd_ = -1;
+    exposure_id_ = gain_id_ = 0;
+  }
+
+  std::string dev_;
+  int fd_ = -1;
+  uint32_t exposure_id_ = 0;
+  uint32_t gain_id_ = 0;
+};
+}  // namespace
+
 std::optional<SensorExposure> read_sensor_exposure(int sensor_id, std::string * error)
 {
-  const std::string dev = "/dev/video" + std::to_string(sensor_id);
-  auto fail = [&](const std::string & why) -> std::optional<SensorExposure> {
-    if (error) *error = dev + ": " + why;
-    return std::nullopt;
-  };
-  const int fd = ::open(dev.c_str(), O_RDONLY | O_NONBLOCK);
-  if (fd < 0) return fail(std::strerror(errno));
-  uint32_t exposure_id = 0;
-  uint32_t gain_id = 0;
-  v4l2_query_ext_ctrl q{};
-  q.id = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
-  while (::ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &q) == 0) {
-    if (strcasecmp(q.name, "exposure") == 0) exposure_id = q.id;
-    if (strcasecmp(q.name, "gain") == 0) gain_id = q.id;
-    q.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
-  }
-  if (!exposure_id || !gain_id) {
-    ::close(fd);
-    return fail("no exposure/gain controls");
-  }
-  std::array<v4l2_ext_control, 2> ctrls{};
-  ctrls[0].id = exposure_id;
-  ctrls[1].id = gain_id;
-  v4l2_ext_controls req{};
-  req.which = V4L2_CTRL_WHICH_CUR_VAL;
-  req.count = ctrls.size();
-  req.controls = ctrls.data();
-  const int rc = ::ioctl(fd, VIDIOC_G_EXT_CTRLS, &req);
-  const int err = errno;
-  ::close(fd);
-  if (rc != 0) return fail(std::string("VIDIOC_G_EXT_CTRLS: ") + std::strerror(err));
-  return SensorExposure{ctrls[0].value64, ctrls[1].value64};
+  SensorReader reader(sensor_id);
+  return reader.read(error);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -387,6 +417,16 @@ struct StereoCapture::Impl
   EGLDisplay egl_display = EGL_NO_DISPLAY;
 
   mutable std::mutex mutex;
+  const bool follow_mode;  // capture.exposure.mode follow; else lock_after_settle
+  ExposureFollower follower;            // guarded by mutex
+  SaturationCompensator compensator;    // guarded by mutex
+  ExposureStats exposure_stats;         // guarded by mutex
+  bool follow_logged = false;           // guarded by mutex: the first pin is logged once
+  bool readback_error_logged = false;   // left sink thread only
+  int64_t left_frames_seen = 0;         // left sink thread only
+  cv::cuda::GpuMat saturation_scratch;  // left sink thread only
+  SensorReader left_reader;             // left sink thread only
+  SensorReader right_reader;            // left sink thread only
   ExposureLockPolicy lock_policy;
   bool exposure_locked = false;
   int frames_since_lock = -1;  // -1: no readback pending
@@ -407,7 +447,12 @@ struct StereoCapture::Impl
   : config(c),
     log(l ? std::move(l) : LogFn(default_log)),
     pairer(c.capture.pair_window_ms),
-    lock_policy(c.capture.settle_frames, c.capture.lock_exposure_after_settle),
+    follow_mode(c.capture.exposure.mode == "follow"),
+    follower(ExposureFollowerOptions::from_config(c.capture.exposure)),
+    compensator(SaturationOptions::from_config(c.capture.exposure)),
+    left_reader(c.capture.left_sensor_id),
+    right_reader(c.capture.right_sensor_id),
+    lock_policy(c.capture.settle_frames, !follow_mode),
     drift(PhaseDriftOptions::from_config(c.capture)),
     rgb_throttle(c.rgb.fps, c.capture.sensor_mode.fps)
   {
@@ -592,6 +637,7 @@ struct StereoCapture::Impl
         log(camera_label(s) + ": frames resumed");
         s.error.clear();
       }
+      if (s.side == CameraSide::right && follow_mode) follower.on_right_frame();
       lock_now = !aligning && lock_policy.on_frame(s.side);
       if (lock_now) frames_since_lock = 0;
       if (s.side == CameraSide::left && frames_since_lock >= 0 && ++frames_since_lock > kLockReadbackFrames) {
@@ -608,6 +654,9 @@ struct StereoCapture::Impl
         " frames per camera: aelock and awblock set on both cameras");
     }
     if (read_back) log_locked_exposure();
+    if (s.side == CameraSide::left && ++left_frames_seen % config.capture.exposure.measure_interval_frames == 0) {
+      measure_exposure(frame.image);
+    }
 
     auto pair = s.side == CameraSide::left ? pairer.push_left(std::move(frame)) : pairer.push_right(std::move(frame));
     if (!pair) return;
@@ -615,9 +664,76 @@ struct StereoCapture::Impl
     if (in_error || in_alignment) return;  // no pair while a camera is in error or the phase is being (re)aligned
     {
       std::lock_guard<std::mutex> lock(mutex);
+      // Follow mode: a pair across a re-pin (the right not yet at the left's exposure and gain) is withheld.
+      if (follow_mode && !follower.matched()) {
+        ++exposure_stats.mismatch_drops;
+        return;
+      }
       any_pair = true;
     }
     if (pair_cb) pair_cb(*pair);
+  }
+
+  // Left sink thread, every capture.exposure.measure_interval_frames left frames: saturation of the left grey image
+  // (GPU), both sensors' exposure and gain readback, and in follow mode the follower and the compensation policies.
+  void measure_exposure(const cv::cuda::GpuMat & left_grey)
+  {
+    const auto & ex = config.capture.exposure;
+    const double saturated = saturated_fraction(left_grey, ex.saturation_level, saturation_scratch);
+    std::string left_err;
+    std::string right_err;
+    const auto left = left_reader.read(&left_err);
+    const auto right = right_reader.read(&right_err);
+    if ((!left || !right) && !readback_error_logged) {
+      log(
+        "exposure readback failed (" + (left ? right_err : left_err) + ")" +
+        (follow_mode ? ": the right camera cannot follow and pairs are withheld until it can" : ""));
+    }
+    readback_error_logged = !left || !right;
+    std::optional<SensorExposure> pin;
+    std::optional<double> compensation;
+    bool log_pin = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      exposure_stats.saturation_valid = true;
+      exposure_stats.saturated_fraction = saturated;
+      if (left) exposure_stats.left = {true, left->exposure_us, left->gain()};
+      if (right) exposure_stats.right = {true, right->exposure_us, right->gain()};
+      if (follow_mode) {
+        if (left) pin = follower.on_left(*left);
+        if (right) follower.on_right(*right);
+        compensation = compensator.on_measurement(saturated, left_frames_seen);
+        exposure_stats.follow_pins = follower.pins();
+        exposure_stats.compensation = compensator.compensation();
+        exposure_stats.ae_adjustments = compensator.adjustments();
+        log_pin = pin && !follow_logged;
+        if (pin) follow_logged = true;
+      }
+    }
+    if (pin) {
+      const auto props = pinned_range_properties(*pin);
+      g_object_set(sides[1].src, "exposuretimerange", props.first.c_str(), "gainrange", props.second.c_str(), nullptr);
+    }
+    if (log_pin) {
+      std::ostringstream line;
+      line << "right camera follows the left: pinned to exposure " << pin->exposure_us << " us gain " << std::fixed
+           << std::setprecision(2) << pin->gain() << "x; pairs flow once it matches";
+      log(line.str());
+    }
+    if (compensation) {
+      g_object_set(sides[0].src, "exposurecompensation", static_cast<gfloat>(*compensation), nullptr);
+      std::ostringstream line;
+      line << std::fixed << std::setprecision(3) << "saturated fraction " << saturated << ": left exposure compensation "
+           << std::setprecision(2) << *compensation << " EV";
+      log(line.str());
+    }
+  }
+
+  // The right camera restarts: its pin is gone with the old session, so it is pinned and matched again.
+  void forget_pin()
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    follower.reset();
   }
 
   void log_locked_exposure()
@@ -748,6 +864,29 @@ struct StereoCapture::Impl
     return true;
   }
 
+  // nvarguscamerasrc applies a range property once, when it is set: a source restarted from NULL comes back without the
+  // caps of its launch description (measured: a restarted right camera ran at 33 ms against a 20 ms cap). So they are
+  // set again before every start, with the left's current exposure compensation; the follower re-pins the right.
+  void apply_exposure_limits(Side & s)
+  {
+    const auto & ex = config.capture.exposure;
+    std::ostringstream exposure;
+    exposure << kMinExposureNs << " " << static_cast<int64_t>(ex.max_exposure_us) * 1000;
+    std::ostringstream gain;
+    gain << "1 " << ex.max_gain;
+    g_object_set(
+      s.src, "exposuretimerange", exposure.str().c_str(), "gainrange", gain.str().c_str(), "ispdigitalgainrange", "1 1",
+      nullptr);
+    if (s.side == CameraSide::left && follow_mode) {
+      double compensation = 0.0;
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        compensation = compensator.compensation();
+      }
+      g_object_set(s.src, "exposurecompensation", static_cast<gfloat>(compensation), nullptr);
+    }
+  }
+
   bool play(Side & s, std::string & err)
   {
     const int64_t now = clock_ns(CLOCK_MONOTONIC);
@@ -756,6 +895,7 @@ struct StereoCapture::Impl
     s.last_sensor_ns.store(0);
     s.source_frames.store(0);
     if (s.side == CameraSide::left) rgb_throttle.reset();  // the pipeline is stopped: no probe is running
+    apply_exposure_limits(s);
     if (gst_element_set_state(s.pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
       err = camera_label(s) + ": pipeline failed to start";
       return false;
@@ -816,6 +956,7 @@ struct StereoCapture::Impl
       align_attempts = 0;
     }
     log(camera_label(s) + ": restarting pipeline");
+    forget_pin();
     gst_element_set_state(s.pipeline, GST_STATE_NULL);
     for (auto & side : sides) g_object_set(side.src, "aelock", FALSE, "awblock", FALSE, nullptr);
     std::string err;
@@ -831,6 +972,7 @@ struct StereoCapture::Impl
       attempts = ++align_attempts;
     }
     auto & right = sides[1];
+    forget_pin();
     gst_element_set_state(right.pipeline, GST_STATE_NULL);
     std::this_thread::sleep_for(std::chrono::milliseconds((attempts * 37) % 100));
     std::string err;
@@ -1073,6 +1215,7 @@ PairingStats StereoCapture::pairing_stats() const
   std::lock_guard<std::mutex> lock(impl_->mutex);
   st.realignments_skew = impl_->realignments_skew;
   st.realignments_stall = impl_->realignments_stall;
+  st.exposure = impl_->exposure_stats;
   return st;
 }
 
