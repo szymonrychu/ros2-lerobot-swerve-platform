@@ -8,7 +8,7 @@ engines are tied to the GPU and TensorRT version they were built with.
 | Model | Role | Source | Input size | Output file |
 |---|---|---|---|---|
 | Depth Anything V2 Small | primary | Hugging Face `depth-anything/Depth-Anything-V2-Small-hf` (transformers) | 266x266 (19 x 14, the ViT patch) | `build/dav2_small_266.onnx` |
-| MiDaS v2.1 small | fallback | torch hub `intel-isl/MiDaS:v2_1`, `MiDaS_small` + `model-small-70d6b9c8.pt` | 256x256 | `build/midas_small_256.onnx` |
+| MiDaS v2.1 small | fallback, deployed default (`RESULTS.md`) | torch hub `intel-isl/MiDaS:v2_1`, `MiDaS_small` + `model-small-70d6b9c8.pt` | 128x128 (multiple of 32) | `build/midas_small_128.onnx` |
 
 266x266 exports cleanly; no other size had to be measured.
 

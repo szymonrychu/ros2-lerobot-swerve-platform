@@ -294,7 +294,7 @@ def test_engine_step_copies_onnx_and_builds_fp16_only_on_sha_change() -> None:
     text = (ROLE_DIR / "tasks" / "engines.yml").read_text()
     tasks = load(ROLE_DIR / "tasks" / "engines.yml")
     names = [t["name"] for t in tasks]
-    assert defaults()["jetson_depthd_engine_models"] == ["dav2_small_266", "midas_small_256"]
+    assert defaults()["jetson_depthd_engine_models"] == ["dav2_small_266", "midas_small_128"]
     assert "jetson/models/build/{{ item }}.onnx" in text
     assert "T17 export" in text and "ansible.builtin.assert" in text
     copy = next(t for t in tasks if "ansible.builtin.copy" in t)
@@ -302,6 +302,8 @@ def test_engine_step_copies_onnx_and_builds_fp16_only_on_sha_change() -> None:
     build = next(t for t in tasks if "trtexec" in str(t.get("ansible.builtin.shell", "")))
     assert "--fp16" in build["ansible.builtin.shell"]["cmd"] and "--saveEngine" in build["ansible.builtin.shell"]["cmd"]
     assert "checksum" in build["when"] and "!=" in build["when"]
+    # a rebuilt engine is loaded only by a restarted depthd (service.yml restarts on this register)
+    assert build["register"] == "jetson_depthd_engine_build"
     assert any("sha256" in n.lower() for n in names)
     main = load(ROLE_DIR / "tasks" / "main.yml")
     assert any(t.get("ansible.builtin.import_tasks") == "engines.yml" and t["tags"] == ["depthd"] for t in main)
@@ -322,7 +324,15 @@ def test_template_keys_equal_the_depthd_yaml_keys() -> None:
     config = defaults()["depthd_config"]
     assert flat_keys(config) == flat_keys(load(DEPTHD_CONFIG))
     assert config["processing"]["matcher"] == "cuda_sgm"
-    assert config["mono"]["enabled"] is False
+    # mono fill is on: the engine step builds the engine the config names, under /var/lib/depthd/models
+    assert config["mono"]["enabled"] is True
+    engine = config["mono"]["engine_path"]
+    assert engine.startswith("{{ jetson_depthd_data_dir }}/models/") or engine.startswith("/var/lib/depthd/models/")
+    assert engine.rsplit("/", 1)[1].removesuffix(".engine") in defaults()["jetson_depthd_engine_models"]
+    assert engine.rsplit("/", 1)[1].startswith(config["mono"]["model"].replace("_small", "_small_"))
+    assert 2.0 <= config["mono"]["rate_hz"] <= 4.0
+    # jetson/models/RESULTS.md: MiDaS v2.1 small at 128x128 is the model that keeps stereo near 12 fps
+    assert (config["mono"]["model"], engine.rsplit("/", 1)[1]) == ("midas_small", "midas_small_128.engine")
     template = (ROLE_DIR / "templates" / "depthd.yaml.j2").read_text()
     assert "depthd_config" in template
 
@@ -356,11 +366,11 @@ def test_unit_directives() -> None:
     assert "CPUQuota" not in unit and "MemoryMax" not in unit
 
 
-def test_service_restarts_only_on_binary_config_or_unit_change() -> None:
+def test_service_restarts_only_on_binary_config_unit_or_engine_change() -> None:
     tasks = load(ROLE_DIR / "tasks" / "service.yml")
     restart = next(t for t in tasks if "Restart depthd" in t["name"])
     cond = str(restart["when"])
-    for register in ("jetson_depthd_binary", "jetson_depthd_conf", "jetson_depthd_unit"):
+    for register in ("jetson_depthd_binary", "jetson_depthd_conf", "jetson_depthd_unit", "jetson_depthd_engine_build"):
         assert f"{register} is changed" in cond
     assert restart["ansible.builtin.systemd"]["state"] == "restarted"
     enable = next(t for t in tasks if "Enable depthd" in t["name"])["ansible.builtin.systemd"]

@@ -14,15 +14,16 @@ models:
     mean: [0.485, 0.456, 0.406]
     std: [0.229, 0.224, 0.225]
 
-  # Fallback (design D5): MiDaS v2.1 small (EfficientNet-Lite3), from the v2_1 tag of the MiDaS torch hub repo.
-  - name: midas_small_256
+  # Fallback (design D5), the deployed default: MiDaS v2.1 small (EfficientNet-Lite3), from the v2_1 tag of the MiDaS
+  # torch hub repo, at 128x128 so 2 Hz of it costs stereo the least (RESULTS.md; 256x256 dropped stereo to 10 fps).
+  - name: midas_small_128
     source: torch_hub
     model_id: intel-isl/MiDaS:v2_1
     entrypoint: MiDaS_small
     weights_url: https://github.com/intel-isl/MiDaS/releases/download/v2_1/model-small-70d6b9c8.pt
     # MiDaS_small builds its backbone with a nested torch.hub.load of this repo; it must be trusted up front.
     trusted_hub_repos: [rwightman/gen-efficientnet-pytorch]
-    height: 256
-    width: 256
+    height: 128
+    width: 128
     mean: [0.485, 0.456, 0.406]
     std: [0.229, 0.224, 0.225]

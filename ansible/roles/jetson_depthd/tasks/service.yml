@@ -1,5 +1,5 @@
 ---
-# Config, unit and service. depthd restarts only when the binary, the config or the unit changed.
+# Config, unit and service. depthd restarts only when the binary, the config, the unit or a mono engine changed.
 
 - name: Render the depthd config
   ansible.builtin.template:
@@ -31,8 +31,10 @@
     enabled: true
     state: started
 
-- name: Restart depthd after a binary, config or unit change
+- name: Restart depthd after a binary, config, unit or engine change
   ansible.builtin.systemd:
     name: depthd
     state: restarted
-  when: jetson_depthd_binary is changed or jetson_depthd_conf is changed or jetson_depthd_unit is changed
+  when: >-
+    jetson_depthd_binary is changed or jetson_depthd_conf is changed or jetson_depthd_unit is changed or
+    jetson_depthd_engine_build is changed

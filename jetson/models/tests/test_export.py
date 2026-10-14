@@ -154,8 +154,8 @@ def test_config_lists_both_models_at_opset_13():
     assert by_name["dav2_small_266"].model_id == "depth-anything/Depth-Anything-V2-Small-hf"
     assert (by_name["dav2_small_266"].height, by_name["dav2_small_266"].width) == (266, 266)
     assert by_name["dav2_small_266"].height % 14 == 0
-    assert by_name["midas_small_256"].source == "torch_hub"
-    assert (by_name["midas_small_256"].height, by_name["midas_small_256"].width) == (256, 256)
+    assert by_name["midas_small_128"].source == "torch_hub"
+    assert (by_name["midas_small_128"].height, by_name["midas_small_128"].width) == (128, 128)
 
 
 def test_config_rejects_opset_above_13(tmp_path):
@@ -186,7 +186,7 @@ def test_exports_both_real_models_and_they_pass_the_checker():
     """Downloads the real weights, exports both models into build/ and checks them. Always runs."""
     config = load_config(MODELS_DIR / "config.yaml")
     paths = export_onnx.export_all(config)
-    assert {p.name for p in paths} == {"dav2_small_266.onnx", "midas_small_256.onnx"}
+    assert {p.name for p in paths} == {"dav2_small_266.onnx", "midas_small_128.onnx"}
     for spec, path in zip(config.models, paths, strict=True):
         assert path.parent == config.output_dir
         assert path.stat().st_size > 1_000_000
