@@ -151,6 +151,28 @@ TEST(Calibration, BaselineOutsideRangeIsRejected)
   }
 }
 
+TEST(Calibration, SwappedCamerasAreRejectedWithAdvice)
+{
+  auto cal = valid();
+  cal.T.at<double>(0, 0) = 0.0593;  // left and right are physically swapped: T.x is positive
+  cal.baseline_m = 0.0593;
+  cal.P2.at<double>(0, 3) = 30.0;
+  const auto load = roundtrip(cal, "swapped");
+  expect_rejected(load, "swapped");
+  EXPECT_NE(load.reason.find("T.x = +59.3 mm"), std::string::npos) << load.reason;
+  EXPECT_NE(load.reason.find("left_sensor_id"), std::string::npos) << load.reason;
+  EXPECT_NE(load.reason.find("recalibrate"), std::string::npos) << load.reason;
+
+  cal = valid();  // T.x fine but P2[0][3] positive: also swapped
+  cal.P2.at<double>(0, 3) = 30.0;
+  expect_rejected(roundtrip(cal, "swapped_p2"), "swapped");
+
+  cal = valid();
+  cal.T.at<double>(0, 0) = 0.0;  // T.x == 0 is not a left-right rig either
+  cal.T.at<double>(1, 0) = 0.06;
+  expect_rejected(roundtrip(cal, "swapped_zero"), "swapped");
+}
+
 TEST(Calibration, BaselineNotMatchingTranslationIsRejected)
 {
   auto cal = valid();

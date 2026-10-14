@@ -54,6 +54,13 @@ std::string fmt(double v)
   return o.str();
 }
 
+std::string signed_text(double v)
+{
+  char buf[32];
+  std::snprintf(buf, sizeof buf, "%+.1f", v);
+  return buf;
+}
+
 std::string read_error(const std::string & key) { return "missing key " + key; }
 }  // namespace
 
@@ -79,6 +86,12 @@ std::string validate_calibration(const StereoCalibration & cal, double max_rms_p
     return "rms_px " + fmt(cal.rms) + " is above calibration.max_rms_px " + fmt(max_rms_px);
   if (cal.baseline_m < kMinBaselineM || cal.baseline_m > kMaxBaselineM)
     return "baseline_m " + fmt(cal.baseline_m) + " is outside " + fmt(kMinBaselineM) + "-" + fmt(kMaxBaselineM) + " m";
+  // OpenCV maps camera-1 (left) points into camera-2 (right): in a correct rig T.x < 0 and P2[0][3] = -fx*B < 0.
+  const double tx = cal.T.at<double>(0, 0), p2x = cal.P2.at<double>(0, 3);
+  if (tx >= 0.0 || p2x >= 0.0)
+    return "calibration has the cameras swapped (" +
+           (tx >= 0.0 ? "T.x = " + signed_text(tx * 1000.0) + " mm" : "P2[0][3] = " + signed_text(p2x)) +
+           "): check that CAM0 is the left camera or swap capture.left_sensor_id/right_sensor_id, then recalibrate";
   const double t_norm = cv::norm(cal.T);
   if (std::abs(cal.baseline_m - t_norm) > kBaselineTranslationTolerance * t_norm)
     return "baseline_m " + fmt(cal.baseline_m) + " does not match |T| " + fmt(t_norm) + " within 1 %";

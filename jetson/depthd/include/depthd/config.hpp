@@ -46,8 +46,8 @@ struct ExposureConfig
 
 struct Capture
 {
-  int left_sensor_id = 0;
-  int right_sensor_id = 1;
+  int left_sensor_id = 1;
+  int right_sensor_id = 0;
   SensorMode sensor_mode;
   int settle_frames = 30;  // exposure.mode lock_after_settle: frames before aelock/awblock
   ExposureConfig exposure;

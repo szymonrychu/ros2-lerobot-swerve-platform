@@ -3,8 +3,8 @@
 # Keys marked [live] can be changed at runtime through the HTTP API; the rest need a restart.
 
 capture:
-  left_sensor_id: 0            # nvarguscamerasrc sensor-id of the left IMX219
-  right_sensor_id: 1           # sensor-id of the right IMX219 (must differ)
+  left_sensor_id: 1            # nvarguscamerasrc sensor-id of the left IMX219 (sensor 0 is the physical right camera)
+  right_sensor_id: 0           # sensor-id of the right IMX219 (must differ)
   sensor_mode:                 # IMX219 mode requested from Argus
     width: 1640
     height: 1232

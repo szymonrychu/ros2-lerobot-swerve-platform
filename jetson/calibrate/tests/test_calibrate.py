@@ -271,6 +271,23 @@ def test_solve_exit_3_and_untouched_output_on_noisy_pairs(rig_pairs, tmp_path):
     assert not config.output_path.exists()
 
 
+def test_swapped_cameras_are_refused_with_advice(rig_pairs, tmp_path, capsys):
+    swapped = [(right, left) for left, right in rig_pairs]
+    config = make_config(tmp_path, depthd_url="http://127.0.0.1:9")
+    result = cal.solve(swapped, config)
+    assert result.t[0, 0] > 0
+    with pytest.raises(cal.SwappedCamerasError, match="left_sensor_id"):
+        cal.write_calibration(result, config)
+    assert not config.output_path.exists()
+    config.captures_dir.mkdir()
+    for i, (left, right) in enumerate(swapped[:12]):
+        cal.save_pair(config.captures_dir, i, left, right)
+    assert cal.run_solve(config) != 0
+    assert not config.output_path.exists()
+    err = capsys.readouterr().err
+    assert "swapped" in err and "right_sensor_id" in err
+
+
 def square_runs(image: np.ndarray, row: int):
     line = image[row] < 128
     edges = np.flatnonzero(np.diff(line.astype(np.int8))) + 1

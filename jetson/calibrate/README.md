@@ -65,7 +65,10 @@ Expected: **stereo RMS 0.1 - 0.3 px**, baseline about 60 mm (depthd rejects a fi
 px at the capture resolution. Above 0.5 px nothing is written (exit 3): recapture with the e-reader flatter, steadier,
 in better light, and with more tilt and corner coverage.
 
-Exit codes: 0 done, 1 failure, 2 config error, 3 refused by the RMS gate, 4 written but depthd did not reload it.
+A result with `T.x >= 0` (cameras swapped: the image called left is the right camera) is refused with exit 1 and nothing
+written; check that CAM0 is the left camera or swap `capture.left_sensor_id`/`right_sensor_id` in depthd.yaml, then recapture.
+
+Exit codes: 0 done, 1 failure (incl. swapped cameras), 2 config error, 3 refused by the RMS gate, 4 written but depthd did not reload it.
 
 ## Check afterwards
 

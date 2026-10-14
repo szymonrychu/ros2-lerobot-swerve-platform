@@ -65,7 +65,7 @@ TEST(CapturePipeline, ZeroCopyLeftPinned)
   c.capture.zero_copy = true;
   EXPECT_EQ(
     depthd::build_pipeline_description(c, CameraSide::left),
-    source("left", 0) +
+    source("left", 1) +
       " ! tee name=left_tee left_tee. ! queue max-size-buffers=2 leaky=downstream ! nvvidconv ! "
       "video/x-raw(memory:NVMM),width=640,height=480,format=GRAY8 ! appsink name=left_sink" +
       kSink + " " + kJpegBranch);
@@ -77,7 +77,7 @@ TEST(CapturePipeline, ZeroCopyRightPinned)
   c.capture.zero_copy = true;
   EXPECT_EQ(
     depthd::build_pipeline_description(c, CameraSide::right),
-    source("right", 1) +
+    source("right", 0) +
       " ! nvvidconv ! video/x-raw(memory:NVMM),width=640,height=480,format=GRAY8 ! appsink name=right_sink" + kSink);
 }
 
@@ -87,7 +87,7 @@ TEST(CapturePipeline, SystemMemoryLeftPinned)
   c.capture.zero_copy = false;
   EXPECT_EQ(
     depthd::build_pipeline_description(c, CameraSide::left),
-    source("left", 0) +
+    source("left", 1) +
       " ! tee name=left_tee left_tee. ! queue max-size-buffers=2 leaky=downstream ! nvvidconv ! "
       "video/x-raw,width=640,height=480,format=GRAY8 ! appsink name=left_sink" +
       kSink + " " + kJpegBranch);
@@ -99,7 +99,7 @@ TEST(CapturePipeline, SystemMemoryRightPinned)
   c.capture.zero_copy = false;
   EXPECT_EQ(
     depthd::build_pipeline_description(c, CameraSide::right),
-    source("right", 1) + " ! nvvidconv ! video/x-raw,width=640,height=480,format=GRAY8 ! appsink name=right_sink" +
+    source("right", 0) + " ! nvvidconv ! video/x-raw,width=640,height=480,format=GRAY8 ! appsink name=right_sink" +
       kSink);
 }
 
@@ -138,7 +138,7 @@ TEST(CapturePipeline, RgbDisabledHasNoJpegBranch)
   c.rgb.enabled = false;
   const auto left = depthd::build_pipeline_description(c, CameraSide::left);
   EXPECT_EQ(
-    left, source("left", 0) +
+    left, source("left", 1) +
             " ! nvvidconv ! video/x-raw(memory:NVMM),width=640,height=480,format=GRAY8 ! appsink name=left_sink" +
             kSink);
 }

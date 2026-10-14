@@ -104,7 +104,7 @@ config error kept up, SIGTERM within 2 s).
 `build_pipeline_description(config, side)` generates them (pinned by `test/test_capture_pipeline.cpp`):
 
 ```
-left:  nvarguscamerasrc name=left_src sensor-id=0 sensor-mode=3 ee-mode=0 tnr-mode=1 aelock=false awblock=false
+left:  nvarguscamerasrc name=left_src sensor-id=1 sensor-mode=3 ee-mode=0 tnr-mode=1 aelock=false awblock=false
          exposuretimerange="34000 20000000" gainrange="1 8" ispdigitalgainrange="1 1"
          ! video/x-raw(memory:NVMM),width=1640,height=1232,format=NV12,framerate=30/1 ! tee name=left_tee
        left_tee. ! queue max-size-buffers=2 leaky=downstream ! nvvidconv
@@ -112,7 +112,7 @@ left:  nvarguscamerasrc name=left_src sensor-id=0 sensor-mode=3 ee-mode=0 tnr-mo
        left_tee. ! queue name=rgb_queue max-size-buffers=1 leaky=downstream ! nvvidconv
          ! video/x-raw(memory:NVMM),width=640,height=480,format=I420 ! nvjpegenc name=rgb_jpeg quality=80
          ! appsink name=rgb_sink max-buffers=2 drop=true sync=false
-right: nvarguscamerasrc name=right_src sensor-id=1 ... ! nvvidconv ! video/x-raw(memory:NVMM),...,format=GRAY8 ! appsink name=right_sink ...
+right: nvarguscamerasrc name=right_src sensor-id=0 ... ! nvvidconv ! video/x-raw(memory:NVMM),...,format=GRAY8 ! appsink name=right_sink ...
 ```
 
 - **Mode.** `capture.sensor_mode` maps to the Argus mode index (`imx219_sensor_mode`: 0 3264x2464@21, 1 3264x1848@28,
@@ -224,7 +224,7 @@ style `cumulative()`); T16 reads it to judge the window. `pairing_stats()` retur
 ### Health and failures
 
 `status()` is `starting` (phase alignment, settling or the right not yet matched, no pair yet), `ok`, or `camera_error` with a reason naming the
-camera (`left camera (sensor-id 0): ...`). A camera that delivers no frame for 2 s, or whose pipeline posts an error or
+camera (`left camera (sensor-id 1): ...`). A camera that delivers no frame for 2 s, or whose pipeline posts an error or
 EOS, raises `camera_error` (read by `/health`); queued frames are flushed and no pair is emitted while it lasts, and no
 RGB JPEG comes from a failing left camera. There is never a placeholder frame. The failed pipeline is restarted at
 most every 5 s, after which the phase is aligned and AE/AWB settle again; the error clears with the first new frame.
@@ -253,7 +253,7 @@ rejected with a message naming the key. `[live]` keys can change at runtime (`de
 
 | Key | Default | Rule |
 |---|---|---|
-| capture.left_sensor_id / right_sensor_id | 0 / 1 | >= 0, different |
+| capture.left_sensor_id / right_sensor_id | 1 / 0 | >= 0, different |
 | capture.sensor_mode.{width,height,fps} | 1640 / 1232 / 30 | > 0 |
 | capture.settle_frames | 30 | >= 0 (lock_after_settle only) |
 | capture.exposure.mode | follow | follow, lock_after_settle |
@@ -312,7 +312,8 @@ complete valid example (640x480, 60 mm baseline) used by both sides' tests; `ste
 | `Q` | double | 4x4 | disparity-to-depth matrix |
 
 Every key is required. depthd rejects the file, keeping the reason for `/health`, on: a missing key or wrong matrix
-shape, a non-finite value, a non-positive focal length, `rms` above `calibration.max_rms_px`, `baseline_m` outside
+shape, a non-finite value, a non-positive focal length, `T[0] >= 0` or `P2[0][3] >= 0` (cameras swapped: sensor 0 is the physical right camera, hence
+`capture.left_sensor_id: 1`; then recalibrate), `rms` above `calibration.max_rms_px`, `baseline_m` outside
 0.03-0.12 m or more than 1 % away from the norm of `T`, or an aspect ratio more than 1 % away from the processing size.
 A valid file recorded at another resolution with the same aspect (for example 1280x960 for 640x480) is scaled to the
 processing size: K, P (rows 0 and 1) and Q (column 3) scale with the size ratio; D, R, T and the baseline do not.

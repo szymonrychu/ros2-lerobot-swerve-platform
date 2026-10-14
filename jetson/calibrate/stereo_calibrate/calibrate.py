@@ -43,6 +43,10 @@ class RmsGateError(CalibrationError):
     """The stereo RMS is above rms_limit_px; nothing is written."""
 
 
+class SwappedCamerasError(CalibrationError):
+    """T.x >= 0: the image called left is physically the right camera; nothing is written."""
+
+
 class SharedPoints(NamedTuple):
     """Board corners seen in both images of one pair."""
 
@@ -345,12 +349,19 @@ def write_calibration(result: StereoResult, config: CalibrateConfig) -> Path:
 
     Raises:
         RmsGateError: When the RMS is above rms_limit_px (nothing is written).
+        SwappedCamerasError: When T.x >= 0, i.e. left and right are swapped (nothing is written).
         CalibrationError: When the file cannot be written.
     """
     if result.rms > config.rms_limit_px:
         raise RmsGateError(
             "stereo RMS %.3f px is above rms_limit_px=%s; nothing written. Recapture with the board flat, sharp and "
             "covering more of the image." % (result.rms, config.rms_limit_px)
+        )
+    if result.t[0, 0] >= 0.0:
+        raise SwappedCamerasError(
+            "calibration has the cameras swapped (T.x = %+.1f mm): check that CAM0 is the left camera or swap "
+            "capture.left_sensor_id/right_sensor_id in depthd.yaml, then recalibrate; nothing written."
+            % (result.t[0, 0] * 1000.0)
         )
     path = config.output_path
     temp = path.with_name(path.name + ".partial.yaml")  # FileStorage picks the format from the extension

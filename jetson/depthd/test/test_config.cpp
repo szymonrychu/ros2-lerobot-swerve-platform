@@ -29,8 +29,8 @@ TEST(Config, DefaultFileLoadsAndEqualsStructDefaults)
 TEST(Config, StructDefaultsMatchTheSpec)
 {
   const Config c;
-  EXPECT_EQ(c.capture.left_sensor_id, 0);
-  EXPECT_EQ(c.capture.right_sensor_id, 1);
+  EXPECT_EQ(c.capture.left_sensor_id, 1);
+  EXPECT_EQ(c.capture.right_sensor_id, 0);
   EXPECT_EQ(c.capture.sensor_mode.width, 1640);
   EXPECT_EQ(c.capture.sensor_mode.height, 1232);
   EXPECT_EQ(c.capture.sensor_mode.fps, 30);
