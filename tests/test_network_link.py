@@ -157,6 +157,18 @@ def test_assert_reads_the_probe_fact_as_a_json_string() -> None:
     assert "(eth0 1.2.3.4)" in msg
 
 
+def test_assert_accepts_the_probe_fact_already_parsed_to_a_list() -> None:
+    """ansible-core 2.18 (the jetson deploy) hands set_fact's JSON back as a list: from_json must not see a list."""
+    env = jinja2.Environment()
+    env.filters["from_json"] = json.loads
+    fail = named("Fail when a link interface holds a foreign IPv4 address")["ansible.builtin.assert"]
+    cond = env.from_string("{{ " + fail["that"] + " }}")
+    assert cond.render(_network_link_foreign_addresses=[]) == "True"
+    assert cond.render(_network_link_foreign_addresses=["eth0 1.2.3.4"]) == "False"
+    msg = env.from_string(fail["fail_msg"]).render(_network_link_foreign_addresses=["eth0 1.2.3.4"])
+    assert "(eth0 1.2.3.4)" in msg
+
+
 def test_probe_fails_with_a_message_naming_the_address_and_runs_before_netplan() -> None:
     tasks = load_tasks()
     names = [t["name"] for t in tasks]
