@@ -59,10 +59,10 @@
 
 - name: Fail when a link interface holds a foreign IPv4 address
   ansible.builtin.assert:
-    that: _network_link_foreign_addresses | length == 0
+    that: (_network_link_foreign_addresses | from_json) | length == 0
     fail_msg: >-
       network role: the link interface already holds an IPv4 address other than the planned one
-      ({{ _network_link_foreign_addresses | join(', ') }}); refusing to overwrite it with the static link in netplan.
+      ({{ _network_link_foreign_addresses | from_json | join(', ') }}); refusing to overwrite it with the static link in netplan.
       Free the interface first (design assumption 'Pi network').
 
 - name: Ensure netplan config directory exists

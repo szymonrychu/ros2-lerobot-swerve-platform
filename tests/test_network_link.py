@@ -2,6 +2,7 @@
 ethernet that is excluded from the DHCP list, the WiFi stanza is untouched, a probe refuses a foreign IPv4 on the link
 interface, and all.yml hands each host its entry by group membership. Nothing here runs ansible."""
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -142,6 +143,18 @@ def test_probe_passes_planned_address_and_missing_ipv4() -> None:
     assert probe({"eth0": {"ipv4": {"address": "10.77.0.1"}}}, CLIENT_LINK) == []
     assert probe({"eth0": {"active": True}}, CLIENT_LINK) == []
     assert probe({}, CLIENT_LINK) == []
+
+
+def test_assert_reads_the_probe_fact_as_a_json_string() -> None:
+    """set_fact stores the tojson output as the string "[]" (length 2): the assert must parse it first."""
+    env = jinja2.Environment()
+    env.filters["from_json"] = json.loads
+    fail = named("Fail when a link interface holds a foreign IPv4 address")["ansible.builtin.assert"]
+    cond = env.from_string("{{ " + fail["that"] + " }}")
+    assert cond.render(_network_link_foreign_addresses="[]") == "True"
+    assert cond.render(_network_link_foreign_addresses='["eth0 1.2.3.4"]') == "False"
+    msg = env.from_string(fail["fail_msg"]).render(_network_link_foreign_addresses='["eth0 1.2.3.4"]')
+    assert "(eth0 1.2.3.4)" in msg
 
 
 def test_probe_fails_with_a_message_naming_the_address_and_runs_before_netplan() -> None:
