@@ -281,22 +281,23 @@ benchmark). `depthd::StereoMatcher` has:
 - `compute(left, right, stream) -> cv::cuda::GpuMat`: rectified `CV_8UC1` inputs of equal size (anything else throws
   `std::invalid_argument`); returns `CV_16SC1` disparity times 16, left-image referenced; values `<= 0` are invalid.
 - `name()`: the config name (`cuda_sgm`, `vpi`, `libsgm`).
-- `supports_lr_check()`: whether the matcher can also produce the right-referenced disparity for the left-right check.
+- `supports_lr_check()`: whether `compute()` already applies a left-right consistency check (max diff 1 px). Then the
+  post-processing `lr_check` stage is skipped and the matcher is not run a second time on the mirrored pair.
 
 `make_matcher(Config)` (or `make_matcher(Processing)`) builds `processing.matcher` and throws `std::invalid_argument`
 for an unknown name or unsupported parameters. `cuda_sgm` (`src/matcher_cuda_sgm.cpp`) is `cv::cuda::createStereoSGM`
-with `processing.num_disparities` (64, 128 or 256), `p1`, `p2`, `uniqueness_ratio` and `MODE_HH4`; it has no LR check.
+with `processing.num_disparities` (64, 128 or 256), `p1`, `p2`, `uniqueness_ratio` and `MODE_HH4`; its `compute()` checks left-right consistency itself (OpenCV `checkConsistency`, max diff 1 px).
 A new matcher adds its own source and one branch in `src/matcher.cpp`.
 
 ### The three matchers
 
 All three take `processing.num_disparities` (64, 128 or 256; anything else throws), return `CV_16SC1` disparity * 16,
-and `supports_lr_check()` is false for all (none returns the right-referenced disparity). Select with
+and `supports_lr_check()` is true for `cuda_sgm` and `libsgm` (both check inside) and false for `vpi`. Select with
 `processing.matcher`; T16's on-board benchmark compares them on equal terms.
 
 | `processing.matcher` | Implementation | Parameters used | Limits |
 |---|---|---|---|
-| `cuda_sgm` | `cv::cuda::StereoSGM`, `MODE_HH4` (`matcher_cuda_sgm.cpp`) | num_disparities, p1, p2, uniqueness_ratio | no LR check; uniqueness is OpenCV's percent |
+| `cuda_sgm` | `cv::cuda::StereoSGM`, `MODE_HH4` (`matcher_cuda_sgm.cpp`) | num_disparities, p1, p2, uniqueness_ratio | LR check inside (max diff 1 px, `postprocess.lr_check.max_diff` does not apply); uniqueness is OpenCV's percent |
 | `vpi` | VPI 1.1 C API, CUDA backend (`matcher_vpi.cpp`, `find_package(vpi 1.1)`) | num_disparities (`maxDisparity`), fixed `windowSize` 5 | exposes only windowSize/maxDisparity; p1, p2 and uniqueness_ratio do not apply; no VIC or PVA stereo on the Nano (Xavier only), CUDA backend only; maxDisparity <= 256 |
 | `libsgm` | libSGM 3.1.0 device-pointer API (`matcher_libsgm.cpp`) | num_disparities, p1, p2, uniqueness_ratio (libSGM uniqueness = 1 - ratio/100), LR check (max diff 1), subpixel, 8 paths | needs 64, 128 or 256 disparities; 8-bit input |
 
@@ -342,7 +343,7 @@ in, measured with CUDA events on the run's stream (filters are built on first us
 
 | Stage | Config | What it does | Cost, 640x480 Nano |
 |---|---|---|---|
-| `lr_check` | `lr_check.enabled`, `max_diff` (px) | invalid when `abs(dL(x) - dR(x - dL)) > max_diff`, when the right pixel is invalid or when `x - dL` is outside the image. Skipped when `supports_lr_check()` (libsgm checks inside) | 0.4 ms |
+| `lr_check` | `lr_check.enabled`, `max_diff` (px) | invalid when `abs(dL(x) - dR(x - dL)) > max_diff`, when the right pixel is invalid or when `x - dL` is outside the image. Skipped when `supports_lr_check()` (cuda_sgm and libsgm check inside, so only vpi runs it; for the others the matcher would otherwise run twice per frame) | 0.4 ms |
 | `confidence` | `confidence.enabled` | invalid unless 1 px <= d < `num_disparities - 1` px (saturated at the search range) and the partner pixel lies inside the right image. Uniqueness itself is inside the matcher (`processing.uniqueness_ratio`) | 0.2 ms |
 | `speckle` | `speckle.enabled`, `max_size`, `max_diff` (px) | 4-connected regions of valid pixels whose neighbours differ by at most `max_diff` and that hold fewer than `max_size` pixels become invalid (CUDA label equivalence, one flag read back per iteration) | 5.5 ms |
 | `bilateral` | `bilateral.enabled` | `cv::cuda::DisparityBilateralFilter` (radius 3, 1 iteration, `ndisp = num_disparities * 16`) guided by the left image: it snaps disparity edges to image edges. Pixels that were invalid stay 0 | 1.5 ms |

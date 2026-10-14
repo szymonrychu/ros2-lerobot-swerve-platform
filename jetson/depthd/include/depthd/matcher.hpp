@@ -26,7 +26,8 @@ public:
 
   virtual std::string name() const = 0;
 
-  // True when the matcher can also produce the right-referenced disparity for a left-right consistency check.
+  // True when compute() already applies a left-right consistency check (max diff 1 px): the post-processing
+  // lr_check stage is then skipped and the matcher is not run a second time for the right-referenced disparity.
   virtual bool supports_lr_check() const = 0;
 };
 

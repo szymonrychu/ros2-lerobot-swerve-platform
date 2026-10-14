@@ -29,7 +29,8 @@ public:
   }
 
   std::string name() const override { return "cuda_sgm"; }
-  bool supports_lr_check() const override { return false; }
+  // cv::cuda::StereoSGM::compute runs checkConsistency (max diff 1 px) on its own right disparity.
+  bool supports_lr_check() const override { return true; }
 
 private:
   cv::Ptr<cv::cuda::StereoSGM> sgm_;

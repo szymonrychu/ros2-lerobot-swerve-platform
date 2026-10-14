@@ -63,7 +63,9 @@ TEST(MakeMatcher, Identity)
       auto m = depthd::make_matcher(processing(nd, name));
       ASSERT_TRUE(m) << name;
       EXPECT_EQ(m->name(), name);
-      EXPECT_FALSE(m->supports_lr_check()) << name;  // none returns the right-referenced disparity
+      // cuda_sgm (cv::cuda::StereoSGM checkConsistency) and libsgm check left-right inside compute(); running the
+      // matcher a second time for the post-processing lr_check would double the GPU cost for nothing.
+      EXPECT_EQ(m->supports_lr_check(), name != "vpi") << name;
     }
   depthd::Config c;
   EXPECT_EQ(depthd::make_matcher(c)->name(), "cuda_sgm");
@@ -125,6 +127,30 @@ TEST_P(MatcherDepth, KnownShiftGivesDepthWithin2Percent)
 
 INSTANTIATE_TEST_SUITE_P(Disparities, MatcherDepth,
                          ::testing::Combine(::testing::ValuesIn(kMatchers), ::testing::Values(64, 128)));
+
+// The native check of cuda_sgm: a textured foreground block at 80 px in front of a background at 40 px hides a
+// 40 px strip of background from the right camera. Those left pixels have no counterpart, and the left-right check
+// inside cv::cuda::StereoSGM makes them invalid instead of a confident wrong disparity.
+TEST(CudaSgmNativeLrCheck, OccludedStripIsInvalid)
+{
+  constexpr int kBg = 40, kFg = 80, kX0 = 320, kY0 = 140, kSide = 160;
+  cv::Mat bg(kH, kW + kBg, CV_8UC1), fg(kSide, kSide, CV_8UC1);
+  cv::RNG(5).fill(bg, cv::RNG::UNIFORM, 0, 256);
+  cv::RNG(6).fill(fg, cv::RNG::UNIFORM, 0, 256);
+  cv::GaussianBlur(bg, bg, cv::Size(3, 3), 0.8);
+  cv::GaussianBlur(fg, fg, cv::Size(3, 3), 0.8);
+  cv::Mat l = bg(cv::Rect(0, 0, kW, kH)).clone(), r = bg(cv::Rect(kBg, 0, kW, kH)).clone();
+  fg.copyTo(l(cv::Rect(kX0, kY0, kSide, kSide)));
+  fg.copyTo(r(cv::Rect(kX0 - kFg, kY0, kSide, kSide)));
+  cv::cuda::GpuMat gl(l), gr(r);
+  cv::Mat d;
+  depthd::make_matcher(processing(128, "cuda_sgm"))->compute(gl, gr).download(d);
+  // Left x in [kX0 - (kFg - kBg), kX0) is background whose right-image position is covered by the foreground.
+  const cv::Mat occluded = d(cv::Rect(kX0 - (kFg - kBg) + 6, kY0 + 16, kFg - kBg - 12, kSide - 32));
+  const cv::Mat visible = d(cv::Rect(kX0 - 140, kY0 + 16, 60, kSide - 32));
+  EXPECT_LE(cv::countNonZero(occluded > 0), static_cast<int>(0.3 * occluded.total()));
+  EXPECT_GE(cv::countNonZero(visible > 0), static_cast<int>(0.8 * visible.total()));
+}
 
 // VPI's confidence map: an uncorrelated pair has no real match, so (almost) every pixel must come out invalid.
 TEST(VpiConfidence, UncorrelatedPairIsInvalid)

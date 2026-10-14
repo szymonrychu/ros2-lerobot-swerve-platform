@@ -39,7 +39,7 @@ public:
   }
 
   std::string name() const override { return "libsgm"; }
-  bool supports_lr_check() const override { return false; }  // the check runs inside; no right disparity is returned
+  bool supports_lr_check() const override { return true; }  // the check runs inside (max diff kLrMaxDiff)
 
 private:
   void create(const cv::Size & size, size_t src_step, int dst_pitch = 0)
