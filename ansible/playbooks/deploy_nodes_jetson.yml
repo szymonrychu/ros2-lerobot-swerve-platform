@@ -1,0 +1,21 @@
+---
+# Deploy the Jetson Nano vision coprocessor. It runs no ROS: there are no node tags, only these targets:
+#   ./scripts/deploy-nodes.sh jetson base       # = this playbook with --tags base
+# base: the network role (Jetson link vars, WiFi stanza unchanged), the Jetson side of the cable (jetson_link, chrony
+# client) and the OS base (jetson_base: masked services, persistent journald, MAXN, jetson-clocks, ISP override).
+# The network role removes the hand-written /etc/netplan/00-wifi.yaml only after 01-ansible-netplan.yaml holds the
+# wlan0 stanza, because netplan rejects the same access point in two files.
+# build_deps and depthd are added by the jetson_depthd role tasks.
+
+- name: Deploy the Jetson
+  hosts: jetson
+  become: true
+  roles:
+    - role: network
+      network_netplan_superseded_files: [/etc/netplan/00-wifi.yaml]
+      tags: [base]
+    - role: jetson_link
+      jetson_link_side: client
+      tags: [base]
+    - role: jetson_base
+      tags: [base]

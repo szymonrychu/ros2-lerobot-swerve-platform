@@ -45,17 +45,17 @@
 - name: Probe link interfaces for foreign IPv4 addresses
   ansible.builtin.set_fact:
     _network_link_foreign_addresses: >-
-      {% set ns = namespace(found=[]) %}
-      {% for link in network_link_ethernets %}
-      {% set facts = ansible_facts.get(link.iface, {}) %}
-      {% set planned = link.address.split('/')[0] %}
-      {% set addrs = ([facts.ipv4.address] if facts.ipv4 is defined and facts.ipv4.address is defined else [])
-      + (facts.ipv4_secondaries | default([]) | map(attribute='address') | list) %}
-      {% for addr in addrs if addr != planned %}
-      {% set ns.found = ns.found + [link.iface ~ ' ' ~ addr] %}
-      {% endfor %}
-      {% endfor %}
-      {{ ns.found }}
+      {%- set ns = namespace(found=[]) -%}
+      {%- for link in network_link_ethernets -%}
+      {%- set facts = ansible_facts.get(link.iface, {}) -%}
+      {%- set planned = link.address.split('/')[0] -%}
+      {%- set addrs = ([facts.ipv4.address] if facts.ipv4 is defined and facts.ipv4.address is defined else [])
+      + (facts.ipv4_secondaries | default([]) | map(attribute='address') | list) -%}
+      {%- for addr in addrs if addr != planned -%}
+      {%- set ns.found = ns.found + [link.iface ~ ' ' ~ addr] -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {{- ns.found | tojson -}}
 
 - name: Fail when a link interface holds a foreign IPv4 address
   ansible.builtin.assert:
@@ -87,8 +87,27 @@
   become: true
   register: netplan_config
 
-- name: Apply netplan (when config or cloud-init state changed)
+- name: Read back the deployed netplan file
+  ansible.builtin.slurp:
+    src: "/etc/netplan/{{ network_netplan_file }}"
+  register: network_netplan_deployed
+  when: network_netplan_superseded_files | length > 0
+
+# Netplan cannot merge two files that both define the same WiFi access point, so a hand-written file that the deployed one
+# replaces must go before netplan applies. It is removed only once the deployed file holds the primary interface's stanza.
+- name: Remove superseded netplan files (only after the deployed file holds the primary WiFi stanza)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  become: true
+  loop: "{{ network_netplan_superseded_files }}"
+  when:
+    - _network_interface_is_wlan | bool
+    - (network_netplan_deployed.content | b64decode) is search('(?m)^  wifis:\n    ' ~ _network_interface ~ ':')
+  register: network_netplan_superseded
+
+- name: Apply netplan (when config, cloud-init state or superseded files changed)
   ansible.builtin.command:
     cmd: netplan apply
   become: true
-  when: netplan_config is changed or cloud_init_removed is changed
+  when: netplan_config is changed or cloud_init_removed is changed or network_netplan_superseded is changed

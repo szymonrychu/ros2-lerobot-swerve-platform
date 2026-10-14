@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ANSIBLE_DIR = REPO_ROOT / "ansible"
 DEPLOY_SCRIPT = REPO_ROOT / "scripts" / "deploy-nodes.sh"
 PI_ROLES = {"common", "network", "hostname", "system_optimize"}
+JETSON_PLAYBOOK = "deploy_nodes_jetson.yml"
 JETSON_NON_NODE_TARGETS = ("base", "build_deps", "depthd")
 
 
@@ -108,6 +109,8 @@ def test_no_play_with_pi_roles_has_hosts_all_or_jetson() -> None:
     for path in ANSIBLE_DIR.rglob("*.yml"):
         if "roles" in path.relative_to(ANSIBLE_DIR).parts or "group_vars" in path.parts:
             continue
+        if path.name == JETSON_PLAYBOOK:
+            continue  # the one play that applies the network role to the Jetson, by design (D8, tag base)
         doc = load(path)
         if not isinstance(doc, list):
             continue
@@ -151,7 +154,7 @@ def stubbed_script(tmp_path: Path) -> tuple[Path, Path]:
     record = tmp_path / "argv.txt"
     stub = tmp_path / "bin" / "ansible-playbook"
     stub.parent.mkdir()
-    stub.write_text(f'#!/bin/sh\necho "$@" >> {record}\n')
+    stub.write_text(f'#!/bin/sh\n[ "$1" = --version ] && exit 0\necho "$@" >> {record}\n')
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
     return script, record
 
@@ -166,7 +169,9 @@ def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     Returns:
         The completed process.
     """
-    env = {**os.environ, "PATH": f"{script.parent.parent / 'bin'}:{os.environ['PATH']}"}
+    # BASH_ENV (a login-style shell init) can put tool shims back in front of the stubs, so drop it.
+    env = {k: v for k, v in os.environ.items() if k != "BASH_ENV"}
+    env["PATH"] = f"{script.parent.parent / 'bin'}:{os.environ['PATH']}"
     return subprocess.run(["bash", str(script), *args], capture_output=True, text=True, env=env, check=False)
 
 
@@ -212,3 +217,35 @@ def test_unknown_target_error_lists_jetson(stubbed_script: tuple[Path, Path]) ->
     result = run_script(script, "robot", "base")
     assert result.returncode == 1
     assert "jetson" in result.stderr
+
+
+def write_stub(path: Path, body: str) -> None:
+    """Write an executable shell stub.
+
+    Args:
+        path: Stub path (parent is created).
+        body: Shell body after the shebang.
+    """
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(f"#!/bin/sh\n{body}\n")
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+
+
+def test_jetson_deploy_uses_ansible_11_via_uvx_when_the_installed_core_is_too_new(
+    stubbed_script: tuple[Path, Path],
+) -> None:
+    script, record = stubbed_script
+    bin_dir = script.parent.parent / "bin"
+    write_stub(
+        bin_dir / "ansible-playbook",
+        f'[ "$1" = --version ] && echo "ansible-playbook [core 2.21.3]" && exit 0\necho "direct $@" >> {record}',
+    )
+    write_stub(bin_dir / "uvx", f'echo "uvx $@" >> {record}')
+    assert run_script(script, "jetson", "base").returncode == 0
+    assert record.read_text().strip() == (
+        "uvx --from ansible-core==2.18.* --with ansible==11.* ansible-playbook "
+        "-i inventory playbooks/deploy_nodes_jetson.yml -l jetson --tags base"
+    )
+    record.unlink()
+    assert run_script(script, "client", "monitoring").returncode == 0
+    assert record.read_text().startswith("direct -i inventory playbooks/deploy_nodes_client.yml")

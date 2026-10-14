@@ -2316,8 +2316,23 @@ The `jetson_link` role (design D8): both chrony templates and the nft template r
 | `test_every_service_restart_is_conditional_on_a_registered_change` / `test_commands_run_only_when_something_changed` | Every restart / command has `when: <register> is changed` (idempotence). |
 | `test_timesyncd_is_disabled_before_chrony_is_installed` / `test_chrony_is_enabled_and_started` | timesyncd stopped and disabled, chrony installed, enabled, started. |
 | `test_server_enables_ipv4_forwarding_through_a_sysctl_dropin` / `test_server_installs_the_nat_table_and_loads_it_on_boot` | sysctl drop-in, nftables install, include line, enable. |
+| `test_client_chrony_has_no_nts_directive_the_jetsons_chrony_3_5_rejects` | `ntsdumpdir` (chrony >= 4.0) only on the server side. |
 | `test_hosts_entries_per_side` / `test_side_is_validated` | `10.77.0.2 jetson.ros2.lan` on the Pi, `10.77.0.1 client.ros2.lan` on the Jetson; bad side fails. |
 | `test_client_play_applies_network_then_jetson_link_under_one_tag` / `test_no_other_client_task_carries_the_jetson_link_tag` | The tagged "Direct link to the Jetson" block in deploy_nodes_client.yml, and nothing else carries the tag. |
+
+## test_jetson_base_role.py
+
+The `jetson_base` role and `playbooks/deploy_nodes_jetson.yml`, read as data and pinned against the cleanup log; nothing runs ansible.
+
+| Test | Description |
+|---|---|
+| `test_masked_list_covers_every_service_the_cleanup_log_disabled_or_masked` / `test_every_masked_unit_carries_a_reason` | The masked units equal the services parsed from step 2 of the cleanup log; each has a reason. |
+| `test_masking_links_each_unit_to_dev_null_and_reloads_systemd_on_change` / `test_default_target_is_multi_user` | Masking is a `/dev/null` link plus a conditional daemon-reload; default target multi-user. |
+| `test_journald_is_persistent_with_a_200m_cap` | `Storage=persistent`, `SystemMaxUse=200M`, `/var/log/journal`, conditional restart. |
+| `test_nvpmodel_is_set_to_maxn_only_when_the_query_differs` / `test_jetson_clocks_is_an_enabled_oneshot_after_nvpmodel` | `nvpmodel -m 0` only when `-q` lacks MAXN; jetson-clocks oneshot unit after nvpmodel, enabled. |
+| `test_keep_list_names_the_accelerated_stack` / `test_keep_list_assert_fails_on_a_missing_package_or_path` / `test_role_never_removes_a_package` | Keep-list contents, the failing asserts, and no purge/remove/autoremove anywhere. |
+| `test_isp_override_is_installed_0664_and_restarts_nvargus_only_on_change` | File sha256 equals the defaults, URL and sha in the comment, mode 0664, conditional nvargus-daemon restart. |
+| `test_playbook_targets_jetson_and_tags_the_base_roles` / `test_wifi_file_is_removed_only_after_the_ansible_netplan_has_the_wlan0_stanza` / `test_test_ansible_syntax_checks_the_jetson_playbook` | Roles network, jetson_link (client), jetson_base under tag base; 00-wifi.yaml removed only after the wlan0 stanza check; poe test-ansible syntax-checks the playbook. |
 
 ## test_network_link.py
 

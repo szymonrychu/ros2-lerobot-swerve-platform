@@ -1,0 +1,152 @@
+---
+# Jetson OS base (see defaults/main.yml). Every change registers, and a service is restarted only when its input
+# changed, so a second run reports no changes. The role never removes a package.
+
+- name: Gather package facts for the keep-list
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Stat the keep-list paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ jetson_base_keep_paths }}"
+  register: jetson_base_keep_path_stats
+
+- name: Assert the keep-list packages are installed
+  ansible.builtin.assert:
+    that: (jetson_base_keep_packages | difference(ansible_facts.packages.keys() | list)) | length == 0
+    fail_msg: >-
+      Accelerated stack package(s) missing: {{ jetson_base_keep_packages | difference(ansible_facts.packages.keys() | list) | join(', ') }}.
+      Reinstall them (never purge nvidia-l4t-*, cuda, libcudnn8, libnvinfer8, libnvvpi1).
+    quiet: true
+
+- name: Assert the keep-list paths exist
+  ansible.builtin.assert:
+    that: item.stat.exists
+    fail_msg: "Accelerated stack path {{ item.item }} is missing (OpenCV 4.8 with CUDA must stay)."
+    quiet: true
+  loop: "{{ jetson_base_keep_path_stats.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Mask the services the cleanup removed
+  ansible.builtin.file:
+    src: /dev/null
+    dest: "/etc/systemd/system/{{ item.unit }}"
+    state: link
+    force: true
+    owner: root
+    group: root
+  loop: "{{ jetson_base_masked_units }}"
+  loop_control:
+    label: "{{ item.unit }}"
+  register: jetson_base_masked
+
+- name: Reload systemd after masking
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: jetson_base_masked is changed
+
+- name: Read the default target
+  ansible.builtin.command: systemctl get-default
+  register: jetson_base_target
+  changed_when: false
+  check_mode: false
+
+- name: Set the default target
+  ansible.builtin.command: "systemctl set-default {{ jetson_base_default_target }}"
+  when: jetson_base_target.stdout != jetson_base_default_target
+  changed_when: true
+
+- name: Create the journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create the persistent journal directory
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+
+- name: Configure persistent journald
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/persistent.conf
+    content: |
+      # Managed by Ansible (role jetson_base).
+      [Journal]
+      Storage={{ jetson_base_journald_storage }}
+      SystemMaxUse={{ jetson_base_journald_max_use }}
+    owner: root
+    group: root
+    mode: "0644"
+  register: jetson_base_journald
+
+- name: Restart journald after a config change
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+  when: jetson_base_journald is changed
+
+- name: Query nvpmodel
+  ansible.builtin.command: nvpmodel -q
+  register: jetson_base_nvpmodel
+  changed_when: false
+  check_mode: false
+
+- name: Set nvpmodel to MAXN
+  ansible.builtin.command: "nvpmodel -m {{ jetson_base_nvpmodel_mode }}"
+  when: "'MAXN' not in jetson_base_nvpmodel.stdout"
+  changed_when: true
+
+- name: Install the jetson-clocks unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/jetson-clocks.service
+    content: |
+      # Managed by Ansible (role jetson_base): pin the clocks at their maximum after nvpmodel set the power mode.
+      [Unit]
+      Description=Pin Jetson clocks at maximum (jetson_clocks)
+      After=nvpmodel.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/jetson_clocks
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: "0644"
+  register: jetson_base_clocks_unit
+
+- name: Reload systemd after the jetson-clocks unit
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: jetson_base_clocks_unit is changed
+
+- name: Enable jetson-clocks
+  ansible.builtin.systemd:
+    name: jetson-clocks
+    enabled: true
+    state: started
+
+- name: Install the IMX219 ISP override
+  ansible.builtin.copy:
+    src: camera_overrides.isp
+    dest: /var/nvidia/nvcam/settings/camera_overrides.isp
+    owner: root
+    group: root
+    mode: "0664"
+  register: jetson_base_isp
+
+- name: Restart nvargus-daemon after an ISP override change
+  ansible.builtin.systemd:
+    name: nvargus-daemon
+    state: restarted
+  when: jetson_base_isp is changed

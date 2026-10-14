@@ -14,7 +14,10 @@ local stratum 10
 {% endif %}
 
 driftfile /var/lib/chrony/chrony.drift
+{% if jetson_link_side == 'server' %}
+# NTS cookies need chrony >= 4.0 (the Pi's Ubuntu 24.04); the Jetson's chrony 3.5 rejects the directive.
 ntsdumpdir /var/lib/chrony
+{% endif %}
 logdir /var/log/chrony
 rtcsync
 # Step the clock in the first three updates when it is off by more than a second.

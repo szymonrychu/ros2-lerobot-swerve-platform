@@ -242,3 +242,8 @@ def test_no_other_client_task_carries_the_jetson_link_tag() -> None:
     text = CLIENT_PLAYBOOK.read_text()
     assert text.count("jetson_link]") == 3
     assert "jetson_link" not in str(yaml.safe_load(text)[0]["pre_tasks"])
+
+
+def test_client_chrony_has_no_nts_directive_the_jetsons_chrony_3_5_rejects() -> None:
+    assert "ntsdumpdir" not in render("chrony.conf.j2", "client")
+    assert "ntsdumpdir" in render("chrony.conf.j2", "server")

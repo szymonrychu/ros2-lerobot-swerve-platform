@@ -18,6 +18,8 @@
 # because a deploy restarts nodes under a running session; then they fail. Skip the wait with
 #   deploy-nodes.sh client web_ui -e ros2_deploy_ignore_agent=true
 #
+# The jetson target needs ansible-core <= 2.18 (its Python 3.8): with a newer ansible-playbook it runs ansible-core 2.18 via uvx.
+#
 # Examples:
 #   ./scripts/deploy-nodes.sh client web_ui
 #   ./scripts/deploy-nodes.sh client web_ui mcp_server
@@ -106,5 +108,15 @@ else
   echo "Deploying ALL nodes to $TARGET..."
 fi
 
+# The Jetson runs Ubuntu 20.04 with Python 3.8, which ansible-core >= 2.19 refuses as a target ("requires Python 3.9 or
+# newer"). When the installed ansible-playbook is that new, a jetson deploy runs ansible-core 2.18 (with the ansible 11 collections) through uvx.
+PLAYBOOK_CMD=(ansible-playbook)
+if [[ "$TARGET" == jetson ]]; then
+  CORE_MINOR="$(ansible-playbook --version 2>/dev/null | sed -n 's/.*core 2\.\([0-9]*\).*/\1/p' | head -1)"
+  if [[ -n "$CORE_MINOR" && "$CORE_MINOR" -ge 19 ]]; then
+    PLAYBOOK_CMD=(uvx --from 'ansible-core==2.18.*' --with 'ansible==11.*' ansible-playbook)
+  fi
+fi
+
 cd "$ANSIBLE_DIR"
-exec ansible-playbook -i inventory "playbooks/deploy_nodes_${TARGET}.yml" -l "$TARGET" "${EXTRA[@]+"${EXTRA[@]}"}"
+exec "${PLAYBOOK_CMD[@]}" -i inventory "playbooks/deploy_nodes_${TARGET}.yml" -l "$TARGET" "${EXTRA[@]+"${EXTRA[@]}"}"

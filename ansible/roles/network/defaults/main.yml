@@ -14,3 +14,7 @@ network_netplan_file: 01-ansible-netplan.yaml
 # optionally default_route_via + route_metric. Rendered with dhcp4 off, ignore-carrier and optional, and left out of the
 # DHCP list. Set for client and jetson in group_vars/all.yml.
 network_link_ethernets: []
+
+# Hand-written netplan files the deployed one replaces (e.g. /etc/netplan/00-wifi.yaml on the Jetson). Each is removed
+# before netplan applies, and only once the deployed file holds the primary WiFi interface's stanza.
+network_netplan_superseded_files: []

@@ -288,6 +288,18 @@ The Pi is the Jetson's time server and its way to the internet, so the Jetson's 
 - **Names:** `/etc/hosts` gets `10.77.0.2 jetson.ros2.lan` on the Pi and `10.77.0.1 client.ros2.lan` on the Jetson.
 - **Idempotent:** every change task registers; chrony is restarted and the ruleset reloaded only when its file changed.
 
+### OS base of the Jetson (role `jetson_base`)
+
+`./scripts/deploy-nodes.sh jetson base` (tag `base` of `playbooks/deploy_nodes_jetson.yml`) applies, in order, the `network` role (Jetson link vars, WiFi stanza unchanged), `jetson_link` with `jetson_link_side: client`, and `jetson_base`. `jetson_base` codifies the end state of the 2026-10-14 cleanup (`docs/plans/2026-10-14-jetson-depth-offload-briefs/jetson-cleanup-log.md`).
+
+- **Masked units:** `jetson_base_masked_units` (defaults, each with its reason, copied from the log) are linked to `/dev/null` in `/etc/systemd/system`; default target `multi-user.target`.
+- **Journal:** `/etc/systemd/journald.conf.d/persistent.conf` (`Storage=persistent`, `SystemMaxUse=200M`) and `/var/log/journal`; journald restarts only when the file changed.
+- **Clocks:** `nvpmodel -q` is read and `nvpmodel -m 0` (MAXN) runs only when it differs; `/etc/systemd/system/jetson-clocks.service` (oneshot, `After=nvpmodel.service`, `jetson_clocks`) is enabled.
+- **Keep-list:** the role fails when any `jetson_base_keep_packages` (the 27 `nvidia-l4t-*`, CUDA 10.2 runtime and nvcc, `libcudnn8`, `libnvinfer8`, `libnvvpi1`) or `/usr/lib/python3/dist-packages/cv2` (OpenCV 4.8 with CUDA) is missing. The role never purges a package.
+- **ISP override:** `files/camera_overrides.isp` (Waveshare IMX219 stereo wiki, `Camera_overrides.tar.gz`; URL and sha256 in the defaults) goes to `/var/nvidia/nvcam/settings/` mode 0664; `nvargus-daemon` restarts only when it changed (fixes the pink cast).
+- **Controller:** ansible-core >= 2.19 refuses the Jetson's Python 3.8, so `deploy-nodes.sh jetson ...` runs ansible-core 2.18 through `uvx` when the installed one is newer. The Jetson's chrony 3.5 has no `ntsdumpdir`, so that line is Pi-only; check the source with `chronyc -n sources` (without `-n` the Pi shows as `client.ros2.lan`).
+- **WiFi safety:** after the network role, `/etc/netplan/00-wifi.yaml` is removed by the `network` role (`network_netplan_superseded_files`), before netplan applies and only when `01-ansible-netplan.yaml` contains the `wlan0` stanza (netplan rejects the same access point in two files).
+
 ## Network and hostname (provision)
 
 The **network** role sets a static IP on the primary interface (ethernet or WiFi, auto-detected), sets all other interfaces to DHCP, and disables IPv6 in netplan.
