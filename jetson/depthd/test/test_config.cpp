@@ -235,16 +235,15 @@ TEST(Config, FromJsonRejectsUnknownKeyAndInvalidValue)
 
 TEST(Config, RuntimeMutableSet)
 {
-  for (const char * k :
-       {"postprocess.lr_check.enabled", "postprocess.lr_check.max_diff", "postprocess.speckle.max_size",
-        "postprocess.temporal.alpha", "postprocess.wls.enabled", "postprocess.hole_fill.max_hole_px", "mono.enabled",
-        "mono.rate_hz", "rgb.jpeg_quality"}) {
+  for (const char * k : {"postprocess.lr_check.enabled", "postprocess.lr_check.max_diff", "postprocess.speckle.max_size",
+                         "postprocess.temporal.alpha", "postprocess.wls.enabled", "postprocess.hole_fill.max_hole_px",
+                         "mono.enabled", "mono.rate_hz", "rgb.jpeg_quality"}) {
     EXPECT_TRUE(depthd::runtime_mutable(k)) << k;
   }
-  for (const char * k :
-       {"mono.model", "mono.engine_path", "rgb.fps", "rgb.width", "processing.matcher", "processing.width",
-        "processing.num_disparities", "capture.pair_window_ms", "transport.pub_port", "calibration.path",
-        "frame_ids.depth", "postprocess", "postprocessx.y", "nonsense", ""}) {
+  for (const char * k : {"mono.model", "mono.engine_path", "rgb.fps", "rgb.width", "processing.matcher",
+                         "processing.width", "processing.num_disparities", "capture.pair_window_ms",
+                         "transport.pub_port", "calibration.path", "frame_ids.depth", "postprocess", "postprocessx.y",
+                         "nonsense", ""}) {
     EXPECT_FALSE(depthd::runtime_mutable(k)) << k;
   }
 }
