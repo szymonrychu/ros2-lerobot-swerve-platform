@@ -45,9 +45,9 @@ esac
 
 # Deploy targets that are not ros2_nodes entries, space separated (bash 3.2: no associative arrays).
 #   monitoring - client: Alloy + nginx (roles/monitoring_agent, roles/web_proxy)
+#                server: Mimir + Loki + Grafana + nginx + Alloy (roles/monitoring, roles/web_proxy, roles/monitoring_agent)
 #   jetson_link - client: the direct link to the Jetson (roles/jetson_link)
 #   base, build_deps, depthd - jetson: OS base, build dependencies, the depthd service (playbooks/deploy_nodes_jetson.yml)
-#                server: Mimir + Loki + Grafana + nginx + Alloy (roles/monitoring, roles/web_proxy, roles/monitoring_agent)
 non_node_targets() {
   case "$1" in
     client) echo "monitoring jetson_link" ;;
