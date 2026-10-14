@@ -28,10 +28,9 @@ struct Capture
   bool zero_copy = true;
   bool operator==(const Capture & o) const
   {
-    return left_sensor_id == o.left_sensor_id && right_sensor_id == o.right_sensor_id &&
-           sensor_mode == o.sensor_mode && settle_frames == o.settle_frames &&
-           lock_exposure_after_settle == o.lock_exposure_after_settle && pair_window_ms == o.pair_window_ms &&
-           zero_copy == o.zero_copy;
+    return left_sensor_id == o.left_sensor_id && right_sensor_id == o.right_sensor_id && sensor_mode == o.sensor_mode &&
+           settle_frames == o.settle_frames && lock_exposure_after_settle == o.lock_exposure_after_settle &&
+           pair_window_ms == o.pair_window_ms && zero_copy == o.zero_copy;
   }
 };
 
@@ -107,8 +106,8 @@ struct Postprocess
   Toggle wls{false};
   bool operator==(const Postprocess & o) const
   {
-    return lr_check == o.lr_check && confidence == o.confidence && speckle == o.speckle &&
-           bilateral == o.bilateral && hole_fill == o.hole_fill && temporal == o.temporal && wls == o.wls;
+    return lr_check == o.lr_check && confidence == o.confidence && speckle == o.speckle && bilateral == o.bilateral &&
+           hole_fill == o.hole_fill && temporal == o.temporal && wls == o.wls;
   }
 };
 
