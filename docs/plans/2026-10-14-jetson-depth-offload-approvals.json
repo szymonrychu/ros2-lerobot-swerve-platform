@@ -31,7 +31,8 @@
       "T16",
       "T20"
     ],
-    "status": "approved"
+    "status": "approved",
+    "note": " 2026-10-14: the user reduced delivery to the minimum (disparity + ROS depth); remaining parts of this item are listed in 2026-10-14-jetson-depth-offload-future.md."
   },
   {
     "id": "A3",
@@ -73,7 +74,8 @@
       "T26",
       "T27"
     ],
-    "status": "approved"
+    "status": "approved",
+    "note": " 2026-10-14: the user reduced delivery to the minimum (disparity + ROS depth); remaining parts of this item are listed in 2026-10-14-jetson-depth-offload-future.md."
   },
   {
     "id": "A6",
@@ -103,7 +105,8 @@
       "T29",
       "T30"
     ],
-    "status": "approved"
+    "status": "approved",
+    "note": " 2026-10-14: the user reduced delivery to the minimum (disparity + ROS depth); remaining parts of this item are listed in 2026-10-14-jetson-depth-offload-future.md."
   },
   {
     "id": "A8",
@@ -126,6 +129,7 @@
       "T42",
       "T43"
     ],
-    "status": "approved"
+    "status": "approved",
+    "note": " 2026-10-14: the user reduced delivery to the minimum (disparity + ROS depth); remaining parts of this item are listed in 2026-10-14-jetson-depth-offload-future.md."
   }
 ]
