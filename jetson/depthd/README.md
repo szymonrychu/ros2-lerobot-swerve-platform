@@ -9,7 +9,7 @@ ROS 2 bridge on the Pi. This keeps stereo work off the saturated Pi 5 CPU.
 
 ```
 CMakeLists.txt        finds and links every dependency; globs src/*.cpp and test/test_*.cpp
-include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification; matcher.hpp, depth.hpp: matching and depth; postprocess.hpp, temporal.hpp: disparity post-processing)
+include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification; publisher.hpp, http_api.hpp: ZeroMQ publisher, HTTP API and metrics; matcher.hpp, depth.hpp: matching and depth; postprocess.hpp, temporal.hpp: disparity post-processing)
 src/                  library sources; main.cpp -> depthd and bench_main.cpp -> depthd-bench when present
 config/depthd.yaml    the one example and default config (equals the struct defaults)
 test/                 gtest binaries, one per test_*.cpp
@@ -290,3 +290,48 @@ also be used alone.
 `src/postprocess_kernels.cu` holds the kernels (raw device pointers, nvcc 10.2 at C++14); `CMakeLists.txt` enables the
 CUDA language for it (sm_53, shared cudart). Tests: `test/test_postprocess.cpp` (every stage, toggles, order, timing
 flags, bad inputs) and `test/test_temporal.cpp`.
+
+## Transport and HTTP API
+
+Both listen on `transport.bind_address` (the Jetson end of the direct link, `10.77.0.2`), so nothing is reachable from
+the LAN side.
+
+| Port | Protocol | Config key | Served by |
+|---|---|---|---|
+| 5550 | ZeroMQ PUB over TCP | `transport.pub_port` | `depthd::Publisher` |
+| 8090 | HTTP | `transport.http_port` | `depthd::HttpApi` (cpp-httplib) |
+
+### ZeroMQ publisher
+
+`depthd::Publisher` (`include/depthd/publisher.hpp`) uses the libzmq C API (focal ships no cppzmq): one PUB socket,
+`send_depth`, `send_fused` and `send_rgb`. Messages are the three frames of `ros2_common_cpp/depth_wire.hpp`
+(topic `depth` | `fused` | `rgb`, header, zstd depth or JPEG); the publisher sets the header kind and encodes with
+`depth_wire` only. The pipeline never waits on the link: `ZMQ_SNDHWM` is `transport.send_hwm`, `ZMQ_CONFLATE` is off
+(frames queue in order), `ZMQ_XPUB_NODROP` makes a full high-water mark an error instead of a silent drop, and every
+send is `ZMQ_DONTWAIT`. A dropped send returns false and is counted in `send_drops()`
+(`depthd_zmq_send_drops_total`; feed it with `Metrics::set_zmq_send_drops`). A message that cannot be encoded returns
+false without counting.
+
+### HTTP API
+
+`depthd::HttpApi` (`include/depthd/http_api.hpp`) owns the running config and the calibration state; the pipeline plugs
+in through `HttpApiHooks` (`health`, `capture_pair`, `apply_config`, `on_calibration`) and `Metrics`. Errors are
+`{"error": "<message>"}`.
+
+| Request | Answer |
+|---|---|
+| `GET /health` | `{state, reason, fps, last_pair_age_ms, pairs_dropped_total, gpu_temp_c, nvgpu_errors_total, matcher, mono_state}`; `state` is `ok`, `uncalibrated`, `camera_error` or `starting` |
+| `GET /config` | the running config (same JSON as `config/depthd.yaml`) |
+| `PUT /config` | body: a JSON object, nested (`{"postprocess":{"temporal":{"alpha":0.7}}}`) or dotted keys (`{"rgb.jpeg_quality":60}`). 200 with the new config for `runtime_mutable` keys (`postprocess.*`, `mono.enabled`, `mono.rate_hz`, `rgb.jpeg_quality`); 409 `{error, key, keys}` naming the keys that need a restart (a restart-only key sent with its current value is not a change); 400 with the validation message for an invalid, unknown or ill-typed value, bad JSON, or a refused `apply_config` hook. Nothing changes on any error. |
+| `GET /calibration` | `{status: ok\|uncalibrated, reason, rms, baseline_m, created_utc, path, last_reload_error}` of `calibration.path`; `created_utc` is the file's optional `created_utc` key, else its modification time |
+| `POST /calibration/reload` | reloads the file: 200 with the new status, or 422 with the `reason`; a failed reload keeps the previous calibration active |
+| `GET /calibration/capture` | latest unrectified pair as `multipart/form-data`: PNG parts `left` and `right` (GRAY8, processing size) and text parts `left_capture_realtime_ns` and `right_capture_realtime_ns`; 503 when there is no fresh pair. This is the calibration tool's capture path |
+| `GET /metrics` | Prometheus text (below) |
+
+Metrics: `depthd_frames_total{kind}`, `depthd_pairs_total`, `depthd_drops_total{reason}` (`skew`, `orphan`, plus
+`Metrics::inc_drop` reasons), `depthd_pair_skew_ms` (histogram), `depthd_stage_time_ms{stage}` (histogram, buckets
+1-500 ms), `depthd_fps`, `depthd_gpu_temp_celsius`, `depthd_nvgpu_errors_total`, `depthd_zmq_send_drops_total`.
+
+`third_party/httplib.h` is cpp-httplib v0.14.3 (MIT, Yuji Hirose) vendored unmodified as a single header. Tests:
+`test/test_publisher.cpp` (loopback SUB decodes depth, fused and rgb; a full high-water mark drops and counts) and
+`test/test_http_api.cpp` (every endpoint and status code).
