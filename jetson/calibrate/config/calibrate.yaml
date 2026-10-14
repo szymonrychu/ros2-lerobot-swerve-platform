@@ -9,8 +9,8 @@ square_mm: 30.0
 marker_mm: 22.0
 dictionary: DICT_5X5_100
 
-# depthd HTTP API (transport.http_port in depthd.yaml): GET /calibration/capture, POST /calibration/reload.
-depthd_url: http://127.0.0.1:8090
+# depthd HTTP API (transport.bind_address:http_port in depthd.yaml, the link address): GET /calibration/capture, POST /calibration/reload.
+depthd_url: http://10.77.0.2:8090
 
 # Where the capture mode keeps the kept pairs and solve mode reads them back (cleared at the start of capture).
 captures_dir: /var/lib/depthd/calibration/cli-captures

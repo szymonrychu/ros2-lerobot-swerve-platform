@@ -4,10 +4,12 @@ import hashlib
 import http.server
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
 
 import cv2
 import numpy as np
 import pytest
+import yaml
 
 from stereo_calibrate import calibrate as cal
 from stereo_calibrate.config import CalibrateConfig, load_config
@@ -352,6 +354,12 @@ def test_shipped_calibrate_yaml_loads_with_the_board_depthd_reads():
     )
     assert config.rms_limit_px == 0.5 and config.capture_count == 30 and config.min_shared_corners == 12
     assert str(config.output_path) == "/var/lib/depthd/stereo.yaml"
+
+
+def test_shipped_depthd_url_matches_the_address_depthd_binds():
+    depthd = yaml.safe_load((ROOT / "jetson/depthd/config/depthd.yaml").read_text())["transport"]
+    url = urlparse(load_config(CALIBRATE_YAML).depthd_url)
+    assert (url.hostname, url.port) == (depthd["bind_address"], depthd["http_port"])
 
 
 def test_config_rejects_a_marker_not_below_the_square():
