@@ -73,7 +73,7 @@ target_link_libraries(depthd_lib PUBLIC
   ${OpenCV_LIBS} yaml-cpp nlohmann_json::nlohmann_json depth_wire
   PkgConfig::ZMQ PkgConfig::ZSTD PkgConfig::GST vpi sgm
   ${NVBUF_UTILS_LIBRARY} ${EGL_LIBRARY} ${CUDA_DRIVER_LIBRARY} ${CUDA_RUNTIME_LIBRARY} ${NVINFER_LIBRARY}
-  stdc++fs pthread ${CMAKE_DL_LIBS})
+  stdc++fs pthread)
 
 # ---- executables, only when their sources exist ----
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)

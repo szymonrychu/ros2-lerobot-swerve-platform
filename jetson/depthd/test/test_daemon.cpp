@@ -160,7 +160,7 @@ TEST(Daemon, CalibratedDaemonPublishesDepthAndServesTheCapturePair)
   depthd::Daemon daemon(test_options(valid_config(kFixtures + "stereo_valid.yaml"), &source));
   daemon.start();
   ASSERT_TRUE(eventually([&] { return daemon.http_port() > 0 && daemon.pub_port() > 0 && source != nullptr; }));
-  depthd_test::Sub sub(daemon.pub_port(), 1500);
+  depthd_test::Sub sub(daemon.pub_port(), 5000);  // the first match also warms the matcher up (as test_pipeline)
 
   const depthd::CalibrationLoad load =
     depthd::load_calibration(kFixtures + "stereo_valid.yaml", cv::Size(640, 480), 0.5);
