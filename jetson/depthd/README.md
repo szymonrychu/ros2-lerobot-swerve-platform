@@ -24,8 +24,12 @@ TensorRT 8.0.1); there is no ROS on the Jetson.
 From the repository root:
 
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+D=${DEPTHD_DEV:-depthd-dev-$(git rev-parse --abbrev-ref HEAD | tr / -)}
+rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:$D/ && ssh -o BatchMode=yes jetson@192.168.1.32 "cd ~/$D/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure"
 ```
+
+Each branch builds in its own remote directory (`~/depthd-dev-<branch>`), so parallel tasks never share a build tree
+(a shared one corrupts `.d` dependency files). Override with `DEPTHD_DEV`.
 
 Expected: `100% tests passed, 0 tests failed`.
 
