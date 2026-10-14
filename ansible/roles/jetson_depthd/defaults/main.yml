@@ -1,0 +1,51 @@
+---
+# Build dependencies of depthd on the Jetson Nano (Ubuntu 20.04 focal, L4T r32.6). Only packages are added: nothing
+# OpenCV, CUDA runtime or TensorRT runtime is upgraded or removed (OpenCV 4.8 with CUDA lives outside dpkg).
+
+# Distro and Kitware packages. cmake comes from Kitware because focal ships 3.16, and `ctest --test-dir` plus libSGM need
+# >= 3.20 / 3.18.
+jetson_depthd_build_packages:
+  - libzmq3-dev
+  - libzstd-dev
+  - nlohmann-json3-dev
+  - libyaml-cpp-dev
+  - libgtest-dev
+  - pkg-config
+
+# Installed with state latest in its own task, so the Kitware build replaces the distro 3.16 (the only upgrade the role makes).
+jetson_depthd_cmake_packages: [cmake, cmake-data]
+jetson_depthd_cmake_min_version: "3.20"
+jetson_depthd_kitware_repo_url: https://apt.kitware.com/ubuntu/
+jetson_depthd_kitware_key_url: https://apt.kitware.com/keys/kitware-archive-latest.asc
+jetson_depthd_kitware_keyring: /usr/share/keyrings/kitware-archive-keyring.asc
+jetson_depthd_kitware_suite: focal
+
+# The CUDA 10.2 dev toolchain, cuDNN, TensorRT and VPI dev packages from the L4T r32.6 repository. The cleanup purge removed
+# the cuda-toolkit-10-2 and tensorrt metapackages (they pull docs and samples); the leaf dev packages are what builds need.
+jetson_depthd_nvidia_packages:
+  - cuda-compiler-10-2
+  - cuda-cudart-dev-10-2
+  - cuda-libraries-dev-10-2
+  - libcudnn8-dev
+  - libnvinfer-dev
+  - libnvonnxparsers-dev
+  - libnvinfer-plugin-dev
+  - vpi1-dev
+jetson_depthd_l4t_release: r32.6
+jetson_depthd_nvidia_repo_hosts:
+  - repo.download.nvidia.com/jetson/common
+  - repo.download.nvidia.com/jetson/t210
+jetson_depthd_cuda_home: /usr/local/cuda-10.2
+jetson_depthd_cuda_alternative_priority: 102
+
+# Packages this role must never install (they would pull OpenCV 4.2 or the docs/samples the cleanup purged).
+jetson_depthd_forbidden_packages:
+  - libopencv-dev
+  - python3-opencv
+  - libopencv-core-dev
+  - cuda-toolkit-10-2
+  - tensorrt
+
+jetson_depthd_data_dir: /var/lib/depthd
+jetson_depthd_config_dir: /etc/depthd
+jetson_depthd_user: jetson

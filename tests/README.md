@@ -2360,3 +2360,18 @@ The jetson_link role (design D8): chrony, Pi NAT and hosts entries, rendered wit
 | `test_server_enables_ipv4_forwarding_through_a_sysctl_dropin` / `test_server_installs_the_nat_table_and_loads_it_on_boot` | sysctl drop-in, nft table file, nftables.conf include, nftables enabled. |
 | `test_hosts_entries_per_side` / `test_side_is_validated` | `jetson.ros2.lan` on the Pi, `client.ros2.lan` on the Jetson; side assert and defaults. |
 | `test_client_play_applies_network_then_jetson_link_under_one_tag` / `test_no_other_client_task_carries_the_jetson_link_tag` | The 'Direct link to the Jetson' block is tagged `jetson_link` and applies network then jetson_link (server); nothing else carries the tag. |
+
+## test_jetson_depthd_role.py
+
+The `jetson_depthd` role, part 1 (build dependencies); defaults, tasks and the playbook are read as data.
+
+| Test | What it pins |
+|---|---|
+| `test_build_packages_are_pinned` | The build package list (ZeroMQ, zstd, JSON, yaml-cpp, gtest, pkg-config) and `state: present`. |
+| `test_cmake_comes_from_kitware_at_least_3_20` | Kitware focal repository with a `signed-by` keyring, cmake at `state: latest`, and a cmake >= 3.20 assert. |
+| `test_nvidia_dev_packages_come_from_the_l4t_repo` | CUDA 10.2, cuDNN, TensorRT and VPI dev packages from the L4T r32.6 repositories. |
+| `test_usr_local_cuda_resolves_to_cuda_10_2` | `/usr/local/cuda` is read and re-pointed with update-alternatives only when it differs. |
+| `test_no_opencv_cuda_or_tensorrt_runtime_package_is_touched` | Forbidden packages are absent; no purge, autoremove or upgrade. |
+| `test_directories_are_created_with_owners` | `/var/lib/depthd` jetson:jetson 0755 and `/etc/depthd` root 0755. |
+| `test_main_includes_deps_under_the_build_deps_tag` | `main.yml` imports `deps.yml` under `build_deps`. |
+| `test_playbook_applies_the_role_with_build_deps_and_depthd_tags` | The Jetson playbook applies the role after `jetson_base` with both tags. |

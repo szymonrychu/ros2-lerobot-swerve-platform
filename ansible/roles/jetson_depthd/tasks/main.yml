@@ -1,0 +1,7 @@
+---
+# jetson_depthd: build dependencies (tag build_deps). The depthd build and service tasks join this file under the
+# depthd tag.
+
+- name: Build dependencies
+  ansible.builtin.import_tasks: deps.yml
+  tags: [build_deps]
