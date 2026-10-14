@@ -348,8 +348,8 @@ def test_shipped_calibrate_yaml_loads_with_the_board_depthd_reads():
     assert (config.squares_x, config.squares_y, config.square_mm, config.marker_mm, config.dictionary) == (
         7,
         5,
-        30.0,
-        22.0,
+        27.0,
+        19.8,
         "DICT_5X5_100",
     )
     assert config.rms_limit_px == 0.5 and config.capture_count == 30 and config.min_shared_corners == 12
