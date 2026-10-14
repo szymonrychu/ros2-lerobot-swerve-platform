@@ -25,6 +25,8 @@ import CameraIcon from '@mui/icons-material/Camera'
 import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import FaceIcon from '@mui/icons-material/Face'
+import TuneIcon from '@mui/icons-material/Tune'
+import Divider from '@mui/material/Divider'
 import TabIcon from '@mui/icons-material/Tab'
 import log from './logging'
 import { batteryStatus, cutoffBanner } from './battery/batteryStatus'
@@ -36,6 +38,8 @@ import type { BaseGpsPayload, RoverGpsPayload } from './gps/gpsStatus'
 import { StateBanner } from './components/StateBanner'
 import { useRosBridge } from './hooks/useRosBridge'
 import { needsColorSmall, subscribedTopics } from './hooks/subscription'
+import { CalibratePage } from './calibrate/CalibratePage'
+import { clearCalibrateHash, isCalibrateHash, openCalibrate } from './calibrate/calibrateRoute'
 import { tabBarMode } from './layout/tabBarMode'
 import { useLayout } from './layout/useLayout'
 import { TOUCH_TARGET_PX } from './theme'
@@ -127,6 +131,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState(0)
   const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [calibrating, setCalibrating] = useState(() => isCalibrateHash(window.location.hash))
   const [errorToast, setErrorToast] = useState<string | null>(null)
   const [batteryRxAt, setBatteryRxAt] = useState<number | null>(null)
   const [roverRxAt, setRoverRxAt] = useState<number | null>(null)
@@ -136,6 +141,13 @@ export default function App() {
   // Map tabs first: the map is the primary view whatever order the config lists tabs in.
   // Tab types merged into the 3D map (or removed) are dropped so a stale config shows no dead tabs.
   const tabs = useMemo(() => (config ? orderTabs(supportedTabs(config.tabs)) : []), [config])
+
+  // Calibrate is a hash route, never a tab: the hash alone decides whether it replaces the tab content.
+  useEffect(() => {
+    const sync = () => setCalibrating(isCalibrateHash(window.location.hash))
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  }, [])
 
   useEffect(() => {
     fetch('/api/config')
@@ -212,8 +224,15 @@ export default function App() {
     const t = tabs[i]
     if (!t) return
     log.info('[app] Tab activated:', t.label)
+    if (isCalibrateHash(window.location.hash)) clearCalibrateHash()
     setActiveTab(i)
     writeStoredTabId(browserStorage(), t.id)
+    setDrawerOpen(false)
+  }
+
+  const selectCalibrate = () => {
+    log.info('[app] Calibrate opened')
+    openCalibrate()
     setDrawerOpen(false)
   }
 
@@ -231,18 +250,18 @@ export default function App() {
     <>
       <AppBar position="static">
         <Toolbar variant="dense" disableGutters sx={{ px: { xs: 0.5, sm: 2 }, gap: 1, minHeight: TOUCH_TARGET_PX }}>
-          {mode.drawer && (
-            <IconButton aria-label="Open tab list" onClick={() => setDrawerOpen(true)} edge="start">
+          {mode.menu && (
+            <IconButton aria-label="Open menu" onClick={() => setDrawerOpen(true)} edge="start">
               <MenuIcon />
             </IconButton>
           )}
-          {!mode.drawer && (
+          {!mode.tabsInDrawer && (
             <Typography variant="subtitle1" component="h1" sx={{ fontWeight: 500, mr: 1, whiteSpace: 'nowrap' }}>
               {APP_TITLE}
             </Typography>
           )}
           <Tabs
-            value={tabs.length > 0 ? Math.min(activeTab, tabs.length - 1) : false}
+            value={!calibrating && tabs.length > 0 ? Math.min(activeTab, tabs.length - 1) : false}
             onChange={(_e, i: number) => selectTab(i)}
             variant={mode.scrollable ? 'scrollable' : 'standard'}
             scrollButtons="auto"
@@ -271,14 +290,21 @@ export default function App() {
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <List
           sx={{ width: 'clamp(16rem, 85vw, 20rem)' }}
-          subheader={<ListSubheader sx={{ bgcolor: 'background.paper' }}>{APP_TITLE} tabs</ListSubheader>}
+          subheader={<ListSubheader sx={{ bgcolor: 'background.paper' }}>{APP_TITLE}</ListSubheader>}
         >
-          {tabs.map((t, i) => (
-            <ListItemButton key={t.id} selected={i === activeTab} onClick={() => selectTab(i)} sx={{ minHeight: TOUCH_TARGET_PX }}>
+          {mode.tabsInDrawer && tabs.map((t, i) => (
+            <ListItemButton key={t.id} selected={!calibrating && i === activeTab} onClick={() => selectTab(i)} sx={{ minHeight: TOUCH_TARGET_PX }}>
               <ListItemIcon>{tabIcon(t.type)}</ListItemIcon>
               <ListItemText primary={t.label} />
             </ListItemButton>
           ))}
+          {mode.tabsInDrawer && <Divider />}
+          <ListItemButton selected={calibrating} onClick={selectCalibrate} sx={{ minHeight: TOUCH_TARGET_PX }}>
+            <ListItemIcon>
+              <TuneIcon />
+            </ListItemIcon>
+            <ListItemText primary="Calibrate" />
+          </ListItemButton>
         </List>
       </Drawer>
 
@@ -290,7 +316,8 @@ export default function App() {
             </Centered>
           }
         >
-          {tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap, photos: poiPhotos }, pendingFocus, clearPendingFocus)}
+          {calibrating && <CalibratePage onBack={() => setCalibrating(false)} />}
+          {!calibrating && tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap, photos: poiPhotos }, pendingFocus, clearPendingFocus)}
         </Suspense>
       </Box>
 

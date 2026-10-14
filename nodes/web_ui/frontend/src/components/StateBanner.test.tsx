@@ -116,7 +116,7 @@ describe('App chrome', () => {
   it('keeps icons in the drawer', async () => {
     viewportWidth = 400
     await renderApp()
-    fireEvent.click(screen.getByLabelText('Open tab list'))
+    fireEvent.click(screen.getByLabelText('Open menu'))
     const items = await waitFor(() => {
       const found = screen.getAllByRole('button').filter((b) => b.textContent === 'Map' || b.textContent === 'Places')
       expect(found.length).toBe(2)
