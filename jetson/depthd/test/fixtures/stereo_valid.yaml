@@ -1,0 +1,62 @@
+%YAML:1.0
+---
+# depthd stereo calibration (format: include/depthd/calibration.hpp). 640x480, 60 mm baseline.
+image_width: 640
+image_height: 480
+rms: 0.21
+baseline_m: 0.06
+K_left: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 510., 0., 322., 0., 510., 241., 0., 0., 1. ]
+D_left: !!opencv-matrix
+   rows: 1
+   cols: 5
+   dt: d
+   data: [ -0.12, 0.05, 0.0005, -0.0003, 0. ]
+K_right: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 508., 0., 318., 0., 508., 239., 0., 0., 1. ]
+D_right: !!opencv-matrix
+   rows: 1
+   cols: 5
+   dt: d
+   data: [ -0.1, 0.04, 0.0002, 0.0001, 0. ]
+R: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.999998, 0., 0.002, 0., 1., 0., -0.002, 0., 0.999998 ]
+T: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ -0.06, 0., 0. ]
+R1: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 1., 0., 0., 0., 1., 0., 0., 0., 1. ]
+R2: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.999998, 0., 0.002, 0., 1., 0., -0.002, 0., 0.999998 ]
+P1: !!opencv-matrix
+   rows: 3
+   cols: 4
+   dt: d
+   data: [ 500., 0., 320., 0., 0., 500., 240., 0., 0., 0., 1., 0. ]
+P2: !!opencv-matrix
+   rows: 3
+   cols: 4
+   dt: d
+   data: [ 500., 0., 320., -30., 0., 500., 240., 0., 0., 0., 1., 0. ]
+Q: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: d
+   data: [ 1., 0., 0., -320., 0., 1., 0., -240., 0., 0., 0., 500., 0., 0., 16.666666666666668, 0. ]

@@ -9,7 +9,7 @@ ROS 2 bridge on the Pi. This keeps stereo work off the saturated Pi 5 CPU.
 
 ```
 CMakeLists.txt        finds and links every dependency; globs src/*.cpp and test/test_*.cpp
-include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture)
+include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification)
 src/                  library sources; main.cpp -> depthd and bench_main.cpp -> depthd-bench when present
 config/depthd.yaml    the one example and default config (equals the struct defaults)
 test/                 gtest binaries, one per test_*.cpp
@@ -168,3 +168,34 @@ rejected with a message naming the key. `[live]` keys can change at runtime (`de
 | calibration.path | /var/lib/depthd/stereo.yaml | |
 | calibration.max_rms_px | 0.5 | > 0 |
 | frame_ids.depth / rgb | stereo_left_optical_frame / overview_camera_optical_frame | not empty |
+
+## Calibration file and rectification
+
+`calibration.path` (default `/var/lib/depthd/stereo.yaml`) is OpenCV FileStorage YAML. `include/depthd/calibration.hpp`
+is the one definition: the calibration tool (T20) writes it and depthd reads it. `test/fixtures/stereo_valid.yaml` is a
+complete valid example (640x480, 60 mm baseline) used by both sides' tests; `stereo_invalid_rms.yaml` is the same with
+`rms: 0.9`.
+
+| Key | Type | Shape | Meaning |
+|---|---|---|---|
+| `image_width`, `image_height` | int | - | size the calibration was recorded at |
+| `rms` | real | - | stereo reprojection RMS, px (must be <= `calibration.max_rms_px`) |
+| `baseline_m` | real | - | metres, 0.03-0.12, equal to the norm of `T` within 1 % |
+| `K_left`, `K_right` | double | 3x3 | unrectified camera matrices |
+| `D_left`, `D_right` | double | 1x5 (or 1x8) | distortion k1 k2 p1 p2 k3 |
+| `R`, `T` | double | 3x3, 3x1 | right camera relative to left (`T[0] < 0`, metres) |
+| `R1`, `R2` | double | 3x3 | rectification rotations (`cv::stereoRectify`, alpha 0) |
+| `P1`, `P2` | double | 3x4 | rectified projections, `P2(0,3) = -fx * baseline_m` |
+| `Q` | double | 4x4 | disparity-to-depth matrix |
+
+Every key is required. depthd rejects the file, keeping the reason for `/health`, on: a missing key or wrong matrix
+shape, a non-finite value, a non-positive focal length, `rms` above `calibration.max_rms_px`, `baseline_m` outside
+0.03-0.12 m or more than 1 % away from the norm of `T`, or an aspect ratio more than 1 % away from the processing size.
+A valid file recorded at another resolution with the same aspect (for example 1280x960 for 640x480) is scaled to the
+processing size: K, P (rows 0 and 1) and Q (column 3) scale with the size ratio; D, R, T and the baseline do not.
+
+`depthd::Rectifier` loads the file once, builds the `initUndistortRectifyMap` maps, uploads them, and rectifies a
+`GpuMat` pair with `cv::cuda::remap` (linear). `snapshot()` exposes the rectified left `P`, the baseline, `Q` and the
+unrectified left `K`/`D` for camera_info. With a missing or invalid file the rectifier is `uncalibrated`, `reason()`
+says why, and `rectify()` writes nothing, so no depth is produced. `reload()` re-reads the file and swaps the maps
+atomically (a bad file on reload makes it `uncalibrated` too).
