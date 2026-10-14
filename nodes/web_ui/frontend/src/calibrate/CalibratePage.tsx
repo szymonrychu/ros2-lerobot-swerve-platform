@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { TOUCH_TARGET_PX } from '../theme'
 import { clearCalibrateHash } from './calibrateRoute'
+import { ImuCalibration } from './ImuCalibration'
 import { StereoCalibration } from './StereoCalibration'
 
 /** Body of GET /api/calibration/config: which calibration sections this robot offers. */
@@ -27,17 +28,6 @@ async function loadConfig(): Promise<LoadState> {
   if (!res.ok) return { kind: 'error', message: `HTTP ${res.status}` }
   const body = (await res.json()) as Partial<CalibrationConfig>
   return { kind: 'ready', config: { stereo: body.stereo === true, imu: body.imu === true } }
-}
-
-/** Section slots: the stereo and IMU calibration sections replace these headings. */
-function Section({ title }: { title: string }) {
-  return (
-    <Box component="section" sx={{ mb: 2 }}>
-      <Typography variant="h6" component="h2">
-        {title}
-      </Typography>
-    </Box>
-  )
 }
 
 interface Props {
@@ -80,7 +70,7 @@ export function CalibratePage({ onBack }: Props) {
       {state.kind === 'ready' && (
         <>
           {state.config.stereo && <StereoCalibration />}
-          {state.config.imu && <Section title="IMU calibration" />}
+          {state.config.imu && <ImuCalibration />}
           <Typography color="text.secondary">Arm calibration - deferred</Typography>
         </>
       )}

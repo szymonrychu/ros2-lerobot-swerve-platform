@@ -454,6 +454,12 @@ Routes (all under `/api/calibration`):
     `200 {"ok": true, "message"}`, a refusal (e.g. mag not 3, robot moving) `409 {"ok": false, "message"}`, an unavailable
     service `503`, a timeout (`imu_service_timeout_s`) `504`.
 
+Frontend (`frontend/src/calibrate/`):
+- Entry: a **Calibrate** item in the hamburger menu on every layout (phone, tablet, desktop). It sets the hash `#/calibrate` and shows the page instead of the tabs; no tab is stored. Loading with `#/calibrate` opens it directly; **Back** clears the hash and returns to the stored tab. `CalibratePage` reads `GET /api/calibration/config` (404 shows "Calibration page not configured on this robot"), then renders the Stereo section when `stereo` is true, the IMU section when `imu` is true, and a static "Arm calibration - deferred" line (arm calibration is deferred).
+- **Stereo section** (`StereoCalibration.tsx`, calls in `stereoApi.ts`): live left/right preview (at most 2 Hz, both images pinned to one `seq`) with per-side corner counts and `shared N / needed M`; **Capture pair**; the capture list with thumbnails; **Delete captures**, which opens a confirm dialog ("Delete all captures and the active calibration? Depth stops until you solve again.") and only then sends `DELETE ... ?confirm=true`; **Solve** (enabled from `min_pairs_to_solve` captures), polling the job until written, refused, failed or timeout and showing the rms values and pair counts.
+- **IMU section** (`ImuCalibration.tsx`, calls and pure helpers in `imuApi.ts`): **Calibrate IMU** starts the flow; the section then polls `GET /api/calibration/imu` at 1 Hz (only while the browser tab is visible) and shows sys, gyro, accel and mag as 0-3 levels (green at 3, amber at 2, red at 0-1) plus the restored flag, with guidance per subsystem (gyro: keep still; accel: a few static poses, lifting the robot; mag: rotate or drive figure-eights away from motors). A 503 (no sample yet, stale) shows the server message instead of levels; values are never zeros as if measured. **Save offsets** (enabled when mag is 3) calls `POST /imu/save` and shows the message; a 409 shows the node's reason. **Reset IMU calibration** opens a confirm dialog ("The IMU forgets its calibration and starts from zero.") and calls `POST /imu/reset` only on confirm.
+- vitest: `calibrateRoute.test.ts`, `CalibrateRouting.test.tsx`, `CalibratePage.test.tsx` (T39), `stereoApi.test.ts`, `StereoCalibration.test.tsx` (T40), `imuApi.test.ts`, `ImuCalibration.test.tsx` (T41).
+
 Errors are honest: an unreachable depthd answers `502`, a timeout `504`, both
 `{"ok": false, "message": "Jetson depthd unreachable at <url>: <reason>"}`. Nothing is cached, synthesized or defaulted.
 
@@ -496,7 +502,7 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 # Python tests
 cd nodes/web_ui && uv sync && uv run pytest tests/ -v
 
-# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/poi/*.test.ts, src/grasp/*.test.ts(x), src/tabSelection.test.ts, src/agent/*.test.ts)
+# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/poi/*.test.ts, src/grasp/*.test.ts(x), src/tabSelection.test.ts, src/agent/*.test.ts, src/calibrate/*.test.ts(x))
 cd nodes/web_ui/frontend && npx tsc --noEmit && npm test
 
 # Frontend dev server (hot reload, proxies /api and /ws to localhost:8080)
