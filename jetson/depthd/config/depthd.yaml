@@ -33,7 +33,7 @@ postprocess:                   # every key under postprocess is [live]
     enabled: true
   speckle:
     enabled: true
-    max_size: 200              # speckle blobs up to this many pixels are removed
+    max_size: 200              # speckle blobs smaller than this many pixels are removed
     max_diff: 1
   bilateral:
     enabled: true
