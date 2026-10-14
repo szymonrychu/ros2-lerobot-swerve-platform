@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
-add_compile_options(-Wall -Wextra -Wpedantic)
+add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall$<SEMICOLON>-Wextra$<SEMICOLON>-Wpedantic>)
 
 # ---- dependencies (Jetson Nano: Ubuntu 20.04, L4T R32.6.1, gcc 8.4, CUDA 10.2, TensorRT 8.0.1) ----
 find_package(OpenCV 4.8 REQUIRED COMPONENTS
@@ -35,7 +35,13 @@ find_package(vpi 1.1 REQUIRED)  # NVIDIA VPI 1.1 (C API, CUDA backend), target "
 
 # libSGM 3.1.0 (pinned tag), built for the Nano's sm_53 only, no samples or tests.
 include(FetchContent)
-set(CMAKE_CUDA_COMPILER ${CUDA_HOME}/bin/nvcc CACHE FILEPATH "CUDA compiler for libSGM")
+set(CMAKE_CUDA_COMPILER ${CUDA_HOME}/bin/nvcc CACHE FILEPATH "CUDA compiler for libSGM and src/*.cu")
+# depthd's own kernels (post-processing): nvcc 10.2 stops at C++14, sm_53, and the runtime stays shared like the
+# cudart linked below.
+set(CMAKE_CUDA_STANDARD 14)
+set(CMAKE_CUDA_ARCHITECTURES 53)
+set(CMAKE_CUDA_RUNTIME_LIBRARY Shared)
+enable_language(CUDA)
 set(CUDA_ARCHS 53 CACHE STRING "libSGM device code architectures" FORCE)
 set(ENABLE_SAMPLES OFF CACHE BOOL "" FORCE)
 set(ENABLE_TESTS OFF CACHE BOOL "" FORCE)
@@ -56,7 +62,7 @@ target_include_directories(depth_wire PUBLIC ${ROS2_COMMON_CPP_DIR}/include)
 target_link_libraries(depth_wire PUBLIC PkgConfig::ZSTD)
 
 # ---- libdepthd: every src/*.cpp except the two mains ----
-file(GLOB DEPTHD_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+file(GLOB DEPTHD_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu)
 list(FILTER DEPTHD_SOURCES EXCLUDE REGEX "/(main|bench_main)\\.cpp$")
 add_library(depthd_lib STATIC ${DEPTHD_SOURCES})
 set_target_properties(depthd_lib PROPERTIES OUTPUT_NAME depthd)

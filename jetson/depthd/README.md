@@ -9,7 +9,7 @@ ROS 2 bridge on the Pi. This keeps stereo work off the saturated Pi 5 CPU.
 
 ```
 CMakeLists.txt        finds and links every dependency; globs src/*.cpp and test/test_*.cpp
-include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification; matcher.hpp, depth.hpp: matching and depth)
+include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification; matcher.hpp, depth.hpp: matching and depth; postprocess.hpp, temporal.hpp: disparity post-processing)
 src/                  library sources; main.cpp -> depthd and bench_main.cpp -> depthd-bench when present
 config/depthd.yaml    the one example and default config (equals the struct defaults)
 test/                 gtest binaries, one per test_*.cpp
@@ -253,3 +253,40 @@ Z_mm = 0   where Z_mm < round(min_depth_m * 1000) or Z_mm > round(max_depth_m * 
 (`Rectification::baseline_m()`). Example: f 400 px, B 60 mm, disparity 40 px gives 600 mm. Tests:
 `test/test_depth.cpp` (exact values, every invalid case, saturation) and `test/test_matcher.cpp` (a textured pair
 shifted by 40 px gives 600 mm within 2% on at least 90% of the interior for `cuda_sgm`, `vpi` and `libsgm` at 64 and 128 disparities).
+
+## Post-processing
+
+`include/depthd/postprocess.hpp`: `PostProcessor(config, matcher_native_lr_check)` cleans the matcher's `CV_16SC1`
+disparity * 16 map in place (invalid <= 0). `run(disp, left, right_disp, stream)` takes the rectified left image
+(`CV_8UC1`) as guidance and, only when `lr_check` is on and the matcher has no native check (`needs_right_disparity()`),
+the right-referenced disparity from `compute_right_disparity(matcher, left, right)` (both images mirrored and swapped
+through any matcher). A missing `right_disp` throws `std::invalid_argument`; the check is never silently skipped.
+
+Stages run in this order, each only when its `postprocess.*` switch is on (all [live]: `set_postprocess` takes effect
+on the next run). A disabled stage launches nothing, records no event and reports `ran=false, ms=0`. Every stage that
+runs writes 0 for invalid pixels. `timings()` returns, per stage, the last run's cost and the mean over the runs it ran
+in, measured with CUDA events on the run's stream (filters are built on first use, outside the timed window).
+
+| Stage | Config | What it does | Cost, 640x480 Nano |
+|---|---|---|---|
+| `lr_check` | `lr_check.enabled`, `max_diff` (px) | invalid when `abs(dL(x) - dR(x - dL)) > max_diff`, when the right pixel is invalid or when `x - dL` is outside the image. Skipped when `supports_lr_check()` (libsgm checks inside) | 0.4 ms |
+| `confidence` | `confidence.enabled` | invalid unless 1 px <= d < `num_disparities - 1` px (saturated at the search range) and the partner pixel lies inside the right image. Uniqueness itself is inside the matcher (`processing.uniqueness_ratio`) | 0.2 ms |
+| `speckle` | `speckle.enabled`, `max_size`, `max_diff` (px) | 4-connected regions of valid pixels whose neighbours differ by at most `max_diff` and that hold fewer than `max_size` pixels become invalid (CUDA label equivalence, one flag read back per iteration) | 5.5 ms |
+| `bilateral` | `bilateral.enabled` | `cv::cuda::DisparityBilateralFilter` (radius 3, 1 iteration, `ndisp = num_disparities * 16`) guided by the left image: it snaps disparity edges to image edges. Pixels that were invalid stay 0 | 1.5 ms |
+| `hole_fill` | `hole_fill.enabled`, `max_hole_px` | 4-connected invalid regions of at most `max_hole_px` pixels are filled, each pixel from the first valid pixel in each of 4 directions whose left-image grey is closest to its own (edge aware; ties take the smaller disparity). Larger holes stay 0: prefer invalid over wrong | 3.5 ms |
+| `wls` | `wls.enabled` (off by default) | ximgproc WLS filter on the CPU (lambda 8000, sigma 1.5). Invalid pixels are first filled with a local mean so they do not drag neighbours, and set back to 0 afterwards | CPU |
+| `temporal` | `temporal.enabled`, `alpha`, `motion_threshold` | `TemporalFilter`, see below | 0.4 ms |
+
+Costs are the measured means of the synthetic 640x480 run in the test suite's style (random disparity with holes); the
+real figures are in `/metrics` of the running service.
+
+`TemporalFilter(alpha, motion_threshold)` (`include/depthd/temporal.hpp`) is a per-pixel EMA on valid pixels:
+`out = alpha * new + (1 - alpha) * history`. Motion is the grey frame difference of the left image (no odometry, D4):
+where `abs(grey - previous grey) > motion_threshold` the history is dropped and the new value passes through. The
+first frame, `reset()`, a size change and switching the stage off also drop history. An invalid pixel stays invalid and
+loses its history, so the filter never turns an invalid pixel valid. `PostProcessor` runs it last and owns one; it can
+also be used alone.
+
+`src/postprocess_kernels.cu` holds the kernels (raw device pointers, nvcc 10.2 at C++14); `CMakeLists.txt` enables the
+CUDA language for it (sm_53, shared cudart). Tests: `test/test_postprocess.cpp` (every stage, toggles, order, timing
+flags, bad inputs) and `test/test_temporal.cpp`.
