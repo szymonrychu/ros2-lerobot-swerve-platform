@@ -82,8 +82,8 @@ Calibration procedure:
 
 ## ros2_common_cpp (C++)
 
-An ament_cmake package with two plain library targets, `ros2_common_cpp::config` and `ros2_common_cpp::metrics`. Neither
-links rclcpp, so a node's pure-logic library can use them. Headers are in
+An ament_cmake package with three plain library targets, `ros2_common_cpp::config`, `ros2_common_cpp::metrics` and
+`ros2_common_cpp::depth_wire`. None links rclcpp, so a node's pure-logic library can use them. Headers are in
 [include/ros2_common_cpp/](ros2_common_cpp/include/ros2_common_cpp/); C++17; formatted with the root `.clang-format`
 (ament style, 120 columns).
 
@@ -163,6 +163,30 @@ and CI address packages by it. The package contains `package.xml`, `CMakeLists.t
    - The poe tasks `test-cpp` and `lint-cpp` find the package through their `nodes/*_cpp` glob.
    - Verify with `./scripts/cpp-node-test.sh <name>_cpp`.
 
+### depth_wire (`depth_wire.hpp`, libzstd)
+
+The one definition of the Jetson-to-Pi depth wire format, used by `jetson/depthd` (which compiles
+`src/depth_wire.cpp` itself, gcc 8.4) and `nodes/jetson_bridge_cpp` (which links `ros2_common_cpp::depth_wire`). It
+depends only on the C++17 standard library and libzstd: no rclcpp, OpenCV or ZeroMQ.
+
+A message is ZeroMQ multipart `[topic frame, header frame, payload frame]`:
+
+| Topic | Payload |
+|---|---|
+| `depth`, `fused` | one zstd frame of `width*height` little-endian uint16 millimetres (0 = invalid, 65535 kept) |
+| `rgb` | one JPEG, carried unchanged |
+
+The header is a fixed `kHeaderSize` (380 byte) little-endian layout, written field by field (never a struct memcpy):
+magic `DPW1`, u16 version (1), u8 kind (0 depth, 1 fused, 2 rgb), reserved, u64 sequence, i64 capture_realtime_ns
+(left), i64 right_minus_left_ns, u32 width, u32 height, u8 length + 63 bytes frame_id, f64 K[9], D[5], P[12],
+baseline_m, u8 calibrated (+7 pad), f32 pipeline_fps, f32 stage_ms for capture/rectify/match/post/mono/encode, u64
+pairs_dropped_total, f32 gpu_temp_c (+4 pad), u64 nvgpu_errors_total.
+
+`encode_depth`, `encode_rgb` and `encode_header` build the frames; `decode` returns an error string and an empty
+`Decoded` (never a partial header) for a wrong magic, unknown version, truncated or oversized header, unknown topic,
+a header kind that disagrees with the topic, or a `width*height` that does not match the decompressed payload.
+Tests: `test/test_depth_wire.cpp`.
+
 ### Tests (gtest, run by `./scripts/cpp-node-test.sh ros2_common_cpp`)
 
 | File | Test | Covers |
@@ -176,6 +200,7 @@ and CI address packages by it. The package contains `package.xml`, `CMakeLists.t
 | | `LoadConfigCollectsFileErrors`, `LoadConfigEmptyFileIsAnEmptyMapping` | Missing file, invalid YAML, non-mapping root, empty file. |
 | | `LoadConfigOrExitReturnsTheValidRoot` | The success path returns the parsed root. |
 | | `ConfigDeathTest.InvalidConfigLogsEveryErrorAndExits78`, `MissingFileFromDefaultPathExits78` | Exit code 78, every error logged (death tests). |
+| `test/test_depth_wire.cpp` | `DepthWire.*` | Header round trip of every field, depth round trip keeping 0 and 65535, zstd smaller than raw, rgb JPEG unchanged, each rejection case. |
 | `test/test_metrics.cpp` | `NodeInfoExactText`, `StartTimeIsNowInEpochSeconds` | The exact line `robot_node_info{node="x"} 1`, gauge types, start time close to now. |
 | | `LabelValuesAreEscaped` | `"`, `\` and newline in label values are escaped. |
 | | `CountersAndGaugesWithLabels` | Labelled children, the same child returned for the same labels. |

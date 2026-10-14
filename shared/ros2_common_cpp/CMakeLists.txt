@@ -12,6 +12,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(prometheus-cpp CONFIG REQUIRED)
+find_path(ZSTD_INCLUDE_DIR zstd.h REQUIRED)
+find_library(ZSTD_LIBRARY zstd REQUIRED)
 
 # Two plain libraries without the ROS client library: a node's pure-logic target links them without ROS.
 add_library(config src/config.cpp)
@@ -30,8 +32,18 @@ target_include_directories(metrics PUBLIC
 target_link_libraries(metrics PUBLIC prometheus-cpp::core prometheus-cpp::pull)
 set_target_properties(metrics PROPERTIES OUTPUT_NAME ${PROJECT_NAME}_metrics POSITION_INDEPENDENT_CODE ON)
 
+# Wire format shared by depthd (Jetson) and the Pi bridge: standard library and libzstd only.
+add_library(depth_wire src/depth_wire.cpp)
+add_library(${PROJECT_NAME}::depth_wire ALIAS depth_wire)
+target_include_directories(depth_wire PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
+target_include_directories(depth_wire PRIVATE ${ZSTD_INCLUDE_DIR})
+target_link_libraries(depth_wire PUBLIC ${ZSTD_LIBRARY})
+set_target_properties(depth_wire PROPERTIES OUTPUT_NAME ${PROJECT_NAME}_depth_wire POSITION_INDEPENDENT_CODE ON)
+
 install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
-install(TARGETS config metrics EXPORT export_${PROJECT_NAME}
+install(TARGETS config metrics depth_wire EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
@@ -49,6 +61,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_config config)
   ament_add_gtest(test_metrics test/test_metrics.cpp)
   target_link_libraries(test_metrics metrics)
+  ament_add_gtest(test_depth_wire test/test_depth_wire.cpp)
+  target_link_libraries(test_depth_wire depth_wire)
 endif()
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
