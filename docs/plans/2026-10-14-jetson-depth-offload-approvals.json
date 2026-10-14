@@ -103,5 +103,28 @@
       "T30"
     ],
     "status": "approved"
+  },
+  {
+    "id": "A8",
+    "text": "Hidden Calibrate page: stereo (preview with detection quality, synchronized pair capture to Jetson disk, cleanup, solve from captured pairs) and IMU calibration; arm calibration deferred by the user",
+    "decisions": [
+      "D10"
+    ],
+    "tasks": [
+      "T31",
+      "T32",
+      "T33",
+      "T34",
+      "T35",
+      "T36",
+      "T37",
+      "T38",
+      "T39",
+      "T40",
+      "T41",
+      "T42",
+      "T43"
+    ],
+    "status": "approved"
   }
 ]

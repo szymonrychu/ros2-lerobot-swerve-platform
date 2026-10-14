@@ -122,6 +122,7 @@ Why: the Pi 5 CPU is saturated and its stereo pipeline never produced depth; the
 | D7 Retire the Pi stereo pipeline | T24, T25, T26, T27 |
 | D8 Network and time | T3, T4, T5 |
 | D9 Calibration tool | T10, T14, T20 |
+| D10 Hidden Calibrate page (stereo and IMU; arm deferred) | T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43 |
 
 ## Contracts
 
@@ -142,6 +143,16 @@ A contract is a shared part: one owner task lists it in `owns`, every consumer l
 | `jetson-deploy-playbook` | T5 | T6, T19 | `ansible/playbooks/deploy_nodes_jetson.yml` |
 | `depthd-onnx-models` | T17 | T18, T19 | `jetson/models/export_onnx.py` |
 | `depthd-calibration-tool` | T20 | T19 | `jetson/calibrate/stereo_calibrate/calibrate.py` |
+| `depthd-charuco-detect` | T31 | T35 | `jetson/depthd/include/depthd/charuco_detect.hpp` |
+| `calibration-captures-manifest` | T31 | T33, T35 | `jetson/depthd/include/depthd/capture_store.hpp` |
+| `calibration-solve-result` | T33 | T34 | `jetson/calibrate/stereo_calibrate/captures.py` |
+| `depthd-solve-job` | T34 | T35 | `jetson/depthd/include/depthd/solve_job.hpp` |
+| `depthd-calibration-api` | T35 | T36, T43 | `jetson/depthd/include/depthd/calibration_api.hpp` |
+| `web-ui-calibration-config` | T36 | T38, T42 | `nodes/web_ui/web_ui/config.py` |
+| `web-ui-stereo-calibration-api` | T36 | T40, T43 | `nodes/web_ui/web_ui/calibration_proxy.py` |
+| `imu-calibration-services` | T37 | T38, T42 | `nodes/bridges/bno055_imu/bno055_imu/config.py` |
+| `web-ui-imu-calibration-api` | T38 | T41, T43 | `nodes/web_ui/web_ui/imu_calibration.py` |
+| `calibrate-page-shell` | T39 | T40, T41 | `nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx` |
 
 - `depth-wire-format`: ZeroMQ multipart [topic `depth`|`fused`|`rgb`, versioned little-endian header `DPW1`, payload
   zstd uint16 mm or JPEG]; constants 5550 and 8090. The HTTP API (`/health`, `/config` GET/PUT, `/calibration`,
@@ -1399,6 +1410,542 @@ Expected: both recaps `failed=0`, last e2e line `jetson-e2e: PASS ...`, results 
 **Notes:** Agent-runnable end to end; the only human step (calibration with a printed board) is the user's and is documented in jetson/calibrate/README.md. The client deploy waits for an idle claude_agent (max 15 min); never pass ros2_deploy_ignore_agent.
 
 
+### Task 31: depthd ChArUco detector with overlay and the atomic calibration capture store
+
+**Files:**
+- Create: `jetson/depthd/include/depthd/charuco_detect.hpp`, `jetson/depthd/src/charuco_detect.cpp`, `jetson/depthd/include/depthd/capture_store.hpp`, `jetson/depthd/src/capture_store.cpp`, `jetson/depthd/test/test_charuco_detect.cpp`, `jetson/depthd/test/test_capture_store.cpp`, `jetson/depthd/test/fixtures/captures_manifest.json`
+- Test: `jetson/depthd/test/test_charuco_detect.cpp`, `jetson/depthd/test/test_capture_store.cpp`
+
+**Interfaces:**
+- Consumes: depthd-calibration-tool board settings in jetson/calibrate/config/calibrate.yaml (T20), depthd-build-layout (T8).
+- Produces: depthd::BoardSpec load_board_spec(path); depthd::CharucoDetector::detect(grey) -> {corner_ids, corners, marker_count}; draw_overlay(grey, detection, width) -> BGR image; shared_corner_count(left, right); depthd::CaptureStore (add_pair, list, image_path, clear, count) with manifest.json.
+
+**Ownership:**
+- owns: depthd-charuco-detect, calibration-captures-manifest
+- uses: depthd-calibration-tool, depthd-build-layout
+- dependsOn: T30, T20
+- model: sonnet
+
+**Requirement:**
+- load_board_spec reads the board from the calibration tool's calibrate.yaml (squares_x, squares_y, square_mm, marker_mm, dictionary - the key names of T20's config model) with yaml-cpp; a missing file, missing key or unknown dictionary name throws with a message naming the path and key. The board is defined in one place: depthd never carries its own board numbers.
+- CharucoDetector uses OpenCV 4.8 cv::aruco::CharucoDetector (objdetect) on a grey 8-bit image and returns the detected ChArUco corner ids and sub-pixel positions plus the marker count; an image without the board returns zero corners (never throws, never invents corners). shared_corner_count counts the corner ids present in both detections.
+- draw_overlay returns a BGR copy scaled to the requested width (aspect kept) with the detected markers and corners drawn (cv::aruco::drawDetectedMarkers / drawDetectedCornersCharuco) and a text line `corners N`; with no detection it returns the scaled image with `no board` written on it.
+- CaptureStore(root) keeps each pair in <root>/<id>/ with left.png and right.png (8-bit grey, lossless, the size given) and meta.json; id is `YYYYMMDDTHHMMSSZ-<seq>` (UTC, monotonic seq). add_pair writes into <root>/.tmp-<id>/, fsyncs, renames the directory into place, then rewrites <root>/manifest.json atomically (temp file + rename) - a crash leaves either the whole pair listed or nothing listed; leftover .tmp-* directories are removed when the store opens.
+- manifest.json is {version: 1, board: {squares_x, squares_y, square_mm, marker_mm, dictionary}, captures: [{id, created_utc, capture_realtime_ns, width, height, left: {file, corners}, right: {file, corners}, shared_corners}]}; jetson/depthd/test/fixtures/captures_manifest.json is the canonical example, checked by test_capture_store.cpp here and by T33's Python reader (cross-language contract check, like stereo_valid.yaml).
+- list() returns the captures in manifest order; clear() removes every capture directory and the manifest and returns the count removed; add_pair refuses (returns an error, writes nothing) when max_captures is reached.
+- test_charuco_detect.cpp: a board rendered with CharucoBoard::generateImage from the repo's calibrate.yaml and warped into a 640x480 frame yields at least 20 of the 24 inner corners; a blank and a noise image yield 0; shared_corner_count of a frame and its 40-px shifted copy equals the corners visible in both; overlay width and the `no board` path; a missing key in a copied calibrate.yaml throws naming the key; detection time at 640x480 is printed and stays under 250 ms on the Jetson.
+- test_capture_store.cpp: add, list, reopen and list again; the fixture manifest parses and its keys equal what add_pair writes; an interrupted write (a .tmp- directory left behind) is not listed and is removed on open; clear removes everything; the max_captures refusal.
+
+**Value:** depthd can see the board and keep good calibration photos safely on the Jetson disk.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(depthd): ChArUco detection overlay and calibration capture store`
+
+**Verify:**
+```
+rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+```
+Expected: ctest ends with `100% tests passed, 0 tests failed`.
+**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts.
+
+### Task 32: depthd calibration-page config keys and the jetson_depthd role defaults
+
+**Files:**
+- Modify: `jetson/depthd/include/depthd/config.hpp`, `jetson/depthd/src/config.cpp`, `jetson/depthd/config/depthd.yaml`, `jetson/depthd/test/test_config.cpp`, `ansible/roles/jetson_depthd/defaults/main.yml`, `tests/test_jetson_depthd_role.py`, `ansible/README.md`
+- Test: `jetson/depthd/test/test_config.cpp`, `tests/test_jetson_depthd_role.py`
+
+**Interfaces:**
+- Consumes: depthd-config-schema (T8), the jetson_depthd role defaults and template-key test (T19).
+- Produces: config keys calibration.captures_dir, board_config, preview_hz, preview_width, preview_jpeg_quality, preview_idle_s, min_shared_corners, min_pairs_to_solve, max_captures, max_pair_age_ms, solve_python, solve_tool_dir, solve_timeout_s; depthd_config defaults with the same keys.
+
+**Ownership:**
+- owns: none
+- uses: depthd-config-schema, jetson-depthd-role
+- dependsOn: T31
+- model: sonnet
+
+**Requirement:**
+- The `calibration` section gains, with these defaults, in config.hpp/config.cpp and config/depthd.yaml (commented): captures_dir /var/lib/depthd/calibration/captures, board_config /opt/depthd/calibrate/config/calibrate.yaml, preview_hz 2.0, preview_width 320, preview_jpeg_quality 70, preview_idle_s 10, min_shared_corners 12 (the T20 capture rule), min_pairs_to_solve 10, max_captures 60, max_pair_age_ms 200, solve_python /usr/bin/python3, solve_tool_dir /opt/depthd/calibrate, solve_timeout_s 600. The existing path and max_rms_px keys are unchanged.
+- Validation rejects with a message naming the key: preview_hz <= 0 or > 10, preview_width not in 160-1640, preview_jpeg_quality outside 1-100, min_shared_corners < 6, min_pairs_to_solve < 3, max_captures < min_pairs_to_solve, max_pair_age_ms <= 0, solve_timeout_s <= 0, relative paths. None of the new keys is runtime_mutable (PUT /config answers 409 for them).
+- ansible/roles/jetson_depthd/defaults/main.yml depthd_config gets the same keys and values, so T19's template-key equality test keeps passing; tests/test_jetson_depthd_role.py additionally pins that captures_dir is under /var/lib/depthd (the depthd user owns that directory, T6; depthd creates captures_dir itself) and that solve_tool_dir equals the role's calibrate install path (/opt/depthd/calibrate).
+- test_config.cpp: defaults, each rejection above, and 409 classification for a new key.
+- ansible/README.md documents the new depthd_config keys in the Jetson section.
+
+**Value:** Every Calibrate-page knob is in one validated config file deployed by Ansible.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(depthd): config keys for the calibration page`
+
+**Verify:**
+```
+rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure' && uv run pytest tests/test_jetson_depthd_role.py -q && uv run poe lint && uv run poe test-ansible
+```
+Expected: ctest `100% tests passed`, pytest all passed, ruff clean, ansible-lint `0 failure(s)`.
+**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts. ansible/inventory is gitignored: copy the main checkout's file into the worktree before poe test-ansible; never commit it.
+
+### Task 33: Calibration tool: solve from depthd's stored captures with a machine-readable result
+
+**Files:**
+- Create: `jetson/calibrate/stereo_calibrate/captures.py`, `jetson/calibrate/tests/test_captures.py`
+- Modify: `jetson/calibrate/stereo_calibrate/calibrate.py`, `jetson/calibrate/README.md`
+- Test: `jetson/calibrate/tests/test_captures.py`
+
+**Interfaces:**
+- Consumes: calibration-captures-manifest (T31, fixture jetson/depthd/test/fixtures/captures_manifest.json), the T20 solve and RMS gate, stereo-calibration-format (T10).
+- Produces: `python3 -m stereo_calibrate solve-captures --captures <dir> --out <stereo.yaml> --result <result.json>`; the calibration-solve-result JSON.
+
+**Ownership:**
+- owns: calibration-solve-result
+- uses: calibration-captures-manifest, depthd-calibration-tool, stereo-calibration-format
+- dependsOn: T31, T20
+- model: sonnet
+
+**Requirement:**
+- captures.py reads manifest.json (pydantic model of the T31 format; version must be 1), loads each listed pair's PNGs, and feeds them to the existing T20 detection and solve functions (reused by import, never copied); a pair whose file is missing or unreadable is skipped and counted, never silently replaced.
+- The `solve-captures` subcommand writes the calibration in the T10 format atomically to --out only when rms <= the calibrate.yaml gate (0.5 px), never calls POST /calibration/reload (depthd reloads in-process), and always writes --result atomically as JSON {version: 1, status: written|refused|failed, rms, rms_left, rms_right, baseline_mm, pairs_total, pairs_used, pairs_skipped, image_size, message, out_path}; exit code 0 written, 3 refused (above the gate, --out untouched), 2 failed (fewer than 3 usable pairs, unreadable manifest, board mismatch between manifest and calibrate.yaml). Fields that were not computed are null, never 0.
+- The result schema is defined once in captures.py (pydantic model SolveResult) and documented in the README; T34 parses exactly these keys.
+- Runs on the Jetson's Python 3.8 with system OpenCV 4.8 and numpy 1.18 (no new dependency).
+- test_captures.py: the T31 fixture manifest parses; 20 synthetic rendered pairs (the T20 virtual stereo rig) written as a captures directory solve with status written, baseline within 1% and rms < 0.5, and --out has the stereo_valid.yaml keys; added noise gives refused, exit 3 and --out untouched; 2 pairs give failed with a message; a missing PNG is skipped and counted; a board mismatch fails naming the field.
+- README.md gains 'Calibrating from the web UI': open the hamburger menu, Calibrate; aim the e-reader board until both previews show corners and the shared count is at least 12; Capture pair while moving the board through the view (corners, tilt, distance) until at least min_pairs_to_solve; Solve; read the rms; Delete clears captures and the active calibration. The CLI capture/solve procedure stays as the fallback.
+
+**Value:** The web UI's Solve button reuses the tested calibration code instead of a second implementation.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(calibrate): solve from depthd stored captures with a JSON result`
+
+**Verify:**
+```
+cd jetson/calibrate && uv run --frozen --python 3.8 pytest -q && uv run --frozen poe lint
+```
+Expected: pytest all passed under Python 3.8 and ruff clean.
+**Notes:** Mac-only task (synthetic images); the tool is a tool, not a node, so Python is allowed (design constraint). Can run in parallel with T32.
+
+### Task 34: depthd solve job: run the calibration tool on stored captures, gate and activate
+
+**Files:**
+- Create: `jetson/depthd/include/depthd/solve_job.hpp`, `jetson/depthd/src/solve_job.cpp`, `jetson/depthd/test/test_solve_job.cpp`, `jetson/depthd/test/fixtures/fake_solve.py`
+- Test: `jetson/depthd/test/test_solve_job.cpp`
+
+**Interfaces:**
+- Consumes: calibration-solve-result (T33), depthd-config-schema calibration.* keys (T32).
+- Produces: depthd::SolveJob (start, status, running) with states idle|running|written|refused|failed|timeout and an on_written reload callback.
+
+**Ownership:**
+- owns: depthd-solve-job
+- uses: calibration-solve-result, depthd-config-schema
+- dependsOn: T32, T33
+- model: sonnet
+
+**Requirement:**
+- SolveJob::start(captures_dir) spawns `<solve_python> -m stereo_calibrate solve-captures --captures <captures_dir> --out <calibration.path> --result <tmp result>` with PYTHONPATH=<solve_tool_dir>, nice 10, stdout/stderr captured (last 4 KiB kept for the status), via posix_spawn or fork/exec (no shell); only one job at a time - start while running returns false.
+- status() returns {state, started_utc, finished_utc, rms, rms_left, rms_right, baseline_mm, pairs_used, pairs_skipped, message, log_tail}; the numbers come only from the result file (T33 schema, nlohmann-json), null when absent. A missing or malformed result file is state failed with the reason; exit 3 is refused (file untouched, the previous calibration stays active); after solve_timeout_s the child is killed (SIGTERM, then SIGKILL after 5 s) and the state is timeout.
+- On state written the job calls the on_written callback once (wired to the calibration reload in T35); refused, failed and timeout never call it.
+- The job runs on its own thread and never blocks the pipeline or the HTTP thread; the destructor kills a running child.
+- test_solve_job.cpp uses fixtures/fake_solve.py (a stand-in for the tool, selected by setting solve_python to python3 and PYTHONPATH to the fixtures directory; it reads an env var to write a written, refused or malformed result, sleep, or exit non-zero) and asserts every state, the single-job rule, the timeout kill, the callback only on written, and null fields when the result omits them.
+
+**Value:** The Solve button runs the real calibration on the Jetson and only a good result is activated.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(depthd): calibration solve job`
+
+**Verify:**
+```
+rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+```
+Expected: ctest ends with `100% tests passed, 0 tests failed`.
+**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts. The fake tool is test-only; it is never installed by Ansible.
+
+### Task 35: depthd calibration endpoints: preview with detection, capture pair, list, delete, solve
+
+**Files:**
+- Create: `jetson/depthd/include/depthd/calibration_api.hpp`, `jetson/depthd/src/calibration_api.cpp`, `jetson/depthd/test/test_calibration_api.cpp`
+- Modify: `jetson/depthd/include/depthd/http_api.hpp`, `jetson/depthd/src/http_api.cpp`, `jetson/depthd/src/main.cpp`, `jetson/depthd/README.md`
+- Test: `jetson/depthd/test/test_calibration_api.cpp`
+
+**Interfaces:**
+- Consumes: depthd-http-api and its latest-unrectified-pair source used by GET /calibration/capture (T14, T15), depthd-charuco-detect and calibration-captures-manifest (T31), depthd-solve-job (T34), calibration.* config (T32).
+- Produces: HTTP on 8090: GET /calibration/preview, GET /calibration/preview/{left|right}.jpg, POST /calibration/captures, GET /calibration/captures, GET /calibration/captures/{id}/{left|right}.jpg, DELETE /calibration/captures?confirm=true, POST /calibration/solve, GET /calibration/solve.
+
+**Ownership:**
+- owns: depthd-calibration-api
+- uses: depthd-http-api, depthd-charuco-detect, calibration-captures-manifest, depthd-solve-job, depthd-config-schema, depthd-pipeline
+- dependsOn: T34
+- model: sonnet
+
+**Requirement:**
+- CalibrationApi registers its routes on the HttpApi's server through one new HttpApi hook (http_api.hpp/.cpp) and reads pairs from the same latest-unrectified-pair source as GET /calibration/capture; main.cpp wires the detector (board from calibration.board_config), the CaptureStore at calibration.captures_dir (created if missing) and the SolveJob, whose on_written reloads the calibration exactly like POST /calibration/reload.
+- Preview: GET /calibration/preview returns JSON {seq, capture_realtime_ns, age_ms, left: {corners, markers}, right: {corners, markers}, shared_corners, min_shared_corners, capturable, captures, min_pairs_to_solve}; GET /calibration/preview/{left|right}.jpg returns image/jpeg of that seq with the T31 overlay at preview_width and preview_jpeg_quality (Cache-Control no-store). Detection runs on a worker thread at preview_hz only while a preview route was requested within preview_idle_s, and idles otherwise (no CPU cost when nobody watches). No fresh pair (older than max_pair_age_ms or none) answers 503 {reason}; a camera_error answers 503 with that reason - never a stale or synthetic image.
+- Capture: POST /calibration/captures takes the newest pair no older than max_pair_age_ms (both images from the same timestamp-paired capture, D2 pairing), runs detection on it and stores it with the CaptureStore only when both sides see the board and shared_corners >= min_shared_corners: 201 {id, shared_corners, left_corners, right_corners, captures}; otherwise 422 {reason: 'board not seen by left|right|both' or 'only N shared corners, need M'}; 503 without a fresh pair; 409 while a solve runs; 409 when max_captures is reached.
+- List: GET /calibration/captures returns {captures: [manifest entries], count, min_pairs_to_solve}; GET /calibration/captures/{id}/{left|right}.jpg returns a preview_width JPEG thumbnail; an unknown id or side is 404 and ids are validated against the store's id pattern (no path traversal).
+- Delete: DELETE /calibration/captures requires confirm=true (else 400 naming the parameter), answers 409 while a solve runs, removes every capture and the active calibration file (calibration.path), reloads so depthd is uncalibrated (depth stops, the no-placeholder rule), and returns {removed_captures, calibration_removed}.
+- Solve: POST /calibration/solve answers 422 when fewer than min_pairs_to_solve captures exist, 409 when a job runs, else 202 with the job status; GET /calibration/solve returns the SolveJob status. A refused result (rms above max_rms_px) keeps the previous calibration active and says so in the message.
+- test_calibration_api.cpp: a test pair source of a rendered board (and a blank pair) drives every route and status code above over loopback httplib: preview JSON counts and JPEG content type and width, idle detection (no detect calls without preview requests), capture 201/422/503/409, list and thumbnails, 404 and traversal ids, delete without and with confirm (files gone, calibration removed, status uncalibrated), solve 422/202/409 with the fake tool from T34 and the reload callback on written.
+- README documents every endpoint, the preview idle behaviour and the storage layout under /var/lib/depthd/calibration/captures.
+
+**Value:** The whole stereo calibration can be driven over HTTP, with photos and results kept on the Jetson.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(depthd): calibration preview, capture, list, delete and solve endpoints`
+
+**Verify:**
+```
+rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+```
+Expected: ctest ends with `100% tests passed, 0 tests failed`.
+**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts.
+
+### Task 36: web_ui backend: calibration config and the stereo proxy to depthd
+
+**Files:**
+- Create: `nodes/web_ui/web_ui/calibration_proxy.py`, `nodes/web_ui/tests/test_calibration_proxy.py`
+- Modify: `nodes/web_ui/web_ui/config.py`, `nodes/web_ui/tests/test_config.py`, `nodes/web_ui/web_ui/server.py`, `nodes/web_ui/README.md`
+- Test: `nodes/web_ui/tests/test_calibration_proxy.py`, `nodes/web_ui/tests/test_config.py`
+
+**Interfaces:**
+- Consumes: depthd-calibration-api (T35); the agent_proxy.py pattern (httpx with an injectable transport).
+- Produces: AppConfig.calibration (CalibrationConfig); /api/calibration/stereo/{preview, preview/{side}.jpg, captures, captures/{id}/{side}.jpg, solve} and GET /api/calibration/config.
+
+**Ownership:**
+- owns: web-ui-calibration-config, web-ui-stereo-calibration-api
+- uses: depthd-calibration-api
+- dependsOn: T35, T27
+- model: sonnet
+
+**Requirement:**
+- config.py: optional AppConfig.calibration (absent: the Calibrate page is off and every /api/calibration route answers 404 {ok: false, message: 'calibration page not configured'}) with depthd_url (no default host baked into code; Ansible supplies http://10.77.0.2:8090), connect_timeout_s 2.0, read_timeout_s 5.0, solve_read_timeout_s 10.0, imu_status_topic /imu/calibration, imu_save_service /imu/calibration/save, imu_reset_service /imu/calibration/reset, imu_stale_s 3.0 (the IMU fields are consumed by T38); pydantic validation (positive timeouts, http(s) URL).
+- calibration_proxy.py registers GET /api/calibration/config ({stereo: bool, imu: bool, arm: 'deferred'}) and proxies GET /api/calibration/stereo/preview, GET .../preview/{side}.jpg, GET/POST/DELETE .../captures (DELETE forwards confirm; without confirm=true the proxy answers 400 itself), GET .../captures/{id}/{side}.jpg and GET/POST .../solve to the matching depthd route with httpx.AsyncClient and the configured timeouts; status code, JSON body and image bytes/content type pass through unchanged.
+- No fake data: an unreachable or timing-out depthd answers 502 or 504 {ok: false, message: 'Jetson depthd unreachable at <url>: <reason>'}; nothing is cached, synthesized or defaulted. side must be left or right and id must match the depthd id pattern before any upstream call (422 otherwise) - no path built from unvalidated input.
+- server.py registers the routes before the SPA catch-all mount (like register_photo_routes).
+- test_calibration_proxy.py with httpx.MockTransport: every route forwards method, path, query and body and passes status and content through; connect error -> 502 and timeout -> 504 with the message; invalid side/id -> 422 without an upstream call; DELETE without confirm -> 400 without an upstream call; no calibration config -> 404. test_config.py covers defaults and rejections.
+- README gets a 'Calibrate page (hidden)' section: config keys, the proxy routes and the error behaviour.
+
+**Value:** The browser reaches the Jetson's calibration API through the robot's web UI, with honest errors when the Jetson is down.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(web_ui): calibration config and stereo calibration proxy to depthd`
+
+**Verify:**
+```
+cd nodes/web_ui && uv run --frozen pytest -q && uv run --frozen poe lint
+```
+Expected: pytest all passed and ruff/vulture clean.
+**Notes:** Depends on T27 because it shares nodes/web_ui/README.md and must land after T27's web_ui changes. Mac-only.
+
+### Task 37: bno055_imu: save-now and reset calibration Trigger services
+
+**Files:**
+- Create: `nodes/bridges/bno055_imu/bno055_imu/calibration_service.py`, `nodes/bridges/bno055_imu/tests/test_calibration_service.py`
+- Modify: `nodes/bridges/bno055_imu/bno055_imu/node.py`, `nodes/bridges/bno055_imu/bno055_imu/config.py`, `nodes/bridges/bno055_imu/tests/test_config.py`, `nodes/bridges/bno055_imu/README.md`
+- Test: `nodes/bridges/bno055_imu/tests/test_calibration_service.py`, `nodes/bridges/bno055_imu/tests/test_config.py`
+
+**Interfaces:**
+- Consumes: calibration.py (read_profile, write_profile, CalibrationProfile, CALIBRATED), the node's stationarity estimate and full re-init path.
+- Produces: std_srvs/Trigger services save_calibration_service (default /imu/calibration/save) and reset_calibration_service (default /imu/calibration/reset); config keys of the same names (empty disables).
+
+**Ownership:**
+- owns: imu-calibration-services
+- uses: none
+- dependsOn: none
+- model: opus
+
+**Requirement:**
+- What the node does today stays: /imu/calibration JSON at 1 Hz with sys, gyro, accel, mag and restored; the automatic once-per-episode save when mag reaches 3 and the robot stands still; restore at every chip init.
+- Save service: when the latest calibration status has mag == 3 and the robot is stationary (or stationarity is unknown because the gyro bias estimator is off), it reads the chip profile (CONFIG-mode round trip), validates it with profile_from_dict and writes calibration_file atomically even if unchanged; response success true with a message naming the saved statuses and file. Otherwise success false with the reason ('mag is N, needs 3' / 'robot is moving' / 'calibration_file disabled' / the read error) and nothing written. It marks the episode as read so the automatic save does not repeat the blank cycle.
+- Reset service: refused while moving; otherwise it deletes calibration_file (missing is fine), resets the chip (SYS_TRIGGER register 0x3F, RST_SYS bit, datasheet section 4.3.63) and runs the existing full re-init path without restoring a profile, so the status restarts from 0 and restored becomes false; response success true with a message, or false with the error. The node keeps publishing nothing invalid while it re-initializes (the existing warm-up rules).
+- Both callbacks run in the node's single-threaded executor on the loop thread (spin_once inside the loop), so no I2C access ever runs concurrently with the read cycle; the service logic lives in calibration_service.py as functions taking the driver, paths, status and stationarity so it is testable without ROS.
+- config.py: save_calibration_service and reset_calibration_service with the defaults above; empty disables the service; validated like the other topic names.
+- test_calibration_service.py with a fake BNO055 driver: save writes the file when mag is 3 and stationary, refuses when mag < 3, when moving and when the file is disabled (nothing written), surfaces a read error; reset deletes the file, writes the reset bit, triggers re-init without a profile, and is refused while moving; test_config.py covers the new keys.
+- README 'Calibration' gains the two services, when they refuse, the web UI Calibrate page as the usual way to call them, and the guidance shown there (gyro: keep still; accel: several static poses, which a wheeled robot only reaches by lifting it; mag: drive or rotate the robot through figure-eights away from motors).
+
+**Value:** IMU calibration can be saved or restarted from the web UI instead of by deleting files over SSH.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(bno055_imu): save-now and reset calibration services`
+
+**Verify:**
+```
+cd nodes/bridges/bno055_imu && uv run --frozen pytest -q && uv run --frozen poe lint
+```
+Expected: pytest all passed and ruff clean.
+**Notes:** No T1-T30 task touches bno055_imu, so it can start at once. opus: the chip reset and re-init interplay with the critical-tier read loop. Never publish placeholder IMU data during the reset.
+
+### Task 38: web_ui backend: IMU calibration status and save/reset routes
+
+**Files:**
+- Create: `nodes/web_ui/web_ui/imu_calibration.py`, `nodes/web_ui/tests/test_imu_calibration.py`
+- Modify: `nodes/web_ui/web_ui/bridge.py`, `nodes/web_ui/web_ui/config.py`, `nodes/web_ui/web_ui/server.py`, `nodes/web_ui/README.md`
+- Test: `nodes/web_ui/tests/test_imu_calibration.py`
+
+**Interfaces:**
+- Consumes: web-ui-calibration-config (T36), imu-calibration-services (T37), the bridge's Trigger client pattern (trigger_async, call_service).
+- Produces: GET /api/calibration/imu, POST /api/calibration/imu/save, POST /api/calibration/imu/reset.
+
+**Ownership:**
+- owns: web-ui-imu-calibration-api
+- uses: web-ui-calibration-config, imu-calibration-services
+- dependsOn: T36, T37, T27
+- model: sonnet
+
+**Requirement:**
+- bridge.py: when calibration is configured, an always-on subscription to imu_status_topic (std_msgs/String, 1 Hz) keeps the latest parsed {sys, gyro, accel, mag, restored} with its receipt monotonic time; the two IMU services are added to the Trigger clients (config.trigger_services() includes them).
+- GET /api/calibration/imu returns {sys, gyro, accel, mag, restored, age_s}; no sample yet -> 503 {ok: false, message: 'no IMU calibration sample yet'}; older than imu_stale_s -> 503 'IMU calibration status stale (N s)'; an unparsable payload is not cached. Values are only ever the node's.
+- POST /api/calibration/imu/save and /reset call the Trigger services with the existing timeout pattern (call_arm_trigger); service unavailable -> 503; the Trigger response maps to 200 {ok: true, message} or 409 {ok: false, message} (refusal, e.g. mag not 3 or robot moving); a timeout -> 504.
+- test_imu_calibration.py with the existing ROS stubs/fakes: status fresh, missing, stale and malformed; save and reset success, refusal, unavailable and timeout; the subscription exists only with calibration configured.
+- README 'Calibrate page (hidden)' documents the IMU routes.
+
+**Value:** The page shows the real IMU calibration state and can save or restart it.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(web_ui): IMU calibration status and save/reset routes`
+
+**Verify:**
+```
+cd nodes/web_ui && uv run --frozen pytest -q && uv run --frozen poe lint
+```
+Expected: pytest all passed and ruff/vulture clean.
+**Notes:** Mac-only. bridge.py was last changed by T27; this task runs after it.
+
+### Task 39: web_ui frontend: hamburger menu on every layout and the hidden Calibrate page shell
+
+**Files:**
+- Create: `nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx`, `nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx`, `nodes/web_ui/frontend/src/calibrate/calibrateRoute.ts`, `nodes/web_ui/frontend/src/calibrate/calibrateRoute.test.ts`
+- Modify: `nodes/web_ui/frontend/src/App.tsx`, `nodes/web_ui/frontend/src/layout/tabBarMode.ts`, `nodes/web_ui/frontend/src/layout/tabBarMode.test.ts`
+- Test: `nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx`, `nodes/web_ui/frontend/src/calibrate/calibrateRoute.test.ts`, `nodes/web_ui/frontend/src/layout/tabBarMode.test.ts`
+
+**Interfaces:**
+- Consumes: App.tsx AppBar/Drawer, tabBarMode, GET /api/calibration/config (T36 contract; the shell treats a 404 as 'not configured').
+- Produces: route `#/calibrate`; CalibratePage with section slots Stereo, IMU and an 'Arm - deferred' note.
+
+**Ownership:**
+- owns: calibrate-page-shell
+- uses: none
+- dependsOn: none
+- model: sonnet
+
+**Requirement:**
+- The hamburger IconButton is shown on phone, tablet and desktop. On phone the drawer lists the tabs as today, then a divider and 'Calibrate'; on tablet and desktop it lists only 'Calibrate' (the tab bar is unchanged). tabBarMode exposes this (e.g. tabsInDrawer plus a menu that is always present) and its test covers all three layouts.
+- 'Calibrate' is never a tab: it is not in the tab bar, not in the config's tabs, not stored as the selected tab, and appears only in the drawer. Selecting it sets location.hash to #/calibrate and renders CalibratePage in the main area instead of the tab content; a back button and selecting any tab clear the hash and return to the stored tab. Loading the URL with #/calibrate opens the page directly (calibrateRoute.ts parses and builds the hash; tested).
+- CalibratePage fetches GET /api/calibration/config: 404 shows 'Calibration page not configured on this robot'; a network error shows the error; otherwise it renders a Stereo section slot when stereo is true, an IMU section slot when imu is true (filled by T40 and T41) and a static 'Arm calibration - deferred' line. No placeholder numbers or images anywhere.
+- CalibratePage.test.tsx (jsdom): the three config outcomes; the deferred arm line; the back button clears the hash. The existing design-rule tests (designRules, hardcodedSizes, tabsDesign, layout) still pass: touch targets use TOUCH_TARGET_PX and no hard-coded pixel sizes.
+
+**Value:** A hidden place for calibration exists without cluttering the tab bar.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(web_ui): hamburger menu everywhere and the hidden Calibrate page`
+
+**Verify:**
+```
+cd nodes/web_ui/frontend && npm ci && npx tsc --noEmit && npm test && npm run lint
+```
+Expected: tsc clean, vitest all passed, eslint 0 warnings.
+**Notes:** No T1-T30 task touches the frontend sources, so it can start at once. README is documented in T41 (single README writer on the frontend side).
+
+### Task 40: web_ui frontend: stereo calibration section (preview, capture, list, delete, solve)
+
+**Files:**
+- Create: `nodes/web_ui/frontend/src/calibrate/StereoCalibration.tsx`, `nodes/web_ui/frontend/src/calibrate/StereoCalibration.test.tsx`, `nodes/web_ui/frontend/src/calibrate/stereoApi.ts`, `nodes/web_ui/frontend/src/calibrate/stereoApi.test.ts`
+- Modify: `nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx`
+- Test: `nodes/web_ui/frontend/src/calibrate/StereoCalibration.test.tsx`, `nodes/web_ui/frontend/src/calibrate/stereoApi.test.ts`
+
+**Interfaces:**
+- Consumes: web-ui-stereo-calibration-api (T36), calibrate-page-shell (T39), layout/ConfirmDialog.
+- Produces: StereoCalibration section mounted in CalibratePage.
+
+**Ownership:**
+- owns: none
+- uses: web-ui-stereo-calibration-api, calibrate-page-shell
+- dependsOn: T39, T36
+- model: sonnet
+
+**Requirement:**
+- Preview: left and right images side by side (stacked on phone) from /api/calibration/stereo/preview/{side}.jpg, refreshed together at most 2 Hz only while the page is visible (document.visibilityState) using the seq from /api/calibration/stereo/preview so both images are the same pair; under each image 'corners N' and between them 'shared S / needed M', coloured ok when capturable. On an error response the images are replaced by the server's message (e.g. Jetson unreachable, no fresh pair) - no stale image is kept on screen as if live.
+- Capture pair button: POST captures; success shows the new count, 422 shows the reason; disabled while a solve runs or a request is in flight.
+- Captures list: count against min_pairs_to_solve and thumbnails from /captures/{id}/{side}.jpg, newest first.
+- Delete button: opens the existing ConfirmDialog ('Delete all captures and the active calibration? Depth stops until you solve again.'); only on confirm it sends DELETE with confirm=true and then refreshes.
+- Solve button: enabled when count >= min_pairs_to_solve; POST solve, then polls GET solve every 2 s until the state is final, and shows state, rms (left, right, stereo), pairs used/skipped and the message; refused is shown as 'rms above the gate - previous calibration kept'.
+- stereoApi.ts holds the fetch calls and the pure helpers (capturable colour, seq-matched URLs, final-state test); stereoApi.test.ts covers them with mocked fetch; StereoCalibration.test.tsx covers preview counts, the error replacing images, capture 201/422, the confirm flow (cancel sends nothing, confirm sends confirm=true), and solve polling to a written and a refused result.
+
+**Value:** The user calibrates the stereo pair from a phone while holding the e-reader in front of the cameras.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(web_ui): stereo calibration section on the Calibrate page`
+
+**Verify:**
+```
+cd nodes/web_ui/frontend && npm ci && npx tsc --noEmit && npm test && npm run lint
+```
+Expected: tsc clean, vitest all passed, eslint 0 warnings.
+**Notes:** Mac-only. Touch targets and sizes follow layout/designRules (tests enforce them).
+
+### Task 41: web_ui frontend: IMU calibration section and the Calibrate page docs
+
+**Files:**
+- Create: `nodes/web_ui/frontend/src/calibrate/ImuCalibration.tsx`, `nodes/web_ui/frontend/src/calibrate/ImuCalibration.test.tsx`, `nodes/web_ui/frontend/src/calibrate/imuApi.ts`, `nodes/web_ui/frontend/src/calibrate/imuApi.test.ts`
+- Modify: `nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx`, `nodes/web_ui/README.md`
+- Test: `nodes/web_ui/frontend/src/calibrate/ImuCalibration.test.tsx`, `nodes/web_ui/frontend/src/calibrate/imuApi.test.ts`
+
+**Interfaces:**
+- Consumes: web-ui-imu-calibration-api (T38), calibrate-page-shell (T39).
+- Produces: ImuCalibration section mounted in CalibratePage; README section for the whole page.
+
+**Ownership:**
+- owns: none
+- uses: web-ui-imu-calibration-api, calibrate-page-shell
+- dependsOn: T40, T38
+- model: sonnet
+
+**Requirement:**
+- A 'Calibrate IMU' button starts the flow: the section then polls GET /api/calibration/imu at 1 Hz while visible and shows sys, gyro, accel and mag as 0-3 levels with the restored flag, plus per-subsystem guidance (gyro: keep still; accel: a few static poses, lifting the robot; mag: rotate or drive figure-eights away from motors). 503 shows the server's message instead of levels - never zeros as if measured.
+- 'Save offsets' calls POST save (enabled when mag is 3) and shows the message; a 409 refusal shows the node's reason. 'Reset IMU calibration' opens ConfirmDialog ('The IMU forgets its calibration and starts from zero.') and calls POST reset only on confirm.
+- imuApi.ts holds the calls and the pure helpers (level colour, save enabled); imuApi.test.ts and ImuCalibration.test.tsx cover fresh, stale and missing status, save success and refusal, and reset confirm/cancel.
+- nodes/web_ui/README.md 'Calibrate page (hidden)' documents the frontend: the hamburger entry on every layout, #/calibrate, the Stereo and IMU sections and their buttons, the confirm dialogs, arm deferred, and the vitest files of T39-T41 in the test list.
+
+**Value:** IMU calibration is visible and fixable from the same hidden page.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(web_ui): IMU calibration section and Calibrate page docs`
+
+**Verify:**
+```
+cd nodes/web_ui/frontend && npm ci && npx tsc --noEmit && npm test && npm run lint && cd .. && uv run --frozen poe lint
+```
+Expected: tsc clean, vitest all passed, eslint 0 warnings. web_ui ruff clean.
+**Notes:** Mac-only. Single frontend README writer (T39 and T40 leave the README to this task).
+
+### Task 42: Ansible: web_ui calibration config and bno055 services on the client; tests/README and MEMORY
+
+**Files:**
+- Create: `tests/test_web_ui_calibration_config.py`
+- Modify: `ansible/group_vars/client.yml`, `ansible/README.md`, `tests/README.md`, `MEMORY.md`, `.claude/skills/bno055-diagnostics/SKILL.md`
+- Test: `tests/test_web_ui_calibration_config.py`
+
+**Interfaces:**
+- Consumes: web-ui-calibration-config (T36), imu-calibration-services (T37), direct-link-addressing (T3).
+- Produces: client web_ui config `calibration:` block; explicit bno055_imu service names.
+
+**Ownership:**
+- owns: none
+- uses: web-ui-calibration-config, imu-calibration-services, direct-link-addressing
+- dependsOn: T32, T33, T35, T36, T37, T38, T41
+- model: sonnet
+
+**Requirement:**
+- client.yml web_ui config gains `calibration:` with depthd_url http://{{ jetson_link_jetson_ip }}:8090 (from the T3 var, never a literal address), the timeouts, imu_status_topic /imu/calibration and the two IMU service names; the bno055_imu entry sets save_calibration_service and reset_calibration_service explicitly. No other client.yml change.
+- tests/test_web_ui_calibration_config.py renders the web_ui config block with jinja2 and the all.yml link vars, loads it with web_ui's AppConfig (pydantic) and asserts the calibration block, that depthd_url resolves to 10.77.0.2:8090, and that the web_ui IMU service names equal the bno055_imu entry's.
+- tests/README.md lists every new test file and function of T31-T42 under the existing sections (depthd, calibrate tool, web_ui backend and vitest, bno055_imu, root tests); ansible/README.md web_ui and bno055_imu rows mention the Calibrate page config.
+- MEMORY.md (the Jetson offload section from T29) gains one paragraph: the hidden Calibrate page (D10), captures under /var/lib/depthd/calibration/captures, the IMU save/reset services, arm calibration deferred by the user.
+- .claude/skills/bno055-diagnostics/SKILL.md: a row saying calibration is saved or reset from the web UI Calibrate page (services /imu/calibration/save and /reset), not by deleting the file.
+
+**Value:** One client deploy turns the Calibrate page on, and the docs say how it works.
+
+**Steps:**
+- [ ] Write the test.
+- [ ] Run it. Expected: FAIL for the stated reason.
+- [ ] Implement.
+- [ ] Run it. Expected: PASS.
+- [ ] Lint.
+- [ ] Commit: `feat(ansible): enable the Calibrate page on the client; docs`
+
+**Verify:**
+```
+uv run pytest tests/test_web_ui_calibration_config.py -q && uv run pytest tests -q && uv run poe lint && uv run poe test-ansible
+```
+Expected: pytest all passed, ruff clean, ansible-lint `0 failure(s)` and every `--syntax-check` passes.
+**Notes:** Do not deploy here (Pi deploys clone origin/main; T43 deploys). ansible/inventory is gitignored: copy it into the worktree for poe test-ansible, never commit it. Runs after T30 transitively, so client.yml, tests/README.md, ansible/README.md and MEMORY.md are past their T1-T30 writers.
+
+### Task 43: Hardware check of the Calibrate page: deploy web_ui, bno055_imu and depthd, exercise it over HTTP
+
+**Files:**
+- Create: `docs/plans/2026-10-14-jetson-depth-offload-calibrate-hil-results.md`
+
+**Interfaces:**
+- Consumes: every A8 task; origin/main containing them; T30's deployed system.
+- Produces: docs/plans/2026-10-14-jetson-depth-offload-calibrate-hil-results.md.
+
+**Ownership:**
+- owns: none
+- uses: web-ui-stereo-calibration-api, web-ui-imu-calibration-api, depthd-calibration-api
+- dependsOn: T30, T42
+- model: sonnet
+
+**Requirement:**
+- The verify refuses to run unless origin/main has every code change (`git diff --quiet origin/main HEAD -- . ':(exclude)docs/plans'`), like T30.
+- It deploys the Jetson (depthd) and the client (web_ui bno055_imu) only through scripts/deploy-nodes.sh, logs in .logs/.
+- Through the web UI on the client (http://client.ros2.lan:8080): GET /api/calibration/config is 200 with stereo and imu true; GET /api/calibration/stereo/preview is 200 JSON with integer left/right corners and shared_corners; GET /api/calibration/stereo/preview/left.jpg and right.jpg are 200 image/jpeg; POST /api/calibration/stereo/captures answers 201 (board in view) or 422 with a reason (no board) - both are real outcomes and the result is recorded; GET /api/calibration/stereo/captures is 200 with a count; GET /api/calibration/imu is 200 with sys, gyro, accel and mag in 0-3; GET /api/calibration/stereo/solve is 200.
+- It never calls DELETE captures, POST solve or the IMU reset/save services (they change the user's calibration); those are the user's steps, listed in the results file as a USER STEP with the README procedures.
+- The results file records the date, both deploy recaps, each HTTP status and body summary above, the preview detection counts, and the USER STEP.
+
+**Value:** Proof on the robot that the Calibrate page reaches the Jetson and the IMU.
+
+**Steps:**
+- [ ] Confirm origin/main has the run's code.
+- [ ] Run the verify (deploys and HTTP checks).
+- [ ] Write the results file from the logs.
+- [ ] Re-run the verify's last checks.
+- [ ] Commit: `docs(plans): Calibrate page hardware check results`
+
+**Verify:**
+```
+git fetch -q origin && git diff --quiet origin/main HEAD -- . ':(exclude)docs/plans' && mkdir -p .logs && set -o pipefail && ./scripts/deploy-nodes.sh jetson depthd 2>&1 | tee .logs/deploy-jetson-calibrate.log && ./scripts/deploy-nodes.sh client web_ui bno055_imu 2>&1 | tee .logs/deploy-client-calibrate.log && U=http://client.ros2.lan:8080/api/calibration && curl -sf $U/config | grep -q '"stereo": *true' && curl -sf $U/stereo/preview | grep -q shared_corners && curl -sf -o /dev/null -w '%{content_type}' $U/stereo/preview/left.jpg | grep -q image/jpeg && curl -sf -o /dev/null -w '%{content_type}' $U/stereo/preview/right.jpg | grep -q image/jpeg && code=$(curl -s -o .logs/calibrate-capture.json -w '%{http_code}' -X POST $U/stereo/captures) && echo "$code" | grep -Eq '^(201|422)$' && curl -sf $U/stereo/captures | grep -q count && curl -sf $U/stereo/solve >/dev/null && curl -sf $U/imu | grep -q '"mag"' && test -s docs/plans/2026-10-14-jetson-depth-offload-calibrate-hil-results.md
+```
+Expected: both recaps `failed=0`, every curl check passes, capture answers 201 or 422, results file present.
+**Notes:** The client deploy waits for an idle claude_agent (max 15 min); never pass ros2_deploy_ignore_agent. Agents never show the board; a 422 'board not seen' capture is a valid pass.
+
 ## Execution
 
 - Run name: `jetson-depth-offload`.
@@ -1416,3 +1963,18 @@ Expected: both recaps `failed=0`, last e2e line `jetson-e2e: PASS ...`, results 
 - Lint: `node /Users/szymonri/Documents/claude-infra-plugin/workflows/validate-tasks.mjs docs/plans/2026-10-14-jetson-depth-offload-tasks.json --plan docs/plans/2026-10-14-jetson-depth-offload-plan.md --approvals docs/plans/2026-10-14-jetson-depth-offload-approvals.json --design docs/plans/2026-10-14-jetson-depth-offload-design.md`
 - Tasks JSON: `docs/plans/2026-10-14-jetson-depth-offload-tasks.json`.
 - Approvals: `docs/plans/2026-10-14-jetson-depth-offload-approvals.json`.
+
+## Scope addition A8: hidden Calibrate page (2026-10-14)
+
+Approved by the user after the gate (ledger item A8, design D10). T31-T43 are appended; no T1-T30 task changes, and
+T30 does not depend on them.
+
+- Order: T37 (bno055_imu) and T39 (frontend shell) start at once (no T1-T30 task touches their files). The Jetson
+  chain T31 -> T32 -> T34 -> T35 starts after T30, so it never competes with the hardware check for the board; T33
+  (Mac) runs beside T32. Then T36 -> T38 (web_ui backend, after T27), T40 -> T41 (frontend), T42 (client Ansible and
+  docs), and T43 (hardware check, after T30 and T42) last.
+- Model: sonnet, except T37 on opus (chip reset and re-init inside the critical-tier read loop).
+- T43 needs origin/main to contain T31-T42: the orchestrator pushes main after merging them, then T43 runs.
+- USER STEP after T43: open the hamburger menu, Calibrate; capture pairs with the e-reader board, Solve, check the
+  rms; calibrate the IMU and Save offsets. Arm calibration is deferred by the user.
+- Contracts, decision coverage (D10) and the ledger (A8) are extended in place.

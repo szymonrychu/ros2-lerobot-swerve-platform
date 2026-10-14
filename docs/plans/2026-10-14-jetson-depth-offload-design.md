@@ -78,6 +78,7 @@ The Pi 5 CPU is saturated, and the 2026-10-13 stereo pipeline on the Pi never pr
 - No point cloud or Nav2 costmap integration. Depth still has one consumer, the Head tab.
 - No JetPack reflash or OS upgrade (D1).
 - No learned stereo network as the primary matcher. TensorRT 8.0 lacks the ops these networks need (research brief section 4).
+- Arm calibration - deferred by the user 2026-10-14; it belongs on the Calibrate page later.
 
 ## Anti-goals
 
@@ -145,6 +146,14 @@ The Pi 5 CPU is saturated, and the 2026-10-13 stereo pipeline on the Pi never pr
 ### D9: Calibration tool
 **Decision:** ChArUco calibration with OpenCV `stereoCalibrate`, reusing the repo's calibration script. It captures through `depthd` (HTTP endpoint) and writes the maps that `depthd` loads at startup. Serves A2.
 
+### D10: Hidden Calibrate page (stereo and IMU)
+**Decision:** a Calibrate page in web_ui, reachable only from the hamburger menu (shown on every layout; never a tab), with two sections. Arm calibration is deferred by the user and only named on the page as a later section.
+- **Stereo.** depthd (C++) gains calibration endpoints on its HTTP API: a low-rate JPEG preview per camera with the ChArUco detection drawn in, plus per-camera detected-corner counts and the shared-corner count; a synchronized pair capture that stores both images atomically with a manifest under `/var/lib/depthd/calibration/captures/`; list; delete (removes every capture and the active `/var/lib/depthd/stereo.yaml`, only with an explicit confirm, behind the web UI confirm dialog); and solve, a job that runs the T20 tool's solve on the stored captures and activates the result only under the RMS gate. Detection runs only while someone watches the preview. The board definition is read from the calibration tool's `calibrate.yaml`, so the e-reader board is configured in one place. Calibration data stays on the Jetson next to the worker that uses it (the user's rule); the Pi only proxies.
+- **web_ui.** The FastAPI backend proxies `/api/calibration/stereo/*` to depthd at `10.77.0.2:8090` with connect and read timeouts; an absent Jetson is an error response, never invented images or counts.
+- **IMU.** The BNO055 calibrates itself continuously in fusion mode, so there is no chip "start" command. bno055_imu already publishes `/imu/calibration` (sys, gyro, accel, mag, restored) at 1 Hz, saves the offsets once per calibration episode and restores them at every init. It gains two std_srvs/Trigger services: save now (read the chip offsets and persist them, refused unless mag is 3 and the robot stands still) and reset (delete the saved profile and reset the chip so calibration restarts from zero). The page shows the live status with per-subsystem guidance and the two buttons.
+**Alternative:** run the solve and store captures on the Pi (rejected: the user wants calibration next to the depth worker, and it would copy images over the link); a new `calibrate` tab (rejected: the user asked for a hidden page); MJPEG streams (rejected: polled JPEG snapshots at 2 Hz are enough for aiming a board and survive the proxy without a long-lived stream).
+**Why:** the user asked for it on 2026-10-14, and the CLI-only capture/solve flow is awkward with a board shown on an e-reader. Serves A8.
+
 ## Research
 
 | Lens | Status | Adopted | Rejected |
@@ -172,3 +181,4 @@ The Pi 5 CPU is saturated, and the 2026-10-13 stereo pipeline on the Pi never pr
 - Removing the imx219 overlays from the Pi's boot config, which requires a Pi reboot.
 - The Jetson cleanup already done on 2026-10-14 (archive at `~/Documents/jetson-nano-archive-2026-10-14/`).
 - Nothing else.
+- The Calibrate page's delete button removes captures and the active calibration. It is a user action behind a confirm dialog and an explicit `confirm=true` parameter; no task of this run calls it, and the hardware check (T43) never deletes or solves.
