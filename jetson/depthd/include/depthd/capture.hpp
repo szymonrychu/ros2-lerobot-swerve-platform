@@ -99,6 +99,10 @@ struct CaptureStatus
   CaptureState state = CaptureState::starting;
   std::string reason;  // why camera_error (or starting); empty when ok
   bool exposure_locked = false;
+  // Which camera is failing (both when the pipelines could not be started): the pipeline publishes nothing of that
+  // camera's kind (depth needs both, rgb comes from the left one).
+  bool left_error = false;
+  bool right_error = false;
 };
 
 const char * to_string(CaptureState state);

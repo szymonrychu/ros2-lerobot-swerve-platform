@@ -9,7 +9,7 @@ ROS 2 bridge on the Pi. This keeps stereo work off the saturated Pi 5 CPU.
 
 ```
 CMakeLists.txt        finds and links every dependency; globs src/*.cpp and test/test_*.cpp
-include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification; publisher.hpp, http_api.hpp: ZeroMQ publisher, HTTP API and metrics; matcher.hpp, depth.hpp: matching and depth; postprocess.hpp, temporal.hpp: disparity post-processing)
+include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification; publisher.hpp, http_api.hpp: ZeroMQ publisher, HTTP API and metrics; matcher.hpp, depth.hpp: matching and depth; postprocess.hpp, temporal.hpp: disparity post-processing; pipeline.hpp, health.hpp, daemon.hpp: the service wired end to end)
 src/                  library sources; main.cpp -> depthd and bench_main.cpp -> depthd-bench when present
 config/depthd.yaml    the one example and default config (equals the struct defaults)
 test/                 gtest binaries, one per test_*.cpp
@@ -32,6 +32,71 @@ Each branch builds in its own remote directory (`~/depthd-dev-<branch>`), so par
 (a shared one corrupts `.d` dependency files). Override with `DEPTHD_DEV`.
 
 Expected: `100% tests passed, 0 tests failed`.
+
+## Running depthd
+
+```
+depthd [--config PATH]        run (default /etc/depthd/config.yaml) until SIGTERM or SIGINT
+depthd --check-config PATH    exit 0 and print "ok: PATH", or exit 1 and print the reason on stderr
+```
+
+Ansible runs `--check-config` on the new file before it restarts the service. SIGTERM stops every thread and returns
+within 2 s (systemd). A config error (or a matcher the config names that cannot be built) or a calibration error at
+startup does not exit: it is logged, and the process stays up serving `/health` with the reason, so systemd never
+enters a crash loop. A link address that cannot be bound yet is retried every 2 s, a camera that cannot be started
+every 5 s (`src/daemon.cpp`).
+
+### Data flow
+
+```
+cameras (StereoCapture, a FrameSource)
+  pair callback --> input mailbox (1 pair; a newer pair replaces it, counted drops{reason="busy"})
+  rgb callback  --> gates (left camera healthy, age) (JPEG from nvjpegenc) --> topic "rgb" at rgb.fps
+match thread, one CUDA stream per pair, into one of two slots:
+  gates (calibrated, both cameras healthy, size, age <= 100 ms) --> rectify --> match --> post-process
+  --> depth mm (CV_16UC1, 0 = invalid) --> download into the slot
+encode thread: zstd --> topic "depth" --> slot freed
+```
+
+The two slots circulate between the match and the encode threads, so zstd and the send of one frame overlap matching
+of the next and no more than two frames are ever in flight; GPU buffers are allocated once per slot and reused. The
+capture callbacks only swap a pair into the mailbox, so capture never waits on matching. The `depth` header carries the
+calibration intrinsics, the rectified `P`, `capture_realtime_ns` of the left frame, and the health fields. `rgb` flows
+whether or not a calibration exists; its header carries the left unrectified `K`/`D` (scaled to the RGB size) only when
+calibrated, and `calibrated` is false otherwise. `fused` (the monocular stage, `Pipeline::publish_fused`) obeys the
+same gates as `depth`.
+
+Nothing is published that depthd cannot vouch for: no `depth` or `fused` without a valid calibration, none while either
+camera is in error, no `rgb` while the left camera is in error, nothing from a stale frame, and never a synthetic or
+placeholder frame. Each refusal is counted in `depthd_drops_total{reason}` (`busy`, `stale`, `uncalibrated`,
+`camera_error`, `bad_frame`, `error`, `rgb_stale`, `rgb_camera_error`, `fused_rejected`) and in
+`Pipeline::counters()`.
+
+### Latency budget (G5)
+
+A pair older than 100 ms (`PipelineOptions::max_pair_age_ns`), or more than 100 ms in the future, when matching starts
+is dropped and counted as `stale`. Per-stage times go to `depthd_stage_time_ms{stage}`: `capture` (capture to match
+start), `rectify`, `match`, `post` (and `post_<stage>` per post-processing stage), `encode`. The budget from capture to
+the wire is 100 ms at the configured fps; the mailbox and the two slots bound the queueing so a slow match drops pairs
+instead of growing latency.
+
+### Health states
+
+`GET /health` and every wire header report one state; the first that applies wins (`src/health.cpp`):
+
+| State | Meaning | What flows |
+|---|---|---|
+| `config_error` | the config file, or the matcher it names, is invalid; reason names it | nothing; only `/health` |
+| `camera_error` | a camera failed or could not be started; reason names the camera | nothing of that camera's kind |
+| `uncalibrated` | no valid calibration at `calibration.path`; reason says why | `rgb` only |
+| `starting` | binding the link, aligning the cameras, or no depth frame yet | `rgb` once the left camera runs |
+| `ok` | depth is published; the reason names a stall when no depth came for over 2 s | everything |
+
+The health fields also carry `fps`, `last_pair_age_ms`, `pairs_dropped_total`, `gpu_temp_c` (thermal zone `GPU-therm`)
+and `nvgpu_errors_total` (nvgpu/gk20a error records in `/dev/kmsg`, counted from the start of the ring buffer so a FECS
+loop at boot shows up). Tests: `test/test_pipeline.cpp` (a fake FrameSource of synthetic shifted pairs and the fixture
+calibration, read back over a loopback SUB socket), `test/test_health.cpp`, `test/test_daemon.cpp` (`--check-config`,
+config error kept up, SIGTERM within 2 s).
 
 ## Capture
 
@@ -320,7 +385,7 @@ in through `HttpApiHooks` (`health`, `capture_pair`, `apply_config`, `on_calibra
 
 | Request | Answer |
 |---|---|
-| `GET /health` | `{state, reason, fps, last_pair_age_ms, pairs_dropped_total, gpu_temp_c, nvgpu_errors_total, matcher, mono_state}`; `state` is `ok`, `uncalibrated`, `camera_error` or `starting` |
+| `GET /health` | `{state, reason, fps, last_pair_age_ms, pairs_dropped_total, gpu_temp_c, nvgpu_errors_total, matcher, mono_state}`; `state` is `ok`, `starting`, `uncalibrated`, `camera_error` or `config_error` (see Health states) |
 | `GET /config` | the running config (same JSON as `config/depthd.yaml`) |
 | `PUT /config` | body: a JSON object, nested (`{"postprocess":{"temporal":{"alpha":0.7}}}`) or dotted keys (`{"rgb.jpeg_quality":60}`). 200 with the new config for `runtime_mutable` keys (`postprocess.*`, `mono.enabled`, `mono.rate_hz`, `rgb.jpeg_quality`); 409 `{error, key, keys}` naming the keys that need a restart (a restart-only key sent with its current value is not a change); 400 with the validation message for an invalid, unknown or ill-typed value, bad JSON, or a refused `apply_config` hook. Nothing changes on any error. |
 | `GET /calibration` | `{status: ok\|uncalibrated, reason, rms, baseline_m, created_utc, path, last_reload_error}` of `calibration.path`; `created_utc` is the file's optional `created_utc` key, else its modification time |

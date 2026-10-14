@@ -5,6 +5,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"  // cudaEGL.h (CUDA 10.2) has a stray ';'
 #include <cudaEGL.h>
+#include <dlfcn.h>
 #pragma GCC diagnostic pop
 #include <fcntl.h>
 #include <gst/app/gstappsink.h>
@@ -95,6 +96,25 @@ EGLDisplay shared_egl_display()
     return d != EGL_NO_DISPLAY && eglInitialize(d, nullptr, nullptr) ? d : EGL_NO_DISPLAY;
   }();
   return display;
+}
+
+// nvjpegenc calls the libjpeg API, which L4T implements in tegra/libnvjpeg.so with a larger struct
+// (jpeg_compress_struct 728 bytes). Any process that also links OpenCV imgcodecs (depthd does, for the PNG parts of
+// GET /calibration/capture) has libjpeg.so.8 (584 bytes) in its global scope, so the plugin's jpeg_* calls would bind
+// there and libjpeg exits the process: "JPEG parameter struct mismatch: library thinks size is 584, caller expects
+// 728". Loading the plugin first with RTLD_DEEPBIND puts its own dependencies (libnvjpeg) ahead of the global scope;
+// GStreamer's later g_module_open of the same file gets this already-bound handle. OpenCV keeps libjpeg.so.8.
+constexpr const char * kNvJpegPlugin = "/usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvjpeg.so";
+
+void bind_nvjpeg_plugin(const std::function<void(const std::string &)> & log)
+{
+  static std::once_flag once;
+  std::call_once(once, [&log] {
+    if (!dlopen(kNvJpegPlugin, RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND)) {
+      const char * err = dlerror();
+      if (log) log(std::string("preloading the nvjpegenc plugin failed: ") + (err ? err : "unknown error"));
+    }
+  });
 }
 
 std::string cu_error(CUresult r)
@@ -910,6 +930,7 @@ bool StereoCapture::start(std::string * error)
     return fail(e.what());
   }
   gst_init(nullptr, nullptr);
+  if (im.config.rgb.enabled) bind_nvjpeg_plugin(im.log);
   if (im.config.capture.zero_copy) im.egl_display = shared_egl_display();
   std::string err;
   for (auto & s : im.sides) {
@@ -950,8 +971,11 @@ CaptureStatus StereoCapture::status() const
   if (!im.start_error.empty()) {
     st.state = CaptureState::camera_error;
     st.reason = im.start_error;
+    st.left_error = st.right_error = true;
     return st;
   }
+  st.left_error = !im.sides[0].error.empty();
+  st.right_error = !im.sides[1].error.empty();
   std::string reasons;
   for (const auto & s : im.sides) {
     if (s.error.empty()) continue;
