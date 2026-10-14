@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { needsColorSmall, subscribedTopics } from './subscription'
+import { subscribedTopics } from './subscription'
 import { AppConfig, TabConfig } from '../types'
 
 const map = { id: 'm', type: 'map_nav', label: 'Map', map_topic: '/map', goal_topic: '/goal' } as TabConfig
@@ -35,13 +35,5 @@ describe('subscribedTopics', () => {
       cfg([poi], { battery: { topic: '/bat' }, gps_status: { rover_topic: '/rover' } } as Partial<AppConfig>), poi,
     )
     expect(t).toEqual(expect.arrayContaining(['/bat', '/rover', '/x/list', '/x/photos']))
-  })
-})
-
-describe('needsColorSmall', () => {
-  it('is true only for the RGBD tab', () => {
-    expect(needsColorSmall(rgbd)).toBe(true)
-    expect(needsColorSmall(head)).toBe(false)
-    expect(needsColorSmall(undefined)).toBe(false)
   })
 })

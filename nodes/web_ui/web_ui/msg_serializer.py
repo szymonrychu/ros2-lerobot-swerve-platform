@@ -175,7 +175,7 @@ def _serialize_image(msg: Any, tof_range_m: float | None = None) -> dict[str, An
     For 16UC1 depth images: returns red-green colormap preview JPEG and downscaled
     raw uint16 bytes for 3D mesh construction.
     For rgb8/bgr8 Image: returns full-res JPEG. For mono8/mono16 Image (ToF amplitude): returns a greyscale JPEG,
-    mono16 scaled so the brightest value of the frame is white. Any other encoding returns an error dict..
+    mono16 scaled so the brightest value of the frame is white. Any other encoding returns an error dict.
     For CompressedImage in JPEG format: the bytes are passed through unchanged (no decode, no re-encode).
     Other CompressedImage formats are decoded and re-encoded to JPEG.
 

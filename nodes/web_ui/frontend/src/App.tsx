@@ -37,7 +37,7 @@ import { GPS_BASE_STATUS_KEY, baseGpsStatus, roverGpsStatus } from './gps/gpsSta
 import type { BaseGpsPayload, RoverGpsPayload } from './gps/gpsStatus'
 import { StateBanner } from './components/StateBanner'
 import { useRosBridge } from './hooks/useRosBridge'
-import { needsColorSmall, subscribedTopics } from './hooks/subscription'
+import { subscribedTopics } from './hooks/subscription'
 import { CalibratePage } from './calibrate/CalibratePage'
 import { clearCalibrateHash, isCalibrateHash, openCalibrate } from './calibrate/calibrateRoute'
 import { tabBarMode } from './layout/tabBarMode'
@@ -162,7 +162,7 @@ export default function App() {
 
   const activeTabConfig = tabs[Math.min(activeTab, tabs.length - 1)]
   const subscription = config ? subscribedTopics(config, activeTabConfig) : []
-  const { topicData, connected, publish } = useRosBridge(subscription, needsColorSmall(activeTabConfig), (e) =>
+  const { topicData, connected, publish } = useRosBridge(subscription, (e) =>
     setErrorToast(e.message)
   )
 

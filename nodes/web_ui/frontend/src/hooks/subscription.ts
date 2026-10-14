@@ -9,9 +9,6 @@ export const ALWAYS_TOPICS = [
 /** Tab types that show camera frames: their image topics are only subscribed while the tab is open. */
 export const IMAGE_TAB_TYPES = ['camera', 'rgbd_camera', 'head']
 
-/** Tab types whose open tab needs the downscaled color_small JPEG. */
-export const COLOR_SMALL_TAB_TYPES = ['rgbd_camera']
-
 export function tabTopics(t: TabConfig): string[] {
   return [
     t.topic,
@@ -39,8 +36,4 @@ export function subscribedTopics(config: AppConfig, active: TabConfig | undefine
     if (t === active || !IMAGE_TAB_TYPES.includes(t.type)) tabTopics(t).forEach((x) => topics.add(x))
   }
   return [...topics].sort()
-}
-
-export function needsColorSmall(active: TabConfig | undefined): boolean {
-  return active !== undefined && COLOR_SMALL_TAB_TYPES.includes(active.type)
 }

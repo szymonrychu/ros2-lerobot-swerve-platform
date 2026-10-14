@@ -21,12 +21,10 @@ export interface UseRosBridgeReturn {
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]
 
 /**
- * topics: what the backend should serialize for this client; colorSmall: whether the open tab needs the downscaled
- * color JPEG. The subscription is sent on connect and whenever either changes.
+ * topics: what the backend should serialize for this client. The subscription is sent on connect and whenever it changes.
  */
 export function useRosBridge(
   topics: string[],
-  colorSmall: boolean,
   onError?: (error: BridgeError) => void
 ): UseRosBridgeReturn {
   const [topicData, setTopicData] = useState<TopicData>({})
@@ -37,7 +35,7 @@ export function useRosBridge(
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
   const subscriptionRef = useRef('')
-  subscriptionRef.current = JSON.stringify({ type: 'subscribe', topics, color_small: colorSmall })
+  subscriptionRef.current = JSON.stringify({ type: 'subscribe', topics })
   const sendSubscription = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(subscriptionRef.current)
   }, [])
