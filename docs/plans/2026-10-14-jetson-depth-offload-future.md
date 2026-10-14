@@ -17,3 +17,10 @@ future work.
 | Docs and diagrams | T29 | Deployment and architecture diagrams, deploy skill, MEMORY.md. |
 | Calibrate page, stereo backend | T31-T35, T42, T43 | depthd ChArUco preview, pair capture to disk, cleanup, solve job, HTTP endpoints, client config, hardware check. The web_ui side (T36, T40) is built against the contract. |
 | Arm calibration on the Calibrate page | none yet | Deferred by the user earlier. |
+
+## Queued after the user confirms depth (2026-10-14)
+
+| Item | What it adds |
+|---|---|
+| Pi 5 Camera Module 3 pair (front/back overview) | Both CSI ports on the client detect an IMX708 (i2c 10-001a and 11-001a, `camera_auto_detect=1`). Needs a camera node publishing front/back overview topics, shown in one web UI tab. It starts only after the depth fixes land and the user confirms depth looks right. |
+| Right-camera AWB gains follow the left | nvarguscamerasrc on R32.6.1 cannot set WB gains, so this needs a libargus capture port. Depth uses grey images; only the RGB image is affected. |
