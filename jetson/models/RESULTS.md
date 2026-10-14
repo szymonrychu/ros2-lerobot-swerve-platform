@@ -29,6 +29,11 @@ gate on its own.
 
 (These runs used a strict per-frame rate gate; the deployed stage keeps the average at `rate_hz`.)
 
+Deployed (role build, 2026-10-15, midas_small_128 engine built by the role in 1146 s): stereo 11.6 fps on the Jetson
+(11.55 Hz received on the Pi), fused 2.00 Hz on the Jetson and 2.01 Hz on the Pi (`/stereo/depth/fused`), mono fit
+~7600 inliers, fill ratio 1.0, `mono_state` ok. Depth latency p95 is 195 ms with mono on and off alike (not caused by
+the mono stage).
+
 ## Why MiDaS small 128 and not Depth Anything V2
 
 The stereo pipeline already keeps the Nano's single-SM GPU busy (GPU load ~100 %: rectify 2.5 ms + SGM 49 ms + post
