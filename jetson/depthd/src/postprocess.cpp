@@ -63,6 +63,7 @@ struct PostProcessor::Workspace
 {
   cv::Size size;
   cv::cuda::GpuMat labels, sizes, flag, scratch;
+  cv::cuda::GpuMat smoothed, invalid;  // bilateral output and mask, reused every frame
   cv::cuda::HostMem flag_host{1, 1, CV_32SC1, cv::cuda::HostMem::PAGE_LOCKED};
   cv::Ptr<cv::cuda::DisparityBilateralFilter> bilateral;
   cv::Ptr<cv::ximgproc::DisparityWLSFilter> wls;
@@ -225,11 +226,10 @@ void PostProcessor::run(cv::cuda::GpuMat & disp, const cv::cuda::GpuMat & left, 
     ws_->wls->setSigmaColor(kWlsSigma);
   }
   timed(kBilateral, cfg.bilateral.enabled, s, [&] {
-    cv::cuda::GpuMat smoothed, invalid;
-    ws_->bilateral->apply(disp, left, smoothed, stream);
-    cv::cuda::compare(disp, cv::Scalar(0), invalid, cv::CMP_LE, stream);  // smoothing never validates a pixel
-    smoothed.setTo(cv::Scalar(0), invalid, stream);
-    smoothed.copyTo(disp, stream);
+    ws_->bilateral->apply(disp, left, ws_->smoothed, stream);
+    cv::cuda::compare(disp, cv::Scalar(0), ws_->invalid, cv::CMP_LE, stream);  // smoothing never validates a pixel
+    ws_->smoothed.setTo(cv::Scalar(0), ws_->invalid, stream);
+    ws_->smoothed.copyTo(disp, stream);
   });
   timed(kHoleFill, cfg.hole_fill.enabled, s, [&] {
     label(kernels::Grouping::kInvalid, 0);

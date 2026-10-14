@@ -112,6 +112,20 @@ __global__ void label_count_kernel(int n, const int * labels, int * sizes)
   if (i < n && labels[i] >= 0) atomicAdd(&sizes[labels[i]], 1);
 }
 
+__global__ void disparity_to_depth_kernel(CDisp disp, unsigned short * out, size_t out_step, int w, int h,
+                                          float numerator, int min_mm, int max_mm)
+{
+  const int x = blockIdx.x * blockDim.x + threadIdx.x, y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= w || y >= h) return;
+  const int d = row(disp, y)[x];
+  int z = 0;
+  if (d > 0) {
+    z = min(max(__float2int_rn(__fdiv_rn(numerator, static_cast<float>(d))), 0), 65535);
+    if (z < min_mm || z > max_mm) z = 0;
+  }
+  reinterpret_cast<unsigned short *>(reinterpret_cast<char *>(out) + y * out_step)[x] = static_cast<unsigned short>(z);
+}
+
 __global__ void speckle_apply_kernel(Disp disp, const int * labels, const int * sizes, int w, int h, int max_size)
 {
   const int x = blockIdx.x * blockDim.x + threadIdx.x, y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -221,6 +235,14 @@ void hole_fill(CDisp in, Disp out, Grey left, const int * labels, const int * si
 {
   hole_fill_kernel<<<grid_for(w, h), block(), 0, stream>>>(in, out, left, labels, sizes, w, h, max_hole_px);
   check(cudaGetLastError(), "hole_fill launch");
+}
+
+void disparity_to_depth(CDisp disp, unsigned short * out, size_t out_step, int w, int h, float numerator, int min_mm,
+                        int max_mm, cudaStream_t stream)
+{
+  disparity_to_depth_kernel<<<grid_for(w, h), block(), 0, stream>>>(disp, out, out_step, w, h, numerator, min_mm,
+                                                                     max_mm);
+  check(cudaGetLastError(), "disparity_to_depth launch");
 }
 
 void temporal(Disp disp, Grey grey, float * state, unsigned char * prev_grey, int w, int h, float alpha,

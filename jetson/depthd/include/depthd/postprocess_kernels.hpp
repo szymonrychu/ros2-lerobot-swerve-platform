@@ -1,4 +1,4 @@
-// CUDA kernels behind PostProcessor and TemporalFilter (postprocess_kernels.cu). Raw device pointers only, so the
+// CUDA kernels behind PostProcessor, TemporalFilter and disparity_to_depth_mm (postprocess_kernels.cu). Raw device pointers only, so the
 // .cu file needs no OpenCV and compiles under nvcc 10.2 (C++14). Disparity is CV_16SC1 = disparity * 16, invalid <= 0.
 // Every launch is asynchronous on the given stream except label_components, which reads one flag back per iteration.
 #ifndef DEPTHD_POSTPROCESS_KERNELS_HPP_
@@ -59,6 +59,12 @@ void speckle_apply(Disp disp, const int * labels, const int * sizes, int w, int 
 // (ties: the smaller disparity). Other invalid pixels are written as 0. in and out must not alias.
 void hole_fill(CDisp in, Disp out, Grey left, const int * labels, const int * sizes, int w, int h, int max_hole_px,
                cudaStream_t stream);
+
+// Disparity * 16 to millimetres in one pass (depth.hpp's contract): 0 where d <= 0, else
+// z = saturate_u16(rint(numerator / d)) with numerator = f * B * 1000 * 16 in float, and 0 where z < min_mm or
+// z > max_mm. out is CV_16UC1-shaped (pitch in bytes).
+void disparity_to_depth(CDisp disp, unsigned short * out, size_t out_step, int w, int h, float numerator, int min_mm,
+                        int max_mm, cudaStream_t stream);
 
 // Motion-gated EMA. state (float, contiguous w*h) holds the filtered disparity (<= 0: no history) and prev_grey
 // (contiguous w*h) the previous grey frame; both are updated. first ignores both (no usable history).

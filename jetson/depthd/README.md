@@ -314,7 +314,7 @@ and `supports_lr_check()` is true for `cuda_sgm` and `libsgm` (both check inside
 - Both run on their own (default) CUDA stream: the caller's stream is synchronised before the call.
 
 `include/depthd/depth.hpp`: `disparity_to_depth_mm(disp16, f_px, baseline_m, min_depth_m, max_depth_m [, out], stream)`
-runs on the GPU (OpenCV CUDA ops on the given stream) and returns `CV_16UC1` millimetres, the ToF contract where
+runs on the GPU (one kernel on the given stream, `kernels::disparity_to_depth`, no temporaries) and returns `CV_16UC1` millimetres, the ToF contract where
 0 means invalid:
 
 ```
@@ -325,7 +325,7 @@ Z_mm = 0   where Z_mm < round(min_depth_m * 1000) or Z_mm > round(max_depth_m * 
 
 `f_px` is the focal length of the rectified left projection (`P[0][0]`) and `baseline_m` comes from the calibration
 (`Rectification::baseline_m()`). Example: f 400 px, B 60 mm, disparity 40 px gives 600 mm. Tests:
-`test/test_depth.cpp` (exact values, every invalid case, saturation) and `test/test_matcher.cpp` (a textured pair
+`test/test_depth.cpp` (exact values, every invalid case, saturation, no GPU allocation once the output exists) and `test/test_matcher.cpp` (a textured pair
 shifted by 40 px gives 600 mm within 2% on at least 90% of the interior for `cuda_sgm`, `vpi` and `libsgm` at 64 and 128 disparities).
 
 ## Post-processing
@@ -363,7 +363,7 @@ also be used alone.
 
 `src/postprocess_kernels.cu` holds the kernels (raw device pointers, nvcc 10.2 at C++14); `CMakeLists.txt` enables the
 CUDA language for it (sm_53, shared cudart). Tests: `test/test_postprocess.cpp` (every stage, toggles, order, timing
-flags, bad inputs) and `test/test_temporal.cpp`.
+flags, bad inputs, no GPU allocation in a warmed-up run) and `test/test_temporal.cpp`.
 
 ## Transport and HTTP API
 

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "depthd/depth.hpp"
+#include "gpu_alloc_counter.hpp"
 
 using depthd::disparity_to_depth_mm;
 
@@ -105,4 +106,20 @@ TEST(DisparityToDepth, RejectsBadArguments)
   EXPECT_THROW(disparity_to_depth_mm(d16, 0, 0.06, 0.2, 6.0), std::invalid_argument);
   EXPECT_THROW(disparity_to_depth_mm(d16, 400, -0.06, 0.2, 6.0), std::invalid_argument);
   EXPECT_THROW(disparity_to_depth_mm(d16, 400, 0.06, 6.0, 0.2), std::invalid_argument);
+}
+
+// Runs every frame: with the output reused, the conversion allocates no GPU memory (no temporaries).
+TEST(DisparityToDepth, SteadyStateAllocatesNothing)
+{
+  cv::cuda::GpuMat disp(480, 640, CV_16SC1, cv::Scalar(40 * 16)), out;
+  cv::cuda::Stream stream;
+  disparity_to_depth_mm(disp, 400.0, 0.06, 0.2, 6.0, out, stream);  // first call creates `out`
+  stream.waitForCompletion();
+  GpuAllocCounter counter;
+  disparity_to_depth_mm(disp, 400.0, 0.06, 0.2, 6.0, out, stream);
+  stream.waitForCompletion();
+  EXPECT_EQ(counter.count, 0);
+  cv::Mat host;
+  out.download(host);
+  EXPECT_EQ(cv::countNonZero(host == 600), 640 * 480);
 }

@@ -10,6 +10,7 @@
 #include "depthd/config.hpp"
 #include "depthd/matcher.hpp"
 #include "depthd/postprocess.hpp"
+#include "gpu_alloc_counter.hpp"
 
 namespace
 {
@@ -370,4 +371,30 @@ TEST(PostProcess, RejectsBadInputs)
   EXPECT_THROW(pp.run(wrong_type, l, nullptr), std::invalid_argument);
   cv::cuda::GpuMat d(constant_disp(40)), small(cv::Mat(10, 10, CV_8UC1, cv::Scalar(1)));
   EXPECT_THROW(pp.run(d, small, nullptr), std::invalid_argument);
+}
+
+// Runs every frame: once warmed up, the default stack (every GPU stage on, wls off) allocates no GPU memory.
+TEST(PostProcess, SteadyStateAllocatesNothing)
+{
+  depthd::Config c;  // defaults: every stage on except wls
+  c.postprocess.lr_check.enabled = false;  // a native-check matcher's case; the right disparity is the matcher's
+  depthd::PostProcessor pp(c, true);
+  cv::Mat d = constant_disp(40);
+  d(cv::Rect(100, 100, 6, 6)).setTo(0);      // a small hole to fill
+  d(cv::Rect(300, 200, 5, 5)).setTo(60 * k16);  // a speckle
+  cv::Mat grey(kH, kW, CV_8UC1);
+  cv::RNG(3).fill(grey, cv::RNG::UNIFORM, 0, 256);
+  cv::cuda::GpuMat l(grey), disp;
+  cv::cuda::Stream stream;
+  for (int i = 0; i < 2; ++i) {  // first runs build the filters and the workspace
+    disp.upload(d, stream);
+    pp.run(disp, l, nullptr, stream);
+  }
+  stream.waitForCompletion();
+  disp.upload(d, stream);
+  stream.waitForCompletion();
+  GpuAllocCounter counter;
+  pp.run(disp, l, nullptr, stream);
+  stream.waitForCompletion();
+  EXPECT_EQ(counter.count, 0);
 }
