@@ -362,7 +362,7 @@ Expected: pytest all passed, ruff clean, ansible-lint `0 failure(s)` and every `
 
 **Verify:**
 ```
-uv run pytest tests/test_jetson_base_role.py -q && uv run poe lint && uv run poe test-ansible && mkdir -p .logs && set -o pipefail && ./scripts/deploy-nodes.sh jetson base 2>&1 | tee .logs/deploy-jetson-base.log && ssh -o BatchMode=yes jetson@192.168.1.32 'systemctl is-enabled jetson-clocks && sudo nvpmodel -q | grep -q MAXN && test -d /var/log/journal && ip -4 addr show eth0 | grep -q 10.77.0.2/30 && chronyc sources | grep -q 10.77.0.1'
+uv run pytest tests/test_jetson_base_role.py -q && uv run poe lint && uv run poe test-ansible && mkdir -p .logs && set -o pipefail && ./scripts/deploy-nodes.sh jetson base 2>&1 | tee .logs/deploy-jetson-base.log && ssh -o BatchMode=yes jetson@192.168.1.32 'systemctl is-enabled jetson-clocks && sudo nvpmodel -q | grep -q MAXN && test -d /var/log/journal && ip -4 addr show eth0 | grep -q 10.77.0.2/30 && chronyc -n sources | grep -q 10.77.0.1'
 ```
 Expected: tests and lint as above, the playbook recap shows `failed=0 unreachable=0`, and every ssh check exits 0.
 **Notes:** WiFi must survive: apply netplan only with the wlan0 stanza present. The Pi is not deployed here, so chrony on the Jetson syncs from the pool until T30. Deploy output goes to .logs/.

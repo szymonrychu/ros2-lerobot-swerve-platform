@@ -248,3 +248,12 @@ def test_wifi_file_is_removed_only_after_the_ansible_netplan_has_the_wlan0_stanz
 def test_test_ansible_syntax_checks_the_jetson_playbook() -> None:
     pyproject = (REPO_ROOT / "pyproject.toml").read_text()
     assert "ansible-playbook -i inventory playbooks/deploy_nodes_jetson.yml --syntax-check" in pyproject
+
+
+def test_plan_verify_uses_numeric_chronyc() -> None:
+    """Without -n chronyc prints the Pi's hostname (client.ros2.lan), so the plan's T5 verify must use -n."""
+    plan = (REPO_ROOT / "docs" / "plans" / "2026-10-14-jetson-depth-offload-plan.md").read_text()
+    verify = [line for line in plan.splitlines() if line.startswith("uv run pytest tests/test_jetson_base_role.py")]
+    assert verify, "T5 verify line not found"
+    for line in verify:
+        assert "chronyc -n sources | grep -q 10.77.0.1" in line
