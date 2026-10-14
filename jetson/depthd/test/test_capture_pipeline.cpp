@@ -238,6 +238,42 @@ TEST(ExposureLock, ZeroSettleFramesLocksOnFirstPair)
   EXPECT_TRUE(policy.on_frame(CameraSide::right));
 }
 
+// 30 fps sensor (33.3 ms frames) throttled to 10 fps: every third frame.
+static uint64_t frame_pts(int i, uint64_t base = 0) { return base + static_cast<uint64_t>(i) * 33333333ULL; }
+
+TEST(RgbThrottleTest, KeepsOneBufferPerRgbInterval)
+{
+  depthd::RgbThrottle throttle(10.0, 30.0);
+  std::vector<int> admitted;
+  for (int i = 0; i < 12; ++i) {
+    if (throttle.admit(frame_pts(i))) admitted.push_back(i);
+  }
+  EXPECT_EQ(admitted, (std::vector<int>{0, 3, 6, 9}));
+}
+
+TEST(RgbThrottleTest, PtsRestartingNearZeroResyncsInsteadOfStarving)
+{
+  // The left pipeline ran for 60 s, then restarted (NULL -> PLAYING): running time, and so PTS, starts again near 0.
+  depthd::RgbThrottle throttle(10.0, 30.0);
+  for (int i = 0; i < 1800; ++i) throttle.admit(frame_pts(i));
+  std::vector<int> admitted;
+  for (int i = 0; i < 12; ++i) {
+    if (throttle.admit(frame_pts(i, 5000000))) admitted.push_back(i);
+  }
+  EXPECT_EQ(admitted, (std::vector<int>{0, 3, 6, 9}));
+}
+
+TEST(RgbThrottleTest, ResetAdmitsTheNextBuffer)
+{
+  depthd::RgbThrottle throttle(10.0, 30.0);
+  EXPECT_TRUE(throttle.admit(frame_pts(100)));
+  EXPECT_FALSE(throttle.admit(frame_pts(101)));
+  throttle.reset();
+  EXPECT_TRUE(throttle.admit(frame_pts(101)));
+  EXPECT_FALSE(throttle.admit(frame_pts(102)));
+  EXPECT_TRUE(throttle.admit(frame_pts(104)));
+}
+
 TEST(CaptureStatusTest, StatesHaveHealthNames)
 {
   EXPECT_STREQ(depthd::to_string(depthd::CaptureState::starting), "starting");

@@ -121,6 +121,24 @@ private:
   bool locked_ = false;
 };
 
+// Throttle of the RGB JPEG branch: admits one buffer per 1/rgb_fps of PTS (half a sensor frame of tolerance) and
+// drops the rest. PTS is running time, so it restarts near 0 when the pipeline goes NULL -> PLAYING; a PTS behind the
+// last admitted one resyncs the schedule instead of dropping until the old schedule is reached again.
+class RgbThrottle
+{
+public:
+  RgbThrottle(double rgb_fps, double sensor_fps);
+  bool admit(uint64_t pts_ns);
+  void reset();  // the pipeline restarted: the next buffer is admitted
+
+private:
+  uint64_t interval_ns_;
+  uint64_t tolerance_ns_;
+  uint64_t next_due_ns_ = 0;
+  uint64_t last_admitted_ns_ = 0;
+  bool due_set_ = false;
+};
+
 // Readback of the sensor's current exposure and gain from its V4L2 controls (/dev/video<sensor-id>), used to log the
 // locked values. exposure is in microseconds; gain is in sensor units where 16 = 1x (IMX219 gain_factor).
 struct SensorExposure

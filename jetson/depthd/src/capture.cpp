@@ -239,6 +239,26 @@ const char * to_string(CaptureState state)
   return "camera_error";
 }
 
+RgbThrottle::RgbThrottle(double rgb_fps, double sensor_fps)
+: interval_ns_(static_cast<uint64_t>(1e9 / rgb_fps)), tolerance_ns_(static_cast<uint64_t>(0.5e9 / sensor_fps))
+{
+}
+
+bool RgbThrottle::admit(uint64_t pts_ns)
+{
+  if (!due_set_ || pts_ns < last_admitted_ns_) {  // first buffer, or PTS went back: the pipeline restarted
+    due_set_ = true;
+    next_due_ns_ = pts_ns;
+  }
+  if (pts_ns + tolerance_ns_ < next_due_ns_) return false;
+  next_due_ns_ += interval_ns_;
+  if (next_due_ns_ + tolerance_ns_ < pts_ns) next_due_ns_ = pts_ns + interval_ns_;  // resync after a gap
+  last_admitted_ns_ = pts_ns;
+  return true;
+}
+
+void RgbThrottle::reset() { due_set_ = false; }
+
 bool ExposureLockPolicy::on_frame(CameraSide side)
 {
   if (!enabled_ || locked_) return false;
@@ -356,15 +376,15 @@ struct StereoCapture::Impl
 
   std::atomic<bool> running{false};
   std::thread watchdog;
-  uint64_t rgb_next_due_pts = 0;  // rgb_queue streaming thread only
-  bool rgb_due_set = false;
+  RgbThrottle rgb_throttle;  // rgb_queue streaming thread only (reset while the left pipeline is stopped)
   uint64_t rgb_sequence = 0;
 
   Impl(const Config & c, LogFn l)
   : config(c),
     log(l ? std::move(l) : LogFn(default_log)),
     pairer(c.capture.pair_window_ms),
-    lock_policy(c.capture.settle_frames, c.capture.lock_exposure_after_settle)
+    lock_policy(c.capture.settle_frames, c.capture.lock_exposure_after_settle),
+    rgb_throttle(c.rgb.fps, c.capture.sensor_mode.fps)
   {
     sides[0].impl = this;
     sides[0].side = CameraSide::left;
@@ -600,17 +620,7 @@ struct StereoCapture::Impl
     auto * impl = static_cast<Impl *>(user);
     GstBuffer * buf = GST_PAD_PROBE_INFO_BUFFER(info);
     if (!GST_BUFFER_PTS_IS_VALID(buf)) return GST_PAD_PROBE_DROP;
-    const uint64_t pts = GST_BUFFER_PTS(buf);
-    const auto interval = static_cast<uint64_t>(1e9 / impl->config.rgb.fps);
-    const auto tolerance = static_cast<uint64_t>(0.5e9 / impl->config.capture.sensor_mode.fps);
-    if (!impl->rgb_due_set) {
-      impl->rgb_due_set = true;
-      impl->rgb_next_due_pts = pts;
-    }
-    if (pts + tolerance < impl->rgb_next_due_pts) return GST_PAD_PROBE_DROP;
-    impl->rgb_next_due_pts += interval;
-    if (impl->rgb_next_due_pts + tolerance < pts) impl->rgb_next_due_pts = pts + interval;  // resync after a gap
-    return GST_PAD_PROBE_OK;
+    return impl->rgb_throttle.admit(GST_BUFFER_PTS(buf)) ? GST_PAD_PROBE_OK : GST_PAD_PROBE_DROP;
   }
 
   struct MappedSample
@@ -714,6 +724,7 @@ struct StereoCapture::Impl
     s.last_frame_mono_ns.store(0);
     s.last_sensor_ns.store(0);
     s.source_frames.store(0);
+    if (s.side == CameraSide::left) rgb_throttle.reset();  // the pipeline is stopped: no probe is running
     if (gst_element_set_state(s.pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
       err = camera_label(s) + ": pipeline failed to start";
       return false;
