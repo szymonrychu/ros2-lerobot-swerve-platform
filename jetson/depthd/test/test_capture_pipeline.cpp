@@ -434,3 +434,18 @@ TEST_P(LiveCapture, PairsLockedFramesAndJpegs)
 }
 
 INSTANTIATE_TEST_SUITE_P(ZeroCopy, LiveCapture, ::testing::Values(true, false));
+
+// A capture that cannot start reports both cameras failing, so the pipeline publishes nothing of either kind.
+TEST(StereoCaptureStatus, StartFailureMarksBothCamerasFailing)
+{
+  Config c;
+  c.capture.sensor_mode = {1000, 1000, 30};
+  depthd::StereoCapture cap(c);
+  std::string err;
+  ASSERT_FALSE(cap.start(&err));
+  const auto st = cap.status();
+  EXPECT_EQ(st.state, depthd::CaptureState::camera_error);
+  EXPECT_TRUE(st.left_error);
+  EXPECT_TRUE(st.right_error);
+  EXPECT_TRUE(contains(st.reason, "capture.sensor_mode")) << st.reason;
+}
