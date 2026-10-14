@@ -1518,6 +1518,7 @@ Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and
 | `test_client_playbook_still_deploys_both_names_so_the_uninstall_runs` | The client playbook still has a deploy step for each name. |
 | `test_boot_include_display_name_names_the_imx219_pair` | The camera boot include is named for the IMX219 pair, not the IMX708. |
 | `test_ansible_readme_documents_the_retirement` | `ansible/README.md` "Cut-over and rollback" names D7 and `present: false`, has no 19113 and no stereo row in the tier or memory tables. |
+| `test_tests_readme_metrics_wiring_rows_have_no_stereo_node` | The `test_config_metrics_port` and `src_shared` rows of this README name no stereo node and no 19113. |
 | `test_tests_readme_lists_every_test_of_this_file` | This README has a row for every test of this file. |
 
 ### test_arducam_tof_config.py
@@ -2047,11 +2048,11 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, stereo_depth, the side-by-side C++ ports map_guard_cpp 19110 and stereo_depth_cpp 19113, and jetson_bridge_cpp 19114) `metrics_port` 19101-19114; the non-ROS `jetson_depthd` target (`NON_ROS_TARGETS`) is accepted explicitly at the top level of the config. |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, the side-by-side C++ port map_guard_cpp 19110, and jetson_bridge_cpp 19114) `metrics_port` 19101-19114; the non-ROS `jetson_depthd` target (`NON_ROS_TARGETS`) is accepted explicitly at the top level of the config. |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
-| `test_node_types_using_ros2_metrics_declare_src_shared` | Every venv node type that imports ros2_metrics (stereo_depth included) sets `src_shared: true`. |
+| `test_node_types_using_ros2_metrics_declare_src_shared` | Every venv node type that imports ros2_metrics sets `src_shared: true`. |
 | `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
 | `test_a_port_is_shared_only_by_a_python_and_cpp_pair` | Two contract nodes share a port only as `<name>`/`<name>_cpp` (at least one such pair exists). |
 | `test_a_python_and_cpp_pair_is_never_both_enabled` | Of every `<name>`/`<name>_cpp` pair in `ros2_nodes` (map_guard at least) at most one is present and enabled: both would bind the same port and publish the same topics. |

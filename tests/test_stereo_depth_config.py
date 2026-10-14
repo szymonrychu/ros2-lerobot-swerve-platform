@@ -117,6 +117,18 @@ def test_ansible_readme_documents_the_retirement() -> None:
     assert "| stereo_depth" not in readme, "no tier or memory table row for a retired node"
 
 
+def test_tests_readme_metrics_wiring_rows_have_no_stereo_node() -> None:
+    rows = [
+        line
+        for line in TESTS_README.read_text().splitlines()
+        if line.startswith("| `test_config_metrics_port`")
+        or line.startswith("| `test_node_types_using_ros2_metrics_declare_src_shared`")
+    ]
+    assert len(rows) == 2
+    for row in rows:
+        assert "stereo_depth" not in row and str(RETIRED_PORT) not in row, row
+
+
 def test_tests_readme_lists_every_test_of_this_file() -> None:
     readme = TESTS_README.read_text()
     assert "### test_stereo_depth_config.py" in readme
