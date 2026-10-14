@@ -90,10 +90,10 @@ def test_overview_camera_node_type_keeps_only_what_the_uninstall_path_needs() ->
     assert set(defaults) == {"deploy_mode", "node_launch_command"}
 
 
-def test_client_vars_build_no_libcamera_or_camera_ros() -> None:
-    text = CLIENT_VARS.read_text()
-    assert "raspberrypi/libcamera" not in text
-    assert "christianrauch/camera_ros" not in text
+def test_only_pi_cameras_builds_libcamera_and_camera_ros() -> None:
+    defaults = load_client()["ros2_node_type_defaults"]
+    builders = [name for name, node in defaults.items() if "raspberrypi/libcamera" in str(node.get("colcon_source"))]
+    assert builders == ["pi_cameras"]
 
 
 def test_removal_tasks_delete_both_imx219_overlays() -> None:

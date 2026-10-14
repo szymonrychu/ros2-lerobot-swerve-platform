@@ -285,6 +285,15 @@
             _deploy_node_name: overview_camera
           tags: [overview_camera, apt, python, build, config]
 
+        - name: Deploy pi_cameras
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [pi_cameras]
+          vars:
+            _deploy_node_name: pi_cameras
+          tags: [pi_cameras, apt, python, build, config]
+
         - name: Deploy stereo_depth
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

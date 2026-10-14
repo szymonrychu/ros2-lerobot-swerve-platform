@@ -55,11 +55,11 @@ AGENT = {
     ],
 }
 # Background tier: work the robot can lose: the systemd default weight and no OOM protection, below every robot and
-# agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers (the stereo nodes that once
-# shared the tier are retired, D7).
+# agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers, pi_cameras the front/back
+# previews (the stereo nodes that once shared the tier are retired, D7).
 BACKGROUND = {
     "weights": (100, 100, 0),
-    "types": ["joint_state_throttle_follower", "joint_state_throttle_swerve"],
+    "types": ["joint_state_throttle_follower", "joint_state_throttle_swerve", "pi_cameras"],
 }
 TIERS = [CRITICAL, NORMAL, AGENT]
 ALL_TIERS = [*TIERS, BACKGROUND]

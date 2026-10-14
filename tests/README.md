@@ -1880,6 +1880,42 @@ Static checks of the web_ui Agent tab in `ansible/group_vars/client.yml` (no ROS
 | `test_agent_tab_url_matches_claude_agent_port` | `agent_url` is 127.0.0.1 with the same port as the claude_agent `http_port` (18300). |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_web_ui_agent_tab.py` is listed in this section. |
 
+### `test_pi_cameras_deploy.py`
+
+Static invariants of the front/back Camera Module 3 previews (`pi_cameras`): pinned libcamera and camera_ros sources and existing patches, no apt camera stack, launch command and env, background tier, entry with `front_port: cam0`, the web_ui `pi_cameras` tab on `/front_camera` and `/back_camera` topics, boot config without an imx708 overlay, docs.
+
+| Test | Covers |
+|---|---|
+| `test_node_type_builds_libcamera_then_camera_ros_from_the_pinned_sources` | See the function docstring/name. |
+| `test_node_type_never_installs_the_apt_camera_stack` | See the function docstring/name. |
+| `test_node_type_launches_the_pi_cameras_launch_file` | See the function docstring/name. |
+| `test_node_type_is_a_background_preview_that_loses_to_the_robot` | See the function docstring/name. |
+| `test_node_entry_is_present_and_enabled_with_the_front_port_documented` | See the function docstring/name. |
+| `test_entry_comment_documents_the_port_to_role_mapping` | See the function docstring/name. |
+| `test_web_ui_shows_the_previews_not_the_overview_camera_names` | See the function docstring/name. |
+| `test_boot_config_keeps_camera_auto_detect_and_writes_no_overlay` | See the function docstring/name. |
+| `test_launch_file_uses_the_pi_cameras_namespaces_only` | See the function docstring/name. |
+| `test_docs_describe_the_previews_and_the_front_port` | See the function docstring/name. |
+
+### `test_pi_cameras_config.py`
+
+The pure-Python launch helper `nodes/pi_cameras/launch/pi_cameras_config.py`: settings merge, `front_port` to front/back camera ID, namespaces, camera_ros parameters.
+
+| Test | Covers |
+|---|---|
+| `test_deep_merge_overrides_nested_keys_without_touching_the_base` | See the function name. |
+| `test_defaults_put_cam0_in_front_with_the_pi5_libcamera_ids` | See the function name. |
+| `test_defaults_are_a_cheap_640x480_10fps_preview` | See the function name. |
+| `test_override_file_is_merged_over_the_defaults` | See the function name. |
+| `test_empty_override_file_keeps_the_defaults` | See the function name. |
+| `test_cam0_front_maps_cam0_to_front_and_cam1_to_back` | See the function name. |
+| `test_front_port_cam1_swaps_the_roles` | See the function name. |
+| `test_unknown_front_port_is_rejected` | See the function name. |
+| `test_namespaces_are_not_the_overview_camera_namespace` | See the function name. |
+| `test_camera_parameters_select_the_camera_and_compress_the_stream` | See the function name. |
+| `test_back_camera_has_its_own_frame_id` | See the function name. |
+| `test_unknown_role_is_rejected` | See the function name. |
+
 ### `test_pi_cameras_retired.py`
 
 Static checks of the Pi camera retirement (D7: no cameras on the Pi), read as YAML and text.
@@ -1889,7 +1925,7 @@ Static checks of the Pi camera retirement (D7: no cameras on the Pi), read as YA
 | `test_overview_camera_entry_is_uninstalled_by_the_next_deploy` | The `overview_camera` ros2_nodes entry is `present: false` with no config. |
 | `test_overview_camera_entry_names_d7_in_its_comment` | The comment above the entry names D7. |
 | `test_overview_camera_node_type_keeps_only_what_the_uninstall_path_needs` | The node type has only `deploy_mode: native` and a launch command: no source, build, tier or env keys. |
-| `test_client_vars_build_no_libcamera_or_camera_ros` | `client.yml` no longer names the libcamera or camera_ros repositories. |
+| `test_only_pi_cameras_builds_libcamera_and_camera_ros` | Of all client node types only `pi_cameras` builds libcamera (the retired `overview_camera` builds nothing). |
 | `test_removal_tasks_delete_both_imx219_overlays` | `dtoverlay=imx219,cam0` and `dtoverlay=imx219,cam1` are removed from `/boot/firmware/config.txt` with `state: absent`. |
 | `test_camera_auto_detect_is_restored` | `camera_auto_detect=1` is written over any `camera_auto_detect=` line. |
 | `test_every_line_task_is_aarch64_only_and_registers_its_result` | Three `lineinfile` tasks, each aarch64-only, tagged `boot`, with its own registered result. |
@@ -2198,7 +2234,7 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_python_node_stays_present_and_disabled_for_rollback` | `map_guard` stays `present: true`, `enabled: false` (rollback). |
 | `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19110). |
 | `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
-| `test_background_tier_holds_only_the_throttles` | Among running nodes the background tier (100/100/0) holds only the two joint-state throttle nodes (the stereo nodes are retired, D7). |
+| `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds only the two joint-state throttle nodes (the stereo nodes are retired, D7). |
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |
 

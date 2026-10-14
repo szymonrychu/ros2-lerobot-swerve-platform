@@ -88,7 +88,7 @@ def test_node_types_keep_only_what_the_uninstall_path_needs() -> None:
 def test_background_tier_has_no_stereo_type() -> None:
     types = load_client()["ros2_node_type_defaults"]
     background = [n for n, t in types.items() if (t.get("cpu_weight"), t.get("io_weight")) == (100, 100)]
-    assert background == ["joint_state_throttle_follower", "joint_state_throttle_swerve"]
+    assert sorted(background) == ["joint_state_throttle_follower", "joint_state_throttle_swerve", "pi_cameras"]
 
 
 def test_metrics_target_is_removed() -> None:
