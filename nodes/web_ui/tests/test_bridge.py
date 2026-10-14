@@ -69,15 +69,18 @@ def test_overview_camera_topic_is_a_compressed_image_subscription() -> None:
     assert subscription_spec("/overview_camera/image_raw/compressed", None)[0] is CompressedImage
 
 
-def test_stereo_topics_have_type_hints() -> None:
-    """The stereo RGBD tab topics resolve to Image/CameraInfo subscriptions without a role."""
-    from sensor_msgs.msg import CameraInfo, Image
+def test_stale_stereo_rect_topics_are_gone_and_live_head_topics_remain() -> None:
+    """The retired /stereo/*_rect names have no type hint; the Head tab topics still resolve."""
+    from sensor_msgs.msg import CompressedImage, Image
 
+    from web_ui import bridge
     from web_ui.bridge import subscription_spec
 
-    assert subscription_spec("/stereo/left/image_rect", None)[0] is Image
-    assert subscription_spec("/stereo/depth/image_rect", None)[0] is Image
-    assert subscription_spec("/stereo/depth/camera_info", None)[0] is CameraInfo
+    for stale in ("/stereo/left/image_rect", "/stereo/depth/image_rect", "/stereo/depth/camera_info"):
+        assert stale not in bridge.TOPIC_TYPE_HINTS
+        assert subscription_spec(stale, None) is None
+    assert subscription_spec("/overview_camera/image_raw/compressed", None)[0] is CompressedImage
+    assert subscription_spec("/stereo/depth/image_raw", "head_depth")[0] is Image
 
 
 def test_odom_topic_is_an_odometry_subscription() -> None:

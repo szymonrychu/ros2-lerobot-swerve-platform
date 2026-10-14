@@ -115,14 +115,6 @@ def test_serialize_camera_info() -> None:
     assert result == {"fx": 600.0, "fy": 600.0, "cx": 320.0, "cy": 240.0, "width": 640, "height": 480}
 
 
-def test_color_image_rgbd_topic_includes_color_small() -> None:
-    """Color image on RGBD color topic includes color_small_b64."""
-    result = msg_to_dict(_make_rgb_image_msg(), topic="/stereo/left/image_rect")
-    assert "jpeg_b64" in result
-    assert "color_small_b64" in result
-    assert result["color_small_b64"] is not None
-
-
 def test_color_image_non_rgbd_topic_no_color_small() -> None:
     """Color image on non-RGBD topic does not include color_small_b64."""
     result = msg_to_dict(_make_rgb_image_msg(), topic="/controller/camera_0/image_raw")
@@ -139,11 +131,6 @@ def test_serialize_depth_image_zero_depth_preserved_in_bytes() -> None:
     assert int(arr[0]) == 0
 
 
-STEREO_COLOR = "/stereo/left/image_rect"
-STEREO_DEPTH = "/stereo/depth/image_rect"
-STEREO_INFO = "/stereo/depth/camera_info"
-
-
 def _bgr_image_msg(width: int = 320, height: int = 240) -> MagicMock:
     """Return a mock raw bgr8 Image message."""
     arr = np.zeros((height, width, 3), dtype=np.uint8)
@@ -158,24 +145,27 @@ def _bgr_image_msg(width: int = 320, height: int = 240) -> MagicMock:
     return msg
 
 
-def test_stereo_color_topic_includes_color_small() -> None:
-    """The stereo left colour topic feeds the RGBD mesh with a downscaled colour frame (rgb8, 320x240)."""
-    result = msg_to_dict(_make_rgb_image_msg(320, 240), topic=STEREO_COLOR)
-    assert result["jpeg_b64"] is not None
-    assert result["color_small_b64"] is not None
+def test_no_color_small_is_produced_for_any_image() -> None:
+    """The retired stereo colour path is gone: no image topic gets a color_small_b64 and the stale set is absent."""
+    from web_ui import msg_serializer
+
+    assert not hasattr(msg_serializer, "RGBD_COLOR_TOPICS")
+    for topic in ("/stereo/left/image_rect", "/camera/color/image_raw"):
+        result = msg_to_dict(_make_rgb_image_msg(320, 240), topic=topic)
+        assert result["jpeg_b64"] is not None
+        assert "color_small_b64" not in result
 
 
-def test_stereo_color_bgr8_raw_image_serializes() -> None:
-    """A raw bgr8 Image at 320x240 serializes to JPEG with the colour mesh frame."""
-    result = msg_to_dict(_bgr_image_msg(), topic=STEREO_COLOR)
+def test_bgr8_raw_image_serializes() -> None:
+    """A raw bgr8 Image at 320x240 serializes to JPEG."""
+    result = msg_to_dict(_bgr_image_msg(), topic="/camera/color/image_raw")
     assert result["jpeg_b64"] is not None
-    assert result["color_small_b64"] is not None
     assert "error" not in result
 
 
-def test_stereo_depth_16uc1_320x240_serializes() -> None:
-    """The 16UC1 stereo depth at 320x240 yields the preview and the 160x120 mesh grid."""
-    result = msg_to_dict(_make_depth_image_msg(width=320, height=240), topic=STEREO_DEPTH)
+def test_depth_16uc1_320x240_serializes() -> None:
+    """A 16UC1 depth image at 320x240 yields the preview and the 160x120 mesh grid."""
+    result = msg_to_dict(_make_depth_image_msg(width=320, height=240), topic="/stereo/depth/image_raw")
     assert result["depth_preview_b64"] is not None
     assert (result["depth_width"], result["depth_height"]) == (160, 120)
     assert len(base64.b64decode(result["depth_b64"])) == 160 * 120 * 2
@@ -223,7 +213,7 @@ def test_depth_beyond_tof_range_is_black() -> None:
 
 def test_depth_without_range_keeps_red_green_preview() -> None:
     """The rgbd tab path (no tof_range_m) keeps the red-green colormap."""
-    result = msg_to_dict(_depth_row_msg([1000] * 16), topic="/stereo/depth/image_rect")
+    result = msg_to_dict(_depth_row_msg([1000] * 16), topic="/stereo/depth/image_raw")
     img = _jpeg_gray(result["depth_preview_b64"])
     assert abs(int(img[2, 8, 2]) - int(img[2, 8, 1])) > 20
 

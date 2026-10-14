@@ -11,10 +11,9 @@ import cv2
 import numpy as np
 
 from web_ui.bridge import BridgeNode, subscription_spec
-from web_ui.msg_serializer import RGBD_COLOR_TOPICS, msg_to_dict
+from web_ui.msg_serializer import msg_to_dict
 
 TOPIC = "/lazy/topic"
-RGBD_TOPIC = next(iter(RGBD_COLOR_TOPICS))
 
 
 def make_node() -> BridgeNode:
@@ -23,7 +22,6 @@ def make_node() -> BridgeNode:
         node = BridgeNode.__new__(BridgeNode)
     node._latest = {}
     node._pending = {}
-    node._color_small = False
     node._dirty = set()
     node._cleared = set()
     node._lock = threading.Lock()
@@ -155,45 +153,24 @@ def test_compressed_non_jpeg_is_still_decoded_and_reencoded() -> None:
     assert base64.b64decode(result["jpeg_b64"])[:2] == b"\xff\xd8"
 
 
-def test_color_small_only_decodes_when_requested() -> None:
+def test_jpeg_passthrough_is_never_decoded() -> None:
     msg = make_jpeg_msg()
     with patch("web_ui.msg_serializer.cv2.imdecode", wraps=cv2.imdecode) as dec:
-        plain = msg_to_dict(msg, topic=RGBD_TOPIC, color_small=False)
-        assert dec.call_count == 0
-        full = msg_to_dict(msg, topic=RGBD_TOPIC)
-        assert dec.call_count == 1
-    assert "color_small_b64" not in plain
-    assert base64.b64decode(plain["jpeg_b64"]) == msg.data
-    assert full["color_small_b64"] is not None
-    assert base64.b64decode(full["jpeg_b64"]) == msg.data
-
-
-def test_color_small_not_produced_for_other_topics() -> None:
-    result = msg_to_dict(make_jpeg_msg(), topic="/other/image")
+        result = msg_to_dict(msg, topic="/h/rgb")
+    assert dec.call_count == 0
     assert "color_small_b64" not in result
-
-
-def test_rgbd_frame_is_not_decoded_before_a_flush() -> None:
-    node = make_node()
-    _, _, serializer = subscription_spec(RGBD_TOPIC, None)
-    msg = make_jpeg_msg()
-    msg.__class__.__name__ = "Image"
-    with patch("web_ui.msg_serializer.cv2.imencode") as enc, patch("web_ui.msg_serializer.cv2.imdecode") as dec:
-        node._make_callback(RGBD_TOPIC, serializer, None)(msg)
-    enc.assert_not_called()
-    dec.assert_not_called()
+    assert base64.b64decode(result["jpeg_b64"]) == msg.data
 
 
 # --- per-client subscription gating ------------------------------------------------------------------------------
 
 
-def make_conn(topics: Any = None, color_small: bool = False) -> Any:
+def make_conn(topics: Any = None) -> Any:
     """ClientConnection stand-in with a subscription."""
     from web_ui.ws_clients import ClientConnection
 
     conn = ClientConnection(MagicMock(), on_dead=lambda _c: None)
     conn.topics = None if topics is None else frozenset(topics)
-    conn.color_small = color_small
     return conn
 
 
@@ -226,14 +203,6 @@ def test_broadcaster_flushes_only_the_union_of_client_subscriptions() -> None:
     clients = {"a": make_conn({"/x", "/y"}), "b": make_conn({"/y", "/z"})}
     run_broadcaster(clients, bridge)
     assert bridge.flush_dirty.call_args.args[0] == {"/x", "/y", "/z"}
-    bridge.set_color_small.assert_called_with(False)
-
-
-def test_broadcaster_color_small_follows_any_client_head_tab() -> None:
-    bridge = MagicMock()
-    bridge.flush_dirty.return_value = []
-    run_broadcaster({"a": make_conn({"/x"}), "b": make_conn({"/x"}, color_small=True)}, bridge)
-    bridge.set_color_small.assert_called_with(True)
 
 
 def test_client_without_subscribe_message_gets_every_topic() -> None:
@@ -255,18 +224,13 @@ def test_unsubscribed_topic_is_not_serialized_but_stays_pending_for_a_later_subs
     assert unwanted.messages == [2]
 
 
-def test_color_small_skipped_unless_a_head_tab_needs_it() -> None:
-    node = make_node()
-    _, _, serializer = subscription_spec(RGBD_TOPIC, None)
-    msg = make_jpeg_msg()
-    node._make_callback(RGBD_TOPIC, serializer, None)(msg)
-    with patch("web_ui.msg_serializer.cv2.imdecode", wraps=cv2.imdecode) as dec:
-        plain = node.flush_dirty()[0]["data"]
-    dec.assert_not_called()
-    assert "color_small_b64" not in plain
-    node.set_color_small(True)
-    node._make_callback(RGBD_TOPIC, serializer, None)(msg)
-    assert node.flush_dirty()[0]["data"]["color_small_b64"] is not None
+def test_color_small_machinery_is_gone() -> None:
+    """The stereo-only color_small path is removed from the node, the client connection and the broadcaster."""
+    from web_ui import ws_clients
+
+    assert not hasattr(BridgeNode, "set_color_small")
+    assert not hasattr(ws_clients, "wants_color_small")
+    assert not hasattr(make_conn(), "color_small")
 
 
 def test_broadcast_offers_each_envelope_only_to_subscribed_clients() -> None:
@@ -295,7 +259,7 @@ def test_subscribe_message_sets_subscription_and_sends_snapshot_of_new_topics(tm
     config = AppConfig(tabs=[TabConfig(id="map", type="map_nav", label="Map", goal_topic="/goal")])
     app = build_app(config=config, urdf_dir=urdf_dir, static_dir=tmp_path / "none", bridge_node=bridge)
     with patch("web_ui.server.WS_RECONNECT_MIN_INTERVAL_S", 0.0), TestClient(app).websocket_connect("/ws") as ws:
-        ws.send_json({"type": "subscribe", "topics": ["/x"], "color_small": True})
+        ws.send_json({"type": "subscribe", "topics": ["/x"]})
         assert ws.receive_json() == {"topic": "/x", "data": {"v": 1}}
     assert bridge.latest_envelopes.call_args_list[0].kwargs == {"serialize": False}
 

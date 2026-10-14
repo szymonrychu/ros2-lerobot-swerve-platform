@@ -64,10 +64,8 @@ class ClientConnection:
         self.on_dead = on_dead
         self.send_timeout_s = send_timeout_s
         self.max_queued = max_queued
-        # Topics the client wants (None: every topic, the state before it sends a subscribe message) and whether its
-        # open tab needs the downscaled color_small JPEG.
+        # Topics the client wants (None: every topic, the state before it sends a subscribe message).
         self.topics: frozenset[str] | None = None
-        self.color_small = False
         self.mailbox: dict[str, str] = {}
         self.ordered: deque[str] = deque()
         self.wakeup = asyncio.Event()
@@ -85,15 +83,13 @@ class ClientConnection:
         """
         return self.topics is None or topic in self.topics
 
-    def subscribe(self, topics: Iterable[str] | None, color_small: bool) -> None:
+    def subscribe(self, topics: Iterable[str] | None) -> None:
         """Replace the client's subscription.
 
         Args:
             topics (Iterable[str] | None): Topics to receive, None for every topic.
-            color_small (bool): Whether the client's open tab needs the downscaled color JPEG.
         """
         self.topics = None if topics is None else frozenset(topics)
-        self.color_small = color_small
 
     @property
     def pending_frames(self) -> int:
@@ -207,15 +203,3 @@ def wanted_topics(clients: Iterable[ClientConnection]) -> set[str] | None:
             return None
         wanted |= conn.topics
     return wanted
-
-
-def wants_color_small(clients: Iterable[ClientConnection]) -> bool:
-    """Whether any client's open tab needs the downscaled color JPEG.
-
-    Args:
-        clients (Iterable[ClientConnection]): Connected clients.
-
-    Returns:
-        bool: True when at least one client needs color_small.
-    """
-    return any(conn.color_small for conn in clients)

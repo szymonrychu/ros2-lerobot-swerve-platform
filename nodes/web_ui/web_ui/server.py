@@ -58,7 +58,6 @@ from .ws_clients import (
     BackpressureWebSocketsProtocol,
     ClientConnection,
     wanted_topics,
-    wants_color_small,
 )
 
 log = structlog.get_logger(__name__)
@@ -430,7 +429,6 @@ def _make_start_broadcaster(
                 if not clients:
                     continue
                 t0 = time.monotonic()
-                bridge_node.set_color_small(wants_color_small(clients.values()))
                 envelopes = bridge_node.flush_dirty(wanted_topics(clients.values()))
                 if not envelopes:
                     continue
@@ -1022,9 +1020,7 @@ def build_app(
                         msg = json.loads(raw)
                         if msg.get("type") == "subscribe":
                             topics = msg.get("topics")
-                            conn.subscribe(
-                                None if topics is None else [str(t) for t in topics], bool(msg.get("color_small"))
-                            )
+                            conn.subscribe(None if topics is None else [str(t) for t in topics])
                             update_demand()
                             if bridge_node is not None and conn.topics is not None:
                                 for envelope in bridge_node.latest_envelopes(set(conn.topics)):

@@ -66,7 +66,6 @@ from .gps_anchor import (
 from .gps_status import parse_status_json
 from .metrics import BATTERY_CUTOFF_ACTIVE, MAP_UPDATES, ROBOT_POSE_OK, TOPIC_STALE, TOPICS_STALE, touch_map
 from .msg_serializer import (
-    RGBD_COLOR_TOPICS,
     msg_to_dict,
     quaternion_to_yaw,
     serialize_active_source,
@@ -103,9 +102,6 @@ MSG_TYPE_MAP: dict[str, type] = {
 }
 
 TOPIC_TYPE_HINTS: dict[str, type] = {
-    "/stereo/left/image_rect": Image,
-    "/stereo/depth/image_rect": Image,
-    "/stereo/depth/camera_info": CameraInfo,
     # Local (client-side) topics shown by the map tab and the default camera/IMU tabs.
     "/follower/joint_states": JointState,
     "/swerve_drive/joint_states": JointState,
@@ -171,8 +167,8 @@ ROBOT_POSE_STALE_S = 2.0
 # every other topic passes through.
 MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint", "costmap"})
 
-# Serializers take the message; those of RGBD color topics also take color_small (bool, default True).
-Serializer = Callable[..., dict[str, Any]]
+# Serializers take the message and return a JSON-serializable dict.
+Serializer = Callable[[Any], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -231,8 +227,8 @@ def head_spec(topic: str, role: str, tof_range_m: float | None) -> tuple[type, A
     """
     depth_range = tof_range_m if role == HEAD_DEPTH_ROLE else None
 
-    def serializer(msg: Any, color_small: bool = True) -> dict[str, Any]:
-        data = msg_to_dict(msg, topic=topic, tof_range_m=depth_range, color_small=color_small)
+    def serializer(msg: Any) -> dict[str, Any]:
+        data = msg_to_dict(msg, topic=topic, tof_range_m=depth_range)
         if "error" in data:
             raise ValueError(data["error"])
         return data
@@ -265,8 +261,8 @@ def subscription_spec(
         return None
     qos = SENSOR_SUB_QOS if msg_cls in SENSOR_TYPES else DEFAULT_SUB_QOS_DEPTH
 
-    def serializer(msg: Any, color_small: bool = True) -> dict[str, Any]:
-        return msg_to_dict(msg, topic=topic, color_small=color_small)
+    def serializer(msg: Any) -> dict[str, Any]:
+        return msg_to_dict(msg, topic=topic)
 
     return (msg_cls, qos, serializer)
 
@@ -654,14 +650,6 @@ class BridgeNode(Node):
             if topic in self._topic_last_rx:
                 self._topic_last_rx[topic] = time.monotonic()
 
-    def set_color_small(self, wanted: bool) -> None:
-        """Set whether RGBD color frames get the downscaled second JPEG (some connected client's tab needs it).
-
-        Args:
-            wanted (bool): True while a connected client has an RGBD tab open.
-        """
-        self._color_small = wanted
-
     def serialize_pending(self, topics: Iterable[str]) -> set[str]:
         """Serialize the pending raw message of each topic (at most once per message) into the latest cache.
 
@@ -704,7 +692,7 @@ class BridgeNode(Node):
             dict[str, Any] | None: Payload, or None when the message was dropped.
         """
         try:
-            payload = serializer(msg, color_small=self._color_small) if topic in RGBD_COLOR_TOPICS else serializer(msg)
+            payload = serializer(msg)
             data = self.to_map_frame(payload, role)
         except Exception as exc:
             log.warning("serialize_error", topic=topic, error=str(exc))
