@@ -149,6 +149,7 @@ def test_assert_reads_the_probe_fact_as_a_json_string() -> None:
     """set_fact stores the tojson output as the string "[]" (length 2): the assert must parse it first."""
     env = jinja2.Environment()
     env.filters["from_json"] = json.loads
+    env.filters["from_yaml"] = yaml.safe_load
     fail = named("Fail when a link interface holds a foreign IPv4 address")["ansible.builtin.assert"]
     cond = env.from_string("{{ " + fail["that"] + " }}")
     assert cond.render(_network_link_foreign_addresses="[]") == "True"
@@ -161,6 +162,7 @@ def test_assert_accepts_the_probe_fact_already_parsed_to_a_list() -> None:
     """ansible-core 2.18 (the jetson deploy) hands set_fact's JSON back as a list: from_json must not see a list."""
     env = jinja2.Environment()
     env.filters["from_json"] = json.loads
+    env.filters["from_yaml"] = yaml.safe_load
     fail = named("Fail when a link interface holds a foreign IPv4 address")["ansible.builtin.assert"]
     cond = env.from_string("{{ " + fail["that"] + " }}")
     assert cond.render(_network_link_foreign_addresses=[]) == "True"
