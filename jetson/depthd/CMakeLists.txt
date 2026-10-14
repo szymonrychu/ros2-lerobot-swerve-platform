@@ -31,6 +31,24 @@ find_library(CUDA_RUNTIME_LIBRARY cudart HINTS ${CUDA_HOME}/lib64 REQUIRED)
 find_path(NVINFER_INCLUDE_DIR NvInfer.h REQUIRED)
 find_library(NVINFER_LIBRARY nvinfer REQUIRED)
 
+find_package(vpi 1.1 REQUIRED)  # NVIDIA VPI 1.1 (C API, CUDA backend), target "vpi"
+
+# libSGM 3.1.0 (pinned tag), built for the Nano's sm_53 only, no samples or tests.
+include(FetchContent)
+set(CMAKE_CUDA_COMPILER ${CUDA_HOME}/bin/nvcc CACHE FILEPATH "CUDA compiler for libSGM")
+set(CUDA_ARCHS 53 CACHE STRING "libSGM device code architectures" FORCE)
+set(ENABLE_SAMPLES OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(ENABLE_ZED_DEMO OFF CACHE BOOL "" FORCE)
+set(LIBSGM_SHARED OFF CACHE BOOL "" FORCE)
+set(BUILD_OPENCV_WRAPPER OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(libsgm
+  GIT_REPOSITORY https://github.com/fixstars/libSGM.git
+  GIT_TAG 3.1.0
+  GIT_SHALLOW TRUE
+  PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_libsgm.cmake)
+FetchContent_MakeAvailable(libsgm)
+
 # Shared wire format (standard library + libzstd), built from source so the same gcc 8 compiles it as on the Pi.
 get_filename_component(ROS2_COMMON_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../shared/ros2_common_cpp ABSOLUTE)
 add_library(depth_wire STATIC ${ROS2_COMMON_CPP_DIR}/src/depth_wire.cpp)
@@ -47,7 +65,7 @@ target_include_directories(depthd_lib PUBLIC
   ${NVBUF_INCLUDE_DIR} ${CUDA_INCLUDE_DIR} ${NVINFER_INCLUDE_DIR})
 target_link_libraries(depthd_lib PUBLIC
   ${OpenCV_LIBS} yaml-cpp nlohmann_json::nlohmann_json depth_wire
-  PkgConfig::ZMQ PkgConfig::ZSTD PkgConfig::GST
+  PkgConfig::ZMQ PkgConfig::ZSTD PkgConfig::GST vpi sgm
   ${NVBUF_UTILS_LIBRARY} ${EGL_LIBRARY} ${CUDA_DRIVER_LIBRARY} ${CUDA_RUNTIME_LIBRARY} ${NVINFER_LIBRARY}
   stdc++fs pthread)
 

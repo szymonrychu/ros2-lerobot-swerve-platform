@@ -1,6 +1,6 @@
 // The common stereo matcher interface (design decision D3: the matcher is picked by benchmark).
-// Implementations: cuda_sgm (cv::cuda::StereoSGM, matcher_cuda_sgm.cpp); vpi and libsgm are added behind
-// make_matcher by their own sources.
+// Implementations: cuda_sgm (cv::cuda::StereoSGM, matcher_cuda_sgm.cpp); vpi (matcher_vpi.cpp) and libsgm
+// (matcher_libsgm.cpp) sit behind make_matcher as well.
 #ifndef DEPTHD_MATCHER_HPP_
 #define DEPTHD_MATCHER_HPP_
 
@@ -40,6 +40,10 @@ void check_matcher_inputs(const cv::cuda::GpuMat & left, const cv::cuda::GpuMat 
 
 // cuda_sgm factory (matcher_cuda_sgm.cpp).
 std::unique_ptr<StereoMatcher> make_cuda_sgm_matcher(const Processing & processing);
+// vpi factory (matcher_vpi.cpp): VPI 1.1 CUDA stereo, 64, 128 or 256 disparities.
+std::unique_ptr<StereoMatcher> make_vpi_matcher(const Processing & processing);
+// libsgm factory (matcher_libsgm.cpp): libSGM 3.1.0, 64, 128 or 256 disparities.
+std::unique_ptr<StereoMatcher> make_libsgm_matcher(const Processing & processing);
 
 }  // namespace depthd
 

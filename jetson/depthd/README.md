@@ -207,13 +207,37 @@ benchmark). `depthd::StereoMatcher` has:
 
 - `compute(left, right, stream) -> cv::cuda::GpuMat`: rectified `CV_8UC1` inputs of equal size (anything else throws
   `std::invalid_argument`); returns `CV_16SC1` disparity times 16, left-image referenced; values `<= 0` are invalid.
-- `name()`: the config name (`cuda_sgm`, later `vpi`, `libsgm`).
+- `name()`: the config name (`cuda_sgm`, `vpi`, `libsgm`).
 - `supports_lr_check()`: whether the matcher can also produce the right-referenced disparity for the left-right check.
 
 `make_matcher(Config)` (or `make_matcher(Processing)`) builds `processing.matcher` and throws `std::invalid_argument`
 for an unknown name or unsupported parameters. `cuda_sgm` (`src/matcher_cuda_sgm.cpp`) is `cv::cuda::createStereoSGM`
 with `processing.num_disparities` (64, 128 or 256), `p1`, `p2`, `uniqueness_ratio` and `MODE_HH4`; it has no LR check.
 A new matcher adds its own source and one branch in `src/matcher.cpp`.
+
+### The three matchers
+
+All three take `processing.num_disparities` (64, 128 or 256; anything else throws), return `CV_16SC1` disparity * 16,
+and `supports_lr_check()` is false for all (none returns the right-referenced disparity). Select with
+`processing.matcher`; T16's on-board benchmark compares them on equal terms.
+
+| `processing.matcher` | Implementation | Parameters used | Limits |
+|---|---|---|---|
+| `cuda_sgm` | `cv::cuda::StereoSGM`, `MODE_HH4` (`matcher_cuda_sgm.cpp`) | num_disparities, p1, p2, uniqueness_ratio | no LR check; uniqueness is OpenCV's percent |
+| `vpi` | VPI 1.1 C API, CUDA backend (`matcher_vpi.cpp`, `find_package(vpi 1.1)`) | num_disparities (`maxDisparity`), fixed `windowSize` 5 | exposes only windowSize/maxDisparity; p1, p2 and uniqueness_ratio do not apply; no VIC or PVA stereo on the Nano (Xavier only), CUDA backend only; maxDisparity <= 256 |
+| `libsgm` | libSGM 3.1.0 device-pointer API (`matcher_libsgm.cpp`) | num_disparities, p1, p2, uniqueness_ratio (libSGM uniqueness = 1 - ratio/100), LR check (max diff 1), subpixel, 8 paths | needs 64, 128 or 256 disparities; 8-bit input |
+
+- **vpi.** The U8 inputs are wrapped from the GpuMat memory with `vpiImageCreateCUDAMemWrapper` (no copy). The Q10.5
+  disparity (`U16`, the only format the CUDA backend accepts) is halved to disparity * 16, and every pixel whose
+  confidence is below 32767 (`kVpiConfidenceMin`, VPI's documented default threshold) is set to -1. That value comes
+  from the synthetic test: the shifted pair (40 px) keeps 100% of its pixels, all within 2% of 600 mm, at every
+  threshold from 1 to 65280, and an uncorrelated pair keeps under 1% (`VpiConfidence.UncorrelatedPairIsInvalid`). So
+  the vpi accuracy test needs no relaxed coverage threshold: all three matchers use the same 90% bar.
+- **libsgm.** `CMakeLists.txt` fetches the pinned tag `3.1.0` with `FetchContent` (built for `sm_53` only, no samples
+  or tests; `cmake/patch_libsgm.cmake` keeps nvcc 10.2 on C++14 for the `.cu` files) and runs `sgm::StereoSGM` with
+  `EXECUTE_INOUT_CUDA2CUDA`, 16-bit subpixel output (4 fractional bits, the interface's scale), the LR check and
+  uniqueness inside libSGM. Its invalid marker is negative. First configure needs network access to GitHub.
+- Both run on their own (default) CUDA stream: the caller's stream is synchronised before the call.
 
 `include/depthd/depth.hpp`: `disparity_to_depth_mm(disp16, f_px, baseline_m, min_depth_m, max_depth_m [, out], stream)`
 runs on the GPU (OpenCV CUDA ops on the given stream) and returns `CV_16UC1` millimetres, the ToF contract where
@@ -228,4 +252,4 @@ Z_mm = 0   where Z_mm < round(min_depth_m * 1000) or Z_mm > round(max_depth_m * 
 `f_px` is the focal length of the rectified left projection (`P[0][0]`) and `baseline_m` comes from the calibration
 (`Rectification::baseline_m()`). Example: f 400 px, B 60 mm, disparity 40 px gives 600 mm. Tests:
 `test/test_depth.cpp` (exact values, every invalid case, saturation) and `test/test_matcher.cpp` (a textured pair
-shifted by 40 px gives 600 mm within 2% on at least 90% of the interior for `cuda_sgm` at 64 and 128 disparities).
+shifted by 40 px gives 600 mm within 2% on at least 90% of the interior for `cuda_sgm`, `vpi` and `libsgm` at 64 and 128 disparities).

@@ -15,6 +15,8 @@ void check_matcher_inputs(const cv::cuda::GpuMat & left, const cv::cuda::GpuMat 
 std::unique_ptr<StereoMatcher> make_matcher(const Processing & processing)
 {
   if (processing.matcher == "cuda_sgm") return make_cuda_sgm_matcher(processing);
+  if (processing.matcher == "vpi") return make_vpi_matcher(processing);
+  if (processing.matcher == "libsgm") return make_libsgm_matcher(processing);
   throw std::invalid_argument("unknown matcher '" + processing.matcher + "'");
 }
 
