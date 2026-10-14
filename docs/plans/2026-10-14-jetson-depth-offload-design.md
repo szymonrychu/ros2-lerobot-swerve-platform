@@ -182,3 +182,9 @@ The Pi 5 CPU is saturated, and the 2026-10-13 stereo pipeline on the Pi never pr
 - The Jetson cleanup already done on 2026-10-14 (archive at `~/Documents/jetson-nano-archive-2026-10-14/`).
 - Nothing else.
 - The Calibrate page's delete button removes captures and the active calibration. It is a user action behind a confirm dialog and an explicit `confirm=true` parameter; no task of this run calls it, and the hardware check (T43) never deletes or solves.
+
+## Scope change 2026-10-14
+
+The user deferred the AI monocular fill (A3, D5) and asked for disparity depth plus calibration to be deployed first.
+T17's ONNX export stays merged; T18 is not run. The matcher defaults to `cv::cuda::StereoSGM` until the T16 benchmark
+runs, which comes after the first deploy.
