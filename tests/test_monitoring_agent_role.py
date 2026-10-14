@@ -310,8 +310,8 @@ def test_robot_alloy_scrapes_every_node_target() -> None:
     non_ros = {"jetson_depthd"}
     assert set(target_nodes) - non_ros <= enabled, "scrape target for a node that is not deployed and enabled"
     body = alloy_block(agent("config.alloy.j2", "client"), 'prometheus.scrape "nodes"')
-    rendered = re.findall(r'\{"__address__" = "([^"]+)", "node" = "([^"]+)"\}', body)
-    assert rendered == [(t["address"], t["node"]) for t in targets]
+    rendered = re.findall(r'\{"__address__" = "([^"]+)", "node" = "([^"]+)"(?:, "host" = "([^"]+)")?\}', body)
+    assert rendered == [(t["address"], t["node"], t.get("host", "")) for t in targets]
     assert all(re.fullmatch(r"127\.0\.0\.1:\d+", t["address"]) for t in targets if t["node"] not in non_ros)
     assert all(
         re.fullmatch(r"(\{\{ jetson_link_jetson_ip \}\}|10\.77\.0\.2):8090", t["address"])
@@ -582,3 +582,31 @@ def test_cleanup_runs_before_the_slice_is_installed() -> None:
     assert names.index(cleanup) < names.index(
         "Install monitoring.slice (CPU, IO and memory caps of the monitoring units)"
     )
+
+
+# --- alloy: the Jetson (no route to the server, so the Pi's Alloy scrapes it over the direct cable) -------------------
+
+
+def test_jetson_depthd_series_carry_host_jetson() -> None:
+    """depthd's /metrics is re-exported by the Pi but labelled host=jetson, not host=client."""
+    targets = {t["node"]: t for t in host_vars("client")["monitoring_agent_node_targets"]}
+    assert targets["jetson_depthd"]["host"] == "jetson"
+    assert all("host" not in t for n, t in targets.items() if n != "jetson_depthd")
+
+
+def test_client_alloy_scrapes_the_jetson_node_exporter() -> None:
+    """Host metrics of the Jetson: node_exporter on the link address, host=jetson, same 5 s / 4 s as every target."""
+    targets = host_vars("client")["monitoring_agent_host_targets"]
+    assert targets == [{"host": "jetson", "address": "{{ jetson_link_jetson_ip }}:9100"}]
+    body = alloy_block(agent("config.alloy.j2", "client"), 'prometheus.scrape "hosts"')
+    assert '{"__address__" = "{{ jetson_link_jetson_ip }}:9100", "host" = "jetson"}' in body
+    assert re.search(r'job_name\s*=\s*"integrations/unix"', body)
+    assert "honor_labels    = true" in body
+    assert 'scrape_interval = "5s"' in body and 'scrape_timeout  = "4s"' in body
+    assert "forward_to      = [prometheus.remote_write.mimir.receiver]" in body
+
+
+def test_server_alloy_scrapes_no_remote_hosts() -> None:
+    """Only the robot reaches the Jetson."""
+    assert host_vars("server")["monitoring_agent_host_targets"] == []
+    assert 'prometheus.scrape "hosts"' not in agent("config.alloy.j2", "server")

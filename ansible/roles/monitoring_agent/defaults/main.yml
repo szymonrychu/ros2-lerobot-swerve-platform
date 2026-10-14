@@ -25,6 +25,9 @@ monitoring_agent_logs_url: http://server.ros2.lan:3100/loki/api/v1/push
 # Our ROS2 nodes' /metrics endpoints ({node, address, path}), scraped as job ros2_nodes with a `node` label. Only the
 # robot has them (group_vars/client.yml); tests/test_node_metrics_wiring.py keeps them in sync with the node ports.
 monitoring_agent_node_targets: []
+# Other hosts' node_exporter endpoints ({host, address}), scraped as job integrations/unix under the given `host` label. Only
+# the robot has them: the Jetson has no route to the server, so the Pi's Alloy scrapes it over the direct cable.
+monitoring_agent_host_targets: []
 # The monitoring services' own /metrics ({job, address}); the server lists Mimir, Loki and Grafana.
 monitoring_agent_stack_targets: []
 

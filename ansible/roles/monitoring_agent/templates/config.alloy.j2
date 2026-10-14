@@ -100,12 +100,30 @@ prometheus.relabel "cadvisor" {
 prometheus.scrape "nodes" {
   targets = [
 {% for target in monitoring_agent_node_targets %}
-    {"__address__" = "{{ target.address }}", "node" = "{{ target.node }}"},
+    {"__address__" = "{{ target.address }}", "node" = "{{ target.node }}"{% if target.host is defined %}, "host" = "{{ target.host }}"{% endif %}},
 {% endfor %}
   ]
   forward_to      = [prometheus.remote_write.mimir.receiver]
   job_name        = "ros2_nodes"
   metrics_path    = "/metrics"
+  honor_labels    = true
+  scrape_interval = "{{ monitoring_agent_interval }}"
+  scrape_timeout  = "{{ monitoring_agent_scrape_timeout }}"
+}
+{% endif %}
+{% if monitoring_agent_host_targets %}
+
+// ---- other hosts' node_exporter (the Jetson, over the direct cable) --------------------------------------------------
+// The series keep the host label of the target, not this host's external label.
+
+prometheus.scrape "hosts" {
+  targets = [
+{% for target in monitoring_agent_host_targets %}
+    {"__address__" = "{{ target.address }}", "host" = "{{ target.host }}"},
+{% endfor %}
+  ]
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  job_name        = "integrations/unix"
   honor_labels    = true
   scrape_interval = "{{ monitoring_agent_interval }}"
   scrape_timeout  = "{{ monitoring_agent_scrape_timeout }}"

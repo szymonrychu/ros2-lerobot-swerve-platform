@@ -78,3 +78,15 @@ jetson_base_keep_paths:
 #   sha256 of camera_overrides.isp inside it: c6b8cafffa5f218a85f73d323e2a72b382194b84b39ff9a7804fffc1819638ec
 jetson_base_isp_source_url: https://files.waveshare.com/upload/e/eb/Camera_overrides.tar.gz
 jetson_base_isp_sha256: c6b8cafffa5f218a85f73d323e2a72b382194b84b39ff9a7804fffc1819638ec
+
+# Host metrics: prometheus-node-exporter on the cable address, scraped by the Pi's Alloy (client group_vars
+# monitoring_agent_host_targets; the Jetson has no route to the server's Mimir). Background tier: low CPU/IO weight,
+# nice 10, a memory cap, and the kernel kills it before depthd. The thermal_zone/hwmon collectors carry the Jetson's
+# temperatures; GPU load comes from depthd's own metrics.
+jetson_base_node_exporter_listen: "{{ jetson_link_jetson_ip }}:9100"
+jetson_base_node_exporter_cpu_weight: 20
+jetson_base_node_exporter_io_weight: 20
+jetson_base_node_exporter_cpu_quota: "20%"
+jetson_base_node_exporter_memory_max: "64M"
+jetson_base_node_exporter_nice: 10
+jetson_base_node_exporter_oom_score_adjust: 500

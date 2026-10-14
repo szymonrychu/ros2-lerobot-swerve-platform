@@ -258,3 +258,30 @@ def test_plan_verify_uses_numeric_chronyc() -> None:
     assert verify, "T5 verify line not found"
     for line in verify:
         assert "chronyc -n sources | grep -q 10.77.0.1" in line
+
+
+# --- host metrics: prometheus-node-exporter, scraped by the Pi's Alloy (the Jetson has no route to the server) -------
+
+
+def test_node_exporter_defaults_listen_on_the_link_and_are_capped() -> None:
+    d = defaults()
+    assert d["jetson_base_node_exporter_listen"] == "{{ jetson_link_jetson_ip }}:9100"
+    assert d["jetson_base_node_exporter_cpu_weight"] <= 20
+    assert d["jetson_base_node_exporter_memory_max"]
+    assert d["jetson_base_node_exporter_oom_score_adjust"] == 500
+
+
+def test_node_exporter_is_installed_and_started_in_the_background_tier() -> None:
+    install = task_named("Install prometheus-node-exporter")
+    assert install["ansible.builtin.apt"]["name"] == "prometheus-node-exporter"
+    dropin = task_named("Put the node exporter drop-in")
+    content = dropin["ansible.builtin.copy"]["content"]
+    for key in ("CPUWeight=", "IOWeight=", "MemoryMax=", "Nice=", "OOMScoreAdjust="):
+        assert key in content, key
+    assert "/etc/systemd/system/prometheus-node-exporter.service.d/" in dropin["ansible.builtin.copy"]["dest"]
+    defaults_file = task_named("node exporter settings")
+    args = defaults_file["ansible.builtin.copy"]["content"]
+    assert "--web.listen-address={{ jetson_base_node_exporter_listen }}" in args
+    start = task_named("Enable and start prometheus-node-exporter")
+    assert start["ansible.builtin.systemd"]["enabled"] is True
+    assert start["ansible.builtin.systemd"]["state"] == "started"

@@ -150,3 +150,64 @@
     name: nvargus-daemon
     state: restarted
   when: jetson_base_isp is changed
+
+# ---- host metrics (scraped by the Pi's Alloy over the cable) ---------------------------------------------------------
+- name: Install prometheus-node-exporter
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+    install_recommends: false
+    cache_valid_time: 3600
+
+- name: Create the node exporter drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/prometheus-node-exporter.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Put the node exporter drop-in in the background tier
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/prometheus-node-exporter.service.d/10-background.conf
+    content: |
+      # Managed by Ansible (role jetson_base): host metrics never compete with depthd.
+      [Service]
+      CPUWeight={{ jetson_base_node_exporter_cpu_weight }}
+      IOWeight={{ jetson_base_node_exporter_io_weight }}
+      CPUQuota={{ jetson_base_node_exporter_cpu_quota }}
+      MemoryMax={{ jetson_base_node_exporter_memory_max }}
+      Nice={{ jetson_base_node_exporter_nice }}
+      OOMScoreAdjust={{ jetson_base_node_exporter_oom_score_adjust }}
+    owner: root
+    group: root
+    mode: "0644"
+  register: jetson_base_node_exporter_dropin
+
+- name: Write the node exporter settings (listen on the cable address)
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus-node-exporter
+    content: |
+      # Managed by Ansible (role jetson_base).
+      ARGS="--web.listen-address={{ jetson_base_node_exporter_listen }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: jetson_base_node_exporter_args
+
+- name: Reload systemd after the node exporter drop-in
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: jetson_base_node_exporter_dropin is changed
+
+- name: Enable and start prometheus-node-exporter
+  ansible.builtin.systemd:
+    name: prometheus-node-exporter
+    enabled: true
+    state: started
+
+- name: Restart prometheus-node-exporter after a settings change
+  ansible.builtin.systemd:
+    name: prometheus-node-exporter
+    state: restarted
+  when: jetson_base_node_exporter_dropin is changed or jetson_base_node_exporter_args is changed

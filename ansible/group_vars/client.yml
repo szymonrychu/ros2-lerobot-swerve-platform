@@ -2484,11 +2484,14 @@ monitoring_agent_node_targets:
   # arducam_tof (127.0.0.1:19112) is added here when the node is enabled: only enabled nodes are scraped.
   - {node: jetson_bridge_cpp, address: "127.0.0.1:19114", path: /metrics}
   # Not a ROS node: depthd on the Jetson (roles/jetson_depthd). The Jetson has no route to the server, so the Pi's Alloy
-  # scrapes it over the direct cable and re-exports its health under host=client.
-  - {node: jetson_depthd, address: "{{ jetson_link_jetson_ip }}:8090", path: /metrics}
+  # scrapes it over the direct cable and re-exports its health under host=jetson.
+  - {node: jetson_depthd, address: "{{ jetson_link_jetson_ip }}:8090", path: /metrics, host: jetson}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
   - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}
   - {node: claude_agent, address: "127.0.0.1:18300", path: /metrics}
+# The Jetson's node_exporter (roles/jetson_base), host metrics under host=jetson via the direct cable.
+monitoring_agent_host_targets:
+  - {host: jetson, address: "{{ jetson_link_jetson_ip }}:9100"}
 # nginx on port 80: web UI at /, /grafana/ redirected to the server (roles/web_proxy defaults).
 web_proxy_site: robot
