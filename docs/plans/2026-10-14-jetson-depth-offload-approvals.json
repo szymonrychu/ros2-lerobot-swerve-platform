@@ -1,0 +1,107 @@
+[
+  {
+    "id": "A1",
+    "text": "Keep the current Jetson OS image (L4T 32.6.1 / Ubuntu 20.04 with OpenCV 4.8 CUDA) and codify the 2026-10-14 cleanup state as the jetson_base Ansible role, never removing an accelerated component.",
+    "decisions": [
+      "D1"
+    ],
+    "tasks": [
+      "T1",
+      "T5"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A2",
+    "text": "The GPU depth pipeline on the Jetson (depthd, C++17): capture with AE/AWB lock and timestamp pairing, GPU rectification, the matcher chosen by an on-board benchmark of cv::cuda::StereoSGM, VPI 1.1 and libSGM, the GPU post-processing stack, and the ChArUco calibration tool with its documented user procedure. Calibration board shown on the user e-reader from a generated PNG; calibration stored on the Jetson at /var/lib/depthd/stereo.yaml.",
+    "decisions": [
+      "D2",
+      "D3",
+      "D4",
+      "D9"
+    ],
+    "tasks": [
+      "T8",
+      "T9",
+      "T10",
+      "T11",
+      "T12",
+      "T13",
+      "T15",
+      "T16",
+      "T20"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A3",
+    "text": "Monocular fill: Depth Anything V2 Small in TensorRT 8.0 FP16 (MiDaS v2.1 small as fallback), scale-aligned to stereo and filling only invalid pixels, published on /stereo/depth/fused while /stereo/depth/image_raw stays pure stereo.",
+    "decisions": [
+      "D5"
+    ],
+    "tasks": [
+      "T17",
+      "T18"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A4",
+    "text": "Transport and the Pi bridge: ZeroMQ PUB/SUB with zstd depth and hardware JPEG RGB plus the depthd HTTP API, and the C++ jetson_bridge node on the Pi republishing /stereo/depth/image_raw, /stereo/camera_info, /stereo/depth/fused and the overview RGB on /overview_camera/*, publishing nothing when the Jetson is absent or stale.",
+    "decisions": [
+      "D6"
+    ],
+    "tasks": [
+      "T7",
+      "T14",
+      "T21",
+      "T22",
+      "T23"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A5",
+    "text": "Retire the Pi stereo pipeline: delete stereo_depth (Python and C++) and overview_camera, uninstall their services, remove the Pi's IMX219 overlays (one Pi reboot), and drop the stale /stereo/*_rect names from web_ui.",
+    "decisions": [
+      "D7"
+    ],
+    "tasks": [
+      "T24",
+      "T25",
+      "T26",
+      "T27"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A6",
+    "text": "Network, time and Ansible: direct link Pi 10.77.0.1/30 to Jetson 10.77.0.2/30 with the Jetson's WiFi kept, chrony with the Pi as server, Pi NAT for the Jetson, an Ansible jetson group kept out of the Pi plays, the jetson_depthd role and a jetson target in scripts/deploy-nodes.sh.",
+    "decisions": [
+      "D8",
+      "D1"
+    ],
+    "tasks": [
+      "T2",
+      "T3",
+      "T4",
+      "T6",
+      "T19"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "A7",
+    "text": "Verification and docs: the end-to-end check run on both boards with rates and latency recorded (G5, G13), and the READMEs, deployment and architecture diagrams, deploy skill and MEMORY.md updated (G12).",
+    "decisions": [
+      "D3",
+      "D6"
+    ],
+    "tasks": [
+      "T28",
+      "T29",
+      "T30"
+    ],
+    "status": "approved"
+  }
+]
