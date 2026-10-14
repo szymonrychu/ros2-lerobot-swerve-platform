@@ -190,7 +190,7 @@ export function StereoCalibration() {
                 <Typography>{`corners ${preview.info[side].corners}`}</Typography>
               </Box>
               {i === 0 && (
-                <Typography sx={{ color: capturableColor(preview.info.capturable), fontWeight: 'bold' }}>
+                <Typography sx={{ color: capturableColor(preview.info.capturable), fontWeight: 500 }}>
                   {`shared ${preview.info.shared_corners} / needed ${preview.info.min_shared_corners}`}
                 </Typography>
               )}
