@@ -75,7 +75,7 @@ Contract of the C++ scaffolding: root `.clang-format`, `scripts/cpp-node-test.sh
 
 ### `test_cpp_node_deploy.py`
 
-In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_node_deploy/tasks/colcon_source_package.yml` and the `stereo_depth_cpp` / `map_guard_cpp` node types. Task fields are rendered with jinja2 plus Ansible's core filters (`hash`, `regex_replace`) and the `group_vars/all.yml` build limits; the sync and hash scripts run with bash and rsync on a temporary repo and workspace.
+In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_node_deploy/tasks/colcon_source_package.yml` and the `stereo_depth_cpp` / `map_guard_cpp` / `jetson_bridge_cpp` node types. Task fields are rendered with jinja2 plus Ansible's core filters (`hash`, `regex_replace`) and the `group_vars/all.yml` build limits; the sync and hash scripts run with bash and rsync on a temporary repo and workspace.
 
 | Test | Description |
 |---|---|
@@ -204,7 +204,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `stereo_depth_cpp` background, `map_guard_cpp` normal. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `stereo_depth_cpp` background, `map_guard_cpp` and `jetson_bridge_cpp` normal. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -445,6 +445,20 @@ The **stereo_depth** node has tests under `nodes/stereo_depth/tests/`. Run from 
 - `test_node.py` - synchronizer and slop, no publish without calibration / on size mismatch / above the skew, the rate cap, metrics, `run()` and `main()`.
 - `test_calibrate.py` - the calibration tool: config, chessboard and ChArUco detection, the synthetic-board solve (baseline within 1%, RMS under 0.5 px), the files loading in the node loader and passing the overview_camera launch gate, the RMS gate, pair files and the capture node.
 - `test_bench.py` - the benchmark tool: config, synthetic pair, each matcher, one timed cell, the table shape and `main()`.
+
+### `test_jetson_bridge_config.py`
+
+Static invariants of the `jetson_bridge_cpp` deployment on the client (no hardware).
+
+| Test | Asserts |
+|---|---|
+| `test_node_type_is_a_native_local_colcon_build` | Native type, launch `ros2 run jetson_bridge_cpp jetson_bridge_node`, local `shared/ros2_common_cpp` then `nodes/jetson_bridge_cpp` into `/opt/ros2-ws` with `jobs: 2` and stamped apt packages, apt packages incl. `libzmq3-dev`, `libzstd-dev`, `prometheus-cpp-dev`, env `JETSON_BRIDGE_CONFIG`. |
+| `test_node_type_is_in_the_normal_robot_tier_with_commented_memory` | 500/500/-500, `memory_low` 32M, `memory_max` 256M, with an estimate comment. |
+| `test_entry_is_present_enabled_with_every_default_explicit` | Entry present and enabled; config equals every `BridgeConfig` default, endpoint from `jetson_link_jetson_ip` and 5550. |
+| `test_config_defaults_match_the_node_source` | The explicit topics and metrics port match `config.hpp`. |
+| `test_metrics_targets_scrape_the_bridge_and_the_jetson_depthd` | `jetson_bridge_cpp` at `127.0.0.1:19114` and `jetson_depthd` at `{{ jetson_link_jetson_ip }}:8090`, both `/metrics`. |
+| `test_client_playbook_has_the_tagged_deploy_block` | `Deploy jetson_bridge_cpp` block with its tags. |
+| `test_docs_list_the_node_tier_and_metrics_ports` | `ansible/README.md` and this file name the node, port and test. |
 
 ### Per-node tests (stereo_depth_cpp)
 
@@ -2035,7 +2049,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, stereo_depth, and the side-by-side C++ ports map_guard_cpp 19110 and stereo_depth_cpp 19113) `metrics_port` 19101-19113 at the top level of the config. |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, stereo_depth, the side-by-side C++ ports map_guard_cpp 19110 and stereo_depth_cpp 19113, and jetson_bridge_cpp 19114) `metrics_port` 19101-19114; the non-ROS `jetson_depthd` target (`NON_ROS_TARGETS`) is accepted explicitly at the top level of the config. |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |

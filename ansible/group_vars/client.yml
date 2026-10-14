@@ -427,6 +427,55 @@ ros2_node_type_defaults:
       - libopencv-dev
       - libyaml-cpp-dev
       - prometheus-cpp-dev
+  # Pi side of the Jetson depth offload (nodes/jetson_bridge_cpp/README.md): a ZeroMQ SUB from depthd over the direct
+  # cable that republishes /stereo/* and /overview_camera/* and publishes nothing while the Jetson is absent or stale.
+  # It replaces the camera in the robot (normal) tier. Built on the Pi from the repo tree (colcon local source, see
+  # roles/ros2_node_deploy/tasks/colcon_source_package.yml): low-priority scope, no stop of the running nodes.
+  jetson_bridge_cpp:
+    deploy_mode: native
+    node_launch_command: "ros2 run jetson_bridge_cpp jetson_bridge_node"
+    node_src_dir: ""
+    # Runs no repo file (the binary is in /opt/ros2-ws/install): the build stamp restarts it when its source changes.
+    src_paths: []
+    colcon_source:
+      - local: shared/ros2_common_cpp
+        package: ros2_common_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [libyaml-cpp-dev, prometheus-cpp-dev]
+      - local: nodes/jetson_bridge_cpp
+        package: jetson_bridge_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [ros-jazzy-rclcpp, ros-jazzy-sensor-msgs, libzmq3-dev, libzstd-dev]
+    # Estimate, no series yet (a SUB thread, zstd decode of 16UC1 depth and five publishers): MemoryLow ~ the expected
+    # working set, MemoryMax a generous safety net. Re-measure from Mimir once it runs.
+    memory_low: "32M"
+    memory_max: "256M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
+    config_path: /etc/ros2/jetson_bridge_cpp
+    env:
+      - JETSON_BRIDGE_CONFIG=/etc/ros2/jetson_bridge_cpp/config.yaml
+    apt_packages:
+      - build-essential
+      - cmake
+      - rsync
+      - python3-colcon-common-extensions
+      - ros-jazzy-ament-cmake
+      - ros-jazzy-rclcpp
+      - ros-jazzy-sensor-msgs
+      - libzmq3-dev
+      - libzstd-dev
+      - libyaml-cpp-dev
+      - prometheus-cpp-dev
   swerve_controller:
     deploy_mode: native
     node_launch_command: "python3 -m swerve_drive_controller"
@@ -1222,6 +1271,24 @@ ros2_nodes:
       frame_id: stereo_left_optical_frame
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
       metrics_port: 19113
+  # Republishes the Jetson's depth, fused depth and RGB (nodes/jetson_bridge_cpp/README.md, "Config"); every key at its
+  # default. The endpoint is the Jetson's address on the direct cable (jetson_link_jetson_ip) and the depthd ZeroMQ port.
+  - name: jetson_bridge_cpp
+    node_type: jetson_bridge_cpp
+    present: true
+    enabled: true
+    config: |
+      endpoint: tcp://{{ jetson_link_jetson_ip }}:5550
+      depth_topic: /stereo/depth/image_raw
+      camera_info_topic: /stereo/camera_info
+      fused_topic: /stereo/depth/fused
+      rgb_topic: /overview_camera/image_raw/compressed
+      rgb_info_topic: /overview_camera/camera_info
+      # A frame older than max_age_ms is dropped; no frame for absent_after_ms marks the Jetson absent.
+      max_age_ms: 500
+      absent_after_ms: 2000
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
+      metrics_port: 19114
   - name: lerobot_follower
     node_type: feetech_servos
     present: true
@@ -2524,6 +2591,10 @@ monitoring_agent_node_targets:
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
   # arducam_tof (127.0.0.1:19112) is added here when the node is enabled: only enabled nodes are scraped.
   - {node: stereo_depth_cpp, address: "127.0.0.1:19113", path: /metrics}
+  - {node: jetson_bridge_cpp, address: "127.0.0.1:19114", path: /metrics}
+  # Not a ROS node: depthd on the Jetson (roles/jetson_depthd). The Jetson has no route to the server, so the Pi's Alloy
+  # scrapes it over the direct cable and re-exports its health under host=client.
+  - {node: jetson_depthd, address: "{{ jetson_link_jetson_ip }}:8090", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
   - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}

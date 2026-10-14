@@ -221,9 +221,10 @@ def test_playbook_targets_jetson_and_tags_the_base_roles() -> None:
     assert plays[0]["become"] is True
     roles = plays[0]["roles"]
     by_name = {r["role"]: r for r in roles}
-    assert [r["role"] for r in roles] == ["network", "jetson_link", "jetson_base"]
-    for role in roles:
+    assert [r["role"] for r in roles] == ["network", "jetson_link", "jetson_base", "jetson_depthd"]
+    for role in roles[:3]:
         assert "base" in role["tags"]
+    assert by_name["jetson_depthd"]["tags"] == ["build_deps", "depthd"]
     assert by_name["jetson_link"]["jetson_link_side"] == "client"
 
 

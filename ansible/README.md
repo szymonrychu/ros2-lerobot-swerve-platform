@@ -370,6 +370,8 @@ Packages missing from the Jazzy apt distribution are built from a pinned git com
 
 **C++ ports (`stereo_depth_cpp`, `map_guard_cpp`).** Side-by-side native node types in `group_vars/client.yml` for the rclcpp ports in `nodes/stereo_depth_cpp` and `nodes/map_guard_cpp`: `node_src_dir: ""`, `src_paths: []` (the build stamp restarts them), `colcon_source` = the local `shared/ros2_common_cpp` package then the node's own local package (workspace `/opt/ros2-ws`, see above), launch `ros2 run stereo_depth_cpp stereo_depth_node` / `ros2 run map_guard_cpp map_guard_node`, config in `/etc/ros2/<name>/config.yaml` through the Python node's variable (`STEREO_DEPTH_CONFIG`, `MAP_GUARD_CONFIG`) and the C++ build dependencies in `apt_packages` (build-essential, cmake, rsync, colcon, ament_cmake, rclcpp, rclcpp_components, yaml-cpp, prometheus-cpp, plus OpenCV/cv_bridge/message_filters or tf2_ros/slam_toolbox/cpp-httplib/nlohmann-json). `stereo_depth_cpp` is in the background tier exactly like `stereo_depth`, `map_guard_cpp` in the normal tier with map_guard's memory. Their `ros2_nodes` entries sit right after the Python node's, with a `config: |` block identical to the Python node's, so they share its metrics port (19113, 19110): only one of a pair may run (`tests/test_node_metrics_wiring.py`). Deployed by the tagged `Deploy stereo_depth_cpp` / `Deploy map_guard_cpp` blocks right after the Python counterparts. Both are live since the cut-over, see [Cut-over and rollback](#cut-over-and-rollback).
 
+**`jetson_bridge_cpp`.** The Pi side of the Jetson depth offload (`nodes/jetson_bridge_cpp`): a native C++ node type built like the ports above (local `shared/ros2_common_cpp` then `nodes/jetson_bridge_cpp`, `/opt/ros2-ws`, `jobs: 2`, stamped apt packages incl. `libzmq3-dev`, `libzstd-dev`, `prometheus-cpp-dev`), launched `ros2 run jetson_bridge_cpp jetson_bridge_node` with `JETSON_BRIDGE_CONFIG`. It has no Python counterpart, sits in the normal robot tier (500/500/-500, like the camera it replaces) with `memory_low` 32M and `memory_max` 256M (estimate). Its `ros2_nodes` entry is present and enabled with every config key explicit; the endpoint is `tcp://{{ jetson_link_jetson_ip }}:5550`. Deployed by the tagged `Deploy jetson_bridge_cpp` block (`./scripts/deploy-nodes.sh client jetson_bridge_cpp`). `tests/test_jetson_bridge_config.py` pins it.
+
 **Arducam ToF SDK apt task.** `playbooks/tasks/arducam_tof_sdk.yml` (included from `pre_tasks` of `deploy_nodes_client.yml`, tags `arducam_tof` and `apt`, aarch64 only) adds the Arducam arm64 apt repo (`deb [arch=arm64 trusted=yes] https://arducam.github.io/arducam_ppa linux main`, file `arducam`; `trusted=yes` because Arducam publishes no signing key the playbook could pin) and installs `arducam-tof-sdk-dev`. It never fails a deploy: the repo targets Raspberry Pi OS and is unproven on Ubuntu noble, so when the repo or the package is unavailable a `rescue` removes the repo file again (a dead repo would break the batched node apt run) and prints a warning; the node then stays down until the SDK installs. It is idempotent (no change once the repo and package are present). The node itself is deployed by the tagged `Deploy arducam_tof` block of the same playbook.
 
 ## ROS package sync
@@ -435,7 +437,7 @@ straight through (empty when unset, nothing is derived). A unit change queues th
 | Tier | cpu_weight | io_weight | oom_score_adjust | Node types |
 |---|---|---|---|---|
 | critical | 1000 | 1000 | -900 | `feetech_servos` (lerobot_follower, swerve_drive_servos), `swerve_controller`, `ros2_master`, `filter_node`, `static_tf_publisher`, `bno055_imu` |
-| normal robot | 500 | 500 | -500 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `costmap_zones`, `overview_camera`, `uvc_camera`, `arducam_tof`, `realsense_d435i`, `test_joint_api`, `map_guard`, `map_guard_cpp` |
+| normal robot | 500 | 500 | -500 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `costmap_zones`, `overview_camera`, `uvc_camera`, `arducam_tof`, `realsense_d435i`, `test_joint_api`, `map_guard`, `map_guard_cpp`, `jetson_bridge_cpp` |
 | agent-facing | 300 | 300 | -200 | `mcp_server`, `claude_agent`, `web_ui`, `topic_scraper_api`, `master2master`, `haptic_controller` |
 | background | 100 | 100 | 0 | `stereo_depth`, `stereo_depth_cpp`, `joint_state_throttle_follower`, `joint_state_throttle_swerve` (work the robot can lose: under contention the depth rate drops, and it is killed before any robot node) |
 
@@ -485,6 +487,7 @@ estimate.
 | arducam_tof (disabled) | no data (estimate from uvc_camera plus the SDK and numpy; re-measure once enabled) | 64M | 192M |
 | stereo_depth | no data (estimate: rclpy, numpy, OpenCV and the 480x360 SGBM buffers; re-measure once it runs) | 96M | 384M |
 | stereo_depth_cpp | no data (same values as stereo_depth until measured) | 96M | 384M |
+| jetson_bridge_cpp | no data (estimate: a ZeroMQ SUB thread, zstd decode of 16UC1 depth, five publishers; re-measure once it runs) | 32M | 256M |
 | test_joint_api | 57.6 / 58.2 | 64M | 128M |
 | mcp_server | 177.9 / 383.4 | 184M | 1G |
 | claude_agent | 93.4 / 386.5 | 96M | 1G |
@@ -731,6 +734,8 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 | `arducam_tof` (disabled: add its target when enabling) | 19112 | `metrics_port` |
 | `stereo_depth` | 19113 | `metrics_port` |
 | `stereo_depth_cpp` (live; `stereo_depth` is the disabled rollback, never both enabled) | 19113 | `metrics_port` |
+| `jetson_bridge_cpp` | 19114 | `metrics_port` |
+| `jetson_depthd` (not a ROS node: depthd on the Jetson at `{{ jetson_link_jetson_ip }}:8090`, scraped by the Pi's Alloy because the Jetson has no route to the server) | 8090 | own `/metrics` (`depthd` HTTP API) |
 | `web_ui` | 8080 | `http_port` (own server) |
 | `test_joint_api` | 18080 | `port` (own server) |
 | `topic_scraper_api` | 18100 | `port` (own server) |

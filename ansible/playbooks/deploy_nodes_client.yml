@@ -305,6 +305,16 @@
             _deploy_node_name: stereo_depth_cpp
           tags: [stereo_depth_cpp, apt, python, build, config]
 
+        # Pi side of the Jetson depth offload (colcon local-source build, never stops the running nodes).
+        - name: Deploy jetson_bridge_cpp
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [jetson_bridge_cpp]
+          vars:
+            _deploy_node_name: jetson_bridge_cpp
+          tags: [jetson_bridge_cpp, apt, python, build, config]
+
         - name: Deploy lerobot_follower
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

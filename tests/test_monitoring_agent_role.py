@@ -306,11 +306,19 @@ def test_robot_alloy_scrapes_every_node_target() -> None:
     enabled = {n["name"] for n in nodes if n.get("present", True) and n.get("enabled", True)}
     target_nodes = [t["node"] for t in targets]
     assert target_nodes and len(set(target_nodes)) == len(target_nodes)
-    assert set(target_nodes) <= enabled, "scrape target for a node that is not deployed and enabled"
+    # depthd on the Jetson is no ROS node: the Pi's Alloy scrapes it over the direct cable (no route out).
+    non_ros = {"jetson_depthd"}
+    assert set(target_nodes) - non_ros <= enabled, "scrape target for a node that is not deployed and enabled"
     body = alloy_block(agent("config.alloy.j2", "client"), 'prometheus.scrape "nodes"')
     rendered = re.findall(r'\{"__address__" = "([^"]+)", "node" = "([^"]+)"\}', body)
     assert rendered == [(t["address"], t["node"]) for t in targets]
-    assert all(re.fullmatch(r"127\.0\.0\.1:\d+", t["address"]) and t["path"] == "/metrics" for t in targets)
+    assert all(re.fullmatch(r"127\.0\.0\.1:\d+", t["address"]) for t in targets if t["node"] not in non_ros)
+    assert all(
+        re.fullmatch(r"(\{\{ jetson_link_jetson_ip \}\}|10\.77\.0\.2):8090", t["address"])
+        for t in targets
+        if t["node"] in non_ros
+    )
+    assert all(t["path"] == "/metrics" for t in targets)
     assert re.search(r'job_name\s*=\s*"ros2_nodes"', body)
     assert re.search(r'metrics_path\s*=\s*"/metrics"', body)
     # The helper's robot_node_info{node} keeps its own node label instead of becoming exported_node.

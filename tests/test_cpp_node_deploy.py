@@ -44,6 +44,9 @@ CPP_TYPES = {
     "map_guard_cpp": ("map_guard", "MAP_GUARD_CONFIG", "ros2 run map_guard_cpp map_guard_node"),
 }
 METRICS_PORTS = {"stereo_depth_cpp": 19113, "map_guard_cpp": 19110}
+# C++ node types with no Python counterpart (tests/test_jetson_bridge_config.py pins their entry, tier and targets).
+STANDALONE_CPP_TYPES = ("jetson_bridge_cpp",)
+ALL_CPP_TYPES = (*sorted(CPP_TYPES), *STANDALONE_CPP_TYPES)
 # rosdep keys of system (non-ROS) dependencies -> their Ubuntu 24.04 apt package.
 ROSDEP_APT = {
     "yaml-cpp": "libyaml-cpp-dev",
@@ -355,14 +358,14 @@ def configured_local_sources() -> list[dict]:
         list[dict]: Source items with a `local` key.
     """
     types = client()["ros2_node_type_defaults"]
-    return [s for t in CPP_TYPES for s in types[t]["colcon_source"] if "local" in s]
+    return [s for t in ALL_CPP_TYPES for s in types[t]["colcon_source"] if "local" in s]
 
 
 def test_local_build_runs_in_the_low_priority_scope() -> None:
     """Every configured local source renders the low-priority scope, its own discovery root and make -j2."""
     build = task(BUILD_TASK)
     sources = configured_local_sources()
-    assert len(sources) == 2 * len(CPP_TYPES)
+    assert len(sources) == 2 * len(ALL_CPP_TYPES)
     for source in sources:
         cmd = render(build["ansible.builtin.command"]["cmd"], **build_context(source))
         for flag in LOW_PRIORITY_FLAGS:
@@ -465,7 +468,7 @@ def test_package_xml_apt_names_maps_ros_system_and_local_keys(tmp_path: Path) ->
     }
 
 
-@pytest.mark.parametrize("cpp_type", sorted(CPP_TYPES))
+@pytest.mark.parametrize("cpp_type", ALL_CPP_TYPES)
 def test_cpp_node_apt_packages_cover_every_in_tree_package_xml(cpp_type: str) -> None:
     """apt_packages installs every dependency the package.xml of each of its local sources declares.
 
@@ -479,6 +482,17 @@ def test_cpp_node_apt_packages_cover_every_in_tree_package_xml(cpp_type: str) ->
     for package_xml in present:
         missing = package_xml_apt_names(package_xml, local_packages) - set(entry["apt_packages"])
         assert not missing, f"{package_xml.relative_to(REPO_ROOT)}: {sorted(missing)} not in {cpp_type} apt_packages"
+
+
+@pytest.mark.parametrize("cpp_type", STANDALONE_CPP_TYPES)
+def test_standalone_cpp_node_type_is_a_local_colcon_build(cpp_type: str) -> None:
+    """Chained shared library first, then the node's own package; the build stamp restarts it."""
+    entry = client()["ros2_node_type_defaults"][cpp_type]
+    assert entry["deploy_mode"] == "native" and entry["node_src_dir"] == "" and entry["src_paths"] == []
+    identity = [{k: s[k] for k in ("local", "package", "workspace")} for s in entry["colcon_source"]]
+    assert identity == [COMMON_SOURCE, {"local": f"nodes/{cpp_type}", "package": cpp_type, "workspace": WORKSPACE}]
+    nodes = {n["name"]: n for n in client()["ros2_nodes"]}
+    assert nodes[cpp_type]["node_type"] == cpp_type and nodes[cpp_type]["enabled"] is True
 
 
 def test_ros2_common_cpp_is_a_discovered_cpp_package() -> None:

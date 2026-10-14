@@ -11,7 +11,11 @@ ANSIBLE_DIR = REPO_ROOT / "ansible"
 CLIENT_VARS = ANSIBLE_DIR / "group_vars" / "client.yml"
 SERVER_VARS = ANSIBLE_DIR / "group_vars" / "server.yml"
 AGENT_DEFAULTS = ANSIBLE_DIR / "roles" / "monitoring_agent" / "defaults" / "main.yml"
-RENDER_VARS = {"ros2_server_hostname": "server.ros2.lan", "ros2_repo_dest": "/opt/ros2-lerobot-swerve-platform"}
+RENDER_VARS = {
+    "ros2_server_hostname": "server.ros2.lan",
+    "ros2_repo_dest": "/opt/ros2-lerobot-swerve-platform",
+    "jetson_link_jetson_ip": "10.77.0.2",
+}
 
 # Port contract: nodes without an HTTP server get `metrics_port` (config) or METRICS_PORT (env).
 CONFIG_METRICS_PORTS = {
@@ -29,6 +33,8 @@ CONFIG_METRICS_PORTS = {
     # Side-by-side C++ ports: the Python node's port (the same config block); only one of a pair is ever enabled.
     "map_guard_cpp": 19110,
     "stereo_depth_cpp": 19113,
+    # C++ bridge to the Jetson depthd: no Python counterpart.
+    "jetson_bridge_cpp": 19114,
 }
 CPP_SUFFIX = "_cpp"
 ENV_METRICS_PORTS = {"gripper_uvc_camera": 19105, "rplidar_a1": 19106}
@@ -47,6 +53,9 @@ HTTP_PORTS = {
     "mcp_server": 18200,
     "claude_agent": 18300,
 }
+# Scrape targets that are not a ROS node of the client: the Jetson's depthd, re-exported by the Pi's Alloy because the
+# Jetson has no route to the server. Target name -> address template (jetson_link_jetson_ip is in group_vars/all.yml).
+NON_ROS_TARGETS = {"jetson_depthd": "{{ jetson_link_jetson_ip }}:8090"}
 CONTRACT_NODES = set(CONFIG_METRICS_PORTS) | set(ENV_METRICS_PORTS) | set(HTTP_PORT_KEYS)
 # Node types that import ros2_metrics (venv nodes through shared/, rplidar_a1 through PYTHONPATH).
 SHARED_NODE_TYPES = [
@@ -236,7 +245,7 @@ def test_a_port_is_shared_only_by_a_python_and_cpp_pair() -> None:
 def test_a_python_and_cpp_pair_is_never_both_enabled() -> None:
     """Both would bind the same 127.0.0.1 port and publish the same topics: a cut-over flips both entries."""
     nodes = client_nodes()
-    pairs = [(n[: -len(CPP_SUFFIX)], n) for n in nodes if n.endswith(CPP_SUFFIX)]
+    pairs = [(n[: -len(CPP_SUFFIX)], n) for n in nodes if n.endswith(CPP_SUFFIX) and n[: -len(CPP_SUFFIX)] in nodes]
     assert {cpp for _, cpp in pairs} >= {"map_guard_cpp", "stereo_depth_cpp"}
     for python, cpp in pairs:
         assert not (is_running(nodes[python]) and is_running(nodes[cpp])), (python, cpp)
@@ -263,4 +272,6 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
     assert disabled - pair_members == {"topic_scraper_api", "arducam_tof"}
     assert checked == len(CONTRACT_NODES - disabled)
     # Only enabled nodes are scraped: a disabled target would read as down. Add a target when enabling the node.
-    assert set(targets) == CONTRACT_NODES - disabled
+    assert set(targets) - set(NON_ROS_TARGETS) == CONTRACT_NODES - disabled
+    for name, address in NON_ROS_TARGETS.items():
+        assert targets[name]["address"] == address and targets[name].get("path", "/metrics") == "/metrics", name
