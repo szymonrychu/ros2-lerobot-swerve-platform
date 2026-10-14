@@ -3,6 +3,8 @@
 //
 //   - A config error (or a matcher the config names that cannot be built) is logged and the service stays up serving
 //     /health (state config_error, the reason) on the default bind address, without opening a camera or publishing.
+//   - The monocular stage (mono.hpp) runs beside the pipeline; a model that does not load is mono_state "error: ..."
+//     in /health and affects nothing else.
 //   - A calibration error leaves the pipeline uncalibrated: /health says why, rgb flows, depth and fused do not.
 //   - A bind that fails (the link address is not up yet) is retried every retry_interval_ms; a camera start that fails
 //     is retried every source_retry_interval_ms. Neither exits, so there is no crash loop.
@@ -17,6 +19,7 @@
 
 #include "depthd/config.hpp"
 #include "depthd/http_api.hpp"
+#include "depthd/mono.hpp"
 #include "depthd/pipeline.hpp"
 
 namespace depthd
@@ -28,6 +31,8 @@ struct DaemonOptions
   // Builds the frame source once the config is valid; default: StereoCaptureSource (the cameras).
   std::function<std::unique_ptr<FrameSource>(const Config &, LogFn)> make_source;
   PipelineOptions pipeline;
+  // Builds the monocular model (MonoStage); default: TrtMonoModel(mono.engine_path).
+  MonoModelFactory make_mono_model;
   LogFn log;
   std::string bind_address;  // overrides transport.bind_address when set (tests: 127.0.0.1)
   int http_port = -1;        // -1: transport.http_port; 0: any free port

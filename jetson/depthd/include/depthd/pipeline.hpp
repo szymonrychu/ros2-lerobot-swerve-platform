@@ -78,6 +78,9 @@ struct PipelineOptions
 {
   int64_t max_pair_age_ns = 100000000;         // G5: a pair older than this when matching starts is dropped
   int64_t max_capture_pair_age_ns = 1000000000;  // latest_pair() freshness (GET /calibration/capture)
+  // publish_fused: a fused frame carries its depth frame's capture time and comes one inference later; older than
+  // this it is refused (the Pi bridge drops frames older than its max_age_ms, 500 ms deployed).
+  int64_t max_fused_age_ns = 450000000;
   std::function<int64_t()> realtime_now;        // CLOCK_REALTIME by default
   LogFn log;
   std::string thermal_root = "/sys/devices/virtual/thermal";
@@ -143,11 +146,13 @@ public:
   std::string apply_config(const Config & config);
 
   void set_mono_state(const std::string & state);
+  // The live mono settings (mono.enabled and mono.rate_hz follow apply_config).
+  Mono mono_settings() const;
   void set_depth_listener(DepthListener listener);
 
   // Publishes a fused depth frame (frame id, intrinsics and calibrated flag filled in here) only under the same
-  // rules as depth: calibrated, both cameras healthy, capture time within max_pair_age_ns. False when refused or
-  // dropped by the publisher.
+  // rules as depth: calibrated, both cameras healthy, capture time within max_fused_age_ns. header.stage_mono_ms is
+  // kept (and carried in later headers). False when refused or dropped by the publisher.
   bool publish_fused(ros2_common_cpp::depth_wire::Header header, const std::vector<uint16_t> & depth_mm);
 
   // The newest unrectified pair if it is fresher than max_capture_pair_age_ns (GET /calibration/capture).

@@ -109,23 +109,26 @@ private:
 // Raw (unrectified) images of a textured fronto-parallel plane seen at `disparity` pixels in the rectified frame of
 // `cal`. Each raw pixel samples the rectified scene at its undistorted, rectified position, so rectifying the pair
 // with `cal` gives back a pure horizontal shift: rectified_right(x - d, y) = rectified_left(x, y).
+// A non-zero `slope` slants the plane: the disparity at rectified right column x' is disparity + slope * x', i.e. at
+// rectified left column x it is disparity + slope * (x - disparity) / (1 + slope).
 struct RawPair
 {
   cv::Mat left;
   cv::Mat right;
 };
 
-inline RawPair make_raw_pair(const depthd::StereoCalibration & cal, double disparity, unsigned seed = 7)
+inline RawPair make_raw_pair(
+  const depthd::StereoCalibration & cal, double disparity, unsigned seed = 7, double slope = 0.0)
 {
   const int w = cal.size.width;
   const int h = cal.size.height;
   const int margin = 64;
-  cv::Mat texture(h + 2 * margin, w + static_cast<int>(disparity) + 2 * margin, CV_8UC1);
+  cv::Mat texture(h + 2 * margin, static_cast<int>(w * (1.0 + slope)) + static_cast<int>(disparity) + 2 * margin, CV_8UC1);
   cv::RNG rng(seed);
   rng.fill(texture, cv::RNG::UNIFORM, 0, 256);
   cv::GaussianBlur(texture, texture, cv::Size(3, 3), 0.8);
 
-  auto render = [&](const cv::Mat & K, const cv::Mat & D, const cv::Mat & R, const cv::Mat & P, double shift) {
+  auto render = [&](const cv::Mat & K, const cv::Mat & D, const cv::Mat & R, const cv::Mat & P, double shift, double k) {
     std::vector<cv::Point2f> raw;
     raw.reserve(static_cast<size_t>(w) * h);
     for (int y = 0; y < h; ++y) {
@@ -138,7 +141,7 @@ inline RawPair make_raw_pair(const depthd::StereoCalibration & cal, double dispa
     for (int y = 0; y < h; ++y) {
       for (int x = 0; x < w; ++x) {
         const cv::Point2f & p = rect[static_cast<size_t>(y) * w + x];
-        map_x.at<float>(y, x) = static_cast<float>(p.x + shift + margin);
+        map_x.at<float>(y, x) = static_cast<float>(p.x * (1.0 + k) + shift + margin);
         map_y.at<float>(y, x) = p.y + margin;
       }
     }
@@ -147,8 +150,8 @@ inline RawPair make_raw_pair(const depthd::StereoCalibration & cal, double dispa
     return out;
   };
   RawPair pair;
-  pair.left = render(cal.K1, cal.D1, cal.R1, cal.P1, 0.0);
-  pair.right = render(cal.K2, cal.D2, cal.R2, cal.P2, disparity);
+  pair.left = render(cal.K1, cal.D1, cal.R1, cal.P1, 0.0, 0.0);
+  pair.right = render(cal.K2, cal.D2, cal.R2, cal.P2, disparity, slope);
   return pair;
 }
 

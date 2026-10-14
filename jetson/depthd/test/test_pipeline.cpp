@@ -262,6 +262,15 @@ TEST(Pipeline, FusedIsPublishedOnlyWhileCalibratedAndBothCamerasAreHealthy)
   rig.source.set_status({});
   h.capture_realtime_ns = realtime_ns() - 500000000;
   EXPECT_FALSE(rig.pipeline->publish_fused(h, {1200, 0}));
+  // one inference behind its depth frame (older than the 100 ms pair budget, within max_fused_age_ns) is published,
+  // and its mono stage time is kept
+  h.capture_realtime_ns = realtime_ns() - 300000000;
+  h.stage_mono_ms = 187.5F;
+  ASSERT_TRUE(rig.pipeline->publish_fused(h, {1200, 0}));
+  ASSERT_TRUE(sub.recv(msg));
+  ASSERT_TRUE(msg.ok()) << msg.error;
+  EXPECT_EQ(msg.header.kind, wire::Kind::kFused);
+  EXPECT_FLOAT_EQ(msg.header.stage_mono_ms, 187.5F);
 }
 
 TEST(Pipeline, CameraErrorSuppressesThatCamerasMessages)

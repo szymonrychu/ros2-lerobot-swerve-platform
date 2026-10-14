@@ -64,7 +64,8 @@ capture callbacks only swap a pair into the mailbox, so capture never waits on m
 calibration intrinsics, the rectified `P`, `capture_realtime_ns` of the left frame, and the health fields. `rgb` flows
 whether or not a calibration exists; its header carries the left unrectified `K`/`D` (scaled to the RGB size) only when
 calibrated, and `calibrated` is false otherwise. `fused` (the monocular stage, `Pipeline::publish_fused`) obeys the
-same gates as `depth`.
+same gates as `depth`, except that its capture time may be up to `PipelineOptions::max_fused_age_ns` (450 ms) old: it
+carries the header of the depth frame it was fused with and comes one inference later.
 
 Nothing is published that depthd cannot vouch for: no `depth` or `fused` without a valid calibration, none while either
 camera is in error, no `rgb` while the left camera is in error, nothing from a stale frame, and never a synthetic or
@@ -290,8 +291,8 @@ rejected with a message naming the key. `[live]` keys can change at runtime (`de
 | postprocess.temporal.{enabled,alpha,motion_threshold} [live] | true, 0.4, 12 | alpha 0..1 |
 | postprocess.wls.enabled [live] | false | |
 | mono.enabled [live] | true | |
-| mono.model | dav2_small | dav2_small, midas_small |
-| mono.engine_path | /var/lib/depthd/models/dav2_small_266.engine | |
+| mono.model | midas_small | dav2_small, midas_small (`jetson/models/RESULTS.md`) |
+| mono.engine_path | /var/lib/depthd/models/midas_small_128.engine | |
 | mono.rate_hz [live] | 2.0 | > 0 |
 | rgb.enabled | true | |
 | rgb.width / height | 640 / 480 | multiple of 8 |
@@ -429,6 +430,41 @@ also be used alone.
 CUDA language for it (sm_53, shared cudart). Tests: `test/test_postprocess.cpp` (every stage, toggles, order, timing
 flags, bad inputs, no GPU allocation in a warmed-up run) and `test/test_temporal.cpp`.
 
+## Monocular fill (mono)
+
+`include/depthd/mono.hpp`, `src/mono_trt.cpp`, `include/depthd/scale_align.hpp`, `src/scale_align.cpp` (design D5).
+Stereo leaves holes on texture-less surfaces; a monocular network fills only those, on the separate `fused` kind
+(`/stereo/depth/fused` on the Pi). `depth` (`/stereo/depth/image_raw`) is never written by the stage: it reads copies.
+
+- **Engine.** `TrtMonoModel` deserializes a TensorRT 8.0 FP16 engine (`mono.engine_path`) with input `image`
+  1x3xHxW and output `inverse_depth` 1x1xHxW (the jetson/models graph contract). The grey rectified left image is
+  resized to HxW and normalised per RGB channel with the ImageNet mean/std; the output is resized back to the
+  processing size. Engines are built on the Jetson by the `jetson_depthd` role (trtexec, only when the ONNX sha256
+  changed). Model choice and measured rates: `jetson/models/RESULTS.md`.
+- **Scheduling.** `MonoStage` is the pipeline's depth listener. When mono is enabled, the model is loaded, the worker
+  is idle and the next `1 / mono.rate_hz` slot is reached (on average exactly `rate_hz`, never more), it copies the rectified left (GPU) and the final depth (host) into its own
+  buffers and hands them to its worker; otherwise the frame is not used (no queue). The worker runs on a CUDA stream
+  of the lowest priority; the stereo stream (`Pipeline`) has the highest, so stereo kernels are scheduled first. All
+  buffers are allocated once.
+- **Alignment.** `align_and_fill`: stereo inverse depth `1000 / depth_mm` of the valid (LR-checked, post-processed)
+  pixels is fitted as `scale * mono + shift` by RANSAC (two-point hypotheses, scale > 0, inlier = relative residual
+  <= 8 %) on at most 20000 strided pixels, then refitted by least squares on the inliers. Fewer than 500 inliers, too
+  few valid pixels, or stereo without depth spread to scale against: no fused frame. Valid stereo pixels are copied
+  unchanged; holes get `1000 / (scale * mono + shift)` mm, and 0 where that is out of
+  `[processing.min_depth_m, max_depth_m]` or not finite.
+- **State.** `/health` `mono_state`: `disabled`, `loading`, `ok`, `unavailable` (re-enabled, not serving yet) or
+  `error: <reason>` (the engine did not load or inference failed; fused stays off, depth is unaffected). Metrics:
+  `depthd_mono_fps`, `depthd_mono_fit_inliers`, `depthd_mono_fill_ratio` (filled share of the stereo holes of the
+  latest frame), `depthd_mono_fits_total{result}`, `depthd_stage_time_ms{stage="mono"}` (hand-off to publish) and the
+  header's `stage_mono_ms`.
+
+Tests: `test/test_scale_align.cpp` (known scale and shift recovered with 30 % outliers, too few inliers and degenerate
+scenes give no fit, valid stereo never changes, out-of-range holes stay 0, stream priorities, a pipeline with a fake
+model on a slanted plane: depth unchanged with mono on or off (within the 1-3 pixels two mono-off runs already differ
+by) and the fused frame shares its header, the rate cap,
+live disable, a model that fails to load; and both real engines loaded from `DEPTHD_TEST_ENGINE_DIR`, default
+`/var/lib/depthd/models`).
+
 ## Transport and HTTP API
 
 Both listen on `transport.bind_address` (the Jetson end of the direct link, `10.77.0.2`), so nothing is reachable from
@@ -472,7 +508,7 @@ Metrics: `depthd_frames_total{kind}`, `depthd_pairs_total`, `depthd_drops_total{
 `depthd_camera_realignments_total{reason}` (`skew`, `stall`), and the exposure metrics of Continuous AE/AWB
 (`depthd_camera_exposure_us{camera}`, `depthd_camera_gain{camera}`, `depthd_camera_saturated_fraction`,
 `depthd_camera_exposure_compensation`, `depthd_ae_adjustments_total`, `depthd_exposure_follow_pins_total`,
-`depthd_drops_total{reason="exposure_mismatch"}`).
+`depthd_drops_total{reason="exposure_mismatch"}`), and the mono metrics (Monocular fill).
 
 `third_party/httplib.h` is cpp-httplib v0.14.3 (MIT, Yuji Hirose) vendored unmodified as a single header. Tests:
 `test/test_publisher.cpp` (loopback SUB decodes depth, fused and rgb; a full high-water mark drops and counts) and

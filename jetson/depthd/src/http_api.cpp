@@ -206,6 +206,21 @@ void Metrics::set_zmq_send_drops(uint64_t total)
   zmq_send_drops_ = total;
 }
 
+void Metrics::set_mono_fps(double fps)
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  mono_fps_ = fps;
+}
+
+void Metrics::record_mono_fit(bool ok, int inliers, double fill_ratio)
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  mono_fit_seen_ = true;
+  mono_inliers_ = inliers;
+  mono_fill_ratio_ = ok ? fill_ratio : 0.0;
+  ++(ok ? mono_fits_ok_ : mono_fits_rejected_);
+}
+
 std::string Metrics::render() const
 {
   const std::lock_guard<std::mutex> lock(mutex_);
@@ -284,6 +299,19 @@ std::string Metrics::render() const
   o << "# HELP depthd_zmq_send_drops_total Messages dropped because the ZeroMQ send high-water mark was full.\n"
        "# TYPE depthd_zmq_send_drops_total counter\n"
     << "depthd_zmq_send_drops_total " << zmq_send_drops_ << "\n";
+  o << "# HELP depthd_mono_fps Monocular depth inferences per second.\n# TYPE depthd_mono_fps gauge\n"
+    << "depthd_mono_fps " << num(mono_fps_) << "\n";
+  o << "# HELP depthd_mono_fits_total Scale and shift fits of mono to stereo depth, by result.\n"
+       "# TYPE depthd_mono_fits_total counter\n"
+    << "depthd_mono_fits_total{result=\"ok\"} " << mono_fits_ok_ << "\n"
+    << "depthd_mono_fits_total{result=\"rejected\"} " << mono_fits_rejected_ << "\n";
+  o << "# HELP depthd_mono_fit_inliers Inlier pixels of the latest mono fit.\n# TYPE depthd_mono_fit_inliers gauge\n";
+  o << "# HELP depthd_mono_fill_ratio Share of the stereo holes the latest fused frame filled (0 without a fit).\n"
+       "# TYPE depthd_mono_fill_ratio gauge\n";
+  if (mono_fit_seen_) {
+    o << "depthd_mono_fit_inliers " << mono_inliers_ << "\n";
+    o << "depthd_mono_fill_ratio " << num(mono_fill_ratio_) << "\n";
+  }
   return o.str();
 }
 

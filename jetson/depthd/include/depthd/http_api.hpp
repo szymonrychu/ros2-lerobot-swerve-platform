@@ -48,6 +48,10 @@ public:
   void set_gpu_temp_c(double celsius);
   void set_nvgpu_errors(uint64_t total);
   void set_zmq_send_drops(uint64_t total);
+  // Monocular stage: depthd_mono_fps, and after the first fit attempt depthd_mono_fit_inliers and
+  // depthd_mono_fill_ratio (filled share of the stereo holes); depthd_mono_fits_total{result="ok"|"rejected"}.
+  void set_mono_fps(double fps);
+  void record_mono_fit(bool ok, int inliers, double fill_ratio);
 
   std::string render() const;  // Prometheus text exposition format 0.0.4
 
@@ -71,6 +75,12 @@ private:
   double gpu_temp_c_ = 0.0;
   uint64_t nvgpu_errors_ = 0;
   uint64_t zmq_send_drops_ = 0;
+  double mono_fps_ = 0.0;
+  bool mono_fit_seen_ = false;
+  int mono_inliers_ = 0;
+  double mono_fill_ratio_ = 0.0;
+  uint64_t mono_fits_ok_ = 0;
+  uint64_t mono_fits_rejected_ = 0;
 };
 
 // GET /health body. state is ok | uncalibrated | camera_error | starting.

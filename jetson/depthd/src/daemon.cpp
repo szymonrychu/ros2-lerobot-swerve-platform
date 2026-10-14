@@ -33,6 +33,7 @@ struct Daemon::Impl
   Metrics metrics;
   std::unique_ptr<FrameSource> source;
   std::unique_ptr<Pipeline> pipeline;
+  std::unique_ptr<MonoStage> mono;
   std::unique_ptr<HttpApi> api;
   std::unique_ptr<Publisher> publisher;
 
@@ -72,9 +73,12 @@ struct Daemon::Impl
         PipelineOptions po = opt.pipeline;
         if (!po.log) po.log = opt.log;
         pipeline = std::make_unique<Pipeline>(config, *source, metrics, po);
+        mono = std::make_unique<MonoStage>(config, *pipeline, metrics, opt.make_mono_model, opt.log);
+        mono->start();
       } catch (const std::exception & e) {
         config_error = std::string("processing.matcher: ") + e.what();
         log(config_error);
+        mono.reset();
         pipeline.reset();
         source.reset();
       }
@@ -210,6 +214,7 @@ void Daemon::stop()
   }
   im.cv.notify_all();
   if (im.supervisor.joinable()) im.supervisor.join();
+  if (im.mono) im.mono->stop();
   if (im.pipeline) im.pipeline->stop();
   if (im.api) im.api->stop();
   im.log("stopped");

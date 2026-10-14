@@ -16,6 +16,7 @@
 
 #include "depthd/depth.hpp"
 #include "depthd/matcher.hpp"
+#include "depthd/mono.hpp"
 #include "depthd/postprocess.hpp"
 #include "depthd/rectify.hpp"
 
@@ -92,8 +93,9 @@ struct Pipeline::Impl
   std::thread encode_thread;
   std::thread monitor_thread;
 
-  // Match thread only: one CUDA stream and buffers reused for every pair.
-  cv::cuda::Stream stream;
+  // Match thread only: one CUDA stream (highest priority, ahead of the mono stream) and buffers reused for every pair.
+  PriorityStream stereo_stream{PriorityStream::Priority::highest};
+  cv::cuda::Stream & stream = stereo_stream.stream();
   cv::cuda::GpuMat rect_left;
   cv::cuda::GpuMat rect_right;
   cv::cuda::GpuMat depth_mm;
@@ -120,6 +122,7 @@ struct Pipeline::Impl
   float stage_match_ms = 0.F;
   float stage_post_ms = 0.F;
   float stage_encode_ms = 0.F;
+  float stage_mono_ms = 0.F;
   double gpu_temp_c = 0.0;
   uint64_t nvgpu_errors = 0;
   uint64_t pairing_dropped = 0;
@@ -153,10 +156,10 @@ struct Pipeline::Impl
     metrics.inc_drop(reason);
   }
 
-  bool too_old(int64_t capture_ns) const
+  bool too_old(int64_t capture_ns, int64_t max_age_ns) const
   {
     const int64_t age = now() - capture_ns;
-    return age > opt.max_pair_age_ns || age < -opt.max_pair_age_ns;
+    return age > max_age_ns || age < -max_age_ns;
   }
 
   // Health values carried in a header.
@@ -169,6 +172,7 @@ struct Pipeline::Impl
     h.stage_match_ms = stage_match_ms;
     h.stage_post_ms = stage_post_ms;
     h.stage_encode_ms = stage_encode_ms;
+    h.stage_mono_ms = stage_mono_ms;
     h.pairs_dropped_total = dropped_total_locked();
     h.gpu_temp_c = static_cast<float>(gpu_temp_c);
     h.nvgpu_errors_total = nvgpu_errors;
@@ -210,7 +214,7 @@ struct Pipeline::Impl
       count_drop(&PipelineCounters::rgb_dropped_camera_error, "rgb_camera_error");
       return;
     }
-    if (too_old(jpeg.capture_realtime_ns)) {
+    if (too_old(jpeg.capture_realtime_ns, opt.max_pair_age_ns)) {
       count_drop(&PipelineCounters::rgb_dropped_stale, "rgb_stale");
       return;
     }
@@ -563,6 +567,12 @@ void Pipeline::set_mono_state(const std::string & state)
   impl_->mono_state = state;
 }
 
+Mono Pipeline::mono_settings() const
+{
+  const std::lock_guard<std::mutex> lock(impl_->stats_mutex);
+  return impl_->mono;
+}
+
 void Pipeline::set_depth_listener(DepthListener listener)
 {
   const std::lock_guard<std::mutex> lock(impl_->listener_mutex);
@@ -575,7 +585,8 @@ bool Pipeline::publish_fused(wire::Header header, const std::vector<uint16_t> & 
   const auto c = im.calibration();
   const CaptureStatus status = im.source.status();
   const bool camera_ok = status.state != CaptureState::camera_error && !status.left_error && !status.right_error;
-  if (!im.publisher || !im.accepting.load() || !c || !camera_ok || im.too_old(header.capture_realtime_ns)) {
+  if (!im.publisher || !im.accepting.load() || !c || !camera_ok ||
+      im.too_old(header.capture_realtime_ns, im.opt.max_fused_age_ns)) {
     im.count_drop(&PipelineCounters::fused_rejected, "fused_rejected");
     return false;
   }
@@ -586,6 +597,10 @@ bool Pipeline::publish_fused(wire::Header header, const std::vector<uint16_t> & 
   header.p = c->p;
   header.baseline_m = c->baseline_m;
   header.calibrated = true;
+  {
+    const std::lock_guard<std::mutex> lock(im.stats_mutex);
+    im.stage_mono_ms = header.stage_mono_ms;
+  }
   im.fill_health(header);
   if (!im.publisher->send_fused(header, depth_mm)) return false;
   {

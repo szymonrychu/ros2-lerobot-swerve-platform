@@ -67,8 +67,8 @@ postprocess:                   # every key under postprocess is [live]
 
 mono:                          # monocular depth fused into the stereo holes
   enabled: true                # [live]
-  model: dav2_small            # dav2_small | midas_small
-  engine_path: /var/lib/depthd/models/dav2_small_266.engine
+  model: midas_small           # dav2_small | midas_small (jetson/models/RESULTS.md)
+  engine_path: /var/lib/depthd/models/midas_small_128.engine
   rate_hz: 2.0                 # [live] inference rate, > 0
 
 rgb:                           # JPEG overview stream

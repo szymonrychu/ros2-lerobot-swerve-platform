@@ -79,8 +79,8 @@ TEST(Config, StructDefaultsMatchTheSpec)
   EXPECT_EQ(c.postprocess.temporal.motion_threshold, 12);
   EXPECT_FALSE(c.postprocess.wls.enabled);
   EXPECT_TRUE(c.mono.enabled);
-  EXPECT_EQ(c.mono.model, "dav2_small");
-  EXPECT_EQ(c.mono.engine_path, "/var/lib/depthd/models/dav2_small_266.engine");
+  EXPECT_EQ(c.mono.model, "midas_small");
+  EXPECT_EQ(c.mono.engine_path, "/var/lib/depthd/models/midas_small_128.engine");
   EXPECT_DOUBLE_EQ(c.mono.rate_hz, 2.0);
   EXPECT_TRUE(c.rgb.enabled);
   EXPECT_EQ(c.rgb.width, 640);

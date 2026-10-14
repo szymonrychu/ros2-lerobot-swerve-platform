@@ -465,6 +465,9 @@ TEST(HttpApiMetrics, ServesPrometheusTextWithEveryDepthdMetric)
   f.metrics.set_gpu_temp_c(51.5);
   f.metrics.set_nvgpu_errors(3);
   f.metrics.set_zmq_send_drops(9);
+  f.metrics.set_mono_fps(2.5);
+  f.metrics.record_mono_fit(true, 4321, 0.75);
+  f.metrics.record_mono_fit(false, 12, 0.0);
 
   const auto r = f.client->Get("/metrics");
   ASSERT_TRUE(r);
@@ -514,6 +517,15 @@ TEST(HttpApiMetrics, ServesPrometheusTextWithEveryDepthdMetric)
   has("depthd_gpu_temp_celsius 51.5");
   has("depthd_nvgpu_errors_total 3");
   has("depthd_zmq_send_drops_total 9");
+  has("# TYPE depthd_mono_fps gauge");
+  has("depthd_mono_fps 2.5");
+  has("# TYPE depthd_mono_fit_inliers gauge");
+  has("depthd_mono_fit_inliers 12");
+  has("# TYPE depthd_mono_fill_ratio gauge");
+  has("depthd_mono_fill_ratio 0");
+  has("# TYPE depthd_mono_fits_total counter");
+  has("depthd_mono_fits_total{result=\"ok\"} 1");
+  has("depthd_mono_fits_total{result=\"rejected\"} 1");
 }
 
 TEST(HttpApiMetrics, EmptyMetricsStillRender)
@@ -525,6 +537,10 @@ TEST(HttpApiMetrics, EmptyMetricsStillRender)
   EXPECT_NE(r->body.find("depthd_fps 0"), std::string::npos);
   EXPECT_NE(r->body.find("depthd_zmq_send_drops_total 0"), std::string::npos);
   EXPECT_NE(r->body.find("depthd_ae_adjustments_total 0"), std::string::npos);
+  EXPECT_NE(r->body.find("depthd_mono_fps 0"), std::string::npos);
+  // No fit attempted yet: no inlier count or fill ratio rather than a made-up 0.
+  EXPECT_EQ(r->body.find("\ndepthd_mono_fit_inliers "), std::string::npos);
+  EXPECT_EQ(r->body.find("\ndepthd_mono_fill_ratio "), std::string::npos);
   // No readback yet: no exposure, gain or saturation sample rather than a made-up 0.
   EXPECT_EQ(r->body.find("depthd_camera_exposure_us{"), std::string::npos);
   EXPECT_EQ(r->body.find("\ndepthd_camera_saturated_fraction "), std::string::npos);

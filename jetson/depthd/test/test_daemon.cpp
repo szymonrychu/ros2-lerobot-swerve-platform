@@ -74,6 +74,10 @@ depthd::DaemonOptions test_options(const std::string & config_path, depthd_test:
   o.retry_interval_ms = 50;
   o.source_retry_interval_ms = 100;
   o.pipeline.kmsg_path = "";
+  // No TensorRT in the daemon tests: the mono model "fails to load", which must not affect anything else.
+  o.make_mono_model = [](const depthd::Mono &) -> std::unique_ptr<depthd::MonoModel> {
+    throw std::runtime_error("no engine in daemon tests");
+  };
   o.make_source = [source_out](const depthd::Config &, depthd::LogFn) {
     auto s = std::make_unique<depthd_test::FakeFrameSource>();
     *source_out = s.get();
@@ -255,4 +259,17 @@ TEST(Daemon, ExecutableStaysUpOnAConfigErrorAndStopsOnSigtermWithin2s)
   }
   ASSERT_TRUE(WIFEXITED(status));
   EXPECT_EQ(WEXITSTATUS(status), 0);
+}
+
+TEST(Daemon, MonoStageRunsAndAModelThatDoesNotLoadIsReportedInHealth)
+{
+  depthd_test::FakeFrameSource * source = nullptr;
+  depthd::Daemon d(test_options(valid_config(kSource + "/test/fixtures/stereo_valid.yaml"), &source));
+  d.start();
+  ASSERT_TRUE(eventually([&] { return d.http_port() != 0; }));
+  ASSERT_TRUE(eventually([&] { return get_health(d.http_port()).value("mono_state", "") ==
+                                      "error: no engine in daemon tests"; }))
+    << get_health(d.http_port()).dump();
+  EXPECT_NE(get_health(d.http_port()).value("state", ""), "config_error");
+  d.stop();
 }

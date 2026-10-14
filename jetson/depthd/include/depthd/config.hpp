@@ -153,8 +153,8 @@ struct Postprocess
 struct Mono
 {
   bool enabled = true;
-  std::string model = "dav2_small";  // dav2_small | midas_small
-  std::string engine_path = "/var/lib/depthd/models/dav2_small_266.engine";
+  std::string model = "midas_small";  // dav2_small | midas_small (jetson/models/RESULTS.md)
+  std::string engine_path = "/var/lib/depthd/models/midas_small_128.engine";
   double rate_hz = 2.0;
   bool operator==(const Mono & o) const
   {
