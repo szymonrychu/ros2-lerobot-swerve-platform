@@ -44,8 +44,8 @@
       "T17",
       "T18"
     ],
-    "status": "deferred-by-user",
-    "note": "2026-10-14: the user deferred the AI monocular fill (\"Let's defer AI for now\"). T17 (ONNX export) is merged; T18 is not run. Disparity depth with calibration ships first."
+    "status": "approved",
+    "note": "2026-10-14: the user deferred the AI monocular fill (\"Let's defer AI for now\"). T17 (ONNX export) is merged; T18 is not run. Disparity depth with calibration ships first. Re-enabled by the user later on 2026-10-14 (\"go\") after the depth fixes; delivered as a follow-up task."
   },
   {
     "id": "A4",
