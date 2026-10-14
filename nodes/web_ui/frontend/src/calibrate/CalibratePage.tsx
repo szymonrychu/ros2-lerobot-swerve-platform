@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { TOUCH_TARGET_PX } from '../theme'
 import { clearCalibrateHash } from './calibrateRoute'
+import { StereoCalibration } from './StereoCalibration'
 
 /** Body of GET /api/calibration/config: which calibration sections this robot offers. */
 export interface CalibrationConfig {
@@ -78,7 +79,7 @@ export function CalibratePage({ onBack }: Props) {
       {state.kind === 'error' && <Alert severity="error">Calibration config failed to load: {state.message}</Alert>}
       {state.kind === 'ready' && (
         <>
-          {state.config.stereo && <Section title="Stereo calibration" />}
+          {state.config.stereo && <StereoCalibration />}
           {state.config.imu && <Section title="IMU calibration" />}
           <Typography color="text.secondary">Arm calibration - deferred</Typography>
         </>
