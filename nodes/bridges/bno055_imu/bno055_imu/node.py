@@ -14,6 +14,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import Imu
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 
 from . import metrics
 from .burst import read_sample
@@ -25,21 +26,24 @@ from .calibration import (
     save_if_changed,
     should_save,
 )
+from .calibration_service import (
+    CODE_CALIBRATION_RESET,
+    chip_reset,
+    reset_calibration,
+    save_calibration,
+)
 from .config import ImuNodeConfig
 from .covariance import CovarianceEstimator
 from .gyro_bias import GyroBiasEstimator, load_bias, save_bias
 from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
 from .pacing import next_tick, spin_until
-from .recovery import Action, RecoveryPolicy
+from .recovery import Action, Decision, RecoveryPolicy
 
 I2C_RECONNECT_THRESHOLD = 10
 WARMUP_TIMEOUT_S = 10.0
 CRYSTAL_STABILIZE_S = 1.0  # BNO055 needs time after crystal switch before mode writes take effect
 MODE_SWITCH_DELAY_S = 1.5  # Fusion needs time after mode switch to produce valid data
 MODE_VERIFY_RETRIES = 3
-SYS_TRIGGER_REGISTER = 0x3F
-SYS_TRIGGER_RST_SYS = 0x20  # reset the whole chip; it reboots into CONFIG mode
-CHIP_RESET_WAIT_S = 0.65  # BNO055 boot time after RST_SYS
 IMUPLUS_MODE_VALUE = 0x08  # adafruit_bno055.IMUPLUS_MODE — kept here for testability without hardware libs
 NDOF_FMC_OFF_MODE_VALUE = 0x0B
 NDOF_MODE_VALUE = 0x0C
@@ -315,23 +319,6 @@ def _create_bno055(
     raise RuntimeError(f"Unable to initialize BNO055 on i2c-{i2c_bus}; tried {tried_desc}")
 
 
-def chip_reset(bno: Any) -> bool:
-    """Reset the BNO055 via SYS_TRIGGER RST_SYS and wait for it to reboot; never raises.
-
-    Args:
-        bno (Any): Driver instance exposing _write_register (adafruit_bno055.BNO055_I2C).
-
-    Returns:
-        bool: True if the reset was issued, False if the driver lacks _write_register or the write failed.
-    """
-    try:
-        bno._write_register(SYS_TRIGGER_REGISTER, SYS_TRIGGER_RST_SYS)
-    except Exception:  # noqa: BLE001
-        return False
-    time.sleep(CHIP_RESET_WAIT_S)
-    return True
-
-
 def release_driver(bno: Any) -> None:
     """Release the I2C bus object of a driver being replaced; never raises."""
     try:
@@ -347,12 +334,15 @@ def make_estimators(config: ImuNodeConfig) -> tuple[CovarianceEstimator | None, 
     return tuple(CovarianceEstimator(config.covariance_window, config.covariance_min_samples) for _ in range(3))
 
 
-def create_sensor(config: ImuNodeConfig, node: Node) -> tuple[Any, int, CalibrationProfile | None]:
+def create_sensor(
+    config: ImuNodeConfig, node: Node, restore: bool = True
+) -> tuple[Any, int, CalibrationProfile | None]:
     """Create the I2C bus and driver (crystal, saved calibration, operation mode set and verified).
 
     Args:
         config (ImuNodeConfig): Node config.
         node (Node): ROS2 node for logging.
+        restore (bool): False skips the saved profile (re-init after a calibration reset starts uncalibrated).
 
     Returns:
         tuple[Any, int, CalibrationProfile | None]: (driver, address used, restored profile or None).
@@ -360,7 +350,7 @@ def create_sensor(config: ImuNodeConfig, node: Node) -> tuple[Any, int, Calibrat
     Raises:
         RuntimeError: If no address answers.
     """
-    profile = load_saved_profile(config, node)
+    profile = load_saved_profile(config, node) if restore else None
     bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address, config.operation_mode, profile)
     if profile is not None:
         node.get_logger().info(f"restored calibration profile from {config.calibration_file}")
@@ -528,16 +518,79 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             f"(window={config.covariance_window}, min_samples={config.covariance_min_samples})"
         )
 
+    reinit_requested = False  # set by the reset service; the loop re-initialises before the next read
+
+    def stationarity() -> bool | None:
+        """Return the robot stillness from wheel odometry, or None when unknown (gyro bias estimator off)."""
+        return bias_est.stationary(time.monotonic()) if bias_est is not None else None
+
+    def on_save_calibration(_request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """Save the chip calibration profile now (runs on the loop thread via spin_once, never during a read).
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success and message (saved statuses and file, or the refusal reason).
+        """
+        nonlocal saved_profile, profile_read_this_episode
+        if reinit_requested:
+            response.success, response.message = False, "calibration reset in progress"
+            return response
+        try:
+            status = bno.calibration_status
+        except (RuntimeError, OSError):
+            status = None
+        outcome = save_calibration(bno, calibration_path, target_mode, status, stationarity())
+        if outcome.chip_read:
+            profile_read_this_episode = True  # the automatic save must not repeat the blank cycle this episode
+        if outcome.profile is not None:
+            saved_profile = outcome.profile
+        log = node.get_logger().info if outcome.success else node.get_logger().warn
+        log(f"calibration save service: {outcome.message}")
+        response.success, response.message = outcome.success, outcome.message
+        return response
+
+    def on_reset_calibration(_request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """Delete the saved calibration and reset the chip; the loop then re-initialises it without a profile.
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success and message, or the refusal reason or error.
+        """
+        nonlocal saved_profile, profile_read_this_episode, reinit_requested
+        outcome = reset_calibration(bno, calibration_path, stationarity())
+        if outcome.reinit:
+            reinit_requested = True
+            saved_profile = None  # /imu/calibration reports restored: false from now on
+            profile_read_this_episode = False
+        log = node.get_logger().info if outcome.success else node.get_logger().warn
+        log(f"calibration reset service: {outcome.message}")
+        response.success, response.message = outcome.success, outcome.message
+        return response
+
+    if config.save_calibration_service:
+        node.create_service(Trigger, config.save_calibration_service, on_save_calibration)
+    if config.reset_calibration_service:
+        node.create_service(Trigger, config.reset_calibration_service, on_reset_calibration)
+
     policy = RecoveryPolicy(config.max_soft_restores, config.reinit_after_s)
     consecutive_failures: int = 0
     hard_failures: int = 0  # OSError/RuntimeError - tracks true I2C bus errors
     total_reinits: int = 0
     slot_s = time.monotonic()
     while rclpy.ok():
-        decision = policy.decide(
-            recovery_needed=consecutive_failures >= I2C_RECONNECT_THRESHOLD,
-            soft_possible=hard_failures < I2C_RECONNECT_THRESHOLD,
-        )
+        if reinit_requested:
+            decision = Decision(Action.FULL_REINIT, "calibration reset requested", CODE_CALIBRATION_RESET)
+        else:
+            decision = policy.decide(
+                recovery_needed=consecutive_failures >= I2C_RECONNECT_THRESHOLD,
+                soft_possible=hard_failures < I2C_RECONNECT_THRESHOLD,
+            )
         metrics.record_decision(decision)
         if decision.action is Action.SOFT_RESTORE:
             # Re-write the mode register only (no crystal switch: at slow I2C speeds that sequence can corrupt the
@@ -559,18 +612,23 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             slot_s = time.monotonic()  # recovery is not a paced cycle
             continue
         if decision.action is Action.FULL_REINIT:
+            calibration_reset = reinit_requested  # the service already reset the chip and deleted the profile
+            reinit_requested = False
             total_reinits += 1
-            backoff = policy.backoff_s()
+            backoff = 0.0 if calibration_reset else policy.backoff_s()
             node.get_logger().warn(
                 f"BNO055 full re-init (reinit #{total_reinits}): {decision.reason}; backing off {backoff:.0f}s"
             )
             time.sleep(backoff)
             reinit_ok = False
             try:
-                chip_reset(bno)
+                if not calibration_reset:
+                    chip_reset(bno)
                 release_driver(bno)
                 metrics.record_init_attempt()
-                bno, used_addr, profile = create_sensor(config, node)
+                bno, used_addr, profile = (
+                    create_sensor(config, node, restore=False) if calibration_reset else create_sensor(config, node)
+                )
                 if profile is not None:
                     saved_profile = profile
                 consecutive_failures = 0

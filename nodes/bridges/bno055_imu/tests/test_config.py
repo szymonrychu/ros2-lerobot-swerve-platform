@@ -309,3 +309,28 @@ def test_gyro_bias_persistence_config_explicit_and_disabled(tmp_path: Path) -> N
     assert cfg.gyro_bias_file is None and cfg.gyro_bias_topic is None
     assert cfg.gyro_bias_save_interval_s == 1.0
     assert cfg.gyro_bias_mean_s == 30.0
+
+
+def test_calibration_services_default(tmp_path: Path) -> None:
+    """save/reset calibration services default to /imu/calibration/save and /imu/calibration/reset."""
+    p = tmp_path / "c.yaml"
+    p.write_text("{}")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.save_calibration_service == "/imu/calibration/save"
+    assert cfg.reset_calibration_service == "/imu/calibration/reset"
+
+
+def test_calibration_services_explicit_stripped_and_disabled(tmp_path: Path) -> None:
+    """Service names are stripped like the topic names; an empty or null value disables the service."""
+    p = tmp_path / "c.yaml"
+    p.write_text("save_calibration_service: '  /cal/save '\nreset_calibration_service: /cal/reset\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.save_calibration_service == "/cal/save"
+    assert cfg.reset_calibration_service == "/cal/reset"
+    p.write_text("save_calibration_service: ''\nreset_calibration_service: null\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.save_calibration_service is None
+    assert cfg.reset_calibration_service is None

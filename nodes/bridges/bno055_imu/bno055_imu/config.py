@@ -28,6 +28,8 @@ DEFAULT_GYRO_BIAS_FILE = "/var/lib/ros2/bno055_imu/gyro_bias.json"
 DEFAULT_GYRO_BIAS_SAVE_INTERVAL_S = 60.0
 DEFAULT_GYRO_BIAS_MEAN_S = 30.0
 DEFAULT_GYRO_BIAS_TOPIC = "/imu/gyro_bias"
+DEFAULT_SAVE_CALIBRATION_SERVICE = "/imu/calibration/save"
+DEFAULT_RESET_CALIBRATION_SERVICE = "/imu/calibration/reset"
 
 
 def _diagonal_covariance(var: float) -> list[float]:
@@ -57,6 +59,20 @@ def parse_float(raw: Any, default: float, minimum: float) -> float:
         return max(minimum, float(raw))
     except (TypeError, ValueError):
         return default
+
+
+def parse_name(data: dict[str, Any], key: str, default: str) -> str | None:
+    """Parse an optional topic, service or file name: stripped, and an empty or null value disables it.
+
+    Args:
+        data: Parsed YAML mapping.
+        key: Config key.
+        default: Value used when the key is absent.
+
+    Returns:
+        str | None: The stripped name, or None when disabled.
+    """
+    return str(data.get(key, default) or "").strip() or None
 
 
 def _parse_covariance(raw: Any, default_var: float) -> list[float]:
@@ -117,6 +133,10 @@ class ImuNodeConfig:
             bias is saved only after this window completed.
         gyro_bias_topic: std_msgs/String JSON diagnostic at 1 Hz (raw gyro, bias, learning, settled, rejected
             samples); None disables it.
+        save_calibration_service: std_srvs/Trigger that reads the chip profile and writes calibration_file now
+            (needs mag 3 and a stationary robot); None disables it.
+        reset_calibration_service: std_srvs/Trigger that deletes calibration_file, resets the chip and re-initialises
+            it uncalibrated (refused while moving); None disables it.
         metrics_port: Port of the Prometheus /metrics endpoint on 127.0.0.1; None falls back to env METRICS_PORT.
     """
 
@@ -149,6 +169,8 @@ class ImuNodeConfig:
     gyro_bias_save_interval_s: float = DEFAULT_GYRO_BIAS_SAVE_INTERVAL_S
     gyro_bias_mean_s: float = DEFAULT_GYRO_BIAS_MEAN_S
     gyro_bias_topic: str | None = DEFAULT_GYRO_BIAS_TOPIC
+    save_calibration_service: str | None = DEFAULT_SAVE_CALIBRATION_SERVICE
+    reset_calibration_service: str | None = DEFAULT_RESET_CALIBRATION_SERVICE
     metrics_port: int | None = None
 
 
@@ -216,8 +238,8 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
     operation_mode = str(data.get("operation_mode", DEFAULT_OPERATION_MODE)).strip().upper()
     if operation_mode not in SUPPORTED_OPERATION_MODES:
         operation_mode = DEFAULT_OPERATION_MODE
-    calibration_topic = str(data.get("calibration_topic", DEFAULT_CALIBRATION_TOPIC) or "").strip() or None
-    calibration_file = str(data.get("calibration_file", DEFAULT_CALIBRATION_FILE) or "").strip() or None
+    calibration_topic = parse_name(data, "calibration_topic", DEFAULT_CALIBRATION_TOPIC)
+    calibration_file = parse_name(data, "calibration_file", DEFAULT_CALIBRATION_FILE)
     raw_interval = data.get("calibration_save_interval_s", DEFAULT_CALIBRATION_SAVE_INTERVAL_S)
     try:
         calibration_save_interval_s = max(1.0, float(raw_interval))
@@ -233,7 +255,7 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         reinit_after_s = max(1.0, float(raw_reinit))
     except (TypeError, ValueError):
         reinit_after_s = DEFAULT_REINIT_AFTER_S
-    odom_topic = str(data.get("odom_topic", DEFAULT_ODOM_TOPIC) or "").strip() or None
+    odom_topic = parse_name(data, "odom_topic", DEFAULT_ODOM_TOPIC)
     raw_metrics_port = data.get("metrics_port")
     try:
         metrics_port = int(raw_metrics_port) if raw_metrics_port is not None else None
@@ -277,7 +299,7 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         gyro_bias_sanity_rad_s=parse_float(
             data.get("gyro_bias_sanity_rad_s", DEFAULT_GYRO_BIAS_SANITY_RAD_S), DEFAULT_GYRO_BIAS_SANITY_RAD_S, 0.0
         ),
-        gyro_bias_file=str(data.get("gyro_bias_file", DEFAULT_GYRO_BIAS_FILE) or "").strip() or None,
+        gyro_bias_file=parse_name(data, "gyro_bias_file", DEFAULT_GYRO_BIAS_FILE),
         gyro_bias_save_interval_s=parse_float(
             data.get("gyro_bias_save_interval_s", DEFAULT_GYRO_BIAS_SAVE_INTERVAL_S),
             DEFAULT_GYRO_BIAS_SAVE_INTERVAL_S,
@@ -286,7 +308,9 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         gyro_bias_mean_s=parse_float(
             data.get("gyro_bias_mean_s", DEFAULT_GYRO_BIAS_MEAN_S), DEFAULT_GYRO_BIAS_MEAN_S, 0.0
         ),
-        gyro_bias_topic=str(data.get("gyro_bias_topic", DEFAULT_GYRO_BIAS_TOPIC) or "").strip() or None,
+        gyro_bias_topic=parse_name(data, "gyro_bias_topic", DEFAULT_GYRO_BIAS_TOPIC),
+        save_calibration_service=parse_name(data, "save_calibration_service", DEFAULT_SAVE_CALIBRATION_SERVICE),
+        reset_calibration_service=parse_name(data, "reset_calibration_service", DEFAULT_RESET_CALIBRATION_SERVICE),
         metrics_port=metrics_port,
     )
 

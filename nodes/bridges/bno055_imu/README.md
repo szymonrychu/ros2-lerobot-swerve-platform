@@ -42,6 +42,8 @@ YAML config path: `BNO055_IMU_CONFIG` or `/etc/ros2/bno055_imu/config.yaml`.
 | `gyro_bias_save_interval_s` | `60` | Minimum seconds between bias saves (min 1); only a changed, settled bias is written |
 | `gyro_bias_mean_s` | `30` | Seconds of learning that use a running mean instead of the EMA (min 0) |
 | `gyro_bias_topic` | `/imu/gyro_bias` | `std_msgs/String` JSON bias diagnostic at 1 Hz; empty disables it |
+| `save_calibration_service` | `/imu/calibration/save` | `std_srvs/Trigger`: save the chip calibration profile now (see Calibration); empty disables it |
+| `reset_calibration_service` | `/imu/calibration/reset` | `std_srvs/Trigger`: delete the saved profile, reset the chip, start uncalibrated; empty disables it |
 | `metrics_port` | unset | Prometheus `/metrics` port on 127.0.0.1 (robot: `19103`); unset falls back to env `METRICS_PORT`, then disabled |
 
 Example:
@@ -109,7 +111,9 @@ and full re-initialisation:
   resets it), issues a guarded chip reset (`SYS_TRIGGER` 0x3F = 0x20 `RST_SYS`, ~650 ms; a failure there is ignored),
   recreates the I2C bus object and driver (crystal, saved calibration profile, operation mode set and verified), resets
   the covariance estimators and warms up. Logged at warn: `BNO055 full re-init (reinit #N): <reason>` with reason
-  `soft restores exhausted (...)`, `watchdog: N s without data` or `I2C hard errors, soft restore not possible`.
+  `soft restores exhausted (...)`, `watchdog: N s without data`, `I2C hard errors, soft restore not possible` or
+  `calibration reset requested` (the reset service; no backoff, no second chip reset, no profile restored; metric code
+  `calibration_reset`).
 - Nothing is published while reads are invalid (no placeholder data).
 
 ## Gyro bias estimation
@@ -153,8 +157,38 @@ The node now keeps the sensor offsets in `calibration_file` (JSON: `accel_offset
 - **Restored flag**: `/imu/calibration` JSON carries `restored: true` once a saved profile is on the chip (restored at
   init, or just saved). The chip itself reports 0 after a restart until it re-checks, so consumers (web_ui compass
   anchor) trust `restored` instead of waiting for `mag` to climb again.
-- **Reset**: delete the file and restart the node (`sudo rm /var/lib/ros2/bno055_imu/calibration.json`), then redo the
-  calibration motion. Ansible creates `/var/lib/ros2/bno055_imu` owned by the node user.
+- **Reset**: call the reset service (below); deleting the file by hand and restarting the node still works. Ansible
+  creates `/var/lib/ros2/bno055_imu` owned by the node user.
+
+### Save and reset services
+
+Two `std_srvs/Trigger` services (logic in `bno055_imu/calibration_service.py`, ROS-free and unit-tested on a fake
+driver). The usual way to call them is the web UI **Calibrate** page (IMU section), which shows `/imu/calibration` live
+and has Save and Reset buttons; from a shell: `ros2 service call /imu/calibration/save std_srvs/srv/Trigger`.
+
+- **Save** (`save_calibration_service`, `/imu/calibration/save`): reads the current status and, when `mag` is 3 and the
+  robot is stationary, reads the chip profile (CONFIG-mode round trip, about 1.5 s without `/imu/data`), validates it
+  and writes `calibration_file` atomically even if unchanged. Response `success: true`, message
+  `saved calibration (sys S, gyro G, accel A, mag M) to <file>`. It refuses with `success: false` and writes nothing
+  when: `calibration_file disabled`; `calibration status unavailable`; `mag is N, needs 3`; `robot is moving` (wheel
+  odometry says moving or is stale; with `odom_topic` empty stillness is unknown and the save is allowed); `calibration
+  reset in progress`; or a read/validate/write error (the message carries it). Once the chip was read, the calibration
+  episode counts as read, so the automatic save does not blank `/imu/data` again for the same episode.
+- **Reset** (`reset_calibration_service`, `/imu/calibration/reset`): refused with `robot is moving` while moving.
+  Otherwise it deletes `calibration_file` (a missing file is fine), resets the chip (`SYS_TRIGGER` register 0x3F,
+  `RST_SYS` bit 0x20, datasheet section 4.3.63) and the read loop runs the full re-init path without restoring a
+  profile, before any further read. The status restarts from 0 and `/imu/calibration` reports `restored: false`. A
+  failed delete or chip write answers `success: false` with the error. During the re-init nothing is published; the
+  usual warm-up rules apply (no placeholder data).
+- Both callbacks run in the node's single-threaded executor, spun only from the read loop (`spin_once` between cycles),
+  so no service I2C access ever overlaps a read.
+
+What to do while the status climbs (the Calibrate page shows the same guidance):
+
+- **gyro**: keep the robot still for a few seconds.
+- **accel**: hold several different static poses (tilted on each side, nose up and down); a wheeled robot only
+  reaches them by lifting it. Only `mag` gates the save, so accel may stay below 3.
+- **mag**: drive or rotate the robot through slow figure-eights, away from motors, steel and power cables.
 
 ## Hardware
 

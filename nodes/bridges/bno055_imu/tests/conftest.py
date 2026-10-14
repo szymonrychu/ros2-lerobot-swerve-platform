@@ -69,5 +69,11 @@ def _stub_ros2_modules() -> None:
     std_msgs.msg = std_msgs_msg  # type: ignore[attr-defined]
     std_msgs_msg.String = object  # type: ignore[attr-defined]
 
+    # std_srvs.srv
+    std_srvs = _make_stub_module("std_srvs")
+    std_srvs_srv = _make_stub_module("std_srvs.srv")
+    std_srvs.srv = std_srvs_srv  # type: ignore[attr-defined]
+    std_srvs_srv.Trigger = type("Trigger", (), {"Request": object, "Response": object})  # type: ignore[attr-defined]
+
 
 _stub_ros2_modules()

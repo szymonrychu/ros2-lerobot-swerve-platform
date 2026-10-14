@@ -5,19 +5,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from bno055_imu.calibration_service import CHIP_RESET_WAIT_S, SYS_TRIGGER_REGISTER, SYS_TRIGGER_RST_SYS, chip_reset
 from bno055_imu.node import (
-    CHIP_RESET_WAIT_S,
     IMUPLUS_MODE_VALUE,
     NDOF_MODE_VALUE,
     OPERATION_MODE_VALUES,
-    SYS_TRIGGER_REGISTER,
-    SYS_TRIGGER_RST_SYS,
     _create_bno055,
     _spin_once_safe,
     _warmup,
     all_zero,
     calibration_payload,
-    chip_reset,
     coerce,
     has_valid_tuple,
     mode_value,
@@ -290,7 +287,7 @@ def test_warmup_returns_true_when_sensor_ready_immediately() -> None:
     node = _make_node_mock()
     with patch("bno055_imu.node.rclpy.ok", return_value=True):
         with patch("bno055_imu.node._spin_once_safe"):
-            with patch("bno055_imu.node.time.sleep"):
+            with patch("bno055_imu.calibration_service.time.sleep"):
                 result = _warmup(bno, node, MagicMock(), timeout_s=5.0)
     assert result is True
 
@@ -304,7 +301,7 @@ def test_warmup_returns_false_on_timeout() -> None:
     # Use a very short timeout so the loop exits immediately.
     with patch("bno055_imu.node.rclpy.ok", return_value=True):
         with patch("bno055_imu.node._spin_once_safe"):
-            with patch("bno055_imu.node.time.sleep"):
+            with patch("bno055_imu.calibration_service.time.sleep"):
                 with patch("bno055_imu.node.time.monotonic", side_effect=[0.0, 100.0, 100.0]):
                     result = _warmup(bno, node, MagicMock(), timeout_s=0.001)
     assert result is False
@@ -337,7 +334,7 @@ def test_warmup_returns_true_after_initial_none_values() -> None:
     node = _make_node_mock()
     with patch("bno055_imu.node.rclpy.ok", return_value=True):
         with patch("bno055_imu.node._spin_once_safe"):
-            with patch("bno055_imu.node.time.sleep"):
+            with patch("bno055_imu.calibration_service.time.sleep"):
                 with patch("bno055_imu.node.time.monotonic", side_effect=[0.0, 0.2, 0.4, 0.6, 100.0]):
                     result = _warmup(bno, node, MagicMock(), timeout_s=10.0)
     assert result is True
@@ -377,7 +374,7 @@ def test_create_bno055_mode_correct_on_first_verify() -> None:
     mock_bno055_cls = MagicMock(return_value=bno)
     with (
         patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
-        patch("bno055_imu.node.time.sleep"),
+        patch("bno055_imu.calibration_service.time.sleep"),
         patch.dict(
             "sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls, IMUPLUS_MODE=IMUPLUS_MODE_VALUE)}
         ),
@@ -394,7 +391,7 @@ def test_create_bno055_mode_retries_then_succeeds() -> None:
     mock_bno055_cls = MagicMock(return_value=bno)
     with (
         patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
-        patch("bno055_imu.node.time.sleep"),
+        patch("bno055_imu.calibration_service.time.sleep"),
         patch.dict(
             "sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls, IMUPLUS_MODE=IMUPLUS_MODE_VALUE)}
         ),
@@ -411,7 +408,7 @@ def test_create_bno055_mode_stuck_still_returns() -> None:
     mock_bno055_cls = MagicMock(return_value=bno)
     with (
         patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
-        patch("bno055_imu.node.time.sleep"),
+        patch("bno055_imu.calibration_service.time.sleep"),
         patch.dict(
             "sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls, IMUPLUS_MODE=IMUPLUS_MODE_VALUE)}
         ),
@@ -426,7 +423,7 @@ def test_create_bno055_raises_when_all_addresses_fail() -> None:
     mock_bno055_cls = MagicMock(side_effect=RuntimeError("no device"))
     with (
         patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
-        patch("bno055_imu.node.time.sleep"),
+        patch("bno055_imu.calibration_service.time.sleep"),
         patch.dict(
             "sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls, IMUPLUS_MODE=IMUPLUS_MODE_VALUE)}
         ),
@@ -519,7 +516,7 @@ def test_create_bno055_restores_profile_before_operation_mode() -> None:
     mock_bno055_cls = MagicMock(return_value=bno)
     with (
         patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
-        patch("bno055_imu.node.time.sleep"),
+        patch("bno055_imu.calibration_service.time.sleep"),
         patch("bno055_imu.node.apply_profile", side_effect=lambda *_a: events.append("apply")),
         patch.dict("sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls)}),
     ):
@@ -532,7 +529,7 @@ def test_create_bno055_without_profile_skips_apply() -> None:
     bno = _make_bno_mock_with_mode_sequence([IMUPLUS_MODE_VALUE])
     with (
         patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
-        patch("bno055_imu.node.time.sleep"),
+        patch("bno055_imu.calibration_service.time.sleep"),
         patch("bno055_imu.node.apply_profile") as apply,
         patch.dict("sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=MagicMock(return_value=bno))}),
     ):
@@ -548,7 +545,7 @@ def test_create_bno055_without_profile_skips_apply() -> None:
 def test_chip_reset_writes_rst_sys_and_waits() -> None:
     """chip_reset writes 0x20 to SYS_TRIGGER (0x3F) and waits for the chip to reboot."""
     bno = MagicMock()
-    with patch("bno055_imu.node.time.sleep") as sleep:
+    with patch("bno055_imu.calibration_service.time.sleep") as sleep:
         assert chip_reset(bno) is True
     bno._write_register.assert_called_once_with(SYS_TRIGGER_REGISTER, SYS_TRIGGER_RST_SYS)
     assert (SYS_TRIGGER_REGISTER, SYS_TRIGGER_RST_SYS) == (0x3F, 0x20)
