@@ -436,6 +436,7 @@ calibration:
   imu_save_service: /imu/calibration/save
   imu_reset_service: /imu/calibration/reset
   imu_stale_s: 3.0                    # > 0
+  imu_service_timeout_s: 5.0          # > 0, wait for the save / reset Trigger response
 ```
 
 Routes (all under `/api/calibration`):
@@ -445,6 +446,13 @@ Routes (all under `/api/calibration`):
   `GET /stereo/captures/{id}/{left|right}.jpg`, `GET|POST /stereo/solve`.
 - `DELETE /stereo/captures` needs `?confirm=true`; without it the proxy answers 400 itself and calls nothing.
 - `side` must be `left` or `right` and `id` a token of `[A-Za-z0-9_-]{1,64}`; otherwise 422 before any upstream call.
+- IMU (needs the ROS bridge; the bridge subscribes `imu_status_topic` always-on and creates Trigger clients for the two IMU services):
+  - `GET /imu` returns `{sys, gyro, accel, mag, restored, age_s}`, the node's latest `std_msgs/String` JSON sample. No sample yet
+    answers `503 {"ok": false, "message": "no IMU calibration sample yet"}`; older than `imu_stale_s` answers
+    `503 "IMU calibration status stale (N s)"`. An unparsable payload is never cached; values are never defaulted.
+  - `POST /imu/save` and `POST /imu/reset` call `imu_save_service` / `imu_reset_service` (`std_srvs/Trigger`). Success answers
+    `200 {"ok": true, "message"}`, a refusal (e.g. mag not 3, robot moving) `409 {"ok": false, "message"}`, an unavailable
+    service `503`, a timeout (`imu_service_timeout_s`) `504`.
 
 Errors are honest: an unreachable depthd answers `502`, a timeout `504`, both
 `{"ok": false, "message": "Jetson depthd unreachable at <url>: <reason>"}`. Nothing is cached, synthesized or defaulted.

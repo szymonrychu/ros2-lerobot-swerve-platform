@@ -60,6 +60,7 @@ def main() -> None:
         grasp_command_topic=config.grasp_command_topic(),
         gps_compass=config.gps_compass_settings(),
         tilt_stale_s=config.tilt_guard_stale_s,
+        imu_status_topic=config.imu_status_topic(),
     )
     executor = create_bridge_executor(node)
 

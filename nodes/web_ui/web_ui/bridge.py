@@ -64,6 +64,7 @@ from .gps_anchor import (
     valid_imu_orientation,
 )
 from .gps_status import parse_status_json
+from .imu_calibration import parse_imu_status
 from .metrics import BATTERY_CUTOFF_ACTIVE, MAP_UPDATES, ROBOT_POSE_OK, TOPIC_STALE, TOPICS_STALE, touch_map
 from .msg_serializer import (
     msg_to_dict,
@@ -312,6 +313,7 @@ class BridgeNode(Node):
         gps_compass: CompassSettings | None = None,
         tilt_stale_s: float = TILT_STALE_S_DEFAULT,
         demand_linger_s: float = DEMAND_LINGER_S,
+        imu_status_topic: str | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -339,8 +341,10 @@ class BridgeNode(Node):
             gps_compass (CompassSettings | None): Compass (IMU heading) anchor settings, or None to disable it.
             tilt_stale_s (float): Age in seconds after which the cached tilt guard state is marked stale.
             demand_linger_s (float): Seconds an on-demand subscription outlives the last client wanting it.
+            imu_status_topic (str | None): std_msgs/String IMU calibration status topic (Calibrate page), or None.
         """
         super().__init__("web_ui_bridge")
+        self._imu_status: tuple[dict[str, Any], float] | None = None
         self._demand: dict[str, DemandEntry] = {}
         self._active: dict[str, Any] = {}
         self._linger_until: dict[str, float] = {}
@@ -386,6 +390,8 @@ class BridgeNode(Node):
         self._map_topics = [topic for topic in topics if roles.get(topic) == "map"]
         self.subscribe_always_on(Empty, MAP_GUARD_RESET_TOPIC, self.on_map_guard_reset, DEFAULT_SUB_QOS_DEPTH)
         self.subscribe_tilt_guard()
+        if imu_status_topic:
+            self.subscribe_always_on(String, imu_status_topic, self.on_imu_calibration_status, DEFAULT_SUB_QOS_DEPTH)
         if gps_compass is not None:
             self._demand[GPS_ANCHOR_TOPIC] = DemandEntry(self.start_compass_inputs, self.stop_compass_inputs, True)
 
@@ -1068,6 +1074,22 @@ class BridgeNode(Node):
             return
         if isinstance(status, dict):
             self._imu_calibration = (status, time.monotonic())
+
+    def on_imu_calibration_status(self, msg: Any) -> None:
+        """Cache the latest parsed IMU calibration status with its receipt time; an unparsable payload is dropped.
+
+        Args:
+            msg (Any): std_msgs/String with JSON {sys, gyro, accel, mag, restored}.
+        """
+        status = parse_imu_status(msg.data)
+        if status is None:
+            log.warning("imu_calibration_status_malformed")
+            return
+        self._imu_status = (status, time.monotonic())
+
+    def imu_calibration_sample(self) -> tuple[dict[str, Any], float] | None:
+        """Return the latest IMU calibration status and its monotonic receipt time, or None before the first one."""
+        return self._imu_status
 
     def compute_compass_anchor(self, fix: dict[str, Any], pose: dict[str, Any]) -> dict[str, Any] | None:
         """Build the compass anchor from a fix, the robot map pose and the latest IMU heading.

@@ -434,6 +434,7 @@ class CalibrationConfig(BaseModel):
     imu_save_service: str = "/imu/calibration/save"
     imu_reset_service: str = "/imu/calibration/reset"
     imu_stale_s: float = Field(3.0, gt=0)  # IMU status older than this is reported stale
+    imu_service_timeout_s: float = Field(5.0, gt=0)  # wait for the IMU save / reset Trigger response
 
     @field_validator("depthd_url")
     @classmethod
@@ -555,7 +556,13 @@ class AppConfig(BaseModel):
                 )
                 if s
             )
+        if self.calibration is not None:
+            services.update((self.calibration.imu_save_service, self.calibration.imu_reset_service))
         return sorted(services)
+
+    def imu_status_topic(self) -> str | None:
+        """Return the IMU calibration status topic, or None when the Calibrate page is not configured."""
+        return self.calibration.imu_status_topic if self.calibration is not None else None
 
     def gps_anchor_estimator(self) -> GpsAnchorEstimator | None:
         """Build the GPS anchor estimator from the first map_nav tab that has a GPS fix topic.
