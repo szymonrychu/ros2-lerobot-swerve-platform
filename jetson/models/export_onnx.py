@@ -8,7 +8,7 @@ Every exported graph has one input ``image`` (1x3xHxW float32, RGB in [0, 1] nor
 stored in the model metadata) and one output ``inverse_depth`` (1x1xHxW float32, relative inverse depth).
 
 Usage:
-    python export_onnx.py export [--config config.yaml]
+    python export_onnx.py [export] [--config config.yaml]   (export is the default)
     python export_onnx.py check [--config config.yaml] [model.onnx ...]
 """
 
@@ -268,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         int: process exit code, 0 when every model is exported or checked clean.
     """
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["export", "check"])
+    parser.add_argument("command", nargs="?", default="export", choices=["export", "check"], help="default: export")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("paths", nargs="*", type=Path, help="ONNX files to check (default: the configured outputs)")
     args = parser.parse_args(argv)

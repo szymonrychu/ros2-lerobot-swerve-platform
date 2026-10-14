@@ -17,7 +17,7 @@ engines are tied to the GPU and TensorRT version they were built with.
 ```bash
 cd jetson/models
 uv sync
-uv run poe export        # python export_onnx.py export: download weights, export, simplify, check
+uv run poe export        # python export_onnx.py [export]: download weights, export, simplify, check
 uv run poe check         # python export_onnx.py check: re-check build/*.onnx (or pass paths)
 uv run pytest -q         # checker unit tests + both real exports (downloads weights, always runs)
 uv run poe lint

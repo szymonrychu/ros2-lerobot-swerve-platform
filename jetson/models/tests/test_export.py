@@ -165,6 +165,19 @@ def test_config_rejects_opset_above_13(tmp_path):
         load_config(bad)
 
 
+def test_cli_without_command_exports(monkeypatch):
+    # T18's verify runs `python export_onnx.py` with no arguments: that must export.
+    calls = []
+    monkeypatch.setattr(export_onnx, "export_all", lambda config: calls.append(config) or [])
+    assert export_onnx.main([]) == 0
+    assert len(calls) == 1
+
+
+def test_cli_check_on_explicit_path(tmp_path):
+    path = _export_tiny(tmp_path / "tiny.onnx")
+    assert export_onnx.main(["check", str(path)]) == 0
+
+
 def _dims(value_info):
     return [d.dim_value for d in value_info.type.tensor_type.shape.dim]
 
