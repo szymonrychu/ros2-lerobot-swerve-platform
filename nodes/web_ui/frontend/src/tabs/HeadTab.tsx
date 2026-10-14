@@ -5,10 +5,12 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import Slider from '@mui/material/Slider'
 import Stack from '@mui/material/Stack'
 import Switch from '@mui/material/Switch'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import { CameraStream } from '../components/CameraStream'
 import { useLayout } from '../layout/useLayout'
-import { CANVAS_BG } from '../theme'
+import { CANVAS_BG, TOUCH_TARGET_PX } from '../theme'
 import { TabConfig } from '../types'
 import { WaitingMessage } from './WaitingMessage'
 
@@ -51,15 +53,17 @@ function Preview({ topic, jpeg, alt }: PreviewProps) {
  * The pan/tilt controls hold the place for a future head mount: they are disabled and never publish.
  * Phone stacks the previews vertically; tablet and desktop put them side by side.
  *
- * @param tab - tab config (rgb_camera_topic, tof_depth_topic, tof_amplitude_topic, tof_range_m)
+ * @param tab - tab config (rgb_camera_topic, tof_depth_topic, fused_depth_topic, tof_amplitude_topic, tof_range_m)
  * @param topicData - latest payload per topic
  */
 export default function HeadTab({ tab, topicData }: Props) {
   const layout = useLayout()
   const [showAmplitude, setShowAmplitude] = useState(false)
+  const [depthView, setDepthView] = useState<'raw' | 'fused'>('raw')
   const direction = layout === 'phone' ? 'column' : 'row'
   const cellMinHeight = layout === 'phone' ? 'clamp(10dvh, 28dvh, 40dvh)' : 0
-  const depth = topicData[tab.tof_depth_topic ?? ''] as { depth_preview_b64?: string | null } | undefined
+  const depthTopic = tab.fused_depth_topic && depthView === 'fused' ? tab.fused_depth_topic : tab.tof_depth_topic
+  const depth = topicData[depthTopic ?? ''] as { depth_preview_b64?: string | null } | undefined
   const amplitude = topicData[tab.tof_amplitude_topic ?? ''] as { jpeg_b64?: string | null } | undefined
 
   return (
@@ -69,7 +73,7 @@ export default function HeadTab({ tab, topicData }: Props) {
           <CameraStream topic={tab.rgb_camera_topic} data={topicData[tab.rgb_camera_topic ?? '']} alt="head camera" />
         </Box>
         <Box sx={{ ...CELL_SX, minHeight: cellMinHeight }}>
-          <Preview topic={tab.tof_depth_topic} jpeg={depth?.depth_preview_b64} alt="depth" />
+          <Preview topic={depthTopic} jpeg={depth?.depth_preview_b64} alt="depth" />
         </Box>
         {showAmplitude && tab.tof_amplitude_topic && (
           <Box sx={{ ...CELL_SX, minHeight: cellMinHeight }}>
@@ -78,6 +82,18 @@ export default function HeadTab({ tab, topicData }: Props) {
         )}
       </Box>
       <Stack direction="row" spacing={2} sx={{ flex: '0 0 auto', alignItems: 'center', flexWrap: 'wrap', px: 1 }}>
+        {tab.fused_depth_topic && (
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={depthView}
+            aria-label="depth source"
+            onChange={(_, v: 'raw' | 'fused' | null) => v && setDepthView(v)}
+          >
+            <ToggleButton value="raw" sx={{ minHeight: TOUCH_TARGET_PX, minWidth: TOUCH_TARGET_PX }}>raw</ToggleButton>
+            <ToggleButton value="fused" sx={{ minHeight: TOUCH_TARGET_PX, minWidth: TOUCH_TARGET_PX }}>fused</ToggleButton>
+          </ToggleButtonGroup>
+        )}
         {tab.tof_amplitude_topic && (
           <FormControlLabel
             control={<Switch checked={showAmplitude} onChange={(e) => setShowAmplitude(e.target.checked)} />}

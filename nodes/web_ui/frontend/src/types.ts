@@ -66,6 +66,7 @@ export interface TabConfig {
   overview_camera_topic?: string // sensor_msgs/CompressedImage of the overview camera
   rgb_camera_topic?: string // head tab: sensor_msgs/CompressedImage of the head RGB camera
   tof_depth_topic?: string // head tab: 16UC1 mm depth topic, stereo_depth or ToF (payload carries depth_preview_b64)
+  fused_depth_topic?: string // head tab: optional AI-filled 16UC1 mm depth topic (shown by the raw/fused toggle)
   tof_amplitude_topic?: string // head tab: ToF amplitude topic, unset for stereo depth (payload carries jpeg_b64)
   tof_range_m?: number // head tab: depth preview range in metres
   gripper_camera_mount?: CameraMount // gripper camera pose in the URDF link gripper_link (same as mcp_server)

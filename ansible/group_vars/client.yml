@@ -1689,12 +1689,15 @@ ros2_nodes:
             xyz: [-0.0046, 0.0364, -0.0364]
             rpy: [-1.5622, 1.1950, -1.4466]
         # Head tab: overview camera (left IMX219) as head RGB and greyscale depth from the stereo_depth node (16UC1 mm on
-        # the ToF contract; the stereo pair has no amplitude image). Pan/tilt is a disabled placeholder; nothing is published.
+        # the ToF contract; the stereo pair has no amplitude image). fused_depth_topic is the Jetson AI-filled depth (same
+        # format) behind a raw/fused toggle; the raw stereo topic stays untouched. Pan/tilt is a disabled placeholder;
+        # nothing is published.
         - id: head
           type: head
           label: "Head"
           rgb_camera_topic: /overview_camera/image_raw/compressed
           tof_depth_topic: /stereo/depth/image_raw
+          fused_depth_topic: /stereo/depth/fused
           tof_range_m: 4.0
         - id: overview_camera
           type: camera

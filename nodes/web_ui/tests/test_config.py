@@ -321,6 +321,7 @@ tabs:
     rgb_camera_topic: /head_camera/image_raw/compressed
     tof_depth_topic: /tof/depth/image_raw
     tof_amplitude_topic: /tof/amplitude/image_raw
+    fused_depth_topic: /stereo/depth/fused
     tof_range_m: 3.0
 overlays: []
 """
@@ -371,8 +372,20 @@ def test_head_topic_roles_and_ranges(tmp_path: Path) -> None:
         "/head_camera/image_raw/compressed": "head_rgb",
         "/tof/depth/image_raw": "head_depth",
         "/tof/amplitude/image_raw": "head_amplitude",
+        "/stereo/depth/fused": "head_depth",
     }
-    assert cfg.tof_ranges() == {"/tof/depth/image_raw": 3.0}
+    assert cfg.tof_ranges() == {"/tof/depth/image_raw": 3.0, "/stereo/depth/fused": 3.0}
+
+
+def test_head_fused_depth_topic_is_optional_and_subscribed(tmp_path: Path) -> None:
+    """fused_depth_topic defaults to None (not subscribed) and is subscribed when set."""
+    assert TabConfig(id="h", type="head", label="Head").fused_depth_topic is None
+    p = tmp_path / "cfg.yaml"
+    p.write_text(HEAD_TAB_YAML)
+    assert "/stereo/depth/fused" in load_config(p).all_subscribed_topics()
+    bare = AppConfig(tabs=[TabConfig(id="h", type="head", label="Head", tof_depth_topic="/d")])
+    assert "/stereo/depth/fused" not in bare.topic_roles()
+    assert bare.tof_ranges() == {"/d": 4.0}
 
 
 # ---------------------------------------------------------------- calibration

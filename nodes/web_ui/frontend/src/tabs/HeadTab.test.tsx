@@ -9,6 +9,7 @@ import HeadTab from './HeadTab'
 const RGB = '/overview/image_raw'
 const DEPTH = '/tof/depth/image_raw'
 const AMP = '/tof/amplitude/image_raw'
+const FUSED = '/stereo/depth/fused'
 const PAN_TILT_LABEL = 'pan/tilt: no head mount configured'
 
 const TAB = {
@@ -108,5 +109,33 @@ describe('HeadTab', () => {
     setViewport(width)
     renderTab(FRAMES)
     expect(screen.getByTestId('head-layout').getAttribute('data-direction')).toBe('row')
+  })
+
+  it('has no raw/fused toggle without fused_depth_topic', () => {
+    setViewport(1400)
+    renderTab(FRAMES)
+    expect(screen.queryByRole('button', { name: 'fused' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'raw' })).toBeNull()
+  })
+
+  it('toggle defaults to raw and switching to fused shows the fused preview', () => {
+    setViewport(1400)
+    const tab = { ...TAB, fused_depth_topic: FUSED } as TabConfig
+    renderTab({ ...FRAMES, [FUSED]: { depth_preview_b64: 'FFF' } }, vi.fn(), tab)
+    expect(screen.getByRole('button', { name: 'raw' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
+    fireEvent.click(screen.getByRole('button', { name: 'fused' }))
+    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,FFF')
+    fireEvent.click(screen.getByRole('button', { name: 'raw' }))
+    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
+  })
+
+  it('fused selected without a message shows Waiting for the fused topic, no image', () => {
+    setViewport(1400)
+    const tab = { ...TAB, fused_depth_topic: FUSED } as TabConfig
+    renderTab(FRAMES, vi.fn(), tab)
+    fireEvent.click(screen.getByRole('button', { name: 'fused' }))
+    expect(screen.getByText(`Waiting for ${FUSED}...`)).toBeTruthy()
+    expect(screen.queryByAltText('depth')).toBeNull()
   })
 })
