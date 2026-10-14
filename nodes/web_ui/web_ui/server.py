@@ -28,6 +28,7 @@ from starlette.responses import Response
 
 from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
+from .calibration_proxy import register_calibration_routes
 from .config import AppConfig, TabConfig, TileSourceConfig
 from .metrics import (
     BROADCAST_SECONDS,
@@ -571,6 +572,7 @@ def build_app(
     tile_transport: httpx.AsyncBaseTransport | None = None,
     battery_guard: BatteryGuard | None = None,
     agent_transport: httpx.AsyncBaseTransport | None = None,
+    calibration_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Build and return the FastAPI application.
 
@@ -584,6 +586,7 @@ def build_app(
             arm home/set home endpoints and the agent message/reset proxies are rejected (nav stop and agent stop stay
             allowed). None disables the check.
         agent_transport: Optional httpx transport for the claude_agent proxy (tests); None uses the network.
+        calibration_transport: Optional httpx transport for the Jetson depthd calibration proxy (tests).
 
     Returns:
         FastAPI: Configured application instance.
@@ -645,6 +648,7 @@ def build_app(
 
     register_agent_routes(app, config, battery_block, agent_transport)
     register_photo_routes(app, config)
+    register_calibration_routes(app, config, calibration_transport)
 
     tile_tab = find_tile_tab(config)
     tile_sources = {src.id: src for src in tile_tab.resolved_tile_sources()} if tile_tab is not None else {}

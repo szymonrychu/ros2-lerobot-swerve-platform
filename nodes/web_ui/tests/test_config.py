@@ -339,3 +339,39 @@ def test_head_topic_roles_and_ranges(tmp_path: Path) -> None:
         "/tof/amplitude/image_raw": "head_amplitude",
     }
     assert cfg.tof_ranges() == {"/tof/depth/image_raw": 3.0}
+
+
+# ---------------------------------------------------------------- calibration
+
+
+def test_calibration_absent_by_default() -> None:
+    assert AppConfig().calibration is None
+
+
+def test_calibration_defaults() -> None:
+    cfg = AppConfig.model_validate({"calibration": {"depthd_url": "http://10.77.0.2:8090"}})
+    cal = cfg.calibration
+    assert cal is not None
+    assert cal.depthd_url == "http://10.77.0.2:8090"
+    assert (cal.connect_timeout_s, cal.read_timeout_s, cal.solve_read_timeout_s) == (2.0, 5.0, 10.0)
+    assert cal.imu_status_topic == "/imu/calibration"
+    assert cal.imu_save_service == "/imu/calibration/save"
+    assert cal.imu_reset_service == "/imu/calibration/reset"
+    assert cal.imu_stale_s == 3.0
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {},
+        {"depthd_url": "ftp://x"},
+        {"depthd_url": "10.77.0.2:8090"},
+        {"depthd_url": "http://h", "connect_timeout_s": 0},
+        {"depthd_url": "http://h", "read_timeout_s": -1},
+        {"depthd_url": "http://h", "solve_read_timeout_s": 0},
+        {"depthd_url": "http://h", "imu_stale_s": 0},
+    ],
+)
+def test_calibration_rejections(bad: dict) -> None:
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate({"calibration": bad})

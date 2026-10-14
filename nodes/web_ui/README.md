@@ -421,6 +421,34 @@ Key fields (map_nav fields are listed in the Map tab section):
 - `tabs`: list of tab configs
 - `overlays`: list of bottom-bar overlay items
 
+## Calibrate page (hidden)
+
+Enabled only when the config has a `calibration` block; without it every `/api/calibration/*` route answers
+`404 {"ok": false, "message": "calibration page not configured"}`. Arm calibration is deferred.
+
+```yaml
+calibration:
+  depthd_url: http://10.77.0.2:8090   # required, http(s); no default host in code (Ansible supplies it)
+  connect_timeout_s: 2.0              # > 0
+  read_timeout_s: 5.0                 # > 0
+  solve_read_timeout_s: 10.0          # > 0, used for POST /solve
+  imu_status_topic: /imu/calibration  # IMU fields below are used by the IMU calibration routes
+  imu_save_service: /imu/calibration/save
+  imu_reset_service: /imu/calibration/reset
+  imu_stale_s: 3.0                    # > 0
+```
+
+Routes (all under `/api/calibration`):
+- `GET /config` returns `{stereo: true, imu: true, arm: "deferred"}`.
+- Proxied to depthd `/calibration/...` with status, JSON body and image bytes/content type passed through unchanged:
+  `GET /stereo/preview`, `GET /stereo/preview/{left|right}.jpg`, `GET|POST|DELETE /stereo/captures`,
+  `GET /stereo/captures/{id}/{left|right}.jpg`, `GET|POST /stereo/solve`.
+- `DELETE /stereo/captures` needs `?confirm=true`; without it the proxy answers 400 itself and calls nothing.
+- `side` must be `left` or `right` and `id` a token of `[A-Za-z0-9_-]{1,64}`; otherwise 422 before any upstream call.
+
+Errors are honest: an unreachable depthd answers `502`, a timeout `504`, both
+`{"ok": false, "message": "Jetson depthd unreachable at <url>: <reason>"}`. Nothing is cached, synthesized or defaulted.
+
 ## Debug Logging
 
 ```bash
