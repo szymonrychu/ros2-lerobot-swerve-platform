@@ -447,6 +447,8 @@ TEST(HttpApiMetrics, ServesPrometheusTextWithEveryDepthdMetric)
   ps.skew.record(0.5);
   ps.skew.record(3.0);
   ps.skew.record(40.0);
+  ps.realignments_skew = 2;
+  ps.realignments_stall = 1;
   f.metrics.set_pairing(ps);
   f.metrics.observe_stage_ms("match", 7.5);
   f.metrics.observe_stage_ms("match", 12.0);
@@ -473,6 +475,9 @@ TEST(HttpApiMetrics, ServesPrometheusTextWithEveryDepthdMetric)
   has("depthd_pair_skew_ms_bucket{le=\"4\"} 2");
   has("depthd_pair_skew_ms_bucket{le=\"+Inf\"} 3");
   has("depthd_pair_skew_ms_count 3");
+  has("# TYPE depthd_camera_realignments_total counter");
+  has("depthd_camera_realignments_total{reason=\"skew\"} 2");
+  has("depthd_camera_realignments_total{reason=\"stall\"} 1");
   has("# TYPE depthd_stage_time_ms histogram");
   has("depthd_stage_time_ms_bucket{stage=\"match\",le=\"10\"} 1");
   has("depthd_stage_time_ms_bucket{stage=\"match\",le=\"+Inf\"} 2");

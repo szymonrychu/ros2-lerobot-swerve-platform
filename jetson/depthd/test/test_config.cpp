@@ -38,6 +38,10 @@ TEST(Config, StructDefaultsMatchTheSpec)
   EXPECT_TRUE(c.capture.lock_exposure_after_settle);
   EXPECT_DOUBLE_EQ(c.capture.pair_window_ms, 8.0);
   EXPECT_TRUE(c.capture.zero_copy);
+  EXPECT_DOUBLE_EQ(c.capture.realign_skew_ms, 4.0);
+  EXPECT_DOUBLE_EQ(c.capture.realign_window_s, 10.0);
+  EXPECT_DOUBLE_EQ(c.capture.realign_stall_s, 5.0);
+  EXPECT_DOUBLE_EQ(c.capture.realign_cooldown_s, 30.0);
   EXPECT_EQ(c.processing.width, 640);
   EXPECT_EQ(c.processing.height, 480);
   EXPECT_EQ(c.processing.matcher, "cuda_sgm");
@@ -151,6 +155,24 @@ TEST(Config, RejectsNonPositivePairWindow)
 {
   expect_rejected("capture:\n  pair_window_ms: 0\n", "capture.pair_window_ms");
   expect_rejected("capture:\n  pair_window_ms: -2.5\n", "capture.pair_window_ms");
+}
+
+TEST(Config, RealignKeysParseAndRejectNonPositive)
+{
+  const auto r = depthd::parse_config(
+    "capture:\n  realign_skew_ms: 3.5\n  realign_window_s: 20\n  realign_stall_s: 2.5\n  realign_cooldown_s: 0\n");
+  ASSERT_TRUE(r.ok()) << r.error;
+  EXPECT_DOUBLE_EQ(r.config.capture.realign_skew_ms, 3.5);
+  EXPECT_DOUBLE_EQ(r.config.capture.realign_window_s, 20.0);
+  EXPECT_DOUBLE_EQ(r.config.capture.realign_stall_s, 2.5);
+  EXPECT_DOUBLE_EQ(r.config.capture.realign_cooldown_s, 0.0);
+  expect_rejected("capture:\n  realign_skew_ms: 0\n", "capture.realign_skew_ms");
+  expect_rejected("capture:\n  realign_window_s: 0\n", "capture.realign_window_s");
+  expect_rejected("capture:\n  realign_stall_s: -1\n", "capture.realign_stall_s");
+  expect_rejected("capture:\n  realign_cooldown_s: -1\n", "capture.realign_cooldown_s");
+  const auto j = depthd::to_json(r.config);
+  EXPECT_DOUBLE_EQ(j.at("capture").at("realign_skew_ms").get<double>(), 3.5);
+  EXPECT_DOUBLE_EQ(j.at("capture").at("realign_cooldown_s").get<double>(), 0.0);
 }
 
 TEST(Config, RejectsUnknownMatcher)

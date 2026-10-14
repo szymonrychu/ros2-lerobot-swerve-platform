@@ -141,6 +141,14 @@ right: nvarguscamerasrc name=right_src sensor-id=1 ... ! nvvidconv ! video/x-raw
   restarts the right camera (a new phase each time) until the skew is within half of `capture.pair_window_ms`, at most
   20 times (typically 1-5 restarts, about 1.5 s each); then it pairs at whatever phase it has and logs it. The Argus
   `syncSensor` single-session pattern is the fallback if T16's skew histogram shows this is not enough.
+- **Runtime phase re-alignment.** The phase does drift over minutes (observed live: 1.55 ms at start, most pairs at
+  8-33 ms half an hour later, depth down to 0.1 Hz, then a stall). `PhaseDriftMonitor` (`phase_monitor.hpp`) watches
+  the skew of every candidate the pairer judges and the time since the last pair while both cameras are healthy and
+  aligned. When the median skew of the trailing `capture.realign_window_s` exceeds `capture.realign_skew_ms`, or no
+  pair came for `capture.realign_stall_s`, the watchdog re-runs the startup alignment from a right-camera restart
+  (AE/AWB unlock and settle again), logs `camera phase drifted (...)` and counts it in
+  `depthd_camera_realignments_total{reason="skew"|"stall"}`. Re-alignments are at least `capture.realign_cooldown_s`
+  apart. While aligning, at start or at runtime, no pair reaches the pipeline and no RGB is published.
 
 ### AE/AWB lock
 
@@ -395,7 +403,8 @@ in through `HttpApiHooks` (`health`, `capture_pair`, `apply_config`, `on_calibra
 
 Metrics: `depthd_frames_total{kind}`, `depthd_pairs_total`, `depthd_drops_total{reason}` (`skew`, `orphan`, plus
 `Metrics::inc_drop` reasons), `depthd_pair_skew_ms` (histogram), `depthd_stage_time_ms{stage}` (histogram, buckets
-1-500 ms), `depthd_fps`, `depthd_gpu_temp_celsius`, `depthd_nvgpu_errors_total`, `depthd_zmq_send_drops_total`.
+1-500 ms), `depthd_fps`, `depthd_gpu_temp_celsius`, `depthd_nvgpu_errors_total`, `depthd_zmq_send_drops_total`,
+`depthd_camera_realignments_total{reason}` (`skew`, `stall`).
 
 `third_party/httplib.h` is cpp-httplib v0.14.3 (MIT, Yuji Hirose) vendored unmodified as a single header. Tests:
 `test/test_publisher.cpp` (loopback SUB decodes depth, fused and rgb; a full high-water mark drops and counts) and

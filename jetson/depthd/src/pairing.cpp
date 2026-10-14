@@ -32,6 +32,8 @@ StereoPairer::StereoPairer(double pair_window_ms) : window_ns_(static_cast<int64
 {
 }
 
+void StereoPairer::set_skew_observer(SkewObserver observer) { skew_observer_ = std::move(observer); }
+
 std::optional<StereoPair> StereoPairer::push_left(Frame frame) { return push(Side::left, std::move(frame)); }
 
 std::optional<StereoPair> StereoPairer::push_right(Frame frame) { return push(Side::right, std::move(frame)); }
@@ -79,7 +81,9 @@ std::optional<StereoPair> StereoPairer::match()
       ++stats_.dropped_orphan;
       continue;
     }
-    stats_.skew.record(static_cast<double>(gap) / 1e6);
+    const double gap_ms = static_cast<double>(gap) / 1e6;
+    stats_.skew.record(gap_ms);
+    if (skew_observer_) skew_observer_(gap_ms);
     if (gap > window_ns_) {
       early_mark = e;
       early.pop_front();

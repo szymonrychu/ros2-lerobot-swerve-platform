@@ -1,4 +1,5 @@
 #include "depthd/capture.hpp"
+#include "depthd/phase_monitor.hpp"
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -392,7 +393,10 @@ struct StereoCapture::Impl
   bool any_pair = false;
   bool aligning = true;
   int align_attempts = 0;
+  uint64_t realignments_skew = 0;
+  uint64_t realignments_stall = 0;
   std::string start_error;
+  PhaseDriftMonitor drift;  // runtime phase drift: fed by the pairer and handle_frame, polled by the watchdog
 
   std::atomic<bool> running{false};
   std::thread watchdog;
@@ -404,8 +408,10 @@ struct StereoCapture::Impl
     log(l ? std::move(l) : LogFn(default_log)),
     pairer(c.capture.pair_window_ms),
     lock_policy(c.capture.settle_frames, c.capture.lock_exposure_after_settle),
+    drift(PhaseDriftOptions::from_config(c.capture)),
     rgb_throttle(c.rgb.fps, c.capture.sensor_mode.fps)
   {
+    pairer.set_skew_observer([this](double skew_ms) { drift.observe_skew(clock_ns(CLOCK_MONOTONIC), skew_ms); });
     sides[0].impl = this;
     sides[0].side = CameraSide::left;
     sides[0].sensor_id = c.capture.left_sensor_id;
@@ -579,6 +585,7 @@ struct StereoCapture::Impl
     bool lock_now = false;
     bool read_back = false;
     bool in_error = false;
+    bool in_alignment = false;
     {
       std::lock_guard<std::mutex> lock(mutex);
       if (!s.error.empty() && !s.error_needs_restart) {
@@ -592,6 +599,7 @@ struct StereoCapture::Impl
         read_back = true;
       }
       in_error = !sides[0].error.empty() || !sides[1].error.empty();
+      in_alignment = aligning;
     }
     if (lock_now) {
       for (auto & side : sides) g_object_set(side.src, "aelock", TRUE, "awblock", TRUE, nullptr);
@@ -602,7 +610,9 @@ struct StereoCapture::Impl
     if (read_back) log_locked_exposure();
 
     auto pair = s.side == CameraSide::left ? pairer.push_left(std::move(frame)) : pairer.push_right(std::move(frame));
-    if (!pair || in_error) return;  // no pair while a camera is in error
+    if (!pair) return;
+    drift.observe_pair(now_mono);
+    if (in_error || in_alignment) return;  // no pair while a camera is in error or the phase is being (re)aligned
     {
       std::lock_guard<std::mutex> lock(mutex);
       any_pair = true;
@@ -667,7 +677,8 @@ struct StereoCapture::Impl
     }
     {
       std::lock_guard<std::mutex> lock(impl->mutex);
-      if (!impl->sides[0].error.empty()) {  // the left camera is failing: no RGB from it
+      // The left camera is failing, or the phase is being (re)aligned: nothing is published until it is settled.
+      if (!impl->sides[0].error.empty() || impl->aligning) {
         gst_sample_unref(sample);
         return GST_FLOW_OK;
       }
@@ -811,10 +822,27 @@ struct StereoCapture::Impl
     if (!play(s, err)) set_error(s, err, true);
   }
 
-  // The sensors are not synchronised, and each one's frame phase is fixed when its stream starts (both run off the
-  // Tegra MCLK, so it does not drift). Pairs need the phase within the pair window, so until it is within half the
-  // window the right camera is restarted, which draws a new phase; after kMaxAlignAttempts it pairs at whatever phase
-  // it has (the drops are counted and the skew histogram shows it).
+  // Restart the right pipeline, which draws a new frame phase; the alignment then measures it again.
+  void redraw_right_phase()
+  {
+    int attempts = 0;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      attempts = ++align_attempts;
+    }
+    auto & right = sides[1];
+    gst_element_set_state(right.pipeline, GST_STATE_NULL);
+    std::this_thread::sleep_for(std::chrono::milliseconds((attempts * 37) % 100));
+    std::string err;
+    if (!play(right, err)) set_error(right, err, true);
+    pairer.reset();
+  }
+
+  // The sensors are not synchronised, and each one's frame phase is drawn when its stream starts. Pairs need the
+  // phase within the pair window, so until it is within half the window the right camera is restarted, which draws a
+  // new phase; after kMaxAlignAttempts it pairs at whatever phase it has (the drops are counted and the skew histogram
+  // shows it). Nothing is published while aligning. The phase drifts over minutes (observed live), so drift_step()
+  // runs this again at runtime.
   void align_step()
   {
     {
@@ -836,15 +864,7 @@ struct StereoCapture::Impl
       msg << std::fixed << std::setprecision(2) << "camera phase skew " << skew / 1e6 << " ms after " << align_attempts
           << " right-camera restarts";
       if (2 * skew > static_cast<int64_t>(config.capture.pair_window_ms * 1e6) && align_attempts < kMaxAlignAttempts) {
-        {
-          std::lock_guard<std::mutex> lock(mutex);
-          ++align_attempts;
-        }
-        gst_element_set_state(right.pipeline, GST_STATE_NULL);
-        std::this_thread::sleep_for(std::chrono::milliseconds((align_attempts * 37) % 100));
-        std::string err;
-        if (!play(right, err)) set_error(right, err, true);
-        pairer.reset();
+        redraw_right_phase();
         return;
       }
       if (2 * skew > static_cast<int64_t>(config.capture.pair_window_ms * 1e6)) {
@@ -858,6 +878,52 @@ struct StereoCapture::Impl
       aligning = false;
     }
     log(msg.str());
+  }
+
+  // Runtime phase drift: while both cameras are healthy and aligned the monitor judges the pair skew and the time
+  // since the last pair; when it calls for it, the alignment is re-run from a right-camera restart, exactly as at
+  // startup. AE/AWB unlock and settle again, so both cameras lock together, as after a pipeline restart.
+  void drift_step()
+  {
+    const int64_t now = clock_ns(CLOCK_MONOTONIC);
+    bool settled = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      settled = !aligning && sides[0].error.empty() && sides[1].error.empty();
+    }
+    if (!settled) {
+      drift.disarm();
+      return;
+    }
+    drift.arm(now);
+    const PhaseDriftMonitor::Decision d = drift.poll(now);
+    if (d.reason == RealignReason::none) return;
+    std::ostringstream msg;
+    msg << std::fixed << std::setprecision(2) << "camera phase drifted (";
+    if (d.reason == RealignReason::skew) {
+      msg << "median pair skew " << d.median_skew_ms << " ms over the last " << config.capture.realign_window_s
+          << " s > realign_skew_ms " << config.capture.realign_skew_ms;
+    } else {
+      msg << "no stereo pair for " << d.since_pair_ns / 1e9 << " s > realign_stall_s "
+          << config.capture.realign_stall_s;
+    }
+    uint64_t total = 0;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      uint64_t & counter = d.reason == RealignReason::skew ? realignments_skew : realignments_stall;
+      ++counter;
+      total = realignments_skew + realignments_stall;
+      lock_policy.reset();
+      exposure_locked = false;
+      frames_since_lock = -1;
+      aligning = true;
+      align_attempts = 0;
+    }
+    msg << "): re-aligning the camera phase (runtime re-alignment " << total
+        << "), restarting the right camera; nothing is published until aligned";
+    log(msg.str());
+    for (auto & side : sides) g_object_set(side.src, "aelock", FALSE, "awblock", FALSE, nullptr);
+    redraw_right_phase();
   }
 
   void watch()
@@ -896,6 +962,7 @@ struct StereoCapture::Impl
         if (restart_due && running.load()) restart(s, now);
       }
       if (running.load()) align_step();
+      if (running.load()) drift_step();
     }
   }
 };
@@ -1000,7 +1067,14 @@ CaptureStatus StereoCapture::status() const
   return st;
 }
 
-PairingStats StereoCapture::pairing_stats() const { return impl_->pairer.stats(); }
+PairingStats StereoCapture::pairing_stats() const
+{
+  PairingStats st = impl_->pairer.stats();
+  std::lock_guard<std::mutex> lock(impl_->mutex);
+  st.realignments_skew = impl_->realignments_skew;
+  st.realignments_stall = impl_->realignments_stall;
+  return st;
+}
 
 void StereoCapture::set_jpeg_quality(int quality)
 {

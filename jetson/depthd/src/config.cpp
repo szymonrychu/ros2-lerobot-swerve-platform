@@ -123,6 +123,10 @@ Config read_config(const json & root)
     s.get("lock_exposure_after_settle", c.capture.lock_exposure_after_settle);
     s.get("pair_window_ms", c.capture.pair_window_ms);
     s.get("zero_copy", c.capture.zero_copy);
+    s.get("realign_skew_ms", c.capture.realign_skew_ms);
+    s.get("realign_window_s", c.capture.realign_window_s);
+    s.get("realign_stall_s", c.capture.realign_stall_s);
+    s.get("realign_cooldown_s", c.capture.realign_cooldown_s);
   });
   top.sub("processing", [&](Section & s) {
     auto & p = c.processing;
@@ -241,6 +245,12 @@ void check(const Config & c)
   positive("capture.sensor_mode.fps", c.capture.sensor_mode.fps);
   non_negative("capture.settle_frames", c.capture.settle_frames);
   positive("capture.pair_window_ms", c.capture.pair_window_ms);
+  positive("capture.realign_skew_ms", c.capture.realign_skew_ms);
+  positive("capture.realign_window_s", c.capture.realign_window_s);
+  positive("capture.realign_stall_s", c.capture.realign_stall_s);
+  if (!(c.capture.realign_cooldown_s >= 0.0)) {
+    fail("capture.realign_cooldown_s", "must be >= 0");
+  }
 
   div8("processing.width", c.processing.width);
   div8("processing.height", c.processing.height);
@@ -422,7 +432,11 @@ json to_json(const Config & c)
       {"settle_frames", c.capture.settle_frames},
       {"lock_exposure_after_settle", c.capture.lock_exposure_after_settle},
       {"pair_window_ms", c.capture.pair_window_ms},
-      {"zero_copy", c.capture.zero_copy}}},
+      {"zero_copy", c.capture.zero_copy},
+      {"realign_skew_ms", c.capture.realign_skew_ms},
+      {"realign_window_s", c.capture.realign_window_s},
+      {"realign_stall_s", c.capture.realign_stall_s},
+      {"realign_cooldown_s", c.capture.realign_cooldown_s}}},
     {"processing",
      {{"width", c.processing.width},
       {"height", c.processing.height},

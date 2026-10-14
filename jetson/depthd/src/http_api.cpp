@@ -234,6 +234,10 @@ std::string Metrics::render() const
   histogram_lines(
     o, "depthd_pair_skew_ms", "", SkewHistogram::kBoundsMs.data(), SkewHistogram::kBuckets, cumulative.data(),
     pairing_.skew.count, pairing_.skew.sum_ms);
+  o << "# HELP depthd_camera_realignments_total Runtime camera-phase re-alignments (right-camera restarts), by trigger.\n"
+       "# TYPE depthd_camera_realignments_total counter\n";
+  o << "depthd_camera_realignments_total{reason=\"skew\"} " << pairing_.realignments_skew << "\n";
+  o << "depthd_camera_realignments_total{reason=\"stall\"} " << pairing_.realignments_stall << "\n";
   o << "# HELP depthd_stage_time_ms Time spent in each pipeline stage, milliseconds.\n"
        "# TYPE depthd_stage_time_ms histogram\n";
   for (const auto & kv : stages_) {

@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <opencv2/core/cuda.hpp>
 #include <optional>
@@ -60,6 +61,9 @@ struct PairingStats
   uint64_t dropped_skew = 0;    // nearest counterpart exists but lies outside pair_window_ms
   uint64_t dropped_orphan = 0;  // no counterpart: the other camera missed it, the queue overflowed, or it was stale
   SkewHistogram skew;
+  // Runtime camera-phase re-alignments by reason (filled in by StereoCapture, not by the pairer).
+  uint64_t realignments_skew = 0;
+  uint64_t realignments_stall = 0;
 };
 
 class StereoPairer
@@ -67,7 +71,13 @@ class StereoPairer
 public:
   static constexpr std::size_t kMaxQueue = 3;  // frames kept per side
 
+  using SkewObserver = std::function<void(double skew_ms)>;
+
   explicit StereoPairer(double pair_window_ms);
+
+  // Called with every skew the histogram records (under the pairer lock: it must be cheap and must not call back into
+  // the pairer). Set before frames are pushed.
+  void set_skew_observer(SkewObserver observer);
 
   // Each push returns the pair it completed, if any. A frame is part of at most one pair.
   std::optional<StereoPair> push_left(Frame frame);
@@ -98,6 +108,7 @@ private:
   std::optional<int64_t> left_consumed_ns_;
   std::optional<int64_t> right_consumed_ns_;
   PairingStats stats_;
+  SkewObserver skew_observer_;
 };
 
 }  // namespace depthd

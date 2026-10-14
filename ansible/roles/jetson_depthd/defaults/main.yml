@@ -75,6 +75,10 @@ depthd_config:
     lock_exposure_after_settle: true  # lock AE/AWB on both sensors after settling
     pair_window_ms: 8.0          # max left/right capture-timestamp gap for a pair (> 0)
     zero_copy: true              # NVMM -> CUDA mapping via EGL instead of a host copy
+    realign_skew_ms: 4.0        # re-align the camera phase when the median pair skew exceeds this (> 0)
+    realign_window_s: 10.0      # ... over the trailing window, in seconds (> 0)
+    realign_stall_s: 5.0        # re-align when no stereo pair came for this long (> 0)
+    realign_cooldown_s: 30.0    # minimum time between re-alignments (>= 0)
 
   processing:
     width: 640                   # matcher input size, multiple of 8

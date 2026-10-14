@@ -26,11 +26,20 @@ struct Capture
   bool lock_exposure_after_settle = true;
   double pair_window_ms = 8.0;
   bool zero_copy = true;
+  // Runtime phase re-alignment (PhaseDriftMonitor): re-run the right-camera alignment when the median pair skew of the
+  // trailing realign_window_s exceeds realign_skew_ms, or when no pair came for realign_stall_s; at most once per
+  // realign_cooldown_s.
+  double realign_skew_ms = 4.0;
+  double realign_window_s = 10.0;
+  double realign_stall_s = 5.0;
+  double realign_cooldown_s = 30.0;
   bool operator==(const Capture & o) const
   {
     return left_sensor_id == o.left_sensor_id && right_sensor_id == o.right_sensor_id && sensor_mode == o.sensor_mode &&
            settle_frames == o.settle_frames && lock_exposure_after_settle == o.lock_exposure_after_settle &&
-           pair_window_ms == o.pair_window_ms && zero_copy == o.zero_copy;
+           pair_window_ms == o.pair_window_ms && zero_copy == o.zero_copy && realign_skew_ms == o.realign_skew_ms &&
+           realign_window_s == o.realign_window_s && realign_stall_s == o.realign_stall_s &&
+           realign_cooldown_s == o.realign_cooldown_s;
   }
 };
 
