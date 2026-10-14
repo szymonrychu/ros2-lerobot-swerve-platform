@@ -182,6 +182,9 @@ magic `DPW1`, u16 version (1), u8 kind (0 depth, 1 fused, 2 rgb), reserved, u64 
 baseline_m, u8 calibrated (+7 pad), f32 pipeline_fps, f32 stage_ms for capture/rectify/match/post/mono/encode, u64
 pairs_dropped_total, f32 gpu_temp_c (+4 pad), u64 nvgpu_errors_total.
 
+The link constants `kDefaultPubPort` (5550, ZeroMQ PUB) and `kDefaultHttpPort` (8090, depthd HTTP API) live in the same
+header.
+
 `encode_depth`, `encode_rgb` and `encode_header` build the frames; `decode` returns an error string and an empty
 `Decoded` (never a partial header) for a wrong magic, unknown version, truncated or oversized header, unknown topic,
 a header kind that disagrees with the topic, or a `width*height` that does not match the decompressed payload.

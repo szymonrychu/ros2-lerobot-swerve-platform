@@ -22,9 +22,15 @@ dw::Header full_header(dw::Kind kind, uint32_t w, uint32_t h)
   x.width = w;
   x.height = h;
   x.frame_id = "stereo_left_optical_frame";
-  for (size_t i = 0; i < x.k.size(); ++i) {x.k[i] = 100.5 + static_cast<double>(i) / 3.0;}
-  for (size_t i = 0; i < x.d.size(); ++i) {x.d[i] = -0.25 * static_cast<double>(i) + 1e-7;}
-  for (size_t i = 0; i < x.p.size(); ++i) {x.p[i] = 7.125 * static_cast<double>(i) - 3.0;}
+  for (size_t i = 0; i < x.k.size(); ++i) {
+    x.k[i] = 100.5 + static_cast<double>(i) / 3.0;
+  }
+  for (size_t i = 0; i < x.d.size(); ++i) {
+    x.d[i] = -0.25 * static_cast<double>(i) + 1e-7;
+  }
+  for (size_t i = 0; i < x.p.size(); ++i) {
+    x.p[i] = 7.125 * static_cast<double>(i) - 3.0;
+  }
   x.baseline_m = 0.0603;
   x.calibrated = true;
   x.pipeline_fps = 14.5F;
@@ -212,4 +218,10 @@ TEST(DepthWire, RejectsTopicThatDisagreesWithHeaderKind)
   auto f = dw::encode_depth(full_header(dw::Kind::kDepth, 4, 4), smooth_image(4, 4));
   f.topic = "rgb";
   EXPECT_FALSE(dw::decode(f).ok());
+}
+
+TEST(DepthWire, LinkPortsAreTheDesignContract)
+{
+  EXPECT_EQ(dw::kDefaultPubPort, 5550);
+  EXPECT_EQ(dw::kDefaultHttpPort, 8090);
 }

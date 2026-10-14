@@ -15,19 +15,18 @@ namespace
 class Writer
 {
 public:
-  explicit Writer(std::vector<uint8_t> & out)
-  : out_(out) {}
-  void u8(uint8_t v) {out_.push_back(v);}
+  explicit Writer(std::vector<uint8_t> & out) : out_(out) {}
+  void u8(uint8_t v) { out_.push_back(v); }
   void le(uint64_t v, int bytes)
   {
     for (int i = 0; i < bytes; ++i) {
       out_.push_back(static_cast<uint8_t>((v >> (8 * i)) & 0xFFU));
     }
   }
-  void u16(uint16_t v) {le(v, 2);}
-  void u32(uint32_t v) {le(v, 4);}
-  void u64(uint64_t v) {le(v, 8);}
-  void i64(int64_t v) {u64(static_cast<uint64_t>(v));}
+  void u16(uint16_t v) { le(v, 2); }
+  void u32(uint32_t v) { le(v, 4); }
+  void u64(uint64_t v) { le(v, 8); }
+  void i64(int64_t v) { u64(static_cast<uint64_t>(v)); }
   void f32(float v)
   {
     uint32_t bits = 0;
@@ -40,7 +39,7 @@ public:
     std::memcpy(&bits, &v, sizeof bits);
     u64(bits);
   }
-  void zeros(size_t n) {out_.insert(out_.end(), n, 0);}
+  void zeros(size_t n) { out_.insert(out_.end(), n, 0); }
 
 private:
   std::vector<uint8_t> & out_;
@@ -49,8 +48,7 @@ private:
 class Reader
 {
 public:
-  Reader(const uint8_t * data, size_t size)
-  : data_(data), size_(size) {}
+  Reader(const uint8_t * data, size_t size) : data_(data), size_(size) {}
   uint64_t le(int bytes)
   {
     uint64_t v = 0;
@@ -60,11 +58,11 @@ public:
     pos_ += bytes;
     return v;
   }
-  uint8_t u8() {return static_cast<uint8_t>(le(1));}
-  uint16_t u16() {return static_cast<uint16_t>(le(2));}
-  uint32_t u32() {return static_cast<uint32_t>(le(4));}
-  uint64_t u64() {return le(8);}
-  int64_t i64() {return static_cast<int64_t>(u64());}
+  uint8_t u8() { return static_cast<uint8_t>(le(1)); }
+  uint16_t u16() { return static_cast<uint16_t>(le(2)); }
+  uint32_t u32() { return static_cast<uint32_t>(le(4)); }
+  uint64_t u64() { return le(8); }
+  int64_t i64() { return static_cast<int64_t>(u64()); }
   float f32()
   {
     const uint32_t bits = u32();
@@ -79,9 +77,9 @@ public:
     std::memcpy(&v, &bits, sizeof v);
     return v;
   }
-  const uint8_t * here() const {return data_ + pos_;}
-  void skip(size_t n) {pos_ += n;}
-  size_t size() const {return size_;}
+  const uint8_t * here() const { return data_ + pos_; }
+  void skip(size_t n) { pos_ += n; }
+  size_t size() const { return size_; }
 
 private:
   const uint8_t * data_;
@@ -115,9 +113,12 @@ Decoded failure(const std::string & why)
 const char * topic_of(Kind kind)
 {
   switch (kind) {
-    case Kind::kDepth: return kTopicDepth;
-    case Kind::kFused: return kTopicFused;
-    case Kind::kRgb: return kTopicRgb;
+    case Kind::kDepth:
+      return kTopicDepth;
+    case Kind::kFused:
+      return kTopicFused;
+    case Kind::kRgb:
+      return kTopicRgb;
   }
   return "";
 }
@@ -146,9 +147,15 @@ std::vector<uint8_t> encode_header(const Header & h)
     w.u8(static_cast<uint8_t>(c));
   }
   w.zeros(kMaxFrameIdBytes - h.frame_id.size());
-  for (double v : h.k) {w.f64(v);}
-  for (double v : h.d) {w.f64(v);}
-  for (double v : h.p) {w.f64(v);}
+  for (double v : h.k) {
+    w.f64(v);
+  }
+  for (double v : h.d) {
+    w.f64(v);
+  }
+  for (double v : h.p) {
+    w.f64(v);
+  }
   w.f64(h.baseline_m);
   w.u8(h.calibrated ? 1 : 0);
   w.zeros(7);
@@ -200,9 +207,15 @@ std::string decode_header(const uint8_t * data, size_t size, Header & out)
   }
   h.frame_id.assign(reinterpret_cast<const char *>(r.here()), id_len);
   r.skip(kMaxFrameIdBytes);
-  for (double & v : h.k) {v = r.f64();}
-  for (double & v : h.d) {v = r.f64();}
-  for (double & v : h.p) {v = r.f64();}
+  for (double & v : h.k) {
+    v = r.f64();
+  }
+  for (double & v : h.d) {
+    v = r.f64();
+  }
+  for (double & v : h.p) {
+    v = r.f64();
+  }
   h.baseline_m = r.f64();
   h.calibrated = r.u8() != 0;
   r.skip(7);
@@ -258,8 +271,8 @@ Frames encode_rgb(const Header & header, const std::vector<uint8_t> & jpeg)
   return f;
 }
 
-Decoded decode(const std::string & topic, const uint8_t * header, size_t header_size, const uint8_t * payload,
-  size_t payload_size)
+Decoded decode(
+  const std::string & topic, const uint8_t * header, size_t header_size, const uint8_t * payload, size_t payload_size)
 {
   Kind topic_kind;
   if (!kind_from_topic(topic, topic_kind)) {
@@ -277,9 +290,8 @@ Decoded decode(const std::string & topic, const uint8_t * header, size_t header_
     d.jpeg.assign(payload, payload + payload_size);
     return d;
   }
-  if (d.header.width == 0 || d.header.height == 0 || d.header.width > kMaxDimension ||
-    d.header.height > kMaxDimension)
-  {
+  if (
+    d.header.width == 0 || d.header.height == 0 || d.header.width > kMaxDimension || d.header.height > kMaxDimension) {
     return failure("width or height out of range");
   }
   const uint64_t expected = static_cast<uint64_t>(d.header.width) * d.header.height * 2;
