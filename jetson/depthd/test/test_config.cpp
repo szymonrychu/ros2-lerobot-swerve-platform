@@ -39,6 +39,9 @@ TEST(Config, StructDefaultsMatchTheSpec)
   EXPECT_EQ(c.capture.exposure.measure_interval_frames, 2);
   EXPECT_DOUBLE_EQ(c.capture.exposure.follow_threshold, 0.05);
   EXPECT_EQ(c.capture.exposure.follow_settle_frames, 2);
+  EXPECT_EQ(c.capture.exposure.follow_transition_frames, 30);
+  EXPECT_DOUBLE_EQ(c.capture.exposure.follow_starvation_s, 10.0);
+  EXPECT_DOUBLE_EQ(c.health.degraded_after_s, 5.0);
   EXPECT_EQ(c.capture.exposure.max_exposure_us, 20000);
   EXPECT_DOUBLE_EQ(c.capture.exposure.max_gain, 8.0);
   EXPECT_EQ(c.capture.exposure.saturation_level, 250);
@@ -240,6 +243,8 @@ TEST(Config, ExposureKeysParseAndValidate)
   expect_rejected(e + "follow_threshold: 0\n", "capture.exposure.follow_threshold");
   expect_rejected(e + "follow_threshold: 1\n", "capture.exposure.follow_threshold");
   expect_rejected(e + "follow_settle_frames: -1\n", "capture.exposure.follow_settle_frames");
+  expect_rejected(e + "follow_transition_frames: 0\n", "capture.exposure.follow_transition_frames");
+  expect_rejected(e + "follow_starvation_s: 0\n", "capture.exposure.follow_starvation_s");
   expect_rejected(e + "max_exposure_us: 33\n", "capture.exposure.max_exposure_us");
   expect_rejected(e + "max_exposure_us: 700000\n", "capture.exposure.max_exposure_us");
   expect_rejected(e + "max_gain: 0.5\n", "capture.exposure.max_gain");
@@ -316,4 +321,22 @@ TEST(Config, RuntimeMutableSet)
                          "nonsense", ""}) {
     EXPECT_FALSE(depthd::runtime_mutable(k)) << k;
   }
+}
+
+TEST(Config, FollowConvergenceAndHealthKeysParseAndRoundTrip)
+{
+  const auto r = depthd::parse_config(
+    "capture:\n  exposure:\n    follow_transition_frames: 15\n    follow_starvation_s: 4.5\n"
+    "health:\n  degraded_after_s: 8\n");
+  ASSERT_TRUE(r.ok()) << r.error;
+  EXPECT_EQ(r.config.capture.exposure.follow_transition_frames, 15);
+  EXPECT_DOUBLE_EQ(r.config.capture.exposure.follow_starvation_s, 4.5);
+  EXPECT_DOUBLE_EQ(r.config.health.degraded_after_s, 8.0);
+  const auto j = depthd::to_json(r.config);
+  EXPECT_EQ(j.at("capture").at("exposure").at("follow_transition_frames").get<int>(), 15);
+  EXPECT_DOUBLE_EQ(j.at("capture").at("exposure").at("follow_starvation_s").get<double>(), 4.5);
+  EXPECT_DOUBLE_EQ(j.at("health").at("degraded_after_s").get<double>(), 8.0);
+  EXPECT_EQ(depthd::from_json(j).config, r.config);
+  expect_rejected("health:\n  degraded_after_s: 0\n", "health.degraded_after_s");
+  expect_rejected("health:\n  nope: 1\n", "health.nope");
 }

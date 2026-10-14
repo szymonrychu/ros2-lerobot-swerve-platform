@@ -240,6 +240,19 @@ TEST(ExposureLock, DisabledNeverLocks)
   }
 }
 
+TEST(ExposureLock, EnableAfterAFollowFallbackSettlesAndLocks)
+{
+  depthd::ExposureLockPolicy policy(2, false);  // follow mode: never locks
+  EXPECT_FALSE(policy.on_frame(CameraSide::left));
+  EXPECT_FALSE(policy.on_frame(CameraSide::right));
+  policy.enable();  // the follower starved: lock_after_settle from now on, counting from zero
+  EXPECT_FALSE(policy.on_frame(CameraSide::left));
+  EXPECT_FALSE(policy.on_frame(CameraSide::left));
+  EXPECT_FALSE(policy.on_frame(CameraSide::right));
+  EXPECT_TRUE(policy.on_frame(CameraSide::right));
+  EXPECT_TRUE(policy.locked());
+}
+
 TEST(ExposureLock, ZeroSettleFramesLocksOnFirstPair)
 {
   depthd::ExposureLockPolicy policy(0, true);

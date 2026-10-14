@@ -5,6 +5,7 @@
 //   config_error  the config file (or the matcher it names) is invalid; nothing runs, /health says why
 //   camera_error  a camera failed or could not be started (CaptureStatus); its messages stop
 //   uncalibrated  no valid calibration; rgb flows, depth and fused do not
+//   degraded      calibrated, depth was published, but none for longer than health.degraded_after_s
 //   starting      binding the link, aligning the cameras, or waiting for the first depth frame
 //   ok            depth is being published (reason names a stall when no depth came for over 2 s)
 #ifndef DEPTHD_HEALTH_HPP_
@@ -40,6 +41,7 @@ struct HealthInputs
   uint64_t nvgpu_errors_total = 0;
   std::string matcher;
   std::string mono_state;
+  double degraded_after_ms = 5000.0;  // health.degraded_after_s: calibrated but no depth this long -> degraded
 };
 
 // Depth that stops for longer than this while ok is named in the reason.

@@ -457,6 +457,7 @@ TEST(HttpApiMetrics, ServesPrometheusTextWithEveryDepthdMetric)
   ps.exposure.ae_adjustments = 3;
   ps.exposure.follow_pins = 7;
   ps.exposure.mismatch_drops = 11;
+  ps.exposure.follow_fallbacks = 1;
   f.metrics.set_pairing(ps);
   f.metrics.observe_stage_ms("match", 7.5);
   f.metrics.observe_stage_ms("match", 12.0);
@@ -501,6 +502,8 @@ TEST(HttpApiMetrics, ServesPrometheusTextWithEveryDepthdMetric)
   has("# TYPE depthd_exposure_follow_pins_total counter");
   has("depthd_exposure_follow_pins_total 7");
   has("depthd_drops_total{reason=\"exposure_mismatch\"} 11");
+  has("# TYPE depthd_exposure_follow_fallbacks_total counter");
+  has("depthd_exposure_follow_fallbacks_total 1");
   has("# TYPE depthd_stage_time_ms histogram");
   has("depthd_stage_time_ms_bucket{stage=\"match\",le=\"10\"} 1");
   has("depthd_stage_time_ms_bucket{stage=\"match\",le=\"+Inf\"} 2");

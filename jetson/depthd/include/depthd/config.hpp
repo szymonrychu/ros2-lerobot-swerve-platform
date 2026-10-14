@@ -25,6 +25,8 @@ struct ExposureConfig
   int measure_interval_frames = 2;
   double follow_threshold = 0.05;
   int follow_settle_frames = 2;
+  int follow_transition_frames = 30;  // right frames a re-pin withholds pairs for at most
+  double follow_starvation_s = 10.0;  // right not converged this long: fall back to lock_after_settle
   int max_exposure_us = 20000;
   double max_gain = 8.0;
   int saturation_level = 250;
@@ -37,6 +39,7 @@ struct ExposureConfig
   {
     return mode == o.mode && measure_interval_frames == o.measure_interval_frames &&
            follow_threshold == o.follow_threshold && follow_settle_frames == o.follow_settle_frames &&
+           follow_transition_frames == o.follow_transition_frames && follow_starvation_s == o.follow_starvation_s &&
            max_exposure_us == o.max_exposure_us && max_gain == o.max_gain && saturation_level == o.saturation_level &&
            saturated_high == o.saturated_high && saturated_low == o.saturated_low &&
            compensation_step == o.compensation_step && compensation_min == o.compensation_min &&
@@ -201,6 +204,13 @@ struct FrameIds
   bool operator==(const FrameIds & o) const { return depth == o.depth && rgb == o.rgb; }
 };
 
+// health: when /health turns degraded.
+struct HealthConfig
+{
+  double degraded_after_s = 5.0;  // calibrated, but no depth frame for longer than this
+  bool operator==(const HealthConfig & o) const { return degraded_after_s == o.degraded_after_s; }
+};
+
 struct Config
 {
   Capture capture;
@@ -211,10 +221,12 @@ struct Config
   Transport transport;
   Calibration calibration;
   FrameIds frame_ids;
+  HealthConfig health;
   bool operator==(const Config & o) const
   {
     return capture == o.capture && processing == o.processing && postprocess == o.postprocess && mono == o.mono &&
-           rgb == o.rgb && transport == o.transport && calibration == o.calibration && frame_ids == o.frame_ids;
+           rgb == o.rgb && transport == o.transport && calibration == o.calibration && frame_ids == o.frame_ids &&
+           health == o.health;
   }
   bool operator!=(const Config & o) const { return !(*this == o); }
 };

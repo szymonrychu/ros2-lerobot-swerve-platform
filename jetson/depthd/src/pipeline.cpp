@@ -622,6 +622,7 @@ HealthInputs Pipeline::health_inputs() const
   in.capture = im.source.status();
   in.calibrated = calibrated();
   in.matcher = im.matcher_name;
+  in.degraded_after_ms = im.config.health.degraded_after_s * 1000.0;
   const int64_t now = im.now();
   const std::lock_guard<std::mutex> lock(im.stats_mutex);
   in.depth_published = im.n.depth_published > 0;

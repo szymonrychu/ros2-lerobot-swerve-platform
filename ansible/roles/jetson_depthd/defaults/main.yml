@@ -77,6 +77,8 @@ depthd_config:
       measure_interval_frames: 2 # left frames between readbacks and saturation measurements (>= 1)
       follow_threshold: 0.05     # relative left exposure or gain change that re-pins the right (0..1, exclusive)
       follow_settle_frames: 2    # right frames withheld from pairing after the right reached a new pin (>= 0)
+      follow_transition_frames: 30 # right frames a re-pin withholds pairs for at most, matched or not (>= 1)
+      follow_starvation_s: 10.0  # right not matched this long: fall back to lock_after_settle (> 0)
       max_exposure_us: 20000     # exposure cap against motion blur, both cameras (34..683709)
       max_gain: 8.0              # analog gain cap, both cameras (1..10.625); ISP digital gain is pinned to 1x
       saturation_level: 250      # a left grey pixel at or above this counts as saturated (1..255)
@@ -152,3 +154,6 @@ depthd_config:
   frame_ids:
     depth: stereo_left_optical_frame
     rgb: overview_camera_optical_frame
+
+  health:
+    degraded_after_s: 5.0        # /health is degraded when calibrated but no depth frame came for this long (> 0)

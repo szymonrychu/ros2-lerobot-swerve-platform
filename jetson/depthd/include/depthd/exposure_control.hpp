@@ -5,9 +5,14 @@
 // read back, so it could not be matched). Every measure_interval_frames left frames StereoCapture reads both sensors'
 // exposure and analog gain from their V4L2 controls and:
 //   ExposureFollower      pins the right camera to the left's exposure and gain (exposuretimerange/gainrange with
-//                         low == high) whenever the left moved more than follow_threshold from the pinned values, and
-//                         judges whether the two currently match: from a new pin until the right's readback equals it
-//                         and follow_settle_frames more right frames arrived, every pair is withheld and counted.
+//                         low == high) whenever the right's achieved readback is not within tolerance of the left's
+//                         (follow_threshold relative, never tighter than the sensors' quantisation), or the left moved
+//                         more than follow_threshold from a pin still being reached. A re-pin opens a transition:
+//                         pairs are withheld until the right's readback reached the pin and follow_settle_frames more
+//                         right frames arrived, but never for more than follow_transition_frames right frames. A
+//                         right that did not take the pin is pinned again after the window.
+//   FollowStarvationGuard watches whether the right converged; when it has not for follow_starvation_s, StereoCapture
+//                         falls back to lock_after_settle.
 //   SaturationCompensator measures the fraction of left grey pixels >= saturation_level and steps the left's Argus
 //                         exposurecompensation down by compensation_step while it is above saturated_high (to
 //                         compensation_min), and back up toward 0 while it is below saturated_low; in between it holds
@@ -52,6 +57,7 @@ struct ExposureFollowerOptions
 {
   double threshold = 0.05;  // relative exposure or gain change that re-pins the right camera
   int settle_frames = 2;    // right frames after the right's readback reached the pin before pairs flow again
+  int transition_frames = 30;  // right frames a re-pin withholds pairs for at most, matched or not
 
   static ExposureFollowerOptions from_config(const ExposureConfig & exposure);
 };
@@ -61,15 +67,18 @@ class ExposureFollower
 public:
   explicit ExposureFollower(ExposureFollowerOptions options);
 
-  // A left readback. Returns the values to pin the right camera to when there is no pin yet or the left moved more than
-  // threshold (exposure or gain, relative) away from it; that starts a transition.
+  // A left readback (after the right's readback of the same measurement). Returns the values to pin the right camera
+  // to, which starts a transition: when there is no pin yet; outside a transition, when the right's last readback is
+  // not within tolerance of the left; inside one, when the left moved more than threshold away from the pin.
   std::optional<SensorExposure> on_left(const SensorExposure & left);
-  // A right readback: the transition can end once it matches the pin.
+  // A right readback: the transition can end once it is within tolerance of the pin.
   void on_right(const SensorExposure & right);
-  // A right frame arrived (counts down the settle frames once the readback matched).
+  // A right frame arrived: counts down the settle frames once the readback matched, and the transition window.
   void on_right_frame();
-  // True when a pair may be published: pinned, the right's readback matched the pin and the settle frames passed.
-  bool matched() const;
+  // True when a pair may be published: pinned and no transition open.
+  bool pairs_flow() const;
+  // True when the right's last readback is within tolerance of the pin and no transition is open.
+  bool converged() const;
   // The right camera restarted (or a mode change): forget the pin, so the next left readback pins again.
   void reset();
 
@@ -77,11 +86,36 @@ public:
   uint64_t pins() const { return pins_; }  // right-camera re-pins so far
 
 private:
+  // True when `value` is within tolerance of `reference`: follow_threshold relative, but at least a few sensor lines
+  // of exposure and one gain step (two IMX219s pinned alike read back that far apart).
+  bool within(const SensorExposure & value, const SensorExposure & reference) const;
+  void start_transition(const SensorExposure & pin);
+
   const ExposureFollowerOptions opt_;
   std::optional<SensorExposure> pin_;
+  std::optional<SensorExposure> last_right_;
+  bool in_transition_ = false;
   bool readback_matched_ = false;
   int settle_left_ = 0;
+  int window_left_ = 0;
   uint64_t pins_ = 0;
+};
+
+// Follow mode's last resort: on every pair, whether the follower has converged. When it has not for limit_ns (since
+// the last converged pair, or the first pair after construction or reset()), on_pair() returns true once and StereoCapture falls back to
+// lock_after_settle. Clockless: the caller passes CLOCK_MONOTONIC ns.
+class FollowStarvationGuard
+{
+public:
+  explicit FollowStarvationGuard(int64_t limit_ns) : limit_ns_(limit_ns) {}
+  bool on_pair(int64_t now_ns, bool converged);
+  void reset();  // a right restart: the clock starts again at the next pair
+  int64_t unconverged_ns(int64_t now_ns) const { return since_ns_ ? now_ns - *since_ns_ : 0; }
+
+private:
+  const int64_t limit_ns_;
+  std::optional<int64_t> since_ns_;  // the last converged pair, or the first pair since construction or reset()
+  bool fired_ = false;
 };
 
 struct SaturationOptions

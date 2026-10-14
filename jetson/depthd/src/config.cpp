@@ -126,6 +126,8 @@ Config read_config(const json & root)
       e.get("measure_interval_frames", x.measure_interval_frames);
       e.get("follow_threshold", x.follow_threshold);
       e.get("follow_settle_frames", x.follow_settle_frames);
+      e.get("follow_transition_frames", x.follow_transition_frames);
+      e.get("follow_starvation_s", x.follow_starvation_s);
       e.get("max_exposure_us", x.max_exposure_us);
       e.get("max_gain", x.max_gain);
       e.get("saturation_level", x.saturation_level);
@@ -206,6 +208,7 @@ Config read_config(const json & root)
     s.get("depth", c.frame_ids.depth);
     s.get("rgb", c.frame_ids.rgb);
   });
+  top.sub("health", [&](Section & s) { s.get("degraded_after_s", c.health.degraded_after_s); });
   top.finish();
   return c;
 }
@@ -274,6 +277,8 @@ void check(const Config & c)
     fail("capture.exposure.follow_threshold", "must be > 0 and < 1");
   }
   non_negative("capture.exposure.follow_settle_frames", x.follow_settle_frames);
+  range("capture.exposure.follow_transition_frames", x.follow_transition_frames, 1, 100000);
+  positive("capture.exposure.follow_starvation_s", x.follow_starvation_s);
   // Argus limits nvarguscamerasrc enforces on the IMX219: 34 us (the plugin rejects less) .. 683709 us, gain 1..10.625.
   range("capture.exposure.max_exposure_us", x.max_exposure_us, 34, 683709);
   range("capture.exposure.max_gain", x.max_gain, 1.0, 10.625);
@@ -338,6 +343,8 @@ void check(const Config & c)
 
   non_empty("frame_ids.depth", c.frame_ids.depth);
   non_empty("frame_ids.rgb", c.frame_ids.rgb);
+
+  positive("health.degraded_after_s", c.health.degraded_after_s);
 }
 
 json yaml_to_json(const YAML::Node & n)
@@ -471,6 +478,8 @@ json to_json(const Config & c)
         {"measure_interval_frames", c.capture.exposure.measure_interval_frames},
         {"follow_threshold", c.capture.exposure.follow_threshold},
         {"follow_settle_frames", c.capture.exposure.follow_settle_frames},
+        {"follow_transition_frames", c.capture.exposure.follow_transition_frames},
+        {"follow_starvation_s", c.capture.exposure.follow_starvation_s},
         {"max_exposure_us", c.capture.exposure.max_exposure_us},
         {"max_gain", c.capture.exposure.max_gain},
         {"saturation_level", c.capture.exposure.saturation_level},
@@ -524,7 +533,8 @@ json to_json(const Config & c)
       {"zstd_level", c.transport.zstd_level},
       {"send_hwm", c.transport.send_hwm}}},
     {"calibration", {{"path", c.calibration.path}, {"max_rms_px", c.calibration.max_rms_px}}},
-    {"frame_ids", {{"depth", c.frame_ids.depth}, {"rgb", c.frame_ids.rgb}}}};
+    {"frame_ids", {{"depth", c.frame_ids.depth}, {"rgb", c.frame_ids.rgb}}},
+    {"health", {{"degraded_after_s", c.health.degraded_after_s}}}};
 }
 
 bool runtime_mutable(const std::string & key)

@@ -295,6 +295,12 @@ bool ExposureLockPolicy::on_frame(CameraSide side)
   return false;
 }
 
+void ExposureLockPolicy::enable()
+{
+  enabled_ = true;
+  reset();
+}
+
 void ExposureLockPolicy::reset()
 {
   left_frames_ = 0;
@@ -417,8 +423,11 @@ struct StereoCapture::Impl
   EGLDisplay egl_display = EGL_NO_DISPLAY;
 
   mutable std::mutex mutex;
-  const bool follow_mode;  // capture.exposure.mode follow; else lock_after_settle
+  // capture.exposure.mode follow; else lock_after_settle. A starved follower falls back to lock_after_settle for good.
+  std::atomic<bool> follow_mode;
   ExposureFollower follower;            // guarded by mutex
+  FollowStarvationGuard starvation;     // guarded by mutex
+  bool fallback_pending = false;        // guarded by mutex: the watchdog switches to lock_after_settle
   SaturationCompensator compensator;    // guarded by mutex
   ExposureStats exposure_stats;         // guarded by mutex
   bool follow_logged = false;           // guarded by mutex: the first pin is logged once
@@ -449,6 +458,7 @@ struct StereoCapture::Impl
     pairer(c.capture.pair_window_ms),
     follow_mode(c.capture.exposure.mode == "follow"),
     follower(ExposureFollowerOptions::from_config(c.capture.exposure)),
+    starvation(static_cast<int64_t>(c.capture.exposure.follow_starvation_s * 1e9)),
     compensator(SaturationOptions::from_config(c.capture.exposure)),
     left_reader(c.capture.left_sensor_id),
     right_reader(c.capture.right_sensor_id),
@@ -662,15 +672,32 @@ struct StereoCapture::Impl
     if (!pair) return;
     drift.observe_pair(now_mono);
     if (in_error || in_alignment) return;  // no pair while a camera is in error or the phase is being (re)aligned
+    bool withhold = false;
+    int64_t starved_ns = 0;
     {
       std::lock_guard<std::mutex> lock(mutex);
-      // Follow mode: a pair across a re-pin (the right not yet at the left's exposure and gain) is withheld.
-      if (follow_mode && !follower.matched()) {
-        ++exposure_stats.mismatch_drops;
-        return;
+      if (follow_mode) {
+        if (starvation.on_pair(now_mono, follower.converged())) {
+          starved_ns = starvation.unconverged_ns(now_mono);
+          fallback_pending = true;
+        }
+        // A pair inside a re-pin's transition window (the right not yet at the left's exposure and gain) is withheld.
+        withhold = !follower.pairs_flow();
       }
-      any_pair = true;
+      if (withhold) {
+        ++exposure_stats.mismatch_drops;
+      } else {
+        any_pair = true;
+      }
     }
+    if (starved_ns > 0) {
+      std::ostringstream line;
+      line << std::fixed << std::setprecision(1) << "exposure follow starved: the right camera has not matched the left for "
+           << starved_ns / 1e9 << " s (> follow_starvation_s " << config.capture.exposure.follow_starvation_s
+           << "): falling back to lock_after_settle";
+      log(line.str());
+    }
+    if (withhold) return;
     if (pair_cb) pair_cb(*pair);
   }
 
@@ -700,8 +727,8 @@ struct StereoCapture::Impl
       if (left) exposure_stats.left = {true, left->exposure_us, left->gain()};
       if (right) exposure_stats.right = {true, right->exposure_us, right->gain()};
       if (follow_mode) {
+        if (right) follower.on_right(*right);  // first: the left is judged against what the right achieved
         if (left) pin = follower.on_left(*left);
-        if (right) follower.on_right(*right);
         compensation = compensator.on_measurement(saturated, left_frames_seen);
         exposure_stats.follow_pins = follower.pins();
         exposure_stats.compensation = compensator.compensation();
@@ -729,11 +756,35 @@ struct StereoCapture::Impl
     }
   }
 
-  // The right camera restarts: its pin is gone with the old session, so it is pinned and matched again.
+  // The right camera restarted: its pin is gone with the old session, so it is pinned and matched again. Called after
+  // the restart: a pin set while the source was stopped would be overwritten by the caps that play() sets.
   void forget_pin()
   {
     std::lock_guard<std::mutex> lock(mutex);
     follower.reset();
+    starvation.reset();
+  }
+
+  // Watchdog thread: the follower starved (handle_frame), so switch to lock_after_settle for the rest of the run. The
+  // right restarts with the caps instead of the pin, the phase is aligned again, and both cameras settle and lock.
+  void fallback_step()
+  {
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      if (!fallback_pending) return;
+      fallback_pending = false;
+      follow_mode = false;
+      ++exposure_stats.follow_fallbacks;
+      exposure_stats.compensation = 0.0;
+      lock_policy.enable();
+      exposure_locked = false;
+      frames_since_lock = -1;
+      aligning = true;
+      align_attempts = 0;
+    }
+    g_object_set(sides[0].src, "exposurecompensation", static_cast<gfloat>(0.0), nullptr);
+    for (auto & side : sides) g_object_set(side.src, "aelock", FALSE, "awblock", FALSE, nullptr);
+    redraw_right_phase();
   }
 
   void log_locked_exposure()
@@ -956,11 +1007,11 @@ struct StereoCapture::Impl
       align_attempts = 0;
     }
     log(camera_label(s) + ": restarting pipeline");
-    forget_pin();
     gst_element_set_state(s.pipeline, GST_STATE_NULL);
     for (auto & side : sides) g_object_set(side.src, "aelock", FALSE, "awblock", FALSE, nullptr);
     std::string err;
     if (!play(s, err)) set_error(s, err, true);
+    forget_pin();
   }
 
   // Restart the right pipeline, which draws a new frame phase; the alignment then measures it again.
@@ -972,11 +1023,11 @@ struct StereoCapture::Impl
       attempts = ++align_attempts;
     }
     auto & right = sides[1];
-    forget_pin();
     gst_element_set_state(right.pipeline, GST_STATE_NULL);
     std::this_thread::sleep_for(std::chrono::milliseconds((attempts * 37) % 100));
     std::string err;
     if (!play(right, err)) set_error(right, err, true);
+    forget_pin();
     pairer.reset();
   }
 
@@ -1103,6 +1154,7 @@ struct StereoCapture::Impl
         }
         if (restart_due && running.load()) restart(s, now);
       }
+      if (running.load()) fallback_step();
       if (running.load()) align_step();
       if (running.load()) drift_step();
     }

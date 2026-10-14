@@ -14,6 +14,15 @@
 
 namespace depthd
 {
+namespace
+{
+std::string no_depth_for(double age_ms)
+{
+  std::ostringstream r;
+  r << "no depth frame for " << std::fixed << std::setprecision(1) << age_ms / 1000.0 << " s";
+  return r.str();
+}
+}  // namespace
 
 Health compose_health(const HealthInputs & in)
 {
@@ -38,6 +47,10 @@ Health compose_health(const HealthInputs & in)
   } else if (!in.startup_reason.empty()) {
     h.state = "starting";
     h.reason = in.startup_reason;
+  } else if (in.depth_published && in.last_depth_age_ms > in.degraded_after_ms) {
+    h.state = "degraded";
+    h.reason = no_depth_for(in.last_depth_age_ms);
+    if (in.capture.state == CaptureState::starting && !in.capture.reason.empty()) h.reason += ": " + in.capture.reason;
   } else if (in.capture.state == CaptureState::starting) {
     h.state = "starting";
     h.reason = in.capture.reason;
@@ -46,11 +59,7 @@ Health compose_health(const HealthInputs & in)
     h.reason = "waiting for the first depth frame";
   } else {
     h.state = "ok";
-    if (in.last_depth_age_ms > kDepthStallMs) {
-      std::ostringstream r;
-      r << "no depth frame for " << std::fixed << std::setprecision(1) << in.last_depth_age_ms / 1000.0 << " s";
-      h.reason = r.str();
-    }
+    if (in.last_depth_age_ms > kDepthStallMs) h.reason = no_depth_for(in.last_depth_age_ms);
   }
   return h;
 }

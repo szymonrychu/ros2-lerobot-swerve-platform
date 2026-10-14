@@ -260,6 +260,9 @@ std::string Metrics::render() const
   o << "# HELP depthd_exposure_follow_pins_total Right camera pinned to the left camera's exposure and gain.\n"
        "# TYPE depthd_exposure_follow_pins_total counter\n"
     << "depthd_exposure_follow_pins_total " << ex.follow_pins << "\n";
+  o << "# HELP depthd_exposure_follow_fallbacks_total Follow mode starved (right never matched) and fell back to "
+       "lock_after_settle.\n# TYPE depthd_exposure_follow_fallbacks_total counter\n"
+    << "depthd_exposure_follow_fallbacks_total " << ex.follow_fallbacks << "\n";
   o << "# HELP depthd_stage_time_ms Time spent in each pipeline stage, milliseconds.\n"
        "# TYPE depthd_stage_time_ms histogram\n";
   for (const auto & kv : stages_) {

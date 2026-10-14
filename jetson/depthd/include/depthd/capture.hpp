@@ -117,6 +117,7 @@ public:
   // Count a frame; returns true exactly once, on the frame after which both sources must be locked.
   bool on_frame(CameraSide side);
   void reset();  // a camera restarted: settle again
+  void enable();  // follow mode fell back to lock_after_settle: settle and lock from now on
   bool locked() const { return locked_; }
 
 private:

@@ -89,6 +89,7 @@ instead of growing latency.
 | `config_error` | the config file, or the matcher it names, is invalid; reason names it | nothing; only `/health` |
 | `camera_error` | a camera failed or could not be started; reason names the camera | nothing of that camera's kind |
 | `uncalibrated` | no valid calibration at `calibration.path`; reason says why | `rgb` only |
+| `degraded` | calibrated and depth was published, but none for over `health.degraded_after_s`; reason names how long (and the capture state while re-aligning) | whatever still flows |
 | `starting` | binding the link, aligning the cameras, or no depth frame yet | `rgb` once the left camera runs |
 | `ok` | depth is published; the reason names a stall when no depth came for over 2 s | everything |
 
@@ -160,12 +161,21 @@ right: nvarguscamerasrc name=right_src sensor-id=0 ... ! nvvidconv ! video/x-raw
   `capture.exposure.max_exposure_us` (motion blur) and `max_gain`, and the ISP digital gain is pinned to 1x
   (`ispdigitalgainrange="1 1"`): it cannot be read back, so it could not be matched. Every
   `measure_interval_frames` left frames the left sink thread reads both sensors' exposure and analog gain from their
-  V4L2 controls (`/dev/video<sensor-id>`, a cached fd) and `ExposureFollower` pins the right camera to the left's values
-  (`exposuretimerange` and `gainrange` with low == high, set on the running source) whenever the left moved more than
-  `follow_threshold` (relative) from the current pin. From a new pin until the right's readback equals it (within a few
-  sensor lines and one gain step) and `follow_settle_frames` more right frames arrived, every pair is withheld and
-  counted in `depthd_drops_total{reason="exposure_mismatch"}`; left changes under the threshold are tolerated. A right
-  restart (phase re-alignment) forgets the pin, so it is pinned and matched again. nvarguscamerasrc applies a range
+  V4L2 controls (`/dev/video<sensor-id>`, a cached fd) and `ExposureFollower` compares what the two achieved: the right
+  is pinned to the left's values (`exposuretimerange` and `gainrange` with low == high, set on the running source)
+  whenever its readback is not within tolerance of the left's (`follow_threshold` relative, never tighter than a few
+  sensor lines and one gain step, the sensors' quantisation); within it, nothing is re-pinned. A re-pin opens a
+  transition: pairs are withheld and counted in `depthd_drops_total{reason="exposure_mismatch"}` until the right's
+  readback reached the pin and `follow_settle_frames` more right frames arrived, but for at most
+  `follow_transition_frames` right frames; a right that did not take the pin is pinned again after the window. A right
+  restart (phase re-alignment) forgets the pin after the restart, so it is pinned and matched again.
+- **Starvation guard.** When the right has not converged for `follow_starvation_s` (`FollowStarvationGuard`), follow
+  mode gives up for the rest of the run: depthd logs `exposure follow starved: the right camera has not matched the
+  left for 10.0 s (> follow_starvation_s 10.0): falling back to lock_after_settle`, counts it in
+  `depthd_exposure_follow_fallbacks_total`, restarts the right with the caps, re-aligns the phase and settles and locks
+  both cameras as in `lock_after_settle`. Seen live on 2026-10-14: a pin set while the right was restarting was
+  overwritten by the caps, the right ran its own AE at 19999 us against a 16666 us pin the left never left, and every
+  pair was withheld for minutes while `/health` said ok. nvarguscamerasrc applies a range
   property only when it is set, so a restarted source would come back uncapped (measured: 33 ms against a 20 ms cap);
   the caps (and the left's compensation) are therefore set again before every pipeline start. The first pin is logged:
 
@@ -187,7 +197,8 @@ right: nvarguscamerasrc name=right_src sensor-id=0 ... ! nvvidconv ! video/x-raw
 
 Metrics: `depthd_camera_exposure_us{camera}` and `depthd_camera_gain{camera}` (V4L2 readback, absent until the first
 one), `depthd_camera_saturated_fraction` (left), `depthd_camera_exposure_compensation` (EV),
-`depthd_ae_adjustments_total` (compensation steps) and `depthd_exposure_follow_pins_total`.
+`depthd_ae_adjustments_total` (compensation steps), `depthd_exposure_follow_pins_total` and
+`depthd_exposure_follow_fallbacks_total`.
 
 **AWB is not matched, and its gains are not exported.** nvarguscamerasrc on L4T R32.6.1 has no white-balance gains
 property (`wbmode=manual` takes none) and does not hand out the per-frame Argus metadata (the `sensor_data` pointer of
@@ -259,6 +270,7 @@ rejected with a message naming the key. `[live]` keys can change at runtime (`de
 | capture.exposure.mode | follow | follow, lock_after_settle |
 | capture.exposure.measure_interval_frames | 2 | >= 1 |
 | capture.exposure.follow_threshold / follow_settle_frames | 0.05 / 2 | 0 < t < 1 / >= 0 |
+| capture.exposure.follow_transition_frames / follow_starvation_s | 30 / 10.0 | >= 1 / > 0 |
 | capture.exposure.max_exposure_us / max_gain | 20000 / 8.0 | 34..683709 / 1..10.625 |
 | capture.exposure.saturation_level | 250 | 1..255 |
 | capture.exposure.saturated_high / saturated_low | 0.02 / 0.005 | 0..1, 0 <= low < high |
@@ -291,6 +303,7 @@ rejected with a message naming the key. `[live]` keys can change at runtime (`de
 | calibration.path | /var/lib/depthd/stereo.yaml | |
 | calibration.max_rms_px | 0.5 | > 0 |
 | frame_ids.depth / rgb | stereo_left_optical_frame / overview_camera_optical_frame | not empty |
+| health.degraded_after_s | 5.0 | > 0 |
 
 ## Calibration file and rectification
 

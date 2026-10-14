@@ -74,6 +74,7 @@ struct ExposureStats
   uint64_t ae_adjustments = 0;      // exposurecompensation steps taken against (or after) saturation
   uint64_t follow_pins = 0;         // right camera pinned to the left's exposure and gain
   uint64_t mismatch_drops = 0;      // pairs withheld because the right did not yet match the left
+  uint64_t follow_fallbacks = 0;    // follow mode starved and fell back to lock_after_settle
 };
 
 struct PairingStats

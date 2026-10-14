@@ -3,6 +3,8 @@
 // compensation steps against saturation.
 #include <gtest/gtest.h>
 
+#include <optional>
+
 #include <opencv2/core.hpp>
 #include <opencv2/core/cuda.hpp>
 
@@ -11,6 +13,7 @@
 
 using depthd::ExposureFollower;
 using depthd::ExposureFollowerOptions;
+using depthd::FollowStarvationGuard;
 using depthd::SaturationCompensator;
 using depthd::SaturationOptions;
 using depthd::SensorExposure;
@@ -22,6 +25,7 @@ ExposureFollowerOptions follower_options()
   ExposureFollowerOptions o;
   o.threshold = 0.05;
   o.settle_frames = 2;
+  o.transition_frames = 30;
   return o;
 }
 
@@ -48,24 +52,24 @@ void settle(ExposureFollower & f, const SensorExposure & e)
 TEST(ExposureFollower, FirstLeftReadbackPinsTheRightAndPairsWaitForIt)
 {
   ExposureFollower f(follower_options());
-  EXPECT_FALSE(f.matched()) << "nothing pinned yet: the right runs its own AE";
+  EXPECT_FALSE(f.pairs_flow()) << "nothing pinned yet: the right runs its own AE";
   const auto pin = f.on_left({12000, 53});
   ASSERT_TRUE(pin);
   EXPECT_EQ(*pin, (SensorExposure{12000, 53}));
   EXPECT_EQ(f.pins(), 1u);
-  EXPECT_FALSE(f.matched());
+  EXPECT_FALSE(f.pairs_flow());
   f.on_right_frame();  // frames before the readback matched do not count
   f.on_right_frame();
-  EXPECT_FALSE(f.matched());
+  EXPECT_FALSE(f.pairs_flow());
   f.on_right({20000, 80});  // still the right's own AE values
   f.on_right_frame();
   f.on_right_frame();
-  EXPECT_FALSE(f.matched());
+  EXPECT_FALSE(f.pairs_flow());
   f.on_right({12000, 53});
   f.on_right_frame();
-  EXPECT_FALSE(f.matched()) << "one settle frame of two";
+  EXPECT_FALSE(f.pairs_flow()) << "one settle frame of two";
   f.on_right_frame();
-  EXPECT_TRUE(f.matched());
+  EXPECT_TRUE(f.pairs_flow());
 }
 
 TEST(ExposureFollower, SmallLeftChangesDoNotRepin)
@@ -73,10 +77,10 @@ TEST(ExposureFollower, SmallLeftChangesDoNotRepin)
   ExposureFollower f(follower_options());
   ASSERT_TRUE(f.on_left({12000, 64}));
   settle(f, {12000, 64});
-  ASSERT_TRUE(f.matched());
+  ASSERT_TRUE(f.pairs_flow());
   EXPECT_FALSE(f.on_left({12400, 64}));  // +3.3 %
   EXPECT_FALSE(f.on_left({11600, 66}));  // -3.3 %, +3.1 %
-  EXPECT_TRUE(f.matched());
+  EXPECT_TRUE(f.pairs_flow());
   EXPECT_EQ(f.pins(), 1u);
 }
 
@@ -85,22 +89,22 @@ TEST(ExposureFollower, LeftChangeBeyondThresholdRepinsAndWithholdsPairsUntilTheR
   ExposureFollower f(follower_options());
   ASSERT_TRUE(f.on_left({12000, 64}));
   settle(f, {12000, 64});
-  ASSERT_TRUE(f.matched());
+  ASSERT_TRUE(f.pairs_flow());
   // Lights on: the left's AE cuts the exposure by half.
   const auto pin = f.on_left({6000, 64});
   ASSERT_TRUE(pin);
   EXPECT_EQ(*pin, (SensorExposure{6000, 64}));
-  EXPECT_FALSE(f.matched()) << "the right still runs at the old exposure";
+  EXPECT_FALSE(f.pairs_flow()) << "the right still runs at the old exposure";
   f.on_right({12000, 64});
   f.on_right_frame();
   f.on_right_frame();
-  EXPECT_FALSE(f.matched());
+  EXPECT_FALSE(f.pairs_flow());
   settle(f, {6000, 64});
-  EXPECT_TRUE(f.matched());
+  EXPECT_TRUE(f.pairs_flow());
   EXPECT_EQ(f.pins(), 2u);
   // A gain-only change beyond the threshold re-pins too.
   ASSERT_TRUE(f.on_left({6000, 80}));
-  EXPECT_FALSE(f.matched());
+  EXPECT_FALSE(f.pairs_flow());
 }
 
 TEST(ExposureFollower, ReadbackWithinSensorQuantisationMatches)
@@ -108,7 +112,7 @@ TEST(ExposureFollower, ReadbackWithinSensorQuantisationMatches)
   ExposureFollower f(follower_options());
   ASSERT_TRUE(f.on_left({33329, 101}));
   settle(f, {33330, 100});  // a line of exposure and one gain step apart: the sensors' own quantisation
-  EXPECT_TRUE(f.matched());
+  EXPECT_TRUE(f.pairs_flow());
 }
 
 TEST(ExposureFollower, ResetForgetsThePinAfterARightRestart)
@@ -116,9 +120,9 @@ TEST(ExposureFollower, ResetForgetsThePinAfterARightRestart)
   ExposureFollower f(follower_options());
   ASSERT_TRUE(f.on_left({12000, 64}));
   settle(f, {12000, 64});
-  ASSERT_TRUE(f.matched());
+  ASSERT_TRUE(f.pairs_flow());
   f.reset();
-  EXPECT_FALSE(f.matched());
+  EXPECT_FALSE(f.pairs_flow());
   EXPECT_FALSE(f.pin());
   const auto pin = f.on_left({12000, 64});  // same values: pinned again all the same
   ASSERT_TRUE(pin);
@@ -130,9 +134,114 @@ TEST(ExposureFollower, OptionsFromConfig)
   depthd::ExposureConfig e;
   e.follow_threshold = 0.1;
   e.follow_settle_frames = 4;
+  e.follow_transition_frames = 45;
   const auto o = ExposureFollowerOptions::from_config(e);
   EXPECT_DOUBLE_EQ(o.threshold, 0.1);
   EXPECT_EQ(o.settle_frames, 4);
+  EXPECT_EQ(o.transition_frames, 45);
+}
+
+// One measurement as StereoCapture runs it: the right's fresh readback first, then the left's; then the right frames
+// until the next measurement. Returns the re-pin, if any.
+std::optional<SensorExposure> measure(
+  ExposureFollower & f, const SensorExposure & left, const SensorExposure & right, int right_frames = 2)
+{
+  f.on_right(right);
+  const auto pin = f.on_left(left);
+  for (int i = 0; i < right_frames; ++i) f.on_right_frame();
+  return pin;
+}
+
+// The live freeze (2026-10-14): a right restart applied the exposure caps after the pin, so the right ran its own AE
+// at 19999 us while the follower held a pin of 16666 us that the left never moved away from. The follower must
+// compare what the right achieved and pin it again instead of withholding every pair forever.
+TEST(ExposureFollower, RightThatIgnoredThePinIsPinnedAgainAfterTheTransitionWindow)
+{
+  ExposureFollower f(follower_options());
+  const SensorExposure left{16666, 128};
+  const SensorExposure ignored{19999, 128};
+  ASSERT_TRUE(measure(f, left, ignored));
+  int repins = 0;
+  for (int m = 0; m < 40; ++m) {
+    if (const auto pin = measure(f, left, ignored)) {
+      EXPECT_EQ(*pin, left);
+      ++repins;
+    }
+  }
+  EXPECT_GE(repins, 1) << "the right never took the pin: it must be pinned again";
+  EXPECT_LE(repins, 3) << "at most one re-pin per transition window";
+}
+
+TEST(ExposureFollower, PairsAreWithheldOnlyForTheBoundedTransitionWindow)
+{
+  ExposureFollowerOptions o = follower_options();
+  o.transition_frames = 6;
+  ExposureFollower f(o);
+  ASSERT_TRUE(f.on_left({16666, 128}));
+  f.on_right({19999, 128});
+  int withheld = 0;
+  for (int i = 0; i < 20 && !f.pairs_flow(); ++i) {
+    f.on_right_frame();
+    ++withheld;
+  }
+  EXPECT_EQ(withheld, 6) << "a right that never matches withholds pairs for transition_frames right frames, no more";
+  EXPECT_TRUE(f.pairs_flow());
+  EXPECT_FALSE(f.converged());
+}
+
+TEST(ExposureFollower, ConvergedFollowerStopsRepinning)
+{
+  ExposureFollower f(follower_options());
+  ASSERT_TRUE(measure(f, {16666, 128}, {19999, 128}));
+  // The right reaches the pin within a sensor line and a gain step; the left's AE jitters below the threshold.
+  const SensorExposure lefts[] = {{16666, 128}, {16700, 127}, {16640, 129}, {16666, 128}};
+  for (int m = 0; m < 100; ++m) {
+    EXPECT_FALSE(measure(f, lefts[m % 4], {16650, 127})) << "measurement " << m;
+  }
+  EXPECT_EQ(f.pins(), 1u);
+  EXPECT_TRUE(f.pairs_flow());
+  EXPECT_TRUE(f.converged());
+}
+
+TEST(ExposureFollower, ConvergedOnlyWhileTheRightReadbackIsAtThePin)
+{
+  ExposureFollower f(follower_options());
+  EXPECT_FALSE(f.converged());
+  ASSERT_TRUE(measure(f, {12000, 64}, {12000, 64}));
+  measure(f, {12000, 64}, {12000, 64});
+  EXPECT_TRUE(f.converged());
+  ASSERT_TRUE(f.on_left({6000, 64}));  // lights on: a new pin, the right still at the old one
+  EXPECT_FALSE(f.converged());
+}
+
+TEST(FollowStarvationGuard, FiresOnceWhenTheRightHasNotConvergedForTheLimit)
+{
+  FollowStarvationGuard g(10'000'000'000);  // 10 s
+  int64_t t = 1'000'000'000;
+  EXPECT_FALSE(g.on_pair(t, false));
+  EXPECT_FALSE(g.on_pair(t + 9'000'000'000, false));
+  EXPECT_TRUE(g.on_pair(t + 10'500'000'000, false));
+  EXPECT_FALSE(g.on_pair(t + 11'000'000'000, false)) << "once";
+  EXPECT_EQ(g.unconverged_ns(t + 11'000'000'000), 11'000'000'000);
+}
+
+TEST(FollowStarvationGuard, AConvergedPairRestartsTheClock)
+{
+  FollowStarvationGuard g(10'000'000'000);
+  EXPECT_FALSE(g.on_pair(0, false));
+  EXPECT_FALSE(g.on_pair(8'000'000'000, true));
+  EXPECT_FALSE(g.on_pair(17'000'000'000, false));
+  EXPECT_TRUE(g.on_pair(18'500'000'000, false));
+}
+
+TEST(FollowStarvationGuard, ResetRestartsTheClockAtTheNextPair)
+{
+  FollowStarvationGuard g(10'000'000'000);
+  EXPECT_FALSE(g.on_pair(0, false));
+  g.reset();  // a right restart
+  EXPECT_FALSE(g.on_pair(9'000'000'000, false));
+  EXPECT_FALSE(g.on_pair(18'000'000'000, false));
+  EXPECT_TRUE(g.on_pair(19'500'000'000, false));
 }
 
 TEST(PinnedRangeProperties, FormatsNanosecondsAndGainAndClampsToArgusLimits)

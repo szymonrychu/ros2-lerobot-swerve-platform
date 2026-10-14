@@ -120,6 +120,29 @@ TEST(Health, OkStateNamesADepthStall)
   EXPECT_EQ(h.reason, "no depth frame for 3.5 s");
 }
 
+// The live freeze (2026-10-14): depth stopped for minutes while /health said ok.
+TEST(Health, DegradedWhenCalibratedButNoDepthForLongerThanTheLimit)
+{
+  depthd::HealthInputs in = healthy();
+  in.degraded_after_ms = 5000.0;
+  in.last_depth_age_ms = 4900.0;
+  depthd::Health h = depthd::compose_health(in);
+  EXPECT_EQ(h.state, "ok");
+  in.last_depth_age_ms = 383000.0;
+  h = depthd::compose_health(in);
+  EXPECT_EQ(h.state, "degraded");
+  EXPECT_EQ(h.reason, "no depth frame for 383.0 s");
+  // A runtime re-alignment that never ends is degraded too, and names what the capture is doing.
+  in.capture.state = depthd::CaptureState::starting;
+  in.capture.reason = "aligning the camera phase (3 restarts so far)";
+  h = depthd::compose_health(in);
+  EXPECT_EQ(h.state, "degraded");
+  EXPECT_EQ(h.reason, "no depth frame for 383.0 s: aligning the camera phase (3 restarts so far)");
+  // Uncalibrated is not degraded: no depth is expected.
+  in.calibrated = false;
+  EXPECT_EQ(depthd::compose_health(in).state, "uncalibrated");
+}
+
 TEST(Health, GpuTemperatureFromTheGpuThermZone)
 {
   const fs::path root = temp_dir("thermal");
