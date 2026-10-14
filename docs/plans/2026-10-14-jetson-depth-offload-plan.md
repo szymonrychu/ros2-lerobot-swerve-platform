@@ -40,7 +40,7 @@ Fixed interfaces (from the design):
 cpp-httplib, yaml-cpp, nlohmann-json, GoogleTest) on the Jetson; rclcpp Jazzy on the Pi; Python 3.8 (calibration) and
 uv Python (export, e2e script); Ansible. Commands: `uv run poe lint`, `uv run pytest tests -q`, `uv run poe test-ansible`,
 `scripts/cpp-node-test.sh <pkg>`, per-project `uv run --frozen pytest -q`, and the Jetson remote build:
-`rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'`.
+`ssh -o BatchMode=yes jetson@192.168.1.32 'rm -rf ~/depthd-dev-<task>' && rsync -azR --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev-<task>/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'` (one fresh remote dir per task: macOS openrsync `-R --delete` keeps files deleted at the source, so a shared ~/depthd-dev compiles sibling tasks' globbed sources).
 
 **Spec:** `docs/plans/2026-10-14-jetson-depth-offload-design.md` (executors read both: the design doc for the why and the
 decisions, this plan for the what). Briefs: `docs/plans/2026-10-14-jetson-depth-offload-briefs/` (copied by T1).
@@ -542,10 +542,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+ssh -o BatchMode=yes jetson@192.168.1.32 'rm -rf ~/depthd-dev-t9' && rsync -azR --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev-t9/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-t9/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Research: pair by GstBufferMetaData timestamps, lost after videorate (do not use videorate); the Argus syncSensor pattern is the fallback only if T16's skew histogram fails the 8 ms window. jetson-utils is not installed: take its EGL mapping pattern, not the library.
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to a fresh ~/depthd-dev-t9 (removed first, so no sibling task's sources are globbed in) and runs the full ctest. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Research: pair by GstBufferMetaData timestamps, lost after videorate (do not use videorate); the Argus syncSensor pattern is the fallback only if T16's skew histogram fails the 8 ms window. jetson-utils is not installed: take its EGL mapping pattern, not the library.
 
 
 ### Task 10: Calibration file format, validation and GPU rectification maps
