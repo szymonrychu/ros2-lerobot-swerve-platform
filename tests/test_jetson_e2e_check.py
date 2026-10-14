@@ -299,7 +299,7 @@ def test_main_exit_codes(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Capture
     texts = good_texts()
     monkeypatch.setattr("scripts.jetson_e2e_check.ssh_run", fake_runner([], texts))
     monkeypatch.setattr("scripts.jetson_e2e_check.time.sleep", lambda s: None)
-    ticks = iter(range(0, 1000, 30))
+    ticks = iter([0, 0, 30])
     monkeypatch.setattr("scripts.jetson_e2e_check.time.monotonic", lambda: float(next(ticks)))
     assert main([]) == 0
     assert "PASS" in capsys.readouterr().out
