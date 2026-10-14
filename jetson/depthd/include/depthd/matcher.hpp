@@ -1,0 +1,46 @@
+// The common stereo matcher interface (design decision D3: the matcher is picked by benchmark).
+// Implementations: cuda_sgm (cv::cuda::StereoSGM, matcher_cuda_sgm.cpp); vpi and libsgm are added behind
+// make_matcher by their own sources.
+#ifndef DEPTHD_MATCHER_HPP_
+#define DEPTHD_MATCHER_HPP_
+
+#include <memory>
+#include <opencv2/core.hpp>
+#include <opencv2/core/cuda.hpp>
+#include <string>
+
+#include "depthd/config.hpp"
+
+namespace depthd
+{
+
+class StereoMatcher
+{
+public:
+  virtual ~StereoMatcher() = default;
+
+  // left/right: rectified CV_8UC1 images of identical size. Returns CV_16SC1 disparity * 16 (left-image
+  // referenced); non-positive values are invalid. Throws std::invalid_argument on a wrong type or size mismatch.
+  virtual cv::cuda::GpuMat compute(const cv::cuda::GpuMat & left, const cv::cuda::GpuMat & right,
+                                   cv::cuda::Stream & stream = cv::cuda::Stream::Null()) = 0;
+
+  virtual std::string name() const = 0;
+
+  // True when the matcher can also produce the right-referenced disparity for a left-right consistency check.
+  virtual bool supports_lr_check() const = 0;
+};
+
+// Builds the matcher named by config.matcher using processing.num_disparities, p1, p2 and uniqueness_ratio.
+// Throws std::invalid_argument for an unknown name or unsupported parameters (cuda_sgm: 64, 128 or 256 disparities).
+std::unique_ptr<StereoMatcher> make_matcher(const Processing & processing);
+inline std::unique_ptr<StereoMatcher> make_matcher(const Config & config) { return make_matcher(config.processing); }
+
+// Shared by implementations: throws std::invalid_argument unless both are non-empty CV_8UC1 of the same size.
+void check_matcher_inputs(const cv::cuda::GpuMat & left, const cv::cuda::GpuMat & right);
+
+// cuda_sgm factory (matcher_cuda_sgm.cpp).
+std::unique_ptr<StereoMatcher> make_cuda_sgm_matcher(const Processing & processing);
+
+}  // namespace depthd
+
+#endif  // DEPTHD_MATCHER_HPP_

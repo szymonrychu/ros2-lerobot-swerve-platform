@@ -9,7 +9,7 @@ ROS 2 bridge on the Pi. This keeps stereo work off the saturated Pi 5 CPU.
 
 ```
 CMakeLists.txt        finds and links every dependency; globs src/*.cpp and test/test_*.cpp
-include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification)
+include/depthd/       public headers (config.hpp: the config schema; capture.hpp, pairing.hpp: stereo capture; calibration.hpp, rectify.hpp: calibration and GPU rectification; matcher.hpp, depth.hpp: matching and depth)
 src/                  library sources; main.cpp -> depthd and bench_main.cpp -> depthd-bench when present
 config/depthd.yaml    the one example and default config (equals the struct defaults)
 test/                 gtest binaries, one per test_*.cpp
@@ -199,3 +199,33 @@ processing size: K, P (rows 0 and 1) and Q (column 3) scale with the size ratio;
 unrectified left `K`/`D` for camera_info. With a missing or invalid file the rectifier is `uncalibrated`, `reason()`
 says why, and `rectify()` writes nothing, so no depth is produced. `reload()` re-reads the file and swaps the maps
 atomically (a bad file on reload makes it `uncalibrated` too).
+
+## Matcher interface and depth conversion
+
+`include/depthd/matcher.hpp` is the common stereo matcher interface (design decision D3: the matcher is picked by
+benchmark). `depthd::StereoMatcher` has:
+
+- `compute(left, right, stream) -> cv::cuda::GpuMat`: rectified `CV_8UC1` inputs of equal size (anything else throws
+  `std::invalid_argument`); returns `CV_16SC1` disparity times 16, left-image referenced; values `<= 0` are invalid.
+- `name()`: the config name (`cuda_sgm`, later `vpi`, `libsgm`).
+- `supports_lr_check()`: whether the matcher can also produce the right-referenced disparity for the left-right check.
+
+`make_matcher(Config)` (or `make_matcher(Processing)`) builds `processing.matcher` and throws `std::invalid_argument`
+for an unknown name or unsupported parameters. `cuda_sgm` (`src/matcher_cuda_sgm.cpp`) is `cv::cuda::createStereoSGM`
+with `processing.num_disparities` (64, 128 or 256), `p1`, `p2`, `uniqueness_ratio` and `MODE_HH4`; it has no LR check.
+A new matcher adds its own source and one branch in `src/matcher.cpp`.
+
+`include/depthd/depth.hpp`: `disparity_to_depth_mm(disp16, f_px, baseline_m, min_depth_m, max_depth_m [, out], stream)`
+runs on the GPU (OpenCV CUDA ops on the given stream) and returns `CV_16UC1` millimetres, the ToF contract where
+0 means invalid:
+
+```
+Z_mm = round(f_px * baseline_m * 1000 / (disp16 / 16))      saturated at 65535, never wrapped
+Z_mm = 0   where disp16 <= 0 (includes the matchers' negative invalid marker and INT16_MIN)
+Z_mm = 0   where Z_mm < round(min_depth_m * 1000) or Z_mm > round(max_depth_m * 1000)   (limits inclusive)
+```
+
+`f_px` is the focal length of the rectified left projection (`P[0][0]`) and `baseline_m` comes from the calibration
+(`Rectification::baseline_m()`). Example: f 400 px, B 60 mm, disparity 40 px gives 600 mm. Tests:
+`test/test_depth.cpp` (exact values, every invalid case, saturation) and `test/test_matcher.cpp` (a textured pair
+shifted by 40 px gives 600 mm within 2% on at least 90% of the interior for `cuda_sgm` at 64 and 128 disparities).
