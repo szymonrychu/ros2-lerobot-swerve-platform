@@ -40,7 +40,7 @@ Fixed interfaces (from the design):
 cpp-httplib, yaml-cpp, nlohmann-json, GoogleTest) on the Jetson; rclcpp Jazzy on the Pi; Python 3.8 (calibration) and
 uv Python (export, e2e script); Ansible. Commands: `uv run poe lint`, `uv run pytest tests -q`, `uv run poe test-ansible`,
 `scripts/cpp-node-test.sh <pkg>`, per-project `uv run --frozen pytest -q`, and the Jetson remote build:
-`ssh -o BatchMode=yes jetson@192.168.1.32 'rm -rf ~/depthd-dev-<task>' && rsync -azR --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev-<task>/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'` (one fresh remote dir per task: macOS openrsync `-R --delete` keeps files deleted at the source, so a shared ~/depthd-dev compiles sibling tasks' globbed sources).
+`ssh -o BatchMode=yes jetson@192.168.1.32 'rm -rf ~/depthd-dev-<task>' && rsync -azR --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev-<task>/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'` (one fresh remote dir per task: macOS openrsync `-R --delete` keeps files deleted at the source, so a shared ~/depthd-dev-<task> compiles sibling tasks' globbed sources).
 
 **Spec:** `docs/plans/2026-10-14-jetson-depth-offload-design.md` (executors read both: the design doc for the why and the
 decisions, this plan for the what). Briefs: `docs/plans/2026-10-14-jetson-depth-offload-briefs/` (copied by T1).
@@ -61,7 +61,7 @@ Why: the Pi 5 CPU is saturated and its stereo pipeline never produced depth; the
 - Never remove an nvidia-l4t, CUDA, cuDNN, TensorRT, VPI or OpenCV 4.8 component; never touch the Jetson's wlan0 netplan
   stanza; never run `ansible-playbook` directly (only `scripts/deploy-nodes.sh`, output to `.logs/`).
 - Jetson tasks (T5, T6, T8-T16, T18, T19, T30) use the board: they are chained by dependsOn so only one uses
-  `~/depthd-dev`, the cameras or the 4 GB RAM at a time. Jetson deploys inside tasks are allowed (the Jetson runs no
+  `~/depthd-dev-<task>`, the cameras or the 4 GB RAM at a time. Jetson deploys inside tasks are allowed (the Jetson runs no
   robot service). Pi deploys happen only in T30, because Pi deploys clone origin/main.
 - `ansible/inventory` is gitignored: copy the main checkout's file into a worktree before `poe test-ansible`; never commit it.
 - Docs (`tests/README.md`, `ansible/README.md`, node and package READMEs) are acceptance conditions of the task that
@@ -498,10 +498,10 @@ Expected: last line `cpp-node-test: ros2_common_cpp PASS` and `Summary: N tests,
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Mains (src/main.cpp, src/bench_main.cpp) are excluded from the lib glob by name.
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev-<task> and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev-<task> or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Mains (src/main.cpp, src/bench_main.cpp) are excluded from the lib glob by name.
 
 
 ### Task 9: Stereo capture with nvarguscamerasrc, AE/AWB lock, timestamp pairing and the RGB JPEG branch
@@ -584,10 +584,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Format mirrors nodes/stereo_depth/stereo_depth/calibration.py (R, T, Q, rms) so the reused solve code fits.
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev-<task> and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev-<task> or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Format mirrors nodes/stereo_depth/stereo_depth/calibration.py (R, T, Q, rms) so the reused solve code fits.
 
 
 ### Task 11: Matcher interface, cv::cuda::StereoSGM matcher and disparity-to-depth conversion
@@ -625,10 +625,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames.
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev-<task> and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev-<task> or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames.
 
 
 ### Task 12: VPI 1.1 CUDA stereo and libSGM 3.1.0 matchers behind the common interface
@@ -666,10 +666,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. The VPI Python binding does not import on Python 3.8; use the C API only.
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev-<task> and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev-<task> or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. The VPI Python binding does not import on Python 3.8; use the C API only.
 
 
 ### Task 13: GPU post-processing: LR check, confidence, speckle, bilateral, small-hole fill, motion-gated temporal filter
@@ -707,10 +707,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Research: prefer invalid over wrong; keep holes large holes at 0.
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev-<task> and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev-<task> or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Research: prefer invalid over wrong; keep holes large holes at 0.
 
 
 ### Task 14: ZeroMQ publisher and the HTTP API (/health, /config, /calibration, /metrics)
@@ -750,10 +750,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Bind to transport.bind_address (10.77.0.2); tests bind 127.0.0.1 with free ports.
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev-<task> and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev-<task> or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. Bind to transport.bind_address (10.77.0.2); tests bind 127.0.0.1 with free ports.
 
 
 ### Task 15: depthd pipeline, main and health metrics, wired end to end with a fake frame source test
@@ -793,10 +793,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. 4 GB shared RAM: reuse GpuMat buffers, no per-frame allocation.
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev-<task> and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev-<task> or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. 4 GB shared RAM: reuse GpuMat buffers, no per-frame allocation.
 
 
 ### Task 16: D3 benchmark: three matchers at 640x480 with 64 and 128 disparities, results file and the default matcher
@@ -817,7 +817,7 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 - model: opus
 
 **Requirement:**
-- depthd-bench measures, under MAXN with jetson_clocks, each matcher (cuda_sgm, vpi, libsgm) at 640x480 with 64 and 128 disparities: matcher ms (mean, p95), full pipeline fps with post-processing on, valid-pixel ratio, bad-pixel rate (> 2 px) and edge bleed (error within 3 px of ground-truth depth edges) on at least five Middlebury scenes with ground truth scaled to 640x480 (downloaded at run time into ~/depthd-dev/data, not committed; scene list and source URL in bench.yaml), and zero_copy true vs false capture cost.
+- depthd-bench measures, under MAXN with jetson_clocks, each matcher (cuda_sgm, vpi, libsgm) at 640x480 with 64 and 128 disparities: matcher ms (mean, p95), full pipeline fps with post-processing on, valid-pixel ratio, bad-pixel rate (> 2 px) and edge bleed (error within 3 px of ground-truth depth edges) on at least five Middlebury scenes with ground truth scaled to 640x480 (downloaded at run time into ~/depthd-dev-<task>/data, not committed; scene list and source URL in bench.yaml), and zero_copy true vs false capture cost.
 - It also captures 300 live pairs through StereoCapture and records the pair skew histogram (design assumption 'Pairing': at least 95% of pairs within 8 ms, else the README and RESULTS.md name the Argus syncSensor fallback as the next step and the task reports it).
 - bench_metrics computes valid ratio, bad-pixel rate and edge bleed; test_bench_metrics.cpp checks them on synthetic ground truth with known errors.
 - RESULTS.md (committed) holds the date, board state (nvpmodel, jetson_clocks), the full table and the decision: the fastest matcher meeting G5 (>= 10 fps full pipeline at 640x480, 128 disparities, post-processing on) with the best valid-pixel ratio and least edge bleed, as `Default matcher: <name>`; config/depthd.yaml uses that matcher. If none meets G5, the task stops as blocked with the table (whoCanClear: user, choosing 64 disparities or a lower resolution) instead of picking one.
@@ -835,10 +835,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure' && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && sudo nvpmodel -m 0 && sudo jetson_clocks && ./build/depthd-bench --config bench/bench.yaml --out /tmp/depthd-bench.md && grep -q "^Default matcher:" /tmp/depthd-bench.md' && test "$(sed -n 's/^Default matcher: //p' jetson/depthd/bench/RESULTS.md)" = "$(sed -n 's/^ *matcher: //p' jetson/depthd/config/depthd.yaml)"
+rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure' && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && sudo nvpmodel -m 0 && sudo jetson_clocks && ./build/depthd-bench --config bench/bench.yaml --out /tmp/depthd-bench.md && grep -q "^Default matcher:" /tmp/depthd-bench.md' && test "$(sed -n 's/^Default matcher: //p' jetson/depthd/bench/RESULTS.md)" = "$(sed -n 's/^ *matcher: //p' jetson/depthd/config/depthd.yaml)"
 ```
 Expected: ctest `100% tests passed`, the bench run exits 0 and prints a Default matcher line, and the committed RESULTS.md default equals config/depthd.yaml's matcher.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. The cameras are free here (depthd is deployed only in T19).
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev-<task> and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev-<task> or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. The cameras are free here (depthd is deployed only in T19).
 
 
 ### Task 17: ONNX export of Depth Anything V2 Small (opset <= 13, 266x266) and the MiDaS v2.1 small fallback
@@ -903,7 +903,7 @@ Expected: pytest all passed (both real exports included), ruff clean, both ONNX 
 - MonoDepth runs asynchronously at mono.rate_hz on a lower-priority CUDA stream so the stereo path keeps G5; a missing or failing engine sets mono_state error in /health, disables fused output, and never affects `depth`.
 - align_and_fill fits scale and shift of mono inverse depth to valid stereo inverse depth with a robust (Huber or RANSAC) fit on LR-checked pixels only, requires at least 500 inlier pixels (else no fused frame), and writes stereo depth unchanged where valid and aligned mono depth only where stereo is 0; out-of-range results stay 0.
 - The pipeline publishes `fused` (kind fused, same header as the depth frame it was fused with) only; `depth` is byte-identical with mono on or off (anti-goal: fused depth leaking into /stereo/depth/image_raw), asserted in test_scale_align.cpp's pipeline case.
-- test_scale_align.cpp: known s and t recovered with 30% outliers; valid stereo pixels never change; too few inliers gives no output; an engine test loads ~/depthd-dev/models/<model>.engine and checks output shape and finite values on a synthetic image.
+- test_scale_align.cpp: known s and t recovered with 30% outliers; valid stereo pixels never change; too few inliers gives no output; an engine test loads ~/depthd-dev-<task>/models/<model>.engine and checks output shape and finite values on a synthetic image.
 
 **Value:** Texture-less surfaces get filled depth on a separate topic, without ever corrupting the measured stereo depth.
 
@@ -917,10 +917,10 @@ Expected: pytest all passed (both real exports included), ruff clean, both ONNX 
 
 **Verify:**
 ```
-cd jetson/models && uv run --frozen python export_onnx.py && cd ../.. && ssh -o BatchMode=yes jetson@192.168.1.32 'mkdir -p ~/depthd-dev/models' && scp -q jetson/models/build/dav2_small_266.onnx jetson/models/build/midas_small_256.onnx jetson@192.168.1.32:depthd-dev/models/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/models && for m in dav2_small_266 midas_small_256; do test -s $m.engine || /usr/src/tensorrt/bin/trtexec --onnx=$m.onnx --fp16 --saveEngine=$m.engine --workspace=1024 >/dev/null || exit 1; done' && rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure' && grep -q '^Default mono model:' jetson/models/RESULTS.md
+cd jetson/models && uv run --frozen python export_onnx.py && cd ../.. && ssh -o BatchMode=yes jetson@192.168.1.32 'mkdir -p ~/depthd-dev-<task>/models' && scp -q jetson/models/build/dav2_small_266.onnx jetson/models/build/midas_small_256.onnx jetson@192.168.1.32:depthd-dev/models/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/models && for m in dav2_small_266 midas_small_256; do test -s $m.engine || /usr/src/tensorrt/bin/trtexec --onnx=$m.onnx --fp16 --saveEngine=$m.engine --workspace=1024 >/dev/null || exit 1; done' && rsync -azR --delete --exclude build/ jetson/depthd shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure' && grep -q '^Default mono model:' jetson/models/RESULTS.md
 ```
 Expected: export ok, both engines built, ctest `100% tests passed` (engine test included), and RESULTS.md names the default mono model.
-**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. The engine test reads DEPTHD_TEST_ENGINE_DIR (default ~/depthd-dev/models).
+**Notes:** Jetson tasks build on the Jetson only (Ubuntu 20.04, L4T R32.6.1, gcc 8.4 - link stdc++fs for std::filesystem, CUDA 10.2 sm_53, OpenCV 4.8.0 CUDA at /usr, TensorRT 8.0.1, VPI 1.1). The verify rsyncs jetson/depthd and shared/ros2_common_cpp (layout kept with -R) to ~/depthd-dev-<task> and runs the full ctest; Jetson tasks are chained by dependsOn so two never share ~/depthd-dev-<task> or the 4 GB RAM. CMake globs src/*.cpp and test/test_*.cpp (T8), so a task adds files without editing CMakeLists.txt unless it adds a dependency or an executable. No ROS on the Jetson. Never write placeholder frames. The engine test reads DEPTHD_TEST_ENGINE_DIR (default ~/depthd-dev-<task>/models).
 
 
 ### Task 19: jetson_depthd role part 2: on-device build, systemd unit with cgroup weights, config, engine build, calibration tool install; deployed
@@ -1448,10 +1448,10 @@ Expected: both recaps `failed=0`, last e2e line `jetson-e2e: PASS ...`, results 
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts.
+**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev-<task> and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts.
 
 ### Task 32: depthd calibration-page config keys and the jetson_depthd role defaults
 
@@ -1488,10 +1488,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure' && uv run pytest tests/test_jetson_depthd_role.py -q && uv run poe lint && uv run poe test-ansible
+rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure' && uv run pytest tests/test_jetson_depthd_role.py -q && uv run poe lint && uv run poe test-ansible
 ```
 Expected: ctest `100% tests passed`, pytest all passed, ruff clean, ansible-lint `0 failure(s)`.
-**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts. ansible/inventory is gitignored: copy the main checkout's file into the worktree before poe test-ansible; never commit it.
+**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev-<task> and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts. ansible/inventory is gitignored: copy the main checkout's file into the worktree before poe test-ansible; never commit it.
 
 ### Task 33: Calibration tool: solve from depthd's stored captures with a machine-readable result
 
@@ -1570,10 +1570,10 @@ Expected: pytest all passed under Python 3.8 and ruff clean.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts. The fake tool is test-only; it is never installed by Ansible.
+**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev-<task> and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts. The fake tool is test-only; it is never installed by Ansible.
 
 ### Task 35: depthd calibration endpoints: preview with detection, capture pair, list, delete, solve
 
@@ -1614,10 +1614,10 @@ Expected: ctest ends with `100% tests passed, 0 tests failed`.
 
 **Verify:**
 ```
-rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
+rsync -azR --delete --exclude build/ --exclude .venv/ jetson/depthd jetson/calibrate shared/ros2_common_cpp jetson@192.168.1.32:depthd-dev/ && ssh -o BatchMode=yes jetson@192.168.1.32 'cd ~/depthd-dev-<task>/jetson/depthd && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j3 && ctest --test-dir build --output-on-failure'
 ```
 Expected: ctest ends with `100% tests passed, 0 tests failed`.
-**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts.
+**Notes:** Jetson task: builds and tests on the board only (Ubuntu 20.04, gcc 8.4 - link stdc++fs, OpenCV 4.8.0 with objdetect aruco: cv::aruco::CharucoDetector). It runs after T30 so it never competes with the hardware check's rate and latency measurements or another task for ~/depthd-dev-<task> and the 4 GB RAM; the A8 Jetson tasks are chained T31 -> T32 -> T34 -> T35. The verify also syncs jetson/calibrate because the board definition is read from jetson/calibrate/config/calibrate.yaml. CMake globs src/*.cpp and test/test_*.cpp (T8). No ROS on the Jetson. Never write placeholder frames or counts.
 
 ### Task 36: web_ui backend: calibration config and the stereo proxy to depthd
 
