@@ -1,0 +1,57 @@
+[project]
+name = "stereo-calibrate"
+version = "0.1.0"
+description = "Stereo ChArUco calibration tool for the Jetson depthd (python3 -m stereo_calibrate board|capture|solve)"
+readme = "README.md"
+requires-python = ">=3.8"
+# Runtime deps match the Jetson's system Python 3.8: its OpenCV 4.8 (aruco), numpy 1.18 and pydantic 2.
+# opencv is not listed: the Jetson provides it system-wide; the dev group installs a wheel for the tests.
+dependencies = [
+    "numpy>=1.18",
+    "pydantic>=2,<3",
+]
+
+[dependency-groups]
+dev = [
+    "opencv-contrib-python-headless>=4.8,<4.11",
+    "ruff==0.15.20",
+    "vulture==2.14",
+    "poethepoet==0.30.0",
+    "pytest==8.3.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["stereo_calibrate"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+ignore = ["E501", "UP031"]
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  ruff check stereo_calibrate tests
+  ruff format --check stereo_calibrate tests
+  vulture stereo_calibrate tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  ruff check --fix stereo_calibrate tests
+  ruff format stereo_calibrate tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
