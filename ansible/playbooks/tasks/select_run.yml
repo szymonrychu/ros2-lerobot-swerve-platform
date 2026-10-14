@@ -21,6 +21,8 @@
   ansible.builtin.set_fact:
     ros2_scope_nodes: >-
       {{ (ros2_nodes | map(attribute='name') | list)
-         if ('all' in ansible_run_tags or (ros2_selected_nodes | length == 0 and ansible_run_tags | intersect(['monitoring', 'jetson_link']) | length == 0))
+         if ('all' in ansible_run_tags
+             or (ros2_selected_nodes | length == 0
+                 and ansible_run_tags | select('in', ['monitoring', 'jetson_link']) | list | length == 0))
          else ros2_selected_nodes }}
   tags: [always]
