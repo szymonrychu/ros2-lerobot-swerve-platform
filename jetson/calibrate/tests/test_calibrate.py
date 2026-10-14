@@ -310,8 +310,7 @@ def test_ereader_board_layout(size):
 @pytest.mark.parametrize("size", ["1072x1448", "1236x1648", "1264x1680"])
 def test_reference_pngs_are_the_tools_output(size):
     path = REFERENCE_DIR / ("charuco-7x5-dict5x5_100-%s.png" % size)
-    if not path.is_file():
-        pytest.skip("docs/plans are not part of this checkout")
+    assert path.is_file(), "reference PNG missing: %s" % path
     width, height = (int(v) for v in size.split("x"))
     reference = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     rendered = cal.render_board(CalibrateConfig(), width, height)
