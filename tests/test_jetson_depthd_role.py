@@ -205,3 +205,158 @@ def test_playbook_applies_the_role_with_build_deps_and_depthd_tags() -> None:
     assert roles[0]["tags"] == ["build_deps", "depthd"]
     order = [r["role"] for r in plays[0]["roles"]]
     assert order.index("jetson_base") < order.index("jetson_depthd")
+
+
+# ---- part 2: sync, build, config, service, calibration tool ----
+
+DEPTHD_CONFIG = REPO_ROOT / "jetson" / "depthd" / "config" / "depthd.yaml"
+
+
+def build_tasks() -> list[dict[str, Any]]:
+    """The tasks of build.yml.
+
+    Returns:
+        The parsed tasks/build.yml.
+    """
+    return load(ROLE_DIR / "tasks" / "build.yml")
+
+
+def build_task(fragment: str) -> dict[str, Any]:
+    """The single build task whose name contains a fragment.
+
+    Args:
+        fragment: Substring of the task name (case-insensitive).
+
+    Returns:
+        The task.
+    """
+    found = [t for t in build_tasks() if fragment.lower() in t["name"].lower()]
+    assert len(found) == 1, f"{fragment!r} matched {[t['name'] for t in found]}"
+    return found[0]
+
+
+def flat_keys(tree: Any, prefix: str = "") -> set[str]:
+    """Dotted paths of every mapping key in a nested document.
+
+    Args:
+        tree: Parsed YAML.
+        prefix: Path of the parent.
+
+    Returns:
+        The dotted key paths of all mappings.
+    """
+    if not isinstance(tree, dict):
+        return set()
+    keys: set[str] = set()
+    for key, value in tree.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        keys.add(path)
+        keys |= flat_keys(value, path)
+    return keys
+
+
+def test_sources_sync_from_the_controller_checkout_without_build_dirs() -> None:
+    for fragment, src, dest in (
+        ("Sync the depthd source", "jetson/depthd/", "/opt/depthd/src/jetson/depthd/"),
+        ("Sync the shared C++ library", "shared/ros2_common_cpp/", "/opt/depthd/src/shared/ros2_common_cpp/"),
+    ):
+        sync = build_task(fragment)["ansible.posix.synchronize"]
+        assert sync["src"] == "{{ ros2_repo_root }}/" + src
+        assert sync["dest"] == dest
+        assert "--exclude=build/" in " ".join(sync["rsync_opts"]) or "build/" in sync.get("rsync_opts", [])
+        assert sync.get("delete") in (None, False)
+    assert not re.search(r"ansible.builtin.git|git clone", (ROLE_DIR / "tasks" / "build.yml").read_text())
+
+
+def test_build_runs_only_when_the_stamp_is_missing() -> None:
+    text = (ROLE_DIR / "tasks" / "build.yml").read_text()
+    digest = build_task("Hash the synced")["ansible.builtin.shell"]["cmd"]
+    assert "sha256sum" in digest and "sort" in digest
+    stamp = build_task("Look for the build stamp")["ansible.builtin.stat"]
+    assert stamp["path"] == "{{ jetson_depthd_prefix }}/.built-{{ jetson_depthd_tree_hash.stdout }}"
+    build = build_task("Build depthd")
+    assert "not jetson_depthd_stamp.stat.exists" in str(build["when"])
+    assert "/usr/local/bin/depthd" in str(build["when"]) or "jetson_depthd_binary_stat" in str(build["when"])
+    cmd = build["ansible.builtin.shell"]["cmd"]
+    assert "nice -n 10" in cmd and "-j3" in cmd and "--target depthd" in cmd
+    assert "CMAKE_BUILD_TYPE=Release" in cmd
+    assert ".built-" in text and "state: touch" in text or "touch" in text
+
+
+def test_binary_is_installed_to_usr_local_bin_and_reports_change() -> None:
+    install = build_task("Install the depthd binary")["ansible.builtin.copy"]
+    assert install["dest"] == "/usr/local/bin/depthd"
+    assert install["remote_src"] is True and install["mode"] == "0755"
+    assert build_task("Install the depthd binary")["register"] == "jetson_depthd_binary"
+
+
+def test_no_engine_build_in_the_minimum_scope() -> None:
+    for path in (ROLE_DIR / "tasks").glob("*.yml"):
+        assert "trtexec" not in path.read_text()
+
+
+def test_calibrate_tool_is_synced_and_runs_on_system_python() -> None:
+    sync = build_task("Sync the calibration tool")["ansible.posix.synchronize"]
+    assert sync["src"] == "{{ ros2_repo_root }}/jetson/calibrate/"
+    assert sync["dest"] == "{{ jetson_depthd_prefix }}/calibrate/"
+    opts = " ".join(sync["rsync_opts"])
+    assert "--exclude=.venv" in opts and "--exclude=__pycache__" in opts
+    check = build_task("Check the calibration tool imports")["ansible.builtin.command"]
+    assert check.startswith("python3 -c") and "stereo_calibrate" in check
+    assert "venv" not in (ROLE_DIR / "tasks" / "build.yml").read_text().replace("--exclude=.venv", "")
+
+
+def test_template_keys_equal_the_depthd_yaml_keys() -> None:
+    config = defaults()["depthd_config"]
+    assert flat_keys(config) == flat_keys(load(DEPTHD_CONFIG))
+    assert config["processing"]["matcher"] == "cuda_sgm"
+    assert config["mono"]["enabled"] is False
+    template = (ROLE_DIR / "templates" / "depthd.yaml.j2").read_text()
+    assert "depthd_config" in template
+
+
+def test_config_is_rendered_and_validated_before_restart() -> None:
+    tasks = load(ROLE_DIR / "tasks" / "service.yml")
+    names = [t["name"] for t in tasks]
+    conf = next(
+        t for t in tasks if "ansible.builtin.template" in t and "depthd.yaml" in t["ansible.builtin.template"]["src"]
+    )
+    assert conf["ansible.builtin.template"]["dest"] == "{{ jetson_depthd_config_dir }}/depthd.yaml"
+    assert conf["ansible.builtin.template"]["validate"] == "/usr/local/bin/depthd --check-config %s"
+    assert names.index(conf["name"]) < names.index(next(n for n in names if "Restart depthd" in n))
+
+
+def test_unit_directives() -> None:
+    unit = (ROLE_DIR / "templates" / "depthd.service.j2").read_text()
+    for line in (
+        "User=jetson",
+        "Group=video",
+        "After=nvargus-daemon.service network-online.target jetson-clocks.service",
+        "Restart=always",
+        "RestartSec=2",
+        "CPUWeight=500",
+        "IOWeight=500",
+        "Nice=-5",
+        "LimitMEMLOCK=infinity",
+        "ExecStart=/usr/local/bin/depthd --config /etc/depthd/depthd.yaml",
+    ):
+        assert line in unit.splitlines(), line
+    assert "CPUQuota" not in unit and "MemoryMax" not in unit
+
+
+def test_service_restarts_only_on_binary_config_or_unit_change() -> None:
+    tasks = load(ROLE_DIR / "tasks" / "service.yml")
+    restart = next(t for t in tasks if "Restart depthd" in t["name"])
+    cond = str(restart["when"])
+    for register in ("jetson_depthd_binary", "jetson_depthd_conf", "jetson_depthd_unit"):
+        assert f"{register} is changed" in cond
+    assert restart["ansible.builtin.systemd"]["state"] == "restarted"
+    enable = next(t for t in tasks if "Enable depthd" in t["name"])["ansible.builtin.systemd"]
+    assert enable["enabled"] is True and enable["state"] == "started"
+
+
+def test_main_imports_build_and_service_under_the_depthd_tag() -> None:
+    tasks = load(ROLE_DIR / "tasks" / "main.yml")
+    for name in ("build.yml", "service.yml"):
+        item = next(t for t in tasks if name in str(t.get("ansible.builtin.import_tasks")))
+        assert "depthd" in item["tags"]

@@ -1,0 +1,21 @@
+# {{ ansible_managed }}
+[Unit]
+Description=depthd stereo depth pipeline
+After=nvargus-daemon.service network-online.target jetson-clocks.service
+Wants=network-online.target nvargus-daemon.service
+
+[Service]
+Type=simple
+User=jetson
+Group=video
+ExecStart=/usr/local/bin/depthd --config /etc/depthd/depthd.yaml
+Restart=always
+RestartSec=2
+# Weights, not caps: depthd wins under contention but is never throttled when the board is idle.
+CPUWeight=500
+IOWeight=500
+Nice=-5
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target

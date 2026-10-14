@@ -49,3 +49,87 @@ jetson_depthd_forbidden_packages:
 jetson_depthd_data_dir: /var/lib/depthd
 jetson_depthd_config_dir: /etc/depthd
 jetson_depthd_user: jetson
+
+# ---- depthd itself (tasks/build.yml, tasks/service.yml) ----
+# The Jetson is not a git-clone host (feature branches stay local): the sources are rsynced from the controller checkout.
+jetson_depthd_prefix: /opt/depthd
+jetson_depthd_src_dir: "{{ jetson_depthd_prefix }}/src"
+jetson_depthd_build_dir: "{{ jetson_depthd_prefix }}/build"
+jetson_depthd_binary_path: /usr/local/bin/depthd
+jetson_depthd_group: video
+
+# The depthd.yaml the service reads: every key of jetson/depthd/config/depthd.yaml (a test pins the key sets equal).
+# Matcher cuda_sgm (cv::cuda::StereoSGM); mono is off because the monocular engine is outside the minimum scope.
+depthd_config:
+  capture:
+    left_sensor_id: 0            # nvarguscamerasrc sensor-id of the left IMX219
+    right_sensor_id: 1           # sensor-id of the right IMX219 (must differ)
+    sensor_mode:                 # IMX219 mode requested from Argus
+      width: 1640
+      height: 1232
+      fps: 30
+    settle_frames: 30            # frames to let AE/AWB converge before locking
+    lock_exposure_after_settle: true  # lock AE/AWB on both sensors after settling
+    pair_window_ms: 8.0          # max left/right capture-timestamp gap for a pair (> 0)
+    zero_copy: true              # NVMM -> CUDA mapping via EGL instead of a host copy
+
+  processing:
+    width: 640                   # matcher input size, multiple of 8
+    height: 480
+    matcher: cuda_sgm            # cuda_sgm | vpi | libsgm
+    num_disparities: 128         # 64 | 128 | 256 (128 gives ~0.2 m near range)
+    p1: 10                       # SGM smoothness penalties
+    p2: 120
+    uniqueness_ratio: 5
+    min_depth_m: 0.2             # depths outside [min, max] are published as invalid (0)
+    max_depth_m: 6.0
+
+  postprocess:                   # every key under postprocess is [live]
+    lr_check:
+      enabled: true              # left-right consistency check
+      max_diff: 1                # disparity pixels
+    confidence:
+      enabled: true
+    speckle:
+      enabled: true
+      max_size: 200              # speckle blobs smaller than this many pixels are removed
+      max_diff: 1
+    bilateral:
+      enabled: true
+    hole_fill:
+      enabled: true
+      max_hole_px: 64            # largest hole filled
+    temporal:
+      enabled: true
+      alpha: 0.4                 # 0..1, weight of the new frame
+      motion_threshold: 12       # change above this resets the filter per pixel
+    wls:
+      enabled: false             # WLS disparity filter (costly on the Nano)
+
+  mono:                          # monocular depth fused into the stereo holes
+    enabled: false               # [live] off: the monocular engine is not built in the minimum scope
+    model: dav2_small            # dav2_small | midas_small
+    engine_path: /var/lib/depthd/models/dav2_small_266.engine
+    rate_hz: 2.0                 # [live] inference rate, > 0
+
+  rgb:                           # JPEG overview stream
+    enabled: true
+    width: 640                   # multiple of 8
+    height: 480
+    jpeg_quality: 80             # [live] 1..100
+    fps: 10                      # > 0
+
+  transport:
+    bind_address: "{{ jetson_link_jetson_ip }}" # Jetson end of the cabled link
+    pub_port: 5550               # ZeroMQ PUB, 1024-65535
+    http_port: 8090              # HTTP API, 1024-65535
+    zstd_level: 1                # 1..22
+    send_hwm: 2                  # ZeroMQ send high-water mark (frames)
+
+  calibration:
+    path: /var/lib/depthd/stereo.yaml
+    max_rms_px: 0.5              # calibration RMS above this is rejected
+
+  frame_ids:
+    depth: stereo_left_optical_frame
+    rgb: overview_camera_optical_frame

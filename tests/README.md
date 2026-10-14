@@ -2337,7 +2337,7 @@ The jetson_link role (design D8): chrony, Pi NAT and hosts entries, rendered wit
 
 ## test_jetson_depthd_role.py
 
-The `jetson_depthd` role, part 1 (build dependencies); defaults, tasks and the playbook are read as data.
+The `jetson_depthd` role, part 1 (build dependencies) and part 2 (sync, build, config, service, calibration tool); defaults, tasks and the playbook are read as data.
 
 | Test | What it pins |
 |---|---|
@@ -2348,4 +2348,14 @@ The `jetson_depthd` role, part 1 (build dependencies); defaults, tasks and the p
 | `test_no_opencv_cuda_or_tensorrt_runtime_package_is_touched` | Forbidden packages are absent; no purge, autoremove or upgrade. |
 | `test_directories_are_created_with_owners` | `/var/lib/depthd` jetson:jetson 0755 and `/etc/depthd` root 0755. |
 | `test_main_includes_deps_under_the_build_deps_tag` | `main.yml` imports `deps.yml` under `build_deps`. |
+| `test_sources_sync_from_the_controller_checkout_without_build_dirs` | Both synchronize tasks read `ros2_repo_root`, exclude `build/`, never delete, no git clone. |
+| `test_build_runs_only_when_the_stamp_is_missing` | Tree hash, `.built-<hash>` stamp, Release build of target `depthd` with `-j3` and `nice -n 10`. |
+| `test_binary_is_installed_to_usr_local_bin_and_reports_change` | `/usr/local/bin/depthd` 0755 registered for the restart condition. |
+| `test_no_engine_build_in_the_minimum_scope` | No `trtexec` anywhere in the role tasks. |
+| `test_calibrate_tool_is_synced_and_runs_on_system_python` | `jetson/calibrate` to `/opt/depthd/calibrate`, import check with python3, no venv. |
+| `test_template_keys_equal_the_depthd_yaml_keys` | `depthd_config` has exactly the keys of `config/depthd.yaml`; `cuda_sgm`, mono off. |
+| `test_config_is_rendered_and_validated_before_restart` | Template validated with `depthd --check-config %s`, before the restart task. |
+| `test_unit_directives` | User, Group, After, Restart, weights, Nice, LimitMEMLOCK; no CPUQuota or MemoryMax. |
+| `test_service_restarts_only_on_binary_config_or_unit_change` | Restart condition and enable/start. |
+| `test_main_imports_build_and_service_under_the_depthd_tag` | `main.yml` imports `build.yml` and `service.yml` under `depthd`. |
 | `test_playbook_applies_the_role_with_build_deps_and_depthd_tags` | The Jetson playbook applies the role after `jetson_base` with both tags. |
