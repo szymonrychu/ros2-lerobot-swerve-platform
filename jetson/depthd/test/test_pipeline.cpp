@@ -1,7 +1,8 @@
 // depthd::Pipeline end to end on the GPU: a test FrameSource feeds synthetic shifted pairs (a plane at a known
 // disparity) and JPEGs, the valid fixture calibration rectifies them, and a ZeroMQ SUB on loopback decodes what the
 // pipeline publishes. Covers the depth value, header stamps, intrinsics and frame ids, rgb with and without
-// calibration, the no-depth/no-fused rule when uncalibrated, camera_error gating, the 100 ms stale-pair drop and the
+// calibration, the no-depth/no-fused rule when uncalibrated, camera_error gating, the 100 ms stale-pair drop, the
+// malformed-pair drop and the
 // bounded two-slot hand-off that never makes capture wait.
 #include <gtest/gtest.h>
 
@@ -327,6 +328,40 @@ TEST(Pipeline, PairOlderThan100msWhenMatchingStartsIsDroppedAndCounted)
   all = sub.drain(std::chrono::milliseconds(1500));
   ASSERT_EQ(of_kind(all, wire::Kind::kDepth).size(), 1U);
   EXPECT_EQ(of_kind(all, wire::Kind::kDepth)[0].header.sequence, 3U);
+}
+
+TEST(Pipeline, MalformedPairIsDroppedAndCountedNeverMatched)
+{
+  Rig rig;
+  const depthd::StereoCalibration cal = fixture_calibration(rig.config);
+  rig.pipeline->set_calibration(cal);
+  Sub sub(rig.publisher->bound_port(), 100);
+  const depthd_test::RawPair raw = depthd_test::make_raw_pair(cal, kDisparity);
+
+  // Wrong size: not the calibrated resolution.
+  depthd_test::RawPair small;
+  cv::resize(raw.left, small.left, cv::Size(), 0.5, 0.5);
+  cv::resize(raw.right, small.right, cv::Size(), 0.5, 0.5);
+  rig.source.push_pair(depthd_test::upload_pair(small, realtime_ns(), 1));
+  EXPECT_TRUE(eventually([&] { return rig.pipeline->counters().dropped_bad_frame == 1U; }));
+
+  // Wrong type: a colour frame where the matcher expects mono.
+  depthd_test::RawPair colour;
+  cv::cvtColor(raw.left, colour.left, cv::COLOR_GRAY2BGR);
+  cv::cvtColor(raw.right, colour.right, cv::COLOR_GRAY2BGR);
+  rig.source.push_pair(depthd_test::upload_pair(colour, realtime_ns(), 2));
+  EXPECT_TRUE(eventually([&] { return rig.pipeline->counters().dropped_bad_frame == 2U; }));
+
+  // An empty placeholder pair.
+  rig.source.push_pair(depthd::StereoPair{});
+  EXPECT_TRUE(eventually([&] { return rig.pipeline->counters().dropped_bad_frame == 3U; }));
+
+  const auto all = sub.drain(std::chrono::milliseconds(300));
+  EXPECT_TRUE(of_kind(all, wire::Kind::kDepth).empty()) << "a malformed pair was published";
+  const depthd::PipelineCounters n = rig.pipeline->counters();
+  EXPECT_EQ(n.dropped_error, 0U);
+  EXPECT_EQ(rig.pipeline->health().pairs_dropped_total, 3U);
+  EXPECT_NE(rig.metrics.render().find("depthd_drops_total{reason=\"bad_frame\"} 3"), std::string::npos);
 }
 
 TEST(Pipeline, CaptureNeverWaitsAndExcessPairsAreDroppedNotQueued)
