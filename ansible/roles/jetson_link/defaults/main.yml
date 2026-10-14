@@ -1,0 +1,15 @@
+---
+# Direct Pi-Jetson link, time and NAT (design D8). Addresses come from group_vars/all.yml (jetson_link_*).
+# server: the Pi (chrony server, NAT for the Jetson, hosts entry for the Jetson); client: the Jetson (chrony client).
+jetson_link_side: server
+
+# The /30 the Pi serves time to and NATs.
+jetson_link_subnet: "10.77.0.0/30"
+
+# Internet NTP upstream: the Pi's upstream, and the Jetson's fallback over WiFi.
+jetson_link_ntp_pools:
+  - "2.pool.ntp.org"
+  - "ntp.ubuntu.com"
+
+jetson_link_jetson_hostname: "jetson.ros2.lan"
+jetson_link_pi_hostname: "client.ros2.lan"

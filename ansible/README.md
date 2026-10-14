@@ -278,6 +278,16 @@ The Jetson Nano computes stereo depth and runs no ROS and no Pi roles.
 - **Deploy targets:** `./scripts/deploy-nodes.sh jetson base build_deps depthd` (or `jetson --all`) runs `playbooks/deploy_nodes_jetson.yml -l jetson`; it has no `ros2_nodes` entries, only those three targets. The Pi side of the cable is `./scripts/deploy-nodes.sh client jetson_link`.
 - **WiFi kept:** the Jetson stays on WiFi (192.168.1.32) for development; only the depth stream uses the cabled link.
 
+### Time sync and NAT for the Jetson (role `jetson_link`)
+
+The Pi is the Jetson's time server and its way to the internet, so the Jetson's frame timestamps share the Pi's clock.
+
+- **Apply:** `./scripts/deploy-nodes.sh client jetson_link` (the `jetson_link` tag: the `network` role with the client's `network_link_ethernets`, then `jetson_link` with `jetson_link_side: server`). Node and phase tags never run it; an untagged client run does. The Jetson side (`jetson_link_side: client`) is applied by `playbooks/deploy_nodes_jetson.yml`.
+- **Time:** both sides install chrony and disable `systemd-timesyncd`. The Pi keeps the internet pool as upstream, serves `allow 10.77.0.0/30` and `local stratum 10`, so the Jetson syncs even when the Pi is offline. The Jetson uses `server 10.77.0.1 iburst prefer` with the pool as fallback over WiFi, and `makestep 1.0 3`. Check with `chronyc sources` on the Jetson and `chronyc clients` on the Pi.
+- **NAT (Pi only):** `net.ipv4.ip_forward = 1` in `/etc/sysctl.d/90-jetson-link-forward.conf`, and the nftables table `jetson_link` in `/etc/nftables.d/jetson-nat.nft` (included from `/etc/nftables.conf`, loaded on boot). It masquerades `10.77.0.0/30` out of the Pi's primary interface and forwards only between the link interface and the primary interface; all other forwarding is untouched.
+- **Names:** `/etc/hosts` gets `10.77.0.2 jetson.ros2.lan` on the Pi and `10.77.0.1 client.ros2.lan` on the Jetson.
+- **Idempotent:** every change task registers; chrony is restarted and the ruleset reloaded only when its file changed.
+
 ## Network and hostname (provision)
 
 The **network** role sets a static IP on the primary interface (ethernet or WiFi, auto-detected), sets all other interfaces to DHCP, and disables IPv6 in netplan.

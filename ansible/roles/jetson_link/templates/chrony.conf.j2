@@ -1,0 +1,21 @@
+# Managed by Ansible (role jetson_link, side {{ jetson_link_side }}). Design D8: the Jetson's frame timestamps share the Pi's clock.
+{% if jetson_link_side == 'client' %}
+# The Pi over the cable first, the internet pool over WiFi as fallback.
+server {{ jetson_link_pi_ip }} iburst prefer
+{% endif %}
+{% for pool in jetson_link_ntp_pools %}
+pool {{ pool }} iburst
+{% endfor %}
+{% if jetson_link_side == 'server' %}
+
+# Serve the Jetson on the cable, and keep serving (stratum 10) when the internet is down.
+allow {{ jetson_link_subnet }}
+local stratum 10
+{% endif %}
+
+driftfile /var/lib/chrony/chrony.drift
+ntsdumpdir /var/lib/chrony
+logdir /var/log/chrony
+rtcsync
+# Step the clock in the first three updates when it is off by more than a second.
+makestep 1.0 3

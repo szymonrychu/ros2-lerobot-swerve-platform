@@ -502,6 +502,25 @@
               tags: [monitoring]
           tags: [monitoring]
 
+        # The cable to the Jetson (design D8): static eth0 plus chrony server, NAT and hosts entry. Not a ROS node: only
+        # `./scripts/deploy-nodes.sh client jetson_link` (--tags jetson_link) or an untagged run applies it; node and
+        # phase tags never pull it in. The Jetson side is applied by playbooks/deploy_nodes_jetson.yml.
+        - name: Direct link to the Jetson
+          tags: [jetson_link]
+          block:
+            - name: Static point-to-point link on the client's network_link_ethernets
+              ansible.builtin.include_role:
+                name: network
+                apply:
+                  tags: [jetson_link]
+            - name: Chrony server, NAT and hosts entry for the Jetson
+              ansible.builtin.include_role:
+                name: jetson_link
+                apply:
+                  tags: [jetson_link]
+              vars:
+                jetson_link_side: server
+
         - name: nginx on port 80 (web UI at /, /grafana/ redirected to the server)
           ansible.builtin.include_role:
             name: web_proxy

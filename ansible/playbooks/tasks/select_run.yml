@@ -15,12 +15,12 @@
   tags: [always]
 
 # Scope of the end-of-play start and the verify: every node for a full run or a phase-only filter (--tags config),
-# the selected nodes for a node filter, none for a non-node target alone (--tags monitoring, on the client and on
+# the selected nodes for a node filter, none for a non-node target alone (--tags monitoring or jetson_link, on the client and on
 # the server: both playbooks include this file). Nodes in the restart queue are restarted whatever the scope.
 - name: Nodes the start and verify steps cover
   ansible.builtin.set_fact:
     ros2_scope_nodes: >-
       {{ (ros2_nodes | map(attribute='name') | list)
-         if ('all' in ansible_run_tags or (ros2_selected_nodes | length == 0 and 'monitoring' not in ansible_run_tags))
+         if ('all' in ansible_run_tags or (ros2_selected_nodes | length == 0 and ansible_run_tags | intersect(['monitoring', 'jetson_link']) | length == 0))
          else ros2_selected_nodes }}
   tags: [always]

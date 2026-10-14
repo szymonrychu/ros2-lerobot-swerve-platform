@@ -1,0 +1,132 @@
+---
+# Time sync (both sides), NAT and forwarding (server side only), hosts entries. Every change registers, and a service is
+# restarted or a ruleset reloaded only when its input changed, so a second run reports no changes.
+
+- name: Validate the link side
+  ansible.builtin.assert:
+    that: jetson_link_side in ['server', 'client']
+    fail_msg: "jetson_link_side must be server (the Pi) or client (the Jetson), got {{ jetson_link_side }}"
+
+- name: Stop and disable systemd-timesyncd (chrony is the only time daemon)
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    state: stopped
+    enabled: false
+  become: true
+
+- name: Install chrony
+  ansible.builtin.apt:
+    name: chrony
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Deploy chrony.conf
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: jetson_link_chrony_conf
+
+- name: Enable chrony
+  ansible.builtin.systemd:
+    name: chrony
+    enabled: true
+    state: started
+  become: true
+
+- name: Restart chrony after a config change
+  ansible.builtin.systemd:
+    name: chrony
+    state: restarted
+  become: true
+  when: jetson_link_chrony_conf is changed
+
+- name: Pi hosts entry for the Jetson
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ jetson_link_jetson_ip }} {{ jetson_link_jetson_hostname }}"
+    regexp: '\s{{ jetson_link_jetson_hostname | regex_escape }}(\s|$)'
+  become: true
+  when: jetson_link_side == 'server'
+
+- name: Jetson hosts entry for the Pi
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ jetson_link_pi_ip }} {{ jetson_link_pi_hostname }}"
+    regexp: '\s{{ jetson_link_pi_hostname | regex_escape }}(\s|$)'
+  become: true
+  when: jetson_link_side == 'client'
+
+- name: Pi forwarding and NAT for the Jetson
+  when: jetson_link_side == 'server'
+  become: true
+  block:
+    - name: Work out the Pi's primary interface (the NAT egress)
+      ansible.builtin.set_fact:
+        _jetson_link_wan_interface: "{{ network_interface | default(ansible_facts['default_ipv4']['interface']) }}"
+
+    - name: Enable IPv4 forwarding (sysctl drop-in)
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/90-jetson-link-forward.conf
+        content: |
+          # Managed by Ansible (role jetson_link): the Jetson reaches the internet through the Pi.
+          net.ipv4.ip_forward = 1
+        owner: root
+        group: root
+        mode: "0644"
+      register: jetson_link_sysctl
+      when: jetson_link_side == 'server'
+
+    - name: Apply the forwarding sysctl
+      ansible.builtin.command:
+        cmd: sysctl -p /etc/sysctl.d/90-jetson-link-forward.conf
+      changed_when: true
+      when: jetson_link_sysctl is changed
+
+    - name: Install nftables
+      ansible.builtin.apt:
+        name: nftables
+        state: present
+        cache_valid_time: 3600
+
+    - name: nftables drop-in directory
+      ansible.builtin.file:
+        path: /etc/nftables.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy the Jetson NAT table
+      ansible.builtin.template:
+        src: jetson-nat.nft.j2
+        dest: /etc/nftables.d/jetson-nat.nft
+        owner: root
+        group: root
+        mode: "0644"
+      register: jetson_link_nft
+
+    - name: Load /etc/nftables.d on boot (include in nftables.conf)
+      ansible.builtin.lineinfile:
+        path: /etc/nftables.conf
+        line: 'include "/etc/nftables.d/*.nft"'
+        create: true
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Enable nftables
+      ansible.builtin.systemd:
+        name: nftables
+        enabled: true
+
+    - name: Load the Jetson NAT table now
+      ansible.builtin.command:
+        cmd: nft -f /etc/nftables.d/jetson-nat.nft
+      changed_when: true
+      when: jetson_link_nft is changed

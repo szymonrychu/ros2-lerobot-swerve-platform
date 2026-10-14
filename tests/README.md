@@ -2312,3 +2312,18 @@ The network role's static point-to-point link (design D8), rendered with jinja2;
 | `test_wifi_stanza_is_identical_with_and_without_a_link` | The `wifis` block renders exactly as before for client and Jetson vars. |
 | `test_probe_flags_a_foreign_ipv4` / `test_probe_flags_a_foreign_secondary_address` / `test_probe_passes_planned_address_and_missing_ipv4` / `test_probe_fails_with_a_message_naming_the_address_and_runs_before_netplan` | The probe task finds foreign addresses, passes the planned or none, and fails before netplan is written. |
 | `test_all_yml_defines_the_link_vars_and_names_d8` / `test_all_yml_keys_the_link_by_group_membership` / `test_no_client_or_jetson_group_vars_edit_defines_the_link` / `test_role_default_is_an_empty_list` | `jetson_link_*` vars, group-keyed `network_link_ethernets`, no client.yml or jetson.yml edit, empty role default. |
+
+## test_jetson_link_role.py
+
+The jetson_link role (design D8): chrony, Pi NAT and hosts entries, rendered with jinja2 and checked by task structure; nothing runs ansible.
+
+| Test | Description |
+|---|---|
+| `test_server_chrony_keeps_pool_serves_the_link_and_works_offline` / `test_server_chrony_also_steps_on_a_large_offset` | Server chrony keeps the pool, `allow 10.77.0.0/30`, `local stratum 10`, `makestep 1.0 3`. |
+| `test_client_chrony_prefers_the_pi_and_falls_back_to_the_pool` | Client chrony: `server 10.77.0.1 iburst prefer`, pool fallback, `makestep 1.0 3`, no `allow`. |
+| `test_nat_masquerades_the_link_out_of_the_primary_interface` / `test_nat_forwards_only_between_the_link_and_the_primary_interface` / `test_nat_table_is_replaced_not_appended` | nft masquerade of the /30, link-only forwarding, re-declare-then-delete idiom. |
+| `test_every_service_restart_is_conditional_on_a_registered_change` / `test_commands_run_only_when_something_changed` | Idempotence: restarts and commands run only `when: <register> is changed`. |
+| `test_timesyncd_is_disabled_before_chrony_is_installed` / `test_chrony_is_enabled_and_started` | timesyncd stopped and disabled first; chrony enabled. |
+| `test_server_enables_ipv4_forwarding_through_a_sysctl_dropin` / `test_server_installs_the_nat_table_and_loads_it_on_boot` | sysctl drop-in, nft table file, nftables.conf include, nftables enabled. |
+| `test_hosts_entries_per_side` / `test_side_is_validated` | `jetson.ros2.lan` on the Pi, `client.ros2.lan` on the Jetson; side assert and defaults. |
+| `test_client_play_applies_network_then_jetson_link_under_one_tag` / `test_no_other_client_task_carries_the_jetson_link_tag` | The 'Direct link to the Jetson' block is tagged `jetson_link` and applies network then jetson_link (server); nothing else carries the tag. |
