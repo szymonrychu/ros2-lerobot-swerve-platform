@@ -792,6 +792,8 @@ def test_every_pyproject_depending_on_shared_is_declared_src_shared() -> None:
         for p in (REPO_ROOT / "nodes").rglob("pyproject.toml")
         if "node_modules" not in p.parts and "../../shared" in p.read_text()
     }
+    # Retired (D7): its type is uninstall-only and the directory is deleted by the stereo source removal.
+    found -= {"nodes/stereo_depth"}
     assert found and found <= declared, f"declare src_shared for {sorted(found - declared)}"
 
 

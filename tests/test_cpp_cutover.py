@@ -9,9 +9,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 ANSIBLE_README = REPO_ROOT / "ansible" / "README.md"
 CPP_SUFFIX = "_cpp"
-PAIRS = ["stereo_depth", "map_guard"]
+PAIRS = ["map_guard"]
 BACKGROUND_TIER = (100, 100, 0)
-METRICS_PORTS = {"stereo_depth": 19113, "map_guard": 19110}
+METRICS_PORTS = {"map_guard": 19110}
 
 
 def client() -> dict:
@@ -68,7 +68,7 @@ def test_map_guard_cpp_keeps_dry_run() -> None:
     assert yaml.safe_load(nodes()["map_guard_cpp"]["config"])["dry_run"] is True
 
 
-def test_background_tier_holds_only_the_active_stereo_node_and_the_throttles() -> None:
+def test_background_tier_holds_only_the_throttles() -> None:
     types = client()["ros2_node_type_defaults"]
     running = [
         name
@@ -81,8 +81,8 @@ def test_background_tier_holds_only_the_active_stereo_node_and_the_throttles() -
         )
         == BACKGROUND_TIER
     ]
-    # The joint-state throttle relays are the other background nodes.
-    assert running == ["stereo_depth_cpp", "joint_state_throttle_follower", "joint_state_throttle_swerve"]
+    # The stereo nodes are retired (D7): only the joint-state throttle relays remain in the background tier.
+    assert running == ["joint_state_throttle_follower", "joint_state_throttle_swerve"]
 
 
 def test_only_the_running_node_of_each_pair_is_scraped() -> None:
@@ -96,5 +96,5 @@ def test_readme_documents_cutover_and_rollback() -> None:
     text = ANSIBLE_README.read_text()
     assert "Cut-over and rollback" in text
     section = text[text.index("Cut-over and rollback") :]
-    for phrase in ("stereo_depth_cpp", "map_guard_cpp", "enabled: false", "scripts/deploy-nodes.sh"):
+    for phrase in ("map_guard_cpp", "enabled: false", "scripts/deploy-nodes.sh"):
         assert phrase in section, phrase

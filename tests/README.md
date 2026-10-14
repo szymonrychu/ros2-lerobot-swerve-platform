@@ -75,7 +75,7 @@ Contract of the C++ scaffolding: root `.clang-format`, `scripts/cpp-node-test.sh
 
 ### `test_cpp_node_deploy.py`
 
-In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_node_deploy/tasks/colcon_source_package.yml` and the `stereo_depth_cpp` / `map_guard_cpp` / `jetson_bridge_cpp` node types. Task fields are rendered with jinja2 plus Ansible's core filters (`hash`, `regex_replace`) and the `group_vars/all.yml` build limits; the sync and hash scripts run with bash and rsync on a temporary repo and workspace.
+In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_node_deploy/tasks/colcon_source_package.yml` and the `map_guard_cpp` / `jetson_bridge_cpp` node types. Task fields are rendered with jinja2 plus Ansible's core filters (`hash`, `regex_replace`) and the `group_vars/all.yml` build limits; the sync and hash scripts run with bash and rsync on a temporary repo and workspace.
 
 | Test | Description |
 |---|---|
@@ -94,7 +94,7 @@ In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_no
 | `test_package_xml_apt_names_maps_ros_system_and_local_keys` | `package_xml_apt_names` maps ROS keys to `ros-jazzy-<dashed>`, system rosdep keys via `ROSDEP_APT`, keeps `lib*-dev` names, drops in-tree local packages and `test_depend`. |
 | `test_cpp_node_apt_packages_cover_every_in_tree_package_xml` | (per `_cpp` type) every build/run dependency of each local source's `package.xml` that is in the tree (ros2_common_cpp now, the node package once it lands) is in the type's `apt_packages`. |
 | `test_ros2_common_cpp_is_a_discovered_cpp_package` | The chained `shared/ros2_common_cpp` is a C++ package found by `discover_cpp_package_dirs`. |
-| `test_cpp_node_entry_is_live_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: true`, `enabled: true` (since the cut-over), the same `config: |` block (metrics ports 19113, 19110). |
+| `test_cpp_node_entry_is_live_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: true`, `enabled: true` (since the cut-over), the same `config: |` block (metrics port 19110). |
 | `test_client_playbook_deploys_the_cpp_node_after_its_python_counterpart` | The `Deploy <name>_cpp` include follows the Python node's, with the node, build and config tags and the node tag applied. |
 | `test_docs_describe_the_local_source_build_and_the_cpp_nodes` | `ansible/README.md`, `nodes/README.md` and the ansible-deploy skill describe the local build and both node types. |
 
@@ -204,7 +204,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `stereo_depth_cpp` background, `map_guard_cpp` and `jetson_bridge_cpp` normal. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` and `jetson_bridge_cpp` normal; the retired `stereo_depth` and `stereo_depth_cpp` types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -222,7 +222,7 @@ The mains of mcp_server and claude_agent return `os.EX_CONFIG` (78) for config/t
 | `test_no_memory_high_is_derived` | No `MemoryHigh` derivation on either host; an explicit `memory_high` still passes through. |
 | `test_unset_cpu_quota_resolves_empty` | A type without `cpu_quota` gets no `CPUQuota` line; `memory_max` defaults to 256M. |
 | `test_robot_types_carry_no_cpu_quota_or_memory_high` | No client node type sets `cpu_quota` or `memory_high`. |
-| `test_tiers_have_expected_weights` | Critical 1000/1000/-900, normal robot 500/500/-500, agent-facing 300/300/-200, background 100/100/0 (`stereo_depth`) (cpu_weight/io_weight/oom_score_adjust) per node type. |
+| `test_tiers_have_expected_weights` | Critical 1000/1000/-900, normal robot 500/500/-500, agent-facing 300/300/-200, background 100/100/0 (the joint-state throttles) (cpu_weight/io_weight/oom_score_adjust) per node type. |
 | `test_background_tier_is_below_every_robot_and_agent_tier` | The background tier has the default weight 100 and `oom_score_adjust` 0; every robot and agent tier has a higher weight and a lower `oom_score_adjust`. |
 | `test_tiers_dominate_default_system_work` | Every tier is above the default weight 100 with a negative `OOMScoreAdjust`, ordered critical > normal > agent. |
 | `test_tiers_do_not_overlap` | A node type is in one tier only (background included). |
@@ -1506,21 +1506,19 @@ Static checks of the DDS discovery setup in Ansible: the shared `ros2_dds_env` i
 
 ### test_stereo_depth_config.py
 
-Static checks of the `stereo_depth` deployment (SGBM depth from the IMX219 pair for the web UI head tab, Client only, deployed enabled in the background cgroup tier).
+Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and `stereo_depth_cpp` are `present: false` (the next deploy of those names uninstalls the units), their node types keep only what the uninstall path needs, and the 19113 target is gone.
 
 | Test | Description |
 |------|-------------|
-| `test_node_type_is_declared_on_the_client` | Native `python3 -m stereo_depth` from `nodes/stereo_depth`, `src_shared`, `/etc/ros2/stereo_depth` with `STEREO_DEPTH_CONFIG`, apt `ros-jazzy-message-filters` and `ros-jazzy-stereo-msgs`. |
-| `test_node_type_is_the_only_member_of_the_background_tier` | cpu/io_weight 100, `oom_score_adjust` 0, no other type with those weights except its C++ port `stereo_depth_cpp`, no `cpu_quota` or `memory_high`. |
-| `test_node_type_memory_estimate` | `memory_low` 96M, `memory_max` 384M, marked as an estimate in the comment. |
-| `test_ros2_nodes_entry_is_present_and_disabled_after_the_cutover` | The `ros2_nodes` entry stays present, is disabled (rollback of `stereo_depth_cpp`) and has a `config: |` block. |
-| `test_deployed_config_makes_every_default_explicit` | The deployed config lists every `DepthConfig` field at its default, `metrics_port` 19113. |
-| `test_deployed_config_loads_in_the_node_load_config` | The deployed YAML passes the node's own `load_config` (depth, left and right topics, metrics port). |
-| `test_metrics_port_is_scraped_from_the_enabled_cpp_node` | `monitoring_agent_node_targets` has `127.0.0.1:19113` `/metrics` for `stereo_depth_cpp` and no target for the disabled `stereo_depth`. |
-| `test_client_playbook_deploys_the_node_after_overview_camera` | The tagged `Deploy stereo_depth` block (`apply` tag, phase tags) follows `Deploy overview_camera`. |
+| `test_ros2_nodes_entries_are_uninstalled_by_the_next_deploy` | Both `ros2_nodes` entries keep their node type, are `present: false` and carry no `config`. |
+| `test_the_entries_name_d7_in_the_comment_above_them` | The comment block directly above each entry names D7. |
+| `test_node_types_keep_only_what_the_uninstall_path_needs` | Each type has only `deploy_mode: native` and a `node_launch_command`: no source dir, `src_shared`, `colcon_source`, apt, env, config path, memory or tier keys. |
+| `test_background_tier_has_no_stereo_type` | The 100/100 weight tier holds only the two joint-state throttle types. |
+| `test_metrics_target_is_removed` | `monitoring_agent_node_targets` has no stereo node and no `:19113` address. |
+| `test_client_playbook_still_deploys_both_names_so_the_uninstall_runs` | The client playbook still has a deploy step for each name. |
 | `test_boot_include_display_name_names_the_imx219_pair` | The camera boot include is named for the IMX219 pair, not the IMX708. |
-| `test_docs_list_the_node_tier_memory_and_port` | `ansible/README.md` names stereo_depth, 19113 and the background tier; the deploy skill has a stereo_depth row. |
-| `test_tests_readme_lists_every_stereo_depth_node_test_file` | This README has the stereo_depth per-node section listing every `nodes/stereo_depth/tests/test_*.py` and a row for every test of this file. |
+| `test_ansible_readme_documents_the_retirement` | `ansible/README.md` "Cut-over and rollback" names D7 and `present: false`, has no 19113 and no stereo row in the tier or memory tables. |
+| `test_tests_readme_lists_every_test_of_this_file` | This README has a row for every test of this file. |
 
 ### test_arducam_tof_config.py
 
@@ -2056,7 +2054,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 | `test_node_types_using_ros2_metrics_declare_src_shared` | Every venv node type that imports ros2_metrics (stereo_depth included) sets `src_shared: true`. |
 | `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
 | `test_a_port_is_shared_only_by_a_python_and_cpp_pair` | Two contract nodes share a port only as `<name>`/`<name>_cpp` (at least one such pair exists). |
-| `test_a_python_and_cpp_pair_is_never_both_enabled` | Of every `<name>`/`<name>_cpp` pair in `ros2_nodes` (map_guard, stereo_depth at least) at most one is present and enabled: both would bind the same port and publish the same topics. |
+| `test_a_python_and_cpp_pair_is_never_both_enabled` | Of every `<name>`/`<name>_cpp` pair in `ros2_nodes` (map_guard at least) at most one is present and enabled: both would bind the same port and publish the same topics. |
 | `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api and arducam_tof are only members of a Python/C++ pair. |
 
 ### `monitoring_helpers.py`
@@ -2253,11 +2251,11 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 
 | Test | Description |
 |---|---|
-| `test_cpp_node_is_live` | (per pair) `stereo_depth_cpp` and `map_guard_cpp` are `present: true`, `enabled: true`. |
-| `test_python_node_stays_present_and_disabled_for_rollback` | `stereo_depth` and `map_guard` stay `present: true`, `enabled: false` (rollback). |
-| `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19113, 19110). |
+| `test_cpp_node_is_live` | `map_guard_cpp` is `present: true`, `enabled: true`. |
+| `test_python_node_stays_present_and_disabled_for_rollback` | `map_guard` stays `present: true`, `enabled: false` (rollback). |
+| `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19110). |
 | `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
-| `test_background_tier_holds_only_the_active_stereo_node_and_the_throttles` | Among running nodes the background tier (100/100/0) holds only `stereo_depth_cpp` and the two joint-state throttle nodes. |
+| `test_background_tier_holds_only_the_throttles` | Among running nodes the background tier (100/100/0) holds only the two joint-state throttle nodes (the stereo nodes are retired, D7). |
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |
 

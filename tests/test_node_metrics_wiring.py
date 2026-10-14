@@ -29,10 +29,8 @@ CONFIG_METRICS_PORTS = {
     "map_guard": 19110,
     "costmap_zones": 19111,
     "arducam_tof": 19112,
-    "stereo_depth": 19113,
     # Side-by-side C++ ports: the Python node's port (the same config block); only one of a pair is ever enabled.
     "map_guard_cpp": 19110,
-    "stereo_depth_cpp": 19113,
     # C++ bridge to the Jetson depthd: no Python counterpart.
     "jetson_bridge_cpp": 19114,
 }
@@ -67,7 +65,6 @@ SHARED_NODE_TYPES = [
     "gps_rtk",
     "uvc_camera",
     "arducam_tof",
-    "stereo_depth",
     "poi_store",
     "claude_agent",
     "test_joint_api",
@@ -246,7 +243,7 @@ def test_a_python_and_cpp_pair_is_never_both_enabled() -> None:
     """Both would bind the same 127.0.0.1 port and publish the same topics: a cut-over flips both entries."""
     nodes = client_nodes()
     pairs = [(n[: -len(CPP_SUFFIX)], n) for n in nodes if n.endswith(CPP_SUFFIX) and n[: -len(CPP_SUFFIX)] in nodes]
-    assert {cpp for _, cpp in pairs} >= {"map_guard_cpp", "stereo_depth_cpp"}
+    assert {cpp for _, cpp in pairs} >= {"map_guard_cpp"}
     for python, cpp in pairs:
         assert not (is_running(nodes[python]) and is_running(nodes[cpp])), (python, cpp)
 

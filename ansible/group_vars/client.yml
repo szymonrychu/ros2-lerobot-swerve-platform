@@ -29,7 +29,7 @@ ros2_user_slice_io_weight: 50
 #   critical (servos, swerve, ros2_master, filter_node, static_tf, bno055_imu)  cpu/io_weight 1000, oom_score_adjust -900
 #   normal   (lidar, odometry, EKF, Nav2, SLAM, cameras incl. ToF, GPS, POI, map_guard)    cpu/io_weight  500, oom_score_adjust -500
 #   agent    (mcp_server, claude_agent, web_ui, scraper, master2master, leader_bridge, haptic)  cpu/io_weight  300, oom_score_adjust -200
-#   background (stereo_depth: work the robot can lose)                                        cpu/io_weight  100, oom_score_adjust    0
+#   background (joint-state throttles: work the robot can lose)                               cpu/io_weight  100, oom_score_adjust    0
 # memory_low protects about the measured typical working set, memory_max is a safety net at >= 2x the 24 h peak.
 # Nav2 MPPI overlay: nav2_mppi_controller 1.3.13 + the model_delay patch (PR #6154 ported to xtensor), built into
 # /opt/ros2-ws by the colcon_source machinery and picked up because the launcher sources that workspace after
@@ -352,81 +352,15 @@ ros2_node_type_defaults:
       - ros-jazzy-image-transport
       - ros-jazzy-image-transport-plugins
       - ros-jazzy-compressed-image-transport
-  # SGBM depth from the synced IMX219 pair (overview_camera): 16UC1 mm on /stereo/depth/image_raw. Background tier:
-  # below every robot and agent tier, so under CPU contention the depth rate drops and the robot keeps its CPU.
+  # Retired (D7): the Pi's stereo pipeline never produced depth; the Jetson depthd replaces it. The entries are
+  # present: false, so a deploy of these names runs only the uninstall path of roles/ros2_node_deploy/tasks/main.yml,
+  # which needs deploy_mode and a launch command (the role asserts it) and nothing else.
   stereo_depth:
     deploy_mode: native
     node_launch_command: "python3 -m stereo_depth"
-    node_src_dir: "nodes/stereo_depth"
-    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
-    src_shared: true
-    # Estimate, no series yet: two 480x360 grey frames, the rectification maps and the SGBM 3WAY buffers are a few
-    # MiB on top of rclpy, numpy and OpenCV (the arducam_tof estimate is 64M). Re-measure once it runs.
-    memory_low: "96M"
-    memory_max: "384M"
-    cpu_weight: 100
-    io_weight: 100
-    oom_score_adjust: 0
-    config_path: /etc/ros2/stereo_depth
-    env:
-      - STEREO_DEPTH_CONFIG=/etc/ros2/stereo_depth/config.yaml
-    # message_filters (ApproximateTimeSynchronizer) and stereo_msgs (DisparityImage); usually already in ros-base.
-    apt_packages:
-      - ros-jazzy-message-filters
-      - ros-jazzy-stereo-msgs
-  # C++ (rclcpp) port of stereo_depth (nodes/stereo_depth_cpp/README.md), side by side: same topics, QoS, config
-  # keys and metrics port (19113, config metrics_port). Cut-over enables this entry and disables stereo_depth; the
-  # Python node stays installed as the rollback. Built on the Pi from the repo tree (colcon local source, see
-  # roles/ros2_node_deploy/tasks/colcon_source_package.yml): low-priority scope, no stop of the running nodes, a
-  # rebuild only when the synced tree or a stamped apt version changes. Same background tier as stereo_depth.
   stereo_depth_cpp:
     deploy_mode: native
     node_launch_command: "ros2 run stereo_depth_cpp stereo_depth_node"
-    node_src_dir: ""
-    # Runs no repo file (the binary is in /opt/ros2-ws/install): the build stamp restarts it when its source changes.
-    src_paths: []
-    colcon_source:
-      - local: shared/ros2_common_cpp
-        package: ros2_common_cpp
-        workspace: /opt/ros2-ws
-        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
-        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
-        base_paths: [.]
-        jobs: 2
-        stamp_apt_packages: [libyaml-cpp-dev, prometheus-cpp-dev]
-      - local: nodes/stereo_depth_cpp
-        package: stereo_depth_cpp
-        workspace: /opt/ros2-ws
-        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
-        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
-        base_paths: [.]
-        jobs: 2
-        stamp_apt_packages: [ros-jazzy-rclcpp, ros-jazzy-cv-bridge, ros-jazzy-message-filters, libopencv-dev]
-    memory_low: "96M"
-    memory_max: "384M"
-    cpu_weight: 100
-    io_weight: 100
-    oom_score_adjust: 0
-    config_path: /etc/ros2/stereo_depth_cpp
-    env:
-      - STEREO_DEPTH_CONFIG=/etc/ros2/stereo_depth_cpp/config.yaml
-    apt_packages:
-      - build-essential
-      - cmake
-      - rsync
-      - libzstd-dev
-      - python3-colcon-common-extensions
-      - ros-jazzy-ament-cmake
-      - ros-jazzy-rclcpp
-      - ros-jazzy-rclcpp-components
-      - ros-jazzy-sensor-msgs
-      - ros-jazzy-stereo-msgs
-      - ros-jazzy-std-msgs
-      - ros-jazzy-message-filters
-      - ros-jazzy-cv-bridge
-      - libopencv-dev
-      - libyaml-cpp-dev
-      - prometheus-cpp-dev
   # Pi side of the Jetson depth offload (nodes/jetson_bridge_cpp/README.md): a ZeroMQ SUB from depthd over the direct
   # cable that republishes /stereo/* and /overview_camera/* and publishes nothing while the Jetson is absent or stale.
   # It replaces the camera in the robot (normal) tier. Built on the Pi from the repo tree (colcon local source, see
@@ -1199,78 +1133,16 @@ ros2_nodes:
       # and logs a warning.
       left_camera_id: ""
       right_camera_id: ""
-  # Stereo depth from the IMX219 pair: /stereo/depth/image_raw (16UC1 mm, 0 = invalid) and /stereo/camera_info at up
-  # to 5 Hz, shown in the web_ui Head tab. Publishes nothing until /var/lib/ros2/camera_calibration holds a valid
-  # calibration (python3 -m stereo_depth.calibrate, see nodes/stereo_depth/README.md).
+  # Retired (D7): the Pi never produced stereo depth (CPU-saturated); the Jetson depthd does, republished by
+  # jetson_bridge_cpp on the same /stereo/* names. present: false makes the next deploy of these names uninstall the
+  # units, launchers, venv and config directories.
   - name: stereo_depth
     node_type: stereo_depth
-    present: true
-    enabled: false
-    config: |
-      # Every DepthConfig key at its default (nodes/stereo_depth/README.md, "Config").
-      left_image_topic: /overview_camera/image_raw
-      right_image_topic: /stereo/right/image_raw
-      depth_topic: /stereo/depth/image_raw
-      camera_info_topic: /stereo/camera_info
-      publish_disparity: false
-      disparity_topic: /stereo/disparity
-      calibration_dir: /var/lib/ros2/camera_calibration
-      calibration_check_s: 5.0
-      # StereoSGBM MODE_SGBM_3WAY on 480x360 grey rectified pairs.
-      num_disparities: 48
-      block_size: 5
-      p1: 200
-      p2: 800
-      uniqueness_ratio: 10
-      speckle_window_size: 100
-      speckle_range: 2
-      disp12_max_diff: 1
-      pre_filter_cap: 31
-      # Depth outside [min_depth_m, max_depth_m] is published as 0 (invalid).
-      min_depth_m: 0.3
-      max_depth_m: 4.0
-      sync_slop_s: 0.002
-      max_rate_hz: 5.0
-      matcher_threads: 2
-      frame_id: stereo_left_optical_frame
-      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
-      metrics_port: 19113
-  # C++ port of stereo_depth, live since the cut-over: the same config block, so either node reads it. stereo_depth
-  # above stays present and disabled as the rollback (ansible/README.md, "Cut-over and rollback"); never both
-  # enabled: one metrics port.
+    present: false
+  # Retired (D7), the C++ port of the above: same uninstall.
   - name: stereo_depth_cpp
     node_type: stereo_depth_cpp
-    present: true
-    enabled: true
-    config: |
-      # Every DepthConfig key at its default (nodes/stereo_depth/README.md, "Config").
-      left_image_topic: /overview_camera/image_raw
-      right_image_topic: /stereo/right/image_raw
-      depth_topic: /stereo/depth/image_raw
-      camera_info_topic: /stereo/camera_info
-      publish_disparity: false
-      disparity_topic: /stereo/disparity
-      calibration_dir: /var/lib/ros2/camera_calibration
-      calibration_check_s: 5.0
-      # StereoSGBM MODE_SGBM_3WAY on 480x360 grey rectified pairs.
-      num_disparities: 48
-      block_size: 5
-      p1: 200
-      p2: 800
-      uniqueness_ratio: 10
-      speckle_window_size: 100
-      speckle_range: 2
-      disp12_max_diff: 1
-      pre_filter_cap: 31
-      # Depth outside [min_depth_m, max_depth_m] is published as 0 (invalid).
-      min_depth_m: 0.3
-      max_depth_m: 4.0
-      sync_slop_s: 0.002
-      max_rate_hz: 5.0
-      matcher_threads: 2
-      frame_id: stereo_left_optical_frame
-      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
-      metrics_port: 19113
+    present: false
   # Republishes the Jetson's depth, fused depth and RGB (nodes/jetson_bridge_cpp/README.md, "Config"); every key at its
   # default. The endpoint is the Jetson's address on the direct cable (jetson_link_jetson_ip) and the depthd ZeroMQ port.
   - name: jetson_bridge_cpp
@@ -2590,7 +2462,6 @@ monitoring_agent_node_targets:
   - {node: map_guard_cpp, address: "127.0.0.1:19110", path: /metrics}
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
   # arducam_tof (127.0.0.1:19112) is added here when the node is enabled: only enabled nodes are scraped.
-  - {node: stereo_depth_cpp, address: "127.0.0.1:19113", path: /metrics}
   - {node: jetson_bridge_cpp, address: "127.0.0.1:19114", path: /metrics}
   # Not a ROS node: depthd on the Jetson (roles/jetson_depthd). The Jetson has no route to the server, so the Pi's Alloy
   # scrapes it over the direct cable and re-exports its health under host=client.

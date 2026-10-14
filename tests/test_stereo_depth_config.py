@@ -1,13 +1,11 @@
-"""Static invariants of the stereo_depth deployment (Ansible group_vars, background cgroup tier, playbook wiring).
+"""Static invariants of the stereo_depth / stereo_depth_cpp retirement (D7).
 
-stereo_depth runs on the client, matches the synced IMX219 pair (overview_camera) and publishes 16UC1 mm depth on
-/stereo/depth/image_raw. Its C++ port stereo_depth_cpp is the enabled node since the cut-over; this entry is kept
-disabled for rollback, in the same background tier (below every robot and agent tier). The enabled node's metrics
-port is scraped by Alloy.
+The Pi's stereo pipeline never produced depth; the Jetson depthd replaces it (jetson_bridge_cpp republishes it). Both
+ros2_nodes entries are present: false, so the next deploy of those names uninstalls their units. Their node types keep
+only what the uninstall path of roles/ros2_node_deploy/tasks/main.yml needs: no source, build or tier settings, and the
+19113 monitoring target is gone.
 """
 
-import importlib.util
-import sys
 from pathlib import Path
 
 import yaml
@@ -15,27 +13,34 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GROUP_VARS = REPO_ROOT / "ansible" / "group_vars"
 CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml"
-NODE_CONFIG_MODULE = REPO_ROOT / "nodes" / "stereo_depth" / "stereo_depth" / "config.py"
 ANSIBLE_README = REPO_ROOT / "ansible" / "README.md"
-DEPLOY_SKILL = REPO_ROOT / ".claude" / "skills" / "ansible-deploy" / "SKILL.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
-NODE_TESTS_DIR = REPO_ROOT / "nodes" / "stereo_depth" / "tests"
-NODE = "stereo_depth"
-METRICS_PORT = 19113
-BACKGROUND_TIER = (100, 100, 0)
-APT_PACKAGES = ("ros-jazzy-message-filters", "ros-jazzy-stereo-msgs")
+NODES = ("stereo_depth", "stereo_depth_cpp")
+RETIRED_PORT = 19113
+# Everything else a native type would carry to build, run or tier a node: none of it applies to an uninstall.
+DEPLOY_ONLY_KEYS = (
+    "node_src_dir",
+    "src_shared",
+    "src_paths",
+    "colcon_source",
+    "apt_packages",
+    "env",
+    "config_path",
+    "memory_low",
+    "memory_max",
+    "cpu_weight",
+    "io_weight",
+    "oom_score_adjust",
+)
 
 
-def load_group(name: str) -> dict:
-    """Load one group_vars file.
-
-    Args:
-        name (str): Group name (client, server).
+def load_client() -> dict:
+    """Load ansible/group_vars/client.yml.
 
     Returns:
         dict: Parsed YAML.
     """
-    return yaml.safe_load((GROUP_VARS / f"{name}.yml").read_text())
+    return yaml.safe_load((GROUP_VARS / "client.yml").read_text())
 
 
 def client_node(name: str) -> dict:
@@ -47,108 +52,55 @@ def client_node(name: str) -> dict:
     Returns:
         dict: The entry.
     """
-    return next(n for n in load_group("client")["ros2_nodes"] if n["name"] == name)
+    return next(n for n in load_client()["ros2_nodes"] if n["name"] == name)
 
 
-def node_config_module() -> object:
-    """Import nodes/stereo_depth/stereo_depth/config.py by path (pydantic and yaml only, no ROS).
-
-    Returns:
-        object: The module.
-    """
-    spec = importlib.util.spec_from_file_location("stereo_depth_node_config", NODE_CONFIG_MODULE)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def test_ros2_nodes_entries_are_uninstalled_by_the_next_deploy() -> None:
+    for name in NODES:
+        node = client_node(name)
+        assert node["node_type"] == name
+        assert node["present"] is False, name
+        assert "config" not in node, "the retired entry carries no node config"
 
 
-def test_node_type_is_declared_on_the_client() -> None:
-    defaults = load_group("client")["ros2_node_type_defaults"][NODE]
-    assert defaults["deploy_mode"] == "native"
-    assert defaults["node_launch_command"] == "python3 -m stereo_depth"
-    assert defaults["node_src_dir"] == "nodes/stereo_depth"
-    assert not defaults.get("pythonpath_parent", False)
-    assert defaults["src_shared"] is True
-    assert defaults["config_path"] == "/etc/ros2/stereo_depth"
-    assert "STEREO_DEPTH_CONFIG=/etc/ros2/stereo_depth/config.yaml" in defaults["env"]
-    for package in APT_PACKAGES:
-        assert package in defaults["apt_packages"], package
+def test_the_entries_name_d7_in_the_comment_above_them() -> None:
+    lines = (GROUP_VARS / "client.yml").read_text().splitlines()
+    for name in NODES:
+        index = lines.index(f"  - name: {name}")
+        comment = []
+        while lines[index - 1].lstrip().startswith("#"):
+            index -= 1
+            comment.append(lines[index])
+        assert "D7" in " ".join(comment), name
 
 
-def test_node_type_is_the_only_member_of_the_background_tier() -> None:
-    types = load_group("client")["ros2_node_type_defaults"]
-    defaults = types[NODE]
-    assert (defaults["cpu_weight"], defaults["io_weight"], defaults["oom_score_adjust"]) == BACKGROUND_TIER
-    members = [
-        name
-        for name, entry in types.items()
-        if (entry.get("cpu_weight"), entry.get("io_weight"), entry.get("oom_score_adjust")) == BACKGROUND_TIER
-    ]
-    # Its C++ port (the enabled node since the cut-over) and the joint-state throttle relays share the tier.
-    assert members == [NODE, f"{NODE}_cpp", "joint_state_throttle_follower", "joint_state_throttle_swerve"]
-    assert "cpu_quota" not in defaults and "memory_high" not in defaults
+def test_node_types_keep_only_what_the_uninstall_path_needs() -> None:
+    types = load_client()["ros2_node_type_defaults"]
+    for name in NODES:
+        defaults = types[name]
+        assert defaults["deploy_mode"] == "native"
+        assert defaults["node_launch_command"], "the native-mode assert in the role needs a launch command"
+        for key in DEPLOY_ONLY_KEYS:
+            assert key not in defaults, (name, key)
+        assert set(defaults) == {"deploy_mode", "node_launch_command"}, name
 
 
-def test_node_type_memory_estimate() -> None:
-    defaults = load_group("client")["ros2_node_type_defaults"][NODE]
-    assert defaults["memory_low"] == "96M"
-    assert defaults["memory_max"] == "384M"
-    text = (GROUP_VARS / "client.yml").read_text()
-    block = text[text.index(f"\n  {NODE}:\n") :]
-    block = block[: block.index("\n  ", block.index("memory_max"))]
-    assert "stimate" in block, "the memory figures are marked as an estimate"
+def test_background_tier_has_no_stereo_type() -> None:
+    types = load_client()["ros2_node_type_defaults"]
+    background = [n for n, t in types.items() if (t.get("cpu_weight"), t.get("io_weight")) == (100, 100)]
+    assert background == ["joint_state_throttle_follower", "joint_state_throttle_swerve"]
 
 
-def test_ros2_nodes_entry_is_present_and_disabled_after_the_cutover() -> None:
-    """stereo_depth_cpp took over (tests/test_cpp_cutover.py); this entry stays installed as the rollback."""
-    node = client_node(NODE)
-    assert node["node_type"] == NODE
-    assert node["present"] is True
-    assert node["enabled"] is False
-    assert isinstance(node["config"], str)
+def test_metrics_target_is_removed() -> None:
+    targets = load_client()["monitoring_agent_node_targets"]
+    assert not [t for t in targets if t["node"] in NODES]
+    assert not [t for t in targets if t["address"].endswith(f":{RETIRED_PORT}")]
 
 
-def test_deployed_config_makes_every_default_explicit() -> None:
-    """Every DepthConfig field is in the deployed config, at its default except metrics_port (pinned 19113)."""
-    module = node_config_module()
-    config = yaml.safe_load(client_node(NODE)["config"])
-    fields = module.DepthConfig.model_fields
-    assert set(config) == set(fields)
-    defaults = module.DepthConfig()
-    for key, value in config.items():
-        expected = getattr(defaults, key)
-        assert (str(expected) if isinstance(expected, Path) else expected) == value, key
-    assert config["metrics_port"] == METRICS_PORT
-
-
-def test_deployed_config_loads_in_the_node_load_config(tmp_path: Path) -> None:
-    module = node_config_module()
-    path = tmp_path / "config.yaml"
-    path.write_text(client_node(NODE)["config"])
-    loaded = module.load_config(path)
-    assert loaded.depth_topic == "/stereo/depth/image_raw"
-    assert loaded.left_image_topic == "/overview_camera/image_raw"
-    assert loaded.right_image_topic == "/stereo/right/image_raw"
-    assert loaded.metrics_port == METRICS_PORT
-
-
-def test_metrics_port_is_scraped_from_the_enabled_cpp_node() -> None:
-    targets = {t["node"]: t for t in load_group("client")["monitoring_agent_node_targets"]}
-    assert NODE not in targets
-    assert targets[f"{NODE}_cpp"]["address"] == f"127.0.0.1:{METRICS_PORT}"
-    assert targets[f"{NODE}_cpp"]["path"] == "/metrics"
-
-
-def test_client_playbook_deploys_the_node_after_overview_camera() -> None:
+def test_client_playbook_still_deploys_both_names_so_the_uninstall_runs() -> None:
     text = CLIENT_PLAYBOOK.read_text()
-    assert "name: Deploy stereo_depth" in text
-    assert "_deploy_node_name: stereo_depth" in text
-    assert "tags: [stereo_depth, apt, python, build, config]" in text
-    assert text.index("name: Deploy overview_camera") < text.index("name: Deploy stereo_depth")
-    block = text[text.index("name: Deploy stereo_depth") :]
-    block = block[: block.index("\n\n")]
-    assert "tags: [stereo_depth]" in block, "the include applies the node tag to its tasks"
+    for name in NODES:
+        assert f"_deploy_node_name: {name}" in text, name
 
 
 def test_boot_include_display_name_names_the_imx219_pair() -> None:
@@ -157,20 +109,16 @@ def test_boot_include_display_name_names_the_imx219_pair() -> None:
     assert "IMX219 pair" in line and "IMX708" not in line
 
 
-def test_docs_list_the_node_tier_memory_and_port() -> None:
+def test_ansible_readme_documents_the_retirement() -> None:
     readme = ANSIBLE_README.read_text()
-    assert "stereo_depth" in readme and "19113" in readme
-    assert "background" in readme.lower()
-    skill = DEPLOY_SKILL.read_text()
-    assert any(row.startswith("|") and "stereo_depth" in row for row in skill.splitlines())
+    section = readme[readme.index("Cut-over and rollback") :]
+    assert "D7" in section and "present: false" in section
+    assert str(RETIRED_PORT) not in readme
+    assert "| stereo_depth" not in readme, "no tier or memory table row for a retired node"
 
 
-def test_tests_readme_lists_every_stereo_depth_node_test_file() -> None:
+def test_tests_readme_lists_every_test_of_this_file() -> None:
     readme = TESTS_README.read_text()
-    assert "Per-node tests (stereo_depth)" in readme
-    section = readme[readme.index("Per-node tests (stereo_depth)") :]
-    for path in sorted(NODE_TESTS_DIR.glob("test_*.py")):
-        assert path.name in section, path.name
-    assert "### test_stereo_depth_config.py" in readme or "### `test_stereo_depth_config.py`" in readme
+    assert "### test_stereo_depth_config.py" in readme
     for name in [n for n in globals() if n.startswith("test_")]:
         assert f"`{name}`" in readme, name

@@ -54,12 +54,12 @@ AGENT = {
         "haptic_controller",
     ],
 }
-# Background tier: work the robot can lose (stereo depth): the systemd default weight and no OOM protection, below
-# every robot and agent tier. stereo_depth_cpp is its side-by-side C++ port, in the same tier; the joint-state
-# throttles are the cheap 10 Hz relays for idle consumers.
+# Background tier: work the robot can lose: the systemd default weight and no OOM protection, below every robot and
+# agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers (the stereo nodes that once
+# shared the tier are retired, D7).
 BACKGROUND = {
     "weights": (100, 100, 0),
-    "types": ["stereo_depth", "stereo_depth_cpp", "joint_state_throttle_follower", "joint_state_throttle_swerve"],
+    "types": ["joint_state_throttle_follower", "joint_state_throttle_swerve"],
 }
 TIERS = [CRITICAL, NORMAL, AGENT]
 ALL_TIERS = [*TIERS, BACKGROUND]
@@ -318,11 +318,14 @@ def test_tiers_do_not_overlap() -> None:
 
 
 def test_every_client_type_is_tiered() -> None:
-    """Every client node type except the uninstalled fastdds_discovery_server is in a tier."""
-    assert set(type_defaults(CLIENT_VARS)) - TIERED_TYPES == {"fastdds_discovery_server"}
-    entry = type_defaults(CLIENT_VARS)["fastdds_discovery_server"]
-    for key in ("cpu_weight", "io_weight", "memory_low", "memory_max", "oom_score_adjust"):
-        assert key not in entry, key
+    """Every client node type except the uninstalled ones (fastdds_discovery_server, and the retired stereo_depth and
+    stereo_depth_cpp, D7) is in a tier, and those carry no tier keys."""
+    uninstalled = {"fastdds_discovery_server", "stereo_depth", "stereo_depth_cpp"}
+    assert set(type_defaults(CLIENT_VARS)) - TIERED_TYPES == uninstalled
+    for name in uninstalled:
+        entry = type_defaults(CLIENT_VARS)[name]
+        for key in ("cpu_weight", "io_weight", "memory_low", "memory_max", "oom_score_adjust"):
+            assert key not in entry, (name, key)
 
 
 # --- client memory ----------------------------------------------------------------------------------------------------
