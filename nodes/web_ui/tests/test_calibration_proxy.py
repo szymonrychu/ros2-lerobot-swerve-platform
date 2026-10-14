@@ -22,8 +22,8 @@ ROUTES = [
     ("GET", "/stereo/captures", "/calibration/captures"),
     ("POST", "/stereo/captures", "/calibration/captures"),
     ("DELETE", "/stereo/captures?confirm=true", "/calibration/captures"),
-    ("GET", "/stereo/captures/cap-001/left.jpg", "/calibration/captures/cap-001/left.jpg"),
-    ("GET", "/stereo/captures/cap-001/right.jpg", "/calibration/captures/cap-001/right.jpg"),
+    ("GET", "/stereo/captures/20261014T120000Z-1/left.jpg", "/calibration/captures/20261014T120000Z-1/left.jpg"),
+    ("GET", "/stereo/captures/20261014T120000Z-1/right.jpg", "/calibration/captures/20261014T120000Z-1/right.jpg"),
     ("GET", "/stereo/solve", "/calibration/solve"),
     ("POST", "/stereo/solve", "/calibration/solve"),
 ]
@@ -141,10 +141,13 @@ def test_timeout_is_504(make_client: Callable[..., TestClient], upstream: Upstre
     "path",
     [
         "/stereo/preview/up.jpg",
-        "/stereo/captures/cap-001/middle.jpg",
+        "/stereo/captures/20261014T120000Z-1/middle.jpg",
         "/stereo/captures/bad%20id/left.jpg",
         "/stereo/captures/..%2Fetc/left.jpg",
         "/stereo/captures/a.b/left.jpg",
+        "/stereo/captures/cap-001/left.jpg",
+        "/stereo/captures/20261014T120000-1/left.jpg",
+        "/stereo/captures/20261014T120000Z-/left.jpg",
     ],
 )
 def test_invalid_side_or_id_is_422_without_upstream(

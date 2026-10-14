@@ -20,8 +20,8 @@ log = structlog.get_logger(__name__)
 
 NOT_CONFIGURED_MESSAGE = "calibration page not configured"
 UPSTREAM_PREFIX = "/calibration"
-# depthd capture ids (T31 CaptureStore): conservative filename-safe token, never a path.
-CAPTURE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# depthd capture ids (T31 CaptureStore): YYYYMMDDTHHMMSSZ-<seq>, never a path.
+CAPTURE_ID_PATTERN = re.compile(r"^\d{8}T\d{6}Z-\d+$")
 SIDES = ("left", "right")
 HTTP_BAD_REQUEST = 400
 HTTP_NOT_FOUND = 404
