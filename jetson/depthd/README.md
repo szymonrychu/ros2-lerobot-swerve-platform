@@ -181,7 +181,7 @@ right: nvarguscamerasrc name=right_src sensor-id=0 ... ! nvvidconv ! video/x-raw
   (`saturated fraction 0.041: left exposure compensation -0.50 EV`).
 - **`lock_after_settle`** restores the old behaviour: AE/AWB run for `capture.settle_frames` frames per camera after the
   phase is aligned, then `aelock` and `awblock` are set on both at once; about 10 frames later the locked values are
-  read back and logged once (`exposure locked: left (sensor-id 0) exposure 33329 us gain 6.31x (raw 101); ...`). Any
+  read back and logged once (`exposure locked: left (sensor-id 1) exposure 33329 us gain 6.31x (raw 101); ...`). Any
   camera restart unlocks both, and they settle and lock again together. The caps apply in this mode too; there is no
   following and no compensation, but the metrics below are still measured.
 
