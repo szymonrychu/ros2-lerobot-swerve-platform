@@ -189,6 +189,7 @@ class TabFieldSpec(BaseModel):
 class TabTopicSpec(BaseModel):
     topic: str
     fields: list[TabFieldSpec] = []
+    label: str | None = None  # camera tab: caption of this stream (sensor_graph tabs use `fields`)
 
 
 class TileSourceConfig(BaseModel):

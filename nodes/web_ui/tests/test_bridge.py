@@ -69,6 +69,16 @@ def test_overview_camera_topic_is_a_compressed_image_subscription() -> None:
     assert subscription_spec("/overview_camera/image_raw/compressed", None)[0] is CompressedImage
 
 
+def test_front_back_preview_topics_are_compressed_image_subscriptions() -> None:
+    """The Front/Back camera tab topics resolve to CompressedImage subscriptions without a role."""
+    from sensor_msgs.msg import CompressedImage
+
+    from web_ui.bridge import subscription_spec
+
+    for topic in ("/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed"):
+        assert subscription_spec(topic, None)[0] is CompressedImage
+
+
 def test_stale_stereo_rect_topics_are_gone_and_live_head_topics_remain() -> None:
     """The retired /stereo/*_rect names have no type hint; the Head tab topics still resolve."""
     from sensor_msgs.msg import CompressedImage, Image

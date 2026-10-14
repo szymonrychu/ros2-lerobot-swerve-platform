@@ -140,6 +140,40 @@ def test_default_yaml_overview_tab_is_a_plain_camera_tab() -> None:
     assert "/overview_camera/image_raw/compressed" in cfg.all_subscribed_topics()
 
 
+PREVIEW_TOPICS = ["/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed"]
+
+
+def test_camera_tab_topics_carry_labels_and_are_subscribed(tmp_path: Path) -> None:
+    """A camera tab with `topics` (topic + label) subscribes every topic and keeps the labels in order."""
+    p = tmp_path / "cfg.yaml"
+    p.write_text(
+        """
+tabs:
+  - id: pi_cameras
+    type: camera
+    label: Front/Back
+    topics:
+      - {topic: /front_camera/image_raw/compressed, label: Front}
+      - {topic: /back_camera/image_raw/compressed, label: Back}
+"""
+    )
+    cfg = load_config(p)
+    assert [(t.topic, t.label) for t in cfg.tabs[0].topics] == list(zip(PREVIEW_TOPICS, ["Front", "Back"]))
+    assert set(PREVIEW_TOPICS) <= set(cfg.all_subscribed_topics())
+
+
+def test_topic_spec_label_is_optional() -> None:
+    assert TabConfig(id="g", type="sensor_graph", label="G", topics=[{"topic": "/x"}]).topics[0].label is None
+
+
+def test_default_yaml_has_the_front_back_preview_tab() -> None:
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
+    tab = next(t for t in cfg.tabs if t.id == "pi_cameras")
+    assert tab.type == "camera"
+    assert [(t.topic, t.label) for t in tab.topics] == list(zip(PREVIEW_TOPICS, ["Front", "Back"]))
+    assert tab.topic is None
+
+
 def test_gps_status_absent_means_off() -> None:
     cfg = AppConfig()
     assert cfg.gps_status is None

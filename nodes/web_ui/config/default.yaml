@@ -81,6 +81,16 @@ tabs:
     label: "Overview"
     topic: /overview_camera/image_raw/compressed
 
+  # Front and back Camera Module 3 previews (pi_cameras on the Pi): one tab, both streams side by side.
+  - id: pi_cameras
+    type: camera
+    label: "Front/Back"
+    topics:
+      - topic: /front_camera/image_raw/compressed
+        label: Front
+      - topic: /back_camera/image_raw/compressed
+        label: Back
+
   - id: poi
     type: poi
     label: "POI"

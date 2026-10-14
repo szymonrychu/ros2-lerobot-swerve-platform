@@ -11,6 +11,7 @@ export interface TabFieldSpec {
 export interface TabTopicSpec {
   topic: string
   fields: TabFieldSpec[]
+  label?: string | null // camera tab: caption of this stream
 }
 
 /** Camera pose relative to its parent URDF link: translation in metres, roll/pitch/yaw in radians. */

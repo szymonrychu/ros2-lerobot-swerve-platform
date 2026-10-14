@@ -115,6 +115,9 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/goal_pose": PoseStamped,
     "/camera_0/image_raw/compressed": CompressedImage,
     "/overview_camera/image_raw/compressed": CompressedImage,
+    # pi_cameras previews (Camera Module 3 pair on the Pi), shown side by side by one camera tab.
+    "/front_camera/image_raw/compressed": CompressedImage,
+    "/back_camera/image_raw/compressed": CompressedImage,
 }
 
 # Minimum seconds between two serialised previews of one head topic (ToF drivers publish at 30 Hz; the browser
