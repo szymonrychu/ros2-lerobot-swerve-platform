@@ -118,23 +118,22 @@ describe('HeadTab', () => {
     expect(screen.queryByRole('button', { name: 'raw' })).toBeNull()
   })
 
-  it('toggle defaults to raw and switching to fused shows the fused preview', () => {
+  it('toggle defaults to fused and switching to raw shows the raw preview', () => {
     setViewport(1400)
     const tab = { ...TAB, fused_depth_topic: FUSED } as TabConfig
     renderTab({ ...FRAMES, [FUSED]: { depth_preview_b64: 'FFF' } }, vi.fn(), tab)
-    expect(screen.getByRole('button', { name: 'raw' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
-    fireEvent.click(screen.getByRole('button', { name: 'fused' }))
+    expect(screen.getByRole('button', { name: 'fused' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,FFF')
     fireEvent.click(screen.getByRole('button', { name: 'raw' }))
     expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
+    fireEvent.click(screen.getByRole('button', { name: 'fused' }))
+    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,FFF')
   })
 
   it('fused selected without a message shows Waiting for the fused topic, no image', () => {
     setViewport(1400)
     const tab = { ...TAB, fused_depth_topic: FUSED } as TabConfig
     renderTab(FRAMES, vi.fn(), tab)
-    fireEvent.click(screen.getByRole('button', { name: 'fused' }))
     expect(screen.getByText(`Waiting for ${FUSED}...`)).toBeTruthy()
     expect(screen.queryByAltText('depth')).toBeNull()
   })

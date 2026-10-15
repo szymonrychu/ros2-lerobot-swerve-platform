@@ -59,7 +59,7 @@ function Preview({ topic, jpeg, alt }: PreviewProps) {
 export default function HeadTab({ tab, topicData }: Props) {
   const layout = useLayout()
   const [showAmplitude, setShowAmplitude] = useState(false)
-  const [depthView, setDepthView] = useState<'raw' | 'fused'>('raw')
+  const [depthView, setDepthView] = useState<'raw' | 'fused'>(tab.fused_depth_topic ? 'fused' : 'raw')
   const direction = layout === 'phone' ? 'column' : 'row'
   const cellMinHeight = layout === 'phone' ? 'clamp(10dvh, 28dvh, 40dvh)' : 0
   const depthTopic = tab.fused_depth_topic && depthView === 'fused' ? tab.fused_depth_topic : tab.tof_depth_topic
