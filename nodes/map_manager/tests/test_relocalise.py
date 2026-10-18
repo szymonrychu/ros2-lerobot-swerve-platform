@@ -142,7 +142,12 @@ def test_search_ignores_rival_with_little_evidence() -> None:
     assert result.rival is None
     assert math.hypot(result.pose.x - truth.x, result.pose.y - truth.y) <= 0.1
 
-    unsupported = search_candidates(prepared, points, truth, settings.model_copy(update={"ambiguity_min_support": 0.0}))
+    unsupported = search_candidates(
+        prepared,
+        points,
+        truth,
+        settings.model_copy(update={"ambiguity_min_support": 0.0, "min_evaluated_fraction": 0.01}),
+    )
     assert unsupported.ambiguous, "the rival must exist so that the support rule is what removes it"
 
 
@@ -190,6 +195,44 @@ def test_search_low_agreement_is_not_ok() -> None:
     assert not result.ok
     assert result.ratio is not None and result.ratio < settings.candidate_min_ratio
     assert "below" in result.reason
+
+
+def test_search_rejects_partial_overlap_pose() -> None:
+    # Live robot: a wrong pose scored 1.00 on a minority of the scan (the rest fell outside the map grid) and was
+    # accepted. The map here is only a strip of the room, so every candidate sees under half of the scan.
+    full = square_room()
+    truth = Pose2D(x=3.0, y=3.0, yaw=0.0)
+    points = cast_scan(full, truth)
+    strip = GridMap(
+        resolution=RESOLUTION, origin_x=0.0, origin_y=0.0, origin_yaw=0.0, cells=full.cells[: int(1.2 / RESOLUTION), :]
+    )
+    settings = SearchSettings()
+    prepared = prepare_map(strip, settings.occupied_threshold, settings.hit_radius_cells)
+
+    lenient = search_candidates(prepared, points, truth, settings.model_copy(update={"min_evaluated_fraction": 0.01}))
+    assert lenient.ok and lenient.ratio == 1.0 and lenient.evaluated < 0.6 * len(points), "premise: accepted before"
+
+    result = search_candidates(prepared, points, truth, settings)
+
+    assert not result.ok
+    assert result.pose == truth
+    assert result.ratio is None
+    assert (
+        f"evaluated {lenient.evaluated}/{len(points)} = {lenient.evaluated / len(points):.2f} < 0.60" in result.reason
+    )
+
+
+def test_search_full_overlap_passes_fraction() -> None:
+    grid = l_room()
+    truth = Pose2D(x=2.2, y=2.6, yaw=0.3)
+    points = cast_scan(grid, truth)
+    settings = SearchSettings()
+    prepared = prepare_map(grid, settings.occupied_threshold, settings.hit_radius_cells)
+
+    result = search_candidates(prepared, points, truth, settings)
+
+    assert result.ok, result.reason
+    assert result.evaluated >= 0.6 * len(points)
 
 
 def test_judge_localised() -> None:
@@ -273,6 +316,8 @@ def test_judge_rejects_invalid() -> None:
         ("ambiguity_margin", -0.01),
         ("ambiguity_min_support", 1.1),
         ("ambiguity_min_support", -0.1),
+        ("min_evaluated_fraction", 0.0),
+        ("min_evaluated_fraction", 1.01),
     ],
 )
 def test_settings_reject_invalid(field: str, value: float) -> None:
@@ -286,6 +331,7 @@ def test_settings_defaults() -> None:
     assert (settings.occupied_threshold, settings.hit_radius_cells, settings.min_points) == (65, 1, 40)
     assert (settings.max_range_m, settings.candidate_min_ratio) == (8.0, 0.5)
     assert (settings.ambiguity_distance_m, settings.ambiguity_yaw_deg, settings.ambiguity_margin) == (0.5, 30, 0.05)
+    assert settings.min_evaluated_fraction == 0.6
 
 
 def test_yaw_difference_wraps() -> None:

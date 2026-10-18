@@ -37,6 +37,9 @@ class SearchSettings(BaseModel):
         occupied_threshold: Occupancy from which a grid cell is occupied (1..100).
         hit_radius_cells: Distance to an occupied cell within which an endpoint agrees, cells.
         min_points: Minimum evaluated endpoints for a candidate to count.
+        min_evaluated_fraction: Minimum fraction of the valid scan endpoints (within ``max_range_m``) that must be
+            evaluated (inside the known map) for a candidate to count, so a pose scored on part of the scan is never
+            reported as a match.
         max_range_m: Endpoints farther than this from the base are dropped, m.
         candidate_min_ratio: Minimum agreement ratio of the best candidate for ``ok``.
         ambiguity_distance_m: A rival must be farther than this from the best candidate, m ...
@@ -56,6 +59,7 @@ class SearchSettings(BaseModel):
     occupied_threshold: int = Field(default=65, gt=0, le=100)
     hit_radius_cells: int = Field(default=1, gt=0)
     min_points: int = Field(default=40, gt=0)
+    min_evaluated_fraction: float = Field(default=0.6, gt=0.0, le=1.0)
     max_range_m: float = Field(default=8.0, gt=0.0)
     candidate_min_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
     ambiguity_distance_m: float = Field(default=0.5, gt=0.0)
@@ -169,7 +173,8 @@ def search_candidates(
     """Find the pose around hint where the scan best agrees with the map.
 
     Every candidate (hint + translation offset, hint yaw + yaw offset) projects the base-frame endpoints into the map
-    and counts agreeing endpoints; candidates with fewer than ``min_points`` evaluated endpoints do not count.
+    and counts agreeing endpoints; candidates with fewer than ``min_points`` evaluated endpoints, or fewer than
+    ``min_evaluated_fraction`` of the scan, do not count.
     Candidates rank by agreeing count, ties by ratio. The reported score is the shared ``agreement`` at the best pose.
 
     Args:
@@ -194,9 +199,24 @@ def search_candidates(
             placed = transform_points(points, (hint.x, hint.y, 0.0), yaw_quaternion(float(yaw)))
             evaluated[index], agreeing[index] = score_translations(prepared, placed, offsets)
 
-    valid = evaluated >= settings.min_points
+    needed = settings.min_evaluated_fraction * len(points) - STEP_EPSILON
+    enough = evaluated >= settings.min_points
+    valid = enough & (evaluated >= needed)
     if not valid.any():
         most = int(evaluated.max()) if evaluated.size else 0
+        if enough.any():
+            return SearchResult(
+                pose=hint,
+                ratio=None,
+                evaluated=most,
+                agreeing=0,
+                ok=False,
+                ambiguous=False,
+                reason=(
+                    f"evaluated {most}/{len(points)} = {most / len(points):.2f} < "
+                    f"{settings.min_evaluated_fraction:.2f}; hint kept"
+                ),
+            )
         return SearchResult(
             pose=hint,
             ratio=None,

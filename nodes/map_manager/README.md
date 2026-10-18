@@ -19,7 +19,11 @@ complete the store. Names are checked with `ros2_common.maps.validate_map_name`.
 the best pose with `ok` (ratio >= `candidate_min_ratio`, evaluated >= `min_points`) and `ambiguous` (a candidate
 farther than `ambiguity_distance_m` / `ambiguity_yaw_deg` scores within `ambiguity_margin` of the best and agrees with at least `ambiguity_min_support` of the best's agreeing
 endpoints, so a rival with a handful of points inside the known map does not count); with too
-few evaluated points it keeps the hint unchanged. `LocalisationJudge` turns live agreement samples into
+few evaluated points it keeps the hint unchanged. `search.min_evaluated_fraction` (default 0.6, 0 < x <= 1; may be
+omitted from the deployed config) requires that at least that fraction of the valid scan points (within
+`max_range_m`) be evaluated against the map; a search whose best candidate falls short is not `ok`, keeps the hint and
+reports `evaluated 126/330 = 0.38 < 0.60; hint kept`, so a pose scored on part of the scan is never accepted and the
+load ends "not localised". `LocalisationJudge` turns live agreement samples into
 `localised` / `not_localised` / `ambiguous` (median >= `localised_ratio`, at least `min_samples`).
 
 ## ROS node (`map_manager/node.py`, the only rclpy module)
