@@ -1,6 +1,6 @@
 ---
 title: Remove Overview tab
-status: escalated
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The web UI no longer offers a tab for a camera that no longer exists.
 files: [nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_bridge.py, tests/test_mcp_server_config.py, nodes/web_ui/README.md, tests/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--remove-overview-tab
 branch: remove-the-jetson-coprocesso--remove-overview-tab
-verified_head: ""
+verified_head: 3e1e75b3e00610328c4011551a6b8775c05162b8
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["tests.red and verification.evidence need the revert-and-run output (old non-test files fail, HEAD files pass). Independent verification asked for it, and the implementer did not supply it.", "TDD skipped without a listed exception; prove the tests catch the change - commit first, then for each changed non-test file: git show <merge-base>:<path> > <path>; run the test (must fail); git show HEAD:<path> > <path>; run again (must pass); paste both tails into tests.red and verification.evidence"]
 ---
 
 # Remove Overview tab

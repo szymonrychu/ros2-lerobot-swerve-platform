@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--arm-tab-front-camera-field
 branch: remove-the-jetson-coprocesso--arm-tab-front-camera-field
-verified_head: ""
+verified_head: 0e1da88c1416e9d08842dd7408850f99bbf5b408
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []
