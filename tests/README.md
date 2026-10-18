@@ -2519,3 +2519,18 @@ Static invariants of the agent skills shipped in `nodes/claude_agent/claude_agen
 | `test_optional_tools_only_in_optional_section` | Head, 3D-map tools and `zoom` appear only under `## When extra perception tools exist`, which also names `look_around`. |
 | `test_split_optional_isolates_section` | The section splitter separates the optional section from the rest. |
 | `test_plugin_ships_read_only_from_root_checkout` | The repo is cloned with `become`, the service user is `claude_agent`, the plugin is under `nodes/claude_agent/` and the workdir is outside the repo. |
+
+### test_agent_retrospectives_script.py
+
+Unit tests for `scripts/agent_retrospectives.py` (pulls the agent's retrospectives into `.logs/retrospectives`), using `httpx.MockTransport`.
+
+| Test | What it covers |
+|---|---|
+| `test_shipped_config_validates` | `scripts/agent_retrospectives.yaml` loads with the documented defaults. |
+| `test_config_rejects_unknown_key_and_bad_limit` | The pydantic config forbids extra keys and a limit below 1. |
+| `test_render_markdown_includes_all_sections` | A sample record renders date, workflow, outcome, author, summary, lists, notes for fixers, skipped mandatory steps and phases. |
+| `test_render_markdown_free_job_without_lists` | A free job renders as `free` and empty sections are omitted. |
+| `test_main_writes_timestamped_files` | The request path and limit, the matching timestamped `.md`/`.jsonl` names, the raw content and the printed paths and count. |
+| `test_main_exit_1_on_http_error` | A 502 gives exit 1 with the status on stderr. |
+| `test_main_exit_1_on_connection_error` | A connection error gives exit 1 with the reason. |
+| `test_main_exit_2_on_bad_config` | An invalid or missing config gives exit 2. |

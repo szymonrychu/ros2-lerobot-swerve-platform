@@ -1,0 +1,6 @@
+# Config for scripts/agent_retrospectives.py (validated by its pydantic PullConfig).
+# Usage: uv run python scripts/agent_retrospectives.py [scripts/agent_retrospectives.yaml]
+base_url: http://client.ros2.lan/api/agent
+limit: 50
+output_dir: .logs/retrospectives
+timeout_s: 10
