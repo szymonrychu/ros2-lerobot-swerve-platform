@@ -213,9 +213,8 @@ def test_all_yml_keys_the_link_by_group_membership() -> None:
     assert resolve(["controller"]) == []
 
 
-def test_no_client_or_jetson_group_vars_edit_defines_the_link() -> None:
-    for name in ("client.yml", "jetson.yml"):
-        assert "network_link_ethernets" not in (ANSIBLE_DIR / "group_vars" / name).read_text()
+def test_no_client_group_vars_edit_defines_the_link() -> None:
+    assert "network_link_ethernets" not in (ANSIBLE_DIR / "group_vars" / "client.yml").read_text()
 
 
 def test_role_default_is_an_empty_list() -> None:

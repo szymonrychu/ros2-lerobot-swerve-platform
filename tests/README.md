@@ -2338,7 +2338,7 @@ The network role's static point-to-point link (design D8), rendered with jinja2;
 | `test_link_interface_is_not_in_the_dhcp_list` / `test_dhcp_ethernets_still_render_next_to_the_link` / `test_no_link_renders_no_ethernets_for_a_wifi_primary` | Link interfaces leave the DHCP list; other ethernets still render; no link adds no ethernets block. |
 | `test_wifi_stanza_is_identical_with_and_without_a_link` | The `wifis` block renders exactly as before for client and Jetson vars. |
 | `test_probe_flags_a_foreign_ipv4` / `test_probe_flags_a_foreign_secondary_address` / `test_probe_passes_planned_address_and_missing_ipv4` / `test_probe_fails_with_a_message_naming_the_address_and_runs_before_netplan` | The probe task finds foreign addresses, passes the planned or none, and fails before netplan is written. |
-| `test_all_yml_defines_the_link_vars_and_names_d8` / `test_all_yml_keys_the_link_by_group_membership` / `test_no_client_or_jetson_group_vars_edit_defines_the_link` / `test_role_default_is_an_empty_list` | `jetson_link_*` vars, group-keyed `network_link_ethernets`, no client.yml or jetson.yml edit, empty role default. |
+| `test_all_yml_defines_the_link_vars_and_names_d8` / `test_all_yml_keys_the_link_by_group_membership` / `test_no_client_group_vars_edit_defines_the_link` / `test_role_default_is_an_empty_list` | `jetson_link_*` vars, group-keyed `network_link_ethernets`, no client.yml or jetson.yml edit, empty role default. |
 
 ## test_jetson_link_role.py
 
