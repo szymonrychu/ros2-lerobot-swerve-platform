@@ -1,6 +1,6 @@
 ---
 title: Nav2 ToF voxel layer
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: 3D obstacles and cliffs seen by the head ToF appear in the local costmap next to the lidar obstacles.
 files: [nodes/nav2_bringup/config/nav2_params.yaml, ansible/group_vars/client.yml, tests/test_nav_tof_voxel_layer.py, tests/test_nav_stack_config.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--nav2-tof-voxel-layer
 branch: tof-3d-obstacle-detection-fo--nav2-tof-voxel-layer
-verified_head: ""
+verified_head: f1e210fb8532cc952db741b3e8940a7087b5612f
 run: tof-3d-obstacle-detection-fo
 provides: []
-acs_for_audit: []
-process_gaps: []
+acs_for_audit: [a3]
+process_gaps: ["The fix round changed tests/README.md and tests/test_nav_tof_voxel_layer.py (new guard test test_readme_tof_section_has_no_parking_wording) without tests.added naming them"]
 ---
 
 # Nav2 ToF voxel layer
