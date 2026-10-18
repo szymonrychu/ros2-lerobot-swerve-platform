@@ -521,24 +521,28 @@
               tags: [monitoring]
           tags: [monitoring]
 
-        # The cable to the Jetson (design D8): static eth0 plus chrony server, NAT and hosts entry. Not a ROS node: only
-        # `./scripts/deploy-nodes.sh client jetson_link` (--tags jetson_link) or an untagged run applies it; node and
-        # phase tags never pull it in. The Jetson side is applied by playbooks/deploy_nodes_jetson.yml.
-        - name: Direct link to the Jetson
+        # The cable to the Jetson is retired: re-render netplan without the static eth0 stanza, keep chrony on plain
+        # internet pools, and remove the hosts entry, forwarding and NAT the former jetson_link role left behind. Not a
+        # ROS node: only `./scripts/deploy-nodes.sh client jetson_link` (--tags jetson_link) or an untagged run applies
+        # it; node and phase tags never pull it in.
+        - name: Remove the retired Jetson link
           tags: [jetson_link]
           block:
-            - name: Static point-to-point link on the client's network_link_ethernets
+            - name: Netplan without the cable's static eth0 stanza
               ansible.builtin.include_role:
                 name: network
                 apply:
                   tags: [jetson_link]
-            - name: Chrony server, NAT and hosts entry for the Jetson
+            - name: Chrony on plain internet pools (no Jetson to serve)
               ansible.builtin.include_role:
-                name: jetson_link
+                name: chrony
                 apply:
                   tags: [jetson_link]
-              vars:
-                jetson_link_side: server
+            - name: Hosts entry, forwarding and NAT of the retired link
+              ansible.builtin.include_tasks:
+                file: tasks/jetson_link_remove.yml
+                apply:
+                  tags: [jetson_link]
 
         - name: nginx on port 80 (web UI at /, /grafana/ redirected to the server)
           ansible.builtin.include_role:

@@ -1,0 +1,86 @@
+---
+# The Pi-Jetson cable is retired: undo what the former jetson_link role applied to the client (hosts entry, IPv4
+# forwarding, the nftables NAT table). The netplan stanza and chrony are re-rendered by the network and chrony roles
+# in the same block of deploy_nodes_client.yml. Every step is state-based, so a second run reports no changes. The
+# nftables package and service stay as they are: whether nftables ran before the role is unknown. The `config` tag
+# satisfies the documented-tag rule; the include applies `jetson_link`, which is what selects these tasks.
+- name: Remove the Jetson hosts entry
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '\sjetson\.ros2\.lan(\s|$)'
+    state: absent
+  register: jetson_link_remove_hosts
+  tags: [config]
+
+- name: Gather service facts (docker needs forwarding left on)
+  ansible.builtin.service_facts:
+  register: jetson_link_remove_services
+  tags: [config]
+
+- name: Remove the forwarding sysctl drop-in
+  ansible.builtin.file:
+    path: /etc/sysctl.d/90-jetson-link-forward.conf
+    state: absent
+  register: jetson_link_remove_sysctl
+  tags: [config]
+
+# Live only: with the drop-in gone the next boot comes up with the kernel default (off) anyway.
+- name: Turn IPv4 forwarding off now
+  ansible.builtin.command:
+    cmd: sysctl -w net.ipv4.ip_forward=0
+  register: jetson_link_remove_ip_forward
+  tags: [config]
+  changed_when: true
+  when:
+    - jetson_link_remove_sysctl is changed
+    - (ansible_facts.services['docker.service'] | default({})).state | default('stopped') != 'running'
+
+# A client without the nft binary has no table to delete: the listing then fails quietly and leaves no stdout_lines.
+- name: List the live nftables tables
+  ansible.builtin.command:
+    cmd: nft list tables
+  register: jetson_link_remove_nft_tables
+  tags: [config]
+  changed_when: false
+  failed_when: false
+
+- name: Delete the live Jetson NAT table
+  ansible.builtin.command:
+    cmd: nft delete table ip jetson_link
+  register: jetson_link_remove_nft_table
+  tags: [config]
+  changed_when: true
+  when: "'table ip jetson_link' in (jetson_link_remove_nft_tables.stdout_lines | default([]))"
+
+- name: Remove the Jetson NAT table file
+  ansible.builtin.file:
+    path: /etc/nftables.d/jetson-nat.nft
+    state: absent
+  register: jetson_link_remove_nft_file
+  tags: [config]
+
+- name: Stop including /etc/nftables.d from nftables.conf
+  ansible.builtin.lineinfile:
+    path: /etc/nftables.conf
+    line: 'include "/etc/nftables.d/*.nft"'
+    state: absent
+    create: false
+  register: jetson_link_remove_nft_include
+  tags: [config]
+
+- name: Look for anything left in /etc/nftables.d
+  ansible.builtin.find:
+    paths: /etc/nftables.d
+    file_type: any
+    hidden: true
+  register: jetson_link_remove_nft_dir_files
+  tags: [config]
+
+# file state=absent deletes recursively, so only an empty directory goes (a missing one reports no change).
+- name: Remove /etc/nftables.d when empty
+  ansible.builtin.file:
+    path: /etc/nftables.d
+    state: absent
+  register: jetson_link_remove_nft_dir
+  tags: [config]
+  when: jetson_link_remove_nft_dir_files.matched == 0

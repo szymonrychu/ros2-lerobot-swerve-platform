@@ -269,15 +269,15 @@ raspi-gpio get 4
 i2cdetect -y -r 1
 ```
 
-## Time sync and NAT for the Jetson (role `jetson_link`)
+## Retired Jetson link removal
 
-The Pi is the Jetson's time server and its way to the internet, so the Jetson's frame timestamps share the Pi's clock.
+The Pi-Jetson cable is retired. `./scripts/deploy-nodes.sh client jetson_link` (the `jetson_link` tag; an untagged client run applies it too, node and phase tags never do) runs the "Remove the retired Jetson link" block of `deploy_nodes_client.yml`: the `network` role re-renders netplan without the static `10.77.0.1/30` eth0 stanza, the `chrony` role (below) leaves chrony on plain internet pools, and `playbooks/tasks/jetson_link_remove.yml` removes the rest of what the former `jetson_link` role applied:
 
-- **Apply:** `./scripts/deploy-nodes.sh client jetson_link` (the `jetson_link` tag: the `network` role with the client's `network_link_ethernets`, then `jetson_link` with `jetson_link_side: server`). Node and phase tags never run it; an untagged client run does. The Jetson side (`jetson_link_side: client`) is applied by `playbooks/deploy_nodes_jetson.yml`.
-- **Time:** both sides install chrony and disable `systemd-timesyncd`. The Pi keeps the internet pool as upstream, serves `allow 10.77.0.0/30` and `local stratum 10`, so the Jetson syncs even when the Pi is offline. The Jetson uses `server 10.77.0.1 iburst prefer` with the pool as fallback over WiFi, and `makestep 1.0 3`. Check with `chronyc sources` on the Jetson and `chronyc clients` on the Pi.
-- **NAT (Pi only):** `net.ipv4.ip_forward = 1` in `/etc/sysctl.d/90-jetson-link-forward.conf`, and the nftables table `jetson_link` in `/etc/nftables.d/jetson-nat.nft` (included from `/etc/nftables.conf`, loaded on boot). It masquerades `10.77.0.0/30` out of the Pi's primary interface and forwards only between the link interface and the primary interface; all other forwarding is untouched.
-- **Names:** `/etc/hosts` gets `10.77.0.2 jetson.ros2.lan` on the Pi and `10.77.0.1 client.ros2.lan` on the Jetson.
-- **Idempotent:** every change task registers; chrony is restarted and the ruleset reloaded only when its file changed.
+- the `jetson.ros2.lan` line from `/etc/hosts`;
+- `/etc/sysctl.d/90-jetson-link-forward.conf`, and `net.ipv4.ip_forward` is set to 0 live (not persisted) only when that file was just removed and `docker.service` is not running;
+- the live nftables table `ip jetson_link` (only when `nft list tables` lists it; a missing `nft` binary is not an error), `/etc/nftables.d/jetson-nat.nft`, the `include "/etc/nftables.d/*.nft"` line of `/etc/nftables.conf` (the file is not created when missing), and `/etc/nftables.d` only when it is empty.
+
+Every task is state-based and registers its result, so a second run reports no changes. Left alone: the nftables package and `nftables.service` (whether they were in use before the link is unknown) and any other nftables table or file.
 
 ## Client time sync (role `chrony`)
 
@@ -298,8 +298,6 @@ In **`group_vars/server.yml`** or **`group_vars/client.yml`** (or host_vars), se
 - **`ros2_extend_etc_hosts`** — (default `false`) When true, hostname role adds `ros2_hosts_entries` (server.ros2.lan, client.ros2.lan) to `/etc/hosts`. Default false: rely on primary DNS.
 
 - **`network_link_ethernets`** — Optional list of static point-to-point ethernets (default `[]`). Each entry has `iface`, `address` (CIDR) and optionally `default_route_via` and `route_metric`. Entries render with `dhcp4: false`, `ignore-carrier: true` (the address exists before the peer is up) and `optional: true`, and are left out of the DHCP list. Before writing netplan the role probes each link interface and fails, naming the address, if it holds an IPv4 address other than the planned one.
-
-**Direct Pi-Jetson link (design D8).** `group_vars/all.yml` defines `jetson_link_*` (interface `eth0`, Pi `10.77.0.1/30`, Jetson `10.77.0.2/30`) and sets `network_link_ethernets` by group: the client gets `10.77.0.1/30`; the Jetson gets `10.77.0.2/30` plus a default route via `10.77.0.1` at metric 1000, so the Jetson's WiFi route keeps winning while it is up. The WiFi stanza is unchanged. The Pi picks this up only in a deploy of its own.
 
 The network role writes a netplan file under `/etc/netplan/` and runs `netplan apply`. The **hostname** role runs `hostnamectl set-hostname` and updates `/etc/hostname` and `/etc/hosts`.
 
