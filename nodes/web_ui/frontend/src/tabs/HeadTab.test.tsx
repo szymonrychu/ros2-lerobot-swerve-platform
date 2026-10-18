@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
 import { TabConfig } from '../types'
 import HeadTab from './HeadTab'
+import { requestZoom } from '../camera/zoomApi'
+
+vi.mock('../camera/zoomApi', async (orig) => ({
+  ...(await orig<typeof import('../camera/zoomApi')>()),
+  requestZoom: vi.fn(),
+}))
 
 const RGB = '/head_camera/image_raw/compressed'
 const DEPTH = '/tof/depth/image_raw'
@@ -116,5 +122,86 @@ describe('HeadTab', () => {
     expect(screen.queryByRole('button', { name: 'fused' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'raw' })).toBeNull()
     expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
+  })
+
+  describe('click to zoom', () => {
+    const ZOOM_TAB = { ...TAB, zoom_command_topic: '/head_camera/zoom/command' } as TabConfig
+    const mockZoom = vi.mocked(requestZoom)
+
+    function clickLive(): void {
+      const img = screen.getByAltText('head camera') as HTMLImageElement
+      Object.defineProperty(img, 'naturalWidth', { value: 1600, configurable: true })
+      Object.defineProperty(img, 'naturalHeight', { value: 900, configurable: true })
+      img.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 900 }) as DOMRect
+      fireEvent.click(img, { clientX: 400, clientY: 450 })
+    }
+
+    afterEach(() => {
+      mockZoom.mockReset()
+    })
+
+    it('shows a factor picker defaulting to 4 only with zoom topics', () => {
+      setViewport(1400)
+      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
+      const picker = screen.getByRole('radiogroup', { name: 'zoom factor' })
+      expect(screen.getByRole('radio', { name: '4x' }).getAttribute('aria-checked')).toBe('true')
+      expect(picker).toBeTruthy()
+      cleanup()
+      renderTab(FRAMES)
+      expect(screen.queryByRole('radiogroup', { name: 'zoom factor' })).toBeNull()
+      mockZoom.mockResolvedValue({ status: 'ok', jpeg_b64: 'ZZZ' })
+      clickLive()
+      expect(mockZoom).not.toHaveBeenCalled()
+    })
+
+    it('requests the clicked point with the chosen factor, ignoring clicks while pending', async () => {
+      setViewport(1400)
+      let resolve: (v: { status: string; jpeg_b64: string; zoom: number }) => void = () => {}
+      mockZoom.mockReturnValue(new Promise((r) => { resolve = r }))
+      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
+      fireEvent.click(screen.getByRole('radio', { name: '8x' }))
+      clickLive()
+      clickLive()
+      expect(mockZoom).toHaveBeenCalledTimes(1)
+      expect(mockZoom).toHaveBeenCalledWith('head', 0.25, 0.5, 8)
+      expect(screen.getByText('Zooming...')).toBeTruthy()
+      await act(async () => resolve({ status: 'ok', jpeg_b64: 'ZZZ', zoom: 8 }))
+    })
+
+    it('shows the crop with factor then returns to live', async () => {
+      setViewport(1400)
+      mockZoom.mockResolvedValue({ status: 'ok', jpeg_b64: 'ZZZ' })
+      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
+      clickLive()
+      await waitFor(() => expect(screen.getByAltText('head camera zoom').getAttribute('src')).toBe('data:image/jpeg;base64,ZZZ'))
+      expect(screen.getByText(/4x/, { selector: '[data-testid="zoom-info"]' })).toBeTruthy()
+      expect(screen.queryByText(/focus not confirmed/)).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Back to live' }))
+      expect(screen.queryByAltText('head camera zoom')).toBeNull()
+      expect(screen.getByAltText('head camera').getAttribute('src')).toBe('data:image/jpeg;base64,RRR')
+    })
+
+    it('notes unconfirmed focus on af_failed', async () => {
+      setViewport(1400)
+      mockZoom.mockResolvedValue({ status: 'af_failed', jpeg_b64: 'ZZZ' })
+      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
+      clickLive()
+      await waitFor(() => expect(screen.getByAltText('head camera zoom')).toBeTruthy())
+      expect(screen.getByText(/focus not confirmed/)).toBeTruthy()
+    })
+
+    it.each([
+      ['Zoom failed (HTTP 409): busy', 'Camera busy'],
+      ['Zoom failed (HTTP 504): no answer', 'Zoom timed out'],
+      ['Zoom failed (HTTP 502): camera_error', 'Camera error'],
+    ])('shows one short message on %s and keeps the live view', async (err, text) => {
+      setViewport(1400)
+      mockZoom.mockRejectedValue(new Error(err))
+      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
+      clickLive()
+      await waitFor(() => expect(screen.getByText(text)).toBeTruthy())
+      expect(screen.queryByAltText('head camera zoom')).toBeNull()
+      expect(screen.getByAltText('head camera').getAttribute('src')).toBe('data:image/jpeg;base64,RRR')
+    })
   })
 })

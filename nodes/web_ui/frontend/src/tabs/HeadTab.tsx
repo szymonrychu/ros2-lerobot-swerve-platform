@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import Alert from '@mui/material/Alert'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -6,6 +9,7 @@ import Slider from '@mui/material/Slider'
 import Stack from '@mui/material/Stack'
 import Switch from '@mui/material/Switch'
 import Typography from '@mui/material/Typography'
+import { requestZoom, ZoomFactor } from '../camera/zoomApi'
 import { CameraStream } from '../components/CameraStream'
 import { useLayout } from '../layout/useLayout'
 import { CANVAS_BG } from '../theme'
@@ -21,6 +25,28 @@ interface Props {
 const CELL_SX = { flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' } as const
 const PAN_TILT_LABEL = 'pan/tilt: no head mount configured'
 const PAN_TILT_RANGE_DEG = 90
+const ZOOM_FACTORS: ZoomFactor[] = [2, 4, 8]
+const DEFAULT_ZOOM_FACTOR: ZoomFactor = 4
+
+/** A shown crop: base64 JPEG, factor and whether autofocus converged. */
+interface Crop {
+  jpeg: string
+  factor: ZoomFactor
+  focused: boolean
+}
+
+/**
+ * One short user message for a failed zoom request.
+ *
+ * @param err - error thrown by requestZoom (message carries the HTTP status)
+ * @returns the message shown under the view
+ */
+function zoomErrorText(err: unknown): string {
+  const msg = err instanceof Error ? err.message : ''
+  if (msg.includes('HTTP 409')) return 'Camera busy'
+  if (msg.includes('HTTP 504') || msg.includes('timeout')) return 'Zoom timed out'
+  return 'Camera error'
+}
 
 interface PreviewProps {
   topic: string | undefined
@@ -56,6 +82,11 @@ function Preview({ topic, jpeg, alt }: PreviewProps) {
  */
 export default function HeadTab({ tab, topicData }: Props) {
   const layout = useLayout()
+  const zoomEnabled = Boolean(tab.zoom_command_topic)
+  const [factor, setFactor] = useState<ZoomFactor>(DEFAULT_ZOOM_FACTOR)
+  const [pending, setPending] = useState(false)
+  const [crop, setCrop] = useState<Crop | null>(null)
+  const [zoomError, setZoomError] = useState<string | null>(null)
   const [showAmplitude, setShowAmplitude] = useState(false)
   const direction = layout === 'phone' ? 'column' : 'row'
   const cellMinHeight = layout === 'phone' ? 'clamp(10dvh, 28dvh, 40dvh)' : 0
@@ -63,11 +94,32 @@ export default function HeadTab({ tab, topicData }: Props) {
   const depth = topicData[depthTopic ?? ''] as { depth_preview_b64?: string | null } | undefined
   const amplitude = topicData[tab.tof_amplitude_topic ?? ''] as { jpeg_b64?: string | null } | undefined
 
+  function onPointSelect(u: number, v: number): void {
+    if (pending) return
+    setPending(true)
+    setZoomError(null)
+    requestZoom(tab.id, u, v, factor)
+      .then((reply) => setCrop({ jpeg: reply.jpeg_b64, factor, focused: reply.status !== 'af_failed' }))
+      .catch((err) => setZoomError(zoomErrorText(err)))
+      .finally(() => setPending(false))
+  }
+
   return (
     <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', gap: 1, overflowY: layout === 'phone' ? 'auto' : 'hidden' }}>
       <Box data-testid="head-layout" data-direction={direction} sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: direction, gap: 1 }}>
         <Box sx={{ ...CELL_SX, minHeight: cellMinHeight }}>
-          <CameraStream topic={tab.rgb_camera_topic} data={topicData[tab.rgb_camera_topic ?? '']} alt="head camera" />
+          {crop ? (
+            <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: CANVAS_BG }}>
+              <img src={`data:image/jpeg;base64,${crop.jpeg}`} alt="head camera zoom" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+            </Box>
+          ) : (
+            <CameraStream
+              topic={tab.rgb_camera_topic}
+              data={topicData[tab.rgb_camera_topic ?? '']}
+              alt="head camera"
+              onPointSelect={zoomEnabled ? onPointSelect : undefined}
+            />
+          )}
         </Box>
         <Box sx={{ ...CELL_SX, minHeight: cellMinHeight }}>
           <Preview topic={depthTopic} jpeg={depth?.depth_preview_b64} alt="depth" />
@@ -85,6 +137,29 @@ export default function HeadTab({ tab, topicData }: Props) {
             label="amplitude"
           />
         )}
+        {zoomEnabled && (
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            role="radiogroup"
+            aria-label="zoom factor"
+            value={factor}
+            onChange={(_, v: ZoomFactor | null) => v && setFactor(v)}
+          >
+            {ZOOM_FACTORS.map((f) => (
+              <ToggleButton key={f} value={f} role="radio" aria-checked={f === factor} aria-label={`${f}x`}>{`${f}x`}</ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        )}
+        {pending && <Typography variant="body2" color="text.secondary">Zooming...</Typography>}
+        {crop && (
+          <>
+            <Typography data-testid="zoom-info" variant="body2">{`${crop.factor}x zoom`}</Typography>
+            {!crop.focused && <Typography variant="body2" color="warning.main">focus not confirmed</Typography>}
+            <Button variant="outlined" size="small" onClick={() => setCrop(null)}>Back to live</Button>
+          </>
+        )}
+        {zoomError && <Alert severity="warning" sx={{ py: 0 }}>{zoomError}</Alert>}
         {tab.tof_range_m !== undefined && (
           <Typography variant="body2" color="text.secondary">{`depth range ${tab.tof_range_m} m`}</Typography>
         )}
