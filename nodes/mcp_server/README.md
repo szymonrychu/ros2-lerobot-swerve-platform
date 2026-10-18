@@ -255,7 +255,7 @@ The follower joint states are always subscribed, at the rate below.
 ### Dual-rate joint states
 
 `/follower/joint_states` and `/swerve_drive/joint_states` arrive at 95 Hz, and each message wakes the rclpy executor
-(about 0.3-0.4 core while nothing moves, see `docs/plans/2026-10-13-cpp-nodes-briefs/webui-mcp-cpu-debug.md`). The
+(about 0.3-0.4 core while nothing moves, measured 2026-10-13). The
 `joint_state_throttle_follower` / `joint_state_throttle_swerve` nodes (`ros-jazzy-topic-tools` `throttle messages
 <topic> 10.0 <topic>/throttled`, see `ansible/README.md`) publish 10 Hz copies. `ros_iface.DualRateTopic`
 (`joint_state_rate` config section) reads them like this:

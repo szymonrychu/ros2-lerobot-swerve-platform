@@ -151,7 +151,7 @@
 
 ## Stereo depth (IMX219 pair, client)
 
-* **Two IMX219 on cam0/cam1 replace the IMX708 overview camera and the Arducam ToF** (2026-10-12, design `docs/plans/2026-10-13-stereo-depth-design.md`). Why:
+* **Two IMX219 on cam0/cam1 replace the IMX708 overview camera and the Arducam ToF** (2026-10-12). Why:
   - The IMX219 lens is fixed, while the IMX708's VCM lens drifts even in manual focus (gravity on the pan/tilt head, temperature, vibration), and any lens shift breaks the stereo calibration.
   - The Arducam ToF never came up. It stays installed and `enabled: false`.
   - The client has only about 0.3-0.45 of 4 cores free. So the pair runs at 480x360 (ISP-downscaled from the 1640x1232 binned mode) with SGBM 3WAY and 48 disparities, about 0.4 core at 5 fps, on the client rather than offloaded to the server.
