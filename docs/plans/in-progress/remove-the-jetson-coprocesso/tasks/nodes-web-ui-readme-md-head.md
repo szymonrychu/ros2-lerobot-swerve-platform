@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "Stale Jetson/stereo docs belong to the Head tab and camera re-point tasks, not this task."
 files: [nodes/web_ui/README.md]
 verify: "! grep -n -i -E 'stereo|jetson|overview_camera|fused' nodes/web_ui/README.md"
-depends_on: [head-tab-tof-topics, remove-overview-tab, drop-fused-depth-topic]
+depends_on: [arm-tab-front-camera-field, drop-fused-depth-topic, head-and-arm-tabs-frontend, head-tab-tof-topics, remove-overview-tab]
 owns: []
 uses: []
 model: sonnet
