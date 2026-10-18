@@ -70,6 +70,8 @@ paragraph adds `watch_constraints` on `enqueue_motions` (e.g. `gripper_effort` d
 -> abort, a `distance_travelled_m` cap), `resume_motions` after a pause, and that a guard refusal of a queued step
 stops the queue.
 
+A `Skills and workflows:` paragraph follows the working method: skills (`robot-skills:*`) are loaded with the Skill tool and are read-only, `robot-skills:planning` before planning, `agent.start_workflow` (workflows `discovery`, `drive_to_target`, `pick_place`; `dry_run` to edit) for free-text jobs of that kind, otherwise `agent.set_task_plan`, mandatory steps checked at job end, `agent.record_retrospective` after every job, and the `RECENT RETROSPECTIVES` block. The Exploration paragraph is short and points to `robot-skills:sightseeing`, `get_exploration_status` and `mark_survey_spot`; the Memory paragraph teaches POI categories (`robot-skills:poi-categories`: targets, slow zones, keep-outs, problem spots, details; `survey=true`), that New session deletes no POIs, and the keep-out consent rule.
+
 Besides the budget and working method, the system prompt (`prompt.py`) has compact sections (about 1.4 k characters
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
 interrupts), the tilt guard (warning: drive back manually; error: base disabled, report and wait), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
