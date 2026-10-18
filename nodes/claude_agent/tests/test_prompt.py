@@ -805,7 +805,7 @@ def test_prompt_has_skills_and_workflows_paragraph_after_working_method() -> Non
         "pick_place",
         "dry_run",
         "set_task_plan",
-        "mandatory",
+        "Mandatory steps",
         "RETROSPECTIVE",
         "agent.record_retrospective",
         "RECENT RETROSPECTIVES",
