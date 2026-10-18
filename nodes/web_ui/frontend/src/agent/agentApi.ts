@@ -62,3 +62,53 @@ export async function fetchAgentHistory(beforeSeq: number, limit: number): Promi
     return null
   }
 }
+
+export interface RetroPhase {
+  name: string
+  outcome: string
+}
+
+/** One job retrospective, as served by claude_agent GET /api/retrospectives. */
+export interface Retrospective {
+  id: string
+  created_at: number
+  instruction: string
+  workflow: string | null
+  outcome: string
+  trivial: boolean
+  author: 'agent' | 'runner'
+  summary: string
+  went_well: string[]
+  went_wrong: string[]
+  improvements: string[]
+  notes_for_fixers: string[]
+  skipped_mandatory: string[]
+  phases: RetroPhase[]
+  cost_usd: number | null
+  num_turns: number | null
+  effector_calls: number | null
+  duration_s: number | null
+}
+
+export interface RetrospectivesPage {
+  retrospectives: Retrospective[]
+  total: number
+}
+
+/**
+ * GET /api/agent/retrospectives: stored retrospectives, newest first.
+ * @param limit page size (the server default when omitted)
+ * @param before only records created before this unix timestamp (seconds)
+ * @returns the page
+ * @throws Error with the server's message (or HTTP status) when the agent is unreachable or answers with an error
+ */
+export async function fetchRetrospectives(limit?: number, before?: number): Promise<RetrospectivesPage> {
+  const params = new URLSearchParams()
+  if (limit !== undefined) params.set('limit', String(limit))
+  if (before !== undefined) params.set('before', String(before))
+  const query = params.toString()
+  const resp = await fetch(`/api/agent/retrospectives${query ? `?${query}` : ''}`)
+  const data = (await resp.json().catch(() => ({}))) as Partial<RetrospectivesPage> & { message?: string }
+  if (!resp.ok) throw new Error(data.message ?? `HTTP ${resp.status}`)
+  return { retrospectives: Array.isArray(data.retrospectives) ? data.retrospectives : [], total: data.total ?? 0 }
+}

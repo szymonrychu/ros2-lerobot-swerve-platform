@@ -24,6 +24,7 @@ import PlaceIcon from '@mui/icons-material/Place'
 import CameraIcon from '@mui/icons-material/Camera'
 import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
+import HistoryEduIcon from '@mui/icons-material/HistoryEdu'
 import FaceIcon from '@mui/icons-material/Face'
 import TuneIcon from '@mui/icons-material/Tune'
 import Divider from '@mui/material/Divider'
@@ -63,6 +64,7 @@ const HeadTab = lazy(() => import('./tabs/HeadTab'))
 const RgbdCameraTab = lazy(() => import('./tabs/RgbdCameraTab'))
 const MapNavTab = lazy(() => import('./tabs/MapNavTab'))
 const AgentChatTab = lazy(() => import('./tabs/AgentChatTab'))
+const RetrosTab = lazy(() => import('./tabs/RetrosTab'))
 
 const APP_TITLE = 'Robot'
 const POI_LIST_TOPIC = '/poi/list'
@@ -81,6 +83,7 @@ const TAB_ICONS: Record<string, ReactElement> = {
   sensor_graph: <ShowChartIcon />,
   poi: <PlaceIcon />,
   agent_chat: <SmartToyIcon />,
+  agent_retros: <HistoryEduIcon />,
 }
 
 function tabIcon(type: string): ReactElement {
@@ -116,6 +119,7 @@ function renderTab(
     case 'map_nav':
       return <MapNavTab {...props} tilt={tilt} photos={poi.photos} pendingFocus={pendingFocus} onFocusConsumed={onFocusConsumed} />
     case 'agent_chat': return <AgentChatTab {...props} battery={battery} />
+    case 'agent_retros': return <RetrosTab {...props} />
     default:
       return (
         <Centered>

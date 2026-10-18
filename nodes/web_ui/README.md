@@ -216,6 +216,16 @@ tabs:
 - New session: after `POST /api/agent/reset` succeeds the tab clears all its cached state (items, paging cursor, `has_more`, and every `web_ui.agent.*` localStorage/sessionStorage key) and shows an empty transcript; the history frame that follows is the new session.
 - Event reduction (pairing tool calls and results by id, dedupe, window trimming, older-page merge, status text, composer block reason) is pure logic in `frontend/src/agent/agentModel.ts` (vitest `agentModel.test.ts`); cache clearing is in `agentCache.ts` (`agentCache.test.ts`).
 
+## Retros tab (`agent_retros`)
+
+Shows the retrospectives the `claude_agent` node writes after each job (`frontend/src/tabs/RetrosTab.tsx`, data from `GET /api/agent/retrospectives` via `fetchRetrospectives` in `agent/agentApi.ts`).
+
+- Newest first. Each row: local date and time, workflow name (or `free` for a job without a workflow), an outcome chip (done green, partial/timeout amber, failed/error red, interrupted grey), a `runner` chip when the runner wrote the record instead of the agent, a `N skipped` chip when mandatory workflow steps were skipped, and the summary.
+- Click a row to expand: instruction, went well, went wrong, improvements, notes for fixers, skipped mandatory steps (amber), phases with their outcomes, and cost, turns and duration.
+- **Refresh** reloads the newest page; the tab also refreshes every 30 s while the browser tab is visible. **Load older** fetches the next page with `before` set to the oldest loaded record's timestamp and is shown while fewer records are loaded than the store holds.
+- Empty store: "No retrospectives yet". Fetch failure: the error message (for example "claude_agent unreachable at <url>").
+- Needs an `agent_chat` tab for the agent URL (see the Tabs table above).
+
 ## Map tab (`map_nav`)
 
 One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `frontend/src/map3d/*`, lazy-loaded) that merges what used to be separate map, GPS and 3D views.
