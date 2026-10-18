@@ -114,7 +114,6 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/camera_0/image_raw": Image,
     "/goal_pose": PoseStamped,
     "/camera_0/image_raw/compressed": CompressedImage,
-    "/overview_camera/image_raw/compressed": CompressedImage,
     # pi_cameras previews (Camera Module 3 pair on the Pi), shown side by side by one camera tab.
     "/front_camera/image_raw/compressed": CompressedImage,
     "/back_camera/image_raw/compressed": CompressedImage,

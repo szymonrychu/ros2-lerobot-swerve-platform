@@ -129,15 +129,13 @@ overlays: []
     assert "/camera/camera/depth/camera_info" in topics
 
 
-def test_default_yaml_overview_tab_is_a_plain_camera_tab() -> None:
-    """The shipped default config has an Overview camera tab on the compressed overhead camera and no RGBD tab."""
+def test_default_yaml_has_no_overview_tab_and_no_overview_topic() -> None:
+    """The shipped default config has no overview_camera tab, subscribes no /overview_camera/* topic and no RGBD tab."""
     cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
     assert not [t for t in cfg.tabs if t.type == "rgbd_camera"]
-    tab = next(t for t in cfg.tabs if t.id == "overview_camera")
-    assert tab.type == "camera"
-    assert tab.topic == "/overview_camera/image_raw/compressed"
-    assert tab.label == "Overview"
-    assert "/overview_camera/image_raw/compressed" in cfg.all_subscribed_topics()
+    assert not [t for t in cfg.tabs if t.id == "overview_camera"]
+    assert not [t for t in cfg.all_subscribed_topics() if t.startswith("/overview_camera/")]
+    assert "pi_cameras" in [t.id for t in cfg.tabs]
 
 
 PREVIEW_TOPICS = ["/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed"]
@@ -309,7 +307,7 @@ def test_default_yaml_arm_tab_replaces_gripper_cam_tab() -> None:
     assert ids.index("arm") == 1
     assert cfg.tabs[1].type == "arm" and cfg.tabs[1].label == "Arm"
     assert ids.index("head") == 2
-    assert ids.index("overview_camera") == 3
+    assert ids.index("pi_cameras") == 3
     assert cfg.tabs[1].arm_urdf == "so101_arm.urdf"
 
 

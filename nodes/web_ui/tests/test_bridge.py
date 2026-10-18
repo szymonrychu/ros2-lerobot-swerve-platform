@@ -60,15 +60,6 @@ def test_publish_dict_rejects_non_allowlisted() -> None:
     assert "/evil_topic" not in node.publishers_
 
 
-def test_overview_camera_topic_is_a_compressed_image_subscription() -> None:
-    """The Overview camera tab topic resolves to a CompressedImage subscription without a role."""
-    from sensor_msgs.msg import CompressedImage
-
-    from web_ui.bridge import subscription_spec
-
-    assert subscription_spec("/overview_camera/image_raw/compressed", None)[0] is CompressedImage
-
-
 def test_front_back_preview_topics_are_compressed_image_subscriptions() -> None:
     """The Front/Back camera tab topics resolve to CompressedImage subscriptions without a role."""
     from sensor_msgs.msg import CompressedImage
@@ -89,8 +80,9 @@ def test_stale_stereo_rect_topics_are_gone_and_live_head_topics_remain() -> None
     for stale in ("/stereo/left/image_rect", "/stereo/depth/image_rect", "/stereo/depth/camera_info"):
         assert stale not in bridge.TOPIC_TYPE_HINTS
         assert subscription_spec(stale, None) is None
-    assert subscription_spec("/overview_camera/image_raw/compressed", None)[0] is CompressedImage
-    assert subscription_spec("/stereo/depth/image_raw", "head_depth")[0] is Image
+    assert subscription_spec("/front_camera/image_raw/compressed", None)[0] is CompressedImage
+    assert subscription_spec("/overview_camera/image_raw/compressed", None) is None
+    assert subscription_spec("/tof/depth/image_raw", "head_depth")[0] is Image
 
 
 def test_odom_topic_is_an_odometry_subscription() -> None:
