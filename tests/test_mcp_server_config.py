@@ -424,8 +424,12 @@ def mcp_base_tools() -> set[str]:
     tree = ast.parse((REPO_ROOT / "nodes/mcp_server/mcp_server/tools.py").read_text())
     for node in tree.body:
         if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "TOOL_SUBSYSTEM":
-            table = ast.literal_eval(node.value)
-            return {name for name, need in table.items() if need == "base"}
+            # Skip `**{...}` spreads (head tools, lease "any"): only literal keys can be base tools.
+            return {
+                key.value
+                for key, value in zip(node.value.keys, node.value.values, strict=True)
+                if isinstance(key, ast.Constant) and ast.literal_eval(value) == "base"
+            }
     raise AssertionError("TOOL_SUBSYSTEM not found in tools.py")
 
 
