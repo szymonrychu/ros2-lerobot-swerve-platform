@@ -63,7 +63,7 @@ AUTONOMY = {
 TILE_CACHE_DIR = "/var/cache/web_ui/tiles"
 TILE_CACHE_TASKS = PLAYBOOKS_DIR / "tasks" / "web_ui_tile_cache_dir.yml"
 LEGACY_MAP_KEYS = {"urdf_file", "topic", "arm_urdf_file", "arm_joint_topic", "scan_topic", "costmap_topic"}
-WEB_UI_TABS = ["map", "agent", "arm", "head", "poi"]
+WEB_UI_TABS = ["map", "agent", "retros", "arm", "head", "poi"]
 REMOVED_WEB_UI_TABS = {"arm_servos", "local_nav", "gps_nav", "scene3d", "robot_status"}
 
 
@@ -476,14 +476,14 @@ def test_web_ui_tab_set() -> None:
     assert not REMOVED_WEB_UI_TABS & {t["id"] for t in tabs}
     assert tabs[0]["type"] == "map_nav"
     assert tabs[1]["type"] == "agent_chat"
-    arm = tabs[2]
+    arm = tabs[3]
     assert arm["type"] == "arm"
     assert arm["label"] == "Arm"
     assert arm["gripper_camera_topic"] == "/camera_0/image_raw/compressed"
     assert arm["head_camera_topic"] == "/head_camera/image_raw/compressed"
     assert "front_camera_topic" not in arm
     assert "topic" not in arm
-    head = tabs[3]
+    head = tabs[4]
     assert head["type"] == "head"
     assert head["label"] == "Head"
     assert head["rgb_camera_topic"] == "/head_camera/image_raw/compressed"
@@ -492,7 +492,7 @@ def test_web_ui_tab_set() -> None:
     assert head["tof_amplitude_topic"] == "/tof/amplitude/image_raw"
     assert "camera_info_topic" not in head
     assert head["tof_range_m"] == 4.0
-    poi = tabs[4]
+    poi = tabs[5]
     assert poi["type"] == "poi"
     assert poi["id"] == "poi"
     assert poi["label"] == "POI"
@@ -501,7 +501,7 @@ def test_web_ui_tab_set() -> None:
 def test_web_ui_arm_tab_mount_equals_mcp_server_gripper_camera_mount() -> None:
     """The Arm tab places the gripper camera with the mount mcp_server calibrated (client.yml cameras.gripper.mount)."""
     mount = node_config("mcp_server")["cameras"]["gripper"]["mount"]
-    arm = node_config("web_ui")["tabs"][2]
+    arm = node_config("web_ui")["tabs"][3]
     assert arm["gripper_camera_mount"] == {
         "xyz": [mount["x"], mount["y"], mount["z"]],
         "rpy": [mount["roll"], mount["pitch"], mount["yaw"]],
