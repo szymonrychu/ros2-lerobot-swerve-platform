@@ -2399,6 +2399,10 @@ ros2_nodes:
       poi_review_followup: true
       # complete_phase flags summary map coordinates with no POI within this radius (m).
       poi_hint_radius_m: 0.5
+      # Read-only skill plugin shipped in the node (Skill tool limited to its skills); "" = the packaged plugin dir.
+      # Equals the code defaults. The plugin dir must not be the workdir or inside it.
+      skills_enabled: true
+      skills_plugin_dir: ""
       http_host: "127.0.0.1"
       http_port: 18300
       mcp_url: http://127.0.0.1:18200/mcp

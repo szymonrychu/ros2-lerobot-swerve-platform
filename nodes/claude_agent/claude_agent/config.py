@@ -7,6 +7,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .skills import plugin_dir
+
 CONFIG_ENV_VAR = "CLAUDE_AGENT_CONFIG"
 TOKEN_KEY = "MCP_SERVER_TOKEN"
 DEFAULT_EFFECTOR_TOOLS = [
@@ -201,6 +203,10 @@ class ClaudeAgentConfig(BaseModel):
             starts a new session per instruction and carries a short digest of the previous one; ``keep`` changes nothing.
         autocompact_pct: Context fill percent that triggers auto-compaction under the ``compact`` policy.
         digest_max_chars: Maximum length of the digest under ``fresh_with_digest``.
+        skills_enabled: Load the read-only skill plugin (the SDK ``Skill`` tool, restricted to its skills); when false
+            the options and the gate are exactly as without skills.
+        skills_plugin_dir: Plugin directory; "" selects the plugin shipped inside the node. Must not be the workdir or
+            inside it (the agent's file tools could then edit its skills).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -260,6 +266,8 @@ class ClaudeAgentConfig(BaseModel):
     context_policy: Literal["compact", "fresh_with_digest", "keep"] = "compact"
     autocompact_pct: int = Field(default=DEFAULT_AUTOCOMPACT_PCT, ge=1, le=95)
     digest_max_chars: int = Field(default=DEFAULT_DIGEST_MAX_CHARS, ge=100)
+    skills_enabled: bool = True
+    skills_plugin_dir: str = ""
 
     @property
     def max_turns(self) -> int:
@@ -269,6 +277,19 @@ class ClaudeAgentConfig(BaseModel):
             int: ``max_turn_cap + TURN_MARGIN``.
         """
         return self.max_turn_cap + TURN_MARGIN
+
+    @model_validator(mode="after")
+    def check_plugin_dir(self) -> "ClaudeAgentConfig":
+        """Reject a skill plugin directory that is the workdir or inside it (the agent could edit its own skills).
+
+        Returns:
+            ClaudeAgentConfig: The validated config.
+        """
+        plugin = plugin_dir(self.skills_plugin_dir)
+        work = Path(self.workdir).expanduser().resolve()
+        if plugin == work or work in plugin.parents:
+            raise ValueError(f"skills_plugin_dir {plugin} must not be the workdir {work} or inside it")
+        return self
 
     @model_validator(mode="after")
     def check_tool_lists(self) -> "ClaudeAgentConfig":

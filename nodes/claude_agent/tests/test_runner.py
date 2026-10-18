@@ -239,9 +239,9 @@ def test_build_options(tmp_path: Path, config: ClaudeAgentConfig) -> None:
     assert opts.model == "opus"
     assert opts.max_turns == config.max_turn_cap + TURN_MARGIN
     assert opts.system_prompt == "SYS"
-    assert opts.tools == ["Read", "Write", "Edit", "Glob", "Grep"]
+    assert opts.tools == ["Read", "Write", "Edit", "Glob", "Grep", "Skill"]
     assert opts.allowed_tools == []
-    assert set(BUILTIN_TOOLS) <= set(opts.disallowed_tools)
+    assert set(BUILTIN_TOOLS) - {"Skill"} <= set(opts.disallowed_tools)
     assert not {"Read", "Write", "Edit", "Glob", "Grep"} & set(opts.disallowed_tools)
     assert opts.strict_mcp_config is True
     assert opts.permission_mode == "default"
