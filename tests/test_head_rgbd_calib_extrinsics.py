@@ -115,6 +115,17 @@ def test_pair_without_common_ids_is_skipped() -> None:
     assert result.pair_count == len(pairs)
 
 
+@pytest.mark.parametrize("shared", [1, 3])
+def test_pair_with_too_few_common_ids_is_skipped(shared: int) -> None:
+    pairs = detection_pairs()
+    rgb, tof = pairs[0]
+    rgb_part = Detection(ids=np.arange(6, dtype=np.int32), points=rgb.points[:6])
+    tof_ids = np.array([*range(shared), *range(20, 26 - shared)], dtype=np.int32)
+    sparse = (rgb_part, Detection(ids=tof_ids, points=tof.points[:6]))
+    result = stereo_calibrate([sparse, *pairs], BOARD, RGB, TOF)
+    assert result.pair_count == len(pairs)
+
+
 def test_fewer_than_min_views_raises() -> None:
     with pytest.raises(ValueError, match="at least 12"):
         stereo_calibrate(detection_pairs()[:5], BOARD, RGB, TOF)

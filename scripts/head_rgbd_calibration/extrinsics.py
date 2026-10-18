@@ -18,6 +18,9 @@ MM_PER_M = 1000.0
 MIN_PLANE_PIXELS = 20
 
 
+MIN_COMMON_CORNERS = 4  # solvePnP inside cv2.stereoCalibrate needs at least 4 points per view
+
+
 @dataclass(frozen=True)
 class ExtrinsicResult:
     """Pose of tof_optical_frame in head_camera_optical_frame: p_rgb = r @ p_tof + t (metres)."""
@@ -39,9 +42,9 @@ class PlaneCheck:
 def common_points(
     rgb: Detection, tof: Detection, corners: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-    """Object points and both image point sets for corner ids seen in both images, or None when there are none."""
+    """Object points and both image point sets for corner ids seen in both images, or None if under 4 are shared."""
     ids = np.intersect1d(rgb.ids, tof.ids)
-    if len(ids) == 0:
+    if len(ids) < MIN_COMMON_CORNERS:
         return None
     rgb_lookup = {int(i): p for i, p in zip(rgb.ids, rgb.points, strict=True)}
     tof_lookup = {int(i): p for i, p in zip(tof.ids, tof.points, strict=True)}
@@ -61,7 +64,7 @@ def stereo_calibrate(
 
     Args:
         pairs: (rgb detection, tof detection) of the same board pose; only corner ids seen in both are used and pairs
-            with none are skipped.
+            with fewer than 4 are skipped.
         board: Board from make_board.
         rgb: RGB intrinsics.
         tof: ToF intrinsics.
