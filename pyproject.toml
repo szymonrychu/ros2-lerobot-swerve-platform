@@ -26,6 +26,8 @@ dev = [
     "shapely>=2.0",
     "segno>=1.6,<2",
     "zxing-cpp>=2.2,<4",
+    "reportlab>=4,<5",
+    "pypdfium2>=4,<6",
 ]
 
 [tool.uv]
