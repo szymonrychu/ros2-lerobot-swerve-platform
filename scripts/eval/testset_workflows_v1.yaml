@@ -1,0 +1,22 @@
+# Workflow test set v1 (design D12): which workflow does the driving agent pick for a free-text job?
+# Versioned: never edit in place, a change gets a new file (testset_workflows_v1 -> _v2).
+# setup is what the operator prepares before the trial; expected_workflow is a start_workflow template name.
+kind: workflows
+version: 1
+cases:
+  - id: explore_room
+    setup: Put the robot in a room that is only partly mapped, with free floor to drive on.
+    prompt: Explore and map this room and tell me what you found
+    expected_workflow: discovery
+  - id: survey_here
+    setup: Put the robot in a room with something risky nearby (a step, a cable or a fragile item).
+    prompt: Look around here and mark anything risky
+    expected_workflow: discovery
+  - id: drive_to_poi
+    setup: Create a POI named "kitchen door" in the web UI at a reachable spot away from the robot.
+    prompt: Drive to the kitchen door
+    expected_workflow: drive_to_target
+  - id: drive_to_object
+    setup: Put a mug on the floor in the mapped area and let the robot see it once so it is remembered.
+    prompt: Go to the mug
+    expected_workflow: drive_to_target
