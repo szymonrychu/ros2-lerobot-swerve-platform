@@ -1095,7 +1095,8 @@ ros2_nodes:
   - name: overview_camera
     node_type: overview_camera
     present: false
-  # Front/back Camera Module 3 previews (/front_camera/* and /back_camera/*). front_port is the CSI connector of the front camera: cam0 (default) is front, cam1 is back; set cam1 to swap.
+  # Front/back Camera Module 3 previews (/front_camera/* and /back_camera/*).
+  # front_port is the CSI connector of the front camera: cam0 (default) is front, cam1 is back; set cam1 to swap.
   # Camera IDs: `cam -l` on the client (defaults in nodes/pi_cameras/config/params.yaml). roles lists the cameras to
   # launch: only front, because CSI cam1 now carries the Arducam ToF camera (arducam_tof).
   - name: pi_cameras
