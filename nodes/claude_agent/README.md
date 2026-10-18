@@ -327,6 +327,29 @@ when a loop re-enters the phase, so the observed records cover mostly `p >= 0.5`
 failures. To explore lower `p`, run an evaluation session with `retry_success_threshold: 0.0` in group_vars (a deliberate,
 reversible operator action) and put the calibrated value back afterwards.
 
+## Skills
+
+Skills are Agent SDK skill files in the plugin `robot-skills`, shipped inside the node at
+`claude_agent/agent_plugin/skills/<name>/SKILL.md` (manifest: `agent_plugin/.claude-plugin/plugin.json`). The SDK
+loads them on demand under the qualified name `robot-skills:<name>`. `claude_agent/skills.py` discovers them
+(`discover_skills`), parses and checks them (`read_skill`, `check_skill`) and compares them with the SDK init message
+(`missing_skills`).
+
+- **Read-only on the robot.** The repo is cloned as root (`repo_sync.yml` uses `become`), the service runs as the
+  non-root `claude_agent` user, and the agent's workdir (`/var/lib/claude_agent/workspace`) is outside the checkout, so
+  the agent cannot edit a skill. Changing a skill means a commit and a deploy.
+- **Self-contained.** A skill never refers to a file next to its SKILL.md (links, `scripts/x.py`): the permission gate
+  keeps file tools inside the workdir, so such a file could not be read. Everything the skill needs is in SKILL.md.
+- **Only real tools.** Backticked tool names must be registered mcp_server tools, `agent.<tool>` planning tools or
+  `Skill` (checked by `tests/test_agent_skills.py`).
+- **Optional tools section.** Head, zoom and 3D-map tools (`set_head_angles`, `head_look_at`, `head_home`,
+  `get_3d_map_status`, `query_3d_map_at`, `get_3d_free_space`, zoom) may be named only under
+  `## When extra perception tools exist`, and that section must also give the base-rotation fallback (`look_around`).
+  Everything outside it works on the base-rotation tools alone.
+- **Adding a skill.** Create `agent_plugin/skills/<name>/SKILL.md` with frontmatter `name` (= directory name) and a
+  `description` of at most 1024 characters that starts with "Use when ...", then the body. Run
+  `uv run pytest tests/test_skills.py` here and `uv run pytest tests/test_agent_skills.py` at the repo root.
+
 ## Robot events and interrupts
 
 The node subscribes to `robot_events_topic` (`/robot_events`, `std_msgs/String`, BEST_EFFORT + VOLATILE QoS, published by the
