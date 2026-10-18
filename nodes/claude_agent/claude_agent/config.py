@@ -115,6 +115,11 @@ DEFAULT_JOB_END_PARK_TIMEOUT_S = 60.0
 # mcp_server re-emits a bump at most every 2 s: on a rough floor one interrupt per 10 s per warning type is enough.
 DEFAULT_WARNING_INTERRUPT_DEBOUNCE_S = 10.0
 DEFAULT_INTERRUPT_WARNING_TYPES = ("bump",)
+# Workflow templates (workflows.py): one YAML file per template, the file stem is the template name.
+WORKFLOW_TEMPLATE_DIR = Path(__file__).parent / "workflow_templates"
+WORKFLOW_TEMPLATE_SUFFIX = ".yaml"
+# Default time budget (minutes) of each workflow; the discovery budget is also the sightseeing time limit.
+DEFAULT_WORKFLOW_TIME_BUDGET_MIN = {"discovery": 30.0, "drive_to_target": 10.0, "pick_place": 15.0}
 
 
 class MissingTokenError(RuntimeError):
@@ -207,6 +212,10 @@ class ClaudeAgentConfig(BaseModel):
             the options and the gate are exactly as without skills.
         skills_plugin_dir: Plugin directory; "" selects the plugin shipped inside the node. Must not be the workdir or
             inside it (the agent's file tools could then edit its skills).
+        workflow_time_budget_min: Time budget in minutes per workflow template (agent.start_workflow declares it as
+            the task's time_budget_min unless the agent passes its own). Keys are exactly the template names under
+            ``workflow_templates/``; each value is above 0 and at most max_instruction_time_min. The discovery budget
+            is the time limit of the sightseeing skill.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -268,6 +277,7 @@ class ClaudeAgentConfig(BaseModel):
     digest_max_chars: int = Field(default=DEFAULT_DIGEST_MAX_CHARS, ge=100)
     skills_enabled: bool = True
     skills_plugin_dir: str = ""
+    workflow_time_budget_min: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_WORKFLOW_TIME_BUDGET_MIN))
 
     @property
     def max_turns(self) -> int:
@@ -311,6 +321,43 @@ class ClaudeAgentConfig(BaseModel):
                 if overlap:
                     raise ValueError(f"{sorted(overlap)} listed in both {first} and {second}")
         return self
+
+    @model_validator(mode="after")
+    def check_workflow_time_budgets(self) -> "ClaudeAgentConfig":
+        """Require one time budget per workflow template, each above 0 and at most max_instruction_time_min.
+
+        Returns:
+            ClaudeAgentConfig: The validated config.
+        """
+        names = set(workflow_template_names(WORKFLOW_TEMPLATE_DIR))
+        budgets = self.workflow_time_budget_min
+        unknown = sorted(set(budgets) - names)
+        if unknown:
+            raise ValueError(f"workflow_time_budget_min: {unknown} are not workflow templates ({sorted(names)})")
+        missing = sorted(names - set(budgets))
+        if missing:
+            raise ValueError(f"workflow_time_budget_min: no time budget for the workflow templates {missing}")
+        for name, minutes in budgets.items():
+            if not 0 < minutes <= self.max_instruction_time_min:
+                raise ValueError(
+                    f"workflow_time_budget_min.{name} must be above 0 and at most max_instruction_time_min "
+                    f"{self.max_instruction_time_min:g}, got {minutes:g}"
+                )
+        return self
+
+
+def workflow_template_names(directory: Path) -> list[str]:
+    """List the workflow template names (file stems) of a template directory.
+
+    Args:
+        directory (Path): Directory holding ``<name>.yaml`` templates.
+
+    Returns:
+        list[str]: Sorted template names; empty when the directory does not exist.
+    """
+    if not directory.is_dir():
+        return []
+    return sorted(path.stem for path in directory.glob(f"*{WORKFLOW_TEMPLATE_SUFFIX}"))
 
 
 def config_path_from_env(env: Mapping[str, str]) -> Path | None:
