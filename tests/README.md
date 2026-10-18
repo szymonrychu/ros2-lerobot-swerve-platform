@@ -2502,3 +2502,16 @@ Static invariants of the map_manager wiring (Ansible, playbook, docs).
 | `test_maps_dir_task_creates_parent_owned_by_node_user` | `slam_maps_dir.yml` creates `/var/lib/ros2/maps` owned by `ansible_user`. |
 | `test_playbook_deploys_map_manager_after_poi_store_with_maps_dir` | The playbook deploys map_manager after poi_store, tagged, with the maps dir task. |
 | `test_docs_mention_map_manager` | nodes/README.md, ansible/README.md and the ansible-deploy SKILL.md list the node. |
+
+### test_agent_skills.py
+
+Static invariants of the agent skills shipped in `nodes/claude_agent/claude_agent/agent_plugin`.
+
+| Test | Covers |
+|---|---|
+| `test_skills_exist` | The `recover-from-failure` skill file exists. |
+| `test_every_referenced_tool_exists` | Every backticked tool call or `agent.<tool>` in a SKILL.md is a registered mcp_server tool, a claude_agent planning tool or `Skill`. |
+| `test_tool_reference_scanner_flags_unknown_tool` | The scanner finds unknown tool references. |
+| `test_optional_tools_only_in_optional_section` | Head, 3D-map tools and `zoom` appear only under `## When extra perception tools exist`, which also names `look_around`. |
+| `test_split_optional_isolates_section` | The section splitter separates the optional section from the rest. |
+| `test_plugin_ships_read_only_from_root_checkout` | The repo is cloned with `become`, the service user is `claude_agent`, the plugin is under `nodes/claude_agent/` and the workdir is outside the repo. |

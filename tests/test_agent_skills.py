@@ -1,4 +1,4 @@
-"""Static invariants of the agent skills shipped in nodes/claude_agent (tools exist, optional tools fenced, read-only)."""
+"""Static invariants of the agent skills in nodes/claude_agent (tools exist, optional tools fenced, read-only)."""
 
 import re
 from pathlib import Path
