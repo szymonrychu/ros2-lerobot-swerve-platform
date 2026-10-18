@@ -48,7 +48,7 @@ function Preview({ topic, jpeg, alt }: PreviewProps) {
 }
 
 /**
- * Head tab: head RGB stream and depth preview (16UC1 mm: stereo_depth or a ToF camera), optional amplitude (only
+ * Head tab: head RGB stream and depth preview (16UC1 mm from a ToF camera), optional amplitude (only
  * when the tab names an amplitude topic), and a disabled pan/tilt block.
  * The pan/tilt controls hold the place for a future head mount: they are disabled and never publish.
  * Phone stacks the previews vertically; tablet and desktop put them side by side.

@@ -8,11 +8,9 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { TOUCH_TARGET_PX } from '../theme'
 import { clearCalibrateHash } from './calibrateRoute'
 import { ImuCalibration } from './ImuCalibration'
-import { StereoCalibration } from './StereoCalibration'
 
 /** Body of GET /api/calibration/config: which calibration sections this robot offers. */
 export interface CalibrationConfig {
-  stereo: boolean
   imu: boolean
 }
 
@@ -27,7 +25,7 @@ async function loadConfig(): Promise<LoadState> {
   if (res.status === 404) return { kind: 'not_configured' }
   if (!res.ok) return { kind: 'error', message: `HTTP ${res.status}` }
   const body = (await res.json()) as Partial<CalibrationConfig>
-  return { kind: 'ready', config: { stereo: body.stereo === true, imu: body.imu === true } }
+  return { kind: 'ready', config: { imu: body.imu === true } }
 }
 
 interface Props {
@@ -69,7 +67,6 @@ export function CalibratePage({ onBack }: Props) {
       {state.kind === 'error' && <Alert severity="error">Calibration config failed to load: {state.message}</Alert>}
       {state.kind === 'ready' && (
         <>
-          {state.config.stereo && <StereoCalibration />}
           {state.config.imu && <ImuCalibration />}
           <Typography color="text.secondary">Arm calibration - deferred</Typography>
         </>

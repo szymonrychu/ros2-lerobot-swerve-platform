@@ -9,7 +9,7 @@ import HeadTab from './HeadTab'
 const RGB = '/overview/image_raw'
 const DEPTH = '/tof/depth/image_raw'
 const AMP = '/tof/amplitude/image_raw'
-const FUSED = '/stereo/depth/fused'
+const FUSED = '/tof/depth/fused'
 const PAN_TILT_LABEL = 'pan/tilt: no head mount configured'
 
 const TAB = {
@@ -66,10 +66,10 @@ describe('HeadTab', () => {
     expect(screen.getByAltText('ToF amplitude').getAttribute('src')).toBe('data:image/jpeg;base64,AAA')
   })
 
-  it('has no amplitude switch when the tab has no amplitude topic (stereo depth)', () => {
+  it('has no amplitude switch when the tab has no amplitude topic (depth only)', () => {
     setViewport(1400)
-    const { tof_amplitude_topic: _unused, ...stereo } = TAB
-    renderTab(FRAMES, vi.fn(), stereo as TabConfig)
+    const { tof_amplitude_topic: _unused, ...depthOnly } = TAB
+    renderTab(FRAMES, vi.fn(), depthOnly as TabConfig)
     expect(screen.queryByRole('checkbox', { name: 'amplitude' })).toBeNull()
     expect(screen.queryByText(/Waiting for undefined/)).toBeNull()
     expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
