@@ -30,6 +30,9 @@ export interface Photo {
   name: string
   note: string
   poiIds: string[]
+  /** Who took it and its POI status (as the store lists them); absent in older payloads. */
+  createdBy?: 'user' | 'agent'
+  status?: string
   /** Camera position in the map; null (never 0) when the photo is unlocated. */
   x: number | null
   y: number | null
@@ -151,6 +154,8 @@ export function parsePhoto(raw: unknown): Photo | null {
     name: str(r.name),
     note: str(r.note),
     poiIds: Array.isArray(r.poi_ids) ? r.poi_ids.filter((v): v is string => typeof v === 'string') : [],
+    ...(r.created_by === 'user' || r.created_by === 'agent' ? { createdBy: r.created_by } : {}),
+    ...(typeof r.status === 'string' ? { status: r.status } : {}),
     x: num(r.x),
     y: num(r.y),
     view: parseView(p.view),
