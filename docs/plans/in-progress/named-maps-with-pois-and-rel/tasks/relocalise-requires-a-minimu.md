@@ -46,15 +46,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `map_manager/config.py:MapManagerConfig.min_evaluated_fraction: float` (0 < x <= 1, default 0.6); `map_manager/relocalise.py:search_candidates` result carries evaluated/total and rejects below the fraction.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+- A partial-overlap candidate (evaluated fraction below the threshold) never yields ok; load/relocalise ends not localised with a reason naming the fraction.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Add the failing tests in tests/test_relocalise.py and tests/test_config.py; `cd nodes/map_manager && uv run --frozen pytest tests -q` shows them failing.
+- Implement the config key and the eligibility check; the same command passes; `uv run --frozen poe lint` clean.
+- Document the key and reason in nodes/map_manager/README.md; commit `fix(map_manager): require a minimum evaluated scan fraction`.
 A retirement test asserts on `git ls-files <path>`, never on the filesystem.
 
 ## Notes
