@@ -548,7 +548,7 @@ def test_prompt_teaches_control_leases() -> None:
             "arm homed",
             "base steering neutral",
             "get_control_state",
-            "head tool (future) works under either lease",
+            "head tools (set_head_angles, head_look_at, head_home) work under either the arm or the base lease",
             "arm_set_home is denied to you",
         ),
     )
@@ -781,3 +781,12 @@ def test_prompt_plans_time_and_caps_at_twice_the_honest_estimate() -> None:
     assert "time_budget_min and the caps at about twice your honest estimate" in lower
     assert "prefer overshooting and delivering to undershooting and stopping" in lower
     assert "raise budgets early with agent.raise_phase_budget rather than end unfinished" in lower
+
+
+def test_prompt_teaches_head_tools_lease_rule_and_home_on_park(config: ClaudeAgentConfig) -> None:
+    text = build_system_prompt(config)
+    assert "head_look_at" in text
+    assert "either the arm or the base lease" in text
+    assert "reset.head" in text
+    assert "A head tool (future)" not in text
+    assert "Zoom never moves the head" in text

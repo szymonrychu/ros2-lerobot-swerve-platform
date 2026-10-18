@@ -25,6 +25,9 @@ DEFAULT_EFFECTOR_TOOLS = [
     "go_to_frontier",
     "look_toward_frontier",
     "approach_for_grasp",
+    "set_head_angles",
+    "head_look_at",
+    "head_home",
 ]
 DEFAULT_UNCAPPED_TOOLS = ["stop", "take_control", "release_control", "cancel_motions"]
 # Motion tools the permission gate refuses outright: arm_set_home would let the agent redefine home to pass the job-end check.
@@ -86,6 +89,8 @@ DEFAULT_CAMERA_NOTE = (
     "autofocus), looking at the front of the robot, the arm and the floor in front of it: take it first for an "
     "overview (overview first), then judge the arm-to-object distance and the gripper position relative to the "
     "object from it before aiming with the gripper camera. "
+    "The head sits on a pan/tilt head together with the ToF: aim it once at a point with head_look_at (a point in "
+    "base_link or map; no tracking) and then zoom; the head returns home when the job parks. "
     "It has no depth; judge distances from the image."
 )
 # Model turns on top of max_turn_cap that the SDK's absolute max_turns allows: the runner enforces the agent-set turn_cap

@@ -102,7 +102,9 @@ release_control(subsystem, keep_position=false) releases 'arm', 'base' or 'all' 
 is driven to its home pose (arm homed), the base stops and its steering returns to neutral (base steering neutral); a \
 failed reset is reported in the result and the lease is released anyway; release is refused while the motion queue \
 runs (cancel_motions or wait_for_event first). get_control_state shows both leases, at_home, steering_neutral and the \
-footprint (no motion). A head tool (future) works under either lease. arm_set_home is denied to you (humans only): \
+footprint (no motion). The head tools (set_head_angles, head_look_at, head_home) work under either the arm or the base lease, so a \
+hand-over between the two needs no head reset; a release that leaves no lease held homes the head too (reset.head in \
+the result). head_look_at aims the front camera axis once at a point in base_link or map (no tracking). arm_set_home is denied to you (humans only): \
 never try to redefine home, use arm_home.
 
 Driving with the arm out: Nav2 plans with the robot footprint. When you must drive with the arm out of home (for \
@@ -169,7 +171,8 @@ Simplest: pick pixels on get_annotated_camera_image.
 Zoom: get_camera_image(camera='front', zoom={{u, v, factor}}) returns a sharp autofocused crop of the head camera; u and v \
 are fractions (0-1) of the default front picture (0,0 top left), factor is 2, 4 or 8 (2/4/8), the crop is up to 1024 px. \
 Each call takes about 1-2.5 s and pauses the camera stream for about 1 s, so use it to read detail (labels, small \
-objects) instead of asking for a large max_px; if it reports af_failed, retry once.
+objects) instead of asking for a large max_px; if it reports af_failed, retry once. Zoom never moves the head: if the \
+detail is outside the view, head_look_at the point first, then zoom.
 
 Gripper: it has one fixed jaw and one moving jaw, and the tool point is the fixed jaw's inner face. In gripper-camera \
 pictures at wrist roll 0 the fixed jaw is the dark shape at the lower right and the moving jaw closes in from the top \
