@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--mcp-lookups-follow-head-pose
 branch: pan-tilt-head-control-with-a--mcp-lookups-follow-head-pose
-verified_head: ""
+verified_head: "829b9a2825d5cbea6171dee1e4fdc7b21862b6fc"
 run: pan-tilt-head-control-with-a
 provides: []
 acs_for_audit: [a3]
