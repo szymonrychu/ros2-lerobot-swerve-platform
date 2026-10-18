@@ -2450,3 +2450,18 @@ The `scripts/markers_generate.py` command end to end, with tmp configs and outpu
 | `test_too_small_stl_marker_fails_others_written` | A marker too small for FDM returns 1, is named in the error, writes none of its files, and the other marker's files exist. |
 | `test_relative_output_dir_resolves_against_repo_root` | A relative `output_dir` lands under the repo root. |
 | `test_shipped_config_runs_and_pdfs_decode` | The shipped `markers_generate.yaml` (output redirected) runs; every marker PDF, rasterised, decodes to its own payload; STL and 3MF exist. |
+
+### test_map_manager_config.py
+
+Static invariants of the map_manager wiring (Ansible, playbook, docs).
+
+| Test | Covers |
+|---|---|
+| `test_map_manager_node_type_defaults` | Node type: native, `python3 -m map_manager`, `nodes/map_manager`, `src_shared`, config path and env, normal tier, 64M/256M memory, `ros-jazzy-slam-toolbox`. |
+| `test_map_manager_entry_present_and_enabled_after_poi_store` | The `ros2_nodes` entry is present, enabled and after poi_store. |
+| `test_map_manager_config_validates_and_documents_every_key` | The config validates against `MapManagerConfig`, lists every field, port 19113, maps root under `/var/lib/ros2/maps`. |
+| `test_map_manager_config_matches_defaults` | The config block equals the model defaults. |
+| `test_map_manager_config_has_group_comments` | The config block carries group comments. |
+| `test_maps_dir_task_creates_parent_owned_by_node_user` | `slam_maps_dir.yml` creates `/var/lib/ros2/maps` owned by `ansible_user`. |
+| `test_playbook_deploys_map_manager_after_poi_store_with_maps_dir` | The playbook deploys map_manager after poi_store, tagged, with the maps dir task. |
+| `test_docs_mention_map_manager` | nodes/README.md, ansible/README.md and the ansible-deploy SKILL.md list the node. |
