@@ -28,7 +28,7 @@ YAML file named by `ARDUCAM_TOF_CONFIG` (default `/etc/ros2/arducam_tof/config.y
 
 | Key | Default | Allowed | Meaning |
 |-----|---------|---------|---------|
-| `camera_index` | `0` | 0..63 | Video device index the SDK opens over CSI (`/dev/video<N>`). The robot entry uses `1`: the ToF sits on the Pi 5 cam1 connector (cam0 carries the front Camera Module 3). Check with `v4l2-ctl --list-devices`. |
+| `camera_index` | `0` | 0..63 | Video device index the SDK opens over CSI (`/dev/video<N>`). The robot entry uses `8`: the ToF sits on the Pi 5 cam1 connector, whose controller (`1f00128000.csi`) registers `/dev/video8` as its `csi2_ch0` after cam0 takes video0-7. Check with `readlink -f /sys/class/video4linux/video8/device`. |
 | `range_mode` | `far` | `near`, `far` | `far` is 4 m (head camera looking across a room); `near` is 2 m with finer depth. The SDK gets millimetres; if it rejects them, metres are tried. |
 | `confidence_threshold` | `30.0` | 0..65535 | Pixels with SDK confidence below this are published as depth 0. |
 | `frame_id` | `tof_optical_frame` | non-empty | TF frame of every header. |

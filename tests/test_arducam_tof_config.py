@@ -86,7 +86,7 @@ def test_deployed_config_holds_only_keys_the_driver_accepts() -> None:
     """The driver config (T1 TofConfig) rejects unknown keys and takes range_mode near or far."""
     config = yaml.safe_load(client_node(NODE)["config"])
     assert set(config) == DRIVER_KEYS
-    assert config["camera_index"] == 1
+    assert config["camera_index"] == 8  # /dev/video8: csi2_ch0 of the cam1 controller (1f00128000.csi)
     assert config["metrics_port"] == METRICS_PORT
     assert config["range_mode"] in ("near", "far")
 
@@ -100,7 +100,7 @@ def test_deployed_config_loads_in_the_real_driver_load_config(tmp_path: Path) ->
     path = tmp_path / "config.yaml"
     path.write_text(client_node(NODE)["config"])
     loaded = module.load_config(path)
-    assert loaded.camera_index == 1
+    assert loaded.camera_index == 8
     assert loaded.metrics_port == METRICS_PORT
 
 
