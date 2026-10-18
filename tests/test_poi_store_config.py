@@ -23,7 +23,7 @@ PHOTOS = {
     "store_dir": PHOTO_DIR,
     "max_records": 3000,
     "max_bytes": 300000000,
-    "max_age_days": 14,
+    "max_age_days": None,
     "max_image_bytes": 5000000,
     "prune_interval_s": 3600,
     "summary_topic": "/poi/photos",
