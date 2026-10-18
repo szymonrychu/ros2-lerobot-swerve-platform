@@ -42,4 +42,10 @@ describe('subscribedTopics', () => {
     expect(t).toContain('/head_camera/image_raw/compressed')
     expect(t).not.toContain('/front')
   })
+  it('subscribes head_joint_states_topic for head and map_nav tabs', () => {
+    const h = { ...head, head_joint_states_topic: '/head/joint_states' } as TabConfig
+    const m = { ...map, head_joint_states_topic: '/head/joint_states' } as TabConfig
+    expect(subscribedTopics(cfg([h]), h)).toContain('/head/joint_states')
+    expect(subscribedTopics(cfg([m]), m)).toContain('/head/joint_states')
+  })
 })
