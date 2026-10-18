@@ -66,6 +66,7 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "add_poi": {"kind": "point", "name": "dock"},
     "update_poi": {"id": "id0", "note": "n"},
     "delete_poi": {"id": "id0"},
+    "clear_pois": {},
     "plan_grasp": {
         "object": {"x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03}
     },

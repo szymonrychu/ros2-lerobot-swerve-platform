@@ -41,11 +41,14 @@ SENSOR_TOOL_NAMES = (
     "add_poi",
     "update_poi",
     "delete_poi",
+    "clear_pois",
 )
 TOOL_NAMES = (*SENSOR_TOOL_NAMES, "look_around")
 Layer = Literal["map", "costmap", "lidar", "footprint", "reach", "path", "pois", "objects", "frontiers"]
 Camera = Literal["front", "gripper"]
 PoiKind = Literal["point", "area"]
+ClearCreator = Literal["agent", "user", "all"]
+ClearKind = Literal["point", "area", "object"]
 PoiZone = Literal["none", "keepout", "slow"]
 MIN_SPEED_LIMIT_PCT = 10
 MAX_SPEED_LIMIT_PCT = 100
@@ -506,6 +509,24 @@ def register(ctx: ToolContext) -> None:
             result = robot.poi_request("add", poi)
         ctx.poi_writes.reset()
         return PoiResult(ok=True, message=str(result.get("message", "")), poi=result.get("poi"))
+
+    @server.tool(
+        description=(
+            "Clear POIs in one call. By default only YOUR OWN (creator 'agent') POIs are removed and keep-out/slow "
+            "zones are kept. Clear the person's POIs (creator 'user' or 'all') or zones (include_zones=true) only when "
+            "the person asked for it. kinds limits it to some of point/area/object (default every kind). Remembered "
+            'photos are never cleared. Returns {"removed": n}. No motion.'
+        ),
+    )
+    def clear_pois(
+        creator: Annotated[ClearCreator, Field(description="'agent' (default), 'user' or 'all'")] = "agent",
+        kinds: Annotated[list[ClearKind] | None, Field(description="Only these kinds; default every kind")] = None,
+        include_zones: Annotated[bool, Field(description="Also clear keepout/slow zones; default false")] = False,
+    ) -> dict[str, int]:
+        """Clear POIs and return how many were removed."""
+        with tool_errors():
+            result = robot.poi_clear(None if creator == "all" else creator, None, kinds, not include_zones)
+        return {"removed": int((result.get("poi") or {}).get("removed", 0))}
 
     @server.tool(
         description=(

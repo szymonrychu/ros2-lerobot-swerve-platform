@@ -206,8 +206,14 @@ class RobotApi(Protocol):
         """Send a /map_manager/command (MapCommand fields without request_id) and wait for its result; RobotError when map_manager is down, slow or rejects."""
         ...
 
-    def poi_clear(self, created_by: str, statuses: list[str] | None = None) -> dict[str, Any]:
-        """Clear the POIs of one creator (only the given statuses when set); the result's ``poi`` is {"removed": count}. RobotError as poi_request."""
+    def poi_clear(
+        self,
+        created_by: str | None,
+        statuses: list[str] | None = None,
+        kinds: list[str] | None = None,
+        keep_zones: bool = False,
+    ) -> dict[str, Any]:
+        """Clear POIs (creator None = every creator; only the given statuses/kinds when set; keep_zones keeps zones); the result's ``poi`` is {"removed": count}. RobotError as poi_request."""
         ...
 
 

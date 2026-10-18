@@ -116,19 +116,33 @@ class PoiRequests:
         """
         return self.send(op, {"selector" if op == DELETE_PHOTOS_OP else "poi": poi})
 
-    def clear(self, created_by: str, statuses: list[str] | None = None) -> dict[str, Any]:
-        """Delete the POIs made by one creator (optionally only some statuses) and wait for the result.
+    def clear(
+        self,
+        created_by: str | None,
+        statuses: list[str] | None = None,
+        kinds: list[str] | None = None,
+        keep_zones: bool = False,
+    ) -> dict[str, Any]:
+        """Delete POIs matching the filters and wait for the result; only the given fields are sent.
 
         Args:
-            created_by (str): "agent" or "user".
+            created_by (str | None): "agent" or "user"; None omits it (every creator).
             statuses (list[str] | None): Only delete POIs in these statuses; None deletes every status.
+            kinds (list[str] | None): Only delete these kinds (point/area/object); None deletes every kind.
+            keep_zones (bool): Keep keepout and slow zones; sent only when true.
 
         Returns:
             dict[str, Any]: The accepted result; ``poi`` holds {"removed": count}.
         """
-        fields: dict[str, Any] = {"created_by": created_by}
+        fields: dict[str, Any] = {}
+        if created_by is not None:
+            fields["created_by"] = created_by
         if statuses is not None:
             fields["statuses"] = statuses
+        if kinds is not None:
+            fields["kinds"] = kinds
+        if keep_zones:
+            fields["keep_zones"] = True
         return self.send("clear", fields)
 
 

@@ -2120,17 +2120,25 @@ class RosRobot:
         """
         return self.map_requests.send(command)
 
-    def poi_clear(self, created_by: str, statuses: list[str] | None = None) -> dict[str, Any]:
-        """Send a poi_store clear for one creator and wait for the /poi/result.
+    def poi_clear(
+        self,
+        created_by: str | None,
+        statuses: list[str] | None = None,
+        kinds: list[str] | None = None,
+        keep_zones: bool = False,
+    ) -> dict[str, Any]:
+        """Send a poi_store clear and wait for the /poi/result.
 
         Args:
-            created_by (str): "agent" or "user".
+            created_by (str | None): "agent" or "user"; None clears every creator.
             statuses (list[str] | None): Only clear POIs in these statuses; None clears every status.
+            kinds (list[str] | None): Only clear these kinds; None clears every kind.
+            keep_zones (bool): Keep keepout and slow zones.
 
         Returns:
             dict[str, Any]: The accepted result; ``poi`` holds {"removed": count}.
         """
-        return self.poi.clear(created_by, statuses)
+        return self.poi.clear(created_by, statuses, kinds, keep_zones)
 
     def navigate(
         self, x: float, y: float, yaw: float, frame: str, timeout_s: float, precise: bool = False

@@ -52,6 +52,7 @@ PERCEPTION_TOOLS = (
     "add_poi",
     "update_poi",
     "delete_poi",
+    "clear_pois",
 )
 FRONTIER_SENSOR_TOOLS = {"list_frontiers", "plan_frontier_visit"}
 FRONTIER_MOTION_TOOLS = {"go_to_frontier", "look_toward_frontier"}
