@@ -23,7 +23,15 @@ METRICS_PORT = 19112
 CAM1_CONTROLLER = "1f00128000.csi"
 APT_REPO = "https://arducam.github.io/arducam_ppa linux main"
 SDK_PACKAGE = "arducam-tof-sdk-dev"
-DRIVER_KEYS = {"csi_device", "range_mode", "confidence_threshold", "frame_id", "publish_rate_hz", "metrics_port"}
+DRIVER_KEYS = {
+    "csi_device",
+    "range_mode",
+    "confidence_threshold",
+    "frame_id",
+    "publish_rate_hz",
+    "metrics_port",
+    "stamp_latency_ms",
+}
 HEAD_TAB_TOPICS = ("/tof/depth/image_raw", "/tof/amplitude/image_raw", "/tof/camera_info")
 NORMAL_TIER = (500, 500, -500)
 
