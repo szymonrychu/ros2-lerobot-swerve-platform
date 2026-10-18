@@ -143,7 +143,7 @@ RETRO_SUMMARY_MAX_TURNS = "ended at the SDK turn maximum (max_turns)"
 RETRO_SUMMARY_ERROR = "ended with an error: {message}"
 RETRO_WRONG_FAILED_PHASE = "phase '{name}' failed"
 RETRO_WRONG_SKIPPED = "mandatory workflow steps skipped: {ids}"
-RETRO_WRONG_FORCED_PARK = "the runner had to park the arm itself after the job-end follow-ups"
+RETRO_WRONG_FORCED_PARK = "the runner had to park the arm itself after the JOB END REFUSED prompts"
 RETRO_WRONG_CHECK_ERROR = "job-end check failed: {reason}"
 RETRO_WRONG_PLAN_UNFINISHED = "the plan was not finished"
 # turn_end status -> outcome of a runner record (a done status is refined to partial from the facts).
@@ -1288,7 +1288,7 @@ class AgentRunner:
         return (self.plan.root is None or self.plan.complexity == TRIVIAL_COMPLEXITY) and self.plan.rw_used == 0
 
     def take_retrospective(self) -> str | None:
-        """The one RETROSPECTIVE follow-up of an instruction, last of the end-of-instruction prompts (normal end only).
+        """The one RETROSPECTIVE prompt of an instruction, last of the end-of-instruction prompts (normal end only).
 
         Returns:
             str | None: The short form for a trivial job, else the full form; None when retro_followup is off, it was
@@ -1431,8 +1431,8 @@ class AgentRunner:
         """The RECENT RETROSPECTIVES block for the first instruction of a session (after start or reset), once.
 
         Returns:
-            str | None: feed_text of the newest retro_feed_count records within retro_feed_max_chars; None for later
-            instructions of the session, retro_feed_count 0, an empty or unreadable store.
+            str | None: feed_text of the newest retro_feed_count records within retro_feed_max_chars; None for the
+            second and subsequent instructions of the session, retro_feed_count 0, an empty or unreadable store.
         """
         if not self.feed_pending:
             return None

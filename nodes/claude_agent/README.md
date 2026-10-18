@@ -383,14 +383,14 @@ wanted:
   `effector_calls`, `duration_s` and `trivial`. A second call in the same instruction replaces that record (same `id`
   and `created_at`). At the turn end the record's facts are refreshed to the final values (`cost_usd` and `num_turns`
   as in `turn_end`; without a result, the last known cost and the model turns the runner counted).
-- **RETROSPECTIVE follow-up.** With `retro_followup` on (default), once per instruction, on a normal end only (status
+- **RETROSPECTIVE prompt.** With `retro_followup` on (default), once per instruction, on a normal end only (status
   `done`, not stopped by the user, not the turn cap) and only when `JOB END REFUSED`, `WORKFLOW CHECK` and `POI REVIEW`
   have nothing left to send, the runner sends `RETROSPECTIVE: the job has ended. Load the skill
   robot-skills:retrospective and record the retrospective with agent.record_retrospective: ...` (marker constant
   `RETROSPECTIVE_MARKER`). Not sent when the agent already recorded one in the instruction, nor after a forced park or a
   failed job-end check (those ends get a runner record that names them). The job-end check runs again after its reply,
-  like after the other follow-ups.
-- **Short form.** For a trivial job - no plan or plan complexity `trivial`, and zero effector calls - the follow-up asks
+  like after the other end-of-instruction prompts.
+- **Short form.** For a trivial job - no plan or plan complexity `trivial`, and zero effector calls - the prompt asks
   only for a one-line summary plus anything that went wrong (`RETROSPECTIVE: the job was trivial. Call
   agent.record_retrospective with a one-line summary plus anything that went wrong ...`); the record has
   `trivial: true`.

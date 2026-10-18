@@ -1,4 +1,4 @@
-"""Retrospective after every job (D9) and the RECENT RETROSPECTIVES feed (D10): the RETROSPECTIVE follow-up, its short
+"""Retrospective after every job (D9) and the RECENT RETROSPECTIVES feed (D10): the RETROSPECTIVE prompt, its short
 form, runner records after abnormal ends or a skipped call, the retrospective_recorded event and the session feed."""
 
 import asyncio
@@ -121,7 +121,7 @@ def retro_runner(
     block: bool = False,
     **config: Any,
 ):
-    """Runner with the RETROSPECTIVE follow-up on (unless the config says otherwise) and a per-query scripted client."""
+    """Runner with the RETROSPECTIVE prompt on (unless the config says otherwise) and a per-query scripted client."""
     cfg = make_config(tmp_path, **config)
     runner, events, cfg = make_runner(
         tmp_path,
@@ -165,7 +165,7 @@ def seed(tmp_path: Path, *summaries: str, start: float = 1_700_000_000.0) -> Ret
 WORK_DONE = [planner(phase_spec(rw=3, name="Work"), complexity="moderate"), drive_once, completer()]
 
 
-# --- the RETROSPECTIVE follow-up after a normal end ---
+# --- the RETROSPECTIVE prompt after a normal end ---
 
 
 async def test_normal_end_one_retrospective_after_poi_review_stores_agent_record_with_facts(tmp_path: Path) -> None:
@@ -488,7 +488,7 @@ async def test_feed_prefixes_only_the_first_instruction_of_a_session(tmp_path: P
     queries = FakeClient.instances[0].queries
     assert queries[0] == f"{expected}\n\none"
     assert queries[0].startswith(FEED_HEADER) and "the last job" in queries[0]
-    assert queries[1] == "two", "later instructions of the session are not prefixed"
+    assert queries[1] == "two", "subsequent instructions of the session are not prefixed"
     assert await runner.reset() is True
     await run(runner, "three")
     after_reset = FakeClient.instances[-1].queries

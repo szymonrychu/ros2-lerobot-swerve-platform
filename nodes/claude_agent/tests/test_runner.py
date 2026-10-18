@@ -205,7 +205,7 @@ def make_runner(
     retro_followup: bool = False,
     retro_feed: bool = False,
 ):
-    """Runner with a scripted FakeClient; the RETROSPECTIVE follow-up and the RECENT RETROSPECTIVES feed are off unless
+    """Runner with a scripted FakeClient; the RETROSPECTIVE prompt and the RECENT RETROSPECTIVES feed are off unless
     asked for (tests/test_retro_followup.py covers them), so the prompts of the other tests stay as they are."""
     FakeClient.instances.clear()
     FakeClient.status_scripts = statuses or []
