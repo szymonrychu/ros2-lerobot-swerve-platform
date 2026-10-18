@@ -46,16 +46,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/markers_generate.py:main`; config `scripts/markers_generate.yaml`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run python -m scripts.markers_generate` fills `.logs/markers/` with print files for every configured marker and the board.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_markers_generate_cli.py`; run `uv run pytest tests/test_markers_generate_cli.py -q`; see it fail.
+- Implement the entry point; rerun until green; run the verify command.
+- Update scripts/README.md; commit `feat(scripts): markers_generate CLI`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `.logs/` is gitignored: generated print files are never committed.

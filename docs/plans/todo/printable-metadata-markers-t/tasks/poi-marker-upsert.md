@@ -51,16 +51,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `/poi/command` op `upsert_marker`; `nodes/poi_store/poi_store/store.py:PoiStore.op_upsert_marker`; `nodes/poi_store/poi_store/markers.py:merge_marker_sighting` (part `poi-upsert-marker-op`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A detector can send every sighting; poi_store keeps one refined POI per marker.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `nodes/poi_store/tests/test_marker_upsert.py`; run `cd nodes/poi_store && uv run --frozen pytest tests/test_marker_upsert.py -q`; see it fail.
+- Implement the op, merge and config; rerun; run the verify command.
+- Update the README; commit `feat(poi_store): upsert_marker op with pose refinement`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Commands are handled one at a time in the node callback, so matching in the store is atomic (design D12).
+- Quaternion averaging: flip a sample whose dot product with the reference is negative, weighted sum, normalise (fine for the small spreads the relocation gate allows).

@@ -54,16 +54,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/markers/mesh.py`: `mask_bodies`, `marker_bodies`, `write_bodies` (part `markers-mesh`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Each marker gets a base STL, a module STL and a two-object 3MF that load as one two-colour print.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- `uv add --group dev 'trimesh>=4,<5' 'manifold3d>=3,<4'`.
+- Write `tests/test_markers_mesh.py`; run `uv run pytest tests/test_markers_mesh.py -q`; see it fail.
+- Implement mesh.py; rerun until green; run the verify command.
+- Commit `feat(scripts): two-colour marker STL and 3MF`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Raised modules are the default because the user chose them (U5); the flush inlay is a config option.
+- Bambu Studio ignores 3MF colours; filaments come from `model_settings.config` (research). Keep the XML minimal: `<config><object id=... ><metadata key="name" value="base"/><metadata key="extruder" value="1"/></object>...</config>`; the user confirms it in Bambu Studio during the runbook.

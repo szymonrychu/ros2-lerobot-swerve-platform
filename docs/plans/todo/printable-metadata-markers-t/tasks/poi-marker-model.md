@@ -5,9 +5,9 @@ repo: ros2-lerobot-sverve-platform
 value: "The POI store can hold a marker with its full pose and decoded metadata, and every other POI keeps working unchanged."
 files: [nodes/poi_store/poi_store/models.py, nodes/poi_store/tests/test_marker_model.py, nodes/poi_store/README.md]
 verify: "cd nodes/poi_store && uv run --frozen pytest tests -q && uv run --frozen poe lint"
-depends_on: [marker-payload-codec]
+depends_on: []
 owns: [poi-marker-contract]
-uses: [marker-payload]
+uses: []
 model: sonnet
 estimate: 45
 actual: ""
@@ -43,16 +43,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/poi_store/poi_store/models.py:Poi` with kind `marker`, `z`, `orientation`, `marker: MarkerInfo` (part `poi-marker-contract`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+poi_store validates and lists marker POIs with full pose.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `nodes/poi_store/tests/test_marker_model.py`; run `cd nodes/poi_store && uv run --frozen pytest tests/test_marker_model.py -q`; see it fail.
+- Implement the model change; rerun; run `cd nodes/poi_store && uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Update the README; commit `feat(poi_store): marker POI kind with pose and payload`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- poi_store already depends on `ros2-common` (path source); no lock change is needed for a new module in it, but run `uv lock --check` to confirm.
+- Do not add `category` (agent-skills epic).
+
+- `marker-payload` (`shared/ros2_common/marker_payload.py`: `decode_payload`, `MarkerInfo`, `marker_info`) is delivered by the blocker epic marker-and-calibration-board; it exists before this task runs.

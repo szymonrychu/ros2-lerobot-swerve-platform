@@ -51,16 +51,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/frontend/src/poi/types.ts:Poi` marker fields; `nodes/web_ui/frontend/src/poi/style.ts:facingYaw`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Markers show on the web UI map with facing arrows and details.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests; run `cd nodes/web_ui/frontend && npx vitest run src/poi/style.test.ts src/poi/PoiPanels.test.tsx`; see them fail.
+- Implement types, style, layer, panels, legend; run the verify command.
+- Update the README; commit `feat(web_ui): show marker POIs`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The UI never moves a marker: the detector owns its pose (design D13).

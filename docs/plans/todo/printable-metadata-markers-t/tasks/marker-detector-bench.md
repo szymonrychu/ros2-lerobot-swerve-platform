@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: We know what decoding and pose cost on the Pi 5 before choosing the processing rate.
 files: [nodes/marker_detector/marker_detector/bench.py, nodes/marker_detector/config/bench.yaml, nodes/marker_detector/tests/test_bench.py, scripts/marker_bench.sh, scripts/README.md, nodes/marker_detector/README.md]
 verify: "cd nodes/marker_detector && uv run --frozen pytest tests/test_bench.py -q && uv run --frozen poe lint && cd ../.. && bash -n scripts/marker_bench.sh"
-depends_on: [marker-detector-node, markers-generate-cli]
+depends_on: [marker-detector-node]
 owns: []
 uses: [marker-detector-config, marker-synthetic-scenes, marker-decode, marker-pose]
 model: sonnet
@@ -44,16 +44,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `python -m marker_detector.bench`, `nodes/marker_detector/marker_detector/bench.py:run_bench`, `scripts/marker_bench.sh`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One script measures decode and pose cost on the Pi 5 and stores the JSON in `.logs/`.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_bench.py`; run `cd nodes/marker_detector && uv run --frozen pytest tests/test_bench.py -q`; see it fail.
+- Implement bench.py, bench.yaml and the script; rerun; run the verify command.
+- Update both READMEs; commit `feat(marker_detector): decode and pose benchmark`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Do not run the script against the robot in this task; the runbook does.

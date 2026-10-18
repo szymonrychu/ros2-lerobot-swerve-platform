@@ -1,6 +1,6 @@
 ---
 title: Marker and calibration board generator
-blockers: []
+blockers: [Remove the Jetson coprocessor]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -35,7 +35,11 @@ A generator for printable square black/white markers and the head RGB-D calibrat
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+
+
+
+
+Estimate: 360 min | Actual: 0 min | Remaining estimate: 360 min
 
 ## Review
 

@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: The new node is linted and tested in CI and by the root lint task like every other node.
 files: [pyproject.toml, scripts/lint-all-nodes.sh, .github/workflows/ci.yml, tests/test_ci_workflow.py]
 verify: "uv run pytest tests/test_ci_workflow.py tests/test_node_lint_coverage.py -q && uv run poe lint"
-depends_on: [marker-stl-3mf-output, marker-detector-skeleton]
+depends_on: [marker-detector-skeleton]
 owns: []
 uses: []
 model: sonnet
@@ -40,16 +40,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- CI node matrix entry `marker_detector`; root `poe lint-nodes` entry.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+CI and `uv run poe lint-nodes` include the detector.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Run `uv run pytest tests/test_ci_workflow.py tests/test_node_lint_coverage.py -q`; see it fail on the missing entries.
+- Add the entries; rerun until green; `uv run poe lint`.
+- Commit `ci: lint and test marker_detector`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Other epics may add nodes first; set the count to what the tree holds.

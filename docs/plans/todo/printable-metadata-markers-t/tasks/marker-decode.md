@@ -5,9 +5,9 @@ repo: ros2-lerobot-sverve-platform
 value: "Markers in a camera frame are found and decoded into validated payloads with ordered corners, and undecodable QR codes are located for a zoom."
 files: [nodes/marker_detector/marker_detector/decode.py, nodes/marker_detector/marker_detector/synthetic.py, nodes/marker_detector/tests/test_decode.py]
 verify: "cd nodes/marker_detector && uv run --frozen pytest tests/test_decode.py -q && uv run --frozen poe lint"
-depends_on: [marker-detector-skeleton, marker-payload-codec]
+depends_on: [marker-detector-skeleton]
 owns: [marker-synthetic-scenes, marker-decode]
-uses: [marker-detector-config, marker-payload]
+uses: [marker-detector-config]
 model: sonnet
 estimate: 60
 actual: ""
@@ -45,16 +45,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/marker_detector/marker_detector/synthetic.py`: `render_marker_scene`, `STREAM_K`, `pose_facing` (part `marker-synthetic-scenes`).
+- `nodes/marker_detector/marker_detector/decode.py`: `Candidate`, `Rejection`, `decode_frame`, `find_undecoded` (part `marker-decode`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A grey frame becomes a list of valid marker candidates and zoom targets.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_decode.py`; run `cd nodes/marker_detector && uv run --frozen pytest tests/test_decode.py -q`; see it fail.
+- Implement synthetic.py and decode.py; rerun until green; `uv run --frozen poe lint`.
+- Commit `feat(marker_detector): decode markers with zxing-cpp`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- zxing-cpp `position` gives top_left, top_right, bottom_right, bottom_left; check them on rotated synthetic symbols (assumption in the design).
+- Research: zxing-cpp is the fastest maintained decoder; QRCodeDetectorAruco (OpenCV >= 4.8) is the second opinion for finding quads.
+
+- `marker-payload` (`shared/ros2_common/marker_payload.py`: `decode_payload`, `MarkerInfo`, `marker_info`) is delivered by the blocker epic marker-and-calibration-board; it exists before this task runs.

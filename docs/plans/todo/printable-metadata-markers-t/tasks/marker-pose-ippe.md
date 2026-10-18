@@ -50,16 +50,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/marker_detector/marker_detector/pose.py`: `finder_model_points`, `predict_image_points`, `refine_corners`, `estimate_pose`, `PoseResult`, `Solution` (part `marker-pose`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Each candidate yields an accepted pose with confidence, or a named rejection.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_pose.py`; run `cd nodes/marker_detector && uv run --frozen pytest tests/test_pose.py -q`; see it fail.
+- Implement pose.py; rerun until green; `uv run --frozen poe lint`.
+- Commit `feat(marker_detector): marker pose from refined finder corners with IPPE`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `SOLVEPNP_IPPE` (not `IPPE_SQUARE`) takes any >= 4 coplanar points and returns both solutions via solvePnPGeneric (OpenCV docs).
+- The ambiguity is the classic planar flip; it grows with distance and frontal views, which is what the reject path and the ToF chooser handle.

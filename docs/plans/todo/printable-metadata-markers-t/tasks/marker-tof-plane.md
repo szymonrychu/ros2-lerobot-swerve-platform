@@ -42,16 +42,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/marker_detector/marker_detector/tof_plane.py`: `Plane`, `fit_plane`, `plane_chooser`, `nearest_depth` (part `marker-tof-plane`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Ambiguous poses with ToF coverage are resolved; others stay rejected.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_tof_plane.py`; run `cd nodes/marker_detector && uv run --frozen pytest tests/test_tof_plane.py -q`; see it fail.
+- Implement tof_plane.py; rerun until green; `uv run --frozen poe lint`.
+- Commit `feat(marker_detector): ToF plane breaks pose ambiguity`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `/head_rgbd/depth/image_raw` is 16UC1 mm in `head_camera_optical_frame` (fusion epic D1); its camera_info gives depth_K at 288x162.
+- Normal sign: the marker's +z points out of the face, i.e. towards the camera; keep one convention in both modules (review focus).

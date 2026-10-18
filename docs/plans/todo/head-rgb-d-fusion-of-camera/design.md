@@ -106,7 +106,10 @@ drops over UDPv4), composing into head_camera_cpp's process (couples the camera 
 
 ### D3: Calibration: ChArUco, OpenCV, offline from a short rosbag of still poses
 
-One printed matte ChArUco board (default 7x5 squares, 40 mm squares, 30 mm DICT_5X5 markers, laser-printed: toner
+One printed matte ChArUco board (6x5 squares, 40 mm squares, 30 mm DICT_5X5_100 markers: 240x200 mm, so the board fits A4
+landscape and its two-colour STL plate (250x210 mm) fits the 256x256 mm Bambu bed; the PDF and STL/3MF come from the
+marker-and-calibration-board generator (`uv run python -m scripts.markers_generate`, a blocker of this epic);
+`rgbd-calibration-frames` tests that this tool's yaml `board` equals the generator's `charuco` spec; 7x5 x 40 mm was dropped because 280 mm does not fit the bed; laser-printed: toner
 absorbs IR) serves all three calibrations. Capture: `scripts/head_rgbd_calibrate.py` (mode `capture`) records a rosbag
 on the client over ssh (`ros2 bag record` of `/tof/amplitude/image_raw`, `/tof/depth/image_raw`,
 `/head_camera/mapping/image_raw/compressed`, `/head_camera/mapping/camera_info`, `/tf`, `/tf_static`; subscribing the
@@ -404,7 +407,9 @@ focus lock and calibration tasks move to this epic. Serves G5, U3.
 ## Left to the builder
 
 - ChArUco board defaults within: squares 5-8 by 4-6, square 30-50 mm, any DICT_4X4/5X5 dictionary, as long as the
-  printed board fits A4/A3 and the tests use the same definition.
+  printed board fits A4/A3 and the tests use the same definition. The shipped default is fixed at 6x5, 40/30 mm,
+  DICT_5X5_100 (coordinated with marker-and-calibration-board: its generator prints this board and
+  `rgbd-calibration-frames` asserts equality with its `charuco` spec; the STL plate must fit a 256x256 mm bed and the row count stays odd).
 - Whether the capture uses mcap or sqlite3 storage, as long as `rosbags` reads it and the tests write the same format.
 - Internal structure of the C++ core (free functions vs small classes), provided the contract headers named above exist.
 - Exact metric bucket boundaries; the metrics port, chosen free per tests/test_node_metrics_wiring.py.

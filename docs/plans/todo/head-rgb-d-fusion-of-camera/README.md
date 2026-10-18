@@ -1,6 +1,6 @@
 ---
 title: Head RGB-D fusion of camera and ToF
-blockers: [Pan tilt head control with agent and web UI, Remove the Jetson coprocessor]
+blockers: [Pan tilt head control with agent and web UI, Remove the Jetson coprocessor, Marker and calibration board generator]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -33,6 +33,10 @@ The head carries a Camera Module 3 (RGB, 1152x648 @ 30 fps, rolling shutter, aut
 - Changing the head camera or ToF drivers beyond what synchronisation needs.
 
 ## Time
+
+
+
+
 
 
 

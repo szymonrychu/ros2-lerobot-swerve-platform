@@ -47,16 +47,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/markers/charuco.py`: `CharucoSpec`, `make_charuco_board`, `board_mask`, `write_charuco` (part `charuco-spec`); the `charuco` section of `scripts/markers_generate.yaml` is the single board definition (the head RGB-D fusion epic's `rgbd-calibration-frames` asserts its yaml `board` equals it).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One config section defines the calibration board; the generator prints it as PDF and two-colour STL/3MF that OpenCV detects.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_markers_charuco.py`; run `uv run pytest tests/test_markers_charuco.py -q`; see it fail.
+- Implement charuco.py, the config slot and the yaml section; rerun until green; run the verify command.
+- Commit `feat(scripts): ChArUco calibration board output`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The fusion epic's 7x5 x 40 mm board (280 mm) did not fit the 256 mm bed; it now uses this 6x5 spec (same square and marker sizes, so ToF detectability is unchanged).
+- opencv-python-headless >= 4.9 in the root dev env has `cv2.aruco.CharucoDetector`; no contrib wheel.

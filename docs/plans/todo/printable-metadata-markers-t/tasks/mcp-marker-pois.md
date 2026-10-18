@@ -50,16 +50,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/mcp_server/mcp_server/perception_models.py:PoiView` marker fields; `list_pois(marker_kind=...)`; approach `poi_id` for kind marker.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent can list chargers or buttons and send the base or the arm to them.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_marker_pois.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_marker_pois.py -q`; see it fail.
+- Implement the fields, helper, filter and approach change; rerun the verify command.
+- Update the README; commit `feat(mcp_server): marker POIs in list_pois and approach targets`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Deploying mcp_server kills a running agent session (MEMORY): the runbook checks first.
+- No `category`: the agent-skills epic adds it later and can derive it from `marker.kind`.

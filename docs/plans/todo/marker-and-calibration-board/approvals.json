@@ -1,0 +1,10 @@
+[
+  {"id": "G1", "text": "A versioned, compact metadata format encoded in the marker (POI kind, name/id, side length in mm, optional parameters), documented, with a decoder that rejects unknown versions.", "decisions": ["D1", "D2", "D3"], "tasks": ["marker-payload-codec", "marker-qr-symbol"], "status": "approved"},
+  {"id": "G2", "text": "A config-file driven generator that writes a print-ready PDF (exact physical size, quiet zone, label) and two-colour STL (separate base and module bodies, configurable thickness/relief, Bambu AMS friendly, 3MF with both parts); tests check sizes, module grid and round-trip decode of the rendered output.", "decisions": ["D4", "D5", "D6"], "tasks": ["marker-qr-symbol", "marker-pdf-output", "marker-stl-3mf-output", "markers-generate-cli"], "status": "approved"},
+  {"id": "G3", "text": "The generator also produces the calibration pattern (PDF and two-colour STL) the head RGB-D fusion epic needs, with that epic's exact square and marker sizes, fitting a 256x256 mm bed.", "decisions": ["D7"], "tasks": ["charuco-board-output", "markers-generate-cli"], "status": "approved"},
+  {"id": "G4", "text": "READMEs and tests for the codec and the generator.", "decisions": ["D2", "D4"], "tasks": ["marker-payload-codec", "markers-generate-cli"], "status": "approved"},
+  {"id": "U1", "text": "Any black/white square-ish marker is fine; decision: QR Model 2.", "decisions": ["D1"], "tasks": ["marker-qr-symbol"], "status": "approved"},
+  {"id": "U2", "text": "Metadata in the marker allows automatic POI conversion and states its size (always square).", "decisions": ["D2", "D3"], "tasks": ["marker-payload-codec"], "status": "approved"},
+  {"id": "U5", "text": "Outputs PDF and two-colour STL for a Bambu Lab printer with AMS: base body plus raised black modules as separate objects; 3MF with both parts.", "decisions": ["D5", "D6"], "tasks": ["marker-pdf-output", "marker-stl-3mf-output", "markers-generate-cli"], "status": "approved"},
+  {"id": "U6", "text": "The generator also produces the RGB-D calibration pattern (ChArUco).", "decisions": ["D7"], "tasks": ["charuco-board-output", "markers-generate-cli"], "status": "approved"}
+]

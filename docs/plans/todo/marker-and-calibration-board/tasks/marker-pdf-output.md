@@ -54,16 +54,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/markers/pdf.py`: `write_marker_pdf`, `draw_mask_pdf`, `page_size_pt`, `PdfLayout`, `MM_TO_PT` (part `markers-pdf`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A printed PDF marker has exactly its encoded edge length and decodes to its payload.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- `uv add --group dev 'reportlab>=4,<5' 'pypdfium2>=4,<6'`.
+- Write `tests/test_markers_pdf.py`; run `uv run pytest tests/test_markers_pdf.py -q`; see it fail.
+- Implement pdf.py; rerun until green; run the verify command.
+- Commit `feat(scripts): exact-size marker PDF`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Measure the raster, not the layout numbers (review focus): the test must catch a wrong points-per-mm factor.
+- Printers rescale with "fit to page"; the ruler is how the user checks (research fix-as-ac print scaling).

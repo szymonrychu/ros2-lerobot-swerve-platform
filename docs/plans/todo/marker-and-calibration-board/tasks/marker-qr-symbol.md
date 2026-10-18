@@ -51,16 +51,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/markers/config.py`: `GeneratorConfig`, `SymbolDefaults`, `PageSpec`, `StlOptions`, `MarkerSpec`, `load_generator_config` (part `markers-config`).
+- `scripts/markers/symbol.py`: `Symbol`, `build_symbol`, `render_raster` (part `markers-symbol`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Each configured marker yields a validated QR matrix with known version, ECC and module size.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- `uv add --group dev 'segno>=1.6,<2' 'zxing-cpp>=2.2,<4'`.
+- Write `tests/test_markers_symbol.py`; run `uv run pytest tests/test_markers_symbol.py -q`; see it fail.
+- Implement config.py, symbol.py and the yaml; rerun until green; run the verify command.
+- Commit `feat(scripts): marker generator config and QR symbol`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- segno's `boost_error` defaults to True and silently raises the EC level (research fix-as-ac).
+- Root tests import scripts as `scripts.<module>` (see tests/test_nav_footprint.py); `scripts/markers/` is a regular package.
+- Config file over CLI (CLAUDE.md): the only CLI argument later is the config path.

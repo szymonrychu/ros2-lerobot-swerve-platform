@@ -7,7 +7,7 @@ files: [nodes/marker_detector/marker_detector/geometry.py, nodes/marker_detector
 verify: "cd nodes/marker_detector && uv run --frozen pytest tests/test_geometry.py -q && uv run --frozen poe lint"
 depends_on: [marker-pose-ippe, poi-marker-upsert]
 owns: [marker-geometry]
-uses: [marker-detector-config, marker-pose, marker-payload, poi-upsert-marker-op]
+uses: [marker-detector-config, marker-pose, poi-upsert-marker-op]
 model: sonnet
 estimate: 60
 actual: ""
@@ -44,16 +44,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/marker_detector/marker_detector/geometry.py`: `marker_in_map`, `zoom_intrinsics`, `zoom_factor`, `zoom_request`, `sighting_command`, `detection_report` (part `marker-geometry`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Pure functions turn a camera-frame pose into the POI command and the detection report.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_geometry.py`; run `cd nodes/marker_detector && uv run --frozen pytest tests/test_geometry.py -q`; see it fail.
+- Implement geometry.py; rerun until green; `uv run --frozen poe lint`.
+- Commit `feat(marker_detector): map pose, zoom intrinsics and POI sighting`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The zoom command fields follow the front camera epic (D4): request_id, u, v (normalised, top-left origin of the default view), zoom 2/4/8, max_px, af.
+
+- `marker-payload` (`shared/ros2_common/marker_payload.py`: `decode_payload`, `MarkerInfo`, `marker_info`) is delivered by the blocker epic marker-and-calibration-board; it exists before this task runs.

@@ -48,16 +48,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `ros2_nodes` entry `marker_detector` (schema `name`, `node_type`, `present`, `enabled`, `config`); deploy tag `marker_detector`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`./scripts/deploy-nodes.sh client marker_detector` deploys the detector.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_marker_detector_config.py`; run `uv run pytest tests/test_marker_detector_config.py -q`; see it fail.
+- Add the Ansible pieces and docs; rerun; run the verify command.
+- Commit `feat(ansible): deploy marker_detector on the client`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Do not deploy in this task; the runbook deploys through scripts/deploy-nodes.sh after invoking the ansible-deploy skill.

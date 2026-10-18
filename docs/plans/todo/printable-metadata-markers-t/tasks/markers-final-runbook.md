@@ -31,7 +31,7 @@ provides: []
   4. Benchmark: `scripts/marker_bench.sh`; record p50/p95 per stage; decode + pose p95 <= 100 ms per 1152x648 frame; if missed, lower `process_hz` in client.yml, redeploy, record.
   5. Pose accuracy: tape the 150 mm marker on a wall at a measured map pose (position from a measured offset to a known map feature or the robot's pose at a measured distance; facing measured), view it from 0.7, 1.0 and 1.5 m head-on and at 30 deg: POI position error <= 3 cm and facing error <= 5 deg (localisation included); record each.
   6. Refinement and dedup: 20 sightings from different spots leave one POI (times_seen counts up), position spread recorded; move the marker 0.5 m: the same POI relocates; rename it in the web UI, see more sightings keep the name.
-  7. Zoom: the 100 mm marker at >= 2.5 m: a zoom request fires (rate limit respected, stream gap recorded) and the POI appears from the zoom still.
+  7. Zoom: the 100 mm marker at >= 2.5 m with `auto_zoom` false (default): no zoom request from the detector; a web UI click-to-zoom on it (or the agent's `get_camera_image` zoom) makes the POI appear from that still. Only if the user has enabled `auto_zoom`: a request fires by itself, at most one per `min_interval_s`, stream gap recorded.
   8. CPU: 10 minutes in Grafana (`ros2-marker_detector.service`): p95 <= 0.3 core at the chosen `process_hz`; record.
   9. Agent: `list_pois(marker_kind="charger")` returns the charger with an approach pose; the web UI shows the markers with facing arrows.
 - Fill the `## Range and fallback` section of docs/markers.md with the measured decode ranges; if QR range is insufficient for docking, record it with numbers as a finding (AprilTag fallback named, not built).
@@ -52,16 +52,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/printable-markers.md` with a `## Results` section.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The marker system is proven on the robot with numbers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Run the full verify command and read every line.
+- Write the runbook; execute it on the robot step by step; fill Results and the range section; commit `docs: printable markers runbook with results`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Robot motion: only the head (pan/tilt within the verified range) and base moves the user approves; least-dramatic movement first (CLAUDE.md).

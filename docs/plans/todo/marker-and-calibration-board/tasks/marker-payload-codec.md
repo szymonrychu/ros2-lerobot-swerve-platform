@@ -48,16 +48,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/marker_payload.py`: `MarkerPayload`, `PayloadError`, `encode_payload`, `decode_payload`, `MarkerInfo`, `marker_info`, `KNOWN_KINDS` (part `marker-payload`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_shared_marker_payload.py -q` passes; any component can turn a QR text into a validated payload and back.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_shared_marker_payload.py`; run `uv run pytest tests/test_shared_marker_payload.py -q`; see it fail on the missing module.
+- Implement `shared/ros2_common/marker_payload.py`; rerun until green; `uv run poe lint`.
+- Update `shared/README.md`; commit `feat(shared): marker payload codec`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Precedent for a shared pydantic model used by poi_store: `shared/ros2_common/photos.py:PhotoSelector`.
+- No regex-free hand parser games: a split on `/` then `:` (first colon) is enough; validation lives in the pydantic fields.
+- Do not add a POI `category`; the agent-skills epic adds it later (design D11).
