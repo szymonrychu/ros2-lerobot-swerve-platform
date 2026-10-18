@@ -1,0 +1,21 @@
+# camera_calibration fixture for the 240x180 Arducam ToF (pinhole, zero distortion) used by the head_rgbd tests.
+image_width: 240
+image_height: 180
+camera_name: tof
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [191.0, 0.0, 120.0, 0.0, 191.0, 90.0, 0.0, 0.0, 1.0]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.0, 0.0, 0.0, 0.0, 0.0]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [191.0, 0.0, 120.0, 0.0, 0.0, 191.0, 90.0, 0.0, 0.0, 0.0, 1.0, 0.0]

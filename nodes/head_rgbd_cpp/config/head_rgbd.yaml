@@ -1,0 +1,53 @@
+# head_rgbd_cpp: registers the head ToF depth into the Camera Module 3 frame. Unknown keys are rejected.
+# Every key below is shown with its default.
+
+# Input topics.
+tof_depth_topic: /tof/depth/image_raw                      # sensor_msgs/Image 16UC1 depth, mm
+rgb_image_topic: /head_camera/mapping/image_raw/compressed # sensor_msgs/CompressedImage, the mapping stream
+rgb_info_topic: /head_camera/mapping/camera_info           # sensor_msgs/CameraInfo of the mapping stream
+
+# Prefix of every output topic: <ns>/depth/image_raw, depth/camera_info, rgb/image_raw/compressed, rgb/camera_info,
+# points, depth_upsampled/image_raw, depth_upsampled/camera_info.
+output_namespace: /head_rgbd
+
+# ToF intrinsics, a camera_calibration YAML file (written by the calibration tool).
+tof_calibration_file: /etc/ros2/head_rgbd_cpp/tof_calibration.yaml
+
+output:
+  divisor: 2 # output size = RGB size / divisor; 1 or 2
+
+sync:
+  max_pair_dt_s: 0.06 # largest ToF-RGB stamp difference accepted as a pair, s (0 < v <= 0.2)
+  queue_size: 10      # approximate-time sync queue length, messages (>= 2)
+
+motion:
+  compensate: true               # correct the ToF-RGB capture offset with the robot motion between the two stamps
+  fixed_frame: odom              # TF frame that does not move with the robot
+  max_angular_rate_deg_s: 10.0   # above this angular rate the pair is dropped, deg/s (> 0)
+  max_linear_rate_m_s: 0.3       # above this linear rate the pair is dropped, m/s (> 0)
+  rate_window_s: 0.05            # window the rates are measured over, s (> 0)
+  tf_timeout_s: 0.05             # wait for a TF transform, s (>= 0)
+
+filter:
+  jump_rel: 0.05             # depth jump between neighbours, relative to depth, that marks a flying pixel (0 < v < 1)
+  jump_abs_mm: 30            # minimum absolute jump, mm (>= 0)
+  min_valid_neighbours: 3    # valid neighbours (of 8) a pixel needs to be kept (0..8)
+
+depth:
+  min_m: 0.1 # nearer depth is invalid, m
+  max_m: 4.0 # farther depth is invalid, m (> min_m)
+
+upsampling:
+  enabled: false     # guided-filter upsampling of the depth to the RGB resolution
+  radius: 4          # guided filter radius, px (1..16)
+  eps: 0.001         # guided filter regularisation (> 0)
+  min_support: 0.5   # minimum filter support for a pixel to be valid (0 < v <= 1)
+
+cloud:
+  enabled: true # publish the coloured point cloud
+  rate_hz: 1.0  # point cloud rate, Hz (0 < v <= 10)
+
+lazy:
+  idle_unsubscribe_s: 5.0 # drop the input subscriptions this long after the last output subscriber left, s (>= 0)
+
+metrics_port: 19117 # Prometheus /metrics port (1..65535), null disables
