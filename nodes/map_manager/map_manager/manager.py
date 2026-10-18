@@ -19,6 +19,7 @@ import shutil
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 import numpy as np
@@ -122,6 +123,58 @@ class SensorPort(Protocol):
 
 class OperationFailed(Exception):
     """An operation step refused; the message is the result message."""
+
+
+@dataclass(frozen=True)
+class LoadPlan:
+    """What a load hands slam_toolbox, fixed before the deserialize call.
+
+    Attributes:
+        command (MapCommand): The load command.
+        bundle (LoadedBundle): The validated bundle.
+        hint (Pose2D): Pose hint (request pose or saved last pose).
+        target (Pose2D): Pose handed to slam_toolbox (refined, or the hint when the search is not ok).
+        search (SearchResult | None): Candidate search result (None without a scan).
+        search_reason (str): Its reason.
+        autosaved (bool): The current map was autosaved first.
+    """
+
+    command: MapCommand
+    bundle: LoadedBundle
+    hint: Pose2D
+    target: Pose2D
+    search: SearchResult | None
+    search_reason: str
+    autosaved: bool
+
+    def data(self, state: LocalisationState, active_map: str | None, load_seq: int) -> dict[str, Any]:
+        """Result ``data`` of this load before the slam confirmation, verdict and POI replace are known.
+
+        Args:
+            state (LocalisationState): Localisation state after the load.
+            active_map (str | None): Active map after the load.
+            load_seq (int): Load sequence after the load.
+
+        Returns:
+            dict[str, Any]: The result data; ``ratio``, ``slam_pose``, ``covariance`` None, ``pois_replaced`` False.
+        """
+        return {
+            "state": state,
+            "ratio": None,
+            "pose": self.target.model_dump(),
+            "hint": self.hint.model_dump(),
+            "slam_pose": None,
+            "search_ratio": self.search.ratio if self.search is not None else None,
+            "search_ok": self.search is not None and self.search.ok,
+            "search_reason": self.search_reason,
+            "ambiguous": self.search is not None and self.search.ambiguous,
+            "covariance": None,
+            "autosaved": self.autosaved,
+            "pois_replaced": False,
+            "poi_count": len(self.bundle.meta.pois),
+            "active_map": active_map,
+            "load_seq": load_seq,
+        }
 
 
 class MapManager:
@@ -421,8 +474,17 @@ class MapManager:
         if not self.set_paused(True):
             self.restore_before_load()
             raise OperationFailed(f"load of {name!r} aborted: {PAUSE_FAILED_REASON}")
+        plan = LoadPlan(command, bundle, hint, target, search, search_reason, autosaved)
+        started = self.clock()
         try:
-            return self.finish_load(command, bundle, hint, target, search, search_reason, autosaved)
+            deserialized = self.slam.deserialize(str(bundle.posegraph_base), target)
+        except Exception as exc:
+            LOGGER.exception("map_manager load %s: deserialize_map raised", name)
+            return self.refuse_load(plan, f"{DESERIALIZE_FAILED_REASON}: {exc}")
+        if not deserialized:
+            return self.refuse_load(plan, DESERIALIZE_FAILED_REASON)
+        try:
+            return self.finish_load(plan, started)
         except Exception as exc:
             LOGGER.exception("map_manager load %s failed after the pause", name)
             reason = f"load failed: {exc}"
@@ -447,47 +509,58 @@ class MapManager:
         result = search_candidates(prepared, points, hint, settings)
         return result, result.reason
 
-    def finish_load(
-        self,
-        command: MapCommand,
-        bundle: LoadedBundle,
-        hint: Pose2D,
-        target: Pose2D,
-        search: SearchResult | None,
-        search_reason: str,
-        autosaved: bool,
-    ) -> MapResult:
-        """Deserialize, confirm, replace the POIs, verify, unpause when localised and record the verdict.
+    def refuse_load(self, plan: LoadPlan, reason: str) -> MapResult:
+        """Answer a load slam_toolbox did not take: it keeps its previous map, so the load is not completed.
+
+        ``active_map``, ``load_seq`` and the live POIs stay as they were; new measurements stay paused and the
+        robot reports ``not_localised`` (no localisation is claimed without a measured match).
 
         Args:
-            command (MapCommand): The load command.
-            bundle (LoadedBundle): The validated bundle.
-            hint (Pose2D): Pose hint (request pose or saved last pose).
-            target (Pose2D): Pose handed to slam_toolbox (refined, or the hint when the search is not ok).
-            search (SearchResult | None): Candidate search result.
-            search_reason (str): Its reason.
-            autosaved (bool): The current map was autosaved first.
+            plan (LoadPlan): The refused load.
+            reason (str): Why slam_toolbox did not take the map.
+
+        Returns:
+            MapResult: ``ok: false`` naming the reason.
+        """
+        name = plan.command.name
+        with self.state_lock:
+            self.before_load = None
+            active_map, load_seq = self.active_map, self.load_seq
+        self.set_localisation(
+            Localisation(state="not_localised", message=f"map {name} not loaded: {reason}", updated_at=self.clock()),
+            False,
+        )
+        return MapResult(
+            request_id=plan.command.request_id,
+            ok=False,
+            message=f"map {name} not loaded: {reason}; active map stays {active_map or 'none'}, POIs unchanged",
+            data=plan.data("not_localised", active_map, load_seq),
+        )
+
+    def finish_load(self, plan: LoadPlan, started: float) -> MapResult:
+        """After slam_toolbox took the map: confirm, replace the POIs, verify, unpause when localised, record.
+
+        Args:
+            plan (LoadPlan): The load.
+            started (float): Clock reading just before the deserialize call.
 
         Returns:
             MapResult: The load answer.
         """
-        name = command.name
-        started = self.clock()
-        deserialized = self.slam.deserialize(str(bundle.posegraph_base), target)
-        confirmed = self.slam.wait_pose_after(started, self.config.load_timeout_s) if deserialized else None
+        name = plan.command.name
+        confirmed = self.slam.wait_pose_after(started, self.config.load_timeout_s)
         covariance = self.slam.pose_covariance() if confirmed is not None else None
-        pois_ok, poi_message = self.poi.replace(bundle.meta.pois)
+        pois_ok, poi_message = self.poi.replace(plan.bundle.meta.pois)
         state: LocalisationState
         ratio: float | None = None
-        if not deserialized:
-            state, reason = "not_localised", DESERIALIZE_FAILED_REASON
-        elif confirmed is None:
+        if confirmed is None:
             state, reason = "not_localised", UNCONFIRMED_REASON
         else:
             judge = LocalisationJudge(localised_ratio=self.config.localised_ratio, min_samples=self.config.min_samples)
             for sample in self.sensors.agreement_samples(self.config.verify_window_s):
                 judge.add(sample)
-            state, ratio, reason = judge.verdict(ambiguous=search is not None and search.ambiguous)
+            ambiguous = plan.search is not None and plan.search.ambiguous
+            state, ratio, reason = judge.verdict(ambiguous=ambiguous)
         notes = [reason]
         if state == "localised" and not self.set_paused(False):
             notes.append(UNPAUSE_FAILED_REASON)
@@ -497,25 +570,15 @@ class MapManager:
             name,
             Localisation(state=state, ratio=ratio, pose=confirmed, message=reason, updated_at=self.clock()),
         )
-        data: dict[str, Any] = {
-            "state": state,
-            "ratio": ratio,
-            "pose": target.model_dump(),
-            "hint": hint.model_dump(),
-            "slam_pose": confirmed.model_dump() if confirmed is not None else None,
-            "search_ratio": search.ratio if search is not None else None,
-            "search_ok": search is not None and search.ok,
-            "search_reason": search_reason,
-            "ambiguous": search is not None and search.ambiguous,
-            "covariance": covariance,
-            "autosaved": autosaved,
-            "pois_replaced": pois_ok,
-            "poi_count": len(bundle.meta.pois),
-            "active_map": name,
-            "load_seq": self.load_seq,
-        }
+        data = plan.data(state, name, self.load_seq)
+        data.update(
+            ratio=ratio,
+            slam_pose=confirmed.model_dump() if confirmed is not None else None,
+            covariance=covariance,
+            pois_replaced=pois_ok,
+        )
         return MapResult(
-            request_id=command.request_id,
+            request_id=plan.command.request_id,
             ok=state == "localised" and pois_ok,
             message=f"map {name} loaded: {state} ({'; '.join(notes)})",
             data=data,

@@ -443,9 +443,51 @@ def test_load_deserialize_refused_stays_paused(rig: Rig) -> None:
     assert not result.ok
     assert "deserialize" in result.message
     assert rig.slam.paused is True
-    assert "slam.wait_pose_after" not in rig.log.names()
-    assert rig.manager.status().localisation.state == "not_localised"
-    assert rig.manager.status().load_seq == 1
+    names = rig.log.names()
+    assert "slam.wait_pose_after" not in names
+    assert "poi.replace" not in names
+    assert rig.poi.pois == [{"id": "live-1", "name": "sofa"}]
+    status = rig.manager.status()
+    assert status.localisation.state == "not_localised"
+    assert "deserialize" in status.localisation.message
+    assert status.active_map is None
+    assert status.load_seq == 0
+    assert rig.manager.localised() is False
+    assert result.data["state"] == "not_localised"
+    assert result.data["active_map"] is None
+    assert result.data["load_seq"] == 0
+    assert result.data["pois_replaced"] is False
+
+
+def test_load_deserialize_refused_keeps_previous_map_and_pois(rig: Rig) -> None:
+    rig.save_map("home")
+    assert load(rig).ok
+    rig.save_map("office", pois=[{"id": "office-1", "name": "desk"}])
+    rig.slam.deserialize_ok = False
+    result = load(rig, "office")
+    assert not result.ok
+    assert "poi.replace" not in rig.log.names()
+    assert rig.poi.pois == BUNDLE_POIS
+    status = rig.manager.status()
+    assert status.active_map == "home"
+    assert status.load_seq == 1
+    assert status.localisation.state == "not_localised"
+    assert rig.slam.paused is True
+
+
+def test_load_deserialize_raising_is_not_a_completed_load(rig: Rig) -> None:
+    rig.save_map("home")
+    rig.slam.deserialize_error = TimeoutError("deserialize_map timed out")
+    result = load(rig)
+    assert not result.ok
+    assert "timed out" in result.message
+    assert "poi.replace" not in rig.log.names()
+    assert rig.poi.pois == [{"id": "live-1", "name": "sofa"}]
+    status = rig.manager.status()
+    assert status.active_map is None
+    assert status.load_seq == 0
+    assert status.localisation.state == "not_localised"
+    assert rig.slam.paused is True
     assert rig.manager.localised() is False
 
 

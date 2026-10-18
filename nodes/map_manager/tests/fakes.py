@@ -96,6 +96,7 @@ class FakeSlam:
         confirmed_pose: Pose returned by wait_pose_after (None: the load is never confirmed).
         covariance: Diagonal returned by pose_covariance.
         on_deserialize: Hook run inside deserialize (used to issue a concurrent command).
+        deserialize_error: Raised by deserialize after recording the call (None: answer deserialize_ok).
     """
 
     log: CallLog
@@ -107,6 +108,7 @@ class FakeSlam:
     confirmed_pose: Pose2D | None = None
     covariance: list[float] | None = field(default_factory=lambda: [0.01, 0.02, 0.003])
     on_deserialize: Any = None
+    deserialize_error: Exception | None = None
 
     def serialize(self, base: str) -> bool:
         """Write ``<base>.posegraph`` and ``<base>.data`` when serialize_ok."""
@@ -122,6 +124,8 @@ class FakeSlam:
         self.log.add("slam.deserialize", base, pose)
         if self.on_deserialize is not None:
             self.on_deserialize()
+        if self.deserialize_error is not None:
+            raise self.deserialize_error
         return self.deserialize_ok
 
     def query_paused(self) -> bool | None:
