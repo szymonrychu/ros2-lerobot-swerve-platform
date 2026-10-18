@@ -48,3 +48,7 @@ Estimate: 360 min | Actual: 0 min | Remaining estimate: 0 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+Scope audit inside run 2 finished clean (finished: true, undelivered: []); 6/6 tasks verified and merged; main: root 1220 passed, lint clean; CLI scripts.markers_generate --help works.
