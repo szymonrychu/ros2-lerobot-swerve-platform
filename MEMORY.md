@@ -200,3 +200,10 @@
 - **POI categories as note tags**: categories are tags in the POI note, not a new schema field, so existing POIs and the store stay compatible.
 - **Slow zones costed through the keepout mask**: slow zones are written into the keepout mask at a non-lethal value (default 60), so Nav2 path cost avoids them without a new filter; the speed mask still limits speed.
 - **New session** only resets the conversation and job state; it never deletes POIs or maps. POI removal is by explicit buttons and tools (filter, mark, delete marked).
+
+## Pan/tilt head (2026-10-18)
+
+- **Decision**: the head is the `head` group (`head_pan` ID 20, `head_tilt` ID 21) on the base bus node `base_servos` (never the arm bridge), with `/head/joint_states` and `/head/joint_commands`. `head_state_publisher` runs robot_state_publisher on `nodes/web_ui/urdf/head.urdf`. Speed/acceleration caps (1.0 rad/s, 3.0 rad/s^2) are written with every goal.
+- **Home pose**: pan 0, tilt +30 deg (looking down), not the servo centre 2048. It lives in four places (bridge `startup_position_rad`, mcp_server `head.home_*`, web_ui `head_home_deg`, URDF limits it must sit inside), pinned by `tests/test_head_config_consistency.py` together with ranges (pan +-90, tilt -30/+45 deg), joint names and topics.
+- **Lease**: the head is under lease "any" (arm or base); home is commanded on the last release.
+- **Signs (R3, confirmed 2026-10-18)**: pan positive = looking left (CCW from above); tilt positive = looking down. Flip only via `inverted` plus the URDF axis.
