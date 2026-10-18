@@ -39,6 +39,7 @@ same `../../shared` path resolves there; nothing extra is needed in Ansible. A n
 | `ros2_common.marker_payload` | Marker payload codec (see below): `MarkerPayload`, `encode_payload`, `decode_payload`, `PayloadError`, `MarkerInfo`, `marker_info` |
 | `ros2_common.photos` | Photo POI contract (see below): `PhotoView`, `camera_view`, `effective_view`, `photo_as_poi`, `PhotoAdd`, `PhotoSelector`, `write_atomic`; also owns `PlanarPose` / `CameraPose` (re-exported by `lookups`) |
 | `ros2_common.maps` | Named maps topic contract of map_manager (see below); no ROS imports |
+| `ros2_common.scan_agreement` | Scan-to-map agreement score (see below); numpy only |
 
 Used by: `nodes/mcp_server` (motion tools refused in cut-off; lookup store) and `nodes/web_ui` (lookup routes; commands rejected in cut-off; uv path source `ros2-common = { path = "../../shared", editable = true }`).
 
@@ -94,6 +95,20 @@ Shared by `map_manager`, `web_ui` and `mcp_server`; pure pydantic v2 models, no 
 - `MapStatus`: `maps`, `active_map`, `load_seq` (>= 0), `localisation`.
 - Busy rule: one operation runs at a time; a second command is answered `ok: false` with `busy: <op> <name>`.
 - Every model round-trips through `model_dump(mode="json")` / `model_validate`.
+
+## Scan agreement (`ros2_common.scan_agreement`)
+
+The scan-to-map agreement metric, shared by map_guard (mismatch detection) and map_manager (judging a relocalisation),
+so both score a scan the same way. Pure numpy, no ROS imports. Moved unchanged from `map_guard.agreement`, which
+re-exports it.
+
+- `GridMap` (resolution, origin, origin yaw, `cells` int array, -1 unknown), `PreparedMap`, `AgreementResult` (`ratio`, `evaluated`, `agreeing`).
+- `prepare_map(grid, occupied_threshold, hit_radius_cells)`: dilated hit/known masks, computed once per map.
+- `scan_endpoints(ranges, angle_min, angle_increment, range_min, range_max, max_range_m)`: laser-frame endpoints of valid beams.
+- `transform_points(points, translation, rotation)` with `yaw_quaternion` / `quaternion_matrix`: laser frame to map frame.
+- `agreement(points_map, prepared, min_points)`: share of evaluated endpoints next to an occupied cell; `None` without a map or with fewer than `min_points` evaluated points. Unknown space is not evaluated.
+
+Tests: `tests/test_shared_scan_agreement.py`.
 
 ## Photo contract (`ros2_common.photos`)
 

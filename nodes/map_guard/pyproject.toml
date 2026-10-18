@@ -8,6 +8,7 @@ dependencies = [
     "pyyaml>=6.0",
     "numpy>=1.26.0",
     "pydantic>=2.5",
+    "ros2-common",
     "ros2-metrics",
 ]
 
@@ -27,6 +28,7 @@ build-backend = "hatchling.build"
 packages = ["map_guard"]
 
 [tool.uv.sources]
+ros2-common = { path = "../../shared", editable = true }
 ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
 
 [tool.ruff]

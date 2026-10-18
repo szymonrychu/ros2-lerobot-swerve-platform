@@ -173,6 +173,10 @@ Tests of `shared/ros2_common/camera_geometry.py` and `scripts/solve_camera_mount
 | `test_solver_needs_three_samples` | Fewer than 3 samples raises ValueError. |
 | `test_solve_camera_mount_script` | The CLI prints the solved mount as YAML plus rms. |
 
+### `test_shared_scan_agreement.py`
+
+Pure scan-to-map agreement functions of `ros2_common.scan_agreement` on a synthetic square room (ported from map_guard): endpoint filtering, TF projection, dilation, scored scans (aligned, shifted, rotated, one/three cells off), empty or missing map, too few points, points outside the map or in unknown space, rotated map origin, known cell count.
+
 ### `test_shared_maps.py`
 
 Named maps contract (`ros2_common.maps`): topic constants, `validate_map_name` accept/reject, `Pose2D` finiteness, `MapCommand` per-op field rules (name required for save/load/delete and empty for relocalise, `pose` load only, `note` save only, `since` / `discard_on_fail` relocalise only, unknown op / extra keys rejected), `MapResult`, `Localisation` (states, ratio 0..1), `MapSummary` and `MapStatus` (`load_seq >= 0`), and JSON round trips.

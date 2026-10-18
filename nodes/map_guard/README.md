@@ -41,6 +41,10 @@ Client (robot) only. Pure ROS-free logic in `agreement.py`, `detectors.py`, `gua
 
 ### Agreement score (`agreement.py`)
 
+The pure functions (`prepare_map`, `scan_endpoints`, `transform_points`, `agreement`, ...) live in
+`shared/ros2_common/scan_agreement.py` (shared with map_manager); `map_guard/agreement.py` re-exports them and keeps
+`MismatchMonitor`.
+
 At most `agreement_hz` times per second a scan is projected into the map: endpoints of the finite ranges within
 `[range_min, min(range_max, max_range_m)]`, transformed through the latest `map` <- laser frame TF (full 3D rotation,
 so a rotated or upside-down lidar mount is handled). An endpoint is **evaluated** if it falls inside the grid and a
