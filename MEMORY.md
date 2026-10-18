@@ -173,6 +173,15 @@
 * The client keeps chrony with plain internet pools.
 * The earlier "the ToF never came up" claim is corrected: the ToF works on CSI cam1; ToF frame capture on the Pi 5 kernel is a separate open issue.
 
+## Named maps (map_manager)
+
+- **Bundle** `/var/lib/ros2/maps/named/<name>/`: `map.posegraph` + `map.data` (slam_toolbox `serialize_map`), `occupancy.npz` (the `/map` grid, lossless), `bundle.json` (name, saved_at, note, `last_pose`, the POIs as stored, `poi_revision`, `map_info`). Saved into a `.tmp-` dir and renamed; overwrite needs a flag; delete removes the dir and its POIs. Name `^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$`. Contract in `shared/ros2_common/maps.py`; topics `/map_manager/{command,result,status,localised}`.
+- **POIs travel with the map**: load replaces the live POI set with exactly the bundle's (poi_store `replace`); clear is an explicit filtered op. **Photos stay one global store** (capture poses refer to the map active then).
+- **Relocalisation** = `deserialize_map` with `START_AT_GIVEN_POSE` and the saved pose, hint refined first by scoring the live scan against the bundle grid (+-1 m, full yaw), new measurements paused. Verified slam_toolbox facts: the async node refuses `LOCALIZE_AT_POSE`; an unreadable file still returns success (check files, confirm by `/pose`); the first scan is processed even while paused; the match is never judged by slam_toolbox, so map_manager does.
+- **Mapping mode, not localization mode**: localization needs another executable and a restart and stops extending the map; `START_AT_FIRST_NODE` assumes the saved start; AMCL needs a map server and particle filter this stack does not run.
+- **Agreement threshold**: median of >= 5 samples in 5 s of the map_guard metric (shared `scan_agreement.py`) >= `localised_ratio` 0.6 (= map_guard `healthy_ratio`) and not ambiguous gives `localised`; otherwise map_manager stays paused and reports `not_localised` / `ambiguous`; map_guard_cpp holds on `/map_manager/localised = false`.
+- **Boot unchanged**: unnamed Save map / Reset map and the `slam.launch.py` resume of `slam_map` are as before. Moved by hand: map_guard asks map_manager to relocalise first and only discards the live map and POIs when that fails.
+
 ## ROS2 topic publishing
 
 * **No placeholder data**: Only real, valid data from sensors or actual state may be published on ROS2 topics. Do not publish zeroed/coerced/synthetic data when reads fail or are invalid. If valid data is unavailable, skip publishing for that cycle. See CLAUDE.md "No Placeholder Data on Topics".

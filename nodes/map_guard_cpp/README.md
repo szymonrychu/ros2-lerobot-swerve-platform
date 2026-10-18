@@ -27,6 +27,7 @@ The two nodes are separate node types and run side by side. The Python `map_guar
 | `/scan_filtered` (`scan_topic`) | `sensor_msgs/LaserScan` | best effort, keep last 5 |
 | `/map` (`map_topic`) | `nav_msgs/OccupancyGrid` | reliable, transient local, depth 1 (slam_toolbox's latched map) |
 | `/imu/data` (`imu_topic`) | `sensor_msgs/Imu` | best effort, keep last 5 |
+| `/map_manager/localised` (`localised_topic`) | `std_msgs/Bool` | reliable, transient local, depth 1 (map_manager's verdict after a named-map load) |
 | `/odom` (`wheel_odom_topic`) | `nav_msgs/Odometry` | best effort, keep last 5 |
 | `/odom_rf2o` (`lidar_odom_topic`) | `nav_msgs/Odometry` | best effort, keep last 5 |
 | `/cmd_vel` (`cmd_vel_topic`) | `geometry_msgs/Twist` | best effort, keep last 5 |
@@ -70,6 +71,17 @@ The states and transitions are those of `guard.py`; `include/map_guard_cpp/guard
 - **After a reset.** A cooldown of `cooldown_s` follows, during which a mismatch cannot trigger.
 
 The log lines are the same text as the Python node's. The golden fixtures check this.
+
+### Localisation hold (`localised_topic`)
+
+After a named map is loaded, `map_manager` publishes `false` on `/map_manager/localised` while it loads and when the
+robot could not be placed on the loaded map, and `true` once localised (`nodes/map_manager/README.md`). While the last
+value is `false` the guard holds: pending agreement samples are dropped, no samples are taken, no ticks run, so it
+neither toggles the slam_toolbox pause nor resets a map it would otherwise judge as a mismatch (map_manager keeps
+new measurements paused itself). On `false` -> `true` it re-arms the mismatch monitor for the new map and, unless its own
+relocalise is pending (the answer to that request decides the episode), returns to OK. With no message yet it behaves as
+before the feature. The Python `map_guard` (the disabled rollback) has no `localised_topic` and never holds: do not run
+it next to named-map loads.
 
 ### Dry run
 

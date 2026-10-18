@@ -112,6 +112,32 @@ Env overrides (unit `env`): `SLAM_TOOLBOX_PARAMS` (defaults file path), `SLAM_TO
 set by Ansible to `/etc/ros2/slam_toolbox/config.yaml`), `SLAM_TOOLBOX_MAP_BASE` (posegraph base path; beats
 `map_file_name` from the params files).
 
+## Named maps and relocalisation
+
+`map_manager` (`nodes/map_manager/README.md`) saves named maps (`serialize_map` into `/var/lib/ros2/maps/named/<name>/`)
+and loads them with `/slam_toolbox/deserialize_map` in this same mapping node, so the map keeps growing after a load.
+Facts verified in the slam_toolbox `jazzy` source (2.8.5):
+
+- `DeserializePoseGraph` takes `filename`, `match_type` (`START_AT_FIRST_NODE` 1, `START_AT_GIVEN_POSE` 2,
+  `LOCALIZE_AT_POSE` 3) and `initial_pose` (Pose2D, map -> base frame). The response is empty.
+- The async mapping node refuses `LOCALIZE_AT_POSE` (warns and returns false); so does `UNSET`. Localisation match types
+  need the separate localization node, which is not run here. `START_AT_GIVEN_POSE` is the only pose-aware type used.
+- A file that cannot be read is logged and the call still returns success with the empty response. Check the files
+  first and confirm the load by its effect (`/pose`, `/map`).
+- Deserialize replaces the mapper and dataset, resets the solver, rebuilds the map and sets `first_measurement_`.
+  `START_AT_GIVEN_POSE` then matches the next scan against the graph vertex nearest `initial_pose`
+  (`correlation_search_space_dimension` 0.8 m window, `coarse_search_angle_offset` 0.349 rad), adds it and tries loop
+  closure. The match result is discarded and the call always succeeds: slam_toolbox never judges the match, map_manager
+  does (scan-to-map agreement, `shared/ros2_common/scan_agreement.py`).
+- The first scan is processed even with new measurements paused (`shouldProcessScan` checks the first measurement
+  before the pause flag); every later scan is rejected until unpaused. map_manager pauses before the call and unpauses
+  only when localised.
+- Every processed scan is published on `/pose` (`PoseWithCovarianceStamped`, map frame): the first `/pose` stamped after
+  the call is the proof that the load happened.
+- `map_start_pose: [x, y, theta]` together with `map_file_name` is the launch-time equivalent of `START_AT_GIVEN_POSE`.
+  It is not used: boot resume is unchanged (`map_start_at_dock` on `/var/lib/ros2/maps/slam_map`, above), and the
+  unnamed "Save map" and "Reset map" behave as before.
+
 ## Deploy
 
 Ansible node type `slam_toolbox` in `ansible/group_vars/client.yml` (native, apt `ros-jazzy-slam-toolbox`,

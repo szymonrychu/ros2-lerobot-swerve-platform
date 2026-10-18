@@ -43,6 +43,9 @@ Client (robot) only. Pure ROS-free logic in `agreement.py`, `detectors.py`, `gua
 
 ## How it works
 
+> The Python node does not subscribe to `/map_manager/localised`; only `map_guard_cpp` holds the guard while a
+> loaded named map is not localised (`nodes/map_guard_cpp/README.md`).
+
 ### Agreement score (`agreement.py`)
 
 The pure functions (`prepare_map`, `scan_endpoints`, `transform_points`, `agreement`, ...) live in
