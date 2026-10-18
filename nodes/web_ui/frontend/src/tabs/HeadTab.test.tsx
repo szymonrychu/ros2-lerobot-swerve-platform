@@ -6,7 +6,7 @@ import { theme } from '../theme'
 import { TabConfig } from '../types'
 import HeadTab from './HeadTab'
 
-const RGB = '/front_camera/image_raw/compressed'
+const RGB = '/head_camera/image_raw/compressed'
 const DEPTH = '/tof/depth/image_raw'
 const AMP = '/tof/amplitude/image_raw'
 const PAN_TILT_LABEL = 'pan/tilt: no head mount configured'

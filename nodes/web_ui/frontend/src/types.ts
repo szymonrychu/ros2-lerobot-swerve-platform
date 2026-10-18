@@ -63,7 +63,7 @@ export interface TabConfig {
   grasp_timeout_s?: number // seconds POST /api/grasp waits for a plan (default 30)
   // arm tab: cameras, arm-glued 3D view and arm control (backend fills defaults for unset fields)
   gripper_camera_topic?: string // sensor_msgs/CompressedImage of the gripper camera
-  front_camera_topic?: string // sensor_msgs/CompressedImage of the front (head) camera
+  head_camera_topic?: string // sensor_msgs/CompressedImage of the head camera
   rgb_camera_topic?: string // head tab: sensor_msgs/CompressedImage of the head RGB camera
   tof_depth_topic?: string // head tab: 16UC1 mm depth topic, ToF camera (payload carries depth_preview_b64)
   tof_amplitude_topic?: string // head tab: ToF amplitude topic, unset when the camera has none (payload carries jpeg_b64)

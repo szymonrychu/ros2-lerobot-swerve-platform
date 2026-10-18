@@ -7,7 +7,7 @@ import { TabConfig } from '../types'
 import CameraTab from './CameraTab'
 import { designViolations, SOURCES } from '../layout/designRules'
 
-const FRONT = '/front_camera/image_raw/compressed'
+const FRONT = '/head_camera/image_raw/compressed'
 const BACK = '/back_camera/image_raw/compressed'
 
 const PAIR = {
@@ -20,7 +20,7 @@ const PAIR = {
   ],
 } as TabConfig
 
-const SINGLE = { id: 'front', type: 'camera', label: 'Front', topic: '/front_camera/image_raw/compressed' } as TabConfig
+const SINGLE = { id: 'front', type: 'camera', label: 'Front', topic: '/head_camera/image_raw/compressed' } as TabConfig
 
 function setViewport(width: number): void {
   window.matchMedia = ((query: string) => {

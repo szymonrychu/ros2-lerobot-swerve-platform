@@ -36,4 +36,10 @@ describe('subscribedTopics', () => {
     )
     expect(t).toEqual(expect.arrayContaining(['/bat', '/rover', '/x/list', '/x/photos']))
   })
+  it('subscribes the arm head_camera_topic and no front_camera_topic', () => {
+    const arm = { id: 'a', type: 'arm', label: 'Arm', head_camera_topic: '/head_camera/image_raw/compressed', front_camera_topic: '/front' } as unknown as TabConfig
+    const t = subscribedTopics(cfg([arm]), arm)
+    expect(t).toContain('/head_camera/image_raw/compressed')
+    expect(t).not.toContain('/front')
+  })
 })

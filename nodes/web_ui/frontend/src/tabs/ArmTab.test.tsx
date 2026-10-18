@@ -9,14 +9,14 @@ import ArmTab from './ArmTab'
 import { designViolations, SOURCES } from '../layout/designRules'
 
 const GRIPPER = '/gripper/image_raw'
-const FRONT = '/front_camera/image_raw/compressed'
+const FRONT = '/head_camera/image_raw/compressed'
 
 const TAB = {
   id: 'arm',
   type: 'arm',
   label: 'Arm',
   gripper_camera_topic: GRIPPER,
-  front_camera_topic: FRONT,
+  head_camera_topic: FRONT,
 } as TabConfig
 
 function setViewport(width: number): void {
@@ -44,7 +44,7 @@ describe('ArmTab', () => {
     renderTab({ [GRIPPER]: { jpeg_b64: 'AAA' }, [FRONT]: { jpeg_b64: 'BBB' } })
     expect(screen.getByTestId('arm-layout').getAttribute('data-direction')).toBe('column')
     expect(screen.getByAltText('gripper camera').getAttribute('src')).toBe('data:image/jpeg;base64,AAA')
-    expect(screen.getByAltText('front camera').getAttribute('src')).toBe('data:image/jpeg;base64,BBB')
+    expect(screen.getByAltText('head camera').getAttribute('src')).toBe('data:image/jpeg;base64,BBB')
     expect(screen.getByTestId('arm-view-slot')).toBeTruthy()
     expect(screen.getByTestId('arm-jog-slot')).toBeTruthy()
   })
@@ -61,7 +61,7 @@ describe('ArmTab', () => {
     renderTab({ [FRONT]: { jpeg_b64: 'BBB' } })
     expect(screen.getByText(`Waiting for ${GRIPPER}...`)).toBeTruthy()
     expect(screen.queryByAltText('gripper camera')).toBeNull()
-    expect(screen.getByAltText('front camera')).toBeTruthy()
+    expect(screen.getByAltText('head camera')).toBeTruthy()
   })
 
   it.each(['tabs/ArmTab.tsx', 'arm/ArmView.tsx', 'components3d/InteractiveArm.tsx'])('%s has no design violations', (path) => {
