@@ -1,4 +1,4 @@
-"""Tests for the mask rasteriser: grid alignment, backgrounds, overlap, clipping and the row convention."""
+"""Tests for the mask rasteriser: grid alignment, backgrounds, slow-zone cost, overlap, clipping and row order."""
 
 import math
 from types import SimpleNamespace
@@ -18,6 +18,7 @@ from costmap_zones.raster import (
 )
 from costmap_zones.zones import Zone
 
+SLOW_VALUE = 60
 GEOMETRY = MapGeometry(frame="map", resolution=0.1, origin_x=0.0, origin_y=0.0, origin_yaw=0.0, width=40, height=30)
 
 
@@ -144,7 +145,7 @@ def test_geometry_key_covers_frame_resolution_origin_and_size() -> None:
 
 def test_aligned_square_fills_its_centre_inside_cells_plus_at_most_one_boundary_cell() -> None:
     polygon = rect(1.0, 1.0, 2.0, 2.0)
-    mask = rasterise_keepout(GEOMETRY, [keepout(polygon)])
+    mask = rasterise_keepout(GEOMETRY, [keepout(polygon)], SLOW_VALUE)
     filled = mask == KEEPOUT_INSIDE
     expected = centre_inside(GEOMETRY, polygon)
     assert expected.sum() == 100
@@ -154,7 +155,7 @@ def test_aligned_square_fills_its_centre_inside_cells_plus_at_most_one_boundary_
 
 def test_unaligned_rectangle_fills_centre_inside_cells_plus_at_most_one_boundary_cell() -> None:
     polygon = rect(0.73, 1.12, 2.38, 2.06)
-    filled = rasterise_keepout(GEOMETRY, [keepout(polygon)]) == KEEPOUT_INSIDE
+    filled = rasterise_keepout(GEOMETRY, [keepout(polygon)], SLOW_VALUE) == KEEPOUT_INSIDE
     expected = centre_inside(GEOMETRY, polygon)
     assert np.all(filled[expected])
     assert not np.any(filled & ~dilate(expected))
@@ -167,24 +168,82 @@ def test_keepout_background_is_no_information_not_free() -> None:
     writes the mask value when it is above the costmap value or the costmap cell is NO_INFORMATION. A 0 background
     would therefore overwrite every unknown cell of the global costmap (track_unknown_space: true) with FREE.
     """
-    mask = rasterise_keepout(GEOMETRY, [keepout(rect(1.0, 1.0, 2.0, 2.0))])
+    mask = rasterise_keepout(GEOMETRY, [keepout(rect(1.0, 1.0, 2.0, 2.0))], SLOW_VALUE)
     assert KEEPOUT_BACKGROUND == -1 and KEEPOUT_INSIDE == 100
     assert mask.dtype == np.int8
     assert set(np.unique(mask).tolist()) == {-1, 100}
     assert mask[0, 0] == -1 and mask[-1, -1] == -1
-    empty = rasterise_keepout(GEOMETRY, [])
+    empty = rasterise_keepout(GEOMETRY, [], SLOW_VALUE)
     assert np.all(empty == -1)
 
 
-def test_keepout_ignores_slow_zones() -> None:
-    mask = rasterise_keepout(GEOMETRY, [slow(rect(1.0, 1.0, 2.0, 2.0), 40)])
-    assert np.all(mask == KEEPOUT_BACKGROUND)
+def test_slow_zone_cells_carry_the_slow_value() -> None:
+    polygon = rect(1.0, 1.0, 2.0, 2.0)
+    mask = rasterise_keepout(GEOMETRY, [slow(polygon, 40)], SLOW_VALUE)
+    inside = centre_inside(GEOMETRY, polygon)
+    assert np.all(mask[inside] == SLOW_VALUE)
+    assert not np.any((mask == SLOW_VALUE) & ~dilate(inside)), "nothing beyond a one-cell boundary may be set"
+    assert np.all(mask[~dilate(inside)] == KEEPOUT_BACKGROUND)
+
+
+@pytest.mark.parametrize("slow_value", [1, 37, 99])
+def test_slow_value_is_the_configured_value(slow_value: int) -> None:
+    polygon = rect(1.0, 1.0, 2.0, 2.0)
+    mask = rasterise_keepout(GEOMETRY, [slow(polygon, 40)], slow_value)
+    assert np.all(mask[centre_inside(GEOMETRY, polygon)] == slow_value)
+    assert set(np.unique(mask).tolist()) == {KEEPOUT_BACKGROUND, slow_value}
+
+
+def test_keepout_wins_over_an_overlapping_slow_zone_in_both_orders() -> None:
+    k = rect(1.0, 1.0, 2.0, 2.0)
+    s = rect(1.5, 1.5, 2.5, 2.5)
+    in_k = centre_inside(GEOMETRY, k)
+    only_s = centre_inside(GEOMETRY, s) & ~dilate(in_k)
+    for order in ([keepout(k), slow(s, 40)], [slow(s, 40), keepout(k)]):
+        mask = rasterise_keepout(GEOMETRY, order, SLOW_VALUE)
+        assert np.all(mask[in_k] == KEEPOUT_INSIDE), "keepout cells stay lethal whatever the zone order"
+        assert np.all(mask[only_s] == SLOW_VALUE)
+        assert np.all(mask[~dilate(in_k | centre_inside(GEOMETRY, s))] == KEEPOUT_BACKGROUND)
+
+
+def test_slow_zone_covering_a_keepout_completely_keeps_it_lethal() -> None:
+    k = rect(1.0, 1.0, 2.0, 2.0)
+    big = rect(0.5, 0.5, 3.0, 2.5)
+    for order in ([keepout(k), slow(big, 30)], [slow(big, 30), keepout(k)]):
+        mask = rasterise_keepout(GEOMETRY, order, SLOW_VALUE)
+        assert np.all(mask[centre_inside(GEOMETRY, k)] == KEEPOUT_INSIDE)
+
+
+def test_mixed_mask_holds_only_background_slow_value_and_keepout() -> None:
+    zones = [
+        keepout(rect(0.2, 0.2, 1.0, 1.0), "k1"),
+        slow(rect(0.8, 0.8, 2.0, 2.0), 40, "s1"),
+        slow(rect(2.5, 0.2, 3.5, 1.0), 70, "s2"),
+        keepout(rect(3.0, 2.0, 3.8, 2.8), "k2"),
+    ]
+    mask = rasterise_keepout(GEOMETRY, zones, SLOW_VALUE)
+    assert mask.dtype == np.int8
+    assert set(np.unique(mask).tolist()) == {KEEPOUT_BACKGROUND, SLOW_VALUE, KEEPOUT_INSIDE}
+    outside = ~dilate(np.logical_or.reduce([centre_inside(GEOMETRY, list(z.polygon)) for z in zones]))
+    assert np.all(mask[outside] == KEEPOUT_BACKGROUND), "background stays -1 outside every zone"
+
+
+def test_speed_mask_unchanged_by_the_slow_cost() -> None:
+    """The slow cost lives in the keepout mask only: the speed mask for the same zones is the speed percent."""
+    s = rect(1.0, 1.0, 2.0, 2.0)
+    k = rect(2.5, 1.0, 3.5, 2.0)
+    zones = [slow(s, 40), keepout(k)]
+    speed = rasterise_speed(GEOMETRY, zones)
+    assert set(np.unique(speed).tolist()) == {SPEED_BACKGROUND, 40}
+    assert np.all(speed[centre_inside(GEOMETRY, s)] == 40)
+    assert np.all(speed[centre_inside(GEOMETRY, k)] == SPEED_BACKGROUND)
+    assert np.array_equal(speed, rasterise_speed(GEOMETRY, [slow(s, 40)]))
 
 
 def test_overlapping_keepouts_stay_filled() -> None:
     a = rect(1.0, 1.0, 2.0, 2.0)
     b = rect(1.5, 1.5, 2.5, 2.5)
-    filled = rasterise_keepout(GEOMETRY, [keepout(a, "a"), keepout(b, "b")]) == KEEPOUT_INSIDE
+    filled = rasterise_keepout(GEOMETRY, [keepout(a, "a"), keepout(b, "b")], SLOW_VALUE) == KEEPOUT_INSIDE
     assert np.all(filled[centre_inside(GEOMETRY, a) | centre_inside(GEOMETRY, b)])
 
 
@@ -220,7 +279,7 @@ def test_speed_100_is_kept() -> None:
 
 def test_partly_outside_polygon_is_clipped() -> None:
     polygon = rect(-5.0, -5.0, 1.0, 1.0)
-    mask = rasterise_keepout(GEOMETRY, [keepout(polygon)])
+    mask = rasterise_keepout(GEOMETRY, [keepout(polygon)], SLOW_VALUE)
     assert mask.shape == (GEOMETRY.height, GEOMETRY.width)
     filled = mask == KEEPOUT_INSIDE
     expected = centre_inside(GEOMETRY, polygon)
@@ -235,9 +294,9 @@ def test_polygon_covering_the_whole_map_fills_everything() -> None:
 
 
 def test_huge_coordinates_do_not_overflow() -> None:
-    mask = rasterise_keepout(GEOMETRY, [keepout(rect(-1e9, -1e9, 1e9, 1e9))])
+    mask = rasterise_keepout(GEOMETRY, [keepout(rect(-1e9, -1e9, 1e9, 1e9))], SLOW_VALUE)
     assert np.all(mask == KEEPOUT_INSIDE)
-    mask = rasterise_keepout(GEOMETRY, [keepout([(1e12, 1e12), (2e12, 1e12), (2e12, 2e12)])])
+    mask = rasterise_keepout(GEOMETRY, [keepout([(1e12, 1e12), (2e12, 1e12), (2e12, 2e12)])], SLOW_VALUE)
     assert np.all(mask == KEEPOUT_BACKGROUND)
 
 
@@ -246,7 +305,7 @@ def test_huge_coordinates_do_not_overflow() -> None:
     [rect(10.0, 10.0, 11.0, 11.0), rect(-3.0, -3.0, -1.0, -1.0), rect(0.5, 3.5, 1.5, 9.0), rect(4.5, 0.5, 9.0, 1.5)],
 )
 def test_fully_outside_polygon_leaves_the_background_unchanged(polygon: list[tuple[float, float]]) -> None:
-    assert np.all(rasterise_keepout(GEOMETRY, [keepout(polygon)]) == KEEPOUT_BACKGROUND)
+    assert np.all(rasterise_keepout(GEOMETRY, [keepout(polygon)], SLOW_VALUE) == KEEPOUT_BACKGROUND)
     assert np.all(rasterise_speed(GEOMETRY, [slow(polygon, 50)]) == SPEED_BACKGROUND)
 
 
@@ -255,7 +314,7 @@ def test_non_zero_origin_and_odd_sizes() -> None:
         frame="map", resolution=0.05, origin_x=-3.2, origin_y=5.7, origin_yaw=0.0, width=37, height=23
     )
     polygon = rect(-2.9, 5.95, -2.6, 6.2)
-    mask = rasterise_keepout(geometry, [keepout(polygon)])
+    mask = rasterise_keepout(geometry, [keepout(polygon)], SLOW_VALUE)
     assert mask.shape == (23, 37)
     filled = mask == KEEPOUT_INSIDE
     expected = centre_inside(geometry, polygon)
@@ -273,7 +332,7 @@ def test_rows_are_the_y_index_without_flip() -> None:
     """
     geometry = MapGeometry(frame="map", resolution=0.1, origin_x=0.0, origin_y=0.0, origin_yaw=0.0, width=20, height=10)
     l_shape = [(0.0, 0.0), (1.6, 0.0), (1.6, 0.2), (0.2, 0.2), (0.2, 0.8), (0.0, 0.8)]
-    filled = rasterise_keepout(geometry, [keepout(l_shape)]) == KEEPOUT_INSIDE
+    filled = rasterise_keepout(geometry, [keepout(l_shape)], SLOW_VALUE) == KEEPOUT_INSIDE
     assert np.all(filled[0:2, 0:16]), "long bar at y 0..0.2 is rows 0-1, columns 0-15"
     assert np.all(filled[0:8, 0:2]), "tall bar at x 0..0.2 is columns 0-1, rows 0-7"
     assert not np.any(filled[:, 17:]), "nothing right of x 1.7"
@@ -285,14 +344,14 @@ def test_rows_are_the_y_index_without_flip() -> None:
 def test_rotated_origin_refused(yaw: float) -> None:
     geometry = MapGeometry.from_map_info("map", map_info(0.1, 40, 30, 0.0, 0.0, yaw=yaw))
     with pytest.raises(RotatedMapError):
-        rasterise_keepout(geometry, [keepout(rect(1.0, 1.0, 2.0, 2.0))])
+        rasterise_keepout(geometry, [keepout(rect(1.0, 1.0, 2.0, 2.0))], SLOW_VALUE)
     with pytest.raises(RotatedMapError):
         rasterise_speed(geometry, [])
 
 
 def test_tiny_yaw_within_tolerance_accepted() -> None:
     geometry = MapGeometry.from_map_info("map", map_info(0.1, 40, 30, 0.0, 0.0, yaw=1e-8))
-    assert rasterise_keepout(geometry, []).shape == (30, 40)
+    assert rasterise_keepout(geometry, [], SLOW_VALUE).shape == (30, 40)
 
 
 def test_rotated_map_error_is_a_value_error() -> None:
@@ -301,7 +360,7 @@ def test_rotated_map_error_is_a_value_error() -> None:
 
 def test_flattened_mask_matches_occupancy_grid_row_major_order() -> None:
     geometry = MapGeometry(frame="map", resolution=1.0, origin_x=0.0, origin_y=0.0, origin_yaw=0.0, width=4, height=3)
-    mask = rasterise_keepout(geometry, [keepout(rect(2.0, 1.0, 3.0, 2.0))])
+    mask = rasterise_keepout(geometry, [keepout(rect(2.0, 1.0, 3.0, 2.0))], SLOW_VALUE)
     data = mask.ravel()
     assert data[1 * 4 + 2] == KEEPOUT_INSIDE
     assert data.tolist().count(KEEPOUT_INSIDE) >= 1
