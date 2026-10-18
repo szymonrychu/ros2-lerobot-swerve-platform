@@ -46,7 +46,8 @@ The SO-101 follower arm and the swerve base servos share one Feetech USB bus ins
 
 
 
-Estimate: 440 min | Actual: 0 min | Remaining estimate: 60 min
+
+Estimate: 440 min | Actual: 0 min | Remaining estimate: 0 min
 
 ## Review
 

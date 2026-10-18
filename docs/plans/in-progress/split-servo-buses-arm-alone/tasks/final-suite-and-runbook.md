@@ -1,6 +1,6 @@
 ---
 title: Final suite and runbook
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Every suite is green, no live text puts the swerve servos on the arm bus, and the orchestrator has a staged robot runbook."
 files: [tests/test_servo_bus_live_refs.py, tests/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--final-suite-and-runbook
 branch: split-servo-buses-arm-alone--final-suite-and-runbook
-verified_head: ""
+verified_head: 202f5160a100b489feaf7fa2288e7c9717983c01
 run: split-servo-buses-arm-alone
 provides: []
-acs_for_audit: []
-process_gaps: []
+acs_for_audit: [a4]
+process_gaps: ["Implementer claimed the runbook was missing; it is in the task file's Steps section", "TDD skipped without a listed exception; prove the tests catch the change - commit first, then for each changed non-test file: git show <merge-base>:<path> > <path>; run the test (must fail); git show HEAD:<path> > <path>; run again (must pass); paste both tails into tests.red and verification.evidence"]
 ---
 
 # Final suite and runbook
