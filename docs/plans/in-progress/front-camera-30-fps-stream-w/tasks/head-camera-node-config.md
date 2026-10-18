@@ -1,6 +1,6 @@
 ---
 title: Head camera node config
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The head camera node has a validated config and a package skeleton every later C++ task builds on."
 files: [nodes/head_camera_cpp/package.xml, nodes/head_camera_cpp/CMakeLists.txt, nodes/head_camera_cpp/include/head_camera_cpp/config.hpp, nodes/head_camera_cpp/src/core/config.cpp, nodes/head_camera_cpp/test/core/test_config.cpp, nodes/head_camera_cpp/README.md]
@@ -68,3 +68,7 @@ process_gaps: []
 - Reuse `ros2_common_cpp` validators (`shared/ros2_common_cpp/include/ros2_common_cpp/config.hpp`: `forbid_unknown`, `require`, `get_or`, `gt`) and copy the load behaviour of `nodes/map_guard_cpp/src/config.cpp`.
 - The docker image (`scripts/cpp-node-test.Dockerfile`) is rebuilt from every package.xml; rosdep resolves `libcamera` to the ROS-packaged libcamera there. If the key does not resolve, map it in the Dockerfile's rosdep yaml like `prometheus-cpp` (one line) and say so. On the Pi libcamera is the source-built fork (head-camera-node-type), never apt.
 - No libcamera or rclcpp include in the core library.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 26 gtests PASS, mcp_server 2500); round-caps came from C++ AC refs mangled into pytest commands (fixed) and refuted parking flags.

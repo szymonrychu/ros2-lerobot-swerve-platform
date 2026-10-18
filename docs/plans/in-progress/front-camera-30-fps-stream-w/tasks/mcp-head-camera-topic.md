@@ -1,6 +1,6 @@
 ---
 title: MCP head camera topic
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent's camera tool reads the head camera stream, described as the head camera."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_config.py, nodes/mcp_server/tests/test_on_demand_subscriptions.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml, tests/test_mcp_server_config.py, tests/README.md]
@@ -66,3 +66,7 @@ mcp_server streams the front (head) camera from /head_camera/image_raw/compresse
 
 - Builds on the Jetson epic's `mcp-front-camera-topic` end state; re-read config.py and client.yml first.
 - Tool descriptions in tools.py/camera_tools.py are updated by mcp-camera-image-zoom-param.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 26 gtests PASS, mcp_server 2500); round-caps came from C++ AC refs mangled into pytest commands (fixed) and refuted parking flags.
