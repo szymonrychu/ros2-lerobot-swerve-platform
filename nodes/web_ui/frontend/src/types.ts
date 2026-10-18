@@ -121,6 +121,8 @@ export interface MapSummary {
   saved_at: number
   note: string
   poi_count: number
+  /** Photos saved with the map; absent in summaries from an older map_manager. */
+  photo_count?: number
   last_pose: MapPose
   valid: boolean
   error: string
