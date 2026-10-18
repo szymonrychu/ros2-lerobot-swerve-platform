@@ -128,6 +128,7 @@ ALLOWED_CATEGORIES = {
     "retirement-test",
     "retirement-doc",
     "pinned-build",
+    "rgbd-calibration",
 }
 
 # (path glob, line regex, category). Each entry is one file plus a line regex as narrow as the hit; the only
@@ -712,6 +713,63 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         "retirement-doc",
     ),
     ("nodes/pi_cameras/README.md", r"The retired `/overview_camera/\*` names are not used here", "retirement-doc"),
+    # rgbd-calibration: the head ToF-to-RGB extrinsic is an OpenCV stereo calibration (cv2.stereoCalibrate and its
+    # RMS), a new pair unrelated to the retired Jetson stereo depth.
+    (
+        "scripts/head_rgbd_calibrate.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "scripts/head_rgbd_calibrate.yaml",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "scripts/head_rgbd_calibration/config.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "scripts/head_rgbd_calibration/extrinsics.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "scripts/head_rgbd_calibration/pipeline.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "scripts/head_rgbd_calibration/urdf_handoff.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "scripts/head_rgbd_calibration/validate.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "tests/test_head_rgbd_calib_extrinsics.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "tests/test_head_rgbd_urdf_handoff.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "tests/README.md",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "scripts/README.md",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
     # pinned-build: part of the libcamera build stamp, changing it would rebuild.
     ("nodes/head_camera_cpp/patches/**", r"overview_camera", "pinned-build"),
 )
@@ -741,7 +799,7 @@ def find_unallowed_references() -> list[str]:
 
 
 def test_allowed_references_use_only_the_known_categories() -> None:
-    """Every entry carries one of the six categories, and a directory-wide glob appears only for the archive and pinned patches."""
+    """Every entry carries one of the seven categories, and a directory-wide glob appears only for the archive and pinned patches."""
     assert {category for _, _, category in ALLOWED_REFERENCES} <= ALLOWED_CATEGORIES
     wide = {glob for glob, _, _ in ALLOWED_REFERENCES if "**" in glob}
     assert wide <= {*ARCHIVE_GLOBS, "nodes/head_camera_cpp/patches/**"}
