@@ -1,6 +1,6 @@
 ---
 title: Head state publisher node
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: TF for head_camera_optical_frame and tof_optical_frame follows the real pan/tilt angles.
 files: [nodes/head_state_publisher/launch/head_state_publisher.launch.py, nodes/head_state_publisher/README.md, ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_head_state_publisher_config.py, tests/README.md, ansible/README.md, .claude/skills/ansible-deploy/SKILL.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-state-publisher-node
 branch: pan-tilt-head-control-with-a--head-state-publisher-node
 verified_head: ""
-run: ""
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head state publisher node
@@ -66,3 +68,5 @@ Ansible can deploy, enable and disable head_state_publisher; it publishes head T
 
 - Patterns: `robot_localization_ekf` (launch-file native node), `joint_state_throttle_follower` (apt node type, src_paths).
 - The launcher runs `bash -c` in single quotes: no single quote in node_launch_command.
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-servo-group-config

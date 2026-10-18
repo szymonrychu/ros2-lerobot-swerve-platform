@@ -1,6 +1,6 @@
 ---
 title: MCP lease release homes head
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "When the agent hands the robot back, the head returns home; a lease hand-over never jerks it."
 files: [nodes/mcp_server/mcp_server/control.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/tests/test_head_lease.py, nodes/mcp_server/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--mcp-lease-release-homes-head
 branch: pan-tilt-head-control-with-a--mcp-lease-release-homes-head
 verified_head: ""
-run: ""
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP lease release homes head
@@ -65,3 +67,5 @@ Releasing the last agent lease homes the head and reports it; hand-overs and kee
 
 - Existing lease tests: `tests/test_control.py`, `tests/test_lease_safety.py` stay green.
 - Order: the base and arm resets run first (RELEASE_ORDER), the head last.
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on mcp-head-tools

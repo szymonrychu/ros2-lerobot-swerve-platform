@@ -1,6 +1,6 @@
 ---
 title: MCP head kinematics
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The agent can aim the head RGB camera exactly at a point despite the camera sitting off the pan/tilt axes.
 files: [nodes/mcp_server/mcp_server/head_kinematics.py, nodes/mcp_server/tests/test_head_kinematics.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--mcp-head-kinematics
 branch: pan-tilt-head-control-with-a--mcp-head-kinematics
 verified_head: ""
-run: ""
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP head kinematics
@@ -57,3 +59,5 @@ mcp_server can compute any head frame pose and the pan/tilt that aims the RGB ca
 
 - `ik.py:ArmKinematics` shows the ikpy URDF loading used in this package; scipy and numpy are already dependencies.
 - Frames: base_link floor z = 0 (camera_scene docstring).
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-urdf

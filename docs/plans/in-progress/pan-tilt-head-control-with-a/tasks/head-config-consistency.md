@@ -1,6 +1,6 @@
 ---
 title: Head config consistency
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Home pose, ranges, names and topics can never silently disagree between the servos, the agent and the web UI."
 files: [tests/test_head_config_consistency.py, ansible/group_vars/client.yml, tests/README.md, nodes/README.md, MEMORY.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-config-consistency
 branch: pan-tilt-head-control-with-a--head-config-consistency
 verified_head: ""
-run: ""
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head config consistency
@@ -59,3 +61,5 @@ One test fails whenever the head home, ranges, names or topics disagree anywhere
 ## Notes
 
 - Import the mcp_server and web_ui defaults by reading their config modules as the existing root tests do (see `tests/test_mcp_server_config.py`).
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on agent-head-tools-and-prompt, head-in-3d-map-view, mcp-lookups-follow-head-pose

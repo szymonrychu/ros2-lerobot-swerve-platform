@@ -1,6 +1,6 @@
 ---
 title: Head servo group config
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The pan/tilt servos are driven on the base bus with their ranges, caps and home, without touching the arm bus."
 files: [ansible/group_vars/client.yml, tests/test_head_servo_config.py, tests/README.md, nodes/bridges/feetech_servos/tests/test_bus_budget.py, nodes/bridges/feetech_servos/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-servo-group-config
 branch: pan-tilt-head-control-with-a--head-servo-group-config
 verified_head: ""
-run: ""
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head servo group config
@@ -62,3 +64,5 @@ The base bus node `base_servos` config drives the head with its ranges, caps and
 
 - Do not deploy: the node blocks on missing servos; the orchestrator runbook deploys after the hardware gate.
 - Steps from `command_mapping.position_to_raw_steps` (0 rad = 2048, 4096 steps per turn).
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-urdf

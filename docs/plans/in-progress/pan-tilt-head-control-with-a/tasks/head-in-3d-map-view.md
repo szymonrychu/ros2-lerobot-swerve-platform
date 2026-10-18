@@ -1,6 +1,6 @@
 ---
 title: Head in 3D map view
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The 3D view shows the head where it really points.
 files: [nodes/web_ui/frontend/src/map3d/headJoints.ts, nodes/web_ui/frontend/src/map3d/headJoints.test.ts, nodes/web_ui/frontend/src/map3d/layers.ts, nodes/web_ui/frontend/src/map3d/layers.test.ts, nodes/web_ui/frontend/src/map3d/MapScene.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-in-3d-map-view
 branch: pan-tilt-head-control-with-a--head-in-3d-map-view
 verified_head: ""
-run: ""
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head in 3D map view
@@ -61,3 +63,5 @@ The map 3D view draws the head at its measured angles once a head joint state ar
 ## Notes
 
 - `RobotModel` takes `jointStates` ({name, position}); the head URDF root is base_link, so it sits at the base origin like the base URDF.
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-tab-pan-tilt-controls

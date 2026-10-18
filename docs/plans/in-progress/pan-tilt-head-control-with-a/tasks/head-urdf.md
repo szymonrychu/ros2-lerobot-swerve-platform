@@ -1,6 +1,6 @@
 ---
 title: Head URDF
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "One measured-geometry source for the head: TF, agent aiming and the 3D view all read it."
 files: [nodes/web_ui/urdf/head.urdf, nodes/web_ui/tests/test_head_urdf.py, nodes/web_ui/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-urdf
 branch: pan-tilt-head-control-with-a--head-urdf
-verified_head: ""
-run: ""
+verified_head: 606536d66d22b840deb2fce31bb3b8e0f849d646
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head URDF

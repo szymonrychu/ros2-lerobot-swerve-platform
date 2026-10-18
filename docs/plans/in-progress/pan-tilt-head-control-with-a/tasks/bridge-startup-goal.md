@@ -1,6 +1,6 @@
 ---
 title: Bridge startup goal
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The head drives to its home pose (forward and down) whenever the base bus node `base_servos` starts."
 files: [nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/bridge_cycle.py, nodes/bridges/feetech_servos/tests/test_startup_goal.py, nodes/bridges/feetech_servos/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--bridge-startup-goal
 branch: pan-tilt-head-control-with-a--bridge-startup-goal
-verified_head: ""
-run: ""
+verified_head: cd0233a22769b058807cf0ec716b916d6992f554
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Bridge startup goal

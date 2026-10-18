@@ -1,6 +1,6 @@
 ---
 title: Head suite and robot runbook
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Everything is green together and the head goes live in safe stages, +-5 deg pan first."
 files: [tests/test_head_live_refs.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-suite-and-robot-runbook
 branch: pan-tilt-head-control-with-a--head-suite-and-robot-runbook
 verified_head: ""
-run: ""
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head suite and robot runbook
@@ -69,3 +71,5 @@ All suites green with the live-refs check; the orchestrator brings the head live
 
 - A failing suite owned by pre-existing work is cleared per the boy-scout rule, not reported as this task's failure.
 - Servo safety (CLAUDE.md): +-5 deg pan first; ask before widening.
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-config-consistency

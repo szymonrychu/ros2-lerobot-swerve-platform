@@ -1,6 +1,6 @@
 ---
 title: MCP head tools
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The agent can set the head angles, look at a point once in base_link or map, and send the head home."
 files: [nodes/mcp_server/mcp_server/head_tools.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_head_tools.py, nodes/mcp_server/tests/test_tools.py, nodes/mcp_server/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--mcp-head-tools
 branch: pan-tilt-head-control-with-a--mcp-head-tools
 verified_head: ""
-run: ""
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP head tools
@@ -70,3 +72,5 @@ The agent can call set_head_angles, head_look_at and head_home under either leas
 - `ControlManager.refusal` already supports "any".
 - `RATE_SUBSYSTEMS` is derived from TOOL_SUBSYSTEM: exclude the head tools explicitly.
 - Root `tests/test_claude_agent_config.py` classifies every registered tool: the agent task updates claude_agent; this task must not break mcp_server suites.
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on mcp-head-controller

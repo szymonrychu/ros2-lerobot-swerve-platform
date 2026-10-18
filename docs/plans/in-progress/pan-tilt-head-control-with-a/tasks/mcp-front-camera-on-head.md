@@ -1,6 +1,6 @@
 ---
 title: MCP front camera on head
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: Pixel-to-ground and calibration for the head camera use where the head is actually pointing.
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/tests/test_camera_scene_head.py, ansible/group_vars/client.yml, tests/test_mcp_camera_config.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--mcp-front-camera-on-head
 branch: pan-tilt-head-control-with-a--mcp-front-camera-on-head
 verified_head: ""
-run: ""
+run: pan-tilt-head-control-with-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP front camera on head
@@ -64,3 +66,5 @@ Front camera geometry follows the measured head pose; client.yml mounts the came
 
 - The gripper camera path (`kin.link_frame`) is the model for a moving parent.
 - Intrinsics stay null: tools keep saying not calibrated until a calibration exists.
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on mcp-head-controller, web-ui-head-command-backend
