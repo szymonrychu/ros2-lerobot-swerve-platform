@@ -384,7 +384,7 @@ def poor_evaluation(h: Harness) -> None:
     h.run(4.2, sample=BAD)
 
 
-def test_poor_median_requests_relocalise_and_stays_paused(tmp_path: Path) -> None:
+def test_kidnap_no_deletion_relocalise_requested_and_stays_paused(tmp_path: Path) -> None:
     h = Harness(tmp_path)
     poor_evaluation(h)
     assert h.guard.state is State.RELOCALISING
@@ -401,7 +401,7 @@ def test_poor_median_requests_relocalise_and_stays_paused(tmp_path: Path) -> Non
     assert h.guard.state is State.RELOCALISING
 
 
-def test_localised_result_resumes_without_deleting(tmp_path: Path) -> None:
+def test_localised_result_recovered_keeps_map_without_deleting(tmp_path: Path) -> None:
     h = Harness(tmp_path)
     resumes = counter("map_guard_resumes_total")
     poor_evaluation(h)
