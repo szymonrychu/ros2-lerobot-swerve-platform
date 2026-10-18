@@ -1,9 +1,9 @@
 ---
 title: "The verification environment resolves uv to Python 3.15, which has no manifold3d wheel and fails on the tbb source build. Pin the Python version (a .python-version file with 3.12, or UV_PYTHON=3.12 in the verify step)."
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Without the pin, every task's verification fails at uv sync regardless of the code."
-files: []
+files: [.python-version]
 verify: ""
 depends_on: []
 owns: []
@@ -35,6 +35,7 @@ Why: Without the pin, every task's verification fails at uv sync regardless of t
 
 ## Files
 
+- .python-version
 
 
 ## Interfaces
@@ -55,3 +56,7 @@ The verification environment resolves uv to Python 3.15, which has no manifold3d
 
 Discovered in task `tof-obstacle-cloud-node` during run `tof-3d-obstacle-detection-fo`.
 
+
+## Ruling
+
+Fixed on main by the orchestrator: root .python-version pins 3.12 (uv now resolves 3.12.13; root 1430 passed). Closed.
