@@ -1,6 +1,6 @@
 ---
 title: MCP named maps config docs
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The deployed mcp_server config, its README tool table and the map_manager topics agree, checked by the root config test."
 files: [nodes/mcp_server/README.md, ansible/group_vars/client.yml, tests/test_mcp_server_config.py]
@@ -63,3 +63,7 @@ Deployed config, README and map_manager topics agree, enforced by the root test.
 
 Read map_manager's topics from its ros2_nodes config block in the test rather than hard-coding them twice.
 - Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (root 1301, map_manager 130, lint-nodes/test-ansible ok); gate-repeats were parking flags on a factual 'no Mimir data yet' note, refuted by reviewers.

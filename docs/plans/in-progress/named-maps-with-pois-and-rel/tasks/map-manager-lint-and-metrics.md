@@ -1,6 +1,6 @@
 ---
 title: Map manager lint and metrics
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "map_manager is linted in every lint path and CI and scraped by Alloy, so it cannot rot unseen."
 files: [scripts/lint-all-nodes.sh, pyproject.toml, .github/workflows/ci.yml, ansible/roles/monitoring_agent/defaults/main.yml, tests/test_node_metrics_wiring.py]
@@ -66,3 +66,7 @@ map_manager is linted locally, in CI and by root lint-nodes, and its metrics are
 
 Mirror every place poi_store appears in these files.
 - Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (root 1301, map_manager 130, lint-nodes/test-ansible ok); gate-repeats were parking flags on a factual 'no Mimir data yet' note, refuted by reviewers.

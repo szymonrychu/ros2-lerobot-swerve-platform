@@ -79,3 +79,7 @@ Ansible for map_manager (CLAUDE.md "Ansible and ROS2 nodes").
 
 Follow poi_store's node type and its deploy block; include `tasks/slam_maps_dir.yml` so `/var/lib/ros2/maps` exists owned by the node user (map_manager creates `named/` itself).
 - Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (root 1301, map_manager 130, lint-nodes/test-ansible ok); gate-repeats were parking flags on a factual 'no Mimir data yet' note, refuted by reviewers.
