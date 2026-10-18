@@ -44,6 +44,8 @@ target_link_libraries(head_rgbd_core PUBLIC
   opencv_imgcodecs
   opencv_calib3d
   opencv_ximgproc)
+# cloud.cpp: sensor_msgs messages, image_geometry's pinhole model and depth_image_proc's conversions.
+ament_target_dependencies(head_rgbd_core PUBLIC sensor_msgs image_geometry depth_image_proc)
 target_include_directories(head_rgbd_core SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS})
 set_target_properties(head_rgbd_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
