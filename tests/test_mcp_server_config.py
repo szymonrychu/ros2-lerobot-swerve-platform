@@ -369,6 +369,7 @@ def test_mcp_server_monitor_block_has_ordered_thresholds() -> None:
 def test_mcp_server_monitor_topics_match_their_producers() -> None:
     topics = node_config("mcp_server")["topics"]
     assert topics["servo_registers"] == "/follower/servo_registers"
+    assert topics["base_servo_registers"] == "/swerve_drive/servo_registers"
     assert topics["imu"] == "/imu/data"
     assert topics["robot_events"] == "/robot_events"
     assert topics["swerve_odom"] == node_config("swerve_controller")["odom_topic"]

@@ -9,6 +9,7 @@ waits at most timeouts.state_stale_s for a first message and drops its cached sa
 and its client.yml value.
 """
 
+import json
 import threading
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ import yaml
 from pydantic import ValidationError
 
 from mcp_server.config import McpServerConfig, OnDemandSettings
+from mcp_server.monitor import RobotMonitor
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
@@ -290,6 +292,7 @@ def test_motion_critical_list_names_the_monitor_and_motion_feeds(ros_iface: Modu
         "imu",
         "cmd_vel",
         "servo_registers",
+        "base_servo_registers",
         "tilt_guard_state",
         "collision_monitor_state",
         "leader_joint_updates",
@@ -320,6 +323,19 @@ def test_motion_critical_topics_subscribed_at_start_and_never_destroyed(
     assert rig.destroyed_topics() == set(ON_DEMAND_TOPICS)
     for topic in critical:
         assert rig.topics().count(topic) == 1, f"{topic} must be subscribed exactly once"
+
+
+def test_base_servo_registers_dump_reaches_the_monitor(ros_iface: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = McpServerConfig()
+    rig = Rig(ros_iface, monkeypatch, config)
+    monitor = RobotMonitor(config.monitor, None)
+    rig.robot.monitor = monitor
+    found = rig.latest("/swerve_drive/servo_registers")
+    assert found is not None, "base_servo_registers must be subscribed at start"
+    callback, _sub = found
+    callback(SimpleNamespace(data=json.dumps({"fl_drive": {"present_temperature": 70, "status": 0}})))
+    assert "fl_drive" in monitor.servos
+    assert monitor.level("overheat", "fl_drive") == "critical"
 
 
 def test_reaper_timer_runs_well_inside_the_linger(rig: Rig) -> None:

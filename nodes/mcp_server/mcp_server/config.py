@@ -123,7 +123,9 @@ class TopicSettings(StrictModel):
     swerve_odom: str = "/odom"  # swerve_drive_controller odometry: its twist covariance encodes the slip residual
     rf2o_twist: str = "/odom_rf2o_twist"
     imu: str = "/imu/data"
-    servo_registers: str = "/follower/servo_registers"  # JSON dump, all servos incl. the swerve ones
+    servo_registers: str = "/follower/servo_registers"  # JSON dump of the arm servos (follower bus)
+    # Base bus bridge's JSON register dump: the swerve servos (head joints join it when the pan/tilt epic adds them).
+    base_servo_registers: str = "/swerve_drive/servo_registers"
     robot_events: str = "/robot_events"
     tilt_guard_state: str = "/tilt_guard/state"
     scan: str = "/scan_filtered"

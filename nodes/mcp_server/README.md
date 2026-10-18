@@ -220,7 +220,7 @@ centre pushes the fixed jaw into the object.
 ## Body awareness: monitor, events, digest, early return
 
 `RobotMonitor` (`monitor.py`, pure logic, unit tested) is fed by thin ROS callbacks in `ros_iface.py`: `/follower/servo_registers`
-(JSON dump of every servo incl. swerve, about every 10 s: `present_temperature` C, `present_load`, `present_current` raw,
+and `/swerve_drive/servo_registers` (JSON dumps of the arm servos and the swerve servos, about every 10 s: `present_temperature` C, `present_load`, `present_current` raw,
 `present_voltage` x 0.1 V, `status` bits), `/imu/data`, the swerve `/odom` twist covariance, `/odometry/filtered`,
 `/odom_rf2o_twist`, `/cmd_vel_nav`, `/collision_monitor_state`, `/filter/active_source`, `/tilt_guard/state`, the battery guard and the CPU
 temperature (`/sys/class/thermal/thermal_zone0/temp`, throttling from the firmware sysfs `get_throttled`, null if
@@ -248,7 +248,7 @@ through a `TransformListener`.
 Never on demand (`ros_iface.MOTION_CRITICAL_TOPICS`, subscribed at start at full rate and never destroyed): the
 follower joint states and currents (arm settle and convergence, the grasp band), `/filter/active_source` (human takeover),
 `/odometry/filtered`, swerve `/odom` and `/odom_rf2o_twist` (stall and slip), `/imu/data` (bump and tilt), `/cmd_vel_nav`,
-`/follower/servo_registers` (temperatures, servo errors), `/tilt_guard/state`, `/collision_monitor_state`,
+`/follower/servo_registers` and `/swerve_drive/servo_registers` (temperatures, servo errors), `/tilt_guard/state`, `/collision_monitor_state`,
 `/filter/input_joint_updates` (take_control leader check), `/grasp/command`, `/tf_static`, and the battery topic.
 The follower joint states are always subscribed, at the rate below.
 

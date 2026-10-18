@@ -1690,9 +1690,11 @@ ros2_nodes:
       topics:
         # Front camera: the pi_cameras front Camera Module 3 (640x480 at 10 fps).
         front_camera: /front_camera/image_raw/compressed
-        # Body monitor feeds (get_body_state, /robot_events): servo register dump, swerve odom (twist covariance = slip
+        # Body monitor feeds (get_body_state, /robot_events): servo register dumps, swerve odom (twist covariance = slip
         # residual), rf2o twist, BNO055 IMU.
+        # servo_registers: arm servos (follower bus); base_servo_registers: swerve servos (base bus bridge).
         servo_registers: /follower/servo_registers
+        base_servo_registers: /swerve_drive/servo_registers
         swerve_odom: /odom
         rf2o_twist: /odom_rf2o_twist
         imu: /imu/data

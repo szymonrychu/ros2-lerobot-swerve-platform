@@ -169,6 +169,7 @@ MOTION_CRITICAL_TOPICS = (
     "imu",
     "cmd_vel",
     "servo_registers",
+    "base_servo_registers",
     "tilt_guard_state",
     "collision_monitor_state",
     "leader_joint_updates",
@@ -679,6 +680,7 @@ class RosRobot:
         )
         self.subscribe(Twist, t.cmd_vel, lambda m: self.monitor.on_cmd_vel(m.linear.x, m.linear.y, m.angular.z))
         self.subscribe(String, t.servo_registers, self.on_servo_registers)
+        self.subscribe(String, t.base_servo_registers, self.on_servo_registers)
         # On-demand camera subscriptions, destroyed only by the reaper timer: per-call subscriptions destroyed from tool
         # threads raced the executor's wait set (rclpy InvalidHandle killed the executor thread, 2026-10-08).
         self.camera_topics = {"gripper": t.gripper_camera, "front": t.front_camera}
@@ -1307,7 +1309,7 @@ class RosRobot:
         return self.get("scan", stale)
 
     def on_servo_registers(self, msg: String) -> None:
-        """Feed a /follower/servo_registers JSON dump to the monitor (bad JSON is logged and dropped).
+        """Feed a servo register JSON dump (arm or base bus bridge) to the monitor (bad JSON is logged and dropped).
 
         Args:
             msg (String): JSON {joint: {register: value}}.
