@@ -67,3 +67,7 @@ A libcamera adapter that streams, switches to the still mode and runs windowed A
 - APIs relied on (design Research, research-docs row): `Camera::configure` only when Acquired/Configured (`camera.cpp:1195`), so stop -> configure -> start; AfTrigger only in AfModeAuto; AF keeps the lens target across switchMode; no hidden frames on a non-first start.
 - Pattern for buffer allocation, mmap and request reuse: camera_ros `CameraNode.cpp` (pin 8f792e27) and rpicam-apps; do not copy its single-buffer assert.
 - Unit tests cannot open a camera; real-camera behaviour is checked on the robot in final-suite-and-runbook.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.

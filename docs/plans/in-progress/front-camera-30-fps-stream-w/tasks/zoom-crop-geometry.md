@@ -61,3 +61,7 @@ Crop and AF-window maths exist as pure, tested functions used by the encoder, th
 
 - The reading of the decision's "side = clamp(4608/zoom, max_px)" is D5: region = full/zoom, output <= max_px.
 - No CMakeLists edit: the core glob picks the files up.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.

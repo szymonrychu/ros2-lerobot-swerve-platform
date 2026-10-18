@@ -60,3 +60,7 @@ Tested JPEG encoding for the preview and the zoom crop, with the configured qual
 
 - The full-resolution frame is never converted as a whole: only the crop (36 MB RGB per full frame).
 - The libcamera RGB888 format is B, G, R in memory, so the preview path is BGR.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.

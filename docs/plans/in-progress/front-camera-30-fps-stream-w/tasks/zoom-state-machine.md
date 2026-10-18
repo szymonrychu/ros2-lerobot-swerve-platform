@@ -67,3 +67,7 @@ The four-phase zoom state machine is fully tested against a fake camera; the int
 - Timeouts and phase order are D6 (architecture decision); AfTrigger only works in AfModeAuto (`ipa_base.cpp:1399-1406`), so the AF request switches to Auto.
 - `fatal` is injectable so tests never exit; production passes the default.
 - The fake header lives under `test/core/` and is not a test (the glob matches only `test_*.cpp`).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.

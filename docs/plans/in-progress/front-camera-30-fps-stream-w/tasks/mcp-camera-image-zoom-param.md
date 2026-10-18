@@ -1,6 +1,6 @@
 ---
 title: MCP camera image zoom param
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The agent can zoom into any point of the head camera view with one optional parameter.
 files: [nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/tests/test_camera_zoom_tool.py, nodes/mcp_server/README.md]
@@ -62,3 +62,7 @@ The agent-facing tool supports zoom with clear docs; nothing is persisted for zo
 
 - U4: a parameter, not a new tool (the decision's `zoom_camera_image` is rejected).
 - Tool name unchanged, so claude_agent's sensor tool list needs no change.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.

@@ -68,3 +68,7 @@ process_gaps: []
 - Lazy publishing: raw 2.2 MB frames over UDPv4 with 1 MiB rmem drop fragments (`ansible/README.md:325`).
 - mcp_server rejects frames older than 1 s by ROS time, so stamps must be ROS time.
 - Reuse the metrics helper as map_guard_cpp does (`nodes/map_guard_cpp/src/map_guard_node.cpp`).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.

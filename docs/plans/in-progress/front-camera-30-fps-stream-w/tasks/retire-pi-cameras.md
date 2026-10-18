@@ -65,3 +65,7 @@ The next client deploy of pi_cameras uninstalls its unit and purges camera_ros; 
 
 - Pattern: the overview_camera retirement in the same test file (D7 of the earlier epic).
 - The web_ui pi_cameras tab is removed by web-ui-head-camera-topics; docs naming pi_cameras are updated by head-camera-docs.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.

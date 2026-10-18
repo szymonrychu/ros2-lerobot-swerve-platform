@@ -69,3 +69,7 @@ client.yml deploys head_camera_cpp with an unchanged libcamera stamp, config, ti
 - Stamp key = commit + patch contents + meson args (+ chain key) (`ansible/roles/ros2_node_deploy/tasks/colcon_source_package.yml`): an identical first source rebuilds nothing; the patch path does not enter the key.
 - Pattern: map_guard_cpp type (`client.yml`, local sources) and pi_cameras type (pinned libcamera).
 - head_camera_cpp and pi_cameras must never run together (one camera owner): the playbook order and the retirement handle it.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.

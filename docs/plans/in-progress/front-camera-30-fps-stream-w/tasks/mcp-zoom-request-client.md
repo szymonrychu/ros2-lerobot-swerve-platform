@@ -70,3 +70,7 @@ mcp_server holds a tested zoom client wired to the head camera topics; the tool 
 - JSON contract: `nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp`.
 - Reuse `poi_client.PoiRequests` structure (lock, pending dict, events).
 - Never subscribe or destroy subscriptions from tool threads (README on-demand note); these subscriptions live for the node's lifetime.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.

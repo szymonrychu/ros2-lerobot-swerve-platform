@@ -59,3 +59,7 @@ process_gaps: ["The implementer's change is split over two commits with the same
 ## Notes
 
 - Step shape: `Deploy map_guard_cpp` in deploy_nodes_client.yml.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (head_camera_cpp 156 gtests, mcp_server 2533, web_ui 790, frontend 908, root 1296); escalations were verifier crashes, README tab-list nits and refuted parking flags.
