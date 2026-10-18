@@ -112,7 +112,7 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `static_tf_publisher` | TF frame publisher |
 | `rf2o_laser_odometry` | rf2o lidar odometry (source-built colcon workspace `/opt/ros2-ws`, pinned commit; first deploy compiles at lowest priority) |
 | `rf2o_odom_relay` | rf2o pose -> body twist with covariance for the EKF |
-| `map_guard_cpp` | C++ port of `map_guard`, side by side (`present: false` until the cut-over; never enabled together with `map_guard`, same metrics port 19110); built as a colcon local source from `nodes/map_guard_cpp`; rollback: re-enable `map_guard` |
+| `map_guard_cpp` | C++ port of `map_guard`, side by side (`present: false`; never enabled together with `map_guard`, same metrics port 19110); built as a colcon local source from `nodes/map_guard_cpp`; rollback: re-enable `map_guard` |
 | `robot_localization_ekf` | EKF odometry fusion |
 | `nav2_bringup` | Nav2 navigation stack |
 | `web_ui` | Browser dashboard (FastAPI + React) |

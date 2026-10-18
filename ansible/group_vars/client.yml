@@ -1301,8 +1301,7 @@ ros2_nodes:
           pitch: 0.0
           # Lidar is mounted rotated 180 deg (bench test 2026-10-03: forward motion shortened the 180 deg range).
           yaw: 3.14159265
-        # No overhead camera frame here on purpose: its mount pose is not measured yet, so no guessed
-        # base_link -> camera optical frame transform is published.
+        # No overhead camera frame is published: base_link -> camera optical frame has no measured mount pose.
   # Lidar odometry for the EKF (see nodes/rf2o_laser_odometry/README.md); must start before the EKF fuses /odom_rf2o_twist.
   - name: rf2o_laser_odometry
     node_type: rf2o_laser_odometry
