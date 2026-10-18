@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--docs-and-diagnostics
 branch: split-servo-buses-arm-alone--docs-and-diagnostics
-verified_head: ""
+verified_head: unknown
 run: split-servo-buses-arm-alone
 provides: []
-acs_for_audit: []
+acs_for_audit: [a1, a2, a3, a4, a5]
 process_gaps: []
 ---
 

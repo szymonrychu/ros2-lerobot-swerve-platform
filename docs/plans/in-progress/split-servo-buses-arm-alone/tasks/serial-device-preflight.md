@@ -1,6 +1,6 @@
 ---
 title: Serial device preflight
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A deploy with a missing or mis-named USB-serial adapter fails before any unit restarts, and the lidar keeps its port when the second adapter appears."
 files: [ansible/roles/ros2_node_deploy/tasks/main.yml, ansible/group_vars/client.yml, tests/test_serial_devices.py, ansible/README.md, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--serial-device-preflight
 branch: split-servo-buses-arm-alone--serial-device-preflight
-verified_head: ""
+verified_head: b3749383da29f5b9e5d25fecd5a73bb707bb56cb
 run: split-servo-buses-arm-alone
 provides: []
 acs_for_audit: []
