@@ -82,4 +82,18 @@ describe('DeleteMarkedDialog', () => {
     setup([])
     expect(confirmBtn().disabled).toBe(true)
   })
+
+  it('keeps the confirmation text after success when the parent clears the marks', async () => {
+    vi.mocked(clearPois).mockResolvedValue({ ok: true, message: 'x', poi: null, removed: 2 })
+    const onDone = vi.fn()
+    const props = { open: true, tabId: 'map', pois: POIS, onDone, onClose: vi.fn() }
+    const { rerender } = render(<DeleteMarkedDialog {...props} marked={new Set(['t1', 'k1'])} />)
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(confirmBtn())
+    await waitFor(() => expect(screen.getByText('Removed 2 POIs')).toBeTruthy())
+    rerender(<DeleteMarkedDialog {...props} marked={new Set()} />)
+    expect(screen.getByText('Delete 2 POIs?')).toBeTruthy()
+    expect(screen.getByTestId('delete-marked-categories').textContent).toBe('1 target, 1 keepout')
+    expect(screen.getByRole('alert').textContent).toContain('k1')
+  })
 })

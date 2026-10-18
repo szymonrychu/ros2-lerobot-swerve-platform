@@ -29,7 +29,10 @@ export interface DeleteMarkedDialogProps {
  * @returns the dialog element.
  */
 export function DeleteMarkedDialog({ open = true, tabId, pois, marked, onDone, onClose }: DeleteMarkedDialogProps) {
-  const summary = useMemo(() => summariseMarked(pois, marked), [pois, marked])
+  const live = useMemo(() => summariseMarked(pois, marked), [pois, marked])
+  const [done, setDone] = useState<ReturnType<typeof summariseMarked> | null>(null)
+  // After success the parent clears the marks; keep showing what was deleted.
+  const summary = done ?? live
   const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
@@ -46,6 +49,7 @@ export function DeleteMarkedDialog({ open = true, tabId, pois, marked, onDone, o
     const r = await clearPois(tabId, { ids: [...marked] })
     setBusy(false)
     if (r.ok) {
+      setDone(summary)
       setMessage({ ok: true, text: `Removed ${r.removed ?? summary.count} POIs` })
       onDone()
     } else {
