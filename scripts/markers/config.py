@@ -107,7 +107,7 @@ class MarkerSpec(StrictModel):
 
 
 class GeneratorConfig(StrictModel):
-    """Whole generator config. charuco is a free-form slot until the charuco task types it."""
+    """Whole generator config. charuco: free-form board options, validated by the charuco generator."""
 
     output_dir: str = DEFAULT_OUTPUT_DIR
     defaults: SymbolDefaults = Field(default_factory=SymbolDefaults)
