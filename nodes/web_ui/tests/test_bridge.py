@@ -60,14 +60,15 @@ def test_publish_dict_rejects_non_allowlisted() -> None:
     assert "/evil_topic" not in node.publishers_
 
 
-def test_front_back_preview_topics_are_compressed_image_subscriptions() -> None:
-    """The Front/Back camera tab topics resolve to CompressedImage subscriptions without a role."""
+def test_head_camera_topic_is_compressed_image_subscription_and_pi_cameras_names_are_gone() -> None:
+    """The head camera topic resolves to CompressedImage without a role; the retired front/back names have no hint."""
     from sensor_msgs.msg import CompressedImage
 
     from web_ui.bridge import subscription_spec
 
+    assert subscription_spec("/head_camera/image_raw/compressed", None)[0] is CompressedImage
     for topic in ("/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed"):
-        assert subscription_spec(topic, None)[0] is CompressedImage
+        assert subscription_spec(topic, None) is None
 
 
 def test_stale_stereo_rect_topics_are_gone_and_live_head_topics_remain() -> None:
@@ -80,19 +81,19 @@ def test_stale_stereo_rect_topics_are_gone_and_live_head_topics_remain() -> None
     for stale in ("/stereo/left/image_rect", "/stereo/depth/image_rect", "/stereo/depth/camera_info"):
         assert stale not in bridge.TOPIC_TYPE_HINTS
         assert subscription_spec(stale, None) is None
-    assert subscription_spec("/front_camera/image_raw/compressed", None)[0] is CompressedImage
+    assert subscription_spec("/head_camera/image_raw/compressed", None)[0] is CompressedImage
     assert subscription_spec("/overview_camera/image_raw/compressed", None) is None
     assert subscription_spec("/tof/depth/image_raw", "head_depth")[0] is Image
 
 
-def test_front_camera_resolves_and_overview_camera_is_gone() -> None:
-    """/front_camera resolves to CompressedImage; the retired /overview_camera name has no type hint."""
+def test_head_camera_resolves_and_overview_camera_is_gone() -> None:
+    """/head_camera resolves to CompressedImage; the retired /overview_camera name has no type hint."""
     from sensor_msgs.msg import CompressedImage
 
     from web_ui import bridge
     from web_ui.bridge import subscription_spec
 
-    assert subscription_spec("/front_camera/image_raw/compressed", None)[0] is CompressedImage
+    assert subscription_spec("/head_camera/image_raw/compressed", None)[0] is CompressedImage
     assert "/overview_camera/image_raw/compressed" not in bridge.TOPIC_TYPE_HINTS
     assert subscription_spec("/overview_camera/image_raw/compressed", None) is None
 

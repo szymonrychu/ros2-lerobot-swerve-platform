@@ -263,7 +263,7 @@ def test_default_yaml_tab_set_map_first() -> None:
     cfg = load_config(DEFAULT_YAML)
     types = [t.type for t in cfg.tabs]
     assert types[0] == "map_nav"
-    assert types == ["map_nav", "arm", "head", "camera", "poi"]
+    assert types == ["map_nav", "arm", "head", "poi"]
     for removed in REMOVED_TAB_TYPES:
         assert removed not in types
     tab = cfg.tabs[0]
@@ -1183,5 +1183,5 @@ def test_client_yml_web_ui_tabs_validate_and_head_matches_default() -> None:
     assert [t.id for t in shipped.tabs].index("head") == [t.id for t in shipped.tabs].index("arm") + 1
     assert head.tof_depth_topic == default_head.tof_depth_topic == "/tof/depth/image_raw"
     assert head.tof_amplitude_topic == default_head.tof_amplitude_topic == "/tof/amplitude/image_raw"
-    assert head.rgb_camera_topic == default_head.rgb_camera_topic == "/front_camera/image_raw/compressed"
+    assert head.rgb_camera_topic == default_head.rgb_camera_topic == "/head_camera/image_raw/compressed"
     assert head.tof_range_m == 4.0

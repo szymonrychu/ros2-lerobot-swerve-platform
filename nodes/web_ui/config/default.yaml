@@ -63,7 +63,7 @@ tabs:
     type: arm
     label: "Arm"
     gripper_camera_topic: /camera_0/image_raw/compressed
-    front_camera_topic: /front_camera/image_raw/compressed
+    head_camera_topic: /head_camera/image_raw/compressed
     arm_urdf: so101_arm.urdf
     arm_joint_states_topic: /follower/joint_states
 
@@ -73,20 +73,11 @@ tabs:
   - id: head
     type: head
     label: "Head"
-    rgb_camera_topic: /front_camera/image_raw/compressed
+    # Head RGB camera: Camera Module 3 on the pan/tilt head (head_camera_cpp).
+    rgb_camera_topic: /head_camera/image_raw/compressed
     tof_depth_topic: /tof/depth/image_raw
     tof_amplitude_topic: /tof/amplitude/image_raw
     tof_range_m: 4.0
-
-  # Front and back Camera Module 3 previews (pi_cameras on the Pi): one tab, both streams side by side.
-  - id: pi_cameras
-    type: camera
-    label: "Front/Back"
-    topics:
-      - topic: /front_camera/image_raw/compressed
-        label: Front
-      - topic: /back_camera/image_raw/compressed
-        label: Back
 
   - id: poi
     type: poi

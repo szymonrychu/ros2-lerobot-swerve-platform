@@ -135,7 +135,7 @@ def test_default_config_has_no_overview_tab() -> None:
     assert not [t for t in cfg.tabs if t.type == "rgbd_camera"]
     assert not [t for t in cfg.tabs if t.id == "overview_camera"]
     assert not [t for t in cfg.all_subscribed_topics() if t.startswith("/overview_camera/")]
-    assert "pi_cameras" in [t.id for t in cfg.tabs]
+    assert "pi_cameras" not in [t.id for t in cfg.tabs]
 
 
 PREVIEW_TOPICS = ["/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed"]
@@ -164,12 +164,11 @@ def test_topic_spec_label_is_optional() -> None:
     assert TabConfig(id="g", type="sensor_graph", label="G", topics=[{"topic": "/x"}]).topics[0].label is None
 
 
-def test_default_yaml_has_the_front_back_preview_tab() -> None:
+def test_default_yaml_has_no_pi_cameras_tab() -> None:
+    """The retired Front/Back preview tab is gone from the shipped default config."""
     cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
-    tab = next(t for t in cfg.tabs if t.id == "pi_cameras")
-    assert tab.type == "camera"
-    assert [(t.topic, t.label) for t in tab.topics] == list(zip(PREVIEW_TOPICS, ["Front", "Back"]))
-    assert tab.topic is None
+    assert "pi_cameras" not in [t.id for t in cfg.tabs]
+    assert not [t for t in cfg.tabs if t.type == "camera"]
 
 
 def test_gps_status_absent_means_off() -> None:
@@ -256,7 +255,7 @@ def test_arm_is_a_valid_tab_type() -> None:
 def test_arm_tab_defaults() -> None:
     tab = TabConfig(id="arm", type="arm", label="Arm")
     assert tab.gripper_camera_topic == "/camera_0/image_raw/compressed"
-    assert tab.front_camera_topic == "/front_camera/image_raw/compressed"
+    assert tab.head_camera_topic == "/head_camera/image_raw/compressed"
     assert tab.arm_joint_states_topic == "/follower/joint_states"
     assert tab.arm_urdf == "so101_arm.urdf"
     assert tab.arm_offset == (0.0592, -0.05, 0.100)
@@ -270,11 +269,12 @@ def test_arm_tab_defaults() -> None:
     assert tab.arm_release_control_service == "/arm/release_control"
 
 
-def test_default_arm_tab_uses_the_front_camera() -> None:
-    """The shipped default config's arm tab streams the front camera through front_camera_topic."""
+def test_default_arm_tab_uses_the_head_camera() -> None:
+    """The shipped default config's arm tab streams the head camera through head_camera_topic."""
     cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
     arm = next(t for t in cfg.tabs if t.type == "arm")
-    assert arm.front_camera_topic == "/front_camera/image_raw/compressed"
+    assert arm.head_camera_topic == "/head_camera/image_raw/compressed"
+    assert "/front_camera" not in "".join(cfg.all_subscribed_topics())
 
 
 def test_arm_tab_overrides_and_empty_rejected() -> None:
@@ -283,11 +283,11 @@ def test_arm_tab_overrides_and_empty_rejected() -> None:
         type="arm",
         label="Arm",
         gripper_camera_topic="/g",
-        front_camera_topic="/o",
+        head_camera_topic="/o",
         gripper_camera_mount={"xyz": [1, 2, 3], "rpy": [0.1, 0.2, 0.3]},
         arm_offset=(1.0, 2.0, 3.0),
     )
-    assert (tab.gripper_camera_topic, tab.front_camera_topic) == ("/g", "/o")
+    assert (tab.gripper_camera_topic, tab.head_camera_topic) == ("/g", "/o")
     assert tab.gripper_camera_mount is not None and tab.gripper_camera_mount.xyz == (1, 2, 3)
     assert tab.arm_offset == (1.0, 2.0, 3.0)
     with pytest.raises(ValidationError):
@@ -302,9 +302,9 @@ def test_other_tabs_get_no_arm_defaults() -> None:
 def test_arm_tab_topics_subscribed_and_services_listed() -> None:
     cfg = AppConfig(tabs=[TabConfig(id="arm", type="arm", label="Arm")])
     topics = cfg.all_subscribed_topics()
-    for topic in ("/camera_0/image_raw/compressed", "/front_camera/image_raw/compressed", "/follower/joint_states"):
+    for topic in ("/camera_0/image_raw/compressed", "/head_camera/image_raw/compressed", "/follower/joint_states"):
         assert topic in topics
-    assert not [t for t in topics if t.startswith("/overview_camera/")]
+    assert not [t for t in topics if t.startswith("/overview_camera/") or t.startswith("/front_camera/")]
     assert cfg.trigger_services() == ["/arm/home", "/arm/release_control", "/arm/set_home", "/arm/take_control"]
 
 
@@ -315,7 +315,7 @@ def test_default_yaml_arm_tab_replaces_gripper_cam_tab() -> None:
     assert ids.index("arm") == 1
     assert cfg.tabs[1].type == "arm" and cfg.tabs[1].label == "Arm"
     assert ids.index("head") == 2
-    assert ids.index("pi_cameras") == 3
+    assert "pi_cameras" not in ids
     assert cfg.tabs[1].arm_urdf == "so101_arm.urdf"
 
 
@@ -427,5 +427,5 @@ def test_default_head_tab_subscribes_the_tof_topics() -> None:
     roles = cfg.topic_roles()
     head_roles = {topic: role for topic, role in roles.items() if role in {"head_depth", "head_amplitude"}}
     assert head_roles == {"/tof/depth/image_raw": "head_depth", "/tof/amplitude/image_raw": "head_amplitude"}
-    assert head.rgb_camera_topic == "/front_camera/image_raw/compressed"
+    assert head.rgb_camera_topic == "/head_camera/image_raw/compressed"
     assert set(cfg.tof_ranges()) == {"/tof/depth/image_raw"}

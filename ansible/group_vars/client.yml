@@ -302,7 +302,7 @@ ros2_node_type_defaults:
   # enable it together with pi_cameras: one process owns the camera. Then ros2_common_cpp and the node build as local
   # sources (-j2).
   # Background tier like pi_cameras, a preview the robot can lose. The figures are carried over from pi_cameras
-  # (one process, one camera, plus the full-resolution still buffers). The working set to compare them with is the
+  # (one process, one camera, with the full-resolution still buffers). The working set to compare them with is the
   # Mimir p50 and 24 h peak: MemoryLow is ~1.33x p50, MemoryMax 4x the peak.
   head_camera_cpp:
     deploy_mode: native
@@ -1138,8 +1138,8 @@ ros2_nodes:
     node_type: pi_cameras
     present: false
   # Head RGB camera of the pan/tilt head: Camera Module 3 on CSI cam0 (the Arducam ToF is on cam1). Publishes
-  # /head_camera/* in head_camera_optical_frame; no TF is published (the frame is parented to the pan/tilt chain
-  # when that exists). Replaces the retired pi_cameras (one camera owner).
+  # /head_camera/* in head_camera_optical_frame; no TF is published. This node is the single camera owner
+  # (pi_cameras is retired).
   - name: head_camera_cpp
     node_type: head_camera_cpp
     present: true
@@ -1689,13 +1689,13 @@ ros2_nodes:
           type: agent_chat
           label: "Agent"
           agent_url: http://127.0.0.1:18300
-        # Arm tab: gripper + front cameras, arm-glued 3D views and arm control. The gripper camera mount is the
+        # Arm tab: gripper + head cameras, arm-glued 3D views and arm control. The gripper camera mount is the
         # one of mcp_server cameras.gripper.mount below (a test pins them equal).
         - id: arm
           type: arm
           label: "Arm"
           gripper_camera_topic: /camera_0/image_raw/compressed
-          front_camera_topic: /front_camera/image_raw/compressed
+          head_camera_topic: /head_camera/image_raw/compressed
           arm_urdf: so101_arm.urdf
           arm_joint_states_topic: /follower/joint_states
           arm_offset: [0.0592, -0.05, 0.100]
@@ -1708,17 +1708,11 @@ ros2_nodes:
         - id: head
           type: head
           label: "Head"
-          rgb_camera_topic: /front_camera/image_raw/compressed
+          # Head RGB camera: Camera Module 3 on the pan/tilt head (head_camera_cpp).
+          rgb_camera_topic: /head_camera/image_raw/compressed
           tof_depth_topic: /tof/depth/image_raw
           tof_amplitude_topic: /tof/amplitude/image_raw
           tof_range_m: 4.0
-        # Front Camera Module 3 preview (pi_cameras; the back camera's CSI port cam1 carries the Arducam ToF).
-        - id: pi_cameras
-          type: camera
-          label: "Front"
-          topics:
-            - topic: /front_camera/image_raw/compressed
-              label: Front
         - id: poi
           type: poi
           label: "POI"
