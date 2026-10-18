@@ -1,6 +1,6 @@
 ---
 title: ToF obstacle cloud node
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Real ToF frames become a small, decimated 3D point cloud on the Pi 5 that the obstacle consumers can use."
 files: [nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml, nodes/tof_obstacle_cloud/README.md, ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_tof_obstacle_cloud_config.py, tests/test_unit_cgroups.py, tests/README.md, nodes/README.md]
@@ -101,3 +101,7 @@ ToF frame at the ToF rate, only while real ToF frames arrive.
   Verified facts).
 - The node publishes only from its synced callback; do not add any republisher or timer.
 - Do not add the node to any other host. Do not touch nav2_params here.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD (38 tests, lint, test-ansible); the escalation was a missing README heading name (now '## Placeholder data') and a macOS uv build of manifold3d in the verifier env.

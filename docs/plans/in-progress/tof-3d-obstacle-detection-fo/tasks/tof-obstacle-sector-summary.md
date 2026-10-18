@@ -69,3 +69,7 @@ A pure, ROS-free function turns base_link points into the 8-sector 3D obstacle/c
 ## Notes
 
 - Reuse `SECTOR_NAMES` and the bearing/sector index maths in `perception.py` (scan summary) rather than duplicating it.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD (38 tests, lint, test-ansible); the escalation was a missing README heading name (now '## Placeholder data') and a macOS uv build of manifold3d in the verifier env.
