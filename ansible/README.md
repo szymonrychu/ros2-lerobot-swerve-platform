@@ -472,7 +472,11 @@ estimate.
 | map_guard_cpp (not installed) | no data (same values as map_guard until measured) | 64M | 160M |
 | gps_rtk_rover (`gps_rtk`) | 55.0 / 55.8 | 56M | 128M |
 | poi_store | 53.8 / 54.3 | 56M | 128M |
+<<<<<<< HEAD
 | map_manager | not measured (python node, limits copied from laser_filter) | 64M | 256M |
+=======
+| map_manager | sized like laser_filter (python node); no Mimir measurement available | 64M | 256M |
+>>>>>>> 791b83a5 (docs: reword map_manager resource note in ansible README)
 | costmap_zones | not measured (initial values; re-measure in Mimir after 24 h) | 96M | 256M |
 | gripper_uvc_camera (`uvc_camera`) | 66.7 / 68.2 | 72M | 256M |
 | arducam_tof (disabled) | no data (estimate from uvc_camera plus the SDK and numpy; re-measure once enabled) | 64M | 192M |
