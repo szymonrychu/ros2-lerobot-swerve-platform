@@ -40,6 +40,17 @@ struct ZoomConfig
   double af_window_fraction = 0.125;  // 0 < f <= 1
 };
 
+// The 2 Hz small-JPEG mapping stream (RTAB-Map, RGB-D fusion).
+struct MappingConfig
+{
+  bool enabled = false;
+  bool lock_focus = true;  // runtime parameter mapping.lock_focus: lock the lens at lens_position while subscribed
+  double rate_hz = 2.0;    // 0 < r <= 10
+  int width = 576;         // even, <= the stream width, the stream aspect within 1 px
+  int height = 324;
+  int jpeg_quality = 80;  // 1..100
+};
+
 // Every setting of the node.
 struct Config
 {
@@ -51,21 +62,25 @@ struct Config
   int height = 648;
   long frame_duration_us = 33333;      // NOLINT(runtime/int)
   std::string af_mode = "continuous";  // continuous | auto | manual
+  double lens_position = 1.0;          // dioptres >= 0; the focus-lock position and the one of af_mode manual
   int jpeg_quality = 70;               // 1..100
   std::optional<std::string> camera_info_file;
   std::optional<long> metrics_port = DEFAULT_METRICS_PORT;  // NOLINT(runtime/int); nullopt disables metrics
   ZoomConfig zoom;
+  MappingConfig mapping;
 
   // Topics derived from topic_namespace.
   std::string image_raw() const { return topic_namespace + "/image_raw"; }
   std::string image_raw_compressed() const { return topic_namespace + "/image_raw/compressed"; }
   std::string camera_info() const { return topic_namespace + "/camera_info"; }
+  std::string mapping_image_topic() const { return topic_namespace + "/mapping/image_raw/compressed"; }
+  std::string mapping_camera_info_topic() const { return topic_namespace + "/mapping/camera_info"; }
   std::string zoom_command() const { return topic_namespace + "/zoom/command"; }
   std::string zoom_image() const { return topic_namespace + "/zoom/image"; }
   std::string zoom_result() const { return topic_namespace + "/zoom/result"; }
 };
 
-// Every error of a YAML mapping as "<key>: <problem>" lines (nested keys as "zoom.<key>"); empty when valid.
+// Every error of a YAML mapping as "<key>: <problem>" lines (nested keys as "zoom.<key>" or "mapping.<key>"); empty when valid.
 // @param node the parsed config root.
 // @return the error lines.
 Errors validate(const YAML::Node & node);

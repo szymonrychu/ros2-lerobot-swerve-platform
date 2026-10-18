@@ -4,6 +4,7 @@
 #include <cmath>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace head_camera_cpp
@@ -13,6 +14,7 @@ namespace
 {
 
 constexpr int MAX_JPEG_QUALITY = 100;
+constexpr double MAX_MAPPING_RATE_HZ = 10.0;
 constexpr int MAX_PORT = 65535;
 constexpr int MAX_ZOOM_PX_LIMIT = 1024;
 constexpr int ASPECT_TOLERANCE_PX = 1;
@@ -156,13 +158,52 @@ ZoomConfig parse_zoom(const YAML::Node & node, Errors & errors)
   return z;
 }
 
+MappingConfig parse_mapping(const YAML::Node & node, const Config & c, Errors & errors)
+{
+  MappingConfig m;
+  const std::string p = "mapping.";
+  ros2_common_cpp::forbid_unknown(
+    node, {"enabled", "lock_focus", "rate_hz", "width", "height", "jpeg_quality"}, errors, "mapping");
+  if (!node.IsMap()) {
+    return m;
+  }
+  m.enabled = field<bool>(node, p, "enabled", m.enabled, errors);
+  m.lock_focus = field<bool>(node, p, "lock_focus", m.lock_focus, errors);
+  m.rate_hz = positive(node, p, "rate_hz", m.rate_hz, errors);
+  ros2_common_cpp::le(p + "rate_hz", m.rate_hz, MAX_MAPPING_RATE_HZ, errors);
+  m.width = field<int>(node, p, "width", m.width, errors);
+  m.height = field<int>(node, p, "height", m.height, errors);
+  for (const auto & [key, value, limit] :
+       {std::tuple<const char *, int, int>{"width", m.width, c.width}, {"height", m.height, c.height}}) {
+    const std::string name = p + key;
+    ros2_common_cpp::gt<int>(name, value, 0, errors);
+    if (value > 0 && value % 2 != 0) {
+      errors.push_back(name + ": (" + std::to_string(value) + ") must be even");
+    }
+    if (value > limit) {
+      errors.push_back(
+        name + ": (" + std::to_string(value) + ") must not exceed the stream " + key + " " + std::to_string(limit));
+    }
+  }
+  if (m.width > 0 && m.height > 0 && c.width > 0) {
+    const double expected = static_cast<double>(m.width) * c.height / c.width;
+    if (std::abs(expected - m.height) > ASPECT_TOLERANCE_PX) {
+      errors.push_back(
+        p + "height: (" + std::to_string(m.height) + ") must match the stream aspect, about " +
+        number_text(std::round(expected)) + " for width " + std::to_string(m.width));
+    }
+  }
+  m.jpeg_quality = bounded_int(node, p, "jpeg_quality", m.jpeg_quality, 1, MAX_JPEG_QUALITY, errors);
+  return m;
+}
+
 Config parse(const YAML::Node & node, Errors & errors)
 {
   Config c;
   ros2_common_cpp::forbid_unknown(
     node,
     {"camera_id", "frame_id", "topic_namespace", "sensor_mode", "width", "height", "frame_duration_us", "af_mode",
-     "jpeg_quality", "camera_info_file", "metrics_port", "zoom"},
+     "lens_position", "jpeg_quality", "camera_info_file", "metrics_port", "zoom", "mapping"},
     errors);
   if (!node.IsMap()) {
     return c;
@@ -197,6 +238,8 @@ Config parse(const YAML::Node & node, Errors & errors)
   if (std::find(AF_MODES.begin(), AF_MODES.end(), c.af_mode) == AF_MODES.end()) {
     errors.push_back("af_mode: '" + c.af_mode + "' is not one of continuous, auto, manual");
   }
+  c.lens_position = field<double>(node, none, "lens_position", c.lens_position, errors);
+  ros2_common_cpp::ge(std::string("lens_position"), c.lens_position, 0.0, errors);
   c.jpeg_quality = bounded_int(node, none, "jpeg_quality", c.jpeg_quality, 1, MAX_JPEG_QUALITY, errors);
 
   if (const YAML::Node file = node["camera_info_file"]; file.IsDefined()) {
@@ -222,6 +265,9 @@ Config parse(const YAML::Node & node, Errors & errors)
 
   if (const YAML::Node zoom = node["zoom"]; zoom.IsDefined()) {
     c.zoom = parse_zoom(zoom, errors);
+  }
+  if (const YAML::Node mapping = node["mapping"]; mapping.IsDefined()) {
+    c.mapping = parse_mapping(mapping, c, errors);
   }
   return c;
 }

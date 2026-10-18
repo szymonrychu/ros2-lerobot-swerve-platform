@@ -128,6 +128,12 @@ invalid value, stop the node with exit code 78. Every error line names its key (
 | `height` | `648` | Published image height; even, > 0, same aspect as `sensor_mode` within 1 px |
 | `frame_duration_us` | `33333` | Frame duration in microseconds (33333 = 30 fps); > 0 |
 | `af_mode` | `continuous` | Autofocus: `continuous`, `auto` or `manual` |
+| `lens_position` | `1.0` | Dioptres (>= 0): the focus-lock position while mapping and the position of `af_mode: manual` |
+| `mapping.enabled` | `false` | Enable the 2 Hz mapping stream (`<ns>/mapping/image_raw/compressed`, `<ns>/mapping/camera_info`) |
+| `mapping.lock_focus` | `true` | Runtime parameter: lock the lens at `lens_position` while the mapping image has subscribers; continuous AF otherwise |
+| `mapping.rate_hz` | `2.0` | Mapping stream rate, 0 < r <= 10 |
+| `mapping.width` / `mapping.height` | `576` / `324` | Even, within the stream size, stream aspect within 1 px |
+| `mapping.jpeg_quality` | `80` | 1..100 |
 | `jpeg_quality` | `70` | Quality (1..100) of `image_raw/compressed` |
 | `camera_info_file` | none | Optional YAML calibration file for `camera_info` |
 | `metrics_port` | `19116` | Prometheus port (1..65535); `null` disables metrics |
