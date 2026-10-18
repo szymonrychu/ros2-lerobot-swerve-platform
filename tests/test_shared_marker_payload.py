@@ -31,9 +31,8 @@ def test_round_trip_known_kinds(code: str, poi: str) -> None:
 
 
 def test_round_trip_params_and_minor() -> None:
-    p = MarkerPayload(
-        version_major=1, version_minor=3, kind_code="BUTTON", name="B1", size_mm=20.0, params={"FLOOR": "2 $%*+.-", "A": ""}
-    )
+    params = {"FLOOR": "2 $%*+.-", "A": ""}
+    p = MarkerPayload(version_major=1, version_minor=3, kind_code="BUTTON", name="B1", size_mm=20.0, params=params)
     assert decode_payload(encode_payload(p)) == p
 
 
@@ -79,7 +78,7 @@ def test_unknown_kind_lowercased() -> None:
         ("P1/K:base/N:HOME/S:100", "character"),
         ("P1/K:BASE/N:HOME/S:19", "size"),
         ("P1/K:BASE/N:HOME/S:1001", "size"),
-        ("P1/K:BASE/N:HOME/S:abc", "size"),
+        ("P1/K:BASE/N:HOME/S:ABC", "size"),
         ("P1/K:BASE/N:HOME/S:10.55", "size"),
         ("P1/K:BASE/N:HOME/S:", "size"),
         ("P1/K:BASE/N:HOME/S:100/NOCOLON", "colon"),
