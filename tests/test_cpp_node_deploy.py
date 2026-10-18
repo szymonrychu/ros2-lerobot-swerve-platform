@@ -44,7 +44,7 @@ CPP_TYPES = {
 }
 METRICS_PORTS = {"map_guard_cpp": 19110}
 # _cpp types without a Python counterpart: head_camera_cpp builds the pinned libcamera first, then the two local trees.
-STANDALONE_CPP_TYPES = ("head_camera_cpp",)
+STANDALONE_CPP_TYPES = ("head_camera_cpp", "head_rgbd_cpp")
 ALL_CPP_TYPES = tuple(sorted([*CPP_TYPES, *STANDALONE_CPP_TYPES]))
 # rosdep keys of system (non-ROS) dependencies -> their Ubuntu 24.04 apt package.
 ROSDEP_APT = {
@@ -53,6 +53,7 @@ ROSDEP_APT = {
     "opencv": "libopencv-dev",
     "nlohmann-json-dev": "nlohmann-json3-dev",
     "cpp-httplib": "libcpp-httplib-dev",
+    "eigen": "libeigen3-dev",
 }
 # package.xml dependency tags that must be installed on the Pi to build and run (test_depend is not built there).
 BUILD_DEPEND_TAGS = ("buildtool_depend", "depend", "build_depend", "build_export_depend", "exec_depend")

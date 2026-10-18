@@ -2007,6 +2007,24 @@ Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group
 | `test_docs_describe_head_camera_cpp` | `nodes/head_camera_cpp/README.md` has `## Zoom interface` and `## Configuration`; the node README, `nodes/README.md`, `ansible/README.md`, the ansible-deploy SKILL and `MEMORY.md` name `head_camera_cpp`; `nodes/README.md` and the SKILL mark `pi_cameras` retired. |
 | `test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras` | `deploy_nodes_client.yml` has a `Deploy head_camera_cpp` step directly after `Deploy pi_cameras` (resolve_and_deploy, apply tag and `_deploy_node_name` `head_camera_cpp`, tags incl. apt/python/build/config). |
 
+### `test_head_rgbd_deploy.py`
+
+Static invariants of the head RGB-D fusion deploy (`head_rgbd_cpp` in `ansible/group_vars/client.yml`, the `config_files` task of the `ros2_node_deploy` role, `deploy_nodes_client.yml`).
+
+| Test | What it pins |
+|---|---|
+| `test_node_type_keys` | Native, launch command `ros2 run head_rgbd_cpp head_rgbd_node`, empty `node_src_dir` and `src_paths`, no `ROS_STATIC_PEERS`. |
+| `test_apt_packages` | The build and runtime apt list, incl. `libopencv-contrib-dev` and `ros-jazzy-depth-image-proc`. |
+| `test_background_tier_values` | Weights 100, `oom_score_adjust` 0, `memory_low` 48M, `memory_max` 256M. |
+| `test_config_path_and_env` | `/etc/ros2/head_rgbd_cpp` and `HEAD_RGBD_CONFIG`. |
+| `test_colcon_sources_order_and_build` | `ros2_common_cpp` then `head_rgbd_cpp`, Release, `BUILD_TESTING=OFF`, `-j2`, `base_paths`, `stamp_apt_packages` installed. |
+| `test_tof_calibration_file_is_deployed_when_present` | `config_files` maps `tof_calibration.yaml` into the config dir; the role copies existing repo files with `remote_src`. |
+| `test_ros2_nodes_entry` | Present and enabled, after `head_camera_cpp` and `arducam_tof`; the config block equals the node defaults and carries comments. |
+| `test_metrics_target_is_present` | Alloy scrapes `127.0.0.1:19117/metrics`. |
+| `test_head_camera_mapping_and_focus_lock` | `lens_position: 1.0`, the `mapping` block (2 Hz, 576x324, JPEG 80, `lock_focus`), `af_mode` continuous. |
+| `test_arducam_tof_stamp_latency` | The `arducam_tof` block sets `stamp_latency_ms: 0.0`. |
+| `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, build, config]`. |
+
 ### `test_pi_camera_boot_config.py`
 
 Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on CSI cam0, Arducam ToF on cam1).

@@ -423,6 +423,31 @@
       register: node_config_result
       tags: [config]
 
+    - name: Look for the repo files the node reads from its config directory
+      ansible.builtin.stat:
+        path: "{{ repo_dest }}/{{ item.src }}"
+      loop: "{{ node_config_files | default([]) }}"
+      loop_control:
+        label: "{{ item.src }}"
+      register: node_config_files_stat
+      when: node_config_path is defined and node_config_path is string and (node_config_path | length > 0)
+      tags: [config]
+
+    - name: Copy the calibration and other config files that exist in the repo
+      ansible.builtin.copy:
+        src: "{{ repo_dest }}/{{ item.item.src }}"
+        dest: "{{ node_config_path }}/{{ item.item.dest }}"
+        remote_src: true
+        mode: "0644"
+      loop: "{{ node_config_files_stat.results | default([]) | selectattr('stat', 'defined') | selectattr('stat.exists') | list }}"
+      loop_control:
+        label: "{{ item.item.src }}"
+      become: true
+      when: node_config_path is defined and node_config_path is string and (node_config_path | length > 0)
+      notify: "Restart ROS2 node"
+      register: node_config_files_result
+      tags: [config]
+
     - name: Queue a restart (node config changed)
       ansible.builtin.lineinfile:
         path: "{{ ros2_restart_queue }}"
@@ -431,7 +456,7 @@
         mode: "0644"
       become: true
       when:
-        - node_config_result is changed
+        - node_config_result is changed or node_config_files_result is changed
         - node_enabled | default(true) | bool
       tags: [config]
 

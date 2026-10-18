@@ -8,6 +8,7 @@
 #   node_nice (optional): systemd Nice=.
 #   node_environment_file (optional): systemd EnvironmentFile= for secrets kept out of the unit (e.g. mcp_server token).
 #   node_protect_proc / node_proc_subset (optional): systemd ProtectProc= / ProcSubset= (empty: not set).
+#   node_config_files (optional list of {src, dest}): repo files copied into node_config_path when they exist in repo_dest.
 #   node_no_new_privileges / node_private_tmp (optional bool): systemd NoNewPrivileges=yes / PrivateTmp=yes.
 
 ros2_node_config_dir: /etc/ros2
