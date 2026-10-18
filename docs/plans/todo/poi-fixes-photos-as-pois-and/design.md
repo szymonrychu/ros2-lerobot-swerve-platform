@@ -270,6 +270,7 @@ map POIs restored by a load, and the hourly age prune would delete a restored ma
 
 none
 - Q1: Photo age retention (14 days) would delete a loaded map's photos older than 14 days within the hour. Turn the age limit off and keep only the count and size limits (D10)? [recommended: yes, age limit off; 3000 photos / 300 MB stay as disk guards]
+- Q2: MCP clear_pois defaults to the agent's own POIs of every kind; with photos as POIs that default now also deletes the agent's photos (almost all photos). Keep that default (D7)? [recommended: yes, the default includes the agent's own photos; the prompt says so]
 
 ## Irreversible operations in scope
 
