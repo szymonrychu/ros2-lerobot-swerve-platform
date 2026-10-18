@@ -297,8 +297,6 @@ In **`group_vars/server.yml`** or **`group_vars/client.yml`** (or host_vars), se
 - **`hostname`** — Short hostname (e.g. `server-rpi4`). Optional; when set, the hostname role runs.
 - **`ros2_extend_etc_hosts`** — (default `false`) When true, hostname role adds `ros2_hosts_entries` (server.ros2.lan, client.ros2.lan) to `/etc/hosts`. Default false: rely on primary DNS.
 
-- **`network_link_ethernets`** — Optional list of static point-to-point ethernets (default `[]`). Each entry has `iface`, `address` (CIDR) and optionally `default_route_via` and `route_metric`. Entries render with `dhcp4: false`, `ignore-carrier: true` (the address exists before the peer is up) and `optional: true`, and are left out of the DHCP list. Before writing netplan the role probes each link interface and fails, naming the address, if it holds an IPv4 address other than the planned one.
-
 The network role writes a netplan file under `/etc/netplan/` and runs `netplan apply`. The **hostname** role runs `hostnamectl set-hostname` and updates `/etc/hostname` and `/etc/hosts`.
 
 ## ROS2 network setup (DDS discovery)

@@ -3,7 +3,7 @@
 network:
   version: 2
   renderer: networkd
-{% if (not _network_interface_is_wlan) or (_other_ethernets | length > 0) or (network_link_ethernets | length > 0) %}
+{% if (not _network_interface_is_wlan) or (_other_ethernets | length > 0) %}
   ethernets:
 {% if not _network_interface_is_wlan %}
     {{ _network_interface }}:
@@ -22,22 +22,6 @@ network:
 {% endfor %}
 {% endif %}
 {% endif %}
-{% for link in network_link_ethernets %}
-    {{ link.iface }}:
-      dhcp4: false
-      dhcp6: false
-      addresses:
-        - {{ link.address }}
-      # Address up before the peer is: the link is point-to-point and the peer may boot later.
-      ignore-carrier: true
-      optional: true
-{% if link.default_route_via is defined %}
-      routes:
-        - to: default
-          via: {{ link.default_route_via }}
-          metric: {{ link.route_metric | default(1000) }}
-{% endif %}
-{% endfor %}
 {% for iface in _other_ethernets %}
     {{ iface }}:
       dhcp4: true

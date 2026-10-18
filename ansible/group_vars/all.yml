@@ -70,6 +70,3 @@ ros2_agent_quiet_min: 5
 ros2_agent_idle_wait_min: 15
 ros2_agent_idle_poll_s: 15
 ros2_deploy_ignore_agent: false
-
-# No static point-to-point ethernets on any host (the Jetson cable is retired).
-network_link_ethernets: []

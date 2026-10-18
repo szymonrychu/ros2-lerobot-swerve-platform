@@ -2289,19 +2289,18 @@ The removal of the retired Pi-Jetson link from the client (`playbooks/tasks/jets
 | `test_nftables_package_and_service_are_left_alone` | No apt, package, service or systemd task, and no ruleset flush. |
 | `test_client_block_runs_network_chrony_and_removal` | The "Remove the retired Jetson link" block is tagged `jetson_link`, has no `when` (an untagged run applies it), and runs the `network` role, the `chrony` role and `tasks/jetson_link_remove.yml` in that order, each applying the tag. |
 | `test_no_other_client_task_carries_the_jetson_link_tag` | Only the block and its three applies carry the tag; the old block name and `jetson_link_side` are gone. |
-| `test_role_and_link_vars_are_gone` | No `roles/jetson_link`, no `test_jetson_link_role.py`, no `jetson_link_*` var or D8 comment in `group_vars/all.yml`, `network_link_ethernets` empty. |
+| `test_role_and_link_vars_are_gone` | No `roles/jetson_link`, no `test_jetson_link_role.py`, no `jetson_link_*` var or D8 comment in `group_vars/all.yml`, no `network_link_ethernets`. |
 
-## test_network_link.py
+## test_network_netplan.py
 
-The network role's static point-to-point link (design D8), rendered with jinja2; nothing runs ansible.
+The network role's netplan rendering after the Jetson link support was dropped, rendered with jinja2; nothing runs ansible.
 
 | Test | Description |
 |---|---|
-| `test_client_link_renders_a_static_ethernet` / `test_jetson_link_renders_a_high_metric_default_route` | Static eth0 with `ignore-carrier` and `optional`; the Jetson's default route via 10.77.0.1 at metric 1000. |
-| `test_link_interface_is_not_in_the_dhcp_list` / `test_dhcp_ethernets_still_render_next_to_the_link` / `test_no_link_renders_no_ethernets_for_a_wifi_primary` | Link interfaces leave the DHCP list; other ethernets still render; no link adds no ethernets block. |
-| `test_wifi_stanza_is_identical_with_and_without_a_link` | The `wifis` block renders exactly as before for client and Jetson vars. |
-| `test_probe_flags_a_foreign_ipv4` / `test_probe_flags_a_foreign_secondary_address` / `test_probe_passes_planned_address_and_missing_ipv4` / `test_probe_fails_with_a_message_naming_the_address_and_runs_before_netplan` | The probe task finds foreign addresses, passes the planned or none, and fails before netplan is written. |
-| `test_all_yml_defines_the_link_vars_and_names_d8` / `test_all_yml_keys_the_link_by_group_membership` / `test_no_client_group_vars_edit_defines_the_link` / `test_role_default_is_an_empty_list` | `jetson_link_*` vars, group-keyed `network_link_ethernets`, no client.yml or jetson.yml edit, empty role default. |
+| `test_client_render_has_no_static_ethernet_and_no_link_address` | The WiFi-primary client render has no `ethernets` block, no `10.77` address and no `ignore-carrier`. |
+| `test_wifi_stanza_is_unchanged` | The `wifis` stanza (address, default route, nameservers, access point) renders exactly as before. |
+| `test_dhcp_ethernets_still_render` | Other ethernets render with `dhcp4: true` and `optional: true`. |
+| `test_role_names_no_retired_variable` / `test_group_vars_define_no_link_ethernets` | Role defaults, tasks and template, and every group_vars file, name neither `network_link_ethernets` nor `network_netplan_superseded_files`. |
 
 ## test_node_uninstall_purge.py
 
