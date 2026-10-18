@@ -45,16 +45,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Skills `robot-skills:survey`, `robot-skills:sightseeing`, `robot-skills:poi-categories`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Three self-contained skills that drive surveys and exploration to completion.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_skill_survey.py`; run it; expect failures.
+- Write the three SKILL.md files; run the verify command; commit `feat(claude_agent): survey, sightseeing and poi-categories skills`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Skill prose is free within the asserted elements; keep each under about 8 KB.
+- Head/zoom/3D tools come from other epics; never name them outside the optional section (root test).

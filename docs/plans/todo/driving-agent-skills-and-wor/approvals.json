@@ -1,0 +1,255 @@
+[
+  {
+    "id": "G1",
+    "text": "Skills are Agent SDK skill files shipped read-only inside the claude_agent node (loaded on demand; the agent cannot edit them); runner options enable skills while the agent's file tools stay away from the skill directory.",
+    "decisions": [
+      "D1",
+      "D2"
+    ],
+    "tasks": [
+      "agent-skill-plugin-loader",
+      "agent-runner-enables-skills"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G2",
+    "text": "POI categories (targets, slow zones, keep-out zones, problem spots, details) map onto the existing POI kinds/zones/fields with no new schema field: documented mapping, tools and validation for consistent recording; creating a keep-out is free, removing one still needs user consent.",
+    "decisions": [
+      "D4"
+    ],
+    "tasks": [
+      "shared-poi-category-tags",
+      "mcp-poi-category-args",
+      "web-ui-poi-category-chips",
+      "skill-survey-and-sightseeing",
+      "prompt-skills-and-workflows"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G3",
+    "text": "Slow (risky) zones add Nav2 path cost (the planner routes around them when possible) and cap speed inside; keep-out zones stay hard; Nav2 Jazzy filter behaviour verified and the mechanism chosen.",
+    "decisions": [
+      "D5"
+    ],
+    "tasks": [
+      "costmap-slow-zone-cost",
+      "costmap-verify-slow-cost",
+      "mcp-poi-category-args"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G4",
+    "text": "Survey skill: base rotation now, automatically using head rotation, zoom and the 3D map when those tools exist; records POIs of all categories with photos and notes.",
+    "decisions": [
+      "D2",
+      "D3"
+    ],
+    "tasks": [
+      "skill-survey-and-sightseeing",
+      "start-workflow-tool"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G5",
+    "text": "Sightseeing skill plus an exploration-status tool (reachable frontiers, surveyed areas): done when no reachable frontier is left and every frontier area has been surveyed; a summary for the user; stops at configurable time and battery limits.",
+    "decisions": [
+      "D6",
+      "D2"
+    ],
+    "tasks": [
+      "mcp-exploration-coverage",
+      "mcp-exploration-status-tool",
+      "skill-survey-and-sightseeing",
+      "workflow-templates"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G6",
+    "text": "Planning skill and a start_workflow tool seeding the job's task plan from templates for discovery, drive-to-target and pick-up/put-down; the agent may add/reorder steps; the job-end check flags skipped mandatory steps; jobs start from free text only.",
+    "decisions": [
+      "D7",
+      "D8",
+      "D2"
+    ],
+    "tasks": [
+      "workflow-templates",
+      "start-workflow-tool",
+      "job-end-mandatory-check",
+      "skill-planning",
+      "skill-helpers",
+      "prompt-skills-and-workflows"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G7",
+    "text": "Retrospective skill: written after every job (short for trivial jobs) to a robot-side store, shown in a web UI tab and available through an API and a script; recent retrospectives are fed to future agents.",
+    "decisions": [
+      "D9",
+      "D10",
+      "D2"
+    ],
+    "tasks": [
+      "retro-store-and-tool",
+      "retro-followup-and-feed",
+      "retro-api-endpoint",
+      "web-ui-retros-proxy",
+      "web-ui-retros-tab",
+      "retro-pull-script"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G8",
+    "text": "Survey POIs are cleared on New session (no persistence beyond the session), consistent with the existing agent POI reset.",
+    "decisions": [
+      "D11"
+    ],
+    "tasks": [
+      "poi-store-clear-by-tag",
+      "mcp-admin-clear-by-tag",
+      "reset-clears-survey-pois"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G9",
+    "text": "Tests (claude_agent, mcp_server, poi_store, costmap_zones, web_ui), evals extended beyond pick-and-place where cheap, READMEs; deployed while respecting that deploying claude_agent/mcp_server kills a running agent session.",
+    "decisions": [
+      "D12",
+      "D13"
+    ],
+    "tasks": [
+      "eval-workflow-checks",
+      "eval-workflow-testset",
+      "skills-suite-and-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U1",
+    "text": "Skills are Agent SDK skill files shipped read-only in the node and loaded on demand.",
+    "decisions": [
+      "D1",
+      "D2"
+    ],
+    "tasks": [
+      "agent-skill-plugin-loader",
+      "agent-runner-enables-skills"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U2",
+    "text": "POI categories (targets, slow zones, keep-out zones, problem spots such as windows, mirrors, tight places and obstacles above the lidar plane, details) are mapped onto the existing POI kinds/zones/fields - no new schema field; creating a keep-out is free, removing one still needs consent.",
+    "decisions": [
+      "D4"
+    ],
+    "tasks": [
+      "shared-poi-category-tags",
+      "mcp-poi-category-args",
+      "web-ui-poi-category-chips"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U3",
+    "text": "Slow zones add Nav2 path cost AND cap speed; keep-outs stay hard.",
+    "decisions": [
+      "D5"
+    ],
+    "tasks": [
+      "costmap-slow-zone-cost",
+      "costmap-verify-slow-cost"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U4",
+    "text": "Retrospectives after every job (short for trivial ones) in a robot-side store, shown in a web UI tab and an API/script, recent ones fed to future agents.",
+    "decisions": [
+      "D9",
+      "D10"
+    ],
+    "tasks": [
+      "retro-store-and-tool",
+      "retro-followup-and-feed",
+      "retro-api-endpoint",
+      "web-ui-retros-proxy",
+      "web-ui-retros-tab",
+      "retro-pull-script"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U5",
+    "text": "Jobs start from free text only (no web UI workflow buttons).",
+    "decisions": [
+      "D7"
+    ],
+    "tasks": [
+      "start-workflow-tool",
+      "prompt-skills-and-workflows"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U6",
+    "text": "Workflows seed the plan via a template; the agent may add/reorder; the job-end check flags skipped mandatory steps.",
+    "decisions": [
+      "D7",
+      "D8"
+    ],
+    "tasks": [
+      "workflow-templates",
+      "start-workflow-tool",
+      "job-end-mandatory-check"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U7",
+    "text": "Survey/sightseeing built on base rotation now, using head/zoom/3D tools automatically when they exist.",
+    "decisions": [
+      "D3"
+    ],
+    "tasks": [
+      "agent-skill-plugin-loader",
+      "skill-survey-and-sightseeing",
+      "start-workflow-tool"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U8",
+    "text": "Map complete = no reachable frontiers and every frontier area surveyed, summary to the user, configurable time/battery limits.",
+    "decisions": [
+      "D6"
+    ],
+    "tasks": [
+      "mcp-exploration-coverage",
+      "mcp-exploration-status-tool",
+      "skill-survey-and-sightseeing",
+      "workflow-templates"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U9",
+    "text": "Survey POIs are cleared on New session.",
+    "decisions": [
+      "D11"
+    ],
+    "tasks": [
+      "poi-store-clear-by-tag",
+      "mcp-admin-clear-by-tag",
+      "reset-clears-survey-pois"
+    ],
+    "status": "approved"
+  }
+]

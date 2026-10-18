@@ -48,16 +48,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `plan_tools.py:start_workflow`, `perception_capabilities`, `build_plan_tools(tracker, robot_tool_caller, session_tools)`; `budget.py:PlanTracker.workflow`, `mandatory_ids`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`agent.start_workflow` is the one-call way to plan a discovery, drive or pick/place job.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_start_workflow.py`; run it; expect failures.
+- Implement; run the verify command; commit `feat(claude_agent): start_workflow tool`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The gate classifies by plan_tools.FULL_TOOL_NAMES: adding to TOOL_NAMES is enough for the plan kind.
+- Keep set_task_plan unchanged for free-form jobs.

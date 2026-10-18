@@ -47,16 +47,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `perception_tools.py:add_poi/update_poi(category, problem_type, survey)`, `remember_object(survey)`; `perception_models.py:PoiView.category/problem_type/survey`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+POI writes carry a validated category in the note; list_pois shows it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_poi_category_tools.py`; run it; expect failures.
+- Implement; run the verify command; commit `feat(mcp_server): POI category arguments`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- No new tool is registered, so claude_agent classification is unchanged.
+- mcp_server depends on ros2-common already (ros2_common.lookups).

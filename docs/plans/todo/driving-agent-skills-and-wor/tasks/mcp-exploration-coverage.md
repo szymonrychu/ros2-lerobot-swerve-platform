@@ -45,16 +45,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `mcp_server/exploration.py:reachable_mask`, `visible_cells`, `coverage`, `Coverage`, `UnsurveyedArea` (contract `exploration-coverage`); `config.py:ExplorationSettings`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A tested coverage computation the exploration-status tool calls.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_exploration.py` and the config tests; run them; expect failures.
+- Implement; run the verify command; commit `feat(mcp_server): exploration coverage maths`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Documentation of the settings lands with the tool (mcp-exploration-status-tool README AC).
+- Grid conventions: frontiers.py (row = y index, UNKNOWN -1, FREE 0, OCCUPIED 100).

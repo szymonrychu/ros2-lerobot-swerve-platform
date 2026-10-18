@@ -47,16 +47,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/eval/testset.py:WorkflowTestSet`, `load_any_testset`; `testset_workflows_v1.yaml`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run python -m scripts.eval.run` can run discovery and drive-to-target cases.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test; run it; expect failures.
+- Implement; run the verify command; commit `feat(eval): workflow test set`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Testsets are versioned: never edit v1 in place.

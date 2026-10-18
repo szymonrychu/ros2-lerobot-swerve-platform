@@ -45,16 +45,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `poi_clear.py:call_clear_agent_pois(..., statuses, tag)`; `AgentRunner.clear_agent_pois`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+New session removes every survey POI made by the agent.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend `tests/test_poi_clear.py`; run it; expect failures.
+- Implement; run the verify command; commit `feat(claude_agent): New session clears survey POIs`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Do not add ros2-common to claude_agent (scipy, opencv); the drift test keeps the constant equal.

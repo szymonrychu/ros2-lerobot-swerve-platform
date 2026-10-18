@@ -47,16 +47,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `poi/categories.ts:parsePoiTags`, `stripPoiTags`, `CATEGORIES`, `PROBLEM_TYPES`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Category information is visible in the POI tab and on the map.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests; run `cd nodes/web_ui/frontend && npx vitest run src/poi`; expect failures.
+- Implement; run the verify command; commit `feat(web_ui): POI category chips`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The grammar owner is shared/ros2_common/poi_categories.py; this file mirrors it.

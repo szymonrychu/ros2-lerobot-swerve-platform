@@ -49,16 +49,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Event `retrospective_recorded` (contract `retro-event`); `AgentRunner.retro_store`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Every job leaves a retrospective; new sessions read the recent ones.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_retro_followup.py`; run it; expect failures.
+- Implement; run the verify command; commit `feat(claude_agent): retrospective after every job and feed`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Followup chain lives in consume_response; job_end_applies gates normal ends.
+- The feed shares the place where the digest prefix is built in run_turn.

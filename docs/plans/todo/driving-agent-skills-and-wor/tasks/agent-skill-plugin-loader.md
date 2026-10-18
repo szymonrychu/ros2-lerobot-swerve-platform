@@ -52,16 +52,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `claude_agent/skills.py:PLUGIN_NAME`, `PLUGIN_DIR`, `plugin_dir`, `discover_skills`, `qualified_names`, `read_skill`, `check_skill`, `missing_skills`, `SkillFile` (contract `skills-plugin`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A plugin directory with one real skill and tests that keep every future skill well-formed and honest about tools.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write both test files; run them; expect failures.
+- Implement skills.py, plugin.json, the skill and docs; run the verify command; commit `feat(claude_agent): read-only skills plugin`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- SDK naming: plugin skills are `<plugin>:<skill>` (subprocess_cli.py `_validate_skill_name`).
+- Resolved unknown (design D1): checkout cloned as root (repo_sync.yml become), editable uv install, service User=claude_agent.

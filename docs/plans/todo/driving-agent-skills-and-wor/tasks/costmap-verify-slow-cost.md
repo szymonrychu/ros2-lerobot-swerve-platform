@@ -48,16 +48,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `costmap_zones/verify.py:keepout_cost`, `published_grid_value`, the new slow step.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/costmap_zones_verify.sh` checks the slow cost on the robot alongside keep-out and speed.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend `tests/test_verify.py`; run `cd nodes/costmap_zones && uv run --frozen pytest tests/test_verify.py -q`; expect failures.
+- Implement; run the verify command; commit `feat(costmap_zones): verify slow-zone path cost`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The verifier never moves the base; keep that.
+- nav2_params.yaml: comments only; keep `override_lethal_cost: true` / `lethal_override_cost: 252`.

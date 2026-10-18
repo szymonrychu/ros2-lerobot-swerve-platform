@@ -43,16 +43,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/agent_retrospectives.py` reading `scripts/agent_retrospectives.yaml`; consumes `GET /api/agent/retrospectives`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run python scripts/agent_retrospectives.py` drops the robot's retrospectives into `.logs/retrospectives/`.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test; run it; expect failures.
+- Implement; run the verify command; commit `feat(scripts): pull agent retrospectives`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern: scripts/eval (run.yaml + pydantic config, base_url through the web_ui proxy).

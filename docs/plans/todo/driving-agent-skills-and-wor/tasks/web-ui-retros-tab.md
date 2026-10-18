@@ -48,16 +48,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `agentApi.ts:fetchRetrospectives`; `tabs/RetrosTab.tsx`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A Retros tab shows the robot's retrospectives.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests; run `cd nodes/web_ui/frontend && npx vitest run src/tabs/RetrosTab.test.tsx`; expect failures.
+- Implement; run the verify command; commit `feat(web_ui): Retros tab`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Look at AgentChatTab and PhasePanel for the house style and fetch patterns.

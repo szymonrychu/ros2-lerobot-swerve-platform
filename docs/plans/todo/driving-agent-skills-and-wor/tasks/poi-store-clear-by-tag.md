@@ -45,16 +45,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `poi_store/models.py:Command.tag`; `store.py:PoiStore.op_clear(created_by, statuses, tag)`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A clear command can target `#survey` POIs only.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend `tests/test_store.py`; run `cd nodes/poi_store && uv run --frozen pytest tests/test_store.py -q`; expect failures.
+- Implement; run the verify command; commit `feat(poi_store): clear by note tag`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- poi_store already depends on ros2-common (ros2_common.photos); reuse `has_tag`, do not re-parse.
+- Epic named-maps-with-pois-and-rel (todo, task poi-store-clear-filters) also extends `op_clear` (optional created_by, kinds, keep_zones): keep every filter an independent AND term; whichever lands second rebases and keeps both.

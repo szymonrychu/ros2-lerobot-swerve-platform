@@ -39,16 +39,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Skill `robot-skills:planning`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A planning skill the prompt points to before every plan.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_skill_planning.py`; run it; expect failures.
+- Write the SKILL.md; run the verify command; commit `feat(claude_agent): planning skill`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Template names: discovery, drive_to_target, pick_place (workflow-templates).

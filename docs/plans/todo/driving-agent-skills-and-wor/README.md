@@ -1,6 +1,6 @@
 ---
 title: Driving agent skills and workflows
-blockers: []
+blockers: [Remove the Jetson coprocessor]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -39,7 +39,10 @@ The driving agent (nodes/claude_agent, Claude Agent SDK, acting through nodes/mc
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+
+
+
+Estimate: 1425 min | Actual: 0 min | Remaining estimate: 1425 min
 
 ## Review
 

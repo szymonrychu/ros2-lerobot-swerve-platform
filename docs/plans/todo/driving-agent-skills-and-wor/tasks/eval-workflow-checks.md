@@ -45,16 +45,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/eval/workflow_checks.py:derive_workflow`, `WorkflowDerivation`; `report.py:TrialRecord.workflow`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Every eval trial reports workflow adherence alongside the pick-and-place stages.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test; run it; expect failures.
+- Implement; run the verify command; commit `feat(eval): workflow adherence checks`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Event shapes: tool_call/tool_result/turn_end in claude_agent events.py; retrospective_recorded from retro-followup-and-feed.

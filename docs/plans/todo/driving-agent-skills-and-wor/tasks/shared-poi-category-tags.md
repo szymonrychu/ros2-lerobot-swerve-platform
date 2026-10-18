@@ -47,16 +47,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/poi_categories.py`: `CATEGORIES`, `PROBLEM_TYPES`, `SURVEY_TAG`, `SURVEY_SPOT_TAG`, `PoiTags`, `category_tags`, `parse_tags`, `apply_tags`, `strip_tags`, `has_tag`, `check_category` (contract `poi-category-tags`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One importable grammar for POI categories that mcp_server, poi_store and claude_agent share; the web UI mirrors it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_shared_poi_categories.py`; run `uv run pytest tests/test_shared_poi_categories.py -q`; expect ImportError failures.
+- Implement the module and README; run the verify command; commit `feat(shared): POI category tags`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- poi_store `Poi` has `extra="ignore"`: a new field would be dropped, so categories live in the note (U2).
+- Zones: `zone` none|keepout|slow, area only, active only while status open (poi_store/models.py).
+- Keep pydantic for PoiTags (CLAUDE.md library rule).

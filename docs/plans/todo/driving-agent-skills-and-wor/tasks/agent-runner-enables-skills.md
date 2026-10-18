@@ -50,16 +50,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `config.py:ClaudeAgentConfig.skills_enabled`, `skills_plugin_dir`; `runner.py:build_options`, `AgentRunner.session_tools`; `tools.py` kind `skill`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Sessions start with the skills plugin loaded and checked; Skill is the only new built-in.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_skill_options.py`; run it; expect failures.
+- Implement and update client.yml; run the verify command; commit `feat(claude_agent): enable read-only skills`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- SDK 0.2.163 `_apply_skills_defaults` only defaults setting_sources when it is None; we pass [] (no user/project settings).
+- `session_tools` is consumed by start_workflow's capability line (start-workflow-tool).

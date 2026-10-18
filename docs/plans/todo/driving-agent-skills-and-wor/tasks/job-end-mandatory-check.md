@@ -45,16 +45,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `budget.py:PlanTracker.skipped_mandatory`, `grant_extra_revision`; turn_end `job_end.workflow` (contract `workflow-job-end-report`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Workflow jobs end with their mandatory steps done or explicitly flagged.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_workflow_check.py`; run it; expect failures.
+- Implement; run the verify command; commit `feat(claude_agent): job-end mandatory step check`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Existing chain: consume_response -> run_job_end_check -> take_poi_review (runner.py); keep POI REVIEW behaviour unchanged.

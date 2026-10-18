@@ -52,16 +52,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Tools `get_exploration_status`, `mark_survey_spot`; `perception_models.py:ExplorationStatus` (contract `exploration-status`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent can mark survey spots and ask whether exploration is complete, with coverage, gaps and the battery limit.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_exploration_tools.py`; run it; expect failures.
+- Implement, classify in claude_agent config and client.yml; run the verify command; commit `feat(mcp_server): exploration status and survey spots`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Root `tests/test_claude_agent_config.py` fails if a registered tool is unclassified: classify in the same commit.
+- Battery guard: shared ros2_common.battery.BatteryGuard behind ctx.battery_gate.

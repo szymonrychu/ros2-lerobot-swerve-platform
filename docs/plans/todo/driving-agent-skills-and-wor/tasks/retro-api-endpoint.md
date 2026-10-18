@@ -45,16 +45,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `GET /api/retrospectives` -> `{retrospectives: Retrospective[], total: int}` (contract `retro-api`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The retrospective store is readable over the claude_agent API.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_retro_api.py`; run it; expect failures.
+- Implement; run the verify command; commit `feat(claude_agent): retrospectives API`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Precedent: `GET /api/retry_outcomes` in api.py.

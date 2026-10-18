@@ -52,16 +52,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `costmap_zones/config.py:CostmapZonesConfig.slow_zone_mask_value` (contract `slow-zone-mask-value`); `raster.py:rasterise_keepout(geometry, zones, slow_value)`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The keepout mask carries a non-lethal cost in slow zones; Nav2's planner prefers detours; keep-outs remain lethal; speed caps unchanged.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend `tests/test_raster.py` and `tests/test_config.py`; run `cd nodes/costmap_zones && uv run --frozen pytest tests -q`; expect failures.
+- Implement raster, config, node, client.yml and READMEs; run the verify command; commit `feat(costmap_zones): slow zones add non-lethal path cost`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Nav2 Jazzy KeepoutFilter semantics are recorded in design.md D5 (resolved unknown).
+- KeepoutFilter is a plugin below inflation in both costmaps (nav2_params.yaml); inflation inflates only lethal cells.
+- Do not touch the SpeedFilter or the speed mask.

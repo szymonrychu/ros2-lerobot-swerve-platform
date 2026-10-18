@@ -51,16 +51,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `claude_agent/workflows.py:WorkflowTemplate`, `ExpandedWorkflow`, `load_templates`, `expand`, `TEMPLATE_DIR` (contract `workflow-templates`); `config.py:workflow_time_budget_min`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Three validated templates and an expander ready for start_workflow.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_workflows.py`; run it; expect failures.
+- Implement module, templates, config, client.yml, README; run the verify command; commit `feat(claude_agent): workflow templates`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Directory is `workflow_templates/` (a `workflows/` dir next to workflows.py would shadow the module).
+- Plan tree grammar: plan_tools.PLAN_NODE_DESCRIPTION; limits 12 phases, 24 nodes, depth 4; caps summed once per phase.

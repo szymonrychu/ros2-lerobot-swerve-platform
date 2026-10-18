@@ -46,16 +46,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Admin route body `{statuses?, tag?}` (contract `admin-clear-tag`); `RobotApi.poi_clear(created_by, statuses, tag)`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The admin route can clear agent POIs by tag.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_admin_clear.py`; run it; expect failures.
+- Implement; run the verify command; commit `feat(mcp_server): admin clear by tag`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The admin route is plain HTTP behind the bearer token, never an MCP tool (the model cannot call it).
+- Epic named-maps-with-pois-and-rel (todo, task mcp-clear-pois-tool) touches ros_iface.py poi_clear too: keep `tag` an independent keyword argument.

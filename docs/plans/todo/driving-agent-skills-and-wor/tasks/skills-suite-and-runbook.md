@@ -53,16 +53,18 @@ Orchestrator runbook (after merge, robot reachable; every deploy through the ans
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `tests/test_agent_skills_docs.py`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+All suites green; the orchestrator brings the feature live with the runbook in the requirement.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_agent_skills_docs.py`; run it; expect failures until docs are complete.
+- Complete the docs and MEMORY.md; run the full verify command and quote every summary line; commit `test: skills, workflows and retrospectives docs check`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Deploy only via scripts/deploy-nodes.sh; never deploy claude_agent/mcp_server while an instruction runs.
+- Survey motions: base rotation only; no arm motion in the runbook jobs (CLAUDE.md least-dramatic rule).
