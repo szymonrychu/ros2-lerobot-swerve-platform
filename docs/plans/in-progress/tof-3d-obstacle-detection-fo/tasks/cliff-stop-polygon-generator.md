@@ -82,3 +82,7 @@ model; the polygon block exists but does not change runtime behaviour yet.
 - Jazzy rejects polygons with <= 3 points and one bad polygon aborts the whole nav2 bringup (existing comment).
 
 - 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on laser-filter-tof-self-filter
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (root 1556 passed); nav2-tof-voxel-layer escalation was a debt-marker false positive on a tests/README row quoting the banned words (reworded).

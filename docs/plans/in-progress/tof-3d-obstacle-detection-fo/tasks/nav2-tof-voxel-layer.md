@@ -1,6 +1,6 @@
 ---
 title: Nav2 ToF voxel layer
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: 3D obstacles and cliffs seen by the head ToF appear in the local costmap next to the lidar obstacles.
 files: [nodes/nav2_bringup/config/nav2_params.yaml, ansible/group_vars/client.yml, tests/test_nav_tof_voxel_layer.py, tests/test_nav_stack_config.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -97,3 +97,7 @@ they leave view, while lidar cells behave as before.
 - Do not touch the collision_monitor here (next task) or generated regions.
 
 - 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on cliff-stop-polygon-generator
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (root 1556 passed); nav2-tof-voxel-layer escalation was a debt-marker false positive on a tests/README row quoting the banned words (reworded).

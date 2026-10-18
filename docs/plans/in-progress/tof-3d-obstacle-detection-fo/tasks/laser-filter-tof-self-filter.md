@@ -106,3 +106,7 @@ stamped with the ToF capture time, while `/scan_filtered` keeps its rate.
 - rclpy TransformListener already subscribes /tf and /tf_static; keep one Buffer.
 
 - 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on tof-obstacle-cloud-node
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (root 1556 passed); nav2-tof-voxel-layer escalation was a debt-marker false positive on a tests/README row quoting the banned words (reworded).
