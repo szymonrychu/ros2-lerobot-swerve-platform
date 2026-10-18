@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--docs-and-memory-sweep
 branch: remove-the-jetson-coprocesso--docs-and-memory-sweep
-verified_head: ""
+verified_head: 50c2b9d97c9bd64dfe6ad4c92aa1b821b74ac0b9
 run: remove-the-jetson-coprocesso
 provides: []
-acs_for_audit: []
+acs_for_audit: [a1]
 process_gaps: []
 ---
 

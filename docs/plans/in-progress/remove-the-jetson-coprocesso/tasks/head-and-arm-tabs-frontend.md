@@ -1,6 +1,6 @@
 ---
 title: Head and Arm tabs frontend
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The browser Head tab has no fused toggle and the Arm tab shows the front camera.
 files: [nodes/web_ui/frontend/src/tabs/HeadTab.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx, nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/hooks/subscription.ts, nodes/web_ui/frontend/src/tabs/CameraTab.test.tsx, nodes/web_ui/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--head-and-arm-tabs-frontend
 branch: remove-the-jetson-coprocesso--head-and-arm-tabs-frontend
-verified_head: ""
+verified_head: 98fcf8caed49e3ba3cb80aad3666b259278dea96
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []
