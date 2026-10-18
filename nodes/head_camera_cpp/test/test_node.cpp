@@ -88,6 +88,10 @@ protected:
     executor_.add_node(node_);
     executor_.add_node(probe_);
     spinner_ = std::thread([this] { executor_.spin(); });
+    // cancel() before spin() has started is lost (spin re-arms), so teardown would hang on join.
+    while (!executor_.is_spinning()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
   }
 
   void TearDown() override
