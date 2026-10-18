@@ -33,7 +33,7 @@ process_gaps: []
 
 ## Acceptance conditions
 
-- a1: the default arm tab streams /front_camera/image_raw/compressed through front_camera_topic [evidence: test: nodes/web_ui/tests/test_config.py::test_default_arm_tab_uses_the_front_camera]
+- a1: the default arm tab streams /front_camera/image_raw/compressed through front_camera_topic [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_config.py::test_default_arm_tab_uses_the_front_camera -q]
 - a2: no web_ui backend, config, test or README and no client.yml line names overview_camera_topic [evidence: command: ! git grep -n overview_camera_topic -- nodes/web_ui/web_ui nodes/web_ui/config nodes/web_ui/tests nodes/web_ui/README.md ansible/group_vars/client.yml tests]
 - a3: root client.yml web_ui checks pass [evidence: command: uv run pytest tests/test_mcp_server_config.py -q]
 - a4: web_ui suite and lint pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint]

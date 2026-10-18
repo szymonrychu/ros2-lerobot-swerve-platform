@@ -35,8 +35,8 @@ process_gaps: []
 
 ## Acceptance conditions
 
-- a1: the Head tab renders no raw/fused toggle and reads tof_depth_topic [evidence: test: nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx]
-- a2: the Arm tab shows the front camera from front_camera_topic [evidence: test: nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx]
+- a1: the Head tab renders no raw/fused toggle and reads tof_depth_topic [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/tabs/HeadTab.test.tsx]
+- a2: the Arm tab shows the front camera from front_camera_topic [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/tabs/ArmTab.test.tsx]
 - a3: no frontend source mentions stereo, fused depth or overview_camera [evidence: command: ! git grep -n -i -E 'stereo|fused_depth|raw/fused|overview_camera' -- nodes/web_ui/frontend/src]
 - a4: typecheck, vitest, eslint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]
 

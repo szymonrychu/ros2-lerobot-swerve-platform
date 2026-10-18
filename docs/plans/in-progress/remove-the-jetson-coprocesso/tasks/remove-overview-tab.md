@@ -32,8 +32,8 @@ process_gaps: []
 
 ## Acceptance conditions
 
-- a1: the default config has no overview tab and subscribes no /overview_camera topic [evidence: test: nodes/web_ui/tests/test_config.py::test_default_config_has_no_overview_tab]
-- a2: the bridge resolves /front_camera and no longer knows /overview_camera [evidence: test: nodes/web_ui/tests/test_bridge.py::test_front_camera_resolves_and_overview_camera_is_gone]
+- a1: the default config has no overview tab and subscribes no /overview_camera topic [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_config.py::test_default_config_has_no_overview_tab -q]
+- a2: the bridge resolves /front_camera and no longer knows /overview_camera [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_bridge.py::test_front_camera_resolves_and_overview_camera_is_gone -q]
 - a3: the client web_ui tab set has no overview tab [evidence: test: tests/test_mcp_server_config.py::test_web_ui_tab_set]
 - a4: no web_ui backend, config or README mentions the Overview tab or /overview_camera, except the bridge test asserting it is gone [evidence: command: ! (git grep -n -E 'overview_camera|"Overview"' -- nodes/web_ui/web_ui nodes/web_ui/config nodes/web_ui/README.md | grep -v overview_camera_topic)]
 - a5: web_ui suite and lint pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint]
