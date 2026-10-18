@@ -1,9 +1,9 @@
 ---
 title: "When a legacy record that has no stored view goes through photo_as_poi and back through poi_as_record, the result carries a filled-in view. The record that comes back differs from the original in its view field, though the photo POI form is the same."
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A map save then load can rewrite index lines with the filled-in view. It does no harm, but the round trip is not byte-identical at the record level."
-files: []
+files: [shared/ros2_common/photos.py]
 verify: ""
 depends_on: []
 owns: []
@@ -35,6 +35,7 @@ Why: A map save then load can rewrite index lines with the filled-in view. It do
 
 ## Files
 
+- shared/ros2_common/photos.py
 
 
 ## Interfaces
@@ -55,3 +56,7 @@ When a legacy record that has no stored view goes through photo_as_poi and back 
 
 Discovered in task `poi-replace-export-photos` during run `poi-fixes-photos-as-pois-and`.
 
+
+## Ruling
+
+No change: filling in the derived view of a legacy record on save/load is a harmless normalisation (the photo POI form is identical). Closed by the orchestrator.
