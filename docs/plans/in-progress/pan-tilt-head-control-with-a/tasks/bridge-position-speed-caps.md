@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--bridge-position-speed-caps
+branch: pan-tilt-head-control-with-a--bridge-position-speed-caps
 verified_head: ""
 run: ""
 provides: []

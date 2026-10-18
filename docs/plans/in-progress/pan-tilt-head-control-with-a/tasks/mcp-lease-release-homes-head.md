@@ -12,8 +12,8 @@ model: opus
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--mcp-lease-release-homes-head
+branch: pan-tilt-head-control-with-a--mcp-lease-release-homes-head
 verified_head: ""
 run: ""
 provides: []

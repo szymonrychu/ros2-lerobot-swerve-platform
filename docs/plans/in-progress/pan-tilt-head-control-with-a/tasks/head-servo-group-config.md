@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-servo-group-config
+branch: pan-tilt-head-control-with-a--head-servo-group-config
 verified_head: ""
 run: ""
 provides: []
