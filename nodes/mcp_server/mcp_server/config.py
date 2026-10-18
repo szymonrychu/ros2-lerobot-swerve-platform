@@ -2,7 +2,6 @@
 
 import math
 import os
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Literal
 
@@ -13,6 +12,7 @@ from ros2_common.camera_geometry import MountPose
 from ros2_common.maps import COMMAND_TOPIC, RESULT_TOPIC, STATUS_TOPIC
 
 from .guard_rules import GuardRuleSettings
+from .head_kinematics import DEFAULT_HEAD_URDF, HeadKinematics
 from .models import SettlePolicy
 from .sag import SAG_JOINTS
 
@@ -22,7 +22,6 @@ DEFAULT_CONFIG_PATH = Path("/etc/ros2/mcp_server/config.yaml")
 # mcp_server/config.py -> nodes/mcp_server/mcp_server -> repo root is three levels above the package.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
-DEFAULT_HEAD_URDF = Path("nodes/web_ui/urdf/head.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
@@ -580,15 +579,11 @@ class HeadSettings(StrictModel):
         Raises:
             ValueError: When a home angle is outside its joint's URDF limit or a joint has no limit.
         """
-        limits = {
-            joint.get("name"): limit.attrib
-            for joint in ET.parse(self.urdf_path).getroot().iter("joint")
-            if (limit := joint.find("limit")) is not None
-        }
+        limits = HeadKinematics(self.urdf_path).limits
         for joint, home in zip(self.joint_names, (self.home_pan_rad, self.home_tilt_rad), strict=True):
             if joint not in limits:
                 raise ValueError(f"head: no limits for {joint} in {self.urdf_path}")
-            lower, upper = float(limits[joint]["lower"]), float(limits[joint]["upper"])
+            lower, upper = limits[joint]
             if not lower <= home <= upper:
                 raise ValueError(f"head: home for {joint} is {home} rad, outside the URDF limits [{lower}, {upper}]")
         return self
@@ -1554,7 +1549,7 @@ class McpServerConfig(StrictModel):
     timeouts: TimeoutSettings = TimeoutSettings()
     nav: NavSettings = NavSettings()
     arm: ArmSettings = ArmSettings()
-    head: HeadSettings = HeadSettings()
+    head: HeadSettings = Field(default_factory=HeadSettings)
     battery: BatteryConfig | None = None  # absent: battery cut-off gate off, nothing refused
     monitor: MonitorSettings = MonitorSettings()
     cameras: CamerasSettings = CamerasSettings()

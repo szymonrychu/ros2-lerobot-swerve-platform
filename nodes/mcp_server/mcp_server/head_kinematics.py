@@ -20,14 +20,13 @@ import numpy as np
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
-from mcp_server.config import REPO_ROOT
-
 BASE_LINK = "base_link"
 PAN_JOINT = "head_pan"
 TILT_JOINT = "head_tilt"
 CAMERA_FRAME = "head_camera_optical_frame"
 TOF_FRAME = "tof_optical_frame"
-DEFAULT_HEAD_URDF = REPO_ROOT / "nodes/web_ui/urdf/head.urdf"
+# mcp_server/head_kinematics.py -> repo root is three levels above the package (same root as config.REPO_ROOT).
+DEFAULT_HEAD_URDF = Path(__file__).resolve().parents[3] / "nodes/web_ui/urdf/head.urdf"
 # Pan axis base frame; the offset-free seed aims from the pan axis at the tilt-axis height (head_link).
 SEED_FRAME = "head_link"
 MIN_CAMERA_DISTANCE_M = 0.15
