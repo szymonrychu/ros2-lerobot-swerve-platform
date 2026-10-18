@@ -189,6 +189,15 @@
             _deploy_node_name: arducam_tof
           tags: [arducam_tof, apt, python, build, config]
 
+        - name: Deploy tof_obstacle_cloud
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [tof_obstacle_cloud]
+          vars:
+            _deploy_node_name: tof_obstacle_cloud
+          tags: [tof_obstacle_cloud, apt, python, build, config]
+
         - name: Deploy filter_node
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

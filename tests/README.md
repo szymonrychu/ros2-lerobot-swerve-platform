@@ -2599,3 +2599,23 @@ Docs guard for the driving-agent skills suite.
 | `test_nodes_readme_mentions_the_new_features` | The `nodes/README.md` claude_agent line names skills, workflows and retrospectives; the costmap_zones line names slow-zone cost. |
 | `test_memory_records_the_decision` | MEMORY.md records the skills, workflows, retrospectives, POI category and slow-zone decisions. |
 | `test_tests_readme_lists_this_file` | This file is listed here. |
+
+### test_tof_obstacle_cloud_config.py
+
+Static checks of the `tof_obstacle_cloud` deployment (config-only rtabmap_util point_cloud_xyz, Client only).
+
+| Test | Covers |
+|---|---|
+| `test_launch_command_runs_point_cloud_xyz_with_params_file` | The launch command runs `ros2 run rtabmap_util point_cloud_xyz` with the repo params file. |
+| `test_launch_command_remaps_topics_and_node_name` | Remaps are exactly depth/image, depth/camera_info, cloud -> `/tof/points` and `__node:=tof_obstacle_cloud`. |
+| `test_node_type_is_native_config_only_with_apt_package` | Native, no src dir, `src_paths`, `ros-jazzy-rtabmap-util`, no pyproject. |
+| `test_node_type_is_normal_tier_with_estimated_memory` | Normal tier weights, `memory_low` 64M, `memory_max` 192M. |
+| `test_params_file_values` | The params file holds the expected values and types plus a `qos`. |
+| `test_params_file_comments_every_key` | Every param has a comment line above it. |
+| `test_max_depth_within_arducam_range_and_min_depth_positive` | `max_depth` within the configured `range_mode` range (far 4 m, near 2 m), `min_depth` > 0. |
+| `test_arducam_frame_id_is_tof_optical_frame` | arducam_tof `frame_id` is `tof_optical_frame`. |
+| `test_no_tf_publishing_argument_and_slam_toolbox_owns_map_odom` | No TF argument; no other client type publishes `map -> odom` (amcl, static transform); slam_toolbox exists. |
+| `test_playbook_deploys_node_after_arducam_tof` | The client playbook has the deploy block after arducam_tof. |
+| `test_ros2_nodes_entry_present_enabled_after_arducam_tof` | The `ros2_nodes` entry is present, enabled and right after arducam_tof. |
+| `test_node_is_not_on_the_server` | Not in server.yml. |
+| `test_readme_documents_topics_and_placeholder_rule` | README names the topic, frame, rationale and empty-cloud rule. |

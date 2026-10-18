@@ -8,6 +8,7 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **master2master/** — Topic proxy (Client only).
 - **bridges/uvc_camera/** — UVC camera bridge.
 - **bridges/arducam_tof/** - Arducam ToF camera bridge: `/tof/depth/image_raw` (16UC1 mm), `/tof/amplitude/image_raw` (mono16), `/tof/camera_info`; never publishes placeholder frames; deployed disabled (Client only).
+- **tof_obstacle_cloud/** - Config-only `rtabmap_util point_cloud_xyz`: `/tof/depth/image_raw` + `/tof/camera_info` -> decimated `/tof/points` (PointCloud2, `tof_optical_frame`); publishes only from real synced frames (Client only).
 - **bridges/feetech_servos/** — Feetech servos bridge (configurable namespace, extra namespaces on the same bus, position or wheel/velocity mode per joint; leader/follower example configs).
   - Ansible node `base_servos` (the base bus) also carries the `head` group (`head_pan` ID 20, `head_tilt` ID 21): `/head/joint_states` and `/head/joint_commands`, speed/acceleration caps written with every goal, home pose in `startup_position_rad`.
 - **head_state_publisher/** - robot_state_publisher on `web_ui/urdf/head.urdf`, driven by `/head/joint_states`: publishes the head TF (pan/tilt chain, RGB camera and ToF frames; Client only). See `head_state_publisher/README.md`.
