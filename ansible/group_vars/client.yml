@@ -1085,7 +1085,7 @@ ros2_nodes:
     env:
       # Prometheus /metrics of the scan supervisor on 127.0.0.1 (scraped by Alloy).
       - METRICS_PORT=19106
-      # By id: a second USB-serial adapter can take /dev/ttyUSB0 at boot, so the lidar must not rely on it.
+      # By id: a second USB-serial adapter can take the first kernel-assigned ttyUSB number at boot, so the lidar must not rely on it.
       - RPLIDAR_SERIAL_PORT=/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
   # Retired earlier: present false uninstalls the unit on the next deploy.
   - name: realsense_d435i
@@ -1183,7 +1183,7 @@ ros2_nodes:
           source_max_steps: 3289
           command_min_steps: 1900
   # Swerve base servos (IDs 32-39) on their own bus: the original adapter, served as /swerve_drive/* by a second
-  # feetech_servos instance. This bus also has room for the pan/tilt head group (see extra_groups at the end).
+  # feetech_servos instance.
   - name: base_servos
     node_type: feetech_servos
     present: true
@@ -1238,10 +1238,6 @@ ros2_nodes:
           mode: velocity
         - name: rr_steer
           id: 37
-      # Head group slot (design D7): the pan/tilt position servos go on this bus as a second group here, as
-      #   extra_groups: [{namespace: head, joint_names: [...]}]
-      # giving /head/joint_states and /head/joint_commands (set command_min_steps/command_max_steps per joint).
-      # This entry configures the eight base joints only.
   - name: swerve_controller
     node_type: swerve_controller
     present: true
