@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 from collections.abc import Callable, Mapping
 
 import httpx
@@ -34,6 +35,9 @@ HISTORY_INT_PARAMS = ("before_seq", "limit")
 RETRY_OUTCOMES_LIMIT_MIN = 1
 RETRY_OUTCOMES_LIMIT_MAX = 5000
 RETRY_OUTCOMES_INT_PARAMS = ("limit",)
+# Bounds of the retrospectives page size (claude_agent GET /api/retrospectives accepts 1..500).
+RETROSPECTIVES_LIMIT_MIN = 1
+RETROSPECTIVES_LIMIT_MAX = 500
 AGENT_WS_PATH = "/ws/events"
 AGENT_DISCONNECTED_MESSAGE = "agent disconnected"
 NO_AGENT_TAB_MESSAGE = "no agent_chat tab configured"
@@ -43,6 +47,7 @@ AGENT_ROUTES: tuple[tuple[str, str, str, bool], ...] = (
     ("history", "/api/history", "GET", False),
     ("message", "/api/message", "POST", True),
     ("retry_outcomes", "/api/retry_outcomes", "GET", False),
+    ("retrospectives", "/api/retrospectives", "GET", False),
     ("stop", "/api/stop", "POST", False),
     ("reset", "/api/reset", "POST", True),
 )
@@ -61,13 +66,16 @@ def agent_error(message: str, status_code: int) -> JSONResponse:
     return JSONResponse({"ok": False, "message": message}, status_code=status_code)
 
 
-def paging_params(query: Mapping[str, str], int_params: tuple[str, ...], limit_max: int) -> dict[str, int]:
+def paging_params(
+    query: Mapping[str, str], int_params: tuple[str, ...], limit_max: int, limit_min: int = HISTORY_LIMIT_MIN
+) -> dict[str, int]:
     """Validate a paging query: integers only, limit clamped to 1..limit_max.
 
     Args:
         query (Mapping[str, str]): Browser query parameters.
         int_params (tuple[str, ...]): Names forwarded upstream, all integers.
-        limit_max (int): Upper clamp of the "limit" param (the lower clamp is 1).
+        limit_max (int): Upper clamp of the "limit" param.
+        limit_min (int): Lower clamp of the "limit" param.
 
     Returns:
         dict[str, int]: Only the params that were sent, as ints.
@@ -77,7 +85,7 @@ def paging_params(query: Mapping[str, str], int_params: tuple[str, ...], limit_m
     """
     params = {name: int(query[name]) for name in int_params if name in query}
     if "limit" in params:
-        params["limit"] = max(HISTORY_LIMIT_MIN, min(limit_max, params["limit"]))
+        params["limit"] = max(limit_min, min(limit_max, params["limit"]))
     return params
 
 
@@ -109,6 +117,29 @@ def retry_outcomes_params(query: Mapping[str, str]) -> dict[str, int]:
         ValueError: limit is not an integer.
     """
     return paging_params(query, RETRY_OUTCOMES_INT_PARAMS, RETRY_OUTCOMES_LIMIT_MAX)
+
+
+def retrospectives_params(query: Mapping[str, str]) -> dict[str, int | float]:
+    """Validate the retrospectives query (limit clamped to 1..500, before a finite timestamp).
+
+    Args:
+        query (Mapping[str, str]): Browser query parameters.
+
+    Returns:
+        dict[str, int | float]: Only the params that were sent: limit as int, before as float.
+
+    Raises:
+        ValueError: limit is not an integer or before is not a finite number.
+    """
+    params: dict[str, int | float] = dict(
+        paging_params(query, ("limit",), RETROSPECTIVES_LIMIT_MAX, RETROSPECTIVES_LIMIT_MIN)
+    )
+    if "before" in query:
+        before = float(query["before"])
+        if not math.isfinite(before):
+            raise ValueError("before must be finite")
+        params["before"] = before
+    return params
 
 
 def agent_ws_url(agent_url: str) -> str:
@@ -192,13 +223,15 @@ async def close_quietly(ws: WebSocket) -> None:
 
 
 # Routes whose query string is validated and forwarded (all others forward none), and their 400 messages.
-QUERY_VALIDATORS: dict[str, Callable[[Mapping[str, str]], dict[str, int]]] = {
+QUERY_VALIDATORS: dict[str, Callable[[Mapping[str, str]], Mapping[str, int | float]]] = {
     "history": history_params,
     "retry_outcomes": retry_outcomes_params,
+    "retrospectives": retrospectives_params,
 }
 QUERY_ERRORS: dict[str, str] = {
     "history": "before_seq and limit must be integers",
     "retry_outcomes": "limit must be an integer",
+    "retrospectives": "limit must be an integer and before a finite number",
 }
 
 

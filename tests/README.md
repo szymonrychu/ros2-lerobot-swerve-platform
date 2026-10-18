@@ -1927,6 +1927,7 @@ Static checks of the web_ui Agent tab in `ansible/group_vars/client.yml` (no ROS
 | `test_agent_tab_exists_with_type_and_label` | web_ui has a tab `agent` of type `agent_chat` labelled "Agent". |
 | `test_agent_tab_directly_after_map_tab` | The Agent tab is listed immediately after the `map` tab. |
 | `test_agent_tab_url_matches_claude_agent_port` | `agent_url` is 127.0.0.1 with the same port as the claude_agent `http_port` (18300). |
+| `test_retros_tab_of_type_agent_retros_after_agent_tab` | web_ui has a tab `retros` of type `agent_retros` labelled "Retros", listed immediately after the Agent tab. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_web_ui_agent_tab.py` is listed in this section. |
 
 ### `test_head_camera_live_refs.py`

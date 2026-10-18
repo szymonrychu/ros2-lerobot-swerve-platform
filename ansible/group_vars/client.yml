@@ -1743,6 +1743,10 @@ ros2_nodes:
           type: agent_chat
           label: "Agent"
           agent_url: http://127.0.0.1:18300
+        # Retrospectives of the claude_agent node (read through the agent tab's agent_url).
+        - id: retros
+          type: agent_retros
+          label: Retros
         # Arm tab: gripper + head cameras, arm-glued 3D views and arm control. The gripper camera mount is the
         # one of mcp_server cameras.gripper.mount below (a test pins them equal).
         - id: arm

@@ -75,6 +75,8 @@ class Recorder:
             return httpx.Response(202, json={"ok": True})
         if path == "/api/retry_outcomes":
             return httpx.Response(200, json={"records": [], "path_ok": True})
+        if path == "/api/retrospectives":
+            return httpx.Response(200, json={"retrospectives": [{"ts": 1.5}]})
         if path in ("/api/stop", "/api/reset"):
             return httpx.Response(200, json={"ok": True, "message": "done"})
         return httpx.Response(404)
@@ -186,6 +188,41 @@ def test_retry_outcomes_proxied_with_limit(make_client: Callable[..., TestClient
     assert dict(recorder.requests[0].url.params) == {"limit": "250"}
 
 
+def test_retrospectives_proxied_with_limit_and_before(
+    make_client: Callable[..., TestClient], recorder: Recorder
+) -> None:
+    resp = make_client().get("/api/agent/retrospectives", params={"limit": 20, "before": 1234.5})
+    assert resp.status_code == 200
+    assert resp.json() == {"retrospectives": [{"ts": 1.5}]}
+    assert recorder.requests[0].method == "GET"
+    assert recorder.requests[0].url.path == "/api/retrospectives"
+    assert dict(recorder.requests[0].url.params) == {"limit": "20", "before": "1234.5"}
+
+
+def test_retrospectives_without_params_sends_none(make_client: Callable[..., TestClient], recorder: Recorder) -> None:
+    make_client().get("/api/agent/retrospectives")
+    assert dict(recorder.requests[0].url.params) == {}
+
+
+@pytest.mark.parametrize(("sent", "expected"), [("0", "1"), ("-5", "1"), ("99999", "500"), ("500", "500"), ("7", "7")])
+def test_retrospectives_limit_bounded(
+    make_client: Callable[..., TestClient], recorder: Recorder, sent: str, expected: str
+) -> None:
+    make_client().get("/api/agent/retrospectives", params={"limit": sent})
+    assert recorder.requests[0].url.params["limit"] == expected
+
+
+@pytest.mark.parametrize("query", ["limit=abc", "limit=1.5", "before=abc", "before=", "before=nan", "before=inf"])
+def test_retrospectives_rejects_bad_params(
+    make_client: Callable[..., TestClient], recorder: Recorder, query: str
+) -> None:
+    resp = make_client().get(f"/api/agent/retrospectives?{query}")
+    assert resp.status_code == 400
+    assert resp.json()["ok"] is False
+    assert "limit" in resp.json()["message"]
+    assert recorder.requests == []
+
+
 def test_retry_outcomes_without_limit_sends_no_params(
     make_client: Callable[..., TestClient], recorder: Recorder
 ) -> None:
@@ -234,6 +271,7 @@ def test_post_stop_and_reset_proxied(make_client: Callable[..., TestClient], rec
         ("get", "/api/agent/state"),
         ("get", "/api/agent/history"),
         ("get", "/api/agent/retry_outcomes"),
+        ("get", "/api/agent/retrospectives"),
         ("post", "/api/agent/message"),
         ("post", "/api/agent/stop"),
         ("post", "/api/agent/reset"),
@@ -289,7 +327,8 @@ def test_stop_state_history_allowed_in_cutoff(make_client: Callable[..., TestCli
     assert client.get("/api/agent/state").status_code == 200
     assert client.get("/api/agent/history").status_code == 200
     assert client.get("/api/agent/retry_outcomes").status_code == 200
-    assert len(recorder.requests) == 4
+    assert client.get("/api/agent/retrospectives").status_code == 200
+    assert len(recorder.requests) == 5
 
 
 def test_message_allowed_with_battery_ok(make_client: Callable[..., TestClient]) -> None:
