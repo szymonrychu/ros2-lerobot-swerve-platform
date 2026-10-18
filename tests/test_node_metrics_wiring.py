@@ -31,8 +31,6 @@ CONFIG_METRICS_PORTS = {
     "arducam_tof": 19112,
     # Side-by-side C++ ports: the Python node's port (the same config block); only one of a pair is ever enabled.
     "map_guard_cpp": 19110,
-    # C++ bridge to the Jetson depthd: no Python counterpart.
-    "jetson_bridge_cpp": 19114,
 }
 CPP_SUFFIX = "_cpp"
 ENV_METRICS_PORTS = {"gripper_uvc_camera": 19105, "rplidar_a1": 19106}

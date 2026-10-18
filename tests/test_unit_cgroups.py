@@ -39,7 +39,7 @@ NORMAL = {
     "types": [
         "rplidar_a1", "rf2o_laser_odometry", "rf2o_odom_relay", "robot_localization_ekf", "nav2_bringup",
         "slam_toolbox", "laser_filter", "gps_rtk", "poi_store", "uvc_camera", "realsense_d435i",
-        "test_joint_api", "map_guard", "map_guard_cpp", "costmap_zones", "arducam_tof", "jetson_bridge_cpp",
+        "test_joint_api", "map_guard", "map_guard_cpp", "costmap_zones", "arducam_tof",
     ],
 }  # fmt: skip
 AGENT = {
@@ -318,9 +318,16 @@ def test_tiers_do_not_overlap() -> None:
 
 
 def test_every_client_type_is_tiered() -> None:
-    """Every client node type except the uninstalled ones (fastdds_discovery_server, and the retired stereo_depth,
-    stereo_depth_cpp and overview_camera, D7) is in a tier, and those carry no tier keys."""
-    uninstalled = {"fastdds_discovery_server", "stereo_depth", "stereo_depth_cpp", "overview_camera"}
+    """Every client node type except the uninstalled ones (fastdds_discovery_server, the retired stereo_depth,
+    stereo_depth_cpp and overview_camera, D7, and jetson_bridge_cpp, retired with the Jetson) is in a tier, and those
+    carry no tier keys."""
+    uninstalled = {
+        "fastdds_discovery_server",
+        "stereo_depth",
+        "stereo_depth_cpp",
+        "overview_camera",
+        "jetson_bridge_cpp",
+    }
     assert set(type_defaults(CLIENT_VARS)) - TIERED_TYPES == uninstalled
     for name in uninstalled:
         entry = type_defaults(CLIENT_VARS)[name]

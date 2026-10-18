@@ -43,9 +43,7 @@ CPP_TYPES = {
     "map_guard_cpp": ("map_guard", "MAP_GUARD_CONFIG", "ros2 run map_guard_cpp map_guard_node"),
 }
 METRICS_PORTS = {"map_guard_cpp": 19110}
-# C++ node types with no Python counterpart (tests/test_jetson_bridge_config.py pins their entry, tier and targets).
-STANDALONE_CPP_TYPES = ("jetson_bridge_cpp",)
-ALL_CPP_TYPES = (*sorted(CPP_TYPES), *STANDALONE_CPP_TYPES)
+ALL_CPP_TYPES = tuple(sorted(CPP_TYPES))
 # rosdep keys of system (non-ROS) dependencies -> their Ubuntu 24.04 apt package.
 ROSDEP_APT = {
     "yaml-cpp": "libyaml-cpp-dev",
@@ -481,17 +479,6 @@ def test_cpp_node_apt_packages_cover_every_in_tree_package_xml(cpp_type: str) ->
     for package_xml in present:
         missing = package_xml_apt_names(package_xml, local_packages) - set(entry["apt_packages"])
         assert not missing, f"{package_xml.relative_to(REPO_ROOT)}: {sorted(missing)} not in {cpp_type} apt_packages"
-
-
-@pytest.mark.parametrize("cpp_type", STANDALONE_CPP_TYPES)
-def test_standalone_cpp_node_type_is_a_local_colcon_build(cpp_type: str) -> None:
-    """Chained shared library first, then the node's own package; the build stamp restarts it."""
-    entry = client()["ros2_node_type_defaults"][cpp_type]
-    assert entry["deploy_mode"] == "native" and entry["node_src_dir"] == "" and entry["src_paths"] == []
-    identity = [{k: s[k] for k in ("local", "package", "workspace")} for s in entry["colcon_source"]]
-    assert identity == [COMMON_SOURCE, {"local": f"nodes/{cpp_type}", "package": cpp_type, "workspace": WORKSPACE}]
-    nodes = {n["name"]: n for n in client()["ros2_nodes"]}
-    assert nodes[cpp_type]["node_type"] == cpp_type and nodes[cpp_type]["enabled"] is True
 
 
 def test_ros2_common_cpp_is_a_discovered_cpp_package() -> None:
