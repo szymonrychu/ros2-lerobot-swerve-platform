@@ -1,6 +1,6 @@
 ---
 title: Relocalise requires a minimum evaluated scan fraction
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A partially overlapping match can no longer be accepted as the robot's pose"
 files: [nodes/map_manager/map_manager/relocalise.py, nodes/map_manager/map_manager/config.py, nodes/map_manager/tests/test_relocalise.py, nodes/map_manager/tests/test_config.py, nodes/map_manager/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--relocalise-requires-a-minimu
+branch: named-maps-with-pois-and-rel--relocalise-requires-a-minimu
 verified_head: ""
 run: ""
 provides: []
