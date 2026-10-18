@@ -740,6 +740,23 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/poi_store
     env:
       - POI_STORE_CONFIG=/etc/ros2/poi_store/config.yaml
+  map_manager:
+    # Named maps (save/load/delete/relocalise bundles of the slam_toolbox graph, POIs and pose): see nodes/map_manager/README.md.
+    # Node type only: the ros2_nodes entry (config, metrics port) comes with the map-manager-lint-and-metrics task.
+    deploy_mode: native
+    node_launch_command: "python3 -m map_manager"
+    node_src_dir: "nodes/map_manager"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
+    # Initial values, not measured: re-measure the working set in Mimir after 24 h and adjust.
+    memory_low: "56M"
+    memory_max: "192M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
+    config_path: /etc/ros2/map_manager
+    env:
+      - MAP_MANAGER_CONFIG=/etc/ros2/map_manager/config.yaml
   costmap_zones:
     # Rasterises the active area-POI zones into keepout/speed masks for the Nav2 costmap filters: see nodes/costmap_zones/README.md.
     deploy_mode: native

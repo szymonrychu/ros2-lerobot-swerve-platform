@@ -63,6 +63,7 @@ jobs:
           - lerobot_teleop
           - master2master
           - map_guard
+          - map_manager
           - mcp_server
           - poi_store
           - rf2o_odom_relay
@@ -99,6 +100,7 @@ jobs:
         package:
           - ros2_common_cpp
           - map_guard_cpp
+          - head_camera_cpp
     steps:
       - uses: actions/checkout@v4
       - name: Build, test and lint in ros:jazzy-ros-base
