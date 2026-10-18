@@ -1689,6 +1689,9 @@ ros2_nodes:
           arm_urdf: so101_arm.urdf
           arm_joint_states_topic: /follower/joint_states
           arm_command_topic: /filter/web_ui_joint_commands
+          # Pan/tilt head model driven by the head_state_publisher joint states.
+          head_urdf: head.urdf
+          head_joint_states_topic: /head/joint_states
           # Arm mount (URDF base origin) in base_link [x, y, z] m (z up from the floor), measured 2026-10-10 (pan axis from
           # CAD, height from tip touch-downs). Same value as the mcp_server arm.base_in_base_link, so the drawn arm and
           # the grasp preview agree with the planner.
@@ -1768,6 +1771,12 @@ ros2_nodes:
           tof_depth_topic: /tof/depth/image_raw
           tof_amplitude_topic: /tof/amplitude/image_raw
           tof_range_m: 4.0
+          # Pan/tilt control: out-of-range commands are refused. Equal to the head servo group steps above and head.urdf.
+          head_command_topic: /head/joint_commands
+          head_joint_states_topic: /head/joint_states
+          head_pan_range_deg: [-90, 90]
+          head_tilt_range_deg: [-30, 45]
+          head_home_deg: [0, 30]
         - id: poi
           type: poi
           label: "POI"

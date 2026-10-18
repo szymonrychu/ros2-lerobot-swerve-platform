@@ -110,6 +110,7 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     # Local (client-side) topics shown by the map tab and the default camera/IMU tabs.
     "/follower/joint_states": JointState,
     "/swerve_drive/joint_states": JointState,
+    "/head/joint_states": JointState,  # head_state_publisher pan/tilt state (head tab, map_nav head model)
     "/odom": Odometry,  # swerve_controller wheel odometry (status bar Vel overlay)
     "/imu/data": Imu,
     "/client/gps/fix": NavSatFix,  # gps_rtk_rover fix (status bar Lat/Lon overlays)

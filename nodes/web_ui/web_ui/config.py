@@ -7,6 +7,7 @@ Config loaded from WEB_UI_CONFIG env var path or the default path.
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,17 @@ DEFAULT_TOF_RANGE_M = 4.0
 # Default claude_agent API base URL proxied by the agent_chat tab (claude_agent http_port in client.yml).
 DEFAULT_AGENT_URL = "http://127.0.0.1:18300"
 
+# Defaults filled into head tabs for the pan/tilt control (same ranges as the head servo group and head.urdf).
+HEAD_TAB_DEFAULT_COMMAND_TOPIC = "/head/joint_commands"
+HEAD_TAB_DEFAULT_JOINT_STATES_TOPIC = "/head/joint_states"
+HEAD_TAB_DEFAULT_PAN_RANGE_DEG: tuple[float, float] = (-90.0, 90.0)
+HEAD_TAB_DEFAULT_TILT_RANGE_DEG: tuple[float, float] = (-30.0, 45.0)
+HEAD_TAB_DEFAULT_HOME_DEG: tuple[float, float] = (0.0, 30.0)
+# Joint names of the head command (sensor_msgs/JointState name[]); positions are radians.
+HEAD_PAN_JOINT = "head_pan"
+HEAD_TILT_JOINT = "head_tilt"
+# header.frame_id stamped on head commands published by the web UI (the filter-free operator source).
+HEAD_COMMAND_FRAME_ID = "web_ui"
 # Defaults filled into map_nav tabs for fields left unset (other tab types keep None).
 MAP_NAV_DEFAULTS: dict[str, str] = {
     "map_topic": "/map",
@@ -81,6 +93,8 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "grasp_command_topic": "/grasp/command",
     "grasp_result_topic": "/grasp/result",
     "lookups_dir": "/var/lib/ros2/poi/lookups",
+    "head_urdf": "head.urdf",
+    "head_joint_states_topic": HEAD_TAB_DEFAULT_JOINT_STATES_TOPIC,
 }
 # Topics a poi tab reads (defaults filled for unset fields; same values as the map_nav defaults).
 POI_TAB_DEFAULTS: dict[str, str] = {key: MAP_NAV_DEFAULTS[key] for key in ("poi_list_topic", "poi_photos_topic")}
@@ -134,6 +148,7 @@ GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "fix_topic",
     "base_joint_states_topic",
     "arm_joint_states_topic",
+    "head_joint_states_topic",
     "gripper_camera_topic",
     "head_camera_topic",
     "color_topic",
@@ -261,6 +276,12 @@ class TabConfig(BaseModel):
     base_joint_states_topic: str | None = None  # map_nav: sensor_msgs/JointState driving the base URDF
     arm_urdf: str | None = None  # map_nav: arm URDF under the URDF directory (/api/urdf/)
     arm_joint_states_topic: str | None = None  # map_nav: sensor_msgs/JointState driving the arm URDF
+    head_urdf: str | None = None  # map_nav: head URDF under the URDF directory (/api/urdf/)
+    head_joint_states_topic: str | None = None  # map_nav, head: sensor_msgs/JointState of the pan/tilt head
+    head_command_topic: str | None = None  # head: sensor_msgs/JointState (head_pan, head_tilt rad) command topic
+    head_pan_range_deg: tuple[float, float] | None = None  # head: allowed pan (min, max) in degrees
+    head_tilt_range_deg: tuple[float, float] | None = None  # head: allowed tilt (min, max) in degrees
+    head_home_deg: tuple[float, float] | None = None  # head: (pan, tilt) degrees the Home button commands
     arm_offset: tuple[float, float, float] | None = None
     arm_command_topic: str | None = None
     gripper_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the gripper camera
@@ -349,6 +370,35 @@ class TabConfig(BaseModel):
             )
         if self.type != "head":
             raise ValueError(f"tab {self.id!r}: zoom topics are only valid on a head tab (head camera only)")
+        return self
+
+    @model_validator(mode="after")
+    def apply_head_defaults(self) -> TabConfig:
+        """Fill unset head-tab pan/tilt control fields and check ranges are ordered with home inside them.
+
+        Returns:
+            TabConfig: This tab with head defaults applied; other tab types are untouched.
+        """
+        if self.type != HEAD_TAB_TYPE:
+            return self
+        for field, default in (
+            ("head_command_topic", HEAD_TAB_DEFAULT_COMMAND_TOPIC),
+            ("head_joint_states_topic", HEAD_TAB_DEFAULT_JOINT_STATES_TOPIC),
+            ("head_pan_range_deg", HEAD_TAB_DEFAULT_PAN_RANGE_DEG),
+            ("head_tilt_range_deg", HEAD_TAB_DEFAULT_TILT_RANGE_DEG),
+            ("head_home_deg", HEAD_TAB_DEFAULT_HOME_DEG),
+        ):
+            if getattr(self, field) is None:
+                setattr(self, field, default)
+        for field in ("head_command_topic", "head_joint_states_topic"):
+            if not getattr(self, field).strip():
+                raise ValueError(f"head tab {self.id!r}: {field} must not be empty")
+        pan, tilt, home = self.head_pan_range_deg, self.head_tilt_range_deg, self.head_home_deg
+        for name, (low, high) in (("head_pan_range_deg", pan), ("head_tilt_range_deg", tilt)):
+            if not (math.isfinite(low) and math.isfinite(high) and low < high):
+                raise ValueError(f"head tab {self.id!r}: {name} must be finite and ordered (min < max)")
+        if not (pan[0] <= home[0] <= pan[1] and tilt[0] <= home[1] <= tilt[1]):
+            raise ValueError(f"head tab {self.id!r}: head_home_deg {home} must lie inside the pan and tilt ranges")
         return self
 
     @model_validator(mode="after")
@@ -692,7 +742,23 @@ class AppConfig(BaseModel):
         Returns:
             dict[str, str]: map_nav goal topic -> map_frame.
         """
-        return {tab.goal_topic: tab.map_frame for tab in self.map_nav_tabs() if tab.goal_topic and tab.map_frame}
+        defaults = {tab.goal_topic: tab.map_frame for tab in self.map_nav_tabs() if tab.goal_topic and tab.map_frame}
+        defaults.update({tab.head_command_topic: HEAD_COMMAND_FRAME_ID for tab in self.head_tabs()})
+        return defaults
+
+    def head_command_ranges(self) -> dict[str, dict[str, tuple[float, float]]]:
+        """Map each head command topic to its allowed joint ranges in radians.
+
+        Returns:
+            dict[str, dict[str, tuple[float, float]]]: Topic -> {joint name -> (min_rad, max_rad)}.
+        """
+        return {
+            tab.head_command_topic: {
+                HEAD_PAN_JOINT: (math.radians(tab.head_pan_range_deg[0]), math.radians(tab.head_pan_range_deg[1])),
+                HEAD_TILT_JOINT: (math.radians(tab.head_tilt_range_deg[0]), math.radians(tab.head_tilt_range_deg[1])),
+            }
+            for tab in self.head_tabs()
+        }
 
     def publish_topics(self) -> list[str]:
         """Return topics the bridge must be able to publish to.
@@ -706,6 +772,8 @@ class AppConfig(BaseModel):
                 topics.add(tab.goal_topic)
             if tab.arm_command_topic:
                 topics.add(tab.arm_command_topic)
+            if tab.head_command_topic:
+                topics.add(tab.head_command_topic)
         return sorted(topics)
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import math
 import os
 import time
 import uuid
@@ -681,6 +682,40 @@ def build_app(
         state = bridge_node.tilt_state()
         return nav_rejection_message(state) if isinstance(state, dict) else None
 
+    head_ranges = config.head_command_ranges()
+
+    def head_range_rejection(msg: dict[str, Any]) -> str | None:
+        """Explain why a WebSocket publish on a head command topic is refused (range or non-finite value).
+
+        No lease check: web UI head commands are always allowed for the operator (ruling R1).
+
+        Args:
+            msg (dict[str, Any]): Decoded client frame.
+
+        Returns:
+            str | None: Refusal text, or None for other messages and valid head commands.
+        """
+        ranges = head_ranges.get(msg.get("topic")) if msg.get("type") == "publish" else None
+        if ranges is None:
+            return None
+        data = msg.get("data")
+        names = data.get("name") if isinstance(data, dict) else None
+        positions = data.get("position") if isinstance(data, dict) else None
+        if not isinstance(names, list) or not isinstance(positions, list) or len(names) != len(positions):
+            return "head command refused: name and position must be lists of equal length"
+        for name, position in zip(names, positions, strict=True):
+            if name not in ranges:
+                return f"head command refused: unknown joint {name!r}"
+            if isinstance(position, bool) or not isinstance(position, (int, float)) or not math.isfinite(position):
+                return f"head command refused: {name} position {position!r} is not a finite number"
+            low, high = ranges[name]
+            if not low <= position <= high:
+                return (
+                    f"head command refused: {name} {math.degrees(position):.1f} deg outside "
+                    f"[{math.degrees(low):.1f}, {math.degrees(high):.1f}] deg"
+                )
+        return None
+
     register_agent_routes(app, config, battery_block, agent_transport)
     register_photo_routes(app, config)
     register_imu_calibration_routes(app, config, bridge_node)
@@ -1198,6 +1233,9 @@ def build_app(
                                 "ws_publish_rejected_battery_cutoff", client_id=client_id, topic=msg.get("topic", "")
                             )
                             conn.enqueue(json.dumps({"type": "error", "source": "battery", "message": error}))
+                        elif (head_error := head_range_rejection(msg)) is not None:
+                            log.warning("ws_head_command_rejected", client_id=client_id, message=head_error)
+                            conn.enqueue(json.dumps({"type": "error", "source": "head", "message": head_error}))
                         elif (tilt_error := tilt_goal_rejection(msg)) is not None:
                             log.warning("ws_goal_rejected_tilt", client_id=client_id, topic=msg.get("topic", ""))
                             conn.enqueue(
