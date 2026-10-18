@@ -37,12 +37,12 @@ def setup(tmp_path: Path):
     return client, runner, store
 
 
-def test_empty_store(setup) -> None:
+def test_list_empty_store(setup) -> None:
     client, _, _ = setup
     assert client.get("/api/retrospectives").json() == {"retrospectives": [], "total": 0}
 
 
-def test_newest_first_with_total(setup) -> None:
+def test_list_newest_first_with_total(setup) -> None:
     client, _, store = setup
     for t in (1.0, 3.0, 2.0):
         store.append(record(t))
@@ -52,7 +52,7 @@ def test_newest_first_with_total(setup) -> None:
     assert body["retrospectives"][0]["instruction"] == "job 3.0"
 
 
-def test_limit_and_before(setup) -> None:
+def test_list_limit_and_before(setup) -> None:
     client, _, store = setup
     for t in (1.0, 2.0, 3.0, 4.0):
         store.append(record(t))
