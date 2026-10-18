@@ -1982,8 +1982,8 @@ ros2_nodes:
             pitch: 1.1950
             yaw: -1.4466
         # Front = the head RGB camera (Camera Module 3) on the pan/tilt head: its pose follows the measured head angles
-        # (/head/joint_states). The mount is the head.urdf head_link -> head_camera_link origin; intrinsics stay null
-        # until the camera is calibrated, so the camera tools still answer 'not calibrated'.
+        # (/head/joint_states). The mount is the head.urdf head_link -> head_camera_link origin. Intrinsics are null
+        # (no calibration exists for this camera), so the camera tools answer 'not calibrated'.
         front:
           parent_frame: head_link
           intrinsics: null

@@ -617,9 +617,9 @@ looked there). The camera axis in the map frame = the record's `base_pose_map` y
 `camera_pose_base`. **Head-mounted front camera:** the front camera sits on the pan/tilt head, so its record's
 `camera_pose_base` is composed from the measured head angles at capture (pan +45 deg turns the axis 45 deg left of the
 base heading). Only legacy records without a pose (taken before the camera was on the head) fall back to the base
-heading; new front lookups taken with stale head joint states record no pose at all (never a base_link guess) and so
-have no facing. Gripper records without a pose
-are skipped, never guessed.
+heading; a front lookup taken with stale head joint states records no pose (never a base_link guess), and its facing
+then also falls back to the base heading, the same as a legacy record. Gripper records without a pose are skipped,
+never guessed.
 
 **CPU budget and `mcp_frontier_compute_seconds`.** The Pi 5 runs near 90% CPU, so there is no timer: work happens only
 inside tool calls and the topdown layer, once per `/map` version (detection stages) and once per (version, robot cell)
