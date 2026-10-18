@@ -1,6 +1,6 @@
 ---
 title: MCP lookups follow head pose
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Photos, frontier facing and approach view checks record where the head camera really looked."
 files: [nodes/mcp_server/mcp_server/lookup_tools.py, nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/approach_tools.py, nodes/mcp_server/tests/test_lookup_head_pose.py, nodes/mcp_server/README.md]
@@ -17,7 +17,7 @@ branch: pan-tilt-head-control-with-a--mcp-lookups-follow-head-pose
 verified_head: ""
 run: pan-tilt-head-control-with-a
 provides: []
-acs_for_audit: []
+acs_for_audit: [a3]
 process_gaps: []
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: Head tab pan tilt controls
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: The user points the head from the web UI Head tab with two sliders and a Home button.
 files: [nodes/web_ui/frontend/src/tabs/HeadTab.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/hooks/subscription.ts, nodes/web_ui/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-tab-pan-tilt-controls
 branch: pan-tilt-head-control-with-a--head-tab-pan-tilt-controls
-verified_head: ""
+verified_head: 3b074abf93e0381772b4d50ce208b6c7776439de
 run: pan-tilt-head-control-with-a
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["No red run: implementer states tests and fix were written together and never run against the old code (TDD rule)"]
 ---
 
 # Head tab pan tilt controls

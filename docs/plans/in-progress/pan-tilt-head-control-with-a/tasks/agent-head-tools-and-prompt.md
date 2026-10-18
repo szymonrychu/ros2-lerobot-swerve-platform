@@ -1,6 +1,6 @@
 ---
 title: Agent head tools and prompt
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The robot agent knows it can aim its head camera and that the head goes home when it parks.
 files: [nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_config.py, nodes/claude_agent/tests/test_prompt.py, nodes/claude_agent/README.md, ansible/group_vars/client.yml]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--agent-head-tools-and-prompt
 branch: pan-tilt-head-control-with-a--agent-head-tools-and-prompt
-verified_head: ""
+verified_head: 380fef10e53758e1cf16adc60e93ad294a711df5
 run: pan-tilt-head-control-with-a
 provides: []
 acs_for_audit: []
