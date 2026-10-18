@@ -1,7 +1,8 @@
 """The in-process SDK MCP server ``agent`` with the planning tools ``set_task_plan`` / ``complete_phase`` /
-``revise_plan`` / ``raise_phase_budget`` / ``answer_condition``: their schemas, descriptions and result texts, bound to
-a ``PlanTracker``."""
+``revise_plan`` / ``raise_phase_budget`` / ``answer_condition`` / ``start_workflow``: their schemas, descriptions and
+result texts, bound to a ``PlanTracker``."""
 
+import json
 import math
 import re
 from collections.abc import Awaitable, Callable
@@ -24,8 +25,10 @@ from .plan_tree import (
     PlanError,
 )
 from .robot_stop import RobotToolResult
+from .workflows import TEMPLATE_DIR, WorkflowTemplate, expand, load_templates
 
 RobotToolCaller = Callable[[str, dict[str, Any], float], Awaitable[RobotToolResult]]
+SessionToolsProvider = Callable[[], set[str] | None]
 LIST_POIS_TOOL = "list_pois"
 LIST_POIS_TIMEOUT_S = 5.0
 MAP_COORDINATES = re.compile(r"\bmap\b[^()\n]{0,20}?\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)", re.IGNORECASE)
@@ -35,8 +38,26 @@ COMPLETE_PHASE_TOOL = "complete_phase"
 REVISE_PLAN_TOOL = "revise_plan"
 RAISE_PHASE_TOOL = "raise_phase_budget"
 ANSWER_CONDITION_TOOL = "answer_condition"
-TOOL_NAMES = (SET_PLAN_TOOL, COMPLETE_PHASE_TOOL, REVISE_PLAN_TOOL, RAISE_PHASE_TOOL, ANSWER_CONDITION_TOOL)
+START_WORKFLOW_TOOL = "start_workflow"
+TOOL_NAMES = (
+    SET_PLAN_TOOL,
+    COMPLETE_PHASE_TOOL,
+    REVISE_PLAN_TOOL,
+    RAISE_PHASE_TOOL,
+    ANSWER_CONDITION_TOOL,
+    START_WORKFLOW_TOOL,
+)
 FULL_TOOL_NAMES = tuple(f"mcp__{PLAN_SERVER_NAME}__{name}" for name in TOOL_NAMES)
+# Optional perception tools (design D3) whose presence in the session's tool list the capability line reports.
+HEAD_AIMING_TOOL = "mcp__robot__head_look_at"
+MAP_3D_TOOL = "mcp__robot__get_3d_map_status"
+CAPABILITY_UNKNOWN = "unknown"
+CAPABILITY_LINE = "head aiming: {head}, 3D map: {map_3d}"
+CAPABILITY_PREFIX = "Perception tools in this session: "
+WORKFLOW_REJECTED = "Workflow rejected: "
+UNKNOWN_WORKFLOW_MESSAGE = "unknown workflow '{name}'; pick one of {names}"
+WORKFLOW_RATIONALE = "workflow {name}: {params}"
+WORKFLOW_RESULT = "Workflow {name}; mandatory steps: {ids}"
 PHASE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -107,6 +128,16 @@ RAISE_PHASE_DESCRIPTION = (
     "again whenever the phase runs low. Pass the new total for each of rw_cap, turn_cap, time_budget_min you want "
     "raised (at least one); caps are limited to the per-phase maxima and to what is left of the instruction maxima, "
     "time_budget_min to the ceiling. Do it early, when the phase or the time runs low, rather than giving up."
+)
+START_WORKFLOW_DESCRIPTION = (
+    "Seed the task plan from a workflow template in one call, instead of agent.set_task_plan: pick the workflow that "
+    "matches the person's request, give its params, and the template's phases, caps, complexity and time budget "
+    "become the plan (all plan limits and caps apply; a plan already set is refused). time_budget_min defaults to the "
+    "workflow's configured budget. Use dry_run: true first to get the expanded plan tree as JSON with its mandatory "
+    "step ids and the perception capability line, without setting anything; then edit the tree (add, reorder, drop "
+    "phases - dropped mandatory steps are flagged at the end of the job) and call again with plan set to the edited "
+    "tree. agent.revise_plan stays available once after the plan is set. For a job no workflow fits, use "
+    "agent.set_task_plan. Workflows:\n{workflows}"
 )
 ANSWER_CONDITION_DESCRIPTION = (
     "Answer the pending 'ask' condition of an if or while node with true or false and the evidence you based it on "
@@ -263,6 +294,77 @@ def revise_plan_schema(max_loop_iterations: int, ceiling: float) -> dict[str, An
         },
         "required": ["rationale"],
     }
+
+
+def start_workflow_schema(
+    templates: dict[str, WorkflowTemplate], max_loop_iterations: int, ceiling: float
+) -> dict[str, Any]:
+    """Build the input schema of start_workflow.
+
+    Args:
+        templates (dict[str, WorkflowTemplate]): Loaded templates by name.
+        max_loop_iterations (int): Largest max_iterations of a while node.
+        ceiling (float): max_instruction_time_min.
+
+    Returns:
+        dict[str, Any]: JSON schema with name (enum of the templates, required), params (strings), an optional
+        time_budget_min, an optional edited plan and dry_run.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "enum": sorted(templates), "description": "The workflow template."},
+            "params": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "description": "Param values of the workflow by param name (see each workflow's params).",
+            },
+            TIME_BUDGET_FIELD: time_budget_schema(
+                ceiling, "Optional minutes the whole task may take (default: the workflow's configured budget)."
+            ),
+            "plan": {
+                **plan_node_schema(max_loop_iterations),
+                "description": "Optional edited plan tree (from a dry run) to set instead of the template's.",
+            },
+            "dry_run": {
+                "type": "boolean",
+                "description": "true: return the expanded plan tree as JSON for editing and set nothing.",
+            },
+        },
+        "required": ["name"],
+    }
+
+
+def describe_workflow(template: WorkflowTemplate) -> str:
+    """Describe a workflow template in one line for the start_workflow description.
+
+    Args:
+        template (WorkflowTemplate): The template.
+
+    Returns:
+        str: ``- <name>: <description> Params: <name> (required|default "<text>"): <description>; ...``.
+    """
+    params = "; ".join(
+        f"{param.name} ({'required' if param.required else f'default {param.default!r}'}): {param.description}"
+        for param in template.params
+    )
+    return f"- {template.name}: {template.description} Params: {params or 'none'}."
+
+
+def perception_capabilities(tools: set[str] | None) -> str:
+    """Report which optional perception tools the session has.
+
+    Args:
+        tools (set[str] | None): Full tool names of the session (init SystemMessage ``tools``), None when not known yet.
+
+    Returns:
+        str: ``head aiming: yes|no, 3D map: yes|no`` (``unknown`` for both when tools is None).
+    """
+    if tools is None:
+        return CAPABILITY_LINE.format(head=CAPABILITY_UNKNOWN, map_3d=CAPABILITY_UNKNOWN)
+    return CAPABILITY_LINE.format(
+        head="yes" if HEAD_AIMING_TOOL in tools else "no", map_3d="yes" if MAP_3D_TOOL in tools else "no"
+    )
 
 
 def describe_phase(phase: dict[str, Any]) -> str:
@@ -516,13 +618,22 @@ async def poi_hint(summary: Any, robot_tool_caller: RobotToolCaller | None, radi
     )
 
 
-def build_plan_tools(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | None = None) -> list[SdkMcpTool[Any]]:
-    """Build the five planning tools bound to a tracker.
+def build_plan_tools(
+    tracker: PlanTracker,
+    robot_tool_caller: RobotToolCaller | None = None,
+    session_tools: SessionToolsProvider | None = None,
+    templates: dict[str, WorkflowTemplate] | None = None,
+) -> list[SdkMcpTool[Any]]:
+    """Build the six planning tools bound to a tracker.
 
     Args:
         tracker (PlanTracker): Receives the plan, completions, answers, revision and raises.
         robot_tool_caller (RobotToolCaller | None): Calls one robot MCP tool (name, arguments, timeout in s); complete_phase
             reads list_pois through it for the "Not on the map yet" hint (None: no hint).
+        session_tools (SessionToolsProvider | None): Returns the session's full tool names (None while not known);
+            start_workflow builds its capability line from it (None: always unknown).
+        templates (dict[str, WorkflowTemplate] | None): Workflow templates by name (None: load the shipped ones from
+            TEMPLATE_DIR).
 
     Returns:
         list[SdkMcpTool[Any]]: The tool list for the SDK MCP server.
@@ -530,6 +641,10 @@ def build_plan_tools(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | 
     max_iterations = tracker.config.max_loop_iterations
     ceiling = tracker.config.max_instruction_time_min
     complete_description = COMPLETE_PHASE_DESCRIPTION.format(threshold=tracker.config.retry_success_threshold)
+    workflows = load_templates(TEMPLATE_DIR) if templates is None else templates
+    workflow_description = START_WORKFLOW_DESCRIPTION.format(
+        workflows="\n".join(describe_workflow(template) for template in workflows.values())
+    )
 
     def text_result(text: str, is_error: bool = False) -> dict[str, Any]:
         result: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
@@ -608,17 +723,71 @@ def build_plan_tools(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | 
             return text_result(f"Condition not answered: {exc}", True)
         return text_result(format_answered(answered, following, tracker.transition_notes, tracker.pending_condition))
 
-    return [set_task_plan, complete_phase, revise_plan, raise_phase_budget, answer_condition]
+    @tool(START_WORKFLOW_TOOL, workflow_description, start_workflow_schema(workflows, max_iterations, ceiling))
+    async def start_workflow(args: dict[str, Any]) -> dict[str, Any]:
+        name = args.get("name")
+        template = workflows.get(name) if isinstance(name, str) else None
+        if template is None:
+            return text_result(
+                WORKFLOW_REJECTED + UNKNOWN_WORKFLOW_MESSAGE.format(name=name, names=", ".join(sorted(workflows))), True
+            )
+        params = args.get("params") or {}
+        if not isinstance(params, dict):
+            return text_result(f"{WORKFLOW_REJECTED}params must be an object of param name to text", True)
+        try:
+            expanded = expand(template, {str(key): str(value) for key, value in params.items()})
+        except ValueError as exc:
+            return text_result(f"{WORKFLOW_REJECTED}{exc}", True)
+        minutes = args.get(TIME_BUDGET_FIELD)
+        if minutes is None:
+            minutes = tracker.config.workflow_time_budget_min[template.name]
+        capabilities = perception_capabilities(session_tools() if session_tools else None)
+        if args.get("dry_run"):
+            dry = {
+                "workflow": template.name,
+                "complexity": template.complexity,
+                TIME_BUDGET_FIELD: minutes,
+                "plan": expanded.plan,
+                "mandatory_ids": expanded.mandatory_ids,
+                "skills": expanded.skills,
+                "capabilities": capabilities,
+            }
+            return text_result(json.dumps(dry, indent=1))
+        given = ", ".join(f"{key}={value}" for key, value in params.items()) or "no params"
+        try:
+            plan, notes = tracker.set_plan(
+                template.complexity,
+                WORKFLOW_RATIONALE.format(name=template.name, params=given),
+                plan=args.get("plan") or expanded.plan,
+                time_budget_min=minutes,
+                workflow=template.name,
+                mandatory_ids=expanded.mandatory_ids,
+            )
+        except PlanError as exc:
+            return text_result(f"Plan rejected: {exc}", True)
+        lines = [
+            format_plan(plan, notes, "accepted"),
+            WORKFLOW_RESULT.format(name=template.name, ids=", ".join(expanded.mandatory_ids) or "none"),
+            CAPABILITY_PREFIX + capabilities,
+        ]
+        return text_result("\n".join(lines))
+
+    return [set_task_plan, complete_phase, revise_plan, raise_phase_budget, answer_condition, start_workflow]
 
 
-def build_plan_server(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | None = None) -> McpSdkServerConfig:
+def build_plan_server(
+    tracker: PlanTracker,
+    robot_tool_caller: RobotToolCaller | None = None,
+    session_tools: SessionToolsProvider | None = None,
+) -> McpSdkServerConfig:
     """Build the in-process SDK MCP server named ``agent``.
 
     Args:
         tracker (PlanTracker): Receives the plan set by the agent.
         robot_tool_caller (RobotToolCaller | None): Robot tool caller for the complete_phase POI hint.
+        session_tools (SessionToolsProvider | None): Session tool names provider for the start_workflow capability line.
 
     Returns:
         McpSdkServerConfig: Server config for ``ClaudeAgentOptions.mcp_servers["agent"]``.
     """
-    return create_sdk_mcp_server(PLAN_SERVER_NAME, tools=build_plan_tools(tracker, robot_tool_caller))
+    return create_sdk_mcp_server(PLAN_SERVER_NAME, tools=build_plan_tools(tracker, robot_tool_caller, session_tools))
