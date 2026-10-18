@@ -665,6 +665,7 @@ def test_tool_names_and_schemas() -> None:
         "raise_phase_budget",
         "answer_condition",
         "start_workflow",
+        "record_retrospective",
     }
     plan_schema = tools["set_task_plan"].input_schema
     assert plan_schema["required"] == ["complexity", "rationale", "time_budget_min"]

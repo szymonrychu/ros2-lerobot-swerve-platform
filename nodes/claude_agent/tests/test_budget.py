@@ -52,6 +52,7 @@ def test_constants() -> None:
         "mcp__agent__raise_phase_budget",
         "mcp__agent__answer_condition",
         "mcp__agent__start_workflow",
+        "mcp__agent__record_retrospective",
     )
 
 
@@ -451,6 +452,7 @@ def test_server_is_an_in_process_sdk_server_named_agent() -> None:
         "raise_phase_budget",
         "answer_condition",
         "start_workflow",
+        "record_retrospective",
     }
     schema = tools["set_task_plan"].input_schema
     assert schema["required"] == ["complexity", "rationale", "time_budget_min"]

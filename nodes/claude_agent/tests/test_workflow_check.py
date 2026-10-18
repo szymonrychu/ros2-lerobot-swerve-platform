@@ -1,5 +1,5 @@
 """Job-end workflow check (D8): mandatory workflow steps that were skipped, dropped or never run get one WORKFLOW CHECK
-follow-up (with one extra plan revision) and are reported in turn_end.job_end.workflow; the check never parks the arm."""
+extra prompt (with one extra plan revision) and are reported in turn_end.job_end.workflow; the check never parks the arm."""
 
 from pathlib import Path
 from typing import Any
@@ -187,7 +187,7 @@ def test_a_grant_before_any_revision_still_allows_exactly_one_extra() -> None:
         tracker.revise_plan("again", phases=[{"name": "Three", "goal": "g", "rw_cap": 0, "turn_cap": 2}])
 
 
-# --- runner: the WORKFLOW CHECK follow-up and the turn_end report ---
+# --- runner: the WORKFLOW CHECK prompt and the turn_end report ---
 
 
 async def test_skipped_mandatory_phase_gets_one_workflow_check_then_is_reported(tmp_path: Path) -> None:

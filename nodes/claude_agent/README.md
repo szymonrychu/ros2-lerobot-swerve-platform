@@ -361,6 +361,26 @@ loads them on demand under the qualified name `robot-skills:<name>`. `claude_age
   `description` of at most 1024 characters that starts with "Use when ...", then the body. Run
   `uv run pytest tests/test_skills.py` here and `uv run pytest tests/test_agent_skills.py` at the repo root.
 
+## Retrospectives
+
+Every job leaves one structured, bounded retrospective on the robot, so lessons survive a New session.
+
+- **Record** (`claude_agent/retrospectives.py`, pydantic `Retrospective`): `id` (uuid4 hex), `created_at` (unix s),
+  `instruction` (<= 500 chars), `workflow` (None for a free job), `outcome` (done, partial, failed, interrupted,
+  timeout, error), `trivial`, `author` (agent or runner), `summary` (<= 500), the lists `went_well`, `went_wrong`,
+  `improvements` and `notes_for_fixers` (<= 10 items of <= 300 chars), `skipped_mandatory`, `phases` (name, outcome)
+  and the optional `cost_usd`, `num_turns`, `effector_calls`, `duration_s`. Over-long text is truncated, not rejected.
+- **Store**: `<state_dir>/retrospectives/retrospectives.jsonl` (`RETRO_RELPATH`), one record per line, created on
+  demand. It is outside the session log, so `/api/reset` (New session) keeps it. `RetroStore` offers `append`,
+  `list(limit, before)` (newest first), `recent(n)` and `count`; corrupt lines are skipped with one warning each.
+- **Bound**: `retro_max_records` (default 500, at least 50); past it the oldest half is dropped by an atomic rewrite.
+- **Feed**: `feed_text(records, max_chars)` builds the RECENT RETROSPECTIVES block (newest first: date, workflow or
+  "free", outcome, summary, went wrong, improvements), cut on a record boundary. `retro_feed_count` (0 to 20, 0
+  disables) and `retro_feed_max_chars` size it; `retro_followup` enables the RETROSPECTIVE prompt.
+- **Tool**: `agent.record_retrospective` (outcome done|partial|failed, summary, optional lists), backed by the
+  `retro_sink` given to `build_plan_tools`; without a sink it answers "retrospectives are not enabled". A second call in
+  the same instruction replaces the first narrative. The `retrospective` skill tells the agent how to write it.
+
 ## Workflows
 
 Workflow templates are repeatable step lists that seed the task plan, so discovery, drive-to-target and pick/place
@@ -568,7 +588,7 @@ from `answer_condition` answers and `outcome_of` evaluations). Sending it calls 
 `revise_plan` gets through even after the instruction's one revision. The check never counts toward
 `job_end_max_followups` and never triggers the forced park; the job-end check runs again after its reply.
 
-Follow-up order at the end of an instruction: `JOB END REFUSED` -> `WORKFLOW CHECK` -> `POI REVIEW`.
+Order of end-of-instruction prompts at the end of an instruction: `JOB END REFUSED` -> `WORKFLOW CHECK` -> `POI REVIEW`.
 
 Whenever a workflow was started, `turn_end` carries `job_end.workflow: {name, skipped_mandatory}` (the ids still skipped
 at the end, an empty list when none), also when there is no other job_end problem; it sits next to `forced_park` or

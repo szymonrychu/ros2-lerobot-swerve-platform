@@ -110,6 +110,12 @@ DEFAULT_RETRY_SUCCESS_THRESHOLD = 0.5
 DEFAULT_MAX_AUTO_RETRIES = 6
 DEFAULT_RETRY_LEDGER_MAX_RECORDS = 5000
 MIN_RETRY_LEDGER_MAX_RECORDS = 100
+DEFAULT_RETRO_MAX_RECORDS = 500
+MIN_RETRO_MAX_RECORDS = 50
+DEFAULT_RETRO_FEED_COUNT = 5
+MAX_RETRO_FEED_COUNT = 20
+DEFAULT_RETRO_FEED_MAX_CHARS = 3000
+MIN_RETRO_FEED_MAX_CHARS = 200
 DEFAULT_JOB_END_MAX_FOLLOWUPS = 2
 DEFAULT_JOB_END_PARK_TIMEOUT_S = 60.0
 # mcp_server re-emits a bump at most every 2 s: on a rough floor one interrupt per 10 s per warning type is enough.
@@ -143,6 +149,11 @@ class ClaudeAgentConfig(BaseModel):
         max_auto_retries: Most automatic phase re-entries per instruction, across all phases.
         retry_ledger_max_records: Bound of the retry calibration ledger ``<state_dir>/calibration/retry_outcomes.jsonl``;
             past it the oldest half of the records is dropped (at least 100).
+        retro_max_records: Bound of the retrospective store ``<state_dir>/retrospectives/retrospectives.jsonl``; past it
+            the oldest half is dropped (at least 50).
+        retro_feed_count: How many recent retrospectives are fed into a new instruction's prompt (0 to 20, 0 disables).
+        retro_feed_max_chars: Most characters of the fed RECENT RETROSPECTIVES block (at least 200).
+        retro_followup: Ask the agent for a retrospective with a "RETROSPECTIVE" prompt when a job ends.
         job_end_max_followups: "JOB END REFUSED" follow-ups the runner sends when an instruction would end with the arm
             out of home, a lease held or the plan unfinished; after that many the runner parks the arm itself.
         poi_review_followup: Send one "POI REVIEW" follow-up when an instruction used camera or motion tools and wrote
@@ -229,6 +240,10 @@ class ClaudeAgentConfig(BaseModel):
     retry_success_threshold: float = Field(default=DEFAULT_RETRY_SUCCESS_THRESHOLD, ge=0, le=1)
     max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
     retry_ledger_max_records: int = Field(default=DEFAULT_RETRY_LEDGER_MAX_RECORDS, ge=MIN_RETRY_LEDGER_MAX_RECORDS)
+    retro_max_records: int = Field(default=DEFAULT_RETRO_MAX_RECORDS, ge=MIN_RETRO_MAX_RECORDS)
+    retro_feed_count: int = Field(default=DEFAULT_RETRO_FEED_COUNT, ge=0, le=MAX_RETRO_FEED_COUNT)
+    retro_feed_max_chars: int = Field(default=DEFAULT_RETRO_FEED_MAX_CHARS, ge=MIN_RETRO_FEED_MAX_CHARS)
+    retro_followup: bool = True
     job_end_max_followups: int = Field(default=DEFAULT_JOB_END_MAX_FOLLOWUPS, ge=0)
     poi_review_followup: bool = True
     job_end_park_timeout_s: float = Field(default=DEFAULT_JOB_END_PARK_TIMEOUT_S, gt=0)

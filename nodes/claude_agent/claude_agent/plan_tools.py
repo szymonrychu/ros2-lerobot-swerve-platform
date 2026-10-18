@@ -39,6 +39,7 @@ REVISE_PLAN_TOOL = "revise_plan"
 RAISE_PHASE_TOOL = "raise_phase_budget"
 ANSWER_CONDITION_TOOL = "answer_condition"
 START_WORKFLOW_TOOL = "start_workflow"
+RECORD_RETROSPECTIVE_TOOL = "record_retrospective"
 TOOL_NAMES = (
     SET_PLAN_TOOL,
     COMPLETE_PHASE_TOOL,
@@ -46,6 +47,7 @@ TOOL_NAMES = (
     RAISE_PHASE_TOOL,
     ANSWER_CONDITION_TOOL,
     START_WORKFLOW_TOOL,
+    RECORD_RETROSPECTIVE_TOOL,
 )
 FULL_TOOL_NAMES = tuple(f"mcp__{PLAN_SERVER_NAME}__{name}" for name in TOOL_NAMES)
 # Optional perception tools (design D3) whose presence in the session's tool list the capability line reports.
@@ -54,6 +56,34 @@ MAP_3D_TOOL = "mcp__robot__get_3d_map_status"
 CAPABILITY_UNKNOWN = "unknown"
 CAPABILITY_LINE = "head aiming: {head}, 3D map: {map_3d}"
 CAPABILITY_PREFIX = "Perception tools in this session: "
+RETRO_OUTCOMES = ("done", "partial", "failed")
+RETRO_LIST_FIELDS = ("went_well", "went_wrong", "improvements", "notes_for_fixers")
+RETRO_NOT_ENABLED = "retrospectives are not enabled"
+RETRO_REJECTED = "Retrospective rejected: "
+RETRO_STORED = "Retrospective stored (id {id}). Nothing more to do for it."
+RECORD_RETROSPECTIVE_DESCRIPTION = (
+    "Store the retrospective of the job that just ended. Call it when the RETROSPECTIVE message asks for it. Be honest "
+    "and specific: what went wrong matters more than what went well, and a trivial job needs only a one-line summary. "
+    "Put in notes_for_fixers what the developers who fix the robot need: tool names, error texts, coordinates of "
+    "problem spots, suspected causes. A second call in the same instruction replaces the narrative of the first."
+)
+RECORD_RETROSPECTIVE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "outcome": {"type": "string", "enum": list(RETRO_OUTCOMES), "description": "How the job ended."},
+        "summary": {"type": "string", "description": "One to three sentences, at most 500 characters."},
+        **{
+            name: {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 10,
+                "description": f"Optional, up to 10 items of at most 300 characters ({name.replace('_', ' ')}).",
+            }
+            for name in RETRO_LIST_FIELDS
+        },
+    },
+    "required": ["outcome", "summary"],
+}
 WORKFLOW_REJECTED = "Workflow rejected: "
 UNKNOWN_WORKFLOW_MESSAGE = "unknown workflow '{name}'; pick one of {names}"
 WORKFLOW_RATIONALE = "workflow {name}: {params}"
@@ -623,8 +653,9 @@ def build_plan_tools(
     robot_tool_caller: RobotToolCaller | None = None,
     session_tools: SessionToolsProvider | None = None,
     templates: dict[str, WorkflowTemplate] | None = None,
+    retro_sink: Callable[[dict[str, Any]], str] | None = None,
 ) -> list[SdkMcpTool[Any]]:
-    """Build the six planning tools bound to a tracker.
+    """Build the seven planning tools bound to a tracker.
 
     Args:
         tracker (PlanTracker): Receives the plan, completions, answers, revision and raises.
@@ -634,6 +665,9 @@ def build_plan_tools(
             start_workflow builds its capability line from it (None: always unknown).
         templates (dict[str, WorkflowTemplate] | None): Workflow templates by name (None: load the shipped ones from
             TEMPLATE_DIR).
+        retro_sink (Callable[[dict[str, Any]], str] | None): Stores the arguments of record_retrospective and returns the
+            record id; a second call in the same instruction replaces the first narrative (None: tool answers with an
+            error).
 
     Returns:
         list[SdkMcpTool[Any]]: The tool list for the SDK MCP server.
@@ -772,13 +806,38 @@ def build_plan_tools(
         ]
         return text_result("\n".join(lines))
 
-    return [set_task_plan, complete_phase, revise_plan, raise_phase_budget, answer_condition, start_workflow]
+    @tool(RECORD_RETROSPECTIVE_TOOL, RECORD_RETROSPECTIVE_DESCRIPTION, RECORD_RETROSPECTIVE_SCHEMA)
+    async def record_retrospective(args: dict[str, Any]) -> dict[str, Any]:
+        if retro_sink is None:
+            return text_result(RETRO_NOT_ENABLED, True)
+        summary = args.get("summary")
+        if args.get("outcome") not in RETRO_OUTCOMES:
+            return text_result(f"{RETRO_REJECTED}outcome must be one of {', '.join(RETRO_OUTCOMES)}", True)
+        if not isinstance(summary, str) or not summary.strip():
+            return text_result(f"{RETRO_REJECTED}summary is required", True)
+        for name in RETRO_LIST_FIELDS:
+            if args.get(name) is not None and not (
+                isinstance(args[name], list) and all(isinstance(item, str) for item in args[name])
+            ):
+                return text_result(f"{RETRO_REJECTED}{name} must be a list of strings", True)
+        return text_result(RETRO_STORED.format(id=retro_sink(args)))
+
+    return [
+        set_task_plan,
+        complete_phase,
+        revise_plan,
+        raise_phase_budget,
+        answer_condition,
+        start_workflow,
+        record_retrospective,
+    ]
 
 
 def build_plan_server(
     tracker: PlanTracker,
     robot_tool_caller: RobotToolCaller | None = None,
     session_tools: SessionToolsProvider | None = None,
+    retro_sink: Callable[[dict[str, Any]], str] | None = None,
 ) -> McpSdkServerConfig:
     """Build the in-process SDK MCP server named ``agent``.
 
@@ -786,8 +845,12 @@ def build_plan_server(
         tracker (PlanTracker): Receives the plan set by the agent.
         robot_tool_caller (RobotToolCaller | None): Robot tool caller for the complete_phase POI hint.
         session_tools (SessionToolsProvider | None): Session tool names provider for the start_workflow capability line.
+        retro_sink (Callable[[dict[str, Any]], str] | None): Retrospective sink for record_retrospective.
 
     Returns:
         McpSdkServerConfig: Server config for ``ClaudeAgentOptions.mcp_servers["agent"]``.
     """
-    return create_sdk_mcp_server(PLAN_SERVER_NAME, tools=build_plan_tools(tracker, robot_tool_caller, session_tools))
+    return create_sdk_mcp_server(
+        PLAN_SERVER_NAME,
+        tools=build_plan_tools(tracker, robot_tool_caller, session_tools, retro_sink=retro_sink),
+    )
