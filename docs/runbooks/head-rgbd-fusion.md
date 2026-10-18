@@ -14,7 +14,7 @@ Limits and metric definitions: `docs/head-rgbd-fusion-methodology.md` (`### Resu
 2. Warm up the ToF 20 minutes. Print the ChArUco board (6x5, 40 mm squares): `uv run python -m scripts.markers_generate`,
    PDF at 100 % on matte laser paper on a rigid plate (or the two-colour STL/3MF); one square 40 +- 0.2 mm with a caliper.
    `uv run python -m scripts.head_rgbd_calibrate capture` with 20-30 still poses (0.5-1.5 m, tilts, corners), then
-   `calibrate`. Limits: RGB <= 0.5 px, ToF <= 0.3 px, stereo <= 1.0 px, plane bias <= 15 mm; otherwise iterate the capture.
+   `calibrate`. Limits: RGB <= 0.5 px, ToF <= 0.3 px, ToF-to-RGB extrinsic RMS <= 1.0 px, plane bias <= 15 mm; otherwise iterate the capture.
    Commit `nodes/head_camera_cpp/config/head_camera_calibration.yaml`, `nodes/head_rgbd_cpp/config/tof_calibration.yaml`,
    `nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml`.
 3. `urdf` mode rewrites `tof_joint`; commit `nodes/web_ui/urdf/head.urdf`. Set `camera_info_file` (head_camera_cpp) and
