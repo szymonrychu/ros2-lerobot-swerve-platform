@@ -1101,9 +1101,22 @@ def test_laser_filter_polygon_matches_the_h_outline() -> None:
     arm) + 1 cm (no padding parameter: the margin is generated into the polygon); returns in the rear notch are kept,
     the front notch lies under the parked gripper."""
     params = yaml.safe_load(LASER_FILTER_PARAMS.read_text())
-    assert set(params) == {"scan_topic", "scan_filtered_topic", "polygon_frame", "transform_timeout_s", "polygon"}
+    assert set(params) == {
+        "scan_topic",
+        "scan_filtered_topic",
+        "polygon_frame",
+        "transform_timeout_s",
+        "polygon",
+        "cloud_topic",
+        "cloud_filtered_topic",
+        "cloud_self_max_height_m",
+        "cloud_transform_timeout_s",
+    }
     assert params["polygon_frame"] == "base_link"
     assert (params["scan_topic"], params["scan_filtered_topic"]) == ("/scan", FILTERED_SCAN)
+    # The ToF cloud self filter (same runtime polygon): /tof/points -> /tof/points_filtered.
+    assert (params["cloud_topic"], params["cloud_filtered_topic"]) == ("/tof/points", "/tof/points_filtered")
+    assert (params["cloud_self_max_height_m"], params["cloud_transform_timeout_s"]) == (1.0, 0.2)
     gen = footprint_geometry()
     polygon = [tuple(pt) for pt in yaml.safe_load(params["polygon"])]
     assert polygon == gen.laser_polygon
@@ -1121,7 +1134,8 @@ def test_laser_filter_ansible_wiring() -> None:
     # The repo's Python node (runtime-settable polygon), not laser_filters' scan_to_scan_filter_chain.
     assert defaults["node_launch_command"] == "python3 -m laser_filter"
     assert defaults["node_src_dir"] == "nodes/laser_filter"
-    assert "apt_packages" not in defaults
+    # sensor_msgs_py.point_cloud2 reads and writes the ToF cloud (/tof/points -> /tof/points_filtered).
+    assert defaults["apt_packages"] == ["ros-jazzy-sensor-msgs-py"]
     assert defaults["env"] == [
         "LASER_FILTER_CONFIG={{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml"
     ]

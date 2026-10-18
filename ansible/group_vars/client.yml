@@ -440,8 +440,11 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/laser_filter"
     env:
       - LASER_FILTER_CONFIG={{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml
-    # Not measured yet as a Python node (rclpy + numpy + shapely + scipy; the C++ filter chain was 35.7/37.6 MiB):
-    # MemoryLow is an estimate, MemoryMax 4x it (the cgroup test floor is 32M).
+    # point_cloud2 for the ToF cloud (sensor_msgs_py reads /tof/points and writes /tof/points_filtered).
+    apt_packages:
+      - ros-jazzy-sensor-msgs-py
+    # MemoryLow 64M: the C++ filter chain it replaced measured 35.7/37.6 MiB, and this Python node also loads
+    # rclpy + numpy + shapely; MemoryMax is 4x it (the cgroup test floor is 32M).
     memory_low: "64M"
     memory_max: "256M"
     cpu_weight: 500

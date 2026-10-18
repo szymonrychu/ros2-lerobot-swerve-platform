@@ -9,6 +9,12 @@ set_polygon replaces the polygon at runtime (mcp_server sets the dynamic footpri
 'polygon' parameter, apply_polygon_param); the cached transform is kept and only the scan-frame polygon is
 recomputed. A polygon with non-finite coordinates or that is not a valid simple polygon (self-intersecting, zero area)
 is refused: shapely's contains_xy would silently filter nothing with it.
+
+ToF cloud: each point is transformed into polygon_frame with the TF at the cloud's stamp (the head moves, so that
+transform is never cached: transform_points) and removed when its (x, y) lies inside the same self polygon (prepared,
+in polygon_frame: SelfFilter.base_polygon) and its z <= the height limit (cloud_self_mask); non-finite points are
+removed. The kept points are returned unmoved, in the cloud frame (SelfFilter.filter_cloud). A cloud waiting for its TF
+sits in a PendingSlot (one cloud, newest wins, dropped and counted after the timeout).
 """
 
 import math
@@ -82,6 +88,56 @@ def apply_polygon_param(self_filter: "SelfFilter", value: object) -> tuple[bool,
     return True, "replaced"
 
 
+def prepared_polygon(points: list[Point2]) -> Polygon:
+    """Shapely polygon prepared for repeated contains_xy point tests.
+
+    Args:
+        points (list[Point2]): Vertices (m).
+
+    Returns:
+        Polygon: Prepared polygon.
+    """
+    shape = Polygon(points)
+    shapely.prepare(shape)
+    return shape
+
+
+def transform_points(points: np.ndarray, rotation: np.ndarray, translation: np.ndarray) -> np.ndarray:
+    """Apply a rigid transform to points: p' = R @ p + t for each row.
+
+    Args:
+        points (np.ndarray): (N, 3) points (m).
+        rotation (np.ndarray): (3, 3) rotation.
+        translation (np.ndarray): (3,) translation (m).
+
+    Returns:
+        np.ndarray: (N, 3) transformed points (float64).
+    """
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    return pts @ np.asarray(rotation, dtype=np.float64).T + np.asarray(translation, dtype=np.float64)
+
+
+def cloud_self_mask(points_base: np.ndarray, polygon: Polygon | list[Point2], max_height_m: float) -> np.ndarray:
+    """Keep mask of a cloud in polygon_frame: a point is removed when its (x, y) lies inside the self polygon and its
+    z <= max_height_m (the robot body, the arm, a carried object); non-finite points are removed; every other point
+    (outside the polygon, also below the floor, or above the height limit) is kept.
+
+    Args:
+        points_base (np.ndarray): (N, 3) points in polygon_frame (m).
+        polygon (Polygon | list[Point2]): Self polygon in polygon_frame (a prepared shapely polygon, or its vertices).
+        max_height_m (float): Highest z of the robot's own points (m).
+
+    Returns:
+        np.ndarray: (N,) bool, True = keep.
+    """
+    pts = np.asarray(points_base, dtype=np.float64).reshape(-1, 3)
+    shape = polygon if isinstance(polygon, Polygon) else prepared_polygon(polygon)
+    finite = np.isfinite(pts).all(axis=1)
+    safe = np.where(finite[:, None], pts, 0.0)
+    inside = shapely.contains_xy(shape, safe[:, 0], safe[:, 1]) & (safe[:, 2] <= max_height_m)
+    return finite & ~inside
+
+
 def quaternion_matrix(x: float, y: float, z: float, w: float) -> np.ndarray:
     """Rotation matrix of a quaternion (normalised first; the TF rotation of the polygon -> scan frame transform).
 
@@ -105,8 +161,73 @@ def quaternion_matrix(x: float, y: float, z: float, w: float) -> np.ndarray:
     )
 
 
+class PendingSlot[T]:
+    """One item waiting (for its TF), newest wins: a newer item replaces it, and it expires after timeout_s; both
+    count as dropped."""
+
+    def __init__(self, timeout_s: float) -> None:
+        """Start empty.
+
+        Args:
+            timeout_s (float): Longest wait from put to expiry (s).
+        """
+        self.timeout_s = timeout_s
+        self.item: T | None = None
+        self.since_s = 0.0
+        self.dropped = 0
+
+    def put(self, item: T, now_s: float) -> T | None:
+        """Hold a new item, replacing (dropping) the waiting one.
+
+        Args:
+            item (T): New item.
+            now_s (float): Current time (s, monotonic).
+
+        Returns:
+            T | None: The replaced item, if any.
+        """
+        replaced = self.item
+        if replaced is not None:
+            self.dropped += 1
+        self.item, self.since_s = item, now_s
+        return replaced
+
+    def take(self) -> T | None:
+        """Remove and return the waiting item (it was handled, not dropped).
+
+        Returns:
+            T | None: The item, if any.
+        """
+        item, self.item = self.item, None
+        return item
+
+    def drop(self) -> T | None:
+        """Remove the waiting item as dropped (counted).
+
+        Returns:
+            T | None: The dropped item, if any.
+        """
+        if self.item is not None:
+            self.dropped += 1
+        return self.take()
+
+    def expire(self, now_s: float) -> T | None:
+        """Drop the waiting item once it has waited longer than timeout_s.
+
+        Args:
+            now_s (float): Current time (s, monotonic).
+
+        Returns:
+            T | None: The dropped item, if it expired.
+        """
+        if self.item is None or now_s - self.since_s <= self.timeout_s:
+            return None
+        return self.drop()
+
+
 class SelfFilter:
-    """Polygon in polygon_frame, its static transform into the scan frame and the per-scan beam test."""
+    """Polygon in polygon_frame (prepared, for the ToF cloud), its static transform into the scan frame and the
+    per-scan beam test."""
 
     def __init__(self, polygon: list[Point2]) -> None:
         """Hold the polygon (no transform yet: filter_ranges needs set_transform first).
@@ -115,6 +236,7 @@ class SelfFilter:
             polygon (list[Point2]): Vertices in polygon_frame (m).
         """
         self.polygon = polygon
+        self.base_polygon = prepared_polygon(polygon)
         self.frame: str | None = None
         self.rotation = np.eye(3)
         self.translation = np.zeros(3)
@@ -151,16 +273,15 @@ class SelfFilter:
             polygon (list[Point2]): Vertices in polygon_frame (m).
         """
         self.polygon = polygon
+        self.base_polygon = prepared_polygon(polygon)
         if self.frame is not None:
             self.update_scan_polygon()
 
     def update_scan_polygon(self) -> None:
         """Transform the polygon into the scan frame and prepare it for repeated point tests."""
         points = np.column_stack([np.asarray(self.polygon, dtype=np.float64), np.zeros(len(self.polygon))])
-        moved = points @ self.rotation.T + self.translation
-        shape = Polygon(moved[:, :2])
-        shapely.prepare(shape)
-        self.scan_polygon = shape
+        moved = transform_points(points, self.rotation, self.translation)
+        self.scan_polygon = prepared_polygon([(float(x), float(y)) for x, y in moved[:, :2]])
 
     def filter_ranges(self, ranges: np.ndarray, angle_min: float, angle_increment: float) -> np.ndarray:
         """Ranges with every beam inside the polygon set to NaN.
@@ -185,3 +306,21 @@ class SelfFilter:
         inside = shapely.contains_xy(self.scan_polygon, r * np.cos(angles), r * np.sin(angles)) & finite
         out[inside] = np.nan
         return out
+
+    def filter_cloud(
+        self, points: np.ndarray, rotation: np.ndarray, translation: np.ndarray, max_height_m: float
+    ) -> np.ndarray:
+        """ToF cloud points without the robot's own (cloud_self_mask with the current polygon), in the cloud frame.
+
+        Args:
+            points (np.ndarray): (N, 3) points in the cloud frame (m).
+            rotation (np.ndarray): (3, 3) rotation cloud frame -> polygon_frame (p_base = R @ p + t) at the cloud stamp.
+            translation (np.ndarray): (3,) translation (m).
+            max_height_m (float): Highest z of the robot's own points in polygon_frame (m).
+
+        Returns:
+            np.ndarray: (M, 3) float32 kept points, unmoved (cloud frame).
+        """
+        pts = np.asarray(points, dtype=np.float32).reshape(-1, 3)
+        keep = cloud_self_mask(transform_points(pts, rotation, translation), self.base_polygon, max_height_m)
+        return pts[keep]
