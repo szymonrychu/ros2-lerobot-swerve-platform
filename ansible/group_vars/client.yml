@@ -2016,6 +2016,9 @@ ros2_nodes:
         follower_joint_currents: /follower/joint_currents
         # get_topdown_view: local costmap (subscribed lazily, latest message only) and the current Nav2 plan.
         local_costmap: /local_costmap/costmap
+        # get_map_summary obstacles_3d: head ToF cloud (filtered /tof/points), subscribed lazily, latest
+        # message only.
+        tof_points: /tof/points_filtered
         plan: /plan
         # POI tools talk to poi_store (same topics as its entry below).
         poi_list: /poi/list

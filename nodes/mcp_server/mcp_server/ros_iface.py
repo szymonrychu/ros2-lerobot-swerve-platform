@@ -37,7 +37,7 @@ from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
 from ros2_common.maps import MapResult, MapStatus
 from scipy.spatial.transform import Rotation
-from sensor_msgs.msg import BatteryState, CompressedImage, Imu, JointState, LaserScan
+from sensor_msgs.msg import BatteryState, CompressedImage, Imu, JointState, LaserScan, PointCloud2
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_msgs.msg import TFMessage
@@ -86,6 +86,7 @@ from .models import (
     RobotState,
     ScanPoints,
     StopResult,
+    TofPoints,
     Twist2D,
 )
 from .monitor import BASE_INTERRUPTS, RobotMonitor
@@ -667,6 +668,7 @@ class RosRobot:
         self.cache(GoalStatusArray, t.navigate_action + STATUS_SUFFIX, "nav_status", SENSOR_QOS)
         self.cache(Path, t.plan, "plan", SENSOR_QOS)
         self.cache(String, t.poi_list, "poi_list", MAP_QOS)  # poi_store latches it (reliable + transient_local)
+        self.tof_subscribed = False  # /tof/points_filtered is subscribed on the first get_map_summary
         self.costmap_subscribed = False  # /local_costmap/costmap is subscribed on the first get_topdown_view
         self.init_steer_states()  # /swerve_drive/joint_states is subscribed on the first steer_positions
         self.joint_rates = {"follower_joint_states": self.follower_rate, "swerve_joint_states": self.steer_rate}
@@ -1314,7 +1316,7 @@ class RosRobot:
         for transform in static:
             self.tf_buffer.set_transform_static(transform, TF_AUTHORITY)
 
-    def tf_lookup(self, frame: str, child: str) -> Any:
+    def tf_lookup(self, frame: str, child: str, stamp: Time | None = None) -> Any:
         """Latest transform child -> frame, subscribing /tf on demand.
 
         Waits up to timeouts.tf_timeout_s, or for the rest of the first-message window (timeouts.state_stale_s) right
@@ -1323,6 +1325,7 @@ class RosRobot:
         Args:
             frame (str): Target frame.
             child (str): Source frame.
+            stamp (Time | None): Time of the transform, or None for the latest.
 
         Returns:
             Any: geometry_msgs/TransformStamped.
@@ -1331,7 +1334,9 @@ class RosRobot:
             TransformException: When the transform is unavailable.
         """
         timeout = max(self.cfg.timeouts.tf_timeout_s, self.tf_sub.touch())
-        return self.tf_buffer.lookup_transform(frame, child, Time(), timeout=Duration(seconds=timeout))
+        return self.tf_buffer.lookup_transform(
+            frame, child, Time() if stamp is None else stamp, timeout=Duration(seconds=timeout)
+        )
 
     def scan_sample(self) -> Stamped[Any] | LazyStamped | None:
         """Fresh topics.scan sample, subscribing on demand; waits for a first message inside the first-message window.
@@ -1836,6 +1841,56 @@ class RosRobot:
         world = rotation.apply(local) + np.array([t.x, t.y, t.z])
         rows = [(float(x), float(y), float(z), float(r)) for (x, y, z), r in zip(world, ranges[valid], strict=True)]
         return ScanPoints(frame=self.cfg.topics.base_frame, age_s=round(scan.age(time.monotonic()), 3), points=rows)
+
+    def tof_points(self) -> TofPoints | None:
+        """Latest head ToF cloud in base_link, lazily subscribed (latest message only).
+
+        The first call subscribes and waits up to timeouts.tof_points_stale_s for a message. The head moves, so the
+        cloud is placed with the TF at its header stamp.
+
+        Returns:
+            TofPoints | None: Finite points with receive age and cloud stamp, or None when there is no cloud, it is
+                older than timeouts.tof_points_stale_s or the base_link <- cloud frame transform is unavailable.
+        """
+        stale = self.cfg.timeouts.tof_points_stale_s
+        with self.lock:
+            first = not self.tof_subscribed
+            self.tof_subscribed = True
+        if first:
+            self.cache(PointCloud2, self.cfg.topics.tof_points, "tof_points", SENSOR_QOS)
+            deadline = time.monotonic() + stale
+            while self.get("tof_points", stale) is None and time.monotonic() < deadline:
+                time.sleep(NAV_POLL_S)
+        item = self.get("tof_points", stale)
+        if item is None:
+            return None
+        msg = item.value
+        stamp = msg.header.stamp
+        at = Time(seconds=stamp.sec, nanoseconds=stamp.nanosec) if (stamp.sec or stamp.nanosec) else None
+        try:
+            tf = self.tf_lookup(self.cfg.topics.base_frame, msg.header.frame_id, at)
+        except TransformException:
+            return None
+        offsets = {f.name: f.offset for f in msg.fields}
+        dtype = np.dtype(
+            {
+                "names": ["x", "y", "z"],
+                "formats": [f"{'>' if msg.is_bigendian else '<'}f4"] * 3,
+                "offsets": [offsets["x"], offsets["y"], offsets["z"]],
+                "itemsize": msg.point_step,
+            }
+        )
+        raw = np.frombuffer(bytes(msg.data), dtype=dtype, count=msg.width * msg.height)
+        xyz = np.stack([raw["x"], raw["y"], raw["z"]], axis=1).astype(np.float64)
+        xyz = xyz[np.isfinite(xyz).all(axis=1)]
+        t, q = tf.transform.translation, tf.transform.rotation
+        points = Rotation.from_quat([q.x, q.y, q.z, q.w]).apply(xyz) + np.array([t.x, t.y, t.z])
+        return TofPoints(
+            points=points,
+            age_s=round(item.age(time.monotonic()), 3),
+            frame=self.cfg.topics.base_frame,
+            stamp_s=stamp.sec + stamp.nanosec * 1e-9,
+        )
 
     def map_summary(self, include_png: bool, radius_m: float, png_max_px: int) -> tuple[MapSummary, bytes | None]:
         """Obstacle sectors, map stats, robot pose and optional PNG crop.
