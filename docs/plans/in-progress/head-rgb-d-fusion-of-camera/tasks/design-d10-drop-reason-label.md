@@ -1,9 +1,9 @@
 ---
 title: "Design D10 drop-reason label list (no_tf, motion, no_calibration, no_camera_info, size_mismatch) omits pair_dt, which this task's requirement adds as a metric label"
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: head-rgbd-node-wiring should register the pair_dt label value for head_rgbd_pairs_dropped_total
-files: []
+files: [docs/head-rgbd-fusion-methodology.md]
 verify: ""
 depends_on: []
 owns: []
@@ -35,6 +35,7 @@ Why: head-rgbd-node-wiring should register the pair_dt label value for head_rgbd
 
 ## Files
 
+- docs/head-rgbd-fusion-methodology.md
 
 
 ## Interfaces
@@ -55,3 +56,7 @@ Design D10 drop-reason label list (no_tf, motion, no_calibration, no_camera_info
 
 Discovered in task `rgbd-motion-compensation` during run `head-rgb-d-fusion-of-camera`.
 
+
+## Ruling
+
+Folded into rgbd-final-suite-and-runbook (run 3 planText note) or a workflow process note; not a separate task.

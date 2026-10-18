@@ -1,9 +1,9 @@
 ---
 title: "Dependency merge command named branch 'worktree-head-rgb-d-fusion-of-camera--rgbd-registration-zbuffer' which does not exist; the actual branch is 'head-rgb-d-fusion-of-camera--rgbd-registration-zbuffer'"
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Other dependent tasks will hit the same 'not something we can merge' failure"
-files: []
+files: [docs/head-rgbd-fusion-methodology.md]
 verify: ""
 depends_on: []
 owns: []
@@ -35,6 +35,7 @@ Why: Other dependent tasks will hit the same 'not something we can merge' failur
 
 ## Files
 
+- docs/head-rgbd-fusion-methodology.md
 
 
 ## Interfaces
@@ -55,3 +56,7 @@ Dependency merge command named branch 'worktree-head-rgb-d-fusion-of-camera--rgb
 
 Discovered in task `rgbd-motion-compensation` during run `head-rgb-d-fusion-of-camera`.
 
+
+## Ruling
+
+Folded into rgbd-final-suite-and-runbook (run 3 planText note) or a workflow process note; not a separate task.
