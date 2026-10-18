@@ -23,8 +23,30 @@ global costmap adopts the `/map` grid.
 
 | Mask | Inside a zone | Elsewhere | Why |
 |---|---|---|---|
-| keepout | `100` | `-1` | KeepoutFilter (keepout_filter.cpp, process loop) skips mask `-1` (NO_INFORMATION) and writes any other value into unknown cells. A `0` background would overwrite all unknown space of the global costmap (`track_unknown_space: true`) with FREE. |
+| keepout | `100` in keepout zones; `slow_zone_mask_value` (default `60`) in slow zones; `100` wins where they overlap | `-1` | KeepoutFilter (keepout_filter.cpp, process loop) skips mask `-1` (NO_INFORMATION) and writes any other value into unknown cells. A `0` background would overwrite all unknown space of the global costmap (`track_unknown_space: true`) with FREE. See "Slow-zone path cost" below. |
 | speed | `speed_limit_pct` (10..100); the lowest wins where slow zones overlap | `0` | speed_filter.cpp / filter_values.hpp: `0` = SPEED_MASK_NO_LIMIT, `-1` = SPEED_MASK_UNKNOWN is logged as invalid and the old limit stays. Percent, base 0, multiplier 1. |
+
+## Slow-zone path cost
+
+Slow (risky) zones are both costed and speed-capped; keep-outs stay hard.
+
+- Cost mapping (costmap_filter.cpp `getMaskCost`, linear 0..100 -> 0..254): a keepout-mask value `v` becomes the
+  cost `round(v * 254 / 100)`. The default `60` gives `152`; `1..99` give `3..251`, all below `MAX_NON_OBSTACLE` 252,
+  so slow cells stay passable. `100` gives `254` (LETHAL), the keep-out. The filter writes a value only when it is above
+  the cell's cost (or the cell is unknown), so it never lowers an obstacle.
+- Our KeepoutFilter sits right below the inflation layer in both costmaps; inflation inflates only lethal cells, so a
+  slow cell keeps its own cost and does not grow.
+- Smac Lattice (`cost_penalty: 2.0`) multiplies the travel cost of a cell by about `1 + 2 * cost / 252`: at `60`
+  (cost 152) a slow cell costs about 2.2 times a free one. The planner routes around a slow zone when the detour is
+  shorter than about 2.2 times the crossing, and crosses it otherwise. MPPI `CostCritic` adds a proportional cost only.
+- The speed cap is unchanged: the speed mask and SpeedFilter still cap the speed inside a slow zone at
+  `speed_limit_pct`.
+- Unknown space: the filter writes any non `-1` value into unknown cells, so a slow zone drawn over unknown space turns
+  those cells into known cost (no longer unknown for the planner). Draw zones on known areas. This is also why `0` is
+  refused for `slow_zone_mask_value`: it would turn unknown cells inside a slow zone into FREE.
+- Tuning: `slow_zone_mask_value` in the `costmap_zones` config (`ansible/group_vars/client.yml`), `1..99`. Higher
+  values make detours more attractive (e.g. `80` -> cost 203, about 2.6x), lower values make the planner cross more
+  readily (e.g. `30` -> cost 76, about 1.6x). Redeploy `costmap_zones`; the masks are rebuilt at start.
 
 Rasterisation (`raster.py`): cell (i, j) has its centre at origin + (i + 0.5, j + 0.5) x resolution; polygons are filled
 with `cv2.fillPoly(LINE_8, shift=8)`, so cells whose centre is inside are set and boundary cells are set conservatively.
@@ -71,6 +93,7 @@ map (a POI-wide limitation).
 | `speed_mask_topic` | `/costmap_zones/speed_mask` |
 | `keepout_info_topic` | `/costmap_filter_info/keepout` |
 | `speed_info_topic` | `/costmap_filter_info/speed` |
+| `slow_zone_mask_value` | `60` (keepout-mask value in slow zones, `1..99`; 0 and 100 are refused, see "Slow-zone path cost") |
 
 ## Metrics (`127.0.0.1:19111/metrics`)
 
@@ -88,7 +111,8 @@ map (a POI-wide limitation).
 - Robot inside a keepout: `override_lethal_cost` writes 252 instead of lethal, so the robot can plan out.
 - Goal inside a keepout: `compute_path_to_pose` fails (expected).
 - Polygon partly or fully outside the map: clipped or empty, no exception.
-- Overlapping slow zones: lowest percent wins; a keepout inside a slow zone gets both behaviours.
+- Overlapping slow zones: lowest percent wins and the keepout mask holds the slow value; a keepout inside a slow zone
+  stays lethal (`100` wins in the keepout mask, whatever the zone order) and keeps the speed cap.
 - Restart of costmap_zones: the latched `/map` and `/poi/list` arrive and everything is republished, the filters see the same info again (harmless).
 - poi_store older than the zone fields: no zones, empty masks.
 - The speed limit does not cover RotationShim in-place turns, collision_monitor or velocity_smoother.

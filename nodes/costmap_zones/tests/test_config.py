@@ -23,6 +23,7 @@ def test_defaults_match_the_design() -> None:
     assert config.speed_mask_topic == "/costmap_zones/speed_mask"
     assert config.keepout_info_topic == "/costmap_filter_info/keepout"
     assert config.speed_info_topic == "/costmap_filter_info/speed"
+    assert config.slow_zone_mask_value == 60
 
 
 def test_default_path_and_env_key() -> None:
@@ -102,3 +103,22 @@ def test_load_from_env_falls_back_to_the_default_path(monkeypatch: pytest.Monkey
 def test_load_from_env_missing_file_returns_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(ENV_CONFIG_PATH_KEY, str(tmp_path / "absent.yaml"))
     assert load_config_from_env() is None
+
+
+@pytest.mark.parametrize("value", [0, 100, -1, 101])
+def test_slow_zone_mask_value_rejects_out_of_range(value: int) -> None:
+    """0 would turn unknown cells inside a slow zone into FREE; 100 is lethal (a keep-out)."""
+    with pytest.raises(ValidationError):
+        CostmapZonesConfig(slow_zone_mask_value=value)
+
+
+@pytest.mark.parametrize("value", [1, 99])
+def test_slow_zone_mask_value_accepts_the_passable_range(value: int) -> None:
+    assert CostmapZonesConfig(slow_zone_mask_value=value).slow_zone_mask_value == value
+
+
+def test_slow_zone_mask_value_loads_from_yaml(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("slow_zone_mask_value: 45\n")
+    config = load_config(path)
+    assert config is not None and config.slow_zone_mask_value == 45
