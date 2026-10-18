@@ -130,6 +130,16 @@ parse the index through `ros2_common.lookups.IndexCache`.
   `camera` (so `keep_newest` counts within the filter). One index rewrite, then the JPEGs are unlinked; returns
   `{removed, bytes_freed, missing}` (requested ids that are unknown or filtered out). With `dry_run` it returns
   `{would_remove, bytes}` and changes nothing.
+- `export(dest, ids=None)`: under the store lock, hard-links (`shutil.copyfile` when `os.link` fails) the JPEG of every
+  record, or only `ids`, into `dest` (created when missing, stale targets replaced) and writes `dest/index.jsonl` in the
+  store line format; returns the exported records in index order. A record whose JPEG is missing is skipped and logged.
+  The store and its revision do not change.
+- `replace_all(records, source)`: makes the index exactly `records`, in that order, all or nothing. Every JPEG must be in
+  `root` (same id already indexed) or in `source`, else `PhotoStoreError` names the first missing file and nothing
+  changes. Needed JPEGs are linked (copy fallback) from `source` with a fresh mtime (so the orphan sweep keeps them),
+  `bytes` is recomputed from the file, the index is rewritten once, JPEGs of records no longer indexed are unlinked and
+  `revision` moves only when the index changed. Returns `(kept_or_restored, removed)`; `replace_all([], None)` empties
+  the store. poi_store does every photo file move; map_manager never writes into the photo dir.
 - `strip_links(poi_id)`: removes a deleted POI from every photo's `poi_ids`; rewrites only when a photo references it.
 - `prune_now()`: retention without an add (the `prune_interval_s` timer); returns the number removed.
 - `summary()`: the `/poi/photos` payload `{revision, count, bytes, oldest_ts, newest_ts, limits: {max_records,
@@ -196,5 +206,7 @@ Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Be
 - `cd nodes/poi_store && uv run pytest tests -q` (no ROS needed); `uv run poe lint`.
 - Tests: `test_replace.py` (replace op: swap, atomic rejection, duplicates, photos, revision, rollback), `test_photo_cleanup.py` (clear removes photos and JPEGs by the POI filters, counts, rollback), `test_clear_filters.py` (clear by creator/kind/zone/ids/status filters), `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear removes
   matching photos and JPEGs and strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore),
+- Tests: `test_replace.py` (replace op: swap, atomic rejection, duplicates, photos, revision, rollback), `test_clear_filters.py` (clear by creator/kind/zone/ids/status filters), `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear leaves
+  photos but strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore), `test_photo_store_sync.py` (export, replace_all),
   `test_node_photos.py` (`/poi/photos` publishing, missing/unreadable directory, prune timer; rclpy stubbed via
   `ros_stubs.py`), `test_shutdown.py`, `test_config.py`, `test_metrics.py`, `test_zone_models.py`.
