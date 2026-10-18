@@ -2634,6 +2634,21 @@ Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the
 | `test_compare_sdk_reports_percent_difference` | fx/fy/cx/cy differences in % against the SDK camera_info. |
 | `test_synthetic_scene_geometry_is_consistent` | Generated poses project the board inside the RGB image. |
 
+### `test_head_rgbd_calib_extrinsics.py`
+
+Tests for `scripts/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF pairs with a known extrinsic.
+
+| Test | What it checks |
+|---|---|
+| `test_synthetic_scene_has_enough_pairs` | The generated scene gives at least 18 pairs seen by both cameras. |
+| `test_stereo_recovers_true_extrinsic` | 20 pairs recover translation within 2 mm and rotation within 0.2 deg. |
+| `test_result_maps_tof_points_onto_rgb_projection` | Direction: a ToF point mapped with the result lands within 0.5 px of the RGB corner. |
+| `test_pair_without_common_ids_is_skipped` | A pair with no common corner ids is not counted. |
+| `test_fewer_than_min_views_raises` | Fewer than `min_views` pairs raise. |
+| `test_plane_check_reports_depth_bias` | ToF depth biased +20 mm reports 20 +- 3 mm, unbiased 0 +- 3 mm. |
+| `test_yaml_round_trips` | Written extrinsics YAML has the documented keys and loads back. |
+| `test_rms_over_limit_writes_nothing` | Stereo RMS over `stereo_max_rms_px` raises and writes no file. |
+
 ### `test_head_rgbd_calib_frames.py`
 
 Tests for `scripts/head_rgbd_calibration` (config, capture commands, bag reading, still-pair selection). Synthetic bags are written with the `rosbags` writer.
