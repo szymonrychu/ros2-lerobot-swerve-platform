@@ -87,8 +87,8 @@ board polygon (doi:10.1109/TPAMI.2014.2363827). The median difference is the pla
 ToF depth has a distance-dependent bias (wiggling, doi:10.1016/j.cviu.2009.11.002) that also drifts with temperature and
 reflectivity (doi:10.1109/TCI.2015.2510506). After a 20 minute warm-up, measure a flat matte target perpendicular to the
 camera at 0.5, 1, 2 and 3 m (tape reference) with `capture-validation`. Correction rule: a per-distance correction is
-added only when the residual bias exceeds 1 cm, and then as a new task; below that nothing is corrected, and a skipped
-correction above it is a failure, not a silent skip.
+applied when the residual bias exceeds 1 cm; at or below 1 cm no correction is applied, and an uncorrected bias above
+1 cm fails the depth-bias metric.
 
 ### URDF hand-off and redeploy
 
@@ -156,8 +156,8 @@ compensation), and it has no flying-pixel handling. Its footprint-splat idea is 
   and isolated speckle while keeping slanted planes up to about 70 deg.
 - Confidence thresholding stays in the bridge (`confidence_threshold`). It removes low-amplitude pixels (dark or distant
   surfaces, noise) but does not remove flying pixels: a mixed pixel at a depth edge can have high amplitude and pass.
-- Multipath (doi:10.1109/ICSENS.2014.6985077) near corners and floors biases depth towards the far surface. It is a known
-  error, documented and not corrected.
+- Multipath (doi:10.1109/ICSENS.2014.6985077) near corners and floors biases depth towards the far surface. It is an
+  accepted error source of the ToF sensor and is not corrected.
 
 ## Upsampling
 
@@ -198,7 +198,7 @@ Pan-sweep motion stays inside the pan/tilt epic's verified range (+-20 deg at 20
 
 ### Results
 
-Filled from the robot runbook `docs/runbooks/head-rgbd-fusion.md` (date, commit and operator noted there).
+The robot runbook `docs/runbooks/head-rgbd-fusion.md` (date, commit and operator noted there).
 
 | Metric | Target | Measured | Pass |
 |---|---|---|---|
