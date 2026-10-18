@@ -3,15 +3,15 @@ title: "nodes/web_ui/README.md Head row (line 14) and Overview row (line 15) sti
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Stale Jetson/stereo docs belong to the Head tab and camera re-point tasks, not this task."
-files: ["nodes/web_ui/README.md:14-15"]
-verify: ""
-depends_on: []
+files: [nodes/web_ui/README.md]
+verify: "! grep -n -i -E 'stereo|jetson|overview_camera|fused' nodes/web_ui/README.md"
+depends_on: [head-tab-tof-topics, remove-overview-tab, drop-fused-depth-topic]
 owns: []
 uses: []
-model: ""
-estimate: ""
+model: sonnet
+estimate: "15"
 actual: ""
-review: ""
+review: "false"
 worktree: ""
 branch: ""
 verified_head: ""
@@ -31,6 +31,8 @@ Why: Stale Jetson/stereo docs belong to the Head tab and camera re-point tasks, 
 
 ## Acceptance conditions
 
+- a1: nodes/web_ui/README.md names no stereo, Jetson, /overview_camera or fused-depth topic in its tab table or Head section [evidence: command: ! grep -n -i -E 'stereo|jetson|overview_camera|fused' nodes/web_ui/README.md]
+- a2: the Head row describes the head RGB camera plus ToF depth/amplitude; the Overview row is gone [evidence: judgement]
 
 
 ## Files
