@@ -1,8 +1,8 @@
 """Static invariants of the Pi 5 CSI boot config (ansible/playbooks/tasks/pi_camera_boot_config.yml).
 
 CSI cam0 carries a Camera Module 3 (IMX708, the head RGB camera head_camera_cpp) and cam1 the Arducam ToF camera.
-The firmware's auto detection does not know the ToF, so the file turns it off and writes both overlays explicitly, removes the
-retired IMX219 overlays, and reboots the client only when a line changed.
+The firmware's auto detection does not know the ToF, so the file turns it off and writes both overlays explicitly,
+removes the retired IMX219 overlays, and reboots the client only when a line changed.
 """
 
 from pathlib import Path
