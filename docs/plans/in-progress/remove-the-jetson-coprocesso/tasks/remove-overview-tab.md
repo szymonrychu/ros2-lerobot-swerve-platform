@@ -1,6 +1,6 @@
 ---
 title: Remove Overview tab
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: The web UI no longer offers a tab for a camera that no longer exists.
 files: [nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_bridge.py, tests/test_mcp_server_config.py, nodes/web_ui/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--remove-overview-tab
 branch: remove-the-jetson-coprocesso--remove-overview-tab
 verified_head: ""
-run: ""
+run: remove-the-jetson-coprocesso
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Remove Overview tab

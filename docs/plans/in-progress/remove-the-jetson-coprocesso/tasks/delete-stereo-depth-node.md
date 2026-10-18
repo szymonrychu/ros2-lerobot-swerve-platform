@@ -1,6 +1,6 @@
 ---
 title: Delete stereo_depth node
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The retired Python stereo_depth sources leave the repo; its uninstall entry stays."
 files: [nodes/stereo_depth/, pyproject.toml, scripts/lint-all-nodes.sh, .github/workflows/ci.yml, tests/test_ansible_deploy_speed.py, tests/test_stereo_depth_config.py, nodes/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--delete-stereo-depth-node
 branch: remove-the-jetson-coprocesso--delete-stereo-depth-node
 verified_head: ""
-run: ""
+run: remove-the-jetson-coprocesso
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Delete stereo_depth node

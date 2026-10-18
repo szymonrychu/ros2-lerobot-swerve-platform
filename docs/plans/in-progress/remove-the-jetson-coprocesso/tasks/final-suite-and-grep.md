@@ -1,6 +1,6 @@
 ---
 title: Final suite and grep
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "A suite test proves no live Jetson, depthd, stereo or overview_camera reference remains, and every suite is green before the deploy."
 files: [ansible/roles/ros2_node_deploy/tasks/colcon_source_build.yml, ansible/roles/ros2_node_deploy/tasks/colcon_source_package.yml, ansible/playbooks/tasks/bno055_i2c_boot_config.yml, ansible/playbooks/deploy_nodes_client.yml, shared/ros2_common_cpp/include/ros2_common_cpp/metrics.hpp, tests/test_jetson_retired.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--final-suite-and-grep
 branch: remove-the-jetson-coprocesso--final-suite-and-grep
 verified_head: ""
-run: ""
+run: remove-the-jetson-coprocesso
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Final suite and grep

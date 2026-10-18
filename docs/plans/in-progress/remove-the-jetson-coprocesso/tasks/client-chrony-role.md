@@ -1,6 +1,6 @@
 ---
 title: Client chrony role
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The client keeps chrony on plain internet pools from its own role, independent of the Jetson link."
 files: [ansible/roles/chrony/, ansible/playbooks/client.yml, tests/test_chrony_role.py, ansible/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--client-chrony-role
 branch: remove-the-jetson-coprocesso--client-chrony-role
 verified_head: ""
-run: ""
+run: remove-the-jetson-coprocesso
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Client chrony role

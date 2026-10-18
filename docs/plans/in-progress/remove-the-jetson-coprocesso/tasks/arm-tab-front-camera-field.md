@@ -1,6 +1,6 @@
 ---
 title: Arm tab front camera field
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The Arm tab's second stream is the front camera under a field name that says so."
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_config.py, tests/test_mcp_server_config.py, nodes/web_ui/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--arm-tab-front-camera-field
 branch: remove-the-jetson-coprocesso--arm-tab-front-camera-field
 verified_head: ""
-run: ""
+run: remove-the-jetson-coprocesso
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Arm tab front camera field

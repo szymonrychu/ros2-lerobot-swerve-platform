@@ -1,6 +1,6 @@
 ---
 title: Remove jetson deploy target
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "deploy-nodes.sh, the inventory example and test-ansible know only client and server; no Jetson playbook or group vars remain."
 files: [scripts/deploy-nodes.sh, ansible/playbooks/deploy_nodes_jetson.yml, ansible/group_vars/jetson.yml, ansible/inventory.example, pyproject.toml, tests/test_jetson_ansible.py, tests/test_ansible_deploy_speed.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--remove-jetson-deploy-target
 branch: remove-the-jetson-coprocesso--remove-jetson-deploy-target
-verified_head: ""
-run: ""
+verified_head: da6768633eff175bb942085a6ee0072a41ee0acc
+run: remove-the-jetson-coprocesso
 provides: []
+acs_for_audit: [a7]
+process_gaps: []
 ---
 
 # Remove jetson deploy target

@@ -1,6 +1,6 @@
 ---
 title: Delete stereo_depth_cpp node
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The retired C++ stereo port and its CPU-compare entry leave the repo; its uninstall entry stays."
 files: [nodes/stereo_depth_cpp/, .github/workflows/ci.yml, scripts/node_cpu_compare.yaml, tests/test_node_cpu_compare.py, tests/test_stereo_depth_config.py, scripts/README.md, nodes/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--delete-stereo-depth-cpp-node
 branch: remove-the-jetson-coprocesso--delete-stereo-depth-cpp-node
 verified_head: ""
-run: ""
+run: remove-the-jetson-coprocesso
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Delete stereo_depth_cpp node

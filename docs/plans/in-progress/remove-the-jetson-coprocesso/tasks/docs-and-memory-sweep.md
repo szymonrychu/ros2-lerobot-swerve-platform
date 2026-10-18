@@ -1,6 +1,6 @@
 ---
 title: Docs and memory sweep
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Project memory, the deploy skill and the remaining READMEs and comments describe the robot without the Jetson."
 files: [MEMORY.md, .claude/skills/ansible-deploy/SKILL.md, ansible/README.md, nodes/pi_cameras/README.md, tests/test_pi_cameras_deploy.py, nodes/README.md, ansible/group_vars/client.yml, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--docs-and-memory-sweep
 branch: remove-the-jetson-coprocesso--docs-and-memory-sweep
 verified_head: ""
-run: ""
+run: remove-the-jetson-coprocesso
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Docs and memory sweep

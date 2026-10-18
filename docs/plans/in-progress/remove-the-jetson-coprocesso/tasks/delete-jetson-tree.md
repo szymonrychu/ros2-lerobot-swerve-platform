@@ -1,6 +1,6 @@
 ---
 title: Delete jetson tree
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The Jetson-only depthd, calibration and model code and its end-to-end check leave the repo, pinned by a retirement test."
 files: [jetson/, scripts/jetson_e2e_check.py, scripts/jetson_e2e_check.yaml, tests/test_jetson_e2e_check.py, tests/test_jetson_retired.py, scripts/README.md, ansible/playbooks/optimize.yml, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--delete-jetson-tree
 branch: remove-the-jetson-coprocesso--delete-jetson-tree
-verified_head: ""
-run: ""
-provides: []
+verified_head: 454b2bdd15fa61073ceae16eb344d18421fdf75c
+run: remove-the-jetson-coprocesso
+provides: [jetson-retired-test]
+acs_for_audit: [a5]
+process_gaps: ["The implementer's report lists no files changed and no red/green evidence (tests.red, verification.evidence). The independent verification flagged this as a high finding."]
 ---
 
 # Delete jetson tree
