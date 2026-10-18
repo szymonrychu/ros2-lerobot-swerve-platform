@@ -1967,6 +1967,10 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_shared_steps_run_under_any_node_filter` | (client, server) select_run, repo sync, ROS package sync, batched apt and the gradual restart are `always`-tagged; the verify role too; the apt steps are conditioned on `ros2_run_apt`. |
 | `test_deploy_script_runs_one_playbook_with_the_joined_node_tags` | `deploy-nodes.sh client web_ui mcp_server` calls ansible-playbook once with `--tags web_ui,mcp_server` (fake ansible-playbook on PATH). |
 | `test_deploy_script_all_passes_tags_and_other_options_through` | `--all` adds no tag filter by itself and passes `--tags` / `--skip-tags` through. |
+| `test_deploy_script_rejects_the_jetson_target` | Target `jetson` exits non-zero with "Use: client or server" and never calls ansible-playbook. |
+| `test_deploy_script_uses_no_associative_arrays` | Bash 3.2: no `declare -A`. |
+| `test_provision_plays_target_server_and_client_only` | site.yml and optimize.yml Pi-role plays have hosts `server:client` (parametrized). |
+| `test_no_play_with_pi_roles_has_hosts_all` | No play anywhere with common/network/hostname/system_optimize targets `all`. |
 | `test_deploy_script_rejects_unknown_nodes_and_node_list_with_tags` | Unknown node names are rejected with the valid list; a node list plus `--tags` is rejected; `playbooks/nodes/` no longer exists. |
 | `test_role_has_no_always_changed_tasks_and_does_not_restart_or_start_nodes` | No `changed_when: true` in the role; no inline start/restart; the "Restart ROS2 node" handler only queues into `ros2_nodes_pending_restart`. |
 | `test_uv_sync_runs_only_for_a_new_dependency_hash_and_stamps_after_success` | `uv sync --frozen --no-dev` runs only when the dependency hash is stale and writes `.uv-deps` after success; the probe covers pyproject, `uv.lock`, shared metadata and tree hashes; the source stamp notifies the restart. |
@@ -2300,29 +2304,6 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_selector_accepts_exactly_one_criterion` / `test_selector_rejects_other_shapes` / `test_selector_accepts_500_ids_and_defaults_dry_run_false` | Exactly-one rule and bounds. |
 | `test_write_atomic_writes_world_readable_file` / `test_write_atomic_fsyncs_before_replace` / `test_write_atomic_cleans_temp_on_failure` / `test_module_exposes_write_atomic` | Atomic write, mode 0644, fsync order, temp cleanup. |
 | `test_legacy_index_line_parses_with_photo_defaults` / `test_photo_fields_round_trip` / `test_photo_fields_reject_bad_values` | `LookupRecord` photo fields: legacy line parses, round trip, bad values rejected. |
-
-## test_jetson_ansible.py
-
-The Jetson as an Ansible host, kept out of the Pi plays; the deploy script runs against a stub `ansible-playbook`.
-
-| Test | Description |
-|---|---|
-| `test_inventory_example_has_a_jetson_group_with_the_nano` | `[jetson]` holds `jetson-nano ansible_host=192.168.1.32`. |
-| `test_inventory_example_says_the_jetson_keeps_wifi` | A comment above the group says the Jetson keeps WiFi for development. |
-| `test_jetson_group_vars_pin_user_python_hostname_and_network` | ansible_user, interpreter, hostname nano, address and gateway. |
-| `test_jetson_nameservers_match_the_client` | DNS vars equal client.yml's. |
-| `test_jetson_group_vars_header_says_no_ros_and_no_pi_roles` | The header comment states no ROS and no Pi roles. |
-| `test_jetson_group_vars_have_no_ros2_nodes` | No `ros2_nodes` key. |
-| `test_provision_plays_target_server_and_client_only` | site.yml and optimize.yml Pi-role plays have hosts `server:client` (parametrized). |
-| `test_no_play_with_pi_roles_has_hosts_all_or_jetson` | No play anywhere with common/network/hostname/system_optimize targets all or jetson. |
-| `test_deploy_script_uses_no_associative_arrays` | Bash 3.2: no `declare -A`. |
-| `test_deploy_script_header_usage_and_errors_list_the_jetson_targets` | Header, usage and error text list jetson and its targets. |
-| `test_jetson_non_node_targets_run_the_jetson_playbook` | base, build_deps, depthd each run deploy_nodes_jetson.yml -l jetson with that tag (parametrized). |
-| `test_jetson_accepts_several_targets_in_one_run` | Several targets become one comma-joined tag list. |
-| `test_jetson_all_runs_without_a_tag_filter` | `jetson --all` passes no tags. |
-| `test_jetson_rejects_a_ros2_node_name` | A ros2 node name fails and the error lists the jetson targets. |
-| `test_jetson_link_is_a_client_target_only` | jetson_link is accepted for client, rejected for server and jetson. |
-| `test_unknown_target_error_lists_jetson` | An unknown target is rejected and the error names jetson. |
 
 ## test_jetson_link_role.py
 

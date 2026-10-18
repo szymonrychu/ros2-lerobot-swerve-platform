@@ -22,6 +22,7 @@ DEPLOY_SCRIPT = REPO_ROOT / "scripts" / "deploy-nodes.sh"
 ANSIBLE_README = ANSIBLE_DIR / "README.md"
 DEPLOY_SKILL = REPO_ROOT / ".claude" / "skills" / "ansible-deploy" / "SKILL.md"
 TARGETS = ("client", "server")
+PI_ROLES = {"common", "network", "hostname", "system_optimize"}
 PHASE_TAGS = {"apt", "python", "build", "config", "boot", "setup", "sync", "restart", "verify", "always"}
 NODE_PHASES = {"apt", "python", "build", "config"}
 SETUP_NODE = {
@@ -44,6 +45,31 @@ def load(path: Path) -> Any:
         Any: Parsed document.
     """
     return yaml.safe_load(path.read_text())
+
+
+def role_names(play: dict[str, Any]) -> set[str]:
+    """Names of the roles a play lists, in either the string or the mapping form.
+
+    Args:
+        play: One parsed play.
+
+    Returns:
+        set[str]: The role names.
+    """
+    return {r if isinstance(r, str) else r.get("role", r.get("name", "")) for r in play.get("roles", [])}
+
+
+def host_patterns(hosts: Any) -> set[str]:
+    """Split an Ansible hosts pattern into its group names.
+
+    Args:
+        hosts: The play's `hosts` value (string or list).
+
+    Returns:
+        set[str]: The patterns, split on `:` and `,`.
+    """
+    items = hosts if isinstance(hosts, list) else [hosts]
+    return {p.strip() for item in items for p in re.split(r"[:,]", str(item)) if p.strip()}
 
 
 def node_names(target: str) -> list[str]:
@@ -253,6 +279,40 @@ def test_deploy_script_all_passes_tags_and_other_options_through(tmp_path: Path)
     assert "playbooks/deploy_nodes_server.yml -l server --tags config,restart --skip-tags verify" in result.stdout
     bare = run_deploy_script(["client", "--all"], tmp_path)
     assert "--tags" not in bare.stdout.split("ansible-playbook", 1)[1]
+
+
+def test_deploy_script_rejects_the_jetson_target(tmp_path: Path) -> None:
+    result = run_deploy_script(["jetson", "--all"], tmp_path)
+    assert result.returncode != 0
+    assert "Use: client or server" in result.stderr
+    assert "ansible-playbook" not in result.stdout
+
+
+def test_deploy_script_uses_no_associative_arrays() -> None:
+    assert "declare -A" not in DEPLOY_SCRIPT.read_text()
+
+
+@pytest.mark.parametrize("playbook", ["site.yml", "playbooks/optimize.yml"])
+def test_provision_plays_target_server_and_client_only(playbook: str) -> None:
+    plays = [p for p in load(ANSIBLE_DIR / playbook) if "hosts" in p and role_names(p) & PI_ROLES]
+    assert plays
+    for play in plays:
+        assert host_patterns(play["hosts"]) == {"server", "client"}
+
+
+def test_no_play_with_pi_roles_has_hosts_all() -> None:
+    checked = 0
+    for path in ANSIBLE_DIR.rglob("*.yml"):
+        if "roles" in path.relative_to(ANSIBLE_DIR).parts or "group_vars" in path.parts:
+            continue
+        doc = load(path)
+        if not isinstance(doc, list):
+            continue
+        for play in doc:
+            if isinstance(play, dict) and "hosts" in play and role_names(play) & PI_ROLES:
+                checked += 1
+                assert "all" not in host_patterns(play["hosts"]), f"{path}: {play.get('name')}"
+    assert checked >= 2
 
 
 def test_deploy_script_rejects_unknown_nodes_and_node_list_with_tags(tmp_path: Path) -> None:

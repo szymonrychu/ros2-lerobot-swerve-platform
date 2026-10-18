@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy ROS2 nodes to client, server or jetson with ONE ansible-playbook run of playbooks/deploy_nodes_<target>.yml.
+# Deploy ROS2 nodes to client or server with ONE ansible-playbook run of playbooks/deploy_nodes_<target>.yml.
 # Every node's steps are tagged with the node name, so a node list is just a tag filter:
 #
 # Usage:
@@ -7,9 +7,8 @@
 #   (a name may also be a non-node target of the target, see non_node_targets: client and server have "monitoring")
 #   deploy-nodes.sh <target> --all [ansible-playbook options]                # every node, no tag filter
 #
-# Targets:  client | server | jetson
-# Non-node targets: client: monitoring jetson_link | server: monitoring | jetson: base build_deps depthd
-#   (jetson runs no ROS: it has no ros2_nodes entries and only these targets)
+# Targets:  client | server
+# Non-node targets: client: monitoring jetson_link | server: monitoring
 # Phase tags (see ansible/README.md, "Deploy tags"): apt, python, build, config, boot, setup, sync, restart, verify.
 # --tags / --skip-tags (and any other ansible-playbook option) are passed through; --tags cannot be combined with a node
 # list because ansible would run the union of both.
@@ -17,8 +16,6 @@
 # Client deploys first wait (max 15 min) until the robot agent (claude_agent) is idle: not busy and quiet for 5 min,
 # because a deploy restarts nodes under a running session; then they fail. Skip the wait with
 #   deploy-nodes.sh client web_ui -e ros2_deploy_ignore_agent=true
-#
-# The jetson target needs ansible-core <= 2.18 (its Python 3.8): with a newer ansible-playbook it runs ansible-core 2.18 via uvx.
 #
 # Examples:
 #   ./scripts/deploy-nodes.sh client web_ui
@@ -31,16 +28,16 @@
 #   ./scripts/deploy-nodes.sh client --all --skip-tags verify
 set -euo pipefail
 
-TARGET="${1:?Usage: deploy-nodes.sh <client|server|jetson> <node1> [node2...] | --all [ansible-playbook options]}"
+TARGET="${1:?Usage: deploy-nodes.sh <client|server> <node1> [node2...] | --all [ansible-playbook options]}"
 shift
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANSIBLE_DIR="$SCRIPT_DIR/../ansible"
 
 case "$TARGET" in
-  client | server | jetson) ;;
+  client | server) ;;
   *)
-    echo "ERROR: Unknown target '$TARGET'. Use: client, server or jetson" >&2
+    echo "ERROR: Unknown target '$TARGET'. Use: client or server" >&2
     exit 1
     ;;
 esac
@@ -48,13 +45,11 @@ esac
 # Deploy targets that are not ros2_nodes entries, space separated (bash 3.2: no associative arrays).
 #   monitoring - client: Alloy + nginx (roles/monitoring_agent, roles/web_proxy)
 #                server: Mimir + Loki + Grafana + nginx + Alloy (roles/monitoring, roles/web_proxy, roles/monitoring_agent)
-#   jetson_link - client: the direct link to the Jetson (roles/jetson_link)
-#   base, build_deps, depthd - jetson: OS base, build dependencies, the depthd service (playbooks/deploy_nodes_jetson.yml)
+#   jetson_link - client: removes the retired Jetson link state from the client
 non_node_targets() {
   case "$1" in
     client) echo "monitoring jetson_link" ;;
     server) echo "monitoring" ;;
-    jetson) echo "base build_deps depthd" ;;
     *) echo "" ;;
   esac
 }
@@ -108,15 +103,5 @@ else
   echo "Deploying ALL nodes to $TARGET..."
 fi
 
-# The Jetson runs Ubuntu 20.04 with Python 3.8, which ansible-core >= 2.19 refuses as a target ("requires Python 3.9 or
-# newer"). When the installed ansible-playbook is that new, a jetson deploy runs ansible-core 2.18 (with the ansible 11 collections) through uvx.
-PLAYBOOK_CMD=(ansible-playbook)
-if [[ "$TARGET" == jetson ]]; then
-  CORE_MINOR="$(ansible-playbook --version 2>/dev/null | sed -n 's/.*core 2\.\([0-9]*\).*/\1/p' | head -1)"
-  if [[ -n "$CORE_MINOR" && "$CORE_MINOR" -ge 19 ]]; then
-    PLAYBOOK_CMD=(uvx --from 'ansible-core==2.18.*' --with 'ansible==11.*' ansible-playbook)
-  fi
-fi
-
 cd "$ANSIBLE_DIR"
-exec "${PLAYBOOK_CMD[@]}" -i inventory "playbooks/deploy_nodes_${TARGET}.yml" -l "$TARGET" "${EXTRA[@]+"${EXTRA[@]}"}"
+exec ansible-playbook -i inventory "playbooks/deploy_nodes_${TARGET}.yml" -l "$TARGET" "${EXTRA[@]+"${EXTRA[@]}"}"
