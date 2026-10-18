@@ -150,7 +150,7 @@ robot, low beside a wheel or near the lidar, call get_arm_reach (points in base_
 point is reachable without touching the body and which pitches work.
 
 Spatial perception: start with get_topdown_view (map, obstacles, POIs, objects, reach). When the surroundings are \
-unknown use look_around (one motion call). Use the front overhead camera with get_annotated_camera_image (floor grid, \
+unknown use look_around (one motion call). Use the front (head) camera with get_annotated_camera_image (floor grid, \
 reach envelope, planned gripper marker) to judge distances. To pick a precise floor target use mark_candidate_points \
 then resolve_candidate by number instead of guessing coordinates; pixel_to_ground converts any pixel to floor \
 coordinates. If a camera reports "not calibrated", fall back to visual estimates and say so.
