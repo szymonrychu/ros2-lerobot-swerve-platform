@@ -12,8 +12,8 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--client-chrony-role
+branch: remove-the-jetson-coprocesso--client-chrony-role
 verified_head: ""
 run: ""
 provides: []

@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--drop-fused-depth-topic
+branch: remove-the-jetson-coprocesso--drop-fused-depth-topic
 verified_head: ""
 run: ""
 provides: []

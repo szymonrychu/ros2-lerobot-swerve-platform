@@ -12,8 +12,8 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--drop-depth-wire-and-zstd
+branch: remove-the-jetson-coprocesso--drop-depth-wire-and-zstd
 verified_head: ""
 run: ""
 provides: []

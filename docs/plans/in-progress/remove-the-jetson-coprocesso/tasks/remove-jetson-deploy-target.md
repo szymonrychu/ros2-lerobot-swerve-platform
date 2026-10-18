@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--remove-jetson-deploy-target
+branch: remove-the-jetson-coprocesso--remove-jetson-deploy-target
 verified_head: ""
 run: ""
 provides: []

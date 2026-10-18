@@ -12,8 +12,8 @@ model: sonnet
 estimate: 35
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--calibration-config-no-depthd
+branch: remove-the-jetson-coprocesso--calibration-config-no-depthd
 verified_head: ""
 run: ""
 provides: []

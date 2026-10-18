@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--mcp-front-camera-topic
+branch: remove-the-jetson-coprocesso--mcp-front-camera-topic
 verified_head: ""
 run: ""
 provides: []

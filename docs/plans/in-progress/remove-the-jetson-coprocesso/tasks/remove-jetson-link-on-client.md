@@ -12,8 +12,8 @@ model: opus
 estimate: 80
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--remove-jetson-link-on-client
+branch: remove-the-jetson-coprocesso--remove-jetson-link-on-client
 verified_head: ""
 run: ""
 provides: []

@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--calibrate-page-imu-only
+branch: remove-the-jetson-coprocesso--calibrate-page-imu-only
 verified_head: ""
 run: ""
 provides: []

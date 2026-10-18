@@ -12,8 +12,8 @@ model: sonnet
 estimate: 55
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--drop-network-link-support
+branch: remove-the-jetson-coprocesso--drop-network-link-support
 verified_head: ""
 run: ""
 provides: []
