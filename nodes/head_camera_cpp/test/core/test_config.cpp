@@ -50,7 +50,7 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_EQ(c.jpeg_quality, 70);
   EXPECT_FALSE(c.camera_info_file.has_value());
   ASSERT_TRUE(c.metrics_port.has_value());
-  EXPECT_EQ(*c.metrics_port, 19113);
+  EXPECT_EQ(*c.metrics_port, 19116);
   EXPECT_EQ(c.zoom.still_size[0], 4608);
   EXPECT_EQ(c.zoom.still_size[1], 2592);
   EXPECT_EQ(c.zoom.factors, (std::vector<int>{2, 4, 8}));

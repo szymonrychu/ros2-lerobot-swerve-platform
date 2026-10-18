@@ -20,7 +20,7 @@ using ros2_common_cpp::Errors;
 
 constexpr const char * ENV_CONFIG_PATH_KEY = "HEAD_CAMERA_CONFIG";
 constexpr const char * DEFAULT_CONFIG_PATH = "/etc/ros2/head_camera_cpp/config.yaml";
-constexpr long DEFAULT_METRICS_PORT = 19113;  // NOLINT(runtime/int)
+constexpr long DEFAULT_METRICS_PORT = 19116;  // NOLINT(runtime/int)
 
 // The zoom still capture: full-resolution autofocused crops on request.
 struct ZoomConfig

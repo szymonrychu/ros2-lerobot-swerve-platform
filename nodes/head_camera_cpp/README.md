@@ -31,7 +31,7 @@ invalid value, stop the node with exit code 78. Every error line names its key (
 | `af_mode` | `continuous` | Autofocus: `continuous`, `auto` or `manual` |
 | `jpeg_quality` | `70` | Quality (1..100) of `image_raw/compressed` |
 | `camera_info_file` | none | Optional YAML calibration file for `camera_info` |
-| `metrics_port` | `19113` | Prometheus port (1..65535); `null` disables metrics |
+| `metrics_port` | `19116` | Prometheus port (1..65535); `null` disables metrics |
 | `zoom.still_size` | `[4608, 2592]` | Full-resolution still (width, height) the crops are cut from |
 | `zoom.factors` | `[2, 4, 8]` | Allowed zoom factors; non-empty subset of 2, 4, 8 |
 | `zoom.default_max_px` | `1024` | Longest side of a zoom image when the request names none |
