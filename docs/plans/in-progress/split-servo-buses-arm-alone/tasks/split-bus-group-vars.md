@@ -73,3 +73,7 @@ One deploy of `lerobot_follower base_servos swerve_controller mcp_server monitor
 - The head is not configured here (non-goal); only the comment.
 - The feetech schema assert in `ros2_node_deploy` already validates the new entry's joints.
 - If a pre-existing suite failure blocks the verify command, clear it per the boy-scout rule as its own commit.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (feetech 294, mcp_server 2499); docs-and-diagnostics failed only on a verifier crash, its checks pass by hand.

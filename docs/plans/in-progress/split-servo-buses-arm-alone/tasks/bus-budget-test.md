@@ -64,3 +64,7 @@ process_gaps: ["tests/README.md must list test_bus_budget.py (CLAUDE.md requirem
 - Design D4, D5, D7. Planning probe (real st3215 handler, fake bus): shared idle 4.28 ms / driving 8.88 ms; arm 3.12; arm + head 3.44; base + head driving 8.24 (wire time).
 - The projection keeps the non-bus remainder fixed: conservative, per-servo CPU savings are not credited. Do not tune the headroom constants to make a red test pass; a real shortfall is reported.
 - No production code changes in this task.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (feetech 294, mcp_server 2499); docs-and-diagnostics failed only on a verifier crash, its checks pass by hand.

@@ -67,3 +67,7 @@ Deploying with an unplugged or renamed adapter stops with the by-id listing befo
 - Design D2. Restarts are queued to the end of the play (`playbooks/tasks/start_ros_nodes.yml`), so failing here leaves every running unit as it was.
 - The server's `lerobot_leader` device is already by-id; the preflight applies there too and must pass unchanged.
 - Do not add a udev rule (D2 rejected it).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (feetech 294, mcp_server 2499); docs-and-diagnostics failed only on a verifier crash, its checks pass by hand.

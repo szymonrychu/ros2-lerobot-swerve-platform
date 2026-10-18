@@ -1,6 +1,6 @@
 ---
 title: Docs and diagnostics
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Operators and agents find the arm and the base on separate buses in every README, skill and diagnostic script."
 files: [README.md, ansible/README.md, .claude/skills/ansible-deploy/SKILL.md, .claude/skills/teleop-diagnostics/SKILL.md, scripts/swerve_diag.sh, scripts/README.md, MEMORY.md]
@@ -67,3 +67,7 @@ Every operator-facing text describes two buses: the arm alone on `lerobot_follow
 
 - Design D9. The swerve controller, feetech and mcp_server READMEs are updated by their own tasks; docs/plans archives are never rewritten.
 - MEMORY.md: update stale lines, do not rewrite unrelated history.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (feetech 294, mcp_server 2499); docs-and-diagnostics failed only on a verifier crash, its checks pass by hand.
