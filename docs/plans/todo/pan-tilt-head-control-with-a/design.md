@@ -112,8 +112,8 @@ from above, like the steering servos and REP 103 yaw). Tilt positive = looking d
 value (URDF axis plus the bridge `inverted` flag), documented with this default, and confirmed by the user (2026-10-18)
 (orchestrator ruling R3; the user's "-30/+45" read as 30 deg up, 45 deg down). Defaults (U2): pan [-90, +90] deg, tilt [-30, +45]
 deg, held in three places that a root test keeps equal: the URDF joint limits, the bridge `command_min/max_steps` (pan
-1024..3072, tilt 1707..2560 before `inverted`), the web UI slider ranges. Default servo IDs 40 (pan) and 41 (tilt) (my
-call: free on the base bus next to the swerve IDs 32-39); configurable in client.yml, set on the servos with
+1024..3072, tilt 1707..2560 before `inverted`), the web UI slider ranges. Servo IDs 20 (pan) and 21 (tilt): SET ON THE HARDWARE 2026-10-18 (both servos installed on the base bus
+`/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00` next to swerve 32-39; arm 1-6 alone on its own adapter); configurable in client.yml, set on the servos with
 `scripts/set_servo_id.py` before deploy. Serves G1, U2.
 
 ### D3: Per-joint speed and acceleration caps in the bridge
@@ -349,7 +349,7 @@ TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Ser
   head while driving; head-servo-group-config re-runs `test_bus_budget.py` with the real (capped, 7-byte goal) head
   group, and the runbook measures it on the robot.
 - The tilt sign convention (positive = looking down) is decided (R3, confirmed by the user 2026-10-18); were it ever flipped, only the URDF axis, the bridge `inverted` flag and the default ranges would change.
-- Default servo IDs 40/41, camera spacing 0.05 m and the mount offsets are estimates until measured on the built head:
+- Servo IDs 20/21 are set on the hardware (2026-10-18); camera spacing 0.05 m and the mount offsets are estimates until measured on the built head:
   the runbook measures and updates the URDF and client.yml.
 - The pan post does not shadow the lidar outside the laser_filter footprint box: checked in the runbook (`/scan` shows
   no return at the post bearing beyond the footprint).
