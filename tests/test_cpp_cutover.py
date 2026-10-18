@@ -81,8 +81,13 @@ def test_background_tier_holds_only_throttles_and_previews() -> None:
         )
         == BACKGROUND_TIER
     ]
-    # The retired Pi camera nodes (D7, D9) are gone: the joint-state throttle relays and head_camera_cpp are left.
-    assert sorted(running) == ["head_camera_cpp", "joint_state_throttle_follower", "joint_state_throttle_swerve"]
+    # The retired Pi camera nodes (D7, D9) are gone: the throttle relays, head_camera_cpp and head_rgbd_cpp are left.
+    assert sorted(running) == [
+        "head_camera_cpp",
+        "head_rgbd_cpp",
+        "joint_state_throttle_follower",
+        "joint_state_throttle_swerve",
+    ]
 
 
 def test_only_the_running_node_of_each_pair_is_scraped() -> None:
