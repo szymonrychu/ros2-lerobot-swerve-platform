@@ -1,6 +1,6 @@
 ---
 title: "Root tests/test_claude_agent_config.py (3 tests) fails until claude_agent classifies set_head_angles, head_look_at and head_home"
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Every registered mcp_server tool must be classified there; the agent-head-tools-and-prompt task owns it."
 files: []
@@ -55,3 +55,7 @@ Root tests/test_claude_agent_config.py (3 tests) fails until claude_agent classi
 
 Discovered in task `mcp-head-tools` during run `pan-tilt-head-control-with-a`.
 
+
+## Ruling
+
+Folded into the open tasks of run 3 by the orchestrator (planText note): root test classification goes to agent-head-tools-and-prompt, README rows to head-suite-and-robot-runbook. Not a separate task.

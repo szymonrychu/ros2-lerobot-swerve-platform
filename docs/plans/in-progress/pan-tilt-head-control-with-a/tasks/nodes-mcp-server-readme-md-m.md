@@ -1,6 +1,6 @@
 ---
 title: nodes/mcp_server/README.md module table and tests/README.md do not list head_kinematics.py / test_head_kinematics.py
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "CLAUDE.md requires READMEs to list modules and each test file; those files are outside this task's ownership"
 files: []
@@ -55,3 +55,7 @@ nodes/mcp_server/README.md module table and tests/README.md do not list head_kin
 
 Discovered in task `mcp-head-kinematics` during run `pan-tilt-head-control-with-a`.
 
+
+## Ruling
+
+Folded into the open tasks of run 3 by the orchestrator (planText note): root test classification goes to agent-head-tools-and-prompt, README rows to head-suite-and-robot-runbook. Not a separate task.
