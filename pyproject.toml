@@ -28,6 +28,11 @@ dev = [
     "zxing-cpp>=2.2,<4",
     "reportlab>=4,<5",
     "pypdfium2>=4,<6",
+    "trimesh>=4,<5",
+    "manifold3d>=3,<4",
+    "networkx>=3",
+    "lxml>=5",
+    "rtree>=1.2",
 ]
 
 [tool.uv]

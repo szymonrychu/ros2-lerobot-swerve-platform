@@ -61,7 +61,7 @@ class StlOptions(StrictModel):
     """3D print options in mm."""
 
     base_thickness_mm: float = Field(default=2.0, gt=0)
-    relief_mm: float = Field(default=0.6, gt=0)
+    relief_mm: float = Field(default=0.6, ge=0)
     inlay_mm: float = Field(default=0.0, ge=0)
     margin_mm: float = Field(default=3.0, ge=0)
     min_module_mm: float = Field(default=1.5, gt=0)
