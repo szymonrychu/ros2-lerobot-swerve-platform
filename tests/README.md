@@ -473,6 +473,17 @@ The `head_state_publisher` node (robot_state_publisher on `nodes/web_ui/urdf/hea
 | `test_playbook_step_exists_with_tags` | `Deploy head_state_publisher` exists with its node tag and `apt`. |
 | `test_readme_documents_frames_and_check` | The node README names `/tf_static` and the `tf2_echo` check. |
 
+### `test_head_config_consistency.py`
+
+Cross-component pin of the pan/tilt head: the same values are copied into the `base_servos` head group, `nodes/web_ui/urdf/head.urdf`, the mcp_server `head:` block and the web_ui head tab, and must never disagree. The mcp_server and web_ui code defaults are read from their config modules.
+
+| Test | What it covers |
+|---|---|
+| `test_home_pose_is_equal_everywhere_and_inside_the_limits` | Home (pan 0, tilt 30 deg down) equal within 1e-3 rad in the bridge `startup_position_rad`, mcp_server `head.home_*` (client.yml and default) and web_ui `head_home_deg` (client.yml, default.yaml, code default), and inside the URDF limits. |
+| `test_ranges_agree_across_urdf_bridge_web_ui_and_mcp_server` | URDF limits equal the bridge `command_min/max_steps` (4096 steps/turn around 2048, honouring `inverted`), the web_ui `head_*_range_deg` and the mcp_server limits read from its configured URDF path. |
+| `test_joint_names_agree_across_urdf_bridge_and_mcp_server` | `head_pan`, `head_tilt` in the URDF, the bridge group and mcp_server `head.joint_names`. |
+| `test_topics_agree_across_bridge_mcp_server_web_ui_and_launch` | `/head/joint_states` and `/head/joint_commands` in the bridge namespace, mcp_server, web_ui (head and map_nav tabs) and the head_state_publisher launch remap. |
+
 ### `test_head_servo_config.py`
 
 The pan/tilt head servo group in `ansible/group_vars/client.yml`: an `extra_groups` entry `head` on `base_servos` (base bus, never the arm bridge). Step ranges must equal the limits of `nodes/web_ui/urdf/head.urdf` (4096 steps per turn around 2048, +-1 step).
