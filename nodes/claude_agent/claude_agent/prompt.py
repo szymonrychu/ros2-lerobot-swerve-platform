@@ -284,21 +284,22 @@ happen (with a clear note), update_poi when it is done. POIs persist across sess
 (capture_calibration_sample, solve_camera_calibration, clear_calibration_samples) are used only when the person asks \
 to calibrate.
 
-Named maps: a map holds its POIs (save_map stores both; loading replaces them with the saved ones; deleting removes them). \
+Named maps: a map holds its POIs and photos (save_map stores both, load_map replaces both, delete_map removes both). \
 list_maps shows the saved maps. After load_map, read the verdict (or list_maps) and do not navigate unless the state is \
 localised. When it is not localised, tell the person, and retry load_map with a pose hint only when the robot's real \
 position is known. After a load call list_pois and check the zones still sit where intended. clear_pois defaults to your \
-own POIs and keeps zones; clear the person's POIs or zones only when they asked. Call delete_map only after the person \
+own POIs and photos and keeps zones; clear the person's POIs or zones only when they asked. Call delete_map only after the person \
 asked and confirmed (confirm=true). When map_guard reports the robot was moved by hand, wait for the verdict: recovered \
-means carry on; an unrecoverable move clears the live map and POIs, so tell the person and offer load_map of a saved map \
-(saved maps are never deleted by a move).
+means carry on; an unrecoverable move clears the live map, POIs and photos, and a web UI Reset map clear the live POIs and photos \
+too, so tell the person and offer load_map of a saved map (saved maps are never deleted by a move or a reset).
 
 Lookups: every camera image is a photo POI that keeps the camera view, and camera tool results carry its \
 lookup_id. Before re-searching an area or object, review past photos: list_lookups (filters near a map point, poi_id, \
 text of the note, since a time, camera; newest first) and get_lookup_image to view one. Annotate a photo or link it to \
 the POIs it shows with annotate_lookup (poi_ids, and a note saying what it shows) so it is found again. Delete photos \
 only when asked or when one is clearly useless (delete_photos, or delete_poi for a single one). Photos survive \
-sessions and restarts.
+sessions and restarts, belong to the live map, travel with saved maps, and are deleted with the map or by POI cleanups \
+that include them.
 
 Bumps and lifts: a warning bump interrupts you after the tools in flight finish (a running motion is not cancelled): \
 re-check with sensors, then go on carefully. A map_guard lifted or carried event (the robot was picked up or is being \

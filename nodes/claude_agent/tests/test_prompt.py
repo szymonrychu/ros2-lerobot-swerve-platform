@@ -840,3 +840,19 @@ def test_prompt_teaches_poi_categories_and_removal_rules() -> None:
     assert "after the person asked" in lower
     assert "creating a keep-out is free" in lower
     assert "cancelling or deleting one needs the person's consent" in lower
+
+
+def test_prompt_states_photo_rules_for_maps_and_cleanups() -> None:
+    lower = norm_prompt().lower()
+    assert "a map holds its pois and photos" in lower
+    assert "save_map stores both" in lower
+    assert "load_map replaces both" in lower
+    assert "delete_map removes both" in lower
+    assert "clear_pois defaults to your own pois and photos and keeps zones" in lower
+    assert "web ui reset map clear the live pois and photos" in lower
+    assert "saved maps are never deleted by a move or a reset" in lower
+    assert "travel with saved maps" in lower
+    assert "belong to the live map" in lower
+    assert "photos survive sessions and restarts" in lower
+    assert "photos are never cleared" not in lower
+    assert "photos survive sessions and restarts." not in lower
