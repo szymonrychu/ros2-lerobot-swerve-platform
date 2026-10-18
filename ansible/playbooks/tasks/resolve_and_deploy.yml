@@ -31,6 +31,7 @@
     node_src_shared: "{{ ros2_node_type_defaults[_node.node_type].src_shared | default(false) }}"
     node_apt_packages: "{{ ros2_node_type_defaults[_node.node_type].apt_packages | default([]) }}"
     node_colcon_source: "{{ ros2_node_type_defaults[_node.node_type].colcon_source | default({}) }}"
+    node_colcon_purge: "{{ ros2_node_type_defaults[_node.node_type].colcon_purge | default([]) }}"
     node_pythonpath_parent: "{{ ros2_node_type_defaults[_node.node_type].pythonpath_parent | default(false) }}"
     # Cgroup keys (see ansible/README.md, "Node resource model"): each renders only when the type sets it. Robot (client)
     # types set no cpu_quota and no memory_high (priority from the weights, protection from memory_low).

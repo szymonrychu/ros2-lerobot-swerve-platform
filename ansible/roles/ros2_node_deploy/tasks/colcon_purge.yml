@@ -1,0 +1,33 @@
+---
+# Remove the colcon source, build, install output and build stamps of retired C++ packages.
+# Input: node_colcon_purge, a list of {package, workspace}. Included from the uninstall
+# block of main.yml with privilege escalation applied by the include. Only the named package's paths
+# are touched: never the workspace root, install/setup.bash or another package.
+
+- name: Remove colcon source, build and install directories of the purged packages
+  ansible.builtin.file:
+    path: "{{ item.0.workspace }}/{{ item.1 }}/{{ item.0.package }}"
+    state: absent
+  loop: "{{ node_colcon_purge | product(['src', 'build', 'install']) | list }}"
+  loop_control:
+    label: "{{ item.0.workspace }}/{{ item.1 }}/{{ item.0.package }}"
+
+- name: Find build stamps of the purged packages
+  ansible.builtin.find:
+    paths: "{{ item.workspace }}"
+    patterns: ".built-{{ item.package }}-*"
+    hidden: true
+    depth: 1
+    file_type: any
+  register: _colcon_purge_stamps
+  loop: "{{ node_colcon_purge }}"
+  loop_control:
+    label: "{{ item.package }}"
+
+- name: Remove build stamps of the purged packages
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ _colcon_purge_stamps.results | map(attribute='files') | flatten }}"
+  loop_control:
+    label: "{{ item.path }}"

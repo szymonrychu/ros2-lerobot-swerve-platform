@@ -104,6 +104,13 @@
         state: absent
       become: true
 
+    - name: Purge colcon output and stamps of the retired C++ node
+      ansible.builtin.include_tasks:
+        file: colcon_purge.yml
+        apply:
+          become: true
+      when: node_colcon_purge | default([]) | length > 0
+
     - name: Reload systemd after uninstall
       ansible.builtin.systemd:
         daemon_reload: true

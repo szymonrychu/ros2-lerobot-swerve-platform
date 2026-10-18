@@ -2342,3 +2342,14 @@ The jetson_link role (design D8): chrony, Pi NAT and hosts entries, rendered wit
 | `test_hosts_entries_per_side` / `test_side_is_validated` | `jetson.ros2.lan` on the Pi, `client.ros2.lan` on the Jetson; side assert and defaults. |
 | `test_client_play_applies_network_then_jetson_link_under_one_tag` / `test_no_other_client_task_carries_the_jetson_link_tag` | The 'Direct link to the Jetson' block is tagged `jetson_link` and applies network then jetson_link (server); nothing else carries the tag. |
 
+
+## test_node_uninstall_purge.py
+
+The `colcon_purge` node type key: the uninstall path removes a retired C++ node's colcon output and stamps.
+
+| Test | Description |
+|---|---|
+| `test_purge_removes_only_the_named_package_and_is_idempotent` | Runs `colcon_purge.yml` with the repo venv's `ansible-playbook -c local` on a temp workspace: only `pkg_a`'s src/build/install dirs and stamps go; `pkg_b` and `install/setup.bash` stay; a second run reports `changed=0`. |
+| `test_uninstall_block_includes_colcon_purge_with_length_guard` | The uninstall block includes `colcon_purge.yml` with `become`, the length guard, after the config removal and before the systemd reload. |
+| `test_purge_task_file_sets_no_become` | The task file itself sets no `become`. |
+| `test_resolve_and_deploy_maps_colcon_purge_with_empty_default` | `resolve_and_deploy.yml` maps `colcon_purge` to `node_colcon_purge` with `default([])`. |
