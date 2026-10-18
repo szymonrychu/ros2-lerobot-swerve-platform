@@ -247,7 +247,10 @@ def poi_lookup(robot: RobotApi, kinds: tuple[str, ...]) -> Callable[[str], tuple
 
 
 def camera_scene(robot: RobotApi, config: McpServerConfig, camera: str) -> tuple[Scene, CameraSetup]:
-    """Scene of a calibrated camera at the current arm pose.
+    """Scene of a calibrated camera at the current arm pose and the current measured head pose.
+
+    The front scene uses the head angles measured now; the view checks built on it assume the head keeps that pose
+    while the base moves to the staging and dock poses.
 
     Args:
         robot (RobotApi): Robot (arm kinematics and measured joints).
@@ -449,7 +452,7 @@ def register(ctx: ToolContext) -> None:
         except CameraNotCalibratedError:
             return "not calibrated"
         except (ArmError, RobotError, ValueError) as exc:
-            return str(exc)
+            return "head joint states stale" if camera == "front" and isinstance(exc, ValueError) else str(exc)
         margin = max(settings.tracker.edge_margin_px, settings.tracker.template_px / 2)
         for label, pose in (("staging", cand.staging_pose), ("dock", cand.pose)):
             if not visible(scene, np.array(target_in_base(target, (pose.x, pose.y, pose.yaw))), margin):

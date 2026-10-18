@@ -106,7 +106,10 @@ For the gripper camera `T_arm_base_gripper_link` is computed from the CURRENT me
 as IK/FK (`ArmKinematics.link_frame`), so the tools need fresh `/follower/joint_states`. The front camera works the
 same way on the head: `T_base_link_head_link` comes from the CURRENT measured `head_pan` / `head_tilt`
 (`HeadKinematics.link_pose`, `camera_scene.parent_transform(..., head=...)`), so the front camera tools need fresh
-`/head/joint_states` (an error naming them otherwise, never a fixed-pose fallback). The deployed front mount is the
+`/head/joint_states` (an error naming them otherwise, never a fixed-pose fallback). Lookups record the head-composed
+`camera_pose_base` the same way (null when the head joints are stale), and the approach tools' camera view check
+(`camera_view_problem`) builds the front scene with the current measured head pose, assuming the head keeps it while
+the base moves; stale head joints give the reason `head joint states stale`. The deployed front mount is the
 `head.urdf` `head_link -> head_camera_link` origin (x 0.02, y -0.025, z 0, rpy 0). Mount orientation convention:
 REP-103 camera body frame (x forward, y left, z up), fixed-axis RPY in `parent_frame`.
 
@@ -512,7 +515,7 @@ writes and deletes all happen in poi_store.
 | `camera`, `width`, `height`, `file`, `bytes` | camera, image size (px), JPEG file name relative to the store, JPEG size |
 | `base_pose_map` | `{x, y, yaw}` in map at capture, null when the pose is unknown |
 | `arm_joints` | measured arm joints (rad), null when stale |
-| `camera_pose_base` | `{xyz, rpy}` of the camera body in base_link (fixed-axis rpy), when the camera has a mount (the gripper camera also needs `arm.base_in_base_link` and fresh joints); null otherwise |
+| `camera_pose_base` | `{xyz, rpy}` of the camera body in base_link (fixed-axis rpy), when the camera has a mount (the gripper camera also needs `arm.base_in_base_link` and fresh joints; the front camera is composed with the measured head angles and needs fresh head joint states); null otherwise |
 | `view` | camera pose in map from `ros2_common.photos.camera_view`: `x`, `y`, `z`, `yaw` (camera forward axis), `pitch` (positive looking down), `hfov`, `source` (`camera_mount`, or `base_heading` without a mount: base position and yaw, z / pitch / hfov null); null without a map pose |
 | `mcp_session` | Mcp-Session-Id of the call (a contextvar set in `RobotMCPServer.call_tool_with_digest`; empty without one). mcp_server cannot see claude_agent's instruction id: time range plus session stand in for it |
 | `kind`, `name`, `status`, `created_by`, `updated_at` | `photo`, label, `open` / `done` / `cancelled`, `agent` / `user`, unix time of the last edit (0 = never) |
@@ -612,10 +615,12 @@ it is listed in `layers_missing` with the reason and nothing is drawn.
 points at the frontier `target` within `facing_half_angle_deg`, no further than `facing_max_distance_m` from the lookup
 position. Result: `{lookup_id, age_s, camera, distance_m, off_axis_deg}`; prefer frontiers where it is null (nobody has
 looked there). The camera axis in the map frame = the record's `base_pose_map` yaw plus the yaw of the body x axis of
-`camera_pose_base`. **Front-camera assumption:** the front camera is uncalibrated (no mount, no intrinsics), so its
-record has no `camera_pose_base`; for `camera == "front"` the axis is taken to be the base heading (the camera looks
-forward). This is approximate and goes away when the front or head camera is calibrated. Gripper records without a pose
-are skipped, never guessed.
+`camera_pose_base`. **Head-mounted front camera:** the front camera sits on the pan/tilt head, so its record's
+`camera_pose_base` is composed from the measured head angles at capture (pan +45 deg turns the axis 45 deg left of the
+base heading). Only legacy records without a pose (taken before the camera was on the head) fall back to the base
+heading; a front lookup taken with stale head joint states records no pose (never a base_link guess), and its facing
+then also falls back to the base heading, the same as a legacy record. Gripper records without a pose are skipped,
+never guessed.
 
 **CPU budget and `mcp_frontier_compute_seconds`.** The Pi 5 runs near 90% CPU, so there is no timer: work happens only
 inside tool calls and the topdown layer, once per `/map` version (detection stages) and once per (version, robot cell)
