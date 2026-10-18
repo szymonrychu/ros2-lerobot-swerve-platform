@@ -12,7 +12,7 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--bus-budget-test
+worktree: ""
 branch: ""
 verified_head: 4aee585dd897a6addb36627e31229fd77cf33ac8
 run: split-servo-buses-arm-alone

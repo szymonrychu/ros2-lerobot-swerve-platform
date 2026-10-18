@@ -12,7 +12,7 @@ model: opus
 estimate: 75
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--split-bus-group-vars
+worktree: ""
 branch: ""
 verified_head: b0aae1373e120f3b36cd3d74332c996a8bbcbb7c
 run: split-servo-buses-arm-alone

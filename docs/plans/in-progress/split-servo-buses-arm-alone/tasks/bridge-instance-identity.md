@@ -12,7 +12,7 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--bridge-instance-identity
+worktree: ""
 branch: ""
 verified_head: 336a2cb67ff414e05f7d0a74618b8d31cba545cd
 run: split-servo-buses-arm-alone

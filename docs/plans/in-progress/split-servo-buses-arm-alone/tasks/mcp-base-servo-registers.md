@@ -12,7 +12,7 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--mcp-base-servo-registers
+worktree: ""
 branch: ""
 verified_head: 3eb7eea753291d2698ff5cf088c3dff31724c3ed
 run: split-servo-buses-arm-alone
