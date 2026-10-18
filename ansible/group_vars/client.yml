@@ -1638,7 +1638,7 @@ ros2_nodes:
             rpy: [-1.5622, 1.1950, -1.4466]
         # Head tab: head RGB from the Camera Module 3 (mounted with the ToF on the pan/tilt head) plus the Arducam ToF
         # (arducam_tof on CSI cam1): depth is 16UC1 mm, amplitude is mono16. /tof/camera_info is published but not
-        # consumed by the Head tab. The pan/tilt block is disabled and publishes nothing.
+        # consumed by the Head tab.
         - id: head
           type: head
           label: "Head"
