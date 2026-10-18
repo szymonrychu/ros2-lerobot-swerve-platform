@@ -48,7 +48,7 @@ Example configs are in `config/leader.yaml` and `config/follower.yaml`. Mount on
 
 `name` lists the `publish_current_joints` (in joint order), `effort` is Present_Current in **amperes** (unsigned magnitude: register bits 0-14, 6.5 mA per unit, `CURRENT_LSB_A` in `registers.py`; the register has no documented sign), `position` and `velocity` are empty. The header stamp is the one of the same cycle's `joint_states` sample. A message is published only when every listed joint's current was read this cycle: otherwise the sample is skipped (no NaN, no `0.0`).
 
-Cost: one SYNC_READ has one address and length for all servos, so a non-empty `publish_current_joints` lengthens the state read from 6 to 15 bytes (addresses 56-70, `present_load` stays decoded) for every servo, +126 bytes per cycle on the 14-servo client bus (about +1.26 ms at 1 Mbaud); the per-servo fallback read uses the same length. Current is decoded only for the listed joints. **Gate:** after enabling, `/follower/joint_states` must still publish at 95 Hz or more over 60 s (`scripts/topic_scraper_collect.py`, `received_at_ns` deltas) with `joint_currents` at the same rate. **Rollback:** set `publish_current_joints: []` and redeploy.
+Cost: one SYNC_READ has one address and length for all servos, so a non-empty `publish_current_joints` lengthens the state read from 6 to 15 bytes (addresses 56-70, `present_load` stays decoded) for every servo, +54 bytes per cycle on the 6-servo arm bus of `lerobot_follower` (about +0.54 ms at 1 Mbaud; +126 bytes, +1.26 ms, on the former shared 14-servo bus); the per-servo fallback read uses the same length. Current is decoded only for the listed joints. **Gate:** after enabling, `/follower/joint_states` must still publish at 95 Hz or more over 60 s (`scripts/topic_scraper_collect.py`, `received_at_ns` deltas) with `joint_currents` at the same rate. **Rollback:** set `publish_current_joints: []` and redeploy.
 
 When `device` is set, the bridge connects to hardware and:
 
@@ -86,6 +86,28 @@ Each loop iteration (`control_loop_hz`): drain **all** pending ROS callbacks (`e
 The watchdog stops a wheel (goal_speed = 0) only when it is moving and **no drive command for that wheel** was received within `velocity_command_timeout_s`. Command age is measured from the **receive time** of the drive command, not the time it was written. A received command feeds the watchdog even if its register write fails (the record keeps the last velocity actually written, so a still-moving wheel is stopped once commands stop); a failed watchdog stop is retried every cycle. A stop also drops any pending velocity target for that wheel so it cannot restart it.
 
 **Root cause of the periodic wheel stops (fixed):** the loop used to process only one callback per iteration (`spin_once` at the end of the loop, ~85 Hz). `swerve_drive_controller` publishes a steer message and a drive message back to back (~215 msg/s), so the subscription queue (depth 10) was always full, and after each new pair arrived its oldest entry - the one processed next - was always a steer message. Drive commands were only handled when loop jitter let one through; when none got through for 0.3 s the watchdog wrote goal_speed = 0 to all four wheels, which then stood still for 0.4-0.8 s until the next drive message slipped through.
+
+## Bus budget
+
+`tests/test_bus_budget.py` proves, before any hardware is touched, that the arm-only bus keeps headroom at 100 Hz and that base plus head fit the base bus. It loads the `lerobot_follower` and `base_servos` config blocks of `ansible/group_vars/client.yml` through `load_config`, puts exactly those servos on the emulated bus of `tests/sts_bus.py` (real st3215 packet handler, bytes at 1 Mbaud, 1 ms per transaction) and runs the worst-case cycle: every position goal due for refresh, every velocity joint's target changed, then one state sync read of all servos.
+
+**Anchored projection.** The fake wire time alone is not a loop rate, so it is anchored to the one robot measurement of the old shared 14-servo bus (`MEASURED_SHARED_BUS_HZ = 95.7`, 2026-10-11, wheels idle):
+
+- remainder = 1 / 95.7 Hz - fake wire time of the old shared layout with idle wheels (10.45 ms - 4.28 ms = 6.17 ms: CPU, ROS publishing, sleeps);
+- projected cycle of a layout = remainder + its worst-case fake wire time.
+
+The remainder is kept fixed, which is conservative: the per-servo CPU savings of a smaller bus are not credited. Targets: arm only <= `ARM_HEADROOM` (0.95) of the follower period, base + head <= `BASE_HEADROOM` (0.8) of the base period, arm + head below the follower period (the head may also go on the arm bus), and the fake wire time alone below half the period on both buses. `HEAD` (`head_pan`, `head_tilt`, IDs above every configured ID) stands in for the head until `base_servos` configures a `head` extra group; then the test uses that real group.
+
+| Layout | Fake wire time | Projected cycle | Capacity | Target |
+|---|---|---|---|---|
+| old shared bus, 14 servos, wheels driving | 8.88 ms | 15.05 ms | 10.45 ms (measured 95.7 Hz, wheels idle) | reference |
+| arm only, 6 servos (100 Hz) | 3.12 ms | 9.29 ms | 10 ms | <= 95% of 10 ms (9.5 ms) |
+| arm + head, 8 servos (100 Hz) | 3.44 ms | 9.61 ms | 10 ms | < 10 ms |
+| base + head, 10 servos, wheels driving (50 Hz) | 8.24 ms | 14.41 ms | 20 ms | <= 80% of 20 ms (16 ms) |
+
+The old shared bus row shows why the split was needed: with the wheels driving it projects far past its 10 ms period.
+
+**Re-anchoring after a new robot measurement.** Measure `/follower/joint_states` over 60 s (`scripts/topic_scraper_collect.py`, `received_at_ns` deltas) on a bus whose layout the test models, update `MEASURED_SHARED_BUS_HZ` (and its date and layout in the comment) in `tests/test_bus_budget.py`, and run `uv run pytest tests/test_bus_budget.py`. If the layout measured is not the old shared one, change `OLD_SHARED_GROUPS` and the idle-wheel anchor to match it. Never change `ARM_HEADROOM` or `BASE_HEADROOM` to make a failing test pass: a failure is a real shortfall.
 
 ## Several bridges on one host
 
