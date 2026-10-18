@@ -24,7 +24,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | Tool | What it does |
 |---|---|
 | `get_robot_state` | map -> base_link pose (TF), odometry twist, latest Nav2 goal status, collision monitor action (if published), arm joints/efforts, gripper effort, filter_node active source, lease state, data age per source. Stale data is omitted and listed in `notes`. |
-| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: 640x480 is about 400 tokens). Waits for the next frame on an on-demand per-camera subscription (created by the first call, destroyed by the executor's reaper timer after `on_demand.linger_s` unused, never from the tool thread: per-call subscriptions destroyed from tool threads raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/front_camera/image_raw/compressed`, the pi_cameras front Camera Module 3, 640x480 at 10 fps, looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + metadata: capture stamp, the picture's `width` x `height`, `calibrated_image` (the size the pixel tools work in: the camera's intrinsics size, `null` for `front` when no intrinsics are configured), `scale_to_calibrated` and a `pixel_note` saying to pass `image_width` / `image_height` with pixels read from this picture, and `lookup_id` (the picture's photo POI id, null when it was not recorded; see [Photos (photo POIs)](#photos-photo-pois)); error if no frame within `image_timeout_s` or the frame is older than 1 s. |
+| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: a 640x480 picture is about 400 tokens). Waits for the next frame on an on-demand per-camera subscription (created by the first call, destroyed by the executor's reaper timer after `on_demand.linger_s` unused, never from the tool thread: per-call subscriptions destroyed from tool threads raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.head_camera` (default `/head_camera/image_raw/compressed`, the head RGB camera: Camera Module 3 on the pan/tilt head with the ToF, head_camera_cpp, 1152x648 at 30 fps, 16:9, autofocus, default picture 384x216; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + metadata: capture stamp, the picture's `width` x `height`, `calibrated_image` (the size the pixel tools work in: the camera's intrinsics size, `null` for `front` when no intrinsics are configured), `scale_to_calibrated` and a `pixel_note` saying to pass `image_width` / `image_height` with pixels read from this picture, and `lookup_id` (the picture's photo POI id, null when it was not recorded; see [Photos (photo POIs)](#photos-photo-pois)); error if no frame within `image_timeout_s` or the frame is older than 1 s. |
 | `list_lookups(since, until, near{x,y,radius_m}, poi_id, text, camera, mcp_session, limit<=20)` | Past camera images (photo POIs), metadata only, newest first (default 10). Sensor. See [Photos (photo POIs)](#photos-photo-pois). |
 | `get_lookup_image(lookup_id, max_px)` | One recorded image (JPEG, exactly as the model received it; `max_px` only downscales) plus its metadata. Sensor. |
 | `annotate_lookup(lookup_id, note, poi_ids)` | Set a photo's note and/or POI links (replacing them; omitted fields stay) through a poi_store `update`; errors when poi_store is down. Sensor. |
@@ -91,7 +91,7 @@ works before calibration; `solve_camera_calibration` needs the intrinsics.
 
 | Camera | Reference frame of results | Floor | Mount `parent_frame` |
 |---|---|---|---|
-| `front` (fixed overhead camera) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | `base_link` (fixed) |
+| `front` (head RGB camera) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | `base_link` (fixed) |
 | `gripper` (on the wrist) | arm base frame (URDF `base_link` of `so101_arm.urdf`, `z = 0` on the arm mount plane) | `z = -arm_base_height_m` (`floor_z_m`, -0.100 m with the measured mount) | URDF link `gripper_link` (child of `wrist_roll`, the rigid gripper body carrying the fixed jaw; `gripper_frame_link` is only the tool point at the jaw tips and `moving_jaw_so101_v1_link` moves with the gripper joint, so neither is a valid mount) |
 
 For the gripper camera `T_arm_base_gripper_link` is computed from the CURRENT measured joints with the same ikpy chain
@@ -121,7 +121,7 @@ defaults to the mount measured on the robot 2026-10-10 `{x: 0.0592, y: -0.05, z:
   (`ground_map` stays valid); after the arm moved the pixel no longer matches the live image. `resolve_candidate` also
   returns the `surface_height_m` the set was made with.
 - Image sizes: the pixel tools work in the calibrated image size (the intrinsics' width x height: 640x480 for the
-  gripper camera; the front camera, the pi_cameras front Camera Module 3 streaming 640x480 at 10 fps, has no intrinsics
+  gripper camera; the front camera, the head RGB camera streaming 1152x648 at 30 fps, has no intrinsics
   configured yet). `get_camera_image` defaults to 384x288 (`limits.default_camera_px`), so a pixel read from it must be passed
   with `image_width` / `image_height` (scaled by `camera_scene.pixel_scale`; both or neither, same aspect within 2 %).
   Without them the pixel is taken as a calibrated-size pixel (the behaviour before 2026-10-10, kept for pixels from
@@ -236,7 +236,7 @@ previous tick feeds nothing. Messages are never logged individually. `mcp_sample
 
 On-demand subscriptions (`on_demand` config section, `ros_iface.OnDemandSubscription`): profiling showed most of the
 idle CPU was rclpy executor wake-ups for messages no tool read. The two cameras (`topics.gripper_camera`,
-`topics.front_camera`), `topics.scan` (`/scan_filtered`) and `topics.tf` (`/tf`) are subscribed only while a tool uses
+`topics.head_camera`), `topics.scan` (`/scan_filtered`) and `topics.tf` (`/tf`) are subscribed only while a tool uses
 them. The first use subscribes and waits a bounded time for a first message: a camera waits `timeouts.image_timeout_s`
 for the next frame; the scan waits up to `timeouts.state_stale_s`; a TF lookup waits `max(timeouts.tf_timeout_s, the
 rest of a timeouts.state_stale_s window)` right after `/tf` was subscribed, then `tf_timeout_s`. Every read restarts

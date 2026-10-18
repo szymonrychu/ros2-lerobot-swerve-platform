@@ -35,8 +35,14 @@ def test_default_topics_follow_the_robot_graph() -> None:
     assert t.cmd_vel == "/cmd_vel_nav"
     assert t.scan == "/scan_filtered"
     assert t.gripper_camera == "/camera_0/image_raw/compressed"
-    assert t.front_camera == "/front_camera/image_raw/compressed"
+    assert t.head_camera == "/head_camera/image_raw/compressed"
     assert t.navigate_action == "/navigate_to_pose"
+
+
+def test_front_camera_topic_key_is_rejected() -> None:
+    """The retired `topics.front_camera` key is no longer accepted (extra keys are forbidden)."""
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"topics": {"front_camera": "/front_camera/image_raw/compressed"}})
 
 
 def test_default_limits_are_conservative() -> None:
