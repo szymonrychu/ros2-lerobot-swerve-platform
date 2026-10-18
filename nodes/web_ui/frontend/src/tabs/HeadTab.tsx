@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
@@ -12,7 +12,7 @@ import Typography from '@mui/material/Typography'
 import { requestZoom, ZoomFactor } from '../camera/zoomApi'
 import { CameraStream } from '../components/CameraStream'
 import { useLayout } from '../layout/useLayout'
-import { CANVAS_BG } from '../theme'
+import { CANVAS_BG, TOUCH_TARGET_PX } from '../theme'
 import { TabConfig } from '../types'
 import { WaitingMessage } from './WaitingMessage'
 
@@ -23,8 +23,16 @@ interface Props {
 }
 
 const CELL_SX = { flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' } as const
-const PAN_TILT_LABEL = 'pan/tilt: no head mount configured'
-const PAN_TILT_RANGE_DEG = 90
+const HEAD_JOINTS = ['head_pan', 'head_tilt']
+const HEAD_MSG_TYPE = 'sensor_msgs/JointState'
+const HEAD_PUBLISH_INTERVAL_MS = 200
+const DEFAULT_PAN_RANGE_DEG: [number, number] = [-90, 90]
+const DEFAULT_TILT_RANGE_DEG: [number, number] = [-30, 45]
+const DEFAULT_HOME_DEG: [number, number] = [0, 30]
+const COMMAND_ARRIVED_DEG = 1
+// Full pan range (pi rad) at the 1.0 rad/s head speed cap is 3.14 s, rounded up to the next half second.
+const COMMAND_HOLD_MS = 3500
+const DEG_PER_RAD = 180 / Math.PI
 const ZOOM_FACTORS: ZoomFactor[] = [2, 4, 8]
 const DEFAULT_ZOOM_FACTOR: ZoomFactor = 4
 
@@ -46,6 +54,149 @@ function zoomErrorText(err: unknown): string {
   if (msg.includes('HTTP 409')) return 'Camera busy'
   if (msg.includes('HTTP 504') || /HTTP \d+, timeout\)/.test(msg)) return 'Zoom timed out'
   return 'Camera error'
+}
+
+/**
+ * Measured head angles from a JointState payload.
+ *
+ * @param sample - latest sample of head_joint_states_topic (name/position arrays), or undefined
+ * @returns [pan, tilt] in degrees, or null before a sample carrying both joints
+ */
+function measuredDeg(sample: unknown): [number, number] | null {
+  const js = sample as { name?: string[]; position?: number[] } | undefined
+  if (!js?.name || !js.position) return null
+  const out = HEAD_JOINTS.map((j) => js.position?.[js.name?.indexOf(j) ?? -1])
+  return out.every((v) => typeof v === 'number' && Number.isFinite(v)) ? [(out[0] as number) * DEG_PER_RAD, (out[1] as number) * DEG_PER_RAD] : null
+}
+
+/** A command this UI sent for one joint. */
+interface JointCommand {
+  deg: number
+  at: number
+  arrived: boolean
+}
+
+interface PanTiltProps {
+  tab: TabConfig
+  sample: unknown
+  publish: Props['publish']
+}
+
+/**
+ * Pan and tilt sliders plus Home. Disabled until the first measured sample. Dragging publishes at most every
+ * 200 ms (leading edge, then the latest value on a timer), release publishes once more.
+ *
+ * @param tab - tab config (head_command_topic, ranges, head_home_deg, head_joint_states_topic)
+ * @param sample - latest head joint states payload
+ * @param publish - publishes a message on a topic
+ */
+function PanTiltControls({ tab, sample, publish }: PanTiltProps) {
+  const topic = tab.head_command_topic as string
+  const panRange = tab.head_pan_range_deg ?? DEFAULT_PAN_RANGE_DEG
+  const tiltRange = tab.head_tilt_range_deg ?? DEFAULT_TILT_RANGE_DEG
+  const home = tab.head_home_deg ?? DEFAULT_HOME_DEG
+  const measured = measuredDeg(sample)
+  const [target, setTarget] = useState<[number, number] | null>(null)
+  const lastSent = useRef(-Infinity)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latest = useRef<[number, number] | null>(null)
+  const draggedJoint = useRef(0)
+  // Per joint, the last command this UI sent (deg, send time, whether the measurement reached it). Kept after
+  // release so a joint still travelling is not re-sent from an intermediate measurement.
+  const commanded = useRef<(JointCommand | null)[]>([null, null])
+  const shown = target ?? measured
+  const ranges = [panRange, tiltRange]
+
+  commanded.current.forEach((cmd, i) => {
+    if (cmd && measured && Math.abs(measured[i] - cmd.deg) <= COMMAND_ARRIVED_DEG) cmd.arrived = true
+  })
+
+  function clampDeg(deg: [number, number]): [number, number] {
+    return [0, 1].map((i) => Math.min(Math.max(deg[i], ranges[i][0]), ranges[i][1])) as [number, number]
+  }
+
+  /** Publishes the pair; `fresh` lists the joints the user actually set (the other one is just carried along). */
+  function send(raw: [number, number], fresh: number[] = [0, 1]): void {
+    const deg = clampDeg(raw)
+    const now = Date.now()
+    fresh.forEach((i) => {
+      commanded.current[i] = { deg: deg[i], at: now, arrived: false }
+    })
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    lastSent.current = now
+    publish(topic, HEAD_MSG_TYPE, { name: HEAD_JOINTS, position: deg.map((d) => d / DEG_PER_RAD) })
+  }
+
+  /** Value for the joint not being dragged: the commanded one while it is still travelling, else the measured one. */
+  function otherJoint(i: 0 | 1): number {
+    const cmd = commanded.current[i]
+    const meas = measured?.[i]
+    const travelling = cmd && !cmd.arrived && Date.now() - cmd.at <= COMMAND_HOLD_MS
+    if (travelling) return cmd.deg
+    return meas ?? cmd?.deg ?? 0
+  }
+
+  function onDrag(deg: [number, number], dragged: number): void {
+    setTarget(deg)
+    latest.current = deg
+    draggedJoint.current = dragged
+    const wait = lastSent.current + HEAD_PUBLISH_INTERVAL_MS - Date.now()
+    if (wait <= 0) send(deg, [dragged])
+    else if (!timer.current) {
+      timer.current = setTimeout(() => {
+        timer.current = null
+        if (latest.current) send(latest.current, [draggedJoint.current])
+      }, wait)
+    }
+  }
+
+  function onRelease(deg: [number, number], fresh: number[]): void {
+    latest.current = null
+    send(deg, fresh)
+    setTarget(null)
+  }
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current)
+  }, [])
+
+  function slider(index: 0 | 1, label: string, range: [number, number]) {
+    const update = (v: number): [number, number] => (index === 0 ? [v, otherJoint(1)] : [otherJoint(0), v])
+    return (
+      <Stack spacing={0} sx={{ flex: 1 }}>
+        <Typography variant="body2" color="text.secondary">{label}</Typography>
+        <Slider
+          aria-label={label}
+          disabled={!shown}
+          value={shown ? shown[index] : 0}
+          min={range[0]}
+          max={range[1]}
+          valueLabelDisplay="auto"
+          onChange={(_, v) => onDrag(update(v as number), index)}
+          onChangeCommitted={(_, v) => onRelease(update(v as number), [index])}
+        />
+      </Stack>
+    )
+  }
+
+  return (
+    <Stack data-testid="head-pan-tilt" spacing={1} sx={{ flex: '0 0 auto', p: 1 }}>
+      {!measured && (
+        <Typography variant="body2" color="text.secondary">{`waiting for ${tab.head_joint_states_topic}`}</Typography>
+      )}
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+        {slider(0, 'pan', panRange)}
+        {slider(1, 'tilt', tiltRange)}
+        <Button variant="outlined" size="small" sx={{ minHeight: TOUCH_TARGET_PX }} onClick={() => onRelease(home, [0, 1])}>Home</Button>
+      </Stack>
+      {measured && (
+        <Typography data-testid="head-measured" variant="body2">
+          {`pan ${measured[0].toFixed(1)} deg, tilt ${measured[1].toFixed(1)} deg`}
+        </Typography>
+      )}
+    </Stack>
+  )
 }
 
 interface PreviewProps {
@@ -73,14 +224,14 @@ function Preview({ topic, jpeg, alt }: PreviewProps) {
 
 /**
  * Head tab: head RGB stream and depth preview (16UC1 mm from a ToF camera), optional amplitude (only
- * when the tab names an amplitude topic), and a disabled pan/tilt block.
- * The pan/tilt controls hold the place for a future head mount: they are disabled and never publish.
+ * when the tab names an amplitude topic), and pan/tilt sliders with Home when the tab has head_command_topic.
  * Phone stacks the previews vertically; tablet and desktop put them side by side.
  *
  * @param tab - tab config (rgb_camera_topic, tof_depth_topic, tof_amplitude_topic, tof_range_m)
  * @param topicData - latest payload per topic
+ * @param publish - publishes a head command
  */
-export default function HeadTab({ tab, topicData }: Props) {
+export default function HeadTab({ tab, topicData, publish }: Props) {
   const layout = useLayout()
   const zoomEnabled = Boolean(tab.zoom_command_topic)
   const [factor, setFactor] = useState<ZoomFactor>(DEFAULT_ZOOM_FACTOR)
@@ -164,14 +315,7 @@ export default function HeadTab({ tab, topicData }: Props) {
           <Typography variant="body2" color="text.secondary">{`depth range ${tab.tof_range_m} m`}</Typography>
         )}
       </Stack>
-      <Stack data-testid="head-pan-tilt" spacing={1} sx={{ flex: '0 0 auto', p: 1 }}>
-        <Typography variant="body2" color="text.secondary">{PAN_TILT_LABEL}</Typography>
-        <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-          <Slider disabled aria-label="pan" value={0} min={-PAN_TILT_RANGE_DEG} max={PAN_TILT_RANGE_DEG} sx={{ flex: 1 }} />
-          <Slider disabled aria-label="tilt" value={0} min={-PAN_TILT_RANGE_DEG} max={PAN_TILT_RANGE_DEG} sx={{ flex: 1 }} />
-          <Button disabled variant="outlined" size="small">center</Button>
-        </Stack>
-      </Stack>
+      {tab.head_command_topic && <PanTiltControls tab={tab} sample={topicData[tab.head_joint_states_topic ?? '']} publish={publish} />}
     </Box>
   )
 }

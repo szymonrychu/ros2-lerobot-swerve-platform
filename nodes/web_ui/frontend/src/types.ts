@@ -72,6 +72,12 @@ export interface TabConfig {
   zoom_result_topic?: string // head tab: zoom result topic
   zoom_image_topic?: string // head tab: zoom crop image topic
   zoom_timeout_s?: number // head tab: seconds POST /api/camera/zoom waits for the crop (default 8)
+  head_command_topic?: string // head tab: sensor_msgs/JointState {head_pan, head_tilt} in radians; unset hides the pan/tilt controls
+  head_joint_states_topic?: string // head, map_nav: sensor_msgs/JointState of the pan/tilt head (measured angles, drives the head URDF)
+  head_pan_range_deg?: [number, number] // head tab: pan slider range in degrees
+  head_tilt_range_deg?: [number, number] // head tab: tilt slider range in degrees
+  head_home_deg?: [number, number] // head tab: Home pose, pan then tilt, degrees
+  head_urdf?: string // map_nav: head URDF under /api/urdf/
   gripper_camera_mount?: CameraMount // gripper camera pose in the URDF link gripper_link (same as mcp_server)
   active_source_topic?: string // default /filter/active_source (which command source drives the arm)
   arm_home_service?: string // default /arm/home
