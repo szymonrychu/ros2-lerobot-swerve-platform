@@ -39,6 +39,7 @@ def test_empty_file_gives_the_defaults(tmp_path: Path) -> None:
     assert config.frame_id == "tof_optical_frame"
     assert config.publish_rate_hz == 10.0
     assert config.metrics_port is None
+    assert config.stamp_latency_ms == 0.0
 
 
 def test_every_key_is_read(tmp_path: Path) -> None:
@@ -46,7 +47,7 @@ def test_every_key_is_read(tmp_path: Path) -> None:
         write(
             tmp_path,
             "camera_index: 1\nrange_mode: near\nconfidence_threshold: 12.5\nframe_id: head_tof\n"
-            "publish_rate_hz: 5\nmetrics_port: 19120\n",
+            "publish_rate_hz: 5\nmetrics_port: 19120\nstamp_latency_ms: 42.5\n",
         )
     )
     assert config.camera_index == 1
@@ -55,6 +56,7 @@ def test_every_key_is_read(tmp_path: Path) -> None:
     assert config.frame_id == "head_tof"
     assert config.publish_rate_hz == 5.0
     assert config.metrics_port == 19120
+    assert config.stamp_latency_ms == 42.5
 
 
 def test_unknown_key_is_rejected(tmp_path: Path) -> None:
@@ -77,10 +79,12 @@ def test_unknown_key_is_rejected(tmp_path: Path) -> None:
         "publish_rate_hz: 31",
         "metrics_port: 0",
         "metrics_port: 70000",
+        "stamp_latency_ms: -1",
+        "stamp_latency_ms: 201",
     ],
 )
 def test_out_of_range_value_is_rejected(tmp_path: Path, line: str) -> None:
-    with pytest.raises(ConfigError):
+    with pytest.raises(ConfigError, match=line.split(":")[0]):
         load_config(write(tmp_path, line + "\n"))
 
 

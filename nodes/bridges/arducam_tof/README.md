@@ -34,7 +34,16 @@ YAML file named by `ARDUCAM_TOF_CONFIG` (default `/etc/ros2/arducam_tof/config.y
 | `confidence_threshold` | `30.0` | 0..65535 | Pixels with SDK confidence below this are published as depth 0. |
 | `frame_id` | `tof_optical_frame` | non-empty | TF frame of every header. |
 | `publish_rate_hz` | `10.0` | > 0, <= 30 | Upper bound of the publish rate. |
+| `stamp_latency_ms` | `0.0` | 0..200 | Measured capture-to-return latency of the SDK frame in ms; subtracted from the frame-return time (see Timestamps). |
 | `metrics_port` | unset | 1..65535 | Prometheus `/metrics` on 127.0.0.1; unset falls back to `METRICS_PORT`, then off. |
+
+## Timestamps
+
+Every frame's header stamp (shared by depth, amplitude and camera_info) is the node clock read immediately after the SDK `requestFrame` returns the frame, minus `stamp_latency_ms`. The reading is taken before the depth/amplitude conversions, so conversion and publish time never end up in the stamp. A result below zero is clamped to the reading itself and logged once. The SDK frame timestamp is not used: its clock domain is undocumented.
+
+Why: the RGB camera stamps at the start of exposure, so the ToF stamp has to be the capture time, not the time Python got round to publishing, or depth pairs with the wrong RGB frame.
+
+How the value is measured: pan-sweep the head and find the ToF-RGB time offset, as described in `docs/head-rgbd-fusion-methodology.md`. How it is set: `stamp_latency_ms` in the `arducam_tof` config in `ansible/group_vars/client.yml`; 0 (default) stamps with the frame-return time.
 
 ## Metrics
 

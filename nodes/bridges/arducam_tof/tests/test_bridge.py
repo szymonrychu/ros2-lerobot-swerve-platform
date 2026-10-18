@@ -22,7 +22,28 @@ INTRINSIC_CX = 11950
 INTRINSIC_CY = 8975
 WIDTH = 4
 HEIGHT = 3
-STAMP = "stamp-sentinel"
+CLOCK_NS = 5_000_000_000
+
+
+class FakeTime:
+    """Stand-in rclpy Time: integer nanoseconds that convert to a comparable stamp."""
+
+    def __init__(self, nanoseconds: int = 0, clock_type: Any = None) -> None:
+        self.nanoseconds = nanoseconds
+        self.clock_type = clock_type
+
+    def to_msg(self) -> tuple[str, int]:
+        return ("stamp", self.nanoseconds)
+
+
+class NodeClock:
+    """Stand-in node clock whose reading can be advanced."""
+
+    def __init__(self, nanoseconds: int) -> None:
+        self.nanoseconds = nanoseconds
+
+    def now(self) -> FakeTime:
+        return FakeTime(self.nanoseconds, "ros")
 
 
 class Msg:
@@ -180,6 +201,7 @@ def install_fakes() -> types.ModuleType:
         "rclpy.node": {"Node": MagicMock()},
         "rclpy.executors": {"ExternalShutdownException": ExternalShutdownException},
         "rclpy._rclpy_pybind11": {"RCLError": RCLError},
+        "rclpy.time": {"Time": FakeTime},
         "sensor_msgs": {},
         "sensor_msgs.msg": {"Image": Image, "CameraInfo": CameraInfo},
         "std_msgs": {},
@@ -230,7 +252,8 @@ class Harness:
         self.publishers: dict[str, MagicMock] = {}
         self.node = MagicMock()
         self.node.create_publisher.side_effect = self.new_publisher
-        self.node.get_clock.return_value.now.return_value.to_msg.return_value = STAMP
+        self.node_clock = NodeClock(CLOCK_NS)
+        self.node.get_clock.return_value = self.node_clock
         self.logger = self.node.get_logger.return_value
         self.clock = Clock()
         self.bridge = bridge.TofBridge(self.node, config, clock=self.clock)
@@ -363,7 +386,7 @@ def test_good_frame_publishes_depth_amplitude_and_camera_info_with_one_header(ha
     [amplitude] = harness.published(bridge.AMPLITUDE_TOPIC)
     [info] = harness.published(bridge.CAMERA_INFO_TOPIC)
     assert depth.header is amplitude.header is info.header
-    assert depth.header.stamp == STAMP
+    assert depth.header.stamp == ("stamp", CLOCK_NS)
     assert depth.header.frame_id == "tof_optical_frame"
 
     assert (depth.encoding, depth.height, depth.width, depth.step, depth.is_bigendian) == ("16UC1", 3, 4, 8, 0)
@@ -668,3 +691,60 @@ def test_main_runs_the_bridge_with_the_loaded_config(monkeypatch: pytest.MonkeyP
 
     assert entry.main() == 0
     assert run.call_args.args[0].range_mode == "near"
+
+
+STAMP_LATENCY_MS = 40.0
+CONVERSION_NS = 300_000_000
+
+
+def advance_during_conversion(harness: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the depth conversion step move the node clock, as slow conversions would.
+
+    Args:
+        harness (Harness): The harness whose node clock advances.
+        monkeypatch (pytest.MonkeyPatch): Patches bridge.depth_to_mm.
+    """
+    real = bridge.depth_to_mm
+
+    def slow(*args: Any) -> np.ndarray:
+        harness.node_clock.nanoseconds += CONVERSION_NS
+        return real(*args)
+
+    monkeypatch.setattr(bridge, "depth_to_mm", slow)
+
+
+@pytest.mark.parametrize(
+    ("latency_ms", "expected_ns"),
+    [(STAMP_LATENCY_MS, CLOCK_NS - 40_000_000), (0.0, CLOCK_NS), (10_000.0, CLOCK_NS)],
+)
+def test_stamp_is_the_clock_reading_after_request_frame_minus_latency(
+    monkeypatch: pytest.MonkeyPatch, latency_ms: float, expected_ns: int
+) -> None:
+    config = TofConfig.model_construct(**{**TofConfig().model_dump(), "stamp_latency_ms": latency_ms})
+    harness = Harness(monkeypatch, config)
+    harness.prepare = lambda camera: camera.frames.append(good_frame())
+    advance_during_conversion(harness, monkeypatch)
+
+    harness.bridge.step()
+
+    [depth] = harness.published(bridge.DEPTH_TOPIC)
+    [amplitude] = harness.published(bridge.AMPLITUDE_TOPIC)
+    [info] = harness.published(bridge.CAMERA_INFO_TOPIC)
+    assert depth.header is amplitude.header is info.header
+    assert depth.header.stamp == ("stamp", expected_ns)
+
+
+def test_clamped_stamp_is_logged_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = TofConfig.model_construct(**{**TofConfig().model_dump(), "stamp_latency_ms": 10_000.0})
+    harness = Harness(monkeypatch, config)
+    harness.prepare = lambda camera: camera.frames.extend([good_frame(), good_frame()])
+    harness.bridge.step()
+    harness.bridge.step()
+    clamp_logs = [c for c in harness.logger.warning.call_args_list if "stamp_latency_ms" in c.args[0]]
+    assert len(clamp_logs) == 1
+
+
+def test_startup_log_names_stamp_latency(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = TofConfig.model_construct(**{**TofConfig().model_dump(), "stamp_latency_ms": 12.5})
+    harness = Harness(monkeypatch, config)
+    assert "stamp_latency_ms=12.5" in harness.logger.info.call_args_list[0].args[0]
