@@ -48,6 +48,8 @@ export interface TabConfig {
   navigate_action?: string // default /navigate_to_pose (Stop cancels <action>/_action/cancel_goal)
   // map_nav 3D view: robot model, local costmap and arm control
   local_costmap_topic?: string // map/costmap payload (png_b64 + placement) in map_frame, drawn above the SLAM map
+  obstacle_cloud_topic?: string // ToF obstacle cloud (PointCloud2 payload + frame_pose), subscribed only while the 3D obstacles layer is on
+  scan_points_topic?: string // lidar scan points (LaserScan payload + frame_pose), subscribed with the obstacle cloud
   base_urdf?: string // swerve base URDF under /api/urdf/, placed at /web_ui/robot_pose
   base_joint_states_topic?: string // sensor_msgs/JointState driving the base URDF (wheel steer/drive)
   arm_urdf?: string // arm URDF under /api/urdf/

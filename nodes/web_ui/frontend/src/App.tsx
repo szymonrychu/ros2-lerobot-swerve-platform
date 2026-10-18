@@ -107,6 +107,7 @@ function renderTab(
   poi: { items: PoiItem[]; onShowOnMap: (focus: PendingFocus) => void; photos: PhotoLayerData },
   pendingFocus: PendingFocus | null,
   onFocusConsumed: () => void,
+  onObstaclesWanted: (wanted: boolean) => void,
 ) {
   const props = { tab, topicData, publish }
   switch (tab.type) {
@@ -117,7 +118,7 @@ function renderTab(
     case 'head': return <HeadTab {...props} />
     case 'rgbd_camera': return <RgbdCameraTab {...props} />
     case 'map_nav':
-      return <MapNavTab {...props} tilt={tilt} photos={poi.photos} pendingFocus={pendingFocus} onFocusConsumed={onFocusConsumed} />
+      return <MapNavTab {...props} tilt={tilt} photos={poi.photos} pendingFocus={pendingFocus} onFocusConsumed={onFocusConsumed} onObstaclesWanted={onObstaclesWanted} />
     case 'agent_chat': return <AgentChatTab {...props} battery={battery} />
     case 'agent_retros': return <RetrosTab {...props} />
     default:
@@ -165,7 +166,8 @@ export default function App() {
   }, [])
 
   const activeTabConfig = tabs[Math.min(activeTab, tabs.length - 1)]
-  const subscription = config ? subscribedTopics(config, activeTabConfig) : []
+  const [obstaclesWanted, setObstaclesWanted] = useState(false) // 3D obstacles layer of the open map tab
+  const subscription = config ? subscribedTopics(config, activeTabConfig, obstaclesWanted) : []
   const { topicData, connected, publish } = useRosBridge(subscription, (e) =>
     setErrorToast(e.message)
   )
@@ -321,7 +323,7 @@ export default function App() {
           }
         >
           {calibrating && <CalibratePage onBack={() => setCalibrating(false)} />}
-          {!calibrating && tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap, photos: poiPhotos }, pendingFocus, clearPendingFocus)}
+          {!calibrating && tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap, photos: poiPhotos }, pendingFocus, clearPendingFocus, setObstaclesWanted)}
         </Suspense>
       </Box>
 

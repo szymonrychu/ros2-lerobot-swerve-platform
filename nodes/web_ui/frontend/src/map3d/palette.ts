@@ -39,6 +39,10 @@ export const SCENE_COLORS = {
   free: '#fefefe',
   occupied: '#000000',
   unknown: '#cdcdcd',
+  obstacleCliff: TOKENS.error, // 3D obstacles layer: ToF below the floor (reuses the keepout hue)
+  obstacle: TOKENS.warning, // ToF in the 0.06-0.6 m obstacle band (reuses the slow-zone hue)
+  obstacleOther: '#8a8a8a',
+  lidar: '#f2f2f2',
   gridCentre: '#2a2a2a',
   gridLine: '#1a1a1a',
 } as const

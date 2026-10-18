@@ -49,3 +49,13 @@ describe('subscribedTopics', () => {
     expect(subscribedTopics(cfg([m]), m)).toContain('/head/joint_states')
   })
 })
+
+describe('3D obstacles on demand', () => {
+  const m = { ...map, obstacle_cloud_topic: '/tof/points_filtered', scan_points_topic: '/scan_filtered' } as TabConfig
+  it('requests both topics only while the layer is on', () => {
+    expect(subscribedTopics(cfg([m]), m)).not.toContain('/tof/points_filtered')
+    expect(subscribedTopics(cfg([m]), m)).not.toContain('/scan_filtered')
+    const on = subscribedTopics(cfg([m]), m, true)
+    expect(on).toEqual(expect.arrayContaining(['/tof/points_filtered', '/scan_filtered']))
+  })
+})
