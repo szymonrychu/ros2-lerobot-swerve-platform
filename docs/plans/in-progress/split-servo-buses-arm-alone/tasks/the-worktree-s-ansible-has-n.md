@@ -36,7 +36,7 @@ Why: Runbook stage 0 commands fail with 'Could not match supplied host pattern' 
 
 ## Files
 
-
+- `ansible/ansible.cfg` (no change)
 
 ## Interfaces
 
