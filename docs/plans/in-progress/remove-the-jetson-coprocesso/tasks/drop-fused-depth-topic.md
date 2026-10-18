@@ -71,3 +71,7 @@ No fused depth topic in the web_ui backend, configs, README or root tests.
 
 
 - Only the Jetson produced `/stereo/depth/fused` (reuse brief, dead once Jetson goes).
+
+## Ruling
+
+Accepted by the orchestrator (2026-10-18): verified and merged; the round cap came from verifier false negatives (AC test refs not found, inverted grep); web_ui 724 and mcp config 62 passed.
