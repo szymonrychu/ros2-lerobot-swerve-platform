@@ -412,3 +412,14 @@ def test_calibration_config_needs_no_depthd_url() -> None:
 def test_calibration_rejections(bad: dict) -> None:
     with pytest.raises(ValidationError):
         AppConfig.model_validate({"calibration": bad})
+
+
+def test_default_head_tab_subscribes_the_tof_topics() -> None:
+    """The shipped default head tab subscribes exactly the two ToF topics, with the head_depth and head_amplitude roles."""
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
+    head = next(t for t in cfg.tabs if t.type == "head")
+    roles = cfg.topic_roles()
+    head_roles = {topic: role for topic, role in roles.items() if role in {"head_depth", "head_amplitude"}}
+    assert head_roles == {"/tof/depth/image_raw": "head_depth", "/tof/amplitude/image_raw": "head_amplitude"}
+    assert head.rgb_camera_topic == "/front_camera/image_raw/compressed"
+    assert set(cfg.tof_ranges()) == {"/tof/depth/image_raw"}

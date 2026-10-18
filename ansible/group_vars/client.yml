@@ -1636,14 +1636,15 @@ ros2_nodes:
           gripper_camera_mount:
             xyz: [-0.0046, 0.0364, -0.0364]
             rpy: [-1.5622, 1.1950, -1.4466]
-        # Head tab: overview camera (left IMX219) as head RGB and greyscale depth from the stereo_depth node (16UC1 mm on
-        # the ToF contract; the stereo pair has no amplitude image). The pan/tilt block is disabled and
-        # publishes nothing.
+        # Head tab: head RGB from the Camera Module 3 (mounted with the ToF on the pan/tilt head) plus the Arducam ToF
+        # (arducam_tof on CSI cam1): depth is 16UC1 mm, amplitude is mono16. /tof/camera_info is published but not
+        # consumed by the Head tab. The pan/tilt block is disabled and publishes nothing.
         - id: head
           type: head
           label: "Head"
-          rgb_camera_topic: /overview_camera/image_raw/compressed
-          tof_depth_topic: /stereo/depth/image_raw
+          rgb_camera_topic: /front_camera/image_raw/compressed
+          tof_depth_topic: /tof/depth/image_raw
+          tof_amplitude_topic: /tof/amplitude/image_raw
           tof_range_m: 4.0
         - id: overview_camera
           type: camera

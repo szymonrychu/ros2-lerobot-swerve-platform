@@ -482,10 +482,11 @@ def test_web_ui_tab_set() -> None:
     head = tabs[3]
     assert head["type"] == "head"
     assert head["label"] == "Head"
-    assert head["rgb_camera_topic"] == "/overview_camera/image_raw/compressed"
-    assert head["tof_depth_topic"] == "/stereo/depth/image_raw"
+    assert head["rgb_camera_topic"] == "/front_camera/image_raw/compressed"
+    assert head["tof_depth_topic"] == "/tof/depth/image_raw"
     assert "fused_depth_topic" not in head
-    assert "tof_amplitude_topic" not in head, "the stereo pair has no amplitude image"
+    assert head["tof_amplitude_topic"] == "/tof/amplitude/image_raw"
+    assert "camera_info_topic" not in head
     assert head["tof_range_m"] == 4.0
     overview = tabs[4]
     assert overview["id"] == "overview_camera"

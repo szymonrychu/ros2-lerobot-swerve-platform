@@ -165,7 +165,7 @@ def test_bgr8_raw_image_serializes() -> None:
 
 def test_depth_16uc1_320x240_serializes() -> None:
     """A 16UC1 depth image at 320x240 yields the preview and the 160x120 mesh grid."""
-    result = msg_to_dict(_make_depth_image_msg(width=320, height=240), topic="/stereo/depth/image_raw")
+    result = msg_to_dict(_make_depth_image_msg(width=320, height=240), topic="/tof/depth/image_raw")
     assert result["depth_preview_b64"] is not None
     assert (result["depth_width"], result["depth_height"]) == (160, 120)
     assert len(base64.b64decode(result["depth_b64"])) == 160 * 120 * 2
@@ -213,7 +213,7 @@ def test_depth_beyond_tof_range_is_black() -> None:
 
 def test_depth_without_range_keeps_red_green_preview() -> None:
     """The rgbd tab path (no tof_range_m) keeps the red-green colormap."""
-    result = msg_to_dict(_depth_row_msg([1000] * 16), topic="/stereo/depth/image_raw")
+    result = msg_to_dict(_depth_row_msg([1000] * 16), topic="/tof/depth/image_raw")
     img = _jpeg_gray(result["depth_preview_b64"])
     assert abs(int(img[2, 8, 2]) - int(img[2, 8, 1])) > 20
 
