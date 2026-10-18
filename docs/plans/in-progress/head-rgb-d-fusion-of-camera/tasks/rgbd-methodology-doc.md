@@ -1,6 +1,6 @@
 ---
 title: RGBD methodology doc
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Anyone can reproduce and judge the RGB-D fusion: calibration, synchronisation, registration, filtering, upsampling and validation are written down with their targets."
 files: [docs/head-rgbd-fusion-methodology.md, nodes/head_rgbd_cpp/README.md, tests/README.md, MEMORY.md]
@@ -14,9 +14,11 @@ actual: ""
 review: skip
 branch: head-rgb-d-fusion-of-camera--rgbd-methodology-doc
 verified_head: ""
-run: ""
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-methodology-doc
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD methodology doc
@@ -61,3 +63,5 @@ The methodology is written down; the runbook only has to fill in measured number
 ## Notes
 
 - Mostly prose: `review: skip`, judged at the epic audit (start-development: prose stays out of the review loop).
+
+- 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on head-rgbd-node-type

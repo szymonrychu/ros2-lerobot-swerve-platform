@@ -1,6 +1,6 @@
 ---
 title: ToF stamp latency fix
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "ToF frames carry the time they were captured instead of the time Python got round to publishing them, so depth pairs with the right RGB frame."
 files: [nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/tests/test_config.py, nodes/bridges/arducam_tof/README.md]
@@ -12,11 +12,13 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-branch: head-rgb-d-fusion-of-camera--tof-stamp-latency-fix
-verified_head: ""
-run: ""
+branch: see git branch in worktree head-rgb-d-fusion-of-camera--tof-stamp-latency-fix
+verified_head: de67f4810d26ebe0258f4d593afe44a03fd3e723
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--tof-stamp-latency-fix
+acs_for_audit: []
+process_gaps: []
 ---
 
 # ToF stamp latency fix

@@ -1,6 +1,6 @@
 ---
 title: RGBD final suite and runbook
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The fusion is proven on the robot: calibrated cameras, measured time offset, depth accuracy at known distances, alignment, CPU, and no placeholder output."
 files: [docs/runbooks/head-rgbd-fusion.md, nodes/head_camera_cpp/config/head_camera_calibration.yaml, nodes/head_rgbd_cpp/config/tof_calibration.yaml, nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml, nodes/web_ui/urdf/head.urdf, ansible/group_vars/client.yml, docs/head-rgbd-fusion-methodology.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--rgbd-final-suite-and-runbook
 verified_head: ""
-run: ""
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-final-suite-and-runbook
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD final suite and runbook
@@ -74,3 +76,5 @@ The epic's goals are verified on the robot with recorded numbers.
 - Servo safety: the head pan sweep is the only motion; stay inside the pan/tilt epic's verified pan range and speed caps.
 - Use the ansible-deploy skill before deploying (CLAUDE.md); check no claude_agent session runs before any mcp_server/claude_agent deploy (none planned here).
 - Use the grafana MCP or Grafana Explore for CPU; do not SSH to read top.
+
+- 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on rgbd-methodology-doc

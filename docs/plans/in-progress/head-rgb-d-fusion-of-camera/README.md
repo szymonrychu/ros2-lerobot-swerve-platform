@@ -34,7 +34,7 @@ The head carries a Camera Module 3 (RGB, 1152x648 @ 30 fps, rolling shutter, aut
 
 ## Time
 
-Estimate: 1290 min | Actual: 0 min | Remaining estimate: 1290 min
+Estimate: 1290 min | Actual: 0 min | Remaining estimate: 705 min
 
 ## Review
 

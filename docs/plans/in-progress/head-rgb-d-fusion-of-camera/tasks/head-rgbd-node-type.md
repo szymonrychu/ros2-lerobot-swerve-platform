@@ -1,6 +1,6 @@
 ---
 title: Head RGBD node type
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Ansible deploys, configures, enables and disables the fusion node by name, with the head camera mapping stream and the ToF stamp setting it relies on."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_head_rgbd_deploy.py, tests/test_unit_cgroups.py, tests/test_node_metrics_wiring.py, ansible/README.md, nodes/README.md, .claude/skills/ansible-deploy/SKILL.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--head-rgbd-node-type
 verified_head: ""
-run: ""
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-rgbd-node-type
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head RGBD node type
@@ -67,3 +69,5 @@ worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktre
 - Pattern: the map_guard_cpp and head_camera_cpp node types in client.yml (colcon_source, stamp_apt_packages).
 - MEMORY: cgroups guarantee headroom for robot nodes; the fusion node is background work, so it gets the background tier, not protection.
 - Do not deploy in this task; the runbook does.
+
+- 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on head-rgbd-node-wiring

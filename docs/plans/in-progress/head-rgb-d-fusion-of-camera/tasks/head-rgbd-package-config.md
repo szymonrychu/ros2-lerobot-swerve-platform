@@ -1,6 +1,6 @@
 ---
 title: Head RGBD package config
-status: in-progress
+status: blocked
 repo: ros2-lerobot-sverve-platform
 value: "The fusion node has a buildable, tested C++ package with a validated config, so every later piece lands in a known structure."
 files: [nodes/head_rgbd_cpp/CMakeLists.txt, nodes/head_rgbd_cpp/package.xml, nodes/head_rgbd_cpp/include/head_rgbd_cpp/config.hpp, nodes/head_rgbd_cpp/src/core/config.cpp, nodes/head_rgbd_cpp/test/core/test_config.cpp, nodes/head_rgbd_cpp/config/head_rgbd.yaml, nodes/head_rgbd_cpp/test/data/tof_calibration.yaml, scripts/cpp-node-test.Dockerfile]
@@ -13,10 +13,12 @@ estimate: 75
 actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--head-rgbd-package-config
-verified_head: ""
-run: ""
+verified_head: c2fc2131ab84ff74d1225af60ff5f90970036a80
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-rgbd-package-config
+acs_for_audit: [a3]
+process_gaps: ["The apt signature failure of the cpp-node-test image blocks every C++ package rebuild; the implementer reports it as an epic task"]
 ---
 
 # Head RGBD package config

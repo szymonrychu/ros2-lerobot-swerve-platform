@@ -1,6 +1,6 @@
 ---
 title: RGBD guided upsampling
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Optionally, registered depth is upsampled to the RGB mapping size along real RGB edges, without ever inventing depth across holes."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/upsample.hpp, nodes/head_rgbd_cpp/src/core/upsample.cpp, nodes/head_rgbd_cpp/test/core/test_upsample.cpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--rgbd-guided-upsampling
 verified_head: ""
-run: ""
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-guided-upsampling
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD guided upsampling
@@ -55,3 +57,5 @@ A tested optional upsampler with a validity mask; disabled by default.
 ## Notes
 
 - Library first: cv::ximgproc::guidedFilter (O(N), radius-independent); do not hand-write box-filter guided filtering.
+
+- 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on rgbd-registration-zbuffer

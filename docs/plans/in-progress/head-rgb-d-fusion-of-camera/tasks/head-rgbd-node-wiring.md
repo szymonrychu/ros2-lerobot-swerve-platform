@@ -1,6 +1,6 @@
 ---
 title: Head RGBD node wiring
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "A running fusion node turns live ToF and RGB into an exact-stamp registered RGB-D pair and cloud, only while someone uses them and only from real data."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/head_rgbd_node.hpp, nodes/head_rgbd_cpp/src/head_rgbd_node.cpp, nodes/head_rgbd_cpp/src/main.cpp, nodes/head_rgbd_cpp/test/test_node.cpp, nodes/head_rgbd_cpp/CMakeLists.txt, nodes/head_rgbd_cpp/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--head-rgbd-node-wiring
 verified_head: ""
-run: ""
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-rgbd-node-wiring
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head RGBD node wiring
@@ -71,3 +73,5 @@ worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktre
 - The node never reads the extrinsics file: geometry comes from TF (head URDF, design D4).
 - The mapping stream (head-camera-mapping-publish) publishes best_effort depth 1; match it.
 - Raw RGB is never subscribed (UDPv4 fragment drops, design Constraints).
+
+- 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on tof-jump-edge-filter, rgbd-motion-compensation, rgbd-guided-upsampling, rgbd-cloud-builder

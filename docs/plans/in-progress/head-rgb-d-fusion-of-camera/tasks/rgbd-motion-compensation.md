@@ -1,6 +1,6 @@
 ---
 title: RGBD motion compensation
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Depth stays on the right pixels while the head pans or the robot turns, and frames too blurred to fix are dropped instead of smearing the map."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/motion.hpp, nodes/head_rgbd_cpp/src/core/motion.cpp, nodes/head_rgbd_cpp/test/core/test_motion.cpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--rgbd-motion-compensation
 verified_head: ""
-run: ""
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-motion-compensation
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD motion compensation
@@ -59,3 +61,5 @@ Tested motion maths: the node only performs the two TF lookups and calls these f
 
 - Opus: frame conventions (which side is inverted) are the classic bug here; test both directions.
 - A ToF frame integrates four phase captures, so blur during fast motion is gated, not corrected (design D6).
+
+- 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on rgbd-registration-zbuffer

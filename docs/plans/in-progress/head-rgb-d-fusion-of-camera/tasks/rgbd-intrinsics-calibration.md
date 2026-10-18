@@ -1,6 +1,6 @@
 ---
 title: RGBD intrinsics calibration
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Both head cameras get measured intrinsics from one printed ChArUco board, so registration and RTAB-Map use real calibrations instead of datasheet guesses."
 files: [scripts/head_rgbd_calibration/charuco.py, scripts/head_rgbd_calibration/intrinsics.py, tests/rgbd_synthetic.py, tests/test_head_rgbd_calib_intrinsics.py]
@@ -13,10 +13,12 @@ estimate: 75
 actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--rgbd-intrinsics-calibration
-verified_head: ""
-run: ""
-provides: []
+verified_head: f851d784c1f6a4c0976fbe0f27ce7f8d4053700f
+run: head-rgb-d-fusion-of-camera
+provides: [rgbd-synthetic-scenes, head-rgbd-charuco]
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-intrinsics-calibration
+acs_for_audit: [a2, a3, a4]
+process_gaps: []
 ---
 
 # RGBD intrinsics calibration

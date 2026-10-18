@@ -1,6 +1,6 @@
 ---
 title: RGBD calibrate CLI
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "One script, driven by one config file, runs capture, calibration, URDF hand-off and validation end to end."
 files: [scripts/head_rgbd_calibrate.py, scripts/head_rgbd_calibrate.yaml, tests/test_head_rgbd_calibrate_cli.py, scripts/README.md]
@@ -13,10 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--rgbd-calibrate-cli
-verified_head: ""
-run: ""
-provides: []
+verified_head: 340a9515a3f093352355425a7e2a81e074103ab5
+run: head-rgb-d-fusion-of-camera
+provides: [head-rgbd-pipeline]
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-calibrate-cli
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD calibrate CLI

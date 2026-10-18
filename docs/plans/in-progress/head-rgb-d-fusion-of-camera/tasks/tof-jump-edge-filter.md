@@ -1,6 +1,6 @@
 ---
 title: ToF jump edge filter
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: Smeared ToF pixels on object edges are removed before they become floating depth points in the registered image and the 3D map.
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/tof_filter.hpp, nodes/head_rgbd_cpp/src/core/tof_filter.cpp, nodes/head_rgbd_cpp/test/core/test_tof_filter.cpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--tof-jump-edge-filter
 verified_head: ""
-run: ""
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--tof-jump-edge-filter
+acs_for_audit: []
+process_gaps: []
 ---
 
 # ToF jump edge filter
@@ -55,3 +57,5 @@ A tested flying-pixel filter for the raw ToF depth, called by the node before re
 ## Notes
 
 - The bridge's confidence threshold does not remove flying pixels (SCCG 2008, doi:10.1145/1921264.1921293); this filter runs on every frame before reprojection.
+
+- 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on head-rgbd-package-config

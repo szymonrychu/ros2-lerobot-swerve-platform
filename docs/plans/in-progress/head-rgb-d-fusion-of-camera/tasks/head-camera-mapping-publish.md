@@ -1,6 +1,6 @@
 ---
 title: Head camera mapping publish
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The head camera publishes a calibrated 576x324 JPEG at 2 Hz for the RGB-D fusion node (and through it RTAB-Map) only while someone subscribes, and its focus is locked where the calibration was taken only while fusion or 3D mapping runs."
 files: [nodes/head_camera_cpp/include/head_camera_cpp/head_camera_node.hpp, nodes/head_camera_cpp/src/head_camera_node.cpp, nodes/head_camera_cpp/test/test_node.cpp, nodes/head_camera_cpp/src/core/zoom_controller.cpp, nodes/head_camera_cpp/test/core/test_zoom_controller.cpp, nodes/head_camera_cpp/src/libcamera_controls.cpp, nodes/head_camera_cpp/test/test_libcamera_controls.cpp, nodes/head_camera_cpp/README.md]
@@ -13,10 +13,12 @@ estimate: 75
 actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--head-camera-mapping-publish
-verified_head: ""
-run: ""
-provides: []
+verified_head: 39c9bcd379da707c0c2a23c6a0d6bea85ffd982a
+run: head-rgb-d-fusion-of-camera
+provides: [head-camera-mapping-topics, camera-backend-focus-lock]
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-camera-mapping-publish
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head camera mapping publish

@@ -1,6 +1,6 @@
 ---
 title: RGBD cloud builder
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Consumers get a coloured 3D point cloud from the registered pair at a low, configurable rate."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/cloud.hpp, nodes/head_rgbd_cpp/src/core/cloud.cpp, nodes/head_rgbd_cpp/test/core/test_cloud.cpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--rgbd-cloud-builder
 verified_head: ""
-run: ""
+run: head-rgb-d-fusion-of-camera
 provides: []
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-cloud-builder
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD cloud builder
@@ -58,3 +60,5 @@ Tested coloured-cloud construction reusing depth_image_proc's conversions.
 ## Notes
 
 - If `depth_image_proc/conversions.hpp` is not installed or exported by ros-jazzy-depth-image-proc, write the back-projection with image_geometry and say so in the commit message (design D9).
+
+- 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on head-rgbd-package-config
