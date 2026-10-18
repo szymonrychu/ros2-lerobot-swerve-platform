@@ -372,7 +372,8 @@ Every job leaves one structured, bounded retrospective on the robot, so lessons 
   and the optional `cost_usd`, `num_turns`, `effector_calls`, `duration_s`. Over-long text is truncated, not rejected.
 - **Store**: `<state_dir>/retrospectives/retrospectives.jsonl` (`RETRO_RELPATH`), one record per line, created on
   demand. It is outside the session log, so `/api/reset` (New session) keeps it. `RetroStore` offers `append`,
-  `list(limit, before)` (newest first), `recent(n)` and `count`; corrupt lines are skipped with one warning each.
+  `list(limit, before)` (newest first), `recent(n)`, `count` and `replace` (same id, position kept; appends when the id
+  is not stored); corrupt lines are skipped with one warning each. The runner owns it as `AgentRunner.retro_store`.
 - **Bound**: `retro_max_records` (default 500, at least 50); past it the oldest half is dropped by an atomic rewrite.
 - **Feed**: `feed_text(records, max_chars)` builds the RECENT RETROSPECTIVES block (newest first: date, workflow or
   "free", outcome, summary, went wrong, improvements), cut on a record boundary. `retro_feed_count` (0 to 20, 0
@@ -380,6 +381,52 @@ Every job leaves one structured, bounded retrospective on the robot, so lessons 
 - **Tool**: `agent.record_retrospective` (outcome done|partial|failed, summary, optional lists), backed by the
   `retro_sink` given to `build_plan_tools`; without a sink it answers "retrospectives are not enabled". A second call in
   the same instruction replaces the first narrative. The `retrospective` skill tells the agent how to write it.
+
+### After every job
+
+The runner (`runner.py`) makes sure every instruction leaves exactly one record, without a model turn where none is
+wanted:
+
+- **Agent record.** The runner passes `AgentRunner.record_agent_retrospective` as the `retro_sink` of the `agent` MCP
+  server. It stores the agent's narrative (outcome, summary, the four lists) with `author: agent` plus the facts the
+  runner knows: `instruction` (the user's text), `workflow` (the `start_workflow` template or None), `phases` (every
+  plan phase with its status), `skipped_mandatory` (from the workflow job-end report), `cost_usd`, `num_turns`,
+  `effector_calls`, `duration_s` and `trivial`. A second call in the same instruction replaces that record (same `id`
+  and `created_at`). At the turn end the record's facts are refreshed to the final values (`cost_usd` and `num_turns`
+  as in `turn_end`; without a result, the last known cost and the model turns the runner counted).
+- **RETROSPECTIVE prompt.** With `retro_followup` on (default), once per instruction, on a normal end only (status
+  `done`, not stopped by the user, not the turn cap) and only when `JOB END REFUSED`, `WORKFLOW CHECK` and `POI REVIEW`
+  have nothing left to send, the runner sends `RETROSPECTIVE: the job has ended. Load the skill
+  robot-skills:retrospective and record the retrospective with agent.record_retrospective: ...` (marker constant
+  `RETROSPECTIVE_MARKER`). Not sent when the agent already recorded one in the instruction, nor after a forced park or a
+  failed job-end check (those ends get a runner record that names them). The job-end check runs again after its reply,
+  like after the other end-of-instruction prompts.
+- **Short form.** For a trivial job - no plan or plan complexity `trivial`, and zero effector calls - the prompt asks
+  only for a one-line summary plus anything that went wrong (`RETROSPECTIVE: the job was trivial. Call
+  agent.record_retrospective with a one-line summary plus anything that went wrong ...`); the record has
+  `trivial: true`.
+- **Runner records** (`author: runner`, facts only) are written in `end_turn`, before `turn_end`, when the agent did not
+  record one: after an abnormal end (user stop, timeout, turn cap, `max_turns`, error, service shutdown) and after a
+  normal end where the agent skipped the call in its RETROSPECTIVE turn (or `retro_followup` is off). The summary states
+  what happened: "stopped by the user", the watchdog's "instruction timed out after N s ...", "stopped at the
+  instruction turn cap after N model turns", "ended at the SDK turn maximum (max_turns)", "ended with an error:
+  <message>", "instruction interrupted by service shutdown" or "finished; the agent recorded no retrospective".
+  `went_wrong` lists the facts: failed phases, skipped mandatory steps, a forced park, a failed job-end check, an
+  unfinished plan. Outcome: `done` (or `partial` when one of those facts holds), `interrupted` (user stop, turn cap,
+  `max_turns`, shutdown), `timeout` or `error`. A user stop is never followed by a model turn.
+- **Event.** Every stored record (agent or runner, each replace included) emits `retrospective_recorded` `{id, author,
+  outcome, workflow, instruction_id}` (`events.retrospective_event`, contract `retro-event`), so the web UI history and
+  the evals see who wrote it. The end-of-turn fact refresh of an agent record emits nothing.
+- A store that cannot be written is logged (`retrospectives: cannot write ...`) and never breaks the turn end; the
+  tool then answers with the error.
+
+### Feed
+
+The first instruction of every new session (after the service start or a New session, `/api/reset`) is prefixed with
+`feed_text(retro_store.recent(retro_feed_count), retro_feed_max_chars)` - the RECENT RETROSPECTIVES block - followed by
+a blank line, before the digest (under `fresh_with_digest`) and the instruction text. Later instructions of the session
+are not prefixed. An empty store, `retro_feed_count: 0` or an unreadable store send the instruction unchanged. The
+`user_message` event keeps the plain instruction text.
 
 ## Workflows
 
@@ -588,7 +635,8 @@ from `answer_condition` answers and `outcome_of` evaluations). Sending it calls 
 `revise_plan` gets through even after the instruction's one revision. The check never counts toward
 `job_end_max_followups` and never triggers the forced park; the job-end check runs again after its reply.
 
-Order of end-of-instruction prompts at the end of an instruction: `JOB END REFUSED` -> `WORKFLOW CHECK` -> `POI REVIEW`.
+Order of end-of-instruction prompts at the end of an instruction: `JOB END REFUSED` -> `WORKFLOW CHECK` -> `POI REVIEW`
+-> `RETROSPECTIVE` (see "Retrospectives").
 
 Whenever a workflow was started, `turn_end` carries `job_end.workflow: {name, skipped_mandatory}` (the ids still skipped
 at the end, an empty list when none), also when there is no other job_end problem; it sits next to `forced_park` or
@@ -777,6 +825,7 @@ Every event is `{seq: int, ts: float, type, ...}`:
 | `phase_completed` | `index`, `name`, `goal`, `outcome` (`done` / `failed` / `skipped`), `summary`, `usage` `{ro_used, rw_used, turns_used}`, `caps` `{rw_cap, turn_cap}`, `id`, `attempt`, `max_attempts`, `iteration`, `depth`, `p_retry_success`, `retry_change`, `failure` (the `FailureRecord` `{type, eai_error_type, explanation, evidence}` of a failed close by the model, see "Failure record"; null for `done` / `skipped` and the implicit close of `revise_plan`) (usage and caps of that entry) |
 | `condition_pending` | `node_id`, `node_type` (`if` / `while`), `question`, `iteration` (while: the iteration the answer would start; if: of the enclosing loop); effector calls are denied until it is answered |
 | `condition_answered` | the `condition_pending` fields plus `value` and `evidence` |
+| `retrospective_recorded` | `id`, `author` (`agent` / `runner`), `outcome`, `workflow` (null for a free job), `instruction_id`; emitted for every retrospective stored (see "Retrospectives"), before the instruction's `turn_end` |
 | `plan_revised` | the revised plan payload plus `revision_rationale`; emitted after `revise_plan` (the replaced active phase gets a `phase_completed` with outcome `failed` first) |
 | `robot_event` | `event_seq`, `event_ts`, `event_type`, `severity` (`info` / `warning` / `critical`), `source`, `message`, `data` (the `/robot_events` fields, renamed so they do not clash with the event's own `seq` / `ts` / `type`) |
 | `state` | `busy`, `ro_used`, `rw_used`, `turns_used`, `effector_calls_used` (= `rw_used`), `plan` (object or `null`, with `time_budget_min`, `time_left_s` and `time_left_at` as in `plan`, so a raise of the time budget reaches the UI), `active_phase`; emitted at each instruction start (counters 0, plan `null`), after each counted call and each model turn |

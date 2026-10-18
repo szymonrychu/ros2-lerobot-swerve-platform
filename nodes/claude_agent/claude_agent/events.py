@@ -23,6 +23,7 @@ from claude_agent_sdk import (
 from PIL import Image, UnidentifiedImageError
 
 from .config import DEFAULT_SESSION_LOG_MAX_BYTES, ClaudeAgentConfig
+from .retrospectives import Retrospective
 from .tools import KIND_UNCAPPED, classify_tool, short_name
 
 TEXT_TRUNCATE_CHARS = 4000
@@ -46,6 +47,8 @@ STATUS_INTERRUPTED = "interrupted"
 STATUS_MAX_TURNS = "max_turns"
 STATUS_TIMEOUT = "timeout"
 STATUS_TURN_CAP = "turn_cap"
+# Emitted for every retrospective stored (agent or runner record); the web UI history and the evals read it.
+RETROSPECTIVE_RECORDED = "retrospective_recorded"
 
 
 class EventLog:
@@ -354,3 +357,15 @@ def detect_auth_error(result: ResultMessage) -> bool:
         return True
     text = " ".join([result.result or "", *(result.errors or [])]).lower()
     return any(marker in text for marker in AUTH_MARKERS)
+
+
+def retrospective_event(record: Retrospective) -> dict[str, Any]:
+    """Build the payload of a ``retrospective_recorded`` event (contract ``retro-event``).
+
+    Args:
+        record (Retrospective): The stored record.
+
+    Returns:
+        dict[str, Any]: {id, author (agent or runner), outcome, workflow (None for a free job)}.
+    """
+    return {"id": record.id, "author": record.author, "outcome": record.outcome, "workflow": record.workflow}
