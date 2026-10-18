@@ -35,6 +35,7 @@ VALID_TAB_TYPES: frozenset[str] = frozenset(
         "rgbd_camera",
         "map_nav",
         "agent_chat",
+        "agent_retros",
         "arm",
         "head",
     }
@@ -43,6 +44,7 @@ VALID_TAB_TYPES: frozenset[str] = frozenset(
 MAP_NAV_TAB_TYPE = "map_nav"
 POI_TAB_TYPE = "poi"
 AGENT_CHAT_TAB_TYPE = "agent_chat"
+AGENT_RETROS_TAB_TYPE = "agent_retros"  # reads retrospectives through the agent_chat tab's agent_url
 ARM_TAB_TYPE = "arm"
 HEAD_TAB_TYPE = "head"
 # Default ToF depth range (metres) of a head tab's greyscale depth preview: near is bright, this far is black.
@@ -470,6 +472,22 @@ class AppConfig(BaseModel):
     calibration: CalibrationConfig | None = None  # absent: the Calibrate page is off, /api/calibration/* answers 404
     # Nav goals are refused when the cached tilt guard state is older than this many seconds (the guard sends 1 Hz).
     tilt_guard_stale_s: float = Field(TILT_STALE_S_DEFAULT, gt=0)
+
+    @model_validator(mode="after")
+    def agent_retros_needs_agent_chat(self) -> AppConfig:
+        """Reject an agent_retros tab without an agent_chat tab (it has no agent URL of its own).
+
+        Returns:
+            AppConfig: This config.
+
+        Raises:
+            ValueError: An agent_retros tab is configured but no agent_chat tab.
+        """
+        if any(t.type == AGENT_RETROS_TAB_TYPE for t in self.tabs) and self.agent_chat_tab() is None:
+            raise ValueError(
+                f"{AGENT_RETROS_TAB_TYPE} tab requires an {AGENT_CHAT_TAB_TYPE} tab (it uses its agent_url)"
+            )
+        return self
 
     def all_subscribed_topics(self) -> list[str]:
         """Return unique ROS2 topics the bridge must subscribe to.
