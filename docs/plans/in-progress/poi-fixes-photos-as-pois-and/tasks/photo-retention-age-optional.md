@@ -1,6 +1,6 @@
 ---
 title: Photo retention age optional
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: A loaded map keeps its older photos instead of losing them to the hourly age prune
 files: [nodes/poi_store/poi_store/config.py, nodes/poi_store/poi_store/photo_store.py, nodes/poi_store/tests/test_photo_store.py, nodes/poi_store/tests/test_node_photos.py, nodes/poi_store/tests/test_config.py, ansible/group_vars/client.yml, nodes/poi_store/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--photo-retention-age-optional
 branch: poi-fixes-photos-as-pois-and--photo-retention-age-optional
-verified_head: ""
-run: ""
+verified_head: 7624935bf9f1a4dd77834b3b5dea5759139b6868
+run: poi-fixes-photos-as-pois-and
 provides: []
+acs_for_audit: []
+process_gaps: [The fix-round change to tests/test_poi_store_config.py and tests/README.md is not named in tests.added or a finding]
 ---
 
 # Photo retention age optional

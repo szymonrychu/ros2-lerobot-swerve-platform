@@ -1,6 +1,6 @@
 ---
 title: Web UI photo POIs cleanup
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The Clear POIs dialog can clear photos and each photo shows once in the POI tab
 files: [nodes/web_ui/frontend/src/poi/style.test.ts, nodes/web_ui/frontend/src/poi/ClearPoisDialog.tsx, nodes/web_ui/frontend/src/poi/ClearPoisDialog.test.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.tsx, nodes/web_ui/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--web-ui-photo-pois-cleanup
 branch: poi-fixes-photos-as-pois-and--web-ui-photo-pois-cleanup
-verified_head: ""
-run: ""
+verified_head: 8e15e0becbc20f4cf991086631c1b79a74ae6bb8
+run: poi-fixes-photos-as-pois-and
 provides: []
+acs_for_audit: []
+process_gaps: ["The implementer's report names only photos/api.test.ts, but the task's diff also includes the ClearPoisDialog, PoiPanels, api/types, MapNavTab and README changes (earlier commits). The report understates the change set.", "TDD skipped without a listed exception; prove the tests catch the change - commit first, then for each changed non-test file: git show <merge-base>:<path> > <path>; run the test (must fail); git show HEAD:<path> > <path>; run again (must pass); paste both tails into tests.red and verification.evidence"]
 ---
 
 # Web UI photo POIs cleanup

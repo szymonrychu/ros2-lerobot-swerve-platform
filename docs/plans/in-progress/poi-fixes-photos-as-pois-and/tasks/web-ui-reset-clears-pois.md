@@ -1,6 +1,6 @@
 ---
 title: Web UI reset clears POIs
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Reset map in the web UI also clears the live POIs and photos and says how many
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/tests/test_map_reset_pois.py, nodes/web_ui/tests/test_poi_clear.py, nodes/web_ui/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--web-ui-reset-clears-pois
 branch: poi-fixes-photos-as-pois-and--web-ui-reset-clears-pois
-verified_head: ""
-run: ""
+verified_head: bf7ef6bf6c127f93202b344879a06f795c60c37b
+run: poi-fixes-photos-as-pois-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI reset clears POIs

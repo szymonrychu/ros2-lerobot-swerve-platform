@@ -1,6 +1,6 @@
 ---
 title: Map bundle photos
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A saved map keeps its photos, a load brings them back, a delete removes them"
 files: [nodes/map_manager/map_manager/node.py, nodes/map_manager/map_manager/manager.py, nodes/map_manager/map_manager/bundle.py, nodes/map_manager/tests/fakes.py, nodes/map_manager/tests/test_bundle_photos.py, nodes/map_manager/README.md, docs/runbooks/named-maps.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--map-bundle-photos
 branch: poi-fixes-photos-as-pois-and--map-bundle-photos
-verified_head: ""
-run: ""
+verified_head: f5b3b70864e27f8d3692c02ce30e9ac475bbde5b
+run: poi-fixes-photos-as-pois-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Map bundle photos

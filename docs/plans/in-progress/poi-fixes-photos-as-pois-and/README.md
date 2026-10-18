@@ -2,7 +2,7 @@
 title: POI fixes photos as POIs and cleanups
 blockers: [Driving agent skills and workflows, Pan tilt head control with agent and web UI]
 stage: build
-owner: "Szymon Richert"
+owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
 ---
@@ -38,7 +38,7 @@ User-reported POI defects after the named-maps delivery (2026-10-18):
 
 ## Time
 
-Estimate: 855 min | Actual: 0 min | Remaining estimate: 855 min
+Estimate: 855 min | Actual: 0 min | Remaining estimate: 0 min
 
 ## Review
 

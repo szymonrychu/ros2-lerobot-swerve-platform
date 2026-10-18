@@ -1,6 +1,6 @@
 ---
 title: MCP POI tools photos
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent can clear photos with its POIs, sees both counts, and list_pois never breaks on photos"
 files: [nodes/mcp_server/mcp_server/perception_models.py, nodes/mcp_server/mcp_server/poi_client.py, nodes/mcp_server/mcp_server/perception_tools.py, nodes/mcp_server/tests/test_poi_photo_tools.py, nodes/mcp_server/tests/test_clear_pois_tool.py, nodes/mcp_server/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--mcp-poi-tools-photos
 branch: poi-fixes-photos-as-pois-and--mcp-poi-tools-photos
-verified_head: ""
-run: ""
+verified_head: 8911ab0f76db0251943bc57805c30607736199dc
+run: poi-fixes-photos-as-pois-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP POI tools photos

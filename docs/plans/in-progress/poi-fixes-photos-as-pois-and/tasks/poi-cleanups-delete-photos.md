@@ -1,6 +1,6 @@
 ---
 title: POI cleanups delete photos
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Clearing or deleting POIs removes the photos in that set, records and image files, and says how many"
 files: [nodes/poi_store/poi_store/models.py, nodes/poi_store/poi_store/store.py, nodes/poi_store/tests/test_clear_filters.py, nodes/poi_store/tests/test_photo_cleanup.py, nodes/poi_store/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--poi-cleanups-delete-photos
 branch: poi-fixes-photos-as-pois-and--poi-cleanups-delete-photos
-verified_head: ""
-run: ""
+verified_head: 9885f1f290c3128744b42cf64b82ce150bb11e68
+run: poi-fixes-photos-as-pois-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # POI cleanups delete photos

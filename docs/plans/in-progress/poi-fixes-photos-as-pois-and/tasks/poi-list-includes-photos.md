@@ -1,6 +1,6 @@
 ---
 title: POI list includes photos
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Photos show up as POIs of the live map everywhere /poi/list is read
 files: [nodes/poi_store/poi_store/store.py, nodes/poi_store/poi_store/node.py, nodes/poi_store/tests/test_photo_pois_list.py, nodes/poi_store/tests/test_node_poi_list.py, nodes/poi_store/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--poi-list-includes-photos
 branch: poi-fixes-photos-as-pois-and--poi-list-includes-photos
-verified_head: ""
-run: ""
-provides: []
+verified_head: aa3f3bf50461be1a2409a50cd897dd52d0d93d95
+run: poi-fixes-photos-as-pois-and
+provides: [poi-list-photo-entries]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # POI list includes photos

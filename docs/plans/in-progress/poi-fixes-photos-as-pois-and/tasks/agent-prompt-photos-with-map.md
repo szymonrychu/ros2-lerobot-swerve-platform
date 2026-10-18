@@ -1,6 +1,6 @@
 ---
 title: Agent prompt photos with map
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent tells the person the truth about where photos go on save, load, delete and cleanups"
 files: [nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_prompt.py, nodes/claude_agent/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--agent-prompt-photos-with-map
 branch: poi-fixes-photos-as-pois-and--agent-prompt-photos-with-map
-verified_head: ""
-run: ""
+verified_head: 4ca06fcdbf4a4b3bd397407b3ee0bc00e7dfc5c4
+run: poi-fixes-photos-as-pois-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Agent prompt photos with map
