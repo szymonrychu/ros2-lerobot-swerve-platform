@@ -62,3 +62,7 @@ Configured roll and pitch reach the published static transforms; deployed frames
 
 - Keep pure `math`: the unit memory_max is 96M.
 - `tests/ros_stubs.py` exists for node-level tests.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD (834 web_ui tests pass); the parking flag was a false positive, no parking word on README line 503.

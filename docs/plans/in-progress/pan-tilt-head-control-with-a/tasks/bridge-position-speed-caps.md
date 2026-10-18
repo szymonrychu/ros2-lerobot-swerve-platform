@@ -72,3 +72,7 @@ Capped position joints always get their caps with every goal write; nothing chan
 - Register map: `registers.py` STS_ACC 41, goal_position 42, goal_time 44, STS_GOAL_SPEED_L 46.
 - Existing byte-level tests: `tests/test_bus_io.py`, `tests/test_bridge_cycle.py` must stay green unchanged for uncapped configs.
 - The split epic bus budget test (`tests/test_bus_budget.py`) must keep passing.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD (834 web_ui tests pass); the parking flag was a false positive, no parking word on README line 503.

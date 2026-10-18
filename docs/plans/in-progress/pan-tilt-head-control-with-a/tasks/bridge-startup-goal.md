@@ -64,3 +64,7 @@ A configured joint drives to its startup position once after torque-on, at its c
 
 - Reuse `startup_torque.py` results (unheld ids, failed torque ids) to decide which joints get the goal.
 - `tests/test_bridge_startup_torque.py` shows how the startup sequence is tested.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD (834 web_ui tests pass); the parking flag was a false positive, no parking word on README line 503.

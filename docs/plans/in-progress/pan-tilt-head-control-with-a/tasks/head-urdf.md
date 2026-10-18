@@ -1,6 +1,6 @@
 ---
 title: Head URDF
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "One measured-geometry source for the head: TF, agent aiming and the 3D view all read it."
 files: [nodes/web_ui/urdf/head.urdf, nodes/web_ui/tests/test_head_urdf.py, nodes/web_ui/README.md]
@@ -63,3 +63,7 @@ head.urdf parses, the urdf scanner reports it ok, and its tests pin the chain, l
 - Pattern: `nodes/web_ui/tests/test_robot_urdf.py` (ElementTree checks). No meshes: primitives only.
 - Lidar pose: client.yml static_tf_publisher laser_frame (0.158, 0.06, 0.20). Footprint 0.47 x 0.386 (mcp_server FootprintSettings).
 - XML comments must not contain `--`.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD (834 web_ui tests pass); the parking flag was a false positive, no parking word on README line 503.
