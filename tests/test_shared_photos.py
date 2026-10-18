@@ -18,6 +18,7 @@ from shared.ros2_common.photos import (
     camera_view,
     effective_view,
     photo_as_poi,
+    poi_as_record,
     write_atomic,
 )
 
@@ -256,3 +257,68 @@ def test_write_atomic_cleans_temp_on_failure(tmp_path: Path, monkeypatch: pytest
 
 def test_module_exposes_write_atomic() -> None:
     assert photos.write_atomic is write_atomic
+
+
+POSE_EXTRA: dict[str, Any] = {
+    "base_pose_map": {"x": 1.0, "y": 2.0, "yaw": 0.3},
+    "camera_pose_base": {"xyz": [0.1, 0.0, 0.5], "rpy": [0.0, 0.2, 0.0]},
+    "arm_joints": {"shoulder": 0.5},
+    "mcp_session": "sess",
+    "name": "shelf",
+    "note": "n",
+    "status": "done",
+    "created_by": "user",
+    "poi_ids": ["b" * 32],
+    "updated_at": TS + 5,
+}
+
+
+def test_poi_as_record_round_trip_plain() -> None:
+    rec = record()
+    assert poi_as_record(photo_as_poi(rec)) == rec
+
+
+def test_poi_as_record_round_trip_with_poses_and_view() -> None:
+    view = camera_view(PlanarPose(x=1.0, y=2.0, yaw=0.3), CameraPose(xyz=[0.1, 0.0, 0.5], rpy=[0.0, 0.2, 0.0]), 1.0)
+    rec = record(**POSE_EXTRA, view=view.model_dump())
+    assert poi_as_record(photo_as_poi(rec)) == rec
+
+
+def test_poi_as_record_round_trip_legacy_pose_without_view() -> None:
+    rec = record(**POSE_EXTRA)
+    back = poi_as_record(photo_as_poi(rec))
+    assert back.base_pose_map == rec.base_pose_map
+    assert back.id == rec.id and back.ts == rec.ts
+
+
+def bad_poi(**changes: Any) -> dict[str, Any]:
+    return photo_as_poi(record()) | changes
+
+
+def test_poi_as_record_rejects_non_photo_kind() -> None:
+    with pytest.raises(ValueError):
+        poi_as_record(bad_poi(kind="poi"))
+
+
+def test_poi_as_record_rejects_missing_photo_object() -> None:
+    poi = bad_poi()
+    del poi["photo"]
+    with pytest.raises(ValueError):
+        poi_as_record(poi)
+    with pytest.raises(ValueError):
+        poi_as_record(bad_poi(photo=None))
+
+
+@pytest.mark.parametrize("bad_id", ["A" * 32, "a" * 31, "g" * 32, ""])
+def test_poi_as_record_rejects_bad_id(bad_id: str) -> None:
+    poi = bad_poi(id=bad_id)
+    poi["photo"] = poi["photo"] | {"file": f"{bad_id}.jpg"}
+    with pytest.raises(ValueError):
+        poi_as_record(poi)
+
+
+def test_poi_as_record_rejects_file_not_matching_id() -> None:
+    poi = bad_poi()
+    poi["photo"] = poi["photo"] | {"file": "other.jpg"}
+    with pytest.raises(ValueError):
+        poi_as_record(poi)
