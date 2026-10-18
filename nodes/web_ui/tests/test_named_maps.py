@@ -375,7 +375,7 @@ def test_map_request_matches_result_by_request_id() -> None:
     assert not f1.done()
 
 
-def test_unrecoverable_move_keeps_saved_maps_listed() -> None:
+def test_map_reset_keeps_saved_maps_listed() -> None:
     """D13: map_guard's reset clears the map and anchor; the status (maps list) is untouched until map_manager updates it."""
     node = make_node()
     node.on_map_status(status_msg(poi_count=2))
