@@ -30,6 +30,8 @@ const DEFAULT_PAN_RANGE_DEG: [number, number] = [-90, 90]
 const DEFAULT_TILT_RANGE_DEG: [number, number] = [-30, 45]
 const DEFAULT_HOME_DEG: [number, number] = [0, 30]
 const COMMAND_ARRIVED_DEG = 1
+// Full pan range (pi rad) at the 1.0 rad/s head speed cap is 3.14 s, rounded up to the next half second.
+const COMMAND_HOLD_MS = 3500
 const DEG_PER_RAD = 180 / Math.PI
 const ZOOM_FACTORS: ZoomFactor[] = [2, 4, 8]
 const DEFAULT_ZOOM_FACTOR: ZoomFactor = 4
@@ -67,6 +69,13 @@ function measuredDeg(sample: unknown): [number, number] | null {
   return out.every((v) => typeof v === 'number' && Number.isFinite(v)) ? [(out[0] as number) * DEG_PER_RAD, (out[1] as number) * DEG_PER_RAD] : null
 }
 
+/** A command this UI sent for one joint. */
+interface JointCommand {
+  deg: number
+  at: number
+  arrived: boolean
+}
+
 interface PanTiltProps {
   tab: TabConfig
   sample: unknown
@@ -91,48 +100,60 @@ function PanTiltControls({ tab, sample, publish }: PanTiltProps) {
   const lastSent = useRef(-Infinity)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latest = useRef<[number, number] | null>(null)
-  // Last commanded pair, kept after release so the other joint is not re-sent from a stale measurement.
-  const commanded = useRef<[number, number] | null>(null)
+  const draggedJoint = useRef(0)
+  // Per joint, the last command this UI sent (deg, send time, whether the measurement reached it). Kept after
+  // release so a joint still travelling is not re-sent from an intermediate measurement.
+  const commanded = useRef<(JointCommand | null)[]>([null, null])
   const shown = target ?? measured
   const ranges = [panRange, tiltRange]
+
+  commanded.current.forEach((cmd, i) => {
+    if (cmd && measured && Math.abs(measured[i] - cmd.deg) <= COMMAND_ARRIVED_DEG) cmd.arrived = true
+  })
 
   function clampDeg(deg: [number, number]): [number, number] {
     return [0, 1].map((i) => Math.min(Math.max(deg[i], ranges[i][0]), ranges[i][1])) as [number, number]
   }
 
-  function send(raw: [number, number]): void {
+  /** Publishes the pair; `fresh` lists the joints the user actually set (the other one is just carried along). */
+  function send(raw: [number, number], fresh: number[] = [0, 1]): void {
     const deg = clampDeg(raw)
-    commanded.current = deg
+    const now = Date.now()
+    fresh.forEach((i) => {
+      commanded.current[i] = { deg: deg[i], at: now, arrived: false }
+    })
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
-    lastSent.current = Date.now()
+    lastSent.current = now
     publish(topic, HEAD_MSG_TYPE, { name: HEAD_JOINTS, position: deg.map((d) => d / DEG_PER_RAD) })
   }
 
   /** Value for the joint not being dragged: the commanded one while it is still travelling, else the measured one. */
   function otherJoint(i: 0 | 1): number {
-    const cmd = commanded.current?.[i]
+    const cmd = commanded.current[i]
     const meas = measured?.[i]
-    if (cmd !== undefined && (meas === undefined || Math.abs(meas - cmd) > COMMAND_ARRIVED_DEG)) return cmd
-    return meas ?? 0
+    const travelling = cmd && !cmd.arrived && Date.now() - cmd.at <= COMMAND_HOLD_MS
+    if (travelling) return cmd.deg
+    return meas ?? cmd?.deg ?? 0
   }
 
-  function onDrag(deg: [number, number]): void {
+  function onDrag(deg: [number, number], dragged: number): void {
     setTarget(deg)
     latest.current = deg
+    draggedJoint.current = dragged
     const wait = lastSent.current + HEAD_PUBLISH_INTERVAL_MS - Date.now()
-    if (wait <= 0) send(deg)
+    if (wait <= 0) send(deg, [dragged])
     else if (!timer.current) {
       timer.current = setTimeout(() => {
         timer.current = null
-        if (latest.current) send(latest.current)
+        if (latest.current) send(latest.current, [draggedJoint.current])
       }, wait)
     }
   }
 
-  function onRelease(deg: [number, number]): void {
+  function onRelease(deg: [number, number], fresh: number[]): void {
     latest.current = null
-    send(deg)
+    send(deg, fresh)
     setTarget(null)
   }
 
@@ -152,8 +173,8 @@ function PanTiltControls({ tab, sample, publish }: PanTiltProps) {
           min={range[0]}
           max={range[1]}
           valueLabelDisplay="auto"
-          onChange={(_, v) => onDrag(update(v as number))}
-          onChangeCommitted={(_, v) => onRelease(update(v as number))}
+          onChange={(_, v) => onDrag(update(v as number), index)}
+          onChangeCommitted={(_, v) => onRelease(update(v as number), [index])}
         />
       </Stack>
     )
@@ -167,7 +188,7 @@ function PanTiltControls({ tab, sample, publish }: PanTiltProps) {
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
         {slider(0, 'pan', panRange)}
         {slider(1, 'tilt', tiltRange)}
-        <Button variant="outlined" size="small" sx={{ minHeight: TOUCH_TARGET_PX }} onClick={() => onRelease(home)}>Home</Button>
+        <Button variant="outlined" size="small" sx={{ minHeight: TOUCH_TARGET_PX }} onClick={() => onRelease(home, [0, 1])}>Home</Button>
       </Stack>
       {measured && (
         <Typography data-testid="head-measured" variant="body2">

@@ -192,6 +192,50 @@ describe('HeadTab', () => {
       expect(msg.position[0]).toBeLessThanOrEqual(90 * DEG + 1e-9)
     })
 
+    it('a stale command (hold time passed, measurement never arrived) is replaced by the measured value', () => {
+      setViewport(1400)
+      vi.useFakeTimers()
+      const publish = vi.fn()
+      renderTab({ ...FRAMES, ...SAMPLE }, publish, HEAD_TAB)
+      fireEvent.click(screen.getByRole('button', { name: 'Home' }))
+      publish.mockClear()
+      vi.advanceTimersByTime(4000)
+      dragPan([90])
+      expect(publish.mock.calls[0][2].position[1]).toBeCloseTo(-15 * DEG, 5)
+    })
+
+    it('inside the hold time the commanded value is still sent for the other joint', () => {
+      setViewport(1400)
+      vi.useFakeTimers()
+      const publish = vi.fn()
+      renderTab({ ...FRAMES, ...SAMPLE }, publish, HEAD_TAB)
+      fireEvent.click(screen.getByRole('button', { name: 'Home' }))
+      publish.mockClear()
+      vi.advanceTimersByTime(1000)
+      dragPan([90])
+      expect(publish.mock.calls[0][2].position[1]).toBeCloseTo(30 * DEG, 5)
+    })
+
+    it('once the measurement arrived, a later external move is followed', () => {
+      setViewport(1400)
+      vi.useFakeTimers()
+      const publish = vi.fn()
+      const at = (tiltDeg: number) => ({ ...FRAMES, [STATES]: { name: ['head_pan', 'head_tilt'], position: [30 * DEG, tiltDeg * DEG] } })
+      const view = (data: Record<string, unknown>) => (
+        <ThemeProvider theme={theme}>
+          <HeadTab tab={HEAD_TAB} topicData={data} publish={publish} />
+        </ThemeProvider>
+      )
+      const { rerender } = render(view(at(-15)))
+      fireEvent.click(screen.getByRole('button', { name: 'Home' }))
+      rerender(view(at(30)))
+      rerender(view(at(10)))
+      publish.mockClear()
+      vi.advanceTimersByTime(300)
+      dragPan([90])
+      expect(publish.mock.calls[0][2].position[1]).toBeCloseTo(10 * DEG, 5)
+    })
+
     it('Home publishes the home pose', () => {
       setViewport(1400)
       const publish = vi.fn()
