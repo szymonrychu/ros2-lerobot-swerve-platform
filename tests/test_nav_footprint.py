@@ -334,7 +334,7 @@ def test_cliffstop_region_is_the_points_line_of_the_cliff_polygon() -> None:
     assert parsed == [list(p) for p in gen.cliff_polygon]
 
 
-def test_nav2_cliffstop_polygon_is_wired_but_not_yet_listed() -> None:
+def test_nav2_cliffstop_polygon_is_wired_and_listed() -> None:
     params = yaml.safe_load(NAV2_PARAMS.read_text())["collision_monitor"]["ros__parameters"]
     cliff = params["CliffStop"]
     assert cliff["type"] == "polygon"
@@ -346,7 +346,7 @@ def test_nav2_cliffstop_polygon_is_wired_but_not_yet_listed() -> None:
     assert cliff["enabled"] is True
     assert cliff["sources_names"] == ["tof_cliff"]
     assert len(yaml.safe_load(cliff["points"])) >= MIN_POLYGON_POINTS
-    assert "CliffStop" not in params["polygons"]
+    assert "CliffStop" in params["polygons"]
 
 
 # --- collision_monitor StopBox ----------------------------------------------------------------------
