@@ -31,7 +31,7 @@ The node publishes no TF. The head TF comes from the pan/tilt joint states and s
 
 It does depth to cloud with decimation, range limits, voxel grid and a radius noise filter in one C++ node from the `ros-jazzy-rtabmap-util` apt package (no source build). `depth_image_proc` has no voxel or noise filtering and would need a second node; `obstacles_detection` (rtabmap_util) does ground segmentation that nav2 and the costmap layer already cover downstream and is heavier, so it is not used here.
 
-## Placeholder rule
+## Placeholder data
 
 The node publishes only from its synced callback, i.e. from a real depth + camera_info pair. There is no republisher and no timer. An all-invalid frame (nothing in range) gives an empty cloud with the real stamp, never synthetic points; with no frames there is no cloud.
 
