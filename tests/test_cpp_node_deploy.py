@@ -43,7 +43,9 @@ CPP_TYPES = {
     "map_guard_cpp": ("map_guard", "MAP_GUARD_CONFIG", "ros2 run map_guard_cpp map_guard_node"),
 }
 METRICS_PORTS = {"map_guard_cpp": 19110}
-ALL_CPP_TYPES = tuple(sorted(CPP_TYPES))
+# _cpp types without a Python counterpart: head_camera_cpp builds the pinned libcamera first, then the two local trees.
+STANDALONE_CPP_TYPES = ("head_camera_cpp",)
+ALL_CPP_TYPES = tuple(sorted([*CPP_TYPES, *STANDALONE_CPP_TYPES]))
 # rosdep keys of system (non-ROS) dependencies -> their Ubuntu 24.04 apt package.
 ROSDEP_APT = {
     "yaml-cpp": "libyaml-cpp-dev",
@@ -473,7 +475,7 @@ def test_cpp_node_apt_packages_cover_every_in_tree_package_xml(cpp_type: str) ->
     """
     entry = client()["ros2_node_type_defaults"][cpp_type]
     local_packages = {s["package"] for s in entry["colcon_source"]}
-    present = [REPO_ROOT / s["local"] / "package.xml" for s in entry["colcon_source"]]
+    present = [REPO_ROOT / s["local"] / "package.xml" for s in entry["colcon_source"] if "local" in s]
     present = [p for p in present if p.is_file()]
     assert REPO_ROOT / COMMON_SOURCE["local"] / "package.xml" in present
     for package_xml in present:
@@ -483,6 +485,20 @@ def test_cpp_node_apt_packages_cover_every_in_tree_package_xml(cpp_type: str) ->
 
 def test_ros2_common_cpp_is_a_discovered_cpp_package() -> None:
     assert REPO_ROOT / COMMON_SOURCE["local"] in discover_cpp_package_dirs()
+
+
+def test_head_camera_cpp_identity_is_pinned_libcamera_then_the_two_local_trees() -> None:
+    """The standalone type's sources: pinned libcamera, then ros2_common_cpp and the node as local sources."""
+    entry = client()["ros2_node_type_defaults"]["head_camera_cpp"]
+    assert entry["node_launch_command"] == "ros2 run head_camera_cpp head_camera_node"
+    identity = [(s.get("local"), s["package"], s["workspace"]) for s in entry["colcon_source"]]
+    assert identity == [
+        (None, "libcamera", WORKSPACE),
+        (COMMON_SOURCE["local"], "ros2_common_cpp", WORKSPACE),
+        ("nodes/head_camera_cpp", "head_camera_cpp", WORKSPACE),
+    ]
+    assert entry["env"] == ["HEAD_CAMERA_CONFIG=/etc/ros2/head_camera_cpp/config.yaml"]
+    assert entry["config_path"] == "/etc/ros2/head_camera_cpp"
 
 
 @pytest.mark.parametrize("cpp_type", sorted(CPP_TYPES))

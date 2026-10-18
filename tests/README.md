@@ -90,9 +90,10 @@ In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_no
 | `test_a_local_build_restarts_only_its_own_node` | The build notifies the restart handler and queues only `node_name`. |
 | `test_local_build_runs_in_the_low_priority_scope` | Every configured local source renders `systemd-run --scope`, CPUWeight 20, IOWeight 10, nice 19, ionice idle, one worker, Release with `BUILD_TESTING=OFF`, `--base-paths` of its own tree, `MAKEFLAGS=-j2`, and a chained source sources the workspace. |
 | `test_pinned_build_command_is_unchanged` | A pinned source still renders Release only, no `--base-paths`, `MAKEFLAGS=-j4`. |
-| `test_cpp_node_type_is_a_local_colcon_build` | (per `_cpp` type) native, `node_src_dir ""`, `src_paths []`, the `ros2 run` launch command, `colcon_source` = local ros2_common_cpp then the node package in `/opt/ros2-ws` with stamped apt packages that are installed, the C++ build apt packages, config path and env var, and the Python node's tier and memory keys. |
+| `test_cpp_node_type_is_a_local_colcon_build` | (per `_cpp` type with a Python counterpart; `head_camera_cpp` has its own identity test) native, `node_src_dir ""`, `src_paths []`, the `ros2 run` launch command, `colcon_source` = local ros2_common_cpp then the node package in `/opt/ros2-ws` with stamped apt packages that are installed, the C++ build apt packages, config path and env var, and the Python node's tier and memory keys. |
+| `test_head_camera_cpp_identity_is_pinned_libcamera_then_the_two_local_trees` | `head_camera_cpp` (no Python counterpart) builds the pinned libcamera, then `ros2_common_cpp` and itself as local sources; launch command, env var and config path. |
 | `test_package_xml_apt_names_maps_ros_system_and_local_keys` | `package_xml_apt_names` maps ROS keys to `ros-jazzy-<dashed>`, system rosdep keys via `ROSDEP_APT`, keeps `lib*-dev` names, drops in-tree local packages and `test_depend`. |
-| `test_cpp_node_apt_packages_cover_every_in_tree_package_xml` | (per `_cpp` type) every build/run dependency of each local source's `package.xml` that is in the tree (ros2_common_cpp now, the node package once it lands) is in the type's `apt_packages`. |
+| `test_cpp_node_apt_packages_cover_every_in_tree_package_xml` | (per `_cpp` type, `head_camera_cpp` included; only `local` sources' package.xml are read, the pinned libcamera counts as a local package) every build/run dependency of each local source's `package.xml` that is in the tree (ros2_common_cpp now, the node package once it lands) is in the type's `apt_packages`. |
 | `test_ros2_common_cpp_is_a_discovered_cpp_package` | The chained `shared/ros2_common_cpp` is a C++ package found by `discover_cpp_package_dirs`. |
 | `test_cpp_node_entry_is_live_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: true`, `enabled: true` (since the cut-over), the same `config: |` block (metrics port 19110). |
 | `test_client_playbook_deploys_the_cpp_node_after_its_python_counterpart` | The `Deploy <name>_cpp` include follows the Python node's, with the node, build and config tags and the node tag applied. |
@@ -1912,6 +1913,22 @@ Static invariants of the front/back Camera Module 3 previews (`pi_cameras`): pin
 | `test_launch_file_uses_the_pi_cameras_namespaces_only` | See the function docstring/name. |
 | `test_docs_describe_the_previews_and_the_front_port` | See the function docstring/name. |
 
+### `test_head_camera_deploy.py`
+
+Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group_vars/client.yml`): the libcamera source is the pinned dict of `pi_cameras` (same build stamp, nothing rebuilds), the patch is a byte-identical copy.
+
+| Test | What it pins |
+|---|---|
+| `test_node_type_fields` | `deploy_mode: native`, launch command `ros2 run head_camera_cpp head_camera_node`, empty `node_src_dir` and `src_paths`. |
+| `test_libcamera_source_is_the_pinned_dict_of_pi_cameras` | The first `colcon_source` equals the recorded libcamera dict (repo, commit, package, workspace, meson args, patch). |
+| `test_patch_is_a_byte_identical_copy_of_the_pinned_one` | `nodes/head_camera_cpp/patches/libcamera-0001-add-package-xml.patch` has the recorded sha1 of the original patch. |
+| `test_sources_build_libcamera_then_common_then_the_node` | Order libcamera, `ros2_common_cpp`, `head_camera_cpp`; the local sources carry cmake args, `base_paths`, `jobs 2` and `stamp_apt_packages`. |
+| `test_no_apt_camera_stack_and_all_build_packages` | No `ros-jazzy-libcamera` / `ros-jazzy-camera-ros`; libcamera build packages and the package.xml dependencies are installed. |
+| `test_background_tier` | `memory_low` 128M, `memory_max` 384M, weights 100, `oom_score_adjust` 0, `nice` 10. |
+| `test_config_path_and_env` | `/etc/ros2/head_camera_cpp` and `HEAD_CAMERA_CONFIG`. |
+| `test_entry_is_live_after_pi_cameras_with_valid_config` | The entry follows `pi_cameras`, is present and enabled, and its config keys are known to the node (`camera_id` of cam0, `jpeg_quality: 70`, `metrics_port: 19113`). |
+| `test_monitoring_target_is_present` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19113/metrics`. |
+
 ### `test_pi_cameras_config.py`
 
 The pure-Python launch helper `nodes/pi_cameras/launch/pi_cameras_config.py`: settings merge, `front_port` to front/back camera ID, namespaces, camera_ros parameters.
@@ -1957,7 +1974,7 @@ Static checks of the Pi camera retirement (D7: no cameras on the Pi), read as YA
 | `test_overview_camera_entry_is_uninstalled_by_the_next_deploy` | The `overview_camera` ros2_nodes entry is `present: false` with no config. |
 | `test_overview_camera_entry_names_d7_in_its_comment` | The comment above the entry names D7. |
 | `test_overview_camera_node_type_keeps_only_what_the_uninstall_path_needs` | The node type has only `deploy_mode: native` and a launch command: no source, build, tier or env keys. |
-| `test_only_pi_cameras_builds_libcamera_and_camera_ros` | Of all client node types only `pi_cameras` builds libcamera (the retired `overview_camera` builds nothing). |
+| `test_only_pi_cameras_builds_libcamera_and_camera_ros` | Of all client node types exactly `head_camera_cpp` and `pi_cameras` build libcamera; retire-pi-cameras narrows it to `head_camera_cpp`. |
 | `test_old_boot_file_and_old_tests_are_deleted` | `overview_camera_boot_config.yml`, `pi_camera_overlays_removed.yml` and the two `test_overview_camera*.py` files are gone. |
 | `test_client_playbook_still_deploys_overview_camera_so_the_uninstall_runs` | The playbook still deploys the name so the uninstall runs. |
 | `test_ansible_readme_describes_the_removal` | `ansible/README.md` names neither removed boot file and has no memory row for `overview_camera`. |
@@ -2066,7 +2083,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, arducam_tof, and the side-by-side C++ port map_guard_cpp 19110) `metrics_port` 19101-19112; base_servos 19115. |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, arducam_tof, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ node head_camera_cpp 19116) `metrics_port` 19101-19112; base_servos 19115. |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
@@ -2291,7 +2308,7 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_jetson_bridge_type_keeps_only_the_uninstall_and_purge_keys` | The node type has exactly `deploy_mode: native`, the launch command and `colcon_purge` of `jetson_bridge_cpp` in `/opt/ros2-ws`. |
 | `test_client_playbook_still_deploys_jetson_bridge_so_the_uninstall_runs` | `deploy_nodes_client.yml` still deploys the name. |
 | `test_jetson_bridge_metrics_target_is_removed` | No `monitoring_agent_node_targets` row for the bridge or port 19114. |
-| `test_allowed_references_use_only_the_known_categories` | Every `ALLOWED_REFERENCES` entry is `archive`, `retired-entry`, `uninstall-artifact`, `retirement-test`, `retirement-doc` or `pinned-build`, and only the two archive directories and `nodes/pi_cameras/patches/**` use a directory-wide glob. |
+| `test_allowed_references_use_only_the_known_categories` | Every `ALLOWED_REFERENCES` entry is `archive`, `retired-entry`, `uninstall-artifact`, `retirement-test`, `retirement-doc` or `pinned-build`, and only the two archive directories, `nodes/pi_cameras/patches/**` and `nodes/head_camera_cpp/patches/**` (pinned-build) use a directory-wide glob. |
 | `test_no_live_jetson_stereo_or_overview_reference` | `git grep -n -i -E` over tracked files for `jetson`, `depthd`, `stereo`, `overview_camera`, `depth_wire`, `fused_depth` and `10.77.0.` finds no hit outside the `(path glob, line regex, category)` allowlist; any other hit is fixed by editing the line. |
 
 ## test_node_cpu_compare.py

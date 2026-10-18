@@ -719,6 +719,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ("nodes/pi_cameras/README.md", r"The retired `/overview_camera/\*` names are not used here", "retirement-doc"),
     # pinned-build: part of the libcamera build stamp, changing it would rebuild.
     ("nodes/pi_cameras/patches/**", r"overview_camera", "pinned-build"),
+    ("nodes/head_camera_cpp/patches/**", r"overview_camera", "pinned-build"),
 )
 
 
@@ -749,7 +750,7 @@ def test_allowed_references_use_only_the_known_categories() -> None:
     """Every entry carries one of the six categories, and a directory-wide glob appears only for the archive and pinned patches."""
     assert {category for _, _, category in ALLOWED_REFERENCES} <= ALLOWED_CATEGORIES
     wide = {glob for glob, _, _ in ALLOWED_REFERENCES if "**" in glob}
-    assert wide <= {*ARCHIVE_GLOBS, "nodes/pi_cameras/patches/**"}
+    assert wide <= {*ARCHIVE_GLOBS, "nodes/pi_cameras/patches/**", "nodes/head_camera_cpp/patches/**"}
 
 
 def test_no_live_jetson_stereo_or_overview_reference() -> None:

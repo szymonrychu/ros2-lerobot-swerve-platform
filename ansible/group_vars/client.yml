@@ -361,6 +361,89 @@ ros2_node_type_defaults:
       - ros-jazzy-image-transport
       - ros-jazzy-image-transport-plugins
       - ros-jazzy-compressed-image-transport
+  # Head RGB camera (Camera Module 3 on CSI cam0): 30 fps /head_camera/* plus autofocused full-resolution zoom crops
+  # (nodes/head_camera_cpp/README.md). It replaces pi_cameras and builds against the same pinned libcamera: the first
+  # colcon_source dict is identical to pi_cameras' (repo, commit, meson_args, patch contents; the patch path is not part
+  # of the stamp key), so the existing stamp matches and nothing rebuilds. The apt ros-jazzy-libcamera and
+  # ros-jazzy-camera-ros packages must NOT be installed: they would shadow the fork. camera_ros is not built. Never
+  # enable it together with pi_cameras: one process owns the camera. Then ros2_common_cpp and the node build as local
+  # sources (-j2).
+  # Background tier like pi_cameras, a preview the robot can lose. The figures are carried over from pi_cameras
+  # (one process, one camera, plus the full-resolution still buffers): re-measure the working set in Mimir (p50 and
+  # 24 h peak) and set MemoryLow ~1.33x p50, MemoryMax 4x the peak.
+  head_camera_cpp:
+    deploy_mode: native
+    node_launch_command: "ros2 run head_camera_cpp head_camera_node"
+    node_src_dir: ""
+    # Runs no repo file (the binary is in /opt/ros2-ws/install): the build stamp restarts it when its source changes.
+    src_paths: []
+    colcon_source:
+      - repo: https://github.com/raspberrypi/libcamera.git
+        commit: v0.7.2+rpt20260817
+        package: libcamera
+        workspace: /opt/ros2-ws
+        # colcon-meson needs a package.xml (build_type meson); libpisp comes from its meson wrap (needs network).
+        patches:
+          - "{{ ros2_repo_dest }}/nodes/head_camera_cpp/patches/libcamera-0001-add-package-xml.patch"
+        meson_args:
+          - -Dpipelines=rpi/pisp
+          - -Dipas=rpi/pisp
+          - -Dcam=enabled
+          - -Dqcam=disabled
+          - -Dgstreamer=disabled
+          - -Dv4l2=false
+          - -Dtest=false
+          - -Ddocumentation=disabled
+          - -Dpycamera=disabled
+          # No -Dprefix/-Dlibdir/-Dbuildtype: colcon-meson passes --prefix, --libdir (install/lib) and --buildtype itself.
+      - local: shared/ros2_common_cpp
+        package: ros2_common_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [libyaml-cpp-dev, prometheus-cpp-dev]
+      - local: nodes/head_camera_cpp
+        package: head_camera_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [ros-jazzy-rclcpp, ros-jazzy-sensor-msgs, libopencv-dev, nlohmann-json3-dev]
+    memory_low: "128M"
+    memory_max: "384M"
+    cpu_weight: 100
+    io_weight: 100
+    oom_score_adjust: 0
+    nice: 10
+    config_path: /etc/ros2/head_camera_cpp
+    env:
+      - HEAD_CAMERA_CONFIG=/etc/ros2/head_camera_cpp/config.yaml
+    apt_packages:
+      - git
+      - build-essential
+      - cmake
+      - pkg-config
+      - rsync
+      - python3-colcon-common-extensions
+      - python3-colcon-meson
+      - meson
+      - ninja-build
+      - python3-ply
+      - python3-jinja2
+      - python3-yaml
+      - libyaml-dev
+      - libgnutls28-dev
+      - ros-jazzy-ament-cmake
+      - ros-jazzy-rclcpp
+      - ros-jazzy-rclcpp-components
+      - ros-jazzy-sensor-msgs
+      - ros-jazzy-std-msgs
+      - libopencv-dev
+      - nlohmann-json3-dev
+      - libyaml-cpp-dev
+      - prometheus-cpp-dev
   # Retired (D7): the Pi's stereo pipeline never produced depth and saturated its CPU; its sources are deleted. The entries are
   # present: false, so a deploy of these names runs only the uninstall path of roles/ros2_node_deploy/tasks/main.yml,
   # which needs deploy_mode and a launch command (the role asserts it) and nothing else.
@@ -1127,6 +1210,17 @@ ros2_nodes:
     config: |
       front_port: cam0
       roles: [front]
+  # Head RGB camera of the pan/tilt head: Camera Module 3 on CSI cam0 (the Arducam ToF is on cam1). Publishes
+  # /head_camera/* in head_camera_optical_frame; no TF until the pan/tilt head is built. Replaces pi_cameras: never
+  # enable both (one camera owner).
+  - name: head_camera_cpp
+    node_type: head_camera_cpp
+    present: true
+    enabled: true
+    config: |
+      camera_id: /base/axi/pcie@120000/rp1/i2c@88000/imx708@1a
+      jpeg_quality: 70
+      metrics_port: 19113
   # Retired (D7): the Pi never produced stereo depth (CPU-saturated) and its sources are deleted.
   # present: false makes the next deploy of these names uninstall the
   # units, launchers, venv and config directories.
@@ -2551,6 +2645,7 @@ monitoring_agent_node_targets:
   - {node: map_guard_cpp, address: "127.0.0.1:19110", path: /metrics}
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
   - {node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}
+  - {node: head_camera_cpp, address: "127.0.0.1:19113", path: /metrics}
   - {node: base_servos, address: "127.0.0.1:19115", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
