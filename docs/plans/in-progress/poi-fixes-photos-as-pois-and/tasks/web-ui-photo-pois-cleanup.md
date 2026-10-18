@@ -68,3 +68,7 @@ The Clear POIs dialog previews and clears photos together with POIs and reports 
 - `isPoi` in `style.ts` already rejects kind "photo"; this task only pins it with a test.
 - The photo list refreshes by itself: deleting photos moves the `/poi/photos` revision, which refetches `/api/photos`.
 - Built on the driving-agent PoiPanels changes; do not redo its category chips or marking.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD (43 tests, tsc, eslint, all 4 ACs met); round cap reached without open findings.
