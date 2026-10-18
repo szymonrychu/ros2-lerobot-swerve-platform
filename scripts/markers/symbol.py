@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import segno
 
-from scripts.markers.config import MarkerSpec, SymbolDefaults
+from scripts.markers.models import MarkerSpec, SymbolDefaults
 from shared.ros2_common.marker_payload import encode_payload
 
 ALNUM_CAPACITY = {(2, "m"): 38, (2, "q"): 29, (3, "m"): 61, (3, "q"): 47, (4, "m"): 90, (4, "q"): 67}

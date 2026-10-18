@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from reportlab.pdfgen.canvas import Canvas
 
-from scripts.markers.config import PageSpec
+from scripts.markers.models import PageSpec
 from scripts.markers.symbol import Symbol
 
 MM_TO_PT = 72 / 25.4
@@ -222,7 +222,13 @@ def write_marker_pdf(symbol: Symbol, page: PageSpec, path: Path, label: str) -> 
 
 
 def draw_mask_pdf(
-    mask: np.ndarray, cell_mm: float, page: PageSpec, path: Path, origin_mm: tuple[float, float], label: str
+    mask: np.ndarray,
+    cell_mm: float,
+    page: PageSpec,
+    path: Path,
+    origin_mm: tuple[float, float],
+    label: str,
+    label_y_mm: float | None = None,
 ) -> None:
     """Write a one-page PDF with a boolean mask drawn as vector cells at origin_mm.
 
@@ -233,11 +239,13 @@ def draw_mask_pdf(
         path: Output file.
         origin_mm: Mask top-left from the page top-left, mm.
         label: Text line drawn at the page bottom margin.
+        label_y_mm: Label baseline from the page top; default is BOTTOM_MARGIN_MM above the page bottom.
     """
     width_pt, height_pt = page_size_pt(page)
     canvas = Canvas(str(path), pagesize=(width_pt, height_pt))
     draw_runs(canvas, mask, cell_mm, origin_mm, height_pt)
     height_mm = height_pt / MM_TO_PT
-    draw_text(canvas, label, SIDE_MARGIN_MM, height_mm - BOTTOM_MARGIN_MM, height_pt, FONT, TEXT_PT)
+    baseline_mm = height_mm - BOTTOM_MARGIN_MM if label_y_mm is None else label_y_mm
+    draw_text(canvas, label, SIDE_MARGIN_MM, baseline_mm, height_pt, FONT, TEXT_PT)
     canvas.showPage()
     canvas.save()

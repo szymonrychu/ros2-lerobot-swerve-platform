@@ -2333,3 +2333,18 @@ Exact-size marker PDF from `scripts/markers/pdf.py`. Each test renders page 0 wi
 | `test_raster_decodes_to_payload` | zxing-cpp decodes the rendered raster to the payload text (60, 100, 150 mm). |
 | `test_oversize_marker_raises_does_not_fit` | A 200 mm marker on A4 portrait raises the does-not-fit error naming needed and available mm. |
 | `test_draw_mask_pdf_draws_cells_at_origin` | `draw_mask_pdf` draws a boolean mask as vector cells at the given origin with the right extent, gaps left white and the label as text. |
+
+### test_markers_charuco.py
+
+ChArUco calibration board from `scripts/markers/charuco.py`; the PDF raster and the module footprint are fed to `cv2.aruco.CharucoDetector`.
+
+| Test | What it covers |
+|------|----------------|
+| `test_shipped_spec_is_6x5_and_fits_bed` | Defaults are 6x5, 40/30 mm, DICT_5X5_100 and the plate is 250 x 210 mm (within the 256 mm bed). |
+| `test_yaml_carries_charuco_section` | `scripts/markers_generate.yaml` loads with the default `charuco` spec. |
+| `test_invalid_specs_name_the_field` | 7 columns (too wide), even rows, `marker_mm >= square_mm`, thin base and unknown keys are refused, naming the field. |
+| `test_board_mask_is_exact_pixels` | Mask is 336 x 280 px at 1.4 px/mm (whole-pixel squares, marker cells and gaps). |
+| `test_pdf_detects_all_corners_at_40_mm` | The 600 dpi PDF raster yields all 20 inner corners, 40 mm pitch within 0.1 mm, and `Print at 100 %` text. |
+| `test_mesh_footprint_matches_board_corners` | Top view of the module body detects 20 corners within 0.2 mm of `getChessboardCorners()`. |
+| `test_stl_base_is_4_mm_thick_and_plate_sized` | Base STL is 250 x 210 x 4 mm, modules rise 0.6 mm; pdf, two STLs and 3MF are written. |
+| `test_outputs_subset` | `outputs: [pdf]` writes only the PDF. |

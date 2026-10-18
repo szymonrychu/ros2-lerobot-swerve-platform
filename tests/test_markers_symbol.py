@@ -50,10 +50,13 @@ def test_invalid_marker_name_names_it(tmp_path: Path) -> None:
         load_generator_config(write_config(tmp_path, markers=bad))
 
 
-def test_charuco_slot_is_free_form(tmp_path: Path) -> None:
-    config = load_generator_config(write_config(tmp_path, charuco={"anything": 1}))
-    assert config.charuco == {"anything": 1}
+def test_charuco_slot_is_a_validated_spec(tmp_path: Path) -> None:
+    config = load_generator_config(write_config(tmp_path, charuco={"squares_x": 6}))
+    assert config.charuco is not None
+    assert config.charuco.squares_x == 6
     assert isinstance(config, GeneratorConfig)
+    with pytest.raises(ValidationError, match="anything"):
+        load_generator_config(write_config(tmp_path, charuco={"anything": 1}))
 
 
 def test_defaults_are_validated() -> None:

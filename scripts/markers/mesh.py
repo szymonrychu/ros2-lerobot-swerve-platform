@@ -10,7 +10,7 @@ import numpy as np
 import trimesh
 from manifold3d import Manifold, OpType
 
-from scripts.markers.config import StlOptions
+from scripts.markers.models import StlOptions
 from scripts.markers.symbol import Symbol
 
 LOGGER = logging.getLogger(__name__)

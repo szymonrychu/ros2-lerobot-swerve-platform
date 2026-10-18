@@ -22,3 +22,16 @@ markers:
   - {kind_code: BUTTON, name: LIGHT-1, size_mm: 60}
   - {kind_code: SWITCH, name: FAN-1, size_mm: 60}
   - {kind_code: TOOLSTATION, name: TS-1, size_mm: 100}
+# ChArUco calibration board for the head RGB-D calibration (6x5 so the plate fits the 256 mm bed; row count stays odd).
+charuco:
+  squares_x: 6
+  squares_y: 5
+  square_mm: 40.0
+  marker_mm: 30.0
+  dictionary: DICT_5X5_100
+  margin_mm: 5.0
+  thickness_mm: 4.0
+  relief_mm: 0.6
+  bed_mm: 256.0
+  page: {size: A4, orientation: landscape}
+  outputs: [pdf, stl, 3mf]
