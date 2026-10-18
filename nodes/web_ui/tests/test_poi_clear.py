@@ -48,9 +48,11 @@ def test_clear_forwards_only_given_fields(tmp_path: Path, extra: dict[str, Any])
         {"ids": [""]},
         {"ids": [1]},
         {"ids": ["a"] * 501},
+        {"keep_zone": True},
+        {"kind": ["point"]},
     ],
 )
-def test_clear_rejects_bad_values(tmp_path: Path, extra: dict[str, Any]) -> None:
+def test_clear_invalid_filters_422(tmp_path: Path, extra: dict[str, Any]) -> None:
     bridge = FakeBridge(RESULT)
     resp = make_client(tmp_path, bridge).post("/api/poi?tab=map", json={"op": "clear", **extra})
     assert resp.status_code == 422 and resp.json()["ok"] is False and resp.json()["message"]
