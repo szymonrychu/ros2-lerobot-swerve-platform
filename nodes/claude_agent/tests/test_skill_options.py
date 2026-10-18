@@ -12,7 +12,7 @@ from claude_agent.config import ClaudeAgentConfig
 from claude_agent.runner import build_options
 from claude_agent.skills import PLUGIN_DIR, PLUGIN_NAME, discover_skills, qualified_names
 from claude_agent.tools import NOTES_TOOLS, EffectorGate, classify_tool
-from tests.test_runner import make_runner
+from tests.test_runner import make_result, make_runner
 
 QUALIFIED = qualified_names(discover_skills(PLUGIN_DIR))
 STILL_DENIED = ["Bash", "Task", "Agent", "TodoWrite", "SlashCommand"]
@@ -126,3 +126,24 @@ def test_gate_allows_configured_skill_and_refuses_others(config: ClaudeAgentConf
 def test_gate_denies_skill_when_disabled(config: ClaudeAgentConfig) -> None:
     cfg = config.model_copy(update={"skills_enabled": False})
     assert isinstance(decide(EffectorGate(cfg), "Skill", {"skill": QUALIFIED[0]}), PermissionResultDeny)
+
+
+async def test_consume_response_runs_the_init_check(tmp_path: Path) -> None:
+    script = [init_message(tools=["Read", "Skill"], skills=[{"name": "other:x"}]), make_result()]
+    runner, events, _ = make_runner(tmp_path, script=script)
+    await runner.start_instruction("hi")
+    await runner.wait_idle()
+    assert runner.session_tools == {"Read", "Skill"}
+    errors = [e for e in events.history() if e["type"] == "error"]
+    assert len(errors) == 1
+    assert all(name in errors[0]["message"] for name in QUALIFIED)
+
+
+def test_skill_call_is_free_and_not_refused_by_plan_or_time(config: ClaudeAgentConfig) -> None:
+    gate = EffectorGate(config, time_left=lambda: 0.0)
+    before = (gate.plan.ro_used, gate.plan.rw_used, gate.plan.turns_used)
+    for _ in range(3):
+        assert isinstance(decide(gate, "Skill", {"skill": QUALIFIED[0]}), PermissionResultAllow)
+    assert (gate.plan.ro_used, gate.plan.rw_used, gate.plan.turns_used) == before
+    # no plan is set and no time is left: an effector call is refused, the Skill call above was not
+    assert isinstance(decide(gate, "mcp__robot__set_gripper", {"subsystem": "x"}), PermissionResultDeny)
