@@ -157,6 +157,7 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
     command_limits: dict[int, tuple[int, int]] = {}  # servo_id -> (cmd_min, cmd_max)
     servo: Any = None
+    torque_on_ids: set[int] = set()  # servos holding a verified torque_enable=1 after the startup sequence
 
     if config.device:
         try:
@@ -233,6 +234,8 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                     node.get_logger().info(
                         f"Applied torque_enable={torque_value} on startup for all configured servos."
                     )
+                if torque_value == 1:
+                    torque_on_ids = set(joint_ids) - set(failed_ids)
         # Build per-joint command range: config override or read min/max_angle_limit from servo.
         min_entry = get_register_entry_by_name("min_angle_limit")
         max_entry = get_register_entry_by_name("max_angle_limit")
@@ -265,6 +268,8 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
         direct_command_sources=config.direct_command_sources,
         goal_refresh_interval_s=config.goal_refresh_interval_s,
     )
+    if servo is not None:
+        cycle.queue_startup_goals(all_joints, torque_on_ids, node.get_logger().info)
     read_backoff = ReadBackoff(config.read_failure_limit, config.read_retry_interval_s)
 
     def clock_ns() -> int:

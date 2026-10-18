@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+from .command_mapping import STEP_CENTER, STEPS_PER_RADIAN
+
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/feetech_servos/config.yaml")
 ENV_CONFIG_PATH_KEY = "FEETECH_SERVOS_CONFIG"
@@ -69,6 +71,8 @@ class JointEntry:
         max_velocity_rad_s: Velocity command magnitude limit for velocity-mode joints, rad/s.
         max_speed_rad_s: Optional speed cap of a position joint, rad/s (None = servo default, unlimited).
         max_acceleration_rad_s2: Optional acceleration cap of a position joint, rad/s^2 (None = unlimited).
+        startup_position_rad: Optional goal of a position joint (centred rad, follower joint frame) driven at every
+            bridge start once torque is on, with the joint's caps. None = hold the present position.
     """
 
     name: str
@@ -83,6 +87,7 @@ class JointEntry:
     max_velocity_rad_s: float = DEFAULT_MAX_VELOCITY_RAD_S
     max_speed_rad_s: float | None = None
     max_acceleration_rad_s2: float | None = None
+    startup_position_rad: float | None = None
 
 
 @dataclass
@@ -239,6 +244,47 @@ def parse_position_cap(item: dict, key: str, name: str, mode: str) -> tuple[bool
     return True, cap
 
 
+def parse_startup_position(
+    item: dict, name: str, mode: str, inverted: bool, source_mapped: bool, cmd_min: int | None, cmd_max: int | None
+) -> tuple[bool, float | None]:
+    """Parse the optional startup_position_rad of a position joint.
+
+    Args:
+        item (dict): Raw joint entry.
+        name (str): Joint name for the log message.
+        mode (str): Joint mode.
+        inverted (bool): Joint inverted flag.
+        source_mapped (bool): True when the joint has a source range mapping.
+        cmd_min (int | None): command_min_steps.
+        cmd_max (int | None): command_max_steps.
+
+    Returns:
+        tuple[bool, float | None]: (valid, radians); radians is None when the key is absent. Invalid when not a finite
+            number, on a velocity or source-mapped joint, or when its steps fall outside 0..4095 or the command range.
+    """
+    key = "startup_position_rad"
+    if item.get(key) is None:
+        return True, None
+    try:
+        rad = float(item[key])
+    except (TypeError, ValueError):
+        LOGGER.warning("joint %r: %s must be a number, got %r", name, key, item[key])
+        return False, None
+    if not math.isfinite(rad):
+        LOGGER.warning("joint %r: %s must be finite, got %r", name, key, item[key])
+        return False, None
+    if mode != "position" or source_mapped:
+        LOGGER.warning("joint %r: %s is only allowed on mode: position joints without a source range", name, key)
+        return False, None
+    steps = round((-rad if inverted else rad) * STEPS_PER_RADIAN + STEP_CENTER)
+    low = STEPS_MIN if cmd_min is None else max(STEPS_MIN, cmd_min)
+    high = STEPS_MAX if cmd_max is None else min(STEPS_MAX, cmd_max)
+    if not low <= steps <= high:
+        LOGGER.warning("joint %r: %s=%r is step %d, outside the allowed range %d..%d", name, key, rad, steps, low, high)
+        return False, None
+    return True, rad
+
+
 def parse_joints(raw_joints: object, seen_ids: set[int]) -> list[JointEntry] | None:
     """Parse a joint_names list of { name, id, ... } entries.
 
@@ -294,6 +340,12 @@ def parse_joints(raw_joints: object, seen_ids: set[int]) -> list[JointEntry] | N
             source_min, source_max = None, None
         if cmd_min is not None and cmd_max is not None and cmd_min > cmd_max:
             cmd_min, cmd_max = None, None
+        inverted = bool(item.get("inverted", False))
+        startup_ok, startup_rad = parse_startup_position(
+            item, name, mode, inverted, source_min is not None or source_max is not None, cmd_min, cmd_max
+        )
+        if not startup_ok:
+            return None
         joints.append(
             JointEntry(
                 name=name,
@@ -304,10 +356,11 @@ def parse_joints(raw_joints: object, seen_ids: set[int]) -> list[JointEntry] | N
                 command_min_steps=cmd_min,
                 command_max_steps=cmd_max,
                 mode=mode,
-                inverted=bool(item.get("inverted", False)),
+                inverted=inverted,
                 max_velocity_rad_s=max_velocity,
                 max_speed_rad_s=max_speed,
                 max_acceleration_rad_s2=max_accel,
+                startup_position_rad=startup_rad,
             )
         )
     if len({j.name for j in joints}) != len(joints):

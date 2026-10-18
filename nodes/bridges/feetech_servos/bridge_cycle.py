@@ -277,6 +277,37 @@ class BridgeCycle:
             target = self.position_target_steps(joint, float(positions[i]), direct)
             self.pending_positions[joint.id] = PendingTarget(joint, target, now)
 
+    def queue_startup_goals(
+        self, joints: Iterable[JointEntry], torque_ids: Collection[int], log: Callable[[str], Any]
+    ) -> list[int]:
+        """Queue the startup_position_rad of each joint as its first pending target (direct, like a received command).
+
+        The target goes out in the first write_pending_commands, with the joint's caps. Joints without
+        startup_position_rad are untouched; a joint whose servo has no torque (left unheld or torque-on failed) gets
+        no goal and a log line.
+
+        Args:
+            joints (Iterable[JointEntry]): All configured joints.
+            torque_ids (Collection[int]): Servo IDs whose torque is on after the startup sequence.
+            log (Callable[[str], Any]): Receives one line per joint (goal queued, or skipped).
+
+        Returns:
+            list[int]: Servo IDs a startup goal was queued for.
+        """
+        queued: list[int] = []
+        now = self.clock()
+        for joint in joints:
+            if joint.startup_position_rad is None or joint.mode != "position":
+                continue
+            if joint.id not in torque_ids:
+                log(f"No startup goal for {joint.name} (id={joint.id}): torque is not on.")
+                continue
+            steps = self.position_target_steps(joint, joint.startup_position_rad, direct=True)
+            self.pending_positions[joint.id] = PendingTarget(joint, steps, now)
+            log(f"Startup goal for {joint.name} (id={joint.id}): {joint.startup_position_rad:.4f} rad = {steps} steps.")
+            queued.append(joint.id)
+        return queued
+
     def write_pending_commands(self) -> int:
         """Write every pending target once (call once per loop iteration, after draining callbacks).
 
