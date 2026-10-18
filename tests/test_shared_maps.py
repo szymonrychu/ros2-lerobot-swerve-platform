@@ -139,3 +139,27 @@ def test_summary_and_status_roundtrip() -> None:
     with pytest.raises(ValidationError):
         MapStatus(maps=[], active_map=None, load_seq=-1, localisation=Localisation(state="unknown"))
     assert MapStatus(maps=[], active_map=None, load_seq=0, localisation=Localisation(state="unknown")).maps == []
+
+
+def test_command_clear_live_takes_no_fields() -> None:
+    cmd = MapCommand(op="clear_live", request_id="web-1")
+    assert cmd.name == "" and MapCommand.model_validate(cmd.model_dump(mode="json")) == cmd
+    with pytest.raises(ValidationError, match="clear_live takes no map name"):
+        MapCommand(op="clear_live", name="lab")
+    for extra in (
+        {"pose": Pose2D(x=0.0, y=0.0, yaw=0.0)},
+        {"note": "n"},
+        {"overwrite": True},
+        {"since": 1.0},
+        {"discard_on_fail": True},
+    ):
+        with pytest.raises(ValidationError):
+            MapCommand(op="clear_live", **extra)
+
+
+def test_summary_photo_count_defaults_and_bounds() -> None:
+    old = {"name": "lab", "saved_at": 1.0, "note": "", "poi_count": 2, "last_pose": POSE, "valid": True}
+    assert MapSummary.model_validate(old).photo_count == 0
+    assert MapSummary.model_validate({**old, "photo_count": 4}).photo_count == 4
+    with pytest.raises(ValidationError):
+        MapSummary.model_validate({**old, "photo_count": -1})
