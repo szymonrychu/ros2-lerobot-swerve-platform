@@ -56,7 +56,7 @@ PERCEPTION_TOOLS = (
     "delete_poi",
     "clear_pois",
 )
-FRONTIER_SENSOR_TOOLS = {"list_frontiers", "plan_frontier_visit"}
+FRONTIER_SENSOR_TOOLS = {"list_frontiers", "plan_frontier_visit", "get_exploration_status", "mark_survey_spot"}
 FRONTIER_MOTION_TOOLS = {"go_to_frontier", "look_toward_frontier"}
 FRONTIER_TOOLS = (*sorted(FRONTIER_SENSOR_TOOLS), *sorted(FRONTIER_MOTION_TOOLS))
 
@@ -750,6 +750,8 @@ def test_frontier_tools_are_classified_for_lease_battery_tilt_and_queue() -> Non
         "look_toward_frontier": "base",
         "list_frontiers": None,
         "plan_frontier_visit": None,
+        "get_exploration_status": None,
+        "mark_survey_spot": None,
     }
     assert FRONTIER_MOTION_TOOLS <= TILT_NAV_TOOLS and not FRONTIER_SENSOR_TOOLS & TILT_NAV_TOOLS
     assert FRONTIER_MOTION_TOOLS <= QUEUE_EXCLUSIVE_TOOLS and not FRONTIER_SENSOR_TOOLS & QUEUE_EXCLUSIVE_TOOLS

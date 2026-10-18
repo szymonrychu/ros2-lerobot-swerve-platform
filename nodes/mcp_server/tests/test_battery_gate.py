@@ -88,6 +88,8 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "delete_photos": {"keep_newest": 1000, "dry_run": True},
     "list_frontiers": {},
     "plan_frontier_visit": {"id": 1},
+    "get_exploration_status": {},
+    "mark_survey_spot": {},
     "suggest_approach_pose": {"x": 1.5, "y": 2.0, "z": 0.05},
 }
 

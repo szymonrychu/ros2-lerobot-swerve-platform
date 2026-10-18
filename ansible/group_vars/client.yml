@@ -2198,6 +2198,15 @@ ros2_nodes:
         compute_path_timeout_s: 5.0 # plan_frontier_visit Nav2 path check timeout
         look_timeout_s: 20.0 # look_toward_frontier rotation timeout
         look_camera: front # look_toward_frontier default camera (front or gripper)
+      # Survey coverage and the battery stop limit of get_exploration_status / mark_survey_spot (nodes/mcp_server/README.md,
+      # "Exploration status"); every key at its ExplorationSettings default.
+      exploration:
+        survey_radius_m: 2.5 # a survey spot counts the free cells it sees within this range as surveyed
+        rays: 72 # minimum rays cast per survey spot
+        min_unsurveyed_area_m2: 0.5 # smaller unsurveyed pockets are ignored
+        downsample: 2 # coverage grid cell = map resolution x this
+        stop_margin_cell_v: 0.3 # survey stop voltage per cell = battery.cutoff_cell_v + this (stop before the motion cut-off)
+        max_unsurveyed_listed: 10 # largest unsurveyed areas listed
       # Below-surface slow zone of every arm motion (nodes/mcp_server/README.md, "Floor slow zone"): trajectory steps
       # where a jaw tip, the wrist or the elbow is within margin_m of the effective surface (the higher of the robot
       # plane at surface_z_m and the IMU gravity-level plane through base_link) run at slow_speed_scale of their speed.
@@ -2544,6 +2553,8 @@ ros2_nodes:
         - delete_photos
         - list_frontiers
         - plan_frontier_visit
+        - get_exploration_status
+        - mark_survey_spot
         - confirm_grasp
   - name: map_manager
     node_type: map_manager
