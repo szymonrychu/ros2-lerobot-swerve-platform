@@ -18,7 +18,7 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 # The pure logic, without libcamera or rclcpp: config, crop geometry, encoding, zoom JSON and state machine.
 # Globbed because the crop, encoding and JSON tasks each add files under src/core and test/core in parallel; a
 # hand-listed source set would make every one of them edit this file. The libcamera adapter and the ROS node are
-# explicit targets, added to this file by the tasks that build them.
+# separate explicit targets, because they link libcamera and rclcpp.
 file(GLOB HEAD_CAMERA_CORE_SOURCES CONFIGURE_DEPENDS src/core/*.cpp)
 add_library(head_camera_core STATIC ${HEAD_CAMERA_CORE_SOURCES})
 target_include_directories(head_camera_core PUBLIC

@@ -4,9 +4,6 @@ The head RGB camera node: an rclcpp node that owns the head Camera Module 3 (IMX
 a 30 fps default stream and, on request, autofocused full-resolution zoom crops. The Camera Module 3 and the Arducam
 ToF form the robot head on the pan/tilt stand.
 
-This is the first version of the README: the package skeleton and the validated configuration. The node itself, its
-topics, the zoom protocol and deployment are documented as they land.
-
 ## Build and test
 
 ```bash
