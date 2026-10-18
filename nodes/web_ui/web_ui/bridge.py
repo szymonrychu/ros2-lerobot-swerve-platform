@@ -471,7 +471,9 @@ class BridgeNode(Node):
             if role == "map" or (role == "gps" and gps_anchor is not None):
                 self.subscribe_always_on(msg_cls, topic, callback, qos, monitored=True)
             else:
-                self.register_on_demand(topic, msg_cls, callback, qos, needs_tf=role in MAP_FRAME_ROLES | POSE_FRAME_ROLES)
+                self.register_on_demand(
+                    topic, msg_cls, callback, qos, needs_tf=role in MAP_FRAME_ROLES | POSE_FRAME_ROLES
+                )
 
         if robot_pose_frames is not None:
             self._tf_buffer = Buffer()
