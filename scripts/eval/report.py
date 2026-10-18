@@ -19,6 +19,7 @@ from scripts.eval.stages import (
     StageStatus,
 )
 from scripts.eval.testset import TOTAL_CASES, Case, Mode
+from scripts.eval.workflow_checks import WorkflowDerivation
 
 REACHED = (STATUS_OK, STATUS_FAIL)
 UNMAPPED = "unmapped"
@@ -49,6 +50,7 @@ class TrialRecord(BaseModel):
     first_failed_stage: str | None = Field(description="Human label: the first stage that failed")
     phases: list[PhaseStage] = Field(default_factory=list)
     lookup_ids: list[str] = Field(default_factory=list)
+    workflow: WorkflowDerivation | None = Field(default=None, description="Workflow adherence; absent in old lines")
     note: str = ""
 
     @field_validator("claimed", "labels")
@@ -98,6 +100,7 @@ def trial_record_from_derivation(
     first_failed_stage: str | None,
     note: str = "",
     timed_out: bool = False,
+    workflow: WorkflowDerivation | None = None,
 ) -> TrialRecord:
     """Build a TrialRecord from a stage derivation plus the run context and the human labels.
 
@@ -115,6 +118,7 @@ def trial_record_from_derivation(
         first_failed_stage (str | None): Human first failed stage.
         note (str): Operator note.
         timed_out (bool): The harness stopped the instruction on trial_timeout_s.
+        workflow (WorkflowDerivation | None): workflow_checks.derive_workflow result of the trial's events.
 
     Returns:
         TrialRecord: The record.
@@ -140,6 +144,7 @@ def trial_record_from_derivation(
         first_failed_stage=first_failed_stage,
         phases=derivation.phases,
         lookup_ids=derivation.lookup_ids,
+        workflow=workflow,
         note=note,
     )
 
@@ -340,6 +345,28 @@ def cost_time(trials: list[TrialRecord]) -> dict[str, Any]:
     }
 
 
+def workflow_section(trials: list[TrialRecord]) -> dict[str, Any]:
+    """Workflow adherence over the trials that carry a workflow derivation.
+
+    Args:
+        trials (list[TrialRecord]): Trials.
+
+    Returns:
+        dict[str, Any]: trials (with a derivation), per_workflow (trial count by workflow, "none" for free jobs),
+        no_skipped_mandatory_share (of trials with a workflow report), agent_retrospective_share and
+        mean_survey_poi_writes (of all trials with a derivation); shares and means are None without trials.
+    """
+    derived = [r.workflow for r in trials if r.workflow is not None]
+    reported = [d for d in derived if d.skipped_mandatory is not None]
+    return {
+        "trials": len(derived),
+        "per_workflow": dict(sorted(Counter(d.workflow or "none" for d in derived).items())),
+        "no_skipped_mandatory_share": ratio(sum(not d.skipped_mandatory for d in reported), len(reported)),
+        "agent_retrospective_share": ratio(sum(d.retrospective == "agent" for d in derived), len(derived)),
+        "mean_survey_poi_writes": mean([float(d.survey_poi_writes) for d in derived]),
+    }
+
+
 def build(trials: list[TrialRecord], k: int, cases_planned: int | None = None) -> dict[str, Any]:
     """Compute the evaluation report.
 
@@ -351,7 +378,7 @@ def build(trials: list[TrialRecord], k: int, cases_planned: int | None = None) -
     Returns:
         dict[str, Any]: JSON-ready report: coverage, success_at_1, success_at_k, stages, attempts,
         mean_auto_retries_per_trial, agreement, failure_types, eai_error_types, untyped_failures, cost_time,
-        statuses, timeouts.
+        statuses, timeouts, workflow.
 
     Raises:
         ValueError: When k < 1.
@@ -382,6 +409,7 @@ def build(trials: list[TrialRecord], k: int, cases_planned: int | None = None) -
         "cost_time": cost_time(trials),
         "statuses": dict(sorted(Counter(str(r.status) for r in trials).items())),
         "timeouts": sum(r.timed_out for r in trials),
+        "workflow": workflow_section(trials),
     }
 
 
@@ -502,6 +530,15 @@ def render_text(report: dict[str, Any]) -> str:
         f"untyped failed closes: {report['untyped_failures']}",
         histogram_line("turn_end status", report["statuses"]),
         f"harness timeouts: {report['timeouts']}",
+    ]
+    wf = report["workflow"]
+    lines += [
+        "",
+        "Workflows",
+        histogram_line("trials per workflow", wf["per_workflow"]),
+        f"no skipped mandatory step: {fmt(wf['no_skipped_mandatory_share'], '{:.0%}')}; "
+        f"agent retrospective: {fmt(wf['agent_retrospective_share'], '{:.0%}')}; "
+        f"mean survey POI writes: {fmt(wf['mean_survey_poi_writes'])} ({wf['trials']} trial(s))",
     ]
     ct = report["cost_time"]
     lines += [
