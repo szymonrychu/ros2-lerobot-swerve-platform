@@ -27,7 +27,7 @@ export async function postPoi(tabId: string, command: PoiCommand, fetchImpl: typ
     return {
       ok: body.ok === true,
       message: String(body.message ?? `HTTP ${resp.status}`),
-      poi: removed === undefined ? (body.poi ?? null) : null,
+      poi: body.poi ?? null,
       ...(removed === undefined ? {} : { removed }),
     }
   } catch {
