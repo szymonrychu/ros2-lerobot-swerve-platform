@@ -2483,6 +2483,7 @@ Static invariants of the agent skills shipped in `nodes/claude_agent/claude_agen
 |---|---|
 | `test_skills_exist` | The `recover-from-failure` skill file exists. |
 | `test_every_referenced_tool_exists` | Every backticked tool call or `agent.<tool>` in a SKILL.md is a registered mcp_server tool, a claude_agent planning tool or `Skill`. |
+| `test_tool_reference_scanner_flags_bare_unknown_tool` | The scanner picks up bare backticked tool names (no call parenthesis) and `agent.<tool>` references, not other identifiers. |
 | `test_tool_reference_scanner_flags_unknown_tool` | The scanner finds unknown tool references. |
 | `test_optional_tools_only_in_optional_section` | Head, 3D-map tools and `zoom` appear only under `## When extra perception tools exist`, which also names `look_around`. |
 | `test_split_optional_isolates_section` | The section splitter separates the optional section from the rest. |
