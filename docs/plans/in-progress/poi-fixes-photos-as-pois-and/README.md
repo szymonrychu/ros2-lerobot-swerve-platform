@@ -2,7 +2,7 @@
 title: POI fixes photos as POIs and cleanups
 blockers: [Driving agent skills and workflows, Pan tilt head control with agent and web UI]
 stage: build
-owner: ""
+owner: "Szymon Richert"
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
 ---
