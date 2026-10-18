@@ -1,6 +1,6 @@
 ---
 title: Drop monitoring host targets
-status: escalated
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Alloy no longer scrapes the Jetson; the Jetson-only host_targets and per-target host override are gone."
 files: [ansible/roles/monitoring_agent/defaults/main.yml, ansible/roles/monitoring_agent/templates/config.alloy.j2, ansible/group_vars/client.yml, tests/test_monitoring_agent_role.py, tests/test_node_metrics_wiring.py, ansible/README.md, tests/README.md]

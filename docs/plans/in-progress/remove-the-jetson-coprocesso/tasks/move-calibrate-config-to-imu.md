@@ -1,6 +1,6 @@
 ---
 title: Move calibrate config to IMU
-status: escalated
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The Calibrate page keeps a working config endpoint and IMU routes after the stereo proxy is deleted.
 files: [nodes/web_ui/web_ui/imu_calibration.py, nodes/web_ui/tests/test_imu_calibration.py, nodes/web_ui/web_ui/calibration_proxy.py, nodes/web_ui/tests/test_calibration_proxy.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/README.md, tests/README.md]

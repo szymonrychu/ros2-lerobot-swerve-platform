@@ -1,6 +1,6 @@
 ---
 title: Delete stereo_depth node
-status: escalated
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The retired Python stereo_depth sources leave the repo; its uninstall entry stays."
 files: [nodes/stereo_depth/, pyproject.toml, scripts/lint-all-nodes.sh, .github/workflows/ci.yml, tests/test_ansible_deploy_speed.py, tests/test_stereo_depth_config.py, nodes/README.md, tests/README.md]

@@ -1,6 +1,6 @@
 ---
 title: Head tab ToF topics
-status: escalated
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The Head tab shows the Arducam ToF depth and amplitude the robot actually publishes.
 files: [nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_map3d_backend.py, nodes/web_ui/tests/test_msg_serializer.py, tests/test_mcp_server_config.py, nodes/web_ui/README.md, tests/README.md]

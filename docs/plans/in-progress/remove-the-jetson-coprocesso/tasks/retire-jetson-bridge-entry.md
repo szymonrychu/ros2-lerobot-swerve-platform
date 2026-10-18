@@ -1,6 +1,6 @@
 ---
 title: Retire jetson bridge entry
-status: escalated
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The next client deploy uninstalls jetson_bridge_cpp and purges its colcon output.
 files: [ansible/group_vars/client.yml, tests/test_jetson_bridge_config.py, tests/test_jetson_retired.py, tests/test_cpp_node_deploy.py, tests/test_unit_cgroups.py, tests/test_node_metrics_wiring.py, ansible/README.md, tests/README.md]

@@ -1,6 +1,6 @@
 ---
 title: Delete jetson tree
-status: escalated
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The Jetson-only depthd, calibration and model code and its end-to-end check leave the repo, pinned by a retirement test."
 files: [jetson/, scripts/jetson_e2e_check.py, scripts/jetson_e2e_check.yaml, tests/test_jetson_e2e_check.py, tests/test_jetson_retired.py, scripts/README.md, ansible/playbooks/optimize.yml, tests/README.md]

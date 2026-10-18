@@ -1,6 +1,6 @@
 ---
 title: Client chrony role
-status: escalated
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The client keeps chrony on plain internet pools from its own role, independent of the Jetson link."
 files: [ansible/roles/chrony/, ansible/playbooks/client.yml, tests/test_chrony_role.py, ansible/README.md, tests/README.md]

@@ -1,6 +1,6 @@
 ---
 title: Calibration config no depthd
-status: escalated
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Turning the Calibrate page on needs no Jetson URL: `calibration: {}` is enough."
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_imu_calibration.py, nodes/web_ui/README.md, tests/README.md]
