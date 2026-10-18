@@ -5,7 +5,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .exploration import Coverage
-from .models import NavigationResult
+from .models import NavigationResult, Obstacles3d, TofSector
+
+__all__ = ["Obstacles3d", "TofSector"]
 
 
 class ObjectRecord(BaseModel):
