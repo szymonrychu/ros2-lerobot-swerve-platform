@@ -11,6 +11,7 @@
   loop: "{{ node_colcon_purge | product(['src', 'build', 'install']) | list }}"
   loop_control:
     label: "{{ item.0.workspace }}/{{ item.1 }}/{{ item.0.package }}"
+  tags: [config]
 
 - name: Find build stamps of the purged packages
   ansible.builtin.find:
@@ -23,6 +24,7 @@
   loop: "{{ node_colcon_purge }}"
   loop_control:
     label: "{{ item.package }}"
+  tags: [config]
 
 - name: Remove build stamps of the purged packages
   ansible.builtin.file:
@@ -31,3 +33,4 @@
   loop: "{{ _colcon_purge_stamps.results | map(attribute='files') | flatten }}"
   loop_control:
     label: "{{ item.path }}"
+  tags: [config]
