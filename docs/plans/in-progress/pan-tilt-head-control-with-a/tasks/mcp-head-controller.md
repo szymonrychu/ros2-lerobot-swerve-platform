@@ -1,6 +1,6 @@
 ---
 title: MCP head controller
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "mcp_server can command the head and know when it actually arrived, from real joint states only."
 files: [nodes/mcp_server/mcp_server/head.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tool_context.py, nodes/mcp_server/tests/fakes.py, nodes/mcp_server/tests/test_head_controller.py, nodes/mcp_server/tests/test_config.py]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--mcp-head-controller
 branch: pan-tilt-head-control-with-a--mcp-head-controller
-verified_head: ""
+verified_head: ae5ce9d56fd91b94c0df78c47a80378a4e8ae5f0
 run: pan-tilt-head-control-with-a
-provides: []
-acs_for_audit: []
+provides: [head-controller, fake-head-backend]
+acs_for_audit: [a4]
 process_gaps: []
 ---
 

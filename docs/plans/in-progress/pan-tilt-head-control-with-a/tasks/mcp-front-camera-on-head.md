@@ -68,3 +68,5 @@ Front camera geometry follows the measured head pose; client.yml mounts the came
 - Intrinsics stay null: tools keep saying not calibrated until a calibration exists.
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on mcp-head-controller, web-ui-head-command-backend
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on web-ui-head-command-backend

@@ -1,6 +1,6 @@
 ---
 title: Web UI head command backend
-status: todo
+status: blocked
 repo: ros2-lerobot-sverve-platform
 value: "The web UI can command the head safely: only in-range angles reach the servos, tagged as web_ui."
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_head_control.py, ansible/group_vars/client.yml, nodes/web_ui/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--web-ui-head-command-backend
 branch: pan-tilt-head-control-with-a--web-ui-head-command-backend
-verified_head: ""
+verified_head: unknown
 run: pan-tilt-head-control-with-a
-provides: []
+provides: [web-head-fields]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["No red (failing-first) run recorded for the new tests", "Worktree is dirty: 12 tracked files differ from HEAD 17b57dd2 (reverting committed head code); a verify-task.py run may be mid-flight. Re-run verification on a clean tree."]
 ---
 
 # Web UI head command backend
