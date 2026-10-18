@@ -13,7 +13,7 @@ estimate: 30
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--tilt-guard-torque-topic
-branch: split-servo-buses-arm-alone--tilt-guard-torque-topic
+branch: ""
 verified_head: 83af294455d8aa6986d54f93927266765dc6b374
 run: split-servo-buses-arm-alone
 provides: []

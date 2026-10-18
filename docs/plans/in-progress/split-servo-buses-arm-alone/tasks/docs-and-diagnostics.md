@@ -13,7 +13,7 @@ estimate: 45
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--docs-and-diagnostics
-branch: split-servo-buses-arm-alone--docs-and-diagnostics
+branch: ""
 verified_head: unknown
 run: split-servo-buses-arm-alone
 provides: []

@@ -13,7 +13,7 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--serial-device-preflight
-branch: split-servo-buses-arm-alone--serial-device-preflight
+branch: ""
 verified_head: b3749383da29f5b9e5d25fecd5a73bb707bb56cb
 run: split-servo-buses-arm-alone
 provides: []
