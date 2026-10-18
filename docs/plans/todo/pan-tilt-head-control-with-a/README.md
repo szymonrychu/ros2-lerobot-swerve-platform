@@ -1,6 +1,6 @@
 ---
 title: Pan tilt head control with agent and web UI
-blockers: [Split servo buses arm alone base plus head, Front camera 30 fps stream with full-res zoom]
+blockers: [Split servo buses arm alone base plus head, Front camera 30 fps stream with full-res zoom, Remove the Jetson coprocessor]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -35,7 +35,11 @@ A 2-servo pan/tilt head carries the Camera Module 3 (head RGB, /head_camera) and
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+
+
+
+
+Estimate: 1140 min | Actual: 0 min | Remaining estimate: 1140 min
 
 ## Review
 

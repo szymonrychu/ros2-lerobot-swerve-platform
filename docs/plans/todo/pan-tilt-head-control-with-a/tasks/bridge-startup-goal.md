@@ -2,7 +2,7 @@
 title: Bridge startup goal
 status: todo
 repo: ros2-lerobot-sverve-platform
-value: "The head drives to its home pose (forward and down) whenever the base bus node starts."
+value: "The head drives to its home pose (forward and down) whenever the base bus node `base_servos` starts."
 files: [nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/bridge_cycle.py, nodes/bridges/feetech_servos/tests/test_startup_goal.py, nodes/bridges/feetech_servos/README.md]
 verify: "cd nodes/bridges/feetech_servos && uv run --frozen pytest tests -q && uv run --frozen poe lint"
 depends_on: [bridge-position-speed-caps]
@@ -47,16 +47,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `config.py:JointEntry.startup_position_rad` (part `bridge-startup-position`); startup queueing in `bridge.py:run_bridge` through `BridgeCycle.handle_command` or an equivalent public method.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A configured joint drives to its startup position once after torque-on, at its caps; other joints behave as today.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_startup_goal.py`; run `cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_startup_goal.py -q`; expect failures.
+- Implement; run the verify command; commit `feat(feetech_servos): optional startup position per joint`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Reuse `startup_torque.py` results (unheld ids, failed torque ids) to decide which joints get the goal.
+- `tests/test_bridge_startup_torque.py` shows how the startup sequence is tested.

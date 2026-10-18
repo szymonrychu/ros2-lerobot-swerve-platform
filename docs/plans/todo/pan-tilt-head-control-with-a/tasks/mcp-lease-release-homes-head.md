@@ -50,16 +50,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `control.py:ControlManager(head=...)`, `release` head outcome in `ReleaseResult.reset["head"]`; construction in `tools.py`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Releasing the last agent lease homes the head and reports it; hand-overs and keep_position never move it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_head_lease.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_head_lease.py -q`; expect failures.
+- Implement; run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`; commit `feat(mcp_server): release homes the head`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Existing lease tests: `tests/test_control.py`, `tests/test_lease_safety.py` stay green.
+- Order: the base and arm resets run first (RELEASE_ORDER), the head last.

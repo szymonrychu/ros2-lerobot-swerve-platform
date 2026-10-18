@@ -42,16 +42,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `mcp_server/head_kinematics.py:HeadKinematics` (`limits`, `link_pose`, `look_at`), `HeadAimError` (part `head-kinematics`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+mcp_server can compute any head frame pose and the pan/tilt that aims the RGB camera at a point.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_head_kinematics.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py -q`; expect failures.
+- Implement; run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`; commit `feat(mcp_server): head kinematics and look-at`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `ik.py:ArmKinematics` shows the ikpy URDF loading used in this package; scipy and numpy are already dependencies.
+- Frames: base_link floor z = 0 (camera_scene docstring).

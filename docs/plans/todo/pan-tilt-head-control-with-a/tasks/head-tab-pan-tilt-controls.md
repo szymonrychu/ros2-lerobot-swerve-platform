@@ -46,16 +46,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `HeadTab.tsx` controls; `types.ts` head fields (part `head-tab-types`); `hooks/subscription.ts` head topics.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The Head tab moves the head with sliders and Home and shows the measured angles.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Update `HeadTab.test.tsx`; run `cd nodes/web_ui/frontend && npm test -- HeadTab`; expect failures.
+- Implement; run `cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build`; commit `feat(web_ui): Head tab pan/tilt controls`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Keep the RGB click-to-zoom and ToF parts from the blocking epics untouched.
+- Respect `layout/designRules` (tabsDesign.test.ts) and TOUCH_TARGET_PX.

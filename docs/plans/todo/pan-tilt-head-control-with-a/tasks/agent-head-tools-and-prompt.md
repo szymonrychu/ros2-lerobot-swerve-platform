@@ -47,16 +47,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `claude_agent/config.py:DEFAULT_EFFECTOR_TOOLS`, `DEFAULT_CAMERA_NOTE`; `prompt.py` lease and zoom paragraphs.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent sees the head tools as effectors and is told how to aim and that the head homes on park.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend `tests/test_config.py` and `tests/test_prompt.py`; run `cd nodes/claude_agent && uv run --frozen pytest tests -q`; expect failures.
+- Implement and update client.yml; run the verify command; commit `feat(claude_agent): head tools and prompt`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Root `tests/test_claude_agent_config.py`: effector + denied must equal mcp_server MOTION_TOOLS; client.yml must equal the code defaults.

@@ -46,16 +46,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `lookup_tools.py:LookupRecorder.camera_pose_base` (or its current owner), `frontiers.py` facing helper, `approach_tools.py:camera_view_problem`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Recorded views, frontier facing and approach checks use the real head camera pose.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_lookup_head_pose.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_lookup_head_pose.py -q`; expect failures.
+- Implement; run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`; commit `feat(mcp_server): lookups use the head camera pose`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Persisted lookup records keep their schema (`camera_pose_base`); only the values change.

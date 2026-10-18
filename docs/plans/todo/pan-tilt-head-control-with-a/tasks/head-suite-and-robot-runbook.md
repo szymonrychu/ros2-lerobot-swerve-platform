@@ -28,10 +28,10 @@ provides: []
 - The staged runbook below is complete; the orchestrator executes it after merge (not the implementer).
 
 Orchestrator runbook (after merge, robot reachable; every deploy through the ansible-deploy skill and `scripts/deploy-nodes.sh`, logged to `.logs/`; least dramatic motion first per CLAUDE.md; stop and ask the user before any step beyond the one described):
-1. Hardware gate: ask the user to confirm the head is built and both servos are on the base bus with IDs 40 (pan) and 41 (tilt) set with `scripts/set_servo_id.py`, centred so 2048 is straight and level, and the head turned by hand to straight and level before power-on. Until confirmed, do not deploy the base bus node (it blocks at startup on missing servos and the swerve drive would stop).
+1. Hardware gate: ask the user to confirm the head is built and both servos are on the base bus with IDs 40 (pan) and 41 (tilt) set with `scripts/set_servo_id.py`, centred so 2048 is straight and level, and the head turned by hand to straight and level before power-on. Until confirmed, do not deploy the base bus node `base_servos` (it blocks at startup on missing servos and the swerve drive would stop).
 2. Check no agent session is running (claude_agent state API); if one is, ask before deploying mcp_server/claude_agent.
-3. Before the first head deploy, temporarily narrow the head group in client.yml to pan `command_min/max_steps` 1991..2105 (+-5 deg), tilt 2020..2076 (about +-2.5 deg), and remove `startup_position_rad` (the bridge then holds the present position at startup), so the first startup moves nothing and no command can move more than 5 deg; deploy `./scripts/deploy-nodes.sh client <base bus node> head_state_publisher 2>&1 | tee .logs/deploy-client-head.log`.
-4. Verify with topic_scraper_api (enable it in client.yml and deploy it if disabled): `/head/joint_states` publishes real positions near 0; the base bus rate meets the split epic's target and `/follower/joint_states` stays >= 95 Hz; `/swerve_drive/joint_states` unchanged.
+3. Before the first head deploy, temporarily narrow the head group in client.yml to pan `command_min/max_steps` 1991..2105 (+-5 deg), tilt 2020..2076 (about +-2.5 deg), and remove `startup_position_rad` (the bridge then holds the present position at startup), so the first startup moves nothing and no command can move more than 5 deg; deploy `./scripts/deploy-nodes.sh client base_servos head_state_publisher 2>&1 | tee .logs/deploy-client-head.log`.
+4. Verify with topic_scraper_api (enable it in client.yml and deploy it if disabled): `/head/joint_states` publishes real positions near 0; `base_servos` runs at its 50 Hz target (the split epic projects base + head at 14.4 ms vs the 20 ms period) and `/follower/joint_states` stays >= 95 Hz; `/swerve_drive/joint_states` unchanged.
 5. First live motion: pan only, +5 deg then -5 deg then 0 through `/head/joint_commands` (frame_id autonomy, via mcp_server `set_head_angles` with the base lease, or the web UI after its deploy); confirm the measured pan follows, at the capped speed, with no oscillation (topic_scraper oscillation rule if configured). Then tilt +-2.5 deg.
 6. Restore the full ranges and the home `startup_position_rad` (pan 0, tilt 0.5236) and redeploy; widen in steps (pan +-30, then +-90; tilt -30..+45) only after the user agrees; the startup home moves the head down 30 deg at the capped speed.
 7. TF: `ros2 run tf2_ros tf2_echo base_link head_camera_optical_frame` and `... tof_optical_frame` (via an ansible ad-hoc command, no manual SSH) follow pan/tilt; measure the real mount, tilt offset and camera spacing and update head.urdf and cameras.front.mount if they differ.
@@ -53,16 +53,19 @@ Orchestrator runbook (after merge, robot reachable; every deploy through the ans
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `tests/test_head_live_refs.py` (`test_no_head_placeholder_text`, `test_front_camera_not_pinned_to_base_link`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+All suites green with the live-refs check; the orchestrator brings the head live in stages with the runbook in the requirement.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_head_live_refs.py`; run `uv run pytest tests/test_head_live_refs.py -q`; fix any real hit.
+- Run the full verify command and quote each summary line; commit `test: no head placeholder or base_link front camera remains`.
+- The runbook is executed by the orchestrator after merge.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- A failing suite owned by pre-existing work is cleared per the boy-scout rule, not reported as this task's failure.
+- Servo safety (CLAUDE.md): +-5 deg pan first; ask before widening.

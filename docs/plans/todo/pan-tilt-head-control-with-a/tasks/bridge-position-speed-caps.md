@@ -52,16 +52,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `config.py:JointEntry.max_speed_rad_s`, `.max_acceleration_rad_s2` (part `bridge-position-caps`).
+- `command_mapping.py:speed_cap_register`, `acceleration_cap_register`.
+- `sync_write.py` block-write helper; `bridge_cycle.py:write_goal_positions` capped path.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Capped position joints always get their caps with every goal write; nothing changes on the bus for uncapped joints.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_position_caps.py` against `tests/sts_bus.py`; run `cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_position_caps.py -q`; expect failures.
+- Implement; run the verify command; commit `feat(feetech_servos): per-joint speed and acceleration caps`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Register map: `registers.py` STS_ACC 41, goal_position 42, goal_time 44, STS_GOAL_SPEED_L 46.
+- Existing byte-level tests: `tests/test_bus_io.py`, `tests/test_bridge_cycle.py` must stay green unchanged for uncapped configs.
+- The split epic bus budget test (`tests/test_bus_budget.py`) must keep passing.

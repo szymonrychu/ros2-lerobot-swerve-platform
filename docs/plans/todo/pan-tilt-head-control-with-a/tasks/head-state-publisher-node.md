@@ -24,10 +24,10 @@ provides: []
 ## Requirement
 
 - New `nodes/head_state_publisher/launch/head_state_publisher.launch.py` (D6): starts `robot_state_publisher` (package `robot_state_publisher`, executable `robot_state_publisher`, node name `head_state_publisher`) with parameter `robot_description` = the text of `nodes/web_ui/urdf/head.urdf` (path resolved relative to the launch file, so it works from the deployed checkout), remappings `joint_states` -> `/head/joint_states` and `robot_description` -> `/head/robot_description`. New `nodes/head_state_publisher/README.md`: what it publishes (fixed joints on /tf_static at start; head_pan/head_tilt transforms only from real joint states), frames, how to check (`ros2 run tf2_ros tf2_echo base_link head_camera_optical_frame`).
-- `ansible/group_vars/client.yml`: node type `head_state_publisher` (native, `node_launch_command: ros2 launch {{ ros2_repo_dest }}/nodes/head_state_publisher/launch/head_state_publisher.launch.py`, `node_src_dir: ""`, `src_paths: [nodes/head_state_publisher, nodes/web_ui/urdf/head.urdf]`, `apt_packages: [ros-jazzy-robot-state-publisher]`, cgroup mid tier: memory_low 32M, memory_max 128M, cpu_weight 500, io_weight 500, oom_score_adjust -500, comment "not measured yet"); ros2_nodes entry `head_state_publisher` present/enabled, placed after the base bus node.
+- `ansible/group_vars/client.yml`: node type `head_state_publisher` (native, `node_launch_command: ros2 launch {{ ros2_repo_dest }}/nodes/head_state_publisher/launch/head_state_publisher.launch.py`, `node_src_dir: ""`, `src_paths: [nodes/head_state_publisher, nodes/web_ui/urdf/head.urdf]`, `apt_packages: [ros-jazzy-robot-state-publisher]`, cgroup mid tier: memory_low 32M, memory_max 128M, cpu_weight 500, io_weight 500, oom_score_adjust -500, comment "not measured yet"); ros2_nodes entry `head_state_publisher` present/enabled, placed after the base bus node `base_servos`.
 - `ansible/playbooks/deploy_nodes_client.yml`: a `Deploy head_state_publisher` step in the existing pattern (tags include `head_state_publisher`, `apt`).
 - `ansible/README.md` node table/section and `.claude/skills/ansible-deploy/SKILL.md` node list gain head_state_publisher.
-- Tests first in new root `tests/test_head_state_publisher_config.py`, seen failing: node type fields and tier; entry present and enabled after the base bus node; the launch file (parsed with `ast`, no ROS import) names robot_state_publisher, reads head.urdf, remaps both topics; the playbook step exists with its tags; `tests/test_unit_cgroups.py` rules still pass.
+- Tests first in new root `tests/test_head_state_publisher_config.py`, seen failing: node type fields and tier; entry present and enabled after the base bus node `base_servos`; the launch file (parsed with `ast`, no ROS import) names robot_state_publisher, reads head.urdf, remaps both topics; the playbook step exists with its tags; `tests/test_unit_cgroups.py` rules still pass.
 - `tests/README.md` lists the new test file.
 
 ## Acceptance conditions
@@ -51,16 +51,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_state_publisher/launch/head_state_publisher.launch.py:generate_launch_description`; client.yml node type and entry `head_state_publisher`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Ansible can deploy, enable and disable head_state_publisher; it publishes head TF from /head/joint_states.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_head_state_publisher_config.py`; run `uv run pytest tests/test_head_state_publisher_config.py -q`; expect failures.
+- Add the launch file, README, node type, entry, playbook step and docs; run the verify command; commit `feat(head_state_publisher): robot_state_publisher for the head`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Patterns: `robot_localization_ekf` (launch-file native node), `joint_state_throttle_follower` (apt node type, src_paths).
+- The launcher runs `bash -c` in single quotes: no single quote in node_launch_command.

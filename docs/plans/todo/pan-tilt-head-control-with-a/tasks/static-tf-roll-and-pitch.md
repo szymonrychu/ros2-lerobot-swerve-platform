@@ -45,16 +45,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `static_tf_publisher/node.py:rpy_to_quaternion(roll: float, pitch: float, yaw: float) -> tuple[float, float, float, float]`; `config.py:FrameTransform.roll`, `.pitch`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Configured roll and pitch reach the published static transforms; deployed frames are unchanged.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_transforms.py`; run `cd nodes/static_tf_publisher && uv run --frozen pytest tests/test_transforms.py -q`; expect failures.
+- Implement; run the verify command; commit `fix(static_tf_publisher): honour roll and pitch`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Keep pure `math`: the unit memory_max is 96M.
+- `tests/ros_stubs.py` exists for node-level tests.

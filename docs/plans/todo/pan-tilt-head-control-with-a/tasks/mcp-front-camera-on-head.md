@@ -49,16 +49,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `config.py:CamerasSettings` front parent validation; `camera_scene.py:parent_transform` (part `front-camera-head-scene`); `camera_tools.py` scene/sample paths.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Front camera geometry follows the measured head pose; client.yml mounts the camera on head_link.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_camera_scene_head.py` and update `tests/test_mcp_camera_config.py`; run them; expect failures.
+- Implement; run the verify command; commit `feat(mcp_server): front camera pose follows the head`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The gripper camera path (`kin.link_frame`) is the model for a moving parent.
+- Intrinsics stay null: tools keep saying not calibrated until a calibration exists.

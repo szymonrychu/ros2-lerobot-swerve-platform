@@ -47,16 +47,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `map3d/headJoints.ts:headJointValues`; `map3d/layers.ts` head layer; `MapScene.tsx` RobotLayer head model.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The map 3D view draws the head at its measured angles once a head joint state arrived.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `map3d/headJoints.test.ts` and extend `map3d/layers.test.ts`; run `cd nodes/web_ui/frontend && npm test -- headJoints layers`; expect failures.
+- Implement; run `cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build`; commit `feat(web_ui): head in the 3D map view`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `RobotModel` takes `jointStates` ({name, position}); the head URDF root is base_link, so it sits at the base origin like the base URDF.

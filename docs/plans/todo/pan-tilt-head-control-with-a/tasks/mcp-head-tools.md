@@ -54,16 +54,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `mcp_server/head_tools.py:register`, `TOOL_NAMES` (part `head-tool-names`); `tools.py:TOOL_SUBSYSTEM`, `MOTION_TOOLS`, `RATE_SUBSYSTEMS`; `models.py:RobotState.head`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent can call set_head_angles, head_look_at and head_home under either lease.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_head_tools.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_head_tools.py -q`; expect failures.
+- Implement; run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`; commit `feat(mcp_server): head tools`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `ControlManager.refusal` already supports "any".
+- `RATE_SUBSYSTEMS` is derived from TOOL_SUBSYSTEM: exclude the head tools explicitly.
+- Root `tests/test_claude_agent_config.py` classifies every registered tool: the agent task updates claude_agent; this task must not break mcp_server suites.

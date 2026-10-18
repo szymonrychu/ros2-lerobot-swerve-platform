@@ -1,0 +1,217 @@
+[
+  {
+    "id": "G1",
+    "text": "A head servo group (pan, tilt) on the base bus node: configurable IDs, ranges (defaults pan +-90 deg, tilt -30/+45 deg, servo centre 2048 = straight and level), per-joint speed/acceleration caps for position joints, joint_states published, commands on /head/joint_commands. The group runs on base_servos at the 50 Hz base bus rate (split epic budget: base + head 14.4 ms vs the 20 ms period).",
+    "decisions": [
+      "D1",
+      "D2",
+      "D3"
+    ],
+    "tasks": [
+      "bridge-position-speed-caps",
+      "bridge-startup-goal",
+      "head-servo-group-config"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G2",
+    "text": "Home pose looking forward and down at the ground (configurable, not the servo centre), used at startup, on Home, and whenever the controlling lease is released.",
+    "decisions": [
+      "D4",
+      "D10"
+    ],
+    "tasks": [
+      "bridge-startup-goal",
+      "mcp-head-tools",
+      "mcp-lease-release-homes-head",
+      "head-tab-pan-tilt-controls",
+      "head-config-consistency"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G3",
+    "text": "TF: robot_state_publisher with a head URDF (mount, pan axis from behind and above the lidar, tilt axis offset, rigid head frame, head_camera_optical_frame and tof_optical_frame with the configured spacing) driven by the head joint states; static_tf_publisher's roll/pitch bug fixed.",
+    "decisions": [
+      "D5",
+      "D6",
+      "D7"
+    ],
+    "tasks": [
+      "head-urdf",
+      "head-state-publisher-node",
+      "static-tf-roll-and-pitch"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G4",
+    "text": "Agent (mcp_server + claude_agent): head tools to set pan/tilt, look at a point (aims the RGB camera axis once at a point in base_link or map) and home; usable under the arm or the base lease; releasing the lease returns the head home; camera-scene code stops assuming the head camera sits on base_link. Ruling R2: the head is not added to the arm self-collision model in this epic.",
+    "decisions": [
+      "D8",
+      "D9",
+      "D10",
+      "D11",
+      "D12"
+    ],
+    "tasks": [
+      "mcp-head-kinematics",
+      "mcp-head-controller",
+      "mcp-head-tools",
+      "mcp-lease-release-homes-head",
+      "mcp-front-camera-on-head",
+      "mcp-lookups-follow-head-pose",
+      "agent-head-tools-and-prompt"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G5",
+    "text": "Web UI: Head tab pan/tilt sliders + Home button replacing the disabled placeholder, head drawn in the 3D view.",
+    "decisions": [
+      "D13",
+      "D14"
+    ],
+    "tasks": [
+      "web-ui-head-command-backend",
+      "head-tab-pan-tilt-controls",
+      "head-in-3d-map-view"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G6",
+    "text": "Tests with fake buses/robots; READMEs; deployed; first live test +-5 deg pan only, then widened.",
+    "decisions": [
+      "D15"
+    ],
+    "tasks": [
+      "head-config-consistency",
+      "head-suite-and-robot-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U1",
+    "text": "Head servos on the base bus (shared with swerve), separate from the arm bus.",
+    "decisions": [
+      "D1"
+    ],
+    "tasks": [
+      "head-servo-group-config"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U2",
+    "text": "IDs, ranges and mount configurable; defaults pan +-90 deg, tilt -30/+45 deg, servo centre 2048 = straight and level; mount ~35 cm up, ~10 cm left, ~15 cm forward of base_link; the pan post comes from behind and above the lidar covering as little of its view as possible; camera-to-ToF spacing configurable in the head URDF.",
+    "decisions": [
+      "D2",
+      "D5"
+    ],
+    "tasks": [
+      "head-urdf",
+      "head-servo-group-config",
+      "head-config-consistency"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U3",
+    "text": "Per-joint speed/acceleration caps; first live test +-5 deg pan only.",
+    "decisions": [
+      "D3",
+      "D15"
+    ],
+    "tasks": [
+      "bridge-position-speed-caps",
+      "head-servo-group-config",
+      "head-suite-and-robot-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U4",
+    "text": "Home pose looks forward and down at the ground (configurable, not the servo centre).",
+    "decisions": [
+      "D4"
+    ],
+    "tasks": [
+      "bridge-startup-goal",
+      "mcp-head-tools",
+      "head-tab-pan-tilt-controls",
+      "head-config-consistency"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U5",
+    "text": "Agent look-at aims the RGB camera axis once at a point in base_link or map, no tracking; zoom does not auto-aim.",
+    "decisions": [
+      "D8",
+      "D9",
+      "D12"
+    ],
+    "tasks": [
+      "mcp-head-kinematics",
+      "mcp-head-tools",
+      "agent-head-tools-and-prompt"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U6",
+    "text": "The head can be moved under the arm lease OR the base lease (belongs to both); releasing the controlling lease moves the head back home.",
+    "decisions": [
+      "D9",
+      "D10"
+    ],
+    "tasks": [
+      "mcp-head-tools",
+      "mcp-lease-release-homes-head"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U7",
+    "text": "Web UI: Head tab pan/tilt sliders + Home button, head drawn in the 3D view.",
+    "decisions": [
+      "D13",
+      "D14"
+    ],
+    "tasks": [
+      "web-ui-head-command-backend",
+      "head-tab-pan-tilt-controls",
+      "head-in-3d-map-view"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "R1",
+    "text": "Orchestrator ruling: web UI head commands are always allowed (operator); last writer wins against the agent; the agent's head tools need the arm or the base lease.",
+    "decisions": [
+      "D9",
+      "D13"
+    ],
+    "tasks": [
+      "mcp-head-tools",
+      "web-ui-head-command-backend",
+      "head-tab-pan-tilt-controls"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "R3",
+    "text": "Orchestrator ruling: the tilt sign is a config value with a documented default, positive tilt = looking down (matches home forward and down); the user confirms at the gate.",
+    "decisions": [
+      "D2"
+    ],
+    "tasks": [
+      "head-urdf",
+      "head-servo-group-config",
+      "head-config-consistency"
+    ],
+    "status": "approved"
+  }
+]

@@ -24,9 +24,10 @@ provides: []
 ## Requirement
 
 - `nodes/web_ui/web_ui/config.py` (D13, D14): head tab fields `head_command_topic`, `head_joint_states_topic`, `head_pan_range_deg: tuple[float, float]`, `head_tilt_range_deg: tuple[float, float]`, `head_home_deg: tuple[float, float]` (pan, tilt) with defaults /head/joint_commands, /head/joint_states, (-90, 90), (-30, 45), (0, 30) filled for head tabs; validation: ranges ordered, home inside them. map_nav tabs gain `head_urdf` (default `head.urdf`) and `head_joint_states_topic` (default `/head/joint_states`); `head_joint_states_topic` joins `GENERIC_TOPIC_ATTRS` (subscribed as sensor_msgs/JointState). `publish_topics()` includes `head_command_topic`; `frame_id_defaults()` maps it to `web_ui`.
+- Ruling R1: web UI head commands need no lease and are never refused because the agent holds a lease; only the battery cut-off and the range check below refuse them.
 - `server.py`: the WS `publish` path refuses a message on a head command topic whose positions (head_pan, head_tilt, radians) fall outside the tab's ranges or are non-finite, with an error message to the client (after the existing battery cut-off refusal); valid ones publish as today.
 - `config/default.yaml` and `ansible/group_vars/client.yml` web_ui config: the head tab and the map_nav tab carry the head fields.
-- `nodes/web_ui/README.md`: Head tab control fields, range refusal, frame_id web_ui, last-writer-wins with the agent.
+- `nodes/web_ui/README.md`: Head tab control fields, range refusal, frame_id web_ui, head commands always allowed for the operator, last writer wins against the agent (ruling R1; no lease check on the web UI path).
 - Tests first in new `nodes/web_ui/tests/test_head_control.py`, seen failing: defaults and validation; publish allowlist and frame_id default; in-range command published with frame_id web_ui; out-of-range and non-finite refused; battery cut-off still refuses first; map_nav head fields and the subscription type hint.
 
 ## Acceptance conditions
@@ -47,16 +48,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `web_ui/config.py` head tab fields and map_nav head fields (part `web-head-fields`), `publish_topics`, `frame_id_defaults`; `server.py` WS publish range check.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The web UI backend publishes only valid head commands, tagged web_ui, and serves the head config to the frontend.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_head_control.py`; run `cd nodes/web_ui && uv run --frozen pytest tests/test_head_control.py -q`; expect failures.
+- Implement and update default.yaml, client.yml, README; run the verify command; commit `feat(web_ui): head command backend`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Battery cut-off refusal (`server.py`, type publish) stays first.
+- Head joint states are a generic JointState subscription (GENERIC_TOPIC_ATTRS).

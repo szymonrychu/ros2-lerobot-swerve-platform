@@ -50,16 +50,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `mcp_server/head.py:HeadBackend`, `HeadController`, `HeadMoveResult`, `HeadError` (part `head-controller`); `config.py:HeadSettings`; `tool_context.py:RobotApi.head`; `tests/fakes.py:FakeHeadBackend`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+mcp_server has a head controller wired to ROS that reports real arrival or a named failure.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_head_controller.py` and the config cases; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_head_controller.py tests/test_config.py -q`; expect failures.
+- Implement; run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`; commit `feat(mcp_server): head controller`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern: `arm.py:ArmController` over `FakeArmBackend` (tests/fakes.py).
+- No placeholder: `measured()` returns None for stale samples.
