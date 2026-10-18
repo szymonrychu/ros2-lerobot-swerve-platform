@@ -1,5 +1,5 @@
 /** MUI panels of the POI feature: the collapsible list (click to focus) and the editor of the selected POI. */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
 import Button from '@mui/material/Button'
@@ -20,6 +20,7 @@ import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { MONO_FONT, TOUCH_TARGET_PX } from '../theme'
 import { ClearPoisDialog } from './ClearPoisDialog'
+import { DeleteMarkedDialog } from './DeleteMarkedDialog'
 import { PoiListToolbar } from './PoiListToolbar'
 import { filterPois, markAllVisible, poiCategory, pruneMarked, toggleMarked } from './selection'
 import { CATEGORY_LABELS, parsePoiTags, stripPoiTags } from './categories'
@@ -94,6 +95,8 @@ export function PoiListPanel({
   onChooseIndividually?: () => void
 }) {
   const [clearOpen, setClearOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const [filter, setFilter] = useState<ReadonlySet<string>>(new Set())
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set())
   const visible = useMemo(() => filterPois(pois, filter), [pois, filter])
@@ -159,6 +162,7 @@ export function PoiListPanel({
       }
     >
       <Box data-testid="poi-list-panel">
+        <Box ref={toolbarRef} tabIndex={-1} sx={{ outline: 'none' }}>
         <PoiListToolbar
           counts={counts}
           selected={filter}
@@ -167,6 +171,7 @@ export function PoiListPanel({
           onMarkAllVisible={() => setMarked(markAllVisible(visible))}
           onClearMarks={() => setMarked(new Set())}
         />
+        </Box>
         <List dense disablePadding sx={{ maxHeight: { xs: '28dvh', sm: '40dvh' }, overflowY: 'auto' }}>
           {pois.length === 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ pb: 1 }}>
@@ -205,13 +210,28 @@ export function PoiListPanel({
             <Button size="small" color="error" onClick={() => setClearOpen(true)} sx={{ mt: 0.5 }}>
               Clear POIs
             </Button>
+            <Button size="small" color="error" disabled={marked.size === 0} onClick={() => setDeleteOpen(true)} sx={{ mt: 0.5 }}>
+              Delete marked ({marked.size})
+            </Button>
             <ClearPoisDialog
               open={clearOpen}
               tabId={tabId}
               pois={pois}
               onClose={() => setClearOpen(false)}
-              onChooseIndividually={onChooseIndividually}
+              onChooseIndividually={() => {
+                toolbarRef.current?.focus()
+                onChooseIndividually?.()
+              }}
             />
+            {deleteOpen && (
+              <DeleteMarkedDialog
+                tabId={tabId}
+                pois={pois}
+                marked={marked}
+                onDone={() => setMarked(new Set())}
+                onClose={() => setDeleteOpen(false)}
+              />
+            )}
           </>
         )}
       </Box>

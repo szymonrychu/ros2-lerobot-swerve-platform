@@ -95,3 +95,21 @@ describe('POI list filter and marking', () => {
     expect(box('t1').checked).toBe(false)
   })
 })
+
+describe('Delete marked button', () => {
+  function renderWithTab() {
+    render(
+      <ThemeProvider theme={theme}>
+        <PoiListPanel pois={POIS} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} tabId="map" />
+      </ThemeProvider>,
+    )
+  }
+
+  it('is disabled at 0 marked and opens the confirmation with the count', () => {
+    renderWithTab()
+    expect((screen.getByRole('button', { name: 'Delete marked (0)' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all visible' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete marked (4)' }))
+    expect(screen.getByText('Delete 4 POIs?')).toBeTruthy()
+  })
+})
