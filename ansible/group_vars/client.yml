@@ -443,8 +443,8 @@ ros2_node_type_defaults:
     # point_cloud2 for the ToF cloud (sensor_msgs_py reads /tof/points and writes /tof/points_filtered).
     apt_packages:
       - ros-jazzy-sensor-msgs-py
-    # Not measured yet as a Python node (rclpy + numpy + shapely; the C++ filter chain was 35.7/37.6 MiB):
-    # MemoryLow is an estimate, MemoryMax 4x it (the cgroup test floor is 32M).
+    # MemoryLow 64M: the C++ filter chain it replaced measured 35.7/37.6 MiB, and this Python node also loads
+    # rclpy + numpy + shapely; MemoryMax is 4x it (the cgroup test floor is 32M).
     memory_low: "64M"
     memory_max: "256M"
     cpu_weight: 500

@@ -1,10 +1,17 @@
 """ToF cloud self filter (laser_filter.self_filter, no ROS): the per-point keep mask against the deployed self polygon
 (H body + parked gripper, notches kept, height limit, non-finite removed), the runtime polygon replacement with a
 released arm shadow, the cloud frame -> polygon_frame transform helper, the whole cloud filter in the cloud frame, the
-newest-wins pending slot for clouds waiting for TF and the cloud config keys."""
+newest-wins pending slot for clouds waiting for TF, the cloud config keys, and laser_filter.node.LaserFilterNode's cloud
+path against ROS doubles (published with the input header only after TF at the stamp, the expiry timer never
+publishes, newest wins, empty cloud passed through, scans not delayed by a cloud waiting for TF)."""
 
+import importlib
 import math
+import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -201,3 +208,302 @@ def test_pending_slot_drop_counts_the_waiting_cloud() -> None:
     slot.put("a", now_s=10.0)
     assert slot.drop() == "a"
     assert slot.item is None and slot.dropped == 1
+
+
+# --- laser_filter.node.LaserFilterNode cloud path against ROS doubles (rclpy is not installed on dev machines) ---
+
+ROS_MODULES = (
+    "rclpy",
+    "rclpy.node",
+    "rclpy.duration",
+    "rclpy.parameter",
+    "rclpy.qos",
+    "rclpy.task",
+    "rclpy.time",
+    "geometry_msgs",
+    "geometry_msgs.msg",
+    "rcl_interfaces",
+    "rcl_interfaces.msg",
+    "sensor_msgs",
+    "sensor_msgs.msg",
+    "sensor_msgs_py",
+    "sensor_msgs_py.point_cloud2",
+    "tf2_ros",
+)
+CLOUD_FRAME = "tof_optical_frame"
+LASER_FRAME = "laser"
+CLOUD_STAMP = (100, 250_000_000)
+
+
+class FakeTime:
+    """rclpy.time.Time double: nanoseconds since the epoch, built from a builtin_interfaces/Time-like stamp."""
+
+    def __init__(self, nanoseconds: int = 0) -> None:
+        self.nanoseconds = nanoseconds
+
+    @classmethod
+    def from_msg(cls, stamp: SimpleNamespace) -> "FakeTime":
+        return cls(stamp.sec * 1_000_000_000 + stamp.nanosec)
+
+
+class FakeFuture:
+    """rclpy.task.Future double: result, exception, cancel and done callbacks."""
+
+    def __init__(self) -> None:
+        self.value: object = None
+        self.finished = False
+        self.was_cancelled = False
+        self.callbacks: list[Callable[[FakeFuture], None]] = []
+
+    def done(self) -> bool:
+        return self.finished
+
+    def cancelled(self) -> bool:
+        return self.was_cancelled
+
+    def cancel(self) -> None:
+        self.was_cancelled = True
+
+    def result(self) -> object:
+        return self.value
+
+    def exception(self) -> BaseException | None:
+        return None
+
+    def set_result(self, value: object) -> None:
+        self.value, self.finished = value, True
+        for callback in self.callbacks:
+            callback(self)
+
+    def add_done_callback(self, callback: Callable[["FakeFuture"], None]) -> None:
+        self.callbacks.append(callback)
+
+
+class FakeTransformException(Exception):
+    """tf2_ros.TransformException double."""
+
+
+class FakeBuffer:
+    """tf2_ros.Buffer double: transforms known per (target, source, stamp ns); a future waits until arrive()."""
+
+    def __init__(self) -> None:
+        self.known: dict[tuple[str, str, int], SimpleNamespace] = {}
+        self.waiting: list[tuple[tuple[str, str, int], FakeFuture]] = []
+        self.static: dict[tuple[str, str], SimpleNamespace] = {}
+
+    def wait_for_transform_async(self, target: str, source: str, time_: FakeTime) -> FakeFuture:
+        future = FakeFuture()
+        key = (target, source, time_.nanoseconds)
+        if key in self.known:
+            future.set_result(self.known[key])
+        else:
+            self.waiting.append((key, future))
+        return future
+
+    def arrive(self, target: str, source: str, stamp: tuple[int, int], tf: SimpleNamespace) -> None:
+        """The TF listener received this transform: complete the futures waiting for it."""
+        key = (target, source, stamp[0] * 1_000_000_000 + stamp[1])
+        self.known[key] = tf
+        for waiting_key, future in list(self.waiting):
+            if waiting_key == key:
+                self.waiting.remove((waiting_key, future))
+                future.set_result(tf)
+
+    def lookup_transform(self, target: str, source: str, *_args: object, **_kwargs: object) -> SimpleNamespace:
+        if (target, source) not in self.static:
+            raise FakeTransformException(f"{source} -> {target} unknown")
+        return self.static[(target, source)]
+
+
+class FakeLogger:
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+
+    def info(self, *_args: object, **_kwargs: object) -> None:
+        pass
+
+    def warning(self, text: str, **_kwargs: object) -> None:
+        self.warnings.append(text)
+
+
+class FakeNode:
+    """rclpy.node.Node double recording publishers, subscriptions and timers by topic."""
+
+    def __init__(self, _name: str) -> None:
+        self.published: dict[str, list[object]] = {}
+        self.callbacks: dict[str, Callable[[object], None]] = {}
+        self.timers: list[Callable[[], None]] = []
+        self.logger = FakeLogger()
+
+    def declare_parameter(self, *_args: object, **_kwargs: object) -> None:
+        pass
+
+    def add_on_set_parameters_callback(self, *_args: object, **_kwargs: object) -> None:
+        pass
+
+    def create_publisher(self, _msg_type: object, topic: str, _qos: object) -> SimpleNamespace:
+        self.published[topic] = []
+        return SimpleNamespace(publish=self.published[topic].append)
+
+    def create_subscription(self, _msg_type: object, topic: str, callback: Callable[[object], None], _qos: object):
+        self.callbacks[topic] = callback
+
+    def create_timer(self, _period_s: float, callback: Callable[[], None]) -> None:
+        self.timers.append(callback)
+
+    def get_logger(self) -> FakeLogger:
+        return self.logger
+
+
+def fake_read_points_numpy(msg: SimpleNamespace, field_names: tuple[str, ...], skip_nans: bool) -> np.ndarray:
+    assert field_names == ("x", "y", "z") and not skip_nans
+    return msg.points
+
+
+def fake_create_cloud_xyz32(header: SimpleNamespace, points: np.ndarray) -> SimpleNamespace:
+    return SimpleNamespace(header=header, points=np.asarray(points, np.float32), is_dense=False)
+
+
+def stamp_msg(stamp: tuple[int, int]) -> SimpleNamespace:
+    return SimpleNamespace(sec=stamp[0], nanosec=stamp[1])
+
+
+def cloud_msg(points: np.ndarray, stamp: tuple[int, int] = CLOUD_STAMP) -> SimpleNamespace:
+    return SimpleNamespace(header=SimpleNamespace(frame_id=CLOUD_FRAME, stamp=stamp_msg(stamp)), points=points)
+
+
+def transform_msg(rotation: np.ndarray, translation: np.ndarray) -> SimpleNamespace:
+    """TransformStamped-like message (rotation matrix -> unit quaternion) for the TF doubles."""
+    w = math.sqrt(max(0.0, 1.0 + rotation[0, 0] + rotation[1, 1] + rotation[2, 2])) / 2.0
+    x = math.copysign(
+        math.sqrt(max(0.0, 1.0 + rotation[0, 0] - rotation[1, 1] - rotation[2, 2])) / 2.0,
+        rotation[2, 1] - rotation[1, 2],
+    )
+    y = math.copysign(
+        math.sqrt(max(0.0, 1.0 - rotation[0, 0] + rotation[1, 1] - rotation[2, 2])) / 2.0,
+        rotation[0, 2] - rotation[2, 0],
+    )
+    z = math.copysign(
+        math.sqrt(max(0.0, 1.0 - rotation[0, 0] - rotation[1, 1] + rotation[2, 2])) / 2.0,
+        rotation[1, 0] - rotation[0, 1],
+    )
+    t = SimpleNamespace(x=float(translation[0]), y=float(translation[1]), z=float(translation[2]))
+    return SimpleNamespace(transform=SimpleNamespace(rotation=SimpleNamespace(x=x, y=y, z=z, w=w), translation=t))
+
+
+@pytest.fixture
+def node_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    """laser_filter.node imported against the ROS doubles (removed again afterwards)."""
+    for name in ROS_MODULES:
+        monkeypatch.setitem(sys.modules, name, MagicMock(name=name))
+    sys.modules["rclpy.node"].Node = FakeNode
+    sys.modules["rclpy.time"].Time = FakeTime
+    sys.modules["tf2_ros"].Buffer = FakeBuffer
+    sys.modules["tf2_ros"].TransformException = FakeTransformException
+    point_cloud2 = sys.modules["sensor_msgs_py"].point_cloud2
+    point_cloud2.read_points_numpy = fake_read_points_numpy
+    point_cloud2.create_cloud_xyz32 = fake_create_cloud_xyz32
+    sys.modules.pop("laser_filter.node", None)
+    yield importlib.import_module("laser_filter.node")
+    sys.modules.pop("laser_filter.node", None)
+
+
+def make_node(node_module: ModuleType) -> tuple[ModuleType, FakeBuffer]:
+    node = node_module.LaserFilterNode(load_config(DEPLOYED))
+    return node, node.tf_buffer
+
+
+def head_cloud() -> tuple[np.ndarray, SimpleNamespace]:
+    """Side frame, front notch, parked gripper, cliff in the cloud frame and the head TF that maps them to base_link."""
+    rotation, translation = head_transform()
+    base = np.array([SIDE_FRAME, FRONT_NOTCH, PARKED_GRIPPER, CLIFF])
+    cloud = transform_points(base, rotation.T, -rotation.T @ translation).astype(np.float32)
+    return cloud, transform_msg(rotation, translation)
+
+
+def test_laser_filter_node_publishes_kept_points_with_the_input_header_only_after_tf_at_the_stamp(
+    node_module: ModuleType,
+) -> None:
+    node, tf_buffer = make_node(node_module)
+    points, tf = head_cloud()
+    msg = cloud_msg(points)
+    node.callbacks["/tof/points"](msg)
+    assert node.published["/tof/points_filtered"] == []  # no TF at the stamp yet: nothing published
+    tf_buffer.arrive("base_link", CLOUD_FRAME, (CLOUD_STAMP[0], CLOUD_STAMP[1] - 1), tf)  # TF at another stamp
+    for timer in node.timers:
+        timer()
+    assert node.published["/tof/points_filtered"] == []
+    tf_buffer.arrive("base_link", CLOUD_FRAME, CLOUD_STAMP, tf)
+    (out,) = node.published["/tof/points_filtered"]
+    assert out.header is msg.header  # same frame, same stamp
+    assert out.points.dtype == np.float32 and out.is_dense
+    np.testing.assert_allclose(out.points, points[[1, 3]], atol=1e-6)  # side frame and parked gripper removed
+
+
+def test_laser_filter_node_timer_never_publishes_and_drops_a_cloud_without_tf(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    node, tf_buffer = make_node(node_module)
+    points, tf = head_cloud()
+    clock = [1000.0]
+    monkeypatch.setattr(node_module.time, "monotonic", lambda: clock[0])
+    node.callbacks["/tof/points"](cloud_msg(points))
+    clock[0] += 0.1
+    for timer in node.timers:
+        timer()
+    assert node.cloud_slot.item is not None and node.cloud_slot.dropped == 0  # still waiting
+    clock[0] += 0.15  # past cloud_transform_timeout_s (0.2 s)
+    for timer in node.timers:
+        timer()
+    assert node.cloud_slot.item is None and node.cloud_slot.dropped == 1
+    assert any("no TF within 0.2 s" in text and "1 clouds dropped" in text for text in node.logger.warnings)
+    tf_buffer.arrive("base_link", CLOUD_FRAME, CLOUD_STAMP, tf)  # too late: the dropped cloud stays dropped
+    assert node.published["/tof/points_filtered"] == []
+
+
+def test_laser_filter_node_pending_cloud_is_newest_wins(node_module: ModuleType) -> None:
+    node, tf_buffer = make_node(node_module)
+    points, tf = head_cloud()
+    later = (CLOUD_STAMP[0], CLOUD_STAMP[1] + 100_000_000)
+    node.callbacks["/tof/points"](cloud_msg(points))
+    newer = cloud_msg(points, later)
+    node.callbacks["/tof/points"](newer)
+    assert node.cloud_slot.dropped == 1
+    tf_buffer.arrive("base_link", CLOUD_FRAME, CLOUD_STAMP, tf)  # the superseded cloud's TF: not published
+    assert node.published["/tof/points_filtered"] == []
+    tf_buffer.arrive("base_link", CLOUD_FRAME, later, tf)
+    (out,) = node.published["/tof/points_filtered"]
+    assert out.header is newer.header
+
+
+def test_laser_filter_node_passes_an_empty_cloud_through_with_its_header(node_module: ModuleType) -> None:
+    node, tf_buffer = make_node(node_module)
+    _, tf = head_cloud()
+    tf_buffer.arrive("base_link", CLOUD_FRAME, CLOUD_STAMP, tf)
+    msg = cloud_msg(np.zeros((0, 3), np.float32))
+    node.callbacks["/tof/points"](msg)
+    (out,) = node.published["/tof/points_filtered"]
+    assert out.header is msg.header and out.points.shape == (0, 3)
+
+
+def test_laser_filter_node_scan_is_not_delayed_by_a_cloud_waiting_for_tf(node_module: ModuleType) -> None:
+    node, tf_buffer = make_node(node_module)
+    points, _ = head_cloud()
+    tf_buffer.static[(LASER_FRAME, "base_link")] = transform_msg(np.eye(3), np.zeros(3))
+    node.callbacks["/tof/points"](cloud_msg(points))  # waits for its TF in the pending slot
+    scan = SimpleNamespace(
+        header=SimpleNamespace(frame_id=LASER_FRAME, stamp=stamp_msg(CLOUD_STAMP)),
+        angle_min=-math.pi,
+        angle_max=math.pi,
+        angle_increment=math.pi / 2,
+        time_increment=0.0,
+        scan_time=0.1,
+        range_min=0.05,
+        range_max=12.0,
+        ranges=[0.05, 3.0, 3.0, 3.0],
+        intensities=[],
+    )
+    node.callbacks["/scan"](scan)
+    (out,) = node.published["/scan_filtered"]
+    assert out.header is scan.header
+    assert node.cloud_slot.item is not None and node.published["/tof/points_filtered"] == []
