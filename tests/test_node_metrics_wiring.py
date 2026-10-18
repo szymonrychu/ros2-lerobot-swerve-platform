@@ -28,6 +28,7 @@ CONFIG_METRICS_PORTS = {
     "map_guard": 19110,
     "costmap_zones": 19111,
     "arducam_tof": 19112,
+    "map_manager": 19113,
     "base_servos": 19115,
     # Side-by-side C++ ports: the Python node's port (the same config block); only one of a pair is ever enabled.
     "map_guard_cpp": 19110,
@@ -60,6 +61,7 @@ SHARED_NODE_TYPES = [
     "gps_rtk",
     "uvc_camera",
     "arducam_tof",
+    "map_manager",
     "poi_store",
     "claude_agent",
     "test_joint_api",
