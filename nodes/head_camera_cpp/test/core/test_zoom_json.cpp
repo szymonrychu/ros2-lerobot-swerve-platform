@@ -100,6 +100,9 @@ TEST(ZoomJson, InvalidFieldsKeepRequestId)
   expect_field_rejected("v", missing);
   expect_field_rejected("zoom", 3);
   expect_field_rejected("zoom", 2.5);
+  expect_field_rejected("zoom", 99999999999LL);
+  expect_field_rejected("zoom", 4294967298LL);
+  expect_field_rejected("zoom", 1e30);
   expect_field_rejected("zoom", missing);
   expect_field_rejected("max_px", 100);
   expect_field_rejected("max_px", 2000);

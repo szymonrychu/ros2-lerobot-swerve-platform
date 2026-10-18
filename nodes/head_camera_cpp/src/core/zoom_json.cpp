@@ -81,10 +81,13 @@ std::variant<ZoomRequest, ParseError> parse_request(const std::string & text, co
   if (!is_integral(*zoom_it)) {
     return fail("zoom: must be an integer");
   }
-  request.zoom = static_cast<int>(zoom_it->get<double>());
-  if (std::find(limits.factors.begin(), limits.factors.end(), request.zoom) == limits.factors.end()) {
+  const double zoom = zoom_it->get<double>();
+  const auto factor = std::find_if(
+    limits.factors.begin(), limits.factors.end(), [zoom](int f) { return static_cast<double>(f) == zoom; });
+  if (factor == limits.factors.end()) {
     return fail("zoom: not an allowed factor");
   }
+  request.zoom = *factor;
   const auto px_it = j.find("max_px");
   if (px_it != j.end()) {
     if (!is_integral(*px_it)) {
