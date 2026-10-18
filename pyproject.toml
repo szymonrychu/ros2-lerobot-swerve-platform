@@ -33,6 +33,7 @@ dev = [
     "networkx>=3",
     "lxml>=5",
     "rtree>=1.2",
+    "rosbags>=0.10,<1",
 ]
 
 [tool.uv]

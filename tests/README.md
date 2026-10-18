@@ -2599,3 +2599,20 @@ Docs guard for the driving-agent skills suite.
 | `test_nodes_readme_mentions_the_new_features` | The `nodes/README.md` claude_agent line names skills, workflows and retrospectives; the costmap_zones line names slow-zone cost. |
 | `test_memory_records_the_decision` | MEMORY.md records the skills, workflows, retrospectives, POI category and slow-zone decisions. |
 | `test_tests_readme_lists_this_file` | This file is listed here. |
+
+### `test_head_rgbd_calib_frames.py`
+
+Tests for `scripts/head_rgbd_calibration` (config, capture commands, bag reading, still-pair selection). Synthetic bags are written with the `rosbags` writer.
+
+| Test | What it checks |
+|---|---|
+| `test_defaults_load_from_shipped_yaml` | Shipped `scripts/head_rgbd_calibrate.yaml` loads with the documented defaults. |
+| `test_unknown_key_rejected_naming_it` | An unknown key fails validation and the message names it. |
+| `test_topics_without_mapping_image_rejected` | `topics` and `validation_topics` without the mapping image topic are rejected. |
+| `test_duration_range_enforced` | `duration_s` outside 10..600 is rejected. |
+| `test_board_matches_marker_generator_charuco` | `board` equals the `charuco` spec of `markers_generate.yaml`. |
+| `test_capture_commands_contents`, `test_capture_commands_custom_topics` | ssh target, duration, storage, topics, scp destination and remote `rm -rf`. |
+| `test_capture_bag_runs_steps_in_order`, `test_capture_bag_names_failed_step` | Fake runner: record, copy, remove order; a failed step is named in the error. |
+| `test_normalise_amplitude_*` | 1st/99th percentiles map to 0/255; an empty frame returns None. |
+| `test_read_frames_decodes_everything` | Decoded RGB, amplitude, depth, stamps and camera infos. |
+| `test_still_pairs_two_windows`, `test_still_pairs_ignores_skip_start`, `test_still_pairs_none_when_always_moving` | Two still windows give two pairs with dt <= 50 ms; the first `skip_start_s` is ignored; constant motion gives none. |
