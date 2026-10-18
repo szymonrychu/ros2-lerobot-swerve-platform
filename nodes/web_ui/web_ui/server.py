@@ -10,14 +10,14 @@ import uuid
 import weakref
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import httpx
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 from ros2_common.battery import BatteryGuard
 from ros2_common.maps import MapCommand
 from ros2_common.photos import PhotoSelector
@@ -102,6 +102,25 @@ CANCEL_GOAL_ERROR_NONE = 0
 # Seconds to wait for poi_store's /poi/result after a POI command.
 POI_TIMEOUT_S = 3.0
 POI_OPS = frozenset({"add", "update", "delete", "delete_photos"})
+# Most ids one clear command may name.
+POI_CLEAR_MAX_IDS = 500
+
+
+class PoiClearFilters(BaseModel):
+    """Filters of the poi_store clear op as accepted by POST /api/poi (all optional, strict types)."""
+
+    model_config = ConfigDict(extra="ignore", strict=True)
+
+    op: Literal["clear"]
+    created_by: Literal["agent", "user"] | None = None
+    kinds: list[Literal["point", "area", "object"]] | None = None
+    statuses: list[Literal["open", "done", "cancelled"]] | None = None
+    keep_zones: bool = False
+    ids: list[Annotated[str, StringConstraints(min_length=1)]] | None = Field(
+        default=None, max_length=POI_CLEAR_MAX_IDS
+    )
+
+
 # Seconds to wait for mcp_server's answer to a grasp stop (it answers at once).
 GRASP_STOP_TIMEOUT_S = 3.0
 # Seconds to wait for mcp_server's answer to one jog step (a step is a short motion; refusals come at once).
@@ -989,13 +1008,22 @@ def build_app(
             except ValidationError as exc:
                 return action_response("poi", False, f"invalid selector: {exc.errors()[0]['msg']}", 422)
             command: dict[str, Any] = {"op": op, "selector": selector.model_dump(exclude_none=True)}
+        elif op == "clear":
+            try:
+                filters = PoiClearFilters.model_validate(body)
+            except ValidationError as exc:
+                err = exc.errors()[0]
+                where = ".".join(str(part) for part in err["loc"])
+                return action_response("poi", False, f"invalid clear filter {where}: {err['msg']}", 422)
+            command = filters.model_dump(exclude_unset=True)
         elif op in POI_OPS and isinstance(body.get("poi"), dict):
             command = {"op": op, "poi": body["poi"]}
         else:
             return action_response(
                 "poi",
                 False,
-                'body must be {"op": "add"|"update"|"delete", "poi": {...}} or {"op": "delete_photos", "selector": {...}}',
+                'body must be {"op": "add"|"update"|"delete", "poi": {...}}, {"op": "delete_photos", "selector": {...}} '
+                'or {"op": "clear", "created_by"?, "kinds"?, "statuses"?, "keep_zones"?, "ids"?}',
                 422,
             )
         if bridge_node is None:
