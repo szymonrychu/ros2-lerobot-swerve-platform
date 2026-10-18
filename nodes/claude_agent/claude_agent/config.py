@@ -68,6 +68,8 @@ DEFAULT_SENSOR_TOOLS = [
     "delete_photos",
     "list_frontiers",
     "plan_frontier_visit",
+    "get_exploration_status",
+    "mark_survey_spot",
     "confirm_grasp",
 ]
 # Approximate maximum horizontal reach of the SO-101 from the shoulder_lift axis, in cm: the straight-line sum of the link
