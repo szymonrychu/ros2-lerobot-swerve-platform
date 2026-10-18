@@ -1,0 +1,66 @@
+---
+title: POI cleanups delete photos
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "Clearing or deleting POIs removes the photos in that set, records and image files, and says how many"
+files: [nodes/poi_store/poi_store/models.py, nodes/poi_store/poi_store/store.py, nodes/poi_store/tests/test_clear_filters.py, nodes/poi_store/tests/test_photo_cleanup.py, nodes/poi_store/README.md]
+verify: "cd nodes/poi_store && uv run --frozen pytest tests/test_photo_cleanup.py tests/test_clear_filters.py -q && uv run --frozen poe lint"
+depends_on: [poi-list-includes-photos]
+owns: [poi-clear-photo-kind]
+uses: [poi-list-photo-entries]
+model: ""
+estimate: 60
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# POI cleanups delete photos
+
+## Requirement
+
+D7, D9: every POI cleanup deletes the photo POIs in its set (record and JPEG) and reports what it removed.
+
+- `nodes/poi_store/poi_store/models.py`: `Command.kinds` accepts "photo" (`list[Literal["point", "area", "object", "photo"]] | None`); docstrings no longer say photos are never cleared.
+- `nodes/poi_store/poi_store/store.py` `op_clear`: photos are matched by the same filters as POIs: `kinds` None matches every kind including photos, `kinds` containing "photo" matches photos, `created_by` and `statuses` compare the photo record's fields, `ids` matches photo ids, `keep_zones` never keeps a photo. Matched photos are removed with their JPEGs in one PhotoStore operation (reuse `PhotoStore.remove` or `delete_many` with an ids selector), the non-photo POIs as today, then link strips for the removed POIs; the revision moves once when anything was removed. Result data `{"removed": total, "pois": n_pois, "photos": n_photos}`, message "cleared N POIs and M photos". A photo store disk failure leaves the POIs untouched and returns ok=false with the reason (photo removal runs before the POI commit, or the POI change is rolled back).
+- `op_delete` keeps deleting a photo id with its JPEG; deleting a non-photo POI keeps the linked photos and strips the link (unchanged, now pinned by a test).
+- Tests first, seen failing: extend `nodes/poi_store/tests/test_clear_filters.py` and add `nodes/poi_store/tests/test_photo_cleanup.py`: a clear with no filters removes POIs and photos and their JPEGs and reports both counts; `kinds=["photo"]` removes only photos; `kinds=["point"]` keeps photos; `created_by="user"` removes only user photos and POIs; `statuses=["done"]` matches photo status; `ids` with a mix of POI and photo ids removes exactly those (the delete-marked path); `keep_zones=True` still removes photos; deleting a non-photo POI keeps its linked photo and its JPEG; single delete of a photo removes the JPEG; a clear that matches nothing does not bump the revision; a simulated photo store `OSError` leaves POIs and revision unchanged.
+- `nodes/poi_store/README.md`: the clear op documents the photo kind, the filters on photos and the result counts.
+
+## Acceptance conditions
+
+- a1: a clear removes the matching photos with their JPEGs and reports POI and photo counts [evidence: command: cd nodes/poi_store && uv run --frozen pytest tests/test_photo_cleanup.py -q -k clear]
+- a2: the ids filter deletes marked photos and POIs exactly [evidence: command: cd nodes/poi_store && uv run --frozen pytest tests/test_photo_cleanup.py -q -k ids]
+- a3: deleting a non-photo POI keeps its linked photo; deleting a photo removes its JPEG [evidence: command: cd nodes/poi_store && uv run --frozen pytest tests/test_photo_cleanup.py -q -k delete]
+- a4: existing clear filter tests pass with the photo kind added [evidence: command: cd nodes/poi_store && uv run --frozen pytest tests/test_clear_filters.py -q]
+- a5: poi_store suite and lint pass [evidence: command: cd nodes/poi_store && uv run --frozen pytest tests -q && uv run --frozen poe lint]
+- a6: README documents clearing photos [evidence: command: grep -qi 'kinds.*photo' nodes/poi_store/README.md]
+
+## Files
+
+- `nodes/poi_store/poi_store/models.py`
+- `nodes/poi_store/poi_store/store.py`
+- `nodes/poi_store/tests/test_clear_filters.py`
+- `nodes/poi_store/tests/test_photo_cleanup.py`
+- `nodes/poi_store/README.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
