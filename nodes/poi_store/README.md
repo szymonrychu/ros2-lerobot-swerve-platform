@@ -37,7 +37,7 @@ All numbers must be finite. Files written before `object` existed load unchanged
 |---|---|---|
 | `/poi/list` | std_msgs/String, reliable + transient_local (latched) | `{"pois": [...], "revision": int}`; published on start and after every change of a non-photo POI; never contains photos |
 | `/poi/photos` | std_msgs/String, reliable + transient_local (latched) | photo summary `{"revision", "count", "bytes", "oldest_ts", "newest_ts", "limits": {"max_records", "max_bytes", "max_age_days"}}`; topic is `photos.summary_topic` |
-| `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete"\|"clear"\|"delete_photos", "request_id": str, "poi": {...}, "created_by": "agent"\|"user", "statuses": [...], "selector": {...}}` |
+| `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete"\|"clear"\|"delete_photos", "request_id": str, "poi": {...}, "created_by": "agent"\|"user", "statuses": [...], "kinds": [...], "keep_zones": bool, "ids": [...], "selector": {...}}` |
 | `/poi/result` | std_msgs/String, reliable, volatile | `{"request_id": str, "ok": bool, "message": str, "poi": {...}\|null}` |
 
 - `add`: `poi` is a full POI; `id`, `created_at`, `updated_at` are assigned when absent.
@@ -46,11 +46,16 @@ All numbers must be finite. Files written before `object` existed load unchanged
 - `delete`: `poi` holds `id`; the result carries the deleted POI. Unknown id gives `ok: false`.
 - `clear`: `{"op": "clear", "created_by": "agent", "request_id": ...}` deletes every POI (objects included) whose
   `created_by` matches, persists and republishes `/poi/list`; the result is `ok: true`, `poi: {"removed": n}`. The
-  revision only moves when something was removed. `created_by` is required and must be `agent` or `user`.
+  revision moves once, and only when something was removed. `created_by` is optional (`agent` or `user`); absent or
+  `null` clears every creator. A POI is cleared only when it matches every given filter (`created_by`, `statuses`,
+  `kinds`, `ids`, `keep_zones`). New optional filters: `kinds` (list of `point`/`area`/`object`; absent or `null`: every
+  kind, `[]` deletes nothing), `keep_zones` (default `false`; `true` keeps areas whose `zone` is `keepout` or `slow`,
+  any status) and `ids` (list of POI ids; absent or `null`: no id filter, `[]` deletes nothing, unknown ids are
+  ignored; this is the batch delete-by-ids used by "delete marked").
   claude_agent sends it for "New session" so agent-made POIs and objects go while the person's POIs stay. Photos are
   never cleared (agent-made ones included): they outlive the session and go only through retention or a delete.
   A cleared POI is stripped from every photo's `poi_ids`, as with `delete`.
-  Optional `statuses` (list of `open`/`done`/`cancelled`) limits the clear to that creator's POIs in those statuses
+  Optional `statuses` (list of `open`/`done`/`cancelled`) limits the clear to POIs in those statuses
   (e.g. `["done", "cancelled"]` drops finished agent POIs and keeps open ones); absent or `null` clears every status,
   an empty list deletes nothing.
 - `delete_photos`: `{"op": "delete_photos", "selector": {...}, "request_id": ...}` bulk-deletes photos; `selector` is
@@ -175,7 +180,7 @@ Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Be
   `PhotoStore` (photo index and retention, no rclpy; depends on `ros2-common` from `shared/`); `config.py`;
   `node.py` the only rclpy module.
 - `cd nodes/poi_store && uv run pytest tests -q` (no ROS needed); `uv run poe lint`.
-- Tests: `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear leaves
+- Tests: `test_clear_filters.py` (clear by creator/kind/zone/ids/status filters), `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear leaves
   photos but strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore),
   `test_node_photos.py` (`/poi/photos` publishing, missing/unreadable directory, prune timer; rclpy stubbed via
   `ros_stubs.py`), `test_shutdown.py`, `test_config.py`, `test_metrics.py`, `test_zone_models.py`.

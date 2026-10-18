@@ -275,9 +275,7 @@ def test_clear_with_nothing_to_remove_keeps_revision(store):
     assert ok and result == {"removed": 0} and store.revision == revision
 
 
-def test_clear_requires_valid_creator():
-    with pytest.raises(ValidationError):
-        Command(op="clear")
+def test_clear_rejects_invalid_creator():
     with pytest.raises(ValidationError):
         Command(op="clear", created_by="robot")
 

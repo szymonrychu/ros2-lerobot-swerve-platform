@@ -13,6 +13,7 @@ MIN_POLYGON_VERTICES = 3
 DEFAULT_RADIUS_M = 0.2
 AREA_EPSILON = 1e-12
 ZONE_NONE = "none"
+ZONE_KEEPOUT = "keepout"
 ZONE_SLOW = "slow"
 MIN_SPEED_LIMIT_PCT = 10
 MAX_SPEED_LIMIT_PCT = 100
@@ -157,8 +158,12 @@ class Command(BaseModel):
         request_id: Echoed in /poi/result.
         poi: add: the POI (kind "photo": a PhotoAdd payload plus kind); update: id plus changed fields; delete: id;
             clear and delete_photos: unused.
-        created_by: clear: delete every POI created by this creator ("agent" or "user"); photos are never cleared.
+        created_by: clear: only delete POIs created by this creator ("agent" or "user"; None: every creator);
+            photos are never cleared.
         statuses: clear: only delete POIs whose status is in this list (None: every status; empty list: nothing).
+        kinds: clear: only delete POIs of these kinds (None: every kind; empty list: nothing).
+        keep_zones: clear: keep areas whose zone is "keepout" or "slow" (any status).
+        ids: clear: only delete POIs with these ids (None: no id filter; empty list: nothing; unknown ids ignored).
         selector: delete_photos: which photos (exactly one of ids, older_than_s, keep_newest; optional dry_run).
     """
 
@@ -169,17 +174,18 @@ class Command(BaseModel):
     poi: dict[str, Any] = Field(default_factory=dict)
     created_by: Literal["agent", "user"] | None = None
     statuses: list[Literal["open", "done", "cancelled"]] | None = None
+    kinds: list[Literal["point", "area", "object"]] | None = None
+    keep_zones: bool = False
+    ids: list[str] | None = None
     selector: PhotoSelector | None = None
 
     @model_validator(mode="after")
     def check_op_arguments(self) -> "Command":
-        """Require created_by for the clear op and selector for the delete_photos op.
+        """Require selector for the delete_photos op.
 
         Returns:
             Command: Self.
         """
-        if self.op == "clear" and self.created_by is None:
-            raise ValueError("clear needs created_by ('agent' or 'user')")
         if self.op == "delete_photos" and self.selector is None:
             raise ValueError("delete_photos needs selector (one of ids, older_than_s, keep_newest)")
         return self

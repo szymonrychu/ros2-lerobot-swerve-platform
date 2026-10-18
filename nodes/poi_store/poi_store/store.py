@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from ros2_common.photos import PHOTO_KIND, PhotoAdd, PhotoSelector, photo_as_poi
 
 from .metrics import POI_COMMANDS, POI_COUNT, POI_SAVE_FAILURES
-from .models import Command, Poi
+from .models import ZONE_KEEPOUT, ZONE_SLOW, Command, Poi
 from .photo_store import PhotoNotFoundError, PhotoStore, PhotoStoreError
 
 LOGGER = logging.getLogger("poi_store")
@@ -113,7 +113,9 @@ class PoiStore:
         pois_before, revision_before = dict(self.pois), self.revision
         try:
             if command.op == "clear":
-                return self.op_clear(command.created_by, command.statuses)
+                return self.op_clear(
+                    command.created_by, command.statuses, command.kinds, command.keep_zones, command.ids
+                )
             if command.op == "delete_photos":
                 return self.op_delete_photos(command.selector)
             return getattr(self, "op_" + command.op)(command.poi)
@@ -336,20 +338,35 @@ class PoiStore:
             return True, f"would delete {result['would_remove']} photo(s)", result
         return True, f"deleted {result['removed']} photo(s)", result
 
-    def op_clear(self, created_by: str | None, statuses: list[str] | None = None) -> Result:
-        """Delete the POIs created by one creator and strip them from photo links (photos themselves stay).
+    def op_clear(
+        self,
+        created_by: str | None = None,
+        statuses: list[str] | None = None,
+        kinds: list[str] | None = None,
+        keep_zones: bool = False,
+        ids: list[str] | None = None,
+    ) -> Result:
+        """Delete the POIs matching every given filter and strip them from photo links (photos stay).
 
         Args:
-            created_by: "agent" or "user".
-            statuses: Only delete POIs whose status is in this list; None deletes every status, [] deletes nothing.
+            created_by: "agent" or "user"; None matches every creator.
+            statuses: Only POIs whose status is in this list; None matches every status, [] nothing.
+            kinds: Only POIs of these kinds; None matches every kind, [] nothing.
+            keep_zones: True keeps areas whose zone is keepout or slow, any status.
+            ids: Only POIs with these ids; None means no id filter, [] nothing; unknown ids are ignored.
 
         Returns:
             Result: Result triple; the third item is {"removed": count}.
         """
+        id_filter = None if ids is None else set(ids)
         doomed = [
             poi_id
             for poi_id, poi in self.pois.items()
-            if poi.created_by == created_by and (statuses is None or poi.status in statuses)
+            if (created_by is None or poi.created_by == created_by)
+            and (statuses is None or poi.status in statuses)
+            and (kinds is None or poi.kind in kinds)
+            and (id_filter is None or poi_id in id_filter)
+            and not (keep_zones and poi.kind == "area" and poi.zone in (ZONE_KEEPOUT, ZONE_SLOW))
         ]
         for poi_id in doomed:
             del self.pois[poi_id]
