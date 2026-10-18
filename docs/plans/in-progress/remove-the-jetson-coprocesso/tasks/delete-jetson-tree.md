@@ -1,6 +1,6 @@
 ---
 title: Delete jetson tree
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The Jetson-only depthd, calibration and model code and its end-to-end check leave the repo, pinned by a retirement test."
 files: [jetson/, scripts/jetson_e2e_check.py, scripts/jetson_e2e_check.yaml, tests/test_jetson_e2e_check.py, tests/test_jetson_retired.py, scripts/README.md, ansible/playbooks/optimize.yml, tests/README.md]
@@ -74,3 +74,7 @@ The `jetson/` tree and the Jetson e2e check are gone; `tests/test_jetson_retired
 
 - 87 tracked files under `jetson/` (discovery brief). `shared/ros2_common_cpp` depth_wire still exists after this task; drop-depth-wire-and-zstd removes it once nothing compiles it.
 - Reuse the file-absent pattern of `tests/test_pi_cameras_retired.py:test_old_boot_file_and_old_tests_are_deleted`.
+
+## Ruling
+
+Accepted by the orchestrator (2026-10-18): verified and merged into main; the escalation was a process gate (TDD evidence for a deletion in one commit / vitest refs the verifier cannot run), confirmed green by hand.

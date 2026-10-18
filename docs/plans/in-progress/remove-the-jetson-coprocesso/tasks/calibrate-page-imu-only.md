@@ -1,6 +1,6 @@
 ---
 title: Calibrate page IMU only
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The Calibrate page shows only the IMU section; no stereo calibration UI or API client remains."
 files: [nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibrateRouting.test.tsx, nodes/web_ui/frontend/src/calibrate/stereoApi.ts, nodes/web_ui/frontend/src/calibrate/stereoApi.test.ts, nodes/web_ui/frontend/src/calibrate/StereoCalibration.tsx, nodes/web_ui/frontend/src/calibrate/StereoCalibration.test.tsx, nodes/web_ui/README.md]
@@ -70,3 +70,7 @@ The Calibrate page is IMU-only in code, tests and README.
 
 
 - `CalibratePage.tsx:11,15,30,72` (discovery brief). The page is off on the robot today (no `calibration:` block in client.yml).
+
+## Ruling
+
+Accepted by the orchestrator (2026-10-18): verified and merged into main; the escalation was a process gate (TDD evidence for a deletion in one commit / vitest refs the verifier cannot run), confirmed green by hand.

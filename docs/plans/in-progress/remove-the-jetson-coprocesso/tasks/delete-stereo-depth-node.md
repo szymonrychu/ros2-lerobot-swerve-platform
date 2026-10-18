@@ -1,6 +1,6 @@
 ---
 title: Delete stereo_depth node
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The retired Python stereo_depth sources leave the repo; its uninstall entry stays."
 files: [nodes/stereo_depth/, pyproject.toml, scripts/lint-all-nodes.sh, .github/workflows/ci.yml, tests/test_ansible_deploy_speed.py, tests/test_stereo_depth_config.py, nodes/README.md, tests/README.md]
@@ -71,3 +71,7 @@ The stereo_depth sources and lint/CI entries are gone; the uninstall entry and i
 
 
 - Discovery brief: `pyproject.toml:95`, `scripts/lint-all-nodes.sh:7`, `ci.yml:71`, `test_ansible_deploy_speed.py:795-796`, `nodes/README.md:22`, `tests/README.md:437-462`.
+
+## Ruling
+
+Accepted by the orchestrator (2026-10-18): verified and merged into main; the escalation was a process gate (TDD evidence for a deletion in one commit / vitest refs the verifier cannot run), confirmed green by hand.

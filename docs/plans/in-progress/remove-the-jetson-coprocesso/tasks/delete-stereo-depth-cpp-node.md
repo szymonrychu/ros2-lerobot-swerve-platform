@@ -1,6 +1,6 @@
 ---
 title: Delete stereo_depth_cpp node
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The retired C++ stereo port and its CPU-compare entry leave the repo; its uninstall entry stays."
 files: [nodes/stereo_depth_cpp/, .github/workflows/ci.yml, scripts/node_cpu_compare.yaml, tests/test_node_cpu_compare.py, tests/test_stereo_depth_config.py, scripts/README.md, nodes/README.md, tests/README.md]
@@ -72,3 +72,7 @@ No stereo_depth_cpp source, CI job entry or CPU-compare pair remains; the uninst
 
 
 - Discovery brief: `ci.yml:103`, `scripts/node_cpu_compare.yaml:15`, `scripts/README.md:195`, `nodes/README.md:23`, `tests/README.md:463-470,1508+`.
+
+## Ruling
+
+Accepted by the orchestrator (2026-10-18): verified and merged into main; the escalation was a process gate (TDD evidence for a deletion in one commit / vitest refs the verifier cannot run), confirmed green by hand.
