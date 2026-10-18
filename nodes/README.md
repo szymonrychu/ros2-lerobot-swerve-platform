@@ -17,7 +17,7 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **bridges/bno055_imu/** — BNO055 IMU bridge; publishes `sensor_msgs/Imu` on `/imu/data` with covariance for Nav2 (Client only).
 - **bridges/gps_rtk/** — GPS RTK bridge for LC29H-BS (base, Server) and LC29H-DA (rover, Client); publishes `sensor_msgs/NavSatFix`, streams RTCM3 over TCP.
 - **bridges/rplidar_a1/** — RPLidar A1 bridge; publishes `sensor_msgs/LaserScan` on `/scan` (Client only).
-- **bridges/realsense_d435i/** — RealSense D435i bridge (retired: the Ansible node is `present: false`, replaced by the Jetson camera path).
+- **bridges/realsense_d435i/** — RealSense D435i bridge (retired: the Ansible node is `present: false`, superseded by the Pi camera previews and the Arducam ToF).
 - **pi_cameras/** - Launch-only node: two Raspberry Pi Camera Module 3 (IMX708) on CSI cam0 and cam1 as front/back previews (`/front_camera/image_raw/compressed`, `/back_camera/image_raw/compressed`, 640x480 at 10 fps, camera_ros on a source-built libcamera fork); `front_port` (default `cam0`) picks the front one. Background cgroup tier; consumed only by the web_ui "Front/Back" tab.
 - **swerve_drive_controller/** — Swerve controller: cmd_vel → steer positions + wheel velocities (IK, +-90 deg steering), odometry from FK with slip-aware wheel dropping and residual-based covariance (Client only).
 - **static_tf_publisher/** — Static TF base_link → sensor frames (Client only).

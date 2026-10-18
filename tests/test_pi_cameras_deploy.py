@@ -2,8 +2,8 @@
 
 The pi_cameras node type builds libcamera and camera_ros from pinned sources (the same pins and patches as the retired
 overview_camera, so the existing build stamps match and nothing rebuilds), runs in the background tier and publishes
-/front_camera/* (and /back_camera/* when the back role is launched). The /overview_camera/* names belong to the Jetson
-bridge and must not be used. CSI cam1 carries the Arducam ToF camera, so only the front role is deployed and the boot
+/front_camera/* (and /back_camera/* when the back role is launched). The retired /overview_camera/* names must not be
+used. CSI cam1 carries the Arducam ToF camera, so only the front role is deployed and the boot
 config (tasks/pi_camera_boot_config.yml) loads the imx708 overlay on cam0 explicitly.
 """
 

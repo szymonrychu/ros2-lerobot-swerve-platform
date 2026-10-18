@@ -149,14 +149,23 @@
 - mcp_server keeps `record_lookup`, the 32-hex lookup ids and the lookup tools as a facade, so the grasp jaw crop (E1, `full_frame=False`: no FOV), frontier facing (E5) and failure evidence (E8) did not change. New: `delete_photos`; `delete_poi` / `update_poi` take photo ids; each photo carries a `view` (camera position, yaw, pitch, hfov; the uncalibrated front camera uses the base heading and has no pitch or FOV, never invented).
 - Rejected: photos inside poi.json (multi-MB rewrite per camera call), a virtual photo kind owned by mcp_server (the web UI could not delete), SQLite (not needed at this size).
 
-## Stereo depth (IMX219 pair, client)
+## Stereo depth (IMX219 pair, client) - SUPERSEDED 2026-10-18 (removed with the Jetson, see "Jetson removal")
 
+* Historical, superseded: the pair, its sources and its calibration are gone.
 * **Two IMX219 on cam0/cam1 replace the IMX708 overview camera and the Arducam ToF** (2026-10-12). Why:
   - The IMX219 lens is fixed, while the IMX708's VCM lens drifts even in manual focus (gravity on the pan/tilt head, temperature, vibration), and any lens shift breaks the stereo calibration.
-  - The Arducam ToF never came up. It stays installed and `enabled: false`.
+  - The Arducam ToF had not come up at the time (2026-10-12); this claim is stale: the ToF now works on CSI cam1.
   - The client has only about 0.3-0.45 of 4 cores free. So the pair runs at 480x360 (ISP-downscaled from the 1640x1232 binned mode) with SGBM 3WAY and 48 disparities, about 0.4 core at 5 fps, on the client rather than offloaded to the server.
 * `nodes/stereo_depth` publishes depth on the ToF contract (`/stereo/depth/image_raw`: 16UC1 mm, 0 = invalid, plus `/stereo/camera_info`), so the Head tab needs no serializer change. The left camera keeps the `/overview_camera/*` topics.
 * No calibration, a pair skew above `sync_slop_s` (2 ms; libcamera SyncMode keeps the sensors in step), a size mismatch or an all-invalid pair means nothing is published (logged and counted). Calibration lives in `/var/lib/ros2/camera_calibration/{stereo_left,stereo_right,stereo}.yaml` and is picked up without a restart.
+
+## Jetson removal (2026-10-18)
+
+* The Jetson coprocessor is removed from the robot; the `jetson/` tree, Jetson roles, playbook and deploy target are deleted.
+* `stereo_depth` / `stereo_depth_cpp` sources are deleted; their retired `present: false` entries stay so the next deploy uninstalls them (D7). `jetson_bridge_cpp` is `present: false` with `colcon_purge`; `./scripts/deploy-nodes.sh client jetson_link` removes the client's link state (hosts line, sysctl, nftables).
+* The web_ui Head tab shows the Arducam ToF depth + amplitude, with no RGB. `/front_camera` feeds the Arm tab and the mcp_server `front` camera. The Overview tab and stereo calibration are gone.
+* The client keeps chrony with plain internet pools.
+* The earlier "the ToF never came up" claim is corrected: the ToF works on CSI cam1; ToF frame capture on the Pi 5 kernel is tracked separately.
 
 ## ROS2 topic publishing
 

@@ -361,7 +361,7 @@ ros2_node_type_defaults:
       - ros-jazzy-image-transport
       - ros-jazzy-image-transport-plugins
       - ros-jazzy-compressed-image-transport
-  # Retired (D7): the Pi's stereo pipeline never produced depth; the Jetson depthd replaces it. The entries are
+  # Retired (D7): the Pi's stereo pipeline never produced depth and saturated its CPU; its sources are deleted. The entries are
   # present: false, so a deploy of these names runs only the uninstall path of roles/ros2_node_deploy/tasks/main.yml,
   # which needs deploy_mode and a launch command (the role asserts it) and nothing else.
   stereo_depth:
@@ -1090,13 +1090,12 @@ ros2_nodes:
     node_type: realsense_d435i
     present: false
     enabled: false
-  # Retired (D7): the cameras are physically gone from the Pi (the Jetson carries them; jetson_bridge_cpp republishes
-  # /overview_camera/*). present: false uninstalls the unit, launcher and config on the next deploy.
+  # Retired (D7): the overview camera is gone from the Pi (the CSI ports carry the front preview and the ToF).
+  # present: false uninstalls the unit, launcher and config on the next deploy.
   - name: overview_camera
     node_type: overview_camera
     present: false
-  # Front/back Camera Module 3 previews (/front_camera/* and /back_camera/*; the /overview_camera/* names are the Jetson
-  # bridge's). front_port is the CSI connector of the front camera: cam0 (default) is front, cam1 is back; set cam1 to swap.
+  # Front/back Camera Module 3 previews (/front_camera/* and /back_camera/*). front_port is the CSI connector of the front camera: cam0 (default) is front, cam1 is back; set cam1 to swap.
   # Camera IDs: `cam -l` on the client (defaults in nodes/pi_cameras/config/params.yaml). roles lists the cameras to
   # launch: only front, because CSI cam1 now carries the Arducam ToF camera (arducam_tof).
   - name: pi_cameras
@@ -1106,8 +1105,8 @@ ros2_nodes:
     config: |
       front_port: cam0
       roles: [front]
-  # Retired (D7): the Pi never produced stereo depth (CPU-saturated); the Jetson depthd does, republished by
-  # jetson_bridge_cpp on the same /stereo/* names. present: false makes the next deploy of these names uninstall the
+  # Retired (D7): the Pi never produced stereo depth (CPU-saturated) and its sources are deleted.
+  # present: false makes the next deploy of these names uninstall the
   # units, launchers, venv and config directories.
   - name: stereo_depth
     node_type: stereo_depth

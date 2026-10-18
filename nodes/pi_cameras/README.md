@@ -2,7 +2,7 @@
 
 Front and back previews from Raspberry Pi Camera Module 3 (Sony IMX708, autofocus) on the client Pi 5 CSI ports cam0
 and cam1. `roles` selects which are launched; the robot runs only the front one (cam0), because cam1 carries the Arducam
-ToF camera. Preview only: the only consumer is the `web_ui` "Front" camera tab. Launch-only node (like
+ToF camera. Preview only: `/front_camera` is consumed by the `web_ui` Front and Arm tabs and the `mcp_server` `front` camera. Launch-only node (like
 `slam_toolbox`): no Python package, the Ansible unit runs `ros2 launch nodes/pi_cameras/launch/pi_cameras.launch.py`.
 
 ## Pipeline
@@ -17,7 +17,7 @@ camera_ros `camera::CameraNode` per launched role (`launch.roles`, flat key `rol
 | `/front_camera/camera_info` | `sensor_msgs/CameraInfo` | uncalibrated |
 | `/back_camera/image_raw`, `/back_camera/image_raw/compressed`, `/back_camera/camera_info` | same | back camera |
 
-The `/overview_camera/*` names are the Jetson bridge's (`jetson_bridge_cpp`) and are not used here. Frame ids:
+The retired `/overview_camera/*` names are not used here. Frame ids:
 `front_camera_optical_frame`, `back_camera_optical_frame` (no TF is published: the mount poses are not measured).
 
 Camera controls (`config/params.yaml`): `sensor_mode` `"2304:1296"` (the binned full field of view, ISP-downscaled to
