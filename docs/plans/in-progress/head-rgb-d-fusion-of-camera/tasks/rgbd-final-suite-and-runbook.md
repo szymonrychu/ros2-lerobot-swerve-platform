@@ -78,3 +78,5 @@ The epic's goals are verified on the robot with recorded numbers.
 - Use the grafana MCP or Grafana Explore for CPU; do not SSH to read top.
 
 - 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on rgbd-methodology-doc
+
+- 2026-10-19 run head-rgb-d-fusion-of-camera: dependency-failed on rgbd-methodology-doc

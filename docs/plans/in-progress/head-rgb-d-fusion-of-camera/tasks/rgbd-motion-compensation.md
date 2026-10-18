@@ -1,6 +1,6 @@
 ---
 title: RGBD motion compensation
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Depth stays on the right pixels while the head pans or the robot turns, and frames too blurred to fix are dropped instead of smearing the map."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/motion.hpp, nodes/head_rgbd_cpp/src/core/motion.cpp, nodes/head_rgbd_cpp/test/core/test_motion.cpp]
@@ -13,12 +13,12 @@ estimate: 75
 actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--rgbd-motion-compensation
-verified_head: ""
+verified_head: d0a154ab51b2d045b4a812ba0f3e08ab100b5d8e
 run: head-rgb-d-fusion-of-camera
-provides: []
+provides: [head-rgbd-motion]
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-motion-compensation
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["Design D10 drop-reason label list omits pair_dt; head-rgbd-node-wiring should register it for head_rgbd_pairs_dropped_total"]
 ---
 
 # RGBD motion compensation

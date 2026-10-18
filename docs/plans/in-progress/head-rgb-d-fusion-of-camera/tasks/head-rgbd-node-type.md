@@ -1,6 +1,6 @@
 ---
 title: Head RGBD node type
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Ansible deploys, configures, enables and disables the fusion node by name, with the head camera mapping stream and the ToF stamp setting it relies on."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_head_rgbd_deploy.py, tests/test_unit_cgroups.py, tests/test_node_metrics_wiring.py, ansible/README.md, nodes/README.md, .claude/skills/ansible-deploy/SKILL.md]
@@ -13,9 +13,9 @@ estimate: 60
 actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--head-rgbd-node-type
-verified_head: ""
+verified_head: 5883535fca2762a1bc77485aa44f232153db2958
 run: head-rgb-d-fusion-of-camera
-provides: []
+provides: [node-config-files-deploy]
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-rgbd-node-type
 acs_for_audit: []
 process_gaps: []

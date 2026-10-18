@@ -1,6 +1,6 @@
 ---
 title: RGBD cloud builder
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Consumers get a coloured 3D point cloud from the registered pair at a low, configurable rate."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/cloud.hpp, nodes/head_rgbd_cpp/src/core/cloud.cpp, nodes/head_rgbd_cpp/test/core/test_cloud.cpp]
@@ -13,12 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 branch: head-rgb-d-fusion-of-camera--rgbd-cloud-builder
-verified_head: ""
+verified_head: 2ed2f93dbdf78cb383dfe4aa5f44c4e082428495
 run: head-rgb-d-fusion-of-camera
-provides: []
+provides: [head-rgbd-cloud]
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-cloud-builder
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["The red step of the test-first cycle was a compile failure, because the implementation was written before the test."]
 ---
 
 # RGBD cloud builder
