@@ -6,6 +6,15 @@ integer coordinate. Polygons are filled with cv2.fillPoly (LINE_8, shift=8: fixe
 centre is inside are set, and the cells the edges pass through are set as well (conservative boundary). Array
 row = j (y index), column = i, with no flip, so mask.ravel() is the OccupancyGrid row-major data
 (row 0 = lowest y). Overlapping polygons are filled one per call, so they never cancel each other out.
+
+The keepout mask holds three values (nav2_costmap_2d, Jazzy):
+- KEEPOUT_BACKGROUND (-1) outside every zone. keepout_filter.cpp (KeepoutFilter::process loop) skips mask cells
+  equal to -1 and writes every other value when it is above the costmap cell or the cell is unknown.
+- slow_value (config slow_zone_mask_value, 1..99) in slow zones. costmap_filter.cpp getMaskCost maps a mask value
+  linearly from 0..100 to the cost 0..254, round(v * 254 / 100): 1..99 give 3..251, below MAX_NON_OBSTACLE 252, so
+  slow cells stay passable but cost more and the planner routes around them when a reasonable detour exists.
+- KEEPOUT_INSIDE (100) in keepout zones: cost 254 (LETHAL). Keepout wins where it overlaps a slow zone.
+The speed mask (SpeedFilter) is separate and carries the speed cap of the slow zones.
 """
 
 import math
@@ -190,12 +199,16 @@ def fill_zone(geometry: MapGeometry, polygon: tuple[tuple[float, float], ...]) -
     return canvas.astype(bool)
 
 
-def rasterise_keepout(geometry: MapGeometry, zones: list[Zone]) -> np.ndarray:
-    """Keepout mask: KEEPOUT_INSIDE (100) in any keepout zone, KEEPOUT_BACKGROUND (-1) elsewhere.
+def rasterise_keepout(geometry: MapGeometry, zones: list[Zone], slow_value: int) -> np.ndarray:
+    """Keepout mask: KEEPOUT_INSIDE (100) in keepout zones, slow_value in slow zones, KEEPOUT_BACKGROUND (-1) elsewhere.
+
+    Slow zones are filled first and keepout zones after them, so a keepout always wins where the two overlap,
+    whatever the zone order.
 
     Args:
         geometry (MapGeometry): Map grid the mask copies.
-        zones (list[Zone]): Active zones; slow zones are ignored.
+        zones (list[Zone]): Active zones.
+        slow_value (int): Mask value of slow-zone cells (1..99, validated by CostmapZonesConfig).
 
     Returns:
         np.ndarray: int8 array (height, width), row = y index.
@@ -205,9 +218,10 @@ def rasterise_keepout(geometry: MapGeometry, zones: list[Zone]) -> np.ndarray:
     """
     require_axis_aligned(geometry)
     mask = np.full((geometry.height, geometry.width), KEEPOUT_BACKGROUND, dtype=np.int8)
-    for zone in zones:
-        if zone.zone == ZONE_KEEPOUT:
-            mask[fill_zone(geometry, zone.polygon)] = KEEPOUT_INSIDE
+    for kind, value in ((ZONE_SLOW, slow_value), (ZONE_KEEPOUT, KEEPOUT_INSIDE)):
+        for zone in zones:
+            if zone.zone == kind:
+                mask[fill_zone(geometry, zone.polygon)] = value
     return mask
 
 
