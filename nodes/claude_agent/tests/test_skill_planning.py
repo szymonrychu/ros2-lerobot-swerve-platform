@@ -1,5 +1,6 @@
-import re
 """Planning skill: it loads and carries the workflow choice and the generous breakdown rules."""
+
+import re
 
 from claude_agent.skills import PLUGIN_DIR, check_skill, read_skill
 
