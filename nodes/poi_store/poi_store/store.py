@@ -416,35 +416,55 @@ class PoiStore:
         keep_zones: bool = False,
         ids: list[str] | None = None,
     ) -> Result:
-        """Delete the POIs matching every given filter and strip them from photo links (photos stay).
+        """Delete the POIs and photos matching every given filter (photos with their JPEGs), strip links.
+
+        Photos are matched by the same filters as other POIs (keep_zones never keeps a photo). The photos go first,
+        in one index rewrite, so a photo store failure leaves the POIs untouched.
 
         Args:
             created_by: "agent" or "user"; None matches every creator.
             statuses: Only POIs whose status is in this list; None matches every status, [] nothing.
-            kinds: Only POIs of these kinds; None matches every kind, [] nothing.
+            kinds: Only POIs of these kinds ("photo" included); None matches every kind, [] nothing.
             keep_zones: True keeps areas whose zone is keepout or slow, any status.
             ids: Only POIs with these ids; None means no id filter, [] nothing; unknown ids are ignored.
 
         Returns:
-            Result: Result triple; the third item is {"removed": count}.
+            Result: Result triple; the third item is {"removed": total, "pois": n, "photos": m}.
         """
         id_filter = None if ids is None else set(ids)
+
+        def matches(poi_id: str, creator: str, status: str, kind: str) -> bool:
+            return (
+                (created_by is None or creator == created_by)
+                and (statuses is None or status in statuses)
+                and (kinds is None or kind in kinds)
+                and (id_filter is None or poi_id in id_filter)
+            )
+
+        doomed_photos: set[str] = set()
+        if self.photos is not None:
+            doomed_photos = {r.id for r in self.photos.records() if matches(r.id, r.created_by, r.status, PHOTO_KIND)}
         doomed = [
             poi_id
             for poi_id, poi in self.pois.items()
-            if (created_by is None or poi.created_by == created_by)
-            and (statuses is None or poi.status in statuses)
-            and (kinds is None or poi.kind in kinds)
-            and (id_filter is None or poi_id in id_filter)
+            if matches(poi_id, poi.created_by, poi.status, poi.kind)
             and not (keep_zones and poi.kind == "area" and poi.zone in (ZONE_KEEPOUT, ZONE_SLOW))
         ]
+        if doomed_photos:
+            assert self.photos is not None  # doomed_photos is empty without a photo store
+            try:
+                with self.photos.lock:
+                    self.photos.remove(doomed_photos)
+            except OSError as exc:
+                return self.photo_failure(exc, "clear")
         for poi_id in doomed:
             del self.pois[poi_id]
         if doomed:
             self.commit()
         for poi_id in doomed:
             self.strip_photo_links(poi_id)
-        return True, f"cleared {len(doomed)}", {"removed": len(doomed)}
+        counts = {"removed": len(doomed) + len(doomed_photos), "pois": len(doomed), "photos": len(doomed_photos)}
+        return True, f"cleared {len(doomed)} POIs and {len(doomed_photos)} photos", counts
 
     def op_replace(self, entries: list[dict[str, Any]]) -> Result:
         """Make the non-photo POI set exactly the given POIs (ids and timestamps kept), all or nothing.
