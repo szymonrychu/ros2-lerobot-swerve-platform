@@ -106,6 +106,8 @@ export function PoiListPanel({
   const [filter, setFilter] = useState<ReadonlySet<string>>(new Set())
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set())
   const visible = useMemo(() => filterPois(pois, filter), [pois, filter])
+  // Photo POIs have no category: they are listed (and markable) while no category filter is active.
+  const visiblePhotos = filter.size === 0 ? photos : NO_PHOTOS
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
     for (const p of pois) c[poiCategory(p)] = (c[poiCategory(p)] ?? 0) + 1
@@ -114,10 +116,11 @@ export function PoiListPanel({
   // A POI deleted elsewhere (or hidden by the filter) loses its mark.
   useEffect(() => {
     setMarked((m) => {
-      const next = pruneMarked(m, visible)
+      const ids = new Set(visiblePhotos.map((p) => p.id))
+      const next = new Set([...pruneMarked(m, visible), ...[...m].filter((id) => ids.has(id))])
       return next.size === m.size ? m : next
     })
-  }, [visible])
+  }, [visible, visiblePhotos])
   const toggleCategory = (category: string) => {
     setFilter((f) => {
       const next = new Set(f)
@@ -174,12 +177,12 @@ export function PoiListPanel({
           selected={filter}
           markedCount={marked.size}
           onToggleCategory={toggleCategory}
-          onMarkAllVisible={() => setMarked(markAllVisible(visible))}
+          onMarkAllVisible={() => setMarked(new Set([...markAllVisible(visible), ...visiblePhotos.map((p) => p.id)]))}
           onClearMarks={() => setMarked(new Set())}
         />
         </Box>
         <List dense disablePadding sx={{ maxHeight: { xs: '28dvh', sm: '40dvh' }, overflowY: 'auto' }}>
-          {pois.length === 0 && (
+          {pois.length === 0 && visiblePhotos.length === 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ pb: 1 }}>
               No points of interest yet.
             </Typography>
@@ -210,6 +213,24 @@ export function PoiListPanel({
               </Box>
             </ListItemButton>
           ))}
+          {visiblePhotos.map((ph) => (
+            <ListItemButton key={ph.id} sx={{ minHeight: (t) => t.spacing(6) }} data-testid="poi-photo-row">
+              <Checkbox
+                size="small"
+                edge="start"
+                checked={marked.has(ph.id)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => setMarked((m) => toggleMarked(m, ph.id))}
+                slotProps={{ input: { 'aria-label': `Mark ${ph.name || '(unnamed)'}` } }}
+              />
+              <ListItemText
+                primary={ph.name || '(unnamed)'}
+                secondary={`photo - ${ph.createdBy ?? 'unknown'} - ${formatUpdated(ph.ts, now)}`}
+                primaryTypographyProps={{ noWrap: true }}
+                secondaryTypographyProps={{ noWrap: true }}
+              />
+            </ListItemButton>
+          ))}
         </List>
         {tabId && (
           <>
@@ -234,6 +255,7 @@ export function PoiListPanel({
               <DeleteMarkedDialog
                 tabId={tabId}
                 pois={pois}
+                photos={photos}
                 marked={marked}
                 onDone={() => setMarked(new Set())}
                 onClose={() => setDeleteOpen(false)}
