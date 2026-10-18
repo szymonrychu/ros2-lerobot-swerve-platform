@@ -5,7 +5,7 @@
 The Jetson Nano leaves the robot, so everything that exists only for it is deleted: the `jetson/` tree, the
 `jetson_base`, `jetson_depthd` and `jetson_link` roles, the `jetson` deploy target, `nodes/jetson_bridge_cpp`, the
 retired Pi-side `stereo_depth` / `stereo_depth_cpp` sources, `depth_wire` in `ros2_common_cpp`, and every `/stereo/*`
-and `/overview_camera/*` consumer. The web_ui Head tab shows the Arducam ToF (depth + amplitude, no RGB); the Arm tab
+and `/overview_camera/*` consumer. The web_ui Head tab shows the Arducam ToF (depth + amplitude) with RGB from the Camera Module 3 head camera; the Arm tab
 and mcp_server use `/front_camera/image_raw/compressed`; the Overview tab and the stereo calibration proxy go. On the
 client, `jetson_bridge_cpp` becomes a `present: false` entry whose uninstall also purges its colcon output, and the
 client side of the Jetson cable is undone by an idempotent removal under the existing `jetson_link` tag, with chrony
@@ -23,7 +23,7 @@ NAT/forwarding/static-IP state on the Pi that no longer serves anything. Doing i
 - No Jetson code, roles, playbooks, deploy target, scripts, CI jobs, tests or live docs remain (docs/plans archive
   untouched); a suite test greps for live references against a categorised allowlist.
 - `nodes/stereo_depth`, `nodes/stereo_depth_cpp` (and their node_cpu_compare entry) and `depth_wire` are deleted.
-- Head tab: `/tof/depth/image_raw` + `/tof/amplitude/image_raw`, no RGB; `fused_depth_topic` and the raw/fused toggle
+- Head tab: `/tof/depth/image_raw` + `/tof/amplitude/image_raw`, RGB `/front_camera/image_raw/compressed`; `fused_depth_topic` and the raw/fused toggle
   removed from backend and frontend code.
 - Arm tab and mcp_server `front` camera on `/front_camera/image_raw/compressed`; Overview tab removed.
 - Calibrate page IMU-only: no `depthd_url`, no stereo proxy, no `stereoApi`.
@@ -95,10 +95,13 @@ The network role loses `network_link_ethernets`, `network_netplan_superseded_fil
 superseded-file removal; monitoring_agent loses `monitoring_agent_host_targets`, the host scrape block and the
 per-target `host` override. Alternative: keep them generic and empty (rejected, decision 4). Serves: U4, G8.
 
-### D5: Head tab is ToF depth + amplitude, no RGB, no camera_info subscription
+### D5: Head tab is ToF depth + amplitude plus head RGB, no camera_info subscription
+
+Amended 2026-10-18 (user): the Camera Module 3 and the ToF together form the head on the pan/tilt stand; there are no separate front/back cameras. The Head tab therefore keeps `rgb_camera_topic: /front_camera/image_raw/compressed`; the follow-up epic front-camera-30-fps-stream-w renames the camera to /head_camera everywhere.
+
 
 Both `default.yaml` and `client.yml` head tabs set `tof_depth_topic: /tof/depth/image_raw`,
-`tof_amplitude_topic: /tof/amplitude/image_raw`, keep `tof_range_m: 4.0`, and have no `rgb_camera_topic`. The ToF's
+`tof_amplitude_topic: /tof/amplitude/image_raw`, keep `tof_range_m: 4.0`, and `rgb_camera_topic: /front_camera/image_raw/compressed` (amended). The ToF's
 `/tof/camera_info` is documented as published by arducam_tof, but the Head tab does not subscribe it (my call): the
 tab has no camera_info consumer, and `camera_info_topic` would only stream unused intrinsics over the websocket.
 Serves: U5, G3.

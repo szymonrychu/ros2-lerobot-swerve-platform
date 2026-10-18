@@ -35,7 +35,7 @@
   },
   {
     "id": "G3",
-    "text": "The web_ui Head tab is configured with /tof/depth/image_raw and /tof/amplitude/image_raw (camera_info /tof/camera_info) and no RGB; the fused-depth topic and raw/fused toggle are removed from the code, not just config.",
+    "text": "The web_ui Head tab is configured with /tof/depth/image_raw and /tof/amplitude/image_raw (camera_info /tof/camera_info) and the head RGB camera /front_camera/image_raw/compressed (user, 2026-10-18: Camera Module 3 + ToF form the pan/tilt head; no separate front/back cameras); the fused-depth topic and raw/fused toggle are removed from the code, not just config.",
     "decisions": [
       "D2",
       "D5"
@@ -178,7 +178,7 @@
   },
   {
     "id": "U5",
-    "text": "Decision 5: Head tab = ToF depth + amplitude, no RGB; the Arm tab and mcp_server / claude_agent use /front_camera/image_raw/compressed; drop the web_ui Overview tab.",
+    "text": "Decision 5: Head tab = ToF depth + amplitude with RGB from the Camera Module 3 head camera (/front_camera/image_raw/compressed, amended 2026-10-18); the Arm tab and mcp_server / claude_agent use /front_camera/image_raw/compressed; drop the web_ui Overview tab.",
     "decisions": [
       "D5",
       "D6"
