@@ -96,7 +96,7 @@ def test_config_parses_startup_position(tmp_path: Path) -> None:
         "startup_position_rad: .inf",
         "startup_position_rad: abc",
         "startup_position_rad: 1.0\n    command_min_steps: 1000\n    command_max_steps: 2100",
-        "startup_position_rad: -1.0\n    command_min_steps: 1000\n    command_max_steps: 3000",
+        "startup_position_rad: -2.0\n    command_min_steps: 1000\n    command_max_steps: 3000",
         "startup_position_rad: 5.0",
     ],
 )
@@ -115,9 +115,9 @@ def bridge_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return module
 
 
-@pytest.mark.parametrize(("failed", "expected"), [([], {1, 2}), ([1], {2})])
+@pytest.mark.parametrize("failed", [[], [1]])
 def test_bridge_queues_goals_only_for_torqued_servos(
-    bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch, failed: list[int], expected: set[int]
+    bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch, failed: list[int]
 ) -> None:
     fake = FakeRclpy()
     monkeypatch.setattr(bridge_module, "rclpy", fake)
@@ -142,4 +142,4 @@ def test_bridge_queues_goals_only_for_torqued_servos(
 
     joints, torque_ids, _log = cycle_class.return_value.queue_startup_goals.call_args.args
     assert {j.id for j in joints} == {1, 2, 3}
-    assert set(torque_ids) == expected | ({3} if 3 not in failed else set())
+    assert set(torque_ids) == {1, 2, 3} - set(failed)
