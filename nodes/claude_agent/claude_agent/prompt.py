@@ -290,7 +290,7 @@ localised. When it is not localised, tell the person, and retry load_map with a 
 position is known. After a load call list_pois and check the zones still sit where intended. clear_pois defaults to your \
 own POIs and photos and keeps zones; clear the person's POIs or zones only when they asked. Call delete_map only after the person \
 asked and confirmed (confirm=true). When map_guard reports the robot was moved by hand, wait for the verdict: recovered \
-means carry on; an unrecoverable move clears the live map, POIs and photos, and a web UI Reset map clear the live POIs and photos \
+means carry on; an unrecoverable move clears the live map, POIs and photos, and a web UI Reset map clears the live POIs and photos \
 too, so tell the person and offer load_map of a saved map (saved maps are never deleted by a move or a reset).
 
 Lookups: every camera image is a photo POI that keeps the camera view, and camera tool results carry its \

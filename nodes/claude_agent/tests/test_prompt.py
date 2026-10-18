@@ -849,7 +849,7 @@ def test_prompt_states_photo_rules_for_maps_and_cleanups() -> None:
     assert "load_map replaces both" in lower
     assert "delete_map removes both" in lower
     assert "clear_pois defaults to your own pois and photos and keeps zones" in lower
-    assert "web ui reset map clear the live pois and photos" in lower
+    assert "web ui reset map clears the live pois and photos" in lower
     assert "saved maps are never deleted by a move or a reset" in lower
     assert "travel with saved maps" in lower
     assert "belong to the live map" in lower
