@@ -363,6 +363,7 @@ class MapManager:
                 "save": self.save,
                 "load": self.load,
                 "delete": self.delete,
+                "clear_live": self.clear_live,
                 "relocalise": self.relocalise,
             }
             handler = handlers.get(command.op)
@@ -868,12 +869,14 @@ class MapManager:
         notes = [reason]
         if state == "localised" and not self.set_paused(False):
             notes.append(UNPAUSE_FAILED_REASON)
-        discarded = 0
+        discarded = discarded_photos = 0
         if state != "localised" and command.discard_on_fail:
-            discarded, message = self.discard_live_pois()
+            discarded, discarded_photos, message = self.discard_live_pois()
             if discarded < 0:
-                discarded = 0
-                notes.append(f"POIs not discarded: {message}")
+                discarded = discarded_photos = 0
+                notes.append(f"POIs and photos not discarded: {message}")
+            else:
+                notes.append(f"discarded {discarded} POIs and {discarded_photos} photos")
         with self.state_lock:
             self.before_load = None
         self.set_localisation(
@@ -890,6 +893,7 @@ class MapManager:
             "search_reason": search_reason,
             "ambiguous": search is not None and search.ambiguous,
             "discarded_pois": discarded,
+            "discarded_photos": discarded_photos,
             "active_map": self.active_map,
             "load_seq": self.load_seq,
         }
@@ -900,13 +904,48 @@ class MapManager:
             data=data,
         )
 
-    def discard_live_pois(self) -> tuple[int, str]:
-        """Empty the live POI set through poi_store.
+    def discard_live_pois(self) -> tuple[int, int, str]:
+        """Empty the live POIs and photos through poi_store and clear the live owner when that worked.
 
         Returns:
-            tuple[int, str]: Number of POIs emptied (-1 when the replace failed) and poi_store's message.
+            tuple[int, int, str]: POIs and photos removed (both -1 when the replace failed) and poi_store's message.
+        """
+        ok, message, counts = self.poi.replace([])
+        if not ok:
+            return -1, -1, message
+        self.set_active_map(None)
+        return int(counts.get("removed", 0)), int(counts.get("photos_removed", 0)), message
+
+    # ------------------------------------------------------------------ clear live
+
+    def clear_live(self, command: MapCommand) -> MapResult:
+        """Empty the live POIs and photos (web UI Reset map); saved maps stay and the live owner is cleared.
+
+        Args:
+            command (MapCommand): ``op: clear_live``.
+
+        Returns:
+            MapResult: ok when emptied; ``data`` has pois_removed, photos_removed and active_map (None). A failed
+            replace is not ok, names poi_store's reason and keeps ``active_map``.
         """
         listing = self.poi.latest_list()
-        count = len(listing[0]) if listing is not None else 0
-        ok, message, _ = self.poi.replace([])
-        return (count if ok else -1), message
+        entries = listing[0] if listing is not None else []
+        photos = sum(1 for entry in entries if entry.get("kind") == PHOTO_KIND)
+        pois = len(entries) - photos
+        ok, message, counts = self.poi.replace([])
+        if not ok:
+            return MapResult(
+                request_id=command.request_id,
+                ok=False,
+                message=f"live set not cleared: {message}; active map stays {self.active_map or 'none'}",
+                data={"pois_removed": 0, "photos_removed": 0, "active_map": self.active_map},
+            )
+        self.set_active_map(None)
+        pois = int(counts.get("removed", pois))
+        photos = int(counts.get("photos_removed", photos))
+        return MapResult(
+            request_id=command.request_id,
+            ok=True,
+            message=f"live set cleared: removed {pois} POIs and {photos} photos; saved maps kept",
+            data={"pois_removed": pois, "photos_removed": photos, "active_map": None},
+        )

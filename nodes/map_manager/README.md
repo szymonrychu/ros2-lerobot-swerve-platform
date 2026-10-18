@@ -65,7 +65,7 @@ load ends "not localised". `LocalisationJudge` turns live agreement samples into
 
 | Topic | Type / QoS | Direction | Payload |
 |---|---|---|---|
-| `/map_manager/command` | std_msgs/String, reliable | in | `MapCommand` JSON: `save`, `load`, `delete`, `relocalise` |
+| `/map_manager/command` | std_msgs/String, reliable | in | `MapCommand` JSON: `save`, `load`, `delete`, `relocalise`, `clear_live` |
 | `/map_manager/result` | std_msgs/String, reliable, volatile | out | `MapResult` (`request_id`, `ok`, `message`, `data`); a load answers after the verdict |
 | `/map_manager/status` | std_msgs/String, reliable, latched | out | `MapStatus` (maps, active map, `load_seq`, `localisation`); published at start and after every change |
 | `/map_manager/localised` | std_msgs/Bool, reliable, latched | out | not published at start; false while loading or not localised, true when localised |
@@ -96,8 +96,14 @@ the POI set; collect agreement samples and judge; unpause only when localised. W
 near-region match (0.8 m, +-0.349 rad window, no rejection), an unreadable file still answers success so the files
 are checked first and the load is confirmed by `/pose`, and the first scan after the deserialize is processed even
 while new measurements are paused. `relocalise` (kidnap, design D13) runs the same steps on the live graph
-serialized to a scratch directory; with `discard_on_fail` it empties the live POIs when the pose is not recovered.
-Named bundles are never touched by it.
+serialized to a scratch directory; with `discard_on_fail` it empties the live POIs and photos when the pose is not recovered, clears the live owner
+(`active_map`) and reports `discarded_pois` and `discarded_photos` in `data` and the message. Named bundles are never
+touched by it.
+
+`clear_live` (web UI Reset map) empties the live POIs and photos through poi_store's `replace`, clears and persists
+`active_map` and answers "live set cleared: removed N POIs and M photos; saved maps kept" with `data`
+`{pois_removed, photos_removed, active_map: null}`. A failed or unanswered replace is `ok: false` naming poi_store's
+reason and keeps `active_map`. It is refused with `busy` like any op while another runs; saved maps are kept.
 
 ## Config keys (`/etc/ros2/map_manager/config.yaml`)
 
