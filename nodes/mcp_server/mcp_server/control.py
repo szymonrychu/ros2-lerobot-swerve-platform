@@ -25,6 +25,14 @@ close held an object, grasped or unverified, and the carried radius of the last 
 when the measured jaw is wide open, plus a live holding load on the gripper. Parking the arm is refused while it
 carries (subsystem='all' still releases the base and reports reset.arm 'refused: carrying (...)'), and a keep_position
 release while carrying keeps the grip profile's torque limit.
+
+The pan/tilt head (head.HeadController) belongs to both leases: the head tools need either one (LeaseNeed "any"). A
+release_control decides the head last, after the base and arm resets, and reports it as reset.head (only when a head
+is configured): keep_position=true keeps it ('kept'); a release that leaves the agent holding the other lease does not
+move it ('kept: <arm|base> lease held', the hand-over); a call that released no lease adds no head entry and moves
+nothing; otherwise (the call released a lease and none remains) the head goes home ('homed', 'failed: <status>', or
+'skipped: battery_cutoff' under battery cut-off). A head failure never blocks the arm/base release. A lease lost
+involuntarily (web UI take, generation change) and the stop tool never move the head.
 """
 
 import threading
@@ -41,13 +49,14 @@ from .arm import EXPECTED_LEASE, SOURCE_NONE, ArmController, ArmError, finite_ef
 from .carry import CarryRecord
 from .config import McpServerConfig
 from .footprint import NavFootprint
+from .head import HeadController
 from .models import ArmControlState, BaseControlState, CarryingState, ControlState, ReleaseResult
 from .motion_queue import ARM_KINDS, BASE_KINDS, LiveState, Precondition, evaluate_precondition
 
 Subsystem = Literal["arm", "base"]
 ReleaseTarget = Literal["arm", "base", "all"]
-# A tool's lease need: one subsystem, or "any" (either lease satisfies it; for future head tools, so a base-to-arm
-# hand-over needs no head reset).
+# A tool's lease need: one subsystem, or "any" (either lease satisfies it: the head tools, so a hand-over from one
+# lease to the other never moves the head; ControlManager.release_head homes it once no lease remains).
 LeaseNeed = Literal["arm", "base", "any"]
 # enqueue_motions step kinds that need the arm lease; base steps (Nav2 goals) are motion_queue.BASE_KINDS.
 ARM_LEASE_KINDS = ARM_KINDS | {"gripper", "grasp"}
@@ -295,6 +304,7 @@ class ControlManager:
         wall: Callable[[], float] = time.time,
         footprint: NavFootprint | None = None,
         blocking_tool: Callable[[], str | None] = lambda: None,
+        head: HeadController | None = None,
     ) -> None:
         """Create the manager.
 
@@ -310,6 +320,8 @@ class ControlManager:
             footprint (NavFootprint | None): Published navigation footprint; None publishes nothing.
             blocking_tool (Callable[[], str | None]): Name of a blocking motion tool running now (RobotMCPServer
                 .blocking_tool); release is refused while one other than release_control runs.
+            head (HeadController | None): Pan/tilt head, homed by a release that leaves no lease (release_head); None
+                when no head is configured (no reset.head entry).
         """
         self.arm = arm
         self.config = config
@@ -319,6 +331,7 @@ class ControlManager:
         self.guard = guard
         self.queue_busy = queue_busy
         self.blocking_tool = blocking_tool
+        self.head = head
         self.clock = clock
         self.sleep = sleep
         self.wall = wall
@@ -500,6 +513,7 @@ class ControlManager:
         Returns:
             ReleaseResult: Released subsystems, per subsystem reset outcome and the state afterwards. With
                 subsystem='all' while carrying, the base is still released and reset.arm says 'refused: carrying (...)'.
+                reset.head (head configured, after the arm/base resets) is decided by release_head.
 
         Raises:
             ToolError: While the motion queue or another blocking motion tool runs, while an arm motion runs (arm
@@ -536,7 +550,39 @@ class ControlManager:
             reset[name] = outcome
             if not outcome.startswith(KEPT_PREFIXES):
                 released.append(name)
+        head = self.release_head(keep_position, bool(released))
+        if head is not None:
+            reset["head"] = head
         return ReleaseResult(released=released, reset=reset, state=self.state())
+
+    def release_head(self, keep_position: bool, released_any: bool) -> str | None:
+        """Head outcome of a release_control call, decided after the arm/base resets (the releases already happened,
+        so a head failure never blocks them).
+
+        Args:
+            keep_position (bool): The release keeps positions (the head is kept too).
+            released_any (bool): The call released at least one lease.
+
+        Returns:
+            str | None: None without a head or when nothing was released (no motion); else kept | kept: <arm|base>
+                lease held | skipped: battery_cutoff | homed | failed: <status or error>.
+        """
+        if self.head is None:
+            return None
+        if keep_position:
+            return "kept"
+        if not released_any:
+            return None
+        for name in SUBSYSTEMS:
+            if self.held(name):
+                return f"kept: {name} lease held"
+        if self.guard is not None and self.guard.is_cutoff():
+            return "skipped: battery_cutoff"
+        try:
+            result = self.head.home()
+        except RuntimeError as exc:  # HeadError, RobotError: report it, the leases are already released
+            return f"failed: {exc}"
+        return "homed" if result.status == "converged" else f"failed: {result.status}"
 
     def check_carried_radius(self, radius: float, keep_position: bool, arm_targeted: bool) -> None:
         """Validate carried_object_radius_m for a release.

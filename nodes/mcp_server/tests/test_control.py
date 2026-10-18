@@ -414,7 +414,7 @@ def test_get_control_state_and_release_tool(server: Any, robot: FakeRobot) -> No
     call(server, "take_control", {"subsystem": "base"})
     result = call(server, "release_control", {"subsystem": "all"}).structured_content
     assert sorted(result["released"]) == ["arm", "base"]
-    assert result["reset"] == {"base": "neutral", "arm": "homed"}
+    assert result["reset"] == {"base": "neutral", "arm": "homed", "head": "homed"}
     assert result["state"]["arm"]["held"] is False and result["state"]["base"]["held"] is False
 
 

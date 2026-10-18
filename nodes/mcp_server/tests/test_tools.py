@@ -297,7 +297,7 @@ def test_arm_tools_round_trip(server: Any, robot: FakeRobot) -> None:
     assert res.structured_content["status"] == "converged"
     res = call(server, "release_control", {"subsystem": "arm", "keep_position": True})
     assert res.structured_content["state"]["arm"]["held"] is False
-    assert res.structured_content["reset"] == {"arm": "kept"}
+    assert res.structured_content["reset"] == {"arm": "kept", "head": "kept"}
 
 
 def test_move_arm_joints_rejects_fast_speed(server: Any) -> None:

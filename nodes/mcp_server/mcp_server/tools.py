@@ -628,7 +628,7 @@ def register_tools(
     footprint = None if config.nav_footprint is None else NavFootprint(config.nav_footprint, config.body, robot)
     if footprint is not None:
         footprint.start()  # mcp_server start: the measured arm pose's footprint, then the republish tick
-    control = ControlManager(robot.arm, robot, config, guard, footprint=footprint)
+    control = ControlManager(robot.arm, robot, config, guard, footprint=footprint, head=robot.head)
     state = GuardState(robot, control, monitor, config, footprint, guard, queue_busy=lambda: queue.busy())
     engine = GuardEngine(config.guard_rules, state)
     queue = MotionQueue(
@@ -1019,7 +1019,9 @@ def register_core_tools(ctx: ToolContext) -> None:
         kept | failed: why | skipped: why; base neutral | kept | failed: why), never kept as a held lease. Under battery
         cut-off the arm park is skipped (skipped: battery_cutoff). A lease not held is reported as skipped: not held.
         A stop during the park keeps the arm lease (reset arm 'stopped: ...'; the arm holds where it stopped).
-        Refused while the motion queue runs (cancel_motions or wait_for_event first) and while another motion tool or
+        head (decided last): when this call releases a lease and you then hold neither, the head goes home (reset head
+        homed | failed: why | skipped: battery_cutoff); releasing one lease while holding the other leaves the head
+        where it is (kept: <arm|base> lease held), and keep_position=true keeps it (kept). Refused while the motion queue runs (cancel_motions or wait_for_event first) and while another motion tool or
         an arm motion runs (stop first). carried_object_radius_m 0 means no carried object. Call release_control whenever you
         are done with a subsystem; a lease is otherwise kept indefinitely. Navigation footprint: an arm release with
         keep_position=true freezes the arm, so Nav2, the collision monitor and the lidar self filter then treat the
