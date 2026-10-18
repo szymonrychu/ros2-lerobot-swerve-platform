@@ -30,7 +30,7 @@ class ExtrinsicResult:
 
 @dataclass(frozen=True)
 class PlaneCheck:
-    """Board-plane depth check: per_pair_mm is the median (measured - predicted) ToF depth per pair, median_mm overall."""
+    """Plane depth check: per_pair_mm is the per-pair median (measured - predicted) ToF depth, median_mm overall."""
 
     per_pair_mm: list[float]
     median_mm: float
