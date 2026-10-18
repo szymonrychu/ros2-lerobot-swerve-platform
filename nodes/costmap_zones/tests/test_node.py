@@ -133,7 +133,45 @@ def test_speed_mask_background_is_zero_and_min_pct_wins(node: ZoneMaskPublisher,
     assert data[5, 15] == 80
     assert data[5, 10] == 0
     keepout = np.frombuffer(bytes(log[0][1].data), dtype=np.int8)
-    assert set(np.unique(keepout)) == {-1}
+    assert set(np.unique(keepout)) == {-1, 60}
+
+
+def test_slow_poi_publishes_the_slow_value_in_the_keepout_mask(node: ZoneMaskPublisher, log: list) -> None:
+    node.on_map(make_map())
+    node.on_list(poi_list(poi("a", "slow", SQUARE, 40), poi("b", "keepout", FAR_SQUARE)))
+    keepout = np.frombuffer(bytes(log[0][1].data), dtype=np.int8).reshape(HEIGHT, WIDTH)
+    assert keepout[5, 5] == CostmapZonesConfig().slow_zone_mask_value == 60
+    assert keepout[5, 15] == 100
+    assert keepout[5, 10] == -1
+    speed = np.frombuffer(bytes(log[1][1].data), dtype=np.int8).reshape(HEIGHT, WIDTH)
+    assert speed[5, 5] == 40 and speed[5, 15] == 0
+
+
+def test_configured_slow_zone_mask_value_is_published(log: list) -> None:
+    node = ZoneMaskPublisher(
+        config=CostmapZonesConfig(slow_zone_mask_value=25),
+        keepout_pub=FakePublisher("keepout", log),
+        speed_pub=FakePublisher("speed", log),
+        keepout_info_pub=FakePublisher("keepout_info", log),
+        speed_info_pub=FakePublisher("speed_info", log),
+        now=lambda: STAMP,
+        logger=logging.getLogger("test_node"),
+    )
+    node.on_map(make_map())
+    node.on_list(poi_list(poi("a", "slow", SQUARE, 40)))
+    keepout = np.frombuffer(bytes(log[0][1].data), dtype=np.int8).reshape(HEIGHT, WIDTH)
+    assert keepout[5, 5] == 25
+    assert set(np.unique(keepout)) == {-1, 25}
+
+
+def test_zone_change_from_keepout_to_slow_republishes(node: ZoneMaskPublisher, log: list) -> None:
+    node.on_map(make_map())
+    node.on_list(poi_list(poi("a", "keepout", SQUARE)))
+    log.clear()
+    node.on_list(poi_list(poi("a", "slow", SQUARE, 40), revision=2))
+    assert names(log) == ["keepout", "speed"]
+    keepout = np.frombuffer(bytes(log[0][1].data), dtype=np.int8).reshape(HEIGHT, WIDTH)
+    assert keepout[5, 5] == 60
 
 
 def test_mask_data_is_array_of_signed_bytes(node: ZoneMaskPublisher, log: list) -> None:

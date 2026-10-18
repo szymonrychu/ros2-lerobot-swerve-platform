@@ -2406,6 +2406,8 @@ ros2_nodes:
       # Must equal filter_info_topic of keepout_filter / speed_filter in nav2_params.yaml.
       keepout_info_topic: /costmap_filter_info/keepout
       speed_info_topic: /costmap_filter_info/speed
+      # Keepout-mask value in slow zones (1..99, cost round(v * 254 / 100) = 152): Nav2 detours around them.
+      slow_zone_mask_value: 60
   - name: claude_agent
     node_type: claude_agent
     present: true
