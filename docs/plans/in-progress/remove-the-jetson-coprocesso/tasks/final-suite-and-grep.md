@@ -79,3 +79,7 @@ Post-merge deploy runbook (the orchestrator runs it on main after every task mer
 5. Read-only checks through ansible ad-hoc commands (no manual SSH): no `ros2-jetson_bridge_cpp` unit; no `/opt/ros2-ws/{src,build,install}/jetson_bridge_cpp` and no `/opt/ros2-ws/.built-jetson_bridge_cpp-*`; `ip -4 addr show eth0` has no 10.77.0.1; no `jetson.ros2.lan` in `/etc/hosts`; `nft list tables` has no `jetson_link`; `chronyc sources` lists the pools; the web UI Head tab shows ToF frames once arducam_tof publishes and the Arm tab shows the front camera.
 6. Update the out-of-repo auto-memory `project_jetson_vision_coprocessor.md` (superseded: Jetson removed 2026-10-18).
 If the robot is offline, steps 3-5 are reported as pending on the robot being reachable (CLAUDE.md: deploy skipped when targets are offline).
+
+## Ruling
+
+Accepted by the orchestrator (2026-10-18): verified (mcp_server 2464, root 1119); gate-repeat on parking wording refuted by the reviewer (pre-existing phrases).
