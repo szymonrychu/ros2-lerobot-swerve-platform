@@ -28,6 +28,20 @@ NO_PHOTO_STORE_MESSAGE = "no photo store configured"
 Result = tuple[bool, str, dict[str, Any] | None]
 
 
+def describe_error(exc: ValidationError | TypeError) -> str:
+    """One-line reason of a model validation failure.
+
+    Args:
+        exc: The error.
+
+    Returns:
+        str: "field: message; ..." for a ValidationError, else the error text.
+    """
+    if isinstance(exc, ValidationError):
+        return "; ".join("{}: {}".format(".".join(map(str, e["loc"])), e["msg"]) for e in exc.errors())
+    return str(exc)
+
+
 class PoiStore:
     """The POIs, their revision and the file they persist to.
 
@@ -116,13 +130,16 @@ class PoiStore:
                 return self.op_clear(
                     command.created_by, command.statuses, command.kinds, command.keep_zones, command.ids
                 )
+            if command.op == "replace":
+                assert command.pois is not None  # Command.check_op_arguments
+                return self.op_replace(command.pois)
             if command.op == "delete_photos":
                 return self.op_delete_photos(command.selector)
             return getattr(self, "op_" + command.op)(command.poi)
         except PhotoStoreError as exc:
             return False, str(exc), None
         except ValidationError as exc:
-            return False, "; ".join("{}: {}".format(".".join(map(str, e["loc"])), e["msg"]) for e in exc.errors()), None
+            return False, describe_error(exc), None
         except OSError as exc:
             self.pois, self.revision = pois_before, revision_before
             POI_SAVE_FAILURES.inc()
@@ -375,6 +392,38 @@ class PoiStore:
         for poi_id in doomed:
             self.strip_photo_links(poi_id)
         return True, f"cleared {len(doomed)}", {"removed": len(doomed)}
+
+    def op_replace(self, entries: list[dict[str, Any]]) -> Result:
+        """Make the non-photo POI set exactly the given POIs (ids and timestamps kept), all or nothing.
+
+        Photos stay; links from photos to POI ids no longer present are stripped. The revision moves by one.
+
+        Args:
+            entries: POI dicts, each with a valid id; no duplicates, no photo kind.
+
+        Returns:
+            Result: Result triple; the third item is {"replaced": new count, "removed": old count}.
+        """
+        new: dict[str, Poi] = {}
+        for index, fields in enumerate(entries):
+            if fields.get("kind") == PHOTO_KIND:
+                return False, f"pois[{index}]: photos are never part of a replace", None
+            try:
+                poi = Poi(**fields)
+            except (ValidationError, TypeError) as exc:
+                return False, f"pois[{index}]: {describe_error(exc)}", None
+            if not poi.id:
+                return False, f"pois[{index}]: {MISSING_ID_MESSAGE}", None
+            if poi.id in new:
+                return False, f"pois[{index}]: duplicate id {poi.id}", None
+            new[poi.id] = poi
+        removed_ids = [poi_id for poi_id in self.pois if poi_id not in new]
+        removed = len(self.pois)
+        self.pois = new
+        self.commit()
+        for poi_id in removed_ids:
+            self.strip_photo_links(poi_id)
+        return True, f"replaced {len(new)}", {"replaced": len(new), "removed": removed}
 
     def handle_message(self, raw: str) -> str:
         """Process one /poi/command payload.

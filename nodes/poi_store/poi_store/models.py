@@ -154,7 +154,7 @@ class Command(BaseModel):
     """A /poi/command message.
 
     Attributes:
-        op: "add", "update", "delete", "clear" or "delete_photos".
+        op: "add", "update", "delete", "clear", "replace" or "delete_photos".
         request_id: Echoed in /poi/result.
         poi: add: the POI (kind "photo": a PhotoAdd payload plus kind); update: id plus changed fields; delete: id;
             clear and delete_photos: unused.
@@ -164,12 +164,13 @@ class Command(BaseModel):
         kinds: clear: only delete POIs of these kinds (None: every kind; empty list: nothing).
         keep_zones: clear: keep areas whose zone is "keepout" or "slow" (any status).
         ids: clear: only delete POIs with these ids (None: no id filter; empty list: nothing; unknown ids ignored).
+        pois: replace: the complete new set of non-photo POIs (each with a valid id); ignored by other ops.
         selector: delete_photos: which photos (exactly one of ids, older_than_s, keep_newest; optional dry_run).
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    op: Literal["add", "update", "delete", "clear", "delete_photos"]
+    op: Literal["add", "update", "delete", "clear", "replace", "delete_photos"]
     request_id: str = ""
     poi: dict[str, Any] = Field(default_factory=dict)
     created_by: Literal["agent", "user"] | None = None
@@ -177,15 +178,18 @@ class Command(BaseModel):
     kinds: list[Literal["point", "area", "object"]] | None = None
     keep_zones: bool = False
     ids: list[str] | None = None
+    pois: list[dict[str, Any]] | None = None
     selector: PhotoSelector | None = None
 
     @model_validator(mode="after")
     def check_op_arguments(self) -> "Command":
-        """Require selector for the delete_photos op.
+        """Require selector for the delete_photos op and pois for the replace op.
 
         Returns:
             Command: Self.
         """
         if self.op == "delete_photos" and self.selector is None:
             raise ValueError("delete_photos needs selector (one of ids, older_than_s, keep_newest)")
+        if self.op == "replace" and self.pois is None:
+            raise ValueError("replace needs pois (the list of POIs that becomes the whole set)")
         return self
