@@ -1,0 +1,61 @@
+---
+title: Web UI head camera topics
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "The web UI Arm and Head tabs show the head camera under head names; the stale Front tab is gone."
+files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_map3d_backend.py, tests/test_mcp_server_config.py, tests/README.md]
+verify: "cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint && cd ../.. && uv run pytest tests/test_mcp_server_config.py -q && uv run poe lint"
+depends_on: [retire-pi-cameras]
+owns: [web-head-camera-fields]
+uses: []
+model: sonnet
+estimate: 50
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# Web UI head camera topics
+
+## Requirement
+
+- `web_ui/config.py`: `TabConfig.front_camera_topic` (Jetson end state) is renamed `head_camera_topic` (comment: arm: sensor_msgs/CompressedImage of the head camera); `ARM_TAB_DEFAULTS["head_camera_topic"] = "/head_camera/image_raw/compressed"`; the topic field list uses the new name (D12, U9).
+- `config/default.yaml` and `ansible/group_vars/client.yml` web_ui tabs: arm `head_camera_topic: /head_camera/image_raw/compressed`; head `rgb_camera_topic: /head_camera/image_raw/compressed` (comment: head RGB camera, Camera Module 3 on the pan/tilt head, head_camera_cpp); the `pi_cameras` "Front" camera tab is removed from both (the Head tab shows the same camera).
+- Tests first, seen failing: `tests/test_config.py` (default arm tab `head_camera_topic`, explicit value round-trips, subscribed topics contain `/head_camera/image_raw/compressed` and no `/front_camera/*`, no `pi_cameras` tab id in the default config); `tests/test_map3d_backend.py` head tab agreement on `/head_camera/image_raw/compressed`; root `tests/test_mcp_server_config.py` client.yml web_ui pins (arm, head, no Front tab). `tests/README.md` rows follow.
+
+## Acceptance conditions
+
+- a1: the default arm tab streams /head_camera/image_raw/compressed through head_camera_topic [evidence: test: nodes/web_ui/tests/test_config.py]
+- a2: client and default head tabs use /head_camera/image_raw/compressed as RGB [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_backend.py -q]
+- a3: no web_ui backend, config or client.yml line names front_camera_topic or /front_camera [evidence: command: ! git grep -n -E 'front_camera_topic|/front_camera/' -- nodes/web_ui/web_ui nodes/web_ui/config nodes/web_ui/tests ansible/group_vars/client.yml]
+- a4: web_ui suite, lint and root pins pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint && cd ../.. && uv run pytest tests/test_mcp_server_config.py -q]
+
+## Files
+
+- `nodes/web_ui/web_ui/config.py`
+- `nodes/web_ui/config/default.yaml`
+- `ansible/group_vars/client.yml`
+- `nodes/web_ui/tests/test_config.py`
+- `nodes/web_ui/tests/test_map3d_backend.py`
+- `tests/test_mcp_server_config.py`
+- `tests/README.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
