@@ -8,5 +8,15 @@
       "printable-metadata-markers-t"
     ],
     "note": "poi_store Command: op export_photos, replace.photo_dir, replace result counts (photos_replaced, photos_removed)"
+  },
+  {
+    "name": "poi-clear-photo-kind",
+    "kind": "schema",
+    "owner": "poi-fixes-photos-as-pois-and",
+    "file": "nodes/poi_store/poi_store/models.py",
+    "consumers": [
+      "printable-metadata-markers-t"
+    ],
+    "note": "poi_store Command.kinds includes photo; clear result {removed, pois, photos}"
   }
 ]
