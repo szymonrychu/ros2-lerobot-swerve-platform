@@ -193,7 +193,8 @@ describe('HeadTab', () => {
     it.each([
       ['Zoom failed (HTTP 409): busy', 'Camera busy'],
       ['Zoom failed (HTTP 504): no answer', 'Zoom timed out'],
-      ['Zoom failed (HTTP 502): camera_error', 'Camera error'],
+      ['Zoom failed (HTTP 502, timeout): no still frame within 5 s', 'Zoom timed out'],
+      ['Zoom failed (HTTP 502, camera_error): sensor lost', 'Camera error'],
     ])('shows one short message on %s and keeps the live view', async (err, text) => {
       setViewport(1400)
       mockZoom.mockRejectedValue(new Error(err))

@@ -19,7 +19,7 @@ export interface ZoomReply {
  * @param zoom - zoom factor
  * @param fetchImpl - fetch implementation (tests)
  * @returns the endpoint body
- * @throws Error carrying the HTTP status and the result message on a non-2xx reply
+ * @throws Error carrying the HTTP status, the result status (when present) and the result message on a non-2xx reply
  */
 export async function requestZoom(
   tab: string,
@@ -41,7 +41,8 @@ export async function requestZoom(
   }
   if (!resp.ok) {
     const message = typeof body?.message === 'string' ? body.message : 'no message'
-    throw new Error(`Zoom failed (HTTP ${resp.status}): ${message}`)
+    const resultStatus = typeof body?.status === 'string' ? `, ${body.status}` : ''
+    throw new Error(`Zoom failed (HTTP ${resp.status}${resultStatus}): ${message}`)
   }
   return body as unknown as ZoomReply
 }

@@ -44,7 +44,7 @@ interface Crop {
 function zoomErrorText(err: unknown): string {
   const msg = err instanceof Error ? err.message : ''
   if (msg.includes('HTTP 409')) return 'Camera busy'
-  if (msg.includes('HTTP 504') || msg.includes('timeout')) return 'Zoom timed out'
+  if (msg.includes('HTTP 504') || /HTTP \d+, timeout\)/.test(msg)) return 'Zoom timed out'
   return 'Camera error'
 }
 
