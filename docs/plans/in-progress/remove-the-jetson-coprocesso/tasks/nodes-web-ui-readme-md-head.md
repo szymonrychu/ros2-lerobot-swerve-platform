@@ -41,15 +41,17 @@ Why: Stale Jetson/stereo docs belong to the Head tab and camera re-point tasks, 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- None (documentation only).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+- nodes/web_ui/README.md tab table and Head section describe the head RGB camera plus ToF; no Overview row, no stereo/Jetson/fused wording.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- After head-tab-tof-topics, remove-overview-tab and drop-fused-depth-topic land, fix the remaining stereo/Jetson/overview/fused wording in nodes/web_ui/README.md (rows 14-15, Head section).
+- Run `! grep -n -i -E 'stereo|jetson|overview_camera|fused' nodes/web_ui/README.md`: exit 0 (no match).
+- Docs only (TDD exception: documentation); commit `docs(web_ui): README head and overview rows`.
 
 ## Notes
 
