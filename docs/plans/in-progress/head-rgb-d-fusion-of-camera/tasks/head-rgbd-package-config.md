@@ -1,6 +1,6 @@
 ---
 title: Head RGBD package config
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The fusion node has a buildable, tested C++ package with a validated config, so every later piece lands in a known structure."
 files: [nodes/head_rgbd_cpp/CMakeLists.txt, nodes/head_rgbd_cpp/package.xml, nodes/head_rgbd_cpp/include/head_rgbd_cpp/config.hpp, nodes/head_rgbd_cpp/src/core/config.cpp, nodes/head_rgbd_cpp/test/core/test_config.cpp, nodes/head_rgbd_cpp/config/head_rgbd.yaml, nodes/head_rgbd_cpp/test/data/tof_calibration.yaml, scripts/cpp-node-test.Dockerfile]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-rgbd-package-config
+branch: head-rgb-d-fusion-of-camera--head-rgbd-package-config
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: Head RGBD node wiring
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A running fusion node turns live ToF and RGB into an exact-stamp registered RGB-D pair and cloud, only while someone uses them and only from real data."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/head_rgbd_node.hpp, nodes/head_rgbd_cpp/src/head_rgbd_node.cpp, nodes/head_rgbd_cpp/src/main.cpp, nodes/head_rgbd_cpp/test/test_node.cpp, nodes/head_rgbd_cpp/CMakeLists.txt, nodes/head_rgbd_cpp/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-rgbd-node-wiring
+branch: head-rgb-d-fusion-of-camera--head-rgbd-node-wiring
 verified_head: ""
 run: ""
 provides: []

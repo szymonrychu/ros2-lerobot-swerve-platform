@@ -1,6 +1,6 @@
 ---
 title: Head camera mapping config
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The head camera can lock its focus while mapping and has a tested 2 Hz small-JPEG mapping stream core, so the RGB-D fusion and SLAM get valid intrinsics without the 30 fps encode cost."
 files: [nodes/head_camera_cpp/include/head_camera_cpp/config.hpp, nodes/head_camera_cpp/src/core/config.cpp, nodes/head_camera_cpp/test/core/test_config.cpp, nodes/head_camera_cpp/include/head_camera_cpp/mapping_stream.hpp, nodes/head_camera_cpp/src/core/mapping_stream.cpp, nodes/head_camera_cpp/test/core/test_mapping_stream.cpp]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-camera-mapping-config
+branch: head-rgb-d-fusion-of-camera--head-camera-mapping-config
 verified_head: ""
 run: ""
 provides: []

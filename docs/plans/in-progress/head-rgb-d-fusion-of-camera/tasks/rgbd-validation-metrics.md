@@ -1,6 +1,6 @@
 ---
 title: RGBD validation metrics
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Depth accuracy, alignment and time offset are computed from recorded data with one tool, so the methodology's targets are measured, not eyeballed."
 files: [scripts/head_rgbd_calibration/validate.py, tests/test_head_rgbd_validate.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-validation-metrics
+branch: head-rgb-d-fusion-of-camera--rgbd-validation-metrics
 verified_head: ""
 run: ""
 provides: []

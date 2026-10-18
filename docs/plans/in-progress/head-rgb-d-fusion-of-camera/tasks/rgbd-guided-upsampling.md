@@ -1,6 +1,6 @@
 ---
 title: RGBD guided upsampling
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Optionally, registered depth is upsampled to the RGB mapping size along real RGB edges, without ever inventing depth across holes."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/upsample.hpp, nodes/head_rgbd_cpp/src/core/upsample.cpp, nodes/head_rgbd_cpp/test/core/test_upsample.cpp]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-guided-upsampling
+branch: head-rgb-d-fusion-of-camera--rgbd-guided-upsampling
 verified_head: ""
 run: ""
 provides: []

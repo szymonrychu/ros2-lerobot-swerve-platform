@@ -1,6 +1,6 @@
 ---
 title: RGBD final suite and runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The fusion is proven on the robot: calibrated cameras, measured time offset, depth accuracy at known distances, alignment, CPU, and no placeholder output."
 files: [docs/runbooks/head-rgbd-fusion.md, nodes/head_camera_cpp/config/head_camera_calibration.yaml, nodes/head_rgbd_cpp/config/tof_calibration.yaml, nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml, nodes/web_ui/urdf/head.urdf, ansible/group_vars/client.yml, docs/head-rgbd-fusion-methodology.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-final-suite-and-runbook
+branch: head-rgb-d-fusion-of-camera--rgbd-final-suite-and-runbook
 verified_head: ""
 run: ""
 provides: []

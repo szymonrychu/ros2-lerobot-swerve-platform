@@ -1,6 +1,6 @@
 ---
 title: RGBD cloud builder
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Consumers get a coloured 3D point cloud from the registered pair at a low, configurable rate."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/cloud.hpp, nodes/head_rgbd_cpp/src/core/cloud.cpp, nodes/head_rgbd_cpp/test/core/test_cloud.cpp]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-cloud-builder
+branch: head-rgb-d-fusion-of-camera--rgbd-cloud-builder
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: URDF extrinsics handoff
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The measured camera spacing lands in the head URDF that every TF consumer already reads, so there is one geometry source."
 files: [scripts/head_rgbd_calibration/urdf_handoff.py, tests/test_head_rgbd_urdf_handoff.py, nodes/web_ui/tests/test_head_urdf.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--urdf-extrinsics-handoff
+branch: head-rgb-d-fusion-of-camera--urdf-extrinsics-handoff
 verified_head: ""
 run: ""
 provides: []

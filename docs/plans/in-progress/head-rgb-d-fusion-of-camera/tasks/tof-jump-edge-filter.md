@@ -1,6 +1,6 @@
 ---
 title: ToF jump edge filter
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Smeared ToF pixels on object edges are removed before they become floating depth points in the registered image and the 3D map.
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/tof_filter.hpp, nodes/head_rgbd_cpp/src/core/tof_filter.cpp, nodes/head_rgbd_cpp/test/core/test_tof_filter.cpp]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--tof-jump-edge-filter
+branch: head-rgb-d-fusion-of-camera--tof-jump-edge-filter
 verified_head: ""
 run: ""
 provides: []

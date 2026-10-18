@@ -1,6 +1,6 @@
 ---
 title: RGBD registration zbuffer
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "ToF depth is reprojected into the RGB camera with correct occlusion and no out-of-image writes, giving pixel-aligned depth for colour."
 files: [nodes/head_rgbd_cpp/include/head_rgbd_cpp/registration.hpp, nodes/head_rgbd_cpp/src/core/registration.cpp, nodes/head_rgbd_cpp/test/core/test_registration.cpp, nodes/head_rgbd_cpp/test/core/synthetic_scene.hpp]
@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-registration-zbuffer
+branch: head-rgb-d-fusion-of-camera--rgbd-registration-zbuffer
 verified_head: ""
 run: ""
 provides: []

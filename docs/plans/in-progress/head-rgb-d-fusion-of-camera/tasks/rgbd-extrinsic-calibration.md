@@ -1,6 +1,6 @@
 ---
 title: RGBD extrinsic calibration
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The exact position of the ToF relative to the RGB camera is measured, not assumed from the drawing, so depth lands on the right pixels."
 files: [scripts/head_rgbd_calibration/extrinsics.py, tests/test_head_rgbd_calib_extrinsics.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-extrinsic-calibration
+branch: head-rgb-d-fusion-of-camera--rgbd-extrinsic-calibration
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: RGBD calibration frames
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One command records a calibration session from the robot and turns it into still, paired RGB and ToF frames ready for calibration."
 files: [scripts/head_rgbd_calibration/__init__.py, scripts/head_rgbd_calibration/config.py, scripts/head_rgbd_calibration/frames.py, scripts/head_rgbd_calibrate.yaml, tests/test_head_rgbd_calib_frames.py, pyproject.toml, uv.lock]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-calibration-frames
+branch: head-rgb-d-fusion-of-camera--rgbd-calibration-frames
 verified_head: ""
 run: ""
 provides: []
