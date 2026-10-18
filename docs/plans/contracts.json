@@ -1,0 +1,12 @@
+[
+  {
+    "name": "poi-command-photo-ops",
+    "kind": "schema",
+    "owner": "poi-fixes-photos-as-pois-and",
+    "file": "nodes/poi_store/poi_store/models.py",
+    "consumers": [
+      "printable-metadata-markers-t"
+    ],
+    "note": "poi_store Command: op export_photos, replace.photo_dir, replace result counts (photos_replaced, photos_removed)"
+  }
+]
