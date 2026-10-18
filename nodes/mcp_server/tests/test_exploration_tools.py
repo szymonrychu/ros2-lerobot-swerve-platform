@@ -129,14 +129,14 @@ def test_battery_null_with_note_without_guard_or_reading(robot: FrontierRobot) -
     assert res["battery"]["pack_v"] is None and any("battery" in n for n in res["notes"])
 
 
-def test_null_with_note_without_map(robot: FrontierRobot) -> None:
+def test_status_null_with_note_when_map_unavailable(robot: FrontierRobot) -> None:
     robot.map = None
     res = status(make_server(robot))
     assert res["complete"] is None and res["coverage"] is None and res["frontiers"] is None
     assert any("/map" in n for n in res["notes"])
 
 
-def test_null_with_note_without_pose(robot: FrontierRobot) -> None:
+def test_status_null_with_note_when_pose_unavailable(robot: FrontierRobot) -> None:
     robot.pose = None
     res = status(make_server(robot))
     assert res["complete"] is None and res["coverage"] is None and res["frontiers"] is None
