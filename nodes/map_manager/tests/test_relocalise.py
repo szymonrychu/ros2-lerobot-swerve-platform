@@ -10,6 +10,7 @@ from ros2_common.maps import MapCommand, Pose2D
 from ros2_common.scan_agreement import GridMap, agreement, prepare_map, transform_points, yaw_quaternion
 
 from map_manager.config import MapManagerConfig
+from map_manager.manager import ACTIVE_MAP_FILE
 from map_manager.relocalise import LocalisationJudge, SearchSettings, search_candidates, yaw_difference
 from tests.fakes import room_grid as fake_room_grid
 from tests.fakes import wall_points_base
@@ -370,7 +371,11 @@ def relocalise(rig: Rig, **fields: object):
 
 def named_tree(rig: Rig) -> dict[str, bytes]:
     root = Path(rig.config.maps_root)
-    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+    return {
+        str(p.relative_to(root)): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file() and p.name != ACTIVE_MAP_FILE
+    }
 
 
 def test_pose_ring_keeps_120_seconds(tmp_path: Path) -> None:
@@ -453,6 +458,8 @@ def test_unrecoverable_with_discard_empties_pois_once(tmp_path: Path) -> None:
     rig, result = unrecoverable(tmp_path, True)
     assert not result.ok
     assert result.data["discarded_pois"] == len(LIVE_POIS)
+    assert result.data["discarded_photos"] == 0
+    assert rig.manager.status().active_map is None
     assert rig.log.args_of("poi.replace") == [([],)]
     assert rig.poi.pois == []
     assert rig.slam.paused is True
