@@ -13,13 +13,26 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from .calibration_proxy import NOT_CONFIGURED_MESSAGE, error
 from .config import AppConfig
 
+NOT_CONFIGURED_MESSAGE = "calibration page not configured"
 STATUS_FIELDS = ("sys", "gyro", "accel", "mag")
 HTTP_NOT_FOUND = 404
 HTTP_CONFLICT = 409
 HTTP_UNAVAILABLE = 503
+
+
+def error(message: str, status_code: int) -> JSONResponse:
+    """Build the JSON error body of a failed call.
+
+    Args:
+        message (str): Human-readable reason.
+        status_code (int): HTTP status code.
+
+    Returns:
+        JSONResponse: {"ok": False, "message": message}.
+    """
+    return JSONResponse({"ok": False, "message": message}, status_code=status_code)
 
 
 def parse_imu_status(data: Any) -> dict[str, Any] | None:
@@ -56,6 +69,11 @@ def register_imu_calibration_routes(app: FastAPI, config: AppConfig, bridge_node
 
     cal = config.calibration
 
+    async def get_config() -> JSONResponse:
+        if cal is None:
+            return error(NOT_CONFIGURED_MESSAGE, HTTP_NOT_FOUND)
+        return JSONResponse({"imu": True, "arm": "deferred"})
+
     async def status() -> JSONResponse:
         if cal is None:
             return error(NOT_CONFIGURED_MESSAGE, HTTP_NOT_FOUND)
@@ -88,6 +106,7 @@ def register_imu_calibration_routes(app: FastAPI, config: AppConfig, bridge_node
     async def reset() -> JSONResponse:
         return await trigger("imu_calibration_reset", cal.imu_reset_service if cal else None)
 
+    app.add_api_route("/api/calibration/config", get_config, methods=["GET"], include_in_schema=False)
     app.add_api_route("/api/calibration/imu", status, methods=["GET"], include_in_schema=False)
     app.add_api_route("/api/calibration/imu/save", save, methods=["POST"], include_in_schema=False)
     app.add_api_route("/api/calibration/imu/reset", reset, methods=["POST"], include_in_schema=False)

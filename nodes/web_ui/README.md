@@ -441,12 +441,7 @@ calibration:
 ```
 
 Routes (all under `/api/calibration`):
-- `GET /config` returns `{stereo: true, imu: true, arm: "deferred"}`.
-- Proxied to depthd `/calibration/...` with status, JSON body and image bytes/content type passed through unchanged:
-  `GET /stereo/preview`, `GET /stereo/preview/{left|right}.jpg`, `GET|POST|DELETE /stereo/captures`,
-  `GET /stereo/captures/{id}/{left|right}.jpg`, `GET|POST /stereo/solve`.
-- `DELETE /stereo/captures` needs `?confirm=true`; without it the proxy answers 400 itself and calls nothing.
-- `side` must be `left` or `right` and `id` a token of `[A-Za-z0-9_-]{1,64}`; otherwise 422 before any upstream call.
+- `GET /config` returns `{imu: true, arm: "deferred"}`. There are no stereo routes.
 - IMU (needs the ROS bridge; the bridge subscribes `imu_status_topic` always-on and creates Trigger clients for the two IMU services):
   - `GET /imu` returns `{sys, gyro, accel, mag, restored, age_s}`, the node's latest `std_msgs/String` JSON sample. No sample yet
     answers `503 {"ok": false, "message": "no IMU calibration sample yet"}`; older than `imu_stale_s` answers
@@ -461,8 +456,7 @@ Frontend (`frontend/src/calibrate/`):
 - **IMU section** (`ImuCalibration.tsx`, calls and pure helpers in `imuApi.ts`): **Calibrate IMU** starts the flow; the section then polls `GET /api/calibration/imu` at 1 Hz (only while the browser tab is visible) and shows sys, gyro, accel and mag as 0-3 levels (green at 3, amber at 2, red at 0-1) plus the restored flag, with guidance per subsystem (gyro: keep still; accel: a few static poses, lifting the robot; mag: rotate or drive figure-eights away from motors). A 503 (no sample yet, stale) shows the server message instead of levels; values are never zeros as if measured. **Save offsets** (enabled when mag is 3) calls `POST /imu/save` and shows the message; a 409 shows the node's reason. **Reset IMU calibration** opens a confirm dialog ("The IMU forgets its calibration and starts from zero.") and calls `POST /imu/reset` only on confirm.
 - vitest: `calibrateRoute.test.ts`, `CalibrateRouting.test.tsx`, `CalibratePage.test.tsx` (T39), `stereoApi.test.ts`, `StereoCalibration.test.tsx` (T40), `imuApi.test.ts`, `ImuCalibration.test.tsx` (T41).
 
-Errors are honest: an unreachable depthd answers `502`, a timeout `504`, both
-`{"ok": false, "message": "Jetson depthd unreachable at <url>: <reason>"}`. Nothing is cached, synthesized or defaulted.
+Errors are honest: nothing is cached, synthesized or defaulted.
 
 ## Debug Logging
 

@@ -160,3 +160,20 @@ def test_subscription_only_with_calibration() -> None:
 
     assert (String, "/imu/calibration") in _subscriptions("/imu/calibration")
     assert "/imu/calibration" not in {t for _, t in _subscriptions(None)}
+
+
+def test_config_route_reports_imu_only(tmp_path: Path) -> None:
+    response = make_client(tmp_path, FakeBridge()).get("/api/calibration/config")
+    assert response.status_code == 200
+    assert response.json() == {"imu": True, "arm": "deferred"}
+
+
+def test_config_route_404_without_calibration(tmp_path: Path) -> None:
+    response = make_client(tmp_path, FakeBridge(), calibration=False).get("/api/calibration/config")
+    assert response.status_code == 404
+    assert response.json() == {"ok": False, "message": "calibration page not configured"}
+
+
+def test_stereo_routes_are_not_served(tmp_path: Path) -> None:
+    client = make_client(tmp_path, FakeBridge())
+    assert client.get("/api/calibration/stereo/preview").status_code == 404
