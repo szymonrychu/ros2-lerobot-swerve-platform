@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--final-suite-and-grep
 branch: remove-the-jetson-coprocesso--final-suite-and-grep
-verified_head: ""
+verified_head: 18e6a4ea93512c6296498beeb63643111c0e06e3
 run: remove-the-jetson-coprocesso
 provides: []
-acs_for_audit: []
+acs_for_audit: [a5, a6]
 process_gaps: []
 ---
 
