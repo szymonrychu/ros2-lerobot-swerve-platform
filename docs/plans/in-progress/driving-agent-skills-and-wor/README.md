@@ -39,7 +39,7 @@ The driving agent (nodes/claude_agent, Claude Agent SDK, acting through nodes/mc
 
 ## Time
 
-Estimate: 1535 min | Actual: 0 min | Remaining estimate: 115 min
+Estimate: 1535 min | Actual: 0 min | Remaining estimate: 0 min
 
 ## Review
 

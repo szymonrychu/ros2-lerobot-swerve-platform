@@ -1,6 +1,6 @@
 ---
 title: Skills suite and runbook
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Everything is green together and the skills, workflows and retrospectives go live without killing an agent session."
 files: [tests/test_agent_skills_docs.py, tests/README.md, nodes/README.md, MEMORY.md]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--skills-suite-and-runbook
 branch: driving-agent-skills-and-wor--skills-suite-and-runbook
-verified_head: ""
+verified_head: eecf00453dfdd86bfc4951b39d87fdc528a3e8a5
 run: driving-agent-skills-and-wor
 provides: []
-acs_for_audit: []
+acs_for_audit: [a3]
 process_gaps: []
 ---
 
