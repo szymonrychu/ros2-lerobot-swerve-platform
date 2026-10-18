@@ -45,16 +45,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `poi/PoiListToolbar.tsx:PoiListToolbar` props (filter, counts, marked count, callbacks); `PoiPanels` marked-set state.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The POI tab filters by category and holds a set of marked POIs.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `PoiPanels.mark.test.tsx`; run `cd nodes/web_ui/frontend && npx vitest run src/poi/PoiPanels.mark.test.tsx`; expect failures.
+- Implement; run the verify command; commit `feat(web_ui): POI list filter and marking`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- PoiPanels.tsx is also edited by web-ui-poi-category-chips (chips), web-ui-clear-pois-dialog (named-maps epic: Clear POIs button) and web-ui-poi-delete-marked; depends_on orders them with the chips task, the others rebase and keep both.
+- Servo safety (CLAUDE.md): this task moves no servo.

@@ -23,15 +23,16 @@ provides: []
 
 ## Requirement
 
-- `tools.py` admin route `/admin/clear_agent_pois` (D11, U9): body `{"statuses": [...]?, "tag": "#..."?}` (both optional, either may be given; an empty body keeps clearing every status); `tag` validated (starts with `#`, no whitespace) -> 400 with the expected body shape otherwise; passes `tag` to `robot.poi_clear(created_by, statuses, tag)`.
-- `tool_context.py` and `ros_iface.py` `poi_clear(created_by, statuses=None, tag=None)` put `tag` into the /poi/command clear message only when given; `tests/fakes.py` fake mirrors the signature and records the tag.
+- `tools.py` admin route `/admin/clear_agent_pois` (D11, U9): body `{"statuses": [...]?, "tag": "#..."?, "keep_keepout": bool?}` (all optional, any may be given; an empty body keeps clearing every status); `tag` validated (starts with `#`, no whitespace) -> 400 with the expected body shape otherwise; `keep_keepout` must be a bool (400 otherwise); passes `tag` and `keep_keepout` to `robot.poi_clear(created_by, statuses, tag, keep_keepout)`.
+- `tool_context.py` and `ros_iface.py` `poi_clear(created_by, statuses=None, tag=None, keep_keepout=False)` put `tag` and `keep_keepout` into the /poi/command clear message only when given; `tests/fakes.py` fake mirrors the signature and records the tag and keep_keepout.
 - `README.md`: the admin route documents `tag`.
-- Tests first in new `tests/test_admin_clear.py` (move nothing out of test_tools.py; extend there only if a shared fixture requires it), seen failing: a tag body reaches poi_clear with the tag; statuses + tag both pass; a bad tag is 400; no token is 401; the existing statuses-only behaviour is unchanged.
+- Tests first in new `tests/test_admin_clear.py` (move nothing out of test_tools.py; extend there only if a shared fixture requires it), seen failing: a tag body reaches poi_clear with the tag; `keep_keepout: true` is forwarded; a non-bool keep_keepout is 400; statuses + tag both pass; a bad tag is 400; no token is 401; the existing statuses-only behaviour is unchanged.
 
 ## Acceptance conditions
 
 - a1: the admin route forwards a tag filter to poi_clear [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_admin_clear.py -q -k tag]
 - a2: a malformed tag gets 400 and a missing token 401 [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_admin_clear.py -q -k 'bad_tag or unauthorized']
+- a5: keep_keepout is forwarded and validated [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_admin_clear.py -q -k keep_keepout]
 - a3: existing admin and tools tests and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_tools.py -q && uv run --frozen poe lint]
 - a4: README documents the tag body [evidence: command: grep -q 'clear_agent_pois' nodes/mcp_server/README.md && grep -q '"tag"' nodes/mcp_server/README.md]
 

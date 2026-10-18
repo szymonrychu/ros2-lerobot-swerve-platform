@@ -1,6 +1,6 @@
 ---
 title: Driving agent skills and workflows
-blockers: [Remove the Jetson coprocessor]
+blockers: [Remove the Jetson coprocessor, Named maps with POIs and relocalisation]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -28,7 +28,8 @@ The driving agent (nodes/claude_agent, Claude Agent SDK, acting through nodes/mc
 - Sightseeing skill + an exploration-status tool (reachable frontiers, surveyed areas): done when no reachable frontier is left and every frontier area has been surveyed; produces a summary for the user; stops at configurable time and battery limits.
 - Planning skill (generous step breakdown) and a start_workflow tool that seeds the job's task plan from a template; templates for discovery, drive-to-target and pick-up/put-down; the agent may add/reorder steps; the job-end check flags skipped mandatory steps. Jobs are started by free text only (the agent selects the workflow).
 - Retrospective skill: written after every job (short for trivial jobs) to a robot-side store; shown in a web UI tab and available through an API/script; recent retrospectives are fed to future agents.
-- Survey POIs are cleared on "New session" (no persistence beyond the session), consistent with the existing agent POI reset.
+- Survey POIs are cleared on "New session" (no persistence beyond the session), consistent with the existing agent POI reset; keep-out zones always survive it (U10).
+- Web UI POI list: filter by category, mark POIs individually or "mark all visible", and "delete marked" in one confirmed action (extra confirmation for keep-outs), through the shared POI delete operation owned by the named-maps epic (U10).
 - Tests (claude_agent, mcp_server, poi_store, web_ui), evals extended beyond pick-and-place where cheap, READMEs; deployed (respecting the rule that deploying claude_agent/mcp_server kills a running agent session).
 
 ## Non-goals
@@ -42,7 +43,10 @@ The driving agent (nodes/claude_agent, Claude Agent SDK, acting through nodes/mc
 
 
 
-Estimate: 1425 min | Actual: 0 min | Remaining estimate: 1425 min
+
+
+
+Estimate: 1580 min | Actual: 0 min | Remaining estimate: 1580 min
 
 ## Review
 

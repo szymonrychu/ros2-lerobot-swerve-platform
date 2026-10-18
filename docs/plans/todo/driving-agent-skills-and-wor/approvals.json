@@ -106,9 +106,10 @@
   },
   {
     "id": "G8",
-    "text": "Survey POIs are cleared on New session (no persistence beyond the session), consistent with the existing agent POI reset.",
+    "text": "Survey POIs are cleared on New session (no persistence beyond the session), consistent with the existing agent POI reset; keep-out zones always survive it.",
     "decisions": [
-      "D11"
+      "D11",
+      "D14"
     ],
     "tasks": [
       "poi-store-clear-by-tag",
@@ -241,14 +242,46 @@
   },
   {
     "id": "U9",
-    "text": "Survey POIs are cleared on New session.",
+    "text": "Survey POIs are cleared on New session, except keep-out zones, which always survive (amended by U10).",
     "decisions": [
-      "D11"
+      "D11",
+      "D14"
     ],
     "tasks": [
       "poi-store-clear-by-tag",
       "mcp-admin-clear-by-tag",
       "reset-clears-survey-pois"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G10",
+    "text": "The web UI POI list filters by category, marks POIs individually or all visible, and deletes the marked ones in one confirmed action through the shared POI delete operation.",
+    "decisions": [
+      "D14"
+    ],
+    "tasks": [
+      "web-ui-poi-selection-logic",
+      "web-ui-poi-list-filter-and-m",
+      "web-ui-poi-delete-marked"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U10",
+    "text": "Keep-out zones survive New session (the reset clears the other survey POIs, never keep-outs); the web UI POI list can be filtered by category, POIs marked individually, mark all visible marks every POI passing the filter, delete marked deletes them in one action with a confirmation naming the count and listing categories, and keep-outs in the batch need an explicit extra confirmation; a poi_store batch delete-by-ids and web_ui route are reused from the named-maps clear work, not duplicated.",
+    "decisions": [
+      "D14"
+    ],
+    "tasks": [
+      "poi-store-clear-by-tag",
+      "mcp-admin-clear-by-tag",
+      "reset-clears-survey-pois",
+      "prompt-skills-and-workflows",
+      "skills-suite-and-runbook",
+      "web-ui-poi-selection-logic",
+      "web-ui-poi-list-filter-and-m",
+      "web-ui-poi-delete-marked"
     ],
     "status": "approved"
   }

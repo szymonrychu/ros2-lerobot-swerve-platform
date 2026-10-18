@@ -34,7 +34,8 @@ Orchestrator runbook (after merge, robot reachable; every deploy through the ans
 4. Discovery job from the web UI Agent tab: "Look around this room and map it" (base only; no arm motion): the plan shows workflow discovery with mandatory steps; survey POIs appear with category chips; get_exploration_status is called; the job ends with a summary; a retrospective appears in the Retros tab.
 5. Drive-to-target job: create a POI "test spot" 1 m ahead in free space, then "Drive to the test spot": workflow drive_to_target, verify_arrival done, retrospective in the Retros tab.
 6. `uv run python scripts/agent_retrospectives.py` writes both retrospectives to `.logs/retrospectives/`.
-7. "New session" in the web UI: survey POIs (tag #survey) disappear; the user's POIs stay.
+7. "New session" in the web UI: survey POIs (tag #survey) disappear; the user's POIs and every keep-out zone (also one tagged #survey) stay.
+7b. POI list in the web UI: filter by one category, "Mark all visible", check the count in "Delete marked", confirm, only those POIs disappear; marking a keep-out demands the extra confirmation.
 8. Optional when the user agrees: `uv run python -m scripts.eval.run scripts/eval/run.yaml` with `testset: scripts/eval/testset_workflows_v1.yaml`, mode full.
 9. If the robot is offline, report steps 1-8 as pending on the robot with everything else done.
 
@@ -42,7 +43,7 @@ Orchestrator runbook (after merge, robot reachable; every deploy through the ans
 
 - a1: docs cover skills, workflows, retrospectives and MEMORY records the decision [evidence: command: uv run pytest tests/test_agent_skills_docs.py -q]
 - a2: every suite and lint is green [evidence: command: uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && (cd nodes/claude_agent && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/poi_store && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/costmap_zones && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)]
-- a3: the runbook stages the deploy, the idle check, the init check, the read-only check, one discovery and one drive-to-target job, the Retros tab, the script and New session [evidence: judgement]
+- a3: the runbook stages the deploy, the idle check, the init check, the read-only check, one discovery and one drive-to-target job, the Retros tab, the script, New session (keep-outs stay) and POI list delete marked [evidence: judgement]
 
 ## Files
 

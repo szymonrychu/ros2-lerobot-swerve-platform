@@ -2,7 +2,7 @@
 title: Reset clears survey POIs
 status: todo
 repo: ros2-lerobot-sverve-platform
-value: "New session forgets survey findings, as the user asked, while other agent POIs follow the existing reset rule."
+value: "New session forgets survey findings, as the user asked, while other agent POIs follow the existing reset rule and keep-out zones always survive."
 files: [nodes/claude_agent/claude_agent/poi_clear.py, nodes/claude_agent/claude_agent/runner.py, nodes/claude_agent/tests/test_poi_clear.py, nodes/claude_agent/README.md]
 verify: "cd nodes/claude_agent && uv run --frozen pytest tests/test_poi_clear.py tests/test_runner.py -q && uv run --frozen poe lint"
 depends_on: [mcp-admin-clear-by-tag, retro-api-endpoint, shared-poi-category-tags]
@@ -23,10 +23,10 @@ provides: []
 
 ## Requirement
 
-- `poi_clear.py` (D11, U9): `call_clear_agent_pois(mcp_url, token_file, timeout_s, statuses=None, tag=None)` sends `{"statuses": [...]}` and/or `{"tag": "..."}` (no body only when both are None). Constant `SURVEY_TAG = "#survey"` at the top with a comment naming its owner `shared/ros2_common/poi_categories.py` (claude_agent does not depend on ros2-common: it would pull scipy and opencv onto the agent).
-- `runner.py` `reset` / `clear_agent_pois`: after the existing clear (agent_poi_reset), a second clear with `tag=SURVEY_TAG` and no status filter, so survey POIs and survey spots go in every status; each failure is logged and never stops the reset; the poi_clearer callable gains the tag parameter (default clearer passes it through).
-- `README.md`: "New session" documents that survey POIs (tag #survey) are always cleared and why (U9).
-- Tests first in `tests/test_poi_clear.py`, seen failing: the body carries the tag; reset makes both calls in order (statuses first, then the survey tag); with clear_all the survey call still runs; a failing survey clear is logged and the reset completes; `SURVEY_TAG` equals the value in `shared/ros2_common/poi_categories.py` (read as text with a regex, so the two never drift).
+- `poi_clear.py` (D11, U9): `call_clear_agent_pois(mcp_url, token_file, timeout_s, statuses=None, tag=None, keep_keepout=True)` sends `{"statuses": [...]}` and/or `{"tag": "..."}` plus `{"keep_keepout": true}` (U10 a: keep-out zones survive "New session"; on by default and the reset never turns it off). Constant `SURVEY_TAG = "#survey"` at the top with a comment naming its owner `shared/ros2_common/poi_categories.py` (claude_agent does not depend on ros2-common: it would pull scipy and opencv onto the agent).
+- `runner.py` `reset` / `clear_agent_pois`: BOTH clears carry `keep_keepout=True`: the existing clear (agent_poi_reset, also in `clear_all` mode, which no longer removes keep-outs) and a second clear with `tag=SURVEY_TAG` and no status filter, so survey POIs and survey spots go in every status while a keep-out, tagged `#survey` or not, always stays; each failure is logged and never stops the reset; the poi_clearer callable gains the tag parameter (default clearer passes it through).
+- `README.md`: "New session" documents that survey POIs (tag #survey) are always cleared and why (U9), and that keep-out zones are never cleared by a reset, not even in `clear_all` mode or when tagged `#survey` (U10).
+- Tests first in `tests/test_poi_clear.py`, seen failing: the body carries the tag; reset makes both calls in order (statuses first, then the survey tag); with clear_all the survey call still runs; both calls carry keep_keepout true (also with clear_all); a failing survey clear is logged and the reset completes; `SURVEY_TAG` equals the value in `shared/ros2_common/poi_categories.py` (read as text with a regex, so the two never drift).
 
 ## Acceptance conditions
 
@@ -34,6 +34,7 @@ provides: []
 - a2: reset clears by the configured statuses and then every survey POI [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_poi_clear.py -q -k reset_clears_survey]
 - a3: a failing survey clear never breaks the reset [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_poi_clear.py -q -k survey_clear_fails]
 - a4: SURVEY_TAG equals the shared grammar value [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_poi_clear.py -q -k survey_tag_matches_shared]
+- a6: both clears keep keep-out zones, also in clear_all mode [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_poi_clear.py -q -k keep_keepout]
 - a5: existing runner tests and lint pass [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_runner.py -q && uv run --frozen poe lint]
 
 ## Files
@@ -49,7 +50,7 @@ provides: []
 
 ## Expected outcome
 
-New session removes every survey POI made by the agent.
+New session removes every survey POI made by the agent except keep-out zones.
 
 ## Steps
 

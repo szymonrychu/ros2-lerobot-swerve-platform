@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "The user deletes all marked POIs in one action after a confirmation that names the count and categories, with an extra confirmation when keep-outs are in the batch."
 files: [nodes/web_ui/frontend/src/poi/DeleteMarkedDialog.tsx, nodes/web_ui/frontend/src/poi/DeleteMarkedDialog.test.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.tsx, nodes/web_ui/README.md]
 verify: "cd nodes/web_ui/frontend && npx vitest run src/poi/DeleteMarkedDialog.test.tsx src/poi/PoiPanels.mark.test.tsx src/poi/PoiPanels.test.tsx && npx tsc --noEmit && npm run lint"
-depends_on: [web-ui-poi-list-filter-mark]
+depends_on: [web-ui-poi-list-filter-and-m]
 owns: []
 uses: [poi-selection, poi-clear-filters]
 model: sonnet
@@ -45,16 +45,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `poi/DeleteMarkedDialog.tsx:DeleteMarkedDialog`; consumes `clearPois` (contract poi-clear-filters, owner poi-store-clear-filters in epic named-maps-with-pois-and-rel).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Marked POIs are deleted in one confirmed action through the shared POI delete operation.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `DeleteMarkedDialog.test.tsx`; run `cd nodes/web_ui/frontend && npx vitest run src/poi/DeleteMarkedDialog.test.tsx`; expect failures.
+- Implement; run the verify command; commit `feat(web_ui): delete marked POIs`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Cross-epic: needs named-maps tasks poi-store-clear-filters (ids), web-ui-poi-clear-route (ids) and web-ui-clear-pois-dialog (`clearPois`) landed first: epic README blockers order the epics.
+- The named-maps Clear POIs dialog gets `onChooseIndividually`: wire it here to focus the filter toolbar.
+- Servo safety (CLAUDE.md): this task moves no servo.

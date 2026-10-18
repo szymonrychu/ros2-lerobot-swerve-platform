@@ -24,14 +24,14 @@ provides: []
 ## Requirement
 
 `POST /api/poi?tab=` accepts `{"op": "clear", "created_by": "agent"|"user"|null, "kinds": [...]|null,
-"statuses": [...]|null, "keep_zones": bool}` (design D7, D12).
+"statuses": [...]|null, "keep_zones": bool, "ids": [str]|null}` (design D7, D12).
 
 - Validation: `created_by` in agent/user/null, `kinds` subset of point/area/object, `statuses` subset of
-  open/done/cancelled, `keep_zones` bool (default false); anything else 422 with the reason. The command forwarded to
+  open/done/cancelled, `keep_zones` bool (default false), `ids` a list of at most 500 non-empty strings or null (also used by the skills epic's "delete marked"); anything else 422 with the reason. The command forwarded to
   poi_store contains only the given fields plus `op`.
 - Same unavailable/timeout handling as the other POI ops; not battery-guarded (not motion).
 - The error message for an unknown op lists clear among the accepted ops.
-- `nodes/web_ui/tests/test_poi_clear.py` (test first): forwards each filter; rejects bad values; poi_store down 503;
+- `nodes/web_ui/tests/test_poi_clear.py` (test first): forwards each filter (including ids); rejects bad values; poi_store down 503;
   timeout 504; the result passes through (`{"removed": n}`).
 - README POI route section documents clear.
 
@@ -39,6 +39,7 @@ provides: []
 
 - a1: clear forwards the given filters to poi_store and returns its result [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_poi_clear.py -q]
 - a2: invalid clear filters answer 422 [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_poi_clear.py -q -k invalid]
+- a4: ids are forwarded and an oversized or non-string ids list answers 422 [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_poi_clear.py -q -k ids]
 - a3: README documents the clear op [evidence: command: grep -q '"clear"' nodes/web_ui/README.md]
 
 ## Files
@@ -63,6 +64,8 @@ The POI clear filters reach poi_store from the browser API with validation.
 - Commit: `feat(web_ui): POI clear route`.
 
 ## Notes
+
+This route is the ONE browser path for bulk POI deletion; the driving-agent-skills-and-wor POI list ("delete marked") reuses it with `ids`, it must not add another route.
 
 poi_store validates again; the route rejects bad values early with 422 so the UI gets a clear message.
 - Servo safety (CLAUDE.md): this task moves no servo.

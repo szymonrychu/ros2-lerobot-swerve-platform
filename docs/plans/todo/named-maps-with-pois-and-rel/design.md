@@ -151,10 +151,10 @@ the result for diagnosis only. Serves G3, U5.
 ### D7: Clear POIs: filtered clear in poi_store, consent defaults for the agent
 
 poi_store's `clear` op: `created_by` becomes optional (absent: every creator), new optional `kinds`
-(`point`/`area`/`object`) and `keep_zones` (true keeps areas whose zone is `keepout` or `slow`); `statuses` stays; photos
+(`point`/`area`/`object`), `keep_zones` (true keeps areas whose zone is `keepout` or `slow`) and `ids` (list of POI ids; the batch delete-by-ids, ANDed with the rest); `statuses` stays; photos
 are never cleared; cleared POIs are stripped from photo links as today. claude_agent's New-session clear keeps working
 unchanged (it sends `created_by: agent`). The web UI "Clear POIs" dialog offers all / mine (user) / agent's, kinds,
-and "keep zones" (default on). The agent's `clear_pois(creator="agent", kinds=None, include_zones=False)` defaults to
+and "keep zones" (default on); the dialog is a thin clear-all / clear-by-filter action over the same `clearPois` call, with an optional "Choose individual POIs" link into the POI list that the epic driving-agent-skills-and-wor adds (per-POI marking, category filter and delete-marked live there, not here). The agent's `clear_pois(creator="agent", kinds=None, include_zones=False)` defaults to
 its own POIs and keeps zones; `creator` `user`/`all` or `include_zones=True` only after the person asked (tool
 description and claude_agent prompt, the same consent pattern as cancelling a keep-out today). Serves G1, U1.
 
@@ -248,7 +248,7 @@ POI panel. Serves G1, G2, G4.
 |---|---|---|---|
 | `map-manager-contract` | map-manager-contract | map-manager-bundle-store, map-manager-operations, map-manager-ros-node, web-ui-named-maps-backend, mcp-map-tools, map-guard-cpp-load-hold | `shared/ros2_common/maps.py` |
 | `scan-agreement` | shared-scan-agreement | map-manager-bundle-store, map-manager-relocaliser, map-manager-ros-node | `shared/ros2_common/scan_agreement.py` |
-| `poi-clear-filters` | poi-store-clear-filters | web-ui-poi-clear-route, mcp-clear-pois-tool | `nodes/poi_store/poi_store/models.py` (`Command`) |
+| `poi-clear-filters` | poi-store-clear-filters | web-ui-poi-clear-route, mcp-clear-pois-tool | `nodes/poi_store/poi_store/models.py` (`Command`; includes `ids`; ONE owner, also consumed by epic driving-agent-skills-and-wor via `uses`) |
 | `poi-replace-op` | poi-store-replace-op | map-manager-operations | `nodes/poi_store/poi_store/models.py` (`Command`) |
 | `map-bundle-store` | map-manager-bundle-store | map-manager-operations | `nodes/map_manager/map_manager/bundle.py` |
 | `relocaliser` | map-manager-relocaliser | map-manager-operations | `nodes/map_manager/map_manager/relocalise.py` |

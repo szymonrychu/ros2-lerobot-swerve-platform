@@ -25,14 +25,15 @@ provides: []
 
 "Clear POIs" in the POI panel (design D7, D12).
 
-- `api.ts`: `clearPois(tab, {createdBy, kinds, statuses, keepZones})` posting `op: clear`.
+- `api.ts`: `clearPois(tab, {createdBy, kinds, statuses, keepZones, ids})` posting `op: clear` (the same function the skills epic's "delete marked" calls with `ids`; this dialog never sends `ids` and never implements per-POI marking, category filtering or a second deletion UI).
 - `ClearPoisDialog`: creator choice (all / mine (user) / agent's), kinds checkboxes (point, area, object; all
   checked by default), "Keep keep-out and slow zones" (checked by default), a count preview computed from the current
   POI list with the same filter rules, confirm button disabled when the preview is 0, the result message
   ("Removed n POIs") or the error.
+- The dialog is a thin "clear all / clear by filter" action. Optional prop `onChooseIndividually?: () => void`: when given, the dialog shows a "Choose individual POIs" link that closes it and calls it (the skills epic's POI list passes it to focus its filter/mark mode; absent, the link is not rendered).
 - `PoiPanels.tsx` gets the "Clear POIs" button that opens the dialog.
 - `ClearPoisDialog.test.tsx` (test first): preview counts per filter (zones kept by default), posted body per choice,
-  disabled confirm at 0, error display; `PoiPanels.test.tsx` still passes.
+  disabled confirm at 0, error display, the link renders only when `onChooseIndividually` is given; `PoiPanels.test.tsx` still passes.
 
 ## Acceptance conditions
 
@@ -63,6 +64,8 @@ The POI panel clears POIs with a previewed count and zones kept by default.
 - Commit: `feat(web_ui): clear POIs dialog`.
 
 ## Notes
+
+Shared-operation contract (`poi-clear-filters`) is owned by poi-store-clear-filters; epic driving-agent-skills-and-wor reuses `clearPois` and the route for its POI list (U10) - keep `clearPois` the single API function.
 
 The preview applies the same rules as poi_store `op_clear` (creator, kinds, keep_zones) to the current POI list.
 - Servo safety (CLAUDE.md): this task moves no servo.
