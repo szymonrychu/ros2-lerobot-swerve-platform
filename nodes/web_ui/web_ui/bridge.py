@@ -28,11 +28,13 @@ import structlog
 from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import PolygonStamped, PoseStamped
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
+from pydantic import ValidationError
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
+from ros2_common.maps import COMMAND_TOPIC, RESULT_TOPIC, STATUS_TOPIC, MapCommand, MapStatus
 from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
 from slam_toolbox.srv import Reset, SerializePoseGraph
 from std_msgs.msg import Empty, String
@@ -384,6 +386,9 @@ class BridgeNode(Node):
         self._poi_command_pub = (
             self.create_publisher(String, poi_command_topic, DEFAULT_SUB_QOS_DEPTH) if poi_command_topic else None
         )
+        self._map_status: MapStatus | None = None
+        self._map_pending: dict[str, Future] = {}
+        self._map_command_pub = self.create_publisher(String, COMMAND_TOPIC, DEFAULT_SUB_QOS_DEPTH)
         self._grasp_pending: dict[str, Future] = {}
         self._grasp_command_pub = (
             self.create_publisher(String, grasp_command_topic, DEFAULT_SUB_QOS_DEPTH) if grasp_command_topic else None
@@ -391,6 +396,8 @@ class BridgeNode(Node):
         roles = topic_roles or {}
         self._map_topics = [topic for topic in topics if roles.get(topic) == "map"]
         self.subscribe_always_on(Empty, MAP_GUARD_RESET_TOPIC, self.on_map_guard_reset, DEFAULT_SUB_QOS_DEPTH)
+        self.subscribe_always_on(String, STATUS_TOPIC, self.on_map_status, MAP_SUB_QOS)
+        self.subscribe_always_on(String, RESULT_TOPIC, self.on_map_result, DEFAULT_SUB_QOS_DEPTH)
         self.subscribe_tilt_guard()
         if imu_status_topic:
             self.subscribe_always_on(String, imu_status_topic, self.on_imu_calibration_status, DEFAULT_SUB_QOS_DEPTH)
@@ -850,6 +857,75 @@ class BridgeNode(Node):
             future.set_result(result)
         except InvalidStateError:
             log.debug("poi_result_after_cancel")
+
+    def map_status(self) -> MapStatus | None:
+        """Return the latest map_manager status.
+
+        Returns:
+            MapStatus | None: Cached status, or None before the first valid message.
+        """
+        return self._map_status
+
+    def on_map_status(self, msg: Any) -> None:
+        """Cache the latched /map_manager/status; a changed load_seq means a map was loaded.
+
+        A load (also one the agent started) replaces the SLAM map, so the cached map topics and the GPS anchor are
+        dropped as on a map_guard reset. The first status seen only records the load_seq.
+
+        Args:
+            msg (Any): std_msgs/String with the MapStatus JSON; an invalid payload is logged and ignored.
+        """
+        try:
+            status = MapStatus.model_validate_json(msg.data)
+        except (ValidationError, ValueError, TypeError) as exc:
+            log.warning("map_status_invalid", error=str(exc)[:200])
+            return
+        previous = self._map_status
+        self._map_status = status
+        if previous is not None and previous.load_seq != status.load_seq:
+            log.info("map_loaded", load_seq=status.load_seq, active_map=status.active_map)
+            for topic in self._map_topics:
+                self.clear_and_notify(topic)
+            self.reset_gps_anchor()
+
+    def map_request_async(self, command: MapCommand) -> Future | None:
+        """Publish a map_manager command with a fresh request_id; the future resolves with the matching result.
+
+        Args:
+            command (MapCommand): Validated command (its request_id is replaced).
+
+        Returns:
+            Future | None: Resolves to the result dict {request_id, ok, message, data}; None when map_manager does
+                not subscribe to the command topic.
+        """
+        pub = self._map_command_pub
+        if pub is None or pub.get_subscription_count() == 0:
+            return None
+        request_id = uuid.uuid4().hex
+        future: Future = Future()
+        future.add_done_callback(lambda _fut: self._map_pending.pop(request_id, None))
+        self._map_pending[request_id] = future
+        pub.publish(String(data=command.model_copy(update={"request_id": request_id}).model_dump_json()))
+        return future
+
+    def on_map_result(self, msg: Any) -> None:
+        """Resolve the pending map request a /map_manager/result message answers.
+
+        Args:
+            msg (Any): std_msgs/String with the MapResult JSON.
+        """
+        try:
+            result = json.loads(msg.data)
+            future = self._map_pending.pop(result["request_id"], None)
+        except (ValueError, KeyError, TypeError):
+            log.warning("map_result_malformed")
+            return
+        if future is None:
+            return
+        try:
+            future.set_result(result)
+        except InvalidStateError:
+            log.debug("map_result_after_cancel")
 
     def grasp_request_async(self, payload: dict[str, Any]) -> tuple[str, Future] | None:
         """Publish a grasp request with a fresh request_id; the future resolves with the matching /grasp/result.

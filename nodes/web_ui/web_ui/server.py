@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from ros2_common.battery import BatteryGuard
+from ros2_common.maps import MapCommand
 from ros2_common.photos import PhotoSelector
 from ros2_metrics import render_latest
 from starlette.exceptions import HTTPException
@@ -67,6 +68,10 @@ log = structlog.get_logger(__name__)
 SAVE_MAP_TIMEOUT_S = 15.0
 # slam_toolbox SerializePoseGraph.Response.RESULT_SUCCESS.
 SERIALIZE_MAP_RESULT_SUCCESS = 0
+# Seconds to wait for map_manager's answer to a named map save / load (load includes relocalisation) / delete.
+MAP_SAVE_TIMEOUT_S = 30.0
+MAP_LOAD_TIMEOUT_S = 120.0
+MAP_DELETE_TIMEOUT_S = 10.0
 # Seconds to wait for slam_toolbox's reset response before reporting a timeout.
 RESET_MAP_TIMEOUT_S = 10.0
 # slam_toolbox Reset.Response.RESULT_SUCCESS.
@@ -781,6 +786,96 @@ def build_app(
             return action_response("map_reset", True, "map reset; SLAM is building a new map", 200)
 
         return await coalesce(inflight_calls, f"map_reset:{service}", run_reset)
+
+    async def map_command(tab: str, op: str, request: Request, timeout_s: float) -> JSONResponse:
+        """Run one named map command (save, load, delete) against map_manager.
+
+        Args:
+            tab (str): map_nav tab id.
+            op (str): "save", "load" or "delete".
+            request (Request): HTTP request whose JSON body holds the MapCommand fields except op.
+            timeout_s (float): Seconds to wait for map_manager's result.
+
+        Returns:
+            JSONResponse: {"ok", "message"}: 200 ok, 400 refused by map_manager, 404 no such tab, 422 bad body,
+                500 goal cancel failed (load), 503 bridge/map_manager unavailable, 504 timeout.
+        """
+        action = f"map_{op}"
+        if op != "delete" and (blocked := battery_block(action)) is not None:
+            return blocked
+        tab_cfg = find_map_nav_tab(tab)
+        if tab_cfg is None:
+            return action_response(action, False, f"no map_nav tab {tab!r}", 404)
+        node = bridge_node
+        if node is None:
+            return action_response(action, False, "ROS bridge unavailable", 503)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            return action_response(action, False, "body must be a JSON object", 422)
+        try:
+            command = MapCommand.model_validate({**body, "op": op})
+        except ValidationError as exc:
+            reason = exc.errors()[0]["msg"].removeprefix("Value error, ")
+            return action_response(action, False, reason, 422)
+
+        async def run_command() -> JSONResponse:
+            if op == "load" and tab_cfg.navigate_action:
+                cancel_action = tab_cfg.navigate_action
+                response, error = await call_ros_service(
+                    action,
+                    node.cancel_all_goals_async(cancel_action),
+                    cancel_action + CANCEL_GOAL_SERVICE_SUFFIX,
+                    NAV_STOP_TIMEOUT_S,
+                    NAV_STOP_TIMEOUT_NOTE,
+                )
+                if error is not None:
+                    return error
+                code = getattr(response, "return_code", None)
+                if code != CANCEL_GOAL_ERROR_NONE:
+                    reason = (
+                        CANCEL_GOAL_RETURN_CODES.get(code, "unknown error") if isinstance(code, int) else "no response"
+                    )
+                    return action_response(action, False, f"load refused: cancelling goals failed ({reason})", 500)
+                if tab_cfg.goal_topic:
+                    node.clear_and_notify(tab_cfg.goal_topic)
+            future = node.map_request_async(command)
+            if future is None:
+                return action_response(action, False, "map_manager is not running", 503)
+            try:
+                result = await await_ros_future(future, timeout_s)
+            except TimeoutError:
+                return action_response(action, False, f"map_manager did not answer within {timeout_s:g} s", 504)
+            ok = bool(result.get("ok"))
+            return action_response(action, ok, str(result.get("message", "")), 200 if ok else 400)
+
+        key = f"{action}:{tab}:{command.model_dump_json(exclude={'request_id'})}"
+        return await coalesce(inflight_calls, key, run_command)
+
+    @app.get("/api/maps")
+    async def list_maps(tab: str) -> JSONResponse:
+        if find_map_nav_tab(tab) is None:
+            return action_response("map_list", False, f"no map_nav tab {tab!r}", 404)
+        if bridge_node is None:
+            return action_response("map_list", False, "ROS bridge unavailable", 503)
+        status = bridge_node.map_status()
+        if status is None:
+            return action_response("map_list", False, "no map_manager status yet", 503)
+        return JSONResponse(status.model_dump(mode="json"))
+
+    @app.post("/api/maps/save")
+    async def save_named_map(tab: str, request: Request) -> JSONResponse:
+        return await map_command(tab, "save", request, MAP_SAVE_TIMEOUT_S)
+
+    @app.post("/api/maps/load")
+    async def load_named_map(tab: str, request: Request) -> JSONResponse:
+        return await map_command(tab, "load", request, MAP_LOAD_TIMEOUT_S)
+
+    @app.post("/api/maps/delete")
+    async def delete_named_map(tab: str, request: Request) -> JSONResponse:
+        return await map_command(tab, "delete", request, MAP_DELETE_TIMEOUT_S)
 
     @app.post("/api/nav/stop")
     async def stop_nav(tab: str) -> JSONResponse:

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from ros2_common.maps import RESULT_TOPIC, STATUS_TOPIC
 
 from web_ui.bridge import (
     DEMAND_LINGER_S,
@@ -41,7 +42,7 @@ ROLES = {
     "/h/rgb": "head_rgb",
     **ALWAYS_ON_ROLES,
 }
-ALWAYS_ON = {*ALWAYS_ON_ROLES, MAP_GUARD_RESET_TOPIC, TILT_GUARD_STATE_TOPIC}
+ALWAYS_ON = {*ALWAYS_ON_ROLES, MAP_GUARD_RESET_TOPIC, TILT_GUARD_STATE_TOPIC, STATUS_TOPIC, RESULT_TOPIC}
 WARNING = {"level": "warning", "roll_deg": 12.5, "pitch_deg": -3.0}
 
 

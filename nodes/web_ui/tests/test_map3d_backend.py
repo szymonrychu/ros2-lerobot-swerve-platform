@@ -691,6 +691,7 @@ def test_bridge_init_wires_costmap_gps_and_trigger_clients() -> None:
             BridgeNode, "create_subscription", create=True, side_effect=lambda c, t, cb, q: created.append((c, t))
         ),
         patch.object(BridgeNode, "create_timer", create=True),
+        patch.object(BridgeNode, "create_publisher", create=True),
         patch.object(BridgeNode, "get_logger", create=True),
         patch.object(BridgeNode, "create_client", create=True, side_effect=lambda c, s: clients.append((c, s))),
         patch("web_ui.bridge.Buffer"),

@@ -382,6 +382,8 @@ def test_subscription_spec_unknown_topic_without_role_is_none() -> None:
 
 
 def test_bridge_init_subscribes_map_nav_topics_by_role() -> None:
+    from ros2_common.maps import RESULT_TOPIC, STATUS_TOPIC
+
     from web_ui.bridge import MAP_GUARD_RESET_TOPIC, BridgeNode, OccupancyGrid
     from web_ui.tilt_guard import TILT_GUARD_STATE_TOPIC
 
@@ -392,6 +394,7 @@ def test_bridge_init_subscribes_map_nav_topics_by_role() -> None:
             BridgeNode, "create_subscription", create=True, side_effect=lambda c, t, cb, q: created.append((c, t))
         ),
         patch.object(BridgeNode, "create_timer", create=True),
+        patch.object(BridgeNode, "create_publisher", create=True),
         patch.object(BridgeNode, "get_logger", create=True),
         patch.object(BridgeNode, "create_client", create=True),
         patch("web_ui.bridge.Buffer"),
@@ -403,10 +406,24 @@ def test_bridge_init_subscribes_map_nav_topics_by_role() -> None:
             topic_roles={"/map": "map", "/plan": "path", "/goal_pose": "goal"},
             robot_pose_frames=("map", "base_link"),
         )
-        assert {t for _, t in created} == {"/map", MAP_GUARD_RESET_TOPIC, TILT_GUARD_STATE_TOPIC}  # always on
+        assert {t for _, t in created} == {
+            "/map",
+            MAP_GUARD_RESET_TOPIC,
+            TILT_GUARD_STATE_TOPIC,
+            STATUS_TOPIC,
+            RESULT_TOPIC,
+        }  # always on
         node.update_demand(None)
     topics = {t for _, t in created}
-    assert topics == {"/map", "/plan", "/goal_pose", MAP_GUARD_RESET_TOPIC, TILT_GUARD_STATE_TOPIC}
+    assert topics == {
+        "/map",
+        "/plan",
+        "/goal_pose",
+        MAP_GUARD_RESET_TOPIC,
+        TILT_GUARD_STATE_TOPIC,
+        STATUS_TOPIC,
+        RESULT_TOPIC,
+    }
     assert (OccupancyGrid, "/map") in created
 
 
@@ -513,6 +530,7 @@ def test_bridge_init_passes_role_to_callbacks() -> None:
         patch("web_ui.bridge.Node.__init__", return_value=None),
         patch.object(BridgeNode, "create_subscription", create=True),
         patch.object(BridgeNode, "create_timer", create=True),
+        patch.object(BridgeNode, "create_publisher", create=True),
         patch.object(BridgeNode, "get_logger", create=True),
         patch.object(BridgeNode, "create_client", create=True),
         patch.object(BridgeNode, "_make_callback", fake_make_callback),

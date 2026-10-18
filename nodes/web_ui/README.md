@@ -388,6 +388,23 @@ Because tiles come from the same origin, the Content-Security-Policy keeps `img-
 | 503 | ROS bridge or the cancel service is unavailable (Nav2 not running) |
 | 504 | No response within 5 s |
 
+## Named maps
+
+Named maps bundle the SLAM pose graph, the POIs and the last pose; `map_manager` does the work, web_ui relays. The unnamed `POST /api/map/save` and `/api/map/reset` are unchanged. All routes take `?tab=<map_nav tab id>` (404 otherwise), return `{"ok", "message"}` (except the list) and answer 503 when the ROS bridge or `map_manager` is not running.
+
+| Route | Body | Timeout |
+|---|---|---|
+| `GET /api/maps` | - | the cached `/map_manager/status` (`maps`, `active_map`, `load_seq`, `localisation`); 503 "no map_manager status yet" before the first message |
+| `POST /api/maps/save` | `{name, overwrite?, note?}` | 30 s |
+| `POST /api/maps/load` | `{name, pose?}` (`pose` = `{x, y, yaw}` hint in the map frame) | 120 s (includes relocalisation) |
+| `POST /api/maps/delete` | `{name}` (the map and its POIs) | 10 s |
+
+Bodies are validated with `ros2_common.maps.MapCommand` (422 with the reason). `map_manager` results map `ok` to 200 and a refusal to 400; no answer in time is 504. Concurrent identical requests share one command. Save and load are refused while the battery is below cut-off; delete is not.
+
+Load first cancels the tab's Nav2 goals (`<navigate_action>/_action/cancel_goal`) and is refused (500, no command sent) when the cancel fails.
+
+Bridge topics: latched subscription `/map_manager/status` (cached; an invalid payload is logged and ignored), publisher `/map_manager/command`, subscription `/map_manager/result` matched by `request_id`. When `load_seq` changes from a previously seen value (any load, including one the agent started) the bridge drops the cached map topics and the GPS anchor, as a map_guard reset does. An unrecoverable move makes map_guard publish `/map_guard/map_reset`, which does the same; there is no extra route, and saved bundles stay listed (Save, Load and Delete remain explicit user actions).
+
 ## Metrics
 
 `GET /metrics` on the web port (8080), via `ros2-metrics`; registered before the SPA catch-all mount so the static fallback never shadows it (`tests/test_metrics.py`). Defined in `web_ui/metrics.py`. Grafana Alloy scrapes it every 5 s (also reachable through nginx on port 80 like every other route).

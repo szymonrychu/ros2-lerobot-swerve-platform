@@ -37,6 +37,7 @@ def test_bridge_subscribes_to_the_map_guard_reset_topic() -> None:
             side_effect=lambda c, t, cb, q: created.append((c, t, cb)),
         ),
         patch.object(BridgeNode, "create_timer", create=True),
+        patch.object(BridgeNode, "create_publisher", create=True),
         patch.object(BridgeNode, "get_logger", create=True),
         patch.object(BridgeNode, "create_client", create=True),
     ):
