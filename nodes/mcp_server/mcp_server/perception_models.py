@@ -51,6 +51,9 @@ class PoiView(BaseModel):
     distance_m: float | None = Field(default=None, description="From the robot to the POI position (area: centroid)")
     bearing_deg: float | None = Field(default=None, description="Relative to the robot heading: 0 ahead, + left")
     inside: bool | None = Field(default=None, description="Areas only: whether the robot stands inside the polygon")
+    category: str | None = Field(default=None, description="Note tag: target, slow, keepout, problem or detail")
+    problem_type: str | None = Field(default=None, description="Category 'problem': window, mirror, tight, ...")
+    survey: bool = Field(default=False, description="Note carries the #survey tag")
 
 
 class PoiList(BaseModel):
