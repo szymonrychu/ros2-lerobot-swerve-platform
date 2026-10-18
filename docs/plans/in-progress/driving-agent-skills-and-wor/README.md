@@ -1,7 +1,7 @@
 ---
 title: Driving agent skills and workflows
 blockers: [Remove the Jetson coprocessor]
-stage: build
+stage: review
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
