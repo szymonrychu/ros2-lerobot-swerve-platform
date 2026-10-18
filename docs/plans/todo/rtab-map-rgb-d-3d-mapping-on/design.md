@@ -21,7 +21,7 @@ costmap_zones, map_guard, poi_store, frontiers and the web UI all depend on `/ma
 
 ## Goals
 
-- G1: RTAB-Map deployed on the server Pi 4b by Ansible, fed compressed head RGB, ToF depth, camera_info, `/scan_filtered` and TF from the client; `publish_tf: false`; memory managed for the Pi 4b.
+- G1: RTAB-Map deployed on the server Pi 4b by Ansible, fed compressed head RGB, ToF depth, camera_info, `/scan_filtered` (uplinked and stored with the map, decided by the user on 2026-10-18) and TF from the client; `publish_tf: false`; memory managed for the Pi 4b.
 - G2: client-to-server transport proven over WiFi: rates and sizes budgeted in one contract file, measured bandwidth, client CPU cost of the extra streams measured.
 - G3: the 3D map is aligned with slam_toolbox's map frame; the 3D database is saved, reset and restored together with the 2D map.
 - G4: the web UI's existing map3d view shows the 3D map, downsampled for the browser.
@@ -103,18 +103,22 @@ ceiling 2.0 Mbit/s), status 1 Hz, results rare. The ToF is throttled to 5 Hz (no
 with the 2 Hz RGB at <= 100 ms; doubling it to 10 Hz halves the sync gap for +1.8 Mbit/s if the runbook shows
 smearing. Raw 1152x648 bgr8 at 30 fps would be ~67 MB/s; it never crosses. (my call) Serves G2.
 
-### D4: Head camera mapping stream, fixed focus and a real calibration
+### D4: Head camera mapping stream, focus lock while mapping and a real calibration
 
 head_camera_cpp gains `mapping.*` (enabled, 2 Hz, 576x324, JPEG q80) publishing
 `/head_camera/mapping/image_raw/compressed` and `/head_camera/mapping/camera_info` only while subscribed, decimated
 from the 30 fps capture, so the client pays ~2 small encodes per second instead of a 30 fps JPEG stream for the relay.
 camera_info stays calibration-only (front-camera D3) and is scaled to 576x324. RTAB-Map needs fixed intrinsics, so
-the camera runs `af_mode: manual` at `lens_position` (default 1.0 dioptre, ~1 m) and the zoom path restores that lens
-position after its own AF (today it restores Continuous). The intrinsics come from `scripts/head_camera_calibrate.py`
+the camera keeps continuous autofocus normally and locks focus at `lens_position` (default 1.0 dioptre, ~1 m) only while
+3D mapping is enabled: the lock engages when the mapping image topic has subscribers (the uplink relay is lazy, so it
+subscribes only while 3D mapping runs) and the node parameter `mapping.lock_focus` (default true) is set, and releases
+back to the configured `af_mode` (default continuous) when the last subscriber leaves. A zoom still autofocuses on its
+point for its single still and then returns to the mapping lock (or to continuous when no lock is active). The
+intrinsics used for mapping are those calibrated at the locked focus (the calibration is captured with the lock on). The intrinsics come from `scripts/head_camera_calibrate.py`
 (checkerboard frames fetched from topic_scraper_api, OpenCV calibrateCamera, ROS camera_calibration YAML), run in the
 runbook. Alternatives: relaying `/head_camera/image_raw/compressed` (forces 30 fps encoding on the busy client and 3x
 the bandwidth), nominal datasheet intrinsics (approximate, not measured: rejected as placeholder-like), keeping
-continuous AF (intrinsics drift with focus). (my call; the focus trade-off is a gate question) Serves G1.
+continuous AF while mapping (intrinsics drift with focus), a permanent manual lock (rejected by the user: close-up shots keep working AF outside mapping). Decided by the user on 2026-10-18. Serves G1.
 
 ### D5: Depth registered to RGB on the server
 
@@ -146,7 +150,7 @@ then the chain of slam_toolbox poses and `MapGraph.map_to_odom` stays identity, 
 and consumers draw `/map3d/cloud` (frame `rtabmap_map`) in the map frame. Two checks: map3d_manager reports
 `graph_correction_m/deg` from `MapGraph.map_to_odom` (non-identity = the design broke), and mcp_server's
 `alignment_agreement` measures the fraction of measured obstacle columns at lidar height that lie on `/map` walls
-(acceptance >= 0.8 in the runbook). Caveat accepted (my call, gate question): RTAB-Map nodes keep the slam_toolbox pose
+(acceptance >= 0.8 in the runbook). Caveat accepted, decided by the user on 2026-10-18 and documented as a limitation (older 3D map parts do not re-bend after later 2D loop closures): RTAB-Map nodes keep the slam_toolbox pose
 they were created with; a later slam_toolbox loop closure moves the 2D map but not older 3D nodes. Mitigation: map a
 room at a time, reset the 3D map after a large 2D correction (map_guard resets reach it automatically, D9).
 Alternatives: EKF odometry + slam_toolbox `pose` as `global_pose` priors with `Optimizer/PriorsIgnored: false`
@@ -280,7 +284,7 @@ feature extraction, which D7/D8 disable).
 | D1 RTAB-Map from split apt packages, one container | rtabmap-server-launch, rtabmap-server-node-type |
 | D2 One uplink process, one contract file | map3d-topic-contract, map3d-uplink-node-type |
 | D3 Rates and bandwidth budget | map3d-topic-contract, final-suite-and-runbook |
-| D4 Head camera mapping stream, fixed focus, calibration | head-camera-mapping-config, head-camera-mapping-publish, camera-calibration-script |
+| D4 Head camera mapping stream, focus lock while mapping, calibration | head-camera-mapping-config, head-camera-mapping-publish, camera-calibration-script |
 | D5 Depth registered to RGB on the server | rtabmap-server-launch |
 | D6 RTAB-Map parameters | rtabmap-server-launch |
 | D7 Alignment with slam_toolbox's map frame | rtabmap-server-launch, map3d-manager-status, mcp-map3d-grid-model, final-suite-and-runbook |

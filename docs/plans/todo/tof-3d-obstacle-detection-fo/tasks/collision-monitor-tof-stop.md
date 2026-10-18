@@ -61,6 +61,7 @@ Test first: `tests/test_nav_tof_collision.py` fails before the config exists (D4
 - a4: the scan source and its StopBox use are unchanged (U5) [evidence: test: tests/test_nav_stack_config.py::test_nav2_collision_monitor_uses_scan]
 - a5: Docker param-load run recorded with every outcome [evidence: doc-section: nodes/nav2_bringup/README.md#ToF validation in Docker]
 - a6: nav and footprint tests pass [evidence: command: uv run pytest tests/test_nav_tof_collision.py tests/test_nav_stack_config.py tests/test_nav_footprint.py -q]
+- a7: a ToF or head-TF outage stops the robot while Nav2 drives: both ToF sources keep a non-zero source_timeout (stale-source stop), decided by the user on 2026-10-18 [evidence: test: tests/test_nav_tof_collision.py]
 
 ## Files
 

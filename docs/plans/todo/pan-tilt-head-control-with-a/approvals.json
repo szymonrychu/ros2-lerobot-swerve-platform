@@ -203,7 +203,7 @@
   },
   {
     "id": "R3",
-    "text": "Orchestrator ruling: the tilt sign is a config value with a documented default, positive tilt = looking down (matches home forward and down); the user confirms at the gate.",
+    "text": "Orchestrator ruling: the tilt sign is a config value with a documented default, positive tilt = looking down (matches home forward and down); decided, confirmed by the user on 2026-10-18.",
     "decisions": [
       "D2"
     ],

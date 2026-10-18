@@ -47,6 +47,7 @@ Test first: `tests/test_tof_obstacle_wiring.py` is written and seen failing on a
 - a3: MEMORY.md records the ToF obstacle decision [evidence: command: grep -q 'spatio_temporal_voxel_layer' MEMORY.md]
 - a4: every suite and lint is green [evidence: command: uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && uv run poe lint-cpp && (cd nodes/laser_filter && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)]
 - a5: the runbook covers ToF/TF preconditions, obstacle above and below the lidar plane, cliff stop at low speed, empty floor, lidar survival and CPU before/after [evidence: judgement]
+- a6: added CPU <= 0.15 core on the Pi 5, measured in Grafana after deploy and recorded, decided by the user on 2026-10-18 [evidence: judgement]
 
 ## Files
 

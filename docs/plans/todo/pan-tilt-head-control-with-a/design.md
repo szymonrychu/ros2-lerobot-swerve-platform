@@ -88,7 +88,7 @@ servos need.
   or the base lease (D9, D13).
 - R2: the head is not added to the arm self-collision model in this epic (non-goal).
 - R3: the tilt sign is a config value with a documented default, positive tilt = looking down (matches home "forward
-  and down"); the user confirms at the gate (D2).
+  and down"); decided and confirmed by the user (2026-10-18) (D2).
 
 ## Decisions
 
@@ -109,7 +109,7 @@ worth it for arbitration or smoothing, which are non-goals). Serves G1, U1.
 Joints `head_pan` and `head_tilt`; topics `/head/joint_states`, `/head/joint_commands`. Radians on every interface
 except the agent tools (degrees, D9). Servo centre 2048 = 0 rad = straight and level (U2). Pan positive = left (CCW seen
 from above, like the steering servos and REP 103 yaw). Tilt positive = looking down (REP 103 pitch about +y), matching the home "forward and down"; the sign is a config
-value (URDF axis plus the bridge `inverted` flag), documented with this default, and the user confirms it at the gate
+value (URDF axis plus the bridge `inverted` flag), documented with this default, and confirmed by the user (2026-10-18)
 (orchestrator ruling R3; the user's "-30/+45" read as 30 deg up, 45 deg down). Defaults (U2): pan [-90, +90] deg, tilt [-30, +45]
 deg, held in three places that a root test keeps equal: the URDF joint limits, the bridge `command_min/max_steps` (pan
 1024..3072, tilt 1707..2560 before `inverted`), the web UI slider ranges. Default servo IDs 40 (pan) and 41 (tilt) (my
@@ -348,8 +348,7 @@ TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Ser
 - The base bus has the byte budget for the head at 50 Hz: the split epic's projection gives 69 Hz capacity for base +
   head while driving; head-servo-group-config re-runs `test_bus_budget.py` with the real (capped, 7-byte goal) head
   group, and the runbook measures it on the robot.
-- The tilt sign convention (positive = looking down) is the documented default (R3); the user confirms at the gate, and a
-  different answer changes only the URDF axis, the bridge `inverted` flag and the default ranges.
+- The tilt sign convention (positive = looking down) is decided (R3, confirmed by the user 2026-10-18); were it ever flipped, only the URDF axis, the bridge `inverted` flag and the default ranges would change.
 - Default servo IDs 40/41, camera spacing 0.05 m and the mount offsets are estimates until measured on the built head:
   the runbook measures and updates the URDF and client.yml.
 - The pan post does not shadow the lidar outside the laser_filter footprint box: checked in the runbook (`/scan` shows

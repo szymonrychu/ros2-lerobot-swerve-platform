@@ -39,6 +39,8 @@ provides: []
 - a3: the last saved 3D map is restored before start and never deleted [evidence: test: tests/test_rtabmap_mapping_config.py]
 - a4: the Jazzy arm64 apt packages install and the launch loads with no unknown parameter and no TF output [evidence: command: scripts/rtabmap-launch-probe.sh]
 - a5: the README documents pipeline, alignment, parameters, memory and database [evidence: doc-section: nodes/rtabmap_mapping/README.md#Frames and alignment]
+- a6: /scan_filtered is subscribed (subscribe_scan true) and stored with every node, and uplinked by the contract, decided by the user on 2026-10-18 [evidence: test: tests/test_rtabmap_mapping_config.py]
+- a7: the README documents the accepted limitation that older 3D map parts do not re-bend after later 2D loop closures, decided by the user on 2026-10-18 [evidence: doc-section: nodes/rtabmap_mapping/README.md#Frames and alignment]
 
 ## Files
 

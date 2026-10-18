@@ -39,7 +39,8 @@ provides: []
 - a2: relay loops, duplicate dests, a non-latched /tf_static and a second server reader of a large stream are rejected [evidence: test: tests/test_map3d_topics.py]
 - a3: the estimated uplink and downlink bandwidth stay within the budget in the file [evidence: test: tests/test_map3d_topics.py]
 - a4: only the 2 Hz mapping RGB stream crosses the link, never raw or 30 fps RGB [evidence: test: tests/test_map3d_topics.py]
-- a5: the README documents the streams and the budget [evidence: doc-section: nodes/rtabmap_mapping/README.md#Topics]
+- a5: /scan_filtered is uplinked to /uplink/scan_filtered, decided by the user on 2026-10-18 [evidence: test: tests/test_map3d_topics.py]
+- a6: the README documents the streams and the budget [evidence: doc-section: nodes/rtabmap_mapping/README.md#Topics]
 
 ## Files
 

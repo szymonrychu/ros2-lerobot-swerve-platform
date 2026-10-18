@@ -37,7 +37,7 @@ pipeline must be the cheapest proven one and its cost must be measured, not assu
 
 - Building or storing a 3D map (next epic `rtab-map-rgb-d-3d-mapping-on`), outdoor elevation mapping.
 - Replacing slam_toolbox, the lidar pipeline or the lidar obstacle layers.
-- ToF voxels in the global costmap (the goal names the local costmap; see Assumptions, question Q3).
+- ToF voxels in the global costmap (the goal names the local costmap; decided by the user, Q3).
 - Detecting a cliff from missing floor returns (only below-floor points are a cliff signal; see Assumptions).
 - Fixing Arducam ToF capture on the Pi 5 kernel (tracked by the Jetson-removal epic; verified in the runbook).
 
@@ -216,7 +216,7 @@ Serves G5.
 Budget: the ToF pipeline adds at most 0.15 core mean on the client (ros2-tof_obstacle_cloud.service plus the
 before/after deltas of ros2-laser_filter.service and ros2-nav2_bringup.service), measured from Mimir
 `rate(container_cpu_usage_seconds_total{host="client",id="/system.slice/<unit>"}[1m])` over 30 min windows (robot idle,
-nodes up) before and after the deploy, and the EKF keeps its 30 Hz (question Q2 confirms the number). Runbook in the
+nodes up) before and after the deploy, and the EKF keeps its 30 Hz (Q2: decided by the user). Runbook in the
 final task: obstacle above and below the lidar plane in the costmap, cliff stop at <= 0.1 m/s with a spotter, empty
 floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4.
 
@@ -297,7 +297,7 @@ floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4
 ## Review focus
 
 - Height bands vs real ToF noise: floor marks (0.06 m) and false cliffs (-0.10 m); the runbook's empty-floor check.
-- collision_monitor invalid-source STOP: the ToF sources make a ToF/TF outage stop motion; confirm intended (Q1).
+- collision_monitor invalid-source STOP: the ToF sources make a ToF/TF outage stop motion; decided by the user (Q1).
 - StopBox/ArmStop/CliffStop `sources_names` exactly as D5; CliffStop not in `polygons` until collision-monitor-tof-stop.
 - laser_filter: cloud TF lookups never delay `/scan_filtered`; dropped clouds counted; output keeps frame and stamp.
 - STVL `update_footprint_enabled false` and FOV under the true ToF FOV; lidar ObstacleLayer untouched (U5).
@@ -324,8 +324,9 @@ floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4
   robot in the runbook.
 - A cliff into a void with no returns (or a very dark lower floor) gives no below-floor points and is not detected;
   documented as a limitation in the nav2_bringup README.
-- Q1 (user): ToF/head-TF outage stops Nav2 motion (fail-safe) - recommended yes. Q2 (user): CPU budget 0.15 core.
-  Q3 (user): keep ToF voxels out of the global costmap for now - recommended yes.
+- Decided by the user on 2026-10-18 (all as recommended): (Q1) a ToF or head-TF outage stops the robot while Nav2 drives
+  (collision monitor stale-source stop); (Q2) CPU budget <= 0.15 core on the Pi 5, measured in Grafana after deploy;
+  (Q3) ToF voxels only in the local costmap, never the global one.
 
 ## Irreversible operations in scope
 

@@ -60,6 +60,7 @@ Test first: `tests/test_nav_tof_voxel_layer.py` fails before the config exists (
 - a5: nav2_bringup installs ros-jazzy-spatio-temporal-voxel-layer [evidence: test: tests/test_nav_tof_voxel_layer.py]
 - a6: README documents the ToF obstacle layer and the lidar separation [evidence: doc-section: nodes/nav2_bringup/README.md#ToF obstacle layer]
 - a7: nav, footprint and ansible checks pass [evidence: command: uv run pytest tests/test_nav_tof_voxel_layer.py tests/test_nav_stack_config.py tests/test_nav_footprint.py -q && uv run poe test-ansible]
+- a8: ToF voxels live only in the local costmap; the global costmap has no STVL plugin or ToF source, decided by the user on 2026-10-18 [evidence: test: tests/test_nav_tof_voxel_layer.py]
 
 ## Files
 
