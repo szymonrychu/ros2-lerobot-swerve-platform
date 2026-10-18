@@ -12,10 +12,28 @@ from tf2_ros import StaticTransformBroadcaster
 from .config import FrameTransform
 
 
-def _yaw_to_quaternion(yaw: float) -> tuple[float, float, float, float]:
-    c = math.cos(yaw / 2.0)
-    s = math.sin(yaw / 2.0)
-    return (0.0, 0.0, s, c)
+def rpy_to_quaternion(roll: float, pitch: float, yaw: float) -> tuple[float, float, float, float]:
+    """Convert fixed-axis roll-pitch-yaw (ROS/URDF convention) to a quaternion.
+
+    q = qz(yaw) * qy(pitch) * qx(roll).
+
+    Args:
+        roll (float): Rotation about x, radians.
+        pitch (float): Rotation about y, radians.
+        yaw (float): Rotation about z, radians.
+
+    Returns:
+        tuple[float, float, float, float]: Quaternion (x, y, z, w).
+    """
+    cr, sr = math.cos(roll / 2.0), math.sin(roll / 2.0)
+    cp, sp = math.cos(pitch / 2.0), math.sin(pitch / 2.0)
+    cy, sy = math.cos(yaw / 2.0), math.sin(yaw / 2.0)
+    return (
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+        cr * cp * cy + sr * sp * sy,
+    )
 
 
 def run_static_tf_publisher(transforms: list[FrameTransform]) -> None:
@@ -33,7 +51,7 @@ def run_static_tf_publisher(transforms: list[FrameTransform]) -> None:
         msg.transform.translation.x = t.x
         msg.transform.translation.y = t.y
         msg.transform.translation.z = t.z
-        q = _yaw_to_quaternion(t.yaw)
+        q = rpy_to_quaternion(t.roll, t.pitch, t.yaw)
         msg.transform.rotation.x = q[0]
         msg.transform.rotation.y = q[1]
         msg.transform.rotation.z = q[2]

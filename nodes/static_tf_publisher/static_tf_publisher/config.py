@@ -12,7 +12,7 @@ ENV_CONFIG_PATH_KEY = "STATIC_TF_PUBLISHER_CONFIG"
 
 @dataclass
 class FrameTransform:
-    """Single static transform: parent -> child with translation and yaw.
+    """Single static transform: parent -> child with translation and roll/pitch/yaw.
 
     Attributes:
         parent_frame: Parent frame ID (e.g. base_link).
@@ -21,6 +21,8 @@ class FrameTransform:
         y: Translation y, meters.
         z: Translation z, meters (default 0).
         yaw: Rotation about z, radians (default 0).
+        roll: Rotation about x, radians (default 0).
+        pitch: Rotation about y, radians (default 0).
     """
 
     parent_frame: str
@@ -29,6 +31,8 @@ class FrameTransform:
     y: float
     z: float
     yaw: float
+    roll: float = 0.0
+    pitch: float = 0.0
 
 
 def load_config(path: Path | None = None) -> list[FrameTransform] | None:
@@ -65,6 +69,8 @@ def load_config(path: Path | None = None) -> list[FrameTransform] | None:
             y = float(item.get("y", 0.0))
             z = float(item.get("z", 0.0))
             yaw = float(item.get("yaw", 0.0))
+            roll = float(item.get("roll", 0.0))
+            pitch = float(item.get("pitch", 0.0))
             out.append(
                 FrameTransform(
                     parent_frame=parent,
@@ -73,6 +79,8 @@ def load_config(path: Path | None = None) -> list[FrameTransform] | None:
                     y=y,
                     z=z,
                     yaw=yaw,
+                    roll=roll,
+                    pitch=pitch,
                 )
             )
 
