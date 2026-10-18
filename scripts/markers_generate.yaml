@@ -9,9 +9,9 @@ defaults:
     size: A4
     orientation: portrait
 stl:
-  base_thickness_mm: 2.0
-  relief_mm: 0.6
-  inlay_mm: 0.0
+  base_thickness_mm: 4.0 # white base 4 mm; black modules inlaid flush (PETG opaque at 1.2 mm)
+  relief_mm: 0.0
+  inlay_mm: 1.2
   margin_mm: 3.0
   min_module_mm: 1.5
   warn_module_mm: 2.0
@@ -31,7 +31,8 @@ charuco:
   dictionary: DICT_5X5_100
   margin_mm: 5.0
   thickness_mm: 4.0
-  relief_mm: 0.6
+  relief_mm: 0.0
+  inlay_mm: 1.2
   bed_mm: 256.0
   page: {size: A4, orientation: landscape}
   outputs: [pdf, stl, 3mf]

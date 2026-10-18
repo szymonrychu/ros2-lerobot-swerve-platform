@@ -117,9 +117,26 @@ def test_stl_base_is_4_mm_thick_and_plate_sized(tmp_path: Path) -> None:
     base = trimesh.load(next(p for p in paths if p.name.endswith("-base.stl")))
     assert base.extents == pytest.approx([250.0, 210.0, 4.0], abs=1e-3)
     modules = trimesh.load(next(p for p in paths if p.name.endswith("-modules.stl")))
-    assert modules.bounds[1][2] == pytest.approx(4.6, abs=1e-3)
+    assert modules.bounds[1][2] == pytest.approx(4.0, abs=1e-3)
 
 
 def test_outputs_subset(tmp_path: Path) -> None:
     paths = write_charuco(CharucoSpec(outputs=["pdf"]), StlOptions(), tmp_path / "b")
     assert [p.suffix for p in paths] == [".pdf"]
+
+
+def test_flush_inlay_board_is_flat_and_watertight(tmp_path: Path) -> None:
+    spec = CharucoSpec(relief_mm=0.0, inlay_mm=1.2)
+    paths = write_charuco(spec, StlOptions(), tmp_path / "board")
+    base = trimesh.load(next(p for p in paths if p.name.endswith("-base.stl")))
+    modules = trimesh.load(next(p for p in paths if p.name.endswith("-modules.stl")))
+    # Checkerboard cells touch diagonally, so the merged STL has shared edges; volumes prove the parts tile the plate.
+    assert base.volume + modules.volume == pytest.approx(250.0 * 210.0 * 4.0, rel=1e-6)
+    assert base.bounds[1][2] == pytest.approx(4.0, abs=1e-3)
+    assert modules.bounds[1][2] == pytest.approx(4.0, abs=1e-3)
+    assert modules.bounds[0][2] == pytest.approx(2.8, abs=1e-3)
+
+
+def test_inlay_must_be_below_thickness() -> None:
+    with pytest.raises(ValidationError, match="inlay_mm"):
+        CharucoSpec(relief_mm=0.0, inlay_mm=4.0)

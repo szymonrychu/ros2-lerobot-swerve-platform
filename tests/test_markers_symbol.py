@@ -34,7 +34,7 @@ def test_shipped_yaml_covers_known_kinds() -> None:
     assert len(config.markers) == 6
     assert {m.kind_code for m in config.markers} == set(KNOWN_KINDS)
     assert config.defaults.ecc == "q"
-    assert config.stl.relief_mm == 0.6
+    assert (config.stl.base_thickness_mm, config.stl.relief_mm, config.stl.inlay_mm) == (4.0, 0.0, 1.2)
     for marker in config.markers:
         assert marker.outputs == ["pdf", "stl", "3mf"]
 

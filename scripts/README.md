@@ -348,7 +348,7 @@ Config keys (`scripts/markers_generate.yaml`):
 - `defaults`: `ecc` (m/q), `min_version`/`max_version` (2..4), `quiet_zone_modules` (>= 2), `page` (`size` A4/A3/LETTER or `width_mm`+`height_mm`, `orientation`).
 - `stl`: `base_thickness_mm`, `relief_mm`, `inlay_mm` (0 = raised modules, > 0 = flush inlay), `margin_mm`, `min_module_mm` (refuse below, default 1.5), `warn_module_mm` (warn below, default 2.0).
 - `markers[]`: `kind_code`, `name`, `size_mm`, optional `params`, `outputs` (subset of `pdf`, `stl`, `3mf`), `page` override.
-- `charuco`: `squares_x`, `squares_y` (odd), `square_mm`, `marker_mm`, `dictionary`, `margin_mm`, `thickness_mm` (>= 4), `relief_mm`, `bed_mm`, `page`, `outputs`. Omit to skip the board.
+- `charuco`: `squares_x`, `squares_y` (odd), `square_mm`, `marker_mm`, `dictionary`, `margin_mm`, `thickness_mm` (>= 4), `relief_mm`, `inlay_mm` (same meaning as in `stl`; shipped config: 4 mm plate, 1.2 mm flush black inlay), `bed_mm`, `page`, `outputs`. Omit to skip the board.
 
 Outputs per marker, stem `<kind>-<name>` in lower case: `charger-dock-1.pdf`, `charger-dock-1-base.stl`, `charger-dock-1-modules.stl`, `charger-dock-1.3mf`. The board uses the stem `charuco-6x5-40mm` with the same four suffixes (6x5 squares of 40 mm with 30 mm markers, plate 250 x 210 mm, fits a 256 mm bed).
 
@@ -357,7 +357,7 @@ Size definition: `size_mm` is the symbol edge, finder outer edge to outer edge, 
 Printing:
 
 - PDF: print at 100 % (actual size, no fit to page) on the media in the config; the page carries a 100 mm ruler to check the scale with calipers. Mount on a rigid plate and keep the white quiet zone.
-- STL: load both STLs together (base and modules) or the 3MF, which holds the two parts as separate objects. In Bambu Studio assign white filament to the base and black to the modules (3MF extruders 1 and 2); the modules are raised by `relief_mm`.
+- STL: load both STLs together (base and modules) or the 3MF, which holds the two parts as separate objects. In Bambu Studio assign white filament to the base and black to the modules (3MF extruders 1 and 2); the modules are raised by `relief_mm` (shipped config: `relief_mm: 0`, `inlay_mm: 1.2`, so the black sits flush in a 4 mm white plate).
 
 ## head_rgbd_calibrate.py
 

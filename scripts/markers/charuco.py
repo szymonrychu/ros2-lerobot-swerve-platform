@@ -30,7 +30,7 @@ class CharucoSpec(StrictModel):
 
     squares_x / squares_y: chessboard squares (squares_y odd). square_mm / marker_mm: square and ArUco marker
     edge. dictionary: any cv2.aruco.DICT_* name. margin_mm: plate border around the board. thickness_mm: STL base
-    thickness (>= 4). relief_mm: module height above the base. bed_mm: print bed edge the plate must fit. page: PDF
+    thickness (>= 4). relief_mm: module height above the base. inlay_mm: module depth sunk into the base (flush inlay when relief_mm is 0). bed_mm: print bed edge the plate must fit. page: PDF
     media. outputs: subset of pdf/stl/3mf.
     """
 
@@ -41,7 +41,8 @@ class CharucoSpec(StrictModel):
     dictionary: str = "DICT_5X5_100"
     margin_mm: float = Field(default=5.0, ge=0)
     thickness_mm: float = Field(default=MIN_THICKNESS_MM, ge=MIN_THICKNESS_MM)
-    relief_mm: float = Field(default=0.6, gt=0)
+    relief_mm: float = Field(default=0.0, ge=0)
+    inlay_mm: float = Field(default=1.2, ge=0)
     bed_mm: float = Field(default=256.0, gt=0)
     page: PageSpec = Field(default_factory=lambda: PageSpec(size="A4", orientation="landscape"))
     outputs: list[Literal["pdf", "stl", "3mf"]] = Field(default_factory=lambda: list(OUTPUT_FORMATS), min_length=1)
@@ -64,7 +65,11 @@ class CharucoSpec(StrictModel):
 
     @model_validator(mode="after")
     def check_geometry(self) -> Self:
-        """marker_mm < square_mm and the plate fits bed_mm in both directions."""
+        """marker_mm < square_mm, modules have height, inlay < thickness, plate fits bed_mm in both directions."""
+        if self.relief_mm + self.inlay_mm <= 0:
+            raise ValueError("relief_mm + inlay_mm must be positive")
+        if self.inlay_mm >= self.thickness_mm:
+            raise ValueError(f"inlay_mm {self.inlay_mm} must be below thickness_mm {self.thickness_mm}")
         if self.marker_mm >= self.square_mm:
             raise ValueError(f"marker_mm {self.marker_mm} must be below square_mm {self.square_mm}")
         for field, squares in (("squares_x", self.squares_x), ("squares_y", self.squares_y)):
@@ -191,7 +196,7 @@ def write_charuco(spec: CharucoSpec, opts: StlOptions, stem: Path) -> list[Path]
             update={
                 "base_thickness_mm": spec.thickness_mm,
                 "relief_mm": spec.relief_mm,
-                "inlay_mm": 0.0,
+                "inlay_mm": spec.inlay_mm,
                 "min_module_mm": min(opts.min_module_mm, cell_mm),
                 "warn_module_mm": min(opts.warn_module_mm, cell_mm),
             }
