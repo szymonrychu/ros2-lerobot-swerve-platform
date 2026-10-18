@@ -502,3 +502,43 @@ class PerceptionFakeMixin:
         if op == "delete":
             return {"ok": True, "message": "deleted photo", "poi": store.delete(poi["id"])}
         return {"ok": True, "message": "deleted photos", "poi": store.delete_many(poi)}
+
+
+class FakeHeadBackend:
+    """Simulated head: records commands; the follower moves at `speed` rad/s per joint while time advances on sleep.
+
+    speed None jumps to each command at once; speed 0 is a stuck follower. `no_samples` / `stale_after` mimic a
+    missing or stale /head/joint_states.
+    """
+
+    def __init__(self, positions: dict[str, float] | None = None, speed: float | None = None) -> None:
+        self.t = 100.0
+        self.positions: dict[str, float] = dict(positions or {"head_pan": 0.0, "head_tilt": 0.0})
+        self.target: dict[str, float] = dict(self.positions)
+        self.speed = speed
+        self.commands: list[dict[str, float]] = []
+        self.no_samples = False
+        self.stale_after: float | None = None
+
+    def publish_head_command(self, positions: dict[str, float]) -> None:
+        self.commands.append(dict(positions))
+        self.target.update(positions)
+        if self.speed is None:
+            self.positions.update(positions)
+
+    def head_sample(self) -> JointSample | None:
+        if self.no_samples:
+            return None
+        stamp = self.t if self.stale_after is None else min(self.t, self.stale_after)
+        return JointSample(positions=dict(self.positions), efforts={}, stamp=stamp)
+
+    def now(self) -> float:
+        return self.t
+
+    def sleep(self, seconds: float) -> None:
+        self.t += seconds
+        if self.speed:
+            for joint, goal in self.target.items():
+                step = self.speed * seconds
+                delta = goal - self.positions[joint]
+                self.positions[joint] += max(-step, min(step, delta))

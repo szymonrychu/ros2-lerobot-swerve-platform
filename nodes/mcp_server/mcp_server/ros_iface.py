@@ -66,6 +66,8 @@ from .footprint_geometry import Point2
 from .frontiers import MapGrid
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .grasp_tools import GraspService
+from .head import HEAD_FRAME_ID, HeadController
+from .head_kinematics import HeadKinematics
 from .ik import ArmKinematics, load_joint_limits
 from .map_client import MapRequests
 from .metrics import set_sample_age_source
@@ -644,6 +646,7 @@ class RosRobot:
         )
         self.follower_rate.start()
         self.cache(JointState, t.follower_joint_currents, "joint_currents", SENSOR_QOS)
+        self.cache(JointState, config.head.state_topic, "head_joint_states", SENSOR_QOS)
         self.cache(
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
         )
@@ -714,6 +717,8 @@ class RosRobot:
 
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
         self.release_pub = self.node.create_publisher(Bool, t.autonomy_release, COMMAND_QOS)
+        self.head_cmd_pub = self.node.create_publisher(JointState, config.head.command_topic, COMMAND_QOS)
+        self.head = HeadController(self, HeadKinematics(config.head.urdf_path), config.head)
         self.twist_pub = self.node.create_publisher(Twist, t.cmd_vel, COMMAND_QOS)
         self.poi_command_pub = self.node.create_publisher(String, t.poi_command, COMMAND_QOS)
         self.poi = PoiRequests(
@@ -1470,6 +1475,34 @@ class RosRobot:
         msg.name = list(positions)
         msg.position = [float(v) for v in positions.values()]
         self.cmd_pub.publish(msg)
+
+    # --- HeadBackend --------------------------------------------------------------------------------------------
+
+    def head_sample(self) -> JointSample | None:
+        """Latest head joint sample keyed by name.
+
+        Returns:
+            JointSample | None: Sample (no efforts) or None before the first /head/joint_states message.
+        """
+        item = self.get("head_joint_states")
+        if item is None:
+            return None
+        msg = item.value
+        positions = dict(zip(msg.name, (float(p) for p in msg.position), strict=False))
+        return JointSample(positions=positions, efforts={}, stamp=item.stamp)
+
+    def publish_head_command(self, positions: dict[str, float]) -> None:
+        """Publish a head setpoint (frame_id autonomy, JointState name and position only).
+
+        Args:
+            positions (dict[str, float]): Joint name -> rad.
+        """
+        msg = JointState()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        msg.header.frame_id = HEAD_FRAME_ID
+        msg.name = list(positions)
+        msg.position = [float(v) for v in positions.values()]
+        self.head_cmd_pub.publish(msg)
 
     def publish_release(self) -> None:
         """Publish the autonomy release."""

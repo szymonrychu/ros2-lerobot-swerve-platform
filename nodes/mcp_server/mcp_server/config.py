@@ -2,6 +2,7 @@
 
 import math
 import os
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Literal
 
@@ -21,6 +22,7 @@ DEFAULT_CONFIG_PATH = Path("/etc/ros2/mcp_server/config.yaml")
 # mcp_server/config.py -> nodes/mcp_server/mcp_server -> repo root is three levels above the package.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
+DEFAULT_HEAD_URDF = Path("nodes/web_ui/urdf/head.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
@@ -540,6 +542,56 @@ class ArmSettings(StrictModel):
             Path: Absolute URDF path.
         """
         return v if v.is_absolute() else REPO_ROOT / v
+
+
+class HeadSettings(StrictModel):
+    """Pan/tilt head: URDF, topics, home angles and move-completion thresholds."""
+
+    urdf_path: Path = Field(default=DEFAULT_HEAD_URDF, validate_default=True)
+    joint_names: tuple[str, str] = ("head_pan", "head_tilt")
+    command_topic: str = Field(default="/head/joint_commands", pattern=r"^/[A-Za-z0-9_/]+$")
+    state_topic: str = Field(default="/head/joint_states", pattern=r"^/[A-Za-z0-9_/]+$")
+    home_pan_rad: float = 0.0
+    home_tilt_rad: float = 0.5236
+    tolerance_rad: float = Field(default=0.03, gt=0.0)
+    move_timeout_s: float = Field(default=4.0, gt=0.0)
+    state_max_age_s: float = Field(default=0.5, gt=0.0)
+
+    @field_validator("urdf_path")
+    @classmethod
+    def resolve_urdf(cls, v: Path) -> Path:
+        """Resolve a relative URDF path against the repository root.
+
+        Args:
+            v (Path): Configured URDF path.
+
+        Returns:
+            Path: Absolute URDF path.
+        """
+        return v if v.is_absolute() else REPO_ROOT / v
+
+    @model_validator(mode="after")
+    def home_inside_limits(self) -> "HeadSettings":
+        """Require the home angles to lie inside the URDF limits of their joints.
+
+        Returns:
+            HeadSettings: This model.
+
+        Raises:
+            ValueError: When a home angle is outside its joint's URDF limit or a joint has no limit.
+        """
+        limits = {
+            joint.get("name"): limit.attrib
+            for joint in ET.parse(self.urdf_path).getroot().iter("joint")
+            if (limit := joint.find("limit")) is not None
+        }
+        for joint, home in zip(self.joint_names, (self.home_pan_rad, self.home_tilt_rad), strict=True):
+            if joint not in limits:
+                raise ValueError(f"head: no limits for {joint} in {self.urdf_path}")
+            lower, upper = float(limits[joint]["lower"]), float(limits[joint]["upper"])
+            if not lower <= home <= upper:
+                raise ValueError(f"head: home for {joint} is {home} rad, outside the URDF limits [{lower}, {upper}]")
+        return self
 
 
 class MonitorSettings(StrictModel):
@@ -1502,6 +1554,7 @@ class McpServerConfig(StrictModel):
     timeouts: TimeoutSettings = TimeoutSettings()
     nav: NavSettings = NavSettings()
     arm: ArmSettings = ArmSettings()
+    head: HeadSettings = HeadSettings()
     battery: BatteryConfig | None = None  # absent: battery cut-off gate off, nothing refused
     monitor: MonitorSettings = MonitorSettings()
     cameras: CamerasSettings = CamerasSettings()

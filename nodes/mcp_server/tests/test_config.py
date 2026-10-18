@@ -576,3 +576,11 @@ def test_zoom_config_defaults_and_validation(tmp_path: Path) -> None:
         path.write_text(f"timeouts:\n  {key}: 0\n")
         with pytest.raises(ValidationError):
             load_config(path)
+
+
+def test_head_defaults_and_home_validation() -> None:
+    head = McpServerConfig().head
+    assert head.urdf_path == REPO_ROOT / "nodes/web_ui/urdf/head.urdf"
+    assert (head.home_pan_rad, head.home_tilt_rad, head.tolerance_rad) == (0.0, 0.5236, 0.03)
+    with pytest.raises(ValidationError, match="head_tilt"):
+        McpServerConfig.model_validate({"head": {"home_tilt_rad": 1.2}})

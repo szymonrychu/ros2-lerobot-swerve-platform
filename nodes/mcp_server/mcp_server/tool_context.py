@@ -17,6 +17,7 @@ from .base_dock import DockGoal, DockResult
 from .base_motion import DriveOutcome, SpinOutcome
 from .config import McpServerConfig
 from .frontiers import FrontierTracker, MapGrid
+from .head import HeadController
 from .models import (
     BasePose,
     CameraFrame,
@@ -94,6 +95,7 @@ class RobotApi(Protocol):
     """Robot operations the tools call (implemented by ros_iface.RosRobot, faked in tests)."""
 
     arm: ArmController
+    head: HeadController
 
     def robot_state(self) -> RobotState:
         """Robot snapshot."""
