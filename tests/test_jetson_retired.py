@@ -770,6 +770,11 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
+    (
+        "docs/head-rgbd-fusion-methodology.md",
+        r"(?i)stereo(_?calibrat\w*| calibration| extrinsic| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
     # pinned-build: part of the libcamera build stamp, changing it would rebuild.
     ("nodes/head_camera_cpp/patches/**", r"overview_camera", "pinned-build"),
 )
