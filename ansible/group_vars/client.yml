@@ -1147,7 +1147,7 @@ ros2_nodes:
     config: |
       camera_id: /base/axi/pcie@120000/rp1/i2c@88000/imx708@1a
       jpeg_quality: 70
-      metrics_port: 19113
+      metrics_port: 19116
   # Retired (D7): the Pi never produced stereo depth (CPU-saturated) and its sources are deleted.
   # present: false makes the next deploy of these names uninstall the
   # units, launchers, venv and config directories.
@@ -2566,7 +2566,7 @@ monitoring_agent_node_targets:
   - {node: map_guard_cpp, address: "127.0.0.1:19110", path: /metrics}
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
   - {node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}
-  - {node: head_camera_cpp, address: "127.0.0.1:19113", path: /metrics}
+  - {node: head_camera_cpp, address: "127.0.0.1:19116", path: /metrics}
   - {node: base_servos, address: "127.0.0.1:19115", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}

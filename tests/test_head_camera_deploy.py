@@ -19,7 +19,7 @@ PATCH = NODE_DIR / "patches" / "libcamera-0001-add-package-xml.patch"
 CONFIG_CPP = NODE_DIR / "src" / "core" / "config.cpp"
 WORKSPACE = "/opt/ros2-ws"
 CAM0_ID = "/base/axi/pcie@120000/rp1/i2c@88000/imx708@1a"
-METRICS_PORT = 19113
+METRICS_PORT = 19116
 # sha1 of nodes/pi_cameras/patches/libcamera-0001-add-package-xml.patch: the patch contents are part of the build stamp.
 PATCH_SHA1 = "422bd0e3b23dbbbdbd09435ab90cac84ded67166"
 # The libcamera colcon source of pi_cameras as recorded: any difference changes the build stamp and rebuilds libcamera.

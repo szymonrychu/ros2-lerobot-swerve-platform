@@ -33,7 +33,7 @@ CONFIG_METRICS_PORTS = {
     # Side-by-side C++ ports: the Python node's port (the same config block); only one of a pair is ever enabled.
     "map_guard_cpp": 19110,
     # Standalone C++ node (no Python counterpart): the head Camera Module 3.
-    "head_camera_cpp": 19113,
+    "head_camera_cpp": 19116,
 }
 CPP_SUFFIX = "_cpp"
 ENV_METRICS_PORTS = {"gripper_uvc_camera": 19105, "rplidar_a1": 19106}
