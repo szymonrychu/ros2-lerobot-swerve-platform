@@ -20,8 +20,8 @@ frame there is no message, and failed zooms publish no image.
 | `/head_camera/zoom/image` | `sensor_msgs/CompressedImage` | publish | reliable, keep_last 2 | JPEG crop |
 | `/head_camera/zoom/result` | `std_msgs/String` | publish | reliable, keep_last 10 | JSON result |
 
-Every header carries `frame_id` `head_camera_optical_frame`. That frame has no TF yet: it gets one (parented to the
-pan/tilt chain) when the pan/tilt head is built, which is a non-goal of this epic. Nothing here needs it.
+Every header carries `frame_id` `head_camera_optical_frame`. This node does not publish a TF for that frame; the
+pan/tilt head's transform tree owns it, and no consumer here depends on it.
 
 ## Zoom interface
 

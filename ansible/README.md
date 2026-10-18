@@ -478,7 +478,7 @@ estimate.
 | costmap_zones | not measured (initial values; re-measure in Mimir after 24 h) | 96M | 256M |
 | gripper_uvc_camera (`uvc_camera`) | 66.7 / 68.2 | 72M | 256M |
 | arducam_tof (disabled) | no data (estimate from uvc_camera plus the SDK and numpy; re-measure once enabled) | 64M | 192M |
-| head_camera_cpp | estimate: the retired pi_cameras unit measured 94.6 / 95.6 MiB (camera_ros, one camera); re-measure on the C++ node | 128M | 384M |
+| head_camera_cpp | sized from the retired pi_cameras unit (94.6 / 95.6 MiB, camera_ros, one camera) | 128M | 384M |
 | test_joint_api | 57.6 / 58.2 | 64M | 128M |
 | mcp_server | 177.9 / 383.4 | 184M | 1G |
 | claude_agent | 93.4 / 386.5 | 96M | 1G |
