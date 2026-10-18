@@ -1,6 +1,6 @@
 ---
 title: Cliff stop polygon generator
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The collision monitor gets a cliff guard area derived from the real footprint instead of hand-typed numbers.
 files: [scripts/gen_nav_footprint.py, scripts/gen_nav_footprint.yaml, tests/test_nav_footprint.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/nav2_bringup/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--cliff-stop-polygon-generator
 branch: tof-3d-obstacle-detection-fo--cliff-stop-polygon-generator
 verified_head: ""
-run: ""
+run: tof-3d-obstacle-detection-fo
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Cliff stop polygon generator
@@ -78,3 +80,5 @@ model; the polygon block exists but does not change runtime behaviour yet.
 
 - Never hand-edit generated regions; the markers are `# >>> gen_nav_footprint: cliffstop` / `# <<< ...`.
 - Jazzy rejects polygons with <= 3 points and one bad polygon aborts the whole nav2 bringup (existing comment).
+
+- 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on laser-filter-tof-self-filter

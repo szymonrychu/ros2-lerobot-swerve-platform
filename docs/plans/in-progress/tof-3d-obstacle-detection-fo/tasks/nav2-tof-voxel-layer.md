@@ -1,6 +1,6 @@
 ---
 title: Nav2 ToF voxel layer
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: 3D obstacles and cliffs seen by the head ToF appear in the local costmap next to the lidar obstacles.
 files: [nodes/nav2_bringup/config/nav2_params.yaml, ansible/group_vars/client.yml, tests/test_nav_tof_voxel_layer.py, tests/test_nav_stack_config.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--nav2-tof-voxel-layer
 branch: tof-3d-obstacle-detection-fo--nav2-tof-voxel-layer
 verified_head: ""
-run: ""
+run: tof-3d-obstacle-detection-fo
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Nav2 ToF voxel layer
@@ -93,3 +95,5 @@ they leave view, while lidar cells behave as before.
 - Verified: `ros-jazzy-spatio-temporal-voxel-layer 2.5.5` on Jazzy arm64; parameter names from the STVL jazzy source
   (design, Verified facts). Heights in STVL are in the costmap global frame (odom), where z = 0 is the floor.
 - Do not touch the collision_monitor here (next task) or generated regions.
+
+- 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on cliff-stop-polygon-generator

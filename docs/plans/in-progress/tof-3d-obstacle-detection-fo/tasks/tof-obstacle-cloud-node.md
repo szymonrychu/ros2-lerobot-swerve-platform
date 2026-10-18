@@ -1,6 +1,6 @@
 ---
 title: ToF obstacle cloud node
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Real ToF frames become a small, decimated 3D point cloud on the Pi 5 that the obstacle consumers can use."
 files: [nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml, nodes/tof_obstacle_cloud/README.md, ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_tof_obstacle_cloud_config.py, tests/test_unit_cgroups.py, tests/README.md, nodes/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--tof-obstacle-cloud-node
 branch: tof-3d-obstacle-detection-fo--tof-obstacle-cloud-node
-verified_head: ""
-run: ""
-provides: []
+verified_head: eb4daa9d6fe41f1e2cbba45bb30a62186d177247
+run: tof-3d-obstacle-detection-fo
+provides: [tof-points-topic]
+acs_for_audit: [a3]
+process_gaps: []
 ---
 
 # ToF obstacle cloud node

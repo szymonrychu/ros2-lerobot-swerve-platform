@@ -1,6 +1,6 @@
 ---
 title: Web UI obstacle points layer
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The operator can switch on a 3D obstacles view that shows what the ToF and the lidar see around the robot.
 files: [nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/map3d/obstaclePoints.ts, nodes/web_ui/frontend/src/map3d/obstaclePoints.test.ts, nodes/web_ui/frontend/src/map3d/layers.ts, nodes/web_ui/frontend/src/map3d/layers.test.ts, nodes/web_ui/frontend/src/map3d/sceneLayers.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/frontend/src/hooks/subscription.ts]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--web-ui-obstacle-points-layer
 branch: tof-3d-obstacle-detection-fo--web-ui-obstacle-points-layer
 verified_head: ""
-run: ""
+run: tof-3d-obstacle-detection-fo
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI obstacle points layer
@@ -75,3 +77,5 @@ the 3D scene; toggling it off stops both subscriptions.
 
 - Follow the existing layer and on-demand subscription patterns of the local costmap layer (`layers.ts`,
   `hooks/subscription.ts`, `MapNavTab.tsx`). If the LayersPanel needs a change to show the new layer, keep it minimal.
+
+- 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on web-ui-obstacle-points-api

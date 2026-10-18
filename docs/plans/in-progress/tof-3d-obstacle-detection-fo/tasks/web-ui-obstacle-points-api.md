@@ -1,6 +1,6 @@
 ---
 title: Web UI obstacle points API
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The web UI backend can stream the ToF obstacle cloud and the lidar points into the 3D map view on demand.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/msg_serializer.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_obstacle_points.py, nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--web-ui-obstacle-points-api
 branch: tof-3d-obstacle-detection-fo--web-ui-obstacle-points-api
 verified_head: ""
-run: ""
+run: tof-3d-obstacle-detection-fo
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI obstacle points API
@@ -81,3 +83,5 @@ with their map poses; with no viewer, nothing is subscribed.
 
 - Reuse `downsample_points`, `transform_to_pose_dict` and the existing costmap TF-to-map handling in `bridge.py`.
 - web_ui stays Python (auto-memory); keep serialisation lazy like the other on-demand roles.
+
+- 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on collision-monitor-tof-stop

@@ -1,6 +1,6 @@
 ---
 title: Final suite and runbook
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Every suite is green, the ToF pipeline is wired consistently end to end, and the robot verification is precise."
 files: [tests/test_tof_obstacle_wiring.py, tests/README.md, scripts/node_cpu_compare.yaml, MEMORY.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--final-suite-and-runbook
 branch: tof-3d-obstacle-detection-fo--final-suite-and-runbook
 verified_head: ""
-run: ""
+run: tof-3d-obstacle-detection-fo
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Final suite and runbook
@@ -112,3 +114,5 @@ Orchestrator runbook (after merge, robot reachable; every deploy via the ansible
 
 - A failing suite owned by pre-existing work is cleared per the boy-scout rule, not reported as this task's failure.
 - If the robot is offline, runbook steps are reported pending on the robot, with everything else done.
+
+- 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on web-ui-obstacle-points-layer, map-summary-tof-obstacles

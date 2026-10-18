@@ -1,6 +1,6 @@
 ---
 title: Laser filter ToF self filter
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The ToF cloud no longer contains the robot body, the arm or a carried object, so the robot never blocks itself."
 files: [nodes/laser_filter/laser_filter/config.py, nodes/laser_filter/laser_filter/node.py, nodes/laser_filter/laser_filter/self_filter.py, nodes/laser_filter/config/footprint_filter.yaml, nodes/laser_filter/tests/test_cloud_filter.py, nodes/laser_filter/README.md, ansible/group_vars/client.yml, tests/test_nav_stack_config.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--laser-filter-tof-self-filter
 branch: tof-3d-obstacle-detection-fo--laser-filter-tof-self-filter
 verified_head: ""
-run: ""
+run: tof-3d-obstacle-detection-fo
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Laser filter ToF self filter
@@ -102,3 +104,5 @@ stamped with the ToF capture time, while `/scan_filtered` keeps its rate.
   `self_filter.py`; do not add a second polygon parameter (mcp_server keeps setting only `polygon`).
 - The head TF moves: never cache the cloud transform (the scan's static transform cache stays as it is).
 - rclpy TransformListener already subscribes /tf and /tf_static; keep one Buffer.
+
+- 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on tof-obstacle-cloud-node

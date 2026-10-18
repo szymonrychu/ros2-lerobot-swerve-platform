@@ -1,6 +1,6 @@
 ---
 title: Collision monitor ToF stop
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The robot stops for 3D obstacles and refuses to drive toward a cliff, while the lidar keeps guarding all around."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_tof_collision.py, tests/test_nav_stack_config.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--collision-monitor-tof-stop
 branch: tof-3d-obstacle-detection-fo--collision-monitor-tof-stop
 verified_head: ""
-run: ""
+run: tof-3d-obstacle-detection-fo
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Collision monitor ToF stop
@@ -93,3 +95,5 @@ The collision monitor stops for ToF obstacles inside the swept StopBox, blocks m
 - Verified in navigation2 1.3.13 source: pointcloud heights compare in the base frame (negative bands work);
   `sources_names` per polygon; an enabled source with non-zero timeout and no fresh data or TF forces STOP.
 - The approach model needs the ToF to see the lower floor; the polygon margin (0.25 m) covers the occlusion offset.
+
+- 2026-10-18 run tof-3d-obstacle-detection-fo: dependency-failed on nav2-tof-voxel-layer
