@@ -11,6 +11,7 @@ process and on every index rewrite. The revision moves only when the index reall
 
 import logging
 import os
+import shutil
 import threading
 import time
 from collections.abc import Callable
@@ -444,6 +445,95 @@ class PhotoStore:
                 LOGGER.info("photo store deleted %d photo(s) (%d bytes)", len(selected), freed)
             return {"removed": len(selected), "bytes_freed": freed, "missing": missing}
 
+    def export(self, dest: Path, ids: set[str] | None = None) -> list[LookupRecord]:
+        """Hard-link (copy when linking fails) the JPEGs of every record, or only ids, into dest with an index.jsonl.
+
+        The store and its revision are not changed. A record whose JPEG is missing is skipped and logged.
+
+        Args:
+            dest (Path): Target directory (created when missing); stale files of the same names are replaced.
+            ids (set[str] | None): Only these photo ids, None for all.
+
+        Returns:
+            list[LookupRecord]: The exported records in index order.
+        """
+        with self.lock:
+            dest.mkdir(parents=True, exist_ok=True)
+            exported: list[LookupRecord] = []
+            for rec in self.records():
+                if ids is not None and rec.id not in ids:
+                    continue
+                source = self.root / rec.file
+                if not source.is_file():
+                    LOGGER.warning("photo export skipped %s: %s is missing", rec.id, rec.file)
+                    continue
+                link_or_copy(source, dest / rec.file)
+                exported.append(rec)
+            write_atomic(dest / INDEX_FILE, "".join(f"{r.model_dump_json()}\n" for r in exported).encode())
+            return exported
+
+    def replace_all(self, records: list[LookupRecord], source: Path | None) -> tuple[int, int]:
+        """Make the index exactly these records, all or nothing, and delete the JPEGs of records that are gone.
+
+        A JPEG of an already indexed id in root is kept (capture data is immutable); any other is linked (copied
+        when linking fails) from source with a fresh mtime so the orphan sweep keeps it. bytes comes from the file.
+
+        Args:
+            records (list[LookupRecord]): The new photo set, in index order.
+            source (Path | None): Directory holding the JPEGs of records not yet in root, None for none.
+
+        Returns:
+            tuple[int, int]: (records now indexed, records removed).
+
+        Raises:
+            PhotoStoreError: A record's JPEG is in neither root nor source, a file name is not a plain name, or an
+                id repeats; nothing is changed.
+        """
+        with self.lock:
+            old = self.records()
+            known = {r.id for r in old}
+            if len({r.id for r in records}) != len(records):
+                raise PhotoStoreError("duplicate photo id in the new photo set")
+            plan: list[tuple[LookupRecord, Path | None]] = []
+            for rec in records:
+                if Path(rec.file).name != rec.file:
+                    raise PhotoStoreError(f"photo file {rec.file} is not a plain file name")
+                in_root = self.root / rec.file
+                from_source = None if source is None else source / rec.file
+                if rec.id in known and in_root.is_file():
+                    plan.append((rec, None))
+                elif from_source is not None and from_source.is_file():
+                    plan.append((rec, from_source))
+                elif in_root.is_file():
+                    plan.append((rec, None))
+                else:
+                    raise PhotoStoreError(f"photo file {rec.file} is in neither {self.root} nor the source")
+            self.root.mkdir(parents=True, exist_ok=True)
+            placed: list[Path] = []
+            try:
+                new: list[LookupRecord] = []
+                for rec, origin in plan:
+                    target = self.root / rec.file
+                    if origin is not None:
+                        existed = target.exists()
+                        link_or_copy(origin, target)
+                        os.utime(target)
+                        if not existed:
+                            placed.append(target)
+                    new.append(rec.model_copy(update={"bytes": target.stat().st_size}))
+                if new != old:
+                    self.rewrite([r.model_dump_json() for r in new])
+                    self.revision += 1
+            except BaseException:
+                for path in placed:
+                    path.unlink(missing_ok=True)
+                raise
+            kept_ids = {r.id for r in new}
+            gone = [r for r in old if r.id not in kept_ids]
+            self.unlink_images(gone)
+            self.track()
+            return len(new), len(gone)
+
     def strip_links(self, poi_id: str) -> int:
         """Remove a (deleted) POI id from every photo's poi_ids; rewrites only when some photo references it.
 
@@ -508,3 +598,17 @@ class PhotoStore:
         PHOTO_COUNT.set(len(recs))
         PHOTO_BYTES.set(total)
         return total
+
+
+def link_or_copy(source: Path, target: Path) -> None:
+    """Hard-link source to target (replacing a file already there); copy when linking is not possible.
+
+    Args:
+        source (Path): Existing file.
+        target (Path): New name, same or another directory.
+    """
+    target.unlink(missing_ok=True)
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copyfile(source, target)

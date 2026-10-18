@@ -2377,6 +2377,8 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_effective_view_prefers_stored_view` / `test_effective_view_derives_for_legacy_record` / `test_effective_view_none_without_pose` | Stored view wins; legacy lines derive one; no pose gives None. |
 | `test_photo_as_poi_located` / `test_photo_as_poi_unlocated_has_null_xy_never_zero` | POI form fields; x/y None without a pose. |
 | `test_photo_add_valid` / `test_photo_add_rejects_bad_payload` / `test_photo_add_requires_id` | Id format, `file == <id>.jpg`, client `bytes` refused. |
+| `test_poi_as_record_round_trip_plain` / `_with_poses_and_view` / `_legacy_pose_without_view` | `poi_as_record(photo_as_poi(rec)) == rec` with and without poses and view. |
+| `test_poi_as_record_rejects_non_photo_kind` / `_missing_photo_object` / `_bad_id` / `_file_not_matching_id` | Non-photo kind, missing `photo`, id not 32 lowercase hex and `file != <id>.jpg` raise `ValueError`. |
 | `test_selector_accepts_exactly_one_criterion` / `test_selector_rejects_other_shapes` / `test_selector_accepts_500_ids_and_defaults_dry_run_false` | Exactly-one rule and bounds. |
 | `test_write_atomic_writes_world_readable_file` / `test_write_atomic_fsyncs_before_replace` / `test_write_atomic_cleans_temp_on_failure` / `test_module_exposes_write_atomic` | Atomic write, mode 0644, fsync order, temp cleanup. |
 | `test_legacy_index_line_parses_with_photo_defaults` / `test_photo_fields_round_trip` / `test_photo_fields_reject_bad_values` | `LookupRecord` photo fields: legacy line parses, round trip, bad values rejected. |

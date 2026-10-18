@@ -2,8 +2,8 @@
 
 A photo is a camera image plus where the camera was: PhotoView (camera pose in the map), camera_view (computes it from
 the base pose and the camera mount), effective_view (stored view, or one derived from the stored sensor data of a
-legacy line), photo_as_poi (the POI form), PhotoAdd (validated add payload), PhotoSelector (bulk delete selector) and
-write_atomic (crash-safe file write used for the JPEGs and the index).
+legacy line), photo_as_poi (the POI form), poi_as_record (its inverse), PhotoAdd (validated add payload),
+PhotoSelector (bulk delete selector) and write_atomic (crash-safe file write used for the JPEGs and the index).
 """
 
 import math
@@ -24,6 +24,19 @@ PHOTO_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 MAX_NAME_LEN = 60
 MAX_SELECTOR_IDS = 500
 PHOTO_KIND = "photo"
+PHOTO_CAPTURE_KEYS = (
+    "file",
+    "bytes",
+    "width",
+    "height",
+    "camera",
+    "tool",
+    "mcp_session",
+    "base_pose_map",
+    "camera_pose_base",
+    "arm_joints",
+    "view",
+)
 PhotoStatus = Literal["open", "done", "cancelled"]
 PhotoCreator = Literal["agent", "user"]
 ViewSource = Literal["camera_mount", "base_heading"]
@@ -148,6 +161,43 @@ def photo_as_poi(rec: "LookupRecord") -> dict[str, Any]:
             "view": None if view is None else view.model_dump(),
         },
     }
+
+
+def poi_as_record(poi: dict[str, Any]) -> "LookupRecord":
+    """The index record of a photo POI (inverse of photo_as_poi; the derived x, y and top-level view are dropped).
+
+    Args:
+        poi (dict[str, Any]): Photo POI dict as photo_as_poi builds it.
+
+    Returns:
+        LookupRecord: The record.
+
+    Raises:
+        ValueError: Not a photo POI, no photo object, an id that is not 32 lowercase hex, or file != '<id>.jpg'
+            (a pydantic ValidationError is a ValueError).
+    """
+    from .lookups import LookupRecord  # lookups imports this module at load time
+
+    if poi.get("kind") != PHOTO_KIND:
+        raise ValueError(f"not a photo POI: kind {poi.get('kind')!r}")
+    capture = poi.get("photo")
+    if not isinstance(capture, dict):
+        raise ValueError("photo POI has no photo object")
+    photo_id = poi.get("id")
+    if not isinstance(photo_id, str) or not PHOTO_ID_RE.match(photo_id):
+        raise ValueError("id must be 32 lowercase hex characters")
+    if capture.get("file") != f"{photo_id}.jpg":
+        raise ValueError("file must equal '<id>.jpg'")
+    top = {k: poi[k] for k in ("name", "note", "status", "created_by", "poi_ids") if k in poi}
+    return LookupRecord.model_validate(
+        {
+            **top,
+            "id": photo_id,
+            "ts": poi.get("created_at"),
+            "updated_at": poi.get("updated_at", 0.0),
+            **{k: capture.get(k) for k in PHOTO_CAPTURE_KEYS if k in capture},
+        }
+    )
 
 
 class PhotoAdd(BaseModel):

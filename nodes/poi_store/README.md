@@ -123,6 +123,16 @@ parse the index through `ros2_common.lookups.IndexCache`.
   `camera` (so `keep_newest` counts within the filter). One index rewrite, then the JPEGs are unlinked; returns
   `{removed, bytes_freed, missing}` (requested ids that are unknown or filtered out). With `dry_run` it returns
   `{would_remove, bytes}` and changes nothing.
+- `export(dest, ids=None)`: under the store lock, hard-links (`shutil.copyfile` when `os.link` fails) the JPEG of every
+  record, or only `ids`, into `dest` (created when missing, stale targets replaced) and writes `dest/index.jsonl` in the
+  store line format; returns the exported records in index order. A record whose JPEG is missing is skipped and logged.
+  The store and its revision do not change.
+- `replace_all(records, source)`: makes the index exactly `records`, in that order, all or nothing. Every JPEG must be in
+  `root` (same id already indexed) or in `source`, else `PhotoStoreError` names the first missing file and nothing
+  changes. Needed JPEGs are linked (copy fallback) from `source` with a fresh mtime (so the orphan sweep keeps them),
+  `bytes` is recomputed from the file, the index is rewritten once, JPEGs of records no longer indexed are unlinked and
+  `revision` moves only when the index changed. Returns `(kept_or_restored, removed)`; `replace_all([], None)` empties
+  the store. poi_store does every photo file move; map_manager never writes into the photo dir.
 - `strip_links(poi_id)`: removes a deleted POI from every photo's `poi_ids`; rewrites only when a photo references it.
 - `prune_now()`: retention without an add (the `prune_interval_s` timer); returns the number removed.
 - `summary()`: the `/poi/photos` payload `{revision, count, bytes, oldest_ts, newest_ts, limits: {max_records,
