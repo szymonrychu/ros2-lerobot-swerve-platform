@@ -109,7 +109,7 @@ POI_CLEAR_MAX_IDS = 500
 class PoiClearFilters(BaseModel):
     """Filters of the poi_store clear op as accepted by POST /api/poi (all optional, strict types)."""
 
-    model_config = ConfigDict(extra="ignore", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     op: Literal["clear"]
     created_by: Literal["agent", "user"] | None = None
