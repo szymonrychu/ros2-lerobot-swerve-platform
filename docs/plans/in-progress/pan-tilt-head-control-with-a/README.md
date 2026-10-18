@@ -40,3 +40,7 @@ Estimate: 1140 min | Actual: 0 min | Remaining estimate: 60 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+All 18 tasks verified (4 by hand where the verifier crashed) and merged into main with real merges. Full suite green on main 91ab71c2: root 1417, mcp_server 2678, claude_agent 931, web_ui 879, frontend 1017, feetech 324, static_tf 15, lint, lint-nodes, test-ansible, frontend build. Client deployed (--all, failed=0; web_ui redeployed for the last frontend tasks). Live check: base_servos homed the head to pan -0.005 / tilt 0.518 rad (target 0 / 0.524). Open: user to confirm the head faces forward after the startup swing (pan read raw 2 before startup).
