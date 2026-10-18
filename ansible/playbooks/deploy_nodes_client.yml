@@ -312,6 +312,15 @@
             _deploy_node_name: head_camera_cpp
           tags: [head_camera_cpp, apt, python, build, config]
 
+        - name: Deploy head_rgbd_cpp
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [head_rgbd_cpp]
+          vars:
+            _deploy_node_name: head_rgbd_cpp
+          tags: [head_rgbd_cpp, apt, build, config]
+
         - name: Deploy stereo_depth
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml
