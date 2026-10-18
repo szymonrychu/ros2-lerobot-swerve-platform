@@ -722,6 +722,26 @@ class AgentRunner:
         self.fail_turn(UNAVAILABLE_MESSAGE.format(status=new_status, error=f" ({error})" if error else ""))
         return None
 
+    def retrospectives(self, limit: int, before: float | None = None) -> list[Retrospective]:
+        """Return stored retrospectives newest first (for the API).
+
+        Args:
+            limit (int): Most records returned.
+            before (float | None): Only records created before this Unix time.
+
+        Returns:
+            list[Retrospective]: Newest first.
+        """
+        return self.retro_store.list(limit, before)
+
+    def retrospective_count(self) -> int:
+        """Return how many retrospectives are stored.
+
+        Returns:
+            int: Record count.
+        """
+        return self.retro_store.count()
+
     def usage_fields(self) -> dict[str, Any]:
         """Return the usage counters and the plan of the current (or last) instruction.
 
