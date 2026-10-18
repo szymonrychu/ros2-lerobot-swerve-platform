@@ -53,26 +53,26 @@ def sent(**kwargs: Any) -> dict:
 
 
 def test_default_clears_the_agents_pois_and_keeps_zones(server: Any, robot: FakeRobot) -> None:
-    assert payload(call(server, "clear_pois", {})) == {"removed": 2}
+    assert payload(call(server, "clear_pois", {})) == {"removed": 2, "pois": 2, "photos": 0}
     assert robot.poi_clear_args == [{"created_by": "agent", "kinds": None, "keep_zones": True}]
     assert ids(robot) == ["z", "u"]
 
 
 def test_user_and_all_creators(server: Any, robot: FakeRobot) -> None:
-    assert payload(call(server, "clear_pois", {"creator": "user"})) == {"removed": 1}
+    assert payload(call(server, "clear_pois", {"creator": "user"})) == {"removed": 1, "pois": 1, "photos": 0}
     assert robot.poi_clear_args[-1]["created_by"] == "user"
-    assert payload(call(server, "clear_pois", {"creator": "all"})) == {"removed": 2}
+    assert payload(call(server, "clear_pois", {"creator": "all"})) == {"removed": 2, "pois": 2, "photos": 0}
     assert robot.poi_clear_args[-1] == {"created_by": None, "kinds": None, "keep_zones": True}
     assert ids(robot) == ["z"]
 
 
 def test_kinds_filter(server: Any, robot: FakeRobot) -> None:
-    assert payload(call(server, "clear_pois", {"kinds": ["object"]})) == {"removed": 1}
+    assert payload(call(server, "clear_pois", {"kinds": ["object"]})) == {"removed": 1, "pois": 1, "photos": 0}
     assert robot.poi_clear_args == [{"created_by": "agent", "kinds": ["object"], "keep_zones": True}]
 
 
 def test_include_zones_sends_no_keep_zones(server: Any, robot: FakeRobot) -> None:
-    assert payload(call(server, "clear_pois", {"include_zones": True})) == {"removed": 3}
+    assert payload(call(server, "clear_pois", {"include_zones": True})) == {"removed": 3, "pois": 3, "photos": 0}
     assert robot.poi_clear_args[0]["keep_zones"] is False
 
 
@@ -95,7 +95,7 @@ def test_description_states_the_consent_rules(server: Any) -> None:
 
     tools = {t.name: t.description for t in anyio.run(server.list_tools)}
     text = tools["clear_pois"]
-    assert "only when the person asked" in text and "photos are never cleared" in text
+    assert "only when the person asked" in text and "photo" in text and "never cleared" not in text
 
 
 def test_client_payloads_send_only_given_fields() -> None:
