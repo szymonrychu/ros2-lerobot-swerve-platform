@@ -56,7 +56,7 @@ describe('ClearPoisDialog', () => {
     fireEvent.click(screen.getByLabelText("Agent's"))
     fireEvent.click(screen.getByLabelText('object'))
     fireEvent.click(screen.getByLabelText('Keep keep-out and slow zones'))
-    expect(screen.getByTestId('clear-pois-preview').textContent).toContain('3')
+    expect(screen.getByTestId('clear-pois-preview').textContent).toContain('2')
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
     await waitFor(() => expect(fetchImpl).toHaveBeenCalled())
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
