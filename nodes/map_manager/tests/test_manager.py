@@ -211,7 +211,13 @@ def test_save_writes_bundle_with_pose_pois_and_laser_frame(rig: Rig) -> None:
     assert meta["map_info"]["width"] == rig.sensors.grid.cells.shape[1]
     assert meta["map_info"]["height"] == rig.sensors.grid.cells.shape[0]
     assert result.data is not None and result.data["name"] == "home" and result.data["poi_count"] == 1
-    assert rig.key_calls() == ["sensors.start_operation", "slam.serialize", "status:unknown", "sensors.end_operation"]
+    assert rig.key_calls() == [
+        "sensors.start_operation",
+        "slam.serialize",
+        "poi.export_photos",
+        "status:unknown",
+        "sensors.end_operation",
+    ]
     assert ".tmp-home-" in rig.log.args_of("slam.serialize")[0][0]
     assert [m.name for m in rig.manager.status().maps] == ["home"]
     assert not rig.sensors.active
@@ -273,6 +279,7 @@ def test_load_happy_path_call_order(rig: Rig) -> None:
     assert rig.key_calls() == [
         "sensors.start_operation",
         "slam.serialize",
+        "poi.export_photos",
         "status:unknown",
         "status:loading",
         "sensors.scan_points_base",
@@ -296,6 +303,7 @@ def test_load_happy_path_call_order(rig: Rig) -> None:
     assert base == str(rig.store.path_of("home") / "map")
     assert pose == TRUE_POSE
     assert rig.log.args_of("poi.replace") == [(BUNDLE_POIS,)]
+    assert rig.poi.photo_dirs == [str(rig.store.path_of("home") / "photos")]
     assert rig.log.args_of("sensors.agreement_samples") == [(5.0,)]
     assert START_AT_GIVEN_POSE == 2
 

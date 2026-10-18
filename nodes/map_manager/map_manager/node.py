@@ -299,12 +299,12 @@ class RosPoi:
         """Hand a result to the replace waiting for its request_id.
 
         Args:
-            msg (String): ``{"request_id", "ok", "message", ...}``.
+            msg (String): ``{"request_id", "ok", "message", "poi"}``; ``poi`` carries the op's data (replace counts, exported photos).
         """
         try:
             data = json.loads(msg.data)
             request_id = str(data["request_id"])
-            extra = data.get("data")
+            extra = data.get("poi")
             answer = (bool(data["ok"]), str(data.get("message", "")), extra if isinstance(extra, dict) else {})
         except (ValueError, KeyError, TypeError):
             return
@@ -323,28 +323,63 @@ class RosPoi:
         with self.lock:
             return self.listing
 
-    def replace(self, pois: list[dict[str, Any]]) -> tuple[bool, str, dict[str, Any]]:
-        """Make the live POIs and photos exactly the given set and wait for poi_store's answer.
+    def send(self, payload: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
+        """Publish a poi_store command and wait for its answer.
 
         Args:
-            pois (list[dict[str, Any]]): The complete new set.
+            payload (dict[str, Any]): The command without ``request_id``.
 
         Returns:
-            tuple[bool, str, dict[str, Any]]: (ok, message, data with the replace counts ``removed`` and
-            ``photos_removed``); not ok with a "no answer" message and empty data after ``poi_timeout_s``.
+            tuple[bool, str, dict[str, Any]]: (ok, message, answer data); not ok with a "no answer" message and
+            empty data after ``poi_timeout_s``.
         """
         request_id = f"map_manager-{uuid.uuid4().hex}"
         waiter: tuple[threading.Event, list[tuple[bool, str, dict[str, Any]]]] = (threading.Event(), [])
         with self.lock:
             self.pending[request_id] = waiter
         try:
-            self.command_pub.publish(String(data=json.dumps({"op": "replace", "request_id": request_id, "pois": pois})))
+            self.command_pub.publish(String(data=json.dumps({**payload, "request_id": request_id})))
             if not waiter[0].wait(self.timeout_s):
                 return False, NO_ANSWER_MESSAGE, {}
             return waiter[1][0]
         finally:
             with self.lock:
                 self.pending.pop(request_id, None)
+
+    def export_photos(self, photo_dir: str) -> tuple[bool, str, list[dict[str, Any]]]:
+        """Have poi_store write the live photos (JPEGs and index.jsonl) into a directory and wait for its answer.
+
+        Args:
+            photo_dir (str): Absolute target directory.
+
+        Returns:
+            tuple[bool, str, list[dict[str, Any]]]: (ok, message, the exported photos in POI form); not ok with
+            the poi_store reason and no photos on a refusal or after ``poi_timeout_s``.
+        """
+        ok, message, data = self.send({"op": "export_photos", "photo_dir": photo_dir})
+        photos = data.get("photos")
+        if not ok:
+            return False, message, []
+        if not isinstance(photos, list):
+            return False, "poi_store answered the photo export without the photo list", []
+        return True, message, [dict(photo) for photo in photos]
+
+    def replace(self, pois: list[dict[str, Any]], photo_dir: str | None = None) -> tuple[bool, str, dict[str, Any]]:
+        """Make the live POIs and photos exactly the given set and wait for poi_store's answer.
+
+        Args:
+            pois (list[dict[str, Any]]): The complete new set (photos in POI form).
+            photo_dir (str | None): Directory holding the JPEGs of photos not yet live; omitted when None.
+
+        Returns:
+            tuple[bool, str, dict[str, Any]]: (ok, message, data with the replace counts ``removed``,
+            ``photos_removed``, ``photos_replaced``); not ok with a "no answer" message and empty data after
+            ``poi_timeout_s``.
+        """
+        payload: dict[str, Any] = {"op": "replace", "pois": pois}
+        if photo_dir is not None:
+            payload["photo_dir"] = photo_dir
+        return self.send(payload)
 
 
 class RosSensors:

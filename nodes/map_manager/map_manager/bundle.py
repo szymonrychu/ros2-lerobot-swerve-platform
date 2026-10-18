@@ -22,6 +22,8 @@ POSEGRAPH_DATA_FILE = "map.data"
 POSEGRAPH_BASE = "map"
 OCCUPANCY_FILE = "occupancy.npz"
 META_FILE = "bundle.json"
+PHOTOS_DIR = "photos"
+PHOTO_KIND = "photo"
 TEMP_PREFIX = ".tmp-"
 OLD_PREFIX = ".old-"
 REQUIRED_SLAM_FILES = (POSEGRAPH_FILE, POSEGRAPH_DATA_FILE)
@@ -72,11 +74,13 @@ class LoadedBundle:
         meta: The bundle metadata.
         grid: The occupancy grid.
         posegraph_base: Path without extension to hand to slam_toolbox deserialize.
+        photos_dir: The bundle's ``photos`` directory; None when the bundle has none.
     """
 
     meta: BundleMeta
     grid: GridMap
     posegraph_base: Path
+    photos_dir: Path | None = None
 
 
 def summarize(meta: BundleMeta) -> MapSummary:
@@ -88,11 +92,13 @@ def summarize(meta: BundleMeta) -> MapSummary:
     Returns:
         MapSummary: Summary with ``valid=True``.
     """
+    photos = sum(1 for entry in meta.pois if entry.get("kind") == PHOTO_KIND)
     return MapSummary(
         name=meta.name,
         saved_at=meta.saved_at,
         note=meta.note,
-        poi_count=len(meta.pois),
+        poi_count=len(meta.pois) - photos,
+        photo_count=photos,
         last_pose=meta.last_pose,
         valid=True,
     )
@@ -163,7 +169,7 @@ class BundleStore:
         """Complete the temp directory and move it to ``root/<name>``.
 
         Args:
-            tmp: Directory from :meth:`begin` holding the serialized pose graph (Path).
+            tmp: Directory from :meth:`begin` holding the serialized pose graph and, when exported, ``photos/`` (Path).
             name: Map name (str).
             bundle: Metadata to write (BundleMeta).
             grid: Occupancy grid to write (GridMap).
@@ -240,7 +246,13 @@ class BundleStore:
                 )
         except (OSError, ValueError, KeyError) as exc:
             raise BundleInvalid(f"{OCCUPANCY_FILE} of {name}: {exc}") from exc
-        return LoadedBundle(meta=meta, grid=grid, posegraph_base=directory / POSEGRAPH_BASE)
+        photos = directory / PHOTOS_DIR
+        return LoadedBundle(
+            meta=meta,
+            grid=grid,
+            posegraph_base=directory / POSEGRAPH_BASE,
+            photos_dir=photos if photos.is_dir() else None,
+        )
 
     def list(self) -> list[MapSummary]:
         """List all bundles sorted by name; temp directories are skipped.
@@ -271,7 +283,7 @@ class BundleStore:
         return summaries
 
     def delete(self, name: str) -> None:
-        """Remove a bundle directory.
+        """Remove a bundle directory with its photos.
 
         Args:
             name: Map name (str).

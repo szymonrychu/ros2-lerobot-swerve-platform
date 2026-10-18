@@ -6,12 +6,26 @@ Named maps: each map is a self-contained bundle directory under `/var/lib/ros2/m
 
 - `map.posegraph`, `map.data` - slam_toolbox serialized pose graph
 - `occupancy.npz` - int8 grid (-1 unknown kept), resolution, origin x/y/yaw
-- `bundle.json` - `BundleMeta`: name, saved_at, note, last pose, POIs, POI revision, map info, laser frame
+- `bundle.json` - `BundleMeta`: name, saved_at, note, last pose, POIs (photos included, as `kind: "photo"` entries),
+  POI revision, map info, laser frame
+- `photos/` - `<id>.jpg` per photo and `index.jsonl` (the photo records); absent in bundles saved before photos were
+  bundled, which still list and load (`LoadedBundle.photos_dir` is None)
 
 `map_manager/bundle.py` (`BundleStore`, no ROS imports) writes bundles atomically: `begin` makes a
 `.tmp-<name>-<ms>` directory, `commit` validates and renames it into place (overwrite swaps via a rename-aside),
 failure removes the temp dir and leaves any existing bundle untouched. `list`, `load`, `delete`, `cleanup_temp`
-complete the store. Names are checked with `ros2_common.maps.validate_map_name`.
+complete the store; `commit` keeps `<tmp>/photos` inside the bundle and `delete` removes it with the bundle. Names are checked with `ros2_common.maps.validate_map_name`.
+
+## Photos travel with the map
+
+Save (and the autosave inside a load): after serialize, `RosPoi.export_photos(<tmp>/photos)` has poi_store write the
+live photos there (hard links, copy fallback). A failed export fails the save (temp dir removed, nothing committed,
+the message names poi_store's reason). `bundle.json` `pois` = the non-photo entries of the latched `/poi/list` plus the
+exported photo POIs; the message reads "saved map X with N POIs and M photos" and the summary has `poi_count` (non-photo)
+and `photo_count`. Load: `replace(meta.pois, photo_dir=<bundle>/photos or None)` makes the live POIs and photos exactly
+the bundle's (live-only photos are deleted, a bundle without `photos/` empties them); the load `data` adds
+`photos_replaced` and `photos_removed`. Delete removes the bundle with its photos (poi_store hard-links, so the live
+JPEGs stay). The `poi_timeout_s` budget covers export and replace.
 
 ## Live-set owner and delete
 
