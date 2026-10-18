@@ -64,6 +64,8 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_libcamera_controls test/test_libcamera_controls.cpp TIMEOUT 120)
   target_link_libraries(test_libcamera_controls head_camera_libcamera)
+  ament_add_gtest(test_libcamera_backend test/test_libcamera_backend.cpp TIMEOUT 120)
+  target_link_libraries(test_libcamera_backend head_camera_libcamera)
 endif()
 
 ament_package()

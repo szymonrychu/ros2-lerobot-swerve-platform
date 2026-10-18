@@ -61,7 +61,7 @@ using LogFunction = std::function<void(LogLevel, const std::string &)>;
 libcamera::ControlList video_controls(const Config & config);
 
 /**
- * Controls of an AF request (D6 phase 1): AfMode Auto; AfMetering Windows plus AfWindows = the window when windowed,
+ * Controls of an AF request (the D6 AF step): AfMode Auto; AfMetering Windows plus AfWindows = the window when windowed,
  * AfMetering Auto otherwise; AfTrigger Start when trigger.
  *
  * @param request The AF request; its window is in ScalerCropMaximum coordinates.
@@ -70,7 +70,7 @@ libcamera::ControlList video_controls(const Config & config);
 libcamera::ControlList af_controls(const AfRequest & request);
 
 /**
- * Controls of the still stream (D6 phase 2): AfMode Auto and no trigger, so the lens holds its position.
+ * Controls of the still stream (the D6 SWITCH step): AfMode Auto and no trigger, so the lens holds its position.
  *
  * @return The control list, keyed by libcamera::controls::controls.
  */
