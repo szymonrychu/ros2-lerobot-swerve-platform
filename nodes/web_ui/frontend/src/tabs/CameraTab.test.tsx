@@ -20,7 +20,7 @@ const PAIR = {
   ],
 } as TabConfig
 
-const SINGLE = { id: 'overview', type: 'camera', label: 'Overview', topic: '/overview_camera/image_raw/compressed' } as TabConfig
+const SINGLE = { id: 'front', type: 'camera', label: 'Front', topic: '/front_camera/image_raw/compressed' } as TabConfig
 
 function setViewport(width: number): void {
   window.matchMedia = ((query: string) => {

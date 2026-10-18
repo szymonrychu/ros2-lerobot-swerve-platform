@@ -9,14 +9,14 @@ import ArmTab from './ArmTab'
 import { designViolations, SOURCES } from '../layout/designRules'
 
 const GRIPPER = '/gripper/image_raw'
-const OVERVIEW = '/overview/image_raw'
+const FRONT = '/front_camera/image_raw/compressed'
 
 const TAB = {
   id: 'arm',
   type: 'arm',
   label: 'Arm',
   gripper_camera_topic: GRIPPER,
-  overview_camera_topic: OVERVIEW,
+  front_camera_topic: FRONT,
 } as TabConfig
 
 function setViewport(width: number): void {
@@ -41,27 +41,27 @@ afterEach(cleanup)
 describe('ArmTab', () => {
   it('phone: stacks streams and the 3D view vertically', () => {
     setViewport(400)
-    renderTab({ [GRIPPER]: { jpeg_b64: 'AAA' }, [OVERVIEW]: { jpeg_b64: 'BBB' } })
+    renderTab({ [GRIPPER]: { jpeg_b64: 'AAA' }, [FRONT]: { jpeg_b64: 'BBB' } })
     expect(screen.getByTestId('arm-layout').getAttribute('data-direction')).toBe('column')
     expect(screen.getByAltText('gripper camera').getAttribute('src')).toBe('data:image/jpeg;base64,AAA')
-    expect(screen.getByAltText('overview camera').getAttribute('src')).toBe('data:image/jpeg;base64,BBB')
+    expect(screen.getByAltText('front camera').getAttribute('src')).toBe('data:image/jpeg;base64,BBB')
     expect(screen.getByTestId('arm-view-slot')).toBeTruthy()
     expect(screen.getByTestId('arm-jog-slot')).toBeTruthy()
   })
 
   it('desktop: places streams side by side with the 3D view slot', () => {
     setViewport(1400)
-    renderTab({ [GRIPPER]: { jpeg_b64: 'AAA' }, [OVERVIEW]: { jpeg_b64: 'BBB' } })
+    renderTab({ [GRIPPER]: { jpeg_b64: 'AAA' }, [FRONT]: { jpeg_b64: 'BBB' } })
     expect(screen.getByTestId('arm-layout').getAttribute('data-direction')).toBe('row')
     expect(screen.getByTestId('arm-view-slot')).toBeTruthy()
   })
 
   it('shows the waiting message, never a placeholder image, for a stream without a frame', () => {
     setViewport(1400)
-    renderTab({ [OVERVIEW]: { jpeg_b64: 'BBB' } })
+    renderTab({ [FRONT]: { jpeg_b64: 'BBB' } })
     expect(screen.getByText(`Waiting for ${GRIPPER}...`)).toBeTruthy()
     expect(screen.queryByAltText('gripper camera')).toBeNull()
-    expect(screen.getByAltText('overview camera')).toBeTruthy()
+    expect(screen.getByAltText('front camera')).toBeTruthy()
   })
 
   it.each(['tabs/ArmTab.tsx', 'arm/ArmView.tsx', 'components3d/InteractiveArm.tsx'])('%s has no design violations', (path) => {

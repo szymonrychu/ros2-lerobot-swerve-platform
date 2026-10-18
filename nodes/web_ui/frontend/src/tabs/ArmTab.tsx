@@ -16,10 +16,10 @@ interface Props {
 const CELL_SX = { flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' } as const
 
 /**
- * Arm tab: gripper and overview camera streams, a slot for the 3D view and a slot for the jog panel.
+ * Arm tab: gripper and front camera streams, a slot for the 3D view and a slot for the jog panel.
  * Phone stacks everything vertically; tablet and desktop put the streams side by side with the 3D view.
  *
- * @param tab - tab config (gripper_camera_topic, overview_camera_topic)
+ * @param tab - tab config (gripper_camera_topic, front_camera_topic)
  * @param topicData - latest payload per topic
  * @param publish - ROS publish helper
  */
@@ -39,7 +39,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
           <CameraStream topic={tab.gripper_camera_topic} data={topicData[tab.gripper_camera_topic ?? '']} alt="gripper camera" />
         </Box>
         <Box sx={{ ...CELL_SX, minHeight: streamMinHeight }}>
-          <CameraStream topic={tab.overview_camera_topic} data={topicData[tab.overview_camera_topic ?? '']} alt="overview camera" />
+          <CameraStream topic={tab.front_camera_topic} data={topicData[tab.front_camera_topic ?? '']} alt="front camera" />
         </Box>
         <Box data-testid="arm-view-slot" sx={{ ...CELL_SX, minHeight: streamMinHeight }}>
           <Suspense fallback={null}>
