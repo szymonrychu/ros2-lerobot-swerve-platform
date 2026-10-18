@@ -2,7 +2,7 @@
 title: Remove the Jetson coprocessor
 blockers: []
 stage: build
-owner: ""
+owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
 ---

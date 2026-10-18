@@ -1,6 +1,6 @@
 ---
 title: Remove jetson deploy target
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "deploy-nodes.sh, the inventory example and test-ansible know only client and server; no Jetson playbook or group vars remain."
 files: [scripts/deploy-nodes.sh, ansible/playbooks/deploy_nodes_jetson.yml, ansible/group_vars/jetson.yml, ansible/inventory.example, pyproject.toml, tests/test_jetson_ansible.py, tests/test_ansible_deploy_speed.py, tests/README.md]

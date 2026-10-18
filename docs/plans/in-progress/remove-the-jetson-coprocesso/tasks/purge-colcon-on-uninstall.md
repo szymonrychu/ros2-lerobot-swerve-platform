@@ -1,6 +1,6 @@
 ---
 title: Purge colcon on uninstall
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A retired C++ node leaves no colcon source, build, install or stamp behind on the Pi."
 files: [ansible/roles/ros2_node_deploy/tasks/colcon_purge.yml, ansible/roles/ros2_node_deploy/tasks/main.yml, ansible/playbooks/tasks/resolve_and_deploy.yml, tests/test_node_uninstall_purge.py, ansible/README.md, tests/README.md]
