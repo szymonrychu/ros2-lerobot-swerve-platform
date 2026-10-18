@@ -502,7 +502,7 @@ The node subscribes to `robot_events_topic` (`/robot_events`, `std_msgs/String`,
 mcp_server event monitor). Payload JSON: `{seq, ts, type, severity: info|warning|critical, source, message, data}`;
 critical types include `collision_stop`, `battery_cutoff`, `overheat`, `servo_error`, `stall`, `human_takeover`, `bump`.
 On an explicit reset (`POST /api/reset`, never on node start or restart) the runner stops the robot, drops the client and clears
-the event log and job state. New session keeps all POIs, keep-out zones and maps: it calls no mcp_server admin route and the
+the event log and job state. New session keeps every POI, keep-out zone and map (it keeps every POI the agent or the person made): it calls no mcp_server admin route and the
 former `agent_poi_reset` config key is gone (an unknown key is rejected). POIs are removed only through explicit actions: the POI
 list "delete marked" button, the Clear POIs dialog and the agent's `clear_pois` tool. (The mcp_server admin route
 `/admin/clear_agent_pois` still exists but claude_agent no longer calls it.)

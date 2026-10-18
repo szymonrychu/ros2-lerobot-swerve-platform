@@ -490,25 +490,41 @@ async def test_reset_stops_the_robot(tmp_path: Path) -> None:
     assert stop_events(events) == []
 
 
-async def test_reset_does_not_clear_pois(tmp_path: Path) -> None:
-    """New session deletes nothing: no admin clear call over the wire, whatever the former config said."""
-    calls: list[str] = []
+POI_VARIANTS = [
+    [],
+    [{"id": "k1", "name": "no-go", "category": "keepout", "created_by": "agent"}],
+    [{"id": "s1", "name": "door", "tags": ["#survey"], "created_by": "agent"}],
+    [
+        {"id": "k1", "category": "keepout", "created_by": "agent"},
+        {"id": "s1", "tags": ["#survey"], "created_by": "agent"},
+        {"id": "p1", "created_by": "person"},
+    ],
+]
+
+
+@pytest.mark.parametrize("pois", POI_VARIANTS)
+async def test_reset_does_not_clear_pois(tmp_path: Path, pois: list[dict]) -> None:
+    """New session deletes nothing: no HTTP call at all over a reset, with keep-out and #survey POIs present."""
+    calls: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(str(request.url))
-        return httpx.Response(200, json={})
+        calls.append((request.method, str(request.url)))
+        return httpx.Response(200, json={"pois": pois})
 
     real = httpx.AsyncClient
     with patch.object(httpx, "AsyncClient", lambda *a, **k: real(*a, transport=httpx.MockTransport(handler), **k)):
         runner, _, _ = make_runner(tmp_path)
         assert await runner.reset() is True
-    assert not [c for c in calls if "clear" in c], calls
+    assert calls == [], calls
     assert not hasattr(runner, "poi_clearer") and not hasattr(runner, "clear_agent_pois")
 
 
-def test_agent_poi_reset_is_an_unknown_config_key() -> None:
+def test_agent_poi_reset_key_rejected() -> None:
+    """The former clear_all configuration can no longer be expressed: the key is an unknown field."""
     with pytest.raises(ValidationError):
         ClaudeAgentConfig(agent_poi_reset="clear_all")
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig.model_validate({"agent_poi_reset": "survey"})
 
 
 async def test_reset_clears_the_event_log_and_restarts_seq(tmp_path: Path) -> None:
