@@ -58,3 +58,7 @@ Estimate: 1285 min | Actual: 0 min | Remaining estimate: 0 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+All tasks verified and merged; deployed 2026-10-18: head_camera_cpp 30.1 fps (1152x648 from 2304x1296), pi_cameras/camera_ros removed, web UI zoom API x2 ok in 1.26 s (af 166 ms, capture 531 ms, 1024x576 crop), memory peak 71 MB of 384 MB, ~0.06 core, ToF unaffected. Manual checks left for the user: agent get_camera_image zoom from a session, web UI click-to-zoom in a browser.
