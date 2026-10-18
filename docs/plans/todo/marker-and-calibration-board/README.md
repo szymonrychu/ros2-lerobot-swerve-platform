@@ -1,6 +1,6 @@
 ---
 title: Marker and calibration board generator
-blockers: [Remove the Jetson coprocessor]
+blockers: []
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]

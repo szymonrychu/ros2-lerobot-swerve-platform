@@ -1,6 +1,6 @@
 ---
 title: Head camera 30 fps stream with full-res zoom
-blockers: [Remove the Jetson coprocessor]
+blockers: []
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]

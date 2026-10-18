@@ -1,6 +1,6 @@
 ---
 title: Split servo buses arm alone base plus head
-blockers: [Remove the Jetson coprocessor]
+blockers: []
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
