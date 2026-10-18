@@ -30,6 +30,8 @@ class MapGuardConfig(BaseModel):
         map_frame: Frame of the map; scans are transformed map <- laser frame through TF.
         reset_topic: std_msgs/Empty published after a real map reset (web_ui drops its GPS anchor).
         events_topic: std_msgs/String JSON robot events for the agent.
+        command_topic: std_msgs/String map_manager command topic (the relocalise request is published here).
+        result_topic: std_msgs/String map_manager result topic (the relocalise answer arrives here).
         pause_service: slam_toolbox/srv/Pause (a toggle).
         reset_service: slam_toolbox/srv/Reset.
         serialize_service: slam_toolbox/srv/SerializePoseGraph.
@@ -73,6 +75,7 @@ class MapGuardConfig(BaseModel):
         rotate_s: ...for this long means rotated by hand.
         settle_s: No detector may fire for this long before the agreement is evaluated.
         evaluate_s: Agreement evaluation window after settling.
+        relocalise_timeout_s: A relocalise request without an answer for this long counts as unrecoverable.
         cooldown_s: After a reset, a mismatch cannot trigger for this long.
         backup_dir: Directory of the serialized map backups.
         backup_prefix: Backup file stem prefix (<prefix>_<UTC timestamp>).
@@ -93,6 +96,8 @@ class MapGuardConfig(BaseModel):
     map_frame: str = "map"
     reset_topic: str = "/map_guard/map_reset"
     events_topic: str = "/robot_events"
+    command_topic: str = "/map_manager/command"
+    result_topic: str = "/map_manager/result"
 
     pause_service: str = "/slam_toolbox/pause_new_measurements"
     reset_service: str = "/slam_toolbox/reset"
@@ -141,6 +146,7 @@ class MapGuardConfig(BaseModel):
 
     settle_s: PositiveFloat = 3.0
     evaluate_s: PositiveFloat = 4.0
+    relocalise_timeout_s: PositiveFloat = 90.0
     cooldown_s: PositiveFloat = 30.0
     backup_dir: str = "/var/lib/ros2/maps"
     backup_prefix: str = "map_guard_backup"

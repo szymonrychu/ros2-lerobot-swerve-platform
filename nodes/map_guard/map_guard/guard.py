@@ -5,8 +5,12 @@
     DISTURBED --(no detector fires)--> SETTLING --(settle_s quiet)--> EVALUATING
     SETTLING / EVALUATING --(any physical detector)--> DISTURBED
     EVALUATING --(evaluate_s; median ratio >= healthy_ratio, or no agreement sample at all)--> RESUMED (unpause) -> OK
-    EVALUATING --(evaluate_s; median ratio < healthy_ratio)--> RESET (serialize backup, prune, reset, unpause,
-        publish the reset topic) -> OK, with cooldown_s during which a mismatch cannot trigger
+    EVALUATING --(evaluate_s; median ratio < healthy_ratio)--> RELOCALISING (stay paused, ask map_manager to
+        relocalise against the live map from the last pose before the move)
+    RELOCALISING --(result localised)--> RESUMED (map and POIs kept)
+    RELOCALISING --(result not localised / ambiguous / failed, or relocalise_timeout_s without an answer)-->
+        RESET (serialize backup, prune, reset, unpause, publish the reset topic; map_manager has already cleared the
+        live POIs) -> OK, with cooldown_s during which a mismatch cannot trigger
 
 The slam_toolbox pause service is a toggle: the guard reads the paused_new_measurements parameter (falling back to
 its own tracked state when the parameter cannot be read), toggles only when the state differs from the wanted one
@@ -30,12 +34,13 @@ from .detectors import REASON_CARRIED, REASON_LIFTED, REASON_MISMATCH, REASON_RO
 
 
 class State(StrEnum):
-    """Guard states (RESUMED and RESET last one tick)."""
+    """Guard states (RESUMED and RESET last one tick; RELOCALISING lasts until the answer or the timeout)."""
 
     OK = "ok"
     DISTURBED = "disturbed"
     SETTLING = "settling"
     EVALUATING = "evaluating"
+    RELOCALISING = "relocalising"
     RESUMED = "resumed"
     RESET = "reset"
 
@@ -86,6 +91,7 @@ class MapGuard:
         slam: SlamPort,
         notifier: Notifier,
         publish_reset: Callable[[], None],
+        request_relocalise: Callable[[str, float], None],
         warn: Callable[[str], None],
         utc_now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -96,6 +102,8 @@ class MapGuard:
             slam (SlamPort): slam_toolbox calls (never used in dry run).
             notifier (Notifier): Agent events.
             publish_reset (Callable[[], None]): Publishes std_msgs/Empty on the reset topic (never in dry run).
+            request_relocalise (Callable[[str, float], None]): Publishes the relocalise command to map_manager with
+                (request_id, since: epoch seconds when the episode started); never called in dry run.
             warn (Callable[[str], None]): Warning logger.
             utc_now (Callable[[], datetime]): Wall clock for backup names.
         """
@@ -103,6 +111,7 @@ class MapGuard:
         self.slam = slam
         self.notifier = notifier
         self.publish_reset = publish_reset
+        self.request_relocalise = request_relocalise
         self.warn = warn
         self.utc_now = utc_now
         self.enabled = frozenset(config.reasons)
@@ -119,6 +128,12 @@ class MapGuard:
         self.episode_reasons: set[str] = set()
         self.evaluation: list[float] = []
         self.cooldown_until: float | None = None
+        self.episode_started = 0.0
+        self.last_now = 0.0
+        self.request_seq = 0
+        self.pending_request: str | None = None
+        self.relocalise_deadline: float | None = None
+        self.relocalise_median: float | None = None
         metrics.DRY_RUN.set(1 if config.dry_run else 0)
         self.set_state_gauge()
 
@@ -162,6 +177,7 @@ class MapGuard:
             report (DisturbanceReport): Detector report at now.
             samples (Sequence[tuple[float, int]]): New (ratio, known_cells) agreement samples since the last tick.
         """
+        self.last_now = now
         if report.tilt_deg is not None:
             metrics.TILT_DEG.set(report.tilt_deg)
         if report.unexplained_speed_mps is not None:
@@ -197,6 +213,15 @@ class MapGuard:
             self.transition(now, State.EVALUATING, self.reason_text())
         elif self.state is State.EVALUATING and now - self.state_since >= self.config.evaluate_s - 1e-9:
             self.decide(now)
+        elif (
+            self.state is State.RELOCALISING
+            and self.relocalise_deadline is not None
+            and now >= self.relocalise_deadline - 1e-9
+        ):
+            self.warn(
+                f"map_guard: no relocalise answer for {self.config.relocalise_timeout_s} s; treated as unrecoverable"
+            )
+            self.finish_relocalise(now, recovered=False, discarded_pois=0)
 
     def reason_text(self) -> str:
         """Reasons of the current episode, comma separated."""
@@ -219,6 +244,7 @@ class MapGuard:
         """
         self.episode_reasons = set()
         self.evaluation = []
+        self.episode_started = now
         self.add_reasons(now, reasons, log=False)
         self.transition(now, state, self.reason_text())
         metrics.PAUSES.inc()
@@ -240,7 +266,7 @@ class MapGuard:
             self.notifier.notify(now, EVENT_DISTURBED, reason, self.ratio)
 
     def decide(self, now: float) -> None:
-        """End of the evaluation window: resume or reset.
+        """End of the evaluation window: resume, or ask map_manager to relocalise.
 
         Args:
             now (float): Current time, s.
@@ -256,8 +282,62 @@ class MapGuard:
             self.transition(now, State.RESUMED, self.reason_text(), detail)
             self.resume(now, reason, median)
         else:
-            self.transition(now, State.RESET, self.reason_text(), detail)
-            self.reset_map(now, reason, median)
+            self.transition(now, State.RELOCALISING, self.reason_text(), detail)
+            self.start_relocalise(now, median)
+
+    def start_relocalise(self, now: float, median: float) -> None:
+        """Ask map_manager to relocalise (the guard stays paused), or log it in dry run and count it as recovered.
+
+        Args:
+            now (float): Current time, s.
+            median (float): Poor evaluation median.
+        """
+        self.relocalise_median = median
+        self.pending_request = None
+        self.relocalise_deadline = None
+        if self.config.dry_run:
+            self.warn(
+                f"{self.dry}map_guard would request relocalise on {self.config.command_topic}; counted as recovered"
+            )
+            self.transition(now, State.RESUMED, self.reason_text(), "dry run: relocalise assumed to succeed")
+            self.resume(now, self.primary_reason(), median)
+            return
+        self.request_seq += 1
+        self.pending_request = f"map_guard-{self.request_seq}"
+        self.relocalise_deadline = now + self.config.relocalise_timeout_s
+        since = self.utc_now().timestamp() - (now - self.episode_started)
+        self.request_relocalise(self.pending_request, since)
+
+    def on_relocalise_result(self, request_id: str, ok: bool, state: str, discarded_pois: int) -> None:
+        """Handle map_manager's answer to the pending relocalise request.
+
+        Args:
+            request_id (str): Request id echoed by map_manager; answers to other ids are ignored.
+            ok (bool): The result's ok flag.
+            state (str): Localisation state ("localised", "not_localised", "ambiguous", ...).
+            discarded_pois (int): POIs map_manager cleared from the live set (0 when none).
+        """
+        if self.state is not State.RELOCALISING or request_id != self.pending_request:
+            return
+        self.finish_relocalise(self.last_now, ok and state == "localised", discarded_pois)
+
+    def finish_relocalise(self, now: float, recovered: bool, discarded_pois: int) -> None:
+        """Leave RELOCALISING: resume when the pose is recovered, otherwise run the live map reset.
+
+        Args:
+            now (float): Current time, s.
+            recovered (bool): The robot found itself in the live map.
+            discarded_pois (int): POIs map_manager cleared on failure.
+        """
+        reason, median = self.primary_reason(), self.relocalise_median
+        self.pending_request = None
+        self.relocalise_deadline = None
+        if recovered:
+            self.transition(now, State.RESUMED, self.reason_text(), "relocalised against the live map")
+            self.resume(now, reason, median)
+        else:
+            self.transition(now, State.RESET, self.reason_text(), f"unrecoverable, {discarded_pois} POIs discarded")
+            self.reset_map(now, reason, median if median is not None else 0.0, discarded_pois)
 
     def resume(self, now: float, reason: str, median: float | None) -> None:
         """Unpause and report.
@@ -272,8 +352,8 @@ class MapGuard:
         metrics.RESUMES.inc()
         self.notifier.notify(now, EVENT_RESUMED, reason, median)
 
-    def reset_map(self, now: float, reason: str, median: float) -> None:
-        """Back up, reset slam_toolbox, unpause, publish the reset topic, start the cooldown.
+    def reset_map(self, now: float, reason: str, median: float, discarded_pois: int = 0) -> None:
+        """Back up, reset slam_toolbox, unpause, publish the reset topic, start the cooldown (never reached in dry run).
 
         A failed backup skips the reset (the map is never dropped without a copy); the cooldown applies either way.
 
@@ -281,19 +361,13 @@ class MapGuard:
             now (float): Current time, s.
             reason (str): Primary reason.
             median (float): Evaluation median.
+            discarded_pois (int): POIs map_manager cleared before the reset (reported in the event).
         """
         cfg = self.config
         target = str(Path(cfg.backup_dir) / backup_name(cfg.backup_prefix, self.utc_now()))
         metrics.RESETS.labels("true" if cfg.dry_run else "false").inc()
         self.cooldown_until = now + cfg.cooldown_s
         self.monitor.reset()
-        if cfg.dry_run:
-            self.warn(
-                f"{self.dry}map_guard would serialize {target}, reset SLAM, unpause and publish {cfg.reset_topic}"
-            )
-            self.paused = False
-            self.notifier.notify(now, EVENT_RESET, reason, median, {"backup": target})
-            return
         if not self.slam.serialize_map(target):
             self.warn(f"map_guard: serialize_map to {target} failed; map NOT reset")
             self.set_paused(False)
@@ -306,7 +380,7 @@ class MapGuard:
             return
         self.set_paused(False)
         self.publish_reset()
-        self.notifier.notify(now, EVENT_RESET, reason, median, {"backup": target})
+        self.notifier.notify(now, EVENT_RESET, reason, median, {"backup": target, "discarded_pois": discarded_pois})
 
     def set_paused(self, desired: bool) -> None:
         """Bring slam_toolbox's new-measurement pause to desired through the toggle service.

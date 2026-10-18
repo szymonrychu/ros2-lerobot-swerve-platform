@@ -66,12 +66,14 @@ class Harness:
         self.slam = slam or FakeSlam()
         self.notifier = FakeNotifier()
         self.resets_published = 0
+        self.relocalise_requests: list[tuple[str, float]] = []
         self.logs: list[str] = []
         self.guard = MapGuard(
             config,
             self.slam,
             self.notifier,
             self.publish_reset,
+            self.request_relocalise,
             self.logs.append,
             utc_now=lambda: FIXED_UTC,
         )
@@ -80,6 +82,9 @@ class Harness:
     def publish_reset(self) -> None:
         self.resets_published += 1
 
+    def request_relocalise(self, request_id: str, since: float) -> None:
+        self.relocalise_requests.append((request_id, since))
+
     def run(self, seconds: float, reasons: Sequence[str] = (), sample: tuple[float, int] | None = None) -> None:
         """Tick at 10 Hz; an agreement sample every 0.5 s when given."""
         for _ in range(int(round(seconds / TICK))):
@@ -87,6 +92,12 @@ class Harness:
             samples = [sample] if sample is not None and int(round(self.now / TICK)) % 5 == 0 else []
             self.guard.tick(self.now, report, samples)
             self.now = round(self.now + TICK, 6)
+
+
+def fail_relocalise(h: Harness, discarded: int = 0) -> None:
+    """Answer the pending relocalise request as unrecoverable."""
+    h.guard.on_relocalise_result(h.relocalise_requests[-1][0], False, "not_localised", discarded)
+    h.run(0.2, sample=BAD)
 
 
 def counter(name: str, labels: dict[str, str] | None = None) -> float:
@@ -167,6 +178,7 @@ def test_low_agreement_after_settling_backs_up_and_resets(tmp_path: Path) -> Non
     h.run(3.2, sample=BAD)
     assert h.guard.state is State.EVALUATING
     h.run(4.2, sample=BAD)
+    fail_relocalise(h)
     h.run(0.2, sample=BAD)
     assert h.guard.state is State.OK
     expected = str(tmp_path / "map_guard_backup_20261010T120000Z")
@@ -189,6 +201,7 @@ def test_reset_prunes_old_backups(tmp_path: Path) -> None:
     h = Harness(tmp_path, keep_backups=3)
     h.run(0.1, reasons=[REASON_CARRIED])
     h.run(8.0, sample=BAD)
+    fail_relocalise(h)
     stems = sorted({p.stem for p in tmp_path.iterdir()})
     assert stems == [
         "map_guard_backup_20260104T000000Z",
@@ -203,6 +216,7 @@ def test_failed_backup_skips_the_reset(tmp_path: Path) -> None:
     h = Harness(tmp_path, slam=slam)
     h.run(0.1, reasons=[REASON_CARRIED])
     h.run(8.0, sample=BAD)
+    fail_relocalise(h)
     assert h.guard.state is State.OK
     assert "reset" not in slam.calls
     assert slam.paused is False
@@ -216,6 +230,7 @@ def test_failed_reset_does_not_publish(tmp_path: Path) -> None:
     h = Harness(tmp_path, slam=slam)
     h.run(0.1, reasons=[REASON_CARRIED])
     h.run(8.0, sample=BAD)
+    fail_relocalise(h)
     assert "reset" in slam.calls
     assert h.resets_published == 0
     assert slam.paused is False
@@ -240,6 +255,7 @@ def test_mismatch_alone_pauses_and_evaluates_without_settling(tmp_path: Path) ->
     assert counter("map_guard_triggers_total", {"reason": "mismatch"}) == triggers + 1
     assert h.notifier.events[0][:2] == (EVENT_DISTURBED, REASON_MISMATCH)
     h.run(4.5, sample=BAD)
+    fail_relocalise(h)
     assert "reset" in h.slam.calls
     assert h.notifier.events[-1][:2] == (EVENT_RESET, REASON_MISMATCH)
 
@@ -248,12 +264,14 @@ def test_cooldown_blocks_mismatch_retrigger(tmp_path: Path) -> None:
     h = Harness(tmp_path, cooldown_s=30.0)
     h.run(5.0, sample=HEALTHY)
     h.run(12.5, sample=BAD)  # mismatch -> evaluate -> reset
+    fail_relocalise(h)
     assert h.slam.calls.count("reset") == 1
     h.run(4.0, sample=HEALTHY)  # the new map is healthy (re-arms the monitor)
     h.run(10.0, sample=BAD)  # still inside the 30 s cooldown
     assert h.guard.state is State.OK
     assert h.slam.calls.count("reset") == 1
-    h.run(20.0, sample=BAD)  # cooldown (until ~45 s) over: the mismatch fires, is evaluated and resets again
+    h.run(20.0, sample=BAD)  # cooldown (until ~45 s) over: the mismatch fires, is evaluated and relocalises
+    fail_relocalise(h)
     assert h.slam.calls.count("reset") == 2
 
 
@@ -261,6 +279,7 @@ def test_cooldown_does_not_block_physical_triggers(tmp_path: Path) -> None:
     h = Harness(tmp_path)
     h.run(0.1, reasons=[REASON_CARRIED])
     h.run(8.0, sample=BAD)
+    fail_relocalise(h)
     assert h.slam.calls.count("reset") == 1
     h.run(0.1, reasons=[REASON_LIFTED])
     assert h.guard.state is State.DISTURBED
@@ -343,12 +362,132 @@ def test_dry_run_never_calls_services_or_publishes(tmp_path: Path) -> None:
     assert h.guard.state is State.OK
     assert slam.calls == []
     assert h.resets_published == 0
+    assert h.relocalise_requests == []
     assert list(tmp_path.iterdir()) == []
-    assert counter("map_guard_resets_total", {"dry_run": "true"}) == resets + 1
+    assert counter("map_guard_resets_total", {"dry_run": "true"}) == resets
     assert counter("map_guard_pauses_total") == pauses + 1
-    assert [e[0] for e in h.notifier.events] == [EVENT_DISTURBED, EVENT_RESET]
+    assert [e[0] for e in h.notifier.events] == [EVENT_DISTURBED, EVENT_RESUMED]
     assert any("dry run" in line and "carried" in line for line in h.logs)
+    assert any("would request relocalise" in line for line in h.logs)
     assert any("ratio" in line for line in h.logs)
+
+
+# ---------------------------------------------------------------------------
+# Relocalise before reset (design D13, U8)
+# ---------------------------------------------------------------------------
+
+
+def poor_evaluation(h: Harness) -> None:
+    """Carry the robot, settle and let a poor evaluation window end (the guard asks for a relocalise)."""
+    h.run(0.1, reasons=[REASON_CARRIED])
+    h.run(3.2, sample=BAD)
+    h.run(4.2, sample=BAD)
+
+
+def test_poor_median_requests_relocalise_and_stays_paused(tmp_path: Path) -> None:
+    h = Harness(tmp_path)
+    poor_evaluation(h)
+    assert h.guard.state is State.RELOCALISING
+    assert len(h.relocalise_requests) == 1
+    request_id, since = h.relocalise_requests[0]
+    assert request_id.startswith("map_guard-")
+    assert since <= FIXED_UTC.timestamp()
+    assert h.slam.paused is True
+    assert not any(isinstance(c, tuple) and c[0] == "serialize" for c in h.slam.calls)
+    assert "reset" not in h.slam.calls
+    assert h.resets_published == 0
+    h.run(5.0, sample=BAD)  # still waiting: no second request, still paused
+    assert len(h.relocalise_requests) == 1
+    assert h.guard.state is State.RELOCALISING
+
+
+def test_localised_result_resumes_without_deleting(tmp_path: Path) -> None:
+    h = Harness(tmp_path)
+    resumes = counter("map_guard_resumes_total")
+    poor_evaluation(h)
+    h.guard.on_relocalise_result(h.relocalise_requests[0][0], True, "localised", 0)
+    assert h.guard.state is State.RESUMED
+    h.run(0.2, sample=HEALTHY)
+    assert h.guard.state is State.OK
+    assert h.slam.paused is False
+    assert "reset" not in h.slam.calls
+    assert not any(isinstance(c, tuple) and c[0] == "serialize" for c in h.slam.calls)
+    assert h.resets_published == 0
+    assert counter("map_guard_resumes_total") == resumes + 1
+    assert h.notifier.events[-1][:2] == (EVENT_RESUMED, REASON_CARRIED)
+
+
+def test_failed_result_backs_up_and_resets_once_with_discarded_pois(tmp_path: Path) -> None:
+    h = Harness(tmp_path)
+    poor_evaluation(h)
+    h.guard.on_relocalise_result(h.relocalise_requests[0][0], False, "not_localised", 7)
+    h.run(0.5, sample=BAD)
+    expected = str(tmp_path / "map_guard_backup_20261010T120000Z")
+    assert h.slam.calls.count(("serialize", expected)) == 1
+    assert h.slam.calls.count("reset") == 1
+    assert h.resets_published == 1
+    assert h.slam.paused is False
+    kind, reason, _ratio, data = h.notifier.events[-1]
+    assert (kind, reason) == (EVENT_RESET, REASON_CARRIED)
+    assert data["discarded_pois"] == 7
+    assert data["backup"] == expected
+    h.guard.on_relocalise_result(h.relocalise_requests[0][0], False, "not_localised", 7)  # late duplicate
+    assert h.slam.calls.count("reset") == 1
+
+
+def test_ok_result_with_other_state_is_unrecoverable(tmp_path: Path) -> None:
+    h = Harness(tmp_path)
+    poor_evaluation(h)
+    h.guard.on_relocalise_result(h.relocalise_requests[0][0], True, "ambiguous", 0)
+    assert h.slam.calls.count("reset") == 1
+
+
+def test_timeout_counts_as_unrecoverable(tmp_path: Path) -> None:
+    h = Harness(tmp_path, relocalise_timeout_s=10.0)
+    poor_evaluation(h)
+    h.run(9.0, sample=BAD)
+    assert h.guard.state is State.RELOCALISING
+    assert "reset" not in h.slam.calls
+    h.run(1.5, sample=BAD)
+    assert h.slam.calls.count("reset") == 1
+    assert h.resets_published == 1
+    kind, _reason, _ratio, data = h.notifier.events[-1]
+    assert kind == EVENT_RESET and data["discarded_pois"] == 0
+
+
+def test_result_with_another_request_id_is_ignored(tmp_path: Path) -> None:
+    h = Harness(tmp_path)
+    poor_evaluation(h)
+    h.guard.on_relocalise_result("someone-else-1", True, "localised", 0)
+    h.guard.on_relocalise_result("someone-else-2", False, "not_localised", 3)
+    assert h.guard.state is State.RELOCALISING
+    assert "reset" not in h.slam.calls
+    assert h.resets_published == 0
+
+
+def test_result_without_pending_request_is_ignored(tmp_path: Path) -> None:
+    h = Harness(tmp_path)
+    h.guard.on_relocalise_result("map_guard-1", False, "not_localised", 0)
+    assert h.guard.state is State.OK
+    assert h.slam.calls == []
+
+
+def test_healthy_median_resumes_without_relocalise(tmp_path: Path) -> None:
+    h = Harness(tmp_path)
+    h.run(0.1, reasons=[REASON_CARRIED])
+    h.run(8.0, sample=HEALTHY)
+    assert h.guard.state is State.OK
+    assert h.relocalise_requests == []
+    assert h.notifier.events[-1][:2] == (EVENT_RESUMED, REASON_CARRIED)
+
+
+def test_new_request_ids_per_episode(tmp_path: Path) -> None:
+    h = Harness(tmp_path, cooldown_s=1.0)
+    poor_evaluation(h)
+    fail_relocalise(h)
+    h.run(2.0, sample=HEALTHY)
+    poor_evaluation(h)
+    assert [r[0] for r in h.relocalise_requests] == ["map_guard-1", "map_guard-2"]
 
 
 def test_dry_run_gauge(tmp_path: Path) -> None:

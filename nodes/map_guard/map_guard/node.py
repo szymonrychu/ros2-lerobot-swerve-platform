@@ -5,6 +5,7 @@ and runs the state machine on a worker thread so the blocking service calls neve
 """
 
 import math
+import queue
 import threading
 import time
 
@@ -31,6 +32,7 @@ from .agreement import GridMap, PreparedMap, agreement, prepare_map, scan_endpoi
 from .config import MapGuardConfig
 from .detectors import Disturbances, odom_speed
 from .guard import MapGuard
+from .relocalise import RelocaliseResult, parse_result, relocalise_command
 from .timing import RateLimiter
 
 NODE_NAME = "map_guard"
@@ -46,6 +48,8 @@ MAP_QOS = QoSProfile(
     depth=1,
 )
 EVENTS_QOS_DEPTH = 10
+# Commands and results must not be dropped: reliable, volatile (map_manager's own QoS).
+COMMAND_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
 
 
 def grid_from_msg(msg: OccupancyGrid) -> GridMap:
@@ -166,6 +170,8 @@ class MapGuardNode(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.events_pub = self.create_publisher(String, config.events_topic, EVENTS_QOS_DEPTH)
         self.reset_pub = self.create_publisher(Empty, config.reset_topic, EVENTS_QOS_DEPTH)
+        self.command_pub = self.create_publisher(String, config.command_topic, COMMAND_QOS)
+        self.results: queue.SimpleQueue[RelocaliseResult] = queue.SimpleQueue()
         notifier = EventNotifier(
             AgentState(config.agent_state_url, config.agent_poll_s, config.agent_timeout_s),
             lambda text: self.events_pub.publish(String(data=text)),
@@ -176,8 +182,10 @@ class MapGuardNode(Node):
             SlamServices(self, config),
             notifier,
             lambda: self.reset_pub.publish(Empty()),
+            self.request_relocalise,
             self.get_logger().warning,
         )
+        self.create_subscription(String, config.result_topic, self.on_result, COMMAND_QOS)
         self.create_subscription(OccupancyGrid, config.map_topic, self.on_map, MAP_QOS)
         self.create_subscription(LaserScan, config.scan_topic, self.on_scan, SENSOR_QOS)
         self.create_subscription(Imu, config.imu_topic, self.on_imu, SENSOR_QOS)
@@ -186,6 +194,26 @@ class MapGuardNode(Node):
         self.create_subscription(Twist, config.cmd_vel_topic, self.on_cmd, SENSOR_QOS)
         self.stop = threading.Event()
         self.worker = threading.Thread(target=self.run_guard, daemon=True, name="map-guard")
+
+    def request_relocalise(self, request_id: str, since: float) -> None:
+        """Publish the relocalise command (map_manager clears the live POIs when it fails).
+
+        Args:
+            request_id (str): Id echoed in the result.
+            since (float): Epoch seconds when the uncontrolled move started.
+        """
+        self.get_logger().warning(f"map_guard: requesting relocalise {request_id} on {self.config.command_topic}")
+        self.command_pub.publish(String(data=relocalise_command(request_id, since)))
+
+    def on_result(self, msg: String) -> None:
+        """Queue a map_manager result for the guard thread (the guard ignores ids it did not ask for).
+
+        Args:
+            msg (String): JSON MapResult.
+        """
+        result = parse_result(msg.data)
+        if result is not None:
+            self.results.put(result)
 
     def on_map(self, msg: OccupancyGrid) -> None:
         """Prepare the new map for scoring.
@@ -289,6 +317,9 @@ class MapGuardNode(Node):
                 report = self.detectors.evaluate(now)
                 samples, self.pending = self.pending, []
             try:
+                while not self.results.empty():
+                    answer = self.results.get_nowait()
+                    self.guard.on_relocalise_result(answer.request_id, answer.ok, answer.state, answer.discarded_pois)
                 self.guard.tick(now, report, samples)
             except Exception as exc:  # noqa: BLE001 - keep guarding after an unexpected error
                 self.get_logger().error(f"map_guard tick failed: {exc!r}")

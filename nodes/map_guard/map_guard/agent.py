@@ -24,7 +24,7 @@ MESSAGES = {
     EVENT_DISTURBED: "SLAM map guard: robot {reason} (agreement {ratio}); SLAM paused until it settles",
     EVENT_RESUMED: "SLAM map guard: scan agrees with the map again (agreement {ratio}) after {reason}; SLAM resumed",
     EVENT_RESET: "SLAM map guard: map no longer matches after {reason} (agreement {ratio}); map backed up and reset, "
-    "poses and POIs of the old map are invalid",
+    "relocalising against it failed, so the old poses and POIs were discarded (data.discarded_pois)",
 }
 
 Opener = Callable[..., Any]

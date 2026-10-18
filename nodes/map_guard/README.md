@@ -8,8 +8,10 @@ when the robot is moved in ways the odometry does not explain.
   their own: every detector needs its condition to hold for its own duration, so short spikes are ignored (a bump that
   really shifts the pose is caught by trigger 1).
 - **Response:** pause slam_toolbox's new measurements while disturbed; once the robot has settled, resume if the scan
-  agrees with the map again, otherwise back up (serialize) the current map, reset SLAM and tell web_ui to drop its GPS
-  anchor.
+  agrees with the map again; otherwise ask map_manager to relocalise against the live map from the last known pose
+  and keep the map and POIs if that works. Only when the pose is NOT recoverable: back up (serialize) the current
+  map, reset SLAM and tell web_ui to drop its GPS anchor (map_manager has already cleared the live POIs; saved named
+  maps are never touched).
 - **Agent:** only while claude_agent is processing an instruction (`busy`), an event goes on `/robot_events`;
   otherwise only logs and metrics.
 - **Starts in dry run:** everything is evaluated, logged and exported, but no slam_toolbox service is called.
@@ -30,6 +32,8 @@ Client (robot) only. Pure ROS-free logic in `agreement.py`, `detectors.py`, `gua
 | in | `/cmd_vel` | `geometry_msgs/Twist` | drive command the swerve controller follows (end of the Nav2 chain and teleop) |
 | in | `GET http://127.0.0.1:18300/api/state` | HTTP JSON `{"busy": bool}` | claude_agent busy flag |
 | out | `/robot_events` | `std_msgs/String` JSON | agent events (only while busy) |
+| out | `/map_manager/command` | `std_msgs/String` JSON | `{"op": "relocalise", "request_id": "map_guard-<n>", "since", "discard_on_fail": true}` (reliable) |
+| in | `/map_manager/result` | `std_msgs/String` JSON | map_manager answer; matched by `request_id` (`ok`, `data.state`, `data.discarded_pois`) |
 | out | `/map_guard/map_reset` | `std_msgs/Empty` | after a real reset (never in dry run); web_ui drops the GPS anchor and map |
 | call | `/slam_toolbox/pause_new_measurements` | `slam_toolbox/srv/Pause` | toggle (request empty, response `status`) |
 | call | `/slam_toolbox/get_parameters` | `rcl_interfaces/srv/GetParameters` | reads `paused_new_measurements` |
@@ -92,6 +96,12 @@ EVALUATING --after evaluate_s, median <  healthy_ratio--> RESET --> OK (+ cooldo
 - A mismatch alone pauses too (so no bad scan is integrated while it is evaluated) and skips the settling step.
 - No agreement sample at all during the evaluation (no map, too few points): the guard resumes; it never drops a
   map without evidence.
+- **RELOCALISING:** a poor evaluation median no longer wipes the map. The guard stays paused, publishes the
+  relocalise command (`since` = epoch time the episode started) and waits up to `relocalise_timeout_s`. Result
+  `ok` with `state == "localised"`: RESUMED, map and POIs kept, no serialize, no reset, no `/map_guard/map_reset`.
+  Any other result, or no answer in time, is unrecoverable and runs RESET below; answers with another `request_id`
+  are ignored. map_manager clears the live POIs itself on a failed relocalise (`discard_on_fail`); the reset event
+  carries `data.discarded_pois`. map_guard stays the only caller of `/slam_toolbox/reset`.
 - **RESET:** `serialize_map` to `<backup_dir>/<backup_prefix>_<UTC YYYYMMDDTHHMMSSZ>` (slam_toolbox writes
   `.posegraph` and `.data`), delete all but the newest `keep_backups` backups (the main `slam_map.*` is never
   touched), call `/slam_toolbox/reset`, unpause (Reset with `pause_new_measurements: false` leaves the pause state
@@ -113,14 +123,14 @@ Contract of `/robot_events` (`nodes/claude_agent/claude_agent/robot_events.py`):
 |---|---|
 | `map_guard_disturbed` | `critical` for lifted / carried (the agent stops driving), `warning` for rotated / mismatch |
 | `map_guard_resumed` | `warning` |
-| `map_guard_reset` | `critical` (`data.backup` is the backup path) |
+| `map_guard_reset` | `critical` (`data.backup` is the backup path, `data.discarded_pois` the POIs cleared); only when the relocalise failed |
 
 Events are published **only while the agent is busy**: `GET agent_state_url` returns `busy: true`. The flag is
 fetched at most every `agent_poll_s` with an `agent_timeout_s` timeout, from the guard worker thread (never the
 executor). An unreachable agent, a timeout or a malformed answer counts as not busy. In dry run the events are still
-sent while busy, with the message prefixed `[dry run] `. Dry run only suppresses the slam_toolbox calls and the reset topic: lifted / carried
+sent while busy, with the message prefixed `[dry run] `. Dry run only suppresses the slam_toolbox calls, the relocalise command and the reset topic (it logs "would request relocalise" and counts it as recovered, so no reset or reset event happens in dry run): lifted / carried
 `map_guard_disturbed` events stay `critical` so a lift interrupts the agent; every other event is `warning` in dry run
-(including the would-have-reset event).
+(there is no would-have-reset event any more).
 
 ## Metrics
 
@@ -129,10 +139,10 @@ Port `metrics_port` (19110) on 127.0.0.1, through `shared/ros2_metrics`.
 | Metric | Type | Meaning |
 |---|---|---|
 | `map_guard_agreement_ratio` | gauge | latest agreement sample |
-| `map_guard_state{state}` | gauge | 1 for the current state (ok, disturbed, settling, evaluating, resumed, reset), 0 for the others |
+| `map_guard_state{state}` | gauge | 1 for the current state (ok, disturbed, settling, evaluating, relocalising, resumed, reset), 0 for the others |
 | `map_guard_triggers_total{reason}` | counter | triggers acted on (mismatch, lifted, carried, rotated) |
 | `map_guard_pauses_total` | counter | pauses requested (dry run included) |
-| `map_guard_resets_total{dry_run}` | counter | resets (`dry_run="true"`: would have reset) |
+| `map_guard_resets_total{dry_run}` | counter | resets (`dry_run` label kept for dashboards; always "false" now, dry run never resets) |
 | `map_guard_resumes_total` | counter | resumes |
 | `map_guard_tilt_deg` | gauge | roll/pitch difference from the level baseline |
 | `map_guard_unexplained_speed_mps` | gauge | lidar minus wheel odometry speed while nothing is commanded (0 while commanded) |
@@ -147,7 +157,7 @@ and rates must be positive, ratios in 0..1, `healthy_ratio > mismatch_ratio`, `r
 
 | Key | Default | Meaning |
 |---|---|---|
-| `dry_run` | `true` | log + metrics only; no slam_toolbox call, no `/map_guard/map_reset` |
+| `dry_run` | `true` | log + metrics only; no slam_toolbox call, no relocalise command, no `/map_guard/map_reset` |
 | `reasons` | `[mismatch, lifted, carried, rotated]` | triggers acted on |
 | `scan_topic` | `/scan_filtered` | scan scored against the map |
 | `map_topic` | `/map` | SLAM map |
@@ -157,6 +167,8 @@ and rates must be positive, ratios in 0..1, `healthy_ratio > mismatch_ratio`, `r
 | `cmd_vel_topic` | `/cmd_vel` | drive command |
 | `map_frame` | `map` | map frame |
 | `reset_topic` | `/map_guard/map_reset` | reset notification |
+| `command_topic` | `/map_manager/command` | relocalise request |
+| `result_topic` | `/map_manager/result` | relocalise answer |
 | `events_topic` | `/robot_events` | agent events |
 | `pause_service` | `/slam_toolbox/pause_new_measurements` | Pause toggle |
 | `reset_service` | `/slam_toolbox/reset` | Reset |
@@ -199,6 +211,7 @@ and rates must be positive, ratios in 0..1, `healthy_ratio > mismatch_ratio`, `r
 | `rotate_s` | `0.8` | ...for this long, s |
 | `settle_s` | `3.0` | quiet time before the evaluation, s |
 | `evaluate_s` | `4.0` | evaluation window, s |
+| `relocalise_timeout_s` | `90.0` | no relocalise answer for this long counts as unrecoverable, s |
 | `cooldown_s` | `30.0` | no mismatch trigger after a reset, s |
 | `backup_dir` | `/var/lib/ros2/maps` | backup directory (created by the slam_toolbox deploy, owned by the node user) |
 | `backup_prefix` | `map_guard_backup` | backup stem prefix |
@@ -237,6 +250,8 @@ To act on only some triggers, narrow `reasons` (e.g. `[lifted, carried]`).
 - **rf2o or wheel odometry stale:** carried/rotated cannot fire.
 - **slam_toolbox service unavailable or timing out:** logged at warn; pause/unpause keep the last known state, a
   failed backup skips the reset, a failed reset publishes nothing.
+- **map_manager down / not answering:** the relocalise times out after `relocalise_timeout_s` and counts as
+  unrecoverable (the live map is backed up and reset, as before this flow existed).
 - **claude_agent unreachable:** treated as idle, no events.
 - **Steep ramps (> lift_tilt_deg):** read as lifted until `level_rebaseline_s` of steady attitude; raise
   `lift_tilt_deg` or drop `lifted` from `reasons` if the robot drives on such slopes.
@@ -252,5 +267,5 @@ uv run pytest tests/ -v
 uv run poe lint
 ```
 
-Tests: `test_agreement.py`, `test_detectors.py`, `test_guard.py`, `test_agent.py`, `test_backup.py`,
+Tests: `test_agreement.py`, `test_detectors.py`, `test_guard.py`, `test_agent.py`, `test_backup.py`, `test_relocalise.py`,
 `test_config.py`, `test_timing.py`, `test_node.py` (see `tests/README.md`).
