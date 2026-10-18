@@ -129,7 +129,7 @@ overlays: []
     assert "/camera/camera/depth/camera_info" in topics
 
 
-def test_default_yaml_has_no_overview_tab_and_no_overview_topic() -> None:
+def test_default_config_has_no_overview_tab() -> None:
     """The shipped default config has no overview_camera tab, subscribes no /overview_camera/* topic and no RGBD tab."""
     cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
     assert not [t for t in cfg.tabs if t.type == "rgbd_camera"]

@@ -85,6 +85,18 @@ def test_stale_stereo_rect_topics_are_gone_and_live_head_topics_remain() -> None
     assert subscription_spec("/tof/depth/image_raw", "head_depth")[0] is Image
 
 
+def test_front_camera_resolves_and_overview_camera_is_gone() -> None:
+    """/front_camera resolves to CompressedImage; the retired /overview_camera name has no type hint."""
+    from sensor_msgs.msg import CompressedImage
+
+    from web_ui import bridge
+    from web_ui.bridge import subscription_spec
+
+    assert subscription_spec("/front_camera/image_raw/compressed", None)[0] is CompressedImage
+    assert "/overview_camera/image_raw/compressed" not in bridge.TOPIC_TYPE_HINTS
+    assert subscription_spec("/overview_camera/image_raw/compressed", None) is None
+
+
 def test_odom_topic_is_an_odometry_subscription() -> None:
     """The client /odom topic (status bar Vel overlay) resolves to an Odometry subscription without a role."""
     from nav_msgs.msg import Odometry
