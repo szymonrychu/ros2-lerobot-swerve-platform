@@ -68,3 +68,7 @@ A feetech bridge configured with `node_name: base_servos` and `battery_interval_
 - Design D3. The server's `lerobot_leader` config sets no `node_name` and no `metrics_port`: its behaviour must not change.
 - Keep constants at the top, type hints and typed docstrings (CLAUDE.md). Do not wrap imports in try/except.
 - `tests/test_shutdown.py::bridge_module` is the harness to reuse (import it or copy the three monkeypatches; no new fake framework).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (feetech 286, mcp_server 2465, root 1149 passed); mcp-base-servo-registers gate-repeat findings refuted by the reviewer.

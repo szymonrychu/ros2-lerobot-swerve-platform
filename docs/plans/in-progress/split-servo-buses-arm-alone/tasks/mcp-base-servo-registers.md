@@ -1,6 +1,6 @@
 ---
 title: MCP base servo registers
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Overheat and servo-error events for the swerve servos keep reaching the agent after the base moves to its own bus.
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_on_demand_subscriptions.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml, tests/test_mcp_server_config.py, tests/README.md]
@@ -69,3 +69,7 @@ mcp_server reads both register dumps from start; swerve servo temperatures and s
 - `follower_set_register` stays `/follower/set_register` (gripper grip profiles are arm writes).
 - Until the split is deployed nothing publishes the base topic: the subscription waits, no placeholder data.
 - Deploying mcp_server ends a running agent session (memory); the deploy itself is the orchestrator's runbook step.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (feetech 286, mcp_server 2465, root 1149 passed); mcp-base-servo-registers gate-repeat findings refuted by the reviewer.

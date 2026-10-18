@@ -60,3 +60,7 @@ Without any config, the tilt guard's torque_off writes go to `/swerve_drive/set_
 
 - Design D6. The deployed `error_action` stays `brake`; client.yml's `torque_topic` is changed by split-bus-group-vars, not here.
 - No other code change: the node already publishes on `tilt_cfg.torque_topic` (`node.py:162`).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (feetech 286, mcp_server 2465, root 1149 passed); mcp-base-servo-registers gate-repeat findings refuted by the reviewer.
