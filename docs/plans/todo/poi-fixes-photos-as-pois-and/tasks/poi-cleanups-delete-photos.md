@@ -50,17 +50,24 @@ D7, D9: every POI cleanup deletes the photo POIs in its set (record and JPEG) an
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/poi_store/poi_store/models.py:Command.kinds: list[Literal["point", "area", "object", "photo"]] | None` (part `poi-clear-photo-kind`).
+- `nodes/poi_store/poi_store/store.py:PoiStore.op_clear` result data `{"removed", "pois", "photos"}`.
+- Kept: `op_delete` semantics for photo ids and for non-photo POIs (link strip only).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A clear (including the delete-marked ids path and "clear all") removes the matching photos with their JPEGs and reports POI and photo counts; deleting an ordinary POI never deletes a photo.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `nodes/poi_store/tests/test_photo_cleanup.py` and extend `tests/test_clear_filters.py`; run `cd nodes/poi_store && uv run --frozen pytest tests/test_photo_cleanup.py tests/test_clear_filters.py -q`; see them fail.
+- Implement the photo matching and removal in `op_clear`, the model literal and the result data; rerun until green.
+- Run `cd nodes/poi_store && uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Update the README (remove "photos are never cleared"); commit `feat(poi_store): clear deletes the photos it matches`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Photo records carry `created_by` and `status` (`LookupRecord`), so the filters apply directly.
+- Remove photos through PhotoStore in one index rewrite (`remove(ids)` exists) so a clear of many photos does not rewrite the index per photo.
+- The driving-agent delete-marked dialog posts `{op: "clear", ids: [...]}`; photo ids in that list must delete photos (orchestrator note).
+- Decision D7.

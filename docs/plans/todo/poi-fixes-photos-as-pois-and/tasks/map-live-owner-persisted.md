@@ -51,17 +51,22 @@ D5, D9: map_manager knows which saved map owns the live POIs and photos, across 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map_manager/map_manager/manager.py:MapManager.delete` result `data` keys `name`, `was_active`, `bundle_pois`, `bundle_photos`, `live_pois_removed`, `live_photos_removed`.
+- `<maps_root>/.active_map.json` `{"active_map": str | null}`.
+- `PoiPort.replace` returns the poi_store result data as well (uses part `poi-command-photo-ops`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Deleting the saved map that owns the live set always empties the live POIs and photos (after save, load or restart); deleting any other map leaves the live set alone; the message states the real counts.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `nodes/map_manager/tests/test_live_owner.py`; run `cd nodes/map_manager && uv run --frozen pytest tests/test_live_owner.py -q`; see the save-then-delete and restart cases fail (bug A).
+- Implement owner persistence, the delete rules and the new replace return; adapt `tests/fakes.py` and `tests/test_manager.py`; rerun `uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Update the README; commit `fix(map_manager): delete empties the live set of its owner map`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Root cause (verified): `active_map` is set only in `complete_load` (`manager.py:285`) and starts None (`manager.py:219`).
+- `BundleStore.list` skips dot entries and `cleanup_temp` removes only `.tmp-*`/`.old-*` directories, so `.active_map.json` is safe in `maps_root`.
+- Decision D5.

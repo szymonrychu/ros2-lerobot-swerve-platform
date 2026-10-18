@@ -52,17 +52,23 @@ D3 (user decision "Map is supposed to be saved with POI, which includes photos."
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map_manager/map_manager/node.py:RosPoi.export_photos(photo_dir: str) -> tuple[bool, str, list[dict[str, Any]]]`; `RosPoi.replace(pois, photo_dir=None)`.
+- `nodes/map_manager/map_manager/bundle.py:PHOTOS_DIR`, `LoadedBundle.photos_dir`, `summarize` filling `photo_count` (part `map-contract-photos-clear-live`).
+- Uses poi_store `export_photos` and `replace.photo_dir` (part `poi-command-photo-ops`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`<maps_root>/<name>/photos/` holds the map's photo JPEGs and index, `bundle.json` lists the photo POIs, a load restores exactly them into the live set, and a delete removes them.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `nodes/map_manager/tests/test_bundle_photos.py` with the fake poi_store keeping real files; run `cd nodes/map_manager && uv run --frozen pytest tests/test_bundle_photos.py -q`; see it fail.
+- Implement export on save, photo_dir on load, the summary counts; rerun `uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Update `nodes/map_manager/README.md` and `docs/runbooks/named-maps.md`; commit `feat(map_manager): maps carry their photos`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- User decision (verbatim): "Map is supposed to be saved with POI, which includes photos."
+- The export goes into the save's temp dir before `BundleStore.commit`, so a failed save leaves no partial bundle (`commit` already removes `tmp` on error).
+- poi_store hard-links into the bundle (same filesystem under `/var/lib/ros2`); deleting a bundle only drops its links, the live JPEGs stay.
+- Deploy check after merge: save a map with photos on the robot, list `<maps_root>/<name>/photos/`, delete it.

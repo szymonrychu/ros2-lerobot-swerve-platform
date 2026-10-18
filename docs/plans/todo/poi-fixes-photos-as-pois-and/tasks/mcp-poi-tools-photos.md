@@ -52,17 +52,22 @@ D2, D7, D9 (mcp_server): the agent's POI tools handle photo POIs: clear can sele
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/mcp_server/mcp_server/perception_models.py:ClearKind` with "photo".
+- `clear_pois` returns `{"removed": int, "pois": int, "photos": int}`.
+- `nodes/mcp_server/mcp_server/poi_client.py:describe_pois` skips photo and position-less entries.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent can clear photos (its own by default), sees both counts, and `list_pois` keeps working when `/poi/list` holds photos.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `nodes/mcp_server/tests/test_poi_photo_tools.py` and update `tests/test_clear_pois_tool.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_poi_photo_tools.py tests/test_clear_pois_tool.py -q`; see them fail (describe_pois raises on null x, clear returns one count).
+- Implement; rerun; run `uv run --frozen pytest tests/test_poi_category_tools.py -q && uv run --frozen poe lint`.
+- Update the README; commit `feat(mcp_server): POI tools handle photo POIs`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Built on driving-agent mcp-poi-category-args (category args in `add_poi`/`update_poi`, PoiView fields); do not redo them.
+- `list_lookups` stays the photo listing tool.
+- Open question Q2 covers whether the default clear includes the agent's photos; the plan follows the recommended answer (yes).

@@ -52,17 +52,25 @@ Foundation for D3/D4: the PhotoStore can export its photos to a directory and re
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/photos.py:poi_as_record(poi: dict[str, Any]) -> LookupRecord` (part `photo-store-sync`).
+- `nodes/poi_store/poi_store/photo_store.py:PhotoStore.export(dest: Path, ids: set[str] | None = None) -> list[LookupRecord]`.
+- `nodes/poi_store/poi_store/photo_store.py:PhotoStore.replace_all(records: list[LookupRecord], source: Path | None) -> tuple[int, int]`.
+- Kept: `photo_as_poi`, `PhotoStore.add/update/delete/delete_many/strip_links/prune_now`, the `index.jsonl` line format read by web_ui and mcp_server.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A PhotoStore can write its photos (JPEGs and index) into any directory and become exactly a given photo set taken from such a directory, atomically from the caller's point of view, and a photo POI dict converts back to its record.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `nodes/poi_store/tests/test_photo_store_sync.py` and the `poi_as_record` tests in `tests/test_shared_photos.py`; run `cd nodes/poi_store && uv run --frozen pytest tests/test_photo_store_sync.py -q` and `uv run pytest tests/test_shared_photos.py -q -k poi_as_record`; see them fail on the missing functions.
+- Implement `poi_as_record`, then `PhotoStore.export` and `PhotoStore.replace_all`; rerun both until green.
+- Run `cd nodes/poi_store && uv run --frozen pytest tests -q && uv run --frozen poe lint` and `uv run poe lint` at the root; expect all passed and no lint output.
+- Update `nodes/poi_store/README.md` and `tests/README.md`; commit `feat(poi_store): photo store export and replace_all`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Reuse `write_atomic` and the store's `rewrite`/`unlink_images` helpers; hold `self.lock` for the whole replace.
+- `os.link` raises `FileExistsError` when the target exists: in `replace_all` a JPEG already in `root` with the same id is kept (photo capture data is immutable); in `export` remove a stale target first.
+- The orphan sweep (`remove_orphans`, `ORPHAN_MIN_AGE_S`) runs on every rewrite: the restored records must be in the index before the sweep looks at their files, and the linked files get a fresh mtime with `os.utime`.
+- Decision D4: poi_store does every photo file move; map_manager never writes into the photo dir.

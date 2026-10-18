@@ -48,17 +48,23 @@ D1: photos are POIs of the live map in `/poi/list` and its revision.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/poi_store/poi_store/store.py:PoiStore.list_pois` and `list_json`: non-photo POIs then photo POIs (`photo_as_poi`); one revision (part `poi-list-photo-entries`).
+- New `PoiStore` method called by the node after a prune that removed photos (name left to the builder, for example `photos_changed()`).
+- `/poi/list` payload stays `{"pois": [...], "revision": int}`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Every `/poi/list` subscriber sees photos as POIs of kind "photo", and the revision moves whenever a photo is added, changed, deleted or pruned.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `nodes/poi_store/tests/test_photo_pois_list.py` and `tests/test_node_poi_list.py`; run `cd nodes/poi_store && uv run --frozen pytest tests/test_photo_pois_list.py tests/test_node_poi_list.py -q`; see them fail (no photos in the list, revision unchanged).
+- Implement the listing, the revision bumps and the node republish; rerun until green.
+- Run `cd nodes/poi_store && uv run --frozen pytest tests -q && uv run --frozen poe lint`; fix any existing test that asserted photos are absent from `/poi/list` (that rule is superseded by D1).
+- Update the README; commit `feat(poi_store): photos are POIs in /poi/list`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `photo_as_poi` gives x/y None for a pose-less photo; consumers are handled in web-ui-photo-pois-cleanup and mcp-poi-tools-photos (costmap_zones ignores unknown kinds, `zones.py:65,107`).
+- Bump the revision only when the photo set really changed (`PhotoStore.revision` moved), so dry runs and refused commands do not republish.
+- Decision D1 supersedes named-maps D8 ("photos stay global").

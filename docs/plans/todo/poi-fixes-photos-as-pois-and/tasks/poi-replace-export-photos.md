@@ -52,17 +52,24 @@ D3, D4, D9: poi_store's replace makes POIs and photos exactly the given set, imp
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/poi_store/poi_store/models.py:Command`: op "export_photos", field `photo_dir: str | None` (part `poi-command-photo-ops`).
+- `nodes/poi_store/poi_store/store.py:PoiStore.op_replace(entries, photo_dir)` result data `{"replaced", "removed", "photos_replaced", "photos_removed"}`.
+- `nodes/poi_store/poi_store/store.py:PoiStore.op_export_photos(photo_dir)` result data `{"photos": [...], "exported": n}`.
+- Uses `PhotoStore.export`, `PhotoStore.replace_all`, `poi_as_record` (part `photo-store-sync`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+map_manager can export the live photos into a bundle directory and later make the live POIs and photos exactly a bundle's set (or empty), all or nothing, with counts.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `nodes/poi_store/tests/test_photo_bundle_ops.py` and update `tests/test_replace.py`; run `cd nodes/poi_store && uv run --frozen pytest tests/test_photo_bundle_ops.py tests/test_replace.py -q`; see them fail.
+- Implement the model fields, `op_replace` with photos and `op_export_photos`; rerun until green.
+- Run `cd nodes/poi_store && uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Update the README; commit `feat(poi_store): replace and export carry photos`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Validate everything before `replace_all`: once photo files and the index changed, a later POI validation failure must not be possible. Commit the non-photo POIs after `replace_all`; on an `OSError` saving `poi.json`, roll the POIs back and report it (the photo set already matches the request, say so in the message).
+- `removed` keeps counting the old non-photo POIs so the existing map_manager reader keeps working until map-live-owner-persisted adapts it.
+- Decisions D3, D4, D9.

@@ -48,17 +48,21 @@ D6, D7, D9 (web_ui backend): Reset map also clears the live POIs and photos thro
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/web_ui/server.py:PoiClearFilters.kinds` with "photo".
+- `POST /api/map/reset` response `{"ok", "message", "data": {"pois_removed", "photos_removed"}}` on success.
+- Uses `MapCommand(op="clear_live")` (part `map-contract-photos-clear-live`) and `bridge_node.map_request_async`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Pressing Reset map resets SLAM and empties the live POIs and photos, and the response says how many were removed or why they were not.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `nodes/web_ui/tests/test_map_reset_pois.py` and the photo-kind case in `tests/test_poi_clear.py`; run `cd nodes/web_ui && uv run --frozen pytest tests/test_map_reset_pois.py tests/test_poi_clear.py -q`; see them fail.
+- Implement the clear_live call after the slam reset and the photo kind; rerun; run `uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Update the README; commit `feat(web_ui): Reset map clears live POIs and photos`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Reuse the `map_command` machinery (`map_request_async`, `await_ros_future`, `action_response`); do not add a second map_manager client.
+- Decision D6 supersedes named-maps D3 ("Reset map does not touch POIs").

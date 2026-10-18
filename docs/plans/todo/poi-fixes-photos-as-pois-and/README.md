@@ -1,6 +1,6 @@
 ---
 title: POI fixes photos as POIs and cleanups
-blockers: [Driving agent skills and workflows]
+blockers: [Driving agent skills and workflows, Pan tilt head control with agent and web UI]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -38,7 +38,7 @@ User-reported POI defects after the named-maps delivery (2026-10-18):
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+Estimate: 855 min | Actual: 0 min | Remaining estimate: 855 min
 
 ## Review
 

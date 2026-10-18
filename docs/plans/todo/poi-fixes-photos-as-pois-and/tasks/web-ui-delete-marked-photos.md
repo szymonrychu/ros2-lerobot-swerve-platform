@@ -47,17 +47,20 @@ D7, D9 (frontend): delete-marked deletes marked photos too, on the existing `cle
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/frontend/src/poi/DeleteMarkedDialog.tsx` props gain the marked photos (shape left to the builder).
+- Uses `clearPois(tab, { ids })` unchanged (part `poi-clear-photo-kind`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Marking photos in the POI list and pressing Delete marked removes them with the marked POIs and shows both counts.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the photo cases in `DeleteMarkedDialog.test.tsx` and `PoiPanels.mark.test.tsx`; run `cd nodes/web_ui/frontend && npx vitest run src/poi/DeleteMarkedDialog.test.tsx src/poi/PoiPanels.mark.test.tsx`; see them fail.
+- Allow marking photo rows and include them in the dialog; rerun; run `npx tsc --noEmit && npm run lint`.
+- Update the README; commit `feat(web_ui): delete marked covers photos`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Do not add an API function, route or poi_store op: the ids path already deletes photos after poi-cleanups-delete-photos.
+- The keep-out consent checkbox is unchanged.

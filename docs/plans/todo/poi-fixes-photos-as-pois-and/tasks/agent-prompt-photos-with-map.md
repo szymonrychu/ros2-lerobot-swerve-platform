@@ -44,17 +44,19 @@ D3, D7, D8 (claude_agent): the agent's system prompt states the new photo rules 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/claude_agent/claude_agent/prompt.py` system prompt text (Named maps and Lookups paragraphs).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent's instructions match the new behaviour: photos travel with saved maps and are removed by map and POI cleanups that include them.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the photo assertions to `nodes/claude_agent/tests/test_prompt.py`; run `cd nodes/claude_agent && uv run --frozen pytest tests/test_prompt.py -q -k photo`; see them fail.
+- Edit the two paragraphs; rerun `uv run --frozen pytest tests/test_prompt.py -q && uv run --frozen poe lint`.
+- Commit `docs(claude_agent): prompt states photos travel with maps`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Keep the existing consent rules (clear the person's POIs or zones only when asked, delete_map only after confirmation).
+- New agent session deletes nothing (unchanged, driving-agent new-session-keeps-pois).

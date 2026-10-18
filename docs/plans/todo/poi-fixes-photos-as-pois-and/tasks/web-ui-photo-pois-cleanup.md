@@ -48,17 +48,21 @@ D2, D7, D9 (frontend): photo entries in `/poi/list` never show twice, and the Cl
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/frontend/src/poi/ClearPoisDialog.tsx:ClearPoisDialogProps.photos: Photo[]`; `CLEARABLE_KINDS` with "photo".
+- Uses `clearPois` from `poi/api.ts` unchanged and the clear result data `pois`/`photos` (part `poi-clear-photo-kind`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The Clear POIs dialog previews and clears photos together with POIs and reports both counts; photos from `/poi/list` never appear as duplicate POIs.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the tests in `ClearPoisDialog.test.tsx` and `style.test.ts`; run `cd nodes/web_ui/frontend && npx vitest run src/poi/ClearPoisDialog.test.tsx src/poi/style.test.ts`; see the dialog tests fail.
+- Implement the photo kind, the photos prop and the counts; pass photos from `PoiPanels.tsx`; rerun; run `npx tsc --noEmit && npm run lint`.
+- Update the README; commit `feat(web_ui): Clear POIs dialog clears photos`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `isPoi` in `style.ts` already rejects kind "photo"; this task only pins it with a test.
+- The photo list refreshes by itself: deleting photos moves the `/poi/photos` revision, which refetches `/api/photos`.
+- Built on the driving-agent PoiPanels changes; do not redo its category chips or marking.

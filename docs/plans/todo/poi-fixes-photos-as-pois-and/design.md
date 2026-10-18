@@ -261,14 +261,16 @@ map POIs restored by a load, and the hourly age prune would delete a restored ma
   compact photo entry, raised with the user, not decided here.
 - `/var/lib/ros2/poi/lookups` and `/var/lib/ros2/maps/named` are on one filesystem on the client (hard link works);
   the copy fallback covers the case where they are not. Confirmed by the deploy check in map-bundle-photos.
-- map_manager's `poi_timeout_s` covers a replace/export of a full photo store with hard links; the builder of
-  map-bundle-photos measures it in a test with 200 photos and raises the timeout config if needed.
+- map_manager's 5 s `poi_timeout_s` covers a replace/export of a full photo store with hard links; guarded by the
+  500-photo timing test in poi-replace-export-photos.
 - The printable-metadata-markers-t epic (todo) edits `poi_store/models.py` and `store.py` later; it builds on the
-  contracts registered here (`ticket.py contract`).
+  contracts registered here (`ticket.py contract`) and now lists this epic as a blocker.
+- This epic is blocked by pan-tilt-head-control-with-a as well as driving-agent-skills-and-wor: pan-tilt's open tasks
+  hold `ansible/group_vars/client.yml` and `nodes/web_ui/web_ui/server.py` (ticket.py file-overlap check), which
+  photo-retention-age-optional and web-ui-reset-clears-pois edit.
 
 ## Open questions
 
-none
 - Q1: Photo age retention (14 days) would delete a loaded map's photos older than 14 days within the hour. Turn the age limit off and keep only the count and size limits (D10)? [recommended: yes, age limit off; 3000 photos / 300 MB stay as disk guards]
 - Q2: MCP clear_pois defaults to the agent's own POIs of every kind; with photos as POIs that default now also deletes the agent's photos (almost all photos). Keep that default (D7)? [recommended: yes, the default includes the agent's own photos; the prompt says so]
 

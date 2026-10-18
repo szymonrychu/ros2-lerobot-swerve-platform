@@ -49,17 +49,19 @@ D6, D9 (frontend): the Reset map dialog says what it deletes, and the maps dialo
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/frontend/src/types.ts:MapSummary.photo_count?: number` (part `map-contract-photos-clear-live`).
+- Reset `ConfirmDialog` body text in `MapNavTab.tsx`; maps list and delete confirmation in `map/MapsDialog.tsx`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Before confirming, the user reads that Reset map deletes the live POIs and photos and keeps saved maps, and that deleting a saved map deletes its POIs and photos (and the live ones when it is the active map).
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the tests in `MapNavTab.toolbar.test.tsx` and `MapsDialog.test.tsx`; run `cd nodes/web_ui/frontend && npx vitest run src/tabs/MapNavTab.toolbar.test.tsx src/map/MapsDialog.test.tsx`; see them fail.
+- Change the dialog texts, the type and the counts; rerun; run `npx tsc --noEmit && npm run lint`.
+- Update the README; commit `feat(web_ui): reset and map delete dialogs name POIs and photos`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `active_map` comes from the map_manager status the dialog already receives.

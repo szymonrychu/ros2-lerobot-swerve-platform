@@ -51,17 +51,22 @@ D10: photos are map POIs restored by a map load, so the age limit of the photo r
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/poi_store/poi_store/config.py:PhotoSettings.max_age_days: float | None` (default None).
+- `nodes/poi_store/poi_store/photo_store.py:PhotoStore.__init__(..., max_age_days: float | None, ...)`; `summary()["limits"]["max_age_days"]` null when off.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+With the deployed config, poi_store never deletes a photo for its age; count and bytes limits still guard the disk.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the age tests to `nodes/poi_store/tests/test_photo_store.py` and the default-config test to `tests/test_node_photos.py` or `tests/test_config.py`; run `cd nodes/poi_store && uv run --frozen pytest tests/test_photo_store.py tests/test_node_photos.py tests/test_config.py -q`; see them fail.
+- Make `max_age_days` optional in config and PhotoStore; rerun until green; run the whole suite and `uv run --frozen poe lint`.
+- Set `max_age_days: null` in the poi_store block of `ansible/group_vars/client.yml`; run `uv run poe lint-ansible` at the root.
+- Update the README; commit `feat(poi_store): photo age retention off by default`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Decision D10: photos are map POIs restored by a load; the hourly age prune would delete a restored map's older photos.
+- Existing tests that construct a PhotoStore with `max_age_days=14.0` keep that explicit value.
+- Deploy after merge: `./scripts/deploy-nodes.sh client poi_store` (run by the orchestrator at phase 6).

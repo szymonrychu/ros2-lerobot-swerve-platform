@@ -47,17 +47,20 @@ Foundation for D3 and D6: the shared map_manager contract carries photo counts a
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/maps.py:MapOp` with "clear_live"; `MapCommand.check_op_fields` (part `map-contract-photos-clear-live`).
+- `shared/ros2_common/maps.py:MapSummary.photo_count: int = 0`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+map_manager, web_ui and the frontend share one contract for the photo count of a saved map and the `clear_live` command.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the tests to `tests/test_shared_maps.py`; run `uv run pytest tests/test_shared_maps.py -q`; see them fail.
+- Implement the op and the field; rerun until green; run `uv run poe lint`.
+- Update `shared/README.md` and `tests/README.md`; commit `feat(shared): map contract photo_count and clear_live`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `NAMED_OPS` stays ("save", "load", "delete"); `clear_live` behaves like relocalise for the name rule.
+- Old `/map_manager/status` payloads without `photo_count` must still parse (default 0).

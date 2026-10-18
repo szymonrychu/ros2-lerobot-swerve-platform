@@ -50,17 +50,21 @@ D6, D8, D9: map_manager empties the live POIs and photos on request (web UI Rese
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map_manager/map_manager/manager.py:MapManager.clear_live(command) -> MapResult`, `data` `{"pois_removed", "photos_removed", "active_map"}`.
+- `MapManager.discard_live_pois` returns POI and photo counts; relocalise `data.discarded_photos`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Web UI Reset map (through `clear_live`) and an unrecoverable move empty the live POIs and photos, clear the live owner and never touch saved bundles.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `nodes/map_manager/tests/test_clear_live.py`; run `cd nodes/map_manager && uv run --frozen pytest tests/test_clear_live.py -q`; see it fail.
+- Implement `clear_live`, the discard counts and owner clearing; adapt relocalise tests in `tests/test_manager.py`; run `uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Update the README; commit `feat(map_manager): clear_live op and photo-aware discard`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `replace([])` already deletes live photos once poi-replace-export-photos is in; this task adds the counts, the op and the owner rules.
+- map_guard's discard path is unchanged (`discard_on_fail` -> `discard_live_pois`).
+- Decisions D6, D8.
