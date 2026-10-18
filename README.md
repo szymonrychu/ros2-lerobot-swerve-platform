@@ -161,7 +161,7 @@ Client: master2master   →  /filter/input_joint_updates  ← test_joint_api (RE
 web_ui 3D Map tab (Top view, click+drag)  →  /goal_pose  →  Nav2 bt_navigator
 Nav2: planner_server → /plan (global), controller_server MPPI → /optimal_trajectory (local)
       → cmd_vel_nav → velocity_smoother → collision_monitor → /cmd_vel
-        swerve_controller → /swerve_drive/joint_commands  →  lerobot_follower bridge, swerve_drive group (8 servos)
+        swerve_controller → /swerve_drive/joint_commands  →  base_servos bridge (8 servos, second USB adapter)
         swerve_controller → /odom
 robot_localization_ekf fuses /odom + /odom_rf2o_twist + /imu/data → /odometry/filtered + TF odom→base_link
 slam_toolbox: /scan + TF → /map + TF map→odom  →  Nav2 global costmap static layer, web_ui 3D Map tab
