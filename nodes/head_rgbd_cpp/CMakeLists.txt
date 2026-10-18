@@ -49,6 +49,18 @@ ament_target_dependencies(head_rgbd_core PUBLIC sensor_msgs image_geometry depth
 target_include_directories(head_rgbd_core SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS})
 set_target_properties(head_rgbd_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# The ROS wiring: HeadRgbdNode and the head_rgbd_node executable (single-threaded executor: the sync callback, the
+# 1 s lazy timer and the config are never touched concurrently).
+add_library(head_rgbd_node_lib STATIC src/head_rgbd_node.cpp)
+target_link_libraries(head_rgbd_node_lib PUBLIC head_rgbd_core)
+ament_target_dependencies(head_rgbd_node_lib PUBLIC
+  rclcpp sensor_msgs message_filters tf2 tf2_ros tf2_eigen cv_bridge camera_calibration_parsers)
+set_target_properties(head_rgbd_node_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+add_executable(head_rgbd_node src/main.cpp)
+target_link_libraries(head_rgbd_node head_rgbd_node_lib)
+
+install(TARGETS head_rgbd_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
@@ -68,6 +80,10 @@ if(BUILD_TESTING)
       HEAD_RGBD_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data"
       HEAD_RGBD_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
   endforeach()
+
+  ament_add_gtest(test_node test/test_node.cpp TIMEOUT 300)
+  target_link_libraries(test_node head_rgbd_node_lib)
+  target_compile_definitions(test_node PRIVATE HEAD_RGBD_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data")
 endif()
 
 ament_package()
