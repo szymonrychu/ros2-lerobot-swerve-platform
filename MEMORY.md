@@ -184,7 +184,7 @@
 
 ## Head camera (2026-10-18)
 
-- **Decision**: the head camera is the Camera Module 3 (IMX708, CSI cam0) plus the Arducam ToF (cam1) on the pan/tilt stand. `nodes/head_camera_cpp` (C++, libcamera) owns it and publishes `/head_camera/*` with frame `head_camera_optical_frame` (no TF yet; parented to the pan/tilt chain when that head is built). Default stream 1152x648 at 30 fps.
+- **Decision**: the head camera is the Camera Module 3 (IMX708, CSI cam0) plus the Arducam ToF (cam1) on the pan/tilt stand. `nodes/head_camera_cpp` (C++, libcamera) owns it and publishes `/head_camera/*` with frame `head_camera_optical_frame` (the node publishes no TF; the pan/tilt chain owns the parent of this frame). Default stream 1152x648 at 30 fps.
 - **Zoom contract**: JSON request on `/head_camera/zoom/command` (`request_id`, `u`, `v`, `zoom` 2/4/8, `max_px` 256..1024, `af`), JPEG on `/head_camera/zoom/image` cut from the 4608x2592 still, JSON result on `/head_camera/zoom/result` (statuses ok, af_failed, busy, timeout, camera_error, invalid; `stamp_ns` equals the image stamp for pairing). Defined in `zoom_json.hpp`.
 - **pi_cameras retired** (`present: false`, `camera_ros` purged, directory and tests deleted); head_camera_cpp builds the same pinned libcamera fork. The mcp_server `get_camera_image` camera value `front` is kept (it maps to `topics.head_camera`).
 
