@@ -1284,8 +1284,8 @@ ros2_nodes:
         - name: rr_steer
           id: 37
       # Pan/tilt head (/head/joint_states, /head/joint_commands) on this bus (U1, D1), never on lerobot_follower.
-      # Set the servo IDs with scripts/set_servo_id.py before deploy: the node blocks at startup until every
-      # configured servo answers, so deploy only after the servos are installed.
+      # Precondition for deploying this node: both servos are installed on the bus and their IDs are set with
+      # scripts/set_servo_id.py. The node blocks at startup until every configured servo answers.
       # Sign conventions: head_pan positive = looking left (CCW from above); head_tilt positive = looking down
       # (ruling R3, confirmed by the user on 2026-10-18). Flip only via `inverted` (and swap the command steps)
       # together with the URDF axis in nodes/web_ui/urdf/head.urdf.
