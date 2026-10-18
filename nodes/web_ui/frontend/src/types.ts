@@ -68,6 +68,10 @@ export interface TabConfig {
   tof_depth_topic?: string // head tab: 16UC1 mm depth topic, ToF camera (payload carries depth_preview_b64)
   tof_amplitude_topic?: string // head tab: ToF amplitude topic, unset when the camera has none (payload carries jpeg_b64)
   tof_range_m?: number // head tab: depth preview range in metres
+  zoom_command_topic?: string // head tab: zoom request topic (click-to-zoom goes through POST /api/camera/zoom)
+  zoom_result_topic?: string // head tab: zoom result topic
+  zoom_image_topic?: string // head tab: zoom crop image topic
+  zoom_timeout_s?: number // head tab: seconds POST /api/camera/zoom waits for the crop (default 8)
   gripper_camera_mount?: CameraMount // gripper camera pose in the URDF link gripper_link (same as mcp_server)
   active_source_topic?: string // default /filter/active_source (which command source drives the arm)
   arm_home_service?: string // default /arm/home

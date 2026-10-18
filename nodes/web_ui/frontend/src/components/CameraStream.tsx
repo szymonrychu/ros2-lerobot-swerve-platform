@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import { CANVAS_BG } from '../theme'
 import { WaitingMessage } from '../tabs/WaitingMessage'
+import { clickToNormalised } from '../camera/zoomApi'
 
 interface Props {
   /** ROS image topic name (shown in the waiting message). */
@@ -10,6 +11,8 @@ interface Props {
   data: unknown
   /** Alt text of the rendered image. */
   alt?: string
+  /** When set the image shows a crosshair and a click on the picture calls this with its [0, 1] position. */
+  onPointSelect?: (u: number, v: number) => void
 }
 
 interface ImageData {
@@ -24,8 +27,9 @@ interface ImageData {
  * @param topic - image topic name
  * @param data - topicData entry of that topic
  * @param alt - image alt text
+ * @param onPointSelect - optional click handler receiving the picture coordinates u, v
  */
-export function CameraStream({ topic, data, alt = 'camera feed' }: Props) {
+export function CameraStream({ topic, data, alt = 'camera feed', onPointSelect }: Props) {
   const [src, setSrc] = useState<string | null>(null)
   const frame = data as ImageData | undefined
   const jpeg = frame?.jpeg_b64
@@ -38,7 +42,20 @@ export function CameraStream({ topic, data, alt = 'camera feed' }: Props) {
 
   return (
     <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: CANVAS_BG }}>
-      <img src={src} alt={alt} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+      <img
+        src={src}
+        alt={alt}
+        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', ...(onPointSelect ? { cursor: 'crosshair' } : {}) }}
+        onClick={
+          onPointSelect
+            ? (e) => {
+                const img = e.currentTarget
+                const p = clickToNormalised(e.clientX, e.clientY, img.getBoundingClientRect(), img.naturalWidth, img.naturalHeight)
+                if (p) onPointSelect(p.u, p.v)
+              }
+            : undefined
+        }
+      />
     </Box>
   )
 }
