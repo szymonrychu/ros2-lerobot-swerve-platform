@@ -264,11 +264,13 @@ too. Serves G1, G4, U1, U2, U3.
 
 ## Assumptions and unknowns
 
-- A1: the second adapter's `/dev/serial/by-id/` path. Value: `PENDING` until confirmed. Confirmed before
-  plan-execute starts by the user's answer or by runbook stage 0 (read-only `ls -l /dev/serial/by-id/`); the
-  orchestrator writes it here, split-bus-group-vars reads it from here.
-- A2: the RPLidar's `/dev/serial/by-id/` path, confirmed the same way as A1; serial-device-preflight reads it here.
-- A3: the second adapter has a unique USB serial like the two in use (if it has none, by-id collides and a by-path
+- A1: CONFIRMED 2026-10-18 (read-only `ls -l /dev/serial/by-id/` + ID scan on the robot). The user moved the ARM
+  cable, not the base: the arm (lerobot_follower, IDs 1-6) is on the NEW adapter
+  `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6081020-if00`; base_servos (swerve IDs 32-39, plus the two new head
+  servos later) stays on the ORIGINAL adapter `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00`.
+  split-bus-group-vars uses these two paths exactly (arm -> 5AE6081020, base_servos -> 5A7A059004).
+- A2: CONFIRMED 2026-10-18: RPLidar `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0`.
+- A3: CONFIRMED: every adapter has a unique USB serial (5A7A059004, 5AE6081020, CP2102 0001). The second adapter has a unique USB serial like the two in use (if it has none, by-id collides and a by-path
   or udev rule is needed: stage 0 shows it; the orchestrator asks the user then).
 - A4: the 95.7 Hz anchor was measured mostly with idle wheels; the projection treats it as idle. Confirmed on the
   robot by the stage 3 rates.
