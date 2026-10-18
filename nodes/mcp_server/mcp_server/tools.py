@@ -15,7 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from mcp.types import CallToolResult, ImageContent, TextContent
-from pydantic import Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter
 from ros2_common.battery import BatteryGuard
 from ros2_metrics import render_latest
 from starlette.applications import Starlette
@@ -50,6 +50,7 @@ from .metrics import TOOL_CALLS, TOOL_DURATION
 from .models import (
     ArmMotionResult,
     ArmState,
+    CameraZoomFrame,
     ControlState,
     HomeSetResult,
     NavigationResult,
@@ -302,6 +303,34 @@ def image_content(data: bytes, mime_type: str) -> ImageContent:
         ImageContent: Content block.
     """
     return ImageContent(type="image", data=base64.b64encode(data).decode(), mime_type=mime_type)
+
+
+class CameraZoom(BaseModel):
+    """Where and how much to zoom on the head camera's default picture."""
+
+    u: float = Field(ge=0.0, le=1.0, description="Horizontal point, fraction of the default picture width (0 = left)")
+    v: float = Field(ge=0.0, le=1.0, description="Vertical point, fraction of the default picture height (0 = top)")
+    factor: Literal[2, 4, 8] = Field(description="Zoom factor: the crop covers 1/factor of the picture width")
+
+
+def zoom_metadata(frame: CameraZoomFrame) -> dict[str, Any]:
+    """get_camera_image metadata for a zoom crop.
+
+    Args:
+        frame (CameraZoomFrame): The zoom crop.
+
+    Returns:
+        dict[str, Any]: JSON-ready metadata (status, crop, full, out, size, focus, timing, request, af note).
+    """
+    meta = frame.model_dump(mode="json")
+    meta.pop("camera", None)
+    meta.pop("topic", None)
+    if frame.status == "af_failed":
+        meta["note"] = (
+            "autofocus did not converge: the crop may be out of focus. It is still returned; taking the zoom "
+            "again (same point, or a slightly different one) is allowed."
+        )
+    return meta
 
 
 def camera_image_scale(config: McpServerConfig, camera: str, width: int, height: int) -> dict[str, Any]:
@@ -764,23 +793,33 @@ def register_core_tools(ctx: ToolContext) -> None:
         structured_output=False,
         description=(
             "Take one fresh photo from a robot camera and return it as a JPEG image plus its capture timestamp. "
-            "'gripper' looks out of the gripper (use it to aim grasps); 'front' is the overhead camera "
-            "looking down at the front of the robot, the arm and the floor in front of it: the best view for judging "
-            "gripper-to-object position (take it first for an overview, then use 'gripper' to aim). The default size "
+            "'gripper' looks out of the gripper (use it to aim grasps); 'front' is the head RGB camera (Camera "
+            "Module 3 on the pan/tilt head, 16:9, default picture 384x216, autofocus): the best view for the "
+            "surroundings and for judging gripper-to-object position (take it first for an overview, then use "
+            "'gripper' to aim). The default size "
             f"is {config.limits.default_camera_px} px on the longest side (cheap, fine for aiming checks): pass a "
             "larger max_px only when you must read fine detail, images are what fills the context. The metadata "
             "states the picture's width x height, the calibrated_image size the camera tools use and "
             "scale_to_calibrated: a pixel read from this picture must go to pixel_to_ground (and the other "
             "pixel-taking tools) WITH image_width / image_height, or be read from get_annotated_camera_image instead. "
             "Fails (instead of returning an old picture) when no frame arrives within the timeout or the newest frame "
-            "is older than 1 s."
+            "is older than 1 s. Optional zoom {u, v, factor} (front camera only): an autofocused full-resolution "
+            "crop around the point (u, v), fractions 0..1 of the default picture with the origin top-left, at "
+            "factor 2, 4 or 8 (the crop covers 1/factor of the picture width); use it to read small text or see "
+            "detail the default picture cannot show. max_px caps the crop (default 1024, at most 1024). The cost: "
+            "the camera stream pauses about 1 s and a call takes 1-2.5 s, so take one crop per call and zoom "
+            "only when needed. The metadata gives status (ok or af_failed: focus did not converge, the crop is "
+            "still returned and re-taking is allowed), crop, full, out, width, height, af_state, lens_position, "
+            "phase_ms and the request. A zoom crop is not saved as a lookup; errors (busy, timeout, camera_error, "
+            "invalid, head camera not running) are tool errors."
         ),
     )
     def get_camera_image(
         camera: Annotated[
             Camera,
             Field(
-                description="'gripper' (USB camera on the gripper) or 'front' (overhead camera looking down at the front of the robot)"
+                description="'gripper' (USB camera on the gripper) or 'front' (head RGB camera on the pan/tilt head, "
+                "16:9, default picture 384x216; the only camera that supports zoom)"
             ),
         ],
         max_px: Annotated[
@@ -792,8 +831,28 @@ def register_core_tools(ctx: ToolContext) -> None:
                 "ask for more only to read fine detail, larger images cost more context)",
             ),
         ] = None,
+        zoom: Annotated[
+            CameraZoom | None,
+            Field(
+                description="Autofocused full-resolution crop of the head camera ('front' only): point u, v "
+                "(0..1 of the default picture, top-left origin) and factor 2, 4 or 8. Pauses the stream about 1 s "
+                "(1-2.5 s per call); one crop per call; max_px (default 1024, at most 1024) caps the crop. "
+                "Not saved as a lookup."
+            ),
+        ] = None,
     ) -> list[ImageContent | TextContent]:
         """Photo of a camera; the tool description is passed to the decorator so it can state the default size."""
+        if zoom is not None:
+            with tool_errors():
+                if camera != "front":
+                    raise ValueError("zoom is only available on the front (head) camera, not on the gripper camera")
+                crop = robot.camera_zoom(
+                    camera, zoom.u, zoom.v, zoom.factor, min(max_px or HARD_MAX_IMAGE_PX, config.limits.max_image_px)
+                )
+            return [
+                image_content(crop.jpeg, "image/jpeg"),
+                TextContent(type="text", text=json.dumps(zoom_metadata(crop))),
+            ]
         with tool_errors():
             size = config.limits.default_camera_px if max_px is None else max_px
             frame = robot.camera_image(camera, min(size, config.limits.max_image_px))

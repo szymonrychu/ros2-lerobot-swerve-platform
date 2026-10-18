@@ -260,7 +260,7 @@ def register(ctx: ToolContext) -> None:
             "surface_height_m is given (height relative to the robot's floor, positive above, negative below: the top "
             "of a 3 cm box is 0.03, a floor 10 cm lower is -0.10); the result reports surface_height_m and the "
             "coordinates have z = floor + surface_height_m. 'gripper' uses the CURRENT measured arm joints (the camera moves with "
-            "the arm); 'front' is the fixed overhead camera. Returns ground_base_link {x,y,z} (m, x forward, y left, "
+            "the arm); 'front' is the head RGB camera (Camera Module 3 on the pan/tilt head, 16:9). Returns ground_base_link {x,y,z} (m, x forward, y left, "
             "floor z = 0), ground_map {x,y} when the map pose is known, distance_from_base_m, bearing_deg, method and "
             f"uncertainty_note. {floor_note} Pixel (u right, v down). {PIXEL_SIZE_NOTE} The result reports pixel "
             "(calibrated size), image (calibrated size) and pixel_input (what you passed) when scaled. Errors if the "

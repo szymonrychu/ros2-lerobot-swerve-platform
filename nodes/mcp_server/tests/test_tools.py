@@ -430,7 +430,7 @@ def test_arm_motion_descriptions_explain_residual_error_and_commanded_hold(serve
     assert "follower" in docs["set_gripper"] or "follower" in docs["move_arm_joints"]
 
 
-def test_camera_tool_offers_the_overhead_front_camera_not_realsense_or_stereo(server: Any) -> None:
+def test_camera_tool_offers_the_head_front_camera_not_realsense_or_stereo(server: Any) -> None:
     async def run() -> Any:
         return await server.list_tools()
 
@@ -438,7 +438,7 @@ def test_camera_tool_offers_the_overhead_front_camera_not_realsense_or_stereo(se
     schema = json.dumps(tool.input_schema)
     assert "front" in schema and "realsense" not in schema.lower()
     text = (tool.description or "") + schema
-    assert "overhead" in text and "gripper-to-object" in text
+    assert "head" in text and "overhead" not in text and "gripper-to-object" in text
     assert "640x480" not in text, "no hardcoded front camera size (the front camera streams its own size)"
     assert "stereo" not in text.lower() and "/stereo" not in text
     with pytest.raises(ToolError):
