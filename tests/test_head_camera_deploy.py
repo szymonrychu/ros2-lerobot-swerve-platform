@@ -176,7 +176,7 @@ def test_entry_is_live_after_pi_cameras_with_valid_config() -> None:
     assert entry["present"] is True and entry["enabled"] is True
     config = yaml.safe_load(entry["config"])
     assert set(config) <= node_config_keys()
-    # lens_position and mapping are the focus lock and the 2 Hz stream head_rgbd_cpp relies on (tests/test_head_rgbd_deploy.py).
+    # lens_position and mapping (focus lock, 2 Hz stream) are pinned in test_head_rgbd_deploy.py.
     assert {k: config[k] for k in ("camera_id", "jpeg_quality", "metrics_port")} == {
         "camera_id": CAM0_ID,
         "jpeg_quality": 70,
