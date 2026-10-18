@@ -13,7 +13,7 @@ derives:
   footprint_geometry, mcp_server applies it to the dynamic footprint),
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
   the bounding box + margin for rotation in place,
-- the collision_monitor CliffStop polygon (footprint + cliff_margin_m: the head ToF sees the lower floor beyond a cliff edge),
+- the collision_monitor CliffStop polygon (footprint + cliff_margin_m: the head ToF sees the floor beyond a cliff),
 - the laser_filter self polygon (footprint + laser_filter_margin_m),
 - the mcp_server nav_footprint numbers (circle segments, gap closing, margins, simplification, decimals, costmap
   resolution, maximum cost scaling, parked-arm shadow), so the footprint mcp_server publishes uses the same geometry
