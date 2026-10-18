@@ -107,7 +107,8 @@ def visible_cells(grid: MapGrid, spot_xy: tuple[float, float], radius_m: float, 
     cc = np.floor(cell[1] + 0.5 + np.cos(angles)[:, None] * steps[None, :]).astype(int)
     inside = (rr >= 0) & (rr < height) & (cc >= 0) & (cc < width)
     rr, cc = np.clip(rr, 0, height - 1), np.clip(cc, 0, width - 1)
-    clear = inside & free_mask(grid.data)[rr, cc]
+    # The spot's own cell never blocks its rays (a coarse cell holding an unknown speck is not free).
+    clear = inside & (free_mask(grid.data)[rr, cc] | ((rr == cell[0]) & (cc == cell[1])))
     seen = np.logical_and.accumulate(clear, axis=1)
     visible[rr[seen], cc[seen]] = True
     return visible
