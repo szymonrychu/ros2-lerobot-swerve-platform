@@ -1,6 +1,6 @@
 ---
 title: "The acceptance-condition verifier runs `uv run pytest test/core/test_config.cpp` for a C++ package."
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "pytest cannot run a gtest .cpp file, so the check fails with exit 4 whatever the code does. Point it at scripts/cpp-node-test.sh head_camera_cpp."
 files: []
@@ -31,26 +31,30 @@ Why: pytest cannot run a gtest .cpp file, so the check fails with exit 4 whateve
 
 ## Acceptance conditions
 
-
+- a1: resolved without a code change in this task [evidence: judgement]
 
 ## Files
 
-
+- (none)
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- None.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+- Resolved.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- None.
 
 ## Notes
 
 
 Discovered in task `head-camera-node-config` during run `front-camera-30-fps-stream-w`.
 
+
+## Resolution
+
+Fixed by the orchestrator 2026-10-18: every C++ AC ref in the epic task files now runs scripts/cpp-node-test.sh <pkg>.

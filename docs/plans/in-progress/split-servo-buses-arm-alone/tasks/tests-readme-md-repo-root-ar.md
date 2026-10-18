@@ -1,6 +1,6 @@
 ---
 title: "tests/README.md (repo root, around line 425) describes the feetech_servos tests but does not list test_bus_budget.py"
-status: blocked
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "CLAUDE.md requires tests/README.md to list each test file; it is outside this task's named files"
 files: [tests/README.md]
@@ -31,7 +31,7 @@ Why: CLAUDE.md requires tests/README.md to list each test file; it is outside th
 
 ## Acceptance conditions
 
-
+- a1: resolved without a code change in this task [evidence: judgement]
 
 ## Files
 
@@ -39,15 +39,15 @@ Why: CLAUDE.md requires tests/README.md to list each test file; it is outside th
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- None.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+- Resolved.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- None.
 
 ## Notes
 
@@ -64,3 +64,7 @@ Blocked by the dedup check:
 - task 'tests-readme-md-repo-root-ar': file 'tests/README.md' is also in task 'web-ui-head-camera-topics' of in-progress epic 'front-camera-30-fps-stream-w'
 - task 'tests-readme-md-repo-root-ar': file 'tests/README.md' is also in task 'named-maps-docs-and-memory' of in-progress epic 'named-maps-with-pois-and-rel'
 
+
+## Resolution
+
+Folded into final-suite-and-runbook via the run instructions (add the tests/README.md row for test_bus_budget.py).
