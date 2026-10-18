@@ -1,6 +1,6 @@
 ---
 title: Marker QR symbol
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A marker spec becomes a QR matrix with the right version, error correction and physical module size, checked before anything is printed."
 files: [scripts/markers/__init__.py, scripts/markers/config.py, scripts/markers/symbol.py, scripts/markers_generate.yaml, tests/test_markers_symbol.py, pyproject.toml, uv.lock]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/marker-and-calibration-board--marker-qr-symbol
 branch: marker-and-calibration-board--marker-qr-symbol
-verified_head: ""
+verified_head: 77ca54c06173fceecb52f7a5311de077d96a2f02
 run: marker-and-calibration-board
-provides: []
-acs_for_audit: []
+provides: [alnum-capacity-table]
+acs_for_audit: [a2, a3]
 process_gaps: []
 ---
 

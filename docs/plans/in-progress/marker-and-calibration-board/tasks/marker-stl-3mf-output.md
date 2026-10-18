@@ -1,6 +1,6 @@
 ---
 title: Marker STL 3MF output
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A marker prints in two colours on the Bambu AMS: a white base and black raised modules as separate parts."
 files: [scripts/markers/mesh.py, tests/test_markers_mesh.py, pyproject.toml, uv.lock]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/marker-and-calibration-board--marker-stl-3mf-output
 branch: marker-and-calibration-board--marker-stl-3mf-output
-verified_head: ""
+verified_head: 002cd0a9f3de3f0e26c21c7b512fd3ded5e8bbc6
 run: marker-and-calibration-board
-provides: []
+provides: [markers-mesh]
 acs_for_audit: []
 process_gaps: []
 ---

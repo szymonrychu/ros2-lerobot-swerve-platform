@@ -41,7 +41,9 @@ A generator for printable square black/white markers and the head RGB-D calibrat
 
 
 
-Estimate: 360 min | Actual: 0 min | Remaining estimate: 360 min
+
+
+Estimate: 360 min | Actual: 0 min | Remaining estimate: 0 min
 
 ## Review
 

@@ -1,6 +1,6 @@
 ---
 title: Marker PDF output
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A marker prints on paper at exactly its encoded size, with a ruler to check the printer did not rescale it."
 files: [scripts/markers/pdf.py, tests/test_markers_pdf.py, pyproject.toml, uv.lock]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/marker-and-calibration-board--marker-pdf-output
 branch: marker-and-calibration-board--marker-pdf-output
-verified_head: ""
+verified_head: 2969d62410d8e3dcf09a78b7cdc8aeb4d4917295
 run: marker-and-calibration-board
-provides: []
-acs_for_audit: []
-process_gaps: []
+provides: [markers-pdf]
+acs_for_audit: [a2, a3, a5]
+process_gaps: [The sibling test file tests/test_markers_symbol.py is also missing from tests/README.md]
 ---
 
 # Marker PDF output
