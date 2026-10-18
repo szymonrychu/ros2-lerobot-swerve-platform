@@ -54,8 +54,8 @@ def test_cameras_config_front_not_calibrated_gripper_calibrated() -> None:
     cameras = mcp_config()["cameras"]
     assert cameras["calibration_dir"] == CALIBRATION_DIR
     assert set(cameras) == {"calibration_dir", "gripper", "front"}
-    # The front camera is the head RGB camera: on head_link with the URDF mount, intrinsics not calibrated yet, so the
-    # tools still say 'not calibrated'.
+    # The front camera is the head RGB camera: on head_link with the URDF mount and no calibrated intrinsics, so the
+    # tools say 'not calibrated'.
     assert cameras["front"] == {"parent_frame": "head_link", "intrinsics": None, "mount": HEAD_CAMERA_MOUNT}
     assert cameras["gripper"]["parent_frame"] == "gripper_link"
     assert cameras["gripper"]["intrinsics"] is not None and cameras["gripper"]["mount"] is not None
