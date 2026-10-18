@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { designViolations, SOURCES } from '../layout/designRules'
 import { CameraStream } from './CameraStream'
 
 describe('CameraStream', () => {
+  afterEach(cleanup)
+
   it('shows one short loading line with three dots, no ellipsis character', () => {
     render(<CameraStream topic="/cam" data={undefined} />)
     const text = screen.getByText(/Waiting for/).textContent ?? ''
