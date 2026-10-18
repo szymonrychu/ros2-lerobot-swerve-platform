@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
 import { PoiListPanel } from './PoiPanels'
+import type { Photo } from '../photos/api'
 import type { Poi } from './types'
 
 function mk(id: string, note: string, extra: Partial<Poi> = {}): Poi {
@@ -111,5 +112,52 @@ describe('Delete marked button', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mark all visible' }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete marked (4)' }))
     expect(screen.getByText('Delete 4 POIs?')).toBeTruthy()
+  })
+
+  it('a photo row can be marked and counts in Delete marked (N)', () => {
+    const photo = { id: 'p1', ts: 1, camera: 'c', tool: 't', name: 'shot', note: '', poiIds: [], x: null, y: null, view: null, bytes: 1, width: 1, height: 1 } as Photo
+    render(
+      <ThemeProvider theme={theme}>
+        <PoiListPanel pois={POIS} photos={[photo]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} tabId="map" />
+      </ThemeProvider>,
+    )
+    fireEvent.click(box('shot'))
+    expect(box('shot').checked).toBe(true)
+    fireEvent.click(box('t1'))
+    expect(screen.getByRole('button', { name: 'Delete marked (2)' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete marked (2)' }))
+    expect(screen.getByText('Delete 1 POIs and 1 photos?')).toBeTruthy()
+  })
+
+  const PHOTO = { id: 'p1', ts: 1, camera: 'c', tool: 't', name: 'shot', note: '', poiIds: [], x: null, y: null, view: null, bytes: 1, width: 1, height: 1 } as Photo
+  const ui = (photos: Photo[]) => (
+    <ThemeProvider theme={theme}>
+      <PoiListPanel pois={POIS} photos={photos} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} tabId="map" />
+    </ThemeProvider>
+  )
+
+  it('Mark all visible also marks photos', () => {
+    render(ui([PHOTO]))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all visible' }))
+    expect(box('shot').checked).toBe(true)
+    expect(screen.getByRole('button', { name: 'Delete marked (5)' })).toBeTruthy()
+  })
+
+  it('photo rows are hidden while a category filter is active', () => {
+    render(ui([PHOTO]))
+    expect(screen.getByText('shot')).toBeTruthy()
+    fireEvent.click(chip(/^Target/))
+    expect(screen.queryByText('shot')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all visible' }))
+    fireEvent.click(chip(/^Target/))
+    expect(box('shot').checked).toBe(false)
+  })
+
+  it('a mark is pruned when its photo disappears', () => {
+    const r = render(ui([PHOTO]))
+    fireEvent.click(box('shot'))
+    expect(screen.getByRole('button', { name: 'Delete marked (1)' })).toBeTruthy()
+    r.rerender(ui([]))
+    expect(screen.getByRole('button', { name: 'Delete marked (0)' })).toBeTruthy()
   })
 })

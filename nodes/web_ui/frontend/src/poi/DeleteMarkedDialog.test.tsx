@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { DeleteMarkedDialog } from './DeleteMarkedDialog'
 import { clearPois } from './api'
+import type { Photo } from '../photos/api'
 import type { Poi } from './types'
 
 vi.mock('./api', () => ({ clearPois: vi.fn() }))
@@ -24,10 +25,17 @@ const POIS: Poi[] = [
   mk('k2', { kind: 'area', zone: 'keepout', note: '#target', polygon: area }),
 ]
 
-function setup(marked: string[], pois = POIS) {
+function ph(id: string): Photo {
+  return {
+    id, ts: 1, camera: 'c', tool: 't', name: id, note: '', poiIds: [], x: null, y: null, view: null, bytes: 1, width: 1, height: 1,
+  } as Photo
+}
+const PHOTOS = [ph('p1'), ph('p2')]
+
+function setup(marked: string[], pois = POIS, photos: Photo[] = []) {
   const onDone = vi.fn()
   const onClose = vi.fn()
-  render(<DeleteMarkedDialog open tabId="map" pois={pois} marked={new Set(marked)} onDone={onDone} onClose={onClose} />)
+  render(<DeleteMarkedDialog open tabId="map" pois={pois} photos={photos} marked={new Set(marked)} onDone={onDone} onClose={onClose} />)
   return { onDone, onClose }
 }
 const confirmBtn = () => screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement
@@ -95,5 +103,21 @@ describe('DeleteMarkedDialog', () => {
     expect(screen.getByText('Delete 2 POIs?')).toBeTruthy()
     expect(screen.getByTestId('delete-marked-categories').textContent).toBe('1 target, 1 keepout')
     expect(screen.getByRole('alert').textContent).toContain('k1')
+  })
+
+  it('counts marked photos in the summary and posts their ids with the POI ids', async () => {
+    vi.mocked(clearPois).mockResolvedValue({ ok: true, message: 'x', poi: null, removed: 1, pois: 1, photos: 2 })
+    setup(['t1', 'p1', 'p2'], POIS, PHOTOS)
+    expect(screen.getByText('Delete 1 POIs and 2 photos?')).toBeTruthy()
+    expect(screen.getByTestId('delete-marked-categories').textContent).toBe('1 target')
+    fireEvent.click(confirmBtn())
+    await waitFor(() => expect(screen.getByText('Removed 1 POIs and 2 photos')).toBeTruthy())
+    expect(clearPois).toHaveBeenCalledWith('map', { ids: ['t1', 'p1', 'p2'] })
+  })
+
+  it('only photos marked still enables confirm', () => {
+    setup(['p1'], POIS, PHOTOS)
+    expect(screen.getByText('Delete 0 POIs and 1 photos?')).toBeTruthy()
+    expect(confirmBtn().disabled).toBe(false)
   })
 })
