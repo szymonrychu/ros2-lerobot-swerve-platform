@@ -1812,6 +1812,17 @@ Servo bus split in `ansible/group_vars/client.yml` and the client deploy playboo
 | `test_bridge_entry_comments_carry_no_parking_wording` | The comments from the `lerobot_follower` entry through the `base_servos` entry contain no deferral wording (`later`, `next epic`, `follow-up`, `yet`, `todo`, `re-measure`). |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_servo_bus_split_config.py` is listed in this section. |
 
+### `test_serial_devices.py`
+
+Serial adapter naming in `ansible/group_vars/client.yml` and the feetech_servos device preflight in `ansible/roles/ros2_node_deploy/tasks/main.yml` (design D2).
+
+| Test | Description |
+|------|-------------|
+| `test_preflight_tasks_exist_in_the_right_place` | After the schema assert and before the first block/`include_tasks`, `[config]`-tagged tasks run only for present, enabled `feetech_servos` nodes: `ansible.builtin.stat` (following symlinks) on the config's `device`, a `changed_when: false` listing of the by-id directory, and a fail whose message names `/dev/serial/by-id`. |
+| `test_every_serial_device_is_a_distinct_by_id_path` | Each client feetech `device` and `RPLIDAR_SERIAL_PORT` (the lidar's CP2102 by-id path) is a `/dev/serial/by-id/` path, and all are pairwise distinct. |
+| `test_no_client_node_names_a_numbered_tty` | No client `ros2_nodes` config, env or `extra_args` names `/dev/ttyUSB*` or `/dev/ttyACM*`. |
+| `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_serial_devices.py` is listed in this section. |
+
 ### test_gps_status_config.py
 
 Static invariants of the GPS status wiring in Ansible `group_vars` (web_ui chips, rover and base gps_rtk nodes).

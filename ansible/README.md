@@ -269,6 +269,25 @@ raspi-gpio get 4
 i2cdetect -y -r 1
 ```
 
+## Serial devices
+
+Every USB-serial adapter is named by its `/dev/serial/by-id/` path, never `/dev/ttyUSB*` or `/dev/ttyACM*`: numbering follows enumeration order, so a second adapter can take `/dev/ttyUSB0` at boot and the lidar or a servo bus would silently swap ports. This covers each `feetech_servos` node's `device` in its config and the lidar's `RPLIDAR_SERIAL_PORT` env on `rplidar_a1`. No udev rule is used.
+
+Find a path on the host with:
+
+```bash
+ls -l /dev/serial/by-id/
+```
+
+Preflight: the `ros2_node_deploy` role (tag `config`) checks that each present, enabled `feetech_servos` node's `device` exists, following the symlink. Restarts are queued to the end of the play, so a failure here leaves every running unit untouched. When the device is missing the deploy fails with a message like:
+
+```
+feetech_servos node 'base_servos': serial device /dev/serial/by-id/usb-1a86_... does not exist.
+Adapters present in /dev/serial/by-id/: <listing>. Set `device` in the node config to one of these paths ...
+```
+
+Fix: plug in or reseat the adapter, run `ls -l /dev/serial/by-id/` on the host, put the matching path in the node's `config` (`ansible/group_vars/<host>.yml`), and redeploy. Disabled, absent or device-less feetech nodes skip the check.
+
 ## Retired Jetson link removal
 
 The Pi-Jetson cable is retired. `./scripts/deploy-nodes.sh client jetson_link` (the `jetson_link` tag; an untagged client run applies it too, node and phase tags never do) runs the "Remove the retired Jetson link" block of `deploy_nodes_client.yml`: the `network` role re-renders netplan without the static `10.77.0.1/30` eth0 stanza, the `chrony` role (below) leaves chrony on plain internet pools, and `playbooks/tasks/jetson_link_remove.yml` removes the rest of what the former `jetson_link` role applied:

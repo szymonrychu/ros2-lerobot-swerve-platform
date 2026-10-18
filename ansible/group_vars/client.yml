@@ -1085,6 +1085,8 @@ ros2_nodes:
     env:
       # Prometheus /metrics of the scan supervisor on 127.0.0.1 (scraped by Alloy).
       - METRICS_PORT=19106
+      # By id: a second USB-serial adapter can take /dev/ttyUSB0 at boot, so the lidar must not rely on it.
+      - RPLIDAR_SERIAL_PORT=/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
   # Retired earlier: present false uninstalls the unit on the next deploy.
   - name: realsense_d435i
     node_type: realsense_d435i
