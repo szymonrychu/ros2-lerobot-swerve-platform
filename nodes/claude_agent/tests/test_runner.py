@@ -4,7 +4,9 @@ import asyncio
 import re
 import time
 from pathlib import Path
+from unittest.mock import patch
 
+import httpx
 import pytest
 from claude_agent_sdk import (
     AssistantMessage,
@@ -18,10 +20,10 @@ from claude_agent_sdk import (
     ToolUseBlock,
     UserMessage,
 )
+from pydantic import ValidationError
 
 from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig, MissingTokenError
 from claude_agent.events import EventLog
-from claude_agent.poi_clear import PoiClearResult
 from claude_agent.retrospectives import RETRO_RELPATH
 from claude_agent.retry_ledger import RETRY_LEDGER_RELPATH
 from claude_agent.robot_stop import RobotToolResult
@@ -177,27 +179,12 @@ class FakeProber:
         return self.result
 
 
-class FakeClearer:
-    """Records POI clear calls."""
-
-    def __init__(self) -> None:
-        self.calls = 0
-        self.statuses: list[list[str] | None] = []
-        self.result = PoiClearResult(False, "removed 2")
-
-    async def __call__(self, statuses: list[str] | None = None) -> PoiClearResult:
-        self.calls += 1
-        self.statuses.append(statuses)
-        return self.result
-
-
 def make_runner(
     tmp_path: Path,
     config: ClaudeAgentConfig | None = None,
     script=None,
     block=False,
     stopper=None,
-    clearer=None,
     statuses: list[list[str]] | None = None,
     probe_result: str | None = None,
     tool_caller: FakeToolCaller | None = None,
@@ -228,7 +215,6 @@ def make_runner(
         client_factory=factory,
         base_env={"ANTHROPIC_API_KEY": "sk", "CLAUDE_CODE_OAUTH_TOKEN": "oa"},
         robot_stopper=stopper or FakeStopper(),
-        poi_clearer=clearer or FakeClearer(),
         mcp_prober=FakeProber(probe_result),
         robot_tool_caller=tool_caller or FakeToolCaller(),
         retry_ledger_path=None if config_ledger else tmp_path / RETRY_LEDGER_RELPATH,
@@ -504,63 +490,25 @@ async def test_reset_stops_the_robot(tmp_path: Path) -> None:
     assert stop_events(events) == []
 
 
-async def test_reset_clears_agent_made_pois_through_the_mcp_server(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    runner, _, _ = make_runner(tmp_path, clearer=clearer)
-    assert clearer.calls == 0, "nothing is cleared on start"
-    assert await runner.reset() is True
-    assert clearer.calls == 1
+async def test_reset_does_not_clear_pois(tmp_path: Path) -> None:
+    """New session deletes nothing: no admin clear call over the wire, whatever the former config said."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, json={})
+
+    real = httpx.AsyncClient
+    with patch.object(httpx, "AsyncClient", lambda *a, **k: real(*a, transport=httpx.MockTransport(handler), **k)):
+        runner, _, _ = make_runner(tmp_path)
+        assert await runner.reset() is True
+    assert not [c for c in calls if "clear" in c], calls
+    assert not hasattr(runner, "poi_clearer") and not hasattr(runner, "clear_agent_pois")
 
 
-async def test_reset_keep_open_clears_only_done_and_cancelled_agent_pois(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    runner, _, _ = make_runner(tmp_path, clearer=clearer)
-    assert runner.config.agent_poi_reset == "keep_open"
-    assert await runner.reset() is True
-    assert clearer.statuses == [["done", "cancelled"]]
-
-
-async def test_reset_clear_all_clears_every_agent_poi(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    runner, _, _ = make_runner(tmp_path, config=ClaudeAgentConfig(agent_poi_reset="clear_all"), clearer=clearer)
-    assert await runner.reset() is True
-    assert clearer.statuses == [None]
-
-
-async def test_refused_reset_does_not_clear_pois(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    runner, _, _ = make_runner(tmp_path, script=[make_result()], block=True, clearer=clearer)
-    await runner.start_instruction("one")
-    assert await runner.reset() is False
-    assert clearer.calls == 0
-    await runner.interrupt()
-    await runner.wait_idle()
-
-
-async def test_reset_survives_a_failed_poi_clear(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    clearer.result = PoiClearResult(True, "clear failed: 503")
-    warnings: list[str] = []
-
-    class Log:
-        def info(self, _m: str) -> None: ...
-        def error(self, _m: str) -> None: ...
-        def warning(self, m: str) -> None:
-            warnings.append(m)
-
-    runner, events, _ = make_runner(tmp_path, clearer=clearer)
-    runner.logger = Log()
-    assert await runner.reset() is True
-    assert types_of(events) == ["state"]
-    assert any("503" in w for w in warnings)
-
-
-async def test_reset_survives_a_raising_poi_clearer(tmp_path: Path) -> None:
-    async def boom() -> PoiClearResult:
-        raise RuntimeError("clearer gone")
-
-    runner, _, _ = make_runner(tmp_path, clearer=boom)
-    assert await runner.reset() is True
+def test_agent_poi_reset_is_an_unknown_config_key() -> None:
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(agent_poi_reset="clear_all")
 
 
 async def test_reset_clears_the_event_log_and_restarts_seq(tmp_path: Path) -> None:

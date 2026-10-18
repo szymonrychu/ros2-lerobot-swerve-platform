@@ -26,7 +26,6 @@ web_ui (later: proxy)  --HTTP/WS-->  claude_agent (127.0.0.1:18300)
   (`tools=[Read, Write, Edit, Glob, Grep]`, see "Workdir and notes"); everything else is disabled (a deny list for Bash,
   WebFetch, WebSearch, Task/Agent, TodoWrite, NotebookEdit, AskUserQuestion, plan mode, ...) and no allow rules exist, so
   calls reach the gate: `mcp__robot__*` (within the budget), the `mcp__agent__*` planning tools and the sandboxed file tools are allowed, everything else denied.
-- `poi_clear.py`: calls the mcp_server admin route `POST /admin/clear_agent_pois` (HTTP, bearer token) on reset; never raises.
 - `robot_stop.py`: `call_robot_tool(url, token_file, timeout_s, name, args)` calls one robot MCP tool directly with the
   official `mcp` client (Streamable HTTP, bearer token from the token file; `mcp` is pinned in `pyproject.toml`) and
   returns its text plus its structured result (`data`); `call_robot_stop` is the `stop` call. They never raise: failures
@@ -502,16 +501,11 @@ template's sample params, mandatory ids and skills to `tests/test_workflows.py` 
 The node subscribes to `robot_events_topic` (`/robot_events`, `std_msgs/String`, BEST_EFFORT + VOLATILE QoS, published by the
 mcp_server event monitor). Payload JSON: `{seq, ts, type, severity: info|warning|critical, source, message, data}`;
 critical types include `collision_stop`, `battery_cutoff`, `overheat`, `servo_error`, `stall`, `human_takeover`, `bump`.
-On an explicit reset (`POST /api/reset`, never on node start or restart) the runner clears the agent-made POIs (and remembered
-objects) by calling `POST /admin/clear_agent_pois` on mcp_server (`poi_clear.py`; URL = the `mcp_url` scheme, host and port with
-that path, bearer token from `mcp_token_file`). It is not a DDS publish on `/poi/command`: this node runs as its own Linux user
-(`claude_agent`, the sandbox for the Claude CLI) and DDS data from another user does not reach the nodes running as the robot
-user (matched but never delivered), while mcp_server runs as the robot user and relays the `clear` to poi_store. The route is
-plain HTTP, not an MCP tool, so the model cannot call it. A failing call is logged and the reset still completes.
-
-The config flag `agent_poi_reset` (`keep_open` default, or `clear_all`) decides what a reset clears. `keep_open` sends the JSON body
-`{"statuses": ["done", "cancelled"]}` so only finished or cancelled agent POIs are removed and open ones (and their map markers)
-survive the new session; `clear_all` sends no body and removes every agent POI, as before.
+On an explicit reset (`POST /api/reset`, never on node start or restart) the runner stops the robot, drops the client and clears
+the event log and job state. New session keeps all POIs, keep-out zones and maps: it calls no mcp_server admin route and the
+former `agent_poi_reset` config key is gone (an unknown key is rejected). POIs are removed only through explicit actions: the POI
+list "delete marked" button, the Clear POIs dialog and the agent's `clear_pois` tool. (The mcp_server admin route
+`/admin/clear_agent_pois` still exists but claude_agent no longer calls it.)
 
 ### complete_phase map hint
 
