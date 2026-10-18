@@ -52,6 +52,9 @@ NS_PER_S = 1e9
 DEFAULT_LEVEL_REFERENCE_ROLL_DEG = 0.7
 DEFAULT_LEVEL_REFERENCE_PITCH_DEG = 1.3
 
+# set_register topic of the base_servos feetech bridge (second USB adapter, design D6).
+DEFAULT_TORQUE_TOPIC = "/swerve_drive/set_register"
+
 Axis = Literal["roll", "pitch"]
 
 
@@ -70,7 +73,8 @@ class TiltGuardConfig(BaseModel):
         enabled: False never leaves OK (roll/pitch are still measured and published).
         imu_topic: sensor_msgs/Imu input with a fused orientation (BNO055 NDOF).
         state_topic: std_msgs/String JSON output (reliable, transient_local).
-        torque_topic: feetech bridge set_register topic used by error_action torque_off.
+        torque_topic: set_register topic of the base bus bridge (the base_servos feetech bridge,
+            /swerve_drive/set_register) used by error_action torque_off.
         roll_warn_deg: |roll| above this is a warning, deg.
         roll_error_deg: |roll| above this is an error, deg.
         pitch_warn_deg: |pitch| above this is a warning (longer axis: larger than roll), deg.
@@ -91,7 +95,7 @@ class TiltGuardConfig(BaseModel):
     enabled: bool = True
     imu_topic: str = "/imu/data"
     state_topic: str = "/tilt_guard/state"
-    torque_topic: str = "/follower/set_register"
+    torque_topic: str = DEFAULT_TORQUE_TOPIC
     roll_warn_deg: PositiveFloat = 8.0
     roll_error_deg: PositiveFloat = 15.0
     pitch_warn_deg: PositiveFloat = 12.0

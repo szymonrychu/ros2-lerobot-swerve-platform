@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from swerve_drive_controller.config import SwerveControllerConfig, load_config
+from swerve_drive_controller.tilt_guard import DEFAULT_TORQUE_TOPIC
 
 from .ros_stubs import FakeRclpy, install_ros_stubs
 
@@ -103,7 +104,7 @@ class Harness:
         return [json.loads(m.data) for m in self.published["/tilt_guard/state"]]
 
     def torque_writes(self) -> list[dict[str, Any]]:
-        return [json.loads(m.data) for m in self.published.get("/follower/set_register", [])]
+        return [json.loads(m.data) for m in self.published.get(DEFAULT_TORQUE_TOPIC, [])]
 
 
 @pytest.fixture

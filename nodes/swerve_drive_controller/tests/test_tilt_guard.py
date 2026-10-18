@@ -9,6 +9,7 @@ from prometheus_client import REGISTRY
 from pydantic import BaseModel, ValidationError
 
 from swerve_drive_controller.tilt_guard import (
+    DEFAULT_TORQUE_TOPIC,
     STATE_KEYS,
     TiltGuard,
     TiltGuardConfig,
@@ -440,3 +441,8 @@ def test_disabled_guard_never_starts_inhibited() -> None:
     assert not guard.base_drive_inhibited
     guard.update(25.0, 0.0, 0.0)
     assert not guard.base_drive_inhibited
+
+
+def test_torque_topic_defaults_to_base_bus_bridge() -> None:
+    assert DEFAULT_TORQUE_TOPIC == "/swerve_drive/set_register"
+    assert TiltGuardConfig().torque_topic == DEFAULT_TORQUE_TOPIC
