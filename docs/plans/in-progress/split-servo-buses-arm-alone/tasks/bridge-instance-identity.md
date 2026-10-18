@@ -1,6 +1,6 @@
 ---
 title: Bridge instance identity
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Two feetech bridges on one robot get distinct ROS node names and metrics labels, and only one publishes the battery."
 files: [nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/tests/test_instance_identity.py, nodes/bridges/feetech_servos/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--bridge-instance-identity
+branch: split-servo-buses-arm-alone--bridge-instance-identity
 verified_head: ""
 run: ""
 provides: []
