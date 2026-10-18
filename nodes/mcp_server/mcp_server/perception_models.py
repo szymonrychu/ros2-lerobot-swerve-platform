@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .exploration import Coverage
 from .models import NavigationResult
 
 
@@ -249,4 +250,44 @@ class LookTowardFrontierResult(BaseModel):
     image_captured: bool
     lookup_id: str | None = None
     nav: NavigationResult | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class ExplorationFrontier(BaseModel):
+    """One reachable frontier in get_exploration_status."""
+
+    id: int = Field(description="Frontier id (same as list_frontiers)")
+    path_distance_m: float | None = Field(description="Geodesic distance to its observation pose (m)")
+    looked: bool = Field(description="True when a camera lookup already faced it (last_lookup_facing is set)")
+
+
+class BatteryLimit(BaseModel):
+    """Battery against the survey stop limit (null fields: no battery guard or no fresh reading)."""
+
+    pack_v: float | None = Field(description="Pack voltage (V)")
+    stop_v: float | None = Field(
+        description="Survey stop voltage (V): cells * (cutoff_cell_v + exploration.stop_margin_cell_v), above the "
+        "motion cut-off so there is charge left to drive home"
+    )
+    limit_reached: bool | None = Field(description="True when pack_v is below stop_v: stop surveying and report")
+
+
+class ExplorationStatus(BaseModel):
+    """get_exploration_status result. Null fields mean not computable (see notes), never a guess."""
+
+    complete: bool | None = Field(
+        description="True when the robot pose is known, no reachable frontier is left and no reachable area is "
+        "unsurveyed; null when /map or the robot pose is unavailable"
+    )
+    reasons: list[str] = Field(description="Every unmet completion condition in words (empty when complete)")
+    frontiers: list[ExplorationFrontier] | None = Field(description="Reachable frontiers, nearest first")
+    reachable_frontiers: int | None = Field(description="Number of reachable frontiers")
+    unreachable_frontiers: int | None = Field(description="Frontiers with no reachable observation pose")
+    unlooked_frontiers: int | None = Field(description="Reachable frontiers nobody has looked at yet")
+    survey_spots: list[XY] | None = Field(description="Open agent POIs tagged #survey-spot (mark_survey_spot)")
+    coverage: Coverage | None = Field(
+        description="Survey coverage of the reachable free space from the survey spots, with the unsurveyed areas"
+    )
+    battery: BatteryLimit
+    robot_pose: dict[str, float] | None = None
     notes: list[str] = Field(default_factory=list)

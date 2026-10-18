@@ -316,7 +316,7 @@ def test_round2_tools_classified_in_group_vars_and_defaults() -> None:
 
 
 FRONTIER_EFFECTORS = {"go_to_frontier", "look_toward_frontier"}
-FRONTIER_SENSORS = {"list_frontiers", "plan_frontier_visit"}
+FRONTIER_SENSORS = {"list_frontiers", "plan_frontier_visit", "get_exploration_status", "mark_survey_spot"}
 
 
 def test_frontier_tools_classified_in_group_vars_and_defaults() -> None:
