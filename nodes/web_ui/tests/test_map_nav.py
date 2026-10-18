@@ -1055,6 +1055,9 @@ def nav_app(tmp_path: Path, urdf_dir: Path) -> Any:
 def test_reset_map_success_clears_cached_map(nav_app: Any) -> None:
     bridge = MagicMock()
     bridge.reset_map_async.return_value = FakeFuture(SimpleNamespace(result=0))
+    bridge.map_request_async.return_value = FakeFuture(
+        {"ok": True, "message": "cleared", "data": {"pois_removed": 0, "photos_removed": 0}}
+    )
     resp = nav_app(bridge).post("/api/map/reset?tab=map")
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
@@ -1111,6 +1114,9 @@ def test_reset_map_does_not_touch_saved_posegraph(map_app: Any, tmp_path: Path) 
     saved.write_text("graph")
     bridge = MagicMock()
     bridge.reset_map_async.return_value = FakeFuture(SimpleNamespace(result=0))
+    bridge.map_request_async.return_value = FakeFuture(
+        {"ok": True, "message": "cleared", "data": {"pois_removed": 0, "photos_removed": 0}}
+    )
     resp = map_app(bridge).post("/api/map/reset?tab=map")
     assert resp.status_code == 200
     assert saved.read_text() == "graph"

@@ -675,6 +675,9 @@ def test_map_reset_endpoint_resets_gps_anchor(tmp_path: Path, urdf_dir: Path) ->
     config = AppConfig(tabs=[TabConfig(id="map", type="map_nav", label="Map")])
     bridge = MagicMock()
     bridge.reset_map_async.return_value = FakeFuture(SimpleNamespace(result=0))
+    bridge.map_request_async.return_value = FakeFuture(
+        {"ok": True, "message": "cleared", "data": {"pois_removed": 0, "photos_removed": 0}}
+    )
     client = TestClient(build_app(config=config, urdf_dir=urdf_dir, static_dir=tmp_path / "x", bridge_node=bridge))
     assert client.post("/api/map/reset?tab=map").status_code == 200
     bridge.reset_gps_anchor.assert_called_once()
