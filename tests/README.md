@@ -2667,3 +2667,25 @@ Tests for `scripts/head_rgbd_calibration` (config, capture commands, bag reading
 ### `test_head_rgbd_validate.py`
 
 Covers `scripts/head_rgbd_calibration/validate.py` on synthetic data: `depth_accuracy` (flat target at 1.0 m with +12 mm bias and 8 mm noise gives bias 12 +- 2 mm and RMSE within 2 mm of the truth; zeros excluded; no valid pixel raises), `registration_bias`, `valid_ratio`, `edge_alignment` (board in front of a wall: median 0 +- 0.3 px unshifted, 2 +- 0.3 px with the depth shifted 2 px; no board raises), `time_offset` (pan-sweep corner tracks with a true 25 ms / 0 ms offset give 25 / 0 +- 3 ms; slow pairs ignored; a static scene raises), and `check_targets` (limit flags, per-range depth limits, unmeasured targets fail, lower-bound valid ratio).
+
+### `test_head_rgbd_calibrate_cli.py`
+
+Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pipeline.py` on synthetic rosbags written with the rosbags writer from `tests/rgbd_synthetic.py` renders.
+
+| Test | What it checks |
+|---|---|
+| `test_scene_has_enough_views` | The synthetic scene yields 20 board poses seen by both cameras. |
+| `test_calibrate_writes_three_files_matching_truth` | `calibrate` on a 20-still-pose bag writes RGB, ToF and extrinsics files whose intrinsics are within tolerance and extrinsic within 2 mm / 0.2 deg, with the lens position and SDK differences recorded. |
+| `test_calibrate_writes_report` | The markdown report lists RMS, views, SDK differences, plane bias and lens position. |
+| `test_too_few_still_poses_exits_one_and_writes_nothing` | Five poses exit 1 naming the view count and write no file. |
+| `test_rms_limit_failure_names_limit_and_writes_nothing` | An exceeded `limits.*` key exits 1 naming it and writes no file. |
+| `test_urdf_rewrites_tof_joint_and_check_is_read_only` | `urdf --check` leaves the URDF byte-identical; `urdf` rewrites `tof_joint` and the drift afterwards is 0. |
+| `test_validate_passes_on_accurate_distance_bags` | Distance bags within the targets print a passing table and exit 0. |
+| `test_validate_fails_when_bias_exceeds_target` | A 40 mm bias at 1 m prints FAIL and exits 1. |
+| `test_validate_missing_distance_bag_exits_one` | A missing `<session>-<d>m` bag exits 1 naming it. |
+| `test_capture_prints_bag_path` | `capture` with a fake runner runs the three steps and prints the bag path. |
+| `test_capture_validation_names_bag_and_uses_validation_topics` | `capture-validation 0.5m` names the bag `<session>-0.5m` and records the validation topics. |
+| `test_capture_validation_rejects_unknown_suffix` | An unknown suffix is rejected. |
+| `test_session_defaults_to_newest_calibration_bag` | The default session is the newest bag, validation bags excluded. |
+| `test_sweep_offset_is_zero_for_synchronous_streams` | A synchronous synthetic sweep gives a time offset under 10 ms. |
+| `test_wall_metrics_on_registered_board` | Registration bias, edge alignment and valid ratio of a synthetic registered board are finite and in range. |
