@@ -179,6 +179,7 @@ def test_mcp_server_node_entry_and_config() -> None:
     assert set(cfg) <= {
         "server",
         "frontiers",
+        "maps",
         "grasp_check",
         "topics",
         "limits",
