@@ -182,14 +182,6 @@ Compares the CPU of `ros2-nav2_bringup.service` before and after the overlay dep
 uv run python scripts/mppi_cpu_compare.py
 ```
 
-## jetson_e2e_check.py
-
-One-command end-to-end check of the two-board depth system (Pi client + Jetson). Over ssh (BatchMode) it reads the bridge's `127.0.0.1:19114/metrics` on the client twice, `window_s` (30) apart, the Jetson's `/health` (`curl 10.77.0.2:8090/health` from the client) and `chronyc -n tracking` on the Jetson; hosts, window and thresholds live in `scripts/jetson_e2e_check.yaml` (pydantic `Settings`, unknown keys rejected). PASS requires: Jetson state `ok` or `uncalibrated`; chrony reference `10.77.0.1` with |offset| < 1 ms; rgb rate >= 10 Hz and rgb latency p95 <= 150 ms (interpolated from the histogram bucket deltas of the window); if calibrated, depth rate >= 10 Hz, depth p95 <= 150 ms and fused rate >= 2 Hz when `mono_state` is `ok`; if uncalibrated, zero depth and fused publishes in the window (no placeholder) and the summary says `depth pending USER STEP calibration`; bridge process CPU mean (`process_cpu_seconds_total` delta / window) <= 0.3 core, so the Pi CPU must not rise; the units `ros2-overview_camera`, `ros2-stereo_depth` and `ros2-stereo_depth_cpp` absent (`LoadState=not-found`) on the client. Exit 0 PASS, 1 FAIL, 2 when a board could not be read. Read-only.
-
-```bash
-uv run python -m scripts.jetson_e2e_check [config.yaml]
-```
-
 ## node_cpu_compare.py
 
 Per-node CPU before/after table from the server's Mimir, for the C++ cut-over (stereo_depth -> stereo_depth_cpp, map_guard -> map_guard_cpp) and the cheap Python fixes (web_ui, gripper_uvc_camera, mcp_server). For each entry `{name, before_unit, after_unit, switch_time}` of `scripts/node_cpu_compare.yaml` (pydantic-validated, with `prometheus_url`, `host`, `window_h` 6, `settle_min` 10) it queries `rate(container_cpu_usage_seconds_total[1m])` of `/system.slice/<before_unit>` over `[switch - window_h, switch]` and of `<after_unit>` over `[switch + settle_min, switch + settle_min + window_h]`, and prints mean and p95 in cores, plus a `total` row (the sum of the rows' statistics). The query and statistics functions are imported from `mppi_cpu_compare.py`. An empty series or an unreachable Mimir exits 2, never a result. Set each `switch_time` to the epoch of that node's deploy (`date +%s` right after it; the shipped `1` fails the run on purpose); Mimir keeps 1 d, so the before window must still be in retention. Run from the repo root after the deploy of `docs/plans/2026-10-13-cpp-nodes-plan.md` (Execution):

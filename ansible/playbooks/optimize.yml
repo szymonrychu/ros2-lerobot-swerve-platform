@@ -1,5 +1,5 @@
 ---
-# System optimization for the Raspberry Pis (never the jetson group): debloat Ubuntu, performance tuning, resilience.
+# System optimization for the Raspberry Pis: debloat Ubuntu, performance tuning, resilience.
 # Run: ansible-playbook -i inventory playbooks/optimize.yml
 # Or target a single host: ansible-playbook -i inventory playbooks/optimize.yml -l server
 - name: Optimize system

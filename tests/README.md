@@ -2255,24 +2255,14 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |
 
-## test_jetson_e2e_check.py
+## test_jetson_retired.py
 
-`scripts/jetson_e2e_check.py` on synthetic metrics text, chrony output, health JSON and a fake ssh runner (no network).
+Retirement pin for the Jetson coprocessor; later tasks of the retirement extend only the two lists in the test module.
 
 | Test | Description |
 |---|---|
-| `test_parse_metrics_reads_labels_and_values` / `test_snapshot_extracts_frames_buckets_cpu` / `test_snapshot_without_cpu_series_is_an_error` | Exposition parsing: labels, values, NaN, junk lines; frame counters, latency buckets and CPU seconds per snapshot. |
-| `test_rate_is_delta_over_window` / `test_rate_rejects_counter_reset_and_bad_window` | Counter rate maths; a restart or zero window raises. |
-| `test_p95_*` | p95 interpolated inside a bucket, first bucket from zero, +Inf bucket gives inf, empty gives None, only window deltas count. |
-| `test_parse_chrony*` / `test_parse_unit_states` | Reference address and absolute offset (fast/slow), garbage gives None fields; unit LoadState lines. |
-| `test_calibrated_pass` / `test_uncalibrated_pass_has_no_depth_and_says_pending` | Both PASS branches; the uncalibrated summary says `depth pending USER STEP calibration`. |
-| `test_uncalibrated_placeholder_depth_fails` / `test_bad_health_state_fails` | Depth or fused publishes while uncalibrated fail; camera_error, starting and unknown states fail. |
-| `test_chrony_wrong_reference_and_big_offset_fail` | Wrong reference, offset >= 1 ms or unparsable chrony fail. |
-| `test_rgb_rate_and_latency_branches` / `test_depth_branches_when_calibrated` / `test_fused_rate_required_only_when_mono_ok` | Rate and p95 thresholds for rgb and depth; fused only checked when mono is ok. |
-| `test_bridge_cpu_ceiling` / `test_retired_units_must_be_absent` | CPU mean above 0.3 core fails; a loaded retired unit fails and is named. |
-| `test_collect_reads_metrics_twice_window_apart_with_the_documented_commands` | Two metrics reads on the client, health curl, `chronyc -n tracking` on the Jetson, measured window. |
-| `test_main_exit_codes` / `test_main_returns_2_when_collection_fails` | Exit 0 with PASS printed; exit 2 with ERROR on an ssh failure. |
-| `test_settings_defaults_and_shipped_yaml` / `test_settings_reject_bad_values` | Shipped yaml equals the defaults; bad window and unknown keys rejected. |
+| `test_removed_path_is_gone` | Parametrized over `REMOVED_PATHS`: every listed repo-relative path is absent. |
+| `test_removed_token_is_absent` | Parametrized over `ABSENT_TOKENS`: no `(path, token)` pair matches (the file does not contain the case-sensitive token). |
 
 ## test_node_cpu_compare.py
 
