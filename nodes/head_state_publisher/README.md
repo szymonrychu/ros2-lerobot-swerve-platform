@@ -10,8 +10,9 @@ pan/tilt head follow the real servo angles.
   `head` group of `base_servos`). With no joint state yet there is no moving transform and nothing is invented.
 - The URDF on `/head/robot_description`.
 
-Frames: `base_link` -> `head_post` -> `head_pan_base` -> `head_pan_link` -> `head_link` -> `head_camera_link` ->
-`head_camera_optical_frame`, and `head_link` -> `tof_link` -> `tof_optical_frame`.
+Frames: `base_link` -> `head_pan_base` -> `head_pan_link` -> `head_link` -> `head_camera_link` ->
+`head_camera_optical_frame`, and `head_link` -> `tof_link` -> `tof_optical_frame`. `head_post` is a separate child of
+`base_link` (the visual post) and is not an ancestor of the camera or ToF frames.
 
 ## Deploy
 

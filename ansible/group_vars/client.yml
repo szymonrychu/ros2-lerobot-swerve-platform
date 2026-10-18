@@ -635,7 +635,7 @@ ros2_node_type_defaults:
     src_paths: [nodes/head_state_publisher, nodes/web_ui/urdf/head.urdf]
     apt_packages:
       - ros-jazzy-robot-state-publisher
-    # Not measured yet. Normal robot tier: head TF is part of the camera pose.
+    # Mid tier by estimate: head TF is part of the camera pose, so it gets protection like the other robot nodes.
     memory_low: "32M"
     memory_max: "128M"
     cpu_weight: 500
