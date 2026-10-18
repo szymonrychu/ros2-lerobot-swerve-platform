@@ -56,7 +56,7 @@ Layer = Literal["map", "costmap", "lidar", "footprint", "reach", "path", "pois",
 Camera = Literal["front", "gripper"]
 PoiKind = Literal["point", "area"]
 ClearCreator = Literal["agent", "user", "all"]
-ClearKind = Literal["point", "area", "object"]
+ClearKind = Literal["point", "area", "object", "photo"]
 PoiZone = Literal["none", "keepout", "slow"]
 PoiCategory = Literal[CATEGORIES]  # type: ignore[valid-type]
 PoiProblemType = Literal[PROBLEM_TYPES]  # type: ignore[valid-type]
@@ -589,8 +589,9 @@ def register(ctx: ToolContext) -> None:
         description=(
             "Clear POIs in one call. By default only YOUR OWN (creator 'agent') POIs are removed and keep-out/slow "
             "zones are kept. Clear the person's POIs (creator 'user' or 'all') or zones (include_zones=true) only when "
-            "the person asked for it. kinds limits it to some of point/area/object (default every kind). Remembered "
-            'photos are never cleared. Returns {"removed": n}. No motion.'
+            "the person asked for it. kinds is a subset of point/area/object/photo (default every kind, which includes "
+            "your own photos; the person's photos only when creator is 'user' or 'all'). Photos removed lose their "
+            'images. Returns {"removed": n, "pois": a, "photos": b}. No motion.'
         ),
     )
     def clear_pois(
@@ -601,7 +602,8 @@ def register(ctx: ToolContext) -> None:
         """Clear POIs and return how many were removed."""
         with tool_errors():
             result = robot.poi_clear(None if creator == "all" else creator, None, kinds, not include_zones)
-        return {"removed": int((result.get("poi") or {}).get("removed", 0))}
+        data = result.get("poi") or {}
+        return {key: int(data.get(key, 0)) for key in ("removed", "pois", "photos")}
 
     @server.tool(
         description=(
@@ -681,7 +683,7 @@ def register(ctx: ToolContext) -> None:
     @server.tool(
         description=(
             "Delete a POI through poi_store by id; a photo id (from list_lookups) deletes that photo and its image "
-            "(delete_photos deletes many). Errors if poi_store is not running or the id is unknown. "
+            "(delete_photos deletes many); deleting a POI keeps the photos linked to it. Errors if poi_store is not running or the id is unknown. "
             "Prefer update_poi with status 'done' or 'cancelled' to keep a record. No motion."
         )
     )

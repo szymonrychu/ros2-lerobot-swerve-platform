@@ -7,6 +7,7 @@ import uuid
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from ros2_common.photos import PHOTO_KIND
 from ros2_common.poi_categories import parse_tags
 
 from .geometry import normalize_angle
@@ -15,6 +16,18 @@ from .perception_models import PoiView
 
 # poi_store bulk photo delete; its payload travels in the command's "selector" field instead of "poi".
 DELETE_PHOTOS_OP = "delete_photos"
+
+
+def is_number(value: Any) -> bool:
+    """Whether a JSON value is a real number (bool excluded).
+
+    Args:
+        value (Any): Decoded JSON value.
+
+    Returns:
+        bool: True for int/float.
+    """
+    return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 class PoiStoreDown(RobotError):
@@ -130,11 +143,11 @@ class PoiRequests:
         Args:
             created_by (str | None): "agent" or "user"; None omits it (every creator).
             statuses (list[str] | None): Only delete POIs in these statuses; None deletes every status.
-            kinds (list[str] | None): Only delete these kinds (point/area/object); None deletes every kind.
+            kinds (list[str] | None): Only delete these kinds (point/area/object/photo); None deletes every kind, photos included.
             keep_zones (bool): Keep keepout and slow zones; sent only when true.
 
         Returns:
-            dict[str, Any]: The accepted result; ``poi`` holds {"removed": count}.
+            dict[str, Any]: The accepted result; ``poi`` holds {"removed": total, "pois": n, "photos": m}.
         """
         fields: dict[str, Any] = {}
         if created_by is not None:
@@ -203,6 +216,8 @@ def describe_pois(
     """
     views: list[PoiView] = []
     for poi in pois:
+        if poi.get("kind") == PHOTO_KIND or not is_number(poi.get("x")) or not is_number(poi.get("y")):
+            continue
         if status is not None and poi.get("status") != status:
             continue
         tags = parse_tags(str(poi.get("note") or ""))
