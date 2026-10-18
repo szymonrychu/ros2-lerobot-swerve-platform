@@ -234,9 +234,9 @@ saved (U6). Serves G4, U5, U6, U7, U9.
 
 ### D13: Metrics and monitoring target
 
-Prometheus metrics through `ros2_common_cpp::metrics` on `metrics_port` 19113 (my call: free since stereo_depth_cpp's
+Prometheus metrics through `ros2_common_cpp::metrics` on `metrics_port` 19116 (my call: free since stereo_depth_cpp's
 retirement): frames captured, frames published per topic, capture fps gauge, encode duration, zoom requests by status,
-zoom phase durations. Alloy target `{node: head_camera_cpp, address: "127.0.0.1:19113", path: /metrics}` in
+zoom phase durations. Alloy target `{node: head_camera_cpp, address: "127.0.0.1:19116", path: /metrics}` in
 `monitoring_agent_node_targets`, pinned by `tests/test_node_metrics_wiring.py`. The capture rate is the runbook's 30 fps
 measurement. Serves G5, G6.
 
