@@ -438,6 +438,18 @@ def test_prompt_says_to_pass_the_image_size_with_pixels() -> None:
     assert "calibrated" in para
 
 
+def test_prompt_explains_front_camera_zoom() -> None:
+    """The front camera is the head camera: 384x216 by default, zoom crops on demand."""
+    lower = prompt_lower()
+    para = lower[lower.index("pixel sizes:") :]
+    para = para[: para.index("gripper: it has")]
+    assert "384x216" in para and "384x288" in para
+    assert "zoom={u, v, factor}" in para and "fractions" in para
+    assert "2/4/8" in para and "1024" in para and "af_failed" in para
+    assert "max_px" in para and "stream" in para
+    assert "overhead camera (640x480" not in lower
+
+
 def test_prompt_explains_the_centred_grasp_shift_and_residual_reports() -> None:
     """2026-10-10: the centring shift of grasp_object was read as a sideways drift."""
     lower = prompt_lower()

@@ -162,10 +162,14 @@ across map updates; a gone id means explored or merged (use the successor). Both
 
 Pixel sizes: pixel_to_ground, mark_candidate_points (region) and capture_calibration_sample work in the CALIBRATED \
 image size (640x480 here; get_annotated_camera_image and mark_candidate_points images have that size), but \
-get_camera_image returns a smaller picture (384x288 by default; its metadata states width, height, calibrated_image \
+get_camera_image returns a smaller picture (384x216 for 'front', 384x288 for the gripper, by default; its metadata states width, height, calibrated_image \
 and scale_to_calibrated). A pixel read from a get_camera_image picture must always be passed with image_width and \
 image_height of that picture (for example image_width 384, image_height 288), otherwise the floor position is wrong. \
 Simplest: pick pixels on get_annotated_camera_image.
+Zoom: get_camera_image(camera='front', zoom={{u, v, factor}}) returns a sharp autofocused crop of the head camera; u and v \
+are fractions (0-1) of the default front picture (0,0 top left), factor is 2, 4 or 8 (2/4/8), the crop is up to 1024 px. \
+Each call takes about 1-2.5 s and pauses the camera stream for about 1 s, so use it to read detail (labels, small \
+objects) instead of asking for a large max_px; if it reports af_failed, retry once.
 
 Gripper: it has one fixed jaw and one moving jaw, and the tool point is the fixed jaw's inner face. In gripper-camera \
 pictures at wrist roll 0 the fixed jaw is the dark shape at the lower right and the moving jaw closes in from the top \

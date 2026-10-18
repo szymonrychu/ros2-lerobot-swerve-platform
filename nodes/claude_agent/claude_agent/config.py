@@ -82,9 +82,10 @@ DEFAULT_NAV_INTERMEDIATE_YAW_TOLERANCE_DEG = 5.0
 DEFAULT_CAMERA_NOTE = (
     "The gripper camera is mounted at an angle on the arm and looks slightly from left to right; "
     "its images are delivered upright (rotated 180 degrees in software). "
-    "The 'front' camera is an overhead camera (640x480, autofocus) looking down at the front of the robot, the arm "
-    "and the floor in front of it: take it first for an overview (overview first), then judge the arm-to-object "
-    "distance and the gripper position relative to the object from it before aiming with the gripper camera. "
+    "The 'front' camera is the head RGB camera (Camera Module 3 on the pan/tilt head next to the ToF, 16:9, "
+    "autofocus), looking at the front of the robot, the arm and the floor in front of it: take it first for an "
+    "overview (overview first), then judge the arm-to-object distance and the gripper position relative to the "
+    "object from it before aiming with the gripper camera. "
     "It has no depth; judge distances from the image."
 )
 # Model turns on top of max_turn_cap that the SDK's absolute max_turns allows: the runner enforces the agent-set turn_cap

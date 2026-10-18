@@ -63,6 +63,8 @@ def test_persistence_and_hardware_defaults() -> None:
     assert cfg.arm_base_height_m == 0.100
     assert 30 <= cfg.arm_reach_cm <= 50
     assert "left to right" in cfg.camera_note and "upright" in cfg.camera_note
+    note = cfg.camera_note.lower()
+    assert "head" in note and "pan/tilt" in note and "overhead" not in note and "640x480, autofocus" not in note
     assert not hasattr(cfg, "work_dir")
 
 
