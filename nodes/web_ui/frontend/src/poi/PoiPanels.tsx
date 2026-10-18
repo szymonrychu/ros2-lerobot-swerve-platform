@@ -17,6 +17,7 @@ import { StatusItem } from '../components/StatusItem'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { MONO_FONT, TOUCH_TARGET_PX } from '../theme'
+import { ClearPoisDialog } from './ClearPoisDialog'
 import { zonePctError, zoneUpdateCommand } from './editor'
 import { formatUpdated, objectDetails, sortPois } from './style'
 import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, POI_ZONES, PoiCommand, PoiResult, PoiStatus, PoiZone, ZONE_PCT_MAX, ZONE_PCT_MIN } from './types'
@@ -43,13 +44,20 @@ export function PoiListPanel({
   open,
   onToggle,
   onFocus,
+  tabId,
+  onChooseIndividually,
 }: {
   pois: Poi[]
   selectedId: string | null
   open: boolean
   onToggle: () => void
   onFocus: (poi: Poi) => void
+  /** map_nav tab id; the "Clear POIs" button is shown only when given. */
+  tabId?: string
+  /** Passed to the clear dialog's "Choose individual POIs" link. */
+  onChooseIndividually?: () => void
 }) {
+  const [clearOpen, setClearOpen] = useState(false)
   const now = Date.now() / 1000
   if (!open) {
     return (
@@ -117,6 +125,20 @@ export function PoiListPanel({
             </ListItemButton>
           ))}
         </List>
+        {tabId && (
+          <>
+            <Button size="small" color="error" onClick={() => setClearOpen(true)} sx={{ mt: 0.5 }}>
+              Clear POIs
+            </Button>
+            <ClearPoisDialog
+              open={clearOpen}
+              tabId={tabId}
+              pois={pois}
+              onClose={() => setClearOpen(false)}
+              onChooseIndividually={onChooseIndividually}
+            />
+          </>
+        )}
       </Box>
     </OverlayPanel>
   )

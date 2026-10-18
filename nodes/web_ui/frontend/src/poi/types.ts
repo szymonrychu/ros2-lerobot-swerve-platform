@@ -65,9 +65,12 @@ export type PoiCommand =
   | { op: 'update'; poi: Partial<Poi> & { id: string } }
   | { op: 'delete'; poi: { id: string } }
   | { op: 'delete_photos'; selector: Record<string, unknown> }
+  | { op: 'clear'; created_by?: PoiCreator | null; kinds?: PoiKind[]; statuses?: PoiStatus[]; keep_zones?: boolean; ids?: string[] }
 
 export interface PoiResult {
   ok: boolean
   message: string
   poi: Poi | null
+  /** Clear op only: number of POIs the store removed. */
+  removed?: number
 }

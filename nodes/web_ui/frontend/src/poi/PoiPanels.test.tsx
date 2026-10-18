@@ -154,3 +154,15 @@ describe('POI panels declutter', () => {
     expect(designViolations('poi/PoiPanels.tsx', SOURCES['poi/PoiPanels.tsx'])).toEqual([])
   })
 })
+
+describe('Clear POIs button', () => {
+  it('opens the clear dialog only when a tab id is given', () => {
+    viewportWidth = 1400
+    const { unmount } = renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Clear POIs' })).toBeNull()
+    unmount()
+    renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} tabId="map" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear POIs' }))
+    expect(screen.getByTestId('clear-pois-preview').textContent).toContain('1')
+  })
+})

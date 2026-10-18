@@ -521,6 +521,7 @@ export default function MapNavTab({
           open={showPoiList && !(narrow && poi.selected)}
           onToggle={() => setPoiListOpen(!showPoiList)}
           onFocus={poi.focus}
+          tabId={tab.id}
         />
       )}
       {poi.selected && (
