@@ -2,9 +2,9 @@
 # Motion-free robot verification of costmap_zones (keepout / slow zones from POI areas) on the client RPi.
 #
 # Step 0 (here): ros-jazzy-nav2-costmap-2d >= 1.3.10 and ros2-costmap_zones, ros2-poi_store, ros2-nav2_bringup active.
-# Steps 1-6 (python -m costmap_zones.verify on the client, config nodes/costmap_zones/verify.yaml): masks on the
+# Steps 1-7 (python -m costmap_zones.verify on the client, config nodes/costmap_zones/verify.yaml): masks on the
 # /map grid, a control compute_path_to_pose through a test rectangle, a temporary keepout on it, a keepout around
-# the robot, a 40 % slow zone around the robot (/speed_limit), and the cleanup of every E7-verify-* POI.
+# the robot, a slow zone on the rectangle (non-lethal path cost, plan still succeeds), a 40 % slow zone around the robot (/speed_limit), and the cleanup of every E7-verify-* POI.
 # No velocity command is ever sent; the verifier refuses to run while /navigate_to_pose has an active goal.
 #
 # Usage:

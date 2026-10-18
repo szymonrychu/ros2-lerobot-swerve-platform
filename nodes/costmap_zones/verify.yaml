@@ -8,7 +8,12 @@ rect_ahead_m: 0.6      # centre of the test rectangle on the robot -> goal line
 rect_depth_m: 0.3      # rectangle size along the heading
 rect_width_m: 1.0      # rectangle size across the heading
 robot_box_m: 0.6       # square zone centred on base_link (steps 4 and 5)
-slow_pct: 40           # speed limit of the step 5 slow zone, percent
+slow_pct: 40           # speed limit of the step 6 slow zone, percent
+# Keepout-mask value of slow zones (costmap_zones slow_zone_mask_value, 1..99). Used only when the costmap_zones
+# node config (env COSTMAP_ZONES_CONFIG, default /etc/ros2/costmap_zones/config.yaml) cannot be read; otherwise the
+# node's value wins. Step 5 expects the mask to hold it and the global costmap the translation of
+# round(v * 254 / 100): 60 -> cost 152 -> OccupancyGrid 59.
+slow_zone_mask_value: 60
 poi_name_prefix: E7-verify-
 
 map_frame: map

@@ -358,3 +358,167 @@ def test_verifier_publishes_only_poi_commands_never_cmd_vel() -> None:
     assert node.publishers == [config.poi_command_topic]
     assert not any("cmd_vel" in topic for topic in node.publishers + node.subscriptions)
     assert "cmd_vel" not in (NODE_DIR / "costmap_zones" / "verify.py").read_text()
+
+
+# --- slow zone path cost (step 5) ---
+
+
+@pytest.mark.parametrize(("mask", "cost"), [(1, 3), (60, 152), (99, 251), (100, 254)])
+def test_keepout_cost_is_the_filter_translation(mask: int, cost: int) -> None:
+    assert verify.keepout_cost(mask) == cost
+
+
+@pytest.mark.parametrize(("cost", "grid"), [(0, 0), (1, 1), (152, 59), (252, 98), (253, 99), (254, 100), (255, -1)])
+def test_published_grid_value_is_the_costmap_publisher_table(cost: int, grid: int) -> None:
+    assert verify.published_grid_value(cost) == grid
+
+
+def test_slow_value_translates_to_a_non_lethal_grid_value() -> None:
+    assert verify.published_grid_value(verify.keepout_cost(60)) == 59
+
+
+def test_mask_problems_accepts_the_slow_value_and_rejects_others() -> None:
+    geo = geometry(width=2, height=2)
+    assert verify.mask_problems(geo, geo, [-1, 60, 100, -1], geo, [0] * 4, slow_value=60) == []
+    problems = verify.mask_problems(geo, geo, [-1, 50, 100, -1], geo, [0] * 4, slow_value=60)
+    assert len(problems) == 1 and "keepout" in problems[0] and "50" in problems[0]
+
+
+def test_slow_value_comes_from_verify_yaml_default_60() -> None:
+    config = verify.load_verify_config(NODE_DIR / "verify.yaml")
+    assert config.slow_zone_mask_value == 60
+    assert verify.VerifyConfig(slow_zone_mask_value=70).slow_zone_mask_value == 70
+    with pytest.raises(ValidationError):
+        verify.VerifyConfig(slow_zone_mask_value=100)
+
+
+def test_resolve_slow_value_prefers_the_node_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config = verify.VerifyConfig(slow_zone_mask_value=70)
+    node_cfg = tmp_path / "config.yaml"
+    node_cfg.write_text("slow_zone_mask_value: 45\n")
+    monkeypatch.setenv("COSTMAP_ZONES_CONFIG", str(node_cfg))
+    assert verify.resolve_slow_value(config) == 45
+    monkeypatch.setenv("COSTMAP_ZONES_CONFIG", str(tmp_path / "missing.yaml"))
+    assert verify.resolve_slow_value(config) == 70
+
+
+class FakeSlowVerifier:
+    """Verifier stand-in: the slow step run against canned cells and plans."""
+
+    step_slow_cost = verify.Verifier.step_slow_cost
+    rectangle = verify.Verifier.rectangle
+
+    def __init__(self, keepout: int | None, costmap: int | None, plan_ok: bool, crosses: bool = False) -> None:
+        self.config = verify.VerifyConfig(
+            timeouts=verify.Timeouts(mask_s=0.01, costmap_s=0.01, plan_s=0.01),
+        )
+        self.slow_value = 60
+        self.pose = verify.Pose2D(0.0, 0.0, 0.0)
+        self.cells = {"keepout": keepout, "costmap": costmap}
+        self.deleted: list[str] = []
+        self.added: list[tuple[str, str, int | None]] = []
+        x = 0.6
+        self.outcome = verify.PlanOutcome(
+            plan_ok, [(0.0, 0.0), (x, 0.0), (1.2, 0.0)] if crosses else [(0.0, 2.0), (1.2, 2.0)], "detail"
+        )
+
+    def require_pose(self) -> verify.Pose2D:
+        return self.pose
+
+    def goal(self) -> tuple[float, float]:
+        return (1.2, 0.0)
+
+    def wait_until(self, predicate: Any, _timeout_s: float) -> Any:
+        return predicate() or None
+
+    def latest_cell(self, key: str, _point: tuple[float, float]) -> int | None:
+        return self.cells[key]
+
+    def add_zone(self, suffix: str, zone: str, _polygon: Any, speed_limit_pct: int | None = None) -> str:
+        self.added.append((suffix, zone, speed_limit_pct))
+        return "slow-id"
+
+    def delete_poi(self, poi_id: str) -> None:
+        self.deleted.append(poi_id)
+
+    def plan(self, _goal: Any, _yaw: float) -> verify.PlanOutcome:
+        return self.outcome
+
+
+def test_slow_cost_step_passes_on_59_and_a_successful_plan() -> None:
+    fake = FakeSlowVerifier(keepout=60, costmap=59, plan_ok=True, crosses=True)
+    detail = fake.step_slow_cost()
+    assert "59" in detail and "crosses" in detail
+    assert fake.deleted == ["slow-id"]
+    assert fake.added[0][1] == "slow"
+
+
+@pytest.mark.parametrize("costmap", [99, 100])
+def test_slow_cost_step_fails_when_the_costmap_is_lethal(costmap: int) -> None:
+    fake = FakeSlowVerifier(keepout=60, costmap=costmap, plan_ok=True)
+    with pytest.raises(verify.VerifyError, match="59"):
+        fake.step_slow_cost()
+    assert fake.deleted == ["slow-id"]
+
+
+def test_slow_cost_step_fails_when_the_plan_fails() -> None:
+    fake = FakeSlowVerifier(keepout=60, costmap=59, plan_ok=False)
+    with pytest.raises(verify.VerifyError, match="plan"):
+        fake.step_slow_cost()
+    assert fake.deleted == ["slow-id"]
+
+
+def test_slow_cost_step_fails_when_the_mask_lacks_the_slow_value() -> None:
+    fake = FakeSlowVerifier(keepout=100, costmap=59, plan_ok=True)
+    with pytest.raises(verify.VerifyError, match="mask"):
+        fake.step_slow_cost()
+    assert fake.deleted == ["slow-id"]
+
+
+def test_cleanup_deletes_the_slow_poi() -> None:
+    class Cleanup:
+        step_cleanup = verify.Verifier.step_cleanup
+        pose = None
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def delete_verify_pois(self) -> int:
+            self.calls += 1
+            return 2
+
+    fake = Cleanup()
+    assert "deleted 2" in fake.step_cleanup()
+    assert fake.calls == 1
+
+
+def test_run_orders_the_slow_cost_step_between_keepout_and_speed() -> None:
+    names: list[str] = []
+
+    class Runner:
+        run = verify.Verifier.run
+        run_step = verify.Verifier.run_step
+        results: list[Any] = []
+        config = verify.VerifyConfig()
+
+        def log(self, _text: str) -> None:
+            pass
+
+        def delete_verify_pois(self) -> int:
+            return 0
+
+        def __getattr__(self, name: str) -> Any:
+            if name.startswith("step_"):
+                return lambda: names.append(name) or "ok"
+            raise AttributeError(name)
+
+    Runner().run()
+    assert names == [
+        "step_masks",
+        "step_control",
+        "step_keepout_ahead",
+        "step_keepout_robot",
+        "step_slow_cost",
+        "step_slow_robot",
+        "step_cleanup",
+    ]
