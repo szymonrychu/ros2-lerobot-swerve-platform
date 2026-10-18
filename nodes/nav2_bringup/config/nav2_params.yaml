@@ -194,6 +194,8 @@ local_costmap:
       # including inflation, so a filter would not be inflated. As a layer right below inflation the lethal zone cost
       # spreads like a real obstacle, which Smac's centre-cost shortcut relies on. The info topic is absolute
       # (costmap_zones publishes it latched); a relative name would resolve under the costmap node namespace.
+      # The keepout mask also carries the non-lethal slow-zone cost (slow_zone_mask_value, default 60 -> cost 152):
+      # slow zones are costed but passable, only mask value 100 is lethal.
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
@@ -271,6 +273,8 @@ global_costmap:
       # including inflation, so a filter would not be inflated. As a layer right below inflation the lethal zone cost
       # spreads like a real obstacle, which Smac's centre-cost shortcut relies on. The info topic is absolute
       # (costmap_zones publishes it latched); a relative name would resolve under the costmap node namespace.
+      # The keepout mask also carries the non-lethal slow-zone cost (slow_zone_mask_value, default 60 -> cost 152):
+      # slow zones are costed but passable, only mask value 100 is lethal.
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
