@@ -486,6 +486,20 @@
           vars:
             _deploy_node_name: poi_store
           tags: [poi_store, apt, python, build, config]
+        - name: Named maps directory
+          ansible.builtin.include_tasks:
+            file: tasks/slam_maps_dir.yml
+            apply:
+              tags: [map_manager]
+          tags: [map_manager, setup]
+        - name: Deploy map_manager
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [map_manager]
+          vars:
+            _deploy_node_name: map_manager
+          tags: [map_manager, apt, python, build, config]
         - name: Deploy costmap_zones
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

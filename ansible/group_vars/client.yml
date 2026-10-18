@@ -742,21 +742,23 @@ ros2_node_type_defaults:
       - POI_STORE_CONFIG=/etc/ros2/poi_store/config.yaml
   map_manager:
     # Named maps (save/load/delete/relocalise bundles of the slam_toolbox graph, POIs and pose): see nodes/map_manager/README.md.
-    # Node type only: the ros2_nodes entry (config, metrics port) comes with the map-manager-lint-and-metrics task.
     deploy_mode: native
     node_launch_command: "python3 -m map_manager"
     node_src_dir: "nodes/map_manager"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
     # Initial values, not measured: re-measure the working set in Mimir after 24 h and adjust.
-    memory_low: "56M"
-    memory_max: "192M"
+    memory_low: "64M"
+    memory_max: "256M"
     cpu_weight: 500
     io_weight: 500
     oom_score_adjust: -500
     config_path: /etc/ros2/map_manager
     env:
       - MAP_MANAGER_CONFIG=/etc/ros2/map_manager/config.yaml
+    # Service types of slam_toolbox (serialize/deserialize/pause) used for the named map bundles.
+    apt_packages:
+      - ros-jazzy-slam-toolbox
   costmap_zones:
     # Rasterises the active area-POI zones into keepout/speed masks for the Nav2 costmap filters: see nodes/costmap_zones/README.md.
     deploy_mode: native
@@ -2302,6 +2304,65 @@ ros2_nodes:
         prune_interval_s: 3600
         # Latched std_msgs/String photo summary topic.
         summary_topic: /poi/photos
+  - name: map_manager
+    node_type: map_manager
+    present: true
+    enabled: true
+    config: |
+      # Prometheus /metrics on 127.0.0.1.
+      metrics_port: 19113
+      # Directory of the named map bundles (parent /var/lib/ros2/maps is created by playbooks/tasks/slam_maps_dir.yml).
+      maps_root: /var/lib/ros2/maps/named
+      # Command, result and latched status topics of the map manager (std_msgs/String, Bool).
+      command_topic: /map_manager/command
+      result_topic: /map_manager/result
+      status_topic: /map_manager/status
+      localised_topic: /map_manager/localised
+      # poi_store topics (a load replaces the POI set).
+      poi_list_topic: /poi/list
+      poi_command_topic: /poi/command
+      poi_result_topic: /poi/result
+      # Sensor topics and frames.
+      map_topic: /map
+      scan_topic: /scan_filtered
+      pose_topic: /pose
+      map_frame: map
+      base_frame: base_link
+      # slam_toolbox services.
+      serialize_service: /slam_toolbox/serialize_map
+      deserialize_service: /slam_toolbox/deserialize_map
+      pause_service: /slam_toolbox/pause_new_measurements
+      parameters_service: /slam_toolbox/get_parameters
+      # Timeouts (s).
+      service_timeout_s: 15.0
+      load_timeout_s: 60.0
+      poi_timeout_s: 5.0
+      sensor_wait_s: 3.0
+      max_pose_age_s: 1.0
+      # Autosave of the current map before a load.
+      autosave_before_load: true
+      autosave_name: autosave
+      # Post-load agreement check (scan against the loaded map).
+      verify_window_s: 5.0
+      agreement_hz: 2.0
+      localised_ratio: 0.6
+      min_samples: 5
+      # Length of the recent robot pose history kept for relocalise (s).
+      pose_ring_s: 120.0
+      # Candidate search around the pose hint.
+      search:
+        radius_m: 1.0
+        step_m: 0.1
+        yaw_range_deg: 180.0
+        yaw_step_deg: 5.0
+        occupied_threshold: 65
+        hit_radius_cells: 1
+        min_points: 40
+        max_range_m: 8.0
+        candidate_min_ratio: 0.5
+        ambiguity_distance_m: 0.5
+        ambiguity_yaw_deg: 30.0
+        ambiguity_margin: 0.05
   - name: costmap_zones
     node_type: costmap_zones
     present: true

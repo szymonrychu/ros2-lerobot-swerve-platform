@@ -17,6 +17,7 @@ CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml
 ANSIBLE_README = REPO_ROOT / "ansible" / "README.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
 NODES = ("stereo_depth", "stereo_depth_cpp")
+# The stereo nodes' old metrics port; map_manager reuses it, so only the stereo names are checked against it.
 RETIRED_PORT = 19113
 # Everything else a native type would carry to build, run or tier a node: none of it applies to an uninstall.
 DEPLOY_ONLY_KEYS = (
@@ -95,7 +96,7 @@ def test_background_tier_has_no_stereo_type() -> None:
 def test_metrics_target_is_removed() -> None:
     targets = load_client()["monitoring_agent_node_targets"]
     assert not [t for t in targets if t["node"] in NODES]
-    assert not [t for t in targets if t["address"].endswith(f":{RETIRED_PORT}")]
+    assert not [t for t in targets if t["address"].endswith(f":{RETIRED_PORT}") and t["node"] in NODES]
 
 
 def test_client_playbook_still_deploys_both_names_so_the_uninstall_runs() -> None:
@@ -108,7 +109,7 @@ def test_ansible_readme_documents_the_retirement() -> None:
     readme = ANSIBLE_README.read_text()
     section = readme[readme.index("Cut-over and rollback") :]
     assert "D7" in section and "present: false" in section
-    assert str(RETIRED_PORT) not in readme
+    assert not [row for row in readme.splitlines() if "stereo_depth" in row and f"| {RETIRED_PORT} |" in row]
     assert "| stereo_depth" not in readme, "no tier or memory table row for a retired node"
 
 

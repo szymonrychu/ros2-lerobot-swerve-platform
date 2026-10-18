@@ -340,7 +340,7 @@ A deploy no longer stops the whole stack up front. The role's `stop_for_build.ym
 
 **Failure safety.** (1) The restart intent is written to the host queue by a task right after each change is applied (uv sync, npm build and static copy, config, launcher, unit, colcon build, source stamp), not only at the late handler flush; the source stamp is written last, after config, launcher and unit succeeded. A failure at any point therefore still leaves the restart queued, and the start step runs `systemctl daemon-reload` first so a changed unit takes effect. (2) Before a heavy step stops the running units, they are appended to `/var/lib/ros2-deploy/stopped-for-build`; the start step starts every listed unit whatever the run's scope (also with `--tags <node>`) and clears the file after success. (3) `playbooks/tasks/deploy_guard.yml` installs `ros2-deploy-recover.timer` (every 2 minutes): when the stopped list is older than `ros2_recover_after_min` (15) and no deploy lock younger than `ros2_deploy_lock_max_age_min` (240) exists, it starts the listed units and clears the file. This covers a lost controller or SSH session, where the rescue path cannot run on an unreachable host. The lock `/var/lib/ros2-deploy/deploy.lock` is taken as the last pre-task and released after verify or in the rescue; a lock left by a dead controller stops blocking after its max age. The pre-tasks (repo sync, apt, firmware config) run before any node is stopped, so a failure there needs no rescue. The rescue message carries the failed task, its message, rc and stderr.
 
-**What counts as a changed source.** Every node gets a source stamp (`/var/lib/ros2-deploy/stamps/<node>.src`) holding the hash of the git tree hashes of its source paths on the synced checkout: `node_src_dir` for Python nodes, `src_paths` for launch/config-only node types (rplidar_a1, rf2o_laser_odometry, robot_localization_ekf, slam_toolbox, nav2_bringup, ros2_master), plus the type's `src_extra_paths` (mcp_server also reads `nodes/web_ui/urdf`) and `shared/` when the type sets `src_shared: true` (every node type that imports `shared/ros2_metrics`: feetech_servos, filter_node, swerve_controller, rf2o_odom_relay, bno055_imu, gps_rtk, uvc_camera, arducam_tof, poi_store, costmap_zones, claude_agent, test_joint_api, topic_scraper_api, mcp_server, web_ui; a root test checks every pyproject with a `../../shared` dependency is declared). `rplidar_a1` has no venv: it lists `shared/ros2_metrics` in `src_extra_paths`, gets `python3-prometheus-client` from apt and `PYTHONPATH=<ros2_repo_dest>/shared/ros2_metrics` in its unit env. A different hash queues the restart. Running nodes nothing changed for are left alone and cost no sleep. `ros2_node_verify` runs last, after those restarts, and checks all units with one `systemctl is-active` per round.
+**What counts as a changed source.** Every node gets a source stamp (`/var/lib/ros2-deploy/stamps/<node>.src`) holding the hash of the git tree hashes of its source paths on the synced checkout: `node_src_dir` for Python nodes, `src_paths` for launch/config-only node types (rplidar_a1, rf2o_laser_odometry, robot_localization_ekf, slam_toolbox, nav2_bringup, ros2_master), plus the type's `src_extra_paths` (mcp_server also reads `nodes/web_ui/urdf`) and `shared/` when the type sets `src_shared: true` (every node type that imports `shared/ros2_metrics`: feetech_servos, filter_node, swerve_controller, rf2o_odom_relay, bno055_imu, gps_rtk, uvc_camera, arducam_tof, poi_store, map_manager, costmap_zones, claude_agent, test_joint_api, topic_scraper_api, mcp_server, web_ui; a root test checks every pyproject with a `../../shared` dependency is declared). `rplidar_a1` has no venv: it lists `shared/ros2_metrics` in `src_extra_paths`, gets `python3-prometheus-client` from apt and `PYTHONPATH=<ros2_repo_dest>/shared/ros2_metrics` in its unit env. A different hash queues the restart. Running nodes nothing changed for are left alone and cost no sleep. `ros2_node_verify` runs last, after those restarts, and checks all units with one `systemctl is-active` per round.
 
 ## web_ui frontend build
 
@@ -428,7 +428,7 @@ straight through (empty when unset, nothing is derived). A unit change queues th
 | Tier | cpu_weight | io_weight | oom_score_adjust | Node types |
 |---|---|---|---|---|
 | critical | 1000 | 1000 | -900 | `feetech_servos` (lerobot_follower, base_servos), `swerve_controller`, `ros2_master`, `filter_node`, `static_tf_publisher`, `bno055_imu` |
-| normal robot | 500 | 500 | -500 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `costmap_zones`, `uvc_camera`, `arducam_tof`, `realsense_d435i`, `test_joint_api`, `map_guard`, `map_guard_cpp` |
+| normal robot | 500 | 500 | -500 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `map_manager`, `costmap_zones`, `uvc_camera`, `arducam_tof`, `realsense_d435i`, `test_joint_api`, `map_guard`, `map_guard_cpp` |
 | agent-facing | 300 | 300 | -200 | `mcp_server`, `claude_agent`, `web_ui`, `topic_scraper_api`, `master2master`, `haptic_controller` |
 | background | 100 | 100 | 0 | `joint_state_throttle_follower`, `joint_state_throttle_swerve`, `pi_cameras` (work the robot can lose: under contention the relay rate drops, and it is killed before any robot node) |
 
@@ -472,6 +472,7 @@ estimate.
 | map_guard_cpp (not installed) | no data (same values as map_guard until measured) | 64M | 160M |
 | gps_rtk_rover (`gps_rtk`) | 55.0 / 55.8 | 56M | 128M |
 | poi_store | 53.8 / 54.3 | 56M | 128M |
+| map_manager | not measured (initial values; re-measure in Mimir after 24 h) | 64M | 256M |
 | costmap_zones | not measured (initial values; re-measure in Mimir after 24 h) | 96M | 256M |
 | gripper_uvc_camera (`uvc_camera`) | 66.7 / 68.2 | 72M | 256M |
 | arducam_tof (disabled) | no data (estimate from uvc_camera plus the SDK and numpy; re-measure once enabled) | 64M | 192M |
@@ -549,7 +550,7 @@ keeps `poi.json` and the photo index there.
 
 `playbooks/tasks/slam_maps_dir.yml` creates `/var/lib/ros2/maps` (owner `ansible_user`, mode `0755`) before
 `slam_toolbox` is deployed, in `deploy_nodes_client.yml` (tags `setup`, `slam_toolbox`).
-slam_toolbox saves and reloads its posegraph there (`slam_map.posegraph` / `slam_map.data`).
+slam_toolbox saves and reloads its posegraph there (`slam_map.posegraph` / `slam_map.data`). The task also runs before `map_manager` is deployed (tags `setup`, `map_manager`); map_manager creates the `named/` bundle directory below it itself.
 
 ### bno055_imu calibration directory
 
@@ -717,6 +718,7 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 | `swerve_controller` | 19107 | `metrics_port` |
 | `rf2o_odom_relay` | 19108 | `metrics_port` |
 | `poi_store` | 19109 | `metrics_port` |
+| `map_manager` | 19113 | `metrics_port` |
 | `map_guard` | 19110 | `metrics_port` |
 | `map_guard_cpp` (live; `map_guard` is the disabled rollback, never both enabled) | 19110 | `metrics_port` |
 | `costmap_zones` | 19111 | `metrics_port` |
