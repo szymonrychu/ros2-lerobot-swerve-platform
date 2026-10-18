@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--mcp-named-maps-config-docs
 branch: named-maps-with-pois-and-rel--mcp-named-maps-config-docs
-verified_head: ""
+verified_head: 791b83a546a2715d535933a7f1e6642ab4a28e08
 run: named-maps-with-pois-and-rel
 provides: []
 acs_for_audit: []

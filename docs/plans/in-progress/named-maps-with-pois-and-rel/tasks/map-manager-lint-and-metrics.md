@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-manager-lint-and-metrics
 branch: named-maps-with-pois-and-rel--map-manager-lint-and-metrics
-verified_head: ""
+verified_head: 0ef55d1b47d8bd603c6540a1f1e8ef6214c280f4
 run: named-maps-with-pois-and-rel
 provides: []
-acs_for_audit: []
+acs_for_audit: [a3]
 process_gaps: []
 ---
 

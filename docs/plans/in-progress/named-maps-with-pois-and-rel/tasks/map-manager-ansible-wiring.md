@@ -1,6 +1,6 @@
 ---
 title: Map manager Ansible wiring
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "map_manager deploys, enables and configures through the ros2_nodes schema like every other node."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_map_manager_config.py, ansible/README.md, .claude/skills/ansible-deploy/SKILL.md, nodes/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-manager-ansible-wiring
 branch: named-maps-with-pois-and-rel--map-manager-ansible-wiring
-verified_head: ""
+verified_head: 8bdd9ce81a28a12fbae0fe3698c27d074f38087f
 run: named-maps-with-pois-and-rel
 provides: []
 acs_for_audit: []
