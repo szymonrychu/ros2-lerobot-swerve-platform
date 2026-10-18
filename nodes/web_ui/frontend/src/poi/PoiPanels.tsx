@@ -1,9 +1,10 @@
 /** MUI panels of the POI feature: the collapsible list (click to focus) and the editor of the selected POI. */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
 import Button from '@mui/material/Button'
 import List from '@mui/material/List'
+import Checkbox from '@mui/material/Checkbox'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
 import MenuItem from '@mui/material/MenuItem'
@@ -19,6 +20,8 @@ import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { MONO_FONT, TOUCH_TARGET_PX } from '../theme'
 import { ClearPoisDialog } from './ClearPoisDialog'
+import { PoiListToolbar } from './PoiListToolbar'
+import { filterPois, markAllVisible, poiCategory, pruneMarked, toggleMarked } from './selection'
 import { CATEGORY_LABELS, parsePoiTags, stripPoiTags } from './categories'
 import { zonePctError, zoneUpdateCommand } from './editor'
 import { CATEGORY_COLORS, formatUpdated, objectDetails, sortPois } from './style'
@@ -91,6 +94,28 @@ export function PoiListPanel({
   onChooseIndividually?: () => void
 }) {
   const [clearOpen, setClearOpen] = useState(false)
+  const [filter, setFilter] = useState<ReadonlySet<string>>(new Set())
+  const [marked, setMarked] = useState<ReadonlySet<string>>(new Set())
+  const visible = useMemo(() => filterPois(pois, filter), [pois, filter])
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {}
+    for (const p of pois) c[poiCategory(p)] = (c[poiCategory(p)] ?? 0) + 1
+    return c
+  }, [pois])
+  // A POI deleted elsewhere (or hidden by the filter) loses its mark.
+  useEffect(() => {
+    setMarked((m) => {
+      const next = pruneMarked(m, visible)
+      return next.size === m.size ? m : next
+    })
+  }, [visible])
+  const toggleCategory = (category: string) => {
+    setFilter((f) => {
+      const next = new Set(f)
+      if (!next.delete(category)) next.add(category)
+      return next
+    })
+  }
   const now = Date.now() / 1000
   if (!open) {
     return (
@@ -134,14 +159,30 @@ export function PoiListPanel({
       }
     >
       <Box data-testid="poi-list-panel">
+        <PoiListToolbar
+          counts={counts}
+          selected={filter}
+          markedCount={marked.size}
+          onToggleCategory={toggleCategory}
+          onMarkAllVisible={() => setMarked(markAllVisible(visible))}
+          onClearMarks={() => setMarked(new Set())}
+        />
         <List dense disablePadding sx={{ maxHeight: { xs: '28dvh', sm: '40dvh' }, overflowY: 'auto' }}>
           {pois.length === 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ pb: 1 }}>
               No points of interest yet.
             </Typography>
           )}
-          {sortPois(pois).map((p) => (
+          {sortPois(visible).map((p) => (
             <ListItemButton key={p.id} selected={p.id === selectedId} onClick={() => onFocus(p)} sx={{ minHeight: (t) => t.spacing(6) }}>
+              <Checkbox
+                size="small"
+                edge="start"
+                checked={marked.has(p.id)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => setMarked((m) => toggleMarked(m, p.id))}
+                slotProps={{ input: { 'aria-label': `Mark ${p.name || '(unnamed)'}` } }}
+              />
               <ListItemText
                 primary={p.name || '(unnamed)'}
                 secondary={
