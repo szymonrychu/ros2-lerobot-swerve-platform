@@ -286,8 +286,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "ros2 launch overview_camera overview_camera.launch.py"
   # Two Camera Module 3 (IMX708) on the Pi 5 CSI ports: front/back previews only (nothing but the web_ui camera tab
-  # consumes them). Raspberry Pi libcamera fork + camera_ros built from the same pinned sources as the retired
-  # overview_camera into /opt/ros2-ws (libcamera first), so the existing build stamps match and nothing rebuilds. The
+  # consumes them). Raspberry Pi libcamera fork + camera_ros built from the same pinned sources as the earlier
+  # Pi camera node into /opt/ros2-ws (libcamera first), so the existing build stamps match and nothing rebuilds. The
   # apt ros-jazzy-camera-ros / ros-jazzy-libcamera packages must NOT be installed: they would shadow the fork. The
   # boot config loads the imx708 overlay on cam0 (playbooks/tasks/pi_camera_boot_config.yml). See nodes/pi_cameras/README.md.
   pi_cameras:
@@ -538,7 +538,7 @@ ros2_node_type_defaults:
       - MAP_GUARD_CONFIG=/etc/ros2/map_guard/config.yaml
   # C++ (rclcpp) port of map_guard (nodes/map_guard_cpp/README.md), side by side: same topics, services, config keys
   # and metrics port (19110, config metrics_port). Cut-over enables this entry and disables map_guard; the Python node
-  # stays installed as the rollback. Built from the repo tree like stereo_depth_cpp. Same tier and memory as map_guard.
+  # stays installed as the rollback. Built from the repo tree as a colcon local source. Same tier and memory as map_guard.
   map_guard_cpp:
     deploy_mode: native
     node_launch_command: "ros2 run map_guard_cpp map_guard_node"
@@ -1301,8 +1301,8 @@ ros2_nodes:
           pitch: 0.0
           # Lidar is mounted rotated 180 deg (bench test 2026-10-03: forward motion shortened the 180 deg range).
           yaw: 3.14159265
-        # No overview camera frame here on purpose: its mount pose is not measured yet, so no guessed
-        # base_link -> overview_camera_optical_frame transform is published (the Pi no longer carries that camera).
+        # No overhead camera frame here on purpose: its mount pose is not measured yet, so no guessed
+        # base_link -> camera optical frame transform is published.
   # Lidar odometry for the EKF (see nodes/rf2o_laser_odometry/README.md); must start before the EKF fuses /odom_rf2o_twist.
   - name: rf2o_laser_odometry
     node_type: rf2o_laser_odometry

@@ -2238,6 +2238,8 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_jetson_bridge_type_keeps_only_the_uninstall_and_purge_keys` | The node type has exactly `deploy_mode: native`, the launch command and `colcon_purge` of `jetson_bridge_cpp` in `/opt/ros2-ws`. |
 | `test_client_playbook_still_deploys_jetson_bridge_so_the_uninstall_runs` | `deploy_nodes_client.yml` still deploys the name. |
 | `test_jetson_bridge_metrics_target_is_removed` | No `monitoring_agent_node_targets` row for the bridge or port 19114. |
+| `test_allowed_references_use_only_the_known_categories` | Every `ALLOWED_REFERENCES` entry is `archive`, `retired-entry`, `uninstall-artifact`, `retirement-test`, `retirement-doc` or `pinned-build`, and only the two archive directories and `nodes/pi_cameras/patches/**` use a directory-wide glob. |
+| `test_no_live_jetson_stereo_or_overview_reference` | `git grep -n -i -E` over tracked files for `jetson`, `depthd`, `stereo`, `overview_camera`, `depth_wire`, `fused_depth` and `10.77.0.` finds no hit outside the `(path glob, line regex, category)` allowlist; any other hit is fixed by editing the line. |
 
 ## test_node_cpu_compare.py
 

@@ -4,7 +4,7 @@
 # bus instead, which waits for stretched SCL. Hardware i2c_arm is turned off so it does not claim the same pins, and
 # the old 10 kHz baudrate workaround (Pi 3/4 era, not supported by the DesignWare controller) is removed. The bus is
 # pinned to /dev/i2c-{{ rpi_bno055_i2c_gpio_bus }} for the bno055_imu config. The firmware reads config.txt at boot,
-# so the client reboots when (and only when) a line changed. Same pattern as overview_camera_boot_config.yml.
+# so the client reboots when (and only when) a line changed. Same pattern as pi_camera_boot_config.yml.
 - name: Turn off hardware I2C on GPIO2/3 (the i2c-gpio overlay takes the pins)
   ansible.builtin.lineinfile:
     path: /boot/firmware/config.txt

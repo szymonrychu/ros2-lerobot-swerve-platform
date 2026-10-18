@@ -1,7 +1,7 @@
 ---
 # Boot config for the Pi 5 CSI ports: a Camera Module 3 (IMX708, pi_cameras front preview) on cam0 and the Arducam
 # ToF camera on cam1. The firmware's auto detection does not know the ToF, so it is turned off and both overlays are
-# written explicitly; the IMX219 overlays of the retired stereo pair are removed. The firmware reads config.txt at
+# written explicitly; the IMX219 overlays of the retired Pi camera pair are removed. The firmware reads config.txt at
 # boot, so the client reboots when (and only when) a line changed. Same pattern as the UART overlay in
 # deploy_nodes_client.yml and bno055_i2c_boot_config.yml. Included from pre_tasks (after the stop-all) by the full
 # client playbook (tags boot, pi_cameras and arducam_tof, so a deploy of either camera node reaches it).

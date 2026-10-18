@@ -581,7 +581,7 @@ def test_cleanup_runs_before_the_slice_is_installed() -> None:
 
 
 def test_alloy_has_no_host_override_and_no_host_targets() -> None:
-    """Every node target renders with the local host label only; the Jetson-only host support is gone."""
+    """Every node target renders with the local host label only; the host override support is gone."""
     template = (AGENT_DIR / "templates" / "config.alloy.j2").read_text()
     assert "target.host" not in template
     assert "monitoring_agent_host_targets" not in template

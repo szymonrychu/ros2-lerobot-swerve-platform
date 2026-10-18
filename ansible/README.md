@@ -745,7 +745,7 @@ How a node's Python environment is built on the Pi (`ros2_base` and `ros2_node_d
 
 ## Deploy tags
 
-Every task of the deploy playbooks, the `ros2_node_deploy` / `ros2_node_verify` roles and `playbooks/tasks/*.yml` carries at least one of these phase tags (a root test enforces it). Each node's deploy step and node-specific setup carries the node name as well (`web_ui`, `mcp_server`, `overview_camera`, ...). A non-node deploy target carries only its own name: the `monitoring` roles of both hosts (see [Monitoring](#monitoring)) run for `--tags monitoring` or an untagged run, never for a phase tag.
+Every task of the deploy playbooks, the `ros2_node_deploy` / `ros2_node_verify` roles and `playbooks/tasks/*.yml` carries at least one of these phase tags (a root test enforces it). Each node's deploy step and node-specific setup carries the node name as well (`web_ui`, `mcp_server`, `pi_cameras`, ...). A non-node deploy target carries only its own name: the `monitoring` roles of both hosts (see [Monitoring](#monitoring)) run for `--tags monitoring` or an untagged run, never for a phase tag.
 
 | Tag | What it covers |
 |-----|----------------|
@@ -770,7 +770,7 @@ Every task of the deploy playbooks, the `ros2_node_deploy` / `ros2_node_verify` 
 ./scripts/deploy-nodes.sh client --all --tags boot               # firmware overlays and boot wait only
 ```
 
-`--tags build` and `--tags config` do not install apt packages (only a full run, `--tags apt` or a node tag do): use the node tag for a node that is new or whose packages changed. With a node filter the apt steps take part (the batch installs only the selected nodes' packages), firmware (`boot`) steps only for nodes that need them (`gps_rtk_rover`, `overview_camera`), and the always-tagged restart and verify steps run last. Note that `always` tasks also run under `--tags config`; skip them with `--skip-tags restart,verify`.
+`--tags build` and `--tags config` do not install apt packages (only a full run, `--tags apt` or a node tag do): use the node tag for a node that is new or whose packages changed. With a node filter the apt steps take part (the batch installs only the selected nodes' packages), firmware (`boot`) steps only for nodes that need them (`gps_rtk_rover`, `arducam_tof`), and the always-tagged restart and verify steps run last. Note that `always` tasks also run under `--tags config`; skip them with `--skip-tags restart,verify`.
 
 ## Deploy performance
 

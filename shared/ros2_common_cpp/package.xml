@@ -3,7 +3,7 @@
 <package format="3">
   <name>ros2_common_cpp</name>
   <version>0.1.0</version>
-  <description>Shared C++ helpers of the robot's C++ nodes: YAML config validation (exit 78), Prometheus metrics and the Jetson depth wire format. Plain libraries, no ROS client library.</description>
+  <description>Shared C++ helpers of the robot's C++ nodes: YAML config validation (exit 78), and Prometheus metrics. Plain libraries, no ROS client library.</description>
   <maintainer email="szymon.rychu@gmail.com">Szymon Richert</maintainer>
   <license>Proprietary</license>
 

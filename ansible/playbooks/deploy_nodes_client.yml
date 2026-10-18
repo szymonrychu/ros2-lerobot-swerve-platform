@@ -303,8 +303,7 @@
             _deploy_node_name: stereo_depth
           tags: [stereo_depth, apt, python, build, config]
 
-        # C++ port of stereo_depth, side by side (present: false until the cut-over), right after it as in ros2_nodes. Its colcon
-        # local-source build never stops the running nodes.
+        # Retired (D7), kept for the uninstall: present: false removes the unit and the built package.
         - name: Deploy stereo_depth_cpp
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml
@@ -314,7 +313,7 @@
             _deploy_node_name: stereo_depth_cpp
           tags: [stereo_depth_cpp, apt, python, build, config]
 
-        # Pi side of the Jetson depth offload (colcon local-source build, never stops the running nodes).
+        # Retired, kept for the uninstall: present: false removes the unit, launcher, config and the colcon output.
         - name: Deploy jetson_bridge_cpp
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

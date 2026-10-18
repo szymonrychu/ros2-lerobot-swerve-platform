@@ -1,6 +1,6 @@
 ---
 # Build ONE source package into a colcon workspace (included once per source by colcon_source_build.yml).
-# A source is either PINNED upstream or LOCAL (an in-repo ament package such as nodes/stereo_depth_cpp).
+# A source is either PINNED upstream or LOCAL (an in-repo ament package such as nodes/map_guard_cpp).
 # Local: colcon_src: {local (repo-relative package dir), package, workspace, stamp_apt_packages, and the shared fields
 # cmake_args, base_paths, jobs: the _cpp node types set -DBUILD_TESTING=OFF, base_paths [.] and jobs 2}. The tree is rsynced from
 # the repo checkout into <workspace>/src/<package> on every deploy (a no-op when unchanged) and its stamp key is a hash

@@ -1,4 +1,4 @@
-"""The network role's netplan rendering after the Jetson link support was dropped: DHCP ethernets and the WiFi stanza
+"""The network role's netplan rendering after the retired link support was dropped: DHCP ethernets and the WiFi stanza
 render as before, no static link ethernet exists, and no link variable remains. Nothing here runs ansible."""
 
 from pathlib import Path

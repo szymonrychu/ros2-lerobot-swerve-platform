@@ -56,7 +56,7 @@ AGENT = {
 }
 # Background tier: work the robot can lose: the systemd default weight and no OOM protection, below every robot and
 # agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers, pi_cameras the front/back
-# previews (the stereo nodes that once shared the tier are retired, D7).
+# previews (the retired depth nodes that once shared the tier are gone, D7).
 BACKGROUND = {
     "weights": (100, 100, 0),
     "types": ["joint_state_throttle_follower", "joint_state_throttle_swerve", "pi_cameras"],
@@ -318,8 +318,8 @@ def test_tiers_do_not_overlap() -> None:
 
 
 def test_every_client_type_is_tiered() -> None:
-    """Every client node type except the uninstalled ones (fastdds_discovery_server, the retired stereo_depth,
-    stereo_depth_cpp and overview_camera, D7, and jetson_bridge_cpp, retired with the Jetson) is in a tier, and those
+    """Every client node type except the uninstalled ones (fastdds_discovery_server, the retired Pi camera and depth
+    types, D7, and the retired bridge type) is in a tier, and those
     carry no tier keys."""
     uninstalled = {
         "fastdds_discovery_server",

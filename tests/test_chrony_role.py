@@ -1,4 +1,4 @@
-"""The client chrony role: plain internet pools, no Jetson serving. The template is rendered with jinja2 and the
+"""The client chrony role: plain internet pools, no local serving. The template is rendered with jinja2 and the
 tasks are checked by structure; nothing here runs ansible."""
 
 from pathlib import Path

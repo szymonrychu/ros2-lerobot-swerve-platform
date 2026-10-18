@@ -2,7 +2,7 @@
 # Build the source packages of a node type into a colcon workspace: pinned upstream packages that are not in the apt
 # distribution, and local in-repo ament packages (the _cpp nodes). node_colcon_source is either ONE source dict
 # (rf2o_laser_odometry) or a LIST of them, built in list order so dependencies come first (libcamera before camera_ros,
-# ros2_common_cpp before stereo_depth_cpp). A pinned source is {repo, commit, package, workspace, patches, cmake_args,
+# ros2_common_cpp before map_guard_cpp). A pinned source is {repo, commit, package, workspace, patches, cmake_args,
 # meson_args}, a local one {local, package, workspace, stamp_apt_packages}: see colcon_source_package.yml for the
 # fields, the stamp logic, the build limits and why a local build never stops the running nodes.
 

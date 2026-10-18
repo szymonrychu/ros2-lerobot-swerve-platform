@@ -4,9 +4,9 @@
 // 127.0.0.1:<metrics_port> for Grafana Alloy to scrape. Built on prometheus-cpp (apt prometheus-cpp-dev).
 //
 //   auto port = ros2_common_cpp::resolve_metrics_port(cfg_metrics_port);   // config value, else METRICS_PORT
-//   ros2_common_cpp::Metrics metrics("stereo_depth");
-//   auto & frames = metrics.counter("stereo_frames_total", "Frames processed", {{"camera", "head"}});
-//   auto & latency = metrics.histogram("stereo_latency_seconds", "Frame latency", {0.01, 0.05, 0.1});
+//   ros2_common_cpp::Metrics metrics("my_node");
+//   auto & frames = metrics.counter("my_frames_total", "Frames processed", {{"source", "front"}});
+//   auto & latency = metrics.histogram("my_latency_seconds", "Frame latency", {0.01, 0.05, 0.1});
 //   if (port) metrics.serve(*port);
 //   frames.Increment(); latency.Observe(0.02);
 #ifndef ROS2_COMMON_CPP__METRICS_HPP_

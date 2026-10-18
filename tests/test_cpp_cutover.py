@@ -81,7 +81,7 @@ def test_background_tier_holds_only_throttles_and_previews() -> None:
         )
         == BACKGROUND_TIER
     ]
-    # The stereo nodes are retired (D7): the joint-state throttle relays and the pi_cameras previews are left.
+    # The retired Pi camera nodes (D7) are gone: the joint-state throttle relays and the pi_cameras previews are left.
     assert sorted(running) == ["joint_state_throttle_follower", "joint_state_throttle_swerve", "pi_cameras"]
 
 
