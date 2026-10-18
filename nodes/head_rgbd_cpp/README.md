@@ -1,7 +1,7 @@
 # head_rgbd_cpp
 
 Registers the head ToF depth into the Camera Module 3 frame: an aligned RGB-D pair and a coloured point cloud.
-This package holds the build structure and the validated config; the fusion stages land under `src/core`.
+The fusion stages (filter, registration, motion, upsampling, cloud) and the validated config are sources under `src/core`.
 
 ## Layout
 
