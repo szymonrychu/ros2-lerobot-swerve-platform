@@ -15,7 +15,6 @@ vi.mock('../camera/zoomApi', async (orig) => ({
 const RGB = '/head_camera/image_raw/compressed'
 const DEPTH = '/tof/depth/image_raw'
 const AMP = '/tof/amplitude/image_raw'
-const PAN_TILT_LABEL = 'pan/tilt: no head mount configured'
 
 const TAB = {
   id: 'head',
@@ -88,20 +87,106 @@ describe('HeadTab', () => {
     expect(screen.queryAllByRole('img')).toEqual([])
   })
 
-  it('renders a pan/tilt block with every control disabled that publishes nothing', () => {
-    setViewport(1400)
-    const publish = vi.fn()
-    renderTab(FRAMES, publish)
-    const block = screen.getByTestId('head-pan-tilt')
-    expect(block.textContent).toContain(PAN_TILT_LABEL)
-    const buttons = block.querySelectorAll('button')
-    const inputs = block.querySelectorAll('input')
-    expect(buttons.length + inputs.length).toBeGreaterThan(0)
-    buttons.forEach((b) => expect((b as HTMLButtonElement).disabled).toBe(true))
-    inputs.forEach((i) => expect((i as HTMLInputElement).disabled).toBe(true))
-    buttons.forEach((b) => fireEvent.click(b))
-    inputs.forEach((i) => fireEvent.change(i, { target: { value: '10' } }))
-    expect(publish).not.toHaveBeenCalled()
+  describe('pan/tilt controls', () => {
+    const CMD = '/head/joint_commands'
+    const STATES = '/head/joint_states'
+    const HEAD_TAB = {
+      ...TAB,
+      head_command_topic: CMD,
+      head_joint_states_topic: STATES,
+      head_pan_range_deg: [-90, 90],
+      head_tilt_range_deg: [-30, 45],
+      head_home_deg: [0, 30],
+    } as TabConfig
+    const SAMPLE = { [STATES]: { name: ['head_pan', 'head_tilt'], position: [Math.PI / 6, -Math.PI / 12] } }
+    const DEG = Math.PI / 180
+
+    function sliderInputs(): HTMLInputElement[] {
+      return [screen.getByLabelText('pan'), screen.getByLabelText('tilt')] as HTMLInputElement[]
+    }
+
+    function dragPan(clientXs: number[]): void {
+      const root = screen.getByTestId('head-pan-tilt').querySelector('.MuiSlider-root') as HTMLElement
+      root.getBoundingClientRect = () => ({ left: 0, top: 0, width: 180, height: 10, right: 180, bottom: 10, x: 0, y: 0 }) as DOMRect
+      fireEvent.mouseDown(root, { clientX: clientXs[0], clientY: 5 })
+      clientXs.slice(1).forEach((x) => fireEvent.mouseMove(document, { clientX: x, clientY: 5, buttons: 1 }))
+    }
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('disables both sliders and Home with a waiting line before the first sample', () => {
+      setViewport(1400)
+      renderTab(FRAMES, vi.fn(), HEAD_TAB)
+      sliderInputs().forEach((i) => expect(i.disabled).toBe(true))
+      expect(screen.getByText('waiting for /head/joint_states')).toBeTruthy()
+    })
+
+    it('enables the sliders with the measured degrees after the first sample', () => {
+      setViewport(1400)
+      renderTab({ ...FRAMES, ...SAMPLE }, vi.fn(), HEAD_TAB)
+      const [pan, tilt] = sliderInputs()
+      expect(pan.disabled).toBe(false)
+      expect(Number(pan.value)).toBeCloseTo(30, 0)
+      expect(Number(tilt.value)).toBeCloseTo(-15, 0)
+      expect(screen.queryByText(/waiting for \/head\/joint_states/)).toBeNull()
+      expect(screen.getByTestId('head-measured').textContent).toContain('30')
+      expect(screen.getByTestId('head-measured').textContent).toContain('-15')
+    })
+
+    it('release publishes radians with both joint names', () => {
+      setViewport(1400)
+      const publish = vi.fn()
+      renderTab({ ...FRAMES, ...SAMPLE }, publish, HEAD_TAB)
+      fireEvent.change(sliderInputs()[0], { target: { value: '45' } })
+      const last = publish.mock.calls[publish.mock.calls.length - 1]
+      expect(last[0]).toBe(CMD)
+      expect(last[1]).toBe('sensor_msgs/JointState')
+      expect(last[2].name).toEqual(['head_pan', 'head_tilt'])
+      expect(last[2].position[0]).toBeCloseTo(45 * DEG, 5)
+      expect(last[2].position[1]).toBeCloseTo(-15 * DEG, 5)
+    })
+
+    it('drag publishes no faster than 5 Hz', () => {
+      setViewport(1400)
+      vi.useFakeTimers()
+      const publish = vi.fn()
+      renderTab({ ...FRAMES, ...SAMPLE }, publish, HEAD_TAB)
+      dragPan([90, 100, 110, 120, 130])
+      expect(publish.mock.calls.length).toBe(1)
+      act(() => {
+        vi.advanceTimersByTime(100)
+      })
+      dragPan([140])
+      expect(publish.mock.calls.length).toBe(1)
+      act(() => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(publish.mock.calls.length).toBeLessThanOrEqual(2)
+    })
+
+    it('Home publishes the home pose', () => {
+      setViewport(1400)
+      const publish = vi.fn()
+      renderTab({ ...FRAMES, ...SAMPLE }, publish, HEAD_TAB)
+      fireEvent.click(screen.getByRole('button', { name: 'Home' }))
+      expect(publish).toHaveBeenCalledTimes(1)
+      const msg = publish.mock.calls[0][2]
+      expect(publish.mock.calls[0][0]).toBe(CMD)
+      expect(msg.name).toEqual(['head_pan', 'head_tilt'])
+      expect(msg.position[0]).toBeCloseTo(0, 5)
+      expect(msg.position[1]).toBeCloseTo(30 * DEG, 5)
+    })
+
+    it('shows no controls without head_command_topic and publishes nothing', () => {
+      setViewport(1400)
+      const publish = vi.fn()
+      renderTab({ ...FRAMES, ...SAMPLE }, publish)
+      expect(screen.queryByTestId('head-pan-tilt')).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Home' })).toBeNull()
+      expect(publish).not.toHaveBeenCalled()
+    })
   })
 
   it('phone: stacks the previews vertically', () => {
