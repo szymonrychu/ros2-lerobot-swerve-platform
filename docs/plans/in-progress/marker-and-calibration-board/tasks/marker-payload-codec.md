@@ -1,6 +1,6 @@
 ---
 title: Marker payload codec
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Every marker carries one canonical, versioned text that the generator, the robot and the POI store read the same way."
 files: [shared/ros2_common/marker_payload.py, tests/test_shared_marker_payload.py, shared/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/marker-and-calibration-board--marker-payload-codec
+branch: marker-and-calibration-board--marker-payload-codec
 verified_head: ""
 run: ""
 provides: []
