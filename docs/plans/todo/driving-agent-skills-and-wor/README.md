@@ -1,6 +1,6 @@
 ---
 title: Driving agent skills and workflows
-blockers: [Remove the Jetson coprocessor, Named maps with POIs and relocalisation]
+blockers: [Remove the Jetson coprocessor]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
