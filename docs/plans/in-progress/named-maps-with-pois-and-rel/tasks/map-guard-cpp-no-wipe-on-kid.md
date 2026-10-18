@@ -1,6 +1,6 @@
 ---
 title: Map guard cpp no wipe on kidnap
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The enabled C++ guard asks map_manager to relocalise a hand-moved robot first and clears the live map only when the pose is unrecoverable."
 files: [nodes/map_guard_cpp/include/map_guard_cpp/guard.hpp, nodes/map_guard_cpp/src/guard.cpp, nodes/map_guard_cpp/include/map_guard_cpp/config.hpp, nodes/map_guard_cpp/src/config.cpp, nodes/map_guard_cpp/src/map_guard_node.cpp, nodes/map_guard_cpp/test/test_guard.cpp, nodes/map_guard_cpp/test/gen_fixtures.py, nodes/map_guard_cpp/test/fixtures/guard.json]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-guard-cpp-no-wipe-on-kid
 branch: named-maps-with-pois-and-rel--map-guard-cpp-no-wipe-on-kid
-verified_head: ""
-run: ""
+verified_head: e4c11506739b7cf8d533dca1f4ffeeeff008e76c
+run: named-maps-with-pois-and-rel
 provides: []
+acs_for_audit: [a3]
+process_gaps: ["No separate red test run was captured before the implementation (self-reported)."]
 ---
 
 # Map guard cpp no wipe on kidnap

@@ -1,6 +1,6 @@
 ---
 title: Map manager relocalise op
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "After an uncontrolled move the robot first tries to recover its pose on the current map, and only an unrecoverable move empties the live POIs, never a saved map."
 files: [nodes/map_manager/map_manager/manager.py, nodes/map_manager/map_manager/config.py, nodes/map_manager/tests/fakes.py, nodes/map_manager/tests/test_relocalise.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-manager-relocalise-op
 branch: named-maps-with-pois-and-rel--map-manager-relocalise-op
-verified_head: ""
-run: ""
+verified_head: f42cbce5c20f1abe422d7070975baecf0f4c37c9
+run: named-maps-with-pois-and-rel
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Map manager relocalise op

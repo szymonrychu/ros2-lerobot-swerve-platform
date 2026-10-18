@@ -1,6 +1,6 @@
 ---
 title: Shared scan agreement
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "map_manager can judge a relocalisation with exactly the scan-to-map agreement metric map_guard already uses on this robot, without a second implementation."
 files: [shared/ros2_common/scan_agreement.py, tests/test_shared_scan_agreement.py, nodes/map_guard/map_guard/agreement.py, nodes/map_guard/pyproject.toml, nodes/map_guard/uv.lock, nodes/map_guard/README.md, shared/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--shared-scan-agreement
 branch: named-maps-with-pois-and-rel--shared-scan-agreement
-verified_head: ""
-run: ""
-provides: []
+verified_head: 0659db4b5a0bbf55469a219ee2de778d18029641
+run: named-maps-with-pois-and-rel
+provides: [scan-agreement]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Shared scan agreement

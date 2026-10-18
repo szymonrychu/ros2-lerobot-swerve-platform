@@ -1,6 +1,6 @@
 ---
 title: Map manager lint and metrics
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "map_manager is linted in every lint path and CI and scraped by Alloy, so it cannot rot unseen."
 files: [scripts/lint-all-nodes.sh, pyproject.toml, .github/workflows/ci.yml, ansible/roles/monitoring_agent/defaults/main.yml, tests/test_node_metrics_wiring.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-manager-lint-and-metrics
 branch: named-maps-with-pois-and-rel--map-manager-lint-and-metrics
 verified_head: ""
-run: ""
+run: named-maps-with-pois-and-rel
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Map manager lint and metrics

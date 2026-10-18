@@ -50,7 +50,8 @@ The POI store and the map are saved and loaded separately today, and POIs cannot
 
 
 
-Estimate: 1535 min | Actual: 0 min | Remaining estimate: 1535 min
+
+Estimate: 1535 min | Actual: 0 min | Remaining estimate: 365 min
 
 ## Review
 

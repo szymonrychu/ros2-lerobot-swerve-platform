@@ -1,6 +1,6 @@
 ---
 title: Map manager relocaliser
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Before trusting slam_toolbox with a pose hint, the robot finds where its current scan best fits the saved map and refuses to claim a pose when the fit is poor or ambiguous."
 files: [nodes/map_manager/map_manager/relocalise.py, nodes/map_manager/tests/test_relocalise.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-manager-relocaliser
 branch: named-maps-with-pois-and-rel--map-manager-relocaliser
-verified_head: ""
-run: ""
-provides: []
+verified_head: c261b452a6e69102db83dce62f6ab2c2ae240bef
+run: named-maps-with-pois-and-rel
+provides: [relocaliser]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Map manager relocaliser

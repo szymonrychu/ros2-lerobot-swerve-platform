@@ -1,6 +1,6 @@
 ---
 title: Agent named maps prompt
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The driving agent knows the map tools, never drives on a map it is not localised in, and asks before clearing the person's POIs or zones."
 files: [nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_named_maps_prompt.py, nodes/claude_agent/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--agent-named-maps-prompt
 branch: named-maps-with-pois-and-rel--agent-named-maps-prompt
-verified_head: ""
-run: ""
+verified_head: dd8ce45ba42ddb66f04264c4cbaf97a7a2e7aba2
+run: named-maps-with-pois-and-rel
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Agent named maps prompt

@@ -1,6 +1,6 @@
 ---
 title: POI store clear filters
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "POIs can be cleared in one step: all of them, or only one creator's or one kind's, optionally keeping keep-out and slow zones."
 files: [nodes/poi_store/poi_store/models.py, nodes/poi_store/poi_store/store.py, nodes/poi_store/tests/test_clear_filters.py, nodes/poi_store/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--poi-store-clear-filters
 branch: named-maps-with-pois-and-rel--poi-store-clear-filters
-verified_head: ""
-run: ""
+verified_head: 1b383009a4bbfe8d7e3f77653048aac96c50b4ed
+run: named-maps-with-pois-and-rel
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # POI store clear filters

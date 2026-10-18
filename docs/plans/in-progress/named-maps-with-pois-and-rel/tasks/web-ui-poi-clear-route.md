@@ -1,6 +1,6 @@
 ---
 title: Web UI POI clear route
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The web UI can clear POIs in one request with the same filters poi_store supports.
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/tests/test_poi_clear.py, nodes/web_ui/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--web-ui-poi-clear-route
 branch: named-maps-with-pois-and-rel--web-ui-poi-clear-route
-verified_head: ""
-run: ""
+verified_head: 4a8c3c1f18128e386a31962768078e06dcccba28
+run: named-maps-with-pois-and-rel
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI POI clear route

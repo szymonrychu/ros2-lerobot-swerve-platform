@@ -1,6 +1,6 @@
 ---
 title: Map guard no wipe on kidnap
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A hand-moved robot no longer loses its map on the first poor reading: the Python guard asks map_manager to relocalise and resets only if that fails."
 files: [nodes/map_guard/map_guard/guard.py, nodes/map_guard/map_guard/config.py, nodes/map_guard/map_guard/node.py, nodes/map_guard/tests/test_guard.py, nodes/map_guard/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-guard-no-wipe-on-kidnap
 branch: named-maps-with-pois-and-rel--map-guard-no-wipe-on-kidnap
-verified_head: ""
-run: ""
+verified_head: 16982322772588e3a1ca674d8afe07242e57807a
+run: named-maps-with-pois-and-rel
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Map guard no wipe on kidnap

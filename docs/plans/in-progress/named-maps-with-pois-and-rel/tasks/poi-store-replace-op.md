@@ -1,6 +1,6 @@
 ---
 title: POI store replace op
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Loading a named map can swap in that map's POIs atomically, so the POIs always belong to the map that is loaded."
 files: [nodes/poi_store/poi_store/models.py, nodes/poi_store/poi_store/store.py, nodes/poi_store/tests/test_replace.py, nodes/poi_store/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--poi-store-replace-op
 branch: named-maps-with-pois-and-rel--poi-store-replace-op
-verified_head: ""
-run: ""
+verified_head: 8ff9cf61ce62f438ce7de1c6fee488aa282ba191
+run: named-maps-with-pois-and-rel
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # POI store replace op

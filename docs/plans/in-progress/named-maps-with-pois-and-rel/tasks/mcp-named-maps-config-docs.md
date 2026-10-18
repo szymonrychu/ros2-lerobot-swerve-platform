@@ -1,6 +1,6 @@
 ---
 title: MCP named maps config docs
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The deployed mcp_server config, its README tool table and the map_manager topics agree, checked by the root config test."
 files: [nodes/mcp_server/README.md, ansible/group_vars/client.yml, tests/test_mcp_server_config.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--mcp-named-maps-config-docs
 branch: named-maps-with-pois-and-rel--mcp-named-maps-config-docs
 verified_head: ""
-run: ""
+run: named-maps-with-pois-and-rel
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP named maps config docs
