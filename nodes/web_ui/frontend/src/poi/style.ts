@@ -1,6 +1,7 @@
 /** POI presentation (colours by status, creator marker) and list helpers. */
 import { CREATOR_OUTLINE, KIND_COLORS, OBJECT_COLOR, SELECTED_OUTLINE, STATUS_COLORS, ZONE_COLORS } from '../map3d/palette'
 import type { Poi, PoiKind, PoiList, PoiStatus } from './types'
+import { parsePoiTags, type PoiCategory } from './categories'
 import { POI_STATUSES, POI_ZONES, ZONE_PCT_MAX, ZONE_PCT_MIN, type PoiZone } from './types'
 
 const DEFAULT_CONFIDENCE = 1
@@ -41,7 +42,23 @@ const INACTIVE_ZONE_OPACITY = 0.2
 const KEEPOUT_LINE_WIDTH = 4
 const SLOW_LINE_WIDTH = 3
 
+/** Colour of each POI category: hue only for the two zone categories, greyscale otherwise (problem spots are the brightest). */
+export const CATEGORY_COLORS: Record<PoiCategory, string> = {
+  target: KIND_COLORS.point,
+  slow: ZONE_COLORS.slow,
+  keepout: ZONE_COLORS.keepout,
+  problem: STATUS_COLORS.open,
+  detail: KIND_COLORS['area-none'],
+}
+/** Size factor of a survey spot marker (small) and its opacity factor (muted). */
+export const SURVEY_SCALE = 0.5
+const SURVEY_OPACITY_FACTOR = 0.5
+const PROBLEM_LINE_WIDTH = 4
+const PROBLEM_OPACITY = 0.8
+
 export interface PoiStyle {
+  /** Marker size factor, 1 unless the POI is a survey spot. */
+  scale: number
   fill: string
   outline: string
   opacity: number
@@ -58,7 +75,8 @@ export interface PoiStyle {
  * @returns style
  */
 export function poiStyle(poi: Poi, selected: boolean): PoiStyle {
-  return {
+  const style: PoiStyle = {
+    scale: 1,
     fill: poi.kind === 'object' ? OBJECT_COLOR : STATUS_COLORS[poi.status],
     outline: selected ? SELECTED_OUTLINE : CREATOR_OUTLINE[poi.created_by],
     opacity: poi.status === 'open' ? OPEN_OPACITY : CLOSED_OPACITY,
@@ -66,6 +84,28 @@ export function poiStyle(poi: Poi, selected: boolean): PoiStyle {
     dashed: poi.created_by === 'agent',
     creatorTag: poi.created_by,
   }
+  if (!hasCategoryStyle(poi)) return style
+  const tags = parsePoiTags(poi.note)
+  if (tags.category === 'problem') {
+    style.lineWidth = selected ? PROBLEM_LINE_WIDTH + 1 : PROBLEM_LINE_WIDTH
+    style.opacity = Math.max(style.opacity, PROBLEM_OPACITY)
+    style.dashed = false
+  }
+  if (tags.surveySpot) {
+    style.scale = SURVEY_SCALE
+    style.opacity *= SURVEY_OPACITY_FACTOR
+  }
+  return style
+}
+
+/**
+ * Whether category styling applies: points and areas without a zone (zoned areas keep their zone style, objects and photos theirs).
+ *
+ * @param poi - POI
+ * @returns true for a point or an area with no zone
+ */
+function hasCategoryStyle(poi: Poi): boolean {
+  return (poi.kind === 'point' || (poi.kind === 'area' && (poi.zone ?? 'none') === 'none'))
 }
 
 /**
@@ -106,6 +146,7 @@ export function zoneStyle(poi: Poi, selected: boolean): PoiStyle | null {
   const active = poi.status === 'open'
   const color = zoneColor(zone, poi.status)
   return {
+    scale: 1,
     fill: color,
     outline: selected ? SELECTED_OUTLINE : color,
     opacity: active ? ZONE_OPACITY[zone] : INACTIVE_ZONE_OPACITY,
@@ -123,6 +164,11 @@ export function zoneStyle(poi: Poi, selected: boolean): PoiStyle | null {
  * @returns fill and outline colours
  */
 export function markerColors(poi: Poi): { fill: string; outline: string } {
+  const category = hasCategoryStyle(poi) ? parsePoiTags(poi.note).category : null
+  if (category) {
+    const color = CATEGORY_COLORS[category]
+    return { fill: color, outline: poi.kind === 'area' ? color : STATUS_COLORS[poi.status] }
+  }
   if (poi.kind === 'area') {
     const color = fillColor(poi.kind, poi.zone, poi.status)
     return { fill: color, outline: color }
