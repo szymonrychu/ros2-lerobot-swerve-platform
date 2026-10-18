@@ -18,5 +18,15 @@
       "printable-metadata-markers-t"
     ],
     "note": "poi_store Command.kinds includes photo; clear result {removed, pois, photos}"
+  },
+  {
+    "name": "poi-list-photo-entries",
+    "kind": "topic",
+    "owner": "poi-fixes-photos-as-pois-and",
+    "file": "nodes/poi_store/poi_store/store.py",
+    "consumers": [
+      "printable-metadata-markers-t"
+    ],
+    "note": "/poi/list carries photo POIs (photo_as_poi form, x/y may be null) after non-photo POIs; one revision"
   }
 ]
