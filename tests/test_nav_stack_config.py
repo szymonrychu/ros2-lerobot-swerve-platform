@@ -705,7 +705,7 @@ def costmap_zones_defaults() -> dict[str, str]:
     ("costmap", "plugins"),
     [
         ("global_costmap", ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]),
-        ("local_costmap", ["obstacle_layer", "keepout_filter", "inflation_layer"]),
+        ("local_costmap", ["obstacle_layer", "tof_voxel_layer", "keepout_filter", "inflation_layer"]),
     ],
 )
 def test_nav2_keepout_filter_sits_right_before_inflation(costmap: str, plugins: list[str]) -> None:
