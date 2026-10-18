@@ -52,3 +52,7 @@ Estimate: 440 min | Actual: 0 min | Remaining estimate: 0 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+All 8 tasks (+2 discovered notes) verified and merged; deployed 2026-10-18: arm on its own adapter (5AE6081020, IDs 1-6), base_servos on 5A7A059004 (swerve 32-39 + head 20/21); base 48.7 Hz idle, /odom 3.7 cm and 11.3 cm nudges correct, consumers OK. Open item for the user: arm bus 94.7 Hz idle / 89 Hz driving vs the 98 Hz gate (cycle 4.1 ms of 10 ms: CPU/timer-bound, not bus); arm teleop tracking check pending the user moving the leader.
