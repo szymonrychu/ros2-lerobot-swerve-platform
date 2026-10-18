@@ -13,8 +13,9 @@ find_package(ament_cmake REQUIRED)
 find_package(ros2_common_cpp REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
-# ximgproc (guided filter) is in opencv_contrib: libopencv-contrib-dev.
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs ximgproc)
+# calib3d: undistortPoints/projectPoints of the registration. ximgproc (guided filter) is in opencv_contrib:
+# libopencv-contrib-dev.
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d ximgproc)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(message_filters REQUIRED)
@@ -41,6 +42,7 @@ target_link_libraries(head_rgbd_core PUBLIC
   opencv_core
   opencv_imgproc
   opencv_imgcodecs
+  opencv_calib3d
   opencv_ximgproc)
 target_include_directories(head_rgbd_core SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS})
 set_target_properties(head_rgbd_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
