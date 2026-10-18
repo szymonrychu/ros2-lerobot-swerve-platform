@@ -1,6 +1,6 @@
 ---
 title: Agent zoom prompt and docs
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The agent knows the front camera is the head camera and when and how to zoom.
 files: [nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_prompt.py, nodes/claude_agent/tests/test_config.py, nodes/claude_agent/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--agent-zoom-prompt-and-docs
 branch: front-camera-30-fps-stream-w--agent-zoom-prompt-and-docs
-verified_head: ""
+verified_head: 9ed05974359bfebb517970ef8da3566443cb378e
 run: front-camera-30-fps-stream-w
 provides: []
 acs_for_audit: []

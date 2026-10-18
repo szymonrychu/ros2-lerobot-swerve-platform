@@ -1,6 +1,6 @@
 ---
 title: Web UI zoom backend
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The web UI backend can request a head camera zoom and hand the crop to the browser.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/tests/test_camera_zoom.py, nodes/web_ui/tests/test_bridge.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/README.md]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--web-ui-zoom-backend
 branch: front-camera-30-fps-stream-w--web-ui-zoom-backend
-verified_head: ""
+verified_head: d03847a2f9f49a87c930dee8200cc018051ba5ee
 run: front-camera-30-fps-stream-w
-provides: []
+provides: [web-zoom-endpoint]
 acs_for_audit: []
 process_gaps: []
 ---

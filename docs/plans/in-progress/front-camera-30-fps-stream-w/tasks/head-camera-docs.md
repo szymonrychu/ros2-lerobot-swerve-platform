@@ -64,3 +64,5 @@ Docs and memory describe the head camera node, its zoom contract and the retirem
 - CLAUDE.md audience: mid-level Python developer with ROS 2 experience.
 
 - 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on agent-zoom-prompt-and-docs, head-tab-click-to-zoom
+
+- 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on head-tab-click-to-zoom
