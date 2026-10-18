@@ -7,10 +7,29 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from .ros_stubs import FakeRclpy, external_shutdown
-from .test_shutdown import bridge_module, make_config, signal_during_spin  # noqa: F401  (bridge_module is a fixture)
+from .ros_stubs import FakeRclpy, external_shutdown, install_ros_stubs
+from .test_shutdown import make_config, signal_during_spin
+
+install_ros_stubs("sensor_msgs", "sensor_msgs.msg", "std_msgs", "std_msgs.msg")
 
 BASE_YAML = "namespace: base\njoint_names:\n  - {name: wheel, id: 2}\n"
+
+
+@pytest.fixture
+def bridge_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Import feetech_servos.bridge with the metrics server, node and executor mocked (as test_shutdown does).
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): Patches module attributes.
+
+    Returns:
+        ModuleType: The patched bridge module.
+    """
+    module = importlib.import_module("feetech_servos.bridge")
+    monkeypatch.setattr(module, "start_metrics_server", MagicMock())
+    monkeypatch.setattr(module, "Node", MagicMock())
+    monkeypatch.setattr(module, "SingleThreadedExecutor", MagicMock())
+    return module
 
 
 def write_config(tmp_path: Path, extra: str) -> Path:
@@ -70,13 +89,13 @@ def run_with_name(module: ModuleType, monkeypatch: pytest.MonkeyPatch, node_name
     module.run_bridge(config)
 
 
-def test_node_name_names_node_and_metrics(bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+def test_node_name_names_node_and_metrics(bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     run_with_name(bridge_module, monkeypatch, "base_servos")
     bridge_module.Node.assert_called_once_with("base_servos")
     assert bridge_module.start_metrics_server.call_args.args[1] == "base_servos"
 
 
-def test_unset_node_name_keeps_defaults(bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+def test_unset_node_name_keeps_defaults(bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     run_with_name(bridge_module, monkeypatch, None)
     bridge_module.Node.assert_called_once_with("feetech_servos_bridge")
     assert bridge_module.start_metrics_server.call_args.args[1] == "lerobot_follower"
@@ -95,7 +114,7 @@ def battery_publishers(module: ModuleType) -> list[object]:
     return [c for c in calls if c.args and c.args[0] is module.BatteryState]
 
 
-def test_battery_interval_zero_creates_no_publisher(bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+def test_battery_interval_zero_creates_no_publisher(bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bridge_module, "BatteryState", MagicMock(name="BatteryState"))
     fake = FakeRclpy()
     monkeypatch.setattr(bridge_module, "rclpy", fake)
@@ -110,7 +129,7 @@ def test_battery_interval_zero_creates_no_publisher(bridge_module: ModuleType, m
 
 def test_battery_interval_positive_creates_publisher(
     bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: F811
+) -> None:
     monkeypatch.setattr(bridge_module, "BatteryState", MagicMock(name="BatteryState"))
     fake = FakeRclpy()
     monkeypatch.setattr(bridge_module, "rclpy", fake)
