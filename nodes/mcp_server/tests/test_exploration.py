@@ -27,7 +27,7 @@ def settings(**kw: float) -> ExplorationSettings:
     return ExplorationSettings(**{**base, **kw})
 
 
-def test_walled_room_with_central_spot_is_fully_covered() -> None:
+def test_full_room_covered_by_central_spot() -> None:
     grid = make_grid(room(60, 60))
     reach = reachable_mask(grid, free_mask(grid.data), cell_to_map(grid, 30, 30))
     assert reach is not None
@@ -133,7 +133,7 @@ def test_reachable_is_the_robot_component_only() -> None:
     assert reach[15, 10] and not reach[15, 45]
 
 
-def test_large_map_with_many_spots_is_fast() -> None:
+def test_performance_large_map_many_spots() -> None:
     grid = make_grid(room(400, 400))
     reach = reachable_mask(grid, free_mask(grid.data), cell_to_map(grid, 200, 200))
     assert reach is not None
@@ -143,3 +143,16 @@ def test_large_map_with_many_spots_is_fast() -> None:
     cov = coverage(grid, reach, spots, cfg)
     assert time.perf_counter() - start < 1.0
     assert cov.fraction is not None and cov.fraction > 0.0
+
+
+def test_unknown_speck_beside_spot_does_not_kill_downsampled_survey() -> None:
+    data = room(60, 60)
+    data[30, 31] = UNKNOWN
+    grid = make_grid(data)
+    reach = reachable_mask(grid, free_mask(grid.data), cell_to_map(grid, 30, 30))
+    assert reach is not None
+    spot = [cell_to_map(grid, 30, 30)]
+    fine = coverage(grid, reach, spot, settings())
+    coarse = coverage(grid, reach, spot, settings(downsample=2))
+    assert fine.surveyed_m2 > 0.0
+    assert coarse.surveyed_m2 > 0.5 * fine.surveyed_m2
