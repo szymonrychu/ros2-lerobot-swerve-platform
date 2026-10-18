@@ -37,7 +37,7 @@ TEST(MappingDecimator, AcceptsTwoFramesPerSecondFrom30FpsInput)
       ++accepted;
     }
   }
-  EXPECT_NEAR(accepted, 20, 2);
+  EXPECT_NEAR(accepted, 20, 1);
 }
 
 TEST(MappingDecimator, FirstFrameIsDue)

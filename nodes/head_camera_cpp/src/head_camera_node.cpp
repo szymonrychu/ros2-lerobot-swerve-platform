@@ -13,6 +13,7 @@
 
 #include "head_camera_cpp/encode.hpp"
 #include "head_camera_cpp/libcamera_backend.hpp"
+#include "head_camera_cpp/mapping_stream.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 
 namespace head_camera_cpp
@@ -76,39 +77,31 @@ sensor_msgs::msg::CameraInfo load_camera_info(
   if (!root["image_width"] || !root["image_height"]) {
     throw std::runtime_error(path + ": image_width and image_height are required");
   }
-  const double sx = static_cast<double>(width) / root["image_width"].as<double>();
-  const double sy = static_cast<double>(height) / root["image_height"].as<double>();
+  CameraIntrinsics calibrated;
+  calibrated.width = root["image_width"].as<int>();
+  calibrated.height = root["image_height"].as<int>();
 
   sensor_msgs::msg::CameraInfo info;
   info.header.frame_id = frame_id;
-  info.width = static_cast<uint32_t>(width);
-  info.height = static_cast<uint32_t>(height);
   info.distortion_model = root["distortion_model"] ? root["distortion_model"].as<std::string>() : "plumb_bob";
   if (root["distortion_coefficients"] && root["distortion_coefficients"]["data"]) {
-    info.d = root["distortion_coefficients"]["data"].as<std::vector<double>>();
+    calibrated.d = root["distortion_coefficients"]["data"].as<std::vector<double>>();
   }
   const auto k = matrix(root, "camera_matrix", 9);
-  std::copy(k.begin(), k.end(), info.k.begin());
+  std::copy(k.begin(), k.end(), calibrated.k.begin());
   const auto p = matrix(root, "projection_matrix", 12);
-  std::copy(p.begin(), p.end(), info.p.begin());
+  std::copy(p.begin(), p.end(), calibrated.p.begin());
   if (root["rectification_matrix"]) {
     const auto r = matrix(root, "rectification_matrix", 9);
-    std::copy(r.begin(), r.end(), info.r.begin());
-  } else {
-    info.r = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    std::copy(r.begin(), r.end(), calibrated.r.begin());
   }
-  for (const size_t i : {0, 2}) {
-    info.k[i] *= sx;
-  }
-  for (const size_t i : {4, 5}) {
-    info.k[i] *= sy;
-  }
-  for (const size_t i : {0, 2, 3}) {
-    info.p[i] *= sx;
-  }
-  for (const size_t i : {5, 6, 7}) {
-    info.p[i] *= sy;
-  }
+  const CameraIntrinsics scaled = scale_intrinsics(calibrated, width, height);
+  info.width = static_cast<uint32_t>(scaled.width);
+  info.height = static_cast<uint32_t>(scaled.height);
+  info.d = scaled.d;
+  info.k = scaled.k;
+  info.r = scaled.r;
+  info.p = scaled.p;
   return info;
 }
 
