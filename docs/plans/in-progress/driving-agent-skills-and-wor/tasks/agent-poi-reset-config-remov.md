@@ -12,8 +12,8 @@ model: sonnet
 estimate: 25
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--agent-poi-reset-config-remov
+branch: driving-agent-skills-and-wor--agent-poi-reset-config-remov
 verified_head: ""
 run: ""
 provides: []

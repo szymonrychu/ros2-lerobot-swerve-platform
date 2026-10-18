@@ -12,7 +12,6 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--tof-jump-edge-filter
 branch: head-rgb-d-fusion-of-camera--tof-jump-edge-filter
 verified_head: ""
 run: ""

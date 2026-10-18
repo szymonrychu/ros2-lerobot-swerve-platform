@@ -12,7 +12,6 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-registration-zbuffer
 branch: head-rgb-d-fusion-of-camera--rgbd-registration-zbuffer
 verified_head: ""
 run: ""

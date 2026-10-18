@@ -7,6 +7,8 @@ import uuid
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from ros2_common.poi_categories import parse_tags
+
 from .geometry import normalize_angle
 from .models import RobotError
 from .perception_models import PoiView
@@ -203,6 +205,7 @@ def describe_pois(
     for poi in pois:
         if status is not None and poi.get("status") != status:
             continue
+        tags = parse_tags(str(poi.get("note") or ""))
         view = PoiView(
             poi=poi,
             id=str(poi.get("id", "")),
@@ -211,6 +214,9 @@ def describe_pois(
             status=str(poi.get("status", "")),
             zone=str(poi.get("zone", "none")),
             speed_limit_pct=poi.get("speed_limit_pct"),
+            category=tags.category,
+            problem_type=tags.problem_type,
+            survey=tags.survey,
         )
         if pose is not None:
             view.distance_m = round(math.hypot(poi["x"] - pose[0], poi["y"] - pose[1]), 3)
