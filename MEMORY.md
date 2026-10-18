@@ -191,3 +191,12 @@
 ## ROS2 topic publishing
 
 * **No placeholder data**: Only real, valid data from sensors or actual state may be published on ROS2 topics. Do not publish zeroed/coerced/synthetic data when reads fail or are invalid. If valid data is unavailable, skip publishing for that cycle. See CLAUDE.md "No Placeholder Data on Topics".
+
+## Driving agent skills, workflows and retrospectives (2026-10-18)
+
+- **Skills as a read-only plugin**: the agent's procedures (survey, sightseeing, planning, approach-and-verify, safe-pick-place, recover-from-failure, poi-categories, retrospective) are Agent SDK skills in the `robot-skills` plugin shipped in the claude_agent node. The checkout is root-owned and the service runs non-root, so the agent cannot edit them; changing a skill means a commit and a deploy.
+- **Workflows via start_workflow**: discovery, drive_to_target and pick_place are YAML templates that `start_workflow` expands into the task plan (mandatory steps, skill hints); the plan limits still apply.
+- **Retrospectives store + feed**: each job ends with a retrospective saved in a store and served as a feed to the web UI Retros tab; `scripts/agent_retrospectives.py` pulls them to `.logs/retrospectives/`.
+- **POI categories as note tags**: categories are tags in the POI note, not a new schema field, so existing POIs and the store stay compatible.
+- **Slow zones costed through the keepout mask**: slow zones are written into the keepout mask at a non-lethal value (default 60), so Nav2 path cost avoids them without a new filter; the speed mask still limits speed.
+- **New session** only resets the conversation and job state; it never deletes POIs or maps. POI removal is by explicit buttons and tools (filter, mark, delete marked).

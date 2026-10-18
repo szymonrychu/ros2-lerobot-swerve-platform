@@ -358,6 +358,10 @@ loads them on demand under the qualified name `robot-skills:<name>`. `claude_age
   `get_3d_map_status`, `query_3d_map_at`, `get_3d_free_space`, zoom) may be named only under
   `## When extra perception tools exist`, and that section must also give the base-rotation fallback (`look_around`).
   Everything outside it works on the base-rotation tools alone.
+- **Shipped skills.** `planning` (start of every job: picks the workflow), `survey` (look all around at one spot),
+  `sightseeing` (explore, map or look around the whole place), `approach-and-verify` (drive to a target and confirm
+  arrival), `safe-pick-place` (pick up, carry, put down), `recover-from-failure` (stuck, refused or interrupted
+  motion), `poi-categories` (map found things onto POI categories) and `retrospective` (look back at the ended job).
 - **Adding a skill.** Create `agent_plugin/skills/<name>/SKILL.md` with frontmatter `name` (= directory name) and a
   `description` of at most 1024 characters that starts with "Use when ...", then the body. Run
   `uv run pytest tests/test_skills.py` here and `uv run pytest tests/test_agent_skills.py` at the repo root.

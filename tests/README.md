@@ -2562,3 +2562,16 @@ Unit tests for `scripts/agent_retrospectives.py` (pulls the agent's retrospectiv
 | `test_main_exit_1_on_http_error` | A 502 gives exit 1 with the status on stderr. |
 | `test_main_exit_1_on_connection_error` | A connection error gives exit 1 with the reason. |
 | `test_main_exit_2_on_bad_config` | An invalid or missing config gives exit 2. |
+
+### test_agent_skills_docs.py
+
+Docs guard for the driving-agent skills suite.
+
+| Test | What it covers |
+|---|---|
+| `test_readme_has_skills_workflows_retrospectives_sections` | The claude_agent README has non-empty Skills, Workflows and Retrospectives sections. |
+| `test_every_skill_directory_is_listed_in_readme` | Every skill directory name appears in the README Skills section. |
+| `test_every_workflow_template_is_listed_in_readme` | Every workflow template name appears in the README Workflows section. |
+| `test_nodes_readme_mentions_the_new_features` | The `nodes/README.md` claude_agent line names skills, workflows and retrospectives; the costmap_zones line names slow-zone cost. |
+| `test_memory_records_the_decision` | MEMORY.md records the skills, workflows, retrospectives, POI category and slow-zone decisions. |
+| `test_tests_readme_lists_this_file` | This file is listed here. |
