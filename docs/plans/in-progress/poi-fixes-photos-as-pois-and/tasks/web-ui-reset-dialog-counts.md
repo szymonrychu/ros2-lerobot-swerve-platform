@@ -1,6 +1,6 @@
 ---
 title: Web UI reset dialog counts
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The user sees before confirming that Reset map and map delete remove POIs and photos
 files: [nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.toolbar.test.tsx, nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/map/MapsDialog.tsx, nodes/web_ui/frontend/src/map/MapsDialog.test.tsx, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--web-ui-reset-dialog-counts
+branch: poi-fixes-photos-as-pois-and--web-ui-reset-dialog-counts
 verified_head: ""
 run: ""
 provides: []

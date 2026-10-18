@@ -1,6 +1,6 @@
 ---
 title: POI replace export photos
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Map save and load can carry the photos with the POIs, all or nothing"
 files: [nodes/poi_store/poi_store/models.py, nodes/poi_store/poi_store/store.py, nodes/poi_store/tests/test_replace.py, nodes/poi_store/tests/test_photo_bundle_ops.py, nodes/poi_store/README.md]
@@ -12,8 +12,8 @@ model: opus
 estimate: 80
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--poi-replace-export-photos
+branch: poi-fixes-photos-as-pois-and--poi-replace-export-photos
 verified_head: ""
 run: ""
 provides: []

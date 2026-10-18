@@ -1,6 +1,6 @@
 ---
 title: Map live owner persisted
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Deleting a saved map really deletes its live POIs and photos, after a save and after a restart"
 files: [nodes/map_manager/map_manager/manager.py, nodes/map_manager/map_manager/node.py, nodes/map_manager/tests/fakes.py, nodes/map_manager/tests/test_live_owner.py, nodes/map_manager/tests/test_manager.py, nodes/map_manager/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--map-live-owner-persisted
+branch: poi-fixes-photos-as-pois-and--map-live-owner-persisted
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: Web UI delete marked photos
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Delete marked in the POI list removes marked photos too
 files: [nodes/web_ui/frontend/src/poi/PoiPanels.tsx, nodes/web_ui/frontend/src/poi/DeleteMarkedDialog.tsx, nodes/web_ui/frontend/src/poi/DeleteMarkedDialog.test.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.mark.test.tsx, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--web-ui-delete-marked-photos
+branch: poi-fixes-photos-as-pois-and--web-ui-delete-marked-photos
 verified_head: ""
 run: ""
 provides: []

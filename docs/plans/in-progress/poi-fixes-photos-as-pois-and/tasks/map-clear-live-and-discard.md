@@ -1,6 +1,6 @@
 ---
 title: Map clear live and discard
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Reset map and an unrecoverable move remove the live POIs and photos and leave saved maps alone
 files: [nodes/map_manager/map_manager/manager.py, nodes/map_manager/map_manager/node.py, nodes/map_manager/tests/test_clear_live.py, nodes/map_manager/tests/test_manager.py, nodes/map_manager/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--map-clear-live-and-discard
+branch: poi-fixes-photos-as-pois-and--map-clear-live-and-discard
 verified_head: ""
 run: ""
 provides: []

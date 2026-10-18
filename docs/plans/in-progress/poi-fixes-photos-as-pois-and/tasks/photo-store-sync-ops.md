@@ -1,6 +1,6 @@
 ---
 title: Photo store sync ops
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Photos can be exported to and restored from a map bundle without losing a record or a JPEG
 files: [nodes/poi_store/poi_store/photo_store.py, shared/ros2_common/photos.py, nodes/poi_store/tests/test_photo_store_sync.py, tests/test_shared_photos.py, tests/README.md, nodes/poi_store/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 70
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--photo-store-sync-ops
+branch: poi-fixes-photos-as-pois-and--photo-store-sync-ops
 verified_head: ""
 run: ""
 provides: []

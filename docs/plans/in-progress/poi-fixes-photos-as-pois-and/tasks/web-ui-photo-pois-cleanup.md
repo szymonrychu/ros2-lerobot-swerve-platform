@@ -1,6 +1,6 @@
 ---
 title: Web UI photo POIs cleanup
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The Clear POIs dialog can clear photos and each photo shows once in the POI tab
 files: [nodes/web_ui/frontend/src/poi/style.test.ts, nodes/web_ui/frontend/src/poi/ClearPoisDialog.tsx, nodes/web_ui/frontend/src/poi/ClearPoisDialog.test.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.tsx, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 55
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--web-ui-photo-pois-cleanup
+branch: poi-fixes-photos-as-pois-and--web-ui-photo-pois-cleanup
 verified_head: ""
 run: ""
 provides: []

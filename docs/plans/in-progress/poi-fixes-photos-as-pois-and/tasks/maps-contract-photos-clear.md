@@ -1,6 +1,6 @@
 ---
 title: Maps contract photos clear
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Map summaries can show photo counts and the web UI can ask map_manager to clear the live set
 files: [shared/ros2_common/maps.py, tests/test_shared_maps.py, tests/README.md, shared/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 30
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/poi-fixes-photos-as-pois-and--maps-contract-photos-clear
+branch: poi-fixes-photos-as-pois-and--maps-contract-photos-clear
 verified_head: ""
 run: ""
 provides: []
