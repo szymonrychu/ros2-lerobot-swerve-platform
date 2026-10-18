@@ -35,7 +35,7 @@ All numbers must be finite. Files written before `object` existed load unchanged
 
 | Topic | Type / QoS | Payload |
 |---|---|---|
-| `/poi/list` | std_msgs/String, reliable + transient_local (latched) | `{"pois": [...], "revision": int}`; published on start and after every change of a non-photo POI; never contains photos |
+| `/poi/list` | std_msgs/String, reliable + transient_local (latched) | `{"pois": [...], "revision": int}`; the non-photo POIs followed by every photo in POI form (see "Photo POIs on `/poi/command`"); the `revision` covers photo changes too (photo add, update, delete, `delete_photos`, link strips, retention prune); published on start and after every revision change. Supersedes named-maps D8 ("photos stay global") |
 | `/poi/photos` | std_msgs/String, reliable + transient_local (latched) | photo summary `{"revision", "count", "bytes", "oldest_ts", "newest_ts", "limits": {"max_records", "max_bytes", "max_age_days"}}`; topic is `photos.summary_topic` |
 | `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete"\|"clear"\|"replace"\|"delete_photos", "request_id": str, "poi": {...}, "created_by": "agent"\|"user", "statuses": [...], "kinds": [...], "keep_zones": bool, "ids": [...], "pois": [...], "selector": {...}}` |
 | `/poi/result` | std_msgs/String, reliable, volatile | `{"request_id": str, "ok": bool, "message": str, "poi": {...}\|null}` |
@@ -81,8 +81,12 @@ All numbers must be finite. Files written before `object` existed load unchanged
 answer `ok: false`, `no photo store configured`. Photo results on `/poi/result` carry the photo in POI form
 (`ros2_common.photos.photo_as_poi`: `{id, kind: "photo", frame, x, y, name, note, status, created_by, created_at,
 updated_at, poi_ids, photo: {file, bytes, width, height, camera, tool, mcp_session, base_pose_map, camera_pose_base,
-arm_joints, view}}`, `x`/`y` `null` when the photo has no pose). Photo changes move only the photo `revision`, never the
-`/poi/list` one, and never write `poi.json`.
+arm_joints, view}}`, `x`/`y` `null` when the photo has no pose). Photos are POIs of the live map: `/poi/list` lists them
+after the non-photo POIs, and every change of the photo set (add, update, delete, `delete_photos` that removed something,
+a link strip that changed a photo, a retention prune that removed photos) bumps the `/poi/list` `revision` and persists
+it in `poi.json`, which itself holds only the non-photo POIs. The photo `revision` of `/poi/photos` moves as before. This
+supersedes named-maps D8 (photos stay global). If the photo index cannot be read, `/poi/list` is published without photos
+and the error is logged.
 
 - `add` with `poi.kind == "photo"`: the rest of `poi` must validate as `PhotoAdd` (`id` 32 hex, `file` `<id>.jpg`, no
   `bytes`); the JPEG must already be in `photos.store_dir`.
@@ -94,7 +98,7 @@ arm_joints, view}}`, `x`/`y` `null` when the photo has no pose). Photo changes m
 - A failed photo index write answers `ok: false` with `could not write photo store <dir>: <reason>`.
 
 The node publishes `/poi/photos` after the photo index was read successfully on start (after the first prune, which
-also sweeps orphan JPEGs) and again after every photo change and every timer prune that removed something. When the
+also sweeps orphan JPEGs) and again after every photo change and every timer prune that removed something (such a prune also republishes `/poi/list`). When the
 photo directory is missing or the index cannot be read it logs an error and publishes nothing (no placeholder); the
 timer retries until the first summary goes out. A wall-clock (system time) timer runs `prune_now()` every
 `photos.prune_interval_s`.

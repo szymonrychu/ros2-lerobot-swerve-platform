@@ -1,7 +1,8 @@
 """JSON-file POI store: add/update/delete semantics, atomic persistence, revision counter. No ROS imports.
 
-Photo POIs (kind "photo") are not kept here: commands on them are dispatched to the PhotoStore, so they never reach
-poi.json, the /poi/list payload or its revision.
+Photo POIs (kind "photo") are kept by the PhotoStore, not in poi.json: commands on them are dispatched there. They are
+POIs of the live map all the same: list_pois()/list_json() (the /poi/list payload) append every photo in POI form after
+the non-photo POIs, and every change of the photo set bumps the revision (persisted in poi.json) like a POI change.
 """
 
 import json
@@ -47,7 +48,7 @@ class PoiStore:
 
     Attributes:
         path: JSON file.
-        revision: Incremented on every successful change of the (non-photo) POIs.
+        revision: Incremented on every successful change of the POIs or of the photo set.
         photos: Photo store that photo commands go to; None rejects them.
     """
 
@@ -65,6 +66,7 @@ class PoiStore:
         self.clock = clock
         self.photos = photos
         self.revision = 0
+        self.photos_seen = photos.revision if photos is not None else 0
         self.pois: dict[str, Poi] = {}
         self.load()
         POI_COUNT.set(len(self.pois))
@@ -88,7 +90,21 @@ class PoiStore:
             os.replace(self.path, aside)
 
     def list_pois(self) -> list[dict[str, Any]]:
-        """All POIs in insertion order.
+        """The non-photo POIs in insertion order, then every photo (index order) in POI form.
+
+        Returns:
+            list[dict[str, Any]]: Contract JSON dicts.
+        """
+        photos: list[dict[str, Any]] = []
+        if self.photos is not None:
+            try:
+                photos = [photo_as_poi(rec) for rec in self.photos.records()]
+            except OSError as exc:
+                LOGGER.error("photo index %s cannot be read (%s); /poi/list carries no photos", self.photos.root, exc)
+        return self.stored_pois() + photos
+
+    def stored_pois(self) -> list[dict[str, Any]]:
+        """The non-photo POIs in insertion order (what poi.json holds).
 
         Returns:
             list[dict[str, Any]]: Contract JSON dicts.
@@ -107,13 +123,33 @@ class PoiStore:
         """Write the store atomically (tmp file + os.replace)."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
-        tmp.write_text(json.dumps({"pois": self.list_pois(), "revision": self.revision}))
+        tmp.write_text(json.dumps({"pois": self.stored_pois(), "revision": self.revision}))
         os.replace(tmp, self.path)
 
     def commit(self) -> None:
         """Bump the revision and persist."""
         self.revision += 1
         self.save()
+
+    def photos_changed(self) -> bool:
+        """Bump the revision and persist because the photo set changed outside a command (retention prune).
+
+        A save failure is logged and the revision rolled back.
+
+        Returns:
+            bool: True when the revision moved.
+        """
+        revision_before = self.revision
+        try:
+            self.commit()
+        except OSError as exc:
+            self.revision = revision_before
+            POI_SAVE_FAILURES.inc()
+            LOGGER.error("could not save %s (%s); photo change not recorded in the revision", self.path, exc)
+            return False
+        finally:
+            self.photos_seen = self.photos.revision if self.photos is not None else 0
+        return True
 
     def apply(self, command: Command) -> Result:
         """Execute one command; when persisting fails (OSError) the in-memory change and revision are rolled back.
@@ -126,16 +162,14 @@ class PoiStore:
         """
         pois_before, revision_before = dict(self.pois), self.revision
         try:
-            if command.op == "clear":
-                return self.op_clear(
-                    command.created_by, command.statuses, command.kinds, command.keep_zones, command.ids
-                )
-            if command.op == "replace":
-                assert command.pois is not None  # Command.check_op_arguments
-                return self.op_replace(command.pois)
-            if command.op == "delete_photos":
-                return self.op_delete_photos(command.selector)
-            return getattr(self, "op_" + command.op)(command.poi)
+            result = self.dispatch(command)
+            if (
+                self.photos is not None
+                and self.photos.revision != self.photos_seen
+                and self.revision == revision_before
+            ):
+                self.commit()  # the photo set changed without a POI commit (a POI commit already covers its link strips)
+            return result
         except PhotoStoreError as exc:
             return False, str(exc), None
         except ValidationError as exc:
@@ -146,7 +180,26 @@ class PoiStore:
             LOGGER.error("could not save %s (%s); %s rolled back", self.path, exc, command.op)
             return False, f"could not save POI store {self.path}: {exc}", None
         finally:
+            self.photos_seen = self.photos.revision if self.photos is not None else 0
             POI_COUNT.set(len(self.pois))
+
+    def dispatch(self, command: Command) -> Result:
+        """Run the op of one command.
+
+        Args:
+            command: Parsed command.
+
+        Returns:
+            Result: Result triple.
+        """
+        if command.op == "clear":
+            return self.op_clear(command.created_by, command.statuses, command.kinds, command.keep_zones, command.ids)
+        if command.op == "replace":
+            assert command.pois is not None  # Command.check_op_arguments
+            return self.op_replace(command.pois)
+        if command.op == "delete_photos":
+            return self.op_delete_photos(command.selector)
+        return getattr(self, "op_" + command.op)(command.poi)
 
     def op_add(self, fields: dict[str, Any]) -> Result:
         """Add a POI, assigning id and timestamps when absent.

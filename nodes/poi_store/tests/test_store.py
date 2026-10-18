@@ -366,7 +366,7 @@ def test_add_photo_goes_to_photo_store_and_returns_poi_form(pstore, photos):
     assert poi["kind"] == "photo" and poi["id"] == photo_id(1)
     assert poi["x"] == 1.5 and poi["y"] == -2.0 and poi["photo"]["bytes"] == 100
     assert photo_id(1) in photos
-    assert pstore.pois == {} and pstore.revision == 0
+    assert pstore.pois == {} and pstore.revision == 1
 
 
 def test_add_photo_without_pose_has_null_xy(pstore, photos):
@@ -400,21 +400,20 @@ def test_photo_ops_without_photo_store_fail(store):
     assert not ok and "photo store" in msg
 
 
-def test_list_payload_and_file_never_contain_photos(pstore, photos, tmp_path):
+def test_list_payload_carries_photos_but_the_file_does_not(pstore, photos, tmp_path):
     add_poi(pstore)
     add_photo(pstore, photos, 1)
     listed = json.loads(pstore.list_json())
-    assert [p["kind"] for p in listed["pois"]] == ["point"]
-    assert photo_id(1) not in pstore.list_json()
+    assert [p["kind"] for p in listed["pois"]] == ["point", "photo"]
     assert photo_id(1) not in (tmp_path / "poi.json").read_text()
 
 
-def test_photo_change_does_not_move_list_revision(pstore, photos):
+def test_photo_changes_move_the_list_revision(pstore, photos):
     add_poi(pstore)
     add_photo(pstore, photos, 1)
     pstore.apply(Command(op="update", poi={"id": photo_id(1), "note": "n"}))
     pstore.apply(Command(op="delete", poi={"id": photo_id(1)}))
-    assert pstore.revision == 1
+    assert pstore.revision == 4
 
 
 def test_update_photo_goes_to_photo_store(pstore, photos):

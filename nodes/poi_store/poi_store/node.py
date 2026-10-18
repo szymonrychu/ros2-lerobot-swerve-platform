@@ -81,10 +81,14 @@ def run_node(config: PoiStoreConfig) -> None:
             return False
         if removed:
             node.get_logger().info(f"photo retention removed {removed} photo(s)")
+            store.photos_changed()
         return removed > 0
 
     def on_prune_timer() -> None:
-        if prune_photos() or not photos_published:
+        if prune_photos():
+            publish_list()
+            publish_photos()
+        elif not photos_published:
             publish_photos()
 
     node.create_subscription(String, config.command_topic, on_command, VOLATILE_QOS)
