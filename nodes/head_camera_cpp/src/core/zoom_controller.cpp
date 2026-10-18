@@ -76,8 +76,13 @@ private:
 }  // namespace
 
 ZoomController::ZoomController(
-  CameraBackend & backend, Clock & clock, const ZoomConfig & config, std::function<void()> fatal)
-: backend_(backend), clock_(clock), config_(config), fatal_(std::move(fatal))
+  CameraBackend & backend, Clock & clock, const ZoomConfig & config, std::function<void()> fatal,
+  std::function<bool()> focus_lock_wanted)
+: backend_(backend),
+  clock_(clock),
+  config_(config),
+  fatal_(std::move(fatal)),
+  focus_lock_wanted_(std::move(focus_lock_wanted))
 {
 }
 
@@ -253,7 +258,11 @@ bool ZoomController::restore()
 bool ZoomController::restore_once()
 {
   backend_.stop();
-  return backend_.configure(Mode::Video) && backend_.start_video();
+  if (!backend_.configure(Mode::Video)) {
+    return false;
+  }
+  backend_.set_focus_lock(focus_lock_wanted_());
+  return backend_.start_video();
 }
 
 }  // namespace head_camera_cpp

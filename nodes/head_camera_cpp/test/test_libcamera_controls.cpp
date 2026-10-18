@@ -19,6 +19,7 @@ using head_camera_cpp::af_controls;
 using head_camera_cpp::AfRequest;
 using head_camera_cpp::AfState;
 using head_camera_cpp::Config;
+using head_camera_cpp::focus_controls;
 using head_camera_cpp::from_rectangle;
 using head_camera_cpp::Rect;
 using head_camera_cpp::still_controls;
@@ -74,6 +75,48 @@ TEST(VideoControls, AfModeFollowsConfig)
   EXPECT_EQ(video_controls(config).get(controls::AfMode), std::optional<int32_t>(controls::AfModeManual));
   config.af_mode = "continuous";
   EXPECT_EQ(video_controls(config).get(controls::AfMode), std::optional<int32_t>(controls::AfModeContinuous));
+}
+
+TEST(VideoControls, FocusLockCarriesManualAfModeAndLensPosition)
+{
+  Config config;
+  config.lens_position = 1.25;
+  const libcamera::ControlList list = video_controls(config, true);
+
+  EXPECT_EQ(
+    ids(list), (std::set<unsigned int>{controls::FRAME_DURATION_LIMITS, controls::AF_MODE, controls::LENS_POSITION}));
+  EXPECT_EQ(list.get(controls::AfMode), std::optional<int32_t>(controls::AfModeManual));
+  EXPECT_EQ(list.get(controls::LensPosition), std::optional<float>(1.25F));
+  expect_frame_duration(list, 33333);
+}
+
+TEST(VideoControls, UnlockedKeepsConfiguredAfModeWithoutLensPosition)
+{
+  const libcamera::ControlList list = video_controls(Config{}, false);
+
+  EXPECT_EQ(list.get(controls::AfMode), std::optional<int32_t>(controls::AfModeContinuous));
+  EXPECT_FALSE(list.get(controls::LensPosition).has_value());
+}
+
+TEST(FocusControls, LockedIsManualAtLensPosition)
+{
+  Config config;
+  config.lens_position = 0.5;
+  const libcamera::ControlList list = focus_controls(config, true);
+
+  EXPECT_EQ(ids(list), (std::set<unsigned int>{controls::AF_MODE, controls::LENS_POSITION}));
+  EXPECT_EQ(list.get(controls::AfMode), std::optional<int32_t>(controls::AfModeManual));
+  EXPECT_EQ(list.get(controls::LensPosition), std::optional<float>(0.5F));
+}
+
+TEST(FocusControls, UnlockedRestoresConfiguredAfMode)
+{
+  Config config;
+  config.af_mode = "continuous";
+  const libcamera::ControlList list = focus_controls(config, false);
+
+  EXPECT_EQ(ids(list), (std::set<unsigned int>{controls::AF_MODE}));
+  EXPECT_EQ(list.get(controls::AfMode), std::optional<int32_t>(controls::AfModeContinuous));
 }
 
 TEST(AfControls, WindowedTriggerHoldsExactlyAutoWindowsAndStart)

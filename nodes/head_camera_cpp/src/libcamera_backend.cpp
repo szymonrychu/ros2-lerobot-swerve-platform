@@ -359,7 +359,12 @@ bool LibcameraBackend::start_video()
   }
   // AfMetering Auto on top of the D2 video controls: a zoom's windowed AF must not keep metering its window once the
   // whole-frame continuous AF resumes (libcamera keeps AF settings across requests).
-  libcamera::ControlList controls = video_controls(config_);
+  bool focus_locked = false;
+  {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    focus_locked = focus_locked_;
+  }
+  libcamera::ControlList controls = video_controls(config_, focus_locked);
   controls.set(libcamera::controls::AfMetering, libcamera::controls::AfMeteringAuto);
   return start_stream(controls);
 }
@@ -521,6 +526,16 @@ bool LibcameraBackend::set_af(const AfRequest & request)
     af_state_ = AfState::Scanning;
     af_trigger_pending_ = true;
     af_marker_ = nullptr;
+  }
+  return true;
+}
+
+bool LibcameraBackend::set_focus_lock(bool locked)
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  focus_locked_ = locked;
+  if (running_ && mode_ == Mode::Video) {
+    pending_controls_.merge(focus_controls(config_, locked), libcamera::ControlList::MergePolicy::OverwriteExisting);
   }
   return true;
 }

@@ -91,6 +91,20 @@ protected:
     return ZoomController(backend, clock, config, [this] { ++fatal_calls; });
   }
 
+  // A controller whose mapping focus lock is reported active or not.
+  ZoomController controller_with_lock(bool lock_active)
+  {
+    return ZoomController(backend, clock, config, [this] { ++fatal_calls; }, [lock_active] { return lock_active; });
+  }
+
+  // The lens must be back at the lock (or at the configured AF mode) when the video stream restarted.
+  void expect_video_restarted_locked(bool locked)
+  {
+    ASSERT_FALSE(backend.lock_at_start_video().empty());
+    EXPECT_EQ(backend.lock_at_start_video().back(), locked);
+    EXPECT_EQ(backend.focus_locked(), locked);
+  }
+
   void expect_restored(const Calls & calls)
   {
     EXPECT_EQ(tail(calls, RESTORE_CALLS.size()), RESTORE_CALLS);
@@ -436,4 +450,48 @@ TEST(ZoomControllerBusyResult, CarriesRequestIdAndNoImage)
   EXPECT_FALSE(result.out.has_value());
   EXPECT_FALSE(result.crop.has_value());
   EXPECT_EQ(result.stamp_ns, 0);
+}
+
+// --- mapping focus lock (U4): RESTORE returns to the lock when active, else to the configured AF mode ---------------
+
+TEST_F(ZoomControllerTest, RestoreAfterOkReturnsToMappingLockWhenActive)
+{
+  auto zoom = controller_with_lock(true);
+  EXPECT_EQ(zoom.run(request(false)).result.status, ZoomStatus::Ok);
+  expect_restored(backend.calls());
+  expect_video_restarted_locked(true);
+}
+
+TEST_F(ZoomControllerTest, RestoreAfterAfFailedReturnsToMappingLockWhenActive)
+{
+  backend.af_states = {AfState::Scanning, AfState::Failed};
+  backend.still_af_state = AfState::Failed;
+  auto zoom = controller_with_lock(true);
+  EXPECT_EQ(zoom.run(request()).result.status, ZoomStatus::AfFailed);
+  expect_restored(backend.calls());
+  expect_video_restarted_locked(true);
+}
+
+TEST_F(ZoomControllerTest, RestoreAfterTimeoutReturnsToMappingLockWhenActive)
+{
+  backend.still_frame_budget = 1;
+  auto zoom = controller_with_lock(true);
+  EXPECT_EQ(zoom.run(request(false)).result.status, ZoomStatus::Timeout);
+  expect_restored(backend.calls());
+  expect_video_restarted_locked(true);
+}
+
+TEST_F(ZoomControllerTest, RestoreKeepsContinuousAfWhenLockIsNotActive)
+{
+  auto zoom = controller_with_lock(false);
+  EXPECT_EQ(zoom.run(request(false)).result.status, ZoomStatus::Ok);
+  expect_restored(backend.calls());
+  expect_video_restarted_locked(false);
+}
+
+TEST_F(ZoomControllerTest, RestoreDefaultsToNoLock)
+{
+  auto zoom = controller();
+  EXPECT_EQ(zoom.run(request(false)).result.status, ZoomStatus::Ok);
+  expect_video_restarted_locked(false);
 }

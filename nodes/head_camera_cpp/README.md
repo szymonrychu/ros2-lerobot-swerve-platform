@@ -95,6 +95,31 @@ One request at a time (a second one gets `busy`). Phases:
 A watchdog of `zoom.watchdog_s` over phases 1-3 turns into `timeout`; restore still runs. The result is published only
 after restore, so a consumer that gets it can rely on the 30 fps stream coming back.
 
+## Mapping stream
+
+With `mapping.enabled: true` the node also publishes a small stream for the RGB-D fusion node (`head_rgbd_cpp`) and, through it, RTAB-Map:
+
+| Topic | Type | Content |
+|---|---|---|
+| `<ns>/mapping/image_raw/compressed` | `sensor_msgs/CompressedImage` | JPEG (`mapping.jpeg_quality`, default 80), `mapping.width` x `mapping.height` (default 576x324), `mapping.rate_hz` (default 2 Hz) |
+| `<ns>/mapping/camera_info` | `sensor_msgs/CameraInfo` | Calibration scaled to the mapping size, same header (stamp = capture stamp, `frame_id`) as the image |
+
+Both are best_effort, depth 1. Frames are resized (INTER_AREA), encoded and published only when due (at most `mapping.rate_hz`) and
+only while the image topic has a subscriber, so 30 fps input costs at most 2 encodes per second. Nothing is published
+while a zoom holds the camera in still mode.
+
+**Calibration requirement.** `camera_info` is published only when `camera_info_file` loads (the calibration is scaled with
+the same rules as `camera_info`; there are no placeholder intrinsics). Without a calibration the image is still published
+and `camera_info` is not, so `head_rgbd_cpp` publishes nothing. The intrinsics are valid only at the focus they were
+calibrated at, hence the focus lock.
+
+**Focus lock.** The camera keeps the configured `af_mode` (default continuous) normally. While `mapping.enabled`,
+the runtime parameter `mapping.lock_focus` is true and `<ns>/mapping/image_raw/compressed` has at least one subscriber,
+the node applies `AfMode` Manual and `LensPosition` = `lens_position`; when the last subscriber leaves, or
+`ros2 param set /head_camera mapping.lock_focus false`, it restores the configured `af_mode`. A zoom still autofocuses on its
+point; its RESTORE phase returns the lens to the lock when it is active, else to the configured AF mode. Set
+`mapping.lock_focus` false to keep continuous AF while mapping.
+
 ## camera_info policy
 
 `camera_info` is published (with each default frame, same stamp and `frame_id`) only when `camera_info_file` names a

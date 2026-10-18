@@ -172,6 +172,27 @@ public:
     return static_cast<int>(std::count(calls_.begin(), calls_.end(), call));
   }
 
+  /// @return Every set_focus_lock argument so far, in order (not in calls(): the restore sequences stay exact).
+  std::vector<bool> focus_lock_calls()
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return focus_lock_calls_;
+  }
+
+  /// @return The focus lock state the camera currently holds (false until set_focus_lock(true)).
+  bool focus_locked()
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return focus_locked_;
+  }
+
+  /// @return The focus lock state at each start_video call, in order.
+  std::vector<bool> lock_at_start_video()
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return lock_at_start_video_;
+  }
+
   /// @return Every AfRequest set_af received.
   std::vector<AfRequest> af_requests()
   {
@@ -233,6 +254,7 @@ public:
       std::lock_guard<std::mutex> lock(mutex_);
       running_ = ok && configured_ && mode_ == Mode::Video;
       running = running_;
+      lock_at_start_video_.push_back(focus_locked_);
     }
     notify("start_video");
     return running;
@@ -274,6 +296,14 @@ public:
     }
     notify("start_still");
     return running;
+  }
+
+  bool set_focus_lock(bool locked) override
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    focus_lock_calls_.push_back(locked);
+    focus_locked_ = locked;
+    return true;
   }
 
   bool set_af(const AfRequest & request) override
@@ -405,6 +435,9 @@ private:
   std::map<std::string, std::deque<bool>> results_;
   std::map<std::string, Duration> delays_;
   std::vector<AfRequest> af_requests_;
+  std::vector<bool> focus_lock_calls_;
+  std::vector<bool> lock_at_start_video_;
+  bool focus_locked_ = false;
   std::vector<int64_t> still_stamps_;
   std::function<void(const VideoFrame &)> video_callback_;
   size_t af_index_ = 0;

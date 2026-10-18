@@ -28,12 +28,22 @@ int32_t af_mode_value(const std::string & af_mode)
 
 }  // namespace
 
-libcamera::ControlList video_controls(const Config & config)
+libcamera::ControlList focus_controls(const Config & config, bool locked)
 {
   libcamera::ControlList list(libcamera::controls::controls);
+  const int32_t mode = locked ? libcamera::controls::AfModeManual : af_mode_value(config.af_mode);
+  list.set(libcamera::controls::AfMode, mode);
+  if (mode == libcamera::controls::AfModeManual) {
+    list.set(libcamera::controls::LensPosition, static_cast<float>(config.lens_position));
+  }
+  return list;
+}
+
+libcamera::ControlList video_controls(const Config & config, bool focus_locked)
+{
+  libcamera::ControlList list = focus_controls(config, focus_locked);
   const auto frame_duration = static_cast<int64_t>(config.frame_duration_us);
   list.set(libcamera::controls::FrameDurationLimits, {frame_duration, frame_duration});
-  list.set(libcamera::controls::AfMode, af_mode_value(config.af_mode));
   return list;
 }
 
