@@ -39,6 +39,9 @@ laser_filter_margin_m: 0.01
 # collision_monitor StopBox: the footprint swept this far toward the commanded direction (outside the filter margin);
 # also the mcp_server ArmStop margin around the released arm shadow and carried object.
 stopbox_margin_m: 0.02
+# collision_monitor CliffStop polygon = footprint + this. The head ToF (0.35-0.40 m high) sees the lower floor of a 15 cm
+# step about 0.2 m beyond the edge, so the guard reaches past it.
+cliff_margin_m: 0.25
 # mcp_server dynamic footprint (arm released with keep_position=true): the arm shadow and carried-object circle are
 # simplified by this (m) before the union with the exact body outline (removes hull vertices, keeps the costmap
 # footprint check cheap; well inside the laser_filter and stopbox margins).

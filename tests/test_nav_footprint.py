@@ -16,8 +16,10 @@ from shapely.ops import unary_union
 
 from scripts.gen_nav_footprint import (
     DEFAULT_CONFIG,
+    MIN_POLYGON_POINTS,
     Body,
     Generated,
+    Settings,
     circumscribed_radius,
     cost_scaling_factor,
     footprint_polygon,
@@ -305,6 +307,46 @@ def test_offset_polygon_grows_by_the_margin() -> None:
     square = [(0.1, 0.1), (-0.1, 0.1), (-0.1, -0.1), (0.1, -0.1)]
     grown = Polygon(offset_polygon(square, 0.01, 4))
     assert grown.bounds == pytest.approx((-0.11, -0.11, 0.11, 0.11))
+
+
+def test_cliff_polygon_is_the_footprint_grown_by_the_cliff_margin() -> None:
+    settings = load_settings(DEFAULT_CONFIG)
+    gen = generated()
+    assert settings.cliff_margin_m == 0.25
+    assert gen.cliff_polygon == offset_polygon(gen.footprint, settings.cliff_margin_m, settings.decimals)
+    cliff = Polygon(gen.cliff_polygon)
+    assert cliff.buffer(TOL).contains(Polygon(gen.footprint))
+    assert len(gen.cliff_polygon) >= MIN_POLYGON_POINTS
+
+
+def test_cliff_margin_must_be_positive() -> None:
+    config = yaml.safe_load(DEFAULT_CONFIG.read_text())
+    config["cliff_margin_m"] = 0.0
+    with pytest.raises(ValueError):
+        Settings(**config)
+
+
+def test_cliffstop_region_is_the_points_line_of_the_cliff_polygon() -> None:
+    gen = generated()
+    lines = region_lines("cliffstop", gen)
+    assert len(lines) == 1 and lines[0].startswith("points: ")
+    parsed = yaml.safe_load(yaml.safe_load(lines[0])["points"])
+    assert parsed == [list(p) for p in gen.cliff_polygon]
+
+
+def test_nav2_cliffstop_polygon_is_wired_but_not_yet_listed() -> None:
+    params = yaml.safe_load(NAV2_PARAMS.read_text())["collision_monitor"]["ros__parameters"]
+    cliff = params["CliffStop"]
+    assert cliff["type"] == "polygon"
+    assert cliff["action_type"] == "approach"
+    assert cliff["time_before_collision"] == 1.2
+    assert cliff["simulation_time_step"] == 0.05
+    assert cliff["min_points"] == 4
+    assert cliff["visualize"] is False
+    assert cliff["enabled"] is True
+    assert cliff["sources_names"] == ["tof_cliff"]
+    assert len(yaml.safe_load(cliff["points"])) >= MIN_POLYGON_POINTS
+    assert "CliffStop" not in params["polygons"]
 
 
 # --- collision_monitor StopBox ----------------------------------------------------------------------
