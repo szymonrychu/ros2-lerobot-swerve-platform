@@ -410,3 +410,60 @@ TEST_F(NodeTest, FailedStartIsRetriedWithoutPublishing)
   ASSERT_TRUE(wait_until([this] { return backend_->count("start_video") >= 2; }));
   ASSERT_TRUE(emit_until([this] { return size_of(images_) >= 1; }));
 }
+
+// --- metrics (D13) -------------------------------------------------------------------------------------------------
+
+TEST_F(NodeTest, CaptureFpsCountsEveryCallbackFrame)
+{
+  start(test_config());
+  // 11 frames 100 ms apart on the node's clock: ten intervals in one second is 10 fps, whether or not the
+  // publisher kept up (no subscriber here, frames may be dropped from the latest-frame slot).
+  for (int i = 0; i < 11; ++i) {
+    ASSERT_TRUE(backend_->emit_video_frame(steady_ns()));
+    clock_.advance(milliseconds(100));
+  }
+  const std::string metrics = node_->metrics().render();
+  EXPECT_NE(metrics.find("head_camera_frames_captured_total 11\n"), std::string::npos) << metrics;
+  EXPECT_NE(metrics.find("head_camera_capture_fps 10\n"), std::string::npos) << metrics;
+}
+
+TEST_F(NodeTest, CaptureFpsFallsToZeroWhenStreamStops)
+{
+  constexpr auto npos = std::string::npos;
+  start(test_config());
+  for (int i = 0; i < 11; ++i) {
+    ASSERT_TRUE(backend_->emit_video_frame(steady_ns()));
+    clock_.advance(milliseconds(100));
+  }
+  EXPECT_NE(node_->metrics().render().find("head_camera_capture_fps 10\n"), std::string::npos);
+  clock_.advance(seconds(10));
+  const auto stopped = [this] { return node_->metrics().render().find("head_camera_capture_fps 0\n") != npos; };
+  ASSERT_TRUE(wait_until(stopped)) << node_->metrics().render();
+}
+
+TEST_F(NodeTest, ZoomMetricsCountStatusAndPhases)
+{
+  start(test_config());
+  listen_zoom();
+  backend_->delay("set_af", milliseconds(100));
+  backend_->delay("configure(Still)", milliseconds(200));
+  backend_->delay("wait_still_frame", milliseconds(300));
+  backend_->delay("configure(Video)", milliseconds(400));
+  send_command(json{{"request_id", "m"}, {"u", 0.5}, {"v", 0.5}, {"zoom", 2}, {"max_px", 256}, {"af", true}}.dump());
+  ASSERT_TRUE(wait_until([this] { return size_of(results_) >= 1; }));
+  send_command(command("plain"));  // no AF window: the af phase is not entered
+  ASSERT_TRUE(wait_until([this] { return size_of(results_) >= 2; }));
+  send_command(json{{"request_id", "bad"}, {"u", 2.0}, {"v", 0.5}, {"zoom", 2}}.dump());
+  ASSERT_TRUE(wait_until([this] { return size_of(results_) >= 3; }));
+  const std::string metrics = node_->metrics().render();
+  // The fake camera never reports a focus lock, so the AF request ends af_failed.
+  EXPECT_NE(metrics.find("head_camera_zoom_requests_total{status=\"af_failed\"} 1\n"), std::string::npos) << metrics;
+  EXPECT_NE(metrics.find("head_camera_zoom_requests_total{status=\"ok\"} 1\n"), std::string::npos) << metrics;
+  EXPECT_NE(metrics.find("head_camera_zoom_requests_total{status=\"invalid\"} 1\n"), std::string::npos) << metrics;
+  const std::map<std::string, int> phase_counts{{"af", 1}, {"switch", 2}, {"capture", 2}, {"restore", 2}};
+  for (const auto & [phase, count] : phase_counts) {
+    const std::string line =
+      "head_camera_zoom_phase_seconds_count{phase=\"" + phase + "\"} " + std::to_string(count) + "\n";
+    EXPECT_NE(metrics.find(line), std::string::npos) << phase << "\n" << metrics;
+  }
+}

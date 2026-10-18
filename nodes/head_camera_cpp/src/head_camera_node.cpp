@@ -204,11 +204,13 @@ void HeadCameraNode::init()
     RCLCPP_ERROR(get_logger(), "camera did not start; retrying every %d ms", START_RETRY_PERIOD_MS);
   }
   retry_timer_ = create_wall_timer(std::chrono::milliseconds(START_RETRY_PERIOD_MS), [this] { retry_start(); });
+  fps_timer_ = create_wall_timer(std::chrono::seconds(1), [this] { expire_capture_fps(); });
 }
 
 HeadCameraNode::~HeadCameraNode()
 {
   retry_timer_.reset();
+  fps_timer_.reset();
   backend_->set_video_callback({});
   {
     std::lock_guard<std::mutex> lock(zoom_mutex_);
@@ -253,6 +255,7 @@ void HeadCameraNode::retry_start()
 void HeadCameraNode::on_video_frame(const VideoFrame & frame)
 {
   frames_captured_->Increment();
+  record_capture(clock_->now());
   const size_t bytes = static_cast<size_t>(frame.stride) * static_cast<size_t>(frame.size.height);
   {
     std::lock_guard<std::mutex> lock(frame_mutex_);
@@ -263,6 +266,35 @@ void HeadCameraNode::on_video_frame(const VideoFrame & frame)
     slot_full_ = true;
   }
   frame_ready_.notify_one();
+}
+
+void HeadCameraNode::record_capture(Clock::TimePoint now)
+{
+  std::lock_guard<std::mutex> lock(fps_mutex_);
+  last_capture_ = now;
+  if (!fps_window_open_) {
+    // The first frame only opens the window: n frames span n - 1 intervals.
+    fps_window_open_ = true;
+    fps_window_start_ = now;
+    fps_window_intervals_ = 0;
+    return;
+  }
+  ++fps_window_intervals_;
+  const double window_s = std::chrono::duration<double>(now - fps_window_start_).count();
+  if (window_s >= FPS_WINDOW_S) {
+    capture_fps_->Set(fps_window_intervals_ / window_s);
+    fps_window_start_ = now;
+    fps_window_intervals_ = 0;
+  }
+}
+
+void HeadCameraNode::expire_capture_fps()
+{
+  std::lock_guard<std::mutex> lock(fps_mutex_);
+  if (fps_window_open_ && clock_->now() - last_capture_ > std::chrono::duration<double>(2 * FPS_WINDOW_S)) {
+    capture_fps_->Set(0.0);
+    fps_window_open_ = false;
+  }
 }
 
 void HeadCameraNode::video_loop()
@@ -288,17 +320,6 @@ void HeadCameraNode::video_loop()
 
 void HeadCameraNode::publish_frame(const Frame & frame)
 {
-  const int64_t now_ns = steady_now_ns();
-  if (fps_window_frames_ == 0) {
-    fps_window_start_ns_ = now_ns;
-  }
-  ++fps_window_frames_;
-  const double window_s = static_cast<double>(now_ns - fps_window_start_ns_) / static_cast<double>(NS_PER_S);
-  if (window_s >= FPS_WINDOW_S) {
-    capture_fps_->Set(fps_window_frames_ / window_s);
-    fps_window_frames_ = 0;
-  }
-
   std_msgs::msg::Header header;
   header.stamp = to_time_msg(to_ros_ns(frame.stamp_ns));
   header.frame_id = config_.frame_id;

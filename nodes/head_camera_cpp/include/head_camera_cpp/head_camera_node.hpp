@@ -88,6 +88,8 @@ private:
   void publish_zoom(const ZoomOutcome & outcome);
   void publish_result(const ZoomResult & result);
   void retry_start();
+  void record_capture(Clock::TimePoint now);
+  void expire_capture_fps();
   int64_t to_ros_ns(int64_t steady_ns) const;
 
   Config config_;
@@ -103,6 +105,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr zoom_result_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr command_sub_;
   rclcpp::TimerBase::SharedPtr retry_timer_;
+  rclcpp::TimerBase::SharedPtr fps_timer_;
   std::optional<sensor_msgs::msg::CameraInfo> camera_info_;
 
   prometheus::Counter * frames_captured_ = nullptr;
@@ -124,9 +127,13 @@ private:
   bool stopping_ = false;
   std::thread video_thread_;
 
-  // Capture rate over FPS_WINDOW_S, touched only by the video worker.
-  int64_t fps_window_start_ns_ = 0;
-  int fps_window_frames_ = 0;
+  // Capture rate over FPS_WINDOW_S, measured in the camera callback (so frames the slot drops still count) and
+  // zeroed by fps_timer_ when the stream stops.
+  std::mutex fps_mutex_;
+  bool fps_window_open_ = false;
+  Clock::TimePoint fps_window_start_;
+  Clock::TimePoint last_capture_;
+  int fps_window_intervals_ = 0;
 
   // Pending zoom request (claimed through zoom_->try_begin()).
   std::mutex zoom_mutex_;
