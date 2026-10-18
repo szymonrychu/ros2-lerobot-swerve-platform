@@ -1,5 +1,6 @@
 /** Layer visibility state of the 3D map tab, persisted per browser in localStorage. */
 import type { TabStorage } from '../tabSelection'
+import type { TabConfig } from '../types'
 
 export const LAYER_STORAGE_KEY = 'web_ui.map3d.layers'
 
@@ -18,14 +19,15 @@ export const LAYER_KEYS = [
   'head',
   'pois',
   'photos',
+  'obstacles3d',
 ] as const
 
 export type LayerKey = (typeof LAYER_KEYS)[number]
 export type LayerState = Record<LayerKey, boolean>
 
-/** Everything visible except the GPS map (it needs an anchor and fetches tiles). */
+/** Everything visible except the GPS map (it needs an anchor and fetches tiles) and the 3D obstacles (on-demand topics). */
 export const DEFAULT_LAYERS: Readonly<LayerState> = Object.freeze(
-  Object.fromEntries(LAYER_KEYS.map((k) => [k, k !== 'gpsMap'])) as LayerState,
+  Object.fromEntries(LAYER_KEYS.map((k) => [k, k !== 'gpsMap' && k !== 'obstacles3d'])) as LayerState,
 )
 
 /** Human labels, in panel order. */
@@ -44,6 +46,12 @@ export const LAYER_LABELS: Record<LayerKey, string> = {
   head: 'Head',
   pois: 'POIs',
   photos: 'Photos',
+  obstacles3d: '3D obstacles (ToF + lidar)',
+}
+
+/** Tab config fields naming the topics a layer needs; they are subscribed only while the layer is on. */
+export const LAYER_TOPIC_FIELDS: Partial<Record<LayerKey, readonly (keyof TabConfig)[]>> = {
+  obstacles3d: ['obstacle_cloud_topic', 'scan_points_topic'],
 }
 
 /**

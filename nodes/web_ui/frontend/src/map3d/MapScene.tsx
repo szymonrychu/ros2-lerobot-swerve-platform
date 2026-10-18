@@ -38,6 +38,7 @@ import {
   GridImageLayer,
   GridImageMsg,
   LIFT,
+  ObstaclePointsLayer,
   PathLayer,
   PathMsg,
   SCENE_COLORS,
@@ -72,6 +73,9 @@ export interface MapSceneProps {
   onArmReady: (ready: boolean) => void
   map: GridImageMsg | null | undefined
   costmap: GridImageMsg | null | undefined
+  /** Raw ToF cloud and lidar scan payloads (with frame_pose) of the 3D obstacles layer. */
+  obstacleCloud?: unknown
+  scanPoints?: unknown
   globalPath: PathMsg | null | undefined
   localPath: PathMsg | null | undefined
   goal: Pose2D | null | undefined
@@ -341,6 +345,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
       {layers.gpsMap && layers.rtkBase && props.basePosition && (
         <BaseStationMarker position={props.basePosition} label={props.baseLabel} />
       )}
+      <ObstaclePointsLayer cloud={props.obstacleCloud} scan={props.scanPoints} visible={layers.obstacles3d} />
       <GridImageLayer msg={props.map} lift={LIFT.map} opacity={1} visible={layers.slamMap} />
       <GridImageLayer
         msg={inMapFrame(props.costmap, props.mapFrame) ? props.costmap : null}

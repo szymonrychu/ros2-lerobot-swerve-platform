@@ -36,7 +36,7 @@ describe('map palette', () => {
 
   it('only the zones and the nav path have a hue', () => {
     const grey = [
-      ...Object.entries(SCENE_COLORS).filter(([k]) => k !== 'globalPath' && k !== 'localPath').map(([, v]) => v),
+      ...Object.entries(SCENE_COLORS).filter(([k]) => !['globalPath', 'localPath', 'obstacleCliff', 'obstacle'].includes(k)).map(([, v]) => v),
       ...Object.values(KIND_COLORS),
       ...Object.values(STATUS_COLORS),
       ...Object.values(CREATOR_OUTLINE),

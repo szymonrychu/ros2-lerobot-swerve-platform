@@ -103,6 +103,8 @@ interface Props {
   /** Map focus requested from the POI tab; the map clears it through onFocusConsumed once handled. */
   pendingFocus?: PendingFocus | null
   onFocusConsumed?: () => void
+  /** Reports whether the 3D obstacles layer needs its topics; false again when it is switched off or the tab unmounts. */
+  onObstaclesWanted?: (wanted: boolean) => void
 }
 
 interface FramedPose extends Pose2D {
@@ -132,6 +134,7 @@ export default function MapNavTab({
   photos,
   pendingFocus = null,
   onFocusConsumed,
+  onObstaclesWanted,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<SceneController | null>(null)
@@ -173,6 +176,10 @@ export default function MapNavTab({
   // null = the backend cleared its cache (map reset / navigation stopped); undefined = nothing received yet.
   const mapMsg = topicData[tab.map_topic ?? ''] as GridImageMsg | null | undefined
   const costmapMsg = topicData[tab.local_costmap_topic ?? ''] as GridImageMsg | null | undefined
+  const obstaclesConfigured = Boolean(tab.obstacle_cloud_topic && tab.scan_points_topic)
+  const obstaclesWanted = layers.obstacles3d && obstaclesConfigured
+  const obstacleCloud = topicData[tab.obstacle_cloud_topic ?? '']
+  const scanPoints = topicData[tab.scan_points_topic ?? '']
   const globalPath = topicData[tab.global_plan_topic ?? ''] as PathMsg | null | undefined
   const localPath = topicData[tab.local_plan_topic ?? ''] as PathMsg | null | undefined
   const goalMsg = topicData[tab.goal_topic ?? ''] as FramedPose | null | undefined
@@ -194,6 +201,10 @@ export default function MapNavTab({
   const mapBox = useMemo<Bounds | null>(() => (map ? mapBounds(map) : null), [map])
 
   useEffect(() => writeLayerState(browserStorage(), layers), [layers])
+  useEffect(() => {
+    onObstaclesWanted?.(obstaclesWanted)
+    return () => onObstaclesWanted?.(false)
+  }, [obstaclesWanted, onObstaclesWanted])
 
   // Map reset: fit the next map that arrives.
   useEffect(() => {
@@ -599,6 +610,7 @@ export default function MapNavTab({
         gpsAvailable={gpsAvailable}
         rtkAvailable={basePosition !== null}
         costmapConfigured={Boolean(tab.local_costmap_topic)}
+        obstaclesConfigured={obstaclesConfigured}
         tileSources={tileSources}
         tileSource={tileSource}
         onTileSource={(id) => {
@@ -957,6 +969,8 @@ export default function MapNavTab({
               onArmReady={onArmReady}
               map={map}
               costmap={isCleared(costmapMsg) ? null : costmapMsg}
+              obstacleCloud={obstacleCloud}
+              scanPoints={scanPoints}
               globalPath={globalPath}
               localPath={localPath}
               goal={goal}

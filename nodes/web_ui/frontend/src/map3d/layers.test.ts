@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_LAYERS,
+  LAYER_LABELS,
+  LAYER_TOPIC_FIELDS,
   LAYER_KEYS,
   LAYER_STORAGE_KEY,
   parseLayerState,
@@ -46,12 +48,13 @@ describe('layer defaults', () => {
         'head',
         'pois',
         'photos',
+        'obstacles3d',
       ].sort(),
     )
   })
 
-  it('shows everything except the GPS map by default', () => {
-    for (const k of LAYER_KEYS) expect(DEFAULT_LAYERS[k]).toBe(k !== 'gpsMap')
+  it('shows everything except the GPS map and the 3D obstacles by default', () => {
+    for (const k of LAYER_KEYS) expect(DEFAULT_LAYERS[k]).toBe(k !== 'gpsMap' && k !== 'obstacles3d')
   })
 })
 
@@ -99,5 +102,14 @@ describe('layer persistence', () => {
     expect(readLayerState(undefined)).toEqual(DEFAULT_LAYERS)
     expect(() => writeLayerState(throwingStorage, DEFAULT_LAYERS)).not.toThrow()
     expect(() => writeLayerState(undefined, DEFAULT_LAYERS)).not.toThrow()
+  })
+})
+
+describe('obstacles3d layer', () => {
+  it('is labelled, off by default and depends on both obstacle topics', () => {
+    expect(LAYER_LABELS.obstacles3d).toBe('3D obstacles (ToF + lidar)')
+    expect(DEFAULT_LAYERS.obstacles3d).toBe(false)
+    expect(parseLayerState(null).obstacles3d).toBe(false)
+    expect(LAYER_TOPIC_FIELDS.obstacles3d).toEqual(['obstacle_cloud_topic', 'scan_points_topic'])
   })
 })

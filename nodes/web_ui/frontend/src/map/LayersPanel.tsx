@@ -21,7 +21,7 @@ const SWATCH_REM = '0.875rem'
 const TOGGLE_SX = { py: 0, px: 1, textTransform: 'none' } as const
 
 const LAYER_GROUPS: { title: string; keys: LayerKey[] }[] = [
-  { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase'] },
+  { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase', 'obstacles3d'] },
   { title: 'Navigation', keys: ['globalPlan', 'localPlan', 'goal', 'footprint'] },
   { title: 'Robot model', keys: ['robotBase', 'robotWheels', 'robotArm', 'head'] },
   { title: 'Points of interest', keys: ['pois', 'photos'] },
@@ -38,6 +38,8 @@ export interface LayersPanelProps {
   rtkAvailable: boolean
   /** Whether the tab names a local costmap topic. */
   costmapConfigured: boolean
+  /** Whether the tab names both the obstacle cloud and the scan points topic (absent = yes). */
+  obstaclesConfigured?: boolean
   tileSources: readonly TileSourceInfo[]
   tileSource: TileSourceInfo | null
   onTileSource: (id: string) => void
@@ -62,10 +64,11 @@ export interface LayersPanelProps {
  * @param p - panel props
  * @returns the reason, or null when the layer is usable
  */
-export function disabledReason(key: LayerKey, p: Pick<LayersPanelProps, 'gpsAvailable' | 'rtkAvailable' | 'costmapConfigured'>): string | null {
+export function disabledReason(key: LayerKey, p: Pick<LayersPanelProps, 'gpsAvailable' | 'rtkAvailable' | 'costmapConfigured' | 'obstaclesConfigured'>): string | null {
   if (key === 'gpsMap' && !p.gpsAvailable) return `Needs a GPS fix and compass heading (or drive ~5 m to fit): waiting for ${GPS_ANCHOR_TOPIC}.`
   if (key === 'rtkBase' && !p.rtkAvailable) return 'Needs the GPS anchor and a fresh base station position.'
   if (key === 'localCostmap' && !p.costmapConfigured) return 'No costmap topic configured.'
+  if (key === 'obstacles3d' && p.obstaclesConfigured === false) return 'No obstacle cloud or scan points topic configured.'
   return null
 }
 

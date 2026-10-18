@@ -12,6 +12,7 @@ import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor, tilesAround } from './geo'
 import { mapPlacement } from './groundMath'
 import { MapLabel } from './MapLabel'
+import { cloudToMapPoints, LIDAR_COLOR, scanToMapPoints, tofColors } from './obstaclePoints'
 import { SCENE_COLORS } from './palette'
 import { cropUvs, type TileCrop } from './tileSources'
 import { recordTileResult, tileFailureCaption, type TileResult, type TileResults } from './tileStatus'
@@ -408,5 +409,68 @@ export const BaseStationMarker = memo(function BaseStationMarker({ position, lab
         <MapLabel>{label}</MapLabel>
       </Html>
     </group>
+  )
+})
+
+const OBSTACLE_POINT_SIZE = 0.04
+
+/** Map-frame xyz (ROS) to the three.js y-up layout (x, z, -y). */
+function rosXyzToThree(xyz: Float32Array): Float32Array {
+  const out = new Float32Array(xyz.length)
+  for (let i = 0; i < xyz.length; i += 3) {
+    out[i] = xyz[i]
+    out[i + 1] = xyz[i + 2]
+    out[i + 2] = 0 - xyz[i + 1]
+  }
+  return out
+}
+
+/** One three.js point set; positions are three-layout xyz, colors optional (else the uniform color). */
+function PointSet({ positions, colors, color }: { positions: Float32Array; colors?: Float32Array; color?: string }) {
+  const { invalidate } = useThree()
+  const geometry = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    if (colors) g.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    return g
+  }, [positions, colors])
+  useEffect(() => {
+    invalidate()
+    return () => geometry.dispose()
+  }, [geometry, invalidate])
+  return (
+    <points geometry={geometry} frustumCulled={false}>
+      <pointsMaterial size={OBSTACLE_POINT_SIZE} sizeAttenuation vertexColors={Boolean(colors)} color={colors ? undefined : color} />
+    </points>
+  )
+}
+
+/**
+ * 3D obstacles layer: ToF cloud (coloured by height band) and lidar scan points, both already carrying the pose of
+ * their sensor frame in the map frame. Malformed or cleared payloads draw nothing.
+ */
+export const ObstaclePointsLayer = memo(function ObstaclePointsLayer({
+  cloud,
+  scan,
+  visible,
+}: {
+  cloud: unknown
+  scan: unknown
+  visible: boolean
+}) {
+  const tof = useMemo(() => {
+    const xyz = visible ? cloudToMapPoints(cloud) : null
+    return xyz && xyz.length > 0 ? { positions: rosXyzToThree(xyz), colors: tofColors(xyz) } : null
+  }, [cloud, visible])
+  const lidar = useMemo(() => {
+    const xyz = visible ? scanToMapPoints(scan) : null
+    return xyz && xyz.length > 0 ? rosXyzToThree(xyz) : null
+  }, [scan, visible])
+  if (!visible) return null
+  return (
+    <>
+      {tof && <PointSet positions={tof.positions} colors={tof.colors} />}
+      {lidar && <PointSet positions={lidar} color={LIDAR_COLOR} />}
+    </>
   )
 })
