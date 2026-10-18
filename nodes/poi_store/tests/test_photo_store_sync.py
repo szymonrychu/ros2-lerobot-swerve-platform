@@ -83,7 +83,7 @@ def test_export_skips_record_with_missing_jpeg(store: PhotoStore, dest: Path) ->
 def test_export_falls_back_to_copy_when_link_fails(store: PhotoStore, dest: Path, monkeypatch) -> None:
     add(store, 1, b"abc")
 
-    def refuse(src, dst, **kw):
+    def refuse(*_args: object, **_kw: object) -> None:
         raise OSError("cross-device")
 
     monkeypatch.setattr(os, "link", refuse)
@@ -179,7 +179,7 @@ def test_replace_all_copy_fallback(store: PhotoStore, tmp_path: Path, monkeypatc
     src_store = make_store(tmp_path / "src")
     rec = add(src_store, 1, b"zz")
 
-    def refuse(src, dst, **kw):
+    def refuse(*_args: object, **_kw: object) -> None:
         raise OSError("nope")
 
     monkeypatch.setattr(os, "link", refuse)

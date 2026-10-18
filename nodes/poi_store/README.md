@@ -198,6 +198,6 @@ Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Be
   `node.py` the only rclpy module.
 - `cd nodes/poi_store && uv run pytest tests -q` (no ROS needed); `uv run poe lint`.
 - Tests: `test_replace.py` (replace op: swap, atomic rejection, duplicates, photos, revision, rollback), `test_clear_filters.py` (clear by creator/kind/zone/ids/status filters), `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear leaves
-  photos but strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore),
+  photos but strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore), `test_photo_store_sync.py` (export, replace_all),
   `test_node_photos.py` (`/poi/photos` publishing, missing/unreadable directory, prune timer; rclpy stubbed via
   `ros_stubs.py`), `test_shutdown.py`, `test_config.py`, `test_metrics.py`, `test_zone_models.py`.
