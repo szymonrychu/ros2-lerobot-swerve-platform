@@ -134,6 +134,7 @@ def _install_ros2_stubs() -> None:
         "JointState",
         "NavSatFix",
         "LaserScan",
+        "PointCloud2",
         "Image",
         "CompressedImage",
         "CameraInfo",
