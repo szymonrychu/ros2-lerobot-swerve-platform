@@ -1,0 +1,63 @@
+---
+title: Web UI head camera frontend
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "The Arm tab's second stream reads the head camera field the backend now sends."
+files: [nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/tabs/ArmTab.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx, nodes/web_ui/frontend/src/hooks/subscription.ts, nodes/web_ui/frontend/src/tabs/CameraTab.test.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/README.md]
+verify: "cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build"
+depends_on: [web-ui-head-camera-topics]
+owns: []
+uses: [web-head-camera-fields]
+model: sonnet
+estimate: 45
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# Web UI head camera frontend
+
+## Requirement
+
+- `types.ts`: `front_camera_topic` renamed `head_camera_topic` (comment: head camera).
+- `ArmTab.tsx`: the second stream reads `tab.head_camera_topic`, alt text "head camera", doc comment says gripper and head camera. `hooks/subscription.ts` subscribes `head_camera_topic` and no `front_camera_topic`.
+- Fixtures: `CameraTab.test.tsx` single-stream fixture and `HeadTab.test.tsx` RGB fixture use `/head_camera/image_raw/compressed`.
+- `nodes/web_ui/README.md`: Arm row/section say head camera / `head_camera_topic`; Head row/section say RGB from the head camera (`/head_camera/image_raw/compressed`, head_camera_cpp); the Front/Back tab row is removed.
+- Tests first, seen failing: `ArmTab.test.tsx` uses `head_camera_topic` and alt "head camera"; the subscription test (in `ArmTab.test.tsx` or the existing subscription test) expects `head_camera_topic`.
+
+## Acceptance conditions
+
+- a1: the Arm tab shows the head camera from head_camera_topic [evidence: test: nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx]
+- a2: no frontend source names front_camera_topic or /front_camera [evidence: command: ! git grep -n -E 'front_camera_topic|/front_camera/' -- nodes/web_ui/frontend/src]
+- a3: the web_ui README has no Front/Back tab row and names head_camera_topic [evidence: command: grep -q head_camera_topic nodes/web_ui/README.md && ! grep -n '| Front/Back |' nodes/web_ui/README.md]
+- a4: frontend typecheck, tests, lint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]
+
+## Files
+
+- `nodes/web_ui/frontend/src/types.ts`
+- `nodes/web_ui/frontend/src/tabs/ArmTab.tsx`
+- `nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx`
+- `nodes/web_ui/frontend/src/hooks/subscription.ts`
+- `nodes/web_ui/frontend/src/tabs/CameraTab.test.tsx`
+- `nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx`
+- `nodes/web_ui/README.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
