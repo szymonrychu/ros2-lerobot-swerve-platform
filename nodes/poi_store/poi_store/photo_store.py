@@ -51,7 +51,7 @@ class PhotoStore:
         root (Path): Store directory.
         max_records (int): Most records kept.
         max_bytes (int): Most total JPEG bytes kept.
-        max_age_days (float): Oldest record age kept (days).
+        max_age_days (float | None): Oldest record age kept (days); None never drops a record for its age.
         max_image_bytes (int): Largest JPEG an add accepts.
         clock (Callable[[], float]): Unix time source.
         revision (int): Bumped on every change of the index.
@@ -62,7 +62,7 @@ class PhotoStore:
         root: Path,
         max_records: int,
         max_bytes: int,
-        max_age_days: float,
+        max_age_days: float | None,
         max_image_bytes: int,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -72,7 +72,7 @@ class PhotoStore:
             root (Path): Store directory.
             max_records (int): Most records kept.
             max_bytes (int): Most total JPEG bytes kept.
-            max_age_days (float): Oldest record age kept (days).
+            max_age_days (float | None): Oldest record age kept (days); None never drops a record for its age.
             max_image_bytes (int): Largest JPEG an add accepts.
             clock (Callable[[], float]): Unix time source (tests pass a fake).
         """
@@ -247,12 +247,16 @@ class PhotoStore:
         """
         recs = self.records()
         now = self.clock()
-        max_age_s = self.max_age_days * DAY_S
+        max_age_s = None if self.max_age_days is None else self.max_age_days * DAY_S
         total = sum(r.bytes for r in recs)
         slack = 1.0 + PRUNE_SLACK
         oldest_age = max((now - r.ts for r in recs), default=0.0)
         removed = 0
-        if len(recs) > self.max_records * slack or total > self.max_bytes * slack or oldest_age > max_age_s * slack:
+        if (
+            len(recs) > self.max_records * slack
+            or total > self.max_bytes * slack
+            or (max_age_s is not None and oldest_age > max_age_s * slack)
+        ):
             removed = self.drop_over_limit(recs, keep_id, now)
         elif not self.swept:
             self.remove_orphans({r.file for r in recs})
@@ -270,12 +274,12 @@ class PhotoStore:
         Returns:
             int: Records removed.
         """
-        max_age_s = self.max_age_days * DAY_S
+        max_age_s = None if self.max_age_days is None else self.max_age_days * DAY_S
         count = len(recs)
         total = sum(r.bytes for r in recs)
         dropped: set[str] = set()
         for rec in sorted(recs, key=lambda r: r.ts):
-            too_old = now - rec.ts > max_age_s
+            too_old = max_age_s is not None and now - rec.ts > max_age_s
             if rec.id == keep_id or not (count > self.max_records or total > self.max_bytes or too_old):
                 continue
             dropped.add(rec.id)

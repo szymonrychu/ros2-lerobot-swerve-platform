@@ -144,6 +144,10 @@ parse the index through `ros2_common.lookups.IndexCache`.
 Retention (moved from mcp_server `lookup_store.py`, same semantics): nothing is rewritten until the record count, the
 total JPEG bytes or the oldest age exceeds its limit by `PRUNE_SLACK` (5 %); then the oldest records are dropped back to
 the limit itself and their JPEGs unlinked. The record just added is never dropped. A prune rewrite drops corrupt lines.
+The age limit is optional: `max_age_days` is `null` by default (and in the ansible config) because photos are map POIs
+that a map load restores, so an age prune would delete a restored map's older photos; with `null` no record is dropped for
+its age and `summary()["limits"]["max_age_days"]` is `null`. `max_records` and `max_bytes` stay as disk guards. An
+explicit positive value (finite, > 0) prunes by age as before.
 JPEGs that no index line names (a crash between the JPEG write and the add, or an add that timed out and never
 arrived) are swept once they are at least 60 s old, on the first prune of the process and on every index rewrite.
 
@@ -173,7 +177,7 @@ photos:                         # photo store; unknown keys are rejected
   store_dir: /var/lib/ros2/poi/lookups   # <id>.jpg files and index.jsonl
   max_records: 3000             # most photos kept, oldest pruned first
   max_bytes: 300000000          # most total JPEG bytes kept
-  max_age_days: 14              # oldest photo age kept
+  max_age_days: null            # oldest photo age kept (days); null (default) = no age limit, photos leave with their map
   max_image_bytes: 5000000      # largest single JPEG an add accepts
   prune_interval_s: 3600        # retention timer period, so the age limit holds without camera activity
   summary_topic: /poi/photos    # latched photo summary topic
