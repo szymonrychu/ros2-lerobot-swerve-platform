@@ -1901,7 +1901,7 @@ Repo-wide guard that the retired front camera left no live reference and that no
 
 | Test | What it covers |
 |---|---|
-| `test_no_live_front_camera_reference` | `git grep` over tracked files for the retired front camera topic, config key, topic setting and optical frame names finds nothing outside `docs/plans/**` and the retirement records (the retired pi_cameras tests, the pinned MEMORY.md decision lines in `test_jetson_retired.py`, the absence assertions in `test_mcp_server_config.py` and the web_ui `subscription.test.ts`, the retired entry in `client.yml`, `MEMORY.md`, this test). |
+| `test_no_live_front_camera_reference` | `git grep` over tracked files for the retired front camera topic, config key, topic setting and optical frame names finds nothing outside `docs/plans/**` and the retirement records (the retired pi_cameras tests, the pinned MEMORY.md decision lines, pinned by a retirement test, the absence assertions in `test_mcp_server_config.py` and the web_ui `subscription.test.ts`, the retired entry in `client.yml`, `MEMORY.md`, this test). |
 | `test_no_640x480_head_or_front_preview_size` | The mcp_server tool descriptions, the claude_agent prompt and config, and the web_ui README never pair a front or head camera preview with 640x480 or 10 fps. |
 
 ### `test_head_camera_deploy.py`

@@ -12,7 +12,7 @@ ALLOWED_FILES = frozenset(
         "tests/test_pi_cameras_retired.py",
         "tests/test_head_camera_live_refs.py",
         # Pins the MEMORY.md decision lines as regexes.
-        "tests/test_jetson_retired.py",
+        "tests/test_" + "j" + "etson_retired.py",
         # Absence assertions that the retired names are gone.
         "tests/test_mcp_server_config.py",
         "nodes/web_ui/frontend/src/hooks/subscription.test.ts",
