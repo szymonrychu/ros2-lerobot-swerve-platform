@@ -1,6 +1,6 @@
 ---
 title: Docs and memory sweep
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Project memory, the deploy skill and the remaining READMEs and comments describe the robot without the Jetson."
 files: [MEMORY.md, .claude/skills/ansible-deploy/SKILL.md, ansible/README.md, nodes/pi_cameras/README.md, tests/test_pi_cameras_deploy.py, nodes/README.md, ansible/group_vars/client.yml, tests/README.md]

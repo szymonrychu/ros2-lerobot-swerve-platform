@@ -1,6 +1,6 @@
 ---
 title: "nodes/web_ui/README.md Head row (line 14) and Overview row (line 15) still say stereo/Jetson"
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Stale Jetson/stereo docs belong to the Head tab and camera re-point tasks, not this task."
 files: [nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: false
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--nodes-web-ui-readme-md-head
 branch: remove-the-jetson-coprocesso--nodes-web-ui-readme-md-head
 verified_head: ""
-run: ""
+run: remove-the-jetson-coprocesso
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # nodes/web_ui/README.md Head row (line 14) and Overview row (line 15) still say stereo/Jetson

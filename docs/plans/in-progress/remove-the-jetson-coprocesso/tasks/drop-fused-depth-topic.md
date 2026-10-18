@@ -1,6 +1,6 @@
 ---
 title: Drop fused depth topic
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: The web_ui backend and configs carry no Jetson AI-filled depth topic.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_map3d_backend.py, tests/test_mcp_server_config.py, nodes/web_ui/README.md, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--drop-fused-depth-topic
 branch: remove-the-jetson-coprocesso--drop-fused-depth-topic
-verified_head: ""
+verified_head: e4b287325fd7b4517c0833e78555ab61029e0147
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []
