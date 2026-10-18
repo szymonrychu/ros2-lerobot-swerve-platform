@@ -1,6 +1,7 @@
 """Concurrent nav stop / map reset requests share one in-flight service call; cancel timeout is 10 s."""
 
 import asyncio
+from concurrent.futures import Future
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -165,7 +166,8 @@ async def test_concurrent_map_resets_share_one_service_call(client_factory: Any)
     bridge = MagicMock()
     fut = ManualFuture()
     bridge.reset_map_async.return_value = fut
-    bridge.map_request_async.return_value = _done(
+    cleared: Future = Future()
+    cleared.set_result(
         {
             "request_id": "x",
             "ok": True,
@@ -173,6 +175,7 @@ async def test_concurrent_map_resets_share_one_service_call(client_factory: Any)
             "data": {"pois_removed": 0, "photos_removed": 0, "active_map": None},
         }
     )
+    bridge.map_request_async.return_value = cleared
     async with client_factory(bridge) as client:
         first = asyncio.create_task(client.post("/api/map/reset?tab=map"))
         await asyncio.sleep(SETTLE_S)
