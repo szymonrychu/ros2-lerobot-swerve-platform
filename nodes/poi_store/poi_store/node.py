@@ -93,8 +93,8 @@ def run_node(config: PoiStoreConfig) -> None:
 
     node.create_subscription(String, config.command_topic, on_command, VOLATILE_QOS)
     node.create_timer(config.photos.prune_interval_s, on_prune_timer, clock=Clock(clock_type=ClockType.SYSTEM_TIME))
-    publish_list()
     prune_photos()  # the first prune of the process also sweeps orphan JPEGs
+    publish_list()
     publish_photos()
     node.get_logger().info(f"poi_store: {len(store.pois)} POIs, file {config.store_path}, photos {photos.root}")
     try:

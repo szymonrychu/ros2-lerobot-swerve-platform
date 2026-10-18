@@ -42,3 +42,23 @@ def test_prune_that_removed_nothing_does_not_republish_list(node_module: ModuleT
     count = len(node.publishers["/poi/list"].sent)
     node.timers[0][1]()
     assert len(node.publishers["/poi/list"].sent) == count
+
+
+def test_startup_prune_that_removed_photos_publishes_pruned_list(
+    node_module: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    photo_dir = tmp_path / "photos"
+    photo_dir.mkdir()
+    now = [1_760_000_000.0]
+    monkeypatch.setattr(node_module, "time", SimpleNamespace(time=lambda: now[0]))
+    config = make_config(tmp_path, max_age_days=1.0)
+    first = run(node_module, config)
+    first.subscriptions["/poi/command"](FakeString(photo_command(photo_dir, 1, ts=now[0])))
+    revision_before = json.loads(first.publishers["/poi/list"].sent[-1])["revision"]
+
+    now[0] += 2 * DAY_S
+    second = run(node_module, config)
+
+    data = json.loads(second.publishers["/poi/list"].sent[-1])
+    assert data["pois"] == []
+    assert data["revision"] > revision_before
