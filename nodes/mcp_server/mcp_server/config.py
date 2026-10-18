@@ -124,7 +124,7 @@ class TopicSettings(StrictModel):
     rf2o_twist: str = "/odom_rf2o_twist"
     imu: str = "/imu/data"
     servo_registers: str = "/follower/servo_registers"  # JSON dump of the arm servos (follower bus)
-    # Base bus bridge's JSON register dump: the swerve servos (head joints join it when the pan/tilt epic adds them).
+    # JSON register dump of the base bus bridge: the swerve servos, plus any head joints placed on that bus.
     base_servo_registers: str = "/swerve_drive/servo_registers"
     robot_events: str = "/robot_events"
     tilt_guard_state: str = "/tilt_guard/state"
