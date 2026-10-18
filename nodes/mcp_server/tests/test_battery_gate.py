@@ -136,7 +136,7 @@ def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> N
     robot = FakeRobot(tmp_path)
     robot.pois.append({"id": "id0", "name": "dock", "kind": "point", "x": 0.0, "y": 0.0, "status": "open"})
     robot.map = room()  # a map with frontier 1 for the frontier sensor tools
-    robot.map_status_msg = MapStatus(maps=[], active_map=None, localisation=Localisation(state="unknown"))
+    robot.map_status_msg = MapStatus(maps=[], active_map=None, load_seq=0, localisation=Localisation(state="unknown"))
     server = make_server(robot, make_guard(LOW_V))
     args = dict(ALLOWED_ARGS[name])
     if name == "forget_object":
