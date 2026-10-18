@@ -4,7 +4,7 @@ status: done
 repo: ros2-lerobot-sverve-platform
 value: "This task's requirement removes those vars from all.yml. The file belongs to drop-network-link-support, which deletes it. Integration must merge both tasks, or the full suite fails on this file."
 files: ["tests/test_network_link.py:180-215"]
-verify: ""
+verify: "! test -e tests/test_network_link.py"
 depends_on: []
 owns: []
 uses: []
@@ -31,6 +31,7 @@ Why: This task's requirement removes those vars from all.yml. The file belongs t
 
 ## Acceptance conditions
 
+- a1: tests/test_network_link.py no longer exists on main (deleted by drop-network-link-support) and the root suite passes [evidence: command: ! test -e tests/test_network_link.py]
 
 
 ## Files
@@ -39,15 +40,15 @@ Why: This task's requirement removes those vars from all.yml. The file belongs t
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- None.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+- The root suite has no failing test_network_link tests.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- `! test -e tests/test_network_link.py`: exit 0. Resolved by the merge of drop-network-link-support; no code change.
 
 ## Notes
 
