@@ -369,8 +369,8 @@ ros2_node_type_defaults:
   # enable it together with pi_cameras: one process owns the camera. Then ros2_common_cpp and the node build as local
   # sources (-j2).
   # Background tier like pi_cameras, a preview the robot can lose. The figures are carried over from pi_cameras
-  # (one process, one camera, plus the full-resolution still buffers): re-measure the working set in Mimir (p50 and
-  # 24 h peak) and set MemoryLow ~1.33x p50, MemoryMax 4x the peak.
+  # (one process, one camera, plus the full-resolution still buffers). The working set to compare them with is the
+  # Mimir p50 and 24 h peak: MemoryLow is ~1.33x p50, MemoryMax 4x the peak.
   head_camera_cpp:
     deploy_mode: native
     node_launch_command: "ros2 run head_camera_cpp head_camera_node"
@@ -1211,8 +1211,8 @@ ros2_nodes:
       front_port: cam0
       roles: [front]
   # Head RGB camera of the pan/tilt head: Camera Module 3 on CSI cam0 (the Arducam ToF is on cam1). Publishes
-  # /head_camera/* in head_camera_optical_frame; no TF until the pan/tilt head is built. Replaces pi_cameras: never
-  # enable both (one camera owner).
+  # /head_camera/* in head_camera_optical_frame; no TF is published (the frame is parented to the pan/tilt chain
+  # when that exists). Replaces pi_cameras: never enable both (one camera owner).
   - name: head_camera_cpp
     node_type: head_camera_cpp
     present: true
