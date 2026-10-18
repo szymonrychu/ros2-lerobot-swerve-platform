@@ -263,7 +263,7 @@ def camera_scene(robot: RobotApi, config: McpServerConfig, camera: str) -> tuple
     """
     setup = camera_setup(config, camera)
     joints = robot.arm.measured(robot.arm.require_sample()) if camera == "gripper" else None
-    return build_scene(setup, config, parent_transform(config, camera, robot.arm.kin, joints)), setup
+    return build_scene(setup, config, parent_transform(config, camera, robot.arm.kin, joints, head=robot.head)), setup
 
 
 def grab_frame(robot: RobotApi, setup: CameraSetup) -> tuple[np.ndarray, int]:

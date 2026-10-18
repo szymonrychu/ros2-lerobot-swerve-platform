@@ -205,10 +205,11 @@ def register(ctx: ToolContext) -> None:
         return None if sample is None else robot.arm.measured(sample)
 
     def scene_for(camera: str) -> tuple[Scene, CameraSetup, dict[str, float] | None]:
-        """Scene of a calibrated camera at the current arm pose."""
+        """Scene of a calibrated camera at the current arm pose (gripper) or measured head pose (front)."""
         setup = camera_setup(config, camera)
         joints = arm_joints(required=camera == "gripper")
-        return build_scene(setup, config, parent_transform(config, camera, kin, joints)), setup, joints
+        t_parent = parent_transform(config, camera, kin, joints, head=robot.head)
+        return build_scene(setup, config, t_parent), setup, joints
 
     def grab(camera: str, setup: CameraSetup) -> np.ndarray:
         """Fresh frame as a BGR image at the calibrated size."""
@@ -513,7 +514,8 @@ def register(ctx: ToolContext) -> None:
             "Store one calibration sample (read-only for the robot; writes a JSON file): the pixel (u, v) of a marker "
             "whose floor position you measured, with that ground point in the camera's reference frame (arm base "
             f"frame for 'gripper', where the floor is z = {config.arm.floor_z_m:.3f}; base_link for 'front', floor z = 0) "
-            "and the parent-link pose at this moment (current arm joints for 'gripper', identity for 'front'). Returns "
+            "and the parent-link pose at this moment (current arm joints for 'gripper', current head pan/tilt for 'front', "
+            "whose parent is a head link: keep the head still or capture views at several head poses). Returns "
             "the sample count. Use several well spread markers (and for 'gripper' several arm poses), then call "
             "solve_camera_calibration. Works before the camera is calibrated. The pixel is in the calibrated image "
             "size (the intrinsics' width x height) unless image_width / image_height give the size of the image it "
@@ -538,7 +540,7 @@ def register(ctx: ToolContext) -> None:
                 u, v = u * scale, v * scale
             parent = str(getattr(config.cameras, camera).parent_frame)
             joints = arm_joints(required=camera == "gripper")
-            t_parent = parent_transform(config, camera, kin, joints)
+            t_parent = parent_transform(config, camera, kin, joints, head=robot.head)
             count = samples.add(camera, parent, t_parent, (u, v), (ground_x, ground_y, ground_z), joints=joints)
             return data_result(
                 {

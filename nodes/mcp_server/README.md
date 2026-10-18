@@ -98,11 +98,15 @@ works before calibration; `solve_camera_calibration` needs the intrinsics.
 
 | Camera | Reference frame of results | Floor | Mount `parent_frame` |
 |---|---|---|---|
-| `front` (head RGB camera) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | `base_link` (fixed) |
+| `front` (head RGB camera) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | a link of the head URDF `head.urdf_path` (default and deployed `head_link`; moves with the pan/tilt head) |
 | `gripper` (on the wrist) | arm base frame (URDF `base_link` of `so101_arm.urdf`, `z = 0` on the arm mount plane) | `z = -arm_base_height_m` (`floor_z_m`, -0.100 m with the measured mount) | URDF link `gripper_link` (child of `wrist_roll`, the rigid gripper body carrying the fixed jaw; `gripper_frame_link` is only the tool point at the jaw tips and `moving_jaw_so101_v1_link` moves with the gripper joint, so neither is a valid mount) |
 
 For the gripper camera `T_arm_base_gripper_link` is computed from the CURRENT measured joints with the same ikpy chain
-as IK/FK (`ArmKinematics.link_frame`), so the tools need fresh `/follower/joint_states`. Mount orientation convention:
+as IK/FK (`ArmKinematics.link_frame`), so the tools need fresh `/follower/joint_states`. The front camera works the
+same way on the head: `T_base_link_head_link` comes from the CURRENT measured `head_pan` / `head_tilt`
+(`HeadKinematics.link_pose`, `camera_scene.parent_transform(..., head=...)`), so the front camera tools need fresh
+`/head/joint_states` (an error naming them otherwise, never a fixed-pose fallback). The deployed front mount is the
+`head.urdf` `head_link -> head_camera_link` origin (x 0.02, y -0.025, z 0, rpy 0). Mount orientation convention:
 REP-103 camera body frame (x forward, y left, z up), fixed-axis RPY in `parent_frame`.
 
 `arm.base_in_base_link` (`x`, `y`, `z`, `yaw` of the arm base frame in base_link; z must equal `arm_base_height_m`)
@@ -147,8 +151,9 @@ defaults to the mount measured on the robot 2026-10-10 `{x: 0.0592, y: -0.05, z:
 3. Take a photo (`get_camera_image` or `get_annotated_camera_image`; the annotated image works once an approximate mount is
    set and shows how far off it is), read the marker pixel `(u, v)` and call
    `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z)`. For the `gripper` camera repeat this at
-   several arm poses (move the arm to look at the markers from different joint configurations): each sample stores the
-   parent-link pose of that moment (computed with `arm.joint_offsets_rad`) and the raw measured joint positions as
+   several arm poses (move the arm to look at the markers from different joint configurations); for `front` the sample
+   stores the `head_link` pose at the measured head angles, so views at several head poses can be mixed. Each sample
+   stores the parent-link pose of that moment (computed with `arm.joint_offsets_rad`) and the raw measured joint positions as
    `joints` (optional field of the sample JSON), so the joint offsets can be re-solved from the same samples.
 4. `solve_camera_calibration(camera, initial)` (`initial` = `{x, y, z, roll, pitch, yaw}`, or the configured mount) returns
    `rms_px` (aim for about 1 px or less) and a YAML snippet.
@@ -2421,7 +2426,7 @@ grasp:                    # grasp planner defaults, overridable per call via par
 cameras:                  # default: not calibrated (see Camera tools and calibration)
   calibration_dir: /var/lib/ros2/camera_calibration
   gripper: {parent_frame: gripper_link, intrinsics: null, mount: null}
-  front: {parent_frame: base_link, intrinsics: {hfov_deg: 66.0, width: 640, height: 480}, mount: null}
+  front: {parent_frame: head_link, intrinsics: {hfov_deg: 66.0, width: 640, height: 480}, mount: null}
 grasp_check:               # jaw crop of a held close (see Grasp verification)
   crop_depth_m: 0.045      # how far into the jaws the crop reaches
   crop_margin_px: 24

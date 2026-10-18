@@ -20,7 +20,7 @@ from mcp_server.config import McpServerConfig
 from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import BasePose
 
-from .camera_helpers import HEIGHT, WIDTH, camera_config, front_ground_of_center
+from .camera_helpers import HEIGHT, WIDTH, camera_config, fresh_head, front_ground_of_center
 
 POSE = BasePose(frame="map", x=1.0, y=2.0, yaw=math.pi / 2)
 
@@ -74,7 +74,7 @@ def test_mount_is_optional_when_not_needed() -> None:
 def test_front_scene_centre_pixel_hits_analytic_floor_point(kin: ArmKinematics) -> None:
     cfg = camera_config()
     setup = camera_setup(cfg, "front")
-    scene = build_scene(setup, cfg, parent_transform(cfg, "front", kin, None))
+    scene = build_scene(setup, cfg, parent_transform(cfg, "front", kin, None, head=fresh_head(cfg)))
     assert scene.frame_name == "base_link" and scene.ground_z == 0.0
     hit = scene.ground_point(WIDTH / 2, HEIGHT / 2)
     ex, ey = front_ground_of_center()
@@ -83,7 +83,9 @@ def test_front_scene_centre_pixel_hits_analytic_floor_point(kin: ArmKinematics) 
 
 def test_front_scene_project_and_ground_round_trip(kin: ArmKinematics) -> None:
     cfg = camera_config()
-    scene = build_scene(camera_setup(cfg, "front"), cfg, parent_transform(cfg, "front", kin, None))
+    scene = build_scene(
+        camera_setup(cfg, "front"), cfg, parent_transform(cfg, "front", kin, None, head=fresh_head(cfg))
+    )
     for point in ([0.9, 0.2, 0.0], [0.6, -0.3, 0.0], [1.2, 0.0, 0.0]):
         uv = scene.project(np.array(point))
         assert uv is not None
@@ -93,11 +95,15 @@ def test_front_scene_project_and_ground_round_trip(kin: ArmKinematics) -> None:
 
 def test_above_horizon_pixel_has_no_ground(kin: ArmKinematics) -> None:
     cfg = camera_config()
-    scene = build_scene(camera_setup(cfg, "front"), cfg, parent_transform(cfg, "front", kin, None))
+    scene = build_scene(
+        camera_setup(cfg, "front"), cfg, parent_transform(cfg, "front", kin, None, head=fresh_head(cfg))
+    )
     assert scene.ground_point(WIDTH / 2, 0.0) is not None  # pitch 1.0 rad, vfov/2 ~ 36.9 deg: top edge hits the floor
     steep = camera_config(front=True)
     steep.cameras.front.mount.pitch = 0.2
-    scene2 = build_scene(camera_setup(steep, "front"), steep, parent_transform(steep, "front", kin, None))
+    scene2 = build_scene(
+        camera_setup(steep, "front"), steep, parent_transform(steep, "front", kin, None, head=fresh_head(steep))
+    )
     assert scene2.ground_point(WIDTH / 2, 0.0) is None
 
 
@@ -121,8 +127,9 @@ def test_gripper_parent_transform_requires_joints(kin: ArmKinematics) -> None:
         parent_transform(cfg, "gripper", kin, None)
 
 
-def test_front_parent_transform_is_identity(kin: ArmKinematics) -> None:
-    assert np.allclose(parent_transform(camera_config(), "front", kin, None), np.eye(4))
+def test_front_parent_on_base_link_is_identity_at_any_head_pose(kin: ArmKinematics) -> None:
+    cfg = camera_config()  # synthetic mount on base_link, the head URDF root
+    assert np.allclose(parent_transform(cfg, "front", kin, None, head=fresh_head(cfg, 0.5, 0.3)), np.eye(4))
 
 
 def test_frame_conversions_with_and_without_arm_offset(kin: ArmKinematics) -> None:

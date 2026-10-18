@@ -186,6 +186,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "timeouts",
         "nav",
         "arm",
+        "head",
         "battery",
         "monitor",
         "footprint",
@@ -423,7 +424,10 @@ def mcp_base_tools() -> set[str]:
     tree = ast.parse((REPO_ROOT / "nodes/mcp_server/mcp_server/tools.py").read_text())
     for node in tree.body:
         if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "TOOL_SUBSYSTEM":
-            table = ast.literal_eval(node.value)
+            # Literal entries only: the `**{name: "any" ...}` spread of the head tools (key None) needs no base lease.
+            assert isinstance(node.value, ast.Dict)
+            pairs = zip(node.value.keys, node.value.values, strict=True)
+            table = {ast.literal_eval(k): ast.literal_eval(v) for k, v in pairs if k is not None}
             return {name for name, need in table.items() if need == "base"}
     raise AssertionError("TOOL_SUBSYSTEM not found in tools.py")
 

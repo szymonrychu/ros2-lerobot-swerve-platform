@@ -1949,6 +1949,18 @@ ros2_nodes:
         image_timeout_s: 5.0
       # mount is the solve_camera_calibration output (parent_frame x y z roll pitch yaw, body frame x fwd / y left / z up).
       # The gripper mount is relative to the URDF link gripper_link of so101_arm.urdf, the front mount to base_link.
+      # Pan/tilt head (head tools, front camera pose): explicit values equal to the defaults. Joint names, topics and the
+      # home pose match the base_servos head group (startup_position_rad) and nodes/web_ui/urdf/head.urdf.
+      head:
+        urdf_path: nodes/web_ui/urdf/head.urdf
+        joint_names: [head_pan, head_tilt]
+        command_topic: /head/joint_commands
+        state_topic: /head/joint_states
+        home_pan_rad: 0.0
+        home_tilt_rad: 0.5236
+        tolerance_rad: 0.03
+        move_timeout_s: 4.0
+        state_max_age_s: 0.5
       cameras:
         calibration_dir: /var/lib/ros2/camera_calibration
         # Mount re-solved 2026-10-08 (afternoon) from 15 views at wrist_roll 0, -0.8, -1.57, -2.3, -2.69 over a steel
@@ -1969,10 +1981,20 @@ ros2_nodes:
             roll: -1.5622
             pitch: 1.1950
             yaw: -1.4466
+        # Front = the head RGB camera (Camera Module 3) on the pan/tilt head: its pose follows the measured head angles
+        # (/head/joint_states). The mount is the head.urdf head_link -> head_camera_link origin; intrinsics stay null
+        # until the camera is calibrated, so the camera tools still answer 'not calibrated'.
         front:
-          parent_frame: base_link
+          parent_frame: head_link
           intrinsics: null
-          mount: null
+          mount:
+            parent_frame: head_link
+            x: 0.02
+            y: -0.025
+            z: 0.0
+            roll: 0.0
+            pitch: 0.0
+            yaw: 0.0
       # Nav2 goal precision stated in the navigation tool descriptions (nav2_params.yaml goal checker: 0.01 m, 0.035 rad).
       # A goal ends early (cancelled, 'succeeded') within the intermediate tolerances unless the call passes precise=true.
       nav:
