@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: ""
 branch: ""
-verified_head: ""
+verified_head: "b0046dacf288a7401f9613948f21ef54909d8aff"
 run: ""
 provides: []
 ---
