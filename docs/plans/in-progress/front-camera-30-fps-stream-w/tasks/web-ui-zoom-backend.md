@@ -69,3 +69,7 @@ The web_ui backend serves head camera zoom crops over REST; nothing is broadcast
 - JSON contract: `nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp`.
 
 - 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on web-ui-head-camera-frontend
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (frontend 931, web_ui 825, claude_agent 735, root 1296); head-tab-click-to-zoom no-progress was TDD-evidence only.

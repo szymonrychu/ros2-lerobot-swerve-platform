@@ -63,3 +63,7 @@ The browser can turn a click into a zoom request; the Head tab UI uses it next.
 - Normalised (u, v) must refer to the full 16:9 frame: the preview is not cropped, so the displayed image's natural size is the reference.
 
 - 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on web-ui-zoom-backend
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (frontend 931, web_ui 825, claude_agent 735, root 1296); head-tab-click-to-zoom no-progress was TDD-evidence only.

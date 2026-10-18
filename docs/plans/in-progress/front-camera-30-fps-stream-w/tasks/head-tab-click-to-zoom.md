@@ -1,6 +1,6 @@
 ---
 title: Head tab click to zoom
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The user clicks the Head tab RGB view and sees a sharp full-resolution crop, then the live view again."
 files: [nodes/web_ui/frontend/src/tabs/HeadTab.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/README.md]
@@ -61,3 +61,7 @@ Head tab click-to-zoom works one crop at a time and returns to the live stream.
 - The ToF depth/amplitude part of the Head tab is untouched.
 
 - 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on web-ui-zoom-click-and-api
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (frontend 931, web_ui 825, claude_agent 735, root 1296); head-tab-click-to-zoom no-progress was TDD-evidence only.

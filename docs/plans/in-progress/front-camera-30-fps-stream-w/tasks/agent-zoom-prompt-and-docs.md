@@ -64,3 +64,7 @@ claude_agent's prompt describes the head camera and the zoom parameter.
 - No client.yml change: claude_agent's camera_note default is used.
 
 - 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on mcp-camera-image-zoom-param
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (frontend 931, web_ui 825, claude_agent 735, root 1296); head-tab-click-to-zoom no-progress was TDD-evidence only.

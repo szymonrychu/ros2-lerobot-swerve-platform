@@ -66,3 +66,7 @@ Frontend code, tests and README use head_camera_topic and /head_camera.
 - Builds on the Jetson epic's `head-and-arm-tabs-frontend` end state.
 
 - 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on web-ui-head-camera-topics
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged (frontend 931, web_ui 825, claude_agent 735, root 1296); head-tab-click-to-zoom no-progress was TDD-evidence only.
