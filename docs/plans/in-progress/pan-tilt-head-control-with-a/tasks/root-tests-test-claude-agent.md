@@ -3,7 +3,7 @@ title: "Root tests/test_claude_agent_config.py (3 tests) fails until claude_agen
 status: done
 repo: ros2-lerobot-sverve-platform
 value: "Every registered mcp_server tool must be classified there; the agent-head-tools-and-prompt task owns it."
-files: []
+files: [tests/test_claude_agent_config.py, tests/test_mcp_server_config.py]
 verify: ""
 depends_on: []
 owns: []
@@ -35,6 +35,8 @@ Why: Every registered mcp_server tool must be classified there; the agent-head-t
 
 ## Files
 
+- tests/test_claude_agent_config.py
+- tests/test_mcp_server_config.py
 
 
 ## Interfaces

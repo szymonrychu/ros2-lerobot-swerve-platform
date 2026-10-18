@@ -3,7 +3,7 @@ title: nodes/mcp_server/README.md module table and tests/README.md do not list h
 status: done
 repo: ros2-lerobot-sverve-platform
 value: "CLAUDE.md requires READMEs to list modules and each test file; those files are outside this task's ownership"
-files: []
+files: [nodes/mcp_server/README.md, tests/README.md]
 verify: ""
 depends_on: []
 owns: []
@@ -35,6 +35,8 @@ Why: CLAUDE.md requires READMEs to list modules and each test file; those files 
 
 ## Files
 
+- nodes/mcp_server/README.md
+- tests/README.md
 
 
 ## Interfaces
