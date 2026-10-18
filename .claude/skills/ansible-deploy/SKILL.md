@@ -100,11 +100,12 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `gripper_uvc_camera` | USB camera bridge |
 | `rplidar_a1` | LiDAR bridge (USB) |
 | `realsense_d435i` | Removed (present: false): replaced by `overview_camera` |
-| `overview_camera` | Retired (D7): `present: false`, the next deploy uninstalls the unit; `pi_camera_boot_config.yml` holds the CSI overlays. no node publishes `/overview_camera/*` any more |
+| `overview_camera` | Retired (D7): `present: false`, deploying it uninstalls the unit; `pi_camera_boot_config.yml` holds the CSI overlays. no node publishes `/overview_camera/*` any more |
 | `pi_cameras` | Camera Module 3 (IMX708) previews; only the front one runs (`roles: [front]`, CSI cam0) because cam1 carries the Arducam ToF; libcamera fork + camera_ros built from source into `/opt/ros2-ws`; boot overlay from `pi_camera_boot_config.yml` (reboots on change); publishes `/front_camera/image_raw/compressed` (640x480, 10 fps), background cgroup tier |
 | `arducam_tof` | Arducam ToF on CSI cam1 (`csi_device: 1f00128000.csi`, `dtoverlay=arducam-pivariety,cam1`; needs the camera firmware reflashed for the Pi 5); publishes `/tof/depth/image_raw`, `/tof/amplitude/image_raw`, `/tof/camera_info`; metrics 19112 |
-| `stereo_depth` | SGBM depth from the synced IMX219 pair (native uv node, background cgroup tier, metrics 19113); publishes `/stereo/depth/image_raw` (16UC1 mm) and `/stereo/camera_info` only with a valid calibration in `/var/lib/ros2/camera_calibration` (`python3 -m stereo_depth.calibrate`); deploy after `overview_camera` |
-| `stereo_depth_cpp` | C++ port of `stereo_depth`, side by side (`present: false` until the cut-over; never enabled together with `stereo_depth`, same metrics port 19113); built on the Pi from `nodes/stereo_depth_cpp` + `shared/ros2_common_cpp` into `/opt/ros2-ws` at lowest priority without stopping the running nodes, only when the synced tree changed; rollback: re-enable `stereo_depth` |
+| `stereo_depth` | Retired (D7, sources deleted): `present: false`; deploying it stops and removes the unit. No node publishes `/stereo/*` any more |
+| `stereo_depth_cpp` | Retired (D7, sources deleted): `present: false`; deploying it stops and removes the unit. No node publishes `/stereo/*` any more |
+| `jetson_bridge_cpp` | Retired: `present: false` with colcon purge, so deploying it removes the unit and the built workspace package. `./scripts/deploy-nodes.sh client jetson_link` removes the client's link state (hosts line, sysctl, nftables) |
 | `lerobot_follower` | SO-101 follower arm + swerve servos group `swerve_drive` (feetech, one USB bus) |
 | `swerve_drive_servos` | Removed (present: false): swerve servos now run inside `lerobot_follower` (shared bus) |
 | `swerve_controller` | Swerve drive kinematics |

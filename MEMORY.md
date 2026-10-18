@@ -162,10 +162,10 @@
 ## Jetson removal (2026-10-18)
 
 * The Jetson coprocessor is removed from the robot; the `jetson/` tree, Jetson roles, playbook and deploy target are deleted.
-* `stereo_depth` / `stereo_depth_cpp` sources are deleted; their retired `present: false` entries stay so the next deploy uninstalls them (D7). `jetson_bridge_cpp` is `present: false` with `colcon_purge`; `./scripts/deploy-nodes.sh client jetson_link` removes the client's link state (hosts line, sysctl, nftables).
+* `stereo_depth` / `stereo_depth_cpp` sources are deleted; their retired `present: false` entries stay so deploying them uninstalls the units (D7). `jetson_bridge_cpp` is `present: false` with `colcon_purge`; `./scripts/deploy-nodes.sh client jetson_link` removes the client's link state (hosts line, sysctl, nftables).
 * The web_ui Head tab shows the Arducam ToF depth + amplitude, with no RGB. `/front_camera` feeds the Arm tab and the mcp_server `front` camera. The Overview tab and stereo calibration are gone.
 * The client keeps chrony with plain internet pools.
-* The earlier "the ToF never came up" claim is corrected: the ToF works on CSI cam1; ToF frame capture on the Pi 5 kernel is tracked separately.
+* The earlier "the ToF never came up" claim is corrected: the ToF works on CSI cam1; ToF frame capture on the Pi 5 kernel is a separate open issue.
 
 ## ROS2 topic publishing
 
