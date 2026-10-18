@@ -2422,6 +2422,13 @@ ros2_nodes:
       # afterwards the declared budget (from the instruction start) applies, at most max_instruction_time_min.
       instruction_timeout_s: 900
       max_instruction_time_min: 120
+      # Time budget (minutes) per workflow template (claude_agent/workflow_templates/), declared by
+      # agent.start_workflow unless the agent passes its own. One key per template, each above 0 and at most
+      # max_instruction_time_min. The discovery budget is also the time limit of the sightseeing skill.
+      workflow_time_budget_min:
+        discovery: 30
+        drive_to_target: 10
+        pick_place: 15
       # Latency: the model gap (median 3.3 s) is mostly output tokens. Explicit medium effort, thinking text not streamed,
       # 1 h prompt cache TTL (idle gaps over 5 min), api_timing events in the session log, and context kept bounded by
       # auto-compaction at 60% of the window (fresh_with_digest starts a new session per instruction instead).

@@ -350,6 +350,43 @@ loads them on demand under the qualified name `robot-skills:<name>`. `claude_age
   `description` of at most 1024 characters that starts with "Use when ...", then the body. Run
   `uv run pytest tests/test_skills.py` here and `uv run pytest tests/test_agent_skills.py` at the repo root.
 
+## Workflows
+
+Workflow templates are repeatable step lists that seed the task plan, so discovery, drive-to-target and pick/place
+jobs start from a proven plan instead of an improvised one. They live as YAML files in
+`claude_agent/workflow_templates/<name>.yaml` (the file name is the template name) and are loaded by
+`claude_agent/workflows.py`:
+
+- `load_templates(directory, plugin=PLUGIN_DIR)` validates every template (pydantic `WorkflowTemplate`): name equals
+  the file name, `complexity` is one of the set_task_plan complexities, every `{param}` placeholder in a phase name,
+  goal or `ask` question names a declared param, `mandatory` (bool) and `skill` (str) sit on phase nodes only, no
+  mandatory phase sits inside a `while` body (it might legitimately never run), and every `skill` exists in the
+  `robot-skills` plugin.
+- `expand(template, params)` returns an `ExpandedWorkflow`: the plan tree with the params filled in (a missing
+  required param or an unknown param is a `ValueError` naming it; an optional param left out gets its `default`
+  text), " (load skill robot-skills:<skill>)" appended to the goal of each phase with a skill, and the `mandatory` /
+  `skill` keys stripped; plus `mandatory_ids` (plan order) and `skills`. The plan then goes through
+  `PlanTracker.set_plan`, so all plan limits (12 phases, 24 nodes, depth 4, loop iterations) and caps apply.
+
+| Template | Params | Phases (mandatory in bold) | Time budget |
+|---|---|---|---|
+| `discovery` | `area` (optional, default "the whole reachable map") | **orient** (NOTES.md, recent retrospectives, `get_body_state`, `get_map_summary`, `get_exploration_status`; skill sightseeing), **survey_start** (survey and `mark_survey_spot`; skill survey), while `explore` (ask: not complete and battery/time limits not reached, at most 5 iterations) over `visit` (up to 3 reachable frontiers, survey each; skill survey), **summary** (report to the person; skill sightseeing) | 30 min |
+| `drive_to_target` | `target` (required) | **resolve** (skill approach-and-verify), if `known` (ask: is the position of the target known?) then `drive` else `search` (skill sightseeing, until found or limits), **verify_arrival** (skill approach-and-verify), `report` | 10 min |
+| `pick_place` | `object` (required), `destination` (optional, default "a place the person named") | **locate** (skill approach-and-verify), `approach`, **pick_checklist** (skill safe-pick-place), while `pickloop` (outcome of `pick` in not_run/failed, at most 3) over `pick`, **verify_pick**, if `place` (ask: did the person ask to put it at the destination?) then `transport`, **place_checklist** (skill safe-pick-place), `place_object`, **verify_place** | 15 min |
+
+Mandatory phases inside an `if` branch (place_checklist, verify_place) are required only when that branch is taken.
+The time budgets come from `workflow_time_budget_min` (see Configuration); the sightseeing skill uses the discovery
+budget as its time limit. The caps of every template fit both the code defaults and the deployed config in
+`ansible/group_vars/client.yml` without clamping.
+
+**Adding a template.** Create `workflow_templates/<name>.yaml` with `name` (= file name), `title`, a one-line
+`description`, `complexity`, `params` (`name`, `description`, `required`, and `default` for an optional param) and
+`plan` in the set_task_plan tree grammar (`plan_tools.PLAN_NODE_DESCRIPTION`), marking phases with `mandatory: true`
+and `skill: <name>` where needed. Add `<name>: <minutes>` to `workflow_time_budget_min` in `config.py` and in the
+claude_agent block of `ansible/group_vars/client.yml` (the config rejects a template without a budget). Add the
+template's sample params, mandatory ids and skills to `tests/test_workflows.py` and run
+`uv run pytest tests/test_workflows.py tests/test_config.py`.
+
 ## Robot events and interrupts
 
 The node subscribes to `robot_events_topic` (`/robot_events`, `std_msgs/String`, BEST_EFFORT + VOLATILE QoS, published by the
@@ -569,6 +606,7 @@ unknown keys are rejected.
 | `camera_note` | see `config.py` | Camera mounting (angled gripper camera looks slightly from left to right, upright images) and the `front` camera, which is the head camera (Camera Module 3 on the pan/tilt head next to the ToF, 16:9, 384x216 default, autofocus, looks at the front of the robot and the arm; overview first, judge arm-to-object distance; `zoom` parameter for sharp crops) |
 | `instruction_timeout_s` | `900` | Pre-plan watchdog per instruction; once `set_task_plan` declares `time_budget_min` the watchdog fires at that budget instead |
 | `max_instruction_time_min` | `120` | Ceiling of the declared `time_budget_min`: `set_task_plan` refuses more, raises and revisions are limited to it |
+| `workflow_time_budget_min` | `{discovery: 30, drive_to_target: 10, pick_place: 15}` | Minutes per workflow template, declared by `agent.start_workflow` unless the agent passes its own; exactly one key per template, each above 0 and at most `max_instruction_time_min`; the discovery budget is also the sightseeing time limit (see "Workflows") |
 | `min_effector_time_left_s` | `60` | Effector calls are denied when less instruction time is left (of the declared budget once a plan is set; see Watchdog); the default needs no Ansible override |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |

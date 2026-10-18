@@ -1,0 +1,58 @@
+# Drive to target: resolve where the target is, drive there (or search for it first), verify the arrival, report.
+# Grammar: plan_tools.PLAN_NODE_DESCRIPTION; a phase may add mandatory (flagged at job end when skipped) and skill.
+name: drive_to_target
+title: Drive to a target
+description: Drive to a named place, POI or object; search for it first when its position is not known.
+complexity: moderate
+params:
+  - name: target
+    description: The place, POI or object to drive to, e.g. "the red chair".
+    required: true
+plan:
+  type: seq
+  children:
+    - type: phase
+      id: resolve
+      name: Resolve the target
+      goal: >-
+        Find out where {target} is from the POIs, remembered objects, recent lookups and NOTES.md, and decide whether
+        its map position is known.
+      rw_cap: 0
+      turn_cap: 15
+      mandatory: true
+      skill: approach-and-verify
+    - type: if
+      id: known
+      condition:
+        ask: Is the position of {target} known?
+      then:
+        type: phase
+        id: drive
+        name: Drive to the target
+        goal: Reach a safe approach pose next to {target} (suggest_approach_pose, navigate_to_pose).
+        rw_cap: 30
+        turn_cap: 30
+      else:
+        type: phase
+        id: search
+        name: Search for the target
+        goal: >-
+          Search for {target} with the sightseeing loop until it is found and reached, or a time or battery limit is
+          hit.
+        rw_cap: 60
+        turn_cap: 60
+        skill: sightseeing
+    - type: phase
+      id: verify_arrival
+      name: Verify the arrival
+      goal: Confirm with a camera image that the robot is next to {target}; update its POI or remembered object.
+      rw_cap: 15
+      turn_cap: 20
+      mandatory: true
+      skill: approach-and-verify
+    - type: phase
+      id: report
+      name: Report
+      goal: Tell the person where the robot is relative to {target}, or why it could not get there.
+      rw_cap: 5
+      turn_cap: 10
