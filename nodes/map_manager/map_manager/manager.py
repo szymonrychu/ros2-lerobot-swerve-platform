@@ -18,8 +18,11 @@ import logging
 import shutil
 import threading
 import time
+import uuid
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
@@ -44,6 +47,8 @@ UNCONFIRMED_REASON = "load not confirmed by slam_toolbox"
 DESERIALIZE_FAILED_REASON = "slam_toolbox deserialize_map failed"
 NO_SCAN_REASON = "no scan received; deserializing at the hint"
 PAUSE_FAILED_REASON = "could not pause slam_toolbox new measurements"
+NO_POSE_REASON = "no last known pose"
+SCRATCH_DIR = ".relocalise"
 UNPAUSE_FAILED_REASON = "unpausing new measurements failed, slam_toolbox stays paused"
 
 LOGGER = logging.getLogger(__name__)
@@ -217,6 +222,7 @@ class MapManager:
         self.localised_value: bool | None = None
         self.before_load: tuple[Localisation, bool | None] | None = None
         self.paused: bool | None = None
+        self.pose_ring: deque[tuple[float, Pose2D]] = deque()
 
     # ------------------------------------------------------------------ state
 
@@ -300,6 +306,7 @@ class MapManager:
                 "save": self.save,
                 "load": self.load,
                 "delete": self.delete,
+                "relocalise": self.relocalise,
             }
             handler = handlers.get(command.op)
             if handler is None:
@@ -643,3 +650,164 @@ class MapManager:
                 message += f"; it was the active map but emptying the live POIs failed: {poi_message}"
         self.refresh_maps()
         return MapResult(request_id=command.request_id, ok=ok, message=message, data=data)
+
+    # ------------------------------------------------------------------ relocalise
+
+    def record_pose(self) -> None:
+        """Append the current robot pose to the ring and drop entries older than ``pose_ring_s``.
+
+        Nothing is recorded when the pose is unavailable (no placeholder).
+        """
+        pose = self.sensors.robot_pose()
+        if pose is None:
+            return
+        now = self.clock()
+        with self.state_lock:
+            self.pose_ring.append((now, pose))
+            while self.pose_ring and self.pose_ring[0][0] < now - self.config.pose_ring_s:
+                self.pose_ring.popleft()
+
+    def ring_hint(self, since: float | None) -> Pose2D | None:
+        """Newest ring pose, or the newest taken at or before since.
+
+        Args:
+            since (float | None): Time of the uncontrolled move, s; None for the newest pose.
+
+        Returns:
+            Pose2D | None: The hint, None when the ring has no such pose.
+        """
+        with self.state_lock:
+            for stamp, pose in reversed(self.pose_ring):
+                if since is None or stamp <= since:
+                    return pose
+        return None
+
+    def relocalise(self, command: MapCommand) -> MapResult:
+        """Recover the pose on the CURRENT map from the last known pose (design D13, U8).
+
+        Runs the load sequence's steps against the live map serialized to a scratch directory: pause, candidate
+        search, deserialize at the refined pose, confirm, verify. No autosave and no POI replace, except that
+        ``discard_on_fail`` empties the live POIs when the pose is not recovered. Named bundles are never touched.
+
+        Args:
+            command (MapCommand): ``op: relocalise`` with optional since and discard_on_fail.
+
+        Returns:
+            MapResult: ok when localised; else the reason, with ``data.discarded_pois`` the count emptied.
+        """
+        hint = self.ring_hint(command.since)
+        if hint is None:
+            return MapResult(request_id=command.request_id, ok=False, message=f"cannot relocalise: {NO_POSE_REASON}")
+        self.sensors.start_operation()
+        scratch = self.store.root / SCRATCH_DIR / uuid.uuid4().hex
+        try:
+            return self.run_relocalise(command, hint, scratch)
+        except OperationFailed as exc:
+            LOGGER.warning("map_manager relocalise refused: %s", exc)
+            return MapResult(request_id=command.request_id, ok=False, message=str(exc))
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+            try:
+                scratch.parent.rmdir()
+            except OSError:
+                pass
+            self.sensors.end_operation()
+
+    def run_relocalise(self, command: MapCommand, hint: Pose2D, scratch: Path) -> MapResult:
+        """Serialize, pause, search, deserialize, confirm, verify and apply the verdict.
+
+        Args:
+            command (MapCommand): The relocalise command.
+            hint (Pose2D): Last known pose from the ring.
+            scratch (Path): Scratch directory for the serialized live graph (removed by the caller).
+
+        Returns:
+            MapResult: The answer.
+
+        Raises:
+            OperationFailed: Serialize or pause failed before slam_toolbox was touched; nothing changed.
+        """
+        grid = self.sensors.latest_grid()
+        if grid is None:
+            raise OperationFailed("cannot relocalise: no map grid received")
+        scratch.mkdir(parents=True)
+        base = str(scratch / POSEGRAPH_BASE)
+        if not self.slam.serialize(base):
+            raise OperationFailed("cannot relocalise: slam_toolbox serialize_map failed")
+        with self.state_lock:
+            self.before_load = (self.localisation, self.localised_value)
+        self.set_localisation(
+            Localisation(state="loading", message="relocalising on the current map", updated_at=self.clock()), False
+        )
+        search, search_reason = self.refine(grid, hint)
+        target = search.pose if search is not None and search.ok else hint
+        if not self.set_paused(True):
+            self.restore_before_load()
+            raise OperationFailed(f"relocalise aborted: {PAUSE_FAILED_REASON}")
+        started = self.clock()
+        confirmed: Pose2D | None = None
+        ratio: float | None = None
+        state: LocalisationState
+        try:
+            if not self.slam.deserialize(base, target):
+                state, reason = "not_localised", DESERIALIZE_FAILED_REASON
+            else:
+                confirmed = self.slam.wait_pose_after(started, self.config.load_timeout_s)
+                if confirmed is None:
+                    state, reason = "not_localised", UNCONFIRMED_REASON
+                else:
+                    judge = LocalisationJudge(
+                        localised_ratio=self.config.localised_ratio, min_samples=self.config.min_samples
+                    )
+                    for sample in self.sensors.agreement_samples(self.config.verify_window_s):
+                        judge.add(sample)
+                    ambiguous = search is not None and search.ambiguous
+                    state, ratio, reason = judge.verdict(ambiguous=ambiguous)
+        except Exception as exc:
+            LOGGER.exception("map_manager relocalise failed after the pause")
+            state, reason = "not_localised", f"relocalise failed: {exc}"
+        notes = [reason]
+        if state == "localised" and not self.set_paused(False):
+            notes.append(UNPAUSE_FAILED_REASON)
+        discarded = 0
+        if state != "localised" and command.discard_on_fail:
+            discarded, message = self.discard_live_pois()
+            if discarded < 0:
+                discarded = 0
+                notes.append(f"POIs not discarded: {message}")
+        with self.state_lock:
+            self.before_load = None
+        self.set_localisation(
+            Localisation(state=state, ratio=ratio, pose=confirmed, message=reason, updated_at=self.clock()),
+            state == "localised",
+        )
+        data = {
+            "state": state,
+            "ratio": ratio,
+            "hint": hint.model_dump(),
+            "pose": target.model_dump(),
+            "slam_pose": confirmed.model_dump() if confirmed is not None else None,
+            "search_ratio": search.ratio if search is not None else None,
+            "search_reason": search_reason,
+            "ambiguous": search is not None and search.ambiguous,
+            "discarded_pois": discarded,
+            "active_map": self.active_map,
+            "load_seq": self.load_seq,
+        }
+        return MapResult(
+            request_id=command.request_id,
+            ok=state == "localised",
+            message=f"relocalise: {state} ({'; '.join(notes)})",
+            data=data,
+        )
+
+    def discard_live_pois(self) -> tuple[int, str]:
+        """Empty the live POI set through poi_store.
+
+        Returns:
+            tuple[int, str]: Number of POIs emptied (-1 when the replace failed) and poi_store's message.
+        """
+        listing = self.poi.latest_list()
+        count = len(listing[0]) if listing is not None else 0
+        ok, message = self.poi.replace([])
+        return (count if ok else -1), message

@@ -1,14 +1,19 @@
 """Tests for the pure relocalisation logic (candidate search around a pose hint and the localisation verdict)."""
 
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
 from pydantic import ValidationError
-from ros2_common.maps import Pose2D
+from ros2_common.maps import MapCommand, Pose2D
 from ros2_common.scan_agreement import GridMap, agreement, prepare_map, transform_points, yaw_quaternion
 
+from map_manager.config import MapManagerConfig
 from map_manager.relocalise import LocalisationJudge, SearchSettings, search_candidates, yaw_difference
+from tests.fakes import room_grid as fake_room_grid
+from tests.fakes import wall_points_base
+from tests.test_manager import SYMMETRIC_SEARCH, TRUE_POSE, Rig, make_rig
 
 RESOLUTION = 0.05
 GRID_SIZE_M = 8.0
@@ -264,3 +269,214 @@ def test_settings_defaults() -> None:
 def test_yaw_difference_wraps() -> None:
     assert yaw_difference(math.radians(179), math.radians(-179)) == pytest.approx(math.radians(-2))
     assert yaw_difference(0.5, 0.2) == pytest.approx(0.3)
+
+
+# ---------------------------------------------------------------- relocalise op (D13, U8)
+
+RING_S = 120.0
+LIVE_POIS = [{"id": "live-1", "name": "sofa"}, {"id": "live-2", "name": "tv"}]
+
+
+class TickClock:
+    """Settable clock for ring tests."""
+
+    def __init__(self, now: float = 1000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def relocalise_rig(tmp_path: Path, **config: object) -> tuple[Rig, TickClock]:
+    """Rig with a settable clock and two live POIs."""
+    rig = make_rig(tmp_path, **config)
+    clock = TickClock()
+    rig.manager.clock = clock
+    rig.poi.pois = [dict(p) for p in LIVE_POIS]
+    return rig, clock
+
+
+def relocalise(rig: Rig, **fields: object):
+    return rig.manager.handle(MapCommand(op="relocalise", request_id="r9", **fields))
+
+
+def named_tree(rig: Rig) -> dict[str, bytes]:
+    root = Path(rig.config.maps_root)
+    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def test_pose_ring_keeps_120_seconds(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    for second in range(0, 300, 10):
+        clock.now = 1000.0 + second
+        rig.sensors.pose = Pose2D(x=float(second), y=0.0, yaw=0.0)
+        rig.manager.record_pose()
+    times = [t for t, _ in rig.manager.pose_ring]
+    assert min(times) >= clock.now - RING_S
+    assert max(times) == clock.now
+    assert len(times) == 13
+
+
+def test_pose_ring_ignores_missing_pose(tmp_path: Path) -> None:
+    rig, _ = relocalise_rig(tmp_path)
+    rig.sensors.pose = None
+    rig.manager.record_pose()
+    assert len(rig.manager.pose_ring) == 0
+
+
+def test_hint_chosen_by_since(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    poses = {1000.0: Pose2D(x=1.0, y=0.8, yaw=0.0), 1010.0: Pose2D(x=5.0, y=5.0, yaw=0.0)}
+    for stamp, pose in poses.items():
+        clock.now = stamp
+        rig.sensors.pose = pose
+        rig.manager.record_pose()
+    clock.now = 1020.0
+    result = relocalise(rig, since=1005.0)
+    assert result.data["hint"] == poses[1000.0].model_dump()
+    result = relocalise(rig)
+    assert result.data["hint"] == poses[1010.0].model_dump()
+
+
+def test_no_ring_pose_is_refused_and_changes_nothing(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    rig.sensors.pose = TRUE_POSE
+    rig.manager.record_pose()
+    rig.log.calls.clear()
+    result = relocalise(rig, since=clock.now - 50.0, discard_on_fail=True)
+    assert not result.ok
+    assert "no last known pose" in result.message
+    assert "slam.serialize" not in rig.log.names()
+    assert "poi.replace" not in rig.log.names()
+    assert rig.poi.pois == LIVE_POIS
+    empty, _ = relocalise_rig(tmp_path / "empty")
+    assert "no last known pose" in relocalise(empty).message
+
+
+def test_recovered_move_keeps_pois_and_state(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    rig.manager.record_pose()
+    before = rig.manager.status()
+    clock.now += 5
+    result = relocalise(rig, discard_on_fail=True)
+    assert result.ok, result.message
+    assert result.data["state"] == "localised"
+    assert rig.manager.localised() is True
+    assert rig.manager.status().load_seq == before.load_seq
+    assert rig.manager.status().active_map == before.active_map
+    assert "poi.replace" not in rig.log.names()
+    assert rig.poi.pois == LIVE_POIS
+    assert rig.slam.paused is False
+    names = rig.log.names()
+    assert names.index("slam.serialize") < names.index("slam.deserialize") < names.index("slam.wait_pose_after")
+
+
+def unrecoverable(tmp_path: Path, discard: bool) -> tuple[Rig, object]:
+    rig, clock = relocalise_rig(tmp_path)
+    rig.save_map("home")
+    rig.manager.record_pose()
+    rig.slam.confirmed_pose = None
+    rig.log.calls.clear()
+    clock.now += 5
+    return rig, relocalise(rig, discard_on_fail=discard)
+
+
+def test_unrecoverable_with_discard_empties_pois_once(tmp_path: Path) -> None:
+    rig, result = unrecoverable(tmp_path, True)
+    assert not result.ok
+    assert result.data["discarded_pois"] == len(LIVE_POIS)
+    assert rig.log.args_of("poi.replace") == [([],)]
+    assert rig.poi.pois == []
+    assert rig.slam.paused is True
+    assert rig.manager.status().localisation.state == "not_localised"
+    assert rig.manager.localised() is False
+
+
+def test_unrecoverable_without_discard_keeps_pois(tmp_path: Path) -> None:
+    rig, result = unrecoverable(tmp_path, False)
+    assert not result.ok
+    assert result.data["discarded_pois"] == 0
+    assert "poi.replace" not in rig.log.names()
+    assert rig.poi.pois == LIVE_POIS
+    assert rig.slam.paused is True
+
+
+def test_ambiguous_with_discard_empties_pois(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path, search=SYMMETRIC_SEARCH)
+    square = fake_room_grid(3.0, 3.0)
+    centre = Pose2D(x=1.5, y=1.5, yaw=0.0)
+    rig.sensors.grid = square
+    rig.sensors.points = wall_points_base(square, centre)
+    rig.sensors.pose = centre
+    rig.slam.confirmed_pose = centre
+    rig.manager.record_pose()
+    result = relocalise(rig, discard_on_fail=True)
+    assert not result.ok
+    assert rig.manager.status().localisation.state == "ambiguous"
+    assert rig.poi.pois == []
+    assert result.data["discarded_pois"] == 2
+
+
+def test_discard_replace_failure_reported(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    rig.manager.record_pose()
+    rig.slam.confirmed_pose = None
+    rig.poi.replace_ok = False
+    result = relocalise(rig, discard_on_fail=True)
+    assert not result.ok
+    assert "replace rejected" in result.message
+    assert result.data["discarded_pois"] == 0
+
+
+@pytest.mark.parametrize("discard", [False, True])
+def test_named_bundles_untouched_and_scratch_removed(tmp_path: Path, discard: bool) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    rig.save_map("home")
+    rig.save_map("office")
+    rig.manager.record_pose()
+    tree = named_tree(rig)
+    rig.slam.confirmed_pose = None
+    relocalise(rig, discard_on_fail=discard)
+    assert named_tree(rig) == tree
+    assert not (Path(rig.config.maps_root) / ".relocalise").exists() or not any(
+        (Path(rig.config.maps_root) / ".relocalise").iterdir()
+    )
+    assert [m.name for m in rig.manager.status().maps] == ["home", "office"]
+    scratch = [args[0] for args in rig.log.args_of("slam.serialize")]
+    assert all("/.relocalise/" in base for base in scratch)
+    assert not any(Path(base).parent.exists() for base in scratch)
+
+
+def test_no_autosave_while_relocalising(tmp_path: Path) -> None:
+    rig, _ = relocalise_rig(tmp_path)
+    rig.manager.record_pose()
+    relocalise(rig)
+    assert len(rig.log.args_of("slam.serialize")) == 1
+    assert not (Path(rig.config.maps_root) / "autosave").exists()
+
+
+def test_relocalise_busy_rejection(tmp_path: Path) -> None:
+    rig, _ = relocalise_rig(tmp_path)
+    rig.manager.record_pose()
+    nested: list = []
+    rig.slam.on_deserialize = lambda: nested.append(relocalise(rig))
+    result = relocalise(rig)
+    assert result.ok, result.message
+    assert not nested[0].ok
+    assert nested[0].message.startswith("busy")
+
+
+def test_serialize_failure_changes_nothing(tmp_path: Path) -> None:
+    rig, _ = relocalise_rig(tmp_path)
+    rig.manager.record_pose()
+    rig.slam.serialize_ok = False
+    rig.log.calls.clear()
+    result = relocalise(rig, discard_on_fail=True)
+    assert not result.ok
+    assert "slam.deserialize" not in rig.log.names()
+    assert "poi.replace" not in rig.log.names()
+    assert rig.poi.pois == LIVE_POIS
+
+
+def test_pose_ring_config_default() -> None:
+    assert MapManagerConfig().pose_ring_s == 120.0

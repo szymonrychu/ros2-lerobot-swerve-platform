@@ -49,6 +49,7 @@ class MapManagerConfig(BaseModel):
         agreement_hz: Agreement sample rate during the window, Hz.
         localised_ratio: Minimum median agreement for ``localised``.
         min_samples: Minimum agreement samples for a verdict.
+        pose_ring_s: Length of the recent robot pose history kept for relocalise, s.
         search: Candidate search around the pose hint.
         metrics_port: Prometheus /metrics port on 127.0.0.1.
     """
@@ -82,6 +83,7 @@ class MapManagerConfig(BaseModel):
     agreement_hz: float = Field(default=2.0, gt=0.0, allow_inf_nan=False)
     localised_ratio: float = Field(default=0.6, ge=0.0, le=1.0)
     min_samples: int = Field(default=5, ge=1)
+    pose_ring_s: float = Field(default=120.0, gt=0.0, allow_inf_nan=False)
     search: SearchSettings = Field(default_factory=SearchSettings)
     metrics_port: int = Field(default=DEFAULT_METRICS_PORT, ge=1, le=65535)
 
