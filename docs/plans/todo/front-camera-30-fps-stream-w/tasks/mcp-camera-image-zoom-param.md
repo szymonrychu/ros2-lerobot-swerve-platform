@@ -45,16 +45,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `get_camera_image(camera, max_px=None, zoom: CameraZoom | None = None)` in `nodes/mcp_server/mcp_server/tools.py`; `CameraZoom` model (same file or models.py).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent-facing tool supports zoom with clear docs; nothing is persisted for zoom crops.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_camera_zoom_tool.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_zoom_tool.py -q`; see it fail.
+- Implement the parameter and descriptions; update README; run the verify command; commit `feat(mcp_server): optional zoom on get_camera_image`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- U4: a parameter, not a new tool (the decision's `zoom_camera_image` is rejected).
+- Tool name unchanged, so claude_agent's sensor tool list needs no change.

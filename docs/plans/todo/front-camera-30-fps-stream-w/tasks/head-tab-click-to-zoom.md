@@ -42,16 +42,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Head tab zoom UI in `frontend/src/tabs/HeadTab.tsx` (uses `requestZoom`, `onPointSelect`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Head tab click-to-zoom works one crop at a time and returns to the live stream.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend `HeadTab.test.tsx`; run `cd nodes/web_ui/frontend && npm test -- HeadTab`; see it fail.
+- Implement; update README; run the verify command; commit `feat(web_ui): Head tab click-to-zoom`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Respect `layout/designRules` (the tab design tests).
+- The ToF depth/amplitude part of the Head tab is untouched.

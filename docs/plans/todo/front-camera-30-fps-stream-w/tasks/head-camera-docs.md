@@ -46,16 +46,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Documentation only; `test_docs_describe_head_camera_cpp` pins it.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Docs and memory describe the head camera node, its zoom contract and the retirement.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Add the docs test; run `uv run pytest tests/test_head_camera_deploy.py -q`; see it fail.
+- Write the docs; run the verify command; commit `docs: head_camera_cpp node, zoom interface, pi_cameras retired`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- CLAUDE.md audience: mid-level Python developer with ROS 2 experience.

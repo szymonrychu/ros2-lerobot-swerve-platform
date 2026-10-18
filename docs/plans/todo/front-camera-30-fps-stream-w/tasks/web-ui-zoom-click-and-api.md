@@ -45,16 +45,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `zoom-click-api`: `requestZoom`, `ZoomReply`, `clickToNormalised` in `frontend/src/camera/zoomApi.ts`; `CameraStream` prop `onPointSelect`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The browser can turn a click into a zoom request; the Head tab UI uses it next.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the two test files; run `cd nodes/web_ui/frontend && npm test -- zoomApi CameraStream`; see them fail.
+- Implement; run the verify command; commit `feat(web_ui): zoom API client and click-to-point`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Normalised (u, v) must refer to the full 16:9 frame: the preview is not cropped, so the displayed image's natural size is the reference.

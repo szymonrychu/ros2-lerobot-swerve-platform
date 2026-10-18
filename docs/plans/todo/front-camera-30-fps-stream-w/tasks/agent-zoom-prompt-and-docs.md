@@ -45,16 +45,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `claude_agent.config.DEFAULT_CAMERA_NOTE`; prompt text in `claude_agent/prompt.py` (no tool-list change).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+claude_agent's prompt describes the head camera and the zoom parameter.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Update the tests; run `cd nodes/claude_agent && uv run --frozen pytest tests/test_prompt.py tests/test_config.py -q`; see them fail.
+- Edit config.py, prompt.py, README; run the verify command; commit `feat(claude_agent): head camera note and zoom guidance`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The gripper's calibrated 640x480 pixel-tool wording stays (it is the gripper camera).
+- No client.yml change: claude_agent's camera_note default is used.

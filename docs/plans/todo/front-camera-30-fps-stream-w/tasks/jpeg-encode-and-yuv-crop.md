@@ -43,16 +43,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `head_camera_cpp::encode_bgr_jpeg`, `Yuv420View`, `crop_yuv420_jpeg` in `include/head_camera_cpp/encode.hpp` (the `jpeg-encoding` contract), using `Size`/`Rect` from crop.hpp.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Tested JPEG encoding for the preview and the zoom crop, with the configured quality honoured.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `test/core/test_encode.cpp` against declared-only functions; run `scripts/cpp-node-test.sh head_camera_cpp`, see test_encode fail.
+- Implement; rerun until PASS; commit `feat(head_camera_cpp): JPEG encoding and YUV420 crop`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The full-resolution frame is never converted as a whole: only the crop (36 MB RGB per full frame).
+- The libcamera RGB888 format is B, G, R in memory, so the preview path is BGR.

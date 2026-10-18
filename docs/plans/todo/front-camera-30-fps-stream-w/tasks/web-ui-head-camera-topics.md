@@ -46,16 +46,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `web-head-camera-fields`: `TabConfig.head_camera_topic`, `ARM_TAB_DEFAULTS["head_camera_topic"]` and the head tab `rgb_camera_topic` value in `nodes/web_ui/web_ui/config.py` (the frontend reads `head_camera_topic`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+web_ui backend and configs use /head_camera for the Arm and Head tabs and no Front tab remains.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Update the tests; run `cd nodes/web_ui && uv run --frozen pytest tests/test_config.py tests/test_map3d_backend.py -q`; see them fail.
+- Rename in config.py; edit default.yaml and client.yml; run the verify command; commit `refactor(web_ui): head camera topics, drop the Front tab`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Builds on the Jetson epic's `arm-tab-front-camera-field` and `head-tab-tof-topics` end state; re-read first.
+- The bridge type hint for /front_camera moves in web-ui-zoom-backend (the head role already types the topic).

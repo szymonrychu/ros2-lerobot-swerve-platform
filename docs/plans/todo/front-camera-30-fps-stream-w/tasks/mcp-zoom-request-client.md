@@ -51,16 +51,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `mcp-camera-zoom`: `camera_zoom(camera: str, u: float, v: float, zoom: int, max_px: int) -> CameraZoomFrame` on the Protocol in `nodes/mcp_server/mcp_server/tool_context.py`, implemented in `ros_iface.py` and `tests/fakes.py`.
+- `zoom_client.ZoomRequests`, `ZoomNodeDown`, `ZoomTimeout`, `ZoomFailed`; `models.CameraZoomFrame`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+mcp_server holds a tested zoom client wired to the head camera topics; the tool parameter is added next.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_zoom_client.py` and the config tests; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_zoom_client.py tests/test_config.py -q`; see them fail.
+- Implement zoom_client.py, config, models, ros_iface, Protocol and fake; run the verify command; commit `feat(mcp_server): head camera zoom request client`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- JSON contract: `nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp`.
+- Reuse `poi_client.PoiRequests` structure (lock, pending dict, events).
+- Never subscribe or destroy subscriptions from tool threads (README on-demand note); these subscriptions live for the node's lifetime.

@@ -48,16 +48,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `mcp-head-camera-topic`: `Topics.head_camera` in `nodes/mcp_server/mcp_server/config.py` (consumed by mcp-zoom-request-client, which adds the zoom topics next to it).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+mcp_server streams the front (head) camera from /head_camera/image_raw/compressed and documents it as the head camera.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Update the tests; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_config.py tests/test_on_demand_subscriptions.py -q` and `uv run pytest tests/test_mcp_server_config.py -q` from the root; see them fail.
+- Rename in config.py, ros_iface.py, client.yml; update the README.
+- Run the verify command; commit `refactor(mcp_server): head camera topic replaces front_camera`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Builds on the Jetson epic's `mcp-front-camera-topic` end state; re-read config.py and client.yml first.
+- Tool descriptions in tools.py/camera_tools.py are updated by mcp-camera-image-zoom-param.

@@ -49,16 +49,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `head_camera_cpp::HeadCameraNode` (two constructors) in `include/head_camera_cpp/head_camera_node.hpp`; executable `head_camera_node` (`ros2 run head_camera_cpp head_camera_node`, used by head-camera-node-type).
+- Topic names, types and QoS as listed; metric names as listed (runbook queries `head_camera_frames_captured_total`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`ros2 run head_camera_cpp head_camera_node` publishes the head stream and serves zoom commands; all behaviour tested with the fake backend.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `test/test_node.cpp`, `test/data/calibration.yaml` and the CMake targets with a declared-only node; run `scripts/cpp-node-test.sh head_camera_cpp`, see test_node fail.
+- Implement the node; rerun until PASS; commit `feat(head_camera_cpp): ROS wiring, zoom topics and metrics`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Lazy publishing: raw 2.2 MB frames over UDPv4 with 1 MiB rmem drop fragments (`ansible/README.md:325`).
+- mcp_server rejects frames older than 1 s by ROS time, so stamps must be ROS time.
+- Reuse the metrics helper as map_guard_cpp does (`nodes/map_guard_cpp/src/map_guard_node.cpp`).

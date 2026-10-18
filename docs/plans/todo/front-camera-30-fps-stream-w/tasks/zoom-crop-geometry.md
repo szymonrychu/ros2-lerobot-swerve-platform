@@ -44,16 +44,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `head_camera_cpp::Size`, `Rect`, `zoom_region`, `output_size`, `af_window` in `include/head_camera_cpp/crop.hpp` (the `crop-geometry` contract).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Crop and AF-window maths exist as pure, tested functions used by the encoder, the state machine and the libcamera adapter.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `test/core/test_crop.cpp` and an empty `crop.cpp` with the declarations; run `scripts/cpp-node-test.sh head_camera_cpp`, see test_crop fail.
+- Implement; rerun until PASS; commit `feat(head_camera_cpp): zoom crop geometry and AF window`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The reading of the decision's "side = clamp(4608/zoom, max_px)" is D5: region = full/zoom, output <= max_px.
+- No CMakeLists edit: the core glob picks the files up.

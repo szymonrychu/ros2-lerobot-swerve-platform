@@ -50,16 +50,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `head-camera-node-type`: `ros2_node_type_defaults.head_camera_cpp` and the `head_camera_cpp` ros2_nodes entry in `ansible/group_vars/client.yml` (used by deploy-head-camera-playbook and retire-pi-cameras).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+client.yml deploys head_camera_cpp with an unchanged libcamera stamp, config, tier and metrics target; static tests pin it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests; run `uv run pytest tests/test_head_camera_deploy.py tests/test_cpp_node_deploy.py tests/test_node_metrics_wiring.py -q`; see them fail.
+- Copy the patch (`cp`, then `cmp`); edit client.yml.
+- Run the verify command; update tests/README.md; commit `feat(ansible): head_camera_cpp node type and entry`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Stamp key = commit + patch contents + meson args (+ chain key) (`ansible/roles/ros2_node_deploy/tasks/colcon_source_package.yml`): an identical first source rebuilds nothing; the patch path does not enter the key.
+- Pattern: map_guard_cpp type (`client.yml`, local sources) and pi_cameras type (pinned libcamera).
+- head_camera_cpp and pi_cameras must never run together (one camera owner): the playbook order and the retirement handle it.

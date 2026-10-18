@@ -48,16 +48,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `TabConfig.head_camera_topic?: string` in `frontend/src/types.ts` (matches `web-head-camera-fields`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Frontend code, tests and README use head_camera_topic and /head_camera.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Update ArmTab.test.tsx and fixtures; run `cd nodes/web_ui/frontend && npm test -- ArmTab`; see it fail.
+- Rename in types.ts, ArmTab.tsx, subscription.ts; update the README; run the verify command; commit `refactor(web_ui): frontend head_camera_topic`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Builds on the Jetson epic's `head-and-arm-tabs-frontend` end state.

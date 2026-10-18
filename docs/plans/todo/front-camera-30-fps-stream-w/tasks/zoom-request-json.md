@@ -43,16 +43,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `zoom-json-contract`: `include/head_camera_cpp/zoom_json.hpp` (`ZoomRequest`, `ParseError`, `parse_request`, `ZoomStatus`, `ZoomResult`, `PhaseMs`, `to_json`, `invalid_result`, `carries_image`). mcp_server and web_ui implement the same JSON from this header.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The zoom wire contract exists once, tested, and is readable by the Python consumers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `test/core/test_zoom_json.cpp`; run `scripts/cpp-node-test.sh head_camera_cpp`, see it fail.
+- Implement; rerun until PASS; commit `feat(head_camera_cpp): zoom request and result JSON contract`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Field name `request_id` (D4, my call) matches `/poi/command` and `/grasp/command`.
+- Crop and full are plain int arrays so this task does not depend on crop.hpp.

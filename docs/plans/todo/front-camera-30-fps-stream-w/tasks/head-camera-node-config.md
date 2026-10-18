@@ -48,16 +48,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `head_camera_cpp::Config`, `ZoomConfig`, `validate`, `from_yaml`, `load_config_or_exit` in `include/head_camera_cpp/config.hpp` (the `head-camera-config` contract; every later C++ task reads it, none edits it).
+- `head_camera_core` CMake target and the `test/core/test_*.cpp` glob.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh head_camera_cpp` builds the new package and passes test_config plus the linters; the package lists all dependencies of the finished node.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `package.xml`, `CMakeLists.txt` and `test/core/test_config.cpp` with a stub `config.cpp`; run `scripts/cpp-node-test.sh head_camera_cpp` and see test_config fail (expect `cpp-node-test: head_camera_cpp FAIL`).
+- Implement config.cpp; rerun until `cpp-node-test: head_camera_cpp PASS`.
+- Write README.md; commit `feat(head_camera_cpp): package skeleton and validated config`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Reuse `ros2_common_cpp` validators (`shared/ros2_common_cpp/include/ros2_common_cpp/config.hpp`: `forbid_unknown`, `require`, `get_or`, `gt`) and copy the load behaviour of `nodes/map_guard_cpp/src/config.cpp`.
+- The docker image (`scripts/cpp-node-test.Dockerfile`) is rebuilt from every package.xml; rosdep resolves `libcamera` to the ROS-packaged libcamera there. If the key does not resolve, map it in the Dockerfile's rosdep yaml like `prometheus-cpp` (one line) and say so. On the Pi libcamera is the source-built fork (head-camera-node-type), never apt.
+- No libcamera or rclcpp include in the core library.

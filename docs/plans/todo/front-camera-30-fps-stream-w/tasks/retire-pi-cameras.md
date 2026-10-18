@@ -47,16 +47,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Retired `pi_cameras` entry and uninstall-only type in client.yml; `colcon_purge` (Jetson epic key, `ansible/roles/ros2_node_deploy/tasks/colcon_purge.yml`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The next client deploy of pi_cameras uninstalls its unit and purges camera_ros; the repo holds no pi_cameras sources.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Rewrite `tests/test_pi_cameras_retired.py`; run `uv run pytest tests/test_pi_cameras_retired.py -q`; see it fail.
+- Edit client.yml; `git rm -r nodes/pi_cameras tests/test_pi_cameras_config.py tests/test_pi_cameras_deploy.py`; fix the jetson allowlist and tests/README.md.
+- Run the verify command; commit `feat(ansible): retire pi_cameras, purge camera_ros`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern: the overview_camera retirement in the same test file (D7 of the earlier epic).
+- The web_ui pi_cameras tab is removed by web-ui-head-camera-topics; docs naming pi_cameras are updated by head-camera-docs.

@@ -49,16 +49,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `web-zoom-endpoint`: `POST /api/camera/zoom?tab=<id>` body `{u, v, zoom}` -> `{request_id, status, message, af_state, lens_position, crop, full, out, stamp_ns, stamp_s, phase_ms, jpeg_b64}` in `nodes/web_ui/web_ui/server.py`.
+- `BridgeNode.zoom_request_async` in bridge.py; head tab `zoom_*` fields in config.py.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The web_ui backend serves head camera zoom crops over REST; nothing is broadcast or saved.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_camera_zoom.py`; run `cd nodes/web_ui && uv run --frozen pytest tests/test_camera_zoom.py tests/test_bridge.py -q`; see them fail.
+- Implement config, bridge, endpoint; edit default.yaml, client.yml, README; run the verify command; commit `feat(web_ui): head camera zoom endpoint`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern: `poi_request_async` (`bridge.py`) and `POST /api/poi` (`server.py:poi_command`), `await_ros_future`, `action_response`.
+- JSON contract: `nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp`.

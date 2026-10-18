@@ -43,16 +43,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Playbook step `Deploy head_camera_cpp` and tag `head_camera_cpp` (used by `scripts/deploy-nodes.sh client head_camera_cpp` in the runbook).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`./scripts/deploy-nodes.sh client head_camera_cpp` reaches the boot config and the node deploy, after the pi_cameras step.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Add the tests; run `uv run pytest tests/test_head_camera_deploy.py tests/test_pi_camera_boot_config.py -q`; see them fail.
+- Edit the playbook and the boot config comments; run the verify command; commit `feat(ansible): deploy head_camera_cpp after the pi_cameras uninstall`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Step shape: `Deploy map_guard_cpp` in deploy_nodes_client.yml.

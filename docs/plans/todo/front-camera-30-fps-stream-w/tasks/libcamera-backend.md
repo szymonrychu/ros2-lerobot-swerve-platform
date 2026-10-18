@@ -47,16 +47,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `head_camera_cpp::LibcameraBackend` (implements `camera-backend-interface`), `video_controls`, `af_controls`, `still_controls`, `to_af_state`, `to_rectangle`, `from_rectangle` in `include/head_camera_cpp/libcamera_backend.hpp`.
+- CMake target `head_camera_libcamera`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A libcamera adapter that streams, switches to the still mode and runs windowed AF, compile-checked and with its pure helpers tested; hardware behaviour is verified in the runbook.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `test/test_libcamera_controls.cpp` and the CMake target with declared-only helpers; run `scripts/cpp-node-test.sh head_camera_cpp`, see it fail.
+- Implement the helpers; rerun until test_libcamera_controls passes.
+- Implement `LibcameraBackend`; rerun until `cpp-node-test: head_camera_cpp PASS`; commit `feat(head_camera_cpp): libcamera backend with mode switch and windowed AF`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- APIs relied on (design Research, research-docs row): `Camera::configure` only when Acquired/Configured (`camera.cpp:1195`), so stop -> configure -> start; AfTrigger only in AfModeAuto; AF keeps the lens target across switchMode; no hidden frames on a non-first start.
+- Pattern for buffer allocation, mmap and request reuse: camera_ros `CameraNode.cpp` (pin 8f792e27) and rpicam-apps; do not copy its single-buffer assert.
+- Unit tests cannot open a camera; real-camera behaviour is checked on the robot in final-suite-and-runbook.

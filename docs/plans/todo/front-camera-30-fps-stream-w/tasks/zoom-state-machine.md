@@ -47,16 +47,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `camera-backend-interface`: `include/head_camera_cpp/camera_backend.hpp` (`CameraBackend`, `Mode`, `AfState`, `AfRequest`, `StillFrame`, `VideoFrame`, `Clock`, `SteadyClock`).
+- `head_camera_cpp::ZoomController::run`, `ZoomOutcome` in `zoom_controller.hpp`.
+- `test/core/fake_camera_backend.hpp` (`FakeCameraBackend`, `FakeClock`), reused by test_node.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The four-phase zoom state machine is fully tested against a fake camera; the interface the libcamera adapter implements is fixed.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `camera_backend.hpp`, the fake and `test/core/test_zoom_controller.cpp` against a declared-only controller; run `scripts/cpp-node-test.sh head_camera_cpp`, see it fail.
+- Implement the controller; rerun until PASS; commit `feat(head_camera_cpp): zoom state machine behind a camera backend interface`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Timeouts and phase order are D6 (architecture decision); AfTrigger only works in AfModeAuto (`ipa_base.cpp:1399-1406`), so the AF request switches to Auto.
+- `fatal` is injectable so tests never exit; production passes the default.
+- The fake header lives under `test/core/` and is not a test (the glob matches only `test_*.cpp`).
