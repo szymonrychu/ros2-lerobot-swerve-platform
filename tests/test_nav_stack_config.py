@@ -1202,7 +1202,9 @@ def test_web_ui_frontend_build_runs_at_lowest_priority() -> None:
         t["ansible.builtin.command"]["cmd"]
         for block in tasks
         for t in block.get("block", [block])
-        if isinstance(t, dict) and "npm" in str(t.get("ansible.builtin.command", {}).get("cmd", ""))
+        if isinstance(t, dict)
+        and isinstance(t.get("ansible.builtin.command"), dict)
+        and "npm" in str(t["ansible.builtin.command"].get("cmd", ""))
     ]
     assert len(cmds) == 2, cmds
     for cmd in cmds:
