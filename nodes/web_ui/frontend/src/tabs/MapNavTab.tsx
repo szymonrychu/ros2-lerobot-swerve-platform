@@ -526,6 +526,7 @@ export default function MapNavTab({
       {(narrow || showPoiList) && (
         <PoiListPanel
           pois={poi.pois}
+          photos={photos.photos}
           selectedId={poi.selectedId}
           open={showPoiList && !(narrow && poi.selected)}
           onToggle={() => setPoiListOpen(!showPoiList)}

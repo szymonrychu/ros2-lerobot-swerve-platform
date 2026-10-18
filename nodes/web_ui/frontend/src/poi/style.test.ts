@@ -69,6 +69,15 @@ describe('object POIs', () => {
 })
 
 describe('parsePoiList', () => {
+  it('drops photo entries (also unlocated ones); photos come from /api/photos', () => {
+    const list = parsePoiList({
+      pois: [poi({}), poi({ id: 'b'.repeat(32), kind: 'photo' }), poi({ id: 'c'.repeat(32), kind: 'photo', x: null as never, y: null as never })],
+      revision: 4,
+    })
+    expect(list?.pois.map((p) => p.kind)).toEqual(['point'])
+    expect(list?.revision).toBe(4)
+  })
+
   it('accepts a valid list and keeps the revision', () => {
     const list = parsePoiList({ pois: [poi({})], revision: 3 })
     expect(list?.revision).toBe(3)

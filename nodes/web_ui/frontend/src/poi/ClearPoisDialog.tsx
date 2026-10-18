@@ -12,11 +12,12 @@ import Link from '@mui/material/Link'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
 import Typography from '@mui/material/Typography'
+import type { Photo } from '../photos/api'
 import { clearPois } from './api'
 import type { Poi, PoiCreator, PoiKind } from './types'
 
-/** Kinds the dialog can clear (photos are managed in the photo panel). */
-const CLEARABLE_KINDS: PoiKind[] = ['point', 'area', 'object']
+/** Kinds the dialog can clear; a photo POI loses its record and its JPEG. */
+const CLEARABLE_KINDS: PoiKind[] = ['point', 'area', 'object', 'photo']
 type CreatorChoice = 'all' | PoiCreator
 
 export interface ClearSelection {
@@ -41,10 +42,24 @@ export function previewCount(pois: Poi[], sel: ClearSelection): number {
   ).length
 }
 
+/**
+ * Number of photos a clear with this selection removes (keep zones never keeps a photo).
+ *
+ * @param photos - current photo list
+ * @param sel - creator (null = all) and kinds
+ * @returns the count
+ */
+export function previewPhotoCount(photos: Photo[], sel: ClearSelection): number {
+  if (!sel.kinds.includes('photo')) return 0
+  return photos.filter((p) => sel.createdBy === null || p.createdBy === sel.createdBy).length
+}
+
 export interface ClearPoisDialogProps {
   open: boolean
   tabId: string
   pois: Poi[]
+  /** Photos of the map (the POI tab's photo list), counted in the preview. */
+  photos: Photo[]
   onClose: () => void
   /** When given, a "Choose individual POIs" link closes the dialog and calls this. */
   onChooseIndividually?: () => void
@@ -55,7 +70,7 @@ export interface ClearPoisDialogProps {
  * @param props see ClearPoisDialogProps.
  * @returns the dialog element.
  */
-export function ClearPoisDialog({ open, tabId, pois, onClose, onChooseIndividually, fetchImpl }: ClearPoisDialogProps) {
+export function ClearPoisDialog({ open, tabId, pois, photos, onClose, onChooseIndividually, fetchImpl }: ClearPoisDialogProps) {
   const [creator, setCreator] = useState<CreatorChoice>('all')
   const [kinds, setKinds] = useState<PoiKind[]>(CLEARABLE_KINDS)
   const [keepZones, setKeepZones] = useState(true)
@@ -64,6 +79,7 @@ export function ClearPoisDialog({ open, tabId, pois, onClose, onChooseIndividual
 
   const createdBy = creator === 'all' ? null : creator
   const count = useMemo(() => previewCount(pois, { createdBy, kinds, keepZones }), [pois, createdBy, kinds, keepZones])
+  const photoCount = useMemo(() => previewPhotoCount(photos, { createdBy, kinds, keepZones }), [photos, createdBy, kinds, keepZones])
 
   const toggleKind = (k: PoiKind) => setKinds((cur) => CLEARABLE_KINDS.filter((x) => (x === k ? !cur.includes(x) : cur.includes(x))))
 
@@ -72,7 +88,12 @@ export function ClearPoisDialog({ open, tabId, pois, onClose, onChooseIndividual
     setMessage(null)
     const r = await clearPois(tabId, { createdBy, kinds, keepZones }, fetchImpl)
     setBusy(false)
-    setMessage(r.ok ? { ok: true, text: `Removed ${r.removed ?? count} POIs` } : { ok: false, text: r.message })
+    if (!r.ok) {
+      setMessage({ ok: false, text: r.message })
+      return
+    }
+    const pois = r.pois ?? r.removed ?? count
+    setMessage({ ok: true, text: r.photos === undefined ? `Removed ${pois} POIs` : `Removed ${pois} POIs and ${r.photos} photos` })
   }
 
   return (
@@ -94,7 +115,7 @@ export function ClearPoisDialog({ open, tabId, pois, onClose, onChooseIndividual
           control={<Checkbox checked={keepZones} onChange={(e) => setKeepZones(e.target.checked)} />}
         />
         <Typography data-testid="clear-pois-preview" variant="body2" sx={{ mt: 1 }}>
-          {count} POIs will be removed
+          Removes {count} POIs and {photoCount} photos
         </Typography>
         {message && (
           <Typography role={message.ok ? 'status' : 'alert'} color={message.ok ? 'text.primary' : 'error'} variant="body2" sx={{ mt: 1 }}>
@@ -117,7 +138,7 @@ export function ClearPoisDialog({ open, tabId, pois, onClose, onChooseIndividual
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
-        <Button color="error" variant="outlined" disabled={busy || count === 0} onClick={() => void confirm()}>
+        <Button color="error" variant="outlined" disabled={busy || count + photoCount === 0} onClick={() => void confirm()}>
           Clear
         </Button>
       </DialogActions>

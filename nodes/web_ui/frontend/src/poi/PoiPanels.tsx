@@ -19,6 +19,7 @@ import { StatusItem } from '../components/StatusItem'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { MONO_FONT, TOUCH_TARGET_PX } from '../theme'
+import type { Photo } from '../photos/api'
 import { ClearPoisDialog } from './ClearPoisDialog'
 import { DeleteMarkedDialog } from './DeleteMarkedDialog'
 import { PoiListToolbar } from './PoiListToolbar'
@@ -74,9 +75,12 @@ export function PoiCategoryBadges({ note }: { note: string }) {
   )
 }
 
+const NO_PHOTOS: Photo[] = []
+
 /** Collapsible list of all POIs; a row click selects the POI and centres the view on it. */
 export function PoiListPanel({
   pois,
+  photos = NO_PHOTOS,
   selectedId,
   open,
   onToggle,
@@ -85,6 +89,8 @@ export function PoiListPanel({
   onChooseIndividually,
 }: {
   pois: Poi[]
+  /** Photos of the map, counted by the Clear POIs dialog. */
+  photos?: Photo[]
   selectedId: string | null
   open: boolean
   onToggle: () => void
@@ -217,6 +223,7 @@ export function PoiListPanel({
               open={clearOpen}
               tabId={tabId}
               pois={pois}
+              photos={photos}
               onClose={() => setClearOpen(false)}
               onChooseIndividually={() => {
                 toolbarRef.current?.focus()

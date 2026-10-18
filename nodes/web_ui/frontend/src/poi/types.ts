@@ -73,4 +73,7 @@ export interface PoiResult {
   poi: Poi | null
   /** Clear op only: number of POIs the store removed. */
   removed?: number
+  /** Clear op only: POIs and photos removed (removed is their sum). */
+  pois?: number
+  photos?: number
 }
