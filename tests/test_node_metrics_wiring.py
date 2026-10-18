@@ -14,7 +14,6 @@ AGENT_DEFAULTS = ANSIBLE_DIR / "roles" / "monitoring_agent" / "defaults" / "main
 RENDER_VARS = {
     "ros2_server_hostname": "server.ros2.lan",
     "ros2_repo_dest": "/opt/ros2-lerobot-swerve-platform",
-    "jetson_link_jetson_ip": "10.77.0.2",
 }
 
 # Port contract: nodes without an HTTP server get `metrics_port` (config) or METRICS_PORT (env).
@@ -49,9 +48,6 @@ HTTP_PORTS = {
     "mcp_server": 18200,
     "claude_agent": 18300,
 }
-# Scrape targets that are not a ROS node of the client: the Jetson's depthd, re-exported by the Pi's Alloy because the
-# Jetson has no route to the server. Target name -> address template (jetson_link_jetson_ip is in group_vars/all.yml).
-NON_ROS_TARGETS = {"jetson_depthd": "{{ jetson_link_jetson_ip }}:8090"}
 CONTRACT_NODES = set(CONFIG_METRICS_PORTS) | set(ENV_METRICS_PORTS) | set(HTTP_PORT_KEYS)
 # Node types that import ros2_metrics (venv nodes through shared/, rplidar_a1 through PYTHONPATH).
 SHARED_NODE_TYPES = [
@@ -267,6 +263,4 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
     assert disabled - pair_members == {"topic_scraper_api"}
     assert checked == len(CONTRACT_NODES - disabled)
     # Only enabled nodes are scraped: a disabled target would read as down. Add a target when enabling the node.
-    assert set(targets) - set(NON_ROS_TARGETS) == CONTRACT_NODES - disabled
-    for name, address in NON_ROS_TARGETS.items():
-        assert targets[name]["address"] == address and targets[name].get("path", "/metrics") == "/metrics", name
+    assert set(targets) == CONTRACT_NODES - disabled

@@ -306,18 +306,11 @@ def test_robot_alloy_scrapes_every_node_target() -> None:
     enabled = {n["name"] for n in nodes if n.get("present", True) and n.get("enabled", True)}
     target_nodes = [t["node"] for t in targets]
     assert target_nodes and len(set(target_nodes)) == len(target_nodes)
-    # depthd on the Jetson is no ROS node: the Pi's Alloy scrapes it over the direct cable (no route out).
-    non_ros = {"jetson_depthd"}
-    assert set(target_nodes) - non_ros <= enabled, "scrape target for a node that is not deployed and enabled"
+    assert set(target_nodes) <= enabled, "scrape target for a node that is not deployed and enabled"
     body = alloy_block(agent("config.alloy.j2", "client"), 'prometheus.scrape "nodes"')
-    rendered = re.findall(r'\{"__address__" = "([^"]+)", "node" = "([^"]+)"(?:, "host" = "([^"]+)")?\}', body)
-    assert rendered == [(t["address"], t["node"], t.get("host", "")) for t in targets]
-    assert all(re.fullmatch(r"127\.0\.0\.1:\d+", t["address"]) for t in targets if t["node"] not in non_ros)
-    assert all(
-        re.fullmatch(r"(\{\{ jetson_link_jetson_ip \}\}|10\.77\.0\.2):8090", t["address"])
-        for t in targets
-        if t["node"] in non_ros
-    )
+    rendered = re.findall(r'\{"__address__" = "([^"]+)", "node" = "([^"]+)"\}', body)
+    assert rendered == [(t["address"], t["node"]) for t in targets]
+    assert all(re.fullmatch(r"127\.0\.0\.1:\d+", t["address"]) for t in targets)
     assert all(t["path"] == "/metrics" for t in targets)
     assert re.search(r'job_name\s*=\s*"ros2_nodes"', body)
     assert re.search(r'metrics_path\s*=\s*"/metrics"', body)
@@ -584,29 +577,18 @@ def test_cleanup_runs_before_the_slice_is_installed() -> None:
     )
 
 
-# --- alloy: the Jetson (no route to the server, so the Pi's Alloy scrapes it over the direct cable) -------------------
+# --- alloy: no per-target host override, no remote host targets ----------------------------------------------------
 
 
-def test_jetson_depthd_series_carry_host_jetson() -> None:
-    """depthd's /metrics is re-exported by the Pi but labelled host=jetson, not host=client."""
-    targets = {t["node"]: t for t in host_vars("client")["monitoring_agent_node_targets"]}
-    assert targets["jetson_depthd"]["host"] == "jetson"
-    assert all("host" not in t for n, t in targets.items() if n != "jetson_depthd")
-
-
-def test_client_alloy_scrapes_the_jetson_node_exporter() -> None:
-    """Host metrics of the Jetson: node_exporter on the link address, host=jetson, same 5 s / 4 s as every target."""
-    targets = host_vars("client")["monitoring_agent_host_targets"]
-    assert targets == [{"host": "jetson", "address": "{{ jetson_link_jetson_ip }}:9100"}]
-    body = alloy_block(agent("config.alloy.j2", "client"), 'prometheus.scrape "hosts"')
-    assert '{"__address__" = "{{ jetson_link_jetson_ip }}:9100", "host" = "jetson"}' in body
-    assert re.search(r'job_name\s*=\s*"integrations/unix"', body)
-    assert "honor_labels    = true" in body
-    assert 'scrape_interval = "5s"' in body and 'scrape_timeout  = "4s"' in body
-    assert "forward_to      = [prometheus.remote_write.mimir.receiver]" in body
-
-
-def test_server_alloy_scrapes_no_remote_hosts() -> None:
-    """Only the robot reaches the Jetson."""
-    assert host_vars("server")["monitoring_agent_host_targets"] == []
-    assert 'prometheus.scrape "hosts"' not in agent("config.alloy.j2", "server")
+def test_alloy_has_no_host_override_and_no_host_targets() -> None:
+    """Every node target renders with the local host label only; the Jetson-only host support is gone."""
+    template = (AGENT_DIR / "templates" / "config.alloy.j2").read_text()
+    assert "target.host" not in template
+    assert "monitoring_agent_host_targets" not in template
+    assert 'prometheus.scrape "hosts"' not in template
+    assert "monitoring_agent_host_targets" not in (AGENT_DIR / "defaults" / "main.yml").read_text()
+    body = alloy_block(agent("config.alloy.j2", "client"), 'prometheus.scrape "nodes"')
+    assert '"host" =' not in body
+    for host in ("client", "server"):
+        assert 'prometheus.scrape "hosts"' not in agent("config.alloy.j2", host)
+        assert "monitoring_agent_host_targets" not in host_vars(host)

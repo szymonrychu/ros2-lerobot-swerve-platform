@@ -2009,7 +2009,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, and the side-by-side C++ port map_guard_cpp 19110) `metrics_port` 19101-19112; the non-ROS `jetson_depthd` target (`NON_ROS_TARGETS`) is accepted explicitly at the top level of the config. |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, and the side-by-side C++ port map_guard_cpp 19110) `metrics_port` 19101-19112. |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
@@ -2104,6 +2104,7 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_cleanup_stops_and_disables_prometheus_and_grafana_when_present` | Stop + disable of prometheus and grafana-server only while service_facts still knows them. |
 | `test_cleanup_purges_the_packages_and_their_leftovers` | apt purges prometheus and grafana; drop-ins, `/etc/grafana`, `/etc/prometheus`, `/etc/default/prometheus`, `/var/lib/prometheus`, `/var/lib/grafana` are removed (systemd reloaded); no shell/command task, so a second run changes nothing. |
 | `test_cleanup_runs_before_the_slice_is_installed` | The cleanup comes before the (smaller) slice is written. |
+| `test_alloy_has_no_host_override_and_no_host_targets` | The Alloy template has no `target.host` or `monitoring_agent_host_targets` block, the defaults and both hosts' vars have no `monitoring_agent_host_targets`, and the client `nodes` scrape has no `host` label override. |
 
 ### `test_web_proxy_role.py`
 
