@@ -1,6 +1,6 @@
 ---
 title: Costmap slow zone cost
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 routes around slow (risky) zones when a reasonable detour exists, while keep-outs stay hard."
 files: [nodes/costmap_zones/costmap_zones/raster.py, nodes/costmap_zones/costmap_zones/config.py, nodes/costmap_zones/costmap_zones/node.py, nodes/costmap_zones/tests/test_raster.py, nodes/costmap_zones/tests/test_config.py, nodes/costmap_zones/README.md, nodes/README.md, ansible/group_vars/client.yml]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--costmap-slow-zone-cost
 branch: driving-agent-skills-and-wor--costmap-slow-zone-cost
-verified_head: ""
-run: ""
-provides: []
+verified_head: ba0f748a7be6b831cbef6ea3dec92a9162f30b11
+run: driving-agent-skills-and-wor
+provides: [slow-zone-mask-value]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Costmap slow zone cost

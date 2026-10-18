@@ -1,6 +1,6 @@
 ---
 title: Skills suite and runbook
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Everything is green together and the skills, workflows and retrospectives go live without killing an agent session."
 files: [tests/test_agent_skills_docs.py, tests/README.md, nodes/README.md, MEMORY.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--skills-suite-and-runbook
 branch: driving-agent-skills-and-wor--skills-suite-and-runbook
 verified_head: ""
-run: ""
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Skills suite and runbook
@@ -69,3 +71,5 @@ All suites green; the orchestrator brings the feature live with the runbook in t
 
 - Deploy only via scripts/deploy-nodes.sh; never deploy claude_agent/mcp_server while an instruction runs.
 - Survey motions: base rotation only; no arm motion in the runbook jobs (CLAUDE.md least-dramatic rule).
+
+- 2026-10-18 run driving-agent-skills-and-wor: dependency-failed on costmap-verify-slow-cost

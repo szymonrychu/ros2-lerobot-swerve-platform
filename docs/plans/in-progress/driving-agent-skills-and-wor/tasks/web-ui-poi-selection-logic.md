@@ -1,6 +1,6 @@
 ---
 title: Web UI POI selection logic
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The POI list can be filtered by category and individually marked through small tested pure functions.
 files: [nodes/web_ui/frontend/src/poi/selection.ts, nodes/web_ui/frontend/src/poi/selection.test.ts]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--web-ui-poi-selection-logic
 branch: driving-agent-skills-and-wor--web-ui-poi-selection-logic
-verified_head: ""
-run: ""
-provides: []
+verified_head: 222ae6f71208e539c4c1912eb25816652ce9814f
+run: driving-agent-skills-and-wor
+provides: [poi-selection]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI POI selection logic

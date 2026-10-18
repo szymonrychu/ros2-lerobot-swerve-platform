@@ -1,6 +1,6 @@
 ---
 title: Web UI POI category chips
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The user sees at a glance which POIs are targets, risky zones, keep-outs, problem spots or survey findings."
 files: [nodes/web_ui/frontend/src/poi/categories.ts, nodes/web_ui/frontend/src/poi/categories.test.ts, nodes/web_ui/frontend/src/poi/PoiPanels.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.test.tsx, nodes/web_ui/frontend/src/poi/style.ts, nodes/web_ui/frontend/src/poi/style.test.ts, nodes/web_ui/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--web-ui-poi-category-chips
 branch: driving-agent-skills-and-wor--web-ui-poi-category-chips
-verified_head: ""
-run: ""
+verified_head: d5263febc5b0906b0a444595b96517f974711ea0
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI POI category chips

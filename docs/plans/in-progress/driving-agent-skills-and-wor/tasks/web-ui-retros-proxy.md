@@ -1,6 +1,6 @@
 ---
 title: Web UI retros proxy
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The web UI backend serves the robot's retrospectives and offers a Retros tab."
 files: [nodes/web_ui/web_ui/agent_proxy.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/tests/test_agent_proxy.py, nodes/web_ui/tests/test_config.py, nodes/web_ui/README.md, ansible/group_vars/client.yml, tests/test_web_ui_agent_tab.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--web-ui-retros-proxy
 branch: driving-agent-skills-and-wor--web-ui-retros-proxy
-verified_head: ""
-run: ""
+verified_head: bbefe98c27889817cb70ff2baf7ae18664957a51
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI retros proxy

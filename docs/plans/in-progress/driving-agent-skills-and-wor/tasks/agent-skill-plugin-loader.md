@@ -1,6 +1,6 @@
 ---
 title: Agent skill plugin loader
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Skills live as read-only files shipped with the node, checked for structure and for tools that exist."
 files: [nodes/claude_agent/claude_agent/skills.py, nodes/claude_agent/claude_agent/agent_plugin/.claude-plugin/plugin.json, nodes/claude_agent/claude_agent/agent_plugin/skills/recover-from-failure/SKILL.md, nodes/claude_agent/tests/test_skills.py, nodes/claude_agent/README.md, tests/test_agent_skills.py, tests/README.md]
@@ -13,10 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--agent-skill-plugin-loader
-branch: driving-agent-skills-and-wor--agent-skill-plugin-loader
-verified_head: ""
-run: ""
-provides: []
+branch: current worktree branch
+verified_head: af1f00d254e7219aed92e3b5224bac0bce32a171
+run: driving-agent-skills-and-wor
+provides: [skills-plugin]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Agent skill plugin loader

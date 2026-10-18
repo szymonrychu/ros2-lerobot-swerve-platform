@@ -1,6 +1,6 @@
 ---
 title: New session keeps POIs
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: New session resets only the agent conversation and job state and never deletes POIs or maps.
 files: [nodes/claude_agent/claude_agent/runner.py, nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/poi_clear.py, nodes/claude_agent/tests/test_runner.py, nodes/claude_agent/tests/test_poi_clear.py, nodes/claude_agent/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--new-session-keeps-pois
 branch: driving-agent-skills-and-wor--new-session-keeps-pois
-verified_head: ""
-run: ""
+verified_head: 2acfcbd123b77bba7aa45841f9d0e2707196b129
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # New session keeps POIs

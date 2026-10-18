@@ -1,6 +1,6 @@
 ---
 title: Web UI retros tab
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The user reads every job's retrospective in a Retros tab."
 files: [nodes/web_ui/frontend/src/tabs/RetrosTab.tsx, nodes/web_ui/frontend/src/tabs/RetrosTab.test.tsx, nodes/web_ui/frontend/src/agent/agentApi.ts, nodes/web_ui/frontend/src/App.tsx, nodes/web_ui/frontend/src/tabSelection.ts, nodes/web_ui/frontend/src/tabSelection.test.ts, nodes/web_ui/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--web-ui-retros-tab
 branch: driving-agent-skills-and-wor--web-ui-retros-tab
-verified_head: ""
-run: ""
+verified_head: 60c34baf831c024bc5455b3f42807292cfe49684
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI retros tab

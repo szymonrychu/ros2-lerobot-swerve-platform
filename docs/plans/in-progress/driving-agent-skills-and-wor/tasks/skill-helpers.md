@@ -1,6 +1,6 @@
 ---
 title: Skill helpers
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Drive-to-target and pick/place jobs follow a checked approach, verification and safety routine."
 files: [nodes/claude_agent/claude_agent/agent_plugin/skills/approach-and-verify/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/safe-pick-place/SKILL.md, nodes/claude_agent/tests/test_skill_helpers.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--skill-helpers
 branch: driving-agent-skills-and-wor--skill-helpers
-verified_head: ""
-run: ""
+verified_head: 990138364efa79b69109593529ff927b734f7261
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Skill helpers

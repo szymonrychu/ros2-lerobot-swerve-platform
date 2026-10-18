@@ -1,6 +1,6 @@
 ---
 title: Retro followup and feed
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A retrospective is written after every job, and the next session starts knowing what went wrong before."
 files: [nodes/claude_agent/claude_agent/runner.py, nodes/claude_agent/claude_agent/events.py, nodes/claude_agent/tests/test_retro_followup.py, nodes/claude_agent/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--retro-followup-and-feed
 branch: driving-agent-skills-and-wor--retro-followup-and-feed
-verified_head: ""
-run: ""
-provides: []
+verified_head: bf4a6c46f328ddc10205e004aaae887d5a5c01ad
+run: driving-agent-skills-and-wor
+provides: [retro-event, retro-store-replace, runner-retro-store]
+acs_for_audit: []
+process_gaps: ["test_runner.py docstring edit was not named in the fix's tests.added or in a finding"]
 ---
 
 # Retro followup and feed

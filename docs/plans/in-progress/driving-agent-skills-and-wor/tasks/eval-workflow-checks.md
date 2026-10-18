@@ -1,6 +1,6 @@
 ---
 title: Eval workflow checks
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Evaluation runs measure workflow adherence, retrospectives and survey recording, not only pick-and-place stages."
 files: [scripts/eval/workflow_checks.py, scripts/eval/report.py, scripts/eval/run.py, tests/test_eval_workflow_checks.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--eval-workflow-checks
 branch: driving-agent-skills-and-wor--eval-workflow-checks
-verified_head: ""
-run: ""
+verified_head: 0c0df1e930baa19c6f369e40a850c06dfacdddd7
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Eval workflow checks
