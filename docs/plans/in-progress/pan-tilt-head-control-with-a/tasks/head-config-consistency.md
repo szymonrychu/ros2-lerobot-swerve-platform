@@ -1,6 +1,6 @@
 ---
 title: Head config consistency
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Home pose, ranges, names and topics can never silently disagree between the servos, the agent and the web UI."
 files: [tests/test_head_config_consistency.py, ansible/group_vars/client.yml, tests/README.md, nodes/README.md, MEMORY.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-config-consistency
 branch: pan-tilt-head-control-with-a--head-config-consistency
-verified_head: ""
+verified_head: 7bd1de490bfaa44b35198be4028ebc7375786d80
 run: pan-tilt-head-control-with-a
 provides: []
-acs_for_audit: []
-process_gaps: []
+acs_for_audit: [a1]
+process_gaps: ["Independent verification flagged TDD red-before-green. I closed the substance with mutations, not by replaying the red step. In a scratch copy of HEAD (the worktree was untouched) I changed one value at a time. Each of these made exactly the matching test fail: bridge startup, mcp_server home, web_ui home, bridge max steps, web_ui tilt range, joint order and state topic. Still to do: paste the red and green tails into tests.red and verification.evidence.", "TDD skipped without a listed exception; prove the tests catch the change - commit first, then for each changed non-test file: git show <merge-base>:<path> > <path>; run the test (must fail); git show HEAD:<path> > <path>; run again (must pass); paste both tails into tests.red and verification.evidence"]
 ---
 
 # Head config consistency

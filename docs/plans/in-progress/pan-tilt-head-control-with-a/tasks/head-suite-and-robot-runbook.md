@@ -1,6 +1,6 @@
 ---
 title: Head suite and robot runbook
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Everything is green together and the head goes live in safe stages, +-5 deg pan first."
 files: [tests/test_head_live_refs.py, tests/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--head-suite-and-robot-runbook
 branch: pan-tilt-head-control-with-a--head-suite-and-robot-runbook
-verified_head: ""
+verified_head: unknown
 run: pan-tilt-head-control-with-a
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["The implementer's report says 'all green' but does not quote the summary line of each verify command, which the task requires.", "No red run on the real tree. This is acceptable because no hit existed, but only the planted-probe claim backs the guard.", Implementer did not rerun the full verify chain after the change, "tests.red evidence (failing run before implementation) not recorded"]
 ---
 
 # Head suite and robot runbook
