@@ -126,7 +126,7 @@ def test_idle_has_only_the_light_subscriptions(node: MapManagerNode) -> None:
     assert node.publisher_on(RESULT_TOPIC).qos.durability.name == "VOLATILE"
 
 
-def test_operation_creates_and_destroys_the_heavy_subscriptions(node: MapManagerNode) -> None:
+def test_operation_subscriptions_are_created_and_destroyed(node: MapManagerNode) -> None:
     node.sensors.start_operation()
     topics = {sub.topic for sub in node.subscriptions}
     assert HEAVY_TOPICS <= topics
@@ -389,8 +389,10 @@ def test_scan_points_base_and_laser_frame(node: MapManagerNode) -> None:
 
 
 def test_grid_and_yaw_conversions() -> None:
-    grid = grid_from_msg(grid_msg())
-    assert grid.cells.shape == (grid.cells.shape[0], grid.cells.shape[1])
+    info = Msg(width=4, height=3, resolution=0.05, origin=Msg(position=vec(0.0, 0.0), orientation=quat_yaw(0.0)))
+    grid = grid_from_msg(Msg(info=info, data=list(range(12))))
+    assert grid.cells.shape == (3, 4)
+    assert grid.cells[1, 0] == 4
     assert grid.origin_yaw == 0.0
     assert yaw_from_quaternion(quat_yaw(0.7)) == pytest.approx(0.7)
 

@@ -1,5 +1,7 @@
 # map_manager
 
+## Bundle layout
+
 Named maps: each map is a self-contained bundle directory under `/var/lib/ros2/maps/named/<name>/`:
 
 - `map.posegraph`, `map.data` - slam_toolbox serialized pose graph
@@ -24,6 +26,8 @@ few evaluated points it keeps the hint unchanged. `LocalisationJudge` turns live
 `__main__.py` loads `MapManagerConfig` (`MAP_MANAGER_CONFIG` or `/etc/ros2/map_manager/config.yaml`), exits 78
 (`EX_CONFIG`, systemd does not restart) on a missing or invalid config, starts `/metrics` (also
 `robot_node_info{node="map_manager"}`) and runs the node on a `MultiThreadedExecutor`. `cleanup_temp()` runs at start.
+
+### Topics
 
 | Topic | Type / QoS | Direction | Payload |
 |---|---|---|---|
