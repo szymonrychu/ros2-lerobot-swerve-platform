@@ -2619,6 +2619,21 @@ Static checks of the `tof_obstacle_cloud` deployment (config-only rtabmap_util p
 | `test_ros2_nodes_entry_present_enabled_after_arducam_tof` | The `ros2_nodes` entry is present, enabled and right after arducam_tof. |
 | `test_node_is_not_on_the_server` | Not in server.yml. |
 | `test_readme_documents_topics_and_placeholder_rule` | README names the topic, frame, rationale and empty-cloud rule. |
+### `test_head_rgbd_calib_intrinsics.py`
+
+Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise).
+
+| `test_make_board_matches_config` | Board size and lengths follow `BoardConfig`. |
+| `test_rgb_views_recover_intrinsics` | 20 RGB views recover fx, fy within 1 % and cx, cy within 3 px. |
+| `test_tof_views_recover_intrinsics_with_zero_distortion_model` | 20 normalised ToF amplitude views recover fx, fy within 2 % and cx, cy within 2 px; zero true distortion gives the zero-D model. |
+| `test_tof_with_true_distortion_picks_free_model` | True k1 = -0.1 selects the free model and recovers k1 within 0.03. |
+| `test_partial_board_still_detects_six_corners`, `test_blank_image_has_no_detection` | Half the board outside the image still gives >= 6 corners; a blank image gives None. |
+| `test_fewer_than_min_views_raises_naming_count` | Fewer than `min_views` views raise, naming the count. |
+| `test_yaml_round_trips_in_camera_calibration_format` | Written YAML loads with the ROS camera_calibration keys and shapes. |
+| `test_rms_over_limit_writes_nothing`, `test_rms_at_limit_is_written` | RMS over `rgb_max_rms_px` / `tof_max_rms_px` raises and writes no file. |
+| `test_compare_sdk_reports_percent_difference` | fx/fy/cx/cy differences in % against the SDK camera_info. |
+| `test_synthetic_scene_geometry_is_consistent` | Generated poses project the board inside the RGB image. |
+
 ### `test_head_rgbd_calib_frames.py`
 
 Tests for `scripts/head_rgbd_calibration` (config, capture commands, bag reading, still-pair selection). Synthetic bags are written with the `rosbags` writer.
