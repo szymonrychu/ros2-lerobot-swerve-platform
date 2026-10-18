@@ -2027,7 +2027,7 @@ Static invariants of the head RGB-D fusion deploy (`head_rgbd_cpp` in `ansible/g
 | `test_metrics_target_is_present` | Alloy scrapes `127.0.0.1:19117/metrics`. |
 | `test_head_camera_mapping_and_focus_lock` | `lens_position: 1.0`, the `mapping` block (2 Hz, 576x324, JPEG 80, `lock_focus`), `af_mode` continuous. |
 | `test_arducam_tof_stamp_latency` | The `arducam_tof` block sets `stamp_latency_ms: 0.0`. |
-| `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, build, config]`. |
+| `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, python, build, config]`. |
 
 ### `test_pi_camera_boot_config.py`
 

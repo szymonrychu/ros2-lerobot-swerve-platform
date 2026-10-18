@@ -192,4 +192,4 @@ def test_client_playbook_step_order() -> None:
     assert include["file"] == "tasks/resolve_and_deploy.yml"
     assert include["apply"]["tags"] == ["head_rgbd_cpp"]
     assert step["vars"] == {"_deploy_node_name": "head_rgbd_cpp"}
-    assert step["tags"] == ["head_rgbd_cpp", "apt", "build", "config"]
+    assert step["tags"] == ["head_rgbd_cpp", "apt", "python", "build", "config"]
