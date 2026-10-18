@@ -1,0 +1,74 @@
+---
+title: Cliff stop polygon generator
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: The collision monitor gets a cliff guard area derived from the real footprint instead of hand-typed numbers.
+files: [scripts/gen_nav_footprint.py, scripts/gen_nav_footprint.yaml, tests/test_nav_footprint.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/nav2_bringup/README.md, tests/README.md]
+verify: "uv run pytest tests/test_nav_stack_config.py tests/test_nav_footprint.py -q && uv run poe lint"
+depends_on: [laser-filter-tof-self-filter]
+owns: [cliffstop-polygon]
+uses: []
+model: sonnet
+estimate: 50
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# Cliff stop polygon generator
+
+## Requirement
+
+Test first: new tests in `tests/test_nav_footprint.py` fail before the generator change (D6).
+
+- `scripts/gen_nav_footprint.yaml`: `cliff_margin_m: 0.25` with a comment (head ToF 0.35-0.40 m high sees the lower
+  floor of a 15 cm step about 0.2 m beyond the edge, so the guard reaches past it); validated by the Settings model
+  (> 0).
+- `scripts/gen_nav_footprint.py`: `Generated` gains the cliff polygon `offset_polygon(footprint, cliff_margin_m,
+  decimals)` (reuse the existing `offset_polygon`); a new marker region `cliffstop` rendered as the `points:` line of the
+  collision monitor `CliffStop` polygon (polygon string format like the StopBox sub-polygons, >= 4 points).
+- `nodes/nav2_bringup/config/nav2_params.yaml`: under `collision_monitor` add the `CliffStop` block (`type: polygon`,
+  `action_type: approach`, `time_before_collision: 1.2`, `simulation_time_step: 0.05`, `min_points: 4`,
+  `visualize: false`, `enabled: true`, `sources_names: ["tof_cliff"]`, the generated `cliffstop` region) with a comment
+  that it is inert until listed in `polygons` (done by task collision-monitor-tof-stop); `polygons:` is NOT changed here.
+- Tests: the cliff polygon equals the footprint grown by `cliff_margin_m` and contains the footprint;
+  `test_nav2_params_equal_the_generator_output` covers the new region; `main` stays idempotent; the polygon has >= 4
+  points.
+- `nodes/nav2_bringup/README.md` "Footprint" section names the CliffStop polygon and its margin; `tests/README.md` rows.
+
+## Acceptance conditions
+
+- a1: the generated CliffStop polygon is the footprint grown by cliff_margin_m with >= 4 points [evidence: test: tests/test_nav_footprint.py]
+- a2: nav2_params.yaml equals the generator output including the cliffstop region [evidence: test: tests/test_nav_footprint.py::test_nav2_params_equal_the_generator_output]
+- a3: CliffStop is not yet listed in collision_monitor polygons [evidence: command: uv run python -c "import yaml;d=yaml.safe_load(open('nodes/nav2_bringup/config/nav2_params.yaml'));assert 'CliffStop' not in d['collision_monitor']['ros__parameters']['polygons']"]
+- a4: nav stack and footprint tests pass [evidence: command: uv run pytest tests/test_nav_stack_config.py tests/test_nav_footprint.py -q]
+- a5: README footprint section documents the cliff polygon [evidence: judgement]
+
+## Files
+
+- `scripts/gen_nav_footprint.py`
+- `scripts/gen_nav_footprint.yaml`
+- `tests/test_nav_footprint.py`
+- `nodes/nav2_bringup/config/nav2_params.yaml`
+- `nodes/nav2_bringup/README.md`
+- `tests/README.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
