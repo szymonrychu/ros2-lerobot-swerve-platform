@@ -24,6 +24,8 @@ dev = [
     "ansible-lint>=26.0",
     "httpx>=0.27",
     "shapely>=2.0",
+    "segno>=1.6,<2",
+    "zxing-cpp>=2.2,<4",
 ]
 
 [tool.uv]

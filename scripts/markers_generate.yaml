@@ -1,0 +1,24 @@
+# Config for the marker generator (QR metadata markers). Sizes are the QR symbol edge in mm, quiet zone excluded.
+output_dir: .logs/markers
+defaults:
+  ecc: q
+  min_version: 2
+  max_version: 3
+  quiet_zone_modules: 4
+  page:
+    size: A4
+    orientation: portrait
+stl:
+  base_thickness_mm: 2.0
+  relief_mm: 0.6
+  inlay_mm: 0.0
+  margin_mm: 3.0
+  min_module_mm: 1.5
+  warn_module_mm: 2.0
+markers:
+  - {kind_code: BASE, name: HOME, size_mm: 150}
+  - {kind_code: CHARGER, name: DOCK-1, size_mm: 150}
+  - {kind_code: DROPOFF, name: BIN-1, size_mm: 100}
+  - {kind_code: BUTTON, name: LIGHT-1, size_mm: 60}
+  - {kind_code: SWITCH, name: FAN-1, size_mm: 60}
+  - {kind_code: TOOLSTATION, name: TS-1, size_mm: 100}
