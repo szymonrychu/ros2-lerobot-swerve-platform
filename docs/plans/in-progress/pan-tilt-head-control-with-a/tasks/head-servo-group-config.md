@@ -1,6 +1,6 @@
 ---
 title: Head servo group config
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The pan/tilt servos are driven on the base bus with their ranges, caps and home, without touching the arm bus."
 files: [ansible/group_vars/client.yml, tests/test_head_servo_config.py, tests/README.md, nodes/bridges/feetech_servos/tests/test_bus_budget.py, nodes/bridges/feetech_servos/README.md]

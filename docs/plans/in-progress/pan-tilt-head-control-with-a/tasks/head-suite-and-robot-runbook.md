@@ -1,6 +1,6 @@
 ---
 title: Head suite and robot runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Everything is green together and the head goes live in safe stages, +-5 deg pan first."
 files: [tests/test_head_live_refs.py, tests/README.md]

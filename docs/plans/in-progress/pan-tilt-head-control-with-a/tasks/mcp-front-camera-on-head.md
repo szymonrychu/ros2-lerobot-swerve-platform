@@ -1,6 +1,6 @@
 ---
 title: MCP front camera on head
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Pixel-to-ground and calibration for the head camera use where the head is actually pointing.
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/tests/test_camera_scene_head.py, ansible/group_vars/client.yml, tests/test_mcp_camera_config.py, tests/README.md]

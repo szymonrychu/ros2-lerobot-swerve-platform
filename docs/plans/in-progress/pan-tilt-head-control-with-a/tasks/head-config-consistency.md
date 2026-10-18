@@ -1,6 +1,6 @@
 ---
 title: Head config consistency
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Home pose, ranges, names and topics can never silently disagree between the servos, the agent and the web UI."
 files: [tests/test_head_config_consistency.py, ansible/group_vars/client.yml, tests/README.md, nodes/README.md, MEMORY.md]

@@ -1,6 +1,6 @@
 ---
 title: Agent head tools and prompt
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The robot agent knows it can aim its head camera and that the head goes home when it parks.
 files: [nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_config.py, nodes/claude_agent/tests/test_prompt.py, nodes/claude_agent/README.md, ansible/group_vars/client.yml]

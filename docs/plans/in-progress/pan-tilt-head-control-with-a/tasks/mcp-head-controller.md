@@ -1,6 +1,6 @@
 ---
 title: MCP head controller
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "mcp_server can command the head and know when it actually arrived, from real joint states only."
 files: [nodes/mcp_server/mcp_server/head.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tool_context.py, nodes/mcp_server/tests/fakes.py, nodes/mcp_server/tests/test_head_controller.py, nodes/mcp_server/tests/test_config.py]

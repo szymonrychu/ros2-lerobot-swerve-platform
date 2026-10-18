@@ -1,6 +1,6 @@
 ---
 title: Bridge position speed caps
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Head moves run at a configured speed and acceleration, also after a servo brownout."
 files: [nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/command_mapping.py, nodes/bridges/feetech_servos/bridge_cycle.py, nodes/bridges/feetech_servos/sync_write.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/tests/test_position_caps.py, nodes/bridges/feetech_servos/README.md]

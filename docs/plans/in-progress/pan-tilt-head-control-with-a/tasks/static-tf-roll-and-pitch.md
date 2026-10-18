@@ -1,6 +1,6 @@
 ---
 title: Static TF roll and pitch
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: static_tf_publisher publishes the roll and pitch that client.yml already states instead of silently dropping them.
 files: [nodes/static_tf_publisher/static_tf_publisher/node.py, nodes/static_tf_publisher/static_tf_publisher/config.py, nodes/static_tf_publisher/tests/test_transforms.py, nodes/static_tf_publisher/README.md]

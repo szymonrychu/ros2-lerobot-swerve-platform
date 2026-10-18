@@ -1,6 +1,6 @@
 ---
 title: Bridge startup goal
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The head drives to its home pose (forward and down) whenever the base bus node `base_servos` starts."
 files: [nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/bridge_cycle.py, nodes/bridges/feetech_servos/tests/test_startup_goal.py, nodes/bridges/feetech_servos/README.md]

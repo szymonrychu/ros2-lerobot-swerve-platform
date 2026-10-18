@@ -1,6 +1,6 @@
 ---
 title: Head in 3D map view
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The 3D view shows the head where it really points.
 files: [nodes/web_ui/frontend/src/map3d/headJoints.ts, nodes/web_ui/frontend/src/map3d/headJoints.test.ts, nodes/web_ui/frontend/src/map3d/layers.ts, nodes/web_ui/frontend/src/map3d/layers.test.ts, nodes/web_ui/frontend/src/map3d/MapScene.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx]

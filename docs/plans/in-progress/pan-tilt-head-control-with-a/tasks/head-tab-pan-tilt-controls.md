@@ -1,6 +1,6 @@
 ---
 title: Head tab pan tilt controls
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The user points the head from the web UI Head tab with two sliders and a Home button.
 files: [nodes/web_ui/frontend/src/tabs/HeadTab.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/hooks/subscription.ts, nodes/web_ui/README.md]

@@ -1,6 +1,6 @@
 ---
 title: Head state publisher node
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: TF for head_camera_optical_frame and tof_optical_frame follows the real pan/tilt angles.
 files: [nodes/head_state_publisher/launch/head_state_publisher.launch.py, nodes/head_state_publisher/README.md, ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_head_state_publisher_config.py, tests/README.md, ansible/README.md, .claude/skills/ansible-deploy/SKILL.md]

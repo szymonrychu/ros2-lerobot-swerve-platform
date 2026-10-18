@@ -1,6 +1,6 @@
 ---
 title: Web UI head command backend
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The web UI can command the head safely: only in-range angles reach the servos, tagged as web_ui."
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_head_control.py, ansible/group_vars/client.yml, nodes/web_ui/README.md]

@@ -1,6 +1,6 @@
 ---
 title: MCP head tools
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The agent can set the head angles, look at a point once in base_link or map, and send the head home."
 files: [nodes/mcp_server/mcp_server/head_tools.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_head_tools.py, nodes/mcp_server/tests/test_tools.py, nodes/mcp_server/README.md]

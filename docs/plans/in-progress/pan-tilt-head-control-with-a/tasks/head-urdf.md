@@ -1,6 +1,6 @@
 ---
 title: Head URDF
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One measured-geometry source for the head: TF, agent aiming and the 3D view all read it."
 files: [nodes/web_ui/urdf/head.urdf, nodes/web_ui/tests/test_head_urdf.py, nodes/web_ui/README.md]
