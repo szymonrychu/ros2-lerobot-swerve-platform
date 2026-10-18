@@ -234,3 +234,59 @@ TEST(ConfigDeathTest, LoadExitsWith78OnMissingFile)
   setenv("HEAD_CAMERA_CONFIG", "/nonexistent/head_camera_config.yaml", 1);
   EXPECT_EXIT(head_camera_cpp::load_config_or_exit(), ::testing::ExitedWithCode(78), "");
 }
+
+TEST(Config, MappingDefaults)
+{
+  const Config c = head_camera_cpp::from_yaml(YAML::Load("{}"));
+  EXPECT_DOUBLE_EQ(c.lens_position, 1.0);
+  EXPECT_EQ(c.af_mode, "continuous");
+  EXPECT_FALSE(c.mapping.enabled);
+  EXPECT_TRUE(c.mapping.lock_focus);
+  EXPECT_DOUBLE_EQ(c.mapping.rate_hz, 2.0);
+  EXPECT_EQ(c.mapping.width, 576);
+  EXPECT_EQ(c.mapping.height, 324);
+  EXPECT_EQ(c.mapping.jpeg_quality, 80);
+  EXPECT_EQ(c.mapping_image_topic(), "/head_camera/mapping/image_raw/compressed");
+  EXPECT_EQ(c.mapping_camera_info_topic(), "/head_camera/mapping/camera_info");
+}
+
+TEST(Config, MappingRoundTrips)
+{
+  const std::string text = R"(
+lens_position: 0.5
+mapping:
+  enabled: true
+  lock_focus: false
+  rate_hz: 10
+  width: 288
+  height: 162
+  jpeg_quality: 100
+)";
+  EXPECT_TRUE(errors_of(text).empty());
+  const Config c = head_camera_cpp::from_yaml(YAML::Load(text));
+  EXPECT_DOUBLE_EQ(c.lens_position, 0.5);
+  EXPECT_EQ(c.af_mode, "continuous");
+  EXPECT_TRUE(c.mapping.enabled);
+  EXPECT_FALSE(c.mapping.lock_focus);
+  EXPECT_DOUBLE_EQ(c.mapping.rate_hz, 10.0);
+  EXPECT_EQ(c.mapping.width, 288);
+  EXPECT_EQ(c.mapping.height, 162);
+  EXPECT_EQ(c.mapping.jpeg_quality, 100);
+  Config other;
+  other.topic_namespace = "/x";
+  EXPECT_EQ(other.mapping_image_topic(), "/x/mapping/image_raw/compressed");
+}
+
+TEST(Config, MappingInvalidValuesAreRejectedWithTheKey)
+{
+  expect_rejected("lens_position: -0.1", "lens_position");
+  expect_rejected("mapping: {width: 575, height: 324}", "mapping.width");
+  expect_rejected("mapping: {width: 1154, height: 650}", "mapping.width");
+  expect_rejected("mapping: {width: 576, height: 400}", "mapping.height");
+  expect_rejected("mapping: {rate_hz: 0}", "mapping.rate_hz");
+  expect_rejected("mapping: {rate_hz: 11}", "mapping.rate_hz");
+  expect_rejected("mapping: {jpeg_quality: 0}", "mapping.jpeg_quality");
+  expect_rejected("mapping: {jpeg_quality: 101}", "mapping.jpeg_quality");
+  expect_rejected("mapping: {bogus: 1}", "mapping.bogus");
+  expect_rejected("mapping: {lock_focus: maybe}", "mapping.lock_focus");
+}
