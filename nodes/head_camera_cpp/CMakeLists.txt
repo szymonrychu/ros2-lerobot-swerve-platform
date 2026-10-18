@@ -35,6 +35,16 @@ target_link_libraries(head_camera_core PUBLIC
 target_include_directories(head_camera_core SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS})
 set_target_properties(head_camera_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# The libcamera adapter: the pure control helpers and LibcameraBackend, the only code that touches a camera. libcamera
+# comes from pkg-config as for camera_ros: the rosdep libcamera in docker, the Raspberry Pi fork in /opt/ros2-ws on the
+# Pi.
+find_package(PkgConfig REQUIRED)
+find_package(Threads REQUIRED)
+pkg_check_modules(LIBCAMERA REQUIRED IMPORTED_TARGET libcamera)
+add_library(head_camera_libcamera STATIC src/libcamera_controls.cpp src/libcamera_backend.cpp)
+target_link_libraries(head_camera_libcamera PUBLIC head_camera_core PkgConfig::LIBCAMERA Threads::Threads)
+set_target_properties(head_camera_libcamera PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 if(BUILD_TESTING)
   # Root .clang-format (ament style, 120 columns), two levels up as for every in-repo C++ package.
   set(ament_cmake_clang_format_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../../.clang-format")
@@ -51,6 +61,9 @@ if(BUILD_TESTING)
     target_compile_definitions(${test_name} PRIVATE
       HEAD_CAMERA_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data")
   endforeach()
+
+  ament_add_gtest(test_libcamera_controls test/test_libcamera_controls.cpp TIMEOUT 120)
+  target_link_libraries(test_libcamera_controls head_camera_libcamera)
 endif()
 
 ament_package()
