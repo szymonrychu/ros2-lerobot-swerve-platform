@@ -38,8 +38,8 @@ Test first: `tests/test_tof_obstacles.py` fails before the function exists (D11)
 
 ## Acceptance conditions
 
-- a1: tof_obstacle_sectors returns per-sector nearest obstacle with height range and nearest cliff [evidence: test: nodes/mcp_server/tests/test_tof_obstacles.py]
-- a2: empty, non-finite and out-of-range points yield None fields, never zeros [evidence: test: nodes/mcp_server/tests/test_tof_obstacles.py]
+- a1: tof_obstacle_sectors returns per-sector nearest obstacle with height range and nearest cliff [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_tof_obstacles.py -q]
+- a2: empty, non-finite and out-of-range points yield None fields, never zeros [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_tof_obstacles.py -q]
 - a3: Obstacles3d model exists for get_map_summary [evidence: symbol: mcp_server.perception_models.Obstacles3d]
 - a4: mcp_server lint passes [evidence: command: cd nodes/mcp_server && uv run --frozen poe lint]
 

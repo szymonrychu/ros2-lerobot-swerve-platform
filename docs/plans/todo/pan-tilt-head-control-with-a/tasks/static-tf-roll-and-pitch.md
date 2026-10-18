@@ -31,9 +31,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: rpy_to_quaternion matches the ROS fixed-axis RPY convention including the optical rotation [evidence: test: nodes/static_tf_publisher/tests/test_transforms.py]
+- a1: rpy_to_quaternion matches the ROS fixed-axis RPY convention including the optical rotation [evidence: command: cd nodes/static_tf_publisher && uv run --frozen pytest tests/test_transforms.py -q]
 - a2: roll and pitch are parsed from config and used for every published transform [evidence: symbol: rpy_to_quaternion]
-- a3: yaw-only frames keep their previous quaternion [evidence: test: nodes/static_tf_publisher/tests/test_transforms.py]
+- a3: yaw-only frames keep their previous quaternion [evidence: command: cd nodes/static_tf_publisher && uv run --frozen pytest tests/test_transforms.py -q]
 - a4: static_tf_publisher tests and lint pass [evidence: command: cd nodes/static_tf_publisher && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 
 ## Files

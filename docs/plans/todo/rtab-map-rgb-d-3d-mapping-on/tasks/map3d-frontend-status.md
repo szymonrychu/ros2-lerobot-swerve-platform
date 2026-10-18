@@ -30,8 +30,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: status states, the alignment warning and the no-status case render correctly [evidence: test: nodes/web_ui/frontend/src/map/Map3dStatus.test.tsx]
-- a2: save and reset show the 3D result after the 2D result [evidence: test: nodes/web_ui/frontend/src/tabs/MapNavTab.toolbar.test.tsx]
+- a1: status states, the alignment warning and the no-status case render correctly [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map/Map3dStatus.test.tsx]
+- a2: save and reset show the 3D result after the 2D result [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/tabs/MapNavTab.toolbar.test.tsx]
 - a3: frontend typecheck, tests, lint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]
 
 ## Files

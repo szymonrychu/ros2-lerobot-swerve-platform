@@ -31,10 +31,10 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the arm-only bus keeps at least 5 percent headroom at its control rate [evidence: test: nodes/bridges/feetech_servos/tests/test_bus_budget.py]
-- a2: base plus a 2-servo head fit the base control rate with 20 percent headroom while driving [evidence: test: nodes/bridges/feetech_servos/tests/test_bus_budget.py]
-- a3: arm plus head would fit the arm control rate [evidence: test: nodes/bridges/feetech_servos/tests/test_bus_budget.py]
-- a4: the test reads the deployed configs from client.yml, not copies [evidence: test: nodes/bridges/feetech_servos/tests/test_bus_budget.py]
+- a1: the arm-only bus keeps at least 5 percent headroom at its control rate [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_bus_budget.py -q]
+- a2: base plus a 2-servo head fit the base control rate with 20 percent headroom while driving [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_bus_budget.py -q]
+- a3: arm plus head would fit the arm control rate [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_bus_budget.py -q]
+- a4: the test reads the deployed configs from client.yml, not copies [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_bus_budget.py -q]
 - a5: README documents the bus budget [evidence: doc-section: nodes/bridges/feetech_servos/README.md#Bus budget]
 - a6: feetech_servos suite and lint pass [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/ -q && uv run --frozen poe lint]
 

@@ -30,7 +30,7 @@ provides: []
 ## Acceptance conditions
 
 - a1: mcp_server deploy config points at the contract's downlink topics [evidence: test: tests/test_mcp_server_config.py]
-- a2: the agent's tool list and prompt name the three 3D map tools [evidence: test: nodes/claude_agent/tests/test_prompt.py]
+- a2: the agent's tool list and prompt name the three 3D map tools [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_prompt.py -q]
 - a3: the mcp_server README documents the 3D map tools [evidence: doc-section: nodes/mcp_server/README.md#3D map]
 - a4: claude_agent tests, root config tests and ansible checks pass [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests -q && uv run --frozen poe lint && cd ../.. && uv run pytest tests/test_mcp_server_config.py -q && uv run poe test-ansible]
 

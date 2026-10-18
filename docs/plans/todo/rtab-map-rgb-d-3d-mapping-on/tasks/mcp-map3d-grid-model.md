@@ -33,10 +33,10 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: query_at reports measured heights and lidar-only cells with null height [evidence: test: nodes/mcp_server/tests/test_map3d.py]
-- a2: free_space respects the height band and never calls unobserved space free [evidence: test: nodes/mcp_server/tests/test_map3d.py]
-- a3: a cloud in a frame other than the configured map3d frame is refused [evidence: test: nodes/mcp_server/tests/test_map3d.py]
-- a4: alignment agreement separates an aligned cloud from a shifted one and abstains on too little evidence [evidence: test: nodes/mcp_server/tests/test_map3d.py]
+- a1: query_at reports measured heights and lidar-only cells with null height [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_map3d.py -q]
+- a2: free_space respects the height band and never calls unobserved space free [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_map3d.py -q]
+- a3: a cloud in a frame other than the configured map3d frame is refused [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_map3d.py -q]
+- a4: alignment agreement separates an aligned cloud from a shifted one and abstains on too little evidence [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_map3d.py -q]
 - a5: mcp_server tests and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 
 ## Files

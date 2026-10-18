@@ -36,7 +36,7 @@ provides: []
 - a1: the rewritten URDF chain reproduces the calibrated ToF-to-RGB transform [evidence: test: tests/test_head_rgbd_urdf_handoff.py]
 - a2: only the tof_joint origin and its calibration comment change [evidence: test: tests/test_head_rgbd_urdf_handoff.py]
 - a3: drift between URDF and calibration is reported without writing [evidence: test: tests/test_head_rgbd_urdf_handoff.py]
-- a4: the head URDF test accepts calibrated values within tolerance and keeps the structural checks [evidence: test: nodes/web_ui/tests/test_head_urdf.py]
+- a4: the head URDF test accepts calibrated values within tolerance and keeps the structural checks [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q]
 
 ## Files
 

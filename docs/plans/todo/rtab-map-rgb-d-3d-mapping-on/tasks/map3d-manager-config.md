@@ -30,8 +30,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: config defaults and validation errors name their keys [evidence: test: nodes/map3d_manager_cpp/test/test_config.cpp]
-- a2: commands parse into save/reset/pause/resume or an invalid result that keeps the request id [evidence: test: nodes/map3d_manager_cpp/test/test_command_json.cpp]
+- a1: config defaults and validation errors name their keys [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
+- a2: commands parse into save/reset/pause/resume or an invalid result that keeps the request id [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
 - a3: the package builds and its tests and linters pass in docker [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
 
 ## Files

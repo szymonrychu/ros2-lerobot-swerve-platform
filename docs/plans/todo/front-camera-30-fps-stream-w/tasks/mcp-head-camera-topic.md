@@ -30,7 +30,7 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the front camera value reads topics.head_camera, default /head_camera/image_raw/compressed [evidence: test: nodes/mcp_server/tests/test_config.py]
+- a1: the front camera value reads topics.head_camera, default /head_camera/image_raw/compressed [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_config.py -q]
 - a2: client.yml sets topics.head_camera and no front_camera key [evidence: test: tests/test_mcp_server_config.py::test_mcp_server_head_camera_is_the_head_camera_stream]
 - a3: no mcp_server code, test or README names /front_camera or topics.front_camera [evidence: command: ! git grep -n -E '/front_camera|front_camera:|topics.front_camera|t.front_camera' -- nodes/mcp_server]
 - a4: mcp_server suite and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]

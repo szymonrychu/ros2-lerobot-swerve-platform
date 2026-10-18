@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: status state, missing inputs and correction flags follow the rules [evidence: test: nodes/map3d_manager_cpp/test/test_status.cpp]
-- a2: unknown values serialise as null, never zero [evidence: test: nodes/map3d_manager_cpp/test/test_status.cpp]
+- a1: status state, missing inputs and correction flags follow the rules [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
+- a2: unknown values serialise as null, never zero [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
 - a3: the package builds and its tests and linters pass in docker [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
 
 ## Files

@@ -34,9 +34,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the three 3D map tools answer from a synthetic cloud and grid [evidence: test: nodes/mcp_server/tests/test_map3d_tools.py]
-- a2: tools refuse with a clear error before any 3D map arrived [evidence: test: nodes/mcp_server/tests/test_map3d_tools.py]
-- a3: the tools are registered as sensor tools and pass the battery gate table [evidence: test: nodes/mcp_server/tests/test_tools.py]
+- a1: the three 3D map tools answer from a synthetic cloud and grid [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_map3d_tools.py -q]
+- a2: tools refuse with a clear error before any 3D map arrived [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_map3d_tools.py -q]
+- a3: the tools are registered as sensor tools and pass the battery gate table [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_tools.py -q]
 - a4: mcp_server tests and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 
 ## Files

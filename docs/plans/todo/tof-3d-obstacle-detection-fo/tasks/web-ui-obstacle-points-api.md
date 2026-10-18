@@ -43,9 +43,9 @@ Test first: `nodes/web_ui/tests/test_obstacle_points.py` fails before the code e
 
 ## Acceptance conditions
 
-- a1: serialize_point_cloud and serialize_scan_points cap, downsample and drop non-finite points [evidence: test: nodes/web_ui/tests/test_obstacle_points.py]
-- a2: map_nav tab has obstacle_cloud_topic and scan_points_topic with roles cloud and scan_points [evidence: test: nodes/web_ui/tests/test_obstacle_points.py]
-- a3: payloads carry frame_pose in map and nothing is sent without that TF [evidence: test: nodes/web_ui/tests/test_obstacle_points.py]
+- a1: serialize_point_cloud and serialize_scan_points cap, downsample and drop non-finite points [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_obstacle_points.py -q]
+- a2: map_nav tab has obstacle_cloud_topic and scan_points_topic with roles cloud and scan_points [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_obstacle_points.py -q]
+- a3: payloads carry frame_pose in map and nothing is sent without that TF [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_obstacle_points.py -q]
 - a4: client.yml and default.yaml map_nav tabs name both topics [evidence: command: grep -q 'obstacle_cloud_topic: /tof/points_filtered' ansible/group_vars/client.yml && grep -q 'obstacle_cloud_topic: /tof/points_filtered' nodes/web_ui/config/default.yaml]
 - a5: README documents the 3D obstacles layer [evidence: judgement]
 - a6: web_ui suite and lint pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint]

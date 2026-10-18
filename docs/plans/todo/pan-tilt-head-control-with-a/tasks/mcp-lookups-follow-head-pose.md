@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: front lookups record the head-composed camera pose and none when head joints are stale [evidence: test: nodes/mcp_server/tests/test_lookup_head_pose.py]
-- a2: frontier facing and approach view checks use the head pose [evidence: test: nodes/mcp_server/tests/test_lookup_head_pose.py]
+- a1: front lookups record the head-composed camera pose and none when head joints are stale [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_lookup_head_pose.py -q]
+- a2: frontier facing and approach view checks use the head pose [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_lookup_head_pose.py -q]
 - a3: the README describes the head-mounted front camera in the Frontiers section [evidence: judgement]
 - a4: mcp_server tests and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

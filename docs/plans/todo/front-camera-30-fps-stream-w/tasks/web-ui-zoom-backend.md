@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: POST /api/camera/zoom returns the crop for ok and af_failed and the documented status codes otherwise [evidence: test: nodes/web_ui/tests/test_camera_zoom.py]
-- a2: the bridge pairs the zoom result and image by stamp_ns in either order [evidence: test: nodes/web_ui/tests/test_camera_zoom.py]
+- a1: POST /api/camera/zoom returns the crop for ok and af_failed and the documented status codes otherwise [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_camera_zoom.py -q]
+- a2: the bridge pairs the zoom result and image by stamp_ns in either order [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_camera_zoom.py -q]
 - a3: only the head tab configures zoom topics in default.yaml and client.yml [evidence: command: grep -q 'zoom_command_topic: /head_camera/zoom/command' nodes/web_ui/config/default.yaml && grep -q 'zoom_command_topic: /head_camera/zoom/command' ansible/group_vars/client.yml]
 - a4: web_ui suite and lint pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

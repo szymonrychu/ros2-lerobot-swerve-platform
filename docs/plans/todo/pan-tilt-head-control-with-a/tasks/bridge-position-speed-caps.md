@@ -33,9 +33,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: capped position joints are written as one 7-byte ACC..goal_speed block with non-zero caps [evidence: test: nodes/bridges/feetech_servos/tests/test_position_caps.py]
-- a2: uncapped joints keep the byte-identical 2-byte goal_position sync write [evidence: test: nodes/bridges/feetech_servos/tests/test_position_caps.py]
-- a3: caps are validated (position joints only, > 0) and parsed in extra_groups [evidence: test: nodes/bridges/feetech_servos/tests/test_position_caps.py]
+- a1: capped position joints are written as one 7-byte ACC..goal_speed block with non-zero caps [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_position_caps.py -q]
+- a2: uncapped joints keep the byte-identical 2-byte goal_position sync write [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_position_caps.py -q]
+- a3: caps are validated (position joints only, > 0) and parsed in extra_groups [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_position_caps.py -q]
 - a4: register conversion never encodes a configured cap as 0 [evidence: symbol: speed_cap_register]
 - a5: the README documents max_speed_rad_s and max_acceleration_rad_s2 [evidence: command: grep -q 'max_acceleration_rad_s2' nodes/bridges/feetech_servos/README.md]
 - a6: feetech_servos tests and lint pass [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests -q && uv run --frozen poe lint]

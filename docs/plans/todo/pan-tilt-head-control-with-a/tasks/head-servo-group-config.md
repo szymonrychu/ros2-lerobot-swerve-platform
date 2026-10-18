@@ -33,7 +33,7 @@ provides: []
 
 - a1: the head group is on the base bus node `base_servos` with ids, steps, caps and startup home, not on lerobot_follower [evidence: test: tests/test_head_servo_config.py]
 - a2: the head steps equal the head URDF limits [evidence: test: tests/test_head_servo_config.py]
-- a3: the bus budget test uses the real head group and base + head still fits the base rate [evidence: test: nodes/bridges/feetech_servos/tests/test_bus_budget.py]
+- a3: the bus budget test uses the real head group and base + head still fits the base rate [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_bus_budget.py -q]
 - a4: tests/README.md lists test_head_servo_config.py [evidence: command: grep -q 'test_head_servo_config.py' tests/README.md]
 - a5: root tests, feetech tests and ansible checks pass [evidence: command: uv run pytest tests/ -q && uv run poe lint && uv run poe test-ansible && cd nodes/bridges/feetech_servos && uv run --frozen pytest tests -q]
 

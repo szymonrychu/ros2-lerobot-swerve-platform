@@ -30,9 +30,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: get_camera_image(camera='front', zoom={u, v, factor}) returns the crop and its metadata [evidence: test: nodes/mcp_server/tests/test_camera_zoom_tool.py]
-- a2: zoom is refused on the gripper camera and invalid factors or points are rejected [evidence: test: nodes/mcp_server/tests/test_camera_zoom_tool.py]
-- a3: zoom crops are never recorded as lookups [evidence: test: nodes/mcp_server/tests/test_camera_zoom_tool.py]
+- a1: get_camera_image(camera='front', zoom={u, v, factor}) returns the crop and its metadata [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_zoom_tool.py -q]
+- a2: zoom is refused on the gripper camera and invalid factors or points are rejected [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_zoom_tool.py -q]
+- a3: zoom crops are never recorded as lookups [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_zoom_tool.py -q]
 - a4: tool descriptions say head camera and no overhead or 640x480 front wording remains [evidence: command: ! git grep -n -i -E 'overhead camera|640x480' -- nodes/mcp_server/mcp_server/tools.py nodes/mcp_server/mcp_server/camera_tools.py]
 - a5: mcp_server suite and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

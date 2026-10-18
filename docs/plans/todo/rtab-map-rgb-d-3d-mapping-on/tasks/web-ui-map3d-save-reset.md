@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: a successful 2D save or reset publishes one matching map3d command and reports its result [evidence: test: nodes/web_ui/tests/test_map3d_commands.py]
-- a2: a failed 2D save or reset publishes nothing and a 3D timeout keeps the 2D result [evidence: test: nodes/web_ui/tests/test_map3d_commands.py]
+- a1: a successful 2D save or reset publishes one matching map3d command and reports its result [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_commands.py -q]
+- a2: a failed 2D save or reset publishes nothing and a 3D timeout keeps the 2D result [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_commands.py -q]
 - a3: the README documents the 3D map behaviour [evidence: doc-section: nodes/web_ui/README.md#3D map]
 - a4: web_ui tests and lint pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

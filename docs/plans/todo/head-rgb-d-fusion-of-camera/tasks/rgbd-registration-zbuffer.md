@@ -33,11 +33,11 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: a known baseline produces the expected disparity and depth on a synthetic plane [evidence: test: nodes/head_rgbd_cpp/test/core/test_registration.cpp]
-- a2: occlusion keeps the nearest depth and leaves occlusion shadows empty [evidence: test: nodes/head_rgbd_cpp/test/core/test_registration.cpp]
-- a3: footprints crossing any image border are clipped with no out-of-image write [evidence: test: nodes/head_rgbd_cpp/test/core/test_registration.cpp]
-- a4: the default 288x162 output fills the ToF overlap of a flat wall [evidence: test: nodes/head_rgbd_cpp/test/core/test_registration.cpp]
-- a5: RGB distortion is applied consistently with OpenCV [evidence: test: nodes/head_rgbd_cpp/test/core/test_registration.cpp]
+- a1: a known baseline produces the expected disparity and depth on a synthetic plane [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_registration.cpp -q]
+- a2: occlusion keeps the nearest depth and leaves occlusion shadows empty [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_registration.cpp -q]
+- a3: footprints crossing any image border are clipped with no out-of-image write [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_registration.cpp -q]
+- a4: the default 288x162 output fills the ToF overlap of a flat wall [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_registration.cpp -q]
+- a5: RGB distortion is applied consistently with OpenCV [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_registration.cpp -q]
 
 ## Files
 

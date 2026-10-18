@@ -35,9 +35,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: a release that leaves the agent with no lease homes the head and reports reset.head homed [evidence: test: nodes/mcp_server/tests/test_head_lease.py]
-- a2: releasing one lease while the other is held keeps the head [evidence: test: nodes/mcp_server/tests/test_head_lease.py]
-- a3: keep_position, battery cut-off, head failure and involuntary loss behave as specified [evidence: test: nodes/mcp_server/tests/test_head_lease.py]
+- a1: a release that leaves the agent with no lease homes the head and reports reset.head homed [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_lease.py -q]
+- a2: releasing one lease while the other is held keeps the head [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_lease.py -q]
+- a3: keep_position, battery cut-off, head failure and involuntary loss behave as specified [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_lease.py -q]
 - a4: the README control section describes the head release rule [evidence: judgement]
 - a5: mcp_server tests and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

@@ -32,7 +32,7 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the front camera scene follows the measured head pose and refuses stale head joints [evidence: test: nodes/mcp_server/tests/test_camera_scene_head.py]
+- a1: the front camera scene follows the measured head pose and refuses stale head joints [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_scene_head.py -q]
 - a2: cameras.front must be on a head URDF link; base_link-only validation is gone [evidence: command: ! grep -n 'FRONT_CAMERA_PARENT = "base_link"' nodes/mcp_server/mcp_server/config.py]
 - a3: client.yml sets cameras.front on head_link with the URDF mount and a head section [evidence: test: tests/test_mcp_camera_config.py]
 - a4: mcp_server and root camera config tests pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint && cd ../.. && uv run pytest tests/test_mcp_camera_config.py tests/test_mcp_server_config.py -q && uv run poe lint]

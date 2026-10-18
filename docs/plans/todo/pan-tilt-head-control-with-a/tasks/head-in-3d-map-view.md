@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: head joint values come only from a real head joint state [evidence: test: nodes/web_ui/frontend/src/map3d/headJoints.test.ts]
-- a2: a head layer toggle exists [evidence: test: nodes/web_ui/frontend/src/map3d/layers.test.ts]
+- a1: head joint values come only from a real head joint state [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map3d/headJoints.test.ts]
+- a2: a head layer toggle exists [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map3d/layers.test.ts]
 - a3: MapScene draws the head URDF with the measured joints [evidence: symbol: headJointValues]
 - a4: frontend typecheck, tests, lint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]
 

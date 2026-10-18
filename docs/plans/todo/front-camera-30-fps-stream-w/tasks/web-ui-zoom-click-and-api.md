@@ -30,9 +30,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: requestZoom posts {u, v, zoom} and rejects on non-2xx with the status [evidence: test: nodes/web_ui/frontend/src/camera/zoomApi.test.ts]
-- a2: clicks map to normalised image coordinates, ignoring letterbox bars [evidence: test: nodes/web_ui/frontend/src/camera/zoomApi.test.ts]
-- a3: CameraStream reports clicks only when onPointSelect is set [evidence: test: nodes/web_ui/frontend/src/components/CameraStream.test.tsx]
+- a1: requestZoom posts {u, v, zoom} and rejects on non-2xx with the status [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/camera/zoomApi.test.ts]
+- a2: clicks map to normalised image coordinates, ignoring letterbox bars [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/camera/zoomApi.test.ts]
+- a3: CameraStream reports clicks only when onPointSelect is set [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/components/CameraStream.test.tsx]
 - a4: frontend typecheck, tests, lint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]
 
 ## Files

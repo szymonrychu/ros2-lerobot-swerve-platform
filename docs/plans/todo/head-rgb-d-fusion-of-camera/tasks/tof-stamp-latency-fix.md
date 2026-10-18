@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the header stamp is the clock reading right after requestFrame minus stamp_latency_ms, shared by all three messages [evidence: test: nodes/bridges/arducam_tof/tests/test_bridge.py]
-- a2: stamp_latency_ms validates (0..200, default 0) [evidence: test: nodes/bridges/arducam_tof/tests/test_config.py]
+- a1: the header stamp is the clock reading right after requestFrame minus stamp_latency_ms, shared by all three messages [evidence: command: cd nodes/bridges/arducam_tof && uv run --frozen pytest tests/test_bridge.py -q]
+- a2: stamp_latency_ms validates (0..200, default 0) [evidence: command: cd nodes/bridges/arducam_tof && uv run --frozen pytest tests/test_config.py -q]
 - a3: the README documents the stamp meaning and the measurement [evidence: doc-section: nodes/bridges/arducam_tof/README.md#Timestamps]
 - a4: arducam_tof tests and lint pass [evidence: command: cd nodes/bridges/arducam_tof && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: Head tab sliders publish head_pan/head_tilt radians on release and throttled while dragging [evidence: test: nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx]
-- a2: Home publishes the configured home pose and sliders stay disabled until the first head joint state [evidence: test: nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx]
+- a1: Head tab sliders publish head_pan/head_tilt radians on release and throttled while dragging [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/tabs/HeadTab.test.tsx]
+- a2: Home publishes the configured home pose and sliders stay disabled until the first head joint state [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/tabs/HeadTab.test.tsx]
 - a3: the placeholder text is gone [evidence: command: ! grep -rn 'no head mount configured' nodes/web_ui/frontend/src]
 - a4: frontend typecheck, tests, lint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]
 

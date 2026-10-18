@@ -30,8 +30,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the rendered prompt explains the zoom parameter and the 384x216 front picture [evidence: test: nodes/claude_agent/tests/test_prompt.py]
-- a2: the default camera note describes the head camera on the pan/tilt head [evidence: test: nodes/claude_agent/tests/test_config.py]
+- a1: the rendered prompt explains the zoom parameter and the 384x216 front picture [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_prompt.py -q]
+- a2: the default camera note describes the head camera on the pan/tilt head [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_config.py -q]
 - a3: no claude_agent code or README describes a 640x480 overhead front camera [evidence: command: ! git grep -n -i -E 'overhead camera \(640x480|front.*640x480' -- nodes/claude_agent]
 - a4: claude_agent suite and lint pass [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

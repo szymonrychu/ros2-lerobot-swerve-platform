@@ -30,8 +30,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: valid requests parse with the D4 defaults and every invalid field is rejected keeping the request_id [evidence: test: nodes/head_camera_cpp/test/core/test_zoom_json.cpp]
-- a2: results serialise exactly the D4 keys and only ok/af_failed carry an image [evidence: test: nodes/head_camera_cpp/test/core/test_zoom_json.cpp]
+- a1: valid requests parse with the D4 defaults and every invalid field is rejected keeping the request_id [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_zoom_json.cpp -q]
+- a2: results serialise exactly the D4 keys and only ok/af_failed carry an image [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_zoom_json.cpp -q]
 - a3: the header comment states the full topic and JSON contract [evidence: command: grep -q 'zoom/command' nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp && grep -q 'stamp_ns' nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp && grep -q 'af_failed' nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp]
 - a4: package gtests and linters pass [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 

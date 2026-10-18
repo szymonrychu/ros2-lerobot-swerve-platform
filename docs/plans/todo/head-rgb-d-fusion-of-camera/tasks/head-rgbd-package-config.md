@@ -31,7 +31,7 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the config loads with the documented defaults and rejects every invalid value naming the key [evidence: test: nodes/head_rgbd_cpp/test/core/test_config.cpp]
+- a1: the config loads with the documented defaults and rejects every invalid value naming the key [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_config.cpp -q]
 - a2: the package builds with OpenCV ximgproc and its tests and linters pass in docker [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
 - a3: the shipped config yaml documents every key [evidence: judgement]
 

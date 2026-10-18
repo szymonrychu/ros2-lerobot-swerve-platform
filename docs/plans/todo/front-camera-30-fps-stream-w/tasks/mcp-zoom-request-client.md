@@ -32,9 +32,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: a zoom request publishes the D4 JSON and pairs the result with its image by stamp_ns in either arrival order [evidence: test: nodes/mcp_server/tests/test_zoom_client.py]
-- a2: non-ok statuses, timeouts and a missing node raise distinct errors [evidence: test: nodes/mcp_server/tests/test_zoom_client.py]
-- a3: config defaults for the zoom topics and the 8 s timeout [evidence: test: nodes/mcp_server/tests/test_config.py]
+- a1: a zoom request publishes the D4 JSON and pairs the result with its image by stamp_ns in either arrival order [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_zoom_client.py -q]
+- a2: non-ok statuses, timeouts and a missing node raise distinct errors [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_zoom_client.py -q]
+- a3: config defaults for the zoom topics and the 8 s timeout [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_config.py -q]
 - a4: the robot Protocol and the fake robot expose camera_zoom [evidence: symbol: camera_zoom]
 - a5: mcp_server suite and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

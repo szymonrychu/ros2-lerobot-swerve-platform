@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the head tools are effector tools and the lists match mcp_server MOTION_TOOLS [evidence: test: nodes/claude_agent/tests/test_config.py]
-- a2: the prompt explains aiming with head_look_at, the either-lease rule and homing on park [evidence: test: nodes/claude_agent/tests/test_prompt.py]
+- a1: the head tools are effector tools and the lists match mcp_server MOTION_TOOLS [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_config.py -q]
+- a2: the prompt explains aiming with head_look_at, the either-lease rule and homing on park [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests/test_prompt.py -q]
 - a3: client.yml claude_agent config equals the code defaults [evidence: test: tests/test_claude_agent_config.py]
 - a4: claude_agent tests and lint pass [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

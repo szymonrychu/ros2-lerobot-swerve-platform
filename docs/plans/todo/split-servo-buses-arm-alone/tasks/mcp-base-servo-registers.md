@@ -32,8 +32,8 @@ provides: []
 ## Acceptance conditions
 
 - a1: the base register dump topic is a config field with the base bus default [evidence: symbol: nodes/mcp_server/mcp_server/config.py:TopicSettings]
-- a2: base_servo_registers is motion-critical and subscribed at start [evidence: test: nodes/mcp_server/tests/test_on_demand_subscriptions.py::test_motion_critical_list_names_the_monitor_and_motion_feeds]
-- a3: a dump on the base topic reaches the robot monitor and raises the swerve servo overheat [evidence: test: nodes/mcp_server/tests/test_on_demand_subscriptions.py]
+- a2: base_servo_registers is motion-critical and subscribed at start [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_on_demand_subscriptions.py::test_motion_critical_list_names_the_monitor_and_motion_feeds -q]
+- a3: a dump on the base topic reaches the robot monitor and raises the swerve servo overheat [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_on_demand_subscriptions.py -q]
 - a4: client.yml wires the base dump topic [evidence: test: tests/test_mcp_server_config.py::test_mcp_server_monitor_topics_match_their_producers]
 - a5: mcp_server targeted tests, root config test and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_on_demand_subscriptions.py tests/test_monitor.py tests/test_config.py -q && uv run --frozen poe lint && cd ../.. && uv run pytest tests/test_mcp_server_config.py -q && uv run poe lint]
 

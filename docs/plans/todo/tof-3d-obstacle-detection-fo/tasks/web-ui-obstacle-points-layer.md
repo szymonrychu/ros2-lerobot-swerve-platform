@@ -40,8 +40,8 @@ Test first: `map3d/obstaclePoints.test.ts` and the new `layers.test.ts` cases fa
 
 ## Acceptance conditions
 
-- a1: payload points are transformed into map positions with frame_pose and coloured by band [evidence: test: nodes/web_ui/frontend/src/map3d/obstaclePoints.test.ts]
-- a2: one default-off layer 3D obstacles (ToF + lidar) drives both topics [evidence: test: nodes/web_ui/frontend/src/map3d/layers.test.ts]
+- a1: payload points are transformed into map positions with frame_pose and coloured by band [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map3d/obstaclePoints.test.ts]
+- a2: one default-off layer 3D obstacles (ToF + lidar) drives both topics [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map3d/layers.test.ts]
 - a3: topics are subscribed only while the layer is on [evidence: judgement]
 - a4: frontend typecheck, tests, lint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]
 

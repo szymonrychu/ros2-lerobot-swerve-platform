@@ -31,7 +31,7 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the Arm tab shows the head camera from head_camera_topic [evidence: test: nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx]
+- a1: the Arm tab shows the head camera from head_camera_topic [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/tabs/ArmTab.test.tsx]
 - a2: no frontend source names front_camera_topic or /front_camera [evidence: command: ! git grep -n -E 'front_camera_topic|/front_camera/' -- nodes/web_ui/frontend/src]
 - a3: the web_ui README has no Front/Back tab row and names head_camera_topic [evidence: command: grep -q head_camera_topic nodes/web_ui/README.md && ! grep -n '| Front/Back |' nodes/web_ui/README.md]
 - a4: frontend typecheck, tests, lint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]

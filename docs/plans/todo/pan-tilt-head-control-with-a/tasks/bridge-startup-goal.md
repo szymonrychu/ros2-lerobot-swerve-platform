@@ -31,9 +31,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: a joint with startup_position_rad is driven there once after torque-on, with its caps [evidence: test: nodes/bridges/feetech_servos/tests/test_startup_goal.py]
-- a2: no startup goal for joints without the key or whose torque did not come on [evidence: test: nodes/bridges/feetech_servos/tests/test_startup_goal.py]
-- a3: invalid startup_position_rad configs are rejected [evidence: test: nodes/bridges/feetech_servos/tests/test_startup_goal.py]
+- a1: a joint with startup_position_rad is driven there once after torque-on, with its caps [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_startup_goal.py -q]
+- a2: no startup goal for joints without the key or whose torque did not come on [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_startup_goal.py -q]
+- a3: invalid startup_position_rad configs are rejected [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_startup_goal.py -q]
 - a4: the README documents startup_position_rad [evidence: command: grep -q 'startup_position_rad' nodes/bridges/feetech_servos/README.md]
 - a5: feetech_servos tests and lint pass [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

@@ -29,7 +29,7 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the default arm tab streams /head_camera/image_raw/compressed through head_camera_topic [evidence: test: nodes/web_ui/tests/test_config.py]
+- a1: the default arm tab streams /head_camera/image_raw/compressed through head_camera_topic [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_config.py -q]
 - a2: client and default head tabs use /head_camera/image_raw/compressed as RGB [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_backend.py -q]
 - a3: no web_ui backend, config or client.yml line names front_camera_topic or /front_camera [evidence: command: ! git grep -n -E 'front_camera_topic|/front_camera/' -- nodes/web_ui/web_ui nodes/web_ui/config nodes/web_ui/tests ansible/group_vars/client.yml]
 - a4: web_ui suite, lint and root pins pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint && cd ../.. && uv run pytest tests/test_mcp_server_config.py -q]

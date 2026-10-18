@@ -42,8 +42,8 @@ Test first: `tests/test_map_summary_tof.py` fails before the wiring exists (D11)
 
 ## Acceptance conditions
 
-- a1: get_map_summary returns obstacles_3d from a fresh ToF cloud in base_link [evidence: test: nodes/mcp_server/tests/test_map_summary_tof.py]
-- a2: obstacles_3d is null when the cloud is missing, stale or has no TF [evidence: test: nodes/mcp_server/tests/test_map_summary_tof.py]
+- a1: get_map_summary returns obstacles_3d from a fresh ToF cloud in base_link [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_map_summary_tof.py -q]
+- a2: obstacles_3d is null when the cloud is missing, stale or has no TF [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_map_summary_tof.py -q]
 - a3: the ToF topic is subscribed lazily, latest only [evidence: judgement]
 - a4: client.yml mcp_server topics names tof_points and the root coupling test passes [evidence: command: uv run pytest tests/test_mcp_server_config.py -q]
 - a5: mcp_server suite and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]

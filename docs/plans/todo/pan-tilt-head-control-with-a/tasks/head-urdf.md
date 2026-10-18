@@ -31,9 +31,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: head.urdf has the pan/tilt chain with the specified axes, limits and origins [evidence: test: nodes/web_ui/tests/test_head_urdf.py]
-- a2: both optical frames exist with optical rpy and ToF left of RGB at 0.05 m spacing [evidence: test: nodes/web_ui/tests/test_head_urdf.py]
-- a3: the post crosses the lidar plane only behind the lidar and inside the footprint [evidence: test: nodes/web_ui/tests/test_head_urdf.py]
+- a1: head.urdf has the pan/tilt chain with the specified axes, limits and origins [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q]
+- a2: both optical frames exist with optical rpy and ToF left of RGB at 0.05 m spacing [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q]
+- a3: the post crosses the lidar plane only behind the lidar and inside the footprint [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q]
 - a4: the web_ui README documents head.urdf [evidence: command: grep -q 'head.urdf' nodes/web_ui/README.md]
 - a5: web_ui tests and lint pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

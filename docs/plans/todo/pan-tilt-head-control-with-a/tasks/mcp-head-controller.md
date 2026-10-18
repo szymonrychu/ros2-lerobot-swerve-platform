@@ -32,9 +32,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: HeadController moves, waits for convergence and reports converged, timeout or no_feedback [evidence: test: nodes/mcp_server/tests/test_head_controller.py]
-- a2: out-of-range angles are refused naming the limits, and stale samples are never reported as measured [evidence: test: nodes/mcp_server/tests/test_head_controller.py]
-- a3: head config defaults and home validation [evidence: test: nodes/mcp_server/tests/test_config.py]
+- a1: HeadController moves, waits for convergence and reports converged, timeout or no_feedback [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_controller.py -q]
+- a2: out-of-range angles are refused naming the limits, and stale samples are never reported as measured [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_controller.py -q]
+- a3: head config defaults and home validation [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_config.py -q]
 - a4: RosRobot implements the head backend on /head/joint_states and /head/joint_commands [evidence: symbol: HeadController]
 - a5: mcp_server tests and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

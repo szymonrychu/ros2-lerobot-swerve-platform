@@ -29,8 +29,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the tilt guard torque topic defaults to the base bus bridge [evidence: test: nodes/swerve_drive_controller/tests/test_tilt_guard.py]
-- a2: torque_off payloads for the four drive joints are published on the default topic [evidence: test: nodes/swerve_drive_controller/tests/test_node_tilt_guard.py]
+- a1: the tilt guard torque topic defaults to the base bus bridge [evidence: command: cd nodes/swerve_drive_controller && uv run --frozen pytest tests/test_tilt_guard.py -q]
+- a2: torque_off payloads for the four drive joints are published on the default topic [evidence: command: cd nodes/swerve_drive_controller && uv run --frozen pytest tests/test_node_tilt_guard.py -q]
 - a3: nothing in the swerve controller tree names the follower set_register or the follower-arm bus [evidence: command: ! git grep -n -E 'follower-arm serial bus|/follower/set_register|follower_set_register' -- nodes/swerve_drive_controller]
 - a4: swerve_drive_controller suite and lint pass [evidence: command: cd nodes/swerve_drive_controller && uv run --frozen pytest tests/ -q && uv run --frozen poe lint]
 

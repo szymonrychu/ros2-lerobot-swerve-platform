@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the defaults are the 1152x648 30 fps head stream with the D4/D6 zoom limits [evidence: test: nodes/head_camera_cpp/test/core/test_config.cpp]
-- a2: every invalid value is rejected with an error naming its key [evidence: test: nodes/head_camera_cpp/test/core/test_config.cpp]
+- a1: the defaults are the 1152x648 30 fps head stream with the D4/D6 zoom limits [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_config.cpp -q]
+- a2: every invalid value is rejected with an error naming its key [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_config.cpp -q]
 - a3: package builds, its gtests and ament linters pass in docker [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 - a4: package.xml declares libcamera, OpenCV, nlohmann-json, prometheus-cpp and rclcpp [evidence: command: grep -q '<depend>libcamera</depend>' nodes/head_camera_cpp/package.xml && grep -q '<depend>libopencv-dev</depend>' nodes/head_camera_cpp/package.xml && grep -q '<depend>nlohmann-json-dev</depend>' nodes/head_camera_cpp/package.xml && grep -q '<depend>prometheus-cpp</depend>' nodes/head_camera_cpp/package.xml && grep -q '<depend>rclcpp</depend>' nodes/head_camera_cpp/package.xml]
 - a5: the README documents every config key [evidence: doc-section: nodes/head_camera_cpp/README.md#Configuration]

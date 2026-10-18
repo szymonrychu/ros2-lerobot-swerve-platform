@@ -31,9 +31,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: node_name is parsed, defaults to None and invalid ROS names make load_config return None [evidence: test: nodes/bridges/feetech_servos/tests/test_instance_identity.py]
-- a2: run_bridge names the rclpy node and the metrics node info from node_name and keeps today's names when unset [evidence: test: nodes/bridges/feetech_servos/tests/test_instance_identity.py]
-- a3: no BatteryState publisher exists at battery_interval_s 0, one exists at 1.0 [evidence: test: nodes/bridges/feetech_servos/tests/test_instance_identity.py]
+- a1: node_name is parsed, defaults to None and invalid ROS names make load_config return None [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_instance_identity.py -q]
+- a2: run_bridge names the rclpy node and the metrics node info from node_name and keeps today's names when unset [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_instance_identity.py -q]
+- a3: no BatteryState publisher exists at battery_interval_s 0, one exists at 1.0 [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_instance_identity.py -q]
 - a4: BridgeConfig carries node_name [evidence: symbol: nodes/bridges/feetech_servos/config.py:BridgeConfig]
 - a5: README documents running several bridges on one host [evidence: doc-section: nodes/bridges/feetech_servos/README.md#Several bridges on one host]
 - a6: feetech_servos suite and lint pass [evidence: command: cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/ -q && uv run --frozen poe lint]

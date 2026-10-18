@@ -31,9 +31,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: save backs up RTAB-Map and writes saved.db and <name>.db atomically with an ok result [evidence: test: nodes/map3d_manager_cpp/test/test_node.cpp]
-- a2: reset, pause, resume and map_guard resets call the RTAB-Map services; busy, timeout and invalid are reported [evidence: test: nodes/map3d_manager_cpp/test/test_node.cpp]
-- a3: status is published from observed values with waiting_for_inputs until inputs arrive [evidence: test: nodes/map3d_manager_cpp/test/test_node.cpp]
+- a1: save backs up RTAB-Map and writes saved.db and <name>.db atomically with an ok result [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
+- a2: reset, pause, resume and map_guard resets call the RTAB-Map services; busy, timeout and invalid are reported [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
+- a3: status is published from observed values with waiting_for_inputs until inputs arrive [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
 - a4: the package builds and its tests and linters pass in docker [evidence: command: scripts/cpp-node-test.sh map3d_manager_cpp]
 
 ## Files

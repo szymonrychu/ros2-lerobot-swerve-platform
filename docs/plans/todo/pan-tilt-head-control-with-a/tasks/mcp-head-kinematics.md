@@ -30,8 +30,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: look_at aims the RGB optical axis through reachable points within 0.2 deg, offsets included [evidence: test: nodes/mcp_server/tests/test_head_kinematics.py]
-- a2: unreachable or too-close points raise HeadAimError with the needed angles and limits, never a clamped aim [evidence: test: nodes/mcp_server/tests/test_head_kinematics.py]
+- a1: look_at aims the RGB optical axis through reachable points within 0.2 deg, offsets included [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py -q]
+- a2: unreachable or too-close points raise HeadAimError with the needed angles and limits, never a clamped aim [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py -q]
 - a3: link_pose matches the head URDF frames [evidence: symbol: HeadKinematics]
 - a4: mcp_server tests and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

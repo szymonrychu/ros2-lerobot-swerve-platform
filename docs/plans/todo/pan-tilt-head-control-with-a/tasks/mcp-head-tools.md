@@ -36,9 +36,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the three head tools need either lease and are refused under battery cut-off [evidence: test: nodes/mcp_server/tests/test_head_tools.py]
-- a2: head_look_at aims once at a base_link or map point and refuses unreachable points without moving [evidence: test: nodes/mcp_server/tests/test_head_tools.py]
-- a3: get_robot_state reports head angles only from a fresh sample [evidence: test: nodes/mcp_server/tests/test_head_tools.py]
+- a1: the three head tools need either lease and are refused under battery cut-off [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_tools.py -q]
+- a2: head_look_at aims once at a base_link or map point and refuses unreachable points without moving [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_tools.py -q]
+- a3: get_robot_state reports head angles only from a fresh sample [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests/test_head_tools.py -q]
 - a4: the mcp_server README lists set_head_angles, head_look_at and head_home [evidence: command: grep -q head_look_at nodes/mcp_server/README.md && grep -q set_head_angles nodes/mcp_server/README.md && grep -q head_home nodes/mcp_server/README.md]
 - a5: mcp_server tests and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

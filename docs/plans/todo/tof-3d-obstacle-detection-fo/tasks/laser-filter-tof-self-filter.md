@@ -56,8 +56,8 @@ Test first: `nodes/laser_filter/tests/test_cloud_filter.py` fails before the cod
 
 ## Acceptance conditions
 
-- a1: points inside the self polygon below the height limit are removed, notch and high points kept [evidence: test: nodes/laser_filter/tests/test_cloud_filter.py]
-- a2: a runtime polygon with the released arm shadow removes ToF arm points [evidence: test: nodes/laser_filter/tests/test_cloud_filter.py]
+- a1: points inside the self polygon below the height limit are removed, notch and high points kept [evidence: command: cd nodes/laser_filter && uv run --frozen pytest tests/test_cloud_filter.py -q]
+- a2: a runtime polygon with the released arm shadow removes ToF arm points [evidence: command: cd nodes/laser_filter && uv run --frozen pytest tests/test_cloud_filter.py -q]
 - a3: the node publishes kept points with the input frame and stamp only after TF at that stamp; no timer publishes [evidence: symbol: laser_filter.node.LaserFilterNode]
 - a4: cloud TF lookups never block scan filtering (timeout 0 / pending slot) [evidence: judgement]
 - a5: laser_filter type installs ros-jazzy-sensor-msgs-py and the wiring test pins it [evidence: test: tests/test_nav_stack_config.py::test_laser_filter_ansible_wiring]

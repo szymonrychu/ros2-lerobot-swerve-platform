@@ -29,8 +29,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: a click on the Head tab RGB view requests one zoom with the chosen factor and shows the crop until Back to live [evidence: test: nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx]
-- a2: while a zoom runs further clicks send nothing, and errors keep the live view [evidence: test: nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx]
+- a1: a click on the Head tab RGB view requests one zoom with the chosen factor and shows the crop until Back to live [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/tabs/HeadTab.test.tsx]
+- a2: while a zoom runs further clicks send nothing, and errors keep the live view [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/tabs/HeadTab.test.tsx]
 - a3: the web_ui README documents Head tab click-to-zoom [evidence: command: grep -qi 'click-to-zoom' nodes/web_ui/README.md]
 - a4: frontend typecheck, tests, lint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]
 

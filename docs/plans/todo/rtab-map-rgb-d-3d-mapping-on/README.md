@@ -41,6 +41,8 @@ An RGB-D 3D map of the robot's environment, built by RTAB-Map on the server Pi 4
 
 
 
+
+
 Estimate: 1175 min | Actual: 0 min | Remaining estimate: 1175 min
 
 ## Review

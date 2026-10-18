@@ -30,10 +30,10 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: PointCloud2 clouds serialize to capped int16-centimetre points with colours and metadata [evidence: test: nodes/web_ui/tests/test_map3d_cloud.py]
-- a2: malformed clouds are rejected and never stored as placeholder payloads [evidence: test: nodes/web_ui/tests/test_map3d_cloud.py]
-- a3: map3d topic defaults equal the contract's downlink dests [evidence: test: nodes/web_ui/tests/test_map3d_cloud.py]
-- a4: the cloud subscription is on-demand with the stated QoS [evidence: test: nodes/web_ui/tests/test_map3d_cloud.py]
+- a1: PointCloud2 clouds serialize to capped int16-centimetre points with colours and metadata [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_cloud.py -q]
+- a2: malformed clouds are rejected and never stored as placeholder payloads [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_cloud.py -q]
+- a3: map3d topic defaults equal the contract's downlink dests [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_cloud.py -q]
+- a4: the cloud subscription is on-demand with the stated QoS [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_cloud.py -q]
 - a5: web_ui tests and lint pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 
 ## Files

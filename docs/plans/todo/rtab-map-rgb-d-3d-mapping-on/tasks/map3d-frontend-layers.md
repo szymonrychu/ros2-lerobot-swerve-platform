@@ -32,9 +32,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: cloud payloads decode to scene positions and colours and wrong frames or lengths are rejected [evidence: test: nodes/web_ui/frontend/src/map3d/cloudDecode.test.ts]
-- a2: lidar walls extrude occupied /map cells to the configured height except where measured points exist [evidence: test: nodes/web_ui/frontend/src/map3d/lidarWalls.test.ts]
-- a3: the two new layers exist, default on, and legacy layer state parses [evidence: test: nodes/web_ui/frontend/src/map3d/layers.test.ts]
+- a1: cloud payloads decode to scene positions and colours and wrong frames or lengths are rejected [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map3d/cloudDecode.test.ts]
+- a2: lidar walls extrude occupied /map cells to the configured height except where measured points exist [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map3d/lidarWalls.test.ts]
+- a3: the two new layers exist, default on, and legacy layer state parses [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map3d/layers.test.ts]
 - a4: measured points and lidar walls are drawn with distinguishable styles [evidence: judgement]
 - a5: frontend typecheck, tests, lint and build pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build]
 

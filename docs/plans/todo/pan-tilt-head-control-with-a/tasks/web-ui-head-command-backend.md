@@ -32,8 +32,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: head tab fields, defaults and validation exist and the command topic is allowlisted with frame_id web_ui [evidence: test: nodes/web_ui/tests/test_head_control.py]
-- a2: out-of-range or non-finite head commands are refused server-side [evidence: test: nodes/web_ui/tests/test_head_control.py]
+- a1: head tab fields, defaults and validation exist and the command topic is allowlisted with frame_id web_ui [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_head_control.py -q]
+- a2: out-of-range or non-finite head commands are refused server-side [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_head_control.py -q]
 - a3: client.yml and default.yaml configure the head tab and map_nav head fields [evidence: command: grep -q head_command_topic nodes/web_ui/config/default.yaml && grep -q head_command_topic ansible/group_vars/client.yml]
 - a4: web_ui tests and lint pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint]
 

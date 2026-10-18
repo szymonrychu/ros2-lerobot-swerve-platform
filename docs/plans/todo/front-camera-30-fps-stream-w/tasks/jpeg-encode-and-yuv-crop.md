@@ -30,9 +30,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: encode_bgr_jpeg honours the requested quality (fixes the ignored quality, U8) [evidence: test: nodes/head_camera_cpp/test/core/test_encode.cpp]
-- a2: crop_yuv420_jpeg converts only the region, downscales with INTER_AREA and never upscales [evidence: test: nodes/head_camera_cpp/test/core/test_encode.cpp]
-- a3: invalid frames, regions and qualities throw instead of producing an image [evidence: test: nodes/head_camera_cpp/test/core/test_encode.cpp]
+- a1: encode_bgr_jpeg honours the requested quality (fixes the ignored quality, U8) [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_encode.cpp -q]
+- a2: crop_yuv420_jpeg converts only the region, downscales with INTER_AREA and never upscales [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_encode.cpp -q]
+- a3: invalid frames, regions and qualities throw instead of producing an image [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_encode.cpp -q]
 - a4: package gtests and linters pass [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 
 ## Files
