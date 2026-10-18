@@ -17,7 +17,7 @@ const REFRESH_MS = 30000
 const EMPTY_MESSAGE = 'No retrospectives yet'
 const FREE_LABEL = 'free'
 const OUTCOME_COLORS: Record<string, string> = {
-  done: '#4caf7d',
+  done: TOKENS.textPrimary,
   partial: TOKENS.warning,
   failed: TOKENS.error,
   error: TOKENS.error,

@@ -54,7 +54,7 @@ describe('map palette', () => {
     const [open, done, cancelled] = [STATUS_COLORS.open, STATUS_COLORS.done, STATUS_COLORS.cancelled].map(lightness)
     expect(open).toBeGreaterThan(done)
     expect(done).toBeGreaterThan(cancelled)
-    expect(markerColors({ kind: 'point', status: 'open' } as never).outline).not.toBe(markerColors({ kind: 'point', status: 'done' } as never).outline)
+    expect(markerColors({ kind: 'point', status: 'open', note: '' } as never).outline).not.toBe(markerColors({ kind: 'point', status: 'done', note: '' } as never).outline)
   })
 
   it('one photo colour for every camera', () => {
