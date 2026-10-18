@@ -14,6 +14,7 @@ import { InteractiveArm } from '../components3d/InteractiveArm'
 import { Pose2D, Vec2 } from '../map/mapMath'
 import { CANVAS_BG } from '../theme'
 import { advanceBaseJoints, BaseJointValues } from './baseJoints'
+import { headJointValues } from './headJoints'
 import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor } from './geo'
 import { Bounds, classifyBaseLink, fitDistance } from './groundMath'
@@ -64,6 +65,7 @@ export interface MapSceneProps {
   onTileCaption?: (caption: string | null) => void // reports why GPS tiles failed to load (null when fine)
   baseUrdf?: string
   armUrdf?: string
+  headUrdf?: string
   armOffset?: [number, number, number]
   armCommandTopic?: string
   publish: (topic: string, msgType: string, data: unknown) => void
@@ -78,6 +80,7 @@ export interface MapSceneProps {
   robotPose: Pose2D | null
   baseJoints: JointStates | undefined
   armJoints: JointStates | undefined
+  headJoints?: JointStates
   anchor: GpsAnchor | null
   /** RTK base station in the map frame, or null when unknown (see gps/basePlacement). */
   basePosition: Vec2 | null
@@ -230,13 +233,16 @@ const RobotLayer = memo(function RobotLayer({
   pose,
   baseUrdf,
   armUrdf,
+  headUrdf,
   armOffset,
   armCommandTopic,
   baseJoints,
   armJoints,
+  headJoints,
   showBody,
   showWheels,
   showArm,
+  showHead,
   graspPreview,
   publish,
   orbitRef,
@@ -245,13 +251,16 @@ const RobotLayer = memo(function RobotLayer({
   pose: Pose2D | null
   baseUrdf?: string
   armUrdf?: string
+  headUrdf?: string
   armOffset: [number, number, number]
   armCommandTopic?: string
   baseJoints: JointStates | undefined
   armJoints: JointStates | undefined
+  headJoints?: JointStates
   showBody: boolean
   showWheels: boolean
   showArm: boolean
+  showHead: boolean
   graspPreview: GraspPreviewData | null
   publish: (topic: string, msgType: string, data: unknown) => void
   orbitRef: MutableRefObject<OrbitControlsImpl | null>
@@ -265,6 +274,7 @@ const RobotLayer = memo(function RobotLayer({
     [showBody, showWheels],
   )
   const baseValues = useBaseJointValues(baseJoints)
+  const headValues = useMemo(() => headJointValues(headJoints), [headJoints])
   const armPos = useMemo(
     () => rosToThree({ x: armOffset[0], y: armOffset[1], z: armOffset[2] }),
     [armOffset],
@@ -295,6 +305,7 @@ const RobotLayer = memo(function RobotLayer({
         ) : (
           <RobotModel urdfFile={armUrdf} jointStates={armJoints} position={armPos} visible={showArm} />
         ))}
+      {headUrdf && headValues && <RobotModel urdfFile={headUrdf} jointStates={headValues} visible={showHead} />}
       <GraspPreview data={graspPreview} />
     </group>
   )
@@ -355,13 +366,16 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
           pose={props.robotPose}
           baseUrdf={props.baseUrdf}
           armUrdf={props.armUrdf}
+          headUrdf={props.headUrdf}
           armOffset={armOffset}
           armCommandTopic={props.armCommandTopic}
           baseJoints={props.baseJoints}
           armJoints={props.armJoints}
+          headJoints={props.headJoints}
           showBody={layers.robotBase}
           showWheels={layers.robotWheels}
           showArm={layers.robotArm}
+          showHead={layers.head}
           graspPreview={props.graspPreview}
           publish={props.publish}
           orbitRef={orbitRef}

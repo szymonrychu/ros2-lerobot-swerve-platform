@@ -181,6 +181,7 @@ export default function MapNavTab({
   const anchorMsg = topicData[GPS_ANCHOR_TOPIC]
   const baseJoints = topicData[tab.base_joint_states_topic ?? ''] as JointStates | undefined
   const armJoints = topicData[tab.arm_joint_states_topic ?? ''] as JointStates | undefined
+  const headJoints = topicData[tab.head_joint_states_topic ?? ''] as JointStates | undefined
   const robotPose = inFrame(poseMsg, mapFrame) ? poseMsg : null
   const goal = inFrame(goalMsg, mapFrame) ? goalMsg : null
   const anchor = useMemo(() => validAnchor(anchorMsg), [anchorMsg])
@@ -949,6 +950,7 @@ export default function MapNavTab({
               onTileCaption={setTileCaption}
               baseUrdf={tab.base_urdf}
               armUrdf={tab.arm_urdf}
+              headUrdf={tab.head_urdf}
               armOffset={tab.arm_offset}
               armCommandTopic={tab.arm_command_topic}
               publish={publish}
@@ -963,6 +965,7 @@ export default function MapNavTab({
               robotPose={robotPose}
               baseJoints={baseJoints}
               armJoints={armJoints}
+              headJoints={headJoints}
               anchor={anchor}
               basePosition={basePosition}
               baseLabel={baseLabel}

@@ -43,6 +43,7 @@ describe('layer defaults', () => {
         'robotBase',
         'robotWheels',
         'robotArm',
+        'head',
         'pois',
         'photos',
       ].sort(),
@@ -51,6 +52,14 @@ describe('layer defaults', () => {
 
   it('shows everything except the GPS map by default', () => {
     for (const k of LAYER_KEYS) expect(DEFAULT_LAYERS[k]).toBe(k !== 'gpsMap')
+  })
+})
+
+describe('head layer', () => {
+  it('is on by default and toggles through storage', () => {
+    expect(DEFAULT_LAYERS.head).toBe(true)
+    expect(parseLayerState(JSON.stringify({ head: false })).head).toBe(false)
+    expect(parseLayerState(null).head).toBe(true)
   })
 })
 

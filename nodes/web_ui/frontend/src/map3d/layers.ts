@@ -15,6 +15,7 @@ export const LAYER_KEYS = [
   'robotBase',
   'robotWheels',
   'robotArm',
+  'head',
   'pois',
   'photos',
 ] as const
@@ -40,6 +41,7 @@ export const LAYER_LABELS: Record<LayerKey, string> = {
   robotBase: 'Robot body',
   robotWheels: 'Wheels',
   robotArm: 'Arm',
+  head: 'Head',
   pois: 'POIs',
   photos: 'Photos',
 }
