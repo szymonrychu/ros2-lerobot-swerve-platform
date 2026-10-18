@@ -1717,7 +1717,7 @@ ros2_nodes:
         # Head RGB camera (tool camera `front`): Camera Module 3 on the pan/tilt head with the ToF, head_camera_cpp,
         # 1152x648 at 30 fps, 16:9.
         head_camera: /head_camera/image_raw/compressed
-        front_camera: /front_camera/image_raw/compressed
+        # Body monitor feeds (get_body_state, /robot_events): servo register dumps, swerve odom (twist covariance = slip
         # residual), rf2o twist, BNO055 IMU.
         # servo_registers: arm servos (follower bus); base_servo_registers: swerve servos (base bus bridge).
         servo_registers: /follower/servo_registers
