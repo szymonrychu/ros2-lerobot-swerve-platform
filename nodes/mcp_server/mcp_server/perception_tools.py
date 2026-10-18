@@ -18,6 +18,7 @@ from ros2_common.poi_categories import (
     apply_tags,
     category_tags,
     check_category,
+    parse_tags,
 )
 
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
@@ -114,7 +115,7 @@ def tagged_note(
 
     Args:
         note (str): Current free text (may already carry tags).
-        category (str | None): Requested category, None for survey tags only.
+        category (str | None): Requested category, None keeps the note's existing category tag.
         problem_type (str | None): Problem type for category "problem".
         survey (bool): Add the ``#survey`` tag.
         kind (str): Resulting POI kind.
@@ -129,7 +130,12 @@ def tagged_note(
     """
     if category is not None:
         check_category(category, kind, zone, problem_type, speed_limit_pct)
-    return apply_tags(note, category_tags(category, problem_type, survey))
+    tags_category, tags_problem = category, problem_type
+    if category is None:
+        existing = parse_tags(note)
+        tags_category = existing.category
+        tags_problem = problem_type if problem_type is not None else existing.problem_type
+    return apply_tags(note, category_tags(tags_category, tags_problem, survey))
 
 
 PoiStatus = Literal["open", "done", "cancelled"]
