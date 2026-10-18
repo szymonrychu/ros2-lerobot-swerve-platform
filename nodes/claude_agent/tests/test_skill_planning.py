@@ -1,3 +1,4 @@
+import re
 """Planning skill: it loads and carries the workflow choice and the generous breakdown rules."""
 
 from claude_agent.skills import PLUGIN_DIR, check_skill, read_skill
@@ -37,17 +38,16 @@ def test_workflows_with_trigger_words() -> None:
 
 def test_breakdown_rules() -> None:
     body = load().lower()
-    for word in (
-        "orient",
-        "verif",
-        "effector",
-        "recovery",
-        "if",
-        "while",
-        "mandatory",
-        "budget",
-        "margin",
-        "poi",
-        "once",
+    for phrase in (
+        "orient first",
+        "verification phase after every effector phase",
+        "an `if`",
+        "a `while`",
+        "recovery branch",
+        "mandatory steps are never silently dropped",
+        "poi recording phases",
+        "caps and time budget with margin",
+        "about twice the estimate",
     ):
-        assert word in body
+        assert phrase in body
+    assert re.search(r"`agent\.revise_plan`.*\bonce\b", body)
