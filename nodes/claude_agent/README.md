@@ -547,6 +547,22 @@ or motion (effector) tools and made no successful POI write (`add_poi`, `update_
 when `poi_review_followup` is `false`. It does not use up the `job_end_max_followups`: the job-end check runs again
 after the review's reply.
 
+**Workflow check.** When the plan came from `agent.start_workflow` and the job-end check passes, the runner first sends
+one `WORKFLOW CHECK: mandatory steps skipped: <ids>. Add them with agent.revise_plan (one extra revision allowed now) or
+say in one line why they cannot apply.` follow-up per instruction (`PlanTracker.skipped_mandatory()`). A mandatory id is
+fine when its latest outcome is `done` or `failed`; it is skipped when its outcome is `skipped`, when it is absent from
+the current plan (edited out of the seeded plan or dropped by `revise_plan`), or when it never ran although the plan
+finished - unless it sits in an `if` branch that was not entered (the tracker records every branch the cursor enters,
+from `answer_condition` answers and `outcome_of` evaluations). Sending it calls `grant_extra_revision()`: one more
+`revise_plan` gets through even after the instruction's one revision. The check never counts toward
+`job_end_max_followups` and never triggers the forced park; the job-end check runs again after its reply.
+
+Follow-up order at the end of an instruction: `JOB END REFUSED` -> `WORKFLOW CHECK` -> `POI REVIEW`.
+
+Whenever a workflow was started, `turn_end` carries `job_end.workflow: {name, skipped_mandatory}` (the ids still skipped
+at the end, an empty list when none), also when there is no other job_end problem; it sits next to `forced_park` or
+`check_error` when those exist. A free-form plan (`agent.set_task_plan`) gets no check and no `workflow` field.
+
 After the last follow-up the runner parks itself, each call bounded by `job_end_park_timeout_s` (60) and shown in the
 chat as a `tool_call` / `tool_result` pair with `source: "job_end"`: `cancel_motions` first (mcp_server refuses a
 release while the motion queue runs), then `release_control(subsystem="all")` with the default reset (the arm drives
