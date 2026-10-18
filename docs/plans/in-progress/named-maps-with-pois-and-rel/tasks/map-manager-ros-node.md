@@ -1,6 +1,6 @@
 ---
 title: Map manager ROS node
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "map_manager runs on the robot: it answers named-map commands over topics, publishes a truthful status, and costs no CPU while idle."
 files: [nodes/map_manager/map_manager/node.py, nodes/map_manager/map_manager/__main__.py, nodes/map_manager/map_manager/metrics.py, nodes/map_manager/tests/ros_stubs.py, nodes/map_manager/tests/test_node.py, nodes/map_manager/README.md]
@@ -93,3 +93,7 @@ The rclpy layer of map_manager (design D4, D10), the only rclpy module, tested w
 
 slam_toolbox service types: `slam_toolbox.srv.SerializePoseGraph`, `DeserializePoseGraph` (match_type 2 = START_AT_GIVEN_POSE, initial_pose geometry_msgs/Pose2D), `Pause`, plus `rcl_interfaces/srv/GetParameters` for `paused_new_measurements`. `/pose` is geometry_msgs/PoseWithCovarianceStamped. numpy guard (CLAUDE.md): sensor_msgs pulls numpy; it is declared in pyproject.
 - Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged; the README AC was a doc-section anchor false negative (the sections exist).
