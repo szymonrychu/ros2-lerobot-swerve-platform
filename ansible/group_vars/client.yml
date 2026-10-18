@@ -280,7 +280,7 @@ ros2_node_type_defaults:
       - ros-jazzy-realsense2-camera
   # Retired (D7): the cameras are physically gone from the Pi. present: false makes a deploy of this name run only the
   # uninstall path of roles/ros2_node_deploy/tasks/main.yml (deploy_mode and a launch command, nothing else). Boot
-  # overlays: playbooks/tasks/pi_camera_overlays_removed.yml.
+  # overlays: playbooks/tasks/pi_camera_boot_config.yml.
   overview_camera:
     deploy_mode: native
     node_launch_command: "ros2 launch overview_camera overview_camera.launch.py"
@@ -288,7 +288,7 @@ ros2_node_type_defaults:
   # consumes them). Raspberry Pi libcamera fork + camera_ros built from the same pinned sources as the retired
   # overview_camera into /opt/ros2-ws (libcamera first), so the existing build stamps match and nothing rebuilds. The
   # apt ros-jazzy-camera-ros / ros-jazzy-libcamera packages must NOT be installed: they would shadow the fork. The
-  # firmware detects the pair itself (camera_auto_detect=1, no overlay). See nodes/pi_cameras/README.md.
+  # boot config loads the imx708 overlay on cam0 (playbooks/tasks/pi_camera_boot_config.yml). See nodes/pi_cameras/README.md.
   pi_cameras:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/pi_cameras/launch/pi_cameras.launch.py"
@@ -1098,16 +1098,16 @@ ros2_nodes:
       - UVC_MAX_FPS=10
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy).
       - METRICS_PORT=19105
-  # Arducam ToF camera: depth, amplitude and camera_info for the web UI head tab. CSI cam1 carried the retired right IMX219
-  # (the ToF overlay is gone from config.txt), so this node has no CSI port and stays `enabled: false`.
+  # Arducam ToF camera on CSI cam1 (dtoverlay=arducam-pivariety,cam1, playbooks/tasks/pi_camera_boot_config.yml): depth,
+  # amplitude and camera_info for the web UI head tab.
   - name: arducam_tof
     node_type: arducam_tof
     present: true
-    enabled: false
+    enabled: true
     config: |
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
       metrics_port: 19112
-      # Was CSI cam1; cam1 now carries the right IMX219 and cam0 the left, so the node has no CSI port (stays disabled).
+      # CSI cam1 (cam0 carries the front Camera Module 3).
       camera_index: 1
       # near or far (the driver rejects anything else, and any key not listed here).
       range_mode: far
@@ -1137,13 +1137,15 @@ ros2_nodes:
     present: false
   # Front/back Camera Module 3 previews (/front_camera/* and /back_camera/*; the /overview_camera/* names are the Jetson
   # bridge's). front_port is the CSI connector of the front camera: cam0 (default) is front, cam1 is back; set cam1 to swap.
-  # Camera IDs: `cam -l` on the client (defaults in nodes/pi_cameras/config/params.yaml).
+  # Camera IDs: `cam -l` on the client (defaults in nodes/pi_cameras/config/params.yaml). roles lists the cameras to
+  # launch: only front, because CSI cam1 now carries the Arducam ToF camera (arducam_tof).
   - name: pi_cameras
     node_type: pi_cameras
     present: true
     enabled: true
     config: |
       front_port: cam0
+      roles: [front]
   # Retired (D7): the Pi never produced stereo depth (CPU-saturated); the Jetson depthd does, republished by
   # jetson_bridge_cpp on the same /stereo/* names. present: false makes the next deploy of these names uninstall the
   # units, launchers, venv and config directories.
@@ -1703,15 +1705,13 @@ ros2_nodes:
           type: camera
           label: "Overview"
           topic: /overview_camera/image_raw/compressed
-        # Front and back Camera Module 3 previews (pi_cameras): one tab, both streams side by side.
+        # Front Camera Module 3 preview (pi_cameras; the back camera's CSI port cam1 carries the Arducam ToF).
         - id: pi_cameras
           type: camera
-          label: "Front/Back"
+          label: "Front"
           topics:
             - topic: /front_camera/image_raw/compressed
               label: Front
-            - topic: /back_camera/image_raw/compressed
-              label: Back
         - id: poi
           type: poi
           label: "POI"
@@ -2484,7 +2484,7 @@ monitoring_agent_node_targets:
   - {node: poi_store, address: "127.0.0.1:19109", path: /metrics}
   - {node: map_guard_cpp, address: "127.0.0.1:19110", path: /metrics}
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
-  # arducam_tof (127.0.0.1:19112) is added here when the node is enabled: only enabled nodes are scraped.
+  - {node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}
   - {node: jetson_bridge_cpp, address: "127.0.0.1:19114", path: /metrics}
   # Not a ROS node: depthd on the Jetson (roles/jetson_depthd). The Jetson has no route to the server, so the Pi's Alloy
   # scrapes it over the direct cable and re-exports its health under host=jetson.

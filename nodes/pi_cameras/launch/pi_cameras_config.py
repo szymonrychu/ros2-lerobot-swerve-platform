@@ -11,7 +11,7 @@ import yaml
 
 ROLES = ("front", "back")
 PORTS = ("cam0", "cam1")
-LAUNCH_KEYS = ("front_port",)
+LAUNCH_KEYS = ("front_port", "roles")
 JPEG_QUALITY_PARAMETER = "image_raw.compressed.jpeg_quality"
 NAMESPACE = "/{role}_camera"
 FRAME_ID = "{role}_camera_optical_frame"
@@ -41,8 +41,8 @@ def load_settings(defaults_path: Path, override_path: Path) -> dict[str, Any]:
 
     Args:
         defaults_path: config/params.yaml.
-        override_path: Deployed /etc/ros2/pi_cameras/config.yaml; skipped when missing or empty. The flat key
-            front_port is moved into the `launch` section.
+        override_path: Deployed /etc/ros2/pi_cameras/config.yaml; skipped when missing or empty. The flat keys
+            front_port and roles are moved into the `launch` section.
 
     Returns:
         dict[str, Any]: Merged settings.
@@ -73,6 +73,25 @@ def role_camera_ids(settings: dict[str, Any]) -> dict[str, str]:
         raise ValueError(f"front_port: unknown value {front!r}, expected one of {list(PORTS)}")
     back = next(port for port in PORTS if port != front)
     return {"front": launch["camera_ids"][front], "back": launch["camera_ids"][back]}
+
+
+def enabled_roles(settings: dict[str, Any]) -> tuple[str, ...]:
+    """Roles whose camera is launched.
+
+    Args:
+        settings: Merged settings (`launch.roles`).
+
+    Returns:
+        tuple[str, ...]: Subset of ROLES in the configured order.
+
+    Raises:
+        ValueError: When roles is empty or names an unknown role.
+    """
+    roles = tuple(settings["launch"]["roles"])
+    unknown = [role for role in roles if role not in ROLES]
+    if not roles or unknown:
+        raise ValueError(f"roles: expected a non-empty subset of {list(ROLES)}, got {list(roles)}")
+    return roles
 
 
 def role_namespace(role: str) -> str:

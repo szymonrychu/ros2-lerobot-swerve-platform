@@ -100,7 +100,7 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `gripper_uvc_camera` | USB camera bridge |
 | `rplidar_a1` | LiDAR bridge (USB) |
 | `realsense_d435i` | Removed (present: false): replaced by `overview_camera` |
-| `overview_camera` | Retired (D7): `present: false`, the next deploy uninstalls the unit; `pi_camera_overlays_removed.yml` keeps `camera_auto_detect=1`. `/overview_camera/*` now comes from `jetson_bridge_cpp` |
+| `overview_camera` | Retired (D7): `present: false`, the next deploy uninstalls the unit; `pi_camera_boot_config.yml` holds the CSI overlays. `/overview_camera/*` now comes from `jetson_bridge_cpp` |
 | `pi_cameras` | Two Camera Module 3 (IMX708) on the Pi 5 CSI ports as front/back previews (`front_port: cam0` default); libcamera fork + camera_ros built from source into `/opt/ros2-ws` (stamps unchanged, no rebuild); no boot overlay, no reboot; publishes `/front_camera/image_raw/compressed` and `/back_camera/image_raw/compressed` (640x480, 10 fps), background cgroup tier |
 | `stereo_depth` | SGBM depth from the synced IMX219 pair (native uv node, background cgroup tier, metrics 19113); publishes `/stereo/depth/image_raw` (16UC1 mm) and `/stereo/camera_info` only with a valid calibration in `/var/lib/ros2/camera_calibration` (`python3 -m stereo_depth.calibrate`); deploy after `overview_camera` |
 | `stereo_depth_cpp` | C++ port of `stereo_depth`, side by side (`present: false` until the cut-over; never enabled together with `stereo_depth`, same metrics port 19113); built on the Pi from `nodes/stereo_depth_cpp` + `shared/ros2_common_cpp` into `/opt/ros2-ws` at lowest priority without stopping the running nodes, only when the synced tree changed; rollback: re-enable `stereo_depth` |

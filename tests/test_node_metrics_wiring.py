@@ -262,11 +262,11 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
         assert target.get("path", "/metrics") == "/metrics", name
         checked += 1
     disabled = {n for n in CONTRACT_NODES if not is_running(nodes[n])}
-    # topic_scraper_api disabled 2026-10-11; arducam_tof until the camera is plugged in. Of each <name>/<name>_cpp pair
+    # topic_scraper_api disabled 2026-10-11. Of each <name>/<name>_cpp pair
     # exactly one runs (test_a_python_and_cpp_pair_is_never_both_enabled).
     pair_members = {n for n in CONTRACT_NODES if n.endswith(CPP_SUFFIX)}
     pair_members |= {n[: -len(CPP_SUFFIX)] for n in pair_members}
-    assert disabled - pair_members == {"topic_scraper_api", "arducam_tof"}
+    assert disabled - pair_members == {"topic_scraper_api"}
     assert checked == len(CONTRACT_NODES - disabled)
     # Only enabled nodes are scraped: a disabled target would read as down. Add a target when enabling the node.
     assert set(targets) - set(NON_ROS_TARGETS) == CONTRACT_NODES - disabled

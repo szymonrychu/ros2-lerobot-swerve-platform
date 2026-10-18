@@ -1,11 +1,13 @@
 # pi_cameras defaults (plain YAML read by launch/pi_cameras_config.py, not a ROS params file).
 # Deployed overrides: /etc/ros2/pi_cameras/config.yaml (ros2_nodes `config: |`), merged over this file.
-# The flat key front_port may be given at the top level of the override.
+# The flat keys front_port and roles may be given at the top level of the override.
 
 launch:
   # Which CSI connector carries the front camera; the other one is the back camera. cam0 / cam1 are the labels on the
   # Pi 5 board. Swap with `front_port: cam1` if the cameras are mounted the other way round.
   front_port: cam0
+  # Cameras to launch (front, back). Drop one when its CSI port carries another device.
+  roles: [front, back]
   # libcamera camera ID per connector (`cam -l`). The Pi 5 devicetree wires cam0 to rp1 i2c@88000 (i2c-10) and cam1 to
   # i2c@80000 (i2c-11); the sensor sits at 0x1a on both.
   camera_ids:

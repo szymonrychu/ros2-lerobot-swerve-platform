@@ -2,8 +2,9 @@
 
 The pi_cameras node type builds libcamera and camera_ros from pinned sources (the same pins and patches as the retired
 overview_camera, so the existing build stamps match and nothing rebuilds), runs in the background tier and publishes
-/front_camera/* and /back_camera/*. The /overview_camera/* names belong to the Jetson bridge and must not be used.
-The boot config keeps camera_auto_detect=1 (the firmware detects the IMX708 pair itself, no overlay is written).
+/front_camera/* (and /back_camera/* when the back role is launched). The /overview_camera/* names belong to the Jetson
+bridge and must not be used. CSI cam1 carries the Arducam ToF camera, so only the front role is deployed and the boot
+config (tasks/pi_camera_boot_config.yml) loads the imx708 overlay on cam0 explicitly.
 """
 
 from pathlib import Path
@@ -21,7 +22,8 @@ ANSIBLE_README = ANSIBLE / "README.md"
 LIBCAMERA_TAG = "v0.7.2+rpt20260817"
 CAMERA_ROS_COMMIT = "8f792e27a6dbc81e4943a75765fc1b7b7d37b301"
 FORBIDDEN_APT_PACKAGES = ("ros-jazzy-camera-ros", "ros-jazzy-libcamera", "libcamera-dev", "libcamera0")
-PREVIEW_TOPICS = ("/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed")
+PREVIEW_TOPICS = ("/front_camera/image_raw/compressed",)
+BOOT_TASKS = ANSIBLE / "playbooks" / "tasks" / "pi_camera_boot_config.yml"
 
 
 def client_vars() -> dict:
@@ -95,6 +97,10 @@ def test_node_entry_is_present_and_enabled_with_the_front_port_documented() -> N
     assert config["front_port"] == "cam0"
 
 
+def test_node_entry_launches_only_the_front_camera_while_cam1_carries_the_tof() -> None:
+    assert yaml.safe_load(node_entry()["config"])["roles"] == ["front"]
+
+
 def test_entry_comment_documents_the_port_to_role_mapping() -> None:
     lines = CLIENT_VARS.read_text().splitlines()
     index = lines.index("  - name: pi_cameras")
@@ -112,14 +118,13 @@ def test_web_ui_shows_the_previews_not_the_overview_camera_names() -> None:
     tab = next(t for t in config["tabs"] if t["id"] == "pi_cameras")
     assert tab["type"] == "camera"
     assert [spec["topic"] for spec in tab["topics"]] == list(PREVIEW_TOPICS)
-    assert [spec["label"] for spec in tab["topics"]] == ["Front", "Back"]
+    assert [spec["label"] for spec in tab["topics"]] == ["Front"]
 
 
-def test_boot_config_keeps_camera_auto_detect_and_writes_no_overlay() -> None:
-    tasks = yaml.safe_load((ANSIBLE / "playbooks" / "tasks" / "pi_camera_overlays_removed.yml").read_text())
+def test_boot_config_loads_the_imx708_overlay_on_cam0() -> None:
+    tasks = yaml.safe_load(BOOT_TASKS.read_text())
     lines = [t["ansible.builtin.lineinfile"] for t in tasks if "ansible.builtin.lineinfile" in t]
-    assert any(m.get("line") == "camera_auto_detect=1" for m in lines)
-    assert not any("imx708" in str(m.get("line", "")) for m in lines)
+    assert any(m.get("line") == "dtoverlay=imx708,cam0" for m in lines)
 
 
 def test_launch_file_uses_the_pi_cameras_namespaces_only() -> None:
@@ -130,7 +135,13 @@ def test_launch_file_uses_the_pi_cameras_namespaces_only() -> None:
 
 def test_docs_describe_the_previews_and_the_front_port() -> None:
     readme = README.read_text()
-    for needle in ("/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed", "front_port", "cam0"):
+    for needle in (
+        "/front_camera/image_raw/compressed",
+        "/back_camera/image_raw/compressed",
+        "front_port",
+        "roles",
+        "cam0",
+    ):
         assert needle in readme, needle
     assert "pi_cameras" in ANSIBLE_README.read_text()
     assert "test_pi_cameras_deploy.py" in TESTS_README.read_text()

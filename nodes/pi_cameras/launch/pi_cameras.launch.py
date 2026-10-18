@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Launch the two Camera Module 3 (IMX708) previews: two camera_ros `camera::CameraNode`s in one component container.
+"""Launch the Camera Module 3 (IMX708) previews: one camera_ros `camera::CameraNode` per role in one component container.
 
 The camera on the front_port CSI connector (default cam0) runs in namespace /front_camera, the other one in
-/back_camera. Each publishes image_raw, image_raw/compressed and camera_info (uncalibrated: nothing consumes more than
+/back_camera; `launch.roles` selects which of the two are launched. Each publishes image_raw, image_raw/compressed and camera_info (uncalibrated: nothing consumes more than
 the preview yet).
 
 Settings: config/params.yaml (env PI_CAMERAS_PARAMS replaces the path), overridden by the deployed
@@ -20,8 +20,8 @@ from launch_ros.descriptions import ComposableNode
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pi_cameras_config import (  # noqa: E402
-    ROLES,
     camera_parameters,
+    enabled_roles,
     load_settings,
     role_camera_ids,
     role_namespace,
@@ -41,7 +41,7 @@ def generate_launch_description() -> LaunchDescription:
     """Build the launch description from the merged settings.
 
     Returns:
-        LaunchDescription: Container with the front and back camera nodes.
+        LaunchDescription: Container with one camera node per enabled role.
     """
     settings = load_settings(
         Path(os.environ.get(PARAMS_ENV, DEFAULT_PARAMS_PATH)),
@@ -58,7 +58,7 @@ def generate_launch_description() -> LaunchDescription:
             remappings=[(f"~/{name}", name) for name in TOPICS],
             extra_arguments=INTRA_PROCESS,
         )
-        for role in ROLES
+        for role in enabled_roles(settings)
     ]
     container = ComposableNodeContainer(
         name="pi_cameras_container",

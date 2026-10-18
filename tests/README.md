@@ -1530,7 +1530,7 @@ Static checks of the `arducam_tof` deployment (Arducam ToF depth camera for the 
 | `test_node_type_is_declared_on_the_client` | Native node type `python3 -m arducam_tof`, `nodes/bridges/arducam_tof`, `/etc/ros2/arducam_tof`, `ARDUCAM_TOF_CONFIG`. |
 | `test_node_type_is_in_the_normal_cgroup_tier_with_memory_limits` | Normal-tier cgroup weights with `memory_low` and `memory_max`. |
 | `test_node_type_has_no_dds_peer` | No `ROS_STATIC_PEERS` on the node type. |
-| `test_ros2_nodes_entry_deploys_disabled` | `ros2_nodes` entry is `present: true`, `enabled: false` with a `config` string. |
+| `test_ros2_nodes_entry_deploys_enabled` | `ros2_nodes` entry is `present: true`, `enabled: true` with a `config` string. |
 | `test_deployed_config_holds_only_keys_the_driver_accepts` | Deployed YAML keys are exactly the driver config keys (unknown keys are rejected by the driver), `camera_index: 1`, metrics port, `range_mode` near or far. |
 | `test_deployed_config_loads_in_the_real_driver_load_config` | The deployed YAML loads in the driver's real `load_config`; runs unconditionally. |
 | `test_head_tab_topics_are_documented_in_the_config_comments` | The fixed depth, amplitude and camera_info topics are listed in the config comments. |
@@ -1892,9 +1892,10 @@ Static invariants of the front/back Camera Module 3 previews (`pi_cameras`): pin
 | `test_node_type_launches_the_pi_cameras_launch_file` | See the function docstring/name. |
 | `test_node_type_is_a_background_preview_that_loses_to_the_robot` | See the function docstring/name. |
 | `test_node_entry_is_present_and_enabled_with_the_front_port_documented` | See the function docstring/name. |
+| `test_node_entry_launches_only_the_front_camera_while_cam1_carries_the_tof` | The entry config holds `roles: [front]`. |
 | `test_entry_comment_documents_the_port_to_role_mapping` | See the function docstring/name. |
-| `test_web_ui_shows_the_previews_not_the_overview_camera_names` | See the function docstring/name. |
-| `test_boot_config_keeps_camera_auto_detect_and_writes_no_overlay` | See the function docstring/name. |
+| `test_web_ui_shows_the_previews_not_the_overview_camera_names` | The web_ui tab shows only the front preview. |
+| `test_boot_config_loads_the_imx708_overlay_on_cam0` | `pi_camera_boot_config.yml` writes `dtoverlay=imx708,cam0`. |
 | `test_launch_file_uses_the_pi_cameras_namespaces_only` | See the function docstring/name. |
 | `test_docs_describe_the_previews_and_the_front_port` | See the function docstring/name. |
 
@@ -1916,6 +1917,23 @@ The pure-Python launch helper `nodes/pi_cameras/launch/pi_cameras_config.py`: se
 | `test_camera_parameters_select_the_camera_and_compress_the_stream` | See the function name. |
 | `test_back_camera_has_its_own_frame_id` | See the function name. |
 | `test_unknown_role_is_rejected` | See the function name. |
+| `test_defaults_launch_both_roles` | Default `launch.roles` is front and back. |
+| `test_flat_roles_override_launches_only_the_listed_cameras` | A flat `roles: [front]` override moves into `launch` and launches only front. |
+| `test_unknown_or_empty_roles_are_rejected` | An unknown or empty `roles` raises `ValueError`. |
+
+### `test_pi_camera_boot_config.py`
+
+Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on CSI cam0, Arducam ToF on cam1).
+
+| Test | What it pins |
+|---|---|
+| `test_retired_imx219_overlays_are_removed` | `dtoverlay=imx219,cam0` and `dtoverlay=imx219,cam1` are removed with `state: absent`. |
+| `test_auto_detect_is_off_and_both_overlays_are_written` | Exactly `camera_auto_detect=0`, `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` are written. |
+| `test_every_line_task_is_aarch64_only_and_registers_its_result` | Five `lineinfile` tasks, each aarch64-only, tagged `boot`, with its own registered result. |
+| `test_client_reboots_only_when_a_line_changed` | The last task reboots (timeout 120) when any registered result changed. |
+| `test_client_playbook_includes_the_boot_config_under_both_camera_node_tags` | `pre_tasks` includes the file with tags `boot`, `pi_cameras`, `arducam_tof` (also on `apply`). |
+| `test_ansible_readme_describes_the_boot_config` | `ansible/README.md` names the file and the three written lines. |
+| `test_tests_readme_lists_every_test_of_this_file` | Every test of this file is listed here. |
 
 ### `test_pi_cameras_retired.py`
 
@@ -1927,15 +1945,9 @@ Static checks of the Pi camera retirement (D7: no cameras on the Pi), read as YA
 | `test_overview_camera_entry_names_d7_in_its_comment` | The comment above the entry names D7. |
 | `test_overview_camera_node_type_keeps_only_what_the_uninstall_path_needs` | The node type has only `deploy_mode: native` and a launch command: no source, build, tier or env keys. |
 | `test_only_pi_cameras_builds_libcamera_and_camera_ros` | Of all client node types only `pi_cameras` builds libcamera (the retired `overview_camera` builds nothing). |
-| `test_removal_tasks_delete_both_imx219_overlays` | `dtoverlay=imx219,cam0` and `dtoverlay=imx219,cam1` are removed from `/boot/firmware/config.txt` with `state: absent`. |
-| `test_camera_auto_detect_is_restored` | `camera_auto_detect=1` is written over any `camera_auto_detect=` line. |
-| `test_every_line_task_is_aarch64_only_and_registers_its_result` | Three `lineinfile` tasks, each aarch64-only, tagged `boot`, with its own registered result. |
-| `test_client_reboots_only_when_a_line_changed` | The last task reboots (timeout 120) when any registered result changed. |
-| `test_nothing_in_the_file_adds_a_camera_overlay` | No task writes a `dtoverlay` line. |
-| `test_old_boot_file_and_old_tests_are_deleted` | `overview_camera_boot_config.yml` and the two `test_overview_camera*.py` files are gone. |
-| `test_client_playbook_includes_the_removal_in_place_of_the_old_include` | `pre_tasks` includes `pi_camera_overlays_removed.yml` with tags `boot` and `overview_camera` (also on `apply`); the old file is not mentioned. |
+| `test_old_boot_file_and_old_tests_are_deleted` | `overview_camera_boot_config.yml`, `pi_camera_overlays_removed.yml` and the two `test_overview_camera*.py` files are gone. |
 | `test_client_playbook_still_deploys_overview_camera_so_the_uninstall_runs` | The playbook still deploys the name so the uninstall runs. |
-| `test_ansible_readme_describes_the_removal` | `ansible/README.md` names the new task file and `camera_auto_detect=1`, and has no memory row for `overview_camera`. |
+| `test_ansible_readme_describes_the_removal` | `ansible/README.md` names neither removed boot file and has no memory row for `overview_camera`. |
 | `test_tests_readme_lists_every_test_of_this_file` | Every test of this file is listed here. |
 
 ### test_ansible_deploy_speed.py
@@ -1951,7 +1963,7 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_non_node_targets_are_parsed` | `non_node_targets` reads `monitoring` and `jetson_link` for the client and `monitoring` for the server from `scripts/deploy-nodes.sh`. |
 | `test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag` | (client, server) every pre/main/post task of the deploy playbooks has a documented, node-name or non-node-target (`monitoring`) tag. |
 | `test_every_node_has_a_tagged_deploy_step` | (client, server) each `ros2_nodes` entry has exactly one deploy include tagged with its name plus apt/python/build/config, applying the node tag to the included tasks. |
-| `test_node_specific_setup_files_carry_their_node_tag` | The mcp_server token, claude_agent token, poi_store, slam maps, web_ui tile cache and Pi camera overlay removal task files carry their node tag. |
+| `test_node_specific_setup_files_carry_their_node_tag` | The mcp_server token, claude_agent token, poi_store, slam maps, web_ui tile cache and Pi camera boot config (`arducam_tof`) task files carry their node tag. |
 | `test_shared_steps_run_under_any_node_filter` | (client, server) select_run, repo sync, ROS package sync, batched apt and the gradual restart are `always`-tagged; the verify role too; the apt steps are conditioned on `ros2_run_apt`. |
 | `test_deploy_script_runs_one_playbook_with_the_joined_node_tags` | `deploy-nodes.sh client web_ui mcp_server` calls ansible-playbook once with `--tags web_ui,mcp_server` (fake ansible-playbook on PATH). |
 | `test_deploy_script_all_passes_tags_and_other_options_through` | `--all` adds no tag filter by itself and passes `--tags` / `--skip-tags` through. |
@@ -2035,7 +2047,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 | `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
 | `test_a_port_is_shared_only_by_a_python_and_cpp_pair` | Two contract nodes share a port only as `<name>`/`<name>_cpp` (at least one such pair exists). |
 | `test_a_python_and_cpp_pair_is_never_both_enabled` | Of every `<name>`/`<name>_cpp` pair in `ros2_nodes` (map_guard at least) at most one is present and enabled: both would bind the same port and publish the same topics. |
-| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api and arducam_tof are only members of a Python/C++ pair. |
+| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api are only members of a Python/C++ pair. |
 
 ### `monitoring_helpers.py`
 

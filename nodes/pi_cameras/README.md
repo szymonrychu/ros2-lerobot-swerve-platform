@@ -1,13 +1,14 @@
 # pi_cameras
 
-Front and back previews from two Raspberry Pi Camera Module 3 (Sony IMX708, autofocus) on the client Pi 5 CSI ports
-cam0 and cam1. Preview only: the only consumer is the `web_ui` "Front/Back" camera tab. Launch-only node (like
+Front and back previews from Raspberry Pi Camera Module 3 (Sony IMX708, autofocus) on the client Pi 5 CSI ports cam0
+and cam1. `roles` selects which are launched; the robot runs only the front one (cam0), because cam1 carries the Arducam
+ToF camera. Preview only: the only consumer is the `web_ui` "Front" camera tab. Launch-only node (like
 `slam_toolbox`): no Python package, the Ansible unit runs `ros2 launch nodes/pi_cameras/launch/pi_cameras.launch.py`.
 
 ## Pipeline
 
-One `component_container_mt` (`/pi_cameras/pi_cameras_container`) with `use_intra_process_comms: true` holds two
-camera_ros `camera::CameraNode`s:
+One `component_container_mt` (`/pi_cameras/pi_cameras_container`) with `use_intra_process_comms: true` holds one
+camera_ros `camera::CameraNode` per launched role (`launch.roles`, flat key `roles`, default `[front, back]`):
 
 | Topic | Type | Notes |
 |---|---|---|
@@ -33,7 +34,7 @@ cameras are mounted the other way round, set `front_port: cam1` in the `pi_camer
 
 ## Files
 
-- `launch/pi_cameras.launch.py` - builds the container with both cameras from the merged settings.
+- `launch/pi_cameras.launch.py` - builds the container with the cameras of `launch.roles` from the merged settings.
 - `launch/pi_cameras_config.py` - pure-Python helpers (settings merge, front/back selection, parameter dicts).
 - `config/params.yaml` - defaults (plain YAML, not a ROS params file): `launch`, `camera`, `compressed`.
 - `patches/libcamera-0001-add-package-xml.patch` - adds a `package.xml` (build_type `meson`) so colcon-meson can build
@@ -49,8 +50,8 @@ Ansible writes the `config:` block of the `pi_cameras` entry to `/etc/ros2/pi_ca
 
 ## Deployment
 
-- Boot config: none. `camera_auto_detect=1` in `/boot/firmware/config.txt` makes the firmware load the `imx708` overlay
-  on both ports (`playbooks/tasks/pi_camera_overlays_removed.yml` keeps that line), so no reboot is needed.
+- Boot config: `playbooks/tasks/pi_camera_boot_config.yml` writes `camera_auto_detect=0` and `dtoverlay=imx708,cam0`
+  (cam1 gets `arducam-pivariety` for the ToF) and reboots the client only when a line changed.
 - Build: the Raspberry Pi libcamera fork at tag `v0.7.2+rpt20260817` (colcon-meson, pisp pipeline only) and camera_ros
   at commit `8f792e27a6dbc81e4943a75765fc1b7b7d37b301` into `/opt/ros2-ws`. Do not install `ros-jazzy-camera-ros` or
   `ros-jazzy-libcamera` from apt: they would shadow the fork.

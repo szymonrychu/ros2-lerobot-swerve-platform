@@ -100,3 +100,22 @@ def test_back_camera_has_its_own_frame_id() -> None:
 def test_unknown_role_is_rejected() -> None:
     with pytest.raises(ValueError, match="role"):
         cfg.role_namespace("left")
+
+
+def test_defaults_launch_both_roles() -> None:
+    assert cfg.enabled_roles(defaults()) == ("front", "back")
+
+
+def test_flat_roles_override_launches_only_the_listed_cameras(tmp_path: Path) -> None:
+    override = tmp_path / "config.yaml"
+    override.write_text("front_port: cam0\nroles: [front]\n")
+    settings = cfg.load_settings(PARAMS_FILE, override)
+    assert settings["launch"]["roles"] == ["front"]
+    assert cfg.enabled_roles(settings) == ("front",)
+
+
+def test_unknown_or_empty_roles_are_rejected() -> None:
+    for roles in (["left"], []):
+        settings = cfg.deep_merge(defaults(), {"launch": {"roles": roles}})
+        with pytest.raises(ValueError, match="roles"):
+            cfg.enabled_roles(settings)
