@@ -1,6 +1,6 @@
 ---
 title: Arm tab front camera field
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The Arm tab's second stream is the front camera under a field name that says so."
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_config.py, tests/test_mcp_server_config.py, nodes/web_ui/README.md, tests/README.md]
@@ -69,3 +69,7 @@ Backend, configs and docs use `front_camera_topic` on `/front_camera/image_raw/c
 
 
 - `web_ui/config.py:91,137,267`; `client.yml` arm tab ~1684-1688.
+
+## Ruling
+
+Accepted by the orchestrator (2026-10-18): verified and merged; escalation came from verifier gates (temp-file error left ACs unchecked); web_ui 726 passed.

@@ -1,6 +1,6 @@
 ---
 title: Remove Overview tab
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The web UI no longer offers a tab for a camera that no longer exists.
 files: [nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_bridge.py, tests/test_mcp_server_config.py, nodes/web_ui/README.md, tests/README.md]
@@ -70,3 +70,7 @@ The Overview tab and its type hint are gone from configs, backend, tests and REA
 
 
 - The Arm tab's `overview_camera_topic` field is renamed by arm-tab-front-camera-field (next task); the grep AC excludes it for that reason.
+
+## Ruling
+
+Accepted by the orchestrator (2026-10-18): verified and merged; escalation came from verifier gates (temp-file error left ACs unchecked); web_ui 726 passed.
