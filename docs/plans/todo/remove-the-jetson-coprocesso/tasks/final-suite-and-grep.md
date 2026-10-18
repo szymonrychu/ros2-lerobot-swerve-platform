@@ -50,16 +50,30 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `tests/test_jetson_retired.py`: `ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...]` and `test_no_live_jetson_stereo_or_overview_reference()`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+The repo has no live Jetson-era reference, every suite is green, and the deploy runbook is ready for the orchestrator.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Write the grep test with an empty allowlist; run `uv run pytest tests/test_jetson_retired.py -q` and read the hit list.
+- Fix each live hit (comment sweep files first); add narrow allowlist entries only for the named categories.
+- Run the full verify command and quote each summary line.
+- Update tests/README.md; commit `test: pin that no live Jetson reference remains`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+Post-merge deploy runbook (the orchestrator runs it on main after every task merged; invoke the ansible-deploy skill first; log to `.logs/`):
+1. Local untracked prep: remove the `[jetson]` group from `ansible/inventory`; `rm -rf nodes/overview_camera` (untracked pycache only).
+2. Check no agent session is running (deploying mcp_server/claude_agent kills it).
+3. `mkdir -p .logs && ./scripts/deploy-nodes.sh client jetson_bridge_cpp map_guard_cpp web_ui mcp_server 2>&1 | tee .logs/deploy-client-nodes.log` (uninstall + purge; map_guard_cpp rebuilds after the ros2_common_cpp change).
+4. `./scripts/deploy-nodes.sh client monitoring jetson_link 2>&1 | tee .logs/deploy-client-host.log`, then run it again and confirm the removal tasks report no change (idempotence).
+5. Read-only checks through ansible ad-hoc commands (no manual SSH): no `ros2-jetson_bridge_cpp` unit; no `/opt/ros2-ws/{src,build,install}/jetson_bridge_cpp` and no `/opt/ros2-ws/.built-jetson_bridge_cpp-*`; `ip -4 addr show eth0` has no 10.77.0.1; no `jetson.ros2.lan` in `/etc/hosts`; `nft list tables` has no `jetson_link`; `chronyc sources` lists the pools; the web UI Head tab shows ToF frames once arducam_tof publishes and the Arm tab shows the front camera.
+6. Update the out-of-repo auto-memory `project_jetson_vision_coprocessor.md` (superseded: Jetson removed 2026-10-18).
+If the robot is offline, steps 3-5 are reported as pending on the robot being reachable (CLAUDE.md: deploy skipped when targets are offline).

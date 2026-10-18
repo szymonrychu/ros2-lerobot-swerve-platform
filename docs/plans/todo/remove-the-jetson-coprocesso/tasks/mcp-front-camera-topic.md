@@ -51,16 +51,23 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- mcp_server `TopicsConfig.front_camera: str = "/front_camera/image_raw/compressed"`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+mcp_server's `front` camera, its docs and the root config tests all point at the front Camera Module 3.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Update the mcp tests and the root tests; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_config.py tests/test_on_demand_subscriptions.py -q` and `uv run pytest tests/test_mcp_server_config.py -q` and see them fail.
+- Edit config.py, client.yml and the mcp README.
+- Run the verify command; update tests/README.md; commit `feat(mcp_server): front camera is /front_camera`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- `pi_cameras` publishes `/front_camera/image_raw/compressed` (IMX708 Camera Module 3, 640x480 at 10 fps, cam0). `cameras.front` mount and intrinsics are null in client.yml, so no calibration is invalidated.
+- Deploying mcp_server kills a running agent session; that is a deploy-time check, not a code change.

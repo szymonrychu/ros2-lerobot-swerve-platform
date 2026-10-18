@@ -51,16 +51,24 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `tests/test_jetson_retired.py`: `REMOVED_PATHS: tuple[str, ...]`, `ABSENT_TOKENS: tuple[tuple[str, str], ...]`, `test_removed_path_is_gone(path: str)`, `test_removed_token_is_absent(path: str, token: str)` (the `jetson-retired-test` contract other tasks extend).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+The `jetson/` tree and the Jetson e2e check are gone; `tests/test_jetson_retired.py` pins that and is ready for later tasks to extend.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Write `tests/test_jetson_retired.py`; run `uv run pytest tests/test_jetson_retired.py -q` and see the path and token cases fail.
+- `git rm -r jetson scripts/jetson_e2e_check.py scripts/jetson_e2e_check.yaml tests/test_jetson_e2e_check.py`; edit `scripts/README.md` and `ansible/playbooks/optimize.yml`.
+- Run `uv run pytest tests/test_jetson_retired.py -q` (all pass) and `uv run poe lint`.
+- Update `tests/README.md`; commit `refactor(jetson): delete the jetson tree and e2e check`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- 87 tracked files under `jetson/` (discovery brief). `shared/ros2_common_cpp` depth_wire still exists after this task; drop-depth-wire-and-zstd removes it once nothing compiles it.
+- Reuse the file-absent pattern of `tests/test_pi_cameras_retired.py:test_old_boot_file_and_old_tests_are_deleted`.

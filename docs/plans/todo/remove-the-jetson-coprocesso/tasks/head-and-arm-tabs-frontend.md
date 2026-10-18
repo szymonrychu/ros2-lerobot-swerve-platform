@@ -51,16 +51,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `TabConfig` (types.ts) head fields: `rgb_camera_topic?`, `tof_depth_topic?`, `tof_amplitude_topic?`, `tof_range_m?`; arm: `gripper_camera_topic?`, `front_camera_topic?` (matches `arm-front-camera-field` from the backend).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+Frontend code and tests match the backend schema: no fused depth, Arm tab on front_camera_topic.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Update the three test files; run `cd nodes/web_ui/frontend && npm test -- src/tabs` and see them fail.
+- Edit types.ts, HeadTab.tsx, ArmTab.tsx and subscription.ts.
+- Run the verify command; update the README; commit `refactor(web_ui): frontend Head tab without fused toggle, Arm tab front camera`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- `HeadTab.tsx:51-65,85-96`, `ArmTab.tsx:19-42`, `subscription.ts:17-18`, `types.ts:66-70`. `ArmJogPanel.test.tsx` contains the word "refused", so do not grep for a bare `fused`.

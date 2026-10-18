@@ -48,16 +48,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `TabConfig.front_camera_topic: str | None` and `ARM_TAB_DEFAULTS["front_camera_topic"]` (the `arm-front-camera-field` contract; the frontend reads `front_camera_topic` from the tab JSON).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+Backend, configs and docs use `front_camera_topic` on `/front_camera/image_raw/compressed` for the Arm tab.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Update the tests; run `cd nodes/web_ui && uv run --frozen pytest tests/test_config.py -q` and see them fail.
+- Rename in config.py; edit default.yaml and client.yml.
+- Run the verify command; update READMEs; commit `refactor(web_ui): Arm tab front_camera_topic`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- `web_ui/config.py:91,137,267`; `client.yml` arm tab ~1684-1688.

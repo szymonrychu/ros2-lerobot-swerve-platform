@@ -50,16 +50,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `TabConfig` head fields after the change: `rgb_camera_topic`, `tof_depth_topic`, `tof_amplitude_topic`, `tof_range_m`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+No fused depth topic in the web_ui backend, configs, README or root tests.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Replace the fused test and adjust the others; run `cd nodes/web_ui && uv run --frozen pytest tests/test_config.py -q` and see the new test fail.
+- Edit config.py, default.yaml, client.yml, test_map3d_backend.py and the root test.
+- Run the verify command; update READMEs; commit `refactor(web_ui): drop fused_depth_topic`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Only the Jetson produced `/stereo/depth/fused` (reuse brief, dead once Jetson goes).

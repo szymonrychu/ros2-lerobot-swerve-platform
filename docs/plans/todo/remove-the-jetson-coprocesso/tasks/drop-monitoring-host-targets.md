@@ -49,16 +49,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `monitoring_agent_node_targets` rows keep `{node, address, path}`; the optional `host` key is no longer supported.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+The client's Alloy config scrapes only local node targets; no Jetson scrape config remains.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Write the new monitoring tests; run `uv run pytest tests/test_monitoring_agent_role.py -q` and see them fail.
+- Edit defaults, template and client.yml; delete the old host-target tests; adjust test_node_metrics_wiring.py.
+- Run the verify command; update READMEs; commit `refactor(monitoring): drop the Jetson host targets and host override`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Both features came in with commit 12d44b48 for the Jetson only (discovery brief). Deploy with the `monitoring` tag after merge (runbook).

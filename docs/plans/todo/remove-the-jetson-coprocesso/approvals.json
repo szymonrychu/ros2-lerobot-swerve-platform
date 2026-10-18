@@ -1,0 +1,232 @@
+[
+  {
+    "id": "G1",
+    "text": "No Jetson code, roles, playbooks, deploy target, scripts, CI jobs, tests or live docs remain (docs/plans archive files stay untouched).",
+    "decisions": [
+      "D8",
+      "D11",
+      "D12"
+    ],
+    "tasks": [
+      "remove-jetson-deploy-target",
+      "delete-jetson-tree",
+      "delete-jetson-host-roles",
+      "retire-jetson-bridge-entry",
+      "delete-jetson-bridge-sources",
+      "remove-jetson-link-on-client",
+      "docs-and-memory-sweep",
+      "final-suite-and-grep"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G2",
+    "text": "nodes/stereo_depth and nodes/stereo_depth_cpp sources are deleted (and their node_cpu_compare entries); shared/ros2_common_cpp/depth_wire.hpp is deleted.",
+    "decisions": [
+      "D1",
+      "D13"
+    ],
+    "tasks": [
+      "delete-stereo-depth-node",
+      "delete-stereo-depth-cpp-node",
+      "drop-depth-wire-and-zstd"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G3",
+    "text": "The web_ui Head tab is configured with /tof/depth/image_raw and /tof/amplitude/image_raw (camera_info /tof/camera_info) and no RGB; the fused-depth topic and raw/fused toggle are removed from the code, not just config.",
+    "decisions": [
+      "D2",
+      "D5"
+    ],
+    "tasks": [
+      "drop-fused-depth-topic",
+      "head-tab-tof-topics",
+      "head-and-arm-tabs-frontend"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G4",
+    "text": "The Arm tab and mcp_server / claude_agent use /front_camera/image_raw/compressed instead of /overview_camera; the web_ui Overview tab is removed.",
+    "decisions": [
+      "D6"
+    ],
+    "tasks": [
+      "mcp-front-camera-topic",
+      "remove-overview-tab",
+      "arm-tab-front-camera-field",
+      "head-and-arm-tabs-frontend"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G5",
+    "text": "The web_ui Calibrate page is IMU-only: depthd_url and the stereo calibration proxy and frontend stereoApi are gone; CalibrationConfig no longer requires depthd_url.",
+    "decisions": [
+      "D7"
+    ],
+    "tasks": [
+      "move-calibrate-config-to-imu",
+      "calibration-config-no-depthd",
+      "calibrate-page-imu-only"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G6",
+    "text": "jetson_bridge_cpp stays as a ros2_nodes entry with present: false so the next deploy uninstalls it; the uninstall also purges its colcon build/install output and stamps from /opt/ros2-ws.",
+    "decisions": [
+      "D8",
+      "D9"
+    ],
+    "tasks": [
+      "purge-colcon-on-uninstall",
+      "retire-jetson-bridge-entry"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G7",
+    "text": "The client side of jetson_link is undone by an idempotent removal task: eth0 netplan stanza, /etc/hosts entry, ip_forward sysctl, nftables NAT/forward rules; chrony stays on the client with plain internet pools (no Jetson serving).",
+    "decisions": [
+      "D3",
+      "D10"
+    ],
+    "tasks": [
+      "client-chrony-role",
+      "remove-jetson-link-on-client",
+      "drop-network-link-support"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G8",
+    "text": "The network role's extra-Ethernet-link support (network_link_ethernets / network_netplan_superseded_files) and the monitoring host_targets / target.host support are removed as Jetson-only features.",
+    "decisions": [
+      "D4"
+    ],
+    "tasks": [
+      "drop-network-link-support",
+      "drop-monitoring-host-targets"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G9",
+    "text": "All suites green: root pytest, uv run poe lint, lint-nodes, lint-ansible, test-ansible, web_ui pytest + frontend tests/build, mcp_server pytest; READMEs, tests/README.md, MEMORY.md and .claude/skills updated; client deployed.",
+    "decisions": [
+      "D11",
+      "D14",
+      "D15"
+    ],
+    "tasks": [
+      "docs-and-memory-sweep",
+      "final-suite-and-grep"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U1",
+    "text": "Decision 1: delete the stereo_depth and stereo_depth_cpp sources too.",
+    "decisions": [
+      "D1"
+    ],
+    "tasks": [
+      "delete-stereo-depth-node",
+      "delete-stereo-depth-cpp-node"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U2",
+    "text": "Decision 2: drop the fused topic and the raw/fused toggle from the Head tab code.",
+    "decisions": [
+      "D2"
+    ],
+    "tasks": [
+      "drop-fused-depth-topic",
+      "head-and-arm-tabs-frontend"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U3",
+    "text": "Decision 3: the client keeps chrony with plain pools.",
+    "decisions": [
+      "D3",
+      "D10"
+    ],
+    "tasks": [
+      "client-chrony-role",
+      "remove-jetson-link-on-client"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U4",
+    "text": "Decision 4: remove network_link_ethernets / network_netplan_superseded_files and the monitoring host_targets / target.host support.",
+    "decisions": [
+      "D4"
+    ],
+    "tasks": [
+      "drop-network-link-support",
+      "drop-monitoring-host-targets"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U5",
+    "text": "Decision 5: Head tab = ToF depth + amplitude, no RGB; the Arm tab and mcp_server / claude_agent use /front_camera/image_raw/compressed; drop the web_ui Overview tab.",
+    "decisions": [
+      "D5",
+      "D6"
+    ],
+    "tasks": [
+      "head-tab-tof-topics",
+      "mcp-front-camera-topic",
+      "remove-overview-tab",
+      "arm-tab-front-camera-field",
+      "head-and-arm-tabs-frontend"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U6",
+    "text": "Decision 6: the Calibrate page is IMU-only; drop depthd_url, the stereo proxy and stereoApi.",
+    "decisions": [
+      "D7"
+    ],
+    "tasks": [
+      "move-calibrate-config-to-imu",
+      "calibration-config-no-depthd",
+      "calibrate-page-imu-only"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U7",
+    "text": "Decision 7: jetson_bridge_cpp is kept as a present: false entry for the uninstall.",
+    "decisions": [
+      "D8"
+    ],
+    "tasks": [
+      "retire-jetson-bridge-entry",
+      "delete-jetson-bridge-sources"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U8",
+    "text": "Decision 8: the uninstall also purges jetson_bridge_cpp's colcon output and stamps in /opt/ros2-ws.",
+    "decisions": [
+      "D9"
+    ],
+    "tasks": [
+      "purge-colcon-on-uninstall",
+      "retire-jetson-bridge-entry"
+    ],
+    "status": "approved"
+  }
+]

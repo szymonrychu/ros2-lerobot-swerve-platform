@@ -50,16 +50,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `tests/test_stereo_depth_config.py::test_stereo_sources_are_deleted` is parametrized by directory so delete-stereo-depth-cpp-node adds `nodes/stereo_depth_cpp`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+The stereo_depth sources and lint/CI entries are gone; the uninstall entry and its tests remain.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Add the test; run `uv run pytest tests/test_stereo_depth_config.py -q` and see it fail.
+- `git rm -r nodes/stereo_depth`; edit pyproject.toml, lint-all-nodes.sh, ci.yml, test_ansible_deploy_speed.py and nodes/README.md.
+- Run the verify command; update tests/README.md; commit `refactor(nodes): delete the retired stereo_depth sources`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Discovery brief: `pyproject.toml:95`, `scripts/lint-all-nodes.sh:7`, `ci.yml:71`, `test_ansible_deploy_speed.py:795-796`, `nodes/README.md:22`, `tests/README.md:437-462`.

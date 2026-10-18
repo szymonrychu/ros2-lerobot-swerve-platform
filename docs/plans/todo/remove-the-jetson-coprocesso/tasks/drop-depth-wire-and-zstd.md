@@ -50,16 +50,23 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `ros2_common_cpp` CMake exports keep `config` and `metrics` only (map_guard_cpp links these).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+ros2_common_cpp has no depth_wire target and no zstd dependency; map_guard_cpp still builds; the client stamp change makes map_guard_cpp rebuild on the next deploy.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Extend the lists; run `uv run pytest tests/test_jetson_retired.py -q` and see the new cases fail.
+- Delete the files; edit CMakeLists.txt, package.xml, client.yml and shared/README.md.
+- Run the verify command (docker builds); commit `refactor(ros2_common_cpp): drop depth_wire and zstd`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Only `jetson/depthd` and `nodes/jetson_bridge_cpp` used depth_wire; both are deleted by earlier tasks.
+- The `metrics.hpp` usage comment (stereo example names) is reworded by final-suite-and-grep.

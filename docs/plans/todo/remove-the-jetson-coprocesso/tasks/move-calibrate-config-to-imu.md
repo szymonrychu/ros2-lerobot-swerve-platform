@@ -48,16 +48,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `GET /api/calibration/config` -> `{"imu": true, "arm": "deferred"}` (the `calibration-config-endpoint` contract, consumed by calibrate-page-imu-only); `register_imu_calibration_routes(app: FastAPI, config: AppConfig, bridge_node: Any) -> None` keeps its signature.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+The web_ui backend has no stereo calibration proxy; the Calibrate config endpoint and IMU routes work from imu_calibration.py.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Add the three tests; run `cd nodes/web_ui && uv run --frozen pytest tests/test_imu_calibration.py -q` and see them fail.
+- Move the route and helpers; delete the proxy and its tests; edit server.py.
+- Run the verify command; update READMEs; commit `refactor(web_ui): IMU calibration owns the calibrate config route; drop the stereo proxy`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Coupling (discovery brief): `imu_calibration.py:16` imports `NOT_CONFIGURED_MESSAGE, error` from `calibration_proxy`; `/config` lived at `calibration_proxy.py:118`. httpx stays a dependency (agent_proxy, gps_status, tiles use it).

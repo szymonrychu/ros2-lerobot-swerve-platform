@@ -53,16 +53,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Docs and comments only; no schema or behaviour change.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+MEMORY.md, the deploy skill and the READMEs describe the robot without the Jetson; the root suite is green.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Run `uv run pytest tests/test_stereo_depth_config.py tests/test_pi_cameras_retired.py -q` to see what the README/comment assertions pin before editing.
+- Edit each file; run the verify command.
+- Commit `docs: describe the robot without the Jetson`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Doc-only edits (exception to test-first: comment/doc edit); the D7 retirement tests guard the README/comment facts they pin.

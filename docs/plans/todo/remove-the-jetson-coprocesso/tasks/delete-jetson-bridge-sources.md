@@ -44,16 +44,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Extends `tests/test_jetson_retired.py` lists only; no new test function, so `tests/README.md` needs no change.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+No jetson_bridge_cpp source, CI job entry or node README line remains; CI matrix and scaffolding tests pass.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Extend the lists; run `uv run pytest tests/test_jetson_retired.py -q` and see the new cases fail.
+- `git rm -r nodes/jetson_bridge_cpp`; edit `.github/workflows/ci.yml` and `nodes/README.md`.
+- Run the verify command; commit `refactor(nodes): delete the jetson_bridge_cpp sources`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- `ci.yml:104`, `nodes/README.md:31`. Deploy happens after merge; the present:false run does not touch `nodes/jetson_bridge_cpp`.

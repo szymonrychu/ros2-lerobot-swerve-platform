@@ -39,7 +39,9 @@ The Jetson Nano vision coprocessor is leaving the robot. Everything that exists 
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+
+
+Estimate: 1235 min | Actual: 0 min | Remaining estimate: 1235 min
 
 ## Review
 

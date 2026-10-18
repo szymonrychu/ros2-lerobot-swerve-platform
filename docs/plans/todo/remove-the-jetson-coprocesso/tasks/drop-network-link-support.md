@@ -49,16 +49,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Network role inputs after the change: `network_address`, `network_gateway`, `network_nameservers`, the DHCP ethernets and WiFi vars, unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+The network role has no extra-link support; client and server netplan renders differ from before only by the missing eth0 static stanza on the client.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Write `tests/test_network_netplan.py` (capture the WiFi golden from the current render first); run it and see the no-link and no-variable cases fail.
+- Edit the role files and all.yml; delete `tests/test_network_link.py`.
+- Run the verify command; update READMEs; commit `refactor(network): drop the Jetson-only link ethernets and superseded files`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- remove-jetson-link-on-client already set `network_link_ethernets: []`; this task removes the variable and its support code.

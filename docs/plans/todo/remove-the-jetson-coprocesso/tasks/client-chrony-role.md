@@ -47,16 +47,23 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Role `chrony` (the `chrony-role` contract): var `chrony_ntp_pools: list[str]`; applied by `playbooks/client.yml` and, in remove-jetson-link-on-client, by the link-removal block.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+A reusable chrony role exists, rendering a plain-pool config with no Jetson serving; client provisioning applies it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Write `tests/test_chrony_role.py`; run `uv run pytest tests/test_chrony_role.py -q` and see it fail.
+- Add the role and the provisioning entry.
+- Run the verify command; update READMEs; commit `feat(ansible): chrony role with plain internet pools for the client`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Copy the non-Jetson directives from `roles/jetson_link/templates/chrony.conf.j2` (server side minus `allow` and `local stratum`).
+- The old role restarted chrony from a registered result, not a handler; keep that style.

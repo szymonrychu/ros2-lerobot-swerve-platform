@@ -44,16 +44,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `CalibrationConfig(imu_status_topic: str, imu_save_service: str, imu_reset_service: str, imu_stale_s: float > 0, imu_service_timeout_s: float > 0)`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+CalibrationConfig is IMU-only; README and tests agree.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Replace the depthd_url tests; run `cd nodes/web_ui && uv run --frozen pytest tests/test_config.py -q` and see the new test fail.
+- Edit `CalibrationConfig`; fix the constructions in test_imu_calibration.py.
+- Run the verify command; update READMEs; commit `refactor(web_ui): CalibrationConfig without depthd_url`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- `web_ui/config.py:429-447`. Pydantic models here ignore unknown keys by default; keep that behaviour (no `extra='forbid'`).

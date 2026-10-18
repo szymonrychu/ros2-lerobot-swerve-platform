@@ -49,16 +49,28 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Node type key `colcon_purge: [{package: <str>, workspace: <abs path>}]` (the `colcon-purge-key` contract; consumed by retire-jetson-bridge-entry).
+- Role var `node_colcon_purge` (list, default `[]`).
+- `ansible/roles/ros2_node_deploy/tasks/colcon_purge.yml` (new).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+Setting `colcon_purge` on a `present: false` C++ node type makes the next deploy of that node remove its colcon source, build, install and stamps, and nothing else.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Write `tests/test_node_uninstall_purge.py` (behaviour + static); run `uv run pytest tests/test_node_uninstall_purge.py -q` and see it fail (no task file, no mapping).
+- Add `colcon_purge.yml`, the include in the uninstall block and the mapping in `resolve_and_deploy.yml`.
+- Run `uv run pytest tests/test_node_uninstall_purge.py -q`, `uv run poe lint`, `uv run poe test-ansible`.
+- Update `ansible/README.md` and `tests/README.md`; commit `feat(ansible): purge a retired C++ node's colcon output on uninstall`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Reuse brief: extend the existing uninstall block (`ros2_node_deploy/tasks/main.yml:65`), do not add a role.
+- Stamp name: `colcon_source_package.yml:108` (`{{ workspace }}/.built-{{ package }}-{{ key }}`).
+- `ros2_common_cpp` is shared with map_guard_cpp (present, enabled): the explicit list is what keeps it safe.
+- No test in the repo runs ansible-playbook for real yet; `.venv/bin/ansible-playbook` exists. If the local run cannot work on macOS, keep the static tests and state why in the report.

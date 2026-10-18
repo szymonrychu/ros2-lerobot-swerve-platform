@@ -55,16 +55,25 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `scripts/deploy-nodes.sh`: `non_node_targets client` prints `monitoring jetson_link`; `non_node_targets server` prints `monitoring` (parsed by `tests/test_ansible_deploy_speed.py:non_node_targets`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+`./scripts/deploy-nodes.sh jetson base` fails fast with the client/server error; the repo has no Jetson playbook, group vars or inventory group; test-ansible and the deploy-speed tests pass.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Move the two generic tests and the fixture into `tests/test_ansible_deploy_speed.py`; add `test_deploy_script_rejects_the_jetson_target`; run `uv run pytest tests/test_ansible_deploy_speed.py -q` and see the new test fail (jetson is still a target).
+- Edit `scripts/deploy-nodes.sh`; delete the playbook, group vars and `tests/test_jetson_ansible.py`; edit `ansible/inventory.example` and `pyproject.toml`.
+- Run `uv run pytest tests/test_ansible_deploy_speed.py -q` (all pass), `uv run poe lint`, `uv run poe test-ansible`.
+- Update `tests/README.md`; commit `refactor(deploy): remove the jetson deploy target`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Discovery brief section 1: `scripts/deploy-nodes.sh:2,10-12,21,34,41-57,111-119`, `pyproject.toml:124`, `ansible/inventory.example:12-14`.
+- The local untracked `ansible/inventory` also has `[jetson]`; it is not in git and is edited by the orchestrator before the deploy (runbook in final-suite-and-grep). Do not create or commit it.
+- `ansible/README.md`'s Jetson section is rewritten by delete-jetson-host-roles (next tasks), not here.

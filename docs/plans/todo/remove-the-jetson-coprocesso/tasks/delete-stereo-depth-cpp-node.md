@@ -51,16 +51,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `scripts/node_cpu_compare.yaml` keeps its schema; only the stereo entry goes.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+No stereo_depth_cpp source, CI job entry or CPU-compare pair remains; the uninstall entry stays.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Add the parametrized case; run `uv run pytest tests/test_stereo_depth_config.py -q` and see it fail.
+- `git rm -r nodes/stereo_depth_cpp`; edit ci.yml, node_cpu_compare.yaml, test_node_cpu_compare.py, scripts/README.md, nodes/README.md.
+- Run the verify command; update tests/README.md; commit `refactor(nodes): delete the retired stereo_depth_cpp sources`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Discovery brief: `ci.yml:103`, `scripts/node_cpu_compare.yaml:15`, `scripts/README.md:195`, `nodes/README.md:23`, `tests/README.md:463-470,1508+`.

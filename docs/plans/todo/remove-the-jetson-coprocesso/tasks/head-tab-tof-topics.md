@@ -49,16 +49,23 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Head tab config keys used: `tof_depth_topic`, `tof_amplitude_topic`, `tof_range_m` (existing `TabConfig` fields; no schema change).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+Both configs point the Head tab at the ToF; README and tests agree.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Update the tests; run `cd nodes/web_ui && uv run --frozen pytest tests/test_config.py tests/test_map3d_backend.py -q` and see them fail.
+- Edit default.yaml and client.yml head tabs and comments; swap the serializer sample topics.
+- Run the verify command; update READMEs; commit `feat(web_ui): Head tab shows the Arducam ToF depth and amplitude`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- arducam_tof publishes `/tof/depth/image_raw` (16UC1 mm), `/tof/amplitude/image_raw` (mono16), `/tof/camera_info`; `msg_serializer.py` already handles both encodings (reuse brief).
+- Original contract: commit 3c8540f3 used the same two topics.

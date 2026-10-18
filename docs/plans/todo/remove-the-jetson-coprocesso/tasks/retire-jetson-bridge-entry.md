@@ -56,16 +56,25 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Uses `colcon_purge` (owned by purge-colcon-on-uninstall) and extends `tests/test_jetson_retired.py` (owned by delete-jetson-tree).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+client.yml carries jetson_bridge_cpp only as an uninstall-and-purge entry; its old config test is gone; tier, metrics and cpp-deploy tests agree.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Add the four tests and the path entry; run `uv run pytest tests/test_jetson_retired.py -q` and see them fail.
+- Edit `client.yml` (type, entry, metrics row); delete `tests/test_jetson_bridge_config.py`; adjust the three root tests.
+- Run the verify command.
+- Update `ansible/README.md` and `tests/README.md`; commit `refactor(ansible): retire jetson_bridge_cpp to a present:false entry with colcon purge`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Discovery brief: `client.yml:373-419` (type), `:1161-1178` (entry), `:2490` (metrics row); `test_cpp_node_deploy.py:46-47`; `test_unit_cgroups.py:42,321-323`; `test_node_metrics_wiring.py:17,34-35,54-56`; `ansible/README.md:384,451,499,744`.
+- `jetson_link_jetson_ip` stops being used by the entry config here; the var itself is removed by remove-jetson-link-on-client after the jetson_depthd metrics row goes.
+- The playbook block comment in `deploy_nodes_client.yml` is reworded by final-suite-and-grep.

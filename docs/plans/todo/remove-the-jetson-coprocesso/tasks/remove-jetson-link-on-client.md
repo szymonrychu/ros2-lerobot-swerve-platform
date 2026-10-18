@@ -56,16 +56,26 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Tag `jetson_link` on the client playbook: now the removal entry point.
+- `ansible/playbooks/tasks/jetson_link_remove.yml` (new). Uses role `chrony` (owned by client-chrony-role).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+After merge, `./scripts/deploy-nodes.sh client jetson_link` leaves the client with no 10.77.0.1 on eth0, no jetson hosts line, no forwarding drop-in, no jetson_link nftables table and chrony on internet pools; a second run reports no change.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Write `tests/test_jetson_link_removal.py`; run `uv run pytest tests/test_jetson_link_removal.py -q` and see it fail.
+- Add `jetson_link_remove.yml`; rewrite the client block; `git rm -r ansible/roles/jetson_link tests/test_jetson_link_role.py`; edit `all.yml`.
+- Run the verify command (the deploy-speed test must still pass unchanged).
+- Update READMEs; commit `feat(ansible): remove the retired Jetson link state from the client`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- Discovery brief section 2 lists each client change and its undo; reuse `pi_camera_boot_config.yml:8` for lineinfile absent.
+- The role applied `/etc/nftables.conf` with `create`, mode 0755; whether nftables was enabled before is unknown, hence package and service stay.
+- Do not run anything against the robot: the deploy is the orchestrator's post-merge step (runbook in final-suite-and-grep).

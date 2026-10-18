@@ -49,16 +49,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- `TOPIC_TYPE_HINTS` keeps `/front_camera/image_raw/compressed` and `/back_camera/image_raw/compressed`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+The Overview tab and its type hint are gone from configs, backend, tests and README.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Update the tests; run `cd nodes/web_ui && uv run --frozen pytest tests/test_config.py tests/test_bridge.py -q` and see them fail.
+- Edit default.yaml, client.yml and bridge.py.
+- Run the verify command; update READMEs; commit `refactor(web_ui): remove the Overview tab`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- The Arm tab's `overview_camera_topic` field is renamed by arm-tab-front-camera-field (next task); the grep AC excludes it for that reason.

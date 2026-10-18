@@ -49,16 +49,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Consumes `GET /api/calibration/config` -> `{imu: boolean, arm: string}` (owned by move-calibrate-config-to-imu).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+The Calibrate page is IMU-only in code, tests and README.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Rewrite the two tests; run `cd nodes/web_ui/frontend && npm test -- src/calibrate` and see them fail.
+- Delete the four stereo files; edit CalibratePage.tsx.
+- Run the verify command; update the README; commit `refactor(web_ui): Calibrate page is IMU-only`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- `CalibratePage.tsx:11,15,30,72` (discovery brief). The page is off on the robot today (no `calibration:` block in client.yml).

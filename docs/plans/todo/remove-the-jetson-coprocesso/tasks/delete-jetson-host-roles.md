@@ -49,16 +49,23 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+- Extends `REMOVED_PATHS` / `ABSENT_TOKENS` of `tests/test_jetson_retired.py` (owned by delete-jetson-tree).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+
+No jetson_base or jetson_depthd role, test or README section remains; test-ansible is green.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+
+- Extend the two lists; run `uv run pytest tests/test_jetson_retired.py -q` and see the new cases fail.
+- `git rm -r ansible/roles/jetson_base ansible/roles/jetson_depthd tests/test_jetson_base_role.py tests/test_jetson_depthd_role.py`; edit `ansible/README.md` and `ansible/site.yml`.
+- Run `uv run pytest tests/test_jetson_retired.py -q`, `uv run poe lint`, `uv run poe test-ansible`.
+- Update `tests/README.md`; commit `refactor(ansible): delete the jetson_base and jetson_depthd roles`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+
+- `ansible/README.md` lines 272-300 and 350-368 (discovery brief). Keep the jetson_link section text intact for the later task.
