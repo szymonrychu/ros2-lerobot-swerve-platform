@@ -1979,6 +1979,16 @@ Repo-wide guard that the retired front camera left no live reference and that no
 | `test_no_live_front_camera_reference` | `git grep` over tracked files for the retired front camera topic, config key, topic setting and optical frame names finds nothing outside `docs/plans/**` and the retirement records (the retired pi_cameras tests, the pinned MEMORY.md decision lines, pinned by a retirement test, the absence assertions in `test_mcp_server_config.py` and the web_ui `subscription.test.ts`, the retired entry in `client.yml`, `MEMORY.md`, this test). |
 | `test_no_640x480_head_or_front_preview_size` | The mcp_server tool descriptions, the claude_agent prompt and config, and the web_ui README never pair a front or head camera preview with 640x480 or 10 fps. |
 
+### `test_head_live_refs.py`
+
+Repo-wide guard that the pan/tilt head is live: no placeholder wording and no front camera pinned to `base_link`.
+
+| Test | What it covers |
+|---|---|
+| `test_no_head_placeholder_text` | `git grep` over tracked files outside `docs/plans/**` finds none of the three placeholder phrases about the head being unconfigured, disabled or a later addition; the phrases are assembled from pieces in the test so it does not match itself. |
+| `test_front_camera_not_pinned_to_base_link` | mcp_server has no `FRONT_CAMERA_PARENT = "base_link"` and no "front camera works in base_link" docstring claim. |
+| `test_grep_tracked_fails_loudly_on_git_error` | The `grep_tracked` helper raises (instead of returning zero hits) when `git grep` fails, e.g. on an invalid regex, so the two guards cannot pass vacuously. |
+
 ### `test_head_camera_deploy.py`
 
 Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group_vars/client.yml`): the libcamera source is the pinned dict of `pi_cameras` (same build stamp, nothing rebuilds), the patch is a byte-identical copy.
