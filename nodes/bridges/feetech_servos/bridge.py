@@ -64,7 +64,10 @@ TORQUE_WRITE_ATTEMPTS = 8
 TORQUE_VERIFY_SLEEP_S = 0.02
 WHEEL_MODE = 1  # STS mode register: 0 = position servo, 1 = continuous rotation (wheel)
 MISSING_READ_LOG_INTERVAL_S = 5.0
-NODE_NAME = "lerobot_follower"  # ros2_nodes name on the robot; the server runs this code as lerobot_leader
+DEFAULT_METRICS_NODE_NAME = (
+    "lerobot_follower"  # ros2_nodes name on the robot; the server runs this code as lerobot_leader
+)
+DEFAULT_ROS_NODE_NAME = "feetech_servos_bridge"
 
 
 def _wait_for_servos(servo: Any, expected_ids: list[int], node: Node) -> None:
@@ -100,9 +103,9 @@ def run_bridge(config: BridgeConfig) -> None:
     commands go stale (velocity_command_timeout_s) and on shutdown.
     """
     # Port unset (the server's lerobot_leader) disables the exporter; the registered metrics are then never served.
-    start_metrics_server(resolve_metrics_port(config.metrics_port), NODE_NAME)
+    start_metrics_server(resolve_metrics_port(config.metrics_port), config.node_name or DEFAULT_METRICS_NODE_NAME)
     rclpy.init()
-    node = Node("feetech_servos_bridge")
+    node = Node(config.node_name or DEFAULT_ROS_NODE_NAME)
     try:
         serve_bridge(config, node)
     except (KeyboardInterrupt, ExternalShutdownException):
@@ -143,7 +146,11 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
     )
     pub_registers = node.create_publisher(String, f"/{config.namespace}/servo_registers", DEFAULT_QOS_DEPTH)
 
-    pub_battery = node.create_publisher(BatteryState, config.battery_topic, DEFAULT_QOS_DEPTH)
+    pub_battery = (
+        node.create_publisher(BatteryState, config.battery_topic, DEFAULT_QOS_DEPTH)
+        if config.battery_interval_s > 0
+        else None
+    )
 
     last_positions: dict[str, float] = {}
     last_published_positions: dict[str, float] = {}  # for publish_only_on_change gate
@@ -374,7 +381,7 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                     pub_registers.publish(String(data=json.dumps(dump, separators=(",", ":"))))
 
                 # Pack voltage: one servo per interval; nothing is published without a fresh reading.
-                if voltage_entry is not None:
+                if voltage_entry is not None and pub_battery is not None:
                     pack_voltage = battery.step(
                         time.monotonic(), lambda sid: read_register_raw(servo, sid, voltage_entry)
                     )

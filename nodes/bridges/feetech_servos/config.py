@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import yaml
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/feetech_servos/config.yaml")
 ENV_CONFIG_PATH_KEY = "FEETECH_SERVOS_CONFIG"
+NODE_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")  # valid ROS node name
 
 # Valid servo ID range for Feetech STS (0-253).
 SERVO_ID_MIN = 0
@@ -139,6 +141,8 @@ class BridgeConfig:
             are follower joint radians; joints with a source range mapping pass them through unmapped. Empty
             (default): the mapping applies to every command.
         metrics_port: Prometheus /metrics port on 127.0.0.1; None (default) disables the exporter.
+        node_name: ROS node name and metrics node label of this instance (distinct per bridge on one host);
+            None (default) keeps feetech_servos_bridge / lerobot_follower.
         goal_refresh_interval_s: An unchanged goal_position target is rewritten when its last sync write is this
             old (a broadcast has no reply, so a lost packet or a servo reset is otherwise never corrected); 0 = off.
         read_failure_limit: Consecutive failed state reads before a servo is left out of the sync read.
@@ -167,6 +171,7 @@ class BridgeConfig:
     battery_stale_s: float = DEFAULT_BATTERY_STALE_S
     direct_command_sources: list[str] = field(default_factory=list)
     metrics_port: int | None = None
+    node_name: str | None = None
     goal_refresh_interval_s: float = DEFAULT_GOAL_REFRESH_INTERVAL_S
     read_failure_limit: int = DEFAULT_READ_FAILURE_LIMIT
     read_retry_interval_s: float = DEFAULT_READ_RETRY_INTERVAL_S
@@ -419,6 +424,9 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         return None
     direct_command_sources = [str(s).strip() for s in raw_direct_sources if str(s).strip()]
     raw_metrics_port = data.get("metrics_port")
+    node_name = str(data.get("node_name") or "").strip() or None
+    if node_name is not None and not NODE_NAME_PATTERN.match(node_name):
+        return None
     try:
         goal_refresh_interval_s = max(0.0, float(data.get("goal_refresh_interval_s", DEFAULT_GOAL_REFRESH_INTERVAL_S)))
     except (TypeError, ValueError):
@@ -458,6 +466,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         battery_stale_s=battery_stale_s,
         direct_command_sources=direct_command_sources,
         metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
+        node_name=node_name,
         goal_refresh_interval_s=goal_refresh_interval_s,
         read_failure_limit=read_failure_limit,
         read_retry_interval_s=read_retry_interval_s,
