@@ -12,6 +12,7 @@ from .budget import KIND_EFFECTOR, KIND_SENSOR, PlanTracker
 from .config import ClaudeAgentConfig
 from .failure import PhaseEvidence
 from .plan_tools import FULL_TOOL_NAMES as PLAN_TOOL_FULL_NAMES
+from .skills import discover_skills, plugin_dir, qualified_names
 
 MCP_SERVER_NAME = "robot"
 ROBOT_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
@@ -24,6 +25,10 @@ DENIED_REASONS = {
 DENIED_DEFAULT_REASON = "{name} is reserved for humans and may not be called by the agent"
 KIND_NOTES = "notes"
 KIND_PLAN = "plan"
+KIND_SKILL = "skill"
+SKILL_TOOL = "Skill"
+SKILL_UNKNOWN_MESSAGE = "Skill {skill!r} is not available; available skills: {available}"
+SKILL_DISABLED_MESSAGE = "Skill is not available: skills are disabled"
 AGENT_PREFIX = "mcp__agent__"
 TIME_LEFT_TEXT = "instruction time left: {left:.0f} s"
 TIME_BUDGET_MESSAGE = (
@@ -93,7 +98,7 @@ def classify_tool(config: ClaudeAgentConfig, full_name: str) -> str | None:
         full_name (str): Full tool name.
 
     Returns:
-        str | None: "notes" for the five file tools, "plan" for the four planning tools, "effector", "uncapped", "sensor" or "denied" for
+        str | None: "notes" for the five file tools, "skill" for Skill, "plan" for the four planning tools, "effector", "uncapped", "sensor" or "denied" for
         robot tools (a robot tool in no list is treated as an effector, so a new motion tool is counted as rw by
         default); None for any other tool.
     """
@@ -101,6 +106,8 @@ def classify_tool(config: ClaudeAgentConfig, full_name: str) -> str | None:
         return KIND_NOTES
     if full_name in PLAN_TOOL_FULL_NAMES:
         return KIND_PLAN
+    if full_name == SKILL_TOOL:
+        return KIND_SKILL
     if not full_name.startswith(ROBOT_PREFIX):
         return None
     name = short_name(full_name)
@@ -234,6 +241,9 @@ class EffectorGate:
                 task's time budget is declared or extended.
         """
         self.config = config
+        self.skill_names = (
+            qualified_names(discover_skills(plugin_dir(config.skills_plugin_dir))) if config.skills_enabled else []
+        )
         self.plan = PlanTracker(
             config,
             on_plan=on_plan,
@@ -329,6 +339,26 @@ class EffectorGate:
             self.logger.error(f"permission gate failed for {tool_name}: {error}")
             return self.deny(context.tool_use_id, short_name(tool_name), INTERNAL_ERROR_MESSAGE.format(error=error))
 
+    def decide_skill(self, tool_input: dict[str, Any], context: ToolPermissionContext) -> PermissionResult:
+        """Decide a Skill call: free and uncounted for a configured skill, refused otherwise.
+
+        Args:
+            tool_input (dict[str, Any]): Skill arguments (``skill``: the qualified name).
+            context (ToolPermissionContext): Carries the tool_use_id.
+
+        Returns:
+            PermissionResult: Allow when skills are enabled and ``skill`` is a configured qualified name; else Deny.
+        """
+        if not self.config.skills_enabled:
+            return self.deny(context.tool_use_id, SKILL_TOOL, SKILL_DISABLED_MESSAGE)
+        skill = tool_input.get("skill")
+        if skill in self.skill_names:
+            return PermissionResultAllow()
+        available = ", ".join(self.skill_names) or "none"
+        return self.deny(
+            context.tool_use_id, SKILL_TOOL, SKILL_UNKNOWN_MESSAGE.format(skill=skill, available=available)
+        )
+
     def decide(self, tool_name: str, tool_input: dict[str, Any], context: ToolPermissionContext) -> PermissionResult:
         """Decide whether a tool call may run.
 
@@ -350,6 +380,8 @@ class EffectorGate:
                 reason = OUTSIDE_WORKDIR_MESSAGE.format(name=tool_name, detail=problem, workdir=self.config.workdir)
                 return self.deny(context.tool_use_id, tool_name, reason)
             return PermissionResultAllow()
+        if kind == KIND_SKILL:
+            return self.decide_skill(tool_input, context)
         if kind is None:
             return self.deny(context.tool_use_id, tool_name, NOT_AVAILABLE_MESSAGE.format(name=tool_name))
         name = short_name(tool_name)

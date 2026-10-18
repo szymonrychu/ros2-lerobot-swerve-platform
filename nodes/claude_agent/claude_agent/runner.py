@@ -19,6 +19,7 @@ from claude_agent_sdk import (
     HookMatcher,
     ResultMessage,
     StreamEvent,
+    SystemMessage,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -70,6 +71,7 @@ from .robot_events import (
     parse_robot_event,
 )
 from .robot_stop import STOP_TOOL_NAME, RobotToolResult, call_robot_stop, call_robot_tool
+from .skills import discover_skills, missing_skills, plugin_dir, qualified_names
 from .tools import (
     BUILTIN_TOOLS,
     KIND_EFFECTOR,
@@ -77,6 +79,7 @@ from .tools import (
     MCP_SERVER_NAME,
     NOTES_TOOLS,
     ROBOT_PREFIX,
+    SKILL_TOOL,
     TIME_LEFT_TEXT,
     EffectorGate,
     classify_tool,
@@ -236,6 +239,17 @@ def build_options(
         work_dir.mkdir(parents=True, exist_ok=True)
     except OSError:  # Ansible creates it on the robot; a dev machine without /var/lib access runs without a cwd
         pass
+    tools = list(NOTES_TOOLS)
+    disallowed = list(BUILTIN_TOOLS)
+    skill_options: dict[str, Any] = {}
+    if config.skills_enabled:
+        root = plugin_dir(config.skills_plugin_dir)
+        tools.append(SKILL_TOOL)
+        disallowed.remove(SKILL_TOOL)
+        skill_options = {
+            "plugins": [{"type": "local", "path": str(root)}],
+            "skills": qualified_names(discover_skills(root)),
+        }
     return ClaudeAgentOptions(
         model=config.model,
         effort=config.effort,
@@ -243,9 +257,9 @@ def build_options(
         include_partial_messages=config.log_api_timing,
         max_turns=config.max_turns,
         system_prompt=system_prompt,
-        tools=list(NOTES_TOOLS),
+        tools=tools,
         allowed_tools=[],
-        disallowed_tools=list(BUILTIN_TOOLS),
+        disallowed_tools=disallowed,
         permission_mode="default",
         can_use_tool=gate.can_use_tool,
         hooks={"PostToolUse": [HookMatcher(hooks=[post_tool_use])]} if post_tool_use else None,
@@ -257,6 +271,7 @@ def build_options(
         strict_mcp_config=True,
         env=env,
         cwd=work_dir if work_dir.is_dir() else None,
+        **skill_options,
     )
 
 
@@ -390,6 +405,8 @@ class AgentRunner:
         self.mcp_poll_interval_s = MCP_POLL_INTERVAL_S
         self.instruction_started_at = time.monotonic()
         self.session_totals: dict[str, float] = {}
+        self.session_tools: set[str] | None = None
+        self.init_checked = False
         SECONDS_SINCE_ACTIVITY.set_function(self.seconds_since_activity)
 
     def instruction_budget_s(self) -> float:
@@ -871,6 +888,8 @@ class AgentRunner:
         """Disconnect and forget the session client, ignoring disconnect errors."""
         client, self.client = self.client, None
         self.session_totals = {}
+        self.session_tools = None
+        self.init_checked = False
         if client is not None:
             await self.disconnect_quietly(client)
 
@@ -1062,6 +1081,30 @@ class AgentRunner:
                 f"Claude session did not start within {self.config.connect_timeout_s:g} s (timed out)"
             ) from exc
 
+    def handle_init(self, message: SystemMessage) -> None:
+        """Record the session's tool names from the init message and check the skills once per session.
+
+        Args:
+            message (SystemMessage): Any system message; only subtype ``init`` is used. Its ``data["tools"]`` become
+                ``session_tools``; with skills enabled, ``data["skills"]`` is compared with the configured plugin: missing
+                skills give one error log line and one ``error`` event, an absent ``skills`` key one warning log line.
+        """
+        if message.subtype != "init":
+            return
+        tools = message.data.get("tools")
+        self.session_tools = set(tools) if tools is not None else None
+        if self.init_checked or not self.config.skills_enabled:
+            return
+        self.init_checked = True
+        expected = qualified_names(discover_skills(plugin_dir(self.config.skills_plugin_dir)))
+        missing = missing_skills(message.data, expected)
+        if missing is None:
+            self.logger.warning("skill listing not reported; cannot check")
+        elif missing:
+            text = f"skills not loaded by the SDK: {', '.join(missing)}"
+            self.logger.error(text)
+            self.events.append("error", message=text)
+
     async def consume_response(self, client: ClientLike) -> tuple[bool, str | None]:
         """Publish the events of one response stream and enforce the turn cap.
 
@@ -1080,6 +1123,8 @@ class AgentRunner:
         self.interrupt_deferred = False
         try:
             async for message in client.receive_response():
+                if isinstance(message, SystemMessage):
+                    self.handle_init(message)
                 if isinstance(message, StreamEvent):
                     self.note_stream_event(message)
                     continue

@@ -335,6 +335,17 @@ loads them on demand under the qualified name `robot-skills:<name>`. `claude_age
 (`discover_skills`), parses and checks them (`read_skill`, `check_skill`) and compares them with the SDK init message
 (`missing_skills`).
 
+- **Runner wiring.** With `skills_enabled` (default true) `build_options` passes `plugins=[{"type": "local", "path":
+  <plugin dir>}]`, `skills=<qualified names>`, `tools` = the five file tools plus `Skill`, and `disallowed_tools` = the
+  built-ins without `Skill` (Bash, Task, Agent, TodoWrite, SlashCommand stay off); `setting_sources=[]` and
+  `strict_mcp_config` keep user/project settings out, and `allowed_tools` stays empty (the SDK adds the
+  `Skill(<name>)` rules). Disabled, the options are as before. `skills_plugin_dir` ("" = the packaged plugin) may not
+  be the workdir or inside it (config validation).
+- **Init check.** On the session's init `SystemMessage` the runner stores `data["tools"]` as `session_tools` and
+  compares `data["skills"]` with the plugin (`missing_skills`): missing skills give one error log line and one `error`
+  event per session naming them; no `skills` key gives one warning ("skill listing not reported; cannot check").
+- **Gate kind `skill`.** `classify_tool("Skill")` is `skill`: allowed (free, not counted, not refused by plan or
+  time) when the input `skill` is a configured qualified name, refused otherwise and always when skills are disabled.
 - **Read-only on the robot.** The repo is cloned as root (`repo_sync.yml` uses `become`), the service runs as the
   non-root `claude_agent` user, and the agent's workdir (`/var/lib/claude_agent/workspace`) is outside the checkout, so
   the agent cannot edit a skill. Changing a skill means a commit and a deploy.
@@ -553,6 +564,7 @@ unknown keys are rejected.
 | `job_end_park_timeout_s` | `60` | Bound of each robot call of the forced park (`cancel_motions`, `release_control`, the keep_position fallback) |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` / `denied_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
+| `skills_enabled` / `skills_plugin_dir` | `true` / `""` | Load the read-only skill plugin ("" = the packaged one; never inside the workdir, see "Skills") |
 | `poi_hint_radius_m` | `0.5` | complete_phase adds "Not on the map yet" for `map (x, y)` in the summary with no POI within this many m |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
 | `http_host` / `http_port` | `127.0.0.1` / `18300` | API bind |
