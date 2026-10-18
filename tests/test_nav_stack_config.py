@@ -994,6 +994,9 @@ def test_web_ui_has_map_nav_tab() -> None:
         # Home / Set home buttons call the std_srvs/Trigger services served by mcp_server.
         "arm_home_service": "/arm/home",
         "arm_set_home_service": "/arm/set_home",
+        # Head pan/tilt in the merged 3D view: head URDF driven by the base_servos head joint states.
+        "head_urdf": "head.urdf",
+        "head_joint_states_topic": "/head/joint_states",
         # Points of interest served by poi_store.
         "poi_list_topic": "/poi/list",
         "poi_command_topic": "/poi/command",
