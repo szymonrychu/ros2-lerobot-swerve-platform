@@ -13,6 +13,21 @@ Named maps: each map is a self-contained bundle directory under `/var/lib/ros2/m
 failure removes the temp dir and leaves any existing bundle untouched. `list`, `load`, `delete`, `cleanup_temp`
 complete the store. Names are checked with `ros2_common.maps.validate_map_name`.
 
+## Live-set owner and delete
+
+`MapManager.active_map` names the saved map that owns the live POIs and photos. It is persisted in
+`<maps_root>/.active_map.json` (`{"active_map": name | null}`, written atomically) by an explicit `save` and by a
+completed load (not by the autosave inside a load), and written as null when cleared. It is read at start; a missing
+or unreadable file, or a name whose bundle no longer exists, reads as none (logged). `MapStatus.active_map` reflects it
+from the start.
+
+`delete` reads the bundle's POI and photo counts first (photos are `kind: "photo"` entries of `meta.pois`; an
+unreadable bundle counts 0 and is still deleted), then removes the bundle. If the deleted map is the owner it also
+clears the owner and empties the live set through poi_store `replace([])`; a failed replace gives `ok: false` and says
+the live POIs and photos stayed. Another map's delete leaves the live set alone. Result `data`: `name`, `was_active`,
+`bundle_pois`, `bundle_photos`, `live_pois_removed`, `live_photos_removed` (the last two are null when the map was not
+the owner). `RosPoi.replace` returns `(ok, message, data)` with poi_store's replace counts (`removed`, `photos_removed`).
+
 `map_manager/relocalise.py` (numpy only, no ROS) refines the load pose hint before slam_toolbox sees it:
 `search_candidates` scores the base-frame scan against the bundle grid at every pose in a window around the hint
 (`SearchSettings`: +-1.0 m at 0.1 m, full turn at 5 deg) with the shared `ros2_common.scan_agreement` rules, returns

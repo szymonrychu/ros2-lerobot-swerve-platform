@@ -175,14 +175,17 @@ class FakePoi:
             return None
         return [dict(poi) for poi in self.pois], self.revision
 
-    def replace(self, pois: list[dict[str, Any]]) -> tuple[bool, str]:
-        """Swap the live set when replace_ok."""
+    def replace(self, pois: list[dict[str, Any]]) -> tuple[bool, str, dict[str, Any]]:
+        """Swap the live set when replace_ok; data carries the removed POI and photo counts."""
         self.log.add("poi.replace", [dict(poi) for poi in pois])
         if not self.replace_ok:
-            return False, "replace rejected: store write failed"
+            return False, "replace rejected: store write failed", {}
+        old = self.pois or []
+        photos = sum(1 for poi in old if poi.get("kind") == "photo")
+        counts = {"removed": len(old) - photos, "photos_removed": photos}
         self.pois = [dict(poi) for poi in pois]
         self.revision += 1
-        return True, f"replaced with {len(pois)} POIs"
+        return True, f"replaced with {len(pois)} POIs", counts
 
 
 @dataclass

@@ -162,7 +162,7 @@ def test_status_is_published_at_start(config: MapManagerConfig, tmp_path: Path) 
     status = MapStatus.model_validate_json(msg.data)
     assert [m.name for m in status.maps] == ["kept"]
     assert status.load_seq == 0
-    assert status.active_map is None
+    assert status.active_map == "kept"
     assert status.localisation.state == "unknown"
 
 
@@ -264,8 +264,8 @@ def test_poi_replace_sends_the_op_and_matches_the_result_by_request_id(node: Map
         )
 
     command_pub.on_publish = answer
-    ok, message = node.poi.replace([{"id": "a", "name": "x"}])
-    assert (ok, message) == (True, "replaced 1")
+    ok, message, counts = node.poi.replace([{"id": "a", "name": "x"}])
+    assert (ok, message, counts) == (True, "replaced 1", {})
     sent = json.loads(command_pub.published[0].data)
     assert sent["op"] == "replace"
     assert sent["pois"] == [{"id": "a", "name": "x"}]
@@ -273,7 +273,7 @@ def test_poi_replace_sends_the_op_and_matches_the_result_by_request_id(node: Map
 
 
 def test_poi_replace_times_out_without_an_answer(node: MapManagerNode) -> None:
-    ok, message = node.poi.replace([])
+    ok, message, _ = node.poi.replace([])
     assert ok is False
     assert "no answer" in message
 
