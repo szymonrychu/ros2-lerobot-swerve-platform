@@ -150,6 +150,29 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/arducam_tof
     env:
       - ARDUCAM_TOF_CONFIG=/etc/ros2/arducam_tof/config.yaml
+  # Config-only node: rtabmap_util point_cloud_xyz turns the ToF depth image into /tof/points (see
+  # nodes/tof_obstacle_cloud/README.md). It publishes no TF; slam_toolbox keeps map -> odom.
+  tof_obstacle_cloud:
+    deploy_mode: native
+    node_launch_command: >-
+      ros2 run rtabmap_util point_cloud_xyz --ros-args
+      --params-file {{ ros2_repo_dest }}/nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml
+      -r depth/image:=/tof/depth/image_raw
+      -r depth/camera_info:=/tof/camera_info
+      -r cloud:=/tof/points
+      -r __node:=tof_obstacle_cloud
+    node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its params file.
+    src_paths: [nodes/tof_obstacle_cloud]
+    # Sized by analogy: one decimated 60x45 depth frame per cycle is small, MemoryLow follows arducam_tof
+    # (p50 ~64 MiB incl. the rtabmap shared libraries), MemoryMax 3x. Same basis as the other unmeasured types.
+    memory_low: "64M"
+    memory_max: "192M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
+    apt_packages:
+      - ros-jazzy-rtabmap-util
   filter_node:
     deploy_mode: native
     node_launch_command: "python3 -m filter_node"
@@ -1128,6 +1151,12 @@ ros2_nodes:
       # /tof/depth/image_raw
       # /tof/amplitude/image_raw
       # /tof/camera_info
+  # ToF point cloud: /tof/depth/image_raw + /tof/camera_info (arducam_tof) -> /tof/points (PointCloud2 in
+  # tof_optical_frame, stamp copied from the depth header). Params: nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml.
+  - name: tof_obstacle_cloud
+    node_type: tof_obstacle_cloud
+    present: true
+    enabled: true
   - name: rplidar_a1
     node_type: rplidar_a1
     present: true
