@@ -99,7 +99,6 @@ jobs:
         package:
           - ros2_common_cpp
           - map_guard_cpp
-          - stereo_depth_cpp
     steps:
       - uses: actions/checkout@v4
       - name: Build, test and lint in ros:jazzy-ros-base

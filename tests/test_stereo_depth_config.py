@@ -131,7 +131,7 @@ def test_tests_readme_lists_every_test_of_this_file() -> None:
         assert f"`{name}`" in readme, name
 
 
-@pytest.mark.parametrize("name", ["stereo_depth"])
+@pytest.mark.parametrize("name", ["stereo_depth", "stereo_depth_cpp"])
 def test_stereo_sources_are_deleted(name: str) -> None:
     """The retired stereo node's sources are gone (D7); only the uninstall entry stays.
 

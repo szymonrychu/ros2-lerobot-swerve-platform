@@ -12,7 +12,6 @@ settle_min: 10
 # (the series is empty).
 entries:
   # Cut-over: Python unit before, C++ unit after.
-  - {name: stereo_depth, before_unit: ros2-stereo_depth.service, after_unit: ros2-stereo_depth_cpp.service, switch_time: 1}
   - {name: map_guard, before_unit: ros2-map_guard.service, after_unit: ros2-map_guard_cpp.service, switch_time: 1}
   # Cheap Python fixes: the same unit before and after the deploy.
   - {name: web_ui, before_unit: ros2-web_ui.service, after_unit: ros2-web_ui.service, switch_time: 1}

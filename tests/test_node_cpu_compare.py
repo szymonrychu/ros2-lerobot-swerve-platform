@@ -31,9 +31,9 @@ def make_settings(entries: list[dict] | None = None, **overrides: object) -> Set
         "entries": entries
         or [
             {
-                "name": "stereo_depth",
-                "before_unit": "ros2-stereo_depth.service",
-                "after_unit": "ros2-stereo_depth_cpp.service",
+                "name": "map_guard",
+                "before_unit": "ros2-map_guard.service",
+                "after_unit": "ros2-map_guard_cpp.service",
                 "switch_time": SWITCH,
             },
             {
@@ -70,8 +70,8 @@ def make_client(per_unit: dict[str, tuple[list[float], list[float]]], requests: 
 
 
 UNITS = {
-    "ros2-stereo_depth.service": ([0.50] * SAMPLES, [0.50] * SAMPLES),
-    "ros2-stereo_depth_cpp.service": ([0.0] * SAMPLES, [0.20] * SAMPLES),
+    "ros2-map_guard.service": ([0.50] * SAMPLES, [0.50] * SAMPLES),
+    "ros2-map_guard_cpp.service": ([0.0] * SAMPLES, [0.20] * SAMPLES),
     "ros2-web_ui.service": ([0.30] * SAMPLES, [0.25] * SAMPLES),
 }
 
@@ -79,8 +79,8 @@ UNITS = {
 def test_reports_each_entry_with_before_unit_before_and_after_unit_after() -> None:
     rows = compare_all(make_client(UNITS), make_settings())
     by_name = {r.name: r for r in rows}
-    assert by_name["stereo_depth"].before.mean == pytest.approx(0.50)
-    assert by_name["stereo_depth"].after.mean == pytest.approx(0.20)
+    assert by_name["map_guard"].before.mean == pytest.approx(0.50)
+    assert by_name["map_guard"].after.mean == pytest.approx(0.20)
     assert by_name["web_ui"].before.p95 == pytest.approx(0.30)
     assert by_name["web_ui"].after.p95 == pytest.approx(0.25)
 
@@ -95,7 +95,7 @@ def test_total_row_sums_before_and_after() -> None:
 
 def test_render_table_lists_every_row_and_the_total() -> None:
     text = ncc.render_table(compare_all(make_client(UNITS), make_settings()))
-    for name in ("stereo_depth", "web_ui", "total"):
+    for name in ("map_guard", "web_ui", "total"):
         assert name in text
 
 
@@ -147,12 +147,10 @@ def test_entry_requires_all_fields_and_a_positive_switch_time() -> None:
         NodeEntry(name="x", before_unit="a", after_unit="b", switch_time=0)
 
 
-def test_shipped_config_lists_the_five_nodes() -> None:
+def test_shipped_config_lists_the_four_nodes() -> None:
     settings = load_settings(DEFAULT_CONFIG)
     by_name = {e.name: e for e in settings.entries}
-    assert list(by_name) == ["stereo_depth", "map_guard", "web_ui", "gripper_uvc_camera", "mcp_server"]
-    assert by_name["stereo_depth"].before_unit == "ros2-stereo_depth.service"
-    assert by_name["stereo_depth"].after_unit == "ros2-stereo_depth_cpp.service"
+    assert list(by_name) == ["map_guard", "web_ui", "gripper_uvc_camera", "mcp_server"]
     assert by_name["map_guard"].after_unit == "ros2-map_guard_cpp.service"
     for name in ("web_ui", "gripper_uvc_camera", "mcp_server"):
         assert by_name[name].before_unit == by_name[name].after_unit

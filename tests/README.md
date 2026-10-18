@@ -434,15 +434,6 @@ The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run f
 
 The **arducam_tof** node has tests under `nodes/bridges/arducam_tof/tests/`. Run from `nodes/bridges/arducam_tof`: `uv run pytest tests -q` (the `ArducamDepthCamera` SDK and rclpy are mocked, so they run on macOS). `test_config.py` covers `TofConfig` / `load_config`: an empty file gives the defaults, every key is read, unknown keys and out-of-range values are rejected, `frame_id` is stripped, a missing file, invalid YAML or a non-mapping is a config error, and the path comes from `ARDUCAM_TOF_CONFIG`. `test_bridge.py` covers the topic and encoding contract (`/tof/depth/image_raw` 16UC1, `/tof/amplitude/image_raw` mono16, `/tof/camera_info`); depth below `confidence_threshold`, non-finite or out of range is 0 and the rest rounded millimetres; amplitude rounded and clipped to mono16, falling back to confidence when the SDK has no amplitude; the publish timer runs at `publish_rate_hz`; a good frame publishes depth, amplitude and camera_info with one header, `frame_id` and near range from config, the range in metres retried when the SDK rejects millimetres; a missing frame, a frame request error, a frame of another type or a malformed frame publishes nothing, is logged and counted (`tof_frames_dropped_total{reason}`) and the frame is released; a camera that fails to open, start or set up after start is stopped and closed as needed, logged and retried without publishing; a constructor error is an open failure; camera_info is skipped without intrinsics and the principal point defaults to the image centre; a camera without frames for the reopen delay is closed and reopened; `close` stops and closes an open camera; `run` shuts down cleanly; `main` returns 1 on a config error and runs the bridge with the loaded config.
 
-### Per-node tests (stereo_depth_cpp)
-
-The **stereo_depth_cpp** package (rclcpp port of stereo_depth) has gtests under `nodes/stereo_depth_cpp/test/`. Run from the repo root: `./scripts/cpp-node-test.sh stereo_depth_cpp` (docker, ros:jazzy-ros-base; also runs clang-format, cppcheck and xmllint). Golden fixtures come from the Python node: `cd nodes/stereo_depth && uv run --frozen python ../stereo_depth_cpp/test/gen_fixtures.py --check` fails when they are stale. Details per test in `nodes/stereo_depth_cpp/README.md` ("Tests").
-
-- `test_config.cpp` - every DepthConfig key, the Python defaults, accepted bounds and every Python rejection (from `fixtures/config.yaml`), error texts, exit 78.
-- `test_depth.cpp` - disparity to depth mm, the SGBM matcher settings and the synthetic-shift cases; parity with the Python conversion and depth fixtures.
-- `test_calibration.cpp` - loads the Python-written calibration files, rejects every invalid set the Python loader rejects, rectification maps, the change signature.
-- `test_node_logic.cpp` - image decoding, rate cap with jitter, every drop reason in the Python order (skew, no_calibration, rate_limit, bad_image, size_mismatch, no_valid_pixels), reload, metric names; whole-path depth parity within 1 mm with an identical invalid mask.
-
 ### Per-node tests (lerobot_teleop)
 
 The **lerobot_teleop** node has tests under `nodes/lerobot_teleop/tests/`. Run from `nodes/lerobot_teleop`: `uv run pytest tests/ -v` (or `uv run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, empty env fallback. Config lives in `config.py` (no ROS deps) for testability.
@@ -2257,7 +2248,7 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_main_exits_2_on_an_empty_series` / `test_main_prints_and_exits_0` | Exit 2 on no data, exit 0 and a table otherwise. |
 | `test_queries_use_the_configured_host_and_both_windows` | Two queries per entry, at the before and after window starts, with the configured host. |
 | `test_entry_requires_all_fields_and_a_positive_switch_time` | pydantic rejects a missing field and a non-positive switch_time. |
-| `test_shipped_config_lists_the_five_nodes` | `node_cpu_compare.yaml` lists stereo_depth, map_guard, web_ui, gripper_uvc_camera, mcp_server with the right units. |
+| `test_shipped_config_lists_the_four_nodes` | `node_cpu_compare.yaml` lists map_guard, web_ui, gripper_uvc_camera, mcp_server with the right units. |
 
 ### test_shared_photos.py / test_shared_lookups.py (photo contract)
 
