@@ -1,6 +1,6 @@
 ---
 title: "Frontend still uses front_camera_topic and /front_camera literals in subscription.ts, ArmTab.tsx, types.ts, and the ArmTab, CameraTab and HeadTab tests. nodes/web_ui/README.md lines 13-15, 537 and 541 are also stale."
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The backend field is now head_camera_topic, so the Arm tab front stream breaks until the frontend follows. The task web-ui-head-camera-frontend should cover it."
 files: []
@@ -35,7 +35,7 @@ Why: The backend field is now head_camera_topic, so the Arm tab front stream bre
 
 ## Files
 
-
+- (none)
 
 ## Interfaces
 
@@ -59,3 +59,7 @@ Frontend still uses front_camera_topic and /front_camera literals in subscriptio
 
 Discovered in task `web-ui-head-camera-topics` during run `front-camera-30-fps-stream-w`.
 
+
+## Resolution
+
+Owned by web-ui-head-camera-frontend (frontend /front_camera -> /head_camera rename).
