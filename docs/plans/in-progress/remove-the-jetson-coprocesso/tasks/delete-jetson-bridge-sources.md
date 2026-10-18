@@ -1,6 +1,6 @@
 ---
 title: Delete jetson bridge sources
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "nodes/jetson_bridge_cpp and its CI matrix row leave the repo; the uninstall still works because it needs no source."
 files: [nodes/jetson_bridge_cpp/, .github/workflows/ci.yml, tests/test_jetson_retired.py, nodes/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--delete-jetson-bridge-sources
 branch: remove-the-jetson-coprocesso--delete-jetson-bridge-sources
-verified_head: ""
+verified_head: f1d52120422347363484307ecdb94072e758ce69
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []

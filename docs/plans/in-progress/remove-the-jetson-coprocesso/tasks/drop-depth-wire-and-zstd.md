@@ -1,6 +1,6 @@
 ---
 title: Drop depth_wire and zstd
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: ros2_common_cpp loses the Jetson depth wire format and its zstd dependency.
 files: [shared/ros2_common_cpp/include/ros2_common_cpp/depth_wire.hpp, shared/ros2_common_cpp/src/depth_wire.cpp, shared/ros2_common_cpp/test/test_depth_wire.cpp, shared/ros2_common_cpp/CMakeLists.txt, shared/ros2_common_cpp/package.xml, ansible/group_vars/client.yml, shared/README.md, tests/test_jetson_retired.py]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--drop-depth-wire-and-zstd
 branch: remove-the-jetson-coprocesso--drop-depth-wire-and-zstd
-verified_head: ""
+verified_head: c452a00e7cd93e33e0f780690ac3b122dbacb50b
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []

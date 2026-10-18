@@ -1,6 +1,6 @@
 ---
 title: Remove jetson link on client
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "One idempotent `jetson_link` run removes the cable's static IP, hosts line, forwarding and NAT from the client and leaves chrony on plain pools."
 files: [ansible/playbooks/tasks/jetson_link_remove.yml, ansible/playbooks/deploy_nodes_client.yml, ansible/roles/jetson_link/, ansible/group_vars/all.yml, tests/test_jetson_link_role.py, tests/test_jetson_link_removal.py, ansible/README.md, tests/README.md]

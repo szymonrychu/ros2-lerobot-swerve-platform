@@ -1,6 +1,6 @@
 ---
 title: Purge colcon on uninstall
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A retired C++ node leaves no colcon source, build, install or stamp behind on the Pi."
 files: [ansible/roles/ros2_node_deploy/tasks/colcon_purge.yml, ansible/roles/ros2_node_deploy/tasks/main.yml, ansible/playbooks/tasks/resolve_and_deploy.yml, tests/test_node_uninstall_purge.py, ansible/README.md, tests/README.md]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--purge-colcon-on-uninstall
 branch: remove-the-jetson-coprocesso--purge-colcon-on-uninstall
-verified_head: ""
+verified_head: d3f2584afd8d8d5ebc495839abf6a92fe82afa0d
 run: remove-the-jetson-coprocesso
-provides: []
+provides: [colcon-purge-key]
 acs_for_audit: []
 process_gaps: []
 ---

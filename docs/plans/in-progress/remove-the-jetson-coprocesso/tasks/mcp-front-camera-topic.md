@@ -1,6 +1,6 @@
 ---
 title: MCP front camera topic
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "mcp_server's `front` camera reads the live front Camera Module 3 instead of the Jetson's overview stream."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/test_config.py, nodes/mcp_server/tests/test_on_demand_subscriptions.py, nodes/mcp_server/tests/test_tools.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml, tests/test_mcp_server_config.py, tests/README.md]

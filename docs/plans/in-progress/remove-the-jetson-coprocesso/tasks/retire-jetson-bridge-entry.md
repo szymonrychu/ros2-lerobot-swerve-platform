@@ -1,6 +1,6 @@
 ---
 title: Retire jetson bridge entry
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The next client deploy uninstalls jetson_bridge_cpp and purges its colcon output.
 files: [ansible/group_vars/client.yml, tests/test_jetson_bridge_config.py, tests/test_jetson_retired.py, tests/test_cpp_node_deploy.py, tests/test_unit_cgroups.py, tests/test_node_metrics_wiring.py, ansible/README.md, tests/README.md]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--retire-jetson-bridge-entry
 branch: remove-the-jetson-coprocesso--retire-jetson-bridge-entry
-verified_head: ""
+verified_head: 43a3a7776f910cd128e6a9594c6315fb340a54ee
 run: remove-the-jetson-coprocesso
 provides: []
-acs_for_audit: []
+acs_for_audit: [a7]
 process_gaps: []
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: Delete jetson host roles
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The jetson_base and jetson_depthd roles and their docs and tests leave the repo.
 files: [ansible/roles/jetson_base/, ansible/roles/jetson_depthd/, tests/test_jetson_base_role.py, tests/test_jetson_depthd_role.py, tests/test_jetson_retired.py, ansible/README.md, ansible/site.yml, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--delete-jetson-host-roles
 branch: remove-the-jetson-coprocesso--delete-jetson-host-roles
-verified_head: ""
+verified_head: aabae12981be6e15974af019774843954fbb61d7
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []

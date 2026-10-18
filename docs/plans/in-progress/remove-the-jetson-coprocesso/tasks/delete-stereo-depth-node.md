@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--delete-stereo-depth-node
 branch: remove-the-jetson-coprocesso--delete-stereo-depth-node
-verified_head: ""
+verified_head: 10e8a8ef5a5d4012a9e88fde297d7069d38fa696
 run: remove-the-jetson-coprocesso
 provides: []
-acs_for_audit: []
-process_gaps: []
+acs_for_audit: [a5]
+process_gaps: ["TDD red/green evidence missing: no recorded failing run of the new test against the pre-deletion tree, no tests.red / verification.evidence output", "Red/green evidence for TDD. The delete commit 507481fc is already on the branch. Red is observable now: with the leftover empty dirs, test_stereo_sources_are_deleted fails (tests/test_stereo_depth_config.py:140, 1 failed, 124 passed). Green needs the empty dirs removed, which I could not do read-only.", "Empty untracked dirs nodes/stereo_depth/{config,stereo_depth} present in the worktree; rm -rf nodes/stereo_depth before the final run.", "TDD skipped without a listed exception; prove the tests catch the change - commit first, then for each changed non-test file: git show <merge-base>:<path> > <path>; run the test (must fail); git show HEAD:<path> > <path>; run again (must pass); paste both tails into tests.red and verification.evidence"]
 ---
 
 # Delete stereo_depth node

@@ -1,6 +1,6 @@
 ---
 title: Head and Arm tabs frontend
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: The browser Head tab has no fused toggle and the Arm tab shows the front camera.
 files: [nodes/web_ui/frontend/src/tabs/HeadTab.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx, nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/hooks/subscription.ts, nodes/web_ui/frontend/src/tabs/CameraTab.test.tsx, nodes/web_ui/README.md]
