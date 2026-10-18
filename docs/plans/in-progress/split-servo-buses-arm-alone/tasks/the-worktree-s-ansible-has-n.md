@@ -1,6 +1,6 @@
 ---
 title: "The worktree's ansible/ has no inventory file (gitignored; only inventory.example), so ad-hoc ansible commands from a task worktree need -i pointing at the main checkout's ansible/inventory."
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Runbook stage 0 commands fail with 'Could not match supplied host pattern' when run from a worktree."
 files: []
@@ -31,6 +31,7 @@ Why: Runbook stage 0 commands fail with 'Could not match supplied host pattern' 
 
 ## Acceptance conditions
 
+- a1: the run planText tells agents to pass -i <main checkout>/ansible/inventory for ad-hoc ansible from a worktree [evidence: judgement]
 
 
 ## Files
@@ -39,18 +40,22 @@ Why: Runbook stage 0 commands fail with 'Could not match supplied host pattern' 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- None.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+- Agents know to point ad-hoc ansible at the main checkout's inventory.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- No code change; handled in the run instructions (orchestrator ruling 2026-10-18).
 
 ## Notes
 
 
 Discovered in task `split-bus-group-vars` during run `split-servo-buses-arm-alone`.
 
+
+## Resolution
+
+No code change (orchestrator ruling 2026-10-18): the inventory is gitignored by design; run instructions now name -i <main>/ansible/inventory.
