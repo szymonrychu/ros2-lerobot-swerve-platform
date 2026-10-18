@@ -158,10 +158,10 @@ class Command(BaseModel):
         request_id: Echoed in /poi/result.
         poi: add: the POI (kind "photo": a PhotoAdd payload plus kind); update: id plus changed fields; delete: id;
             clear and delete_photos: unused.
-        created_by: clear: only delete POIs created by this creator ("agent" or "user"; None: every creator);
-            photos are never cleared.
+        created_by: clear: only delete POIs created by this creator ("agent" or "user"; None: every creator); photos match by
+            their own created_by.
         statuses: clear: only delete POIs whose status is in this list (None: every status; empty list: nothing).
-        kinds: clear: only delete POIs of these kinds (None: every kind; empty list: nothing).
+        kinds: clear: only delete POIs of these kinds, "photo" included (None: every kind; empty list: nothing).
         keep_zones: clear: keep areas whose zone is "keepout" or "slow" (any status).
         ids: clear: only delete POIs with these ids (None: no id filter; empty list: nothing; unknown ids ignored).
         pois: replace: the complete new set of non-photo POIs (each with a valid id); ignored by other ops.
@@ -175,7 +175,7 @@ class Command(BaseModel):
     poi: dict[str, Any] = Field(default_factory=dict)
     created_by: Literal["agent", "user"] | None = None
     statuses: list[Literal["open", "done", "cancelled"]] | None = None
-    kinds: list[Literal["point", "area", "object"]] | None = None
+    kinds: list[Literal["point", "area", "object", "photo"]] | None = None
     keep_zones: bool = False
     ids: list[str] | None = None
     pois: list[dict[str, Any]] | None = None

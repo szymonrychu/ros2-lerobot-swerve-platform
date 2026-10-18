@@ -263,7 +263,7 @@ def test_clear_removes_only_pois_of_that_creator_and_persists(store, tmp_path):
     ok, msg, result = store.apply(Command(op="clear", request_id="r", created_by="agent"))
     assert ok, msg
     assert [p["name"] for p in store.list_pois()] == ["zone"]
-    assert result == {"removed": 2}
+    assert result == {"removed": 2, "pois": 2, "photos": 0}
     assert store.revision == revision + 1
     assert [p["name"] for p in PoiStore(tmp_path / "poi.json").list_pois()] == ["zone"]
 
@@ -272,7 +272,7 @@ def test_clear_with_nothing_to_remove_keeps_revision(store):
     store.apply(Command(op="add", poi=area()))
     revision = store.revision
     ok, _, result = store.apply(Command(op="clear", created_by="agent"))
-    assert ok and result == {"removed": 0} and store.revision == revision
+    assert ok and result == {"removed": 0, "pois": 0, "photos": 0} and store.revision == revision
 
 
 def test_clear_rejects_invalid_creator():
@@ -283,7 +283,7 @@ def test_clear_rejects_invalid_creator():
 def test_clear_via_handle_message(store):
     store.apply(Command(op="add", poi=point()))
     out = json.loads(store.handle_message(json.dumps({"op": "clear", "created_by": "agent", "request_id": "q"})))
-    assert out["ok"] and out["request_id"] == "q" and out["poi"] == {"removed": 1}
+    assert out["ok"] and out["request_id"] == "q" and out["poi"] == {"removed": 1, "pois": 1, "photos": 0}
     bad = json.loads(store.handle_message(json.dumps({"op": "clear", "created_by": "robot", "request_id": "q2"})))
     assert not bad["ok"]
 
@@ -525,38 +525,38 @@ def test_delete_photos_via_handle_message(pstore, photos):
     assert not bad["ok"] and "selector" in bad["message"]
 
 
-def test_agent_clear_leaves_every_photo(pstore, photos):
+def test_agent_clear_removes_agent_photos_and_keeps_user_photos(pstore, photos):
     add_poi(pstore, created_by="agent")
     for n in (1, 2):
         add_photo(pstore, photos, n, created_by="agent")
     add_photo(pstore, photos, 3, created_by="user")
     ok, _, result = pstore.apply(Command(op="clear", created_by="agent"))
-    assert ok and result == {"removed": 1}
-    assert [r.id for r in photos.records()] == [photo_id(1), photo_id(2), photo_id(3)]
-    assert all((photos.root / f"{photo_id(n)}.jpg").exists() for n in (1, 2, 3))
+    assert ok and result == {"removed": 3, "pois": 1, "photos": 2}
+    assert [r.id for r in photos.records()] == [photo_id(3)]
+    assert (photos.root / f"{photo_id(3)}.jpg").exists() and not (photos.root / f"{photo_id(1)}.jpg").exists()
 
 
 def test_agent_clear_strips_cleared_pois_from_photo_links(pstore, photos):
     agent_poi = add_poi(pstore, created_by="agent")
     user_poi = add_poi(pstore, name="b", created_by="user")
-    add_photo(pstore, photos, 1, poi_ids=[agent_poi, user_poi])
-    add_photo(pstore, photos, 2, poi_ids=[agent_poi])
+    add_photo(pstore, photos, 1, created_by="user", poi_ids=[agent_poi, user_poi])
+    add_photo(pstore, photos, 2, created_by="user", poi_ids=[agent_poi])
     ok, _, result = pstore.apply(Command(op="clear", created_by="agent"))
-    assert ok and result == {"removed": 1}
+    assert ok and result == {"removed": 1, "pois": 1, "photos": 0}
     assert photos.get(photo_id(1)).poi_ids == [user_poi]
     assert photos.get(photo_id(2)).poi_ids == []
 
 
 def test_clear_survives_strip_links_failure(pstore, photos, monkeypatch):
     agent_poi = add_poi(pstore, created_by="agent")
-    add_photo(pstore, photos, 1, poi_ids=[agent_poi])
+    add_photo(pstore, photos, 1, created_by="user", poi_ids=[agent_poi])
 
     def boom(*_a, **_k):
         raise OSError("disk full")
 
     monkeypatch.setattr(photos, "strip_links", boom)
     ok, _, result = pstore.apply(Command(op="clear", created_by="agent"))
-    assert ok and result == {"removed": 1}
+    assert ok and result == {"removed": 1, "pois": 1, "photos": 0}
     assert agent_poi not in pstore.pois
 
 
@@ -594,14 +594,14 @@ def seed_statuses(store):
 def test_clear_statuses_none_removes_every_poi_of_creator(store):
     seed_statuses(store)
     ok, _, result = store.apply(Command(op="clear", created_by="agent", statuses=None))
-    assert ok and result == {"removed": 3}
+    assert ok and result == {"removed": 3, "pois": 3, "photos": 0}
     assert [p["name"] for p in store.list_pois()] == ["user done"]
 
 
 def test_clear_statuses_limits_to_done_and_cancelled(store, tmp_path):
     seed_statuses(store)
     ok, _, result = store.apply(Command(op="clear", created_by="agent", statuses=["done", "cancelled"]))
-    assert ok and result == {"removed": 2}
+    assert ok and result == {"removed": 2, "pois": 2, "photos": 0}
     assert sorted(p["name"] for p in store.list_pois()) == ["open", "user done"]
     assert sorted(p["name"] for p in PoiStore(tmp_path / "poi.json").list_pois()) == ["open", "user done"]
 
@@ -610,7 +610,7 @@ def test_clear_statuses_empty_list_deletes_nothing(store):
     seed_statuses(store)
     revision = store.revision
     ok, _, result = store.apply(Command(op="clear", created_by="agent", statuses=[]))
-    assert ok and result == {"removed": 0} and store.revision == revision
+    assert ok and result == {"removed": 0, "pois": 0, "photos": 0} and store.revision == revision
     assert len(store.list_pois()) == 4
 
 
@@ -623,4 +623,4 @@ def test_clear_statuses_via_handle_message(store):
     seed_statuses(store)
     raw = json.dumps({"op": "clear", "created_by": "agent", "statuses": ["done"], "request_id": "s"})
     out = json.loads(store.handle_message(raw))
-    assert out["ok"] and out["poi"] == {"removed": 1}
+    assert out["ok"] and out["poi"] == {"removed": 1, "pois": 1, "photos": 0}
