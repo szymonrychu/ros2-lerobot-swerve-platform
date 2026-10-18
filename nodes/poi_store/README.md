@@ -35,7 +35,7 @@ All numbers must be finite. Files written before `object` existed load unchanged
 
 | Topic | Type / QoS | Payload |
 |---|---|---|
-| `/poi/list` | std_msgs/String, reliable + transient_local (latched) | `{"pois": [...], "revision": int}`; the non-photo POIs followed by every photo in POI form (see "Photo POIs on `/poi/command`"); the `revision` covers photo changes too (photo add, update, delete, `delete_photos`, link strips, retention prune); published on start and after every revision change. Supersedes named-maps D8 ("photos stay global") |
+| `/poi/list` | std_msgs/String, reliable + transient_local (latched) | `{"pois": [...], "revision": int}`; photos are included: the non-photo POIs followed by every photo in POI form (see "Photo POIs on `/poi/command`"); the `revision` covers photo changes too (photo add, update, delete, `delete_photos`, link strips, retention prune); published on start and after every revision change. Supersedes named-maps D8 ("photos stay global") |
 | `/poi/photos` | std_msgs/String, reliable + transient_local (latched) | photo summary `{"revision", "count", "bytes", "oldest_ts", "newest_ts", "limits": {"max_records", "max_bytes", "max_age_days"}}`; topic is `photos.summary_topic` |
 | `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete"\|"clear"\|"replace"\|"delete_photos", "request_id": str, "poi": {...}, "created_by": "agent"\|"user", "statuses": [...], "kinds": [...], "keep_zones": bool, "ids": [...], "pois": [...], "selector": {...}}` |
 | `/poi/result` | std_msgs/String, reliable, volatile | `{"request_id": str, "ok": bool, "message": str, "poi": {...}\|null}` |
@@ -105,8 +105,8 @@ timer retries until the first summary goes out. A wall-clock (system time) timer
 
 ## Photo store (`poi_store/photo_store.py`)
 
-A photo is a POI of kind `photo`: a camera JPEG plus the camera pose at capture. Photos are not in `poi.json` and never
-on `/poi/list`; they live in `photos.store_dir` (default `/var/lib/ros2/poi/lookups`, the former mcp_server lookup
+A photo is a POI of kind `photo`: a camera JPEG plus the camera pose at capture. Photos are included in `/poi/list` (after
+the non-photo POIs) and the list `revision` covers them, but they are not in `poi.json`; they live in `photos.store_dir` (default `/var/lib/ros2/poi/lookups`, the former mcp_server lookup
 store, kept in place so no data moves) as `<id>.jpg` files plus one line each in the append-only `index.jsonl`.
 mcp_server writes the JPEG; poi_store is the only writer of the index. The record type, `PhotoAdd` and
 `PhotoSelector` are the shared contract in `ros2_common` (`lookups.py`, `photos.py`); readers (mcp_server, web_ui)
