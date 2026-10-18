@@ -25,7 +25,7 @@ Follow these steps in order. The arm is fragile and the object is unknown: use t
 
 ## 3. Carrying rules
 
-- Before driving with an object, call `release_control` with subsystem arm, `keep_position` true and `carried_object_radius_m` set to the rough object radius, so navigation keeps clearance around it.
+- Before driving with an object, call `release_control` with subsystem arm, keep_position true and carried_object_radius_m set to the rough object radius, so navigation keeps clearance around it.
 - Drive slowly, avoid slow zones and keep-outs, and recheck the gripper image if the drive was bumpy. If the object is lost, stop at once.
 
 ## 4. Pre-release checklist
@@ -41,4 +41,4 @@ Follow these steps in order. The arm is fragile and the object is unknown: use t
 
 ## 6. Park
 
-- Retract the gripper clear of the object, then bring the arm to its safe home pose with `arm_home` and report with `complete_phase`, naming the lookup ids of your confirmation images.
+- Retract the gripper clear of the object, then bring the arm to its safe home pose with `arm_home` and report with `agent.complete_phase`, naming the lookup ids of your confirmation images.
