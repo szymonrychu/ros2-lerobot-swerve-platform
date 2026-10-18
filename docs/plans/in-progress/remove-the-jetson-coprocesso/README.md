@@ -59,7 +59,8 @@ The Jetson Nano vision coprocessor is leaving the robot. Everything that exists 
 
 
 
-Estimate: 1250 min | Actual: 0 min | Remaining estimate: 125 min
+
+Estimate: 1250 min | Actual: 0 min | Remaining estimate: 75 min
 
 ## Review
 
