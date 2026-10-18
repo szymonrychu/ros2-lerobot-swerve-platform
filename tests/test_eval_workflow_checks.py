@@ -56,7 +56,8 @@ def test_free_job_has_no_workflow_and_runner_retrospective_is_kept() -> None:
 
 def test_runner_sourced_calls_are_ignored() -> None:
     t = Trace()
-    t.add("tool_call", id="x1", name="start_workflow", full_name="x", kind="k", input={"name": "survey"}, source="job_end")
+    start = {"name": "survey"}
+    t.add("tool_call", id="x1", name="start_workflow", full_name="x", kind="k", input=start, source="job_end")
     t.add("tool_call", id="x2", name="mark_survey_spot", full_name="x", kind="k", input={}, source="job_end")
     t.add("tool_call", id="x3", name="Skill", full_name="Skill", kind="k", input={"skill": "s"}, source="job_end")
     d = derive_workflow(t.events)
