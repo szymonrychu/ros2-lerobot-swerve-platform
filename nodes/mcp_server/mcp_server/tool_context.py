@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryGuard
+from ros2_common.maps import MapResult, MapStatus
 
 from .approach import CostGrid, PathInfo
 from .arm import ArmController
@@ -195,6 +196,14 @@ class RobotApi(Protocol):
 
     def poi_request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
         """Send a /poi/command and wait for its /poi/result; RobotError when poi_store is down, slow or rejects."""
+        ...
+
+    def map_status(self) -> MapStatus:
+        """Latest /map_manager/status; RobotError when none arrived."""
+        ...
+
+    def map_request(self, command: dict[str, Any]) -> MapResult:
+        """Send a /map_manager/command (MapCommand fields without request_id) and wait for its result; RobotError when map_manager is down, slow or rejects."""
         ...
 
     def poi_clear(self, created_by: str, statuses: list[str] | None = None) -> dict[str, Any]:

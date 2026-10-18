@@ -31,6 +31,7 @@ from . import (
     grasp_tools,
     guard_tools,
     lookup_tools,
+    map_tools,
     motion_tools,
     perception_tools,
 )
@@ -108,6 +109,7 @@ TOOL_NAMES = (
     *motion_tools.TOOL_NAMES,
     *guard_tools.TOOL_NAMES,
     *lookup_tools.TOOL_NAMES,
+    *map_tools.TOOL_NAMES,
     *frontier_tools.TOOL_NAMES,
     *approach_tools.TOOL_NAMES,
 )
@@ -157,6 +159,7 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         "wait_for_event",
         *guard_tools.TOOL_NAMES,
         *lookup_tools.TOOL_NAMES,
+        *map_tools.TOOL_NAMES,
         *frontier_tools.SENSOR_TOOL_NAMES,
         *approach_tools.SENSOR_TOOL_NAMES,
     }
@@ -1184,6 +1187,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     motion_tools.register,
     guard_tools.register,
     lookup_tools.register,
+    map_tools.register,
     frontier_tools.register,
     approach_tools.register,
 )

@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
+from ros2_common.maps import COMMAND_TOPIC, RESULT_TOPIC, STATUS_TOPIC
 
 from .guard_rules import GuardRuleSettings
 from .models import SettlePolicy
@@ -831,6 +832,28 @@ class PoiSettings(StrictModel):
     near_radius_m: float = Field(default=5.0, gt=0.0)  # list_pois(near=True) keeps POIs within this distance
 
 
+class MapSettings(StrictModel):
+    """Named map tools talking to map_manager (topics from ros2_common.maps)."""
+
+    command: str = COMMAND_TOPIC
+    result: str = RESULT_TOPIC
+    status: str = STATUS_TOPIC
+    save_timeout_s: float = Field(default=30.0, gt=0.0)  # wait for the save result
+    load_timeout_s: float = Field(default=120.0, gt=0.0)  # wait for the load result (after the relocalisation verdict)
+    delete_timeout_s: float = Field(default=10.0, gt=0.0)
+
+    def timeout_for(self, op: str) -> float:
+        """Seconds to wait for the result of a map_manager op.
+
+        Args:
+            op (str): "save", "load", "delete" or "relocalise".
+
+        Returns:
+            float: The op's timeout (relocalise waits as long as a load).
+        """
+        return {"save": self.save_timeout_s, "delete": self.delete_timeout_s}.get(op, self.load_timeout_s)
+
+
 class AutoPoiSettings(StrictModel):
     """Auto stuck points (auto_poi.AutoPoiMarker): robot events that drop a point POI at the robot pose."""
 
@@ -1488,6 +1511,7 @@ class McpServerConfig(StrictModel):
     # None: no footprint is published (the Nav2 / laser_filter configs keep their static polygons).
     nav_footprint: NavFootprintSettings | None = None
     poi: PoiSettings = PoiSettings()
+    maps: MapSettings = MapSettings()
     auto_poi: AutoPoiSettings = AutoPoiSettings()
     jog: JogSettings = JogSettings()
     lookups: LookupSettings = Field(default_factory=LookupSettings)

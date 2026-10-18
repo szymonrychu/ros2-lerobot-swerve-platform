@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryConfig, BatteryGuard
+from ros2_common.maps import Localisation, MapStatus
 
 from mcp_server.approach_tools import SENSOR_TOOL_NAMES as APPROACH_TOOL_NAMES
 from mcp_server.camera_tools import TOOL_NAMES as CAMERA_TOOL_NAMES
@@ -73,6 +74,10 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "cancel_motions": {},
     "wait_for_event": {"timeout_s": 0.1},
     "check_guard_rules": {"tool": "navigate_to_pose"},
+    "save_map": {"name": "m"},
+    "list_maps": {},
+    "load_map": {"name": "m"},
+    "delete_map": {"name": "m", "confirm": True},
     "list_lookups": {},
     "get_lookup_image": {"lookup_id": "0" * 32},
     "annotate_lookup": {"lookup_id": "0" * 32, "note": "n"},
@@ -131,6 +136,7 @@ def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> N
     robot = FakeRobot(tmp_path)
     robot.pois.append({"id": "id0", "name": "dock", "kind": "point", "x": 0.0, "y": 0.0, "status": "open"})
     robot.map = room()  # a map with frontier 1 for the frontier sensor tools
+    robot.map_status_msg = MapStatus(maps=[], active_map=None, localisation=Localisation(state="unknown"))
     server = make_server(robot, make_guard(LOW_V))
     args = dict(ALLOWED_ARGS[name])
     if name == "forget_object":

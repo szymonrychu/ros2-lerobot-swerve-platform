@@ -1,5 +1,6 @@
 """Test doubles: a simulated follower arm backend with a fake clock, and poi_store's photo store."""
 
+import json
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 import numpy as np
 from pydantic import ValidationError
 from ros2_common.lookups import INDEX_FILE, LookupRecord
+from ros2_common.maps import MapResult, MapStatus
 from ros2_common.photos import PHOTO_KIND, PhotoAdd, PhotoSelector, photo_as_poi
 
 from mcp_server import config as mcp_config
@@ -15,6 +17,7 @@ from mcp_server.approach import CostGrid, PathInfo
 from mcp_server.arm import JointSample
 from mcp_server.base_dock import DockGoal, DockResult
 from mcp_server.frontiers import MapGrid
+from mcp_server.map_client import MapRequests
 from mcp_server.models import BasePose, PathPlan, RobotError
 from mcp_server.poi_client import PoiStoreDown
 from mcp_server.staleness import Stamped
@@ -254,6 +257,14 @@ class PerceptionFakeMixin:
         self.pois: list[dict] = []
         self.poi_commands: list[tuple[str, dict]] = []
         self.poi_clears: list[str] = []
+        # map_manager: commands seen, the scripted answer (a result dict without request_id, None = no answer),
+        # whether it listens, the latched status (None = none yet) and a hook run on stop.
+        self.map_commands: list[dict] = []
+        self.map_script: Callable[[dict], dict | None] = lambda cmd: {"ok": True, "message": "ok"}
+        self.map_up = True
+        self.map_status_msg: MapStatus | None = None
+        self.stop_hook: Callable[[], None] | None = None
+        self.map_client = MapRequests(self.map_publish, lambda: self.map_up, lambda op: 0.05)
         self.poi_clear_statuses: list[list[str] | None] = []
         # poi_store's photo store (E11) in the default lookups dir (conftest points it at the test's tmp dir), every
         # photo command (op, payload) and an error to raise for photo commands (PoiTimeout, PoiStoreDown, ...).
@@ -370,6 +381,21 @@ class PerceptionFakeMixin:
     def arm_mount_xy(self) -> tuple[float, float]:
         mount = self.arm.cfg.arm.base_in_base_link
         return (0.0, 0.0) if mount is None else (mount.x, mount.y)
+
+    def map_publish(self, text: str) -> None:
+        cmd = json.loads(text)
+        self.map_commands.append(cmd)
+        reply = self.map_script(cmd)
+        if reply is not None:
+            self.map_client.on_result(json.dumps({"request_id": cmd["request_id"], **reply}))
+
+    def map_status(self) -> MapStatus:
+        if self.map_status_msg is None:
+            raise RobotError("no /map_manager/status received yet")
+        return self.map_status_msg
+
+    def map_request(self, command: dict) -> MapResult:
+        return self.map_client.send(command)
 
     def stop_count(self) -> int:
         return self.stops

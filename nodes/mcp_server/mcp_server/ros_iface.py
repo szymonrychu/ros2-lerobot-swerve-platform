@@ -22,6 +22,7 @@ from geometry_msgs.msg import Polygon as PolygonMsg
 from nav2_msgs.action import ComputePathToPose, DockRobot, NavigateToPose
 from nav2_msgs.msg import CollisionMonitorState
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
+from pydantic import ValidationError
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from rclpy.action import ActionClient
@@ -33,6 +34,7 @@ from rclpy.serialization import deserialize_message
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
+from ros2_common.maps import MapResult, MapStatus
 from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import BatteryState, CompressedImage, Imu, JointState, LaserScan
 from std_msgs.msg import Bool, String
@@ -64,6 +66,7 @@ from .frontiers import MapGrid
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .grasp_tools import GraspService
 from .ik import ArmKinematics, load_joint_limits
+from .map_client import MapRequests
 from .metrics import set_sample_age_source
 from .models import (
     BaseMotionBusyError,
@@ -715,6 +718,14 @@ class RosRobot:
             config.poi.request_timeout_s,
         )
         self.subscribe(String, t.poi_result, lambda msg: self.poi.on_result(msg.data), COMMAND_QOS)
+        self.map_command_pub = self.node.create_publisher(String, config.maps.command, COMMAND_QOS)
+        self.map_requests = MapRequests(
+            lambda payload: self.map_command_pub.publish(String(data=payload)),
+            lambda: self.map_command_pub.get_subscription_count() > 0,
+            config.maps.timeout_for,
+        )
+        self.subscribe(String, config.maps.result, lambda msg: self.map_requests.on_result(msg.data), COMMAND_QOS)
+        self.cache(String, config.maps.status, "map_status", MAP_QOS)  # map_manager latches it
         # Stuck events become point POIs at the robot pose (auto_poi_id in the digest). The marker runs on the delivering
         # thread (reentrant group, multi-threaded executor) and waits at most poi.request_timeout_s for poi_store.
         attach_auto_poi(self.monitor, AutoPoiMarker(self, config.auto_poi), self.robot_pose)
@@ -2080,6 +2091,34 @@ class RosRobot:
             dict[str, Any]: The accepted result.
         """
         return self.poi.request(op, poi)
+
+    def map_status(self) -> MapStatus:
+        """Latest latched /map_manager/status.
+
+        Returns:
+            MapStatus: Saved maps, active map and localisation.
+
+        Raises:
+            RobotError: No status has arrived (map_manager not running or its message is unreadable).
+        """
+        item = self.get("map_status")
+        if item is None:
+            raise RobotError("no /map_manager/status received yet (is map_manager running?); no map list is known")
+        try:
+            return MapStatus.model_validate_json(item.value.data)
+        except ValidationError as exc:
+            raise RobotError(f"unreadable /map_manager/status: {exc.errors()[0]['msg']}") from exc
+
+    def map_request(self, command: dict[str, Any]) -> MapResult:
+        """Send a /map_manager/command and wait for the matching /map_manager/result.
+
+        Args:
+            command (dict[str, Any]): MapCommand fields without request_id.
+
+        Returns:
+            MapResult: The accepted result.
+        """
+        return self.map_requests.send(command)
 
     def poi_clear(self, created_by: str, statuses: list[str] | None = None) -> dict[str, Any]:
         """Send a poi_store clear for one creator and wait for the /poi/result.

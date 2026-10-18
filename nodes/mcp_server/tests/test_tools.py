@@ -124,6 +124,9 @@ class FakeRobot(PerceptionFakeMixin):
 
     def stop(self) -> StopResult:
         self.calls.append(("stop", ()))
+        self.stops += 1
+        if self.stop_hook is not None:
+            self.stop_hook()
         held, note = self.arm.stop_hold()
         return StopResult(nav_goals_cancelled=True, base_zeroed=True, arm_held=held, message=note)
 
@@ -191,6 +194,10 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "enqueue_motions",
         "resume_motions",
         "check_guard_rules",
+        "save_map",
+        "list_maps",
+        "load_map",
+        "delete_map",
         "get_motion_status",
         "cancel_motions",
         "wait_for_event",
