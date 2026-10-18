@@ -120,7 +120,7 @@ class EventClient(FakeClient):
 
 def event_runner(tmp_path: Path, stopper=None, debounce: float = 2.0):
     runner, events, cfg = make_runner(tmp_path, stopper=stopper)
-    runner.config = ClaudeAgentConfig(mcp_token_file=cfg.mcp_token_file, robot_event_debounce_s=debounce)
+    runner.config = cfg.model_copy(update={"robot_event_debounce_s": debounce})
     runner.client_factory = EventClient
     return runner, events
 
@@ -290,7 +290,7 @@ class ToolEventClient(FakeClient):
 
 def warning_runner(tmp_path: Path, **config):
     runner, events, cfg = make_runner(tmp_path)
-    runner.config = ClaudeAgentConfig(mcp_token_file=cfg.mcp_token_file, poi_review_followup=False, **config)
+    runner.config = cfg.model_copy(update={"poi_review_followup": False, **config})
     ToolEventClient.release = asyncio.Event()
     runner.client_factory = ToolEventClient
     return runner, events
@@ -500,7 +500,7 @@ async def test_warning_interrupts_are_debounced_per_type(
     tmp_path: Path, debounce: float, second_interrupts: bool
 ) -> None:
     runner, events, cfg = make_runner(tmp_path)
-    runner.config = ClaudeAgentConfig(mcp_token_file=cfg.mcp_token_file, warning_interrupt_debounce_s=debounce)
+    runner.config = cfg.model_copy(update={"warning_interrupt_debounce_s": debounce})
     BumpTwiceClient.runner = runner
     runner.client_factory = BumpTwiceClient
     runner.bind_loop()

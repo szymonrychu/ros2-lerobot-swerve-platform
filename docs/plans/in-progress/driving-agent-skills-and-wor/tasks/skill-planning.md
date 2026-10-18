@@ -1,6 +1,6 @@
 ---
 title: Skill planning
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Plans are broken into generous, verifiable steps and the right workflow is picked from the request."
 files: [nodes/claude_agent/claude_agent/agent_plugin/skills/planning/SKILL.md, nodes/claude_agent/tests/test_skill_planning.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--skill-planning
 branch: driving-agent-skills-and-wor--skill-planning
-verified_head: ""
-run: ""
+verified_head: 620de5000f37ecca51ad7b49c6cec0988d19eaa7
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Skill planning
@@ -53,3 +55,7 @@ A planning skill the prompt points to before every plan.
 ## Notes
 
 - Template names: discovery, drive_to_target, pick_place (workflow-templates).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

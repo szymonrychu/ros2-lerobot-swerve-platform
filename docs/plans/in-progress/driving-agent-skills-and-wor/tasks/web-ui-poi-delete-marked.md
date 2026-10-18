@@ -1,6 +1,6 @@
 ---
 title: Web UI POI delete marked
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The user deletes all marked POIs in one action after a confirmation that names the count and categories, with an extra confirmation when keep-outs are in the batch."
 files: [nodes/web_ui/frontend/src/poi/DeleteMarkedDialog.tsx, nodes/web_ui/frontend/src/poi/DeleteMarkedDialog.test.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.tsx, nodes/web_ui/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--web-ui-poi-delete-marked
 branch: driving-agent-skills-and-wor--web-ui-poi-delete-marked
-verified_head: ""
-run: ""
+verified_head: 331e2f6ae39037dfb5a7e4969faa6ac5706affe8
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI POI delete marked
@@ -61,3 +63,7 @@ Marked POIs are deleted in one confirmed action through the shared POI delete op
 - Cross-epic: needs named-maps tasks poi-store-clear-filters (ids), web-ui-poi-clear-route (ids) and web-ui-clear-pois-dialog (`clearPois`) landed first: epic README blockers order the epics.
 - The named-maps Clear POIs dialog gets `onChooseIndividually`: wire it here to focus the filter toolbar.
 - Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

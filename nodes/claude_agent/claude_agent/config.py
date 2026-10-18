@@ -7,6 +7,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .skills import plugin_dir
+
 CONFIG_ENV_VAR = "CLAUDE_AGENT_CONFIG"
 TOKEN_KEY = "MCP_SERVER_TOKEN"
 DEFAULT_EFFECTOR_TOOLS = [
@@ -25,6 +27,9 @@ DEFAULT_EFFECTOR_TOOLS = [
     "go_to_frontier",
     "look_toward_frontier",
     "approach_for_grasp",
+    "set_head_angles",
+    "head_look_at",
+    "head_home",
 ]
 DEFAULT_UNCAPPED_TOOLS = ["stop", "take_control", "release_control", "cancel_motions"]
 # Motion tools the permission gate refuses outright: arm_set_home would let the agent redefine home to pass the job-end check.
@@ -68,6 +73,8 @@ DEFAULT_SENSOR_TOOLS = [
     "delete_photos",
     "list_frontiers",
     "plan_frontier_visit",
+    "get_exploration_status",
+    "mark_survey_spot",
     "confirm_grasp",
 ]
 # Approximate maximum horizontal reach of the SO-101 from the shoulder_lift axis, in cm: the straight-line sum of the link
@@ -86,6 +93,8 @@ DEFAULT_CAMERA_NOTE = (
     "autofocus), looking at the front of the robot, the arm and the floor in front of it: take it first for an "
     "overview (overview first), then judge the arm-to-object distance and the gripper position relative to the "
     "object from it before aiming with the gripper camera. "
+    "The head sits on a pan/tilt head together with the ToF: aim it once at a point with head_look_at (a point in "
+    "base_link or map; no tracking) and then zoom; the head returns home when the job parks. "
     "It has no depth; judge distances from the image."
 )
 # Model turns on top of max_turn_cap that the SDK's absolute max_turns allows: the runner enforces the agent-set turn_cap
@@ -106,11 +115,22 @@ DEFAULT_RETRY_SUCCESS_THRESHOLD = 0.5
 DEFAULT_MAX_AUTO_RETRIES = 6
 DEFAULT_RETRY_LEDGER_MAX_RECORDS = 5000
 MIN_RETRY_LEDGER_MAX_RECORDS = 100
+DEFAULT_RETRO_MAX_RECORDS = 500
+MIN_RETRO_MAX_RECORDS = 50
+DEFAULT_RETRO_FEED_COUNT = 5
+MAX_RETRO_FEED_COUNT = 20
+DEFAULT_RETRO_FEED_MAX_CHARS = 3000
+MIN_RETRO_FEED_MAX_CHARS = 200
 DEFAULT_JOB_END_MAX_FOLLOWUPS = 2
 DEFAULT_JOB_END_PARK_TIMEOUT_S = 60.0
 # mcp_server re-emits a bump at most every 2 s: on a rough floor one interrupt per 10 s per warning type is enough.
 DEFAULT_WARNING_INTERRUPT_DEBOUNCE_S = 10.0
 DEFAULT_INTERRUPT_WARNING_TYPES = ("bump",)
+# Workflow templates (workflows.py): one YAML file per template, the file stem is the template name.
+WORKFLOW_TEMPLATE_DIR = Path(__file__).parent / "workflow_templates"
+WORKFLOW_TEMPLATE_SUFFIX = ".yaml"
+# Default time budget (minutes) of each workflow; the discovery budget is also the sightseeing time limit.
+DEFAULT_WORKFLOW_TIME_BUDGET_MIN = {"discovery": 30.0, "drive_to_target": 10.0, "pick_place": 15.0}
 
 
 class MissingTokenError(RuntimeError):
@@ -134,6 +154,11 @@ class ClaudeAgentConfig(BaseModel):
         max_auto_retries: Most automatic phase re-entries per instruction, across all phases.
         retry_ledger_max_records: Bound of the retry calibration ledger ``<state_dir>/calibration/retry_outcomes.jsonl``;
             past it the oldest half of the records is dropped (at least 100).
+        retro_max_records: Bound of the retrospective store ``<state_dir>/retrospectives/retrospectives.jsonl``; past it
+            the oldest half is dropped (at least 50).
+        retro_feed_count: How many recent retrospectives are fed into a new instruction's prompt (0 to 20, 0 disables).
+        retro_feed_max_chars: Most characters of the fed RECENT RETROSPECTIVES block (at least 200).
+        retro_followup: Ask the agent for a retrospective with a "RETROSPECTIVE" prompt when a job ends.
         job_end_max_followups: "JOB END REFUSED" follow-ups the runner sends when an instruction would end with the arm
             out of home, a lease held or the plan unfinished; after that many the runner parks the arm itself.
         poi_review_followup: Send one "POI REVIEW" follow-up when an instruction used camera or motion tools and wrote
@@ -147,8 +172,6 @@ class ClaudeAgentConfig(BaseModel):
         sensor_tools: Short names of read-only tools (counted for telemetry, never capped or refused).
         mcp_url: Robot MCP server Streamable HTTP URL.
         mcp_token_file: File holding the MCP bearer token (``MCP_SERVER_TOKEN=<token>`` or the bare token); read at each session start.
-        agent_poi_reset: What a new session does with the agent-made POIs: ``keep_open`` clears only those with status
-            done or cancelled (open ones survive), ``clear_all`` clears every one.
         http_host: Bind address of the API (loopback only; the web UI proxies it).
         http_port: Port of the HTTP/WebSocket API.
         history_size: Number of most recent events kept in RAM (older ones are read from the session log on demand).
@@ -199,6 +222,14 @@ class ClaudeAgentConfig(BaseModel):
             starts a new session per instruction and carries a short digest of the previous one; ``keep`` changes nothing.
         autocompact_pct: Context fill percent that triggers auto-compaction under the ``compact`` policy.
         digest_max_chars: Maximum length of the digest under ``fresh_with_digest``.
+        skills_enabled: Load the read-only skill plugin (the SDK ``Skill`` tool, restricted to its skills); when false
+            the options and the gate are exactly as without skills.
+        skills_plugin_dir: Plugin directory; "" selects the plugin shipped inside the node. Must not be the workdir or
+            inside it (the agent's file tools could then edit its skills).
+        workflow_time_budget_min: Time budget in minutes per workflow template (agent.start_workflow declares it as
+            the task's time_budget_min unless the agent passes its own). Keys are exactly the template names under
+            ``workflow_templates/``; each value is above 0 and at most max_instruction_time_min. The discovery budget
+            is the time limit of the sightseeing skill.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -212,6 +243,10 @@ class ClaudeAgentConfig(BaseModel):
     retry_success_threshold: float = Field(default=DEFAULT_RETRY_SUCCESS_THRESHOLD, ge=0, le=1)
     max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
     retry_ledger_max_records: int = Field(default=DEFAULT_RETRY_LEDGER_MAX_RECORDS, ge=MIN_RETRY_LEDGER_MAX_RECORDS)
+    retro_max_records: int = Field(default=DEFAULT_RETRO_MAX_RECORDS, ge=MIN_RETRO_MAX_RECORDS)
+    retro_feed_count: int = Field(default=DEFAULT_RETRO_FEED_COUNT, ge=0, le=MAX_RETRO_FEED_COUNT)
+    retro_feed_max_chars: int = Field(default=DEFAULT_RETRO_FEED_MAX_CHARS, ge=MIN_RETRO_FEED_MAX_CHARS)
+    retro_followup: bool = True
     job_end_max_followups: int = Field(default=DEFAULT_JOB_END_MAX_FOLLOWUPS, ge=0)
     poi_review_followup: bool = True
     job_end_park_timeout_s: float = Field(default=DEFAULT_JOB_END_PARK_TIMEOUT_S, gt=0)
@@ -221,7 +256,6 @@ class ClaudeAgentConfig(BaseModel):
     sensor_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_SENSOR_TOOLS))
     mcp_url: str = "http://127.0.0.1:18200/mcp"
     mcp_token_file: str = "/etc/ros2/mcp_server/token"
-    agent_poi_reset: Literal["keep_open", "clear_all"] = "keep_open"
     poi_hint_radius_m: float = Field(default=0.5, gt=0.0)  # complete_phase map-coordinate hint radius
     http_host: str = "127.0.0.1"
     http_port: int = Field(default=18300, ge=1, le=65535)
@@ -258,6 +292,9 @@ class ClaudeAgentConfig(BaseModel):
     context_policy: Literal["compact", "fresh_with_digest", "keep"] = "compact"
     autocompact_pct: int = Field(default=DEFAULT_AUTOCOMPACT_PCT, ge=1, le=95)
     digest_max_chars: int = Field(default=DEFAULT_DIGEST_MAX_CHARS, ge=100)
+    skills_enabled: bool = True
+    skills_plugin_dir: str = ""
+    workflow_time_budget_min: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_WORKFLOW_TIME_BUDGET_MIN))
 
     @property
     def max_turns(self) -> int:
@@ -267,6 +304,19 @@ class ClaudeAgentConfig(BaseModel):
             int: ``max_turn_cap + TURN_MARGIN``.
         """
         return self.max_turn_cap + TURN_MARGIN
+
+    @model_validator(mode="after")
+    def check_plugin_dir(self) -> "ClaudeAgentConfig":
+        """Reject a skill plugin directory that is the workdir or inside it (the agent could edit its own skills).
+
+        Returns:
+            ClaudeAgentConfig: The validated config.
+        """
+        plugin = plugin_dir(self.skills_plugin_dir)
+        work = Path(self.workdir).expanduser().resolve()
+        if plugin == work or work in plugin.parents:
+            raise ValueError(f"skills_plugin_dir {plugin} must not be the workdir {work} or inside it")
+        return self
 
     @model_validator(mode="after")
     def check_tool_lists(self) -> "ClaudeAgentConfig":
@@ -288,6 +338,43 @@ class ClaudeAgentConfig(BaseModel):
                 if overlap:
                     raise ValueError(f"{sorted(overlap)} listed in both {first} and {second}")
         return self
+
+    @model_validator(mode="after")
+    def check_workflow_time_budgets(self) -> "ClaudeAgentConfig":
+        """Require one time budget per workflow template, each above 0 and at most max_instruction_time_min.
+
+        Returns:
+            ClaudeAgentConfig: The validated config.
+        """
+        names = set(workflow_template_names(WORKFLOW_TEMPLATE_DIR))
+        budgets = self.workflow_time_budget_min
+        unknown = sorted(set(budgets) - names)
+        if unknown:
+            raise ValueError(f"workflow_time_budget_min: {unknown} are not workflow templates ({sorted(names)})")
+        missing = sorted(names - set(budgets))
+        if missing:
+            raise ValueError(f"workflow_time_budget_min: no time budget for the workflow templates {missing}")
+        for name, minutes in budgets.items():
+            if not 0 < minutes <= self.max_instruction_time_min:
+                raise ValueError(
+                    f"workflow_time_budget_min.{name} must be above 0 and at most max_instruction_time_min "
+                    f"{self.max_instruction_time_min:g}, got {minutes:g}"
+                )
+        return self
+
+
+def workflow_template_names(directory: Path) -> list[str]:
+    """List the workflow template names (file stems) of a template directory.
+
+    Args:
+        directory (Path): Directory holding ``<name>.yaml`` templates.
+
+    Returns:
+        list[str]: Sorted template names; empty when the directory does not exist.
+    """
+    if not directory.is_dir():
+        return []
+    return sorted(path.stem for path in directory.glob(f"*{WORKFLOW_TEMPLATE_SUFFIX}"))
 
 
 def config_path_from_env(env: Mapping[str, str]) -> Path | None:

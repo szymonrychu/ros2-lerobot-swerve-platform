@@ -22,13 +22,17 @@ export async function postPoi(tabId: string, command: PoiCommand, fetchImpl: typ
   }
   try {
     const body = (await resp.json()) as Partial<PoiResult>
-    const raw = body.poi as unknown as { removed?: unknown } | null | undefined
+    const raw = body.poi as unknown as { removed?: unknown; pois?: unknown; photos?: unknown } | null | undefined
     const removed = typeof raw?.removed === 'number' ? raw.removed : undefined
+    const pois = typeof raw?.pois === 'number' ? raw.pois : undefined
+    const photos = typeof raw?.photos === 'number' ? raw.photos : undefined
     return {
       ok: body.ok === true,
       message: String(body.message ?? `HTTP ${resp.status}`),
       poi: body.poi ?? null,
       ...(removed === undefined ? {} : { removed }),
+      ...(pois === undefined ? {} : { pois }),
+      ...(photos === undefined ? {} : { photos }),
     }
   } catch {
     return { ok: false, message: `Unexpected response (HTTP ${resp.status})`, poi: null }

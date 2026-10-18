@@ -1743,6 +1743,10 @@ ros2_nodes:
           type: agent_chat
           label: "Agent"
           agent_url: http://127.0.0.1:18300
+        # Retrospectives of the claude_agent node (read through the agent tab's agent_url).
+        - id: retros
+          type: agent_retros
+          label: Retros
         # Arm tab: gripper + head cameras, arm-glued 3D views and arm control. The gripper camera mount is the
         # one of mcp_server cameras.gripper.mount below (a test pins them equal).
         - id: arm
@@ -1949,6 +1953,18 @@ ros2_nodes:
         image_timeout_s: 5.0
       # mount is the solve_camera_calibration output (parent_frame x y z roll pitch yaw, body frame x fwd / y left / z up).
       # The gripper mount is relative to the URDF link gripper_link of so101_arm.urdf, the front mount to base_link.
+      # Pan/tilt head (head tools, front camera pose): explicit values equal to the defaults. Joint names, topics and the
+      # home pose match the base_servos head group (startup_position_rad) and nodes/web_ui/urdf/head.urdf.
+      head:
+        urdf_path: nodes/web_ui/urdf/head.urdf
+        joint_names: [head_pan, head_tilt]
+        command_topic: /head/joint_commands
+        state_topic: /head/joint_states
+        home_pan_rad: 0.0
+        home_tilt_rad: 0.5236
+        tolerance_rad: 0.03
+        move_timeout_s: 4.0
+        state_max_age_s: 0.5
       cameras:
         calibration_dir: /var/lib/ros2/camera_calibration
         # Mount re-solved 2026-10-08 (afternoon) from 15 views at wrist_roll 0, -0.8, -1.57, -2.3, -2.69 over a steel
@@ -1969,10 +1985,20 @@ ros2_nodes:
             roll: -1.5622
             pitch: 1.1950
             yaw: -1.4466
+        # Front = the head RGB camera (Camera Module 3) on the pan/tilt head: its pose follows the measured head angles
+        # (/head/joint_states). The mount is the head.urdf head_link -> head_camera_link origin. Intrinsics are null
+        # (no calibration exists for this camera), so the camera tools answer 'not calibrated'.
         front:
-          parent_frame: base_link
+          parent_frame: head_link
           intrinsics: null
-          mount: null
+          mount:
+            parent_frame: head_link
+            x: 0.02
+            y: -0.025
+            z: 0.0
+            roll: 0.0
+            pitch: 0.0
+            yaw: 0.0
       # Nav2 goal precision stated in the navigation tool descriptions (nav2_params.yaml goal checker: 0.01 m, 0.035 rad).
       # A goal ends early (cancelled, 'succeeded') within the intermediate tolerances unless the call passes precise=true.
       nav:
@@ -2198,6 +2224,15 @@ ros2_nodes:
         compute_path_timeout_s: 5.0 # plan_frontier_visit Nav2 path check timeout
         look_timeout_s: 20.0 # look_toward_frontier rotation timeout
         look_camera: front # look_toward_frontier default camera (front or gripper)
+      # Survey coverage and the battery stop limit of get_exploration_status / mark_survey_spot (nodes/mcp_server/README.md,
+      # "Exploration status"); every key at its ExplorationSettings default.
+      exploration:
+        survey_radius_m: 2.5 # a survey spot counts the free cells it sees within this range as surveyed
+        rays: 72 # minimum rays cast per survey spot
+        min_unsurveyed_area_m2: 0.5 # smaller unsurveyed pockets are ignored
+        downsample: 2 # coverage grid cell = map resolution x this
+        stop_margin_cell_v: 0.3 # survey stop voltage per cell = battery.cutoff_cell_v + this (stop before the motion cut-off)
+        max_unsurveyed_listed: 10 # largest unsurveyed areas listed
       # Below-surface slow zone of every arm motion (nodes/mcp_server/README.md, "Floor slow zone"): trajectory steps
       # where a jaw tip, the wrist or the elbow is within margin_m of the effective surface (the higher of the robot
       # plane at surface_z_m and the IMU gravity-level plane through base_link) run at slow_speed_scale of their speed.
@@ -2384,8 +2419,9 @@ ros2_nodes:
         max_records: 3000
         # Most total JPEG bytes kept (300 MB).
         max_bytes: 300000000
-        # Oldest photo age kept (days).
-        max_age_days: 14
+        # Photos are map POIs and leave with their map (a map load restores them), so there is no age limit;
+        # max_records and max_bytes guard the disk.
+        max_age_days: null
         # Largest single JPEG an add accepts (5 MB).
         max_image_bytes: 5000000
         # Period of the retention timer (s), so the age limit holds without camera activity.
@@ -2406,6 +2442,8 @@ ros2_nodes:
       # Must equal filter_info_topic of keepout_filter / speed_filter in nav2_params.yaml.
       keepout_info_topic: /costmap_filter_info/keepout
       speed_info_topic: /costmap_filter_info/speed
+      # Keepout-mask value in slow zones (1..99, cost round(v * 254 / 100) = 152): Nav2 detours around them.
+      slow_zone_mask_value: 60
   - name: claude_agent
     node_type: claude_agent
     present: true
@@ -2430,6 +2468,14 @@ ros2_nodes:
       # p_retry_success paired with the next attempt's outcome; survives /api/reset). Past it the oldest half is
       # dropped. At least 100.
       retry_ledger_max_records: 5000
+      # Retrospectives: one structured record per job in <state_dir>/retrospectives/retrospectives.jsonl (survives
+      # /api/reset). retro_max_records bounds the file (oldest half dropped past it, at least 50); retro_feed_count
+      # recent records (0 to 20, 0 disables) are fed to a new instruction, cut at retro_feed_max_chars (at least 200);
+      # retro_followup asks the agent for the retrospective when a job ends.
+      retro_max_records: 500
+      retro_feed_count: 5
+      retro_feed_max_chars: 3000
+      retro_followup: true
       # Job end: an instruction may only end with the arm at home, no control lease held and the plan finished.
       # The runner sends up to job_end_max_followups refusal follow-ups, then parks the arm itself (release_control all).
       job_end_max_followups: 2
@@ -2442,12 +2488,14 @@ ros2_nodes:
       # A warning type interrupts at most once per this many seconds (mcp_server re-emits bump every 2 s on rough floor).
       warning_interrupt_debounce_s: 10
       robot_events_topic: /robot_events
-      # Agent POIs persist across sessions: a new session clears only done/cancelled ones (clear_all clears every one).
-      agent_poi_reset: keep_open
       # One extra "POI REVIEW" turn per instruction that used camera/motion tools and wrote no POI.
       poi_review_followup: true
       # complete_phase flags summary map coordinates with no POI within this radius (m).
       poi_hint_radius_m: 0.5
+      # Read-only skill plugin shipped in the node (Skill tool limited to its skills); "" = the packaged plugin dir.
+      # Equals the code defaults. The plugin dir must not be the workdir or inside it.
+      skills_enabled: true
+      skills_plugin_dir: ""
       http_host: "127.0.0.1"
       http_port: 18300
       mcp_url: http://127.0.0.1:18200/mcp
@@ -2471,6 +2519,13 @@ ros2_nodes:
       # afterwards the declared budget (from the instruction start) applies, at most max_instruction_time_min.
       instruction_timeout_s: 900
       max_instruction_time_min: 120
+      # Time budget (minutes) per workflow template (claude_agent/workflow_templates/), declared by
+      # agent.start_workflow unless the agent passes its own. One key per template, each above 0 and at most
+      # max_instruction_time_min. The discovery budget is also the time limit of the sightseeing skill.
+      workflow_time_budget_min:
+        discovery: 30
+        drive_to_target: 10
+        pick_place: 15
       # Latency: the model gap (median 3.3 s) is mostly output tokens. Explicit medium effort, thinking text not streamed,
       # 1 h prompt cache TTL (idle gaps over 5 min), api_timing events in the session log, and context kept bounded by
       # auto-compaction at 60% of the window (fresh_with_digest starts a new session per instruction instead).
@@ -2496,6 +2551,9 @@ ros2_nodes:
         - go_to_frontier
         - look_toward_frontier
         - approach_for_grasp
+        - set_head_angles
+        - head_look_at
+        - head_home
       uncapped_tools:
         - stop
         - take_control
@@ -2544,6 +2602,8 @@ ros2_nodes:
         - delete_photos
         - list_frontiers
         - plan_frontier_visit
+        - get_exploration_status
+        - mark_survey_spot
         - confirm_grasp
   - name: map_manager
     node_type: map_manager

@@ -6,6 +6,7 @@ slam_toolbox, poi_store and the sensors.
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,11 +14,13 @@ from typing import Any
 
 import numpy as np
 from ros2_common.maps import Pose2D
+from ros2_common.photos import PHOTO_KIND
 from ros2_common.scan_agreement import GridMap
 
 RESOLUTION = 0.05
 LASER_FRAME = "laser_frame"
 POSEGRAPH_SUFFIXES = (".posegraph", ".data")
+DEFAULT_JPEG = b"\xff\xd8jpeg"
 
 
 @dataclass
@@ -154,19 +157,25 @@ class FakeSlam:
 
 @dataclass
 class FakePoi:
-    """poi_store fake.
+    """poi_store fake; the live photos' JPEG bytes are kept in ``files`` (photo id -> bytes).
 
     Attributes:
         log: Shared call log.
-        pois: Live POI set (None: no /poi/list received yet).
+        pois: Live entries incl. photo POIs (None: no /poi/list received yet).
         revision: Live revision.
         replace_ok: replace swaps the set and answers ok.
+        export_ok: export_photos writes the files and answers ok.
+        files: JPEG bytes of the live photos by id (a photo without an entry exports ``DEFAULT_JPEG``).
+        photo_dirs: ``photo_dir`` argument of every replace call.
     """
 
     log: CallLog
     pois: list[dict[str, Any]] | None = field(default_factory=lambda: [{"id": "live-1", "name": "sofa"}])
     revision: int = 3
     replace_ok: bool = True
+    export_ok: bool = True
+    files: dict[str, bytes] = field(default_factory=dict)
+    photo_dirs: list[str | None] = field(default_factory=list)
 
     def latest_list(self) -> tuple[list[dict[str, Any]], int] | None:
         """Live POIs and revision, None before the first list."""
@@ -175,14 +184,45 @@ class FakePoi:
             return None
         return [dict(poi) for poi in self.pois], self.revision
 
-    def replace(self, pois: list[dict[str, Any]]) -> tuple[bool, str]:
-        """Swap the live set when replace_ok."""
+    def export_photos(self, photo_dir: str) -> tuple[bool, str, list[dict[str, Any]]]:
+        """Write ``<id>.jpg`` per live photo and ``index.jsonl`` into photo_dir when export_ok."""
+        self.log.add("poi.export_photos", photo_dir)
+        if not self.export_ok:
+            return False, "export rejected: disk full", []
+        photos = [dict(poi) for poi in self.pois or [] if poi.get("kind") == PHOTO_KIND]
+        target = Path(photo_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        for photo in photos:
+            (target / f"{photo['id']}.jpg").write_bytes(self.files.get(photo["id"], DEFAULT_JPEG))
+        (target / "index.jsonl").write_text("".join(json.dumps(photo) + "\n" for photo in photos))
+        return True, f"exported {len(photos)} photos to {photo_dir}", photos
+
+    def replace(self, pois: list[dict[str, Any]], photo_dir: str | None = None) -> tuple[bool, str, dict[str, Any]]:
+        """Swap the live set when replace_ok; photos not live yet are read from photo_dir (their JPEGs)."""
         self.log.add("poi.replace", [dict(poi) for poi in pois])
+        self.photo_dirs.append(photo_dir)
         if not self.replace_ok:
-            return False, "replace rejected: store write failed"
+            return False, "replace rejected: store write failed", {}
+        old = self.pois or []
+        old_photos = {poi["id"] for poi in old if poi.get("kind") == PHOTO_KIND}
+        new_photos = [poi["id"] for poi in pois if poi.get("kind") == PHOTO_KIND]
+        files: dict[str, bytes] = {}
+        for photo_id in new_photos:
+            source = Path(photo_dir) / f"{photo_id}.jpg" if photo_dir else None
+            if photo_id in old_photos:
+                files[photo_id] = self.files.get(photo_id, DEFAULT_JPEG)
+            elif source is not None and source.is_file():
+                files[photo_id] = source.read_bytes()
+        self.files = files
+        counts = {
+            "removed": len(old) - len(old_photos),
+            "photos_removed": len(old_photos - set(new_photos)),
+            "replaced": len(pois) - len(new_photos),
+            "photos_replaced": len(new_photos),
+        }
         self.pois = [dict(poi) for poi in pois]
         self.revision += 1
-        return True, f"replaced with {len(pois)} POIs"
+        return True, f"replaced with {len(pois)} POIs", counts
 
 
 @dataclass

@@ -1,6 +1,6 @@
 ---
 title: MCP exploration status tool
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent knows when the surroundings are completely mapped and surveyed, and when to stop for the battery."
 files: [nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/perception_models.py, nodes/mcp_server/tests/test_exploration_tools.py, nodes/mcp_server/README.md, nodes/claude_agent/claude_agent/config.py, ansible/group_vars/client.yml]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--mcp-exploration-status-tool
 branch: driving-agent-skills-and-wor--mcp-exploration-status-tool
-verified_head: ""
-run: ""
-provides: []
+verified_head: 5850148e2eec5258bba75a48e66e7b2c119e62a1
+run: driving-agent-skills-and-wor
+provides: [exploration-status]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP exploration status tool
@@ -67,3 +69,7 @@ The agent can mark survey spots and ask whether exploration is complete, with co
 
 - Root `tests/test_claude_agent_config.py` fails if a registered tool is unclassified: classify in the same commit.
 - Battery guard: shared ros2_common.battery.BatteryGuard behind ctx.battery_gate.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

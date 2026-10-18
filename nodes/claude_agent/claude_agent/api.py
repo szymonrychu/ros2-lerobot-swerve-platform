@@ -13,6 +13,7 @@ from ros2_metrics import render_latest
 from . import metrics as metrics  # noqa: PLC0414  (registers the node info and the agent metrics)
 from .config import ClaudeAgentConfig
 from .events import RESET_MARKER, EventLog
+from .retrospectives import Retrospective
 from .retry_ledger import RetryLedger
 from .tools import SUBSYSTEM_DENY_ENTRIES
 
@@ -20,6 +21,8 @@ HISTORY_DEFAULT_LIMIT = 100
 HISTORY_MAX_LIMIT = 500
 RETRY_OUTCOMES_DEFAULT_LIMIT = 1000
 RETRY_OUTCOMES_MAX_LIMIT = 5000
+RETROSPECTIVES_DEFAULT_LIMIT = 50
+RETROSPECTIVES_MAX_LIMIT = 500
 
 
 class RunnerLike(Protocol):
@@ -31,6 +34,8 @@ class RunnerLike(Protocol):
     ledger: RetryLedger
 
     def usage_fields(self) -> dict[str, Any]: ...
+    def retrospectives(self, limit: int, before: float | None = None) -> list[Retrospective]: ...
+    def retrospective_count(self) -> int: ...
 
     async def start_instruction(self, text: str, deny_tools: list[str] | None = None) -> bool: ...
     async def interrupt(self) -> bool: ...
@@ -123,6 +128,15 @@ def create_app(
     ) -> dict[str, Any]:
         records = await asyncio.to_thread(runner.ledger.read, limit)
         return {"records": records, "path_ok": runner.ledger.path_ok}
+
+    @app.get("/api/retrospectives")
+    async def get_retrospectives(
+        limit: int = Query(default=RETROSPECTIVES_DEFAULT_LIMIT, ge=1, le=RETROSPECTIVES_MAX_LIMIT),
+        before: float | None = None,
+    ) -> dict[str, Any]:
+        records = await asyncio.to_thread(runner.retrospectives, limit, before)
+        total = await asyncio.to_thread(runner.retrospective_count)
+        return {"retrospectives": [r.model_dump(mode="json") for r in records], "total": total}
 
     @app.post("/api/message")
     async def post_message(request: Request) -> JSONResponse:

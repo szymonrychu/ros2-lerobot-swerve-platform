@@ -63,3 +63,5 @@ One test fails whenever the head home, ranges, names or topics disagree anywhere
 - Import the mcp_server and web_ui defaults by reading their config modules as the existing root tests do (see `tests/test_mcp_server_config.py`).
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on agent-head-tools-and-prompt, head-in-3d-map-view, mcp-lookups-follow-head-pose
+
+- 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-in-3d-map-view, mcp-lookups-follow-head-pose

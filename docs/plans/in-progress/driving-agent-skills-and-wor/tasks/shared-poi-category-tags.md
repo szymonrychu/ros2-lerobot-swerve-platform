@@ -1,6 +1,6 @@
 ---
 title: Shared POI category tags
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Every node reads and writes the POI categories the same way, without a new schema field."
 files: [shared/ros2_common/poi_categories.py, tests/test_shared_poi_categories.py, shared/README.md, tests/README.md]
@@ -13,10 +13,12 @@ estimate: 50
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--shared-poi-category-tags
-branch: driving-agent-skills-and-wor--shared-poi-category-tags
-verified_head: ""
-run: ""
-provides: []
+branch: worktree branch of driving-agent-skills-and-wor--shared-poi-category-tags
+verified_head: 507f2bf007697c365320f2418c8b4e9311e1a6a5
+run: driving-agent-skills-and-wor
+provides: [poi-category-tags]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Shared POI category tags
@@ -63,3 +65,7 @@ One importable grammar for POI categories that mcp_server, poi_store and claude_
 - poi_store `Poi` has `extra="ignore"`: a new field would be dropped, so categories live in the note (U2).
 - Zones: `zone` none|keepout|slow, area only, active only while status open (poi_store/models.py).
 - Keep pydantic for PoiTags (CLAUDE.md library rule).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

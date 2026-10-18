@@ -1,6 +1,6 @@
 ---
 title: Costmap verify slow cost
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The robot-side verifier proves slow zones are costed but passable and keep-outs still lethal.
 files: [nodes/costmap_zones/costmap_zones/verify.py, nodes/costmap_zones/verify.yaml, nodes/costmap_zones/tests/test_verify.py, nodes/costmap_zones/README.md, nodes/nav2_bringup/config/nav2_params.yaml, nodes/nav2_bringup/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--costmap-verify-slow-cost
 branch: driving-agent-skills-and-wor--costmap-verify-slow-cost
-verified_head: ""
-run: ""
+verified_head: 868bb5849c9d817568957646a0bc21d8c526e8dc
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Costmap verify slow cost

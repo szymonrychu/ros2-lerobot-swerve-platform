@@ -1,7 +1,10 @@
 """JSON-file POI store: add/update/delete semantics, atomic persistence, revision counter. No ROS imports.
 
-Photo POIs (kind "photo") are not kept here: commands on them are dispatched to the PhotoStore, so they never reach
-poi.json, the /poi/list payload or its revision.
+Photo POIs (kind "photo") are kept by the PhotoStore, not in poi.json: commands on them are dispatched there. They are
+POIs of the live map all the same: list_pois()/list_json() (the /poi/list payload) append every photo in POI form after
+the non-photo POIs, and every change of the photo set bumps the revision (persisted in poi.json) like a POI change.
+replace (POIs and photos become exactly the given set, JPEGs imported from photo_dir) and export_photos (JPEGs written to
+photo_dir) are the map bundle contract map_manager uses.
 """
 
 import json
@@ -14,7 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from ros2_common.photos import PHOTO_KIND, PhotoAdd, PhotoSelector, photo_as_poi
+from ros2_common.lookups import LookupRecord
+from ros2_common.photos import PHOTO_KIND, PhotoAdd, PhotoSelector, photo_as_poi, poi_as_record
 
 from .metrics import POI_COMMANDS, POI_COUNT, POI_SAVE_FAILURES
 from .models import ZONE_KEEPOUT, ZONE_SLOW, Command, Poi
@@ -28,11 +32,11 @@ NO_PHOTO_STORE_MESSAGE = "no photo store configured"
 Result = tuple[bool, str, dict[str, Any] | None]
 
 
-def describe_error(exc: ValidationError | TypeError) -> str:
+def describe_error(exc: ValueError | TypeError) -> str:
     """One-line reason of a model validation failure.
 
     Args:
-        exc: The error.
+        exc: The error (a pydantic ValidationError is a ValueError).
 
     Returns:
         str: "field: message; ..." for a ValidationError, else the error text.
@@ -47,7 +51,7 @@ class PoiStore:
 
     Attributes:
         path: JSON file.
-        revision: Incremented on every successful change of the (non-photo) POIs.
+        revision: Incremented on every successful change of the POIs or of the photo set.
         photos: Photo store that photo commands go to; None rejects them.
     """
 
@@ -65,6 +69,7 @@ class PoiStore:
         self.clock = clock
         self.photos = photos
         self.revision = 0
+        self.photos_seen = photos.revision if photos is not None else 0
         self.pois: dict[str, Poi] = {}
         self.load()
         POI_COUNT.set(len(self.pois))
@@ -88,7 +93,21 @@ class PoiStore:
             os.replace(self.path, aside)
 
     def list_pois(self) -> list[dict[str, Any]]:
-        """All POIs in insertion order.
+        """The non-photo POIs in insertion order, then every photo (index order) in POI form.
+
+        Returns:
+            list[dict[str, Any]]: Contract JSON dicts.
+        """
+        photos: list[dict[str, Any]] = []
+        if self.photos is not None:
+            try:
+                photos = [photo_as_poi(rec) for rec in self.photos.records()]
+            except OSError as exc:
+                LOGGER.error("photo index %s cannot be read (%s); /poi/list carries no photos", self.photos.root, exc)
+        return self.stored_pois() + photos
+
+    def stored_pois(self) -> list[dict[str, Any]]:
+        """The non-photo POIs in insertion order (what poi.json holds).
 
         Returns:
             list[dict[str, Any]]: Contract JSON dicts.
@@ -107,13 +126,33 @@ class PoiStore:
         """Write the store atomically (tmp file + os.replace)."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
-        tmp.write_text(json.dumps({"pois": self.list_pois(), "revision": self.revision}))
+        tmp.write_text(json.dumps({"pois": self.stored_pois(), "revision": self.revision}))
         os.replace(tmp, self.path)
 
     def commit(self) -> None:
         """Bump the revision and persist."""
         self.revision += 1
         self.save()
+
+    def photos_changed(self) -> bool:
+        """Bump the revision and persist because the photo set changed outside a command (retention prune).
+
+        A save failure is logged and the revision rolled back.
+
+        Returns:
+            bool: True when the revision moved.
+        """
+        revision_before = self.revision
+        try:
+            self.commit()
+        except OSError as exc:
+            self.revision = revision_before
+            POI_SAVE_FAILURES.inc()
+            LOGGER.error("could not save %s (%s); photo change not recorded in the revision", self.path, exc)
+            return False
+        finally:
+            self.photos_seen = self.photos.revision if self.photos is not None else 0
+        return True
 
     def apply(self, command: Command) -> Result:
         """Execute one command; when persisting fails (OSError) the in-memory change and revision are rolled back.
@@ -126,16 +165,14 @@ class PoiStore:
         """
         pois_before, revision_before = dict(self.pois), self.revision
         try:
-            if command.op == "clear":
-                return self.op_clear(
-                    command.created_by, command.statuses, command.kinds, command.keep_zones, command.ids
-                )
-            if command.op == "replace":
-                assert command.pois is not None  # Command.check_op_arguments
-                return self.op_replace(command.pois)
-            if command.op == "delete_photos":
-                return self.op_delete_photos(command.selector)
-            return getattr(self, "op_" + command.op)(command.poi)
+            result = self.dispatch(command)
+            if (
+                self.photos is not None
+                and self.photos.revision != self.photos_seen
+                and self.revision == revision_before
+            ):
+                self.commit()  # the photo set changed without a POI commit (a POI commit already covers its link strips)
+            return result
         except PhotoStoreError as exc:
             return False, str(exc), None
         except ValidationError as exc:
@@ -146,7 +183,29 @@ class PoiStore:
             LOGGER.error("could not save %s (%s); %s rolled back", self.path, exc, command.op)
             return False, f"could not save POI store {self.path}: {exc}", None
         finally:
+            self.photos_seen = self.photos.revision if self.photos is not None else 0
             POI_COUNT.set(len(self.pois))
+
+    def dispatch(self, command: Command) -> Result:
+        """Run the op of one command.
+
+        Args:
+            command: Parsed command.
+
+        Returns:
+            Result: Result triple.
+        """
+        if command.op == "clear":
+            return self.op_clear(command.created_by, command.statuses, command.kinds, command.keep_zones, command.ids)
+        if command.op == "replace":
+            assert command.pois is not None  # Command.check_op_arguments
+            return self.op_replace(command.pois, command.photo_dir)
+        if command.op == "export_photos":
+            assert command.photo_dir is not None  # Command.check_op_arguments
+            return self.op_export_photos(command.photo_dir, command.ids)
+        if command.op == "delete_photos":
+            return self.op_delete_photos(command.selector)
+        return getattr(self, "op_" + command.op)(command.poi)
 
     def op_add(self, fields: dict[str, Any]) -> Result:
         """Add a POI, assigning id and timestamps when absent.
@@ -363,67 +422,157 @@ class PoiStore:
         keep_zones: bool = False,
         ids: list[str] | None = None,
     ) -> Result:
-        """Delete the POIs matching every given filter and strip them from photo links (photos stay).
+        """Delete the POIs and photos matching every given filter (photos with their JPEGs), strip links.
+
+        Photos are matched by the same filters as other POIs (keep_zones never keeps a photo). The photos go first,
+        in one index rewrite, so a photo store failure leaves the POIs untouched.
 
         Args:
             created_by: "agent" or "user"; None matches every creator.
             statuses: Only POIs whose status is in this list; None matches every status, [] nothing.
-            kinds: Only POIs of these kinds; None matches every kind, [] nothing.
+            kinds: Only POIs of these kinds ("photo" included); None matches every kind, [] nothing.
             keep_zones: True keeps areas whose zone is keepout or slow, any status.
             ids: Only POIs with these ids; None means no id filter, [] nothing; unknown ids are ignored.
 
         Returns:
-            Result: Result triple; the third item is {"removed": count}.
+            Result: Result triple; the third item is {"removed": total, "pois": n, "photos": m}.
         """
         id_filter = None if ids is None else set(ids)
+
+        def matches(poi_id: str, creator: str, status: str, kind: str) -> bool:
+            return (
+                (created_by is None or creator == created_by)
+                and (statuses is None or status in statuses)
+                and (kinds is None or kind in kinds)
+                and (id_filter is None or poi_id in id_filter)
+            )
+
+        doomed_photos: set[str] = set()
+        if self.photos is not None:
+            doomed_photos = {r.id for r in self.photos.records() if matches(r.id, r.created_by, r.status, PHOTO_KIND)}
         doomed = [
             poi_id
             for poi_id, poi in self.pois.items()
-            if (created_by is None or poi.created_by == created_by)
-            and (statuses is None or poi.status in statuses)
-            and (kinds is None or poi.kind in kinds)
-            and (id_filter is None or poi_id in id_filter)
+            if matches(poi_id, poi.created_by, poi.status, poi.kind)
             and not (keep_zones and poi.kind == "area" and poi.zone in (ZONE_KEEPOUT, ZONE_SLOW))
         ]
+        if doomed_photos:
+            assert self.photos is not None  # doomed_photos is empty without a photo store
+            try:
+                with self.photos.lock:
+                    self.photos.remove(doomed_photos)
+            except OSError as exc:
+                return self.photo_failure(exc, "clear")
         for poi_id in doomed:
             del self.pois[poi_id]
         if doomed:
             self.commit()
         for poi_id in doomed:
             self.strip_photo_links(poi_id)
-        return True, f"cleared {len(doomed)}", {"removed": len(doomed)}
+        counts = {"removed": len(doomed) + len(doomed_photos), "pois": len(doomed), "photos": len(doomed_photos)}
+        return True, f"cleared {len(doomed)} POIs and {len(doomed_photos)} photos", counts
 
-    def op_replace(self, entries: list[dict[str, Any]]) -> Result:
-        """Make the non-photo POI set exactly the given POIs (ids and timestamps kept), all or nothing.
+    def op_replace(self, entries: list[dict[str, Any]], photo_dir: str | None = None) -> Result:
+        """Make the POIs and the photos exactly the given set (ids, timestamps and capture data kept), all or nothing.
 
-        Photos stay; links from photos to POI ids no longer present are stripped. The revision moves by one.
+        Every entry is validated first (non-photo entries as Poi, photo entries through poi_as_record; ids unique
+        across both; photo poi_ids name non-photo POIs of the new set). Then the photo store swaps its set
+        (PhotoStore.replace_all: photos absent from the set are deleted with their JPEGs, JPEGs of photos not yet
+        stored come from photo_dir), then the non-photo POIs are swapped and committed once. pois [] empties both.
 
         Args:
-            entries: POI dicts, each with a valid id; no duplicates, no photo kind.
+            entries: POI dicts (photos in POI form), each with a valid id.
+            photo_dir: Absolute directory holding the JPEGs of photos not yet in the photo store; None for none.
 
         Returns:
-            Result: Result triple; the third item is {"replaced": new count, "removed": old count}.
+            Result: Result triple; the third item is {"replaced": new POI count, "removed": old POI count,
+                "photos_replaced": new photo count, "photos_removed": photos deleted}.
         """
         new: dict[str, Poi] = {}
+        records: list[tuple[int, LookupRecord]] = []
+        seen: set[str] = set()
         for index, fields in enumerate(entries):
-            if fields.get("kind") == PHOTO_KIND:
-                return False, f"pois[{index}]: photos are never part of a replace", None
             try:
-                poi = Poi(**fields)
-            except (ValidationError, TypeError) as exc:
+                if fields.get("kind") == PHOTO_KIND:
+                    if self.photos is None:
+                        return False, NO_PHOTO_STORE_MESSAGE, None
+                    rec = poi_as_record(fields)
+                    entry_id = rec.id
+                    records.append((index, rec))
+                else:
+                    poi = Poi(**fields)
+                    if not poi.id:
+                        return False, f"pois[{index}]: {MISSING_ID_MESSAGE}", None
+                    entry_id = poi.id
+                    new[poi.id] = poi
+            except (ValueError, TypeError) as exc:
                 return False, f"pois[{index}]: {describe_error(exc)}", None
-            if not poi.id:
-                return False, f"pois[{index}]: {MISSING_ID_MESSAGE}", None
-            if poi.id in new:
-                return False, f"pois[{index}]: duplicate id {poi.id}", None
-            new[poi.id] = poi
-        removed_ids = [poi_id for poi_id in self.pois if poi_id not in new]
-        removed = len(self.pois)
+            if entry_id in seen:
+                return False, f"pois[{index}]: duplicate id {entry_id}", None
+            seen.add(entry_id)
+        for index, rec in records:
+            for linked in rec.poi_ids:
+                if linked not in new:
+                    reason = "is a photo; photos link only to non-photo POIs" if linked in seen else "is not in the set"
+                    return False, f"pois[{index}]: poi_ids: {linked} {reason}", None
+        photo_counts = (0, 0)
+        if self.photos is not None:
+            try:
+                photo_counts = self.photos.replace_all(
+                    [rec for _, rec in records], Path(photo_dir) if photo_dir else None
+                )
+            except OSError as exc:
+                return self.photo_failure(exc, "replace")
+        photos_now, photos_removed = photo_counts
+        pois_before, revision_before = self.pois, self.revision
         self.pois = new
-        self.commit()
-        for poi_id in removed_ids:
-            self.strip_photo_links(poi_id)
-        return True, f"replaced {len(new)}", {"replaced": len(new), "removed": removed}
+        try:
+            self.commit()
+        except OSError as exc:
+            self.pois, self.revision = pois_before, revision_before
+            self.photos_seen = self.photos.revision if self.photos is not None else 0  # no second commit attempt
+            POI_SAVE_FAILURES.inc()
+            LOGGER.error(
+                "could not save %s (%s); replace rolled back the POIs, the photos already match", self.path, exc
+            )
+            return (
+                False,
+                f"could not save POI store {self.path}: {exc}; POIs rolled back, the photo set already matches the "
+                f"request ({photos_now} photos, {photos_removed} removed)",
+                None,
+            )
+        counts = {
+            "replaced": len(new),
+            "removed": len(pois_before),
+            "photos_replaced": photos_now,
+            "photos_removed": photos_removed,
+        }
+        message = (
+            f"replaced with {len(new)} POIs and {photos_now} photos "
+            f"(removed {len(pois_before)} POIs and {photos_removed} photos)"
+        )
+        return True, message, counts
+
+    def op_export_photos(self, photo_dir: str, ids: list[str] | None = None) -> Result:
+        """Write the photos' JPEGs (hard links, copy fallback) and an index.jsonl into a directory; no store change.
+
+        Args:
+            photo_dir: Absolute target directory (created when missing).
+            ids: Only these photo ids; None exports every photo.
+
+        Returns:
+            Result: Result triple; the third item is {"photos": [photo POI dicts], "exported": n}.
+        """
+        if self.photos is None:
+            return False, NO_PHOTO_STORE_MESSAGE, None
+        dest = Path(photo_dir)
+        try:
+            exported = self.photos.export(dest, None if ids is None else set(ids))
+        except OSError as exc:
+            LOGGER.error("could not export photos to %s (%s)", dest, exc)
+            return False, f"could not export photos to {dest}: {exc}", None
+        photos = [photo_as_poi(rec) for rec in exported]
+        return True, f"exported {len(photos)} photos to {dest}", {"photos": photos, "exported": len(photos)}
 
     def handle_message(self, raw: str) -> str:
         """Process one /poi/command payload.

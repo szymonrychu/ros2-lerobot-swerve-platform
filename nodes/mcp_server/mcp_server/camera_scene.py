@@ -1,13 +1,17 @@
 """Camera scene geometry for the pixel -> ground tools: calibrated setup, reference frames, ground reports.
 
-Reference frames (documented in the README): the fixed front camera works in ``base_link`` (x forward, y left, z up,
+Reference frames (documented in the README): the front camera works in ``base_link`` (x forward, y left, z up,
 z = 0 is the floor); the gripper camera works in the arm base frame (URDF ``base_link`` of the arm, z = 0 on the arm
 mount plane, the floor at ``arm.floor_z_m`` < 0). When ``arm.base_in_base_link`` is configured both frames convert.
+
+The front camera is the head RGB camera and moves with the pan/tilt head: its parent (``cameras.front.parent_frame``,
+default ``head_link``) is a link of the head URDF, posed in base_link from the measured ``head_pan`` / ``head_tilt``
+angles (``HeadKinematics.link_pose``), just as the gripper camera's parent is posed from the measured arm joints.
 """
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 from ros2_common.camera_geometry import (
@@ -18,7 +22,8 @@ from ros2_common.camera_geometry import (
 )
 from ros2_common.camera_geometry import pixel_to_ground as geometry_pixel_to_ground
 
-from .config import ArmBaseOffset, IntrinsicsSettings, McpServerConfig
+from .config import ArmBaseOffset, HeadSettings, IntrinsicsSettings, McpServerConfig
+from .head_kinematics import HeadKinematics
 from .ik import ArmKinematics
 from .models import BasePose
 
@@ -31,6 +36,17 @@ GROUND_METHOD = (
     "pinhole ray through the pixel intersected with the horizontal plane at floor + surface_height_m (camera_geometry)"
 )
 APPROX_NOTE = "approximate intrinsics (hfov only: square pixels, centred principal point, no distortion)"
+
+
+class MeasuredHead(Protocol):
+    """The pan/tilt head as the camera scene needs it (head.HeadController; a Protocol to avoid an import cycle)."""
+
+    kinematics: HeadKinematics
+    settings: HeadSettings
+
+    def measured(self) -> dict[str, float] | None:
+        """Measured head angles from a fresh sample (joint name -> rad), None when missing or stale."""
+        ...
 
 
 class CameraNotCalibratedError(ValueError):
@@ -158,22 +174,54 @@ def offset_matrix(offset: ArmBaseOffset) -> np.ndarray:
     return t
 
 
+def head_parent_transform(cfg: McpServerConfig, head: MeasuredHead | None) -> np.ndarray:
+    """T_base_link_parent of the front (head) camera at the measured head angles.
+
+    Args:
+        cfg (McpServerConfig): Node configuration (cameras.front.parent_frame, head settings).
+        head (MeasuredHead | None): Pan/tilt head with its kinematics and measured /head/joint_states.
+
+    Returns:
+        np.ndarray: 4x4 pose of cameras.front.parent_frame in base_link.
+
+    Raises:
+        ValueError: When there is no head or its joint states are missing or stale (never an identity fallback).
+    """
+    angles = None if head is None else head.measured()
+    if head is None or angles is None:
+        raise ValueError(
+            f"the front camera pose needs fresh head joint states ({cfg.head.state_topic}): the head camera moves "
+            "with the pan/tilt head and its joint states are missing or stale"
+        )
+    pan, tilt = (angles[name] for name in head.settings.joint_names)
+    return head.kinematics.link_pose(pan, tilt, str(cfg.cameras.front.parent_frame))
+
+
 def parent_transform(
-    cfg: McpServerConfig, camera: str, kin: ArmKinematics, joints: dict[str, float] | None
+    cfg: McpServerConfig,
+    camera: str,
+    kin: ArmKinematics,
+    joints: dict[str, float] | None,
+    head: MeasuredHead | None = None,
 ) -> np.ndarray:
     """T_reference_parent: the camera's parent link in its reference frame at this moment.
 
     Args:
         cfg (McpServerConfig): Node configuration.
-        camera (str): 'gripper' (parent link pose from the measured joints) or 'front' (identity: base_link).
+        camera (str): 'gripper' (parent link pose from the measured arm joints) or 'front' (head link pose in
+            base_link from the measured head angles).
         kin (ArmKinematics): Arm kinematics on the URDF.
         joints (dict[str, float] | None): Measured arm joints (required for the gripper camera).
+        head (MeasuredHead | None): Pan/tilt head with fresh joint states (required for the front camera).
 
     Returns:
         np.ndarray: 4x4 transform.
+
+    Raises:
+        ValueError: When the needed arm joints or head joint states are missing or stale.
     """
     if camera == "front":
-        return np.eye(4)
+        return head_parent_transform(cfg, head)
     if joints is None:
         raise ValueError("the gripper camera pose needs the measured arm joint positions")
     return kin.link_frame(joints, str(cfg.cameras.gripper.parent_frame))

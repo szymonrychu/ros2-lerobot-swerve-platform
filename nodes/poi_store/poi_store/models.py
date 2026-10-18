@@ -1,6 +1,7 @@
 """Pydantic models of the POI contract (map frame) and of the /poi/command messages."""
 
 import re
+from pathlib import PurePath
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -154,36 +155,57 @@ class Command(BaseModel):
     """A /poi/command message.
 
     Attributes:
-        op: "add", "update", "delete", "clear", "replace" or "delete_photos".
+        op: "add", "update", "delete", "clear", "replace", "delete_photos" or "export_photos".
         request_id: Echoed in /poi/result.
         poi: add: the POI (kind "photo": a PhotoAdd payload plus kind); update: id plus changed fields; delete: id;
-            clear and delete_photos: unused.
-        created_by: clear: only delete POIs created by this creator ("agent" or "user"; None: every creator);
-            photos are never cleared.
+            other ops: unused.
+        created_by: clear: only delete POIs created by this creator ("agent" or "user"; None: every creator); photos match by
+            their own created_by.
         statuses: clear: only delete POIs whose status is in this list (None: every status; empty list: nothing).
-        kinds: clear: only delete POIs of these kinds (None: every kind; empty list: nothing).
+        kinds: clear: only delete POIs of these kinds, "photo" included (None: every kind; empty list: nothing).
         keep_zones: clear: keep areas whose zone is "keepout" or "slow" (any status).
-        ids: clear: only delete POIs with these ids (None: no id filter; empty list: nothing; unknown ids ignored).
-        pois: replace: the complete new set of non-photo POIs (each with a valid id); ignored by other ops.
+        ids: clear: only delete POIs with these ids (None: no id filter; empty list: nothing; unknown ids ignored);
+            export_photos: only export these photo ids (None: every photo).
+        pois: replace: the complete new set of POIs and photos (each with a valid id; photos in the POI form /poi/list
+            and export_photos give them); ignored by other ops.
         selector: delete_photos: which photos (exactly one of ids, older_than_s, keep_newest; optional dry_run).
+        photo_dir: Absolute directory path. replace: where the JPEGs of photos not yet in the photo store are imported
+            from (None: only photos already stored); export_photos (required): where the JPEGs and an index.jsonl are
+            written.
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    op: Literal["add", "update", "delete", "clear", "replace", "delete_photos"]
+    op: Literal["add", "update", "delete", "clear", "replace", "delete_photos", "export_photos"]
     request_id: str = ""
     poi: dict[str, Any] = Field(default_factory=dict)
     created_by: Literal["agent", "user"] | None = None
     statuses: list[Literal["open", "done", "cancelled"]] | None = None
-    kinds: list[Literal["point", "area", "object"]] | None = None
+    kinds: list[Literal["point", "area", "object", "photo"]] | None = None
     keep_zones: bool = False
     ids: list[str] | None = None
     pois: list[dict[str, Any]] | None = None
     selector: PhotoSelector | None = None
+    photo_dir: str | None = None
+
+    @field_validator("photo_dir")
+    @classmethod
+    def check_photo_dir(_cls, value: str | None) -> str | None:
+        """Refuse a relative photo directory (poi_store and map_manager run with different working directories).
+
+        Args:
+            value: Candidate path or None.
+
+        Returns:
+            str | None: The path.
+        """
+        if value is not None and not PurePath(value).is_absolute():
+            raise ValueError(f"photo_dir must be an absolute path, got {value!r}")
+        return value
 
     @model_validator(mode="after")
     def check_op_arguments(self) -> "Command":
-        """Require selector for the delete_photos op and pois for the replace op.
+        """Require selector for delete_photos, pois for replace and photo_dir for export_photos.
 
         Returns:
             Command: Self.
@@ -192,4 +214,6 @@ class Command(BaseModel):
             raise ValueError("delete_photos needs selector (one of ids, older_than_s, keep_newest)")
         if self.op == "replace" and self.pois is None:
             raise ValueError("replace needs pois (the list of POIs that becomes the whole set)")
+        if self.op == "export_photos" and self.photo_dir is None:
+            raise ValueError("export_photos needs photo_dir (the absolute directory the photos are written to)")
         return self

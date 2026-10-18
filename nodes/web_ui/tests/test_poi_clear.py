@@ -21,6 +21,8 @@ RESULT = {"request_id": "x", "ok": True, "message": "cleared", "poi": {"removed"
         {"created_by": "user"},
         {"created_by": None},
         {"kinds": ["point", "object"]},
+        {"kinds": ["photo"]},
+        {"kinds": ["point", "photo"]},
         {"statuses": ["done", "cancelled"]},
         {"keep_zones": True},
         {"ids": ["a", "b"]},
@@ -40,7 +42,6 @@ def test_clear_forwards_only_given_fields(tmp_path: Path, extra: dict[str, Any])
         {"created_by": "robot"},
         {"created_by": 1},
         {"kinds": "point"},
-        {"kinds": ["photo"]},
         {"statuses": ["closed"]},
         {"statuses": "open"},
         {"keep_zones": "yes"},
@@ -88,3 +89,12 @@ def test_clear_not_battery_guarded(tmp_path: Path) -> None:
 def test_unknown_op_message_lists_clear(tmp_path: Path) -> None:
     resp = make_client(tmp_path, FakeBridge(RESULT)).post("/api/poi?tab=map", json={"op": "explode"})
     assert resp.status_code == 422 and "clear" in resp.json()["message"]
+
+
+def test_clear_photo_kind_returns_counts(tmp_path: Path) -> None:
+    result = {"request_id": "x", "ok": True, "message": "cleared", "poi": {"removed": 5, "pois": 3, "photos": 2}}
+    bridge = FakeBridge(result)
+    resp = make_client(tmp_path, bridge).post("/api/poi?tab=map", json={"op": "clear", "kinds": ["photo"]})
+    assert resp.status_code == 200
+    assert resp.json()["poi"] == {"removed": 5, "pois": 3, "photos": 2}
+    assert bridge.payloads == [{"op": "clear", "kinds": ["photo"]}]

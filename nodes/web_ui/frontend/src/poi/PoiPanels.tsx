@@ -1,8 +1,10 @@
 /** MUI panels of the POI feature: the collapsible list (click to focus) and the editor of the selected POI. */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
+import Chip from '@mui/material/Chip'
 import Button from '@mui/material/Button'
 import List from '@mui/material/List'
+import Checkbox from '@mui/material/Checkbox'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
 import MenuItem from '@mui/material/MenuItem'
@@ -17,9 +19,14 @@ import { StatusItem } from '../components/StatusItem'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { MONO_FONT, TOUCH_TARGET_PX } from '../theme'
+import type { Photo } from '../photos/api'
 import { ClearPoisDialog } from './ClearPoisDialog'
+import { DeleteMarkedDialog } from './DeleteMarkedDialog'
+import { PoiListToolbar } from './PoiListToolbar'
+import { filterPois, markAllVisible, poiCategory, pruneMarked, toggleMarked } from './selection'
+import { CATEGORY_LABELS, parsePoiTags, stripPoiTags } from './categories'
 import { zonePctError, zoneUpdateCommand } from './editor'
-import { formatUpdated, objectDetails, sortPois } from './style'
+import { CATEGORY_COLORS, formatUpdated, objectDetails, sortPois } from './style'
 import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, POI_ZONES, PoiCommand, PoiResult, PoiStatus, PoiZone, ZONE_PCT_MAX, ZONE_PCT_MIN } from './types'
 
 /** Fraction of a text limit from which the character counter is shown. */
@@ -37,9 +44,43 @@ function counterText(length: number, max: number): string | undefined {
   return length >= max * COUNTER_FROM ? `${length}/${max}` : undefined
 }
 
+/** Category chip (label, colour), problem type and survey marker read from the tag line of a POI note; renders nothing for an untagged note. */
+export function PoiCategoryBadges({ note }: { note: string }) {
+  const tags = parsePoiTags(note)
+  if (!tags.category && !tags.survey && !tags.surveySpot) return null
+  return (
+    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+      {tags.category && (
+        <Chip
+          size="small"
+          label={CATEGORY_LABELS[tags.category]}
+          data-testid="poi-category-chip"
+          sx={{ bgcolor: CATEGORY_COLORS[tags.category], color: (t) => t.palette.getContrastText(CATEGORY_COLORS[tags.category!]) }}
+        />
+      )}
+      {tags.problemType && (
+        <Typography variant="caption" data-testid="poi-problem-type">
+          {tags.problemType}
+        </Typography>
+      )}
+      {(tags.survey || tags.surveySpot) && (
+        <Chip
+          size="small"
+          variant="outlined"
+          label={tags.surveySpot ? 'survey spot' : 'survey'}
+          data-testid="poi-survey-marker"
+        />
+      )}
+    </Stack>
+  )
+}
+
+const NO_PHOTOS: Photo[] = []
+
 /** Collapsible list of all POIs; a row click selects the POI and centres the view on it. */
 export function PoiListPanel({
   pois,
+  photos = NO_PHOTOS,
   selectedId,
   open,
   onToggle,
@@ -48,6 +89,8 @@ export function PoiListPanel({
   onChooseIndividually,
 }: {
   pois: Poi[]
+  /** Photos of the map, counted by the Clear POIs dialog. */
+  photos?: Photo[]
   selectedId: string | null
   open: boolean
   onToggle: () => void
@@ -58,6 +101,33 @@ export function PoiListPanel({
   onChooseIndividually?: () => void
 }) {
   const [clearOpen, setClearOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const [filter, setFilter] = useState<ReadonlySet<string>>(new Set())
+  const [marked, setMarked] = useState<ReadonlySet<string>>(new Set())
+  const visible = useMemo(() => filterPois(pois, filter), [pois, filter])
+  // Photo POIs have no category: they are listed (and markable) while no category filter is active.
+  const visiblePhotos = filter.size === 0 ? photos : NO_PHOTOS
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {}
+    for (const p of pois) c[poiCategory(p)] = (c[poiCategory(p)] ?? 0) + 1
+    return c
+  }, [pois])
+  // A POI deleted elsewhere (or hidden by the filter) loses its mark.
+  useEffect(() => {
+    setMarked((m) => {
+      const ids = new Set(visiblePhotos.map((p) => p.id))
+      const next = new Set([...pruneMarked(m, visible), ...[...m].filter((id) => ids.has(id))])
+      return next.size === m.size ? m : next
+    })
+  }, [visible, visiblePhotos])
+  const toggleCategory = (category: string) => {
+    setFilter((f) => {
+      const next = new Set(f)
+      if (!next.delete(category)) next.add(category)
+      return next
+    })
+  }
   const now = Date.now() / 1000
   if (!open) {
     return (
@@ -101,14 +171,32 @@ export function PoiListPanel({
       }
     >
       <Box data-testid="poi-list-panel">
+        <Box ref={toolbarRef} tabIndex={-1} sx={{ outline: 'none' }}>
+        <PoiListToolbar
+          counts={counts}
+          selected={filter}
+          markedCount={marked.size}
+          onToggleCategory={toggleCategory}
+          onMarkAllVisible={() => setMarked(new Set([...markAllVisible(visible), ...visiblePhotos.map((p) => p.id)]))}
+          onClearMarks={() => setMarked(new Set())}
+        />
+        </Box>
         <List dense disablePadding sx={{ maxHeight: { xs: '28dvh', sm: '40dvh' }, overflowY: 'auto' }}>
-          {pois.length === 0 && (
+          {pois.length === 0 && visiblePhotos.length === 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ pb: 1 }}>
               No points of interest yet.
             </Typography>
           )}
-          {sortPois(pois).map((p) => (
+          {sortPois(visible).map((p) => (
             <ListItemButton key={p.id} selected={p.id === selectedId} onClick={() => onFocus(p)} sx={{ minHeight: (t) => t.spacing(6) }}>
+              <Checkbox
+                size="small"
+                edge="start"
+                checked={marked.has(p.id)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => setMarked((m) => toggleMarked(m, p.id))}
+                slotProps={{ input: { 'aria-label': `Mark ${p.name || '(unnamed)'}` } }}
+              />
               <ListItemText
                 primary={p.name || '(unnamed)'}
                 secondary={
@@ -120,8 +208,27 @@ export function PoiListPanel({
                 secondaryTypographyProps={{ noWrap: true }}
               />
               <Box sx={{ ml: 1 }}>
+                <PoiCategoryBadges note={p.note} />
                 <StatusItem label="" value={p.status} marked={p.status === 'open'} />
               </Box>
+            </ListItemButton>
+          ))}
+          {visiblePhotos.map((ph) => (
+            <ListItemButton key={ph.id} sx={{ minHeight: (t) => t.spacing(6) }} data-testid="poi-photo-row">
+              <Checkbox
+                size="small"
+                edge="start"
+                checked={marked.has(ph.id)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => setMarked((m) => toggleMarked(m, ph.id))}
+                slotProps={{ input: { 'aria-label': `Mark ${ph.name || '(unnamed)'}` } }}
+              />
+              <ListItemText
+                primary={ph.name || '(unnamed)'}
+                secondary={`photo - ${ph.createdBy ?? 'unknown'} - ${formatUpdated(ph.ts, now)}`}
+                primaryTypographyProps={{ noWrap: true }}
+                secondaryTypographyProps={{ noWrap: true }}
+              />
             </ListItemButton>
           ))}
         </List>
@@ -130,13 +237,30 @@ export function PoiListPanel({
             <Button size="small" color="error" onClick={() => setClearOpen(true)} sx={{ mt: 0.5 }}>
               Clear POIs
             </Button>
+            <Button size="small" color="error" disabled={marked.size === 0} onClick={() => setDeleteOpen(true)} sx={{ mt: 0.5 }}>
+              Delete marked ({marked.size})
+            </Button>
             <ClearPoisDialog
               open={clearOpen}
               tabId={tabId}
               pois={pois}
+              photos={photos}
               onClose={() => setClearOpen(false)}
-              onChooseIndividually={onChooseIndividually}
+              onChooseIndividually={() => {
+                toolbarRef.current?.focus()
+                onChooseIndividually?.()
+              }}
             />
+            {deleteOpen && (
+              <DeleteMarkedDialog
+                tabId={tabId}
+                pois={pois}
+                photos={photos}
+                marked={marked}
+                onDone={() => setMarked(new Set())}
+                onClose={() => setDeleteOpen(false)}
+              />
+            )}
           </>
         )}
       </Box>
@@ -205,6 +329,12 @@ export function PoiEditorPanel({
       data-testid="poi-editor"
     >
       <Stack spacing={1} sx={{ mt: 0.5 }}>
+        <PoiCategoryBadges note={poi.note} />
+        {stripPoiTags(poi.note) && (
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }} data-testid="poi-note-text">
+            {stripPoiTags(poi.note)}
+          </Typography>
+        )}
         <TextField
           label="Name"
           size="small"

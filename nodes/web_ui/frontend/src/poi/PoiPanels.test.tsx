@@ -7,6 +7,7 @@ import { PoiEditorPanel, PoiListPanel } from './PoiPanels'
 import { designViolations, SOURCES } from '../layout/designRules'
 import { POI_NAME_MAX } from './types'
 import type { Poi } from './types'
+import type { Photo } from '../photos/api'
 
 let viewportWidth = 1400
 
@@ -164,5 +165,38 @@ describe('Clear POIs button', () => {
     renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} tabId="map" />)
     fireEvent.click(screen.getByRole('button', { name: 'Clear POIs' }))
     expect(screen.getByTestId('clear-pois-preview').textContent).toContain('1')
+  })
+})
+
+describe('Clear POIs dialog photos', () => {
+  it('counts the photos handed to the list panel in the clear preview', () => {
+    viewportWidth = 1400
+    const photo = { id: 'f1', createdBy: 'agent', x: 1, y: 2 } as unknown as Photo
+    renderWithTheme(<PoiListPanel pois={[POI]} photos={[photo, { ...photo, id: 'f2' }]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} tabId="map" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear POIs' }))
+    expect(screen.getByTestId('clear-pois-preview').textContent).toBe('Removes 1 POIs and 2 photos')
+  })
+})
+
+describe('POI categories', () => {
+  const tagged = (note: string): Poi => ({ ...POI, note })
+
+  it('list row shows the category chip, problem type and survey marker', () => {
+    renderWithTheme(<PoiListPanel pois={[tagged('#problem/window #survey-spot\nglass')]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
+    expect(screen.getByTestId('poi-category-chip').textContent).toBe('Problem')
+    expect(screen.getByTestId('poi-problem-type').textContent).toBe('window')
+    expect(screen.getByTestId('poi-survey-marker')).toBeTruthy()
+  })
+  it('list row without tags has no chip', () => {
+    renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
+    expect(screen.queryByTestId('poi-category-chip')).toBeNull()
+    expect(screen.queryByTestId('poi-survey-marker')).toBeNull()
+  })
+  it('editor shows chip and survey marker, text view without the tag line, field keeps the full note', () => {
+    renderWithTheme(<PoiEditorPanel poi={tagged('#keepout #survey\nstairs below')} busy={false} onClose={vi.fn()} onSend={vi.fn()} />)
+    expect(screen.getByTestId('poi-category-chip').textContent).toBe('Keep-out')
+    expect(screen.getByTestId('poi-survey-marker')).toBeTruthy()
+    expect(screen.getByTestId('poi-note-text').textContent).toBe('stairs below')
+    expect((screen.getByLabelText('Note') as HTMLTextAreaElement).value).toBe('#keepout #survey\nstairs below')
   })
 })

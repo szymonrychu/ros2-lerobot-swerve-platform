@@ -1,6 +1,6 @@
 ---
 title: MCP exploration coverage
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: mcp_server can tell how much of the reachable space has been surveyed and where the gaps are.
 files: [nodes/mcp_server/mcp_server/exploration.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/test_exploration.py, nodes/mcp_server/tests/test_config.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--mcp-exploration-coverage
 branch: driving-agent-skills-and-wor--mcp-exploration-coverage
-verified_head: ""
-run: ""
-provides: []
+verified_head: 3afdc710fe3fb9836874365da3d5029c0c6157a4
+run: driving-agent-skills-and-wor
+provides: [exploration-coverage]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP exploration coverage
@@ -60,3 +62,7 @@ A tested coverage computation the exploration-status tool calls.
 
 - Documentation of the settings lands with the tool (mcp-exploration-status-tool README AC).
 - Grid conventions: frontiers.py (row = y index, UNKNOWN -1, FREE 0, OCCUPIED 100).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

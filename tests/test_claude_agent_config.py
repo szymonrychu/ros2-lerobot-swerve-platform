@@ -6,9 +6,11 @@ CLAUDE_CODE_OAUTH_TOKEN into a 0600 EnvironmentFile and never enters git, logs o
 """
 
 import ast
+import importlib
 import importlib.util
 import re
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -163,10 +165,16 @@ def load_agent_config_module():
     Returns:
         module: The config module.
     """
-    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    package_dir = NODE_DIR / "claude_agent"
+    package = sys.modules.get("claude_agent")
+    if package is None or Path(getattr(package, "__file__", "") or "").parent != package_dir:
+        spec = importlib.util.spec_from_file_location(
+            "claude_agent", package_dir / "__init__.py", submodule_search_locations=[str(package_dir)]
+        )
+        package = importlib.util.module_from_spec(spec)
+        sys.modules["claude_agent"] = package
+        spec.loader.exec_module(package)
+    return importlib.import_module("claude_agent.config")
 
 
 def test_claude_agent_node_type_defaults() -> None:
@@ -316,7 +324,7 @@ def test_round2_tools_classified_in_group_vars_and_defaults() -> None:
 
 
 FRONTIER_EFFECTORS = {"go_to_frontier", "look_toward_frontier"}
-FRONTIER_SENSORS = {"list_frontiers", "plan_frontier_visit"}
+FRONTIER_SENSORS = {"list_frontiers", "plan_frontier_visit", "get_exploration_status", "mark_survey_spot"}
 
 
 def test_frontier_tools_classified_in_group_vars_and_defaults() -> None:
@@ -656,9 +664,18 @@ def test_claude_agent_config_pins_poi_behaviour() -> None:
     """The robot runs the POI behaviour of design D8a/c/d by explicit config, not by code defaults."""
     pytest.importorskip("pydantic")
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
-    assert raw["agent_poi_reset"] == "keep_open"
+    assert "agent_poi_reset" not in raw
     assert raw["poi_review_followup"] is True
     assert raw["poi_hint_radius_m"] == 0.5
+    load_agent_config_module().ClaudeAgentConfig.model_validate(raw)
+
+
+def test_claude_agent_config_pins_skills() -> None:
+    """client.yml sets the skill keys explicitly, equal to the code defaults."""
+    pytest.importorskip("pydantic")
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    assert raw["skills_enabled"] is True
+    assert raw["skills_plugin_dir"] == ""
     load_agent_config_module().ClaudeAgentConfig.model_validate(raw)
 
 

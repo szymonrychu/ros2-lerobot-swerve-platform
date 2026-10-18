@@ -124,7 +124,7 @@ def test_photos_summary_published_latched_after_initial_load(node_module: Module
     assert len(pub.sent) == 1
     summary = json.loads(pub.sent[0])
     assert summary["count"] == 0 and summary["bytes"] == 0 and summary["oldest_ts"] is None
-    assert summary["limits"] == {"max_records": 3000, "max_bytes": 300_000_000, "max_age_days": 14.0}
+    assert summary["limits"] == {"max_records": 3000, "max_bytes": 300_000_000, "max_age_days": None}
 
 
 def test_custom_summary_topic(node_module: ModuleType, tmp_path: Path) -> None:
@@ -150,7 +150,7 @@ def test_unreadable_photo_index_publishes_nothing(node_module: ModuleType, tmp_p
     assert "cannot be read" in node.logger.error.call_args.args[0]
 
 
-def test_photo_add_republishes_summary_not_list(node_module: ModuleType, tmp_path: Path) -> None:
+def test_photo_add_republishes_summary_and_list(node_module: ModuleType, tmp_path: Path) -> None:
     photo_dir = tmp_path / "photos"
     photo_dir.mkdir()
     node = run(node_module, make_config(tmp_path))
@@ -162,7 +162,9 @@ def test_photo_add_republishes_summary_not_list(node_module: ModuleType, tmp_pat
     photos_sent = node.publishers["/poi/photos"].sent
     assert len(photos_sent) == 2
     assert json.loads(photos_sent[-1])["count"] == 1
-    assert node.publishers["/poi/list"].sent == list_before
+    list_sent = node.publishers["/poi/list"].sent
+    assert len(list_sent) == len(list_before) + 1
+    assert json.loads(list_sent[-1])["pois"][0]["kind"] == "photo"
     result = json.loads(node.publishers["/poi/result"].sent[-1])
     assert result["ok"] and result["poi"]["kind"] == "photo"
 

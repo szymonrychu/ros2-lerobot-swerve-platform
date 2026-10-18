@@ -10,7 +10,7 @@ import type { MapStatus } from '../types'
 const POSE = { x: 1, y: 2, yaw: 0.5 }
 const STATUS: MapStatus = {
   maps: [
-    { name: 'lab', saved_at: 1700000000, note: '', poi_count: 3, last_pose: POSE, valid: true, error: '' },
+    { name: 'lab', saved_at: 1700000000, note: '', poi_count: 3, photo_count: 2, last_pose: POSE, valid: true, error: '' },
     { name: 'broken', saved_at: 1700000100, note: '', poi_count: 0, last_pose: POSE, valid: false, error: 'bundle checksum mismatch' },
   ],
   active_map: 'lab',
@@ -55,6 +55,17 @@ describe('MapsDialog list', () => {
     expect(within(broken).getByRole('button', { name: 'Delete broken' })).toBeTruthy()
   })
 
+  it('shows the photo count, and 0 photos for an old summary without it', () => {
+    renderDialog()
+    expect(screen.getByText('lab').closest('li')!.textContent).toContain('3 POIs, 2 photos')
+    expect(screen.getByText('broken').closest('li')!.textContent).not.toContain('photos')
+    renderDialog({
+      ...STATUS,
+      maps: [{ name: 'old', saved_at: 1700000000, note: '', poi_count: 4, last_pose: POSE, valid: true, error: '' }],
+    })
+    expect(screen.getByText('old').closest('li')!.textContent).toContain('4 POIs, 0 photos')
+  })
+
   it('says so when there are no saved maps', () => {
     renderDialog({ ...STATUS, maps: [] })
     expect(screen.getByText('No saved maps')).toBeTruthy()
@@ -81,12 +92,30 @@ describe('MapsDialog load and delete', () => {
     renderDialog()
     fireEvent.click(screen.getByRole('button', { name: 'Delete lab' }))
     const confirm = topDialog()
-    expect(confirm.textContent).toContain('Delete lab and its 3 POIs?')
+    expect(confirm.textContent).toContain('Delete lab and its 3 POIs and 2 photos?')
+    expect(confirm.textContent).toContain("map's POIs and photos are deleted with it")
+    expect(confirm.textContent).toContain('live POIs and photos are deleted too')
     expect(fetchMock).not.toHaveBeenCalled()
     fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
     expect(lastUrl()).toBe('/api/maps/delete?tab=map')
     expect(lastBody()).toEqual({ name: 'lab' })
+  })
+
+  it('delete of a map that is not active does not mention the live set', () => {
+    renderDialog()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete broken' }))
+    const text = topDialog().textContent ?? ''
+    expect(text).toContain("map's POIs and photos are deleted with it")
+    expect(text).not.toContain('live POIs')
+  })
+
+  it('shows the delete result message from map_manager as is', async () => {
+    fetchMock.mockResolvedValue({ status: 200, json: async () => ({ ok: true, message: 'deleted lab: 3 POIs and 2 photos removed' }) })
+    renderDialog()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete lab' }))
+    fireEvent.click(within(topDialog()).getByRole('button', { name: 'Delete' }))
+    await screen.findByText('deleted lab: 3 POIs and 2 photos removed')
   })
 
   it('a refused request shows the message and the dialog stays usable', async () => {

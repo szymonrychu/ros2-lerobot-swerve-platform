@@ -184,7 +184,7 @@ def test_status_before_any_load_is_unknown_and_lists_existing_maps(tmp_path: Pat
     status = rig.manager.status()
     assert isinstance(status, MapStatus)
     assert [m.name for m in status.maps] == ["home"]
-    assert status.active_map is None
+    assert status.active_map == "home"
     assert status.load_seq == 0
     assert status.localisation.state == "unknown"
     assert status.localisation.ratio is None
@@ -211,7 +211,13 @@ def test_save_writes_bundle_with_pose_pois_and_laser_frame(rig: Rig) -> None:
     assert meta["map_info"]["width"] == rig.sensors.grid.cells.shape[1]
     assert meta["map_info"]["height"] == rig.sensors.grid.cells.shape[0]
     assert result.data is not None and result.data["name"] == "home" and result.data["poi_count"] == 1
-    assert rig.key_calls() == ["sensors.start_operation", "slam.serialize", "status:unknown", "sensors.end_operation"]
+    assert rig.key_calls() == [
+        "sensors.start_operation",
+        "slam.serialize",
+        "poi.export_photos",
+        "status:unknown",
+        "sensors.end_operation",
+    ]
     assert ".tmp-home-" in rig.log.args_of("slam.serialize")[0][0]
     assert [m.name for m in rig.manager.status().maps] == ["home"]
     assert not rig.sensors.active
@@ -273,6 +279,7 @@ def test_load_happy_path_call_order(rig: Rig) -> None:
     assert rig.key_calls() == [
         "sensors.start_operation",
         "slam.serialize",
+        "poi.export_photos",
         "status:unknown",
         "status:loading",
         "sensors.scan_points_base",
@@ -296,6 +303,7 @@ def test_load_happy_path_call_order(rig: Rig) -> None:
     assert base == str(rig.store.path_of("home") / "map")
     assert pose == TRUE_POSE
     assert rig.log.args_of("poi.replace") == [(BUNDLE_POIS,)]
+    assert rig.poi.photo_dirs == [str(rig.store.path_of("home") / "photos")]
     assert rig.log.args_of("sensors.agreement_samples") == [(5.0,)]
     assert START_AT_GIVEN_POSE == 2
 
@@ -450,11 +458,11 @@ def test_load_deserialize_refused_stays_paused(rig: Rig) -> None:
     status = rig.manager.status()
     assert status.localisation.state == "not_localised"
     assert "deserialize" in status.localisation.message
-    assert status.active_map is None
+    assert status.active_map == "home"
     assert status.load_seq == 0
     assert rig.manager.localised() is False
     assert result.data["state"] == "not_localised"
-    assert result.data["active_map"] is None
+    assert result.data["active_map"] == "home"
     assert result.data["load_seq"] == 0
     assert result.data["pois_replaced"] is False
 
@@ -469,7 +477,7 @@ def test_load_deserialize_refused_keeps_previous_map_and_pois(rig: Rig) -> None:
     assert "poi.replace" not in rig.log.names()
     assert rig.poi.pois == BUNDLE_POIS
     status = rig.manager.status()
-    assert status.active_map == "home"
+    assert status.active_map == "office"
     assert status.load_seq == 1
     assert status.localisation.state == "not_localised"
     assert rig.slam.paused is True
@@ -484,7 +492,7 @@ def test_load_deserialize_raising_is_not_a_completed_load(rig: Rig) -> None:
     assert "poi.replace" not in rig.log.names()
     assert rig.poi.pois == [{"id": "live-1", "name": "sofa"}]
     status = rig.manager.status()
-    assert status.active_map is None
+    assert status.active_map == "home"
     assert status.load_seq == 0
     assert status.localisation.state == "not_localised"
     assert rig.slam.paused is True
@@ -578,7 +586,7 @@ def test_load_pause_failure_aborts_before_deserialize(rig: Rig) -> None:
     status = rig.manager.status()
     assert status.localisation.state == "unknown"
     assert status.load_seq == 0
-    assert status.active_map is None
+    assert status.active_map == "home"
     assert rig.manager.localised() is None
 
 
@@ -639,11 +647,20 @@ def test_unexpected_error_in_load_leaves_a_truthful_state(rig: Rig) -> None:
 
 def test_delete_removes_bundle_and_its_pois_but_not_live_pois(rig: Rig) -> None:
     rig.save_map("home")
-    rig.save_map("other", pois=[{"id": "o1", "name": "garage"}])
+    rig.save_map("other", pois=[{"id": "o1", "name": "garage"}, {"id": "o2", "name": "p", "kind": "photo"}])
     assert load(rig).ok
     rig.log.calls.clear()
     result = rig.manager.handle(MapCommand(op="delete", request_id="d1", name="other"))
     assert result.ok, result.message
+    assert result.message == "deleted map other with 1 POIs and 1 photos; live set (owned by home) unchanged"
+    assert result.data == {
+        "name": "other",
+        "was_active": False,
+        "bundle_pois": 1,
+        "bundle_photos": 1,
+        "live_pois_removed": None,
+        "live_photos_removed": None,
+    }
     assert not rig.store.path_of("other").exists()
     assert "poi.replace" not in rig.log.names()
     assert rig.poi.pois == BUNDLE_POIS
@@ -663,7 +680,11 @@ def test_delete_active_map_empties_live_pois(rig: Rig) -> None:
     assert rig.log.args_of("poi.replace") == [([],)]
     assert rig.poi.pois == []
     assert rig.manager.status().active_map is None
-    assert result.data["pois_cleared"] is True
+    assert result.data["live_pois_removed"] == 2
+    assert result.data["live_photos_removed"] == 0
+    assert result.message == (
+        "deleted map home with 2 POIs and 0 photos; it owned the live set: removed 2 live POIs and 0 live photos"
+    )
 
 
 def test_delete_active_map_reports_replace_failure(rig: Rig) -> None:
@@ -673,9 +694,10 @@ def test_delete_active_map_reports_replace_failure(rig: Rig) -> None:
     result = rig.manager.handle(MapCommand(op="delete", name="home"))
     assert not result.ok
     assert "replace rejected" in result.message
+    assert "live POIs and photos stayed" in result.message
     assert not rig.store.path_of("home").exists()
     assert rig.manager.status().active_map is None
-    assert result.data["pois_cleared"] is False
+    assert result.data["live_pois_removed"] is None
 
 
 def test_delete_unknown_name_changes_nothing(rig: Rig) -> None:

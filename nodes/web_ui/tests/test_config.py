@@ -429,3 +429,22 @@ def test_default_head_tab_subscribes_the_tof_topics() -> None:
     assert head_roles == {"/tof/depth/image_raw": "head_depth", "/tof/amplitude/image_raw": "head_amplitude"}
     assert head.rgb_camera_topic == "/head_camera/image_raw/compressed"
     assert set(cfg.tof_ranges()) == {"/tof/depth/image_raw"}
+
+
+AGENT_CHAT_TAB = {"id": "agent", "type": "agent_chat", "label": "Agent", "agent_url": "http://127.0.0.1:18300"}
+RETROS_TAB = {"id": "retros", "type": "agent_retros", "label": "Retros"}
+
+
+def test_agent_retros_is_a_valid_tab_type() -> None:
+    assert "agent_retros" in VALID_TAB_TYPES
+
+
+def test_agent_retros_with_agent_chat_tab_is_valid_and_uses_its_url() -> None:
+    cfg = AppConfig.model_validate({"tabs": [AGENT_CHAT_TAB, RETROS_TAB]})
+    assert [t.type for t in cfg.tabs] == ["agent_chat", "agent_retros"]
+    assert cfg.agent_chat_tab().agent_url == "http://127.0.0.1:18300"
+
+
+def test_agent_retros_without_agent_chat_tab_is_rejected_with_reason() -> None:
+    with pytest.raises(ValidationError, match="agent_retros.*requires an agent_chat tab"):
+        AppConfig.model_validate({"tabs": [RETROS_TAB]})

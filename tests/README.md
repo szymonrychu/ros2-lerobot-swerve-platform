@@ -178,9 +178,13 @@ Tests of `shared/ros2_common/camera_geometry.py` and `scripts/solve_camera_mount
 
 Pure scan-to-map agreement functions of `ros2_common.scan_agreement` on a synthetic square room (ported from map_guard): endpoint filtering, TF projection, dilation, scored scans (aligned, shifted, rotated, one/three cells off), empty or missing map, too few points, points outside the map or in unknown space, rotated map origin, known cell count.
 
+### `test_shared_poi_categories.py`
+
+POI category tags in the note (`ros2_common.poi_categories`): constants, round trip `parse_tags(apply_tags(note, category_tags(...)))` for every category and every problem type, `category_tags` validation, `parse_tags` edge cases (first line only, unknown words ignored), `apply_tags` replacing the category while keeping survey tags and free text, no duplicate tags on repeat, tag line prepending, the length error, `has_tag` / `strip_tags`, and `check_category` accepting each valid kind / zone combination and rejecting each invalid one with the rule named.
+
 ### `test_shared_maps.py`
 
-Named maps contract (`ros2_common.maps`): topic constants, `validate_map_name` accept/reject, `Pose2D` finiteness, `MapCommand` per-op field rules (name required for save/load/delete and empty for relocalise, `pose` load only, `note` save only, `since` / `discard_on_fail` relocalise only, unknown op / extra keys rejected), `MapResult`, `Localisation` (states, ratio 0..1), `MapSummary` and `MapStatus` (`load_seq >= 0`), and JSON round trips.
+Named maps contract (`ros2_common.maps`): topic constants, `validate_map_name` accept/reject, `Pose2D` finiteness, `MapCommand` per-op field rules (name required for save/load/delete and empty for relocalise, `pose` load only, `note` save only, `since` / `discard_on_fail` relocalise only, unknown op / extra keys rejected), `MapResult`, `Localisation` (states, ratio 0..1), `clear_live` (no name or other field; `test_command_clear_live_takes_no_fields`), `MapSummary` (`photo_count` defaults to 0 and is >= 0; `test_summary_photo_count_defaults_and_bounds`) and `MapStatus` (`load_seq >= 0`), and JSON round trips.
 
 ### `test_shared_battery.py`
 
@@ -368,6 +372,35 @@ Unit tests for `scripts/eval/report.py` (TrialRecord and the evaluation report).
 | `test_render_text_sections` | The text report has every section. |
 | `test_report_counts_harness_timeouts_apart_from_interrupts` | `timed_out` trials are counted in `timeouts` (and the text report) separately from operator or agent interrupts. |
 | `test_trial_record_from_derivation` | A TrialRecord built from `stages.derive` carries instruction id, turn_end fields, claims, phases and lookup ids. |
+
+### `test_eval_workflow_checks.py`
+
+Unit tests for `scripts/eval/workflow_checks.py` (workflow adherence of a trial) and the workflow section of the report.
+
+| Test | Description |
+|------|-------------|
+| `test_derives_workflow_skipped_retrospective_survey_writes_and_skills` | Workflow name (dry runs ignored), skipped mandatory ids from the turn_end job_end, retrospective author, survey POI writes (flagged writes plus mark_survey_spot) and loaded skills. |
+| `test_free_job_has_no_workflow_and_runner_retrospective_is_kept` | A free job gives no workflow and no skipped list; a runner retrospective is reported as such. |
+| `test_runner_sourced_calls_are_ignored` | Tool calls with a `source` do not count. |
+| `test_pick_and_place_trace_derives_empty` | A pick-and-place trace has no workflow, skills or survey writes. |
+| `test_old_trial_lines_without_the_field_load` | A trials.jsonl line without `workflow` loads with None. |
+| `test_report_aggregates_workflow_section` | Trials per workflow, share without skipped mandatory steps, share with an agent retrospective, mean survey POI writes, text section. |
+| `test_report_workflow_section_empty_without_derivations` | No derivations give zero trials and None rates. |
+
+### `test_eval_workflow_testset.py`
+
+Unit tests for the workflow test set (`scripts/eval/testset_workflows_v1.yaml`, `testset.py` kind dispatch) and the workflow trials of `run.py`, using the fake claude_agent of `test_eval_run.py`.
+
+| Test | Description |
+|------|-------------|
+| `test_shipped_workflows_yaml_loads` | The shipped YAML loads as a WorkflowTestSet with explore_room, survey_here (discovery), drive_to_poi, drive_to_object (drive_to_target) and their prompts. |
+| `test_kind_dispatch_and_v1_unchanged` | `load_any_testset` returns the v1 pick-and-place set with or without a `kind` key and rejects an unknown kind. |
+| `test_workflow_testset_rejects_extra_and_duplicate_ids` | Extra fields and duplicate case ids are refused. |
+| `test_run_trial_records_derivation_and_expected_match` | A workflow trial sends the case prompt, prints the derived workflow against the expected one, records the human label and saves events. |
+| `test_wrong_or_missing_workflow_is_a_mismatch` | Another workflow or none gives `workflow_match` false. |
+| `test_arm_only_is_refused_for_workflow_testsets` | `run` and `run_trial` refuse mode arm_only with a message naming `mode: full`, before any request. |
+| `test_run_records_trials_and_report_for_workflow_cases` | `run` records WorkflowTrialRecord lines, honours stop_on_success and writes the per-case report. |
+| `test_run_yaml_documents_the_workflow_testset` | `run.yaml` comments how to select the workflow test set. |
 
 ### `test_eval_run.py`
 
@@ -734,7 +767,7 @@ Covers:
   `phase_completed` / `plan_revised` and `state` events (ro/rw/turns/plan), `condition_pending` / `condition_answered` events of a plan
   tree and the tree fields of `phase_started` / `phase_completed` (`id`, `attempt`, `iteration`, `depth`, `p_retry_success`,
   `retry_change`, an automatic retry emitting a second `phase_started`) and the plan's `tree`, the instruction turn maximum (interrupt, robot stop, `turn_cap` status), the phase turn cap note (follow-up, no stop), the phase note interrupt deferred until a parallel tool call in flight finished (the 2026-10-11 cancelled-camera-call sequence), Claude Code's generic "user doesn't want to proceed" result corrected in a follow-up with a `tool_cancelled` event (not after a user stop), denial events,
-  auth error, session failure and missing token become error events, reset starts a new session and clears the agent POIs through the injected clearer (fake; not on start, not on a refused reset, an error result or a raising clearer is logged and does not break the reset)
+  auth error, session failure and missing token become error events, reset starts a new session and deletes no POIs (an HTTP spy sees no clear call; an `agent_poi_reset` key is rejected)
 - robot tools check (`test_runner.py`): a connected robot MCP server runs the instruction with no probe or reconnect; a failed
   server that answers is reconnected in place (`robot_tools_reconnected` event, session kept); a failed reconnect restarts the
   session and says so; an unreachable mcp_server fails the instruction at once (`robot server unreachable`, no query); `pending`
@@ -742,11 +775,11 @@ Covers:
   instruction runs
 - mcp_server probe (`test_mcp_health.py`, uvicorn on an ephemeral port): `/metrics` URL derivation, 200 = reachable, an error
   status, a hung server (timeout) and a closed port become reasons, never exceptions
-- POI clear (`test_poi_clear.py`): `clear_url` keeps scheme/host/port and swaps the path; the POST carries the bearer token and reports the removed count; wrong token, poi_store down (503), unreachable server, missing token file and timeout all return an error result instead of raising (real uvicorn app on an ephemeral port)
 - API (`test_api.py`): `/api/state` (plan, active phase, usage, hard and per-phase maxima), `/api/history`, `/api/message` (202 / 409 busy / 400 empty or invalid), `/api/stop`,
   `/api/reset` (409 while busy), `/ws/events` history on connect then live events, shutdown hook
 - entry point (`test_main.py`): loopback bind and port from config, the `/robot_events` subscription (volatile QoS) and its callback, no POI publisher is created (the clear goes over HTTP), ROS2 logger, API key removed from the process env, invalid config exits 1, uvicorn `timeout_graceful_shutdown` is the 3 s constant
 - clean stop (`test_runner.py`): `close()` finishes within a bound with a hung model interrupt, a hung disconnect and a background task that never ends (task cancelled, client dropped); the CLI subprocess is terminated, killed when it ignores terminate and left alone when already exited; an instruction in progress is recorded as an `error` "interrupted by service shutdown" plus one `interrupted` `turn_end`, an idle close records no `turn_end`
+- retrospective after every job and feed (`test_retro_followup.py`, per-query scripted fake client; the runner's `retro_sink` is captured from `build_plan_server` and called through the real `record_retrospective` tool): a normal end gets one `RETROSPECTIVE` prompt after `JOB END REFUSED`, `WORKFLOW CHECK` and `POI REVIEW` (full form names the `robot-skills:retrospective` skill) and stores the agent record with the facts (instruction, workflow, phases, skipped_mandatory, cost and turns refreshed to the `turn_end` values, effector calls, duration, trivial); no RETROSPECTIVE prompt when the agent already recorded one; state reset per instruction; trivial jobs (no plan or complexity trivial, zero effector calls) get the short form, a trivial plan with an effector call the full form; runner records when the agent skips the call, with the flag off, after a skipped mandatory step (partial), after a user stop, timeout, error result, session exception, `max_turns` and the turn cap (no model turn after any of them); a stop during the RETROSPECTIVE turn keeps the agent record; an unwritable store never breaks `turn_end`; `retrospective_recorded` {id, author, outcome, workflow, instruction_id} before `turn_end`; a second `record_retrospective` replaces the first (same id, two events); `RetroStore.replace`; the RECENT RETROSPECTIVES feed on the first instruction of a session only (again after a reset), sized by `retro_feed_count` / `retro_feed_max_chars`, off at 0, absent for an empty store, before the digest under `fresh_with_digest`, the `user_message` text unchanged; the store under `<state_dir>`. `make_runner` keeps the RETROSPECTIVE prompt and the feed off unless `retro_followup` / `retro_feed` ask for them
 
 - Metrics (`test_metrics.py`): `agent_busy` during and after an instruction; `agent_instructions_total{status}` and `agent_instruction_duration_seconds` for done, interrupted, error and timeout; `agent_watchdog_fires_total`; `agent_turns_total` and `agent_tool_uses_total{tool}` from a scripted stream; `agent_session_resets_total` (refused reset not counted); `agent_tokens_total{kind}` and `agent_cost_usd_total` as session-total deltas (absent usage adds nothing); `agent_seconds_since_activity` computed at scrape time; `GET /metrics` route.
 
@@ -1699,7 +1732,7 @@ Static wiring invariants of the poi_store node (Ansible, playbooks, lint script,
 | `test_poi_store_node_type_defaults` | `poi_store` node type: native, `nodes/poi_store`, `python3 -m poi_store`, `config_path` `/etc/ros2/poi_store`, env `POI_STORE_CONFIG`. |
 | `test_poi_store_entry_after_mcp_server_with_config` | Present + enabled `ros2_nodes` entry directly after `mcp_server`; config has `store_path` `/var/lib/ros2/poi/poi.json` and the `/poi/list`, `/poi/command`, `/poi/result` topics. |
 | `test_poi_directory_task_owned_by_node_user` | `poi_store_dir.yml` creates `/var/lib/ros2/poi` owned by `ansible_user`. |
-| `test_poi_store_config_photos_block` | The poi_store config carries `photos:` (`store_dir` `/var/lib/ros2/poi/lookups`, `max_records` 3000, `max_bytes` 300000000, `max_age_days` 14, `max_image_bytes` 5000000, `prune_interval_s` 3600, `summary_topic` `/poi/photos`). |
+| `test_poi_store_config_photos_block` | The poi_store config carries `photos:` (`store_dir` `/var/lib/ros2/poi/lookups`, `max_records` 3000, `max_bytes` 300000000, `max_age_days` null (no age limit), `max_image_bytes` 5000000, `prune_interval_s` 3600, `summary_topic` `/poi/photos`). |
 | `test_poi_store_config_photos_block_has_a_comment_per_key` | Every key of the `photos:` block has a comment line directly above it. |
 | `test_poi_directory_task_ensures_photo_directory_after_parent` | `poi_store_dir.yml` also creates `/var/lib/ros2/poi/lookups` (`ansible_user`, `0755`) after `/var/lib/ros2/poi`. |
 | `test_poi_playbook_deploys_node_and_creates_directory` | `deploy_nodes_client.yml` creates the directory and deploy `poi_store` (after `mcp_server`). |
@@ -1731,8 +1764,9 @@ Static checks of the mcp_server camera tools wiring (YAML and README only; no RO
 | Test (group) | Description |
 |------|-------------|
 | `test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/camera_calibration` owned by `ansible_user`. |
-| `test_cameras_config_front_not_calibrated_gripper_calibrated` | The mcp_server `cameras` block has `calibration_dir`; the front camera is uncalibrated (`intrinsics`/`mount` null), the gripper camera has intrinsics and a mount on `gripper_link`. |
+| `test_cameras_config_front_not_calibrated_gripper_calibrated` | The mcp_server `cameras` block has `calibration_dir`; the front (head RGB) camera sits on `head_link` with the URDF `head_link -> head_camera_link` mount and null `intrinsics` (not calibrated), the gripper camera has intrinsics and a mount on `gripper_link`. |
 | `test_gripper_parent_frame_is_a_link_of_the_arm_urdf` | `cameras.gripper.parent_frame` names a link in the arm URDF. |
+| `test_front_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_urdf_camera_origin` | `head.urdf_path` is `nodes/web_ui/urdf/head.urdf`; `cameras.front.parent_frame` names a link of it and is the parent of `head_camera_joint`; the front mount equals that joint's origin (xyz, rpy). |
 | `test_arm_reach_keys_are_ordered` | `arm.reach_inner_m` is positive and below `arm.reach_outer_m`. |
 | `test_readme_documents_the_camera_tools_frames_and_calibration` | `nodes/mcp_server/README.md` documents the seven camera tools, frames, the not-calibrated default, `base_in_base_link`, the calibration directory and the procedure. |
 
@@ -1779,7 +1813,7 @@ fake `ssh`; no ROS needed).
 | `test_base_guard_rules_cover_every_base_moving_tool` | Every guard rule that applies to a base tool applies to all of them: the base set is read from mcp_server `tools.py` `TOOL_SUBSYSTEM` (AST, no import), so a new base-moving tool such as `go_to_frontier` / `look_toward_frontier` cannot slip past the base rules. |
 | `test_mcp_server_config_pins_auto_poi_block` | The client.yml mcp_server `auto_poi:` block pins every `AutoPoiSettings` key (enabled, merge_radius_m 0.5, max_pose_age_s 2.0, event_types collision_stop and nav_abort) and the config validates with `McpServerConfig`. |
 | `test_mcp_server_config_lookups_block_is_only_the_store_dir` | The client.yml mcp_server `lookups:` block is exactly `{store_dir: /var/lib/ros2/poi/lookups}` (poi_store owns retention) and the config validates with `McpServerConfig`. |
-| `test_client_yml_pins_the_agent_poi_settings` | The client.yml mcp_server `auto_poi:` block pins every `AutoPoiSettings` key (hint_after_images 3) and validates; claude_agent pins `agent_poi_reset: keep_open`, `poi_review_followup: true`, `poi_hint_radius_m: 0.5`. |
+| `test_client_yml_pins_the_agent_poi_settings` | The client.yml mcp_server `auto_poi:` block pins every `AutoPoiSettings` key (hint_after_images 3) and validates; claude_agent pins `poi_review_followup: true`, `poi_hint_radius_m: 0.5`, and has no `agent_poi_reset` key. |
 | `test_mcp_server_maps_section_validates_and_matches_map_manager_topics` | The client.yml mcp_server `maps:` section validates with `McpServerConfig`, its command/result/status topics equal the `map_manager` entry's `command_topic` / `result_topic` / `status_topic` (read from its config block), and the timeouts are positive. |
 | `test_mcp_server_readme_documents_the_named_map_tools` | `nodes/mcp_server/README.md` has tool-table rows for `save_map`, `list_maps`, `load_map`, `delete_map`, `clear_pois` and a `## Named maps` section. |
 | `test_mcp_server_config_validates_with_frontiers_block_at_defaults` | The client.yml mcp_server config validates with `McpServerConfig`; its `frontiers:` block equals every `FrontierSettings` default and each key carries a comment. |
@@ -1876,7 +1910,8 @@ layout; no ROS needed).
 | `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `poi_store` (which follows `mcp_server`). |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
 | `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (rw 400 / turns 500), the per-phase maxima (100 / 100), no ro maxima and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`; no `poi_command_topic` (the reset clears POIs over HTTP via mcp_server). |
-| `test_claude_agent_config_pins_poi_behaviour` | The client.yml config sets `agent_poi_reset: keep_open`, `poi_review_followup: true` and `poi_hint_radius_m: 0.5` explicitly, and validates against `ClaudeAgentConfig`. |
+| `test_claude_agent_config_pins_poi_behaviour` | The client.yml config has no `agent_poi_reset` key, sets `poi_review_followup: true` and `poi_hint_radius_m: 0.5` explicitly, and validates against `ClaudeAgentConfig`. |
+| `test_claude_agent_config_pins_skills` | The client.yml config sets `skills_enabled: true` and `skills_plugin_dir: ""` and validates against `ClaudeAgentConfig`. |
 | `test_mcp_tool_names_finds_async_tools` | The registered-tool scanner reads both `def` and `async def` functions decorated with `@tool` / `@server.tool`, so an async mcp_server tool cannot slip past the parity checks. |
 | `test_every_registered_mcp_tool_is_classified_exactly_once` | Every tool mcp_server registers sits in exactly one of `effector_tools`, `uncapped_tools`, `sensor_tools` and `denied_tools`, and the lists name no unknown tool, in both the client.yml config and the code defaults. |
 | `test_client_yml_claude_agent_config_equals_the_code_defaults` | Every key the client.yml claude_agent config sets equals the `ClaudeAgentConfig` default, so config.py stays the one source of the values (including `job_end_park_timeout_s` and `warning_interrupt_debounce_s`). |
@@ -1921,6 +1956,7 @@ Static checks of the web_ui Agent tab in `ansible/group_vars/client.yml` (no ROS
 | `test_agent_tab_exists_with_type_and_label` | web_ui has a tab `agent` of type `agent_chat` labelled "Agent". |
 | `test_agent_tab_directly_after_map_tab` | The Agent tab is listed immediately after the `map` tab. |
 | `test_agent_tab_url_matches_claude_agent_port` | `agent_url` is 127.0.0.1 with the same port as the claude_agent `http_port` (18300). |
+| `test_retros_tab_of_type_agent_retros_after_agent_tab` | web_ui has a tab `retros` of type `agent_retros` labelled "Retros", listed immediately after the Agent tab. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_web_ui_agent_tab.py` is listed in this section. |
 
 ### `test_head_camera_live_refs.py`
@@ -2342,6 +2378,8 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_effective_view_prefers_stored_view` / `test_effective_view_derives_for_legacy_record` / `test_effective_view_none_without_pose` | Stored view wins; legacy lines derive one; no pose gives None. |
 | `test_photo_as_poi_located` / `test_photo_as_poi_unlocated_has_null_xy_never_zero` | POI form fields; x/y None without a pose. |
 | `test_photo_add_valid` / `test_photo_add_rejects_bad_payload` / `test_photo_add_requires_id` | Id format, `file == <id>.jpg`, client `bytes` refused. |
+| `test_poi_as_record_round_trip_plain` / `_with_poses_and_view` / `_legacy_pose_without_view` | `poi_as_record(photo_as_poi(rec)) == rec` with and without poses and view. |
+| `test_poi_as_record_rejects_non_photo_kind` / `_missing_photo_object` / `_bad_id` / `_file_not_matching_id` | Non-photo kind, missing `photo`, id not 32 lowercase hex and `file != <id>.jpg` raise `ValueError`. |
 | `test_selector_accepts_exactly_one_criterion` / `test_selector_rejects_other_shapes` / `test_selector_accepts_500_ids_and_defaults_dry_run_false` | Exactly-one rule and bounds. |
 | `test_write_atomic_writes_world_readable_file` / `test_write_atomic_fsyncs_before_replace` / `test_write_atomic_cleans_temp_on_failure` / `test_module_exposes_write_atomic` | Atomic write, mode 0644, fsync order, temp cleanup. |
 | `test_legacy_index_line_parses_with_photo_defaults` / `test_photo_fields_round_trip` / `test_photo_fields_reject_bad_values` | `LookupRecord` photo fields: legacy line parses, round trip, bad values rejected. |
@@ -2498,3 +2536,45 @@ Static invariants of the map_manager wiring (Ansible, playbook, docs).
 | `test_maps_dir_task_creates_parent_owned_by_node_user` | `slam_maps_dir.yml` creates `/var/lib/ros2/maps` owned by `ansible_user`. |
 | `test_playbook_deploys_map_manager_after_poi_store_with_maps_dir` | The playbook deploys map_manager after poi_store, tagged, with the maps dir task. |
 | `test_docs_mention_map_manager` | nodes/README.md, ansible/README.md and the ansible-deploy SKILL.md list the node. |
+
+### test_agent_skills.py
+
+Static invariants of the agent skills shipped in `nodes/claude_agent/claude_agent/agent_plugin`.
+
+| Test | Covers |
+|---|---|
+| `test_skills_exist` | The `recover-from-failure` skill file exists. |
+| `test_every_referenced_tool_exists` | Every backticked tool call or `agent.<tool>` in a SKILL.md is a registered mcp_server tool, a claude_agent planning tool or `Skill`. |
+| `test_tool_reference_scanner_flags_bare_unknown_tool` | The scanner picks up bare backticked tool names (no call parenthesis) and `agent.<tool>` references, not other identifiers. |
+| `test_tool_reference_scanner_flags_unknown_tool` | The scanner finds unknown tool references. |
+| `test_optional_tools_only_in_optional_section` | Head, 3D-map tools and `zoom` appear only under `## When extra perception tools exist`, which also names `look_around`. |
+| `test_split_optional_isolates_section` | The section splitter separates the optional section from the rest. |
+| `test_plugin_ships_read_only_from_root_checkout` | The repo is cloned with `become`, the service user is `claude_agent`, the plugin is under `nodes/claude_agent/` and the workdir is outside the repo. |
+
+### test_agent_retrospectives_script.py
+
+Unit tests for `scripts/agent_retrospectives.py` (pulls the agent's retrospectives into `.logs/retrospectives`), using `httpx.MockTransport`.
+
+| Test | What it covers |
+|---|---|
+| `test_shipped_config_validates` | `scripts/agent_retrospectives.yaml` loads with the documented defaults. |
+| `test_config_rejects_unknown_key_and_bad_limit` | The pydantic config forbids extra keys and a limit below 1. |
+| `test_render_markdown_includes_all_sections` | A sample record renders date, workflow, outcome, author, summary, lists, notes for fixers, skipped mandatory steps and phases. |
+| `test_render_markdown_free_job_without_lists` | A free job renders as `free` and empty sections are omitted. |
+| `test_main_writes_timestamped_files` | The request path and limit, the matching timestamped `.md`/`.jsonl` names, the raw content and the printed paths and count. |
+| `test_main_exit_1_on_http_error` | A 502 gives exit 1 with the status on stderr. |
+| `test_main_exit_1_on_connection_error` | A connection error gives exit 1 with the reason. |
+| `test_main_exit_2_on_bad_config` | An invalid or missing config gives exit 2. |
+
+### test_agent_skills_docs.py
+
+Docs guard for the driving-agent skills suite.
+
+| Test | What it covers |
+|---|---|
+| `test_readme_has_skills_workflows_retrospectives_sections` | The claude_agent README has non-empty Skills, Workflows and Retrospectives sections. |
+| `test_every_skill_directory_is_listed_in_readme` | Every skill directory name appears in the README Skills section. |
+| `test_every_workflow_template_is_listed_in_readme` | Every workflow template name appears in the README Workflows section. |
+| `test_nodes_readme_mentions_the_new_features` | The `nodes/README.md` claude_agent line names skills, workflows and retrospectives; the costmap_zones line names slow-zone cost. |
+| `test_memory_records_the_decision` | MEMORY.md records the skills, workflows, retrospectives, POI category and slow-zone decisions. |
+| `test_tests_readme_lists_this_file` | This file is listed here. |

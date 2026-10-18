@@ -12,6 +12,14 @@ import numpy as np
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
+from ros2_common.poi_categories import (
+    CATEGORIES,
+    PROBLEM_TYPES,
+    apply_tags,
+    category_tags,
+    check_category,
+    parse_tags,
+)
 
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
 from .frontiers import FrontierTracker, cells_to_map, update_recorded
@@ -48,14 +56,17 @@ Layer = Literal["map", "costmap", "lidar", "footprint", "reach", "path", "pois",
 Camera = Literal["front", "gripper"]
 PoiKind = Literal["point", "area"]
 ClearCreator = Literal["agent", "user", "all"]
-ClearKind = Literal["point", "area", "object"]
+ClearKind = Literal["point", "area", "object", "photo"]
 PoiZone = Literal["none", "keepout", "slow"]
+PoiCategory = Literal[CATEGORIES]  # type: ignore[valid-type]
+PoiProblemType = Literal[PROBLEM_TYPES]  # type: ignore[valid-type]
 MIN_SPEED_LIMIT_PCT = 10
 MAX_SPEED_LIMIT_PCT = 100
 ZONE_HELP = (
     "Zones (areas only): zone 'keepout' = Nav2 will not plan or drive into the area (the robot can still leave if it "
-    "is already inside; never set a navigation goal inside a keepout). zone 'slow' = the MPPI controller speed is "
-    "capped to speed_limit_pct (10..100, required for slow) while the robot centre is inside. A zone is active only "
+    "is already inside; never set a navigation goal inside a keepout). zone 'slow' = the planner prefers routes around the "
+    "area (non-lethal path cost) and the MPPI controller speed is capped to speed_limit_pct (10..100, required for "
+    "slow) while the robot centre is inside. A zone is active only "
     "while status is 'open' (done/cancelled switch it off). Your POIs persist: open ones survive a new session "
     "(done and cancelled ones are cleared), so a zone you create stays in force until you or the person end it."
 )
@@ -78,6 +89,53 @@ def check_zone(zone: str | None, speed_limit_pct: int | None, area: bool = True)
         raise ValueError("zone 'slow' needs speed_limit_pct (10..100)")
     if speed_limit_pct is not None and zone is not None and zone != "slow":
         raise ValueError("speed_limit_pct is only for zone='slow'")
+
+
+CATEGORY_HELP = (
+    "Categories (optional category + problem_type + survey; they write a tag on the first note line, no new field): "
+    "target = a place or thing to go to (point/area, zone none); slow = a slow zone (area, zone 'slow' with "
+    "speed_limit_pct); keepout = a no-go area (area, zone 'keepout'); problem = a trouble spot such as a window, "
+    "mirror, glass, tight place or obstacle above or below the lidar plane (needs problem_type; point/area, zone none "
+    "or slow); detail = a note about a spot (point/area, zone none). For slow and keepout you still pass zone (and "
+    "speed_limit_pct) yourself. survey=true adds #survey. Creating a keep-out is free; cancelling or deleting one "
+    "needs the person's consent."
+)
+
+
+def tagged_note(
+    note: str,
+    category: str | None,
+    problem_type: str | None,
+    survey: bool,
+    kind: str,
+    zone: str,
+    speed_limit_pct: int | None,
+) -> str:
+    """Validate a category against the POI fields it maps onto and write its tags into the note.
+
+    Args:
+        note (str): Current free text (may already carry tags).
+        category (str | None): Requested category, None keeps the note's existing category tag.
+        problem_type (str | None): Problem type for category "problem".
+        survey (bool): Add the ``#survey`` tag.
+        kind (str): Resulting POI kind.
+        zone (str): Resulting POI zone.
+        speed_limit_pct (int | None): Resulting speed cap.
+
+    Returns:
+        str: The note with tags on its first line.
+
+    Raises:
+        ValueError: A rule of poi_categories is broken (message names it).
+    """
+    if category is not None:
+        check_category(category, kind, zone, problem_type, speed_limit_pct)
+    tags_category, tags_problem = category, problem_type
+    if category is None:
+        existing = parse_tags(note)
+        tags_category = existing.category
+        tags_problem = problem_type if problem_type is not None else existing.problem_type
+    return apply_tags(note, category_tags(tags_category, tags_problem, survey))
 
 
 PoiStatus = Literal["open", "done", "cancelled"]
@@ -326,7 +384,7 @@ def register(ctx: ToolContext) -> None:
             "POIs persist: open ones survive a new session. A sighting of the same label within "
             f"{config.objects.merge_radius_m:g} m of a remembered object updates that object (position averaged, "
             "times_seen + 1) instead of adding a new one. Returns the object with id, first_seen, last_seen, "
-            "times_seen. No motion."
+            "times_seen. survey=true tags it '#target #survey' in the note (a survey sighting). No motion."
         )
     )
     def remember_object(
@@ -336,10 +394,13 @@ def register(ctx: ToolContext) -> None:
         frame: Annotated[Literal["map"], Field(description="Coordinate frame, only 'map'")] = "map",
         note: Annotated[str, Field(max_length=500, description="Free text, e.g. where exactly")] = "",
         confidence: Annotated[float, Field(ge=0.0, le=1.0, description="How sure you are, 0..1")] = 0.7,
+        survey: Annotated[bool, Field(description="Mark as seen during a survey (#survey, category target)")] = False,
     ) -> ObjectRecord:
         """Remember or merge an object; the description is passed to the decorator."""
         del frame  # the only supported frame
         with tool_errors():
+            if survey:
+                note = apply_tags(note, category_tags("target", survey=True))
             record = store.remember(label, x, y, note, confidence)
         ctx.poi_writes.reset()
         return record
@@ -434,7 +495,8 @@ def register(ctx: ToolContext) -> None:
             "distance_m and bearing_deg from the robot (0 = ahead, positive = left; areas use the centroid and report "
             "`inside`). Filter by status ('open', 'done', 'cancelled'). near=true keeps only POIs within {poi_cfg.near_radius_m:g} m, nearest "
             "first. Areas show their `zone` ('none', 'keepout', 'slow') and `speed_limit_pct`; a zone is active only "
-            "while status is 'open'. Photos (POIs of kind 'photo', one per camera image) are not listed here: list "
+            "while status is 'open'. Each view also has `category`, `problem_type` and `survey` parsed from the note tags "
+            "(null/false when untagged). Photos (POIs of kind 'photo', one per camera image) are not listed here: list "
             "them with list_lookups. Errors if poi_store is not running. No motion."
         )
     )
@@ -455,7 +517,11 @@ def register(ctx: ToolContext) -> None:
             "Add a point or area of interest on the map through poi_store (created_by 'agent'); it also shows in the "
             "web UI map tab. kind 'point': x and y (map, m) default to the robot's current position, optional "
             "radius_m. kind 'area': a polygon [[x, y], ...] of at least 3 map vertices (the store computes the "
-            "centroid), optionally with a zone and speed_limit_pct. " + ZONE_HELP + " Errors if poi_store is not "
+            "centroid), optionally with a zone and speed_limit_pct. "
+            + ZONE_HELP
+            + " "
+            + CATEGORY_HELP
+            + " Errors if poi_store is not "
             f"running or does not answer within {poi_cfg.request_timeout_s:g} s. No motion."
         )
     )
@@ -474,10 +540,19 @@ def register(ctx: ToolContext) -> None:
             int | None,
             Field(ge=MIN_SPEED_LIMIT_PCT, le=MAX_SPEED_LIMIT_PCT, description="Zone 'slow' only: speed cap in percent"),
         ] = None,
+        category: Annotated[
+            PoiCategory | None, Field(description="target, slow, keepout, problem or detail (writes a note tag)")
+        ] = None,
+        problem_type: Annotated[
+            PoiProblemType | None, Field(description="Category 'problem' only: what the problem is")
+        ] = None,
+        survey: Annotated[bool, Field(description="Add the #survey tag")] = False,
     ) -> PoiResult:
         """Add a POI."""
         with tool_errors():
             check_zone(zone, speed_limit_pct, area=kind == "area")
+            if category is not None or survey or problem_type is not None:
+                note = tagged_note(note, category, problem_type, survey, kind, zone, speed_limit_pct)
             poi: dict[str, Any] = {
                 "kind": kind,
                 "name": name,
@@ -514,8 +589,9 @@ def register(ctx: ToolContext) -> None:
         description=(
             "Clear POIs in one call. By default only YOUR OWN (creator 'agent') POIs are removed and keep-out/slow "
             "zones are kept. Clear the person's POIs (creator 'user' or 'all') or zones (include_zones=true) only when "
-            "the person asked for it. kinds limits it to some of point/area/object (default every kind). Remembered "
-            'photos are never cleared. Returns {"removed": n}. No motion.'
+            "the person asked for it. kinds is a subset of point/area/object/photo (default every kind, which includes "
+            "your own photos; the person's photos only when creator is 'user' or 'all'). Photos removed lose their "
+            'images. Returns {"removed": n, "pois": a, "photos": b}. No motion.'
         ),
     )
     def clear_pois(
@@ -526,7 +602,8 @@ def register(ctx: ToolContext) -> None:
         """Clear POIs and return how many were removed."""
         with tool_errors():
             result = robot.poi_clear(None if creator == "all" else creator, None, kinds, not include_zones)
-        return {"removed": int((result.get("poi") or {}).get("removed", 0))}
+        data = result.get("poi") or {}
+        return {key: int(data.get(key, 0)) for key in ("removed", "pois", "photos")}
 
     @server.tool(
         description=(
@@ -534,7 +611,10 @@ def register(ctx: ToolContext) -> None:
             "'open'/'done'/'cancelled', x and y together, polygon for areas, zone 'none'/'keepout'/'slow' with speed_limit_pct; zone 'none' removes a zone, "
             "slow needs speed_limit_pct in the same call). Mark a POI 'done' when the work there is finished. "
             + ZONE_HELP
-            + " A photo id (from list_lookups) is accepted too: only name, note and status change for a photo. Errors "
+            + " "
+            + CATEGORY_HELP
+            + " With a category the note is rewritten: its free text stays, the category tag is replaced and an "
+            "existing #survey tag is kept. A photo id (from list_lookups) is accepted too: only name, note and status change for a photo. Errors "
             "if poi_store is not running or the id is unknown. No motion."
         )
     )
@@ -551,11 +631,35 @@ def register(ctx: ToolContext) -> None:
             int | None,
             Field(ge=MIN_SPEED_LIMIT_PCT, le=MAX_SPEED_LIMIT_PCT, description="Zone 'slow': speed cap in percent"),
         ] = None,
+        category: Annotated[
+            PoiCategory | None, Field(description="target, slow, keepout, problem or detail (writes a note tag)")
+        ] = None,
+        problem_type: Annotated[
+            PoiProblemType | None, Field(description="Category 'problem' only: what the problem is")
+        ] = None,
+        survey: Annotated[bool, Field(description="Add the #survey tag")] = False,
     ) -> PoiResult:
         """Update a POI."""
         with tool_errors():
             check_zone(zone, speed_limit_pct)
             position = xy_pair(x, y, "x and y")
+            if category is not None or survey or problem_type is not None:
+                stored = next((p for p in robot.poi_list()[0] if p.get("id") == id), None)
+                if stored is None:
+                    raise ValueError(f"unknown poi id {id!r}")
+                new_zone = zone if zone is not None else str(stored.get("zone", "none"))
+                new_speed = speed_limit_pct if zone is None else (speed_limit_pct if zone == "slow" else None)
+                if zone is None and speed_limit_pct is None:
+                    new_speed = stored.get("speed_limit_pct")
+                note = tagged_note(
+                    note if note is not None else str(stored.get("note", "")),
+                    category,
+                    problem_type,
+                    survey,
+                    str(stored.get("kind", "")),
+                    new_zone,
+                    new_speed,
+                )
             changes: dict[str, Any] = {
                 "name": name,
                 "note": note,
@@ -579,7 +683,7 @@ def register(ctx: ToolContext) -> None:
     @server.tool(
         description=(
             "Delete a POI through poi_store by id; a photo id (from list_lookups) deletes that photo and its image "
-            "(delete_photos deletes many). Errors if poi_store is not running or the id is unknown. "
+            "(delete_photos deletes many); deleting a POI keeps the photos linked to it. Errors if poi_store is not running or the id is unknown. "
             "Prefer update_poi with status 'done' or 'cancelled' to keep a record. No motion."
         )
     )

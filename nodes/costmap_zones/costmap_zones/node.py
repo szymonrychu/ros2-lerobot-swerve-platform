@@ -125,7 +125,7 @@ class ZoneMaskPublisher:
         if key == self.published_key:
             return
         try:
-            keepout = rasterise_keepout(self.geometry, self.zones)
+            keepout = rasterise_keepout(self.geometry, self.zones, self.config.slow_zone_mask_value)
             speed = rasterise_speed(self.geometry, self.zones)
         except RotatedMapError as exc:
             if key[0] != self.rejected_geometry:

@@ -1,6 +1,6 @@
 ---
 title: Agent POI reset config removal
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The deployed claude_agent config stops carrying the New-session POI clearing setting, so the code can drop it."
 files: [ansible/group_vars/client.yml, tests/test_claude_agent_config.py, tests/test_mcp_server_config.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--agent-poi-reset-config-remov
 branch: driving-agent-skills-and-wor--agent-poi-reset-config-remov
-verified_head: ""
-run: ""
+verified_head: 72c2eda713c6023817d7cf6d1579747728fc32d9
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Agent POI reset config removal
@@ -60,3 +62,7 @@ client.yml and its pins no longer mention agent_poi_reset.
 ## Notes
 
 Lands before new-session-keeps-pois so the config model never sees an unknown key. Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

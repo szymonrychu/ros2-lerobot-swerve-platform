@@ -1,6 +1,6 @@
 ---
 title: Retro store and tool
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Every job's lessons are stored on the robot in one structured, bounded record format that survives New session."
 files: [nodes/claude_agent/claude_agent/retrospectives.py, nodes/claude_agent/claude_agent/plan_tools.py, nodes/claude_agent/claude_agent/config.py, ansible/group_vars/client.yml, nodes/claude_agent/claude_agent/agent_plugin/skills/retrospective/SKILL.md, nodes/claude_agent/tests/test_retrospectives.py, nodes/claude_agent/README.md]
@@ -13,10 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--retro-store-and-tool
-branch: driving-agent-skills-and-wor--retro-store-and-tool
-verified_head: ""
-run: ""
-provides: []
+branch: "current worktree branch (driving-agent-skills-and-wor--retro-store-and-tool)"
+verified_head: 42891485627aa29e2e048db8837c77b255f17c6a
+run: driving-agent-skills-and-wor
+provides: [retro-store]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Retro store and tool
@@ -66,3 +68,7 @@ A bounded robot-side retrospective store, the agent tool to write it and the ski
 
 - Pattern: retry_ledger.py (bounded JSONL under state_dir, survives /api/reset).
 - Runner wiring (followup, auto records, feed) is retro-followup-and-feed.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

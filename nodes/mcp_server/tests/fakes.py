@@ -463,7 +463,12 @@ class PerceptionFakeMixin:
 
         doomed = [p for p in self.pois if doomed_poi(p)]
         self.pois = [p for p in self.pois if not doomed_poi(p)]
-        return {"ok": True, "message": f"cleared {len(doomed)}", "poi": {"removed": len(doomed)}}
+        photos = sum(1 for p in doomed if p.get("kind") == "photo")
+        return {
+            "ok": True,
+            "message": f"cleared {len(doomed)}",
+            "poi": {"removed": len(doomed), "pois": len(doomed) - photos, "photos": photos},
+        }
 
     def poi_request(self, op: str, poi: dict) -> dict:
         if not self.poi_store_up:

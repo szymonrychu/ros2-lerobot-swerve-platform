@@ -1,6 +1,6 @@
 ---
 title: Retro pull script
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Developer agents on the Mac can pull the robot's retrospectives into the repo's logs in one command."
 files: [scripts/agent_retrospectives.py, scripts/agent_retrospectives.yaml, tests/test_agent_retrospectives_script.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--retro-pull-script
 branch: driving-agent-skills-and-wor--retro-pull-script
-verified_head: ""
-run: ""
+verified_head: 0c714c0c5b6c36a39510aa107999dd6e3082211f
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Retro pull script
@@ -57,3 +59,7 @@ provides: []
 ## Notes
 
 - Pattern: scripts/eval (run.yaml + pydantic config, base_url through the web_ui proxy).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

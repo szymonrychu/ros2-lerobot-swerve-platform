@@ -19,7 +19,8 @@ class PhotoSettings(BaseModel):
         store_dir: Directory of the JPEGs and index.jsonl (mcp_server writes the JPEGs, poi_store the index).
         max_records: Most photos kept; the oldest go first.
         max_bytes: Most total JPEG bytes kept.
-        max_age_days: Oldest photo age kept (days).
+        max_age_days: Oldest photo age kept (days); None (default) disables the age limit, because photos are map
+            POIs that leave with their map. max_records and max_bytes stay as the disk guards.
         max_image_bytes: Largest single JPEG an add accepts.
         prune_interval_s: Period of the retention timer (s), so the age limit holds without camera activity.
         summary_topic: Latched std_msgs/String photo summary topic.
@@ -30,7 +31,7 @@ class PhotoSettings(BaseModel):
     store_dir: str = Field(default=DEFAULT_PHOTO_DIR, min_length=1)
     max_records: int = Field(default=3000, gt=0)
     max_bytes: int = Field(default=300_000_000, gt=0)
-    max_age_days: float = Field(default=14.0, gt=0.0, allow_inf_nan=False)
+    max_age_days: float | None = Field(default=None, gt=0.0, allow_inf_nan=False)
     max_image_bytes: int = Field(default=5_000_000, gt=0)
     prune_interval_s: float = Field(default=3600.0, gt=0.0, allow_inf_nan=False)
     summary_topic: str = Field(default="/poi/photos", min_length=1)

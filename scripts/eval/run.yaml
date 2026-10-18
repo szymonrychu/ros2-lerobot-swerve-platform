@@ -2,6 +2,9 @@
 # Usage: uv run python -m scripts.eval.run scripts/eval/run.yaml [--resume <run_id>]
 base_url: http://client.ros2.lan/api/agent
 testset: scripts/eval/testset_v1.yaml
+# Workflow jobs (explore_room, survey_here, drive_to_poi, drive_to_object): set
+#   testset: scripts/eval/testset_workflows_v1.yaml   and   mode: full   (arm_only is refused for this kind)
+# and optionally cases: [explore_room]. Each trial prints the started workflow and whether it equals expected_workflow.
 mode: arm_only            # arm_only | full
 arm_only_deny_tools: [navigate_to_pose, move_relative, drive, look_around, "take_control:base"]
 k: 3                      # trials per case for success@k

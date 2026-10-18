@@ -1,6 +1,6 @@
 ---
 title: Eval workflow testset
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Discovery and drive-to-target jobs can be evaluated with the same harness as pick-and-place.
 files: [scripts/eval/testset_workflows_v1.yaml, scripts/eval/testset.py, scripts/eval/run.py, scripts/eval/run.yaml, tests/test_eval_workflow_testset.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--eval-workflow-testset
 branch: driving-agent-skills-and-wor--eval-workflow-testset
-verified_head: ""
-run: ""
+verified_head: cd5bb2608fc7ae913968d683c8a9634587302284
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Eval workflow testset
@@ -61,3 +63,7 @@ provides: []
 ## Notes
 
 - Testsets are versioned: never edit v1 in place.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

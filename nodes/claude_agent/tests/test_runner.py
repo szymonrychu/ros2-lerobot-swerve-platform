@@ -4,7 +4,9 @@ import asyncio
 import re
 import time
 from pathlib import Path
+from unittest.mock import patch
 
+import httpx
 import pytest
 from claude_agent_sdk import (
     AssistantMessage,
@@ -18,10 +20,11 @@ from claude_agent_sdk import (
     ToolUseBlock,
     UserMessage,
 )
+from pydantic import ValidationError
 
 from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig, MissingTokenError
 from claude_agent.events import EventLog
-from claude_agent.poi_clear import PoiClearResult
+from claude_agent.retrospectives import RETRO_RELPATH
 from claude_agent.retry_ledger import RETRY_LEDGER_RELPATH
 from claude_agent.robot_stop import RobotToolResult
 from claude_agent.runner import AgentRunner, build_child_env, build_options
@@ -176,37 +179,28 @@ class FakeProber:
         return self.result
 
 
-class FakeClearer:
-    """Records POI clear calls."""
-
-    def __init__(self) -> None:
-        self.calls = 0
-        self.statuses: list[list[str] | None] = []
-        self.result = PoiClearResult(False, "removed 2")
-
-    async def __call__(self, statuses: list[str] | None = None) -> PoiClearResult:
-        self.calls += 1
-        self.statuses.append(statuses)
-        return self.result
-
-
 def make_runner(
     tmp_path: Path,
     config: ClaudeAgentConfig | None = None,
     script=None,
     block=False,
     stopper=None,
-    clearer=None,
     statuses: list[list[str]] | None = None,
     probe_result: str | None = None,
     tool_caller: FakeToolCaller | None = None,
     config_ledger: bool = False,
+    retro_followup: bool = False,
+    retro_feed: bool = False,
 ):
+    """Runner with a scripted FakeClient; the RETROSPECTIVE prompt and the RECENT RETROSPECTIVES feed are off unless
+    asked for (tests/test_retro_followup.py covers them), so the prompts of the other tests stay as they are."""
     FakeClient.instances.clear()
     FakeClient.status_scripts = statuses or []
     token = tmp_path / "token"
     token.write_text("MCP_SERVER_TOKEN=secret-mcp\n")
-    cfg = config or ClaudeAgentConfig(mcp_token_file=str(token))
+    cfg = (config or ClaudeAgentConfig(mcp_token_file=str(token))).model_copy(update={"retro_followup": retro_followup})
+    if not retro_feed:
+        cfg = cfg.model_copy(update={"retro_feed_count": 0})
     events = EventLog(100)
 
     def factory(options: ClaudeAgentOptions) -> FakeClient:
@@ -221,10 +215,10 @@ def make_runner(
         client_factory=factory,
         base_env={"ANTHROPIC_API_KEY": "sk", "CLAUDE_CODE_OAUTH_TOKEN": "oa"},
         robot_stopper=stopper or FakeStopper(),
-        poi_clearer=clearer or FakeClearer(),
         mcp_prober=FakeProber(probe_result),
         robot_tool_caller=tool_caller or FakeToolCaller(),
         retry_ledger_path=None if config_ledger else tmp_path / RETRY_LEDGER_RELPATH,
+        retro_store_path=tmp_path / RETRO_RELPATH,
     )
     return runner, events, cfg
 
@@ -239,9 +233,9 @@ def test_build_options(tmp_path: Path, config: ClaudeAgentConfig) -> None:
     assert opts.model == "opus"
     assert opts.max_turns == config.max_turn_cap + TURN_MARGIN
     assert opts.system_prompt == "SYS"
-    assert opts.tools == ["Read", "Write", "Edit", "Glob", "Grep"]
+    assert opts.tools == ["Read", "Write", "Edit", "Glob", "Grep", "Skill"]
     assert opts.allowed_tools == []
-    assert set(BUILTIN_TOOLS) <= set(opts.disallowed_tools)
+    assert set(BUILTIN_TOOLS) - {"Skill"} <= set(opts.disallowed_tools)
     assert not {"Read", "Write", "Edit", "Glob", "Grep"} & set(opts.disallowed_tools)
     assert opts.strict_mcp_config is True
     assert opts.permission_mode == "default"
@@ -286,6 +280,7 @@ async def test_instruction_flow_emits_events(tmp_path: Path) -> None:
         "tool_result",
         "assistant_text",
         "state",
+        "retrospective_recorded",
         "turn_end",
         "state",
     ]
@@ -495,63 +490,41 @@ async def test_reset_stops_the_robot(tmp_path: Path) -> None:
     assert stop_events(events) == []
 
 
-async def test_reset_clears_agent_made_pois_through_the_mcp_server(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    runner, _, _ = make_runner(tmp_path, clearer=clearer)
-    assert clearer.calls == 0, "nothing is cleared on start"
-    assert await runner.reset() is True
-    assert clearer.calls == 1
+POI_VARIANTS = [
+    [],
+    [{"id": "k1", "name": "no-go", "category": "keepout", "created_by": "agent"}],
+    [{"id": "s1", "name": "door", "tags": ["#survey"], "created_by": "agent"}],
+    [
+        {"id": "k1", "category": "keepout", "created_by": "agent"},
+        {"id": "s1", "tags": ["#survey"], "created_by": "agent"},
+        {"id": "p1", "created_by": "person"},
+    ],
+]
 
 
-async def test_reset_keep_open_clears_only_done_and_cancelled_agent_pois(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    runner, _, _ = make_runner(tmp_path, clearer=clearer)
-    assert runner.config.agent_poi_reset == "keep_open"
-    assert await runner.reset() is True
-    assert clearer.statuses == [["done", "cancelled"]]
+@pytest.mark.parametrize("pois", POI_VARIANTS)
+async def test_reset_does_not_clear_pois(tmp_path: Path, pois: list[dict]) -> None:
+    """New session deletes nothing: no HTTP call at all over a reset, with keep-out and #survey POIs present."""
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, str(request.url)))
+        return httpx.Response(200, json={"pois": pois})
+
+    real = httpx.AsyncClient
+    with patch.object(httpx, "AsyncClient", lambda *a, **k: real(*a, transport=httpx.MockTransport(handler), **k)):
+        runner, _, _ = make_runner(tmp_path)
+        assert await runner.reset() is True
+    assert calls == [], calls
+    assert not hasattr(runner, "poi_clearer") and not hasattr(runner, "clear_agent_pois")
 
 
-async def test_reset_clear_all_clears_every_agent_poi(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    runner, _, _ = make_runner(tmp_path, config=ClaudeAgentConfig(agent_poi_reset="clear_all"), clearer=clearer)
-    assert await runner.reset() is True
-    assert clearer.statuses == [None]
-
-
-async def test_refused_reset_does_not_clear_pois(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    runner, _, _ = make_runner(tmp_path, script=[make_result()], block=True, clearer=clearer)
-    await runner.start_instruction("one")
-    assert await runner.reset() is False
-    assert clearer.calls == 0
-    await runner.interrupt()
-    await runner.wait_idle()
-
-
-async def test_reset_survives_a_failed_poi_clear(tmp_path: Path) -> None:
-    clearer = FakeClearer()
-    clearer.result = PoiClearResult(True, "clear failed: 503")
-    warnings: list[str] = []
-
-    class Log:
-        def info(self, _m: str) -> None: ...
-        def error(self, _m: str) -> None: ...
-        def warning(self, m: str) -> None:
-            warnings.append(m)
-
-    runner, events, _ = make_runner(tmp_path, clearer=clearer)
-    runner.logger = Log()
-    assert await runner.reset() is True
-    assert types_of(events) == ["state"]
-    assert any("503" in w for w in warnings)
-
-
-async def test_reset_survives_a_raising_poi_clearer(tmp_path: Path) -> None:
-    async def boom() -> PoiClearResult:
-        raise RuntimeError("clearer gone")
-
-    runner, _, _ = make_runner(tmp_path, clearer=boom)
-    assert await runner.reset() is True
+def test_agent_poi_reset_key_rejected() -> None:
+    """The former clear_all configuration can no longer be expressed: the key is an unknown field."""
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(agent_poi_reset="clear_all")
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig.model_validate({"agent_poi_reset": "survey"})
 
 
 async def test_reset_clears_the_event_log_and_restarts_seq(tmp_path: Path) -> None:

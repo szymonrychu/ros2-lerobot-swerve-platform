@@ -1,6 +1,6 @@
 ---
 title: Job end mandatory check
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Skipped mandatory workflow steps are caught once at the end and recorded, without ever parking the arm for it."
 files: [nodes/claude_agent/claude_agent/runner.py, nodes/claude_agent/claude_agent/budget.py, nodes/claude_agent/tests/test_workflow_check.py, nodes/claude_agent/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--job-end-mandatory-check
 branch: driving-agent-skills-and-wor--job-end-mandatory-check
-verified_head: ""
-run: ""
-provides: []
+verified_head: 9495e50f316f9c2fe51ed6fa8bb9ff2d7eaee96e
+run: driving-agent-skills-and-wor
+provides: [workflow-job-end-report, workflow-check-marker]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Job end mandatory check
@@ -59,3 +61,7 @@ Workflow jobs end with their mandatory steps done or explicitly flagged.
 ## Notes
 
 - Existing chain: consume_response -> run_job_end_check -> take_poi_review (runner.py); keep POI REVIEW behaviour unchanged.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

@@ -25,7 +25,7 @@ DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
-FRONT_CAMERA_PARENT = "base_link"
+FRONT_CAMERA_PARENT = "head_link"  # default head URDF link (head.urdf_path) the front (head RGB) camera hangs on
 DEFAULT_OBJECTS_FILE = Path("/var/lib/ros2/objects/objects.json")
 DEFAULT_LOOKUPS_DIR = Path("/var/lib/ros2/poi/lookups")  # camera lookups, next to poi_store's poi.json
 # Offline inverse reachability map (reach_map.py), committed inside the package so it deploys with the git checkout.
@@ -697,10 +697,14 @@ class CamerasSettings(StrictModel):
     def resolve_parent_frames(self) -> "CamerasSettings":
         """Fill in each camera's parent frame and require a mount to agree with it.
 
-        The gripper camera hangs on an arm URDF link (default gripper_link); the fixed front camera on base_link.
+        The gripper camera hangs on an arm URDF link (default gripper_link); the front camera on a head URDF link
+        (default head_link, checked against head.urdf_path by McpServerConfig).
 
         Returns:
             CamerasSettings: The validated settings.
+
+        Raises:
+            ValueError: When a mount's parent_frame differs from the camera's parent_frame.
         """
         for name, cam, default in (
             ("gripper", self.gripper, GRIPPER_CAMERA_PARENT),
@@ -708,8 +712,6 @@ class CamerasSettings(StrictModel):
         ):
             if cam.parent_frame is None:
                 cam.parent_frame = cam.mount.parent_frame if cam.mount is not None else default
-            if name == "front" and cam.parent_frame != FRONT_CAMERA_PARENT:
-                raise ValueError(f"cameras.front must be mounted on {FRONT_CAMERA_PARENT}, not {cam.parent_frame}")
             if cam.mount is not None and cam.mount.parent_frame != cam.parent_frame:
                 raise ValueError(
                     f"cameras.{name}: mount.parent_frame {cam.mount.parent_frame!r} differs from parent_frame "
@@ -1508,6 +1510,17 @@ class FrontierSettings(StrictModel):
         return self
 
 
+class ExplorationSettings(StrictModel):
+    """Survey coverage of the reachable space (exploration.py) and the exploration status tool."""
+
+    survey_radius_m: float = Field(default=2.5, gt=0.0)  # a spot surveys free cells it sees within this range
+    rays: int = Field(default=72, ge=8)  # minimum rays cast per spot (raised to one per cell on the radius arc)
+    min_unsurveyed_area_m2: float = Field(default=0.5, gt=0.0)  # smaller unsurveyed pockets are not listed
+    downsample: int = Field(default=2, ge=1)  # coverage grid cell = map resolution x this (speed on a Pi)
+    stop_margin_cell_v: float = Field(default=0.3, gt=0.0)  # survey stop margin on the cell value (cell_v)
+    max_unsurveyed_listed: int = Field(default=10, ge=1)  # largest unsurveyed areas listed
+
+
 class GraspCheckSettings(StrictModel):
     """Post-lift visual grasp check: the gripper camera frame cropped to the region between the jaws."""
 
@@ -1578,7 +1591,27 @@ class McpServerConfig(StrictModel):
     # Declarative guard rules (guard_rules.py); code default: enabled, no rules (the deployed set lives in client.yml).
     guard_rules: GuardRuleSettings = GuardRuleSettings()
     frontiers: FrontierSettings = FrontierSettings()
+    exploration: ExplorationSettings = ExplorationSettings()
     grasp_check: GraspCheckSettings = GraspCheckSettings()
+
+    @model_validator(mode="after")
+    def front_parent_on_the_head(self) -> "McpServerConfig":
+        """Require the front camera's parent frame to be a link of the head URDF (it moves with the pan/tilt head).
+
+        Returns:
+            McpServerConfig: This model.
+
+        Raises:
+            ValueError: When cameras.front.parent_frame is not a link of head.urdf_path.
+        """
+        links = HeadKinematics(self.head.urdf_path).links
+        parent = self.cameras.front.parent_frame
+        if parent not in links:
+            raise ValueError(
+                f"cameras.front.parent_frame {parent!r} is not a link of the head URDF {self.head.urdf_path} "
+                f"(links: {sorted(links)})"
+            )
+        return self
 
 
 def load_config(path: Path) -> McpServerConfig:

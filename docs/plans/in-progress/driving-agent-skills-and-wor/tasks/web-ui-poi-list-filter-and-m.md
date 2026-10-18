@@ -1,6 +1,6 @@
 ---
 title: Web UI POI list filter and mark
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "In the POI tab the user filters the list by category, marks POIs one by one, or marks everything visible."
 files: [nodes/web_ui/frontend/src/poi/PoiListToolbar.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.mark.test.tsx, nodes/web_ui/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--web-ui-poi-list-filter-and-m
 branch: driving-agent-skills-and-wor--web-ui-poi-list-filter-and-m
-verified_head: ""
-run: ""
+verified_head: 9db2c43926c0d802ada0677202101b3544d77c4e
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI POI list filter and mark
@@ -60,3 +62,7 @@ The POI tab filters by category and holds a set of marked POIs.
 
 - PoiPanels.tsx is also edited by web-ui-poi-category-chips (chips), web-ui-clear-pois-dialog (named-maps epic: Clear POIs button) and web-ui-poi-delete-marked; depends_on orders them with the chips task, the others rebase and keep both.
 - Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

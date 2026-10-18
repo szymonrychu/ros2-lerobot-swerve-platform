@@ -1,6 +1,6 @@
 ---
 title: Skill survey and sightseeing
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The agent surveys every spot the same thorough way and keeps exploring until the surroundings are complete.
 files: [nodes/claude_agent/claude_agent/agent_plugin/skills/survey/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/sightseeing/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/poi-categories/SKILL.md, nodes/claude_agent/tests/test_skill_survey.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--skill-survey-and-sightseeing
 branch: driving-agent-skills-and-wor--skill-survey-and-sightseeing
-verified_head: ""
-run: ""
+verified_head: a6dd240e89d7a87520876d13ea8646e15a4d0c02
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Skill survey and sightseeing
@@ -60,3 +62,7 @@ Three self-contained skills that drive surveys and exploration to completion.
 
 - Skill prose is free within the asserted elements; keep each under about 8 KB.
 - Head/zoom/3D tools come from other epics; never name them outside the optional section (root test).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

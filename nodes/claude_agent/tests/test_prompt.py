@@ -548,7 +548,7 @@ def test_prompt_teaches_control_leases() -> None:
             "arm homed",
             "base steering neutral",
             "get_control_state",
-            "head tool (future) works under either lease",
+            "head tools (set_head_angles, head_look_at, head_home) work under either the arm or the base lease",
             "arm_set_home is denied to you",
         ),
     )
@@ -781,3 +781,87 @@ def test_prompt_plans_time_and_caps_at_twice_the_honest_estimate() -> None:
     assert "time_budget_min and the caps at about twice your honest estimate" in lower
     assert "prefer overshooting and delivering to undershooting and stopping" in lower
     assert "raise budgets early with agent.raise_phase_budget rather than end unfinished" in lower
+
+
+def norm_prompt() -> str:
+    return " ".join(build_system_prompt(ClaudeAgentConfig()).split())
+
+
+def test_prompt_has_skills_and_workflows_paragraph_after_working_method() -> None:
+    text = norm_prompt()
+    lower = text.lower()
+    assert "Skills and workflows:" in text
+    assert lower.index("then perform the task") < lower.index("skills and workflows:")
+    section = text[text.index("Skills and workflows:") :]
+    section = section[: section.index("Notes:")] if "Notes:" in section else section[:3000]
+    for needle in (
+        "Skill tool",
+        "robot-skills:",
+        "read-only",
+        "robot-skills:planning",
+        "agent.start_workflow",
+        "discovery",
+        "drive_to_target",
+        "pick_place",
+        "dry_run",
+        "set_task_plan",
+        "Mandatory steps",
+        "RETROSPECTIVE",
+        "agent.record_retrospective",
+        "RECENT RETROSPECTIVES",
+    ):
+        assert needle in section, needle
+
+
+def test_prompt_points_exploration_to_sightseeing_and_status_tools() -> None:
+    text = norm_prompt()
+    section = text[text.index("Exploration:") : text.index("Pixel sizes:")]
+    for needle in (
+        "robot-skills:sightseeing",
+        "get_exploration_status",
+        "mark_survey_spot",
+        "list_frontiers",
+        "look_toward_frontier",
+        "go_to_frontier",
+    ):
+        assert needle in section, needle
+
+
+def test_prompt_teaches_poi_categories_and_removal_rules() -> None:
+    text = norm_prompt()
+    lower = text.lower()
+    assert "robot-skills:poi-categories" in text
+    for needle in ("target", "slow zone", "keep-out", "problem spot", "detail", "survey=true"):
+        assert needle in lower, needle
+    for needle in ("window", "mirror", "glass", "lidar plane"):
+        assert needle in lower, needle
+    assert "new session deletes no pois" in lower
+    assert "clear_pois" in lower and "delete marked" in lower
+    assert "after the person asked" in lower
+    assert "creating a keep-out is free" in lower
+    assert "cancelling or deleting one needs the person's consent" in lower
+
+
+def test_prompt_states_photo_rules_for_maps_and_cleanups() -> None:
+    lower = norm_prompt().lower()
+    assert "a map holds its pois and photos" in lower
+    assert "save_map stores both" in lower
+    assert "load_map replaces both" in lower
+    assert "delete_map removes both" in lower
+    assert "clear_pois defaults to your own pois and photos and keeps zones" in lower
+    assert "web ui reset map clears the live pois and photos" in lower
+    assert "saved maps are never deleted by a move or a reset" in lower
+    assert "travel with saved maps" in lower
+    assert "belong to the live map" in lower
+    assert "photos survive sessions and restarts" in lower
+    assert "photos are never cleared" not in lower
+    assert "photos survive sessions and restarts." not in lower
+
+
+def test_prompt_teaches_head_tools_lease_rule_and_home_on_park(config: ClaudeAgentConfig) -> None:
+    text = build_system_prompt(config)
+    assert "head_look_at" in text
+    assert "either the arm or the base lease" in text
+    assert "reset.head" in text
+    assert "A head tool (future)" not in text
+    assert "Zoom never moves the head" in text

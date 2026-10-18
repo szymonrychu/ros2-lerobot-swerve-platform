@@ -1,6 +1,6 @@
 ---
 title: Start workflow tool
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent seeds its task plan from a workflow in one call, can edit it first, and knows which perception tools exist."
 files: [nodes/claude_agent/claude_agent/plan_tools.py, nodes/claude_agent/claude_agent/budget.py, nodes/claude_agent/claude_agent/runner.py, nodes/claude_agent/tests/test_start_workflow.py, nodes/claude_agent/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--start-workflow-tool
 branch: driving-agent-skills-and-wor--start-workflow-tool
-verified_head: ""
-run: ""
-provides: []
+verified_head: 8466ee2344101e7f8a725498b9bb8ad9c3f2a6ac
+run: driving-agent-skills-and-wor
+provides: [session-tools, perception-capabilities, tracker-workflow-mandatory-ids]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Start workflow tool
@@ -63,3 +65,7 @@ provides: []
 
 - The gate classifies by plan_tools.FULL_TOOL_NAMES: adding to TOOL_NAMES is enough for the plan kind.
 - Keep set_task_plan unchanged for free-form jobs.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

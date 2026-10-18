@@ -1,4 +1,4 @@
-"""Frontier tools: list_frontiers and plan_frontier_visit (sensors), go_to_frontier and look_toward_frontier (base).
+"""Frontier tools: list_frontiers, plan_frontier_visit, get_exploration_status and mark_survey_spot (sensors), go_to_frontier and look_toward_frontier (base).
 
 Frontiers come from frontiers.FrontierTracker (ToolContext.frontiers), recomputed lazily per /map version. Values that
 cannot be computed are null with a note, never invented. Observation poses are known free cells (never unknown space)
@@ -13,8 +13,10 @@ from typing import Annotated, Any, Protocol
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
+from ros2_common.poi_categories import SURVEY_SPOT_TAG, apply_tags, category_tags, has_tag
 
 from .config import McpServerConfig
+from .exploration import coverage, reachable_mask
 from .frontiers import (
     Frontier,
     FrontierSnapshot,
@@ -34,6 +36,9 @@ from .metrics import FRONTIER_COMPUTE
 from .models import BasePose, NavigationResult, RobotError
 from .perception_models import (
     XY,
+    BatteryLimit,
+    ExplorationFrontier,
+    ExplorationStatus,
     FrontierList,
     FrontierView,
     FrontierVisitPlan,
@@ -41,13 +46,14 @@ from .perception_models import (
     LookTowardFrontierResult,
     MapPose,
     Nav2Check,
+    PoiResult,
     RetiredView,
     RotationClearance,
 )
-from .perception_tools import Camera, image_block, tool_errors
+from .perception_tools import POI_CREATED_BY, POI_FRAME, Camera, image_block, pose_tuple, tool_errors, xy_pair
 from .tool_context import ToolContext
 
-SENSOR_TOOL_NAMES = ("list_frontiers", "plan_frontier_visit")
+SENSOR_TOOL_NAMES = ("list_frontiers", "plan_frontier_visit", "get_exploration_status", "mark_survey_spot")
 MOTION_TOOL_NAMES = ("go_to_frontier", "look_toward_frontier")
 TOOL_NAMES = (*SENSOR_TOOL_NAMES, *MOTION_TOOL_NAMES)
 ROUND_M = 3
@@ -55,6 +61,9 @@ ROUND_DEG = 1
 ROUND_MS = 2
 NAV_ACTIVE_NOTE = "navigation active: Nav2 check skipped (would preempt the planner)"
 NO_POSE_NOTE = "robot pose unavailable: reachable, path_distance_m, straight_distance_m and bearing_deg are null"
+SURVEY_SPOT_NAME = "survey spot"
+NO_BATTERY_NOTE = "battery guard not configured: battery fields are null"
+NO_READING_NOTE = "battery: no fresh reading, battery fields are null"
 GRIPPER_NOTE = "gripper camera captured at its current pose: the arm never moves, only the base heading aims"
 MAX_STAMP_SEC = 4_000_000_000  # a version whose first two entries are not a plausible (sec, nanosec) stamp has no age
 
@@ -599,6 +608,157 @@ def run_look_toward_frontier(ctx: ToolContext, frontier_id: int, camera: str) ->
     return CallToolResult(content=content, structured_content=payload)
 
 
+def battery_limit(ctx: ToolContext, notes: list[str]) -> BatteryLimit:
+    """Pack voltage against the survey stop voltage from the guard the motion gates use.
+
+    Args:
+        ctx (ToolContext): Shared registration context (guard, exploration settings).
+        notes (list[str]): Notes, extended when the battery is unknown.
+
+    Returns:
+        BatteryLimit: pack_v, stop_v = cells * (cutoff_cell_v + stop_margin_cell_v) and limit_reached; all null
+        without a guard or a fresh reading.
+    """
+    if ctx.guard is None:
+        notes.append(NO_BATTERY_NOTE)
+        return BatteryLimit(pack_v=None, stop_v=None, limit_reached=None)
+    state = ctx.guard.state()
+    if state["voltage"] is None or state["stale"]:
+        notes.append(NO_READING_NOTE)
+        return BatteryLimit(pack_v=None, stop_v=None, limit_reached=None)
+    stop_v = state["cells"] * (state["cutoff_cell_v"] + ctx.config.exploration.stop_margin_cell_v)
+    return BatteryLimit(
+        pack_v=round(state["voltage"], ROUND_M),
+        stop_v=round(stop_v, ROUND_M),
+        limit_reached=state["voltage"] < stop_v,
+    )
+
+
+def build_exploration_status(ctx: ToolContext) -> ExplorationStatus:
+    """get_exploration_status body (no motion, no lease).
+
+    Args:
+        ctx (ToolContext): Shared registration context.
+
+    Returns:
+        ExplorationStatus: Reachable frontiers, survey coverage, completion with reasons and the battery limit.
+    """
+    notes: list[str] = []
+    battery = battery_limit(ctx, notes)
+
+    def unknown() -> ExplorationStatus:
+        """Status with every computed field null (the notes say why)."""
+        return ExplorationStatus(
+            complete=None,
+            reasons=[],
+            frontiers=None,
+            reachable_frontiers=None,
+            unreachable_frontiers=None,
+            unlooked_frontiers=None,
+            survey_spots=None,
+            coverage=None,
+            battery=battery,
+            notes=notes,
+        )
+
+    try:
+        fc = FrontierContext(ctx)
+    except ToolError as exc:
+        notes.append(f"exploration status unknown: {exc}")
+        return unknown()
+    notes.extend(n for n in fc.notes if n not in notes)
+    if fc.pose is None:
+        notes.append("robot pose unavailable: reachability and survey coverage are not computable")
+        return unknown()
+    try:
+        pois = ctx.robot.poi_list()[0]
+    except RobotError as exc:
+        notes.append(f"poi_store unavailable: survey spots and coverage are not computable ({exc})")
+        return unknown()
+
+    views = fc.describe(list(fc.snapshot.frontiers))
+    notes.extend(n for n in fc.notes if n not in notes)
+    reachable = sorted((v for v in views if v.reachable), key=sort_key)
+    frontiers = [
+        ExplorationFrontier(id=v.id, path_distance_m=v.path_distance_m, looked=v.last_lookup_facing is not None)
+        for v in reachable
+    ]
+    spots = [
+        XY(x=round(p["x"], ROUND_M), y=round(p["y"], ROUND_M))
+        for p in pois
+        if p.get("created_by") == POI_CREATED_BY
+        and p.get("status") == "open"
+        and has_tag(str(p.get("note", "")), SURVEY_SPOT_TAG)
+        and p.get("x") is not None
+        and p.get("y") is not None
+    ]
+    grid = fc.snapshot.grid
+    mask = reachable_mask(grid, fc.snapshot.trav, (fc.pose.x, fc.pose.y))
+    cov = None if mask is None else coverage(grid, mask, [(s.x, s.y) for s in spots], ctx.config.exploration)
+
+    reasons: list[str] = []
+    if frontiers:
+        ids = ", ".join(str(f.id) for f in frontiers)
+        reasons.append(f"{len(frontiers)} reachable frontier(s) left to explore: ids {ids}")
+    if cov is None:
+        reasons.append("robot is not within traversable space: survey coverage is unknown")
+    elif cov.fraction is None:
+        reasons.append("no reachable free space on the map: survey coverage is unknown")
+    elif cov.unsurveyed_areas:
+        largest = cov.unsurveyed_areas[0]
+        reasons.append(
+            f"{len(cov.unsurveyed_areas)} unsurveyed area(s) in reachable space ({cov.fraction:.0%} surveyed; "
+            f"largest {largest.area_m2:.1f} m2 near x={largest.x:.2f}, y={largest.y:.2f}): "
+            "drive there and call mark_survey_spot"
+        )
+    return ExplorationStatus(
+        complete=not reasons,
+        reasons=reasons,
+        frontiers=frontiers,
+        reachable_frontiers=len(frontiers),
+        unreachable_frontiers=sum(1 for v in views if v.reachable is False),
+        unlooked_frontiers=sum(1 for f in frontiers if not f.looked),
+        survey_spots=spots,
+        coverage=cov,
+        battery=battery,
+        robot_pose=fc.robot_pose_dict(),
+        notes=notes,
+    )
+
+
+def run_mark_survey_spot(ctx: ToolContext, note: str, x: float | None, y: float | None) -> PoiResult:
+    """mark_survey_spot body: an agent point POI tagged #survey #survey-spot (no motion).
+
+    Args:
+        ctx (ToolContext): Shared registration context.
+        note (str): Free text after the tags.
+        x (float | None): Map x (m); default the robot position.
+        y (float | None): Map y (m); default the robot position.
+
+    Returns:
+        PoiResult: The poi_store answer.
+    """
+    position = xy_pair(x, y, "x and y")
+    if position is None:
+        here = pose_tuple(ctx.robot)
+        if here is None:
+            raise ToolError("robot pose unavailable: give x and y explicitly")
+        position = (here[0], here[1])
+    poi = {
+        "kind": "point",
+        "name": SURVEY_SPOT_NAME,
+        "note": apply_tags(note, category_tags(None, survey=True, survey_spot=True)),
+        "frame": POI_FRAME,
+        "created_by": POI_CREATED_BY,
+        "zone": "none",
+        "x": position[0],
+        "y": position[1],
+    }
+    result = ctx.robot.poi_request("add", poi)
+    ctx.poi_writes.reset()
+    return PoiResult(ok=True, message=str(result.get("message", "")), poi=result.get("poi"))
+
+
 def register(ctx: ToolContext) -> None:
     """Register the frontier tools.
 
@@ -645,6 +805,44 @@ def register(ctx: ToolContext) -> None:
         """Plan a frontier visit; the description is passed to the decorator."""
         with tool_errors():
             return build_visit_plan(ctx, id)
+
+    @server.tool(
+        description=(
+            "Is the surrounding area completely mapped and surveyed, and is the battery still above the survey stop "
+            "limit? Refreshes the frontiers and returns the reachable frontiers (id, path_distance_m, looked = a "
+            "camera lookup already faced it) with counts of reachable, unreachable and unlooked ones, the survey "
+            "spots (your open POIs tagged #survey-spot, see mark_survey_spot), coverage (fraction of the reachable "
+            "free space seen from the survey spots within exploration.survey_radius_m, plus the unsurveyed areas "
+            "with centroid and area_m2) and battery {pack_v, stop_v, limit_reached}. stop_v = cells * (cutoff "
+            "volts per cell + exploration.stop_margin_cell_v): when limit_reached is true stop surveying, return to "
+            "the dock and report. complete is true only when the robot pose is known, no reachable frontier is left "
+            "and no reachable area is unsurveyed; reasons lists every unmet condition in words. Null fields (with a "
+            "note) when /map, the robot pose or the battery reading is unavailable, never a guess. No motion, no "
+            "lease."
+        ),
+    )
+    def get_exploration_status() -> ExplorationStatus:
+        """Exploration status; the description is passed to the decorator."""
+        with tool_errors():
+            return build_exploration_status(ctx)
+
+    @server.tool(
+        description=(
+            "Mark the place where you have just looked around as surveyed: adds an agent point POI named "
+            f"'{SURVEY_SPOT_NAME}' tagged '#survey #survey-spot' (plus your note) at the robot position, or at x and "
+            "y (map, m; give both). get_exploration_status counts the free space within "
+            f"{config.exploration.survey_radius_m:g} m line of sight of every open survey spot as surveyed. Errors "
+            "without a robot pose and without x and y. Returns the poi_store answer. No motion."
+        ),
+    )
+    def mark_survey_spot(
+        note: Annotated[str, Field(max_length=500, description="Free text, e.g. what is here")] = "",
+        x: Annotated[float | None, Field(description="Map x (m); default: robot position")] = None,
+        y: Annotated[float | None, Field(description="Map y (m); default: robot position")] = None,
+    ) -> PoiResult:
+        """Mark a survey spot; the description is passed to the decorator."""
+        with tool_errors():
+            return run_mark_survey_spot(ctx, note, x, y)
 
     @server.tool(
         description=(

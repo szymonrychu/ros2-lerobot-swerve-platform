@@ -1,6 +1,6 @@
 ---
 title: Retro API endpoint
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Retrospectives can be read over HTTP by the web UI and by scripts.
 files: [nodes/claude_agent/claude_agent/api.py, nodes/claude_agent/claude_agent/__main__.py, nodes/claude_agent/tests/test_retro_api.py, nodes/claude_agent/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--retro-api-endpoint
 branch: driving-agent-skills-and-wor--retro-api-endpoint
-verified_head: ""
-run: ""
+verified_head: f9410921553a2b2b1dab100c134d80b9bda809d9
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Retro API endpoint
@@ -59,3 +61,7 @@ The retrospective store is readable over the claude_agent API.
 ## Notes
 
 - Precedent: `GET /api/retry_outcomes` in api.py.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

@@ -14,7 +14,9 @@ deserialize is processed even while new measurements are paused.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import shutil
 import threading
 import time
@@ -30,6 +32,8 @@ from ros2_common.maps import Localisation, LocalisationState, MapCommand, MapRes
 from ros2_common.scan_agreement import GridMap, prepare_map
 
 from map_manager.bundle import (
+    PHOTO_KIND,
+    PHOTOS_DIR,
     POSEGRAPH_BASE,
     BundleExists,
     BundleInvalid,
@@ -38,6 +42,7 @@ from map_manager.bundle import (
     BundleStore,
     LoadedBundle,
     MapInfo,
+    read_meta,
 )
 from map_manager.config import MapManagerConfig
 from map_manager.relocalise import LocalisationJudge, SearchResult, search_candidates
@@ -49,6 +54,7 @@ NO_SCAN_REASON = "no scan received; deserializing at the hint"
 PAUSE_FAILED_REASON = "could not pause slam_toolbox new measurements"
 NO_POSE_REASON = "no last known pose"
 SCRATCH_DIR = ".relocalise"
+ACTIVE_MAP_FILE = ".active_map.json"
 UNPAUSE_FAILED_REASON = "unpausing new measurements failed, slam_toolbox stays paused"
 
 LOGGER = logging.getLogger(__name__)
@@ -89,8 +95,17 @@ class PoiPort(Protocol):
         """Latest ``/poi/list`` POIs and revision; None before the first list."""
         ...
 
-    def replace(self, pois: list[dict[str, Any]]) -> tuple[bool, str]:
-        """Swap the live non-photo POI set; (ok, message) from poi_store's answer."""
+    def export_photos(self, photo_dir: str) -> tuple[bool, str, list[dict[str, Any]]]:
+        """Write every live photo's JPEG and ``index.jsonl`` into photo_dir; (ok, message, photo POIs exported)."""
+        ...
+
+    def replace(self, pois: list[dict[str, Any]], photo_dir: str | None = None) -> tuple[bool, str, dict[str, Any]]:
+        """Make the live POIs and photos exactly the given set; (ok, message, data) from poi_store's answer.
+
+        ``photo_dir`` holds the JPEGs of photos not yet live (a bundle's ``photos`` directory); None for none.
+
+        ``data`` carries the replace counts (``removed`` POIs, ``photos_removed``, ``photos_replaced``); empty when the answer has none.
+        """
         ...
 
 
@@ -216,7 +231,7 @@ class MapManager:
         self.state_lock = threading.RLock()
         self.running = ""
         self.maps: list[MapSummary] = store.list()
-        self.active_map: str | None = None
+        self.active_map: str | None = self.read_active_map()
         self.load_seq = 0
         self.localisation = Localisation(state="unknown")
         self.localised_value: bool | None = None
@@ -274,6 +289,48 @@ class MapManager:
             self.localised_value = localised
         self.notify()
 
+    def active_map_path(self) -> Path:
+        """Path of the persisted owner file inside the maps root."""
+        return self.store.root / ACTIVE_MAP_FILE
+
+    def read_active_map(self) -> str | None:
+        """Read the persisted owner of the live set.
+
+        Returns:
+            str | None: The saved map name; None when the file is missing, unreadable or names a missing bundle.
+        """
+        path = self.active_map_path()
+        if not path.is_file():
+            return None
+        try:
+            name = json.loads(path.read_text())["active_map"]
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            LOGGER.warning("map_manager: unreadable %s, no active map: %r", path, exc)
+            return None
+        if name is None:
+            return None
+        if not isinstance(name, str) or not self.store.path_of(name).is_dir():
+            LOGGER.warning("map_manager: persisted active map %r has no bundle, no active map", name)
+            return None
+        return name
+
+    def set_active_map(self, name: str | None) -> None:
+        """Set the owner of the live set and persist it atomically (a write failure is logged).
+
+        Args:
+            name (str | None): Owning saved map, None for none.
+        """
+        with self.state_lock:
+            self.active_map = name
+        path = self.active_map_path()
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps({"active_map": name}))
+            os.replace(tmp, path)
+        except OSError as exc:
+            LOGGER.warning("map_manager: could not persist active map to %s: %r", path, exc)
+
     def complete_load(self, name: str, localisation: Localisation) -> None:
         """Record a completed load: active map, load sequence, verdict.
 
@@ -281,8 +338,8 @@ class MapManager:
             name (str): Loaded map.
             localisation (Localisation): Verdict.
         """
+        self.set_active_map(name)
         with self.state_lock:
-            self.active_map = name
             self.load_seq += 1
             self.before_load = None
         self.set_localisation(localisation, localisation.state == "localised")
@@ -306,6 +363,7 @@ class MapManager:
                 "save": self.save,
                 "load": self.load,
                 "delete": self.delete,
+                "clear_live": self.clear_live,
                 "relocalise": self.relocalise,
             }
             handler = handlers.get(command.op)
@@ -344,7 +402,7 @@ class MapManager:
         """
         self.sensors.start_operation()
         try:
-            summary = self.write_bundle(command.name, command.note, command.overwrite)
+            summary = self.write_bundle(command.name, command.note, command.overwrite, owns_live_set=True)
         except OperationFailed as exc:
             LOGGER.warning("map_manager save %s refused: %s", command.name, exc)
             return MapResult(request_id=command.request_id, ok=False, message=str(exc))
@@ -353,17 +411,19 @@ class MapManager:
         return MapResult(
             request_id=command.request_id,
             ok=True,
-            message=f"saved map {command.name} with {summary.poi_count} POIs",
+            message=f"saved map {command.name} with {summary.poi_count} POIs and {summary.photo_count} photos",
             data=summary.model_dump(),
         )
 
-    def write_bundle(self, name: str, note: str, overwrite: bool) -> MapSummary:
+    def write_bundle(self, name: str, note: str, overwrite: bool, owns_live_set: bool = False) -> MapSummary:
         """Serialize slam_toolbox into a temp directory and commit it with the grid, POIs and pose.
 
         Args:
             name (str): Map name.
             note (str): Free text note.
             overwrite (bool): Replace an existing bundle.
+            owns_live_set (bool): Record (and persist) the saved map as owner of the live set; False for the
+                autosave inside a load.
 
         Returns:
             MapSummary: Summary of the stored map.
@@ -391,6 +451,15 @@ class MapManager:
         if not serialized:
             shutil.rmtree(tmp, ignore_errors=True)
             raise OperationFailed(f"cannot save map {name!r}: slam_toolbox serialize_map failed")
+        try:
+            exported_ok, export_message, photo_pois = self.poi.export_photos(str(tmp / PHOTOS_DIR))
+        except BaseException:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+        if not exported_ok:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise OperationFailed(f"cannot save map {name!r}: poi_store photo export failed: {export_message}")
+        pois = [entry for entry in pois if entry.get("kind") != PHOTO_KIND] + photo_pois
         height, width = grid.cells.shape
         meta = BundleMeta(
             version=1,
@@ -414,6 +483,8 @@ class MapManager:
             summary = self.store.commit(tmp, name, meta, grid, overwrite)
         except (BundleExists, BundleInvalid, OSError) as exc:
             raise OperationFailed(f"cannot save map {name!r}: {exc}") from exc
+        if owns_live_set:
+            self.set_active_map(name)
         self.refresh_maps()
         return summary
 
@@ -557,7 +628,10 @@ class MapManager:
         name = plan.command.name
         confirmed = self.slam.wait_pose_after(started, self.config.load_timeout_s)
         covariance = self.slam.pose_covariance() if confirmed is not None else None
-        pois_ok, poi_message = self.poi.replace(plan.bundle.meta.pois)
+        photos_dir = plan.bundle.photos_dir
+        pois_ok, poi_message, counts = self.poi.replace(
+            plan.bundle.meta.pois, photo_dir=str(photos_dir) if photos_dir is not None else None
+        )
         state: LocalisationState
         ratio: float | None = None
         if confirmed is None:
@@ -583,6 +657,8 @@ class MapManager:
             slam_pose=confirmed.model_dump() if confirmed is not None else None,
             covariance=covariance,
             pois_replaced=pois_ok,
+            photos_replaced=int(counts.get("photos_replaced", 0)),
+            photos_removed=int(counts.get("photos_removed", 0)),
         )
         return MapResult(
             request_id=plan.command.request_id,
@@ -622,32 +698,56 @@ class MapManager:
     # ------------------------------------------------------------------ delete
 
     def delete(self, command: MapCommand) -> MapResult:
-        """Delete a bundle (the map and its POIs); deleting the active map also empties the live POI set (U7).
+        """Delete a bundle with its POIs and photos; deleting the map that owns the live set empties that too.
 
         Args:
             command (MapCommand): ``op: delete`` with name.
 
         Returns:
-            MapResult: ok when deleted (and, for the active map, the live POIs emptied).
+            MapResult: ok when deleted (and, for the owner, the live POIs and photos emptied); ``data`` has name,
+            was_active, bundle_pois, bundle_photos, live_pois_removed, live_photos_removed (None when not the owner).
         """
         name = command.name
+        bundle_pois = bundle_photos = 0
+        try:
+            entries = read_meta(self.store.path_of(name)).pois
+            bundle_photos = sum(1 for entry in entries if entry.get("kind") == PHOTO_KIND)
+            bundle_pois = len(entries) - bundle_photos
+        except BundleInvalid as exc:
+            LOGGER.warning("map_manager delete %s: counting an unreadable bundle as 0: %s", name, exc)
         try:
             self.store.delete(name)
         except BundleNotFound as exc:
             return MapResult(request_id=command.request_id, ok=False, message=f"cannot delete: {exc}")
-        was_active = self.active_map == name
-        data: dict[str, Any] = {"name": name, "was_active": was_active, "pois_cleared": None}
-        ok, message = True, f"deleted map {name} and its POIs"
+        owner = self.active_map
+        was_active = owner == name
+        data: dict[str, Any] = {
+            "name": name,
+            "was_active": was_active,
+            "bundle_pois": bundle_pois,
+            "bundle_photos": bundle_photos,
+            "live_pois_removed": None,
+            "live_photos_removed": None,
+        }
+        ok = True
+        message = f"deleted map {name} with {bundle_pois} POIs and {bundle_photos} photos"
         if was_active:
-            with self.state_lock:
-                self.active_map = None
-            cleared, poi_message = self.poi.replace([])
-            data["pois_cleared"] = cleared
+            self.set_active_map(None)
+            cleared, poi_message, counts = self.poi.replace([])
             if cleared:
-                message += "; it was the active map, live POIs emptied"
+                data["live_pois_removed"] = int(counts.get("removed", 0))
+                data["live_photos_removed"] = int(counts.get("photos_removed", 0))
+                message += (
+                    f"; it owned the live set: removed {data['live_pois_removed']} live POIs "
+                    f"and {data['live_photos_removed']} live photos"
+                )
             else:
                 ok = False
-                message += f"; it was the active map but emptying the live POIs failed: {poi_message}"
+                message += (
+                    f"; it owned the live set but emptying it failed: {poi_message}; the live POIs and photos stayed"
+                )
+        else:
+            message += f"; live set (owned by {owner or 'none'}) unchanged"
         self.refresh_maps()
         return MapResult(request_id=command.request_id, ok=ok, message=message, data=data)
 
@@ -769,12 +869,14 @@ class MapManager:
         notes = [reason]
         if state == "localised" and not self.set_paused(False):
             notes.append(UNPAUSE_FAILED_REASON)
-        discarded = 0
+        discarded = discarded_photos = 0
         if state != "localised" and command.discard_on_fail:
-            discarded, message = self.discard_live_pois()
+            discarded, discarded_photos, message = self.discard_live_pois()
             if discarded < 0:
-                discarded = 0
-                notes.append(f"POIs not discarded: {message}")
+                discarded = discarded_photos = 0
+                notes.append(f"POIs and photos not discarded: {message}")
+            else:
+                notes.append(f"discarded {discarded} POIs and {discarded_photos} photos")
         with self.state_lock:
             self.before_load = None
         self.set_localisation(
@@ -791,6 +893,7 @@ class MapManager:
             "search_reason": search_reason,
             "ambiguous": search is not None and search.ambiguous,
             "discarded_pois": discarded,
+            "discarded_photos": discarded_photos,
             "active_map": self.active_map,
             "load_seq": self.load_seq,
         }
@@ -801,13 +904,48 @@ class MapManager:
             data=data,
         )
 
-    def discard_live_pois(self) -> tuple[int, str]:
-        """Empty the live POI set through poi_store.
+    def discard_live_pois(self) -> tuple[int, int, str]:
+        """Empty the live POIs and photos through poi_store and clear the live owner when that worked.
 
         Returns:
-            tuple[int, str]: Number of POIs emptied (-1 when the replace failed) and poi_store's message.
+            tuple[int, int, str]: POIs and photos removed (both -1 when the replace failed) and poi_store's message.
+        """
+        ok, message, counts = self.poi.replace([])
+        if not ok:
+            return -1, -1, message
+        self.set_active_map(None)
+        return int(counts.get("removed", 0)), int(counts.get("photos_removed", 0)), message
+
+    # ------------------------------------------------------------------ clear live
+
+    def clear_live(self, command: MapCommand) -> MapResult:
+        """Empty the live POIs and photos (web UI Reset map); saved maps stay and the live owner is cleared.
+
+        Args:
+            command (MapCommand): ``op: clear_live``.
+
+        Returns:
+            MapResult: ok when emptied; ``data`` has pois_removed, photos_removed and active_map (None). A failed
+            replace is not ok, names poi_store's reason and keeps ``active_map``.
         """
         listing = self.poi.latest_list()
-        count = len(listing[0]) if listing is not None else 0
-        ok, message = self.poi.replace([])
-        return (count if ok else -1), message
+        entries = listing[0] if listing is not None else []
+        photos = sum(1 for entry in entries if entry.get("kind") == PHOTO_KIND)
+        pois = len(entries) - photos
+        ok, message, counts = self.poi.replace([])
+        if not ok:
+            return MapResult(
+                request_id=command.request_id,
+                ok=False,
+                message=f"live set not cleared: {message}; active map stays {self.active_map or 'none'}",
+                data={"pois_removed": 0, "photos_removed": 0, "active_map": self.active_map},
+            )
+        self.set_active_map(None)
+        pois = int(counts.get("removed", pois))
+        photos = int(counts.get("photos_removed", photos))
+        return MapResult(
+            request_id=command.request_id,
+            ok=True,
+            message=f"live set cleared: removed {pois} POIs and {photos} photos; saved maps kept",
+            data={"pois_removed": pois, "photos_removed": photos, "active_map": None},
+        )

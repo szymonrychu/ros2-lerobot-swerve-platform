@@ -14,6 +14,8 @@ AGENT_TAB_ID = "agent"
 AGENT_TAB_TYPE = "agent_chat"
 AGENT_TAB_LABEL = "Agent"
 MAP_TAB_ID = "map"
+RETROS_TAB_ID = "retros"
+RETROS_TAB_TYPE = "agent_retros"
 
 
 def node_config(name: str) -> dict:
@@ -64,3 +66,13 @@ def test_every_test_is_documented_in_tests_readme() -> None:
     names = re.findall(r"^def (test_\w+)", Path(__file__).read_text(), flags=re.M)
     readme = TESTS_README.read_text()
     assert [n for n in names if f"`{n}`" not in readme] == []
+
+
+def test_retros_tab_of_type_agent_retros_after_agent_tab() -> None:
+    """web_ui has a `retros` tab of type agent_retros listed right after the agent_chat tab."""
+    tabs = node_config("web_ui")["tabs"]
+    ids = [t["id"] for t in tabs]
+    retros = tabs[ids.index(RETROS_TAB_ID)]
+    assert retros["type"] == RETROS_TAB_TYPE
+    assert retros["label"] == "Retros"
+    assert ids.index(RETROS_TAB_ID) == ids.index(AGENT_TAB_ID) + 1

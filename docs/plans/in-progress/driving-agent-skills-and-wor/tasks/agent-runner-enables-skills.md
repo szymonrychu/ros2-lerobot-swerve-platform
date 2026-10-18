@@ -1,6 +1,6 @@
 ---
 title: Agent runner enables skills
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The agent can load its skills on demand while every other built-in tool stays off.
 files: [nodes/claude_agent/claude_agent/runner.py, nodes/claude_agent/claude_agent/tools.py, nodes/claude_agent/claude_agent/config.py, ansible/group_vars/client.yml, nodes/claude_agent/tests/test_skill_options.py, nodes/claude_agent/README.md]
@@ -13,10 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--agent-runner-enables-skills
-branch: driving-agent-skills-and-wor--agent-runner-enables-skills
-verified_head: ""
-run: ""
+branch: HEAD
+verified_head: 264d323c59868d6c9a8ce84c0b3f3f7fd55db663
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Agent runner enables skills
@@ -65,3 +67,7 @@ Sessions start with the skills plugin loaded and checked; Skill is the only new 
 
 - SDK 0.2.163 `_apply_skills_defaults` only defaults setting_sources when it is None; we pass [] (no user/project settings).
 - `session_tools` is consumed by start_workflow's capability line (start-workflow-tool).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

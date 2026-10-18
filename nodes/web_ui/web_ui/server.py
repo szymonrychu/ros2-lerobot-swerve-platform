@@ -115,7 +115,7 @@ class PoiClearFilters(BaseModel):
 
     op: Literal["clear"]
     created_by: Literal["agent", "user"] | None = None
-    kinds: list[Literal["point", "area", "object"]] | None = None
+    kinds: list[Literal["point", "area", "object", "photo"]] | None = None
     statuses: list[Literal["open", "done", "cancelled"]] | None = None
     keep_zones: bool = False
     ids: list[Annotated[str, StringConstraints(min_length=1)]] | None = Field(
@@ -838,6 +838,29 @@ def build_app(
         service = tab_cfg.map_reset_service
         node = bridge_node
 
+        async def clear_live_set(node: Any) -> JSONResponse:
+            """Empty the live POIs and photos through map_manager after a successful slam reset."""
+            failed = "map reset; live POIs and photos not cleared: "
+            future = node.map_request_async(MapCommand(op="clear_live"))
+            if future is None:
+                return action_response("map_reset", False, failed + "map_manager is not running", 503)
+            try:
+                result = await await_ros_future(future, MAP_DELETE_TIMEOUT_S)
+            except TimeoutError:
+                return action_response(
+                    "map_reset", False, f"{failed}map_manager did not answer within {MAP_DELETE_TIMEOUT_S:g} s", 504
+                )
+            if not result.get("ok"):
+                return action_response("map_reset", False, failed + str(result.get("message", "")), 502)
+            data = result.get("data") or {}
+            pois, photos = int(data.get("pois_removed", 0)), int(data.get("photos_removed", 0))
+            message = (
+                f"map reset; SLAM is building a new map; removed {pois} live POIs and {photos} photos; saved maps kept"
+            )
+            body = {"ok": True, "message": message, "data": {"pois_removed": pois, "photos_removed": photos}}
+            log.info("map_reset", ok=True, message=message)
+            return JSONResponse(body, status_code=200)
+
         async def run_reset() -> JSONResponse:
             response, error = await call_ros_service(
                 "map_reset", node.reset_map_async(service), service, RESET_MAP_TIMEOUT_S
@@ -850,7 +873,7 @@ def build_app(
             if tab_cfg.map_topic:
                 node.clear_and_notify(tab_cfg.map_topic)
             node.reset_gps_anchor()
-            return action_response("map_reset", True, "map reset; SLAM is building a new map", 200)
+            return await clear_live_set(node)
 
         return await coalesce(inflight_calls, f"map_reset:{service}", run_reset)
 

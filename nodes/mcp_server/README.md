@@ -58,6 +58,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `clear_calibration_samples(camera)` | Delete the stored samples of a camera. |
 | `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
 | `list_frontiers(max_count, reachable_only)` / `plan_frontier_visit(id)` | Frontiers of the SLAM map (numbered, stable ids) with geodesic distance, bearing, observation pose, nearest POI and last facing lookup; plan one visit with a Nav2 check. Sensors, no lease. See [Frontiers](#frontiers). |
+| `get_exploration_status()` / `mark_survey_spot(note, x, y)` | Is the surrounding area mapped and surveyed, and is the battery above the survey stop limit; mark where you looked around. Sensors, no lease, no motion. See [Exploration status](#exploration-status). |
 | `go_to_frontier(id, timeout_s)` / `look_toward_frontier(id, camera)` | Effectors (base lease, battery and tilt gates): Nav2 drive to a frontier's observation pose; in-place turn plus one recorded camera image toward it (no travel). See [Frontiers](#frontiers). |
 | `set_head_angles(pan_deg, tilt_deg)` | Move the pan/tilt head (degrees; pan + left, tilt + down, 0/0 level ahead). Lease `any` (arm or base), a motion tool (refused under battery cut-off), not in `RATE_SUBSYSTEMS`. Outside the URDF limits it is refused naming the limits in degrees. Returns status (`converged`/`timeout`/`no_feedback`), commanded and measured pan/tilt in degrees. |
 | `head_look_at(x, y, z, frame='base_link'\|'map')` | Aim the RGB camera axis once at a point (`HeadKinematics.look_at`, no tracking) and move there. `map` points are converted with the current robot map pose (refused when unknown). Unreachable points are refused with the pan/tilt they would need and nothing is published. Same lease/battery rules; also returns the target in base_link. |
@@ -70,12 +71,12 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `get_motion_status` | Queue snapshot (sensor): running, current step (elapsed, phase, planning_s, progress, blend group), pending steps, last events. |
 | `cancel_motions` | Uncapped control: drop the pending steps and abort the running one (base zeroed, arm held when a motion step runs). |
 | `wait_for_event(timeout_s, until='queue_empty', since_seq)` | Sensor: block until the queue drains or something relevant happens; returns the new events, the queue status and a compact state digest. |
-| `clear_pois(creator='agent', kinds=None, include_zones=False)` | Clears POIs in one call through `poi_store` `clear`: `creator` agent (default) / user / all (all sends no `created_by`), `kinds` subset of point/area/object, zones kept unless `include_zones=true` (`keep_zones`). The person's POIs or zones only when the person asked; photos are never cleared. Returns `{"removed": n}`. Sensor, no motion. |
+| `clear_pois(creator='agent', kinds=None, include_zones=False)` | Clears POIs in one call through `poi_store` `clear`: `creator` agent (default) / user / all (all sends no `created_by`), `kinds` subset of point/area/object/photo (default every kind, so your own photos go too; the person's photos only with creator user/all), zones kept unless `include_zones=true` (`keep_zones`). The person's POIs or zones only when the person asked. Photos removed lose their images. Returns `{"removed": n, "pois": a, "photos": b}`. Sensor, no motion. |
 | `save_map(name, overwrite=false, note='')` | Saves the current map, its POIs and the last robot pose as the named map `name` through `map_manager`. Refuses an existing name unless `overwrite`. Errors when map_manager is down or the name breaks the rule. No motion. |
 | `list_maps` | Saved maps (name, saved_at, note, poi_count, last_pose, valid), the active map and the localisation (state, ratio, pose). Sensor, read-only; errors until map_manager has published a status. |
 | `load_map(name, x=None, y=None, yaw=None)` | Loads the named map (the current map and POIs are first kept as `autosave`) and relocalises; returns the verdict (state, ratio, pose, reason). Calls stop first (halts the motion queue and zeroes the base); that is the only motion, no servo moves. Pose hint needs x, y and yaw together. Not navigable unless the state is `localised`. Consent default: none needed, but the load replaces the live map and POIs, so do it only when asked. |
 | `delete_map(name, confirm=false)` | Deletes a saved map and its POIs for good. Consent default: `confirm=false`, nothing is sent until the person agreed and the call repeats with `confirm=true`. No motion. |
-| `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. Areas can carry a Nav2 zone: `add_poi` / `update_poi` take `zone` (`none` / `keepout` / `slow`, `none` removes it) and `speed_limit_pct` (int 10..100, required for `slow`, refused for any other zone); `list_pois` returns both on every view. `keepout`: Nav2 will not plan or drive into the area (the robot can leave if it is inside; never set a goal inside). `slow`: MPPI speed cap while the robot centre is inside. A zone is active only while the POI status is `open`. A zone on a point, `slow` without a percentage, or a percentage with another zone is refused before the request. Agent zones are session-scoped (agent POIs are cleared at each new session). See [POI zones](#poi-zones). |
+| `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. Areas can carry a Nav2 zone: `add_poi` / `update_poi` take `zone` (`none` / `keepout` / `slow`, `none` removes it) and `speed_limit_pct` (int 10..100, required for `slow`, refused for any other zone); `list_pois` returns both on every view and never lists photos (`list_lookups` does); `delete_poi` with a photo id deletes that photo and its image, deleting a POI keeps the photos linked to it. `keepout`: Nav2 will not plan or drive into the area (the robot can leave if it is inside; never set a goal inside). `slow`: MPPI speed cap while the robot centre is inside. A zone is active only while the POI status is `open`. A zone on a point, `slow` without a percentage, or a percentage with another zone is refused before the request. Agent zones are session-scoped (agent POIs are cleared at each new session). See [POI zones](#poi-zones). |
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
 after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
@@ -98,11 +99,18 @@ works before calibration; `solve_camera_calibration` needs the intrinsics.
 
 | Camera | Reference frame of results | Floor | Mount `parent_frame` |
 |---|---|---|---|
-| `front` (head RGB camera) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | `base_link` (fixed) |
+| `front` (head RGB camera) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | a link of the head URDF `head.urdf_path` (default and deployed `head_link`; moves with the pan/tilt head) |
 | `gripper` (on the wrist) | arm base frame (URDF `base_link` of `so101_arm.urdf`, `z = 0` on the arm mount plane) | `z = -arm_base_height_m` (`floor_z_m`, -0.100 m with the measured mount) | URDF link `gripper_link` (child of `wrist_roll`, the rigid gripper body carrying the fixed jaw; `gripper_frame_link` is only the tool point at the jaw tips and `moving_jaw_so101_v1_link` moves with the gripper joint, so neither is a valid mount) |
 
 For the gripper camera `T_arm_base_gripper_link` is computed from the CURRENT measured joints with the same ikpy chain
-as IK/FK (`ArmKinematics.link_frame`), so the tools need fresh `/follower/joint_states`. Mount orientation convention:
+as IK/FK (`ArmKinematics.link_frame`), so the tools need fresh `/follower/joint_states`. The front camera works the
+same way on the head: `T_base_link_head_link` comes from the CURRENT measured `head_pan` / `head_tilt`
+(`HeadKinematics.link_pose`, `camera_scene.parent_transform(..., head=...)`), so the front camera tools need fresh
+`/head/joint_states` (an error naming them otherwise, never a fixed-pose fallback). Lookups record the head-composed
+`camera_pose_base` the same way (null when the head joints are stale), and the approach tools' camera view check
+(`camera_view_problem`) builds the front scene with the current measured head pose, assuming the head keeps it while
+the base moves; stale head joints give the reason `head joint states stale`. The deployed front mount is the
+`head.urdf` `head_link -> head_camera_link` origin (x 0.02, y -0.025, z 0, rpy 0). Mount orientation convention:
 REP-103 camera body frame (x forward, y left, z up), fixed-axis RPY in `parent_frame`.
 
 `arm.base_in_base_link` (`x`, `y`, `z`, `yaw` of the arm base frame in base_link; z must equal `arm_base_height_m`)
@@ -147,8 +155,9 @@ defaults to the mount measured on the robot 2026-10-10 `{x: 0.0592, y: -0.05, z:
 3. Take a photo (`get_camera_image` or `get_annotated_camera_image`; the annotated image works once an approximate mount is
    set and shows how far off it is), read the marker pixel `(u, v)` and call
    `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z)`. For the `gripper` camera repeat this at
-   several arm poses (move the arm to look at the markers from different joint configurations): each sample stores the
-   parent-link pose of that moment (computed with `arm.joint_offsets_rad`) and the raw measured joint positions as
+   several arm poses (move the arm to look at the markers from different joint configurations); for `front` the sample
+   stores the `head_link` pose at the measured head angles, so views at several head poses can be mixed. Each sample
+   stores the parent-link pose of that moment (computed with `arm.joint_offsets_rad`) and the raw measured joint positions as
    `joints` (optional field of the sample JSON), so the joint offsets can be re-solved from the same samples.
 4. `solve_camera_calibration(camera, initial)` (`initial` = `{x, y, z, roll, pitch, yaw}`, or the configured mount) returns
    `rms_px` (aim for about 1 px or less) and a YAML snippet.
@@ -506,7 +515,7 @@ writes and deletes all happen in poi_store.
 | `camera`, `width`, `height`, `file`, `bytes` | camera, image size (px), JPEG file name relative to the store, JPEG size |
 | `base_pose_map` | `{x, y, yaw}` in map at capture, null when the pose is unknown |
 | `arm_joints` | measured arm joints (rad), null when stale |
-| `camera_pose_base` | `{xyz, rpy}` of the camera body in base_link (fixed-axis rpy), when the camera has a mount (the gripper camera also needs `arm.base_in_base_link` and fresh joints); null otherwise |
+| `camera_pose_base` | `{xyz, rpy}` of the camera body in base_link (fixed-axis rpy), when the camera has a mount (the gripper camera also needs `arm.base_in_base_link` and fresh joints; the front camera is composed with the measured head angles and needs fresh head joint states); null otherwise |
 | `view` | camera pose in map from `ros2_common.photos.camera_view`: `x`, `y`, `z`, `yaw` (camera forward axis), `pitch` (positive looking down), `hfov`, `source` (`camera_mount`, or `base_heading` without a mount: base position and yaw, z / pitch / hfov null); null without a map pose |
 | `mcp_session` | Mcp-Session-Id of the call (a contextvar set in `RobotMCPServer.call_tool_with_digest`; empty without one). mcp_server cannot see claude_agent's instruction id: time range plus session stand in for it |
 | `kind`, `name`, `status`, `created_by`, `updated_at` | `photo`, label, `open` / `done` / `cancelled`, `agent` / `user`, unix time of the last edit (0 = never) |
@@ -606,10 +615,12 @@ it is listed in `layers_missing` with the reason and nothing is drawn.
 points at the frontier `target` within `facing_half_angle_deg`, no further than `facing_max_distance_m` from the lookup
 position. Result: `{lookup_id, age_s, camera, distance_m, off_axis_deg}`; prefer frontiers where it is null (nobody has
 looked there). The camera axis in the map frame = the record's `base_pose_map` yaw plus the yaw of the body x axis of
-`camera_pose_base`. **Front-camera assumption:** the front camera is uncalibrated (no mount, no intrinsics), so its
-record has no `camera_pose_base`; for `camera == "front"` the axis is taken to be the base heading (the camera looks
-forward). This is approximate and goes away when the front or head camera is calibrated. Gripper records without a pose
-are skipped, never guessed.
+`camera_pose_base`. **Head-mounted front camera:** the front camera sits on the pan/tilt head, so its record's
+`camera_pose_base` is composed from the measured head angles at capture (pan +45 deg turns the axis 45 deg left of the
+base heading). Only legacy records without a pose (taken before the camera was on the head) fall back to the base
+heading; a front lookup taken with stale head joint states records no pose (never a base_link guess), and its facing
+then also falls back to the base heading, the same as a legacy record. Gripper records without a pose are skipped,
+never guessed.
 
 **CPU budget and `mcp_frontier_compute_seconds`.** The Pi 5 runs near 90% CPU, so there is no timer: work happens only
 inside tool calls and the topdown layer, once per `/map` version (detection stages) and once per (version, robot cell)
@@ -622,6 +633,35 @@ stage p95 values exceeds 300 ms, raise `frontiers.geodesic_downsample` (2 -> 3).
 frontiers of the latest computed version. A frontier that is `reachable: true` here can still fail the Nav2 check (the
 geodesic uses half-width clearance, Nav2 the real footprint on a lattice): `plan_frontier_visit` is the authority for
 the chosen pose; tune `pass_clearance_margin_m` if the two disagree often.
+
+## Exploration status
+
+`get_exploration_status()` and `mark_survey_spot(note="", x=None, y=None)` (in `frontier_tools.py`, both in `ALWAYS_ALLOWED_TOOLS`, no lease, no motion) tell the agent when the surroundings are completely mapped and surveyed and when to stop for the battery. Coverage maths is `exploration.py`; the survey spot tags are `ros2_common.poi_categories`.
+
+**`mark_survey_spot`** adds an agent point POI named `survey spot` at the robot pose (or at `x`, `y`, both required together) with the note `#survey #survey-spot` on the first line and your note text after it. Error without a robot pose and without `x`/`y`. Result: the poi_store answer.
+
+**`get_exploration_status`** refreshes the frontier snapshot and returns:
+
+- `frontiers[]`: the reachable frontiers (`reachable: true`) with `id`, `path_distance_m` and `looked` (a lookup already faced it, `last_lookup_facing` not null); counts `reachable_frontiers`, `unreachable_frontiers`, `unlooked_frontiers`.
+- `survey_spots[]`: open `agent` POIs whose first note line has `#survey-spot` (a `#survey` sighting alone, another creator or a done/cancelled POI does not count).
+- `coverage`: share of the reachable free cells (the robot's connected traversable region) that lie within `exploration.survey_radius_m` line of sight of a survey spot, plus the `unsurveyed_areas` (centroid, `area_m2`, largest first).
+- `battery`: `{pack_v, stop_v, limit_reached}` from the `BatteryGuard` the motion gates use; `stop_v = cells * (cutoff_cell_v + exploration.stop_margin_cell_v)`, `limit_reached` when `pack_v < stop_v`. All null plus a note without a guard or a fresh reading.
+- `complete` and `reasons[]`.
+
+**Completion rule.** `complete` is true only when the robot pose is known AND no reachable frontier is left AND no reachable area is unsurveyed. `reasons` names every unmet condition (the remaining frontier ids, the unsurveyed areas with size and place). With no `/map`, no robot pose or no poi_store the result is null (`complete`, `coverage`, `frontiers`) with a note, never a guess; the battery is still reported.
+
+`exploration:` settings (`ExplorationSettings`, all optional, defaults shown):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `survey_radius_m` | 2.5 | A survey spot counts free cells it sees within this range |
+| `rays` | 72 | Minimum rays per spot (raised to one per cell on the radius arc) |
+| `min_unsurveyed_area_m2` | 0.5 | Smaller unsurveyed pockets are ignored |
+| `downsample` | 2 | Coverage grid cell = map resolution x this |
+| `stop_margin_cell_v` | 0.3 | Survey stop voltage per cell = `battery.cutoff_cell_v` + this |
+| `max_unsurveyed_listed` | 10 | Largest unsurveyed areas listed |
+
+Tests: `tests/test_exploration_tools.py`.
 
 ## Tilt guard
 
@@ -2254,7 +2294,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `jog.py` | no | web-UI arm jog: `JogSpec`, `Jogger` (gripper-frame cartesian steps via IK, joint and gripper steps, step caps, refusals, last-request-wins coalescing), `gripper_axes` |
 | `auto_poi.py` | no | `AutoPoiMarker` (stuck events to point POIs, merge by radius), `attach_auto_poi` (monitor sink + `auto_poi_id` annotation) |
 | `frontiers.py` | no | frontier core: `MapGrid`, vectorised WFD `extract_frontiers`, `traversability`, `geodesic_from`, `observation_pose`, `FrontierTracker` (stable ids, epochs, retired successors), `facing_lookup`, `nearest_poi`, cell/map conversion |
-| `frontier_tools.py` | no | `list_frontiers`, `plan_frontier_visit`, `go_to_frontier`, `look_toward_frontier` (one `TOOL_MODULES` entry) |
+| `frontier_tools.py` | no | `list_frontiers`, `plan_frontier_visit`, `get_exploration_status`, `mark_survey_spot`, `go_to_frontier`, `look_toward_frontier` (one `TOOL_MODULES` entry) |
 | `perception_tools.py` | no | the perception, memory, look_around and POI tools (one `TOOL_MODULES` entry) |
 | `home_store.py`, `staleness.py`, `geometry.py`, `models.py` | no | home YAML, data age, pose math, result models |
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
@@ -2421,7 +2461,7 @@ grasp:                    # grasp planner defaults, overridable per call via par
 cameras:                  # default: not calibrated (see Camera tools and calibration)
   calibration_dir: /var/lib/ros2/camera_calibration
   gripper: {parent_frame: gripper_link, intrinsics: null, mount: null}
-  front: {parent_frame: base_link, intrinsics: {hfov_deg: 66.0, width: 640, height: 480}, mount: null}
+  front: {parent_frame: head_link, intrinsics: {hfov_deg: 66.0, width: 640, height: 480}, mount: null}
 grasp_check:               # jaw crop of a held close (see Grasp verification)
   crop_depth_m: 0.045      # how far into the jaws the crop reaches
   crop_margin_px: 24
@@ -2485,6 +2525,8 @@ frontiers:                # frontier tools (see Frontiers); all optional, defaul
   compute_path_timeout_s: 5.0    # plan_frontier_visit Nav2 check
   look_timeout_s: 20.0           # look_toward_frontier rotation timeout
   look_camera: front             # default camera (front | gripper)
+exploration: {survey_radius_m: 2.5, rays: 72, min_unsurveyed_area_m2: 0.5, downsample: 2,
+              stop_margin_cell_v: 0.3, max_unsurveyed_listed: 10}  # see Exploration status
 motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events: 40, wait_default_s: 30,
                wait_max_s: 120, poll_s: 0.05, base_still_linear_mps: 0.02, base_still_angular_rps: 0.05,
                holding_min_effort: 100.0, holding_min_gap_rad: 0.05,
@@ -2602,11 +2644,21 @@ Deploy: `./scripts/deploy-nodes.sh client mcp_server` (a `--tags mcp_server` run
 `add_poi(kind='area', zone=..., speed_limit_pct=...)` and `update_poi(id, zone=..., speed_limit_pct=...)` write the zone fields of the area POI in `poi_store`; the `costmap_zones` node turns active zones into Nav2 keepout and speed masks.
 
 - `zone='keepout'`: Nav2 does not plan or drive into the area. A robot already inside can leave. Never send a navigation goal inside one.
-- `zone='slow'` with `speed_limit_pct` (10..100): MPPI is capped to that percentage while the robot centre is inside.
+- `zone='slow'` with `speed_limit_pct` (10..100): the planner prefers routes around the area (non-lethal path cost) and MPPI is capped to that percentage while the robot centre is inside.
 - `zone='none'` (default) removes a zone. Switching to `slow` needs `speed_limit_pct` in the same `update_poi` call.
 - Active only while `status` is `open`; `done` / `cancelled` switch the zone off and keep the record.
 - Zones created by the agent are session-scoped: agent POIs are removed at the next session start.
 - Client-side checks mirror `poi_store` and raise `ValueError` before any request: zone on a point, `slow` without a percentage, percentage with a zone other than `slow`.
+
+### POI categories
+
+`add_poi` and `update_poi` take optional `category` (`target`, `slow`, `keepout`, `problem`, `detail`), `problem_type` (`window`, `mirror`, `glass`, `tight`, `overhang`, `low_obstacle`, `drop`, `cable`, `soft_floor`, `other`) and `survey` (bool, default false). They map onto the existing kind/zone/`speed_limit_pct` fields and write a tag on the first line of the note (no new schema field); the rest of the note is free text. Tag format, mapping table and parsers: [shared/README.md](../../shared/README.md) (`ros2_common.poi_categories`).
+
+- Validation (`check_category`, shared) runs on the resulting kind, zone and speed cap before any request; for `update_poi` on the stored POI's current values merged with the change. A broken rule is a tool error naming it: keepout/slow need an area with zone `keepout`/`slow` (and `speed_limit_pct` for slow, passed explicitly: no implicit zone), `problem` needs a `problem_type`, `problem_type` is refused for other categories.
+- `update_poi` with a category replaces the category tag and keeps the free text and an existing `#survey` tag. `survey=true` adds `#survey` (with or without a category).
+- `remember_object(survey=true)` writes `#target #survey` into the object's note.
+- `list_pois` views carry `category`, `problem_type` and `survey` parsed from the note (null / false when untagged).
+- Creating a keep-out is free; cancelling or deleting one needs the person's consent.
 
 ## Named maps
 

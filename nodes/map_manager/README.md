@@ -6,12 +6,41 @@ Named maps: each map is a self-contained bundle directory under `/var/lib/ros2/m
 
 - `map.posegraph`, `map.data` - slam_toolbox serialized pose graph
 - `occupancy.npz` - int8 grid (-1 unknown kept), resolution, origin x/y/yaw
-- `bundle.json` - `BundleMeta`: name, saved_at, note, last pose, POIs, POI revision, map info, laser frame
+- `bundle.json` - `BundleMeta`: name, saved_at, note, last pose, POIs (photos included, as `kind: "photo"` entries),
+  POI revision, map info, laser frame
+- `photos/` - `<id>.jpg` per photo and `index.jsonl` (the photo records); absent in bundles saved before photos were
+  bundled, which still list and load (`LoadedBundle.photos_dir` is None)
 
 `map_manager/bundle.py` (`BundleStore`, no ROS imports) writes bundles atomically: `begin` makes a
 `.tmp-<name>-<ms>` directory, `commit` validates and renames it into place (overwrite swaps via a rename-aside),
 failure removes the temp dir and leaves any existing bundle untouched. `list`, `load`, `delete`, `cleanup_temp`
-complete the store. Names are checked with `ros2_common.maps.validate_map_name`.
+complete the store; `commit` keeps `<tmp>/photos` inside the bundle and `delete` removes it with the bundle. Names are checked with `ros2_common.maps.validate_map_name`.
+
+## Photos travel with the map
+
+Save (and the autosave inside a load): after serialize, `RosPoi.export_photos(<tmp>/photos)` has poi_store write the
+live photos there (hard links, copy fallback). A failed export fails the save (temp dir removed, nothing committed,
+the message names poi_store's reason). `bundle.json` `pois` = the non-photo entries of the latched `/poi/list` plus the
+exported photo POIs; the message reads "saved map X with N POIs and M photos" and the summary has `poi_count` (non-photo)
+and `photo_count`. Load: `replace(meta.pois, photo_dir=<bundle>/photos or None)` makes the live POIs and photos exactly
+the bundle's (live-only photos are deleted, a bundle without `photos/` empties them); the load `data` adds
+`photos_replaced` and `photos_removed`. Delete removes the bundle with its photos (poi_store hard-links, so the live
+JPEGs stay). The `poi_timeout_s` budget covers export and replace.
+
+## Live-set owner and delete
+
+`MapManager.active_map` names the saved map that owns the live POIs and photos. It is persisted in
+`<maps_root>/.active_map.json` (`{"active_map": name | null}`, written atomically) by an explicit `save` and by a
+completed load (not by the autosave inside a load), and written as null when cleared. It is read at start; a missing
+or unreadable file, or a name whose bundle no longer exists, reads as none (logged). `MapStatus.active_map` reflects it
+from the start.
+
+`delete` reads the bundle's POI and photo counts first (photos are `kind: "photo"` entries of `meta.pois`; an
+unreadable bundle counts 0 and is still deleted), then removes the bundle. If the deleted map is the owner it also
+clears the owner and empties the live set through poi_store `replace([])`; a failed replace gives `ok: false` and says
+the live POIs and photos stayed. Another map's delete leaves the live set alone. Result `data`: `name`, `was_active`,
+`bundle_pois`, `bundle_photos`, `live_pois_removed`, `live_photos_removed` (the last two are null when the map was not
+the owner). `RosPoi.replace` returns `(ok, message, data)` with poi_store's replace counts (`removed`, `photos_removed`).
 
 `map_manager/relocalise.py` (numpy only, no ROS) refines the load pose hint before slam_toolbox sees it:
 `search_candidates` scores the base-frame scan against the bundle grid at every pose in a window around the hint
@@ -36,7 +65,7 @@ load ends "not localised". `LocalisationJudge` turns live agreement samples into
 
 | Topic | Type / QoS | Direction | Payload |
 |---|---|---|---|
-| `/map_manager/command` | std_msgs/String, reliable | in | `MapCommand` JSON: `save`, `load`, `delete`, `relocalise` |
+| `/map_manager/command` | std_msgs/String, reliable | in | `MapCommand` JSON: `save`, `load`, `delete`, `relocalise`, `clear_live` |
 | `/map_manager/result` | std_msgs/String, reliable, volatile | out | `MapResult` (`request_id`, `ok`, `message`, `data`); a load answers after the verdict |
 | `/map_manager/status` | std_msgs/String, reliable, latched | out | `MapStatus` (maps, active map, `load_seq`, `localisation`); published at start and after every change |
 | `/map_manager/localised` | std_msgs/Bool, reliable, latched | out | not published at start; false while loading or not localised, true when localised |
@@ -67,8 +96,14 @@ the POI set; collect agreement samples and judge; unpause only when localised. W
 near-region match (0.8 m, +-0.349 rad window, no rejection), an unreadable file still answers success so the files
 are checked first and the load is confirmed by `/pose`, and the first scan after the deserialize is processed even
 while new measurements are paused. `relocalise` (kidnap, design D13) runs the same steps on the live graph
-serialized to a scratch directory; with `discard_on_fail` it empties the live POIs when the pose is not recovered.
-Named bundles are never touched by it.
+serialized to a scratch directory; with `discard_on_fail` it empties the live POIs and photos when the pose is not recovered, clears the live owner
+(`active_map`) and reports `discarded_pois` and `discarded_photos` in `data` and the message. Named bundles are never
+touched by it.
+
+`clear_live` (web UI Reset map) empties the live POIs and photos through poi_store's `replace`, clears and persists
+`active_map` and answers "live set cleared: removed N POIs and M photos; saved maps kept" with `data`
+`{pois_removed, photos_removed, active_map: null}`. A failed or unanswered replace is `ok: false` naming poi_store's
+reason and keeps `active_map`. It is refused with `busy` like any op while another runs; saved maps are kept.
 
 ## Config keys (`/etc/ros2/map_manager/config.yaml`)
 

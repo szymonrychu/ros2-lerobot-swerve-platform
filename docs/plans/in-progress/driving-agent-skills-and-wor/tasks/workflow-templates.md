@@ -1,6 +1,6 @@
 ---
 title: Workflow templates
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Discovery, drive-to-target and pick/place jobs start from a proven step list instead of an improvised one."
 files: [nodes/claude_agent/claude_agent/workflows.py, nodes/claude_agent/claude_agent/workflow_templates/discovery.yaml, nodes/claude_agent/claude_agent/workflow_templates/drive_to_target.yaml, nodes/claude_agent/claude_agent/workflow_templates/pick_place.yaml, nodes/claude_agent/claude_agent/config.py, ansible/group_vars/client.yml, nodes/claude_agent/tests/test_workflows.py, nodes/claude_agent/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--workflow-templates
 branch: driving-agent-skills-and-wor--workflow-templates
-verified_head: ""
-run: ""
-provides: []
+verified_head: de1e58108d382e2aa933f155791f2fee43b9b266
+run: driving-agent-skills-and-wor
+provides: [workflow-template-names]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Workflow templates
@@ -66,3 +68,7 @@ Three validated templates and an expander ready for start_workflow.
 
 - Directory is `workflow_templates/` (a `workflows/` dir next to workflows.py would shadow the module).
 - Plan tree grammar: plan_tools.PLAN_NODE_DESCRIPTION; limits 12 phases, 24 nodes, depth 4; caps summed once per phase.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

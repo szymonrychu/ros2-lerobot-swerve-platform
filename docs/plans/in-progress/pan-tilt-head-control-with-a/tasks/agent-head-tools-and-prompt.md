@@ -1,6 +1,6 @@
 ---
 title: Agent head tools and prompt
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The robot agent knows it can aim its head camera and that the head goes home when it parks.
 files: [nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_config.py, nodes/claude_agent/tests/test_prompt.py, nodes/claude_agent/README.md, ansible/group_vars/client.yml]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/pan-tilt-head-control-with-a--agent-head-tools-and-prompt
 branch: pan-tilt-head-control-with-a--agent-head-tools-and-prompt
-verified_head: ""
+verified_head: 380fef10e53758e1cf16adc60e93ad294a711df5
 run: pan-tilt-head-control-with-a
 provides: []
 acs_for_audit: []
@@ -65,3 +65,7 @@ The agent sees the head tools as effectors and is told how to aim and that the h
 - Root `tests/test_claude_agent_config.py`: effector + denied must equal mcp_server MOTION_TOOLS; client.yml must equal the code defaults.
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on mcp-lease-release-homes-head, mcp-front-camera-on-head
+
+## Ruling
+
+Accepted by the orchestrator: verified (mcp-lookups-follow-head-pose by hand: mcp_server 2620 passed, lint clean; its verifier agent died) and merged into main.

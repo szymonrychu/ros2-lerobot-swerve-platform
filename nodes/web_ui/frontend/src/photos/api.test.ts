@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { deletePhotos, fetchPhotos, photoImageUrl, photosUrl, photoThumbUrl, THUMB_PX } from './api'
+import { deletePhotos, fetchPhotos, parsePhoto, photoImageUrl, photosUrl, photoThumbUrl, THUMB_PX } from './api'
 
 function fakeFetch(status: number, body: unknown) {
   return vi.fn(async () => ({ ok: status < 400, status, json: async () => body }) as Response)
@@ -95,5 +95,18 @@ describe('since filter', () => {
   it('adds since to the photos URL only when given', () => {
     expect(photosUrl(null, 1000, null, 1234)).toBe('/api/photos?limit=1000&since=1234')
     expect(photosUrl(null, 1000, null)).toBe('/api/photos?limit=1000')
+  })
+})
+
+describe('parsePhoto creator and status', () => {
+  it('maps created_by and status', () => {
+    expect(parsePhoto({ ...PHOTO, created_by: 'agent', status: 'active' })).toMatchObject({ createdBy: 'agent', status: 'active' })
+    expect(parsePhoto({ ...PHOTO, created_by: 'user' })?.createdBy).toBe('user')
+  })
+
+  it('omits an unknown creator and a non-string status', () => {
+    const p = parsePhoto({ ...PHOTO, created_by: 'robot', status: 3 })
+    expect(p).not.toHaveProperty('createdBy')
+    expect(p).not.toHaveProperty('status')
   })
 })

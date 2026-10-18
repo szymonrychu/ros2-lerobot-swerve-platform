@@ -1,6 +1,6 @@
 ---
 title: MCP POI category args
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent records targets, slow zones, keep-outs, problem spots and details consistently, and sees them back."
 files: [nodes/mcp_server/mcp_server/perception_tools.py, nodes/mcp_server/mcp_server/perception_models.py, nodes/mcp_server/tests/test_poi_category_tools.py, nodes/mcp_server/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--mcp-poi-category-args
 branch: driving-agent-skills-and-wor--mcp-poi-category-args
-verified_head: ""
-run: ""
+verified_head: 688ec8693a28f540082595adfbebeff054b4266b
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP POI category args
@@ -62,3 +64,7 @@ POI writes carry a validated category in the note; list_pois shows it.
 
 - No new tool is registered, so claude_agent classification is unchanged.
 - mcp_server depends on ros2-common already (ros2_common.lookups).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

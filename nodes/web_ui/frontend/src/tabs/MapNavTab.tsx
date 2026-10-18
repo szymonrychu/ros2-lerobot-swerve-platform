@@ -526,6 +526,7 @@ export default function MapNavTab({
       {(narrow || showPoiList) && (
         <PoiListPanel
           pois={poi.pois}
+          photos={photos.photos}
           selectedId={poi.selectedId}
           open={showPoiList && !(narrow && poi.selected)}
           onToggle={() => setPoiListOpen(!showPoiList)}
@@ -1050,7 +1051,7 @@ export default function MapNavTab({
       <ConfirmDialog
         open={resetOpen}
         title="Reset map?"
-        body="Discards the current SLAM map and starts a new one. The saved map file is kept."
+        body="Discards the current SLAM map and starts a new one, and deletes the live POIs and photos. Saved maps are kept."
         confirmLabel="Reset map"
         onCancel={() => setResetOpen(false)}
         onConfirm={() => {

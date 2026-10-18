@@ -20,13 +20,12 @@ web_ui (later: proxy)  --HTTP/WS-->  claude_agent (127.0.0.1:18300)
   starts a new one), one instruction at a time. The MCP token file is read when a session is created and never logged.
 - `plan_tree.py`: the plan tree grammar (phase / seq / if / while nodes, `Phase` records, `TreeParser` validation of the tree and the flat form) and the pure cursor walk `advance()` plus `reachable_phases()` (see "Plan tree").
 - `budget.py`: `PlanTracker`, the per-instruction plan state: phases with their own caps, maxima and budget room, completion with the retry policy, one revision, one raise per phase entry, and the counters the gate charges (see "Task plan").
-- `plan_tools.py`: the in-process SDK MCP server `agent` with the tools `set_task_plan`, `complete_phase`, `revise_plan`, `raise_phase_budget` and `answer_condition`: schemas, descriptions and result texts.
+- `plan_tools.py`: the in-process SDK MCP server `agent` with the tools `set_task_plan`, `complete_phase`, `revise_plan`, `raise_phase_budget`, `answer_condition` and `start_workflow` (see "Workflows"): schemas, descriptions and result texts.
 - `robot_events.py`: parsing of the `/robot_events` JSON and the follow-up text (see "Robot events and interrupts").
 - `tools.py`: `EffectorGate`, the `can_use_tool` callback. The only built-in tools are the five notes file tools
   (`tools=[Read, Write, Edit, Glob, Grep]`, see "Workdir and notes"); everything else is disabled (a deny list for Bash,
   WebFetch, WebSearch, Task/Agent, TodoWrite, NotebookEdit, AskUserQuestion, plan mode, ...) and no allow rules exist, so
-  calls reach the gate: `mcp__robot__*` (within the budget), the four `mcp__agent__*` planning tools and the sandboxed file tools are allowed, everything else denied.
-- `poi_clear.py`: calls the mcp_server admin route `POST /admin/clear_agent_pois` (HTTP, bearer token) on reset; never raises.
+  calls reach the gate: `mcp__robot__*` (within the budget), the `mcp__agent__*` planning tools and the sandboxed file tools are allowed, everything else denied.
 - `robot_stop.py`: `call_robot_tool(url, token_file, timeout_s, name, args)` calls one robot MCP tool directly with the
   official `mcp` client (Streamable HTTP, bearer token from the token file; `mcp` is pinned in `pyproject.toml`) and
   returns its text plus its structured result (`data`); `call_robot_stop` is the `stop` call. They never raise: failures
@@ -70,6 +69,8 @@ the call, take the exit the message names, and call `check_guard_rules` before a
 paragraph adds `watch_constraints` on `enqueue_motions` (e.g. `gripper_effort` drop while carrying -> pause, `tilt_deg`
 -> abort, a `distance_travelled_m` cap), `resume_motions` after a pause, and that a guard refusal of a queued step
 stops the queue.
+
+A `Skills and workflows:` paragraph follows the working method: skills (`robot-skills:*`) are loaded with the Skill tool and are read-only, `robot-skills:planning` before planning, `agent.start_workflow` (workflows `discovery`, `drive_to_target`, `pick_place`; `dry_run` to edit) for free-text jobs of that kind, otherwise `agent.set_task_plan`, mandatory steps checked at job end, `agent.record_retrospective` after every job, and the `RECENT RETROSPECTIVES` block. The Exploration paragraph is short and points to `robot-skills:sightseeing`, `get_exploration_status` and `mark_survey_spot`; the Memory paragraph teaches POI categories (`robot-skills:poi-categories`: targets, slow zones, keep-outs, problem spots, details; `survey=true`), that New session deletes no POIs, and the keep-out consent rule.
 
 Besides the budget and working method, the system prompt (`prompt.py`) has compact sections (about 1.4 k characters
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
@@ -119,7 +120,7 @@ used up) and only counted (`ro_used`, per instruction and per active phase) for 
 
 | Counter | Counts | Instruction maximum (config) | Per-phase maximum (config) |
 |---|---|---|---|
-| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` (one call however many steps it queues), `go_to_frontier`, `look_toward_frontier`, `approach_for_grasp` (drives the base to the best grasp pose, needs the base lease); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (400) | `max_phase_rw_cap` (100) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` (one call however many steps it queues), `go_to_frontier`, `look_toward_frontier`, `approach_for_grasp` (drives the base to the best grasp pose, needs the base lease), `set_head_angles`, `head_look_at`, `head_home` (head tools, work under the arm or the base lease; releasing the last lease homes the head); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (400) | `max_phase_rw_cap` (100) |
 | turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (500) | `max_phase_turn_cap` (100) |
 
 Sensor calls (kind `sensor`: `suggest_approach_pose` (read-only ranked base poses for a grasp), `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `get_arm_reach`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools, the POI tools, the named map tools (`save_map`, `list_maps`, `load_map`, `delete_map`, `clear_pois`), `list_frontiers`, `plan_frontier_visit`, `get_motion_status`, `wait_for_event` and `get_control_state`) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
@@ -273,7 +274,7 @@ Gate (`tools.py`, `can_use_tool`):
 - The SDK `max_turns` is not a config key: it is `max_turn_cap + 10` (`TURN_MARGIN`), a backstop above the hard maximum. The old keys
   `max_turns` and `effector_call_cap` are rejected as unknown.
 
-The system prompt also covers (each asserted in `tests/test_prompt.py`): control leases (`take_control` arm or base before any motion, `release_control(subsystem, keep_position=false)` resets by default, `get_control_state`, `arm_set_home` denied); the end-of-job rule (arm parked, leases released, plan finished; `JOB END REFUSED` follow-ups, forced park after `job_end_max_followups`); the dynamic footprint (`release_control(subsystem='arm', keep_position=true, carried_object_radius_m=0..0.3)` before driving with the arm out, parking refused while carrying: `release_object` first); the plan tree (`seq` / `if` / `while` / `phase`, the `pickloop` retry example, `ask` vs `outcome_of` conditions, `answer_condition` before effectors); retry fields (`p_retry_success`, `retry_change`, `Automatic retry n/m - apply: ...`); more POIs (objects, areas, critical obstacles as area POIs); pick verification (gripper camera, `holding_load` / `slipping`, jaw position via `get_arm_state`, `unverified` means look again and `confirm_grasp`); lookups (every camera image is a photo POI with the camera view; reviewed with `list_lookups` / `get_lookup_image`, annotated or linked with `annotate_lookup`, deleted only when asked or clearly useless with `delete_photos` / `delete_poi`; photos survive sessions; `lookup_id`); and the bump / lift interrupts (warning bump after in-flight tools, lifted / carried are critical: stop and report).
+The system prompt also covers (each asserted in `tests/test_prompt.py`): control leases (`take_control` arm or base before any motion, `release_control(subsystem, keep_position=false)` resets by default, `get_control_state`, `arm_set_home` denied); the end-of-job rule (arm parked, leases released, plan finished; repeated `JOB END REFUSED` replies, forced park after `job_end_max_followups` of them); the dynamic footprint (`release_control(subsystem='arm', keep_position=true, carried_object_radius_m=0..0.3)` before driving with the arm out, parking refused while carrying: `release_object` first); the plan tree (`seq` / `if` / `while` / `phase`, the `pickloop` retry example, `ask` vs `outcome_of` conditions, `answer_condition` before effectors); retry fields (`p_retry_success`, `retry_change`, `Automatic retry n/m - apply: ...`); more POIs (objects, areas, critical obstacles as area POIs); pick verification (gripper camera, `holding_load` / `slipping`, jaw position via `get_arm_state`, `unverified` means look again and `confirm_grasp`); lookups (every camera image is a photo POI with the camera view; reviewed with `list_lookups` / `get_lookup_image`, annotated or linked with `annotate_lookup`, deleted only when asked or clearly useless with `delete_photos` / `delete_poi`; photos survive sessions and restarts, belong to the live map, travel with saved maps and are deleted with the map or by POI cleanups that include them; `lookup_id`); and the bump / lift interrupts (warning bump after in-flight tools, lifted / carried are critical: stop and report).
 
 The system prompt explains the planning with the example "put plushie tomato into toy car" (1 Locate mentioned objects, 2 Drive
 towards tomato within 10 cm, 3 Pick up tomato, 4 Drive towards toy car within 10 cm, 5 Drop tomato into the toy car, 6 Get back to
@@ -327,21 +328,201 @@ when a loop re-enters the phase, so the observed records cover mostly `p >= 0.5`
 failures. To explore lower `p`, run an evaluation session with `retry_success_threshold: 0.0` in group_vars (a deliberate,
 reversible operator action) and put the calibrated value back afterwards.
 
+## Skills
+
+Skills are Agent SDK skill files in the plugin `robot-skills`, shipped inside the node at
+`claude_agent/agent_plugin/skills/<name>/SKILL.md` (manifest: `agent_plugin/.claude-plugin/plugin.json`). The SDK
+loads them on demand under the qualified name `robot-skills:<name>`. `claude_agent/skills.py` discovers them
+(`discover_skills`), parses and checks them (`read_skill`, `check_skill`) and compares them with the SDK init message
+(`missing_skills`).
+
+- **Runner wiring.** With `skills_enabled` (default true) `build_options` passes `plugins=[{"type": "local", "path":
+  <plugin dir>}]`, `skills=<qualified names>`, `tools` = the five file tools plus `Skill`, and `disallowed_tools` = the
+  built-ins without `Skill` (Bash, Task, Agent, TodoWrite, SlashCommand stay off); `setting_sources=[]` and
+  `strict_mcp_config` keep user/project settings out, and `allowed_tools` stays empty (the SDK adds the
+  `Skill(<name>)` rules). Disabled, the options are as before. `skills_plugin_dir` ("" = the packaged plugin) may not
+  be the workdir or inside it (config validation).
+- **Init check.** On the session's init `SystemMessage` the runner stores `data["tools"]` as `session_tools` and
+  compares `data["skills"]` with the plugin (`missing_skills`): missing skills give one error log line and one `error`
+  event per session naming them; no `skills` key gives one warning ("skill listing not reported; cannot check").
+- **Gate kind `skill`.** `classify_tool("Skill")` is `skill`: allowed (free, not counted, not refused by plan or
+  time) when the input `skill` is a configured qualified name, refused otherwise and always when skills are disabled.
+- **Read-only on the robot.** The repo is cloned as root (`repo_sync.yml` uses `become`), the service runs as the
+  non-root `claude_agent` user, and the agent's workdir (`/var/lib/claude_agent/workspace`) is outside the checkout, so
+  the agent cannot edit a skill. Changing a skill means a commit and a deploy.
+- **Self-contained.** A skill never refers to a file next to its SKILL.md (links, `scripts/x.py`): the permission gate
+  keeps file tools inside the workdir, so such a file could not be read. Everything the skill needs is in SKILL.md.
+- **Only real tools.** Backticked tool names must be registered mcp_server tools, `agent.<tool>` planning tools or
+  `Skill` (checked by `tests/test_agent_skills.py`).
+- **Optional tools section.** Head, zoom and 3D-map tools (`set_head_angles`, `head_look_at`, `head_home`,
+  `get_3d_map_status`, `query_3d_map_at`, `get_3d_free_space`, zoom) may be named only under
+  `## When extra perception tools exist`, and that section must also give the base-rotation fallback (`look_around`).
+  Everything outside it works on the base-rotation tools alone.
+- **Shipped skills.** `planning` (start of every job: picks the workflow), `survey` (look all around at one spot),
+  `sightseeing` (explore, map or look around the whole place), `approach-and-verify` (drive to a target and confirm
+  arrival), `safe-pick-place` (pick up, carry, put down), `recover-from-failure` (stuck, refused or interrupted
+  motion), `poi-categories` (map found things onto POI categories) and `retrospective` (look back at the ended job).
+- **Adding a skill.** Create `agent_plugin/skills/<name>/SKILL.md` with frontmatter `name` (= directory name) and a
+  `description` of at most 1024 characters that starts with "Use when ...", then the body. Run
+  `uv run pytest tests/test_skills.py` here and `uv run pytest tests/test_agent_skills.py` at the repo root.
+
+## Retrospectives
+
+Every job leaves one structured, bounded retrospective on the robot, so lessons survive a New session.
+
+- **Record** (`claude_agent/retrospectives.py`, pydantic `Retrospective`): `id` (uuid4 hex), `created_at` (unix s),
+  `instruction` (<= 500 chars), `workflow` (None for a free job), `outcome` (done, partial, failed, interrupted,
+  timeout, error), `trivial`, `author` (agent or runner), `summary` (<= 500), the lists `went_well`, `went_wrong`,
+  `improvements` and `notes_for_fixers` (<= 10 items of <= 300 chars), `skipped_mandatory`, `phases` (name, outcome)
+  and the optional `cost_usd`, `num_turns`, `effector_calls`, `duration_s`. Over-long text is truncated, not rejected.
+- **Store**: `<state_dir>/retrospectives/retrospectives.jsonl` (`RETRO_RELPATH`), one record per line, created on
+  demand. It is outside the session log, so `/api/reset` (New session) keeps it. `RetroStore` offers `append`,
+  `list(limit, before)` (newest first), `recent(n)`, `count` and `replace` (same id, position kept; appends when the id
+  is not stored); corrupt lines are skipped with one warning each. The runner owns it as `AgentRunner.retro_store`.
+- **Bound**: `retro_max_records` (default 500, at least 50); past it the oldest half is dropped by an atomic rewrite.
+- **Feed**: `feed_text(records, max_chars)` builds the RECENT RETROSPECTIVES block (newest first: date, workflow or
+  "free", outcome, summary, went wrong, improvements), cut on a record boundary. `retro_feed_count` (0 to 20, 0
+  disables) and `retro_feed_max_chars` size it; `retro_followup` enables the RETROSPECTIVE prompt.
+- **Tool**: `agent.record_retrospective` (outcome done|partial|failed, summary, optional lists), backed by the
+  `retro_sink` given to `build_plan_tools`; without a sink it answers "retrospectives are not enabled". A second call in
+  the same instruction replaces the first narrative. The `retrospective` skill tells the agent how to write it.
+
+### After every job
+
+The runner (`runner.py`) makes sure every instruction leaves exactly one record, without a model turn where none is
+wanted:
+
+- **Agent record.** The runner passes `AgentRunner.record_agent_retrospective` as the `retro_sink` of the `agent` MCP
+  server. It stores the agent's narrative (outcome, summary, the four lists) with `author: agent` plus the facts the
+  runner knows: `instruction` (the user's text), `workflow` (the `start_workflow` template or None), `phases` (every
+  plan phase with its status), `skipped_mandatory` (from the workflow job-end report), `cost_usd`, `num_turns`,
+  `effector_calls`, `duration_s` and `trivial`. A second call in the same instruction replaces that record (same `id`
+  and `created_at`). At the turn end the record's facts are refreshed to the final values (`cost_usd` and `num_turns`
+  as in `turn_end`; without a result, the last known cost and the model turns the runner counted).
+- **RETROSPECTIVE prompt.** With `retro_followup` on (default), once per instruction, on a normal end only (status
+  `done`, not stopped by the user, not the turn cap) and only when `JOB END REFUSED`, `WORKFLOW CHECK` and `POI REVIEW`
+  have nothing left to send, the runner sends `RETROSPECTIVE: the job has ended. Load the skill
+  robot-skills:retrospective and record the retrospective with agent.record_retrospective: ...` (marker constant
+  `RETROSPECTIVE_MARKER`). Not sent when the agent already recorded one in the instruction, nor after a forced park or a
+  failed job-end check (those ends get a runner record that names them). The job-end check runs again after its reply,
+  like after the other end-of-instruction prompts.
+- **Short form.** For a trivial job - no plan or plan complexity `trivial`, and zero effector calls - the prompt asks
+  only for a one-line summary plus anything that went wrong (`RETROSPECTIVE: the job was trivial. Call
+  agent.record_retrospective with a one-line summary plus anything that went wrong ...`); the record has
+  `trivial: true`.
+- **Runner records** (`author: runner`, facts only) are written in `end_turn`, before `turn_end`, when the agent did not
+  record one: after an abnormal end (user stop, timeout, turn cap, `max_turns`, error, service shutdown) and after a
+  normal end where the agent skipped the call in its RETROSPECTIVE turn (or `retro_followup` is off). The summary states
+  what happened: "stopped by the user", the watchdog's "instruction timed out after N s ...", "stopped at the
+  instruction turn cap after N model turns", "ended at the SDK turn maximum (max_turns)", "ended with an error:
+  <message>", "instruction interrupted by service shutdown" or "finished; the agent recorded no retrospective".
+  `went_wrong` lists the facts: failed phases, skipped mandatory steps, a forced park, a failed job-end check, an
+  unfinished plan. Outcome: `done` (or `partial` when one of those facts holds), `interrupted` (user stop, turn cap,
+  `max_turns`, shutdown), `timeout` or `error`. A user stop is never followed by a model turn.
+- **Event.** Every stored record (agent or runner, each replace included) emits `retrospective_recorded` `{id, author,
+  outcome, workflow, instruction_id}` (`events.retrospective_event`, contract `retro-event`), so the web UI history and
+  the evals see who wrote it. The end-of-turn fact refresh of an agent record emits nothing.
+- A store that cannot be written is logged (`retrospectives: cannot write ...`) and never breaks the turn end; the
+  tool then answers with the error.
+
+### Feed
+
+The first instruction of every new session (after the service start or a New session, `/api/reset`) is prefixed with
+`feed_text(retro_store.recent(retro_feed_count), retro_feed_max_chars)` - the RECENT RETROSPECTIVES block - followed by
+a blank line, before the digest (under `fresh_with_digest`) and the instruction text. Later instructions of the session
+are not prefixed. An empty store, `retro_feed_count: 0` or an unreadable store send the instruction unchanged. The
+`user_message` event keeps the plain instruction text.
+
+## Workflows
+
+Workflow templates are repeatable step lists that seed the task plan, so discovery, drive-to-target and pick/place
+jobs start from a proven plan instead of an improvised one. They live as YAML files in
+`claude_agent/workflow_templates/<name>.yaml` (the file name is the template name) and are loaded by
+`claude_agent/workflows.py`:
+
+- `load_templates(directory, plugin=PLUGIN_DIR)` validates every template (pydantic `WorkflowTemplate`): name equals
+  the file name, `complexity` is one of the set_task_plan complexities, every `{param}` placeholder in a phase name,
+  goal or `ask` question names a declared param, `mandatory` (bool) and `skill` (str) sit on phase nodes only, no
+  mandatory phase sits inside a `while` body (it might legitimately never run), and every `skill` exists in the
+  `robot-skills` plugin.
+- `expand(template, params)` returns an `ExpandedWorkflow`: the plan tree with the params filled in (a missing
+  required param or an unknown param is a `ValueError` naming it; an optional param left out gets its `default`
+  text), " (load skill robot-skills:<skill>)" appended to the goal of each phase with a skill, and the `mandatory` /
+  `skill` keys stripped; plus `mandatory_ids` (plan order) and `skills`. The plan then goes through
+  `PlanTracker.set_plan`, so all plan limits (12 phases, 24 nodes, depth 4, loop iterations) and caps apply.
+
+| Template | Params | Phases (mandatory in bold) | Time budget |
+|---|---|---|---|
+| `discovery` | `area` (optional, default "the whole reachable map") | **orient** (NOTES.md, recent retrospectives, `get_body_state`, `get_map_summary`, `get_exploration_status`; skill sightseeing), **survey_start** (survey and `mark_survey_spot`; skill survey), while `explore` (ask: not complete and battery/time limits not reached, at most 5 iterations) over `visit` (up to 3 reachable frontiers, survey each; skill survey), **summary** (report to the person; skill sightseeing) | 30 min |
+| `drive_to_target` | `target` (required) | **resolve** (skill approach-and-verify), if `known` (ask: is the position of the target known?) then `drive` else `search` (skill sightseeing, until found or limits), **verify_arrival** (skill approach-and-verify), `report` | 10 min |
+| `pick_place` | `object` (required), `destination` (optional, default "a place the person named") | **locate** (skill approach-and-verify), `approach`, **pick_checklist** (skill safe-pick-place), while `pickloop` (outcome of `pick` in not_run/failed, at most 3) over `pick`, **verify_pick**, if `place` (ask: did the person ask to put it at the destination?) then `transport`, **place_checklist** (skill safe-pick-place), `place_object`, **verify_place** | 15 min |
+
+Mandatory phases inside an `if` branch (place_checklist, verify_place) are required only when that branch is taken.
+The time budgets come from `workflow_time_budget_min` (see Configuration); the sightseeing skill uses the discovery
+budget as its time limit. The caps of every template fit both the code defaults and the deployed config in
+`ansible/group_vars/client.yml` without clamping.
+
+### start_workflow
+
+`agent.start_workflow` (in `plan_tools.py`, one of the planning tools, so the gate classifies it as `plan` and allows
+it without a plan) seeds the task plan from a template in one call; it is the workflow alternative to
+`agent.set_task_plan`, which stays unchanged for free-form jobs. Jobs start from free text only: the agent picks the
+workflow that matches the person's request (the tool description lists each template with its one-line description
+and params). Arguments:
+
+| Argument | Meaning |
+|---|---|
+| `name` (required) | The template, an enum of the loaded templates. |
+| `params` | Object of strings, the template's params by name (a missing required param or an unknown param is an error naming it). |
+| `time_budget_min` | Optional; default `workflow_time_budget_min[name]`. Above the ceiling `max_instruction_time_min` the plan is rejected, as with set_task_plan. |
+| `plan` | Optional edited plan tree (from a dry run) set instead of the expanded template. |
+| `dry_run` | `true`: return the expanded tree as JSON and set nothing. |
+
+**Dry run.** The result text is a JSON object: `workflow`, `complexity`, `time_budget_min`, `plan` (the expanded
+tree, ready to edit), `mandatory_ids`, `skills` and `capabilities` (the capability line). Nothing is set on the
+tracker.
+
+**Setting the plan.** The plan (the edited `plan` or the expanded template) goes through
+`PlanTracker.set_plan(template.complexity, "workflow <name>: <params>", plan=..., time_budget_min=...)`, so every limit
+and cap applies (caps above the per-phase maxima are clamped with an "Adjusted:" note; sums above the instruction
+maxima are rejected), and a plan already set for the instruction (by start_workflow or set_task_plan) gives the same
+"Plan rejected: a plan is already set ..." error as set_task_plan. The result is the usual accepted-plan text plus
+`Workflow <name>; mandatory steps: <ids>` and the capability line. After that the plan works like any other: the
+gate allows effector tools, and `revise_plan` stays available once.
+
+**Editing.** The agent may add, reorder or drop phases in the dry-run tree and pass it back as `plan`. The tracker
+always records the template's mandatory ids, even for phases the edit dropped: the job-end check flags dropped or
+skipped mandatory steps.
+
+**Tracker state.** `PlanTracker.workflow` (template name, None for a free-form plan) and `PlanTracker.mandatory_ids`
+are set by a successful start_workflow, kept across `revise_plan` and cleared by `reset()`. The plan payload (events
+and API) carries `workflow`, and each phase whose id is mandatory carries `mandatory: true`, for the web UI.
+
+**Capability line.** `perception_capabilities(tools)` returns `head aiming: yes|no, 3D map: yes|no` from whether the
+session has `mcp__robot__head_look_at` and `mcp__robot__get_3d_map_status` (`unknown` for both before the session
+reported its tools). The runner records the session's tool names from the CLI's `init` system message
+(`AgentRunner.session_tools`, cleared when the session is dropped) and passes `lambda: self.session_tools` to
+`build_plan_tools` through `build_options`. Zoom is not in the line: it is a `get_camera_image` parameter the agent
+reads from the tool description.
+
+**Adding a template.** Create `workflow_templates/<name>.yaml` with `name` (= file name), `title`, a one-line
+`description`, `complexity`, `params` (`name`, `description`, `required`, and `default` for an optional param) and
+`plan` in the set_task_plan tree grammar (`plan_tools.PLAN_NODE_DESCRIPTION`), marking phases with `mandatory: true`
+and `skill: <name>` where needed. Add `<name>: <minutes>` to `workflow_time_budget_min` in `config.py` and in the
+claude_agent block of `ansible/group_vars/client.yml` (the config rejects a template without a budget). Add the
+template's sample params, mandatory ids and skills to `tests/test_workflows.py` and run
+`uv run pytest tests/test_workflows.py tests/test_config.py`.
+
 ## Robot events and interrupts
 
 The node subscribes to `robot_events_topic` (`/robot_events`, `std_msgs/String`, BEST_EFFORT + VOLATILE QoS, published by the
 mcp_server event monitor). Payload JSON: `{seq, ts, type, severity: info|warning|critical, source, message, data}`;
 critical types include `collision_stop`, `battery_cutoff`, `overheat`, `servo_error`, `stall`, `human_takeover`, `bump`.
-On an explicit reset (`POST /api/reset`, never on node start or restart) the runner clears the agent-made POIs (and remembered
-objects) by calling `POST /admin/clear_agent_pois` on mcp_server (`poi_clear.py`; URL = the `mcp_url` scheme, host and port with
-that path, bearer token from `mcp_token_file`). It is not a DDS publish on `/poi/command`: this node runs as its own Linux user
-(`claude_agent`, the sandbox for the Claude CLI) and DDS data from another user does not reach the nodes running as the robot
-user (matched but never delivered), while mcp_server runs as the robot user and relays the `clear` to poi_store. The route is
-plain HTTP, not an MCP tool, so the model cannot call it. A failing call is logged and the reset still completes.
-
-The config flag `agent_poi_reset` (`keep_open` default, or `clear_all`) decides what a reset clears. `keep_open` sends the JSON body
-`{"statuses": ["done", "cancelled"]}` so only finished or cancelled agent POIs are removed and open ones (and their map markers)
-survive the new session; `clear_all` sends no body and removes every agent POI, as before.
+On an explicit reset (`POST /api/reset`, never on node start or restart) the runner stops the robot, drops the client and clears
+the event log and job state. New session keeps every POI, keep-out zone and map (it keeps every POI the agent or the person made): it calls no mcp_server admin route and the
+former `agent_poi_reset` config key is gone (an unknown key is rejected). POIs are removed only through explicit actions: the POI
+list "delete marked" button, the Clear POIs dialog and the agent's `clear_pois` tool. (The mcp_server admin route
+`/admin/clear_agent_pois` still exists but claude_agent no longer calls it.)
 
 ### complete_phase map hint
 
@@ -444,6 +625,23 @@ or motion (effector) tools and made no successful POI write (`add_poi`, `update_
 when `poi_review_followup` is `false`. It does not use up the `job_end_max_followups`: the job-end check runs again
 after the review's reply.
 
+**Workflow check.** When the plan came from `agent.start_workflow` and the job-end check passes, the runner first sends
+one `WORKFLOW CHECK: mandatory steps skipped: <ids>. Add them with agent.revise_plan (one extra revision allowed now) or
+say in one line why they cannot apply.` follow-up per instruction (`PlanTracker.skipped_mandatory()`). A mandatory id is
+fine when its latest outcome is `done` or `failed`; it is skipped when its outcome is `skipped`, when it is absent from
+the current plan (edited out of the seeded plan or dropped by `revise_plan`), or when it never ran although the plan
+finished - unless it sits in an `if` branch that was not entered (the tracker records every branch the cursor enters,
+from `answer_condition` answers and `outcome_of` evaluations). Sending it calls `grant_extra_revision()`: one more
+`revise_plan` gets through even after the instruction's one revision. The check never counts toward
+`job_end_max_followups` and never triggers the forced park; the job-end check runs again after its reply.
+
+Order of end-of-instruction prompts at the end of an instruction: `JOB END REFUSED` -> `WORKFLOW CHECK` -> `POI REVIEW`
+-> `RETROSPECTIVE` (see "Retrospectives").
+
+Whenever a workflow was started, `turn_end` carries `job_end.workflow: {name, skipped_mandatory}` (the ids still skipped
+at the end, an empty list when none), also when there is no other job_end problem; it sits next to `forced_park` or
+`check_error` when those exist. A free-form plan (`agent.set_task_plan`) gets no check and no `workflow` field.
+
 After the last follow-up the runner parks itself, each call bounded by `job_end_park_timeout_s` (60) and shown in the
 chat as a `tool_call` / `tool_result` pair with `source: "job_end"`: `cancel_motions` first (mcp_server refuses a
 release while the motion queue runs), then `release_control(subsystem="all")` with the default reset (the arm drives
@@ -530,6 +728,7 @@ unknown keys are rejected.
 | `job_end_park_timeout_s` | `60` | Bound of each robot call of the forced park (`cancel_motions`, `release_control`, the keep_position fallback) |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` / `denied_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
+| `skills_enabled` / `skills_plugin_dir` | `true` / `""` | Load the read-only skill plugin ("" = the packaged one; never inside the workdir, see "Skills") |
 | `poi_hint_radius_m` | `0.5` | complete_phase adds "Not on the map yet" for `map (x, y)` in the summary with no POI within this many m |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
 | `http_host` / `http_port` | `127.0.0.1` / `18300` | API bind |
@@ -546,6 +745,7 @@ unknown keys are rejected.
 | `camera_note` | see `config.py` | Camera mounting (angled gripper camera looks slightly from left to right, upright images) and the `front` camera, which is the head camera (Camera Module 3 on the pan/tilt head next to the ToF, 16:9, 384x216 default, autofocus, looks at the front of the robot and the arm; overview first, judge arm-to-object distance; `zoom` parameter for sharp crops) |
 | `instruction_timeout_s` | `900` | Pre-plan watchdog per instruction; once `set_task_plan` declares `time_budget_min` the watchdog fires at that budget instead |
 | `max_instruction_time_min` | `120` | Ceiling of the declared `time_budget_min`: `set_task_plan` refuses more, raises and revisions are limited to it |
+| `workflow_time_budget_min` | `{discovery: 30, drive_to_target: 10, pick_place: 15}` | Minutes per workflow template, declared by `agent.start_workflow` unless the agent passes its own; exactly one key per template, each above 0 and at most `max_instruction_time_min`; the discovery budget is also the sightseeing time limit (see "Workflows") |
 | `min_effector_time_left_s` | `60` | Effector calls are denied when less instruction time is left (of the declared budget once a plan is set; see Watchdog); the default needs no Ansible override |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
@@ -593,9 +793,10 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 | `GET /api/state` | `{busy, model, max_turns, hard_max: {rw_cap, turn_cap}, phase_max: {rw_cap, turn_cap}, ro_used (sensor calls, uncapped), rw_used, turns_used, effector_calls_used (= rw_used), plan, active_phase, session_started_at, last_activity_at, now}`; `plan` is `{complexity, rationale, time_budget_min, time_left_s, time_left_at, revised, revision_rationale, active_phase, phases: [{index, name, goal, status (pending/active/done/failed/skipped), rw_cap, turn_cap, ro_used, rw_used, turns_used, raised, summary}]}` or `null` until the agent set one; `active_phase` is the index of the active phase or `null`; `last_activity_at` is the Unix time (float) of the latest instruction start or end (any status), stop or reset, `null` before any, and `now` is the robot clock: the Ansible deploy guard (`ansible/playbooks/tasks/agent_idle_guard.yml`) waits for `now - last_activity_at` to exceed `ros2_agent_quiet_min` before a client deploy |
 | `GET /api/history?before_seq=<int>&limit=<int>` | `{events: [...], has_more}`: the newest `limit` events (default 100, max 500) with `seq < before_seq` (the newest overall without it), ascending `seq`; `has_more` is true when older events exist |
 | `GET /api/retry_outcomes?limit=<int>` | `{records: [...], path_ok}`: the newest `limit` (1..5000, default 1000) records of the retry calibration ledger, newest last (read in a thread); `path_ok` is false once a ledger write failed; `422` for a limit outside 1..5000 |
+| `GET /api/retrospectives?limit=<int>&before=<unix s>` | `{retrospectives: [...], total}`: the newest `limit` (1..500, default 50) job retrospectives, newest first, optionally only those with `created_at < before` (float); `total` is the number of stored records. Each record is `{id, created_at, instruction, workflow, outcome (done/partial/failed/interrupted/timeout/error), trivial, author (agent/runner), summary, went_well[], went_wrong[], improvements[], notes_for_fixers[], skipped_mandatory[], phases: [{name, outcome}], cost_usd, num_turns, effector_calls, duration_s}`. Needs no session and works while an instruction runs; `422` for a limit outside 1..500 or a non-numeric `before` |
 | `POST /api/message` `{text, deny_tools?}` | `202 {ok: true}`; `409 {ok: false, message: "busy"}`; `400` on empty or invalid text, or when `deny_tools` is not a list of strings that are all in `effector_tools` (the message names the bad entry); an empty `deny_tools` is the same as absent. See "Arm-only evaluation mode" |
 | `POST /api/stop` | `{ok, message}`; stops the robot (MCP `stop`) and interrupts the current instruction (`client.interrupt()`) |
-| `POST /api/reset` | `{ok: true}` new session; `409` while busy or resetting; stops the robot, asks mcp_server (HTTP) to have poi_store delete everything the agent made (`clear` for `created_by: agent`: its POIs and remembered objects; the person's POIs stay) and deletes the session log (seq restarts at 0); notes in the workdir are kept |
+| `POST /api/reset` | `{ok: true}` new session; `409` while busy or resetting; stops the robot, drops the client and deletes the session log (seq restarts at 0); keeps all POIs, keep-out zones and maps (they are removed only via the POI list delete-marked button, the Clear POIs dialog or the agent's `clear_pois` tool); notes in the workdir are kept |
 | `WS /ws/events` | on connect `{type: "history", events: [last 100], has_more}`, then each event as it happens |
 
 ### Arm-only evaluation mode
@@ -625,6 +826,7 @@ Every event is `{seq: int, ts: float, type, ...}`:
 | `phase_completed` | `index`, `name`, `goal`, `outcome` (`done` / `failed` / `skipped`), `summary`, `usage` `{ro_used, rw_used, turns_used}`, `caps` `{rw_cap, turn_cap}`, `id`, `attempt`, `max_attempts`, `iteration`, `depth`, `p_retry_success`, `retry_change`, `failure` (the `FailureRecord` `{type, eai_error_type, explanation, evidence}` of a failed close by the model, see "Failure record"; null for `done` / `skipped` and the implicit close of `revise_plan`) (usage and caps of that entry) |
 | `condition_pending` | `node_id`, `node_type` (`if` / `while`), `question`, `iteration` (while: the iteration the answer would start; if: of the enclosing loop); effector calls are denied until it is answered |
 | `condition_answered` | the `condition_pending` fields plus `value` and `evidence` |
+| `retrospective_recorded` | `id`, `author` (`agent` / `runner`), `outcome`, `workflow` (null for a free job), `instruction_id`; emitted for every retrospective stored (see "Retrospectives"), before the instruction's `turn_end` |
 | `plan_revised` | the revised plan payload plus `revision_rationale`; emitted after `revise_plan` (the replaced active phase gets a `phase_completed` with outcome `failed` first) |
 | `robot_event` | `event_seq`, `event_ts`, `event_type`, `severity` (`info` / `warning` / `critical`), `source`, `message`, `data` (the `/robot_events` fields, renamed so they do not clash with the event's own `seq` / `ts` / `type`) |
 | `state` | `busy`, `ro_used`, `rw_used`, `turns_used`, `effector_calls_used` (= `rw_used`), `plan` (object or `null`, with `time_budget_min`, `time_left_s` and `time_left_at` as in `plan`, so a raise of the time budget reaches the UI), `active_phase`; emitted at each instruction start (counters 0, plan `null`), after each counted call and each model turn |

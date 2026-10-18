@@ -39,9 +39,40 @@ same `../../shared` path resolves there; nothing extra is needed in Ansible. A n
 | `ros2_common.marker_payload` | Marker payload codec (see below): `MarkerPayload`, `encode_payload`, `decode_payload`, `PayloadError`, `MarkerInfo`, `marker_info` |
 | `ros2_common.photos` | Photo POI contract (see below): `PhotoView`, `camera_view`, `effective_view`, `photo_as_poi`, `PhotoAdd`, `PhotoSelector`, `write_atomic`; also owns `PlanarPose` / `CameraPose` (re-exported by `lookups`) |
 | `ros2_common.maps` | Named maps topic contract of map_manager (see below); no ROS imports |
+| `ros2_common.poi_categories` | POI category tags in the POI `note` (see "POI categories" below): `CATEGORIES`, `PROBLEM_TYPES`, `PoiTags`, `category_tags`, `parse_tags`, `apply_tags`, `strip_tags`, `has_tag`, `check_category`; no ROS imports |
 | `ros2_common.scan_agreement` | Scan-to-map agreement score (see below); numpy only |
 
 Used by: `nodes/mcp_server` (motion tools refused in cut-off; lookup store) and `nodes/web_ui` (lookup routes; commands rejected in cut-off; uv path source `ros2-common = { path = "../../shared", editable = true }`).
+
+## POI categories (`ros2_common.poi_categories`)
+
+poi_store keeps `extra="ignore"` on `Poi`, so a new field would be dropped. A category is therefore a tag on the first line of the existing `note`; everything after the first line is free text. No new schema field.
+
+| Category | kind | zone | Required fields | Tag |
+|---|---|---|---|---|
+| target | point, object or area | none | none | `#target` |
+| slow | area | slow | `speed_limit_pct` | `#slow` |
+| keepout | area | keepout | none | `#keepout` |
+| problem | point or area | none or slow | problem type | `#problem/<type>` |
+| detail | point or area | none | none | `#detail` |
+
+Problem types: `window`, `mirror`, `glass`, `tight`, `overhang`, `low_obstacle` (overhang and low_obstacle are obstacles above or below the lidar plane), `drop`, `cable`, `soft_floor`, `other`.
+
+Tag grammar: the first line holds space-separated tags, one category tag plus optional `#survey` and `#survey-spot`. Unknown `#words` are ignored; a first line with no known tag means no category.
+
+```
+#problem/window #survey
+Floor-to-ceiling glass, lidar sees through it.
+```
+
+```
+#slow
+Hallway with a rug, 40 percent.
+```
+
+`apply_tags` replaces the category tag of an existing tag line, keeps `#survey` / `#survey-spot` already there, never duplicates a tag and keeps the free text; a result over 2000 characters (poi_store's limit) raises `ValueError`. `check_category` validates a category against kind, zone, problem type and `speed_limit_pct` with one message per rule.
+
+Consent rule (D4): creating a keep-out is free; cancelling or deleting one needs the person's consent.
 
 ## Marker payload (`ros2_common.marker_payload`)
 
@@ -88,10 +119,10 @@ Shared by `map_manager`, `web_ui` and `mcp_server`; pure pydantic v2 models, no 
 
 - `validate_map_name(name)`: `MAP_NAME_PATTERN` `^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$`, else `ValueError` naming the rule.
 - `Pose2D`: `x`, `y`, `yaw`, all finite.
-- `MapCommand` (`extra="forbid"`): `op` `save`/`load`/`delete`/`relocalise`, `request_id`, `name` (required and validated for save/load/delete, empty for relocalise), `overwrite`, `pose` (load only), `note` (<= 500 chars, save only), `since` and `discard_on_fail` (relocalise only).
+- `MapCommand` (`extra="forbid"`): `op` `save`/`load`/`delete`/`relocalise`/`clear_live`, `request_id`, `name` (required and validated for save/load/delete, empty for relocalise and clear_live), `overwrite`, `pose` (load only), `note` (<= 500 chars, save only), `since` and `discard_on_fail` (relocalise only). `clear_live` empties the live POIs and photos and takes no name, pose, note, overwrite, `since` or `discard_on_fail` (`NAMED_OPS` stays save/load/delete).
 - `MapResult`: `request_id`, `ok`, `message`, `data`.
 - `Localisation`: `state` (`unknown`/`loading`/`localised`/`not_localised`/`ambiguous`), `ratio` (0..1 or None), `pose`, `message`, `updated_at`.
-- `MapSummary`: `name`, `saved_at`, `note`, `poi_count`, `last_pose`, `valid`, `error` (non-empty only for an invalid bundle).
+- `MapSummary`: `name`, `saved_at`, `note`, `poi_count` (non-photo POIs), `photo_count` (photos of the bundle, default 0 for old bundles and status payloads), `last_pose`, `valid`, `error` (non-empty only for an invalid bundle).
 - `MapStatus`: `maps`, `active_map`, `load_seq` (>= 0), `localisation`.
 - Busy rule: one operation runs at a time; a second command is answered `ok: false` with `busy: <op> <name>`.
 - Every model round-trips through `model_dump(mode="json")` / `model_validate`.

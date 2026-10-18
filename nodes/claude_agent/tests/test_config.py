@@ -303,3 +303,12 @@ def test_client_group_vars_sets_job_end_park_timeout_and_warning_debounce() -> N
     raw = yaml.safe_load(agent["config"])
     assert raw["job_end_park_timeout_s"] == 60
     assert raw["warning_interrupt_debounce_s"] == 10
+
+
+def test_head_tools_are_effectors_and_camera_note_mentions_the_head() -> None:
+    cfg = ClaudeAgentConfig()
+    for name in ("set_head_angles", "head_look_at", "head_home"):
+        assert name in cfg.effector_tools
+    assert "head_look_at" in cfg.camera_note
+    assert "pan/tilt head" in cfg.camera_note
+    assert "parks" in cfg.camera_note

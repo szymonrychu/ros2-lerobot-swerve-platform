@@ -35,33 +35,54 @@ All numbers must be finite. Files written before `object` existed load unchanged
 
 | Topic | Type / QoS | Payload |
 |---|---|---|
-| `/poi/list` | std_msgs/String, reliable + transient_local (latched) | `{"pois": [...], "revision": int}`; published on start and after every change of a non-photo POI; never contains photos |
+| `/poi/list` | std_msgs/String, reliable + transient_local (latched) | `{"pois": [...], "revision": int}`; photos are included: the non-photo POIs followed by every photo in POI form (see "Photo POIs on `/poi/command`"); the `revision` covers photo changes too (photo add, update, delete, `delete_photos`, link strips, retention prune); published on start and after every revision change. Supersedes named-maps D8 ("photos stay global") |
 | `/poi/photos` | std_msgs/String, reliable + transient_local (latched) | photo summary `{"revision", "count", "bytes", "oldest_ts", "newest_ts", "limits": {"max_records", "max_bytes", "max_age_days"}}`; topic is `photos.summary_topic` |
-| `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete"\|"clear"\|"replace"\|"delete_photos", "request_id": str, "poi": {...}, "created_by": "agent"\|"user", "statuses": [...], "kinds": [...], "keep_zones": bool, "ids": [...], "pois": [...], "selector": {...}}` |
+| `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete"\|"clear"\|"replace"\|"delete_photos"\|"export_photos", "request_id": str, "poi": {...}, "created_by": "agent"\|"user", "statuses": [...], "kinds": [...], "keep_zones": bool, "ids": [...], "pois": [...], "selector": {...}, "photo_dir": "/abs/path"}` |
 | `/poi/result` | std_msgs/String, reliable, volatile | `{"request_id": str, "ok": bool, "message": str, "poi": {...}\|null}` |
 
 - `add`: `poi` is a full POI; `id`, `created_at`, `updated_at` are assigned when absent.
 - `update`: `poi` is `id` plus the changed fields; merged into the stored POI, `updated_at` bumped. `id`, `created_at`
   and `created_by` cannot change. Unknown id gives `ok: false`.
 - `delete`: `poi` holds `id`; the result carries the deleted POI. Unknown id gives `ok: false`.
-- `replace`: `{"op": "replace", "request_id": ..., "pois": [{...}, ...]}` makes the non-photo POI set exactly `pois`
-  (used when a named map is loaded). `pois` is required. Every entry is validated as a POI first and must carry a
-  valid `id`; duplicate ids, photo-kind entries and any invalid entry reject the whole command (`ok: false`, message
-  `pois[<index>]: <reason>`) with the store and revision untouched. Ids, `created_at`, `updated_at` and `created_by`
-  are kept as given. On success the revision increments by one (it is never set to a bundle's value), the file is
-  written atomically, photos stay but their links to POI ids no longer present are stripped; the result is `ok: true`,
-  `poi: {"replaced": n, "removed": m}`. A failed write rolls memory and revision back and answers `ok: false`.
+- `replace`: `{"op": "replace", "request_id": ..., "pois": [{...}, ...], "photo_dir": "/abs/dir"}` makes the POIs
+  and the photos exactly `pois` (map load, delete, reset and kidnap discard; `pois: []` empties both). `pois` is
+  required; non-photo entries are POIs, photo entries (`kind: "photo"`) are photo POIs in the form `/poi/list` and
+  `export_photos` give them (`photo_as_poi`; turned back into index records by `poi_as_record`, ids, timestamps and
+  capture data kept). `photo_dir` (optional, absolute; a relative path is a bad command) is where the JPEGs of photos
+  not yet in the photo store are imported from (hard link, copy fallback); a photo already stored keeps its JPEG.
+  Everything is validated before anything changes: every entry must be valid and carry a valid `id`, ids are unique
+  across POIs and photos, and a photo's `poi_ids` must name non-photo POIs of the new set. Any failure rejects the whole
+  command (`ok: false`, message `pois[<index>]: <reason>`); a photo whose JPEG is in neither `photo_dir` nor the photo
+  store rejects it with the photo store's message naming the file. In every rejection POIs, photos and revision are
+  untouched. Then the photo store swaps its set (`replace_all`: photos absent from `pois` are deleted with their
+  JPEGs), then the non-photo POIs are swapped and committed: the revision increments by exactly one (it is never set to
+  a bundle's value). The result is `ok: true`, `poi: {"replaced": n_pois, "removed": old_n_pois, "photos_replaced":
+  n_photos, "photos_removed": m}` (`removed` counts the previous non-photo POIs; `photos_removed` the photos deleted),
+  message `replaced with n POIs and k photos (removed o POIs and m photos)`. A failed write of `poi.json` rolls the
+  POIs and revision back and answers `ok: false`; the message says the photo set already matches the request. Without
+  a photo store a replace with photo entries answers `no photo store configured`; one without photo entries works and
+  reports zero photo counts.
+- `export_photos`: `{"op": "export_photos", "request_id": ..., "photo_dir": "/abs/dir", "ids": [...]}` writes the JPEG
+  of every photo, or only `ids` (optional), into `photo_dir` (required and absolute, else a bad command; created when
+  missing) as hard links (copy fallback) plus a `photo_dir/index.jsonl` (`PhotoStore.export`; a photo whose JPEG is
+  missing is skipped). The result is `ok: true`, `poi: {"photos": [<photo POI>, ...], "exported": n}`, message
+  `exported n photos to <dir>`; the store and revision do not change. A disk error answers `ok: false` naming the
+  directory; without a photo store `no photo store configured`. map_manager uses it for a map save and feeds the
+  returned photos plus `photo_dir` back to `replace` on load.
 - `clear`: `{"op": "clear", "created_by": "agent", "request_id": ...}` deletes every POI (objects included) whose
-  `created_by` matches, persists and republishes `/poi/list`; the result is `ok: true`, `poi: {"removed": n}`. The
-  revision moves once, and only when something was removed. `created_by` is optional (`agent` or `user`); absent or
+  `created_by` matches, persists and republishes `/poi/list`; the result is `ok: true`, `poi: {"removed": total, "pois": n, "photos": m}`
+  (message `cleared n POIs and m photos`). The revision moves once, and only when something was removed. `created_by` is optional (`agent` or `user`); absent or
   `null` clears every creator. A POI is cleared only when it matches every given filter (`created_by`, `statuses`,
-  `kinds`, `ids`, `keep_zones`). New optional filters: `kinds` (list of `point`/`area`/`object`; absent or `null`: every
+  `kinds`, `ids`, `keep_zones`). New optional filters: `kinds` (list of `point`/`area`/`object`/`photo`; absent or `null`: every
   kind, `[]` deletes nothing), `keep_zones` (default `false`; `true` keeps areas whose `zone` is `keepout` or `slow`,
   any status) and `ids` (list of POI ids; absent or `null`: no id filter, `[]` deletes nothing, unknown ids are
   ignored; this is the batch delete-by-ids used by "delete marked").
-  claude_agent sends it for "New session" so agent-made POIs and objects go while the person's POIs stay. Photos are
-  never cleared (agent-made ones included): they outlive the session and go only through retention or a delete.
-  A cleared POI is stripped from every photo's `poi_ids`, as with `delete`.
+  claude_agent sends it for "New session" so agent-made POIs and objects go while the person's POIs stay. Photos are POIs
+  of the clear: the same filters apply to a photo record (`created_by`, `statuses` against its status, `kinds`
+  containing `photo` or `null`, `ids` matching photo ids; `keep_zones` never keeps a photo). Matched photos are removed
+  with their JPEGs in one index rewrite before the POIs are committed, so a photo store disk failure answers
+  `ok: false` and leaves the POIs and revision untouched. A cleared POI is stripped from every remaining photo's
+  `poi_ids`, as with `delete`; deleting a non-photo POI keeps its linked photos.
   Optional `statuses` (list of `open`/`done`/`cancelled`) limits the clear to POIs in those statuses
   (e.g. `["done", "cancelled"]` drops finished agent POIs and keeps open ones); absent or `null` clears every status,
   an empty list deletes nothing.
@@ -81,8 +102,12 @@ All numbers must be finite. Files written before `object` existed load unchanged
 answer `ok: false`, `no photo store configured`. Photo results on `/poi/result` carry the photo in POI form
 (`ros2_common.photos.photo_as_poi`: `{id, kind: "photo", frame, x, y, name, note, status, created_by, created_at,
 updated_at, poi_ids, photo: {file, bytes, width, height, camera, tool, mcp_session, base_pose_map, camera_pose_base,
-arm_joints, view}}`, `x`/`y` `null` when the photo has no pose). Photo changes move only the photo `revision`, never the
-`/poi/list` one, and never write `poi.json`.
+arm_joints, view}}`, `x`/`y` `null` when the photo has no pose). Photos are POIs of the live map: `/poi/list` lists them
+after the non-photo POIs, and every change of the photo set (add, update, delete, `delete_photos` that removed something,
+a link strip that changed a photo, a retention prune that removed photos) bumps the `/poi/list` `revision` and persists
+it in `poi.json`, which itself holds only the non-photo POIs. The photo `revision` of `/poi/photos` moves as before. This
+supersedes named-maps D8 (photos stay global). If the photo index cannot be read, `/poi/list` is published without photos
+and the error is logged.
 
 - `add` with `poi.kind == "photo"`: the rest of `poi` must validate as `PhotoAdd` (`id` 32 hex, `file` `<id>.jpg`, no
   `bytes`); the JPEG must already be in `photos.store_dir`.
@@ -94,15 +119,15 @@ arm_joints, view}}`, `x`/`y` `null` when the photo has no pose). Photo changes m
 - A failed photo index write answers `ok: false` with `could not write photo store <dir>: <reason>`.
 
 The node publishes `/poi/photos` after the photo index was read successfully on start (after the first prune, which
-also sweeps orphan JPEGs) and again after every photo change and every timer prune that removed something. When the
+also sweeps orphan JPEGs) and again after every photo change and every timer prune that removed something (such a prune also republishes `/poi/list`). When the
 photo directory is missing or the index cannot be read it logs an error and publishes nothing (no placeholder); the
 timer retries until the first summary goes out. A wall-clock (system time) timer runs `prune_now()` every
 `photos.prune_interval_s`.
 
 ## Photo store (`poi_store/photo_store.py`)
 
-A photo is a POI of kind `photo`: a camera JPEG plus the camera pose at capture. Photos are not in `poi.json` and never
-on `/poi/list`; they live in `photos.store_dir` (default `/var/lib/ros2/poi/lookups`, the former mcp_server lookup
+A photo is a POI of kind `photo`: a camera JPEG plus the camera pose at capture. Photos are included in `/poi/list` (after
+the non-photo POIs) and the list `revision` covers them, but they are not in `poi.json`; they live in `photos.store_dir` (default `/var/lib/ros2/poi/lookups`, the former mcp_server lookup
 store, kept in place so no data moves) as `<id>.jpg` files plus one line each in the append-only `index.jsonl`.
 mcp_server writes the JPEG; poi_store is the only writer of the index. The record type, `PhotoAdd` and
 `PhotoSelector` are the shared contract in `ros2_common` (`lookups.py`, `photos.py`); readers (mcp_server, web_ui)
@@ -123,6 +148,16 @@ parse the index through `ros2_common.lookups.IndexCache`.
   `camera` (so `keep_newest` counts within the filter). One index rewrite, then the JPEGs are unlinked; returns
   `{removed, bytes_freed, missing}` (requested ids that are unknown or filtered out). With `dry_run` it returns
   `{would_remove, bytes}` and changes nothing.
+- `export(dest, ids=None)`: under the store lock, hard-links (`shutil.copyfile` when `os.link` fails) the JPEG of every
+  record, or only `ids`, into `dest` (created when missing, stale targets replaced) and writes `dest/index.jsonl` in the
+  store line format; returns the exported records in index order. A record whose JPEG is missing is skipped and logged.
+  The store and its revision do not change.
+- `replace_all(records, source)`: makes the index exactly `records`, in that order, all or nothing. Every JPEG must be in
+  `root` (same id already indexed) or in `source`, else `PhotoStoreError` names the first missing file and nothing
+  changes. Needed JPEGs are linked (copy fallback) from `source` with a fresh mtime (so the orphan sweep keeps them),
+  `bytes` is recomputed from the file, the index is rewritten once, JPEGs of records no longer indexed are unlinked and
+  `revision` moves only when the index changed. Returns `(kept_or_restored, removed)`; `replace_all([], None)` empties
+  the store. poi_store does every photo file move; map_manager never writes into the photo dir.
 - `strip_links(poi_id)`: removes a deleted POI from every photo's `poi_ids`; rewrites only when a photo references it.
 - `prune_now()`: retention without an add (the `prune_interval_s` timer); returns the number removed.
 - `summary()`: the `/poi/photos` payload `{revision, count, bytes, oldest_ts, newest_ts, limits: {max_records,
@@ -134,6 +169,10 @@ parse the index through `ros2_common.lookups.IndexCache`.
 Retention (moved from mcp_server `lookup_store.py`, same semantics): nothing is rewritten until the record count, the
 total JPEG bytes or the oldest age exceeds its limit by `PRUNE_SLACK` (5 %); then the oldest records are dropped back to
 the limit itself and their JPEGs unlinked. The record just added is never dropped. A prune rewrite drops corrupt lines.
+The age limit is optional: `max_age_days` is `null` by default (and in the ansible config) because photos are map POIs
+that a map load restores, so an age prune would delete a restored map's older photos; with `null` no record is dropped for
+its age and `summary()["limits"]["max_age_days"]` is `null`. `max_records` and `max_bytes` stay as disk guards. An
+explicit positive value (finite, > 0) prunes by age as before.
 JPEGs that no index line names (a crash between the JPEG write and the add, or an add that timed out and never
 arrived) are swept once they are at least 60 s old, on the first prune of the process and on every index rewrite.
 
@@ -163,7 +202,7 @@ photos:                         # photo store; unknown keys are rejected
   store_dir: /var/lib/ros2/poi/lookups   # <id>.jpg files and index.jsonl
   max_records: 3000             # most photos kept, oldest pruned first
   max_bytes: 300000000          # most total JPEG bytes kept
-  max_age_days: 14              # oldest photo age kept
+  max_age_days: null            # oldest photo age kept (days); null (default) = no age limit, photos leave with their map
   max_image_bytes: 5000000      # largest single JPEG an add accepts
   prune_interval_s: 3600        # retention timer period, so the age limit holds without camera activity
   summary_topic: /poi/photos    # latched photo summary topic
@@ -174,7 +213,7 @@ photos:                         # photo store; unknown keys are rejected
 Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Besides `robot_node_info{node}` and
 `robot_node_start_time_seconds{node}`:
 
-- `poi_commands_total{op,ok}`: commands handled (`op` is add/update/delete/clear/replace/delete_photos, or `invalid` for
+- `poi_commands_total{op,ok}`: commands handled (`op` is add/update/delete/clear/replace/delete_photos/export_photos, or `invalid` for
   unparseable ones).
 - `poi_save_failures_total`: store file writes that failed (the change is rolled back).
 - `poi_count`: POIs in the store.
@@ -187,7 +226,15 @@ Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Be
   `PhotoStore` (photo index and retention, no rclpy; depends on `ros2-common` from `shared/`); `config.py`;
   `node.py` the only rclpy module.
 - `cd nodes/poi_store && uv run pytest tests -q` (no ROS needed); `uv run poe lint`.
+- Tests: `test_replace.py` (replace op: swap, atomic rejection, duplicates, photos, revision, rollback), `test_photo_cleanup.py` (clear removes photos and JPEGs by the POI filters, counts, rollback), `test_clear_filters.py` (clear by creator/kind/zone/ids/status filters), `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear removes
+  matching photos and JPEGs and strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore),
 - Tests: `test_replace.py` (replace op: swap, atomic rejection, duplicates, photos, revision, rollback), `test_clear_filters.py` (clear by creator/kind/zone/ids/status filters), `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear leaves
-  photos but strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore),
+  photos but strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore), `test_photo_store_sync.py` (export, replace_all),
+- Tests: `test_replace.py` (replace op: swap, atomic rejection, duplicates, photos absent from the set deleted, photos in
+  the set kept, one revision bump, rollback), `test_photo_bundle_ops.py` (export_photos then replace from that directory
+  restores the photo POIs and JPEGs, photo-free and empty replace delete photos with counts, missing JPEG / duplicate id /
+  link outside the set / invalid photo entry reject atomically, export ids and failure, `photo_dir` validation, no photo
+  store, 500-photo export + replace under 2 s), `test_photo_cleanup.py` (clear removes photos and JPEGs by the POI filters, counts, rollback), `test_clear_filters.py` (clear by creator/kind/zone/ids/status filters), `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear removes
+  matching photos and JPEGs and strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore), `test_photo_store_sync.py` (export, replace_all),
   `test_node_photos.py` (`/poi/photos` publishing, missing/unreadable directory, prune timer; rclpy stubbed via
   `ros_stubs.py`), `test_shutdown.py`, `test_config.py`, `test_metrics.py`, `test_zone_models.py`.

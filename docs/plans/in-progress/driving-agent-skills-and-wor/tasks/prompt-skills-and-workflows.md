@@ -1,6 +1,6 @@
 ---
 title: Prompt skills and workflows
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent knows its skills and workflows exist, picks a workflow from free text, and records POIs by category."
 files: [nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_prompt.py, nodes/claude_agent/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--prompt-skills-and-workflows
 branch: driving-agent-skills-and-wor--prompt-skills-and-workflows
-verified_head: ""
-run: ""
+verified_head: c457ff262c859254aeda4b6a8bb0132d2a1e619c
+run: driving-agent-skills-and-wor
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Prompt skills and workflows
@@ -58,3 +60,7 @@ The system prompt names the skills and workflows briefly; procedures stay in the
 ## Notes
 
 - Keep the prompt from growing: move exploration detail into the sightseeing skill rather than adding.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

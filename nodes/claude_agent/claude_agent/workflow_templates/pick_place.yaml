@@ -1,0 +1,97 @@
+# Pick and place: locate the object, approach, pick it (bounded retry loop) and verify; when the person named a
+# destination, transport it there, place it and verify.
+# Grammar: plan_tools.PLAN_NODE_DESCRIPTION; a phase may add mandatory (flagged at job end when skipped) and skill.
+name: pick_place
+title: Pick up and put down
+description: Pick up an object and, when the person named a destination, put it down there.
+complexity: complex
+params:
+  - name: object
+    description: The object to pick up, e.g. "the tomato".
+    required: true
+  - name: destination
+    description: Where to put the object down, e.g. "the blue box".
+    required: false
+    default: a place the person named
+plan:
+  type: seq
+  children:
+    - type: phase
+      id: locate
+      name: Locate the object
+      goal: Find {object} on the map and confirm it with a camera image; record or update its POI or remembered object.
+      rw_cap: 15
+      turn_cap: 20
+      mandatory: true
+      skill: approach-and-verify
+    - type: phase
+      id: approach
+      name: Approach the object
+      goal: Reach a grasp approach pose for {object} with the object inside the arm reach.
+      rw_cap: 30
+      turn_cap: 30
+    - type: phase
+      id: pick_checklist
+      name: Pick checklist
+      goal: >-
+        Run the pick checklist for {object}: body state, guard rules, arm reach, wrist roll, control lease and a
+        grasp plan.
+      rw_cap: 10
+      turn_cap: 15
+      mandatory: true
+      skill: safe-pick-place
+    - type: while
+      id: pickloop
+      condition:
+        outcome_of: pick
+        in: [not_run, failed]
+      max_iterations: 3
+      body:
+        type: phase
+        id: pick
+        name: Pick the object
+        goal: Grasp {object} and lift it clear of the surface.
+        rw_cap: 40
+        turn_cap: 40
+    - type: phase
+      id: verify_pick
+      name: Verify the pick
+      goal: Confirm {object} is held (confirm_grasp and a gripper camera image).
+      rw_cap: 5
+      turn_cap: 15
+      mandatory: true
+    - type: if
+      id: place
+      condition:
+        ask: Did the person ask to put it at {destination}?
+      then:
+        type: seq
+        children:
+          - type: phase
+            id: transport
+            name: Transport
+            goal: Carry {object} to an approach pose next to {destination} with the arm tucked.
+            rw_cap: 40
+            turn_cap: 30
+          - type: phase
+            id: place_checklist
+            name: Place checklist
+            goal: >-
+              Run the place checklist for {destination}: body state, guard rules, arm reach and a free spot.
+            rw_cap: 10
+            turn_cap: 15
+            mandatory: true
+            skill: safe-pick-place
+          - type: phase
+            id: place_object
+            name: Place the object
+            goal: Put {object} down at {destination} and open the gripper.
+            rw_cap: 30
+            turn_cap: 30
+          - type: phase
+            id: verify_place
+            name: Verify the place
+            goal: Confirm with a camera image that {object} rests at {destination} and the arm is clear.
+            rw_cap: 5
+            turn_cap: 15
+            mandatory: true
