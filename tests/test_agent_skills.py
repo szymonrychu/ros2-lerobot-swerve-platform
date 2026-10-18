@@ -22,6 +22,9 @@ OPTIONAL_TOOLS = (
 BACKTICKED = re.compile(r"`([^`\n]+)`")
 TOOL_CALL = re.compile(r"^(?:agent\.)?([a-z][a-z0-9]*(?:_[a-z0-9]+)+|[a-z]+)\(")
 AGENT_TOOL = re.compile(r"^agent\.[a-z_]+")
+BARE_NAME = re.compile(r"^[a-z]+(?:_[a-z0-9]+)+$")
+# Backticked snake_case words that are arguments or values, not tools.
+NON_TOOL_NAMES = {"p_retry_success", "retry_change", "problem_type"}
 PLAN_TOOL_NAMES = re.compile(r'^[A-Z_]+_TOOL = "([a-z_]+)"$', re.MULTILINE)
 
 
@@ -45,7 +48,7 @@ def split_optional(text: str) -> tuple[str, str]:
 
 
 def tool_references(text: str) -> set[str]:
-    """Backticked tool calls (`name(...)`) and `agent.<tool>` names."""
+    """Backticked tool calls (`name(...)`), `agent.<tool>` names and bare snake_case tool names."""
     refs = set()
     for span in BACKTICKED.findall(text):
         match = TOOL_CALL.match(span)
@@ -54,6 +57,8 @@ def tool_references(text: str) -> set[str]:
             refs.add(agent_tool.group(0))
         elif match:
             refs.add(match.group(1))
+        elif BARE_NAME.match(span) and span not in NON_TOOL_NAMES:
+            refs.add(span)
     return refs
 
 
@@ -67,6 +72,11 @@ def test_every_referenced_tool_exists() -> None:
     for path in skill_files():
         unknown = tool_references(path.read_text()) - known
         assert not unknown, f"{path.parent.name} names unknown tools {sorted(unknown)}"
+
+
+def test_tool_reference_scanner_flags_bare_unknown_tool() -> None:
+    refs = tool_references("Check `list_pois` first, then `fly_away`, set `retry_change`, use `agent.nope`.")
+    assert refs == {"list_pois", "fly_away", "agent.nope"}
 
 
 def test_tool_reference_scanner_flags_unknown_tool() -> None:
