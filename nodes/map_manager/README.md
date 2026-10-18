@@ -17,7 +17,8 @@ complete the store. Names are checked with `ros2_common.maps.validate_map_name`.
 `search_candidates` scores the base-frame scan against the bundle grid at every pose in a window around the hint
 (`SearchSettings`: +-1.0 m at 0.1 m, full turn at 5 deg) with the shared `ros2_common.scan_agreement` rules, returns
 the best pose with `ok` (ratio >= `candidate_min_ratio`, evaluated >= `min_points`) and `ambiguous` (a candidate
-farther than `ambiguity_distance_m` / `ambiguity_yaw_deg` scores within `ambiguity_margin` of the best); with too
+farther than `ambiguity_distance_m` / `ambiguity_yaw_deg` scores within `ambiguity_margin` of the best and agrees with at least `ambiguity_min_support` of the best's agreeing
+endpoints, so a rival with a handful of points inside the known map does not count); with too
 few evaluated points it keeps the hint unchanged. `LocalisationJudge` turns live agreement samples into
 `localised` / `not_localised` / `ambiguous` (median >= `localised_ratio`, at least `min_samples`).
 
@@ -83,3 +84,11 @@ window and acceptance rules), `metrics_port` (default 19113). Unknown keys are r
 Tests: `uv run --frozen pytest tests/ -v` (`tests/test_node.py` runs the node on stubbed rclpy from `tests/ros_stubs.py`:
 idle subscriptions, operation lifecycle, commands and results, status/localised at start, the pose timer, relocalise
 routing, POI replace, slam requests, numpy guard); lint: `uv run --frozen poe lint`.
+
+## Measured values (Pi 5, 2026-10-18, runbook `docs/runbooks/named-maps.md`)
+
+Save 0.56 s; load 8.2 s end to end (candidate search 1.5-1.7 s for the +-1.0 m / 360 deg window); idle 0.4 % CPU and
+96 MB RSS. Kept: `localised_ratio` 0.6 (agreement at the true pose 0.99), search window +-1.0 m / 5 deg,
+`load_timeout_s` 60. Added `search.ambiguity_min_support` 0.5 after an unmoved robot got `ambiguous` from a rival
+backed by a handful of points. A hint outside the search window can yield a wrong pose with few evaluated points;
+use Retry with a correct pose.

@@ -41,7 +41,10 @@ class SearchSettings(BaseModel):
         candidate_min_ratio: Minimum agreement ratio of the best candidate for ``ok``.
         ambiguity_distance_m: A rival must be farther than this from the best candidate, m ...
         ambiguity_yaw_deg: ... or turned by more than this, deg ...
-        ambiguity_margin: ... and score within this ratio margin of the best to make the result ambiguous.
+        ambiguity_margin: ... and score within this ratio margin of the best ...
+        ambiguity_min_support: ... and agree with at least this fraction of the best candidate's agreeing endpoints
+            (a rival that only has a few endpoints inside the known map scores a high ratio on little evidence) to
+            make the result ambiguous.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -58,6 +61,7 @@ class SearchSettings(BaseModel):
     ambiguity_distance_m: float = Field(default=0.5, gt=0.0)
     ambiguity_yaw_deg: float = Field(default=30.0, gt=0.0)
     ambiguity_margin: float = Field(default=0.05, ge=0.0, le=1.0)
+    ambiguity_min_support: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 @dataclass(frozen=True)
@@ -225,7 +229,8 @@ def search_candidates(
     apart = (distance[None, :] > settings.ambiguity_distance_m) | (
         turn[:, None] > math.radians(settings.ambiguity_yaw_deg)
     )
-    rivals = valid & apart & (ratios >= best_ratio - settings.ambiguity_margin)
+    supported = agreeing >= settings.ambiguity_min_support * best_agreeing
+    rivals = valid & apart & supported & (ratios >= best_ratio - settings.ambiguity_margin)
 
     ok = best_ratio >= settings.candidate_min_ratio and best_evaluated >= settings.min_points
     reasons = [

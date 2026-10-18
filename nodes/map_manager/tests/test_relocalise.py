@@ -126,6 +126,26 @@ def test_search_flags_symmetric_room_as_ambiguous() -> None:
     assert far or turned
 
 
+def test_search_ignores_rival_with_little_evidence() -> None:
+    # Measured on the robot: a rival that only has a handful of scan points inside the known map scores a ratio
+    # of 1.0 and made an unmoved robot "ambiguous". A rival must be backed by a comparable number of points.
+    grid = l_room()
+    truth = Pose2D(x=6.5, y=2.5, yaw=0.0)
+    points = cast_scan(grid, truth)
+    settings = SearchSettings()
+    prepared = prepare_map(grid, settings.occupied_threshold, settings.hit_radius_cells)
+
+    result = search_candidates(prepared, points, truth, settings)
+
+    assert result.ok, result.reason
+    assert not result.ambiguous, result.reason
+    assert result.rival is None
+    assert math.hypot(result.pose.x - truth.x, result.pose.y - truth.y) <= 0.1
+
+    unsupported = search_candidates(prepared, points, truth, settings.model_copy(update={"ambiguity_min_support": 0.0}))
+    assert unsupported.ambiguous, "the rival must exist so that the support rule is what removes it"
+
+
 def test_search_with_too_few_points_returns_hint_not_ok() -> None:
     grid = l_room()
     truth = Pose2D(x=2.2, y=2.6, yaw=0.3)
@@ -251,6 +271,8 @@ def test_judge_rejects_invalid() -> None:
         ("ambiguity_yaw_deg", -5.0),
         ("ambiguity_margin", 1.1),
         ("ambiguity_margin", -0.01),
+        ("ambiguity_min_support", 1.1),
+        ("ambiguity_min_support", -0.1),
     ],
 )
 def test_settings_reject_invalid(field: str, value: float) -> None:

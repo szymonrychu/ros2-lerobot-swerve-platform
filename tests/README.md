@@ -2066,7 +2066,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager 19113, map_guard, costmap_zones, arducam_tof, and the side-by-side C++ port map_guard_cpp 19110) `metrics_port` 19101-19112; base_servos 19115. |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, arducam_tof, and the side-by-side C++ port map_guard_cpp 19110) `metrics_port` 19101-19112; base_servos 19115. |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |

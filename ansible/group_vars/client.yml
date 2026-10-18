@@ -2525,6 +2525,9 @@ ros2_nodes:
         ambiguity_distance_m: 0.5
         ambiguity_yaw_deg: 30.0
         ambiguity_margin: 0.05
+        # A rival only counts with this fraction of the best candidate's agreeing endpoints (measured 2026-10-18: a
+        # rival with a handful of endpoints inside the known map scores 1.0 on little evidence).
+        ambiguity_min_support: 0.5
 
 # ---- monitoring (roles/monitoring_agent + roles/web_proxy; ./scripts/deploy-nodes.sh client monitoring) ---------------
 # `host` label of every series and log stream this host sends to the server's Mimir and Loki.
