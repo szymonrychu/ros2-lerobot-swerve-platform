@@ -35,7 +35,7 @@ params (notably collision_monitor and docking_server) fails to configure and abo
 | behavior_server | spin / backup / drive_on_heading / assisted_teleop / wait; `local_frame: odom`, `global_frame: map`, rotation <= 0.5 rad/s. |
 | smoother_server | SimpleSmoother. |
 | velocity_smoother | open loop, `max_velocity [0.25, 0.25, 0.5]`, `min_velocity [-0.25, -0.25, -0.5]`, accel 1.0 m/s^2, 2.0 rad/s^2. |
-| collision_monitor | `base_link` / `odom`, `cmd_vel_smoothed -> cmd_vel`; a direction-aware `stop` polygon `StopBox` (`velocity_polygon`): the H footprint swept 2 cm toward the commanded direction (generated), sources `/scan_filtered` and the ToF obstacle band of `/tof/points_filtered`. `StopBox` is enabled (validated on the robot, see [Collision monitor](#collision-monitor)). A second polygon `ArmStop` (`approach`, lidar only) takes its shape from mcp_server and is enabled only while the arm is released out of the static footprint (see [Dynamic footprint](#dynamic-footprint-arm-released)). A third, `CliffStop` (`approach`, footprint + 0.25 m, generated), reads the below-floor ToF band. |
+| collision_monitor | `base_link` / `odom`, `cmd_vel_smoothed -> cmd_vel`; a direction-aware `stop` polygon `StopBox` (`velocity_polygon`): the H footprint swept 2 cm toward the commanded direction (generated), sources `/scan_filtered` and the ToF obstacle band of `/tof/points_filtered`. `StopBox` is enabled (validated on the robot, see [Collision monitor](#collision-monitor)). A second polygon `ArmStop` (`approach`, lidar only) takes its shape from mcp_server and is enabled only while the arm is released out of the static footprint (see [Dynamic footprint](#dynamic-footprint-arm-released)). A third, `CliffStop` (direction-aware `velocity_polygon`, `approach`, generated: footprint + 0.25 m unless backing away), reads the below-floor ToF band. |
 | docking_server | (stock, not used for grasping: see [Grasp docking server](#grasp-docking-server)) One `SimpleChargingDock` plugin (a non-empty plugin list is mandatory) and no docks: it configures with an empty dock database and only accepts requests that carry an explicit dock pose. |
 | waypoint_follower | WaitAtWaypoint. |
 | route_server | `graph_filepath: ""`: configures with an empty graph ("No graph file provided to load yet"); a graph can be loaded later through its `set_route_graph` service. |
@@ -77,10 +77,12 @@ Non-convex footprints in Nav2 Jazzy (checked in the navigation2 1.3.13 sources a
   switched off on both costmaps (`footprint_clearing_enabled: false`); the robot's own returns are already removed by
   the laser_filter self polygon, and raytracing clears stale cells.
 
-The collision_monitor also carries a `CliffStop` polygon (`polygon`, `approach`, `time_before_collision` 1.2 s,
-source `tof_cliff`): the footprint grown by `cliff_margin_m` (0.25 m, `gen_nav_footprint.yaml`; the head ToF at
-0.35-0.40 m sees the lower floor of a 15 cm step about 0.2 m beyond the edge, so the guard reaches past it). It is
-generated into the `cliffstop` region; the collision monitor only evaluates it once it is listed in `polygons`.
+The collision_monitor also carries a `CliffStop` polygon (holonomic `velocity_polygon`, `approach`,
+`time_before_collision` 1.2 s, source `tof_cliff`), generated into the `cliffstop` region: `rotate` and `forward`
+(every command with a forward or sideways component) are the footprint grown by `cliff_margin_m` (0.25 m,
+`gen_nav_footprint.yaml`; the head ToF at 0.35-0.40 m sees the lower floor of a 15 cm step about 0.2 m beyond the
+edge, so the guard reaches past it); `back` (every command with a backward component) is the footprint itself, so the
+robot can back away from a seen edge (see [Collision monitor](#collision-monitor)).
 
 ### Dynamic footprint (arm released)
 
@@ -322,7 +324,8 @@ Zones drawn as POIs become two costmap filters, fed by `nodes/costmap_zones` (ke
 
 ## ToF validation in Docker
 
-No ROS on the dev machine, so the ToF sources were checked by the real Jazzy servers (2026-10-18) in an arm64
+No ROS on the dev machine, so the ToF sources were checked by the real Jazzy servers (2026-10-18, rerun the same day
+with the direction-aware CliffStop) in an arm64
 `ros:jazzy` image (`ros:jazzy@sha256:103b6c417973394659af6804d4917cd489b91e5ed22eb7bef263025a3bed2410`) with
 `ros-jazzy-navigation2` 1.3.13, `ros-jazzy-nav2-bringup` 1.3.13, `ros-jazzy-spatio-temporal-voxel-layer` 2.5.5
 (`ros-jazzy-nav2-collision-monitor` and `ros-jazzy-nav2-costmap-2d` 1.3.13), the repo mounted read-only at
@@ -331,7 +334,7 @@ the local costmap) and `collision_monitor` under a lifecycle manager (autostart)
 (identity), `base_link -> laser_frame` and `base_link -> tof_optical_frame` (x 0.15, z 0.38, optical z axis looking
 forward and 30 deg down); a synthetic publisher of `/tof/points_filtered` in `tof_optical_frame` at 10 Hz (scenes
 given in `base_link`, transformed into the optical frame) and of an empty `/scan_filtered`; a driver that publishes
-`cmd_vel_smoothed` (Twist) at 20 Hz for 1.5 s per case and reads `/cmd_vel`, `/collision_monitor_state` and
+`cmd_vel_smoothed` (Twist, x and y) at 20 Hz for 1.5 s per case and reads `/cmd_vel`, `/collision_monitor_state` and
 `/local_costmap/costmap`.
 
 | Case | Outcome |
@@ -341,7 +344,7 @@ given in `base_link`, transformed into the optical frame) and of an empty `/scan
 | Box of points 0.6-0.7 m ahead, z 0.2-0.4 | 96 lethal or inscribed local costmap cells (occupancy >= 99) in 0.55-0.75 m ahead, 222 in the whole grid (inflation around the box); forward passes (outside StopBox). |
 | ToF obstacle points just ahead of the crossbar (x 0.33-0.34, z 0.25-0.35) | Forward stopped (`STOP`, `StopBox`, cmd_vel 0.0); backward passes (-0.1). |
 | Cliff points z -0.3, 0.62-0.72 m ahead (outside CliffStop) | Forward 0.2 m/s slowed to 0.033 m/s (`APPROACH`, `CliffStop`); backward -0.2 passes unchanged. |
-| Cliff points z -0.3, 0.42-0.52 m ahead (inside CliffStop) | Forward 0.1 stopped (`APPROACH`, `CliffStop`, cmd_vel 0.0). Backward -0.1 also stopped, both as the first command after a flat floor (cmd_vel -0.0) and after the forward stop (no cmd_vel at all after `stop_pub_timeout`): points already inside the polygon stop every motion (`Polygon::getCollisionTime` returns 0). The design expected the backward command to pass; it does not. |
+| Cliff points z -0.3, 0.42-0.52 m ahead (inside CliffStop `forward`, outside `back`) | Forward 0.1 stopped (`APPROACH`, `CliffStop`, cmd_vel 0.0), sideways (vy 0.1) stopped. Backward -0.1 passes (cmd_vel -0.1, `DO_NOTHING`), both as the first command after a flat floor and right after the forward stop; back-left (-0.07, 0.07) passes; forward stops again after it. |
 | Synthetic publisher stopped for 1.5 s | Forward and backward stopped (`STOP`, `invalid source`, cmd_vel 0.0), log "Robot to stop due to invalid source", "[tof_obstacles]: Latest source and current collision monitor node timestamps differ ... Ignoring the source". |
 | Publisher resumed | Forward 0.1 passes again (`DO_NOTHING`). |
 
@@ -432,28 +435,35 @@ a cliff are.
 |---|---|---|---|---|---|
 | `StopBox` | `velocity_polygon` / `stop` | yes | yes | no | Stops motion toward a lidar or 3D ToF obstacle 2 cm from the body. |
 | `ArmStop` | `polygon` (dynamic) / `approach` | yes | no | no | ToF edge noise around the released arm must not freeze it; ToF obstacles near the arm still reach the local costmap, whose footprint includes the arm shadow. |
-| `CliffStop` | `polygon` / `approach` | no | no | yes | Footprint + `cliff_margin_m` 0.25 m (generated by `scripts/gen_nav_footprint.py`): blocks motion toward below-floor points. |
+| `CliffStop` | `velocity_polygon` / `approach` | no | no | yes | Footprint + `cliff_margin_m` 0.25 m while rotating or moving forward or sideways, the footprint while backing away (generated by `scripts/gen_nav_footprint.py`): blocks motion toward below-floor points, backing away passes. |
 
 `CliffStop` uses the approach model (`time_before_collision` 1.2 s, `simulation_time_step` 0.05 s): below-floor
-points outside the polygon slow motion toward them to zero as the polygon reaches them, and motion away from them
-passes. Once 4+ below-floor points are inside the polygon, every motion stops, backing away included:
-`Polygon::getCollisionTime` (nav2 1.3.13 `polygon.cpp`) returns 0 for points already inside, whatever the command
-direction (seen in the [Docker check](#tof-validation-in-docker)). To back off such an edge, disable the source,
-back away and enable it again:
+points outside the selected sub-polygon slow motion toward them to zero as the polygon reaches them, and motion away
+from them passes. Points already inside the selected sub-polygon stop the command whatever its direction
+(`Polygon::getCollisionTime`, nav2 1.3.13 `polygon.cpp`, returns 0), so the shape follows the command direction
+(holonomic `velocity_polygon`, first match wins):
 
-```bash
-ros2 param set /collision_monitor tof_cliff.enabled false
-# back away from the edge (teleop or a Nav2 goal behind the robot)
-ros2 param set /collision_monitor tof_cliff.enabled true
-```
+| Sub-polygon | Command | Shape | Why |
+|---|---|---|---|
+| `rotate` | below 0.005 m/s (rotating in place included) | footprint + `cliff_margin_m` | A turning body swings its corners toward the true edge, which lies up to ~0.2 m inside the seen below-floor points. |
+| `forward` | direction within +-90 deg (forward and sideways) | footprint + `cliff_margin_m` | Toward or along a seen edge. |
+| `back` | direction beyond +-90 deg | footprint | The ToF looks forward, so the cliff points sit ahead and backing away passes. |
+
+At a seen edge forward and sideways stop and backing away passes (see the [Docker check](#tof-validation-in-docker));
+the generator tests pin the shapes and the selection (`tests/test_nav_footprint.py`), and
+`tests/test_nav_tof_collision.py` replays the nav2 approach model on them.
 
 Fail-safe stop on a ToF outage: both ToF sources keep the node `source_timeout` 1.0 s (no per-source override, never
 0.0). An enabled source with no cloud for 1 s, or without the head TF at the cloud stamp, is an "invalid source" and
 the monitor publishes a STOP for every command (`collision_monitor_node.cpp`, nav2 1.3.13; user decision
 2026-10-18), logging `Robot to stop due to invalid source`. So a ToF driver crash, a laser_filter stall or a missing
-pan/tilt joint state stops Nav2 motion. An empty cloud (a frame with no valid pixel) still counts as fresh data. To
-drive without one of the ToF sources: `ros2 param set /collision_monitor tof_cliff.enabled false` (or
-`tof_obstacles.enabled false`); set it back to `true` once the ToF runs again.
+pan/tilt joint state stops Nav2 motion. An empty cloud (a frame with no valid pixel) still counts as fresh data.
+Runtime switch per source, `false` takes it out of the monitor and `true` puts it back:
+
+```bash
+ros2 param set /collision_monitor tof_cliff.enabled false
+ros2 param set /collision_monitor tof_obstacles.enabled false
+```
 
 Cliff limitation: the monitor sees a cliff only while the ToF looks at it (the head home pose looks forward-down);
 there is no below-floor source behind or beside the robot, and a cliff into a void with no returns gives no points.
