@@ -477,7 +477,7 @@ def test_web_ui_tab_set() -> None:
     assert arm["type"] == "arm"
     assert arm["label"] == "Arm"
     assert arm["gripper_camera_topic"] == "/camera_0/image_raw/compressed"
-    assert arm["overview_camera_topic"] == "/front_camera/image_raw/compressed"
+    assert arm["front_camera_topic"] == "/front_camera/image_raw/compressed"
     assert "topic" not in arm
     head = tabs[3]
     assert head["type"] == "head"

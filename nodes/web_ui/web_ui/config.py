@@ -87,7 +87,7 @@ POI_TAB_DEFAULTS: dict[str, str] = {key: MAP_NAV_DEFAULTS[key] for key in ("poi_
 # Defaults filled into arm tabs for fields left unset (topics, services; same service names as the map_nav defaults).
 ARM_TAB_DEFAULTS: dict[str, str] = {
     "gripper_camera_topic": "/camera_0/image_raw/compressed",
-    "overview_camera_topic": "/overview_camera/image_raw/compressed",
+    "front_camera_topic": "/front_camera/image_raw/compressed",
     "arm_urdf": MAP_NAV_DEFAULTS["arm_urdf"],
     "arm_joint_states_topic": MAP_NAV_DEFAULTS["arm_joint_states_topic"],
     "active_source_topic": "/filter/active_source",
@@ -133,7 +133,7 @@ GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "base_joint_states_topic",
     "arm_joint_states_topic",
     "gripper_camera_topic",
-    "overview_camera_topic",
+    "front_camera_topic",
     "color_topic",
     "depth_topic",
     "camera_info_topic",
@@ -262,7 +262,7 @@ class TabConfig(BaseModel):
     arm_offset: tuple[float, float, float] | None = None
     arm_command_topic: str | None = None
     gripper_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the gripper camera
-    overview_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the overview camera
+    front_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the front camera
     gripper_camera_mount: CameraMount | None = None  # arm: gripper camera pose in gripper_link (= mcp_server mount)
     active_source_topic: str | None = None  # arm: std_msgs/String of the filter_node command source in control
     arm_take_control_service: str | None = None  # arm: std_srvs/Trigger taking the arm lease for the web UI

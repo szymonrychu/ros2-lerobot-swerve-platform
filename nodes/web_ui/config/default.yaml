@@ -63,7 +63,7 @@ tabs:
     type: arm
     label: "Arm"
     gripper_camera_topic: /camera_0/image_raw/compressed
-    overview_camera_topic: /front_camera/image_raw/compressed
+    front_camera_topic: /front_camera/image_raw/compressed
     arm_urdf: so101_arm.urdf
     arm_joint_states_topic: /follower/joint_states
 

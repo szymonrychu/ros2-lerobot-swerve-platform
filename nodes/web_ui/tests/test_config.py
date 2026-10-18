@@ -256,7 +256,7 @@ def test_arm_is_a_valid_tab_type() -> None:
 def test_arm_tab_defaults() -> None:
     tab = TabConfig(id="arm", type="arm", label="Arm")
     assert tab.gripper_camera_topic == "/camera_0/image_raw/compressed"
-    assert tab.overview_camera_topic == "/overview_camera/image_raw/compressed"
+    assert tab.front_camera_topic == "/front_camera/image_raw/compressed"
     assert tab.arm_joint_states_topic == "/follower/joint_states"
     assert tab.arm_urdf == "so101_arm.urdf"
     assert tab.arm_offset == (0.0592, -0.05, 0.100)
@@ -276,11 +276,11 @@ def test_arm_tab_overrides_and_empty_rejected() -> None:
         type="arm",
         label="Arm",
         gripper_camera_topic="/g",
-        overview_camera_topic="/o",
+        front_camera_topic="/o",
         gripper_camera_mount={"xyz": [1, 2, 3], "rpy": [0.1, 0.2, 0.3]},
         arm_offset=(1.0, 2.0, 3.0),
     )
-    assert (tab.gripper_camera_topic, tab.overview_camera_topic) == ("/g", "/o")
+    assert (tab.gripper_camera_topic, tab.front_camera_topic) == ("/g", "/o")
     assert tab.gripper_camera_mount is not None and tab.gripper_camera_mount.xyz == (1, 2, 3)
     assert tab.arm_offset == (1.0, 2.0, 3.0)
     with pytest.raises(ValidationError):
@@ -295,8 +295,9 @@ def test_other_tabs_get_no_arm_defaults() -> None:
 def test_arm_tab_topics_subscribed_and_services_listed() -> None:
     cfg = AppConfig(tabs=[TabConfig(id="arm", type="arm", label="Arm")])
     topics = cfg.all_subscribed_topics()
-    for topic in ("/camera_0/image_raw/compressed", "/overview_camera/image_raw/compressed", "/follower/joint_states"):
+    for topic in ("/camera_0/image_raw/compressed", "/front_camera/image_raw/compressed", "/follower/joint_states"):
         assert topic in topics
+    assert not [t for t in topics if t.startswith("/overview_camera/")]
     assert cfg.trigger_services() == ["/arm/home", "/arm/release_control", "/arm/set_home", "/arm/take_control"]
 
 
