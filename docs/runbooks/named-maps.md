@@ -3,6 +3,14 @@
 Run on the client (Pi 5, `client.ros2.lan`). Web UI API calls below are the ones the Map tab sends (`localhost:8080`,
 tab id `map`). ROS commands need `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST FASTDDS_BUILTIN_TRANSPORTS=UDPv4`.
 
+## Photos travel with the map
+
+A map save writes the POIs and the photos into the bundle (`<name>/photos/<id>.jpg`, `photos/index.jsonl`, and the
+photo entries in `bundle.json`); a load restores both and replaces the live photos (live-only photos are deleted); a
+delete removes the bundled photos (the live JPEGs stay, the bundle only held hard links). This supersedes named-maps
+D8 ("photos stay one global store"). Deploy check: save a map with photos, `ls /var/lib/ros2/maps/named/<name>/photos/`,
+delete it.
+
 ## Execution record: 2026-10-18
 
 Status legend: PASS, FAIL (finding fixed in code, redeploy pending), NOT RUN (needs a person at the robot).

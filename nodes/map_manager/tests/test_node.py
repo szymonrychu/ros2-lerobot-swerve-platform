@@ -102,14 +102,25 @@ def results(node: MapManagerNode) -> list[MapResult]:
     return [MapResult.model_validate_json(msg.data) for msg in node.publisher_on(RESULT_TOPIC).published]
 
 
+def answer_with(node: MapManagerNode, poi: dict | None, ok: bool = True, message: str = "done") -> None:
+    def answer(msg: Msg) -> None:
+        sent = json.loads(msg.data)
+        node.subscription_on("/poi/result").callback(
+            string_msg({"request_id": sent["request_id"], "ok": ok, "message": message, "poi": poi})
+        )
+
+    node.publisher_on("/poi/command").on_publish = answer
+
+
 def prepare_save_world(node: MapManagerNode) -> None:
-    """Sensors and slam_toolbox for a save: TF map <- base_link, the map, a scan frame, working serialize."""
+    """Sensors, slam_toolbox and poi_store for a save: TF, the map, a scan frame, working serialize and photo export."""
     FakeBuffer.transforms[("map", "base_link")] = transform_stamped(1.0, 0.8, 0.3, NOW_NS)
     FakeNode.latched["/map"] = grid_msg()
     FakeNode.latched["/scan_filtered"] = Msg(
         header=Msg(frame_id=LASER_FRAME), ranges=[1.0], angle_min=0.0, angle_increment=0.1, range_min=0.1, range_max=8.0
     )
     node.client_of("/slam_toolbox/serialize_map").handler = serialize_handler
+    answer_with(node, {"photos": [], "exported": 0}, message="exported 0 photos")
 
 
 def test_idle_has_only_the_light_subscriptions(node: MapManagerNode) -> None:
@@ -426,3 +437,26 @@ def test_readme_documents_topics_bundle_layout_and_load_sequence() -> None:
         "/pose",
     ):
         assert topic in text
+
+
+def test_poi_replace_sends_photo_dir_and_returns_the_counts(node: MapManagerNode) -> None:
+    answer_with(node, {"replaced": 1, "removed": 2, "photos_replaced": 3, "photos_removed": 4})
+    ok, _, counts = node.poi.replace([], photo_dir="/maps/home/photos")
+    assert ok and counts["photos_replaced"] == 3 and counts["photos_removed"] == 4
+    assert json.loads(node.publisher_on("/poi/command").published[0].data)["photo_dir"] == "/maps/home/photos"
+
+
+def test_poi_export_photos_sends_the_op_and_returns_the_photos(node: MapManagerNode) -> None:
+    photos = [{"id": "ph", "kind": "photo", "name": "x"}]
+    answer_with(node, {"photos": photos, "exported": 1}, message="exported 1 photos")
+    assert node.poi.export_photos("/tmp/x/photos") == (True, "exported 1 photos", photos)
+    sent = json.loads(node.publisher_on("/poi/command").published[0].data)
+    assert sent["op"] == "export_photos" and sent["photo_dir"] == "/tmp/x/photos"
+
+
+def test_poi_export_photos_failure_and_timeout(node: MapManagerNode) -> None:
+    answer_with(node, None, ok=False, message="could not export photos: disk full")
+    assert node.poi.export_photos("/d") == (False, "could not export photos: disk full", [])
+    node.publisher_on("/poi/command").on_publish = None
+    ok, message, photos = node.poi.export_photos("/d")
+    assert not ok and photos == [] and message

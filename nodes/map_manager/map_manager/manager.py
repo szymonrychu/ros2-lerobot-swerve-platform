@@ -32,6 +32,8 @@ from ros2_common.maps import Localisation, LocalisationState, MapCommand, MapRes
 from ros2_common.scan_agreement import GridMap, prepare_map
 
 from map_manager.bundle import (
+    PHOTO_KIND,
+    PHOTOS_DIR,
     POSEGRAPH_BASE,
     BundleExists,
     BundleInvalid,
@@ -53,7 +55,6 @@ PAUSE_FAILED_REASON = "could not pause slam_toolbox new measurements"
 NO_POSE_REASON = "no last known pose"
 SCRATCH_DIR = ".relocalise"
 ACTIVE_MAP_FILE = ".active_map.json"
-PHOTO_KIND = "photo"
 UNPAUSE_FAILED_REASON = "unpausing new measurements failed, slam_toolbox stays paused"
 
 LOGGER = logging.getLogger(__name__)
@@ -94,10 +95,16 @@ class PoiPort(Protocol):
         """Latest ``/poi/list`` POIs and revision; None before the first list."""
         ...
 
-    def replace(self, pois: list[dict[str, Any]]) -> tuple[bool, str, dict[str, Any]]:
+    def export_photos(self, photo_dir: str) -> tuple[bool, str, list[dict[str, Any]]]:
+        """Write every live photo's JPEG and ``index.jsonl`` into photo_dir; (ok, message, photo POIs exported)."""
+        ...
+
+    def replace(self, pois: list[dict[str, Any]], photo_dir: str | None = None) -> tuple[bool, str, dict[str, Any]]:
         """Make the live POIs and photos exactly the given set; (ok, message, data) from poi_store's answer.
 
-        ``data`` carries the replace counts (``removed`` POIs, ``photos_removed``); empty when the answer has none.
+        ``photo_dir`` holds the JPEGs of photos not yet live (a bundle's ``photos`` directory); None for none.
+
+        ``data`` carries the replace counts (``removed`` POIs, ``photos_removed``, ``photos_replaced``); empty when the answer has none.
         """
         ...
 
@@ -403,7 +410,7 @@ class MapManager:
         return MapResult(
             request_id=command.request_id,
             ok=True,
-            message=f"saved map {command.name} with {summary.poi_count} POIs",
+            message=f"saved map {command.name} with {summary.poi_count} POIs and {summary.photo_count} photos",
             data=summary.model_dump(),
         )
 
@@ -443,6 +450,15 @@ class MapManager:
         if not serialized:
             shutil.rmtree(tmp, ignore_errors=True)
             raise OperationFailed(f"cannot save map {name!r}: slam_toolbox serialize_map failed")
+        try:
+            exported_ok, export_message, photo_pois = self.poi.export_photos(str(tmp / PHOTOS_DIR))
+        except BaseException:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+        if not exported_ok:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise OperationFailed(f"cannot save map {name!r}: poi_store photo export failed: {export_message}")
+        pois = [entry for entry in pois if entry.get("kind") != PHOTO_KIND] + photo_pois
         height, width = grid.cells.shape
         meta = BundleMeta(
             version=1,
@@ -611,7 +627,10 @@ class MapManager:
         name = plan.command.name
         confirmed = self.slam.wait_pose_after(started, self.config.load_timeout_s)
         covariance = self.slam.pose_covariance() if confirmed is not None else None
-        pois_ok, poi_message, _ = self.poi.replace(plan.bundle.meta.pois)
+        photos_dir = plan.bundle.photos_dir
+        pois_ok, poi_message, counts = self.poi.replace(
+            plan.bundle.meta.pois, photo_dir=str(photos_dir) if photos_dir is not None else None
+        )
         state: LocalisationState
         ratio: float | None = None
         if confirmed is None:
@@ -637,6 +656,8 @@ class MapManager:
             slam_pose=confirmed.model_dump() if confirmed is not None else None,
             covariance=covariance,
             pois_replaced=pois_ok,
+            photos_replaced=int(counts.get("photos_replaced", 0)),
+            photos_removed=int(counts.get("photos_removed", 0)),
         )
         return MapResult(
             request_id=plan.command.request_id,
