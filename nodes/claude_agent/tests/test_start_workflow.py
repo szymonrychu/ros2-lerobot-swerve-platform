@@ -78,7 +78,7 @@ def test_start_workflow_schema_and_description() -> None:
         assert phrase in tool.description
 
 
-async def test_start_workflow_sets_the_template_plan_with_the_default_time_budget() -> None:
+async def test_start_workflow_seeds_the_template_plan_caps_mandatory_ids_and_default_time_budget() -> None:
     config = ClaudeAgentConfig()
     tracker = PlanTracker(config)
     result = await start(tracker, name="drive_to_target", params=DRIVE_PARAMS)
@@ -99,7 +99,7 @@ async def test_start_workflow_sets_the_template_plan_with_the_default_time_budge
     assert tracker.workflow == "drive_to_target" and tracker.mandatory_ids == DRIVE_MANDATORY
 
 
-async def test_start_workflow_takes_an_explicit_time_budget() -> None:
+async def test_start_workflow_seeds_an_explicit_time_budget() -> None:
     tracker = PlanTracker(ClaudeAgentConfig())
     result = await start(tracker, name="drive_to_target", params=DRIVE_PARAMS, time_budget_min=25)
     assert "is_error" not in result and tracker.time_budget_min == 25
@@ -112,7 +112,7 @@ async def test_start_workflow_time_budget_above_the_ceiling_is_rejected() -> Non
     assert tracker.plan is None and tracker.workflow is None and tracker.mandatory_ids == []
 
 
-async def test_start_workflow_template_caps_are_clamped_to_the_phase_maxima() -> None:
+async def test_start_workflow_seeds_template_caps_clamped_to_the_phase_maxima() -> None:
     tracker = PlanTracker(ClaudeAgentConfig(max_phase_rw_cap=20))
     result = await start(tracker, name="drive_to_target", params=DRIVE_PARAMS)
     assert "is_error" not in result
@@ -178,7 +178,7 @@ async def test_start_workflow_after_set_task_plan_is_rejected() -> None:
     assert tracker.workflow is None and tracker.mandatory_ids == []
 
 
-async def test_missing_required_param_is_an_error() -> None:
+async def test_missing_required_param_is_rejected() -> None:
     tracker = PlanTracker(ClaudeAgentConfig())
     for dry_run in (False, True):
         result = await start(tracker, name="drive_to_target", params={}, dry_run=dry_run)
@@ -187,7 +187,7 @@ async def test_missing_required_param_is_an_error() -> None:
     assert tracker.plan is None
 
 
-async def test_unknown_workflow_is_an_error() -> None:
+async def test_unknown_workflow_is_rejected() -> None:
     tracker = PlanTracker(ClaudeAgentConfig())
     result = await start(tracker, name="dance", params={})
     assert result["is_error"] is True
@@ -231,7 +231,7 @@ def test_free_form_plan_payload_has_no_workflow() -> None:
     assert all("mandatory" not in phase for phase in plan["phases"])
 
 
-async def test_reset_clears_workflow_and_mandatory_ids() -> None:
+async def test_reset_clears_the_payload_workflow_and_mandatory_ids() -> None:
     tracker = PlanTracker(ClaudeAgentConfig())
     await start(tracker, name="drive_to_target", params=DRIVE_PARAMS)
     tracker.reset()
