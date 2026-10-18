@@ -13,9 +13,6 @@
   <!-- prometheus-cpp has no rosdep rule upstream; scripts/cpp-node-test.Dockerfile adds one (apt prometheus-cpp-dev). -->
   <depend>prometheus-cpp</depend>
 
-  <!-- zstd compresses the depth payload of the wire format (depth_wire.cpp). -->
-  <depend>libzstd-dev</depend>
-
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_cmake_clang_format</test_depend>

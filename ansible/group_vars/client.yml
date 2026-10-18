@@ -576,7 +576,6 @@ ros2_node_type_defaults:
       - build-essential
       - cmake
       - rsync
-      - libzstd-dev
       - python3-colcon-common-extensions
       - ros-jazzy-ament-cmake
       - ros-jazzy-rclcpp

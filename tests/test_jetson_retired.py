@@ -25,6 +25,9 @@ REMOVED_PATHS: list[str] = [
     "tests/test_jetson_depthd_role.py",
     "tests/test_jetson_bridge_config.py",
     "nodes/jetson_bridge_cpp",
+    "shared/ros2_common_cpp/include/ros2_common_cpp/depth_wire.hpp",
+    "shared/ros2_common_cpp/src/depth_wire.cpp",
+    "shared/ros2_common_cpp/test/test_depth_wire.cpp",
 ]
 
 ABSENT_TOKENS: list[tuple[str, str]] = [
@@ -37,6 +40,12 @@ ABSENT_TOKENS: list[tuple[str, str]] = [
     ("ansible/README.md", "group_vars/jetson.yml"),
     (".github/workflows/ci.yml", "jetson_bridge_cpp"),
     ("nodes/README.md", "jetson_bridge_cpp"),
+    ("shared/ros2_common_cpp/CMakeLists.txt", "zstd"),
+    ("shared/ros2_common_cpp/CMakeLists.txt", "depth_wire"),
+    ("shared/ros2_common_cpp/package.xml", "zstd"),
+    ("ansible/group_vars/client.yml", "libzstd-dev"),
+    ("shared/README.md", "depth_wire"),
+    ("shared/README.md", "depthd"),
 ]
 
 
