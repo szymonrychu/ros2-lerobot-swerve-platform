@@ -69,3 +69,7 @@ mcp_server has a head controller wired to ROS that reports real arrival or a nam
 - No placeholder: `measured()` returns None for stale samples.
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on mcp-head-kinematics
+
+## Ruling
+
+Accepted by the orchestrator: verified by hand on the committed HEAD (web_ui 855 passed, mcp_server 2601 passed, lint clean); escalations were a verifier crash (--prev-head unavailable) and stale uncommitted edits in the worktree, discarded.

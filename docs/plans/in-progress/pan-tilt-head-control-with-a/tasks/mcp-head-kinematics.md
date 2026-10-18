@@ -61,3 +61,7 @@ mcp_server can compute any head frame pose and the pan/tilt that aims the RGB ca
 - Frames: base_link floor z = 0 (camera_scene docstring).
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-urdf
+
+## Ruling
+
+Accepted by the orchestrator: verified by hand on the committed HEAD (web_ui 855 passed, mcp_server 2601 passed, lint clean); escalations were a verifier crash (--prev-head unavailable) and stale uncommitted edits in the worktree, discarded.

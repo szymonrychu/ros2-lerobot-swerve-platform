@@ -66,3 +66,7 @@ The base bus node `base_servos` config drives the head with its ranges, caps and
 - Steps from `command_mapping.position_to_raw_steps` (0 rad = 2048, 4096 steps per turn).
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-urdf
+
+## Ruling
+
+Accepted by the orchestrator: verified by hand on the committed HEAD (web_ui 855 passed, mcp_server 2601 passed, lint clean); escalations were a verifier crash (--prev-head unavailable) and stale uncommitted edits in the worktree, discarded.

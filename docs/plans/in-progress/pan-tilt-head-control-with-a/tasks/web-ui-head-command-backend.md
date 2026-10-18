@@ -1,6 +1,6 @@
 ---
 title: Web UI head command backend
-status: blocked
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The web UI can command the head safely: only in-range angles reach the servos, tagged as web_ui."
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_head_control.py, ansible/group_vars/client.yml, nodes/web_ui/README.md]
@@ -67,3 +67,7 @@ The web UI backend publishes only valid head commands, tagged web_ui, and serves
 - Head joint states are a generic JointState subscription (GENERIC_TOPIC_ATTRS).
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-state-publisher-node
+
+## Ruling
+
+Accepted by the orchestrator: verified by hand on the committed HEAD (web_ui 855 passed, mcp_server 2601 passed, lint clean); escalations were a verifier crash (--prev-head unavailable) and stale uncommitted edits in the worktree, discarded.

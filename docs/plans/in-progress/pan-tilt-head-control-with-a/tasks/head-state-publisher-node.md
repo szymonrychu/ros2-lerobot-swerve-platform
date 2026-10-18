@@ -70,3 +70,7 @@ Ansible can deploy, enable and disable head_state_publisher; it publishes head T
 - The launcher runs `bash -c` in single quotes: no single quote in node_launch_command.
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-servo-group-config
+
+## Ruling
+
+Accepted by the orchestrator: verified by hand on the committed HEAD (web_ui 855 passed, mcp_server 2601 passed, lint clean); escalations were a verifier crash (--prev-head unavailable) and stale uncommitted edits in the worktree, discarded.

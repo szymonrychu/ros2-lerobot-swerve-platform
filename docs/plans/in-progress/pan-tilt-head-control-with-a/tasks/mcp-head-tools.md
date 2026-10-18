@@ -74,3 +74,7 @@ The agent can call set_head_angles, head_look_at and head_home under either leas
 - Root `tests/test_claude_agent_config.py` classifies every registered tool: the agent task updates claude_agent; this task must not break mcp_server suites.
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on mcp-head-controller
+
+## Ruling
+
+Accepted by the orchestrator: verified by hand on the committed HEAD (web_ui 855 passed, mcp_server 2601 passed, lint clean); escalations were a verifier crash (--prev-head unavailable) and stale uncommitted edits in the worktree, discarded.
