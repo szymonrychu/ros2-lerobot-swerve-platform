@@ -1,6 +1,6 @@
 ---
 title: Calibration config no depthd
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Turning the Calibrate page on needs no Jetson URL: `calibration: {}` is enough."
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_imu_calibration.py, nodes/web_ui/README.md, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--calibration-config-no-depthd
 branch: remove-the-jetson-coprocesso--calibration-config-no-depthd
-verified_head: ""
+verified_head: ca167e73f6859a1e02a0d96f00005950c7a9625c
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []

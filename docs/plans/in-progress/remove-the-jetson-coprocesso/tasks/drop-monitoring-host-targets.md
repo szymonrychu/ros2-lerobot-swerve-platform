@@ -1,6 +1,6 @@
 ---
 title: Drop monitoring host targets
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Alloy no longer scrapes the Jetson; the Jetson-only host_targets and per-target host override are gone."
 files: [ansible/roles/monitoring_agent/defaults/main.yml, ansible/roles/monitoring_agent/templates/config.alloy.j2, ansible/group_vars/client.yml, tests/test_monitoring_agent_role.py, tests/test_node_metrics_wiring.py, ansible/README.md, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--drop-monitoring-host-targets
 branch: remove-the-jetson-coprocesso--drop-monitoring-host-targets
-verified_head: ""
+verified_head: e45b9f4ac0bb07b493fdefe20ca9b58d10198021
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []

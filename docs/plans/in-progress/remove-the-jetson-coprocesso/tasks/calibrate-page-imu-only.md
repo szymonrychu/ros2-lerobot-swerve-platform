@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--calibrate-page-imu-only
 branch: remove-the-jetson-coprocesso--calibrate-page-imu-only
-verified_head: ""
+verified_head: b0f4b86e0c97a3607d147ca69cabf95177f10616
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []

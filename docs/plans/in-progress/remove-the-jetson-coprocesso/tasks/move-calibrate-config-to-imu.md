@@ -1,6 +1,6 @@
 ---
 title: Move calibrate config to IMU
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The Calibrate page keeps a working config endpoint and IMU routes after the stereo proxy is deleted.
 files: [nodes/web_ui/web_ui/imu_calibration.py, nodes/web_ui/tests/test_imu_calibration.py, nodes/web_ui/web_ui/calibration_proxy.py, nodes/web_ui/tests/test_calibration_proxy.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/README.md, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--move-calibrate-config-to-imu
 branch: remove-the-jetson-coprocesso--move-calibrate-config-to-imu
-verified_head: ""
+verified_head: 300fb5b0ac2d8c56f852b6be0d0374a26ae027bd
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []

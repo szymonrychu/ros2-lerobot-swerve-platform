@@ -1,6 +1,6 @@
 ---
 title: Drop network link support
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The network role renders only the DHCP ethernets and WiFi it always did; the Jetson-only link machinery is gone."
 files: [ansible/roles/network/defaults/main.yml, ansible/roles/network/tasks/main.yml, ansible/roles/network/templates/netplan.yaml.j2, ansible/group_vars/all.yml, tests/test_network_link.py, tests/test_network_netplan.py, ansible/README.md, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/remove-the-jetson-coprocesso--drop-network-link-support
 branch: remove-the-jetson-coprocesso--drop-network-link-support
-verified_head: ""
+verified_head: 6236dd0b89ef34ea57717eb5baac9bbc25276102
 run: remove-the-jetson-coprocesso
 provides: []
 acs_for_audit: []
