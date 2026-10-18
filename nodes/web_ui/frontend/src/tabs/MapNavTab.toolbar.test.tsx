@@ -181,6 +181,7 @@ describe('map toolbar controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset map' }))
     expect(posted('/api/map/reset?tab=map')).toBe(false)
     const dialog = screen.getByRole('dialog')
+    expect(dialog.textContent).toContain('deletes the live POIs and photos. Saved maps are kept.')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(posted('/api/map/reset?tab=map')).toBe(false)

@@ -111,7 +111,7 @@ export function MapsDialog({ open, tabId, status, onClose, onChanged }: MapsDial
                     primary={m.name}
                     secondary={
                       m.valid
-                        ? `${new Date(m.saved_at * 1000).toLocaleString()}, ${m.poi_count} POIs${m.note ? `, ${m.note}` : ''}`
+                        ? `${new Date(m.saved_at * 1000).toLocaleString()}, ${m.poi_count} POIs, ${m.photo_count ?? 0} photos${m.note ? `, ${m.note}` : ''}`
                         : `Invalid: ${m.error}`
                     }
                     secondaryTypographyProps={{ color: m.valid ? 'text.secondary' : 'error' }}
@@ -140,7 +140,11 @@ export function MapsDialog({ open, tabId, status, onClose, onChanged }: MapsDial
       />
       <ConfirmDialog
         open={pending?.op === 'delete'}
-        title={`Delete ${pending?.map.name ?? ''} and its ${pending?.map.poi_count ?? 0} POIs?`}
+        title={`Delete ${pending?.map.name ?? ''} and its ${pending?.map.poi_count ?? 0} POIs and ${pending?.map.photo_count ?? 0} photos?`}
+        body={
+          "The map's POIs and photos are deleted with it." +
+          (pending?.map.name === status?.active_map ? ' It is the active map, so the live POIs and photos are deleted too.' : '')
+        }
         confirmLabel="Delete"
         onCancel={() => setPending(null)}
         onConfirm={() => {
