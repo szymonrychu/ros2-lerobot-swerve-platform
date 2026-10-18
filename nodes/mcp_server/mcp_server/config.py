@@ -25,7 +25,7 @@ DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
-FRONT_CAMERA_PARENT = "base_link"
+FRONT_CAMERA_PARENT = "head_link"  # default head URDF link (head.urdf_path) the front (head RGB) camera hangs on
 DEFAULT_OBJECTS_FILE = Path("/var/lib/ros2/objects/objects.json")
 DEFAULT_LOOKUPS_DIR = Path("/var/lib/ros2/poi/lookups")  # camera lookups, next to poi_store's poi.json
 # Offline inverse reachability map (reach_map.py), committed inside the package so it deploys with the git checkout.
@@ -697,10 +697,14 @@ class CamerasSettings(StrictModel):
     def resolve_parent_frames(self) -> "CamerasSettings":
         """Fill in each camera's parent frame and require a mount to agree with it.
 
-        The gripper camera hangs on an arm URDF link (default gripper_link); the fixed front camera on base_link.
+        The gripper camera hangs on an arm URDF link (default gripper_link); the front camera on a head URDF link
+        (default head_link, checked against head.urdf_path by McpServerConfig).
 
         Returns:
             CamerasSettings: The validated settings.
+
+        Raises:
+            ValueError: When a mount's parent_frame differs from the camera's parent_frame.
         """
         for name, cam, default in (
             ("gripper", self.gripper, GRIPPER_CAMERA_PARENT),
@@ -708,8 +712,6 @@ class CamerasSettings(StrictModel):
         ):
             if cam.parent_frame is None:
                 cam.parent_frame = cam.mount.parent_frame if cam.mount is not None else default
-            if name == "front" and cam.parent_frame != FRONT_CAMERA_PARENT:
-                raise ValueError(f"cameras.front must be mounted on {FRONT_CAMERA_PARENT}, not {cam.parent_frame}")
             if cam.mount is not None and cam.mount.parent_frame != cam.parent_frame:
                 raise ValueError(
                     f"cameras.{name}: mount.parent_frame {cam.mount.parent_frame!r} differs from parent_frame "
@@ -1591,6 +1593,25 @@ class McpServerConfig(StrictModel):
     frontiers: FrontierSettings = FrontierSettings()
     exploration: ExplorationSettings = ExplorationSettings()
     grasp_check: GraspCheckSettings = GraspCheckSettings()
+
+    @model_validator(mode="after")
+    def front_parent_on_the_head(self) -> "McpServerConfig":
+        """Require the front camera's parent frame to be a link of the head URDF (it moves with the pan/tilt head).
+
+        Returns:
+            McpServerConfig: This model.
+
+        Raises:
+            ValueError: When cameras.front.parent_frame is not a link of head.urdf_path.
+        """
+        links = HeadKinematics(self.head.urdf_path).links
+        parent = self.cameras.front.parent_frame
+        if parent not in links:
+            raise ValueError(
+                f"cameras.front.parent_frame {parent!r} is not a link of the head URDF {self.head.urdf_path} "
+                f"(links: {sorted(links)})"
+            )
+        return self
 
 
 def load_config(path: Path) -> McpServerConfig:

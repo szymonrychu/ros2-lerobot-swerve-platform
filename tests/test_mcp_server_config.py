@@ -187,6 +187,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "timeouts",
         "nav",
         "arm",
+        "head",
         "battery",
         "monitor",
         "footprint",

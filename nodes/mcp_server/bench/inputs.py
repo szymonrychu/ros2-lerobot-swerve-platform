@@ -34,7 +34,7 @@ from mcp_server.reach_map import checker_from_config
 from mcp_server.reference.ik_reach import robot_inputs
 from mcp_server.sag import GravityModel, SagCompensator, compensate
 from mcp_server.self_collision import SelfCollisionChecker, joint_line
-from tests.camera_helpers import FRONT_MOUNT, HFOV
+from tests.camera_helpers import FRONT_MOUNT, HFOV, fresh_head
 
 Call = Callable[[], Any]
 
@@ -181,7 +181,7 @@ def scene(camera: str) -> camera_scene.Scene:
     """
     cfg = config()
     setup = camera_scene.camera_setup(cfg, camera)
-    parent = camera_scene.parent_transform(cfg, camera, kinematics(), GRIPPER_VIEW)
+    parent = camera_scene.parent_transform(cfg, camera, kinematics(), GRIPPER_VIEW, head=fresh_head(cfg))
     return camera_scene.build_scene(setup, cfg, parent)
 
 
@@ -378,10 +378,12 @@ def build_scene_call() -> Call:
         Call: One scene build.
     """
     cfg = config()
+    head = fresh_head(cfg)
 
     def call() -> Any:
         setup = camera_scene.camera_setup(cfg, "front")
-        return camera_scene.build_scene(setup, cfg, camera_scene.parent_transform(cfg, "front", kinematics(), None))
+        parent = camera_scene.parent_transform(cfg, "front", kinematics(), None, head=head)
+        return camera_scene.build_scene(setup, cfg, parent)
 
     return call
 

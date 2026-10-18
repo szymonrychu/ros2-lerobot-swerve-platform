@@ -1764,8 +1764,9 @@ Static checks of the mcp_server camera tools wiring (YAML and README only; no RO
 | Test (group) | Description |
 |------|-------------|
 | `test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/camera_calibration` owned by `ansible_user`. |
-| `test_cameras_config_front_not_calibrated_gripper_calibrated` | The mcp_server `cameras` block has `calibration_dir`; the front camera is uncalibrated (`intrinsics`/`mount` null), the gripper camera has intrinsics and a mount on `gripper_link`. |
+| `test_cameras_config_front_not_calibrated_gripper_calibrated` | The mcp_server `cameras` block has `calibration_dir`; the front (head RGB) camera sits on `head_link` with the URDF `head_link -> head_camera_link` mount and null `intrinsics` (not calibrated), the gripper camera has intrinsics and a mount on `gripper_link`. |
 | `test_gripper_parent_frame_is_a_link_of_the_arm_urdf` | `cameras.gripper.parent_frame` names a link in the arm URDF. |
+| `test_front_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_urdf_camera_origin` | `head.urdf_path` is `nodes/web_ui/urdf/head.urdf`; `cameras.front.parent_frame` names a link of it and is the parent of `head_camera_joint`; the front mount equals that joint's origin (xyz, rpy). |
 | `test_arm_reach_keys_are_ordered` | `arm.reach_inner_m` is positive and below `arm.reach_outer_m`. |
 | `test_readme_documents_the_camera_tools_frames_and_calibration` | `nodes/mcp_server/README.md` documents the seven camera tools, frames, the not-calibrated default, `base_in_base_link`, the calibration directory and the procedure. |
 

@@ -13,7 +13,7 @@ def test_default_cameras_are_not_calibrated() -> None:
     for cam in (cams.gripper, cams.front):
         assert cam.intrinsics is None and cam.mount is None
     assert cams.gripper.parent_frame == "gripper_link"
-    assert cams.front.parent_frame == "base_link"
+    assert cams.front.parent_frame == "head_link"  # the front camera is the head RGB camera
     assert str(cams.calibration_dir) == "/var/lib/ros2/camera_calibration"
 
 
@@ -47,11 +47,11 @@ def test_mount_parent_frame_is_adopted_and_must_match() -> None:
         McpServerConfig.model_validate({"cameras": {"gripper": {"parent_frame": "wrist_link", "mount": MOUNT}}})
 
 
-def test_front_view_camera_must_be_mounted_on_base_link() -> None:
-    with pytest.raises(ValidationError, match="base_link"):
+def test_front_view_camera_must_be_mounted_on_a_head_urdf_link() -> None:
+    with pytest.raises(ValidationError, match="head URDF"):
         McpServerConfig.model_validate({"cameras": {"front": {"mount": MOUNT}}})
-    ok = McpServerConfig.model_validate({"cameras": {"front": {"mount": {**MOUNT, "parent_frame": "base_link"}}}})
-    assert ok.cameras.front.mount is not None
+    ok = McpServerConfig.model_validate({"cameras": {"front": {"mount": {**MOUNT, "parent_frame": "head_link"}}}})
+    assert ok.cameras.front.mount is not None and ok.cameras.front.parent_frame == "head_link"
 
 
 def test_unknown_camera_keys_rejected() -> None:
