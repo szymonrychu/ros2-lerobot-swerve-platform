@@ -274,7 +274,7 @@ class RosPoi:
         self.timeout_s = config.poi_timeout_s
         self.lock = threading.Lock()
         self.listing: tuple[list[dict[str, Any]], int] | None = None
-        self.pending: dict[str, tuple[threading.Event, list[tuple[bool, str]]]] = {}
+        self.pending: dict[str, tuple[threading.Event, list[tuple[bool, str, dict[str, Any]]]]] = {}
         self.logger = node.get_logger()
         self.command_pub = node.create_publisher(String, config.poi_command_topic, VOLATILE_QOS)
         node.create_subscription(String, config.poi_list_topic, self.on_list, LATCHED_QOS, callback_group=group)
@@ -304,7 +304,8 @@ class RosPoi:
         try:
             data = json.loads(msg.data)
             request_id = str(data["request_id"])
-            answer = (bool(data["ok"]), str(data.get("message", "")))
+            extra = data.get("data")
+            answer = (bool(data["ok"]), str(data.get("message", "")), extra if isinstance(extra, dict) else {})
         except (ValueError, KeyError, TypeError):
             return
         with self.lock:
@@ -322,23 +323,24 @@ class RosPoi:
         with self.lock:
             return self.listing
 
-    def replace(self, pois: list[dict[str, Any]]) -> tuple[bool, str]:
-        """Swap the live non-photo POI set and wait for poi_store's answer.
+    def replace(self, pois: list[dict[str, Any]]) -> tuple[bool, str, dict[str, Any]]:
+        """Make the live POIs and photos exactly the given set and wait for poi_store's answer.
 
         Args:
             pois (list[dict[str, Any]]): The complete new set.
 
         Returns:
-            tuple[bool, str]: (ok, message); not ok with a "no answer" message after ``poi_timeout_s``.
+            tuple[bool, str, dict[str, Any]]: (ok, message, data with the replace counts ``removed`` and
+            ``photos_removed``); not ok with a "no answer" message and empty data after ``poi_timeout_s``.
         """
         request_id = f"map_manager-{uuid.uuid4().hex}"
-        waiter: tuple[threading.Event, list[tuple[bool, str]]] = (threading.Event(), [])
+        waiter: tuple[threading.Event, list[tuple[bool, str, dict[str, Any]]]] = (threading.Event(), [])
         with self.lock:
             self.pending[request_id] = waiter
         try:
             self.command_pub.publish(String(data=json.dumps({"op": "replace", "request_id": request_id, "pois": pois})))
             if not waiter[0].wait(self.timeout_s):
-                return False, NO_ANSWER_MESSAGE
+                return False, NO_ANSWER_MESSAGE, {}
             return waiter[1][0]
         finally:
             with self.lock:
