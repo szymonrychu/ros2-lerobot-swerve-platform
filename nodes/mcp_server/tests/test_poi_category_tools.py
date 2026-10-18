@@ -116,6 +116,17 @@ def test_update_poi_survey_true_adds_the_tag(server: Any, robot: FakeRobot) -> N
     assert robot.pois[0]["note"] == "#survey\nfree"
 
 
+@pytest.mark.parametrize(
+    ("note", "expected"),
+    [("#slow\ntext", "#slow #survey\ntext"), ("#problem/window x", "#problem/window #survey x")],
+)
+def test_update_poi_survey_only_keeps_the_category_tag(server: Any, robot: FakeRobot, note: str, expected: str) -> None:
+    poi = add(server, kind="point", x=1.0, y=2.0)
+    robot.pois[0]["note"] = note
+    call(server, "update_poi", {"id": poi["id"], "survey": True})
+    assert robot.pois[0]["note"] == expected
+
+
 def test_remember_object_survey_tag(server: Any, robot: FakeRobot) -> None:
     call(server, "remember_object", {"label": "cup", "x": 1.0, "y": 1.0, "note": "on table", "survey": True})
     assert robot.pois[0]["note"] == "#target #survey\non table"
