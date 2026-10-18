@@ -9,13 +9,13 @@ Follow these steps in order. Arriving at coordinates is not the same as being at
 
 ## 1. Resolve the target
 
-- Call `list_pois` (filter by category or name), `list_objects` and `list_lookups` (use `poi_id`, `near` or `text`). Prefer the most recent, highest-confidence match.
+- Call `list_pois` (filter by category or name), `list_objects` and `list_lookups` (filter by POI, near a point, or by note text). Prefer the most recent, highest-confidence match.
 - If several candidates fit, say which one you chose and why. If none fit, ask the user or run the discovery workflow; do not guess a position.
 - Note the lookup ids you rely on; they are your evidence later.
 
 ## 2. Plan the approach pose
 
-- Grasp target: call `suggest_approach_pose` with `object_id` or `poi_id` and `z_m` (or x, y, z). It returns a base pose the arm can reach from.
+- Grasp target: call `suggest_approach_pose` with an object id or POI id and a grasp height (or x, y, z). It returns a base pose the arm can reach from.
 - Any other target (a place, a person, a room): choose a pose a sensible stopping distance before the target, facing it, and drive with `navigate_to_pose`.
 - The approach pose must never be inside a keep-out area. Check the `zone` of the areas in `list_pois`; a pose inside a keep-out is refused or unreachable, so pick another side.
 
@@ -37,4 +37,4 @@ Follow these steps in order. Arriving at coordinates is not the same as being at
 
 ## 6. Report the evidence
 
-- In `complete_phase`, state the target, where you stopped, the distance measured, whether the position was refined and why, and the lookup ids of the images that show the target. The retrospective is built from these words.
+- In `agent.complete_phase`, state the target, where you stopped, the distance measured, whether the position was refined and why, and the lookup ids of the images that show the target. The retrospective is built from these words.
