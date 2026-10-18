@@ -19,7 +19,7 @@ def prompt_text() -> str:
 
 
 @pytest.mark.parametrize("tool", MAP_TOOLS)
-def test_map_tool_is_sensor_only(tool: str) -> None:
+def test_map_tool_classification_is_sensor_only(tool: str) -> None:
     assert tool in DEFAULT_SENSOR_TOOLS
     assert tool not in DEFAULT_EFFECTOR_TOOLS
     assert tool not in DEFAULT_UNCAPPED_TOOLS

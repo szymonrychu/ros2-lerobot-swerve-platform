@@ -2398,6 +2398,11 @@ ros2_nodes:
         - add_poi
         - update_poi
         - delete_poi
+        - save_map
+        - list_maps
+        - load_map
+        - delete_map
+        - clear_pois
         - list_lookups
         - get_lookup_image
         - annotate_lookup
