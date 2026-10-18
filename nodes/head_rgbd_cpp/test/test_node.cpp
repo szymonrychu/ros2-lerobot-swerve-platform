@@ -290,7 +290,10 @@ protected:
 
   bool wait_inputs_subscribed()
   {
-    return wait_for([this] { return rgb_pub_->get_subscription_count() > 0; });
+    return wait_for([this] {
+      return rgb_pub_->get_subscription_count() > 0 && tof_pub_->get_subscription_count() > 0 &&
+             info_pub_->get_subscription_count() > 0;
+    });
   }
 
   double metric(const std::string & series) { return series_value(node_->metrics().render(), series); }
