@@ -68,7 +68,7 @@ tabs:
     arm_joint_states_topic: /follower/joint_states
 
   # Head tab: overview camera (left IMX219) as head RGB and greyscale depth (near bright) from stereo_depth (16UC1 mm,
-  # the ToF contract; no amplitude image from a stereo pair). Pan/tilt is a disabled placeholder; nothing is published.
+  # the ToF contract; no amplitude image from a stereo pair). The pan/tilt block is disabled and publishes nothing.
   - id: head
     type: head
     label: "Head"

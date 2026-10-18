@@ -1637,8 +1637,8 @@ ros2_nodes:
             xyz: [-0.0046, 0.0364, -0.0364]
             rpy: [-1.5622, 1.1950, -1.4466]
         # Head tab: overview camera (left IMX219) as head RGB and greyscale depth from the stereo_depth node (16UC1 mm on
-        # the ToF contract; the stereo pair has no amplitude image). Pan/tilt is a disabled placeholder;
-        # nothing is published.
+        # the ToF contract; the stereo pair has no amplitude image). The pan/tilt block is disabled and
+        # publishes nothing.
         - id: head
           type: head
           label: "Head"
