@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -427,25 +426,13 @@ class GpsStatusConfig(BaseModel):
 
 
 class CalibrationConfig(BaseModel):
-    """Hidden Calibrate page: the Jetson depthd calibration API to proxy and the IMU calibration ROS names."""
+    """Hidden Calibrate page: the IMU calibration ROS names only."""
 
-    depthd_url: str  # no default host in code; Ansible supplies http://10.77.0.2:8090
-    connect_timeout_s: float = Field(2.0, gt=0)
-    read_timeout_s: float = Field(5.0, gt=0)
-    solve_read_timeout_s: float = Field(10.0, gt=0)
     imu_status_topic: str = "/imu/calibration"
     imu_save_service: str = "/imu/calibration/save"
     imu_reset_service: str = "/imu/calibration/reset"
     imu_stale_s: float = Field(3.0, gt=0)  # IMU status older than this is reported stale
     imu_service_timeout_s: float = Field(5.0, gt=0)  # wait for the IMU save / reset Trigger response
-
-    @field_validator("depthd_url")
-    @classmethod
-    def _http_url(cls, value: str) -> str:
-        parsed = urlparse(value)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            raise ValueError("depthd_url must be an http(s) URL with a host")
-        return value
 
 
 class AppConfig(BaseModel):

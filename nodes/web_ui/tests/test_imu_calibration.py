@@ -51,7 +51,7 @@ def make_client(tmp_path: Path, bridge: Any, calibration: bool = True) -> TestCl
     from web_ui.server import build_app
 
     config = AppConfig(
-        calibration=CalibrationConfig(depthd_url="http://depthd:8090", imu_service_timeout_s=0.05, imu_stale_s=3.0)
+        calibration=CalibrationConfig(imu_service_timeout_s=0.05, imu_stale_s=3.0)
         if calibration
         else None
     )
@@ -133,7 +133,7 @@ def test_not_configured_is_404(tmp_path: Path) -> None:
 
 
 def test_trigger_services_follow_calibration() -> None:
-    assert {SAVE, RESET} <= set(AppConfig(calibration=CalibrationConfig(depthd_url="http://d:1")).trigger_services())
+    assert {SAVE, RESET} <= set(AppConfig(calibration=CalibrationConfig()).trigger_services())
     assert AppConfig().trigger_services() == []
 
 

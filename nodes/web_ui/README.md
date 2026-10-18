@@ -429,11 +429,7 @@ Enabled only when the config has a `calibration` block; without it every `/api/c
 
 ```yaml
 calibration:
-  depthd_url: http://10.77.0.2:8090   # required, http(s); no default host in code (Ansible supplies it)
-  connect_timeout_s: 2.0              # > 0
-  read_timeout_s: 5.0                 # > 0
-  solve_read_timeout_s: 10.0          # > 0, used for POST /solve
-  imu_status_topic: /imu/calibration  # IMU fields below are used by the IMU calibration routes
+  imu_status_topic: /imu/calibration  # `calibration: {}` is enough; all fields default as shown
   imu_save_service: /imu/calibration/save
   imu_reset_service: /imu/calibration/reset
   imu_stale_s: 3.0                    # > 0
