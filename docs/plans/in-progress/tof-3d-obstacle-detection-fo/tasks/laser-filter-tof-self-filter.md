@@ -1,6 +1,6 @@
 ---
 title: Laser filter ToF self filter
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The ToF cloud no longer contains the robot body, the arm or a carried object, so the robot never blocks itself."
 files: [nodes/laser_filter/laser_filter/config.py, nodes/laser_filter/laser_filter/node.py, nodes/laser_filter/laser_filter/self_filter.py, nodes/laser_filter/config/footprint_filter.yaml, nodes/laser_filter/tests/test_cloud_filter.py, nodes/laser_filter/README.md, ansible/group_vars/client.yml, tests/test_nav_stack_config.py]
@@ -12,8 +12,8 @@ model: opus
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--laser-filter-tof-self-filter
+branch: tof-3d-obstacle-detection-fo--laser-filter-tof-self-filter
 verified_head: ""
 run: ""
 provides: []

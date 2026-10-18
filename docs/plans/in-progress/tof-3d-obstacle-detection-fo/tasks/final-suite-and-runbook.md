@@ -1,6 +1,6 @@
 ---
 title: Final suite and runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Every suite is green, the ToF pipeline is wired consistently end to end, and the robot verification is precise."
 files: [tests/test_tof_obstacle_wiring.py, tests/README.md, scripts/node_cpu_compare.yaml, MEMORY.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--final-suite-and-runbook
+branch: tof-3d-obstacle-detection-fo--final-suite-and-runbook
 verified_head: ""
 run: ""
 provides: []

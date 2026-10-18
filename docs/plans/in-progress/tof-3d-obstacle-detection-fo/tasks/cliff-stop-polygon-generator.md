@@ -1,6 +1,6 @@
 ---
 title: Cliff stop polygon generator
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The collision monitor gets a cliff guard area derived from the real footprint instead of hand-typed numbers.
 files: [scripts/gen_nav_footprint.py, scripts/gen_nav_footprint.yaml, tests/test_nav_footprint.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/nav2_bringup/README.md, tests/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--cliff-stop-polygon-generator
+branch: tof-3d-obstacle-detection-fo--cliff-stop-polygon-generator
 verified_head: ""
 run: ""
 provides: []

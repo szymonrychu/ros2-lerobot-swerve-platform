@@ -1,6 +1,6 @@
 ---
 title: ToF obstacle sector summary
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The agent gets a compact, testable summary of nearby 3D obstacles and cliffs per direction."
 files: [nodes/mcp_server/mcp_server/perception.py, nodes/mcp_server/mcp_server/perception_models.py, nodes/mcp_server/tests/test_tof_obstacles.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--tof-obstacle-sector-summary
+branch: tof-3d-obstacle-detection-fo--tof-obstacle-sector-summary
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: Collision monitor ToF stop
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The robot stops for 3D obstacles and refuses to drive toward a cliff, while the lidar keeps guarding all around."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_tof_collision.py, tests/test_nav_stack_config.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--collision-monitor-tof-stop
+branch: tof-3d-obstacle-detection-fo--collision-monitor-tof-stop
 verified_head: ""
 run: ""
 provides: []
