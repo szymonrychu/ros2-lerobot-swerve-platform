@@ -2444,8 +2444,6 @@ ros2_nodes:
       # A warning type interrupts at most once per this many seconds (mcp_server re-emits bump every 2 s on rough floor).
       warning_interrupt_debounce_s: 10
       robot_events_topic: /robot_events
-      # Agent POIs persist across sessions: a new session clears only done/cancelled ones (clear_all clears every one).
-      agent_poi_reset: keep_open
       # One extra "POI REVIEW" turn per instruction that used camera/motion tools and wrote no POI.
       poi_review_followup: true
       # complete_phase flags summary map coordinates with no POI within this radius (m).

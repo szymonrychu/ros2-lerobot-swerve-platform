@@ -583,7 +583,7 @@ def test_mcp_server_config_lookups_block_is_only_the_store_dir() -> None:
 
 
 def test_client_yml_pins_the_agent_poi_settings() -> None:
-    """client.yml renders the agent POI keys (auto_poi, agent_poi_reset, poi_review_followup, poi_hint_radius_m)."""
+    """client.yml renders the agent POI keys (auto_poi, poi_review_followup, poi_hint_radius_m)."""
     pytest.importorskip("pydantic")
     sys.path[:0] = [str(REPO_ROOT / "nodes" / "mcp_server"), str(REPO_ROOT / "shared")]
     try:
@@ -600,7 +600,7 @@ def test_client_yml_pins_the_agent_poi_settings() -> None:
     }
     assert McpServerConfig.model_validate(raw).auto_poi == AutoPoiSettings(**raw["auto_poi"])
     agent = node_config("claude_agent")
-    assert agent["agent_poi_reset"] == "keep_open"
+    assert "agent_poi_reset" not in agent
     assert agent["poi_review_followup"] is True
     assert agent["poi_hint_radius_m"] == 0.5
 
