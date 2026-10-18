@@ -270,6 +270,13 @@ def test_arm_tab_defaults() -> None:
     assert tab.arm_release_control_service == "/arm/release_control"
 
 
+def test_default_arm_tab_uses_the_front_camera() -> None:
+    """The shipped default config's arm tab streams the front camera through front_camera_topic."""
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
+    arm = next(t for t in cfg.tabs if t.type == "arm")
+    assert arm.front_camera_topic == "/front_camera/image_raw/compressed"
+
+
 def test_arm_tab_overrides_and_empty_rejected() -> None:
     tab = TabConfig(
         id="arm",
