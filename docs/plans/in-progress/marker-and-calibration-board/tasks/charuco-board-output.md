@@ -1,6 +1,6 @@
 ---
 title: Charuco board output
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The head RGB-D calibration board prints from the same tool, on paper or the Bambu bed, with one definition the calibration tool also uses."
 files: [scripts/markers/charuco.py, scripts/markers/config.py, scripts/markers_generate.yaml, tests/test_markers_charuco.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/marker-and-calibration-board--charuco-board-output
 branch: marker-and-calibration-board--charuco-board-output
 verified_head: ""
-run: ""
+run: marker-and-calibration-board
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Charuco board output

@@ -2,7 +2,7 @@
 title: Marker and calibration board generator
 blockers: []
 stage: build
-owner: ""
+owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
 ---
@@ -34,6 +34,8 @@ A generator for printable square black/white markers and the head RGB-D calibrat
 - Calibrating the head cameras (epic head-rgb-d-fusion-of-camera).
 
 ## Time
+
+
 
 
 

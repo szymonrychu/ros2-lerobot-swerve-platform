@@ -1,6 +1,6 @@
 ---
 title: Markers generate CLI
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "One command, driven by one config file, writes every marker and the calibration board ready to print."
 files: [scripts/markers_generate.py, scripts/markers_generate.yaml, tests/test_markers_generate_cli.py, scripts/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/marker-and-calibration-board--markers-generate-cli
 branch: marker-and-calibration-board--markers-generate-cli
 verified_head: ""
-run: ""
+run: marker-and-calibration-board
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Markers generate CLI
