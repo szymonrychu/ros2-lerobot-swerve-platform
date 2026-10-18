@@ -68,6 +68,15 @@ def test_mcp_server_battery_matches_web_ui() -> None:
     assert mcp["cells"] * mcp["cutoff_cell_v"] == pytest.approx(EXPECTED_CUTOFF_V)
 
 
+def test_only_the_follower_bus_publishes_battery() -> None:
+    """Of the client's feetech instances only lerobot_follower reads the pack; base_servos has battery off."""
+    nodes = yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"]
+    feetech = [n for n in nodes if n["node_type"] == "feetech_servos" and n.get("present", True)]
+    publishers = [n["name"] for n in feetech if yaml.safe_load(n["config"]).get("battery_interval_s", 1.0) > 0]
+    assert publishers == ["lerobot_follower"]
+    assert node_config(CLIENT_VARS, "base_servos")["battery_interval_s"] == 0
+
+
 def test_leader_does_not_publish_battery() -> None:
     """The leader arm bus is not the robot pack: its bridge has battery reading disabled."""
     assert node_config(SERVER_VARS, "lerobot_leader")["battery_interval_s"] == 0

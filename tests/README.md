@@ -1779,7 +1779,7 @@ fake `ssh`; no ROS needed).
 
 ### test_battery_config.py
 
-Static invariants of the battery voltage chain in Ansible `group_vars` (follower publisher, web_ui command guard).
+Static invariants of the battery voltage chain in Ansible `group_vars` (follower publisher, base bus off, web_ui command guard).
 
 | Test | Description |
 |------|-------------|
@@ -1787,8 +1787,29 @@ Static invariants of the battery voltage chain in Ansible `group_vars` (follower
 | `test_web_ui_battery_matches_follower` | web_ui `battery.topic` and `battery.cells` equal the follower's `battery_topic` and `battery_cells`. |
 | `test_web_ui_cutoff_is_8v4_for_three_cells` | web_ui `battery` block: cut-off 2.8 V/cell x 3 cells = 8.4 V, resume 2.9 V/cell (>= cut-off), `stale_s` 5.0. |
 | `test_mcp_server_battery_matches_web_ui` | mcp_server `battery` block is identical to web_ui's (topic `/battery_state`, 3 cells, 2.8/2.9 V per cell, `stale_s` 5.0; 8.4 V cut-off). |
+| `test_only_the_follower_bus_publishes_battery` | Of the client's present `feetech_servos` entries exactly one has `battery_interval_s > 0` (`lerobot_follower`, default 1.0 when unset), and `base_servos` sets `battery_interval_s: 0`, so `/battery_state` has one publisher. |
 | `test_leader_does_not_publish_battery` | Server `lerobot_leader` has `battery_interval_s: 0`, so only the robot's follower bus publishes `/battery_state`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_battery_config.py` is listed in this section. |
+
+### `test_servo_bus_split_config.py`
+
+Servo bus split in `ansible/group_vars/client.yml` and the client deploy playbook: the arm alone on `lerobot_follower`, the eight swerve servos on the second feetech_servos instance `base_servos` (design `docs/plans/in-progress/split-servo-buses-arm-alone/design.md` D1, D3, D4, D7, D8), and every base consumer wired to its `/swerve_drive/*` topics. Node `config: |` blocks are parsed as YAML.
+
+| Test | Description |
+|------|-------------|
+| `test_follower_serves_only_the_arm` | `lerobot_follower` serves exactly IDs 1-6 and has no `extra_groups` and no `velocity_command_timeout_s`. |
+| `test_follower_identity_device_and_rate` | `lerobot_follower` sets `node_name: lerobot_follower`, opens the arm adapter `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6081020-if00` (design A1) and runs at 100 Hz (`control_loop_hz` unset or 100). |
+| `test_base_servos_entry_is_present_and_enabled` | `base_servos` is a present, enabled `feetech_servos` entry with `FEETECH_SERVOS_CONFIG=/etc/ros2/base_servos/config.yaml`. |
+| `test_base_servos_carries_the_eight_swerve_joints` | `base_servos` uses namespace `swerve_drive` and serves exactly fl_drive 32 velocity inverted, fl_steer 33, fr_drive 35 velocity, fr_steer 34, rl_drive 39 velocity inverted, rl_steer 38, rr_drive 36 velocity, rr_steer 37 (in that order); no head group is configured. |
+| `test_base_servos_runtime_settings` | `base_servos`: `node_name: base_servos`, the original adapter `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00`, 50 Hz, battery off (0), metrics 19115, `velocity_command_timeout_s: 0.3`, torque on start, goal refresh 1.0 s, read failure limit 3, retry 5.0 s, register dump every 10 s. |
+| `test_retired_swerve_drive_servos_name_is_gone` | No `ros2_nodes` entry and no client playbook step is named `swerve_drive_servos`; `Deploy base_servos` directly follows `Deploy lerobot_follower`. |
+| `test_both_devices_are_distinct_by_id_paths` | Both bridges open a `/dev/serial/by-id/` path, and the two paths differ. |
+| `test_present_feetech_instances_are_exactly_follower_and_base` | The client's present `feetech_servos` entries are exactly `lerobot_follower` and `base_servos`, with distinct `node_name` and `metrics_port` and disjoint servo IDs. |
+| `test_swerve_controller_drives_the_base_joints` | `swerve_controller` `joint_names` equal the base joint names (same order) and its joint state/command topics are `/swerve_drive/joint_states` and `/swerve_drive/joint_commands`. |
+| `test_tilt_guard_torque_reaches_the_base_bridge` | `swerve_controller` `tilt_guard.torque_topic` is `/swerve_drive/set_register`, so a `torque_off` reaches the drive servos. |
+| `test_mcp_server_register_topics_follow_the_split` | mcp_server `topics.base_servo_registers` is `/swerve_drive/servo_registers`, `topics.servo_registers` `/follower/servo_registers`, `topics.follower_set_register` `/follower/set_register`. |
+| `test_base_servos_gets_the_critical_cgroup_tier_from_type_defaults` | The `feetech_servos` type defaults are the critical tier (CPUWeight/IOWeight 1000, OOMScoreAdjust -900) and the `base_servos` entry overrides none of `cpu_weight`, `io_weight`, `oom_score_adjust`. |
+| `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_servo_bus_split_config.py` is listed in this section. |
 
 ### test_gps_status_config.py
 
@@ -2021,7 +2042,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, and the side-by-side C++ port map_guard_cpp 19110) `metrics_port` 19101-19112. |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_guard, costmap_zones, arducam_tof, and the side-by-side C++ port map_guard_cpp 19110) `metrics_port` 19101-19112; base_servos 19115. |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |

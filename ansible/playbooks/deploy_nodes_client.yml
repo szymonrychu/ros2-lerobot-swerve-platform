@@ -332,14 +332,14 @@
             _deploy_node_name: lerobot_follower
           tags: [lerobot_follower, apt, python, build, config]
 
-        - name: Deploy swerve_drive_servos
+        - name: Deploy base_servos
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml
             apply:
-              tags: [swerve_drive_servos]
+              tags: [base_servos]
           vars:
-            _deploy_node_name: swerve_drive_servos
-          tags: [swerve_drive_servos, apt, python, build, config]
+            _deploy_node_name: base_servos
+          tags: [base_servos, apt, python, build, config]
 
         - name: Deploy swerve_controller
           ansible.builtin.include_tasks:
