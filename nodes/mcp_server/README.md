@@ -2602,11 +2602,21 @@ Deploy: `./scripts/deploy-nodes.sh client mcp_server` (a `--tags mcp_server` run
 `add_poi(kind='area', zone=..., speed_limit_pct=...)` and `update_poi(id, zone=..., speed_limit_pct=...)` write the zone fields of the area POI in `poi_store`; the `costmap_zones` node turns active zones into Nav2 keepout and speed masks.
 
 - `zone='keepout'`: Nav2 does not plan or drive into the area. A robot already inside can leave. Never send a navigation goal inside one.
-- `zone='slow'` with `speed_limit_pct` (10..100): MPPI is capped to that percentage while the robot centre is inside.
+- `zone='slow'` with `speed_limit_pct` (10..100): the planner prefers routes around the area (non-lethal path cost) and MPPI is capped to that percentage while the robot centre is inside.
 - `zone='none'` (default) removes a zone. Switching to `slow` needs `speed_limit_pct` in the same `update_poi` call.
 - Active only while `status` is `open`; `done` / `cancelled` switch the zone off and keep the record.
 - Zones created by the agent are session-scoped: agent POIs are removed at the next session start.
 - Client-side checks mirror `poi_store` and raise `ValueError` before any request: zone on a point, `slow` without a percentage, percentage with a zone other than `slow`.
+
+### POI categories
+
+`add_poi` and `update_poi` take optional `category` (`target`, `slow`, `keepout`, `problem`, `detail`), `problem_type` (`window`, `mirror`, `glass`, `tight`, `overhang`, `low_obstacle`, `drop`, `cable`, `soft_floor`, `other`) and `survey` (bool, default false). They map onto the existing kind/zone/`speed_limit_pct` fields and write a tag on the first line of the note (no new schema field); the rest of the note is free text. Tag format, mapping table and parsers: [shared/README.md](../../shared/README.md) (`ros2_common.poi_categories`).
+
+- Validation (`check_category`, shared) runs on the resulting kind, zone and speed cap before any request; for `update_poi` on the stored POI's current values merged with the change. A broken rule is a tool error naming it: keepout/slow need an area with zone `keepout`/`slow` (and `speed_limit_pct` for slow, passed explicitly: no implicit zone), `problem` needs a `problem_type`, `problem_type` is refused for other categories.
+- `update_poi` with a category replaces the category tag and keeps the free text and an existing `#survey` tag. `survey=true` adds `#survey` (with or without a category).
+- `remember_object(survey=true)` writes `#target #survey` into the object's note.
+- `list_pois` views carry `category`, `problem_type` and `survey` parsed from the note (null / false when untagged).
+- Creating a keep-out is free; cancelling or deleting one needs the person's consent.
 
 ## Named maps
 
