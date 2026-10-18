@@ -709,6 +709,8 @@ ros2_node_type_defaults:
       - ros-jazzy-nav2-bt-navigator
       - ros-jazzy-nav2-waypoint-follower
       - ros-jazzy-opennav-docking
+      # Local costmap tof_voxel_layer (head ToF 3D obstacles and cliffs, nodes/nav2_bringup/README.md).
+      - ros-jazzy-spatio-temporal-voxel-layer
   slam_toolbox:
     deploy_mode: native
     # Online async mapping; repo nodes/slam_toolbox/config/slam_params.yaml are the defaults, the ros2_nodes

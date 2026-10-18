@@ -1684,7 +1684,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_rf2o_retry_laser_tf_patch_exists_and_is_wired` | `patches/0001-retry-laser-tf.patch` exists, skips scans until the laser TF lookup succeeds, and is listed in the rf2o node type's `colcon_source.patches`. |
 | `test_rf2o_odom_relay_declares_numpy` | `rf2o_odom_relay/pyproject.toml` lists `numpy` in `[project].dependencies` (numpy guard, parsed with `tomllib`). |
 | `test_launcher_sources_the_colcon_workspace_after_ros` | The launcher template sources the colcon `install/setup.bash` after `/opt/ros/jazzy/setup.bash`, and `resolve_and_deploy.yml` passes `colcon_source`. |
-| `test_nav2_keepout_filter_sits_right_before_inflation` | Global plugins are `static_layer, obstacle_layer, keepout_filter, inflation_layer`, local `obstacle_layer, keepout_filter, inflation_layer`; the keepout filter index is the inflation index minus 1 and it is not in `filters`. |
+| `test_nav2_keepout_filter_sits_right_before_inflation` | Global plugins are `static_layer, obstacle_layer, keepout_filter, inflation_layer`, local `obstacle_layer, tof_voxel_layer, keepout_filter, inflation_layer`; the keepout filter index is the inflation index minus 1 and it is not in `filters`. |
 | `test_nav2_keepout_filter_settings` | `keepout_filter` in both costmaps: `KeepoutFilter` plugin, enabled, info topic equal to the `costmap_zones` default, `transform_tolerance` 0.2, `override_lethal_cost` true, `lethal_override_cost` 252. |
 | `test_nav2_speed_filter_only_in_local_costmap` | Local `filters` is `[speed_filter]` (`SpeedFilter`, info topic equal to the `costmap_zones` default, `/speed_limit`, tolerance 0.2); global costmap has no speed filter. |
 | `test_nav2_keepout_docs_describe_lethal_override_correctly` | The nav2_params comments and the README zones section say 252 is written only while the robot is inside a zone (not that zone cells are blocked at 252) and that 1.3.10 gives live mask updates. |
@@ -2603,6 +2603,34 @@ Docs guard for the driving-agent skills suite.
 | `test_nodes_readme_mentions_the_new_features` | The `nodes/README.md` claude_agent line names skills, workflows and retrospectives; the costmap_zones line names slow-zone cost. |
 | `test_memory_records_the_decision` | MEMORY.md records the skills, workflows, retrospectives, POI category and slow-zone decisions. |
 | `test_tests_readme_lists_this_file` | This file is listed here. |
+
+### test_nav_tof_voxel_layer.py
+
+Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, STVL) in the Nav2 local costmap and of its lidar separation (U5). Reads `nav2_params.yaml`, `client.yml`, the tof_obstacle_cloud and laser_filter params and the READMEs.
+
+| Test | Covers |
+|---|---|
+| `test_local_costmap_has_the_tof_layer_after_the_lidar_layer` | Local plugins are exactly `obstacle_layer, tof_voxel_layer, keepout_filter, inflation_layer`. |
+| `test_tof_voxel_layer_settings` | Every layer value and type: STVL plugin, enabled, `voxel_decay` 15.0, `decay_model` 0, `voxel_size` 0.05, `track_unknown_space` false, `mark_threshold` 0, `update_footprint_enabled` false, `combination_method` 1, `publish_voxel_map` false, `transform_tolerance` 0.3, `mapping_mode` false, `observation_sources`. |
+| `test_stvl_footprint_clearing_is_disabled` | `update_footprint_enabled` is false and its comment names `setConvexPolygonCost` (convex fill erases obstacles in the H notches). |
+| `test_tof_sources_settings` | `tof_mark`, `tof_cliff_mark` and `tof_clear` values and types (PointCloud2 on `/tof/points_filtered`, height bands, range, buffer settings, frustum). |
+| `test_mark_and_clear_sources_are_split` | The two mark sources mark and never clear, `tof_clear` clears and never marks, frustum model 0. |
+| `test_obstacle_band_is_above_the_floor_and_below_the_robot` | 0 < `min_obstacle_height` < `max_obstacle_height` <= 0.6 m robot height. |
+| `test_cliff_band_is_strictly_below_the_floor_noise` | Cliff band ends strictly below -0.05 m. |
+| `test_bands_do_not_overlap` | The cliff band ends below the obstacle band start. |
+| `test_ranges_stay_inside_the_cloud_max_depth` | `max_z` and both `obstacle_range` <= tof_obstacle_cloud `max_depth`; `min_z` >= its `min_depth`. |
+| `test_clearing_fov_is_inside_the_tof_fov` | Clearing FOV angles are below the ToF horizontal/vertical FOV (70 deg diagonal, 240 x 180). |
+| `test_tof_fov_constants_match_the_design` | The FOV constants give 58.5 x 45.6 deg. |
+| `test_tof_topic_is_the_laser_filter_output` | `/tof/points_filtered` is laser_filter's `cloud_filtered_topic`. |
+| `test_lidar_obstacle_layer_keeps_the_scan_source` | Both costmaps keep the enabled ObstacleLayer with the single `/scan_filtered` LaserScan source (marking and clearing). |
+| `test_no_stvl_source_uses_the_lidar` | No STVL source reads `/scan_filtered`, a scan topic or a LaserScan. |
+| `test_global_costmap_has_no_tof_voxels` | Global plugins unchanged; no STVL plugin and no ToF topic there (user decision Q3). |
+| `test_only_one_stvl_layer_in_the_local_costmap` | `tof_voxel_layer` is the only STVL layer of the local costmap. |
+| `test_layer_values_are_commented_with_their_reason` | Key values carry a comment naming their reason (decay, notches, max, TF, floor, robot height, max_depth, 70 deg FOV, collision monitor). |
+| `test_nav2_bringup_installs_stvl` | nav2_bringup `apt_packages` lists `ros-jazzy-spatio-temporal-voxel-layer` with a comment. |
+| `test_readme_documents_the_tof_obstacle_layer` | The nav2_bringup README "ToF obstacle layer" section names the pipeline, layer settings, the U5 separation, local-only and the no-returns cliff limitation. |
+| `test_readme_tof_section_has_no_parking_wording` | The nav2_bringup README "ToF obstacle layer" section states what the values are and how to check them, with no wording that defers the values to a later change. |
+| `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 
 ### test_tof_obstacle_cloud_config.py
 
