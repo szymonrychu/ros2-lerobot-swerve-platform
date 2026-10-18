@@ -1,6 +1,6 @@
 ---
 title: Marker payload codec
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Every marker carries one canonical, versioned text that the generator, the robot and the POI store read the same way."
 files: [shared/ros2_common/marker_payload.py, tests/test_shared_marker_payload.py, shared/README.md]
@@ -67,3 +67,7 @@ process_gaps: []
 - Precedent for a shared pydantic model used by poi_store: `shared/ros2_common/photos.py:PhotoSelector`.
 - No regex-free hand parser games: a split on `/` then `:` (first colon) is enough; validation lives in the pydantic fields.
 - Do not add a POI `category`; the agent-skills epic adds it later (design D11).
+
+## Ruling
+
+Accepted by the orchestrator: verified (32 passed, lint clean); the gate-repeat was an AC judgement the triage itself declined.
