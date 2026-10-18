@@ -125,7 +125,7 @@ def test_prompt_hardware_facts_from_config(config: ClaudeAgentConfig) -> None:
     assert f"{config.arm_reach_cm:g} cm" in text
     assert "10 cm above the floor" in text
     assert "left to right" in text and "upright" in text
-    assert "front" in text and "overhead" in text and "realsense" not in text.lower() and "stereo" not in text.lower()
+    assert "front" in text and "head" in text and "overhead" not in text.lower() and "realsense" not in text.lower() and "stereo" not in text.lower()
     assert "overview first" in text and "arm-to-object distance" in text
     custom = build_system_prompt(ClaudeAgentConfig(arm_reach_cm=33, arm_base_height_m=0.2, camera_note="faces down"))
     assert "33 cm" in custom and "20 cm above the floor" in custom and "faces down" in custom
@@ -447,7 +447,7 @@ def test_prompt_explains_front_camera_zoom() -> None:
     assert "zoom={u, v, factor}" in para and "fractions" in para
     assert "2/4/8" in para and "1024" in para and "af_failed" in para
     assert "max_px" in para and "stream" in para
-    assert "overhead camera (640x480" not in lower
+    assert "overhead" not in lower and "front (head) camera" in lower
 
 
 def test_prompt_explains_the_centred_grasp_shift_and_residual_reports() -> None:
