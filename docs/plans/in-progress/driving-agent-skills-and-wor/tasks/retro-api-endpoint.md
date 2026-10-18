@@ -61,3 +61,7 @@ The retrospective store is readable over the claude_agent API.
 ## Notes
 
 - Precedent: `GET /api/retry_outcomes` in api.py.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

@@ -65,3 +65,7 @@ One importable grammar for POI categories that mcp_server, poi_store and claude_
 - poi_store `Poi` has `extra="ignore"`: a new field would be dropped, so categories live in the note (U2).
 - Zones: `zone` none|keepout|slow, area only, active only while status open (poi_store/models.py).
 - Keep pydantic for PoiTags (CLAUDE.md library rule).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

@@ -66,3 +66,7 @@ Every job leaves a retrospective; new sessions read the recent ones.
 
 - Followup chain lives in consume_response; job_end_applies gates normal ends.
 - The feed shares the place where the digest prefix is built in run_turn.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

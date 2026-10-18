@@ -55,3 +55,7 @@ A planning skill the prompt points to before every plan.
 ## Notes
 
 - Template names: discovery, drive_to_target, pick_place (workflow-templates).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

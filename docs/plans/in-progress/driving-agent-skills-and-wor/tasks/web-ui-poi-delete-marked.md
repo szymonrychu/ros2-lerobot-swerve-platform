@@ -63,3 +63,7 @@ Marked POIs are deleted in one confirmed action through the shared POI delete op
 - Cross-epic: needs named-maps tasks poi-store-clear-filters (ids), web-ui-poi-clear-route (ids) and web-ui-clear-pois-dialog (`clearPois`) landed first: epic README blockers order the epics.
 - The named-maps Clear POIs dialog gets `onChooseIndividually`: wire it here to focus the filter toolbar.
 - Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

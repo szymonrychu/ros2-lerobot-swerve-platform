@@ -62,3 +62,7 @@ Three self-contained skills that drive surveys and exploration to completion.
 
 - Skill prose is free within the asserted elements; keep each under about 8 KB.
 - Head/zoom/3D tools come from other epics; never name them outside the optional section (root test).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

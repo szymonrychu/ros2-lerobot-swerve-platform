@@ -67,3 +67,7 @@ New session leaves every POI and map as it was.
 ## Notes
 
 Deploying claude_agent kills a running agent session: the epic runbook batches the deploy. Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

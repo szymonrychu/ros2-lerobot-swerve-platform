@@ -62,3 +62,7 @@ A tested coverage computation the exploration-status tool calls.
 
 - Documentation of the settings lands with the tool (mcp-exploration-status-tool README AC).
 - Grid conventions: frontiers.py (row = y index, UNKNOWN -1, FREE 0, OCCUPIED 100).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

@@ -63,3 +63,7 @@ process_gaps: []
 ## Notes
 
 - Testsets are versioned: never edit v1 in place.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

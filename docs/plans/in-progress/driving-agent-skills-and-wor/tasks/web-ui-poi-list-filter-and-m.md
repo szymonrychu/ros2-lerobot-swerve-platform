@@ -62,3 +62,7 @@ The POI tab filters by category and holds a set of marked POIs.
 
 - PoiPanels.tsx is also edited by web-ui-poi-category-chips (chips), web-ui-clear-pois-dialog (named-maps epic: Clear POIs button) and web-ui-poi-delete-marked; depends_on orders them with the chips task, the others rebase and keep both.
 - Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

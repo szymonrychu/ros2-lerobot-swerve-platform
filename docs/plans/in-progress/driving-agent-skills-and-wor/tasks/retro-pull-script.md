@@ -59,3 +59,7 @@ process_gaps: []
 ## Notes
 
 - Pattern: scripts/eval (run.yaml + pydantic config, base_url through the web_ui proxy).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

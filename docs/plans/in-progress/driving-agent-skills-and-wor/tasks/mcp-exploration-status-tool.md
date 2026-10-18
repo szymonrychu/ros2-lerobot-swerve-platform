@@ -69,3 +69,7 @@ The agent can mark survey spots and ask whether exploration is complete, with co
 
 - Root `tests/test_claude_agent_config.py` fails if a registered tool is unclassified: classify in the same commit.
 - Battery guard: shared ros2_common.battery.BatteryGuard behind ctx.battery_gate.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

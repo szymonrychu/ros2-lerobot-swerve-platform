@@ -63,3 +63,7 @@ Category information is visible in the POI tab and on the map.
 ## Notes
 
 - The grammar owner is shared/ros2_common/poi_categories.py; this file mirrors it.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

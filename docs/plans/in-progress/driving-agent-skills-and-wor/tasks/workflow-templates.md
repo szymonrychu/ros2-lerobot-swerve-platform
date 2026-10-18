@@ -68,3 +68,7 @@ Three validated templates and an expander ready for start_workflow.
 
 - Directory is `workflow_templates/` (a `workflows/` dir next to workflows.py would shadow the module).
 - Plan tree grammar: plan_tools.PLAN_NODE_DESCRIPTION; limits 12 phases, 24 nodes, depth 4; caps summed once per phase.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

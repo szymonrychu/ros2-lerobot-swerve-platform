@@ -69,3 +69,7 @@ A plugin directory with one real skill and tests that keep every future skill we
 
 - SDK naming: plugin skills are `<plugin>:<skill>` (subprocess_cli.py `_validate_skill_name`).
 - Resolved unknown (design D1): checkout cloned as root (repo_sync.yml become), editable uv install, service User=claude_agent.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

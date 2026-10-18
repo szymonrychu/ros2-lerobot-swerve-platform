@@ -67,3 +67,7 @@ Sessions start with the skills plugin loaded and checked; Skill is the only new 
 
 - SDK 0.2.163 `_apply_skills_defaults` only defaults setting_sources when it is None; we pass [] (no user/project settings).
 - `session_tools` is consumed by start_workflow's capability line (start-workflow-tool).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

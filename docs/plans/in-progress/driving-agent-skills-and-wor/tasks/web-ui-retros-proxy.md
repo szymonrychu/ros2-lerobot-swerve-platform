@@ -67,3 +67,7 @@ The browser can fetch retrospectives through the web UI.
 ## Notes
 
 - AGENT_ROUTES tuple and retry_outcomes_params are the pattern.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

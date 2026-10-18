@@ -64,3 +64,7 @@ POI writes carry a validated category in the note; list_pois shows it.
 
 - No new tool is registered, so claude_agent classification is unchanged.
 - mcp_server depends on ros2-common already (ros2_common.lookups).
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

@@ -61,3 +61,7 @@ Workflow jobs end with their mandatory steps done or explicitly flagged.
 ## Notes
 
 - Existing chain: consume_response -> run_job_end_check -> take_poi_review (runner.py); keep POI REVIEW behaviour unchanged.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

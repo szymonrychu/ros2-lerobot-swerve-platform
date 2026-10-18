@@ -62,3 +62,7 @@ client.yml and its pins no longer mention agent_poi_reset.
 ## Notes
 
 Lands before new-session-keeps-pois so the config model never sees an unknown key. Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

@@ -60,3 +60,7 @@ The system prompt names the skills and workflows briefly; procedures stay in the
 ## Notes
 
 - Keep the prompt from growing: move exploration detail into the sightseeing skill rather than adding.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

@@ -65,3 +65,7 @@ process_gaps: []
 
 - The gate classifies by plan_tools.FULL_TOOL_NAMES: adding to TOOL_NAMES is enough for the plan kind.
 - Keep set_task_plan unchanged for free-form jobs.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

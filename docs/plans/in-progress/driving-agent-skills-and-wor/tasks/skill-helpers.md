@@ -57,3 +57,7 @@ Two helper skills the drive and pick workflows name in their phases.
 ## Notes
 
 - Arm safety (MEMORY): least dramatic motions first; the skills must not encourage wrist roll fully open or unchecked elbow poses.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

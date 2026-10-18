@@ -59,3 +59,7 @@ The filter and marking rules are fixed in one tested module the UI components co
 
 - The category set equals `CATEGORIES` in `poi/categories.ts` plus `UNCATEGORISED`; do not redefine the grammar.
 - Servo safety (CLAUDE.md): this task moves no servo.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

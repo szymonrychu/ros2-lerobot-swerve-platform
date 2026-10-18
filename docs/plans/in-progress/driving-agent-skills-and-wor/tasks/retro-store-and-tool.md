@@ -68,3 +68,7 @@ A bounded robot-side retrospective store, the agent tool to write it and the ski
 
 - Pattern: retry_ledger.py (bounded JSONL under state_dir, survives /api/reset).
 - Runner wiring (followup, auto records, feed) is retro-followup-and-feed.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

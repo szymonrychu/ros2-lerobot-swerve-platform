@@ -61,3 +61,7 @@ Every eval trial reports workflow adherence alongside the pick-and-place stages.
 ## Notes
 
 - Event shapes: tool_call/tool_result/turn_end in claude_agent events.py; retrospective_recorded from retro-followup-and-feed.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

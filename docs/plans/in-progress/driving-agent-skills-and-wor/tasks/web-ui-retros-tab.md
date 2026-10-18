@@ -64,3 +64,7 @@ A Retros tab shows the robot's retrospectives.
 ## Notes
 
 - Look at AgentChatTab and PhasePanel for the house style and fetch patterns.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).

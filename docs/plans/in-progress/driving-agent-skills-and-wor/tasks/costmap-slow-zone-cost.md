@@ -70,3 +70,7 @@ The keepout mask carries a non-lethal cost in slow zones; Nav2's planner prefers
 - Nav2 Jazzy KeepoutFilter semantics are recorded in design.md D5 (resolved unknown).
 - KeepoutFilter is a plugin below inflation in both costmaps (nav2_params.yaml); inflation inflates only lethal cells.
 - Do not touch the SpeedFilter or the speed mask.
+
+## Ruling
+
+Accepted by the orchestrator: verified on committed HEAD and merged into main (real merges of the original tips; integration fixes on main).
