@@ -178,6 +178,10 @@ Tests of `shared/ros2_common/camera_geometry.py` and `scripts/solve_camera_mount
 
 Pure scan-to-map agreement functions of `ros2_common.scan_agreement` on a synthetic square room (ported from map_guard): endpoint filtering, TF projection, dilation, scored scans (aligned, shifted, rotated, one/three cells off), empty or missing map, too few points, points outside the map or in unknown space, rotated map origin, known cell count.
 
+### `test_shared_poi_categories.py`
+
+POI category tags in the note (`ros2_common.poi_categories`): constants, round trip `parse_tags(apply_tags(note, category_tags(...)))` for every category and every problem type, `category_tags` validation, `parse_tags` edge cases (first line only, unknown words ignored), `apply_tags` replacing the category while keeping survey tags and free text, no duplicate tags on repeat, tag line prepending, the length error, `has_tag` / `strip_tags`, and `check_category` accepting each valid kind / zone combination and rejecting each invalid one with the rule named.
+
 ### `test_shared_maps.py`
 
 Named maps contract (`ros2_common.maps`): topic constants, `validate_map_name` accept/reject, `Pose2D` finiteness, `MapCommand` per-op field rules (name required for save/load/delete and empty for relocalise, `pose` load only, `note` save only, `since` / `discard_on_fail` relocalise only, unknown op / extra keys rejected), `MapResult`, `Localisation` (states, ratio 0..1), `MapSummary` and `MapStatus` (`load_seq >= 0`), and JSON round trips.
