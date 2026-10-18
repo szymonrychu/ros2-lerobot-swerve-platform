@@ -27,6 +27,9 @@ DEFAULT_EFFECTOR_TOOLS = [
     "go_to_frontier",
     "look_toward_frontier",
     "approach_for_grasp",
+    "set_head_angles",
+    "head_look_at",
+    "head_home",
 ]
 DEFAULT_UNCAPPED_TOOLS = ["stop", "take_control", "release_control", "cancel_motions"]
 # Motion tools the permission gate refuses outright: arm_set_home would let the agent redefine home to pass the job-end check.

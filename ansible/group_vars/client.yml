@@ -2528,6 +2528,9 @@ ros2_nodes:
         - go_to_frontier
         - look_toward_frontier
         - approach_for_grasp
+        - set_head_angles
+        - head_look_at
+        - head_home
       uncapped_tools:
         - stop
         - take_control
