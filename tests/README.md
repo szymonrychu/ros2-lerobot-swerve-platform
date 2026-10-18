@@ -173,6 +173,10 @@ Tests of `shared/ros2_common/camera_geometry.py` and `scripts/solve_camera_mount
 | `test_solver_needs_three_samples` | Fewer than 3 samples raises ValueError. |
 | `test_solve_camera_mount_script` | The CLI prints the solved mount as YAML plus rms. |
 
+### `test_shared_maps.py`
+
+Named maps contract (`ros2_common.maps`): topic constants, `validate_map_name` accept/reject, `Pose2D` finiteness, `MapCommand` per-op field rules (name required for save/load/delete and empty for relocalise, `pose` load only, `note` save only, `since` / `discard_on_fail` relocalise only, unknown op / extra keys rejected), `MapResult`, `Localisation` (states, ratio 0..1), `MapSummary` and `MapStatus` (`load_seq >= 0`), and JSON round trips.
+
 ### `test_shared_battery.py`
 
 Pure-logic tests of `shared/ros2_common/battery.py` (`BatteryConfig`, `BatteryGuard`), run by the root pytest.

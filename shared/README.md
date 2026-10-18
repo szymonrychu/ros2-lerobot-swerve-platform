@@ -38,6 +38,7 @@ same `../../shared` path resolves there; nothing extra is needed in Ansible. A n
 | `ros2_common.lookups` | Camera lookup contract of mcp_server (writer) and web_ui (reader): `LookupRecord` (one `index.jsonl` line), `LookupQuery` + `NearFilter` (filters ANDed; `since` / `until` take unix seconds or ISO-8601, naive = UTC, via `parse_time`), `parse_line`, `record_summary` (record + ISO `time`) and `IndexCache` (parses the index only when its inode / mtime / size changed; corrupt lines warn once per distinct line; `appended()` lets the writer skip a re-parse) |
 | `ros2_common.marker_payload` | Marker payload codec (see below): `MarkerPayload`, `encode_payload`, `decode_payload`, `PayloadError`, `MarkerInfo`, `marker_info` |
 | `ros2_common.photos` | Photo POI contract (see below): `PhotoView`, `camera_view`, `effective_view`, `photo_as_poi`, `PhotoAdd`, `PhotoSelector`, `write_atomic`; also owns `PlanarPose` / `CameraPose` (re-exported by `lookups`) |
+| `ros2_common.maps` | Named maps topic contract of map_manager (see below); no ROS imports |
 
 Used by: `nodes/mcp_server` (motion tools refused in cut-off; lookup store) and `nodes/web_ui` (lookup routes; commands rejected in cut-off; uv path source `ros2-common = { path = "../../shared", editable = true }`).
 
@@ -72,6 +73,27 @@ The marker key is `<poi_kind>/<N>`. `marker_info(payload, pose_samples=1)` build
 Size: `S` is the symbol edge from the outer edge of one finder pattern to the outer edge of the opposite side, excluding the quiet zone; module edge = S / (17 + 4 * version).
 
 Marker frame: origin at the symbol centre, +x along the top edge (the edge with the two upper finders, left to right as read), +y along the left edge towards the top, +z out of the printed face towards a viewer.
+
+## Named maps contract (`ros2_common.maps`)
+
+Shared by `map_manager`, `web_ui` and `mcp_server`; pure pydantic v2 models, no ROS imports.
+
+| Topic | Constant | Payload |
+|---|---|---|
+| `/map_manager/command` | `COMMAND_TOPIC` | `MapCommand` JSON |
+| `/map_manager/result` | `RESULT_TOPIC` | `MapResult` JSON |
+| `/map_manager/status` | `STATUS_TOPIC` | `MapStatus` JSON (latched) |
+| `/map_manager/localised` | `LOCALISED_TOPIC` | Bool, published after a load verdict |
+
+- `validate_map_name(name)`: `MAP_NAME_PATTERN` `^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$`, else `ValueError` naming the rule.
+- `Pose2D`: `x`, `y`, `yaw`, all finite.
+- `MapCommand` (`extra="forbid"`): `op` `save`/`load`/`delete`/`relocalise`, `request_id`, `name` (required and validated for save/load/delete, empty for relocalise), `overwrite`, `pose` (load only), `note` (<= 500 chars, save only), `since` and `discard_on_fail` (relocalise only).
+- `MapResult`: `request_id`, `ok`, `message`, `data`.
+- `Localisation`: `state` (`unknown`/`loading`/`localised`/`not_localised`/`ambiguous`), `ratio` (0..1 or None), `pose`, `message`, `updated_at`.
+- `MapSummary`: `name`, `saved_at`, `note`, `poi_count`, `last_pose`, `valid`, `error` (non-empty only for an invalid bundle).
+- `MapStatus`: `maps`, `active_map`, `load_seq` (>= 0), `localisation`.
+- Busy rule: one operation runs at a time; a second command is answered `ok: false` with `busy: <op> <name>`.
+- Every model round-trips through `model_dump(mode="json")` / `model_validate`.
 
 ## Photo contract (`ros2_common.photos`)
 
