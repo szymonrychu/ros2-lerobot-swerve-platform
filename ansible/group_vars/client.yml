@@ -626,6 +626,21 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/robot_localization_ekf
     env:
       - ROBOT_LOCALIZATION_EKF_CONFIG=/etc/ros2/robot_localization_ekf/config.yaml
+  head_state_publisher:
+    deploy_mode: native
+    # robot_state_publisher on nodes/web_ui/urdf/head.urdf (launch file resolves it relative to itself).
+    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/head_state_publisher/launch/head_state_publisher.launch.py"
+    node_src_dir: ""
+    # Repo paths whose change restarts the node: its launch file and the head URDF it loads.
+    src_paths: [nodes/head_state_publisher, nodes/web_ui/urdf/head.urdf]
+    apt_packages:
+      - ros-jazzy-robot-state-publisher
+    # Not measured yet. Normal robot tier: head TF is part of the camera pose.
+    memory_low: "32M"
+    memory_max: "128M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
   nav2_bringup:
     deploy_mode: native
     # SLAM runs as its own node (slam_toolbox, online async), so Nav2 starts without localization/map_server.
@@ -1310,6 +1325,10 @@ ros2_nodes:
               max_speed_rad_s: 1.0
               max_acceleration_rad_s2: 3.0
               startup_position_rad: 0.5236
+  - name: head_state_publisher
+    node_type: head_state_publisher
+    present: true
+    enabled: true
   - name: swerve_controller
     node_type: swerve_controller
     present: true

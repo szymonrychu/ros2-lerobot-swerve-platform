@@ -427,6 +427,19 @@ Unit tests for `scripts/topic_scraper_collect.py` parser/format helpers.
 | `test_parse_json_maps_null_and_legacy_non_finite_constants_to_none` | `parse_json` keeps null as None and turns legacy NaN/Infinity into None. |
 | `test_record_with_null_value_is_strict_json` | `format_record` output with null values is strict JSON (no NaN/Infinity). |
 
+### `test_head_state_publisher_config.py`
+
+The `head_state_publisher` node (robot_state_publisher on `nodes/web_ui/urdf/head.urdf`) in the client Ansible vars and playbook. The launch file is parsed with `ast`, no ROS import.
+
+| Test | What it covers |
+|---|---|
+| `test_node_type_fields_and_tier` | Native launch command, empty `node_src_dir`, `src_paths`, apt package and the mid tier (32M/128M, weights 500, OOM -500). |
+| `test_entry_present_enabled_after_base_servos` | The `ros2_nodes` entry is present, enabled and listed after `base_servos`. |
+| `test_launch_file_runs_robot_state_publisher_with_remaps` | The launch file starts robot_state_publisher as `head_state_publisher` and remaps `joint_states` and `robot_description` to `/head/*`. |
+| `test_launch_file_reads_head_urdf_relative_to_itself` | The URDF path comes from `__file__` and names `web_ui/urdf/head.urdf`. |
+| `test_playbook_step_exists_with_tags` | `Deploy head_state_publisher` exists with its node tag and `apt`. |
+| `test_readme_documents_frames_and_check` | The node README names `/tf_static` and the `tf2_echo` check. |
+
 ### `test_head_servo_config.py`
 
 The pan/tilt head servo group in `ansible/group_vars/client.yml`: an `extra_groups` entry `head` on `base_servos` (base bus, never the arm bridge). Step ranges must equal the limits of `nodes/web_ui/urdf/head.urdf` (4096 steps per turn around 2048, +-1 step).

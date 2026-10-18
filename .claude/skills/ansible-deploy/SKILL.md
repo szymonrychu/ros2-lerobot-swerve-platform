@@ -109,6 +109,7 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `jetson_bridge_cpp` | Retired: `present: false` with colcon purge, so deploying it removes the unit and the built workspace package. `./scripts/deploy-nodes.sh client jetson_link` removes the client's link state (hosts line, sysctl, nftables) |
 | `lerobot_follower` | SO-101 follower arm (feetech, its own USB bus) |
 | `base_servos` | Swerve servos 32-39 (feetech, base bus on the second adapter); deploy together with `lerobot_follower` and `swerve_controller` when bus config changes |
+| `head_state_publisher` | robot_state_publisher on the pan/tilt head URDF (head TF from `/head/joint_states`) |
 | `swerve_controller` | Swerve drive kinematics |
 | `static_tf_publisher` | TF frame publisher |
 | `rf2o_laser_odometry` | rf2o lidar odometry (source-built colcon workspace `/opt/ros2-ws`, pinned commit; first deploy compiles at lowest priority) |
