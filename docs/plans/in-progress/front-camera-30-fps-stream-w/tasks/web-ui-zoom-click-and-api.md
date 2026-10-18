@@ -1,6 +1,6 @@
 ---
 title: Web UI zoom click and API
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: A click on a camera picture becomes an exact zoom point and request from the browser.
 files: [nodes/web_ui/frontend/src/camera/zoomApi.ts, nodes/web_ui/frontend/src/camera/zoomApi.test.ts, nodes/web_ui/frontend/src/components/CameraStream.tsx, nodes/web_ui/frontend/src/components/CameraStream.test.tsx, nodes/web_ui/frontend/src/types.ts]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--web-ui-zoom-click-and-api
 branch: front-camera-30-fps-stream-w--web-ui-zoom-click-and-api
 verified_head: ""
-run: ""
+run: front-camera-30-fps-stream-w
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI zoom click and API

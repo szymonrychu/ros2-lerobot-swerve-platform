@@ -1,6 +1,6 @@
 ---
 title: Head camera docs
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Anyone can read how the head camera node works, deploys and is verified."
 files: [nodes/head_camera_cpp/README.md, nodes/README.md, ansible/README.md, .claude/skills/ansible-deploy/SKILL.md, MEMORY.md, tests/test_head_camera_deploy.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--head-camera-docs
 branch: front-camera-30-fps-stream-w--head-camera-docs
 verified_head: ""
-run: ""
+run: front-camera-30-fps-stream-w
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head camera docs

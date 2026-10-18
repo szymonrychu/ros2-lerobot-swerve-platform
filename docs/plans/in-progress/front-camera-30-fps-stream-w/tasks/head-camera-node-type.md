@@ -1,6 +1,6 @@
 ---
 title: Head camera node type
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Ansible can build and run head_camera_cpp against the existing libcamera build, with metrics scraped."
 files: [ansible/group_vars/client.yml, nodes/head_camera_cpp/patches/libcamera-0001-add-package-xml.patch, tests/test_head_camera_deploy.py, tests/test_cpp_node_deploy.py, tests/test_node_metrics_wiring.py, tests/test_jetson_retired.py, tests/test_pi_cameras_retired.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--head-camera-node-type
 branch: front-camera-30-fps-stream-w--head-camera-node-type
 verified_head: ""
-run: ""
+run: front-camera-30-fps-stream-w
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head camera node type

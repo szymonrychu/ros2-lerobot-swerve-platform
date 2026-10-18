@@ -1,6 +1,6 @@
 ---
 title: Web UI head camera topics
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The web UI Arm and Head tabs show the head camera under head names; the stale Front tab is gone."
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_map3d_backend.py, tests/test_mcp_server_config.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--web-ui-head-camera-topics
 branch: front-camera-30-fps-stream-w--web-ui-head-camera-topics
 verified_head: ""
-run: ""
+run: front-camera-30-fps-stream-w
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI head camera topics

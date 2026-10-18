@@ -1,6 +1,6 @@
 ---
 title: Head camera node config
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The head camera node has a validated config and a package skeleton every later C++ task builds on."
 files: [nodes/head_camera_cpp/package.xml, nodes/head_camera_cpp/CMakeLists.txt, nodes/head_camera_cpp/include/head_camera_cpp/config.hpp, nodes/head_camera_cpp/src/core/config.cpp, nodes/head_camera_cpp/test/core/test_config.cpp, nodes/head_camera_cpp/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--head-camera-node-config
 branch: front-camera-30-fps-stream-w--head-camera-node-config
-verified_head: ""
-run: ""
+verified_head: 4fa81278b886dc9cac4e9b1bd72371209964b204
+run: front-camera-30-fps-stream-w
 provides: []
+acs_for_audit: [a5]
+process_gaps: []
 ---
 
 # Head camera node config

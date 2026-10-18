@@ -1,6 +1,6 @@
 ---
 title: MCP head camera topic
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The agent's camera tool reads the head camera stream, described as the head camera."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_config.py, nodes/mcp_server/tests/test_on_demand_subscriptions.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml, tests/test_mcp_server_config.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--mcp-head-camera-topic
 branch: front-camera-30-fps-stream-w--mcp-head-camera-topic
-verified_head: ""
-run: ""
+verified_head: bc116c8fb4d9d5d7df1a49e7a7e9035d4afe1cdb
+run: front-camera-30-fps-stream-w
 provides: []
+acs_for_audit: []
+process_gaps: [The fix round renamed test functions in test_camera_config.py and test_camera_scene.py without listing them in tests.added or a finding. The renames are behaviour-neutral and the a3 grep passes. The independent-verification flag is a bookkeeping gap.]
 ---
 
 # MCP head camera topic
