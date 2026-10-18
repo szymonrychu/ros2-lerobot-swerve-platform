@@ -116,9 +116,19 @@ class ValidationConfig(StrictModel):
     frames_per_distance: int = Field(default=50, ge=1)
 
 
-class CalibrationConfig(StrictModel):
-    """Whole calibration tool config."""
+class HeadCameraConfig(StrictModel):
+    """Where the report reads the head camera lens position from (the ros2_nodes entry of an Ansible vars file)."""
 
+    config_file: str = "ansible/group_vars/client.yml"
+    node: str = "head_camera_cpp"
+    default_lens_position: float = Field(default=1.0, ge=0)
+
+
+class CalibrationConfig(StrictModel):
+    """Whole calibration tool config. session names the bag to use (default: the newest under capture.local_dir)."""
+
+    session: str | None = None
+    head_camera: HeadCameraConfig = Field(default_factory=HeadCameraConfig)
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
     board: BoardConfig = Field(default_factory=BoardConfig)
     selection: SelectionConfig = Field(default_factory=SelectionConfig)

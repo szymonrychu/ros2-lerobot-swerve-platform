@@ -1,4 +1,11 @@
 # Head RGB-D calibration tool config (scripts/head_rgbd_calibration). Loaded by load_calibration_config.
+# Bag directory name under capture.local_dir used by every mode; empty = the newest calibration bag.
+session: null
+# The head camera config the report reads lens_position from (it is the focus the RGB intrinsics are valid at).
+head_camera:
+  config_file: ansible/group_vars/client.yml
+  node: head_camera_cpp
+  default_lens_position: 1.0 # head_camera_cpp default when the node config sets none
 capture:
   host: client.ros2.lan
   ssh_user: szymonri # ansible_user of ansible/inventory
