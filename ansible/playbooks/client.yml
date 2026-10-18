@@ -13,3 +13,4 @@
       when: hostname is defined and hostname | length > 0
     - ros2_base
     - system_optimize
+    - chrony

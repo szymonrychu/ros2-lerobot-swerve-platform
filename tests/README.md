@@ -2266,6 +2266,19 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_write_atomic_writes_world_readable_file` / `test_write_atomic_fsyncs_before_replace` / `test_write_atomic_cleans_temp_on_failure` / `test_module_exposes_write_atomic` | Atomic write, mode 0644, fsync order, temp cleanup. |
 | `test_legacy_index_line_parses_with_photo_defaults` / `test_photo_fields_round_trip` / `test_photo_fields_reject_bad_values` | `LookupRecord` photo fields: legacy line parses, round trip, bad values rejected. |
 
+## test_chrony_role.py
+
+The client `chrony` role: template rendered with jinja2 and the task file read as data; nothing runs ansible.
+
+| Test | Covers |
+|---|---|
+| `test_pools_rendered_one_line_each` | One `pool <pool> iburst` line per default pool. |
+| `test_fixed_directives_present` | driftfile, ntsdumpdir, logdir, rtcsync and `makestep 1.0 3`. |
+| `test_no_jetson_serving_directives` | No allow, local stratum, server line or 10.77 address. |
+| `test_timesyncd_tasks_guarded_on_unit_presence` | Service facts gathered; timesyncd stop only when the unit exists. |
+| `test_restart_gated_on_template_result` | Restart runs only when the registered template task changed. |
+| `test_client_playbook_lists_role` | `playbooks/client.yml` lists `chrony`. |
+
 ## test_jetson_link_role.py
 
 The `jetson_link` role (design D8): both chrony templates and the nft template rendered with jinja2, the task file read as data; nothing runs ansible.

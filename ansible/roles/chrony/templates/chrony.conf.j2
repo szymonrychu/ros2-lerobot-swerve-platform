@@ -1,0 +1,11 @@
+# Managed by Ansible (role chrony). Plain internet pools.
+{% for pool in chrony_ntp_pools %}
+pool {{ pool }} iburst
+{% endfor %}
+
+driftfile /var/lib/chrony/chrony.drift
+ntsdumpdir /var/lib/chrony
+logdir /var/log/chrony
+rtcsync
+# Step the clock in the first three updates when it is off by more than a second.
+makestep 1.0 3

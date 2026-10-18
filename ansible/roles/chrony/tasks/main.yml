@@ -1,0 +1,43 @@
+---
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Stop and disable systemd-timesyncd (chrony is the only time daemon)
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    state: stopped
+    enabled: false
+  become: true
+  when: "'systemd-timesyncd.service' in ansible_facts.services"
+
+- name: Install chrony
+  ansible.builtin.apt:
+    name: chrony
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Deploy chrony.conf
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: chrony_conf
+
+- name: Enable chrony
+  ansible.builtin.systemd:
+    name: chrony
+    enabled: true
+    state: started
+  become: true
+
+- name: Restart chrony after a config change
+  ansible.builtin.systemd:
+    name: chrony
+    state: restarted
+  become: true
+  when: chrony_conf is changed

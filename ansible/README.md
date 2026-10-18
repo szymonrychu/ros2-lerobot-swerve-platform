@@ -279,6 +279,10 @@ The Pi is the Jetson's time server and its way to the internet, so the Jetson's 
 - **Names:** `/etc/hosts` gets `10.77.0.2 jetson.ros2.lan` on the Pi and `10.77.0.1 client.ros2.lan` on the Jetson.
 - **Idempotent:** every change task registers; chrony is restarted and the ruleset reloaded only when its file changed.
 
+## Client time sync (role `chrony`)
+
+`playbooks/client.yml` applies the `chrony` role: it stops and disables `systemd-timesyncd` when that unit exists, installs chrony, renders `/etc/chrony/chrony.conf` with one `pool <pool> iburst` line per `chrony_ntp_pools` entry (default `2.pool.ntp.org`, `ntp.ubuntu.com`) plus `makestep 1.0 3`, and restarts chrony only when the file changed. The client syncs to internet pools only and serves no one. Check with `chronyc sources`.
+
 ## Network and hostname (provision)
 
 The **network** role sets a static IP on the primary interface (ethernet or WiFi, auto-detected), sets all other interfaces to DHCP, and disables IPv6 in netplan.

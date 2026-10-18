@@ -1,0 +1,5 @@
+---
+# Internet NTP pools the client syncs to.
+chrony_ntp_pools:
+  - "2.pool.ntp.org"
+  - "ntp.ubuntu.com"
