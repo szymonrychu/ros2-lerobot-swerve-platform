@@ -373,6 +373,20 @@ Unit tests for `scripts/eval/report.py` (TrialRecord and the evaluation report).
 | `test_report_counts_harness_timeouts_apart_from_interrupts` | `timed_out` trials are counted in `timeouts` (and the text report) separately from operator or agent interrupts. |
 | `test_trial_record_from_derivation` | A TrialRecord built from `stages.derive` carries instruction id, turn_end fields, claims, phases and lookup ids. |
 
+### `test_eval_workflow_checks.py`
+
+Unit tests for `scripts/eval/workflow_checks.py` (workflow adherence of a trial) and the workflow section of the report.
+
+| Test | Description |
+|------|-------------|
+| `test_derives_workflow_skipped_retrospective_survey_writes_and_skills` | Workflow name (dry runs ignored), skipped mandatory ids from the turn_end job_end, retrospective author, survey POI writes (flagged writes plus mark_survey_spot) and loaded skills. |
+| `test_free_job_has_no_workflow_and_runner_retrospective_is_kept` | A free job gives no workflow and no skipped list; a runner retrospective is reported as such. |
+| `test_runner_sourced_calls_are_ignored` | Tool calls with a `source` do not count. |
+| `test_pick_and_place_trace_derives_empty` | A pick-and-place trace has no workflow, skills or survey writes. |
+| `test_old_trial_lines_without_the_field_load` | A trials.jsonl line without `workflow` loads with None. |
+| `test_report_aggregates_workflow_section` | Trials per workflow, share without skipped mandatory steps, share with an agent retrospective, mean survey POI writes, text section. |
+| `test_report_workflow_section_empty_without_derivations` | No derivations give zero trials and None rates. |
+
 ### `test_eval_run.py`
 
 Unit tests for the evaluation driver (`scripts/eval/client.py`, `labels.py`, `run.py`). A fake claude_agent (state, reset, message, history, stop) runs behind `httpx.MockTransport`, the operator is an injected input function and time is a fake clock advanced by sleep, so no network, robot or terminal is involved. Agent events reuse the `test_eval_stages.py` trace.

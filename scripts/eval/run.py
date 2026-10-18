@@ -25,6 +25,7 @@ from scripts.eval.client import AgentClient, AgentError
 from scripts.eval.labels import ask, ask_key
 from scripts.eval.report import TrialRecord, trial_record_from_derivation
 from scripts.eval.stages import derive
+from scripts.eval.workflow_checks import derive_workflow
 from scripts.eval.testset import MODE_ARM_ONLY, Case, Mode, TestSet, load_testset
 
 STOP_GRACE_S = 60.0
@@ -344,6 +345,13 @@ def run_trial(
     derivation = derive(events)
     print_fn("agent-claimed stages: " + ", ".join(f"{s}={v}" for s, v in derivation.claimed.items()))
     print_fn("lookup ids: " + (", ".join(derivation.lookup_ids) or "none"))
+    workflow = derive_workflow(events)
+    print_fn(
+        f"workflow: {workflow.workflow or 'none'}; skipped mandatory: "
+        f"{'n/a' if workflow.skipped_mandatory is None else ', '.join(workflow.skipped_mandatory) or 'none'}; "
+        f"retrospective: {workflow.retrospective or 'none'}; survey POI writes: {workflow.survey_poi_writes}; "
+        f"skills: {', '.join(workflow.skills_loaded) or 'none'}"
+    )
     labelled = ask(derivation.claimed, config.mode, input_fn)
     return trial_record_from_derivation(
         derivation,
@@ -359,6 +367,7 @@ def run_trial(
         first_failed_stage=labelled.first_failed_stage,
         note=labelled.note,
         timed_out=timed_out,
+        workflow=workflow,
     )
 
 
