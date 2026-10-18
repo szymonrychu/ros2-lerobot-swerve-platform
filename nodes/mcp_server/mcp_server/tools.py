@@ -63,6 +63,7 @@ from .models import (
 )
 from .monitor import DIGEST_DEFAULT_SESSION, RobotMonitor
 from .motion_queue import MotionQueue
+from .perception import summarize_tof
 from .poi_client import PoiStoreDown, PoiTimeout
 from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import PoiWriteCounter, RobotApi, ToolContext
@@ -881,10 +882,18 @@ def register_core_tools(ctx: ToolContext) -> None:
     ) -> CallToolResult:
         """Describe the surroundings: the nearest lidar obstacle (/scan_filtered) in each of 8 sectors around the
         robot (front, front_left, left, rear_left, rear, rear_right, right, front_right; distances from base_link in
-        metres), SLAM map size and how many cells are known/occupied/free, and the robot pose. Optionally a PNG of
-        the occupancy map around the robot (white free, black occupied, grey unknown, red arrow = robot, map +y up)."""
+        metres), SLAM map size and how many cells are known/occupied/free, and the robot pose. `obstacles_3d` adds
+        what the head ToF depth camera sees per sector: the nearest obstacle between 0.06 and 0.6 m above the floor
+        (with its height range) and the nearest cliff (floor more than 0.10 m lower), within 2 m; it covers only
+        what the head currently looks at (null when there is no fresh cloud). Optionally a PNG of the occupancy map
+        around the robot (white free, black occupied, grey unknown, red arrow = robot, map +y up)."""
         with tool_errors():
             summary, png = robot.map_summary(include_png, radius_m, config.limits.map_png_max_px)
+            cloud = robot.tof_points()
+        if cloud is None:
+            summary.notes.append("ToF obstacles_3d unavailable: no fresh /tof/points_filtered cloud or no TF")
+        else:
+            summary.obstacles_3d = summarize_tof(cloud)
         content: list[TextContent | ImageContent] = [TextContent(type="text", text=summary.model_dump_json())]
         if png is not None:
             content.append(image_content(png, "image/png"))

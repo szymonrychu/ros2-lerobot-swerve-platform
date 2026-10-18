@@ -139,6 +139,7 @@ class TopicSettings(StrictModel):
     gripper_camera: str = "/camera_0/image_raw/compressed"
     head_camera: str = "/head_camera/image_raw/compressed"  # head RGB camera (Camera Module 3), tool camera `front`
     local_costmap: str = "/local_costmap/costmap"  # subscribed lazily by get_topdown_view, latest message only
+    tof_points: str = "/tof/points_filtered"  # subscribed lazily by get_map_summary, latest message only
     plan: str = "/plan"  # Nav2 global plan (nav_msgs/Path)
     poi_list: str = "/poi/list"  # poi_store, latched JSON {pois, revision}
     poi_command: str = "/poi/command"
@@ -315,6 +316,7 @@ class TimeoutSettings(StrictModel):
     zoom_image_grace_s: float = Field(default=1.0, gt=0.0)  # wait for the zoom image after an ok result
     state_stale_s: float = Field(default=1.0, gt=0.0)
     map_stale_s: float = Field(default=30.0, gt=0.0)
+    tof_points_stale_s: float = Field(default=1.0, gt=0.0)  # ToF cloud older than this is not reported
     tf_timeout_s: float = Field(default=0.5, gt=0.0)
     nav_default_timeout_s: float = Field(default=120.0, gt=0.0)
     nav_max_timeout_s: float = Field(default=600.0, gt=0.0)

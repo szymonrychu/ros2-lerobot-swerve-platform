@@ -18,7 +18,7 @@ from mcp_server.arm import JointSample
 from mcp_server.base_dock import DockGoal, DockResult
 from mcp_server.frontiers import MapGrid
 from mcp_server.map_client import MapRequests
-from mcp_server.models import BasePose, CameraZoomFrame, PathPlan, RobotError
+from mcp_server.models import BasePose, CameraZoomFrame, PathPlan, RobotError, TofPoints
 from mcp_server.poi_client import PoiStoreDown
 from mcp_server.staleness import Stamped
 from mcp_server.topdown import TopdownInputs
@@ -253,6 +253,7 @@ class PerceptionFakeMixin:
     def init_perception(self) -> None:
         self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=0.5, age_s=0.05)
         self.stops = 0
+        self.tof_cloud: TofPoints | None = None
         self.poi_store_up = True
         self.pois: list[dict] = []
         self.poi_commands: list[tuple[str, dict]] = []
@@ -427,6 +428,9 @@ class PerceptionFakeMixin:
 
     def topdown_inputs(self) -> TopdownInputs:
         return self.topdown
+
+    def tof_points(self) -> TofPoints | None:
+        return self.tof_cloud
 
     def camera_zoom(self, camera: str, u: float, v: float, zoom: int, max_px: int) -> CameraZoomFrame:
         self.zoom_calls.append((camera, u, v, zoom, max_px))
