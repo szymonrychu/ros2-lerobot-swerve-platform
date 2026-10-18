@@ -27,7 +27,7 @@ provides: []
 - `bridge.py`: the hard-coded `NODE_NAME = "lerobot_follower"` and `Node("feetech_servos_bridge")` become module constants `DEFAULT_METRICS_NODE_NAME = "lerobot_follower"` and `DEFAULT_ROS_NODE_NAME = "feetech_servos_bridge"`; `run_bridge` creates `Node(config.node_name or DEFAULT_ROS_NODE_NAME)` and calls `start_metrics_server(port, config.node_name or DEFAULT_METRICS_NODE_NAME)`. With `node_name` unset both names are exactly today's (the server's `lerobot_leader` is untouched).
 - `serve_bridge`: when `config.battery_interval_s == 0` no `BatteryState` publisher is created and nothing is ever published on `battery_topic`; with an interval > 0 behaviour is unchanged.
 - Tests first, seen failing before the code exists: new `tests/test_instance_identity.py`, reusing the stub pattern of `tests/test_shutdown.py` (`install_ros_stubs`, `Node`, `SingleThreadedExecutor` and `start_metrics_server` mocked): `node_name` parsed from YAML, default None, invalid names (`"9bus"`, `"a/b"`, `"a-b"`) make `load_config` return None; `run_bridge` passes `node_name` to `Node` and to `start_metrics_server`; unset keeps `feetech_servos_bridge` / `lerobot_follower`; no `create_publisher` call for `BatteryState` at `battery_interval_s: 0`, one at `1.0`.
-- `README.md`: a `node_name` row in the config reference, the battery row says interval 0 creates no publisher, and a new section `## Several bridges on one host` (distinct `node_name` and `metrics_port`, battery read by one instance only, one serial adapter per instance, `extra_groups` share one adapter); the `extra_groups` bullet no longer says the swerve servos share the follower arm bus (they run in their own instance `swerve_drive_servos`; the pan/tilt head joins that instance as a group).
+- `README.md`: a `node_name` row in the config reference, the battery row says interval 0 creates no publisher, and a new section `## Several bridges on one host` (distinct `node_name` and `metrics_port`, battery read by one instance only, one serial adapter per instance, `extra_groups` share one adapter); the `extra_groups` bullet no longer says the swerve servos share the follower arm bus (they run in their own instance `base_servos`; the pan/tilt head joins that instance as a group).
 
 ## Acceptance conditions
 
@@ -47,16 +47,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `feetech_servos.config.BridgeConfig.node_name: str | None` (owned contract `BridgeConfig.node_name`, consumed by split-bus-group-vars through the client.yml `node_name` key).
+- `feetech_servos.config.NODE_NAME_PATTERN`; `feetech_servos.bridge.DEFAULT_ROS_NODE_NAME`, `DEFAULT_METRICS_NODE_NAME`.
+- Unchanged: `run_bridge(config: BridgeConfig) -> None`, `serve_bridge(config: BridgeConfig, node: Node) -> None`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A feetech bridge configured with `node_name: base_servos` and `battery_interval_s: 0` runs as ROS node `base_servos`, exports `robot_node_info{node="base_servos"}` and advertises no `/battery_state`; an unconfigured bridge behaves exactly as before.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_instance_identity.py`; run `cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_instance_identity.py -q`; expect failures on the missing `node_name` attribute and the unconditional battery publisher.
+- Implement the config field and the bridge changes; rerun the file until green.
+- Update README; run the verify command; commit `feat(feetech_servos): node_name config and no battery publisher when disabled`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design D3. The server's `lerobot_leader` config sets no `node_name` and no `metrics_port`: its behaviour must not change.
+- Keep constants at the top, type hints and typed docstrings (CLAUDE.md). Do not wrap imports in try/except.
+- `tests/test_shutdown.py::bridge_module` is the harness to reuse (import it or copy the three monkeypatches; no new fake framework).

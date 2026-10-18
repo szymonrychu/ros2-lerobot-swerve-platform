@@ -7,7 +7,7 @@ files: [ansible/roles/ros2_node_deploy/tasks/main.yml, ansible/group_vars/client
 verify: "uv run pytest tests/test_serial_devices.py tests/test_unit_cgroups.py tests/test_servo_bus_split_config.py -q && uv run poe lint && uv run poe lint-ansible && uv run poe test-ansible"
 depends_on: [split-bus-group-vars]
 owns: []
-uses: [swerve_drive_servos entry]
+uses: [base_servos entry]
 model: sonnet
 estimate: 60
 actual: ""
@@ -46,16 +46,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- New tasks in `ansible/roles/ros2_node_deploy/tasks/main.yml` reusing the `_feetech_cfg` parse of the schema assert.
+- Uses contract `base_servos entry` (its `device`).
+- `RPLIDAR_SERIAL_PORT` env, read by `nodes/bridges/rplidar_a1/launch/rplidar_a1.launch.py` (`SERIAL_PORT_ENV`), no launch change.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Deploying with an unplugged or renamed adapter stops with the by-id listing before any restart; the lidar opens its own adapter by id.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Confirm design.md A2 holds the lidar's real by-id path; if not, stop as blocked (orchestrator fills it from runbook stage 0).
+- Write `tests/test_serial_devices.py`; run `uv run pytest tests/test_serial_devices.py -q`; expect failures (no preflight task, lidar on the default ttyUSB0).
+- Add the tasks, the env line and the README section; run the verify command; commit `feat(ansible): serial device preflight and by-id lidar port`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design D2. Restarts are queued to the end of the play (`playbooks/tasks/start_ros_nodes.yml`), so failing here leaves every running unit as it was.
+- The server's `lerobot_leader` device is already by-id; the preflight applies there too and must pass unchanged.
+- Do not add a udev rule (D2 rejected it).
