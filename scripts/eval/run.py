@@ -470,8 +470,8 @@ def run_workflow_trial(
     workflow = derive_workflow(events)
     match = workflow.workflow == case.expected_workflow
     print_fn(
-        f"workflow: {workflow.workflow or 'none'}, expected {case.expected_workflow}: {'match' if match else 'MISMATCH'}; "
-        f"skipped mandatory: "
+        f"workflow: {workflow.workflow or 'none'}, expected {case.expected_workflow}: "
+        f"{'match' if match else 'MISMATCH'}; skipped mandatory: "
         f"{'n/a' if workflow.skipped_mandatory is None else ', '.join(workflow.skipped_mandatory) or 'none'}; "
         f"retrospective: {workflow.retrospective or 'none'}; skills: {', '.join(workflow.skills_loaded) or 'none'}"
     )
