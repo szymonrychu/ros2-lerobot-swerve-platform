@@ -8,9 +8,12 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 TESTSET_V1 = Path(__file__).resolve().parent / "testset_v1.yaml"
+TESTSET_WORKFLOWS_V1 = Path(__file__).resolve().parent / "testset_workflows_v1.yaml"
+KIND_WORKFLOWS = "workflows"
+KIND_PICK_AND_PLACE = "pick_and_place"
 OBJECT_COUNT = 10
 PLACEMENT_COUNT = 3
 TOTAL_CASES = OBJECT_COUNT * PLACEMENT_COUNT
@@ -149,6 +152,49 @@ class TestSet(BaseModel):
         return text + self.arm_only_suffix if mode == MODE_ARM_ONLY else text
 
 
+class WorkflowCase(BaseModel):
+    """One free-text job of a workflow test set."""
+
+    model_config = {"extra": "forbid", "frozen": True}
+
+    id: str
+    setup: str = Field(min_length=1, description="What the operator prepares before the trial")
+    prompt: str = Field(min_length=1, description="Free text sent to the agent")
+    expected_workflow: str = Field(min_length=1, description="start_workflow template the agent should pick")
+
+    @property
+    def key(self) -> str:
+        """Case key used in file names and run.yaml subsets.
+
+        Returns:
+            str: The case id.
+        """
+        return self.id
+
+
+class WorkflowTestSet(BaseModel):
+    """Validated workflow test set: unique case ids."""
+
+    model_config = {"extra": "forbid"}
+
+    kind: Literal["workflows"]
+    version: int
+    cases: list[WorkflowCase] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def check_unique_ids(self) -> "WorkflowTestSet":
+        """Reject duplicate case ids.
+
+        Returns:
+            WorkflowTestSet: The validated test set.
+        """
+        ids = [c.id for c in self.cases]
+        duplicates = sorted({i for i in ids if ids.count(i) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate case id(s): {', '.join(duplicates)}")
+        return self
+
+
 def load_testset(path: str | Path) -> TestSet:
     """Load and validate a test set YAML file.
 
@@ -159,3 +205,24 @@ def load_testset(path: str | Path) -> TestSet:
         TestSet: The validated test set.
     """
     return TestSet.model_validate(yaml.safe_load(Path(path).read_text()))
+
+
+def load_any_testset(path: str | Path) -> TestSet | WorkflowTestSet:
+    """Load a test set, dispatching on its ``kind`` (missing kind is the v1 pick-and-place set).
+
+    Args:
+        path (str | Path): YAML file.
+
+    Returns:
+        TestSet | WorkflowTestSet: The validated test set.
+
+    Raises:
+        ValueError: For an unknown kind.
+    """
+    data = yaml.safe_load(Path(path).read_text())
+    kind = data.get("kind", KIND_PICK_AND_PLACE) if isinstance(data, dict) else KIND_PICK_AND_PLACE
+    if kind == KIND_WORKFLOWS:
+        return WorkflowTestSet.model_validate(data)
+    if kind == KIND_PICK_AND_PLACE:
+        return TestSet.model_validate({k: v for k, v in data.items() if k != "kind"})
+    raise ValueError(f"unknown test set kind {kind!r}; expected {KIND_WORKFLOWS!r} or {KIND_PICK_AND_PLACE!r}")

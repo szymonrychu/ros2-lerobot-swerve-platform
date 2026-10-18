@@ -387,6 +387,21 @@ Unit tests for `scripts/eval/workflow_checks.py` (workflow adherence of a trial)
 | `test_report_aggregates_workflow_section` | Trials per workflow, share without skipped mandatory steps, share with an agent retrospective, mean survey POI writes, text section. |
 | `test_report_workflow_section_empty_without_derivations` | No derivations give zero trials and None rates. |
 
+### `test_eval_workflow_testset.py`
+
+Unit tests for the workflow test set (`scripts/eval/testset_workflows_v1.yaml`, `testset.py` kind dispatch) and the workflow trials of `run.py`, using the fake claude_agent of `test_eval_run.py`.
+
+| Test | Description |
+|------|-------------|
+| `test_shipped_workflows_yaml_loads` | The shipped YAML loads as a WorkflowTestSet with explore_room, survey_here (discovery), drive_to_poi, drive_to_object (drive_to_target) and their prompts. |
+| `test_kind_dispatch_and_v1_unchanged` | `load_any_testset` returns the v1 pick-and-place set with or without a `kind` key and rejects an unknown kind. |
+| `test_workflow_testset_rejects_extra_and_duplicate_ids` | Extra fields and duplicate case ids are refused. |
+| `test_run_trial_records_derivation_and_expected_match` | A workflow trial sends the case prompt, prints the derived workflow against the expected one, records the human label and saves events. |
+| `test_wrong_or_missing_workflow_is_a_mismatch` | Another workflow or none gives `workflow_match` false. |
+| `test_arm_only_is_refused_for_workflow_testsets` | `run` and `run_trial` refuse mode arm_only with a message naming `mode: full`, before any request. |
+| `test_run_records_trials_and_report_for_workflow_cases` | `run` records WorkflowTrialRecord lines, honours stop_on_success and writes the per-case report. |
+| `test_run_yaml_documents_the_workflow_testset` | `run.yaml` comments how to select the workflow test set. |
+
 ### `test_eval_run.py`
 
 Unit tests for the evaluation driver (`scripts/eval/client.py`, `labels.py`, `run.py`). A fake claude_agent (state, reset, message, history, stop) runs behind `httpx.MockTransport`, the operator is an injected input function and time is a fake clock advanced by sleep, so no network, robot or terminal is involved. Agent events reuse the `test_eval_stages.py` trace.
