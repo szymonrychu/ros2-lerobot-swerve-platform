@@ -25,6 +25,7 @@
 #include "map_guard_cpp/config.hpp"
 #include "map_guard_cpp/detectors.hpp"
 #include "map_guard_cpp/guard.hpp"
+#include "map_guard_cpp/relocalise_wire.hpp"
 #include "map_guard_cpp/timing.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav_msgs/msg/odometry.hpp"
@@ -61,22 +62,6 @@ constexpr std::size_t COMMAND_QOS_DEPTH = 10;
 rclcpp::QoS sensor_qos();
 // slam_toolbox publishes /map reliable + transient_local with depth 1: match it to receive the latched map.
 rclcpp::QoS map_qos();
-
-// The relocalise command JSON for map_manager (discard_on_fail: map_manager clears the live POIs on failure).
-std::string relocalise_command(const std::string & request_id, double since);
-
-// The parts of a map_manager result the guard acts on.
-struct RelocaliseResult
-{
-  std::string request_id;
-  bool ok = false;
-  std::string state;
-  int discarded_pois = 0;
-};
-
-// Parse a map_manager result message; nullopt when the text is not a valid result (JSON object with request_id and
-// ok; data.state and data.discarded_pois are optional).
-std::optional<RelocaliseResult> parse_result(const std::string & text);
 
 // Seconds of the steady (monotonic) clock.
 double monotonic_s();

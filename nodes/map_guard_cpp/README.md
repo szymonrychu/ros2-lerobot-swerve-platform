@@ -199,6 +199,7 @@ uv run --frozen python ../map_guard_cpp/test/gen_fixtures.py --check  # exit 1 w
 | `tests/test_agreement.py` | `test/test_agreement.cpp` | `agreement.json`: room grid, dilation, endpoints, transform, every scored scan (ratio, evaluated and agreeing counts on the Python points and on the C++ points), MismatchMonitor sequences |
 | `tests/test_detectors.py` | `test/test_detectors.cpp` | `detectors.json`: helper outputs, and the reasons at every 20 Hz step of all 23 scenarios, including a 40 s re-baseline |
 | `tests/test_guard.py` | `test/test_guard.cpp` | `guard.json`, for 32 scenarios (including the relocalise flow): per-tick states, slam_toolbox calls, events, exact log lines, reset publishes, metric counts, backups left on disk |
+| none (wire contract with map_manager) | `test/test_relocalise_wire.cpp` | No fixture. The relocalise command keys and the result parsing (request_id, ok, data.state, data.discarded_pois, invalid input) |
 | `tests/test_timing.py` | `test/test_timing.cpp` | `timing.json`: HoldTimer and RateLimiter sequences |
 | `tests/test_backup.py` | `test/test_backup.cpp` | `backup.json`: names, prune deleted and remaining files |
 | `tests/test_agent.py` | `test/test_agent.cpp` | `agent.json`: busy parsing, severities, built events. Also a real cpp-httplib GET against a local server (busy, 404, timeout, unreachable) |
