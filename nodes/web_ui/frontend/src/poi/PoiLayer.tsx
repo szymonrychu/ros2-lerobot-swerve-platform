@@ -46,18 +46,19 @@ function PoiLabel({ poi, lift }: { poi: Poi; lift: number }) {
 const PointMarker = memo(function PointMarker({ poi, selected }: { poi: Poi; selected: boolean }) {
   const style = poiStyle(poi, selected)
   const colors = markerColors(poi)
+  const radius = poi.radius_m * style.scale
   const ring = useMemo(() => {
     const pts: ThreeTuple[] = []
     for (let i = 0; i <= DISC_SEGMENTS; i++) {
       const a = (i / DISC_SEGMENTS) * Math.PI * 2
-      pts.push([Math.cos(a) * poi.radius_m, 0, Math.sin(a) * poi.radius_m])
+      pts.push([Math.cos(a) * radius, 0, Math.sin(a) * radius])
     }
     return pts
-  }, [poi.radius_m])
+  }, [radius])
   return (
     <group position={rosToThree(poi, POI_LIFT.fill)}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
-        <circleGeometry args={[poi.radius_m, markerSides('point')]} />
+        <circleGeometry args={[radius, markerSides('point')]} />
         <meshBasicMaterial color={colors.fill} transparent opacity={style.opacity} depthWrite={false} toneMapped={false} />
       </mesh>
       <group position={[0, POI_LIFT.outline - POI_LIFT.fill, 0]}>

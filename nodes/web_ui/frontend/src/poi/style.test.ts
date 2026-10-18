@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { designViolations, SOURCES } from '../layout/designRules'
-import { formatUpdated, KIND_COLORS, KIND_SHAPE, markerColors, markerSides, ZONE_COLORS, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
+import { CATEGORY_COLORS, SURVEY_SCALE, formatUpdated, KIND_COLORS, KIND_SHAPE, markerColors, markerSides, ZONE_COLORS, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
 import type { Poi, PoiKind } from './types'
 
 function poi(over: Partial<Poi>): Poi {
@@ -230,5 +230,42 @@ describe('KIND_SHAPE', () => {
       expect(SOURCES[path], path).toBeTruthy()
       expect(designViolations(path, SOURCES[path])).toEqual([])
     }
+  })
+})
+
+describe('category styles', () => {
+  const area = (note: string, over: Partial<Poi> = {}) => poi({ kind: 'area', polygon: [[0, 0], [1, 0], [1, 1]], note, ...over })
+
+  it('has a colour per category, hue only for keepout and slow', () => {
+    expect(CATEGORY_COLORS.keepout).toBe(ZONE_COLORS.keepout)
+    expect(CATEGORY_COLORS.slow).toBe(ZONE_COLORS.slow)
+    expect(Object.keys(CATEGORY_COLORS).sort()).toEqual(['detail', 'keepout', 'problem', 'slow', 'target'])
+  })
+  it('leaves untagged POIs unchanged', () => {
+    expect(poiStyle(poi({ note: 'plain' }), false).scale).toBe(1)
+    expect(markerColors(poi({ note: 'plain' })).fill).toBe(KIND_COLORS.point)
+  })
+  it('colours a point by category', () => {
+    expect(markerColors(poi({ note: '#slow' })).fill).toBe(CATEGORY_COLORS.slow)
+    expect(markerColors(poi({ note: '#detail' })).fill).toBe(CATEGORY_COLORS.detail)
+  })
+  it('makes problem spots stand out with a thicker line', () => {
+    const problem = poiStyle(poi({ note: '#problem/window' }), false)
+    expect(problem.lineWidth).toBeGreaterThan(poiStyle(poi({ note: '' }), false).lineWidth)
+    expect(markerColors(area('#problem/mirror')).fill).toBe(CATEGORY_COLORS.problem)
+  })
+  it('draws survey spots small and muted', () => {
+    const base = poiStyle(poi({ note: '#target' }), false)
+    const spot = poiStyle(poi({ note: '#target #survey-spot' }), false)
+    expect(spot.scale).toBe(SURVEY_SCALE)
+    expect(SURVEY_SCALE).toBeLessThan(1)
+    expect(spot.opacity).toBeLessThan(base.opacity)
+  })
+  it('does not touch zoned areas', () => {
+    expect(zoneStyle(area('#problem/tight', { zone: 'slow', speed_limit_pct: 40 }), false)!.fill).toBe(ZONE_COLORS.slow)
+    expect(zoneStyle(area('#slow'), false)).toBeNull()
+  })
+  it('does not touch objects', () => {
+    expect(markerColors(poi({ kind: 'object', note: '#detail' })).fill).toBe(KIND_COLORS.object)
   })
 })

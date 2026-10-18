@@ -1,6 +1,7 @@
 /** MUI panels of the POI feature: the collapsible list (click to focus) and the editor of the selected POI. */
 import { useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
+import Chip from '@mui/material/Chip'
 import Button from '@mui/material/Button'
 import List from '@mui/material/List'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -18,8 +19,9 @@ import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { MONO_FONT, TOUCH_TARGET_PX } from '../theme'
 import { ClearPoisDialog } from './ClearPoisDialog'
+import { CATEGORY_LABELS, parsePoiTags, stripPoiTags } from './categories'
 import { zonePctError, zoneUpdateCommand } from './editor'
-import { formatUpdated, objectDetails, sortPois } from './style'
+import { CATEGORY_COLORS, formatUpdated, objectDetails, sortPois } from './style'
 import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, POI_ZONES, PoiCommand, PoiResult, PoiStatus, PoiZone, ZONE_PCT_MAX, ZONE_PCT_MIN } from './types'
 
 /** Fraction of a text limit from which the character counter is shown. */
@@ -35,6 +37,37 @@ const KIND_TITLES = { point: 'Point', area: 'Area', object: 'Object', photo: 'Ph
  */
 function counterText(length: number, max: number): string | undefined {
   return length >= max * COUNTER_FROM ? `${length}/${max}` : undefined
+}
+
+/** Category chip (label, colour), problem type and survey marker read from the tag line of a POI note; renders nothing for an untagged note. */
+export function PoiCategoryBadges({ note }: { note: string }) {
+  const tags = parsePoiTags(note)
+  if (!tags.category && !tags.survey && !tags.surveySpot) return null
+  return (
+    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+      {tags.category && (
+        <Chip
+          size="small"
+          label={CATEGORY_LABELS[tags.category]}
+          data-testid="poi-category-chip"
+          sx={{ bgcolor: CATEGORY_COLORS[tags.category], color: (t) => t.palette.getContrastText(CATEGORY_COLORS[tags.category!]) }}
+        />
+      )}
+      {tags.problemType && (
+        <Typography variant="caption" data-testid="poi-problem-type">
+          {tags.problemType}
+        </Typography>
+      )}
+      {(tags.survey || tags.surveySpot) && (
+        <Chip
+          size="small"
+          variant="outlined"
+          label={tags.surveySpot ? 'survey spot' : 'survey'}
+          data-testid="poi-survey-marker"
+        />
+      )}
+    </Stack>
+  )
 }
 
 /** Collapsible list of all POIs; a row click selects the POI and centres the view on it. */
@@ -120,6 +153,7 @@ export function PoiListPanel({
                 secondaryTypographyProps={{ noWrap: true }}
               />
               <Box sx={{ ml: 1 }}>
+                <PoiCategoryBadges note={p.note} />
                 <StatusItem label="" value={p.status} marked={p.status === 'open'} />
               </Box>
             </ListItemButton>
@@ -205,6 +239,12 @@ export function PoiEditorPanel({
       data-testid="poi-editor"
     >
       <Stack spacing={1} sx={{ mt: 0.5 }}>
+        <PoiCategoryBadges note={poi.note} />
+        {stripPoiTags(poi.note) && (
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }} data-testid="poi-note-text">
+            {stripPoiTags(poi.note)}
+          </Typography>
+        )}
         <TextField
           label="Name"
           size="small"
