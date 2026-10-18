@@ -2629,6 +2629,7 @@ Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, ST
 | `test_layer_values_are_commented_with_their_reason` | Key values carry a comment naming their reason (decay, notches, max, TF, floor, robot height, max_depth, 70 deg FOV, collision monitor). |
 | `test_nav2_bringup_installs_stvl` | nav2_bringup `apt_packages` lists `ros-jazzy-spatio-temporal-voxel-layer` with a comment. |
 | `test_readme_documents_the_tof_obstacle_layer` | The nav2_bringup README "ToF obstacle layer" section names the pipeline, layer settings, the U5 separation, local-only and the no-returns cliff limitation. |
+| `test_readme_tof_section_has_no_parking_wording` | The nav2_bringup README "ToF obstacle layer" section states what the values are and how to check them, with no tuning-later or TODO wording. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 
 ### test_tof_obstacle_cloud_config.py

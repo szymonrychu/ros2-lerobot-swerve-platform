@@ -364,7 +364,10 @@ decaying voxels do not belong in the planner's long-lived map.
 
 Limitations: a cliff into a void with no returns (a deep stairwell, a very dark or absorbing lower floor) gives no
 below-floor points and is not seen; the ToF sees a cliff only while the head looks at it (the costmap keeps the voxels
-for 15 s). The thresholds are starting values to tune on the robot (empty-floor check: no marks on a flat floor).
+for 15 s). The height bands follow from the table above: 6 cm over the floor and 10 cm under it keep the ToF floor
+noise out of both bands, and 0.6 m is the robot height. Post-deploy check: on an empty flat floor with the head tilted
+down, the local costmap shows no `tof_voxel_layer` cells; a box at least 10 cm tall placed 1 m ahead shows up as
+lethal cells within one ToF frame and clears within 15 s once the box is removed.
 
 ## Collision monitor
 

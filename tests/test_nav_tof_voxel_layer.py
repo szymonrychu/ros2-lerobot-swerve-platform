@@ -29,6 +29,7 @@ LOCAL_PLUGINS = ["obstacle_layer", "tof_voxel_layer", "keepout_filter", "inflati
 GLOBAL_PLUGINS = ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
 MARK_SOURCES = ("tof_mark", "tof_cliff_mark")
 CLEAR_SOURCE = "tof_clear"
+PARKING_PHRASES = ("to tune", "starting value", "later", "follow-up", "todo", "phase 2", "out of scope")
 # Robot height with the head (design D3): anything higher is an overhang the robot passes under.
 ROBOT_HEIGHT_M = 0.6
 # Floor z = 0 in odom; a cliff band must start clearly below the ToF depth noise around the floor.
@@ -346,6 +347,12 @@ def test_readme_documents_the_tof_obstacle_layer() -> None:
         "void",
     ):
         assert phrase in section, phrase
+
+
+def test_readme_tof_section_has_no_parking_wording() -> None:
+    section = NAV2_README.read_text().split("## ToF obstacle layer", 1)[1].split("\n## ", 1)[0].lower()
+    found = [phrase for phrase in PARKING_PHRASES if phrase in section]
+    assert not found, f"parking wording in the ToF obstacle layer section: {found}"
 
 
 def test_tests_readme_documents_this_file() -> None:
