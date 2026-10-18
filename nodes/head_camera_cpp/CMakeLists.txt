@@ -14,6 +14,10 @@ find_package(ros2_common_cpp REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(nlohmann_json 3 REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 # The pure logic, without libcamera or rclcpp: config, crop geometry, encoding, zoom JSON and state machine.
 # Globbed because the crop, encoding and JSON tasks each add files under src/core and test/core in parallel; a
@@ -45,6 +49,28 @@ add_library(head_camera_libcamera STATIC src/libcamera_controls.cpp src/libcamer
 target_link_libraries(head_camera_libcamera PUBLIC head_camera_core PkgConfig::LIBCAMERA Threads::Threads)
 set_target_properties(head_camera_libcamera PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# The ROS wiring: an rclcpp component plus the standalone head_camera_node executable. Single-threaded executor: the
+# node's own threads do the heavy work, the executor thread only parses commands and runs the start retry timer.
+add_library(head_camera_component SHARED src/head_camera_node.cpp)
+target_include_directories(head_camera_component PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
+target_link_libraries(head_camera_component
+  head_camera_libcamera
+  rclcpp::rclcpp
+  rclcpp_components::component
+  ${sensor_msgs_TARGETS}
+  ${std_msgs_TARGETS})
+rclcpp_components_register_node(head_camera_component
+  PLUGIN "head_camera_cpp::HeadCameraNode"
+  EXECUTABLE head_camera_node
+  EXECUTOR SingleThreadedExecutor)
+
+install(TARGETS head_camera_component
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin)
+
 if(BUILD_TESTING)
   # Root .clang-format (ament style, 120 columns), two levels up as for every in-repo C++ package.
   set(ament_cmake_clang_format_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../../.clang-format")
@@ -66,6 +92,12 @@ if(BUILD_TESTING)
   target_link_libraries(test_libcamera_controls head_camera_libcamera)
   ament_add_gtest(test_libcamera_backend test/test_libcamera_backend.cpp TIMEOUT 120)
   target_link_libraries(test_libcamera_backend head_camera_libcamera)
+  # The ROS wiring against a fake camera and clock (test/core/fake_camera_backend.hpp).
+  ament_add_gtest(test_node test/test_node.cpp TIMEOUT 180)
+  target_include_directories(test_node PRIVATE test/core)
+  target_link_libraries(test_node head_camera_component)
+  target_compile_definitions(test_node PRIVATE
+    HEAD_CAMERA_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data")
 endif()
 
 ament_package()

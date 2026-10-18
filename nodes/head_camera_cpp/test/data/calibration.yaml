@@ -1,0 +1,21 @@
+# Test fixture: ROS camera_calibration YAML taken at the 2304x1296 sensor mode; the node scales it to 1152x648.
+image_width: 2304
+image_height: 1296
+camera_name: head_camera
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [1600.0, 0.0, 1150.0, 0.0, 1620.0, 640.0, 0.0, 0.0, 1.0]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.1, -0.2, 0.001, 0.002, 0.0]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [1600.0, 0.0, 1150.0, 0.0, 0.0, 1620.0, 640.0, 0.0, 0.0, 0.0, 1.0, 0.0]
