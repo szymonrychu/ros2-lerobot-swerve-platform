@@ -36,7 +36,7 @@ from ros2_common.photos import (
 )
 from scipy.spatial.transform import Rotation
 
-from .camera_scene import camera_setup, load_intrinsics, offset_matrix, parent_transform
+from .camera_scene import camera_setup, head_parent_transform, load_intrinsics, offset_matrix, parent_transform
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
 from .lookup_store import (
     MAX_QUERY_LIMIT,
@@ -113,8 +113,9 @@ class LookupRecorder:
         return None if joints is None else {name: round(value, ROUND_DIGITS) for name, value in joints.items()}
 
     def camera_pose_base(self, camera: str, joints: dict[str, float] | None) -> dict[str, list[float]] | None:
-        """Camera body pose in base_link when the camera has a mount (and, for the gripper camera, the arm offset and
-        measured joints are known).
+        """Camera body pose in base_link when the camera has a mount (the gripper camera also needs the arm offset and
+        measured joints; the front camera sits on the pan/tilt head and needs fresh head joint states: stale ones give
+        None, never a base_link guess).
 
         Args:
             camera (str): Camera name.
@@ -128,7 +129,7 @@ class LookupRecorder:
             if setup.mount is None:
                 return None
             if camera == "front":
-                t_base_parent = np.eye(4)
+                t_base_parent = head_parent_transform(self.config, self.robot.head)
             else:
                 offset = self.config.arm.base_in_base_link
                 if offset is None or joints is None:
@@ -137,7 +138,7 @@ class LookupRecorder:
                     self.config, camera, self.robot.arm.kin, joints
                 )
             t_base_mount = t_base_parent @ setup.mount.to_matrix()
-        except ValueError:  # not calibrated
+        except ValueError:  # not calibrated, or the head joint states are missing or stale
             return None
         rpy = Rotation.from_matrix(t_base_mount[:3, :3]).as_euler("xyz")
         return {
