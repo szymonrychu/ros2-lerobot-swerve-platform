@@ -22,6 +22,8 @@ from .failure import (
     summarize_evidence,
 )
 from .plan_tree import (
+    BRANCH_ELSE,
+    BRANCH_THEN,
     CAP_FIELDS,
     CAP_MINIMA,
     EFFECT_BRANCH,
@@ -29,6 +31,7 @@ from .plan_tree import (
     EXIT_BUDGET,
     EXIT_CONDITION,
     EXIT_MAX_ITERATIONS,
+    NODE_IF,
     NODE_WHILE,
     OUTCOMES,
     STATUS_ACTIVE,
@@ -51,7 +54,12 @@ from .plan_tree import (
 )
 
 COMPLEXITIES = ("trivial", "simple", "moderate", "complex", "very_complex")
+OUTCOME_DONE = "done"
 OUTCOME_FAILED = "failed"
+OUTCOME_SKIPPED = "skipped"
+# Outcomes that satisfy a mandatory workflow phase at the job-end workflow check (a failed attempt still counts).
+MANDATORY_SATISFIED = frozenset({OUTCOME_DONE, OUTCOME_FAILED})
+IF_BRANCHES = (BRANCH_THEN, BRANCH_ELSE)
 KIND_SENSOR = "sensor"
 KIND_EFFECTOR = "effector"
 NO_PLAN_MESSAGE = "call agent.set_task_plan first"
@@ -171,6 +179,9 @@ class PlanTracker:
             free-form plan); kept across revise_plan.
         mandatory_ids (list[str]): Ids of the workflow's mandatory phases (the template's, even when the agent edited
             them out); kept across revise_plan.
+        entered_branches (set[tuple[str, str]]): (if node id, then|else) of every if branch the cursor entered in
+            the current plan tree (from condition answers and outcome_of evaluations); cleared by a revision.
+        extra_revision (bool): Whether grant_extra_revision allowed one more revise_plan beyond the one revision.
         ro_used (int): Sensor calls so far in the instruction (telemetry only, never capped).
         rw_used (int): Effector calls allowed so far in the instruction.
         turns_used (int): Model turns so far in the instruction.
@@ -244,6 +255,8 @@ class PlanTracker:
         self.time_budget_min: float | None = None
         self.workflow: str | None = None
         self.mandatory_ids: list[str] = []
+        self.entered_branches: set[tuple[str, str]] = set()
+        self.extra_revision = False
         self.ro_used = 0
         self.rw_used = 0
         self.turns_used = 0
@@ -447,6 +460,7 @@ class PlanTracker:
         for effect, node, value in result.effects:
             if effect == EFFECT_BRANCH:
                 node.branch = value
+                self.entered_branches.add((node.id, value))
             elif effect == EFFECT_ITERATION:
                 node.iteration = value
                 node.exit_reason = ""
@@ -855,7 +869,8 @@ class PlanTracker:
     def revise_plan(
         self, rationale: Any, phases: Any = None, plan: Any = None, time_budget_min: Any = None
     ) -> tuple[dict[str, Any], list[str]]:
-        """Replace the remaining plan (once per instruction); phases that ran stay, an active one is closed as failed.
+        """Replace the remaining plan (once per instruction, once more after grant_extra_revision); phases that ran stay,
+        an active one is closed as failed.
 
         Args:
             rationale (Any): Why the plan changes.
@@ -868,17 +883,19 @@ class PlanTracker:
             tuple[dict[str, Any], list[str]]: The plan payload and the notes about clamped caps and time.
 
         Raises:
-            PlanError: No plan, a second revision, invalid values, a lower time budget, or caps beyond what is left of
+            PlanError: No plan, a second revision without an extra one granted, invalid values, a lower time budget, or caps beyond what is left of
             the instruction maxima.
         """
         self.require_plan()
-        if self.revised:
+        if self.revised and not self.extra_revision:
             raise PlanError(ALREADY_REVISED_MESSAGE)
         text = as_text("rationale", rationale)
         minutes, time_notes = (None, []) if time_budget_min is None else self.extended_minutes(time_budget_min)
         kept = [phase for phase in self.phases if phase.status != STATUS_PENDING]
         root, parser = self.parse(phases, plan, len(kept), {phase.id for phase in kept})
         self.check_sums(parser.phases, {cap: self.instruction_used(cap) for cap in CAP_FIELDS})
+        if self.revised:
+            self.extra_revision = False
         if self.active is not None:
             self.close_active(OUTCOME_FAILED, f"{REVISED_SUMMARY}: {text}")
         for index, phase in enumerate(kept):
@@ -886,6 +903,7 @@ class PlanTracker:
         self.phases = kept + parser.phases
         self.root = root
         self.stack = (Frame(root),)
+        self.entered_branches = set()
         self.pending = None
         self.finished = False
         self.revised = True
@@ -899,6 +917,66 @@ class PlanTracker:
             self.on_plan_revised(payload)
         self.announce(kind)
         return payload, parser.notes + time_notes
+
+    def grant_extra_revision(self) -> None:
+        """Allow one more agent.revise_plan beyond the one revision of the instruction (the job-end workflow check
+        grants it so the agent can add skipped mandatory steps); used up by the next revision past the first."""
+        self.extra_revision = True
+
+    def untaken_branch_phase_ids(self) -> set[str]:
+        """Return the ids of the phases of the current tree that sit in an if branch the cursor never entered.
+
+        Returns:
+            set[str]: Phase ids under a then/else child whose (if id, branch) is not in entered_branches (empty before
+            a plan).
+        """
+        found: set[str] = set()
+
+        def visit(node: PlanNode, untaken: bool) -> None:
+            if node.phase is not None:
+                if untaken:
+                    found.add(node.phase.id)
+                return
+            for index, child in enumerate(node.children):
+                branch_untaken = node.type == NODE_IF and (node.id, IF_BRANCHES[index]) not in self.entered_branches
+                visit(child, untaken or branch_untaken)
+
+        if self.root is not None:
+            visit(self.root, False)
+        return found
+
+    def skipped_mandatory(self) -> list[str]:
+        """Return the mandatory workflow phases the instruction skipped (the job-end workflow check, D8).
+
+        A mandatory id is fine when its latest outcome is done or failed. It is skipped when its latest outcome is
+        skipped, when it is absent from the current plan (edited out of the seeded plan or dropped by a revision), or
+        when it never ran although the plan finished, unless it sits in an if branch that was not entered.
+
+        Returns:
+            list[str]: The skipped mandatory ids in mandatory_ids order (empty for a free-form plan).
+        """
+        present = {phase.id for phase in self.phases}
+        untaken = self.untaken_branch_phase_ids() if self.plan_finished else set()
+        skipped: list[str] = []
+        for phase_id in self.mandatory_ids:
+            outcome = self.outcomes.get(phase_id)
+            if outcome in MANDATORY_SATISFIED:
+                continue
+            never_run = outcome is None and self.plan_finished and phase_id not in untaken
+            if outcome == OUTCOME_SKIPPED or phase_id not in present or never_run:
+                skipped.append(phase_id)
+        return skipped
+
+    def workflow_report(self) -> dict[str, Any] | None:
+        """Return the workflow part of the turn_end job_end report.
+
+        Returns:
+            dict[str, Any] | None: {name: the workflow, skipped_mandatory: skipped_mandatory()} when the plan came from
+            agent.start_workflow, else None.
+        """
+        if self.workflow is None:
+            return None
+        return {"name": self.workflow, "skipped_mandatory": self.skipped_mandatory()}
 
     def raise_phase_budget(
         self, rw_cap: Any, turn_cap: Any, rationale: Any, time_budget_min: Any = None

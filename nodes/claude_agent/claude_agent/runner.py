@@ -108,6 +108,12 @@ JOB_END_PARK_ARGS: dict[str, Any] = {"subsystem": "all"}
 JOB_END_KEEP_ARGS: dict[str, Any] = {"subsystem": "all", "keep_position": True}
 JOB_END_FOLLOWUP_MARKER = "JOB END REFUSED:"
 # Turn-end POI review: an instruction that looked or moved but wrote no POI gets one last chance to mark the map.
+# Job-end workflow check: mandatory workflow steps skipped, dropped or never run get one follow-up (never parks).
+WORKFLOW_CHECK_MARKER = "WORKFLOW CHECK:"
+WORKFLOW_CHECK_TEXT = (
+    f"{WORKFLOW_CHECK_MARKER} mandatory steps skipped: {{ids}}. Add them with agent.revise_plan (one extra revision "
+    "allowed now) or say in one line why they cannot apply."
+)
 POI_REVIEW_MARKER = "POI REVIEW:"
 POI_WRITE_TOOLS = frozenset({"add_poi", "update_poi", "remember_object", "annotate_lookup"})
 CAMERA_TOOLS = frozenset({"get_camera_image", "get_annotated_camera_image", "get_topdown_view"})
@@ -400,6 +406,7 @@ class AgentRunner:
         self.robot_tool_caller = robot_tool_caller or self.default_robot_tool_caller
         self.session_tools: set[str] | None = None
         self.job_end_followups = 0
+        self.workflow_check_sent = False
         self.poi_review_sent = False
         self.explored = False
         self.poi_writes = 0
@@ -504,9 +511,15 @@ class AgentRunner:
     def end_turn(self, **fields: Any) -> None:
         """Emit the turn_end event of the instruction and count its status and duration.
 
+        When the plan came from agent.start_workflow, ``job_end.workflow`` carries {name, skipped_mandatory} (empty
+        list when none), also when there is no other job_end problem.
+
         Args:
             **fields: Payload of the turn_end event (must contain ``status``).
         """
+        workflow = self.plan.workflow_report()
+        if workflow is not None:
+            fields["job_end"] = {**(fields.get("job_end") or {}), "workflow": workflow}
         self.flush_ledger_close()
         self.ledger.end_instruction(self.instruction_id)
         self.events.append("turn_end", instruction_id=self.instruction_id, **fields)
@@ -810,6 +823,7 @@ class AgentRunner:
         self.pending_followup = None
         self.interrupt_pending = False
         self.job_end_followups = 0
+        self.workflow_check_sent = False
         self.poi_review_sent = False
         self.explored = False
         self.poi_writes = 0
@@ -1172,7 +1186,7 @@ class AgentRunner:
                     if self.job_end_applies(message):
                         followup, job_end = await self.run_job_end_check()
                         if followup is None and job_end is None:
-                            followup = self.take_poi_review()
+                            followup = self.take_workflow_check() or self.take_poi_review()
                         if followup is not None:
                             continue
                     status = self.finish_turn(message, job_end)
@@ -1207,6 +1221,25 @@ class AgentRunner:
         if self.interrupted or self.turn_capped:
             return False
         return result_to_turn_end(result, False, 0)["status"] == STATUS_DONE
+
+    def take_workflow_check(self) -> str | None:
+        """The one WORKFLOW CHECK follow-up of an instruction, once the job-end check passed (before the POI review).
+
+        Lists the mandatory workflow steps skipped, dropped or never run and grants one extra agent.revise_plan. It
+        never counts toward job_end_max_followups and never parks the arm.
+
+        Returns:
+            str | None: The follow-up, or None (no workflow, already sent, or nothing skipped).
+        """
+        if self.workflow_check_sent or self.plan.workflow is None:
+            return None
+        skipped = self.plan.skipped_mandatory()
+        if not skipped:
+            return None
+        self.workflow_check_sent = True
+        self.plan.grant_extra_revision()
+        self.logger.warning(f"workflow check: mandatory steps skipped: {', '.join(skipped)}")
+        return WORKFLOW_CHECK_TEXT.format(ids=", ".join(skipped))
 
     def take_poi_review(self) -> str | None:
         """The one POI REVIEW follow-up of an instruction, once the job-end check passed.
