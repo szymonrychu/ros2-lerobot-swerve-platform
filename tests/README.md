@@ -2410,7 +2410,7 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_main_exits_2_on_an_empty_series` / `test_main_prints_and_exits_0` | Exit 2 on no data, exit 0 and a table otherwise. |
 | `test_queries_use_the_configured_host_and_both_windows` | Two queries per entry, at the before and after window starts, with the configured host. |
 | `test_entry_requires_all_fields_and_a_positive_switch_time` | pydantic rejects a missing field and a non-positive switch_time. |
-| `test_shipped_config_lists_the_four_nodes` | `node_cpu_compare.yaml` lists map_guard, web_ui, gripper_uvc_camera, mcp_server with the right units. |
+| `test_shipped_config_lists_the_nodes` | `node_cpu_compare.yaml` lists map_guard, web_ui, gripper_uvc_camera, mcp_server, nav2_bringup, laser_filter, arducam_tof with the right units (same unit before and after for the ToF entries). |
 
 ### test_shared_photos.py / test_shared_lookups.py (photo contract)
 
@@ -2696,6 +2696,22 @@ Static checks of the `tof_obstacle_cloud` deployment (config-only rtabmap_util p
 | `test_ros2_nodes_entry_present_enabled_after_arducam_tof` | The `ros2_nodes` entry is present, enabled and right after arducam_tof. |
 | `test_node_is_not_on_the_server` | Not in server.yml. |
 | `test_readme_documents_topics_and_placeholder_rule` | README names the topic, frame, rationale and empty-cloud rule. |
+### test_tof_obstacle_wiring.py
+
+Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof -> tof_obstacle_cloud -> laser_filter -> Nav2 STVL, collision_monitor, web_ui, mcp_server). Reads the YAML only.
+
+| Test | Covers |
+|---|---|
+| `test_tof_obstacle_cloud_output_is_the_laser_filter_input` | The `cloud` remap of the tof_obstacle_cloud launch command equals laser_filter `cloud_topic`. |
+| `test_laser_filter_output_feeds_every_consumer` | laser_filter `cloud_filtered_topic` equals every STVL source topic, both collision_monitor ToF sources, the web_ui map_nav `obstacle_cloud_topic` (client.yml and default.yaml) and the mcp_server `topics.tof_points` (client.yml and config default). |
+| `test_stvl_observation_sources_are_exactly_the_three_tof_sources` | The STVL layer lists exactly tof_mark, tof_cliff_mark, tof_clear. |
+| `test_arducam_tof_frame_id_is_the_tof_optical_frame` | arducam_tof `frame_id` is `tof_optical_frame`. |
+| `test_stvl_and_collision_monitor_height_bands_agree` | tof_obstacles = tof_mark and tof_cliff = tof_cliff_mark in min and max height. |
+| `test_ranges_and_collision_sources_are_listed` | The collision monitor observes scan, tof_obstacles and tof_cliff. |
+| `test_slam_toolbox_publishes_map_to_odom` | slam_toolbox `transform_publish_period` > 0 with map and odom frames. |
+| `test_no_other_client_node_publishes_map_to_odom` | No other client node sets `publish_tf: true` (but the EKF, odom -> base_link), the static TF publisher has no map parent or odom child, tof_obstacle_cloud has no TF argument. |
+| `test_new_nodes_and_tests_are_in_the_tests_readme` | tof_obstacle_cloud and the four ToF obstacle test files have a section here. |
+
 ### `test_head_rgbd_calib_intrinsics.py`
 
 Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise).

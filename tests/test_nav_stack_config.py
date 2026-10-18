@@ -984,6 +984,8 @@ def test_web_ui_has_map_nav_tab() -> None:
         "map_save_path": MAP_BASE,
         # Merged 3D view: local costmap, swerve base and the interactive arm on the client-local topics.
         "local_costmap_topic": "/local_costmap/costmap",
+        "obstacle_cloud_topic": "/tof/points_filtered",
+        "scan_points_topic": "/scan_filtered",
         "base_urdf": "robot.urdf",
         "base_joint_states_topic": "/swerve_drive/joint_states",
         "arm_urdf": "so101_arm.urdf",

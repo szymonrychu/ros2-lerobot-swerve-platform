@@ -17,3 +17,9 @@ entries:
   - {name: web_ui, before_unit: ros2-web_ui.service, after_unit: ros2-web_ui.service, switch_time: 1}
   - {name: gripper_uvc_camera, before_unit: ros2-gripper_uvc_camera.service, after_unit: ros2-gripper_uvc_camera.service, switch_time: 1}
   - {name: mcp_server, before_unit: ros2-mcp_server.service, after_unit: ros2-mcp_server.service, switch_time: 1}
+  # ToF obstacle pipeline (design D12): the same unit before and after the deploy of the ToF obstacle change.
+  # ros2-tof_obstacle_cloud.service is new, so it has no "before" series: it is measured "after" only, by the runbook
+  # query rate(container_cpu_usage_seconds_total{host="client",id="/system.slice/ros2-tof_obstacle_cloud.service"}[1m]).
+  - {name: nav2_bringup, before_unit: ros2-nav2_bringup.service, after_unit: ros2-nav2_bringup.service, switch_time: 1}
+  - {name: laser_filter, before_unit: ros2-laser_filter.service, after_unit: ros2-laser_filter.service, switch_time: 1}
+  - {name: arducam_tof, before_unit: ros2-arducam_tof.service, after_unit: ros2-arducam_tof.service, switch_time: 1}
