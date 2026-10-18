@@ -487,6 +487,7 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 |---|---|
 | `urdf/robot.urdf` | Swerve base: 0.47 x 0.386 m footprint outline on the floor (no solid body) + 4 roller wheels (cylinders), real module positions, no meshes |
 | `urdf/so101_arm.urdf` | SO-101 follower arm (from TheRobotStudio/SO-ARM100) |
+| `urdf/head.urdf` | Pan/tilt head: post, pan and tilt joints, RGB and ToF frames, primitives only |
 
 ### Robot base model
 
@@ -496,6 +497,10 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 - **Joints:** named exactly like `/swerve_drive/joint_states` (`fl|fr|rl|rr` + `_steer` / `_drive`). `*_steer` is revolute about z (rad, positive = CCW seen from above, 0 = straight ahead, the same convention as the controller commands), `*_drive` is continuous about the axle (+y, positive = rolling forward). Each roller is a plain cylinder with a contrasting bar across the tread so the rotation is visible.
 - **Live update:** the `base_joint_states_topic` samples are applied like the arm's, one subscription and one WebSocket rate. The feetech bridge already undoes `inverted` in both position and velocity, so no sign handling is needed in the scene. The wheel servos run in wheel mode: their `position` is a wrapping encoder reading, so `frontend/src/map3d/baseJoints.ts` integrates `velocity` (rad/s) over the time between messages (capped at 0.25 s per step, wrapped to [-pi, pi)) into the `*_drive` angle; steering angles are used as sent.
 - The body is drawn translucent so the wheels inside the footprint stay visible; the Body and Wheels layers toggle them separately.
+
+### Head model
+
+`urdf/head.urdf` is the single source of the head geometry, root link `base_link`. Chain: fixed `head_mount_joint` (`base_link` to `head_pan_base`, xyz 0.15 0.10 0.31) -> revolute `head_pan` (z axis, +-1.5708 rad, positive = left) -> `head_pan_link` -> revolute `head_tilt` (y axis, offset 0.04 m up, -0.5236..0.7854 rad, positive = looking down, REP 103 pitch) -> `head_link` -> fixed `head_camera_link` (RGB, right, y -0.025) and `tof_link` (ToF, left, y +0.025), each with a `*_optical_frame` child (rpy -1.5708 0 -1.5708). Servo centre 2048 = 0 rad = straight and level; velocity limits are the 1.0 rad/s caps. `head_post` (fixed to `base_link`) rises behind the lidar and bends forward above it to the pan axis, inside the footprint. The mount and spacing are estimates until measured on the built head: edit `head_mount_joint` for the mount and the two y origins of `head_camera_joint` / `tof_joint` for the camera-to-ToF spacing (0.05 m). Readers: robot_state_publisher (head TF), mcp_server (aiming) and the 3D view.
 
 ### Fusion 360 → URDF conversion
 

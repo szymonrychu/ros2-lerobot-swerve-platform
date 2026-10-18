@@ -1,0 +1,112 @@
+<?xml version="1.0"?>
+<!--
+  Pan/tilt head of the swerve robot: RGB camera (right) and ToF (left) on one rigid head.
+  Read by robot_state_publisher (TF), mcp_server (aiming) and the web_ui 3D view.
+
+  ESTIMATES: the mount (head_mount_joint xyz 0.15 0.10 0.31), the tilt offset (0.04 m) and the
+  camera / ToF origins are estimates, to be measured on the built head and edited here.
+  Camera-to-ToF spacing: the y origins of head_camera_joint (-0.025) and tof_joint (+0.025),
+  so 0.05 m; change both to change the spacing.
+
+  Servo centre 2048 = 0 rad = head straight ahead and level.
+  Sign conventions (REP 103): head_pan positive = looking left (CCW seen from above, +z);
+  head_tilt positive = looking down (pitch about +y, decided in ruling R3).
+  Optical frames: z forward, x right, y down (rpy -1.5708 0 -1.5708 from the body frame).
+  Velocity limits 1.0 rad/s are the D3 caps.
+
+  head_post comes up from behind the lidar (laser_frame at 0.158 0.06 0.20, radius about 0.035 m)
+  and bends forward above it to the pan axis, so it hides as little of the lidar view as possible.
+  No meshes: primitives only.
+-->
+<robot name="head">
+  <link name="base_link"/>
+
+  <!-- Post: vertical column behind the lidar (x 0.09, back edge of lidar is 0.123), then a
+       horizontal arm at z 0.30 forward to the pan base. -->
+  <link name="head_post">
+    <visual>
+      <origin xyz="0.09 0.10 0.15" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.012" length="0.30"/></geometry>
+      <material name="head_post_grey"><color rgba="0.35 0.35 0.38 1"/></material>
+    </visual>
+    <visual>
+      <origin xyz="0.12 0.10 0.30" rpy="0 0 0"/>
+      <geometry><box size="0.08 0.024 0.024"/></geometry>
+      <material name="head_post_grey"/>
+    </visual>
+  </link>
+  <joint name="head_post_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="head_post"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="head_pan_base">
+    <visual>
+      <origin xyz="0 0 -0.01" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.025" length="0.02"/></geometry>
+      <material name="head_servo_dark"><color rgba="0.15 0.15 0.17 1"/></material>
+    </visual>
+  </link>
+  <joint name="head_mount_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="head_pan_base"/>
+    <origin xyz="0.15 0.10 0.31" rpy="0 0 0"/>
+  </joint>
+
+  <link name="head_pan_link">
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.02" length="0.04"/></geometry>
+      <material name="head_servo_dark"/>
+    </visual>
+  </link>
+  <joint name="head_pan" type="revolute">
+    <parent link="head_pan_base"/>
+    <child link="head_pan_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5708" upper="1.5708" effort="2.0" velocity="1.0"/>
+  </joint>
+
+  <link name="head_link">
+    <visual>
+      <origin xyz="0.01 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.04 0.09 0.04"/></geometry>
+      <material name="head_body_blue"><color rgba="0.2 0.4 0.8 1"/></material>
+    </visual>
+  </link>
+  <joint name="head_tilt" type="revolute">
+    <parent link="head_pan_link"/>
+    <child link="head_link"/>
+    <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.5236" upper="0.7854" effort="2.0" velocity="1.0"/>
+  </joint>
+
+  <link name="head_camera_link"/>
+  <joint name="head_camera_joint" type="fixed">
+    <parent link="head_link"/>
+    <child link="head_camera_link"/>
+    <origin xyz="0.02 -0.025 0" rpy="0 0 0"/>
+  </joint>
+  <link name="head_camera_optical_frame"/>
+  <joint name="head_camera_optical_joint" type="fixed">
+    <parent link="head_camera_link"/>
+    <child link="head_camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+  </joint>
+
+  <link name="tof_link"/>
+  <joint name="tof_joint" type="fixed">
+    <parent link="head_link"/>
+    <child link="tof_link"/>
+    <origin xyz="0.02 0.025 0" rpy="0 0 0"/>
+  </joint>
+  <link name="tof_optical_frame"/>
+  <joint name="tof_optical_joint" type="fixed">
+    <parent link="tof_link"/>
+    <child link="tof_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+  </joint>
+</robot>
