@@ -4,6 +4,7 @@ expectation, POI payloads, pass/fail summary and config; plus a guard that the v
 import json
 import math
 import sys
+import types
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -476,20 +477,41 @@ def test_slow_cost_step_fails_when_the_mask_lacks_the_slow_value() -> None:
 
 
 def test_cleanup_deletes_the_slow_poi() -> None:
+    listing = json.dumps(
+        {
+            "pois": [
+                {"id": "slow-id", "name": "E7-verify-slow-cost"},
+                {"id": "kitchen-id", "name": "kitchen"},
+            ]
+        }
+    )
+
     class Cleanup:
         step_cleanup = verify.Verifier.step_cleanup
+        delete_verify_pois = verify.Verifier.delete_verify_pois
         pose = None
 
         def __init__(self) -> None:
-            self.calls = 0
+            self.deleted: list[str] = []
+            self.latest: dict[str, Any] = {"poi_list": types.SimpleNamespace(data=listing)}
+            self.config = types.SimpleNamespace(
+                poi_name_prefix="E7-verify-",
+                poi_list_topic="/poi/list",
+                timeouts=types.SimpleNamespace(discovery_s=1.0, poi_s=1.0),
+            )
 
-        def delete_verify_pois(self) -> int:
-            self.calls += 1
-            return 2
+        def wait_until(self, check: Any, _timeout: float) -> Any:
+            return check()
+
+        def delete_poi(self, poi_id: str) -> None:
+            self.deleted.append(poi_id)
+            self.latest["poi_list"] = types.SimpleNamespace(
+                data=json.dumps({"pois": [{"id": "kitchen-id", "name": "kitchen"}]})
+            )
 
     fake = Cleanup()
-    assert "deleted 2" in fake.step_cleanup()
-    assert fake.calls == 1
+    assert "deleted 1" in fake.step_cleanup()
+    assert fake.deleted == ["slow-id"]
 
 
 def test_run_orders_the_slow_cost_step_between_keepout_and_speed() -> None:
