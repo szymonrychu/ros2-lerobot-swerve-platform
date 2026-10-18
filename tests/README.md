@@ -1987,6 +1987,7 @@ Repo-wide guard that the pan/tilt head is live: no placeholder wording and no fr
 |---|---|
 | `test_no_head_placeholder_text` | `git grep` over tracked files outside `docs/plans/**` finds none of the three placeholder phrases about the head being unconfigured, disabled or a later addition; the phrases are assembled from pieces in the test so it does not match itself. |
 | `test_front_camera_not_pinned_to_base_link` | mcp_server has no `FRONT_CAMERA_PARENT = "base_link"` and no "front camera works in base_link" docstring claim. |
+| `test_grep_tracked_fails_loudly_on_git_error` | The `grep_tracked` helper raises (instead of returning zero hits) when `git grep` fails, e.g. on an invalid regex, so the two guards cannot pass vacuously. |
 
 ### `test_head_camera_deploy.py`
 

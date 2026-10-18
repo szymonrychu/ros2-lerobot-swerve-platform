@@ -3,12 +3,15 @@
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 THIS_FILE = "tests/test_head_live_refs.py"
 ALLOWED_PREFIXES = ("docs/plans/",)
 PLACEHOLDER_PATTERN = "no head mount " + "configured|disabled pan" + "/tilt|future head " + "mount"
 PINNED_PATTERN = 'FRONT_CAMERA_PARENT *= *"base' + '_link"|front camera works in base' + "_link"
 MCP_SERVER_DIR = "nodes/mcp_server"
+GIT_GREP_OK_CODES = (0, 1)
 
 
 def grep_tracked(pattern: str, pathspec: str = ".") -> list[str]:
@@ -20,6 +23,9 @@ def grep_tracked(pattern: str, pathspec: str = ".") -> list[str]:
 
     Returns:
         list[str]: Hit lines (`path:line:text`, truncated).
+
+    Raises:
+        AssertionError: If git grep fails (exit code other than 0 or 1).
     """
     result = subprocess.run(
         ["git", "grep", "-n", "-I", "-i", "-E", pattern, "--", pathspec],
@@ -28,6 +34,7 @@ def grep_tracked(pattern: str, pathspec: str = ".") -> list[str]:
         text=True,
         check=False,
     )
+    assert result.returncode in GIT_GREP_OK_CODES, f"git grep failed ({result.returncode}): {result.stderr.strip()}"
     hits = []
     for line in result.stdout.splitlines():
         path = line.split(":", 1)[0]
@@ -45,3 +52,9 @@ def test_no_head_placeholder_text() -> None:
 def test_front_camera_not_pinned_to_base_link() -> None:
     """mcp_server neither pins the front camera parent to base_link nor claims the front camera works in base_link."""
     assert grep_tracked(PINNED_PATTERN, MCP_SERVER_DIR) == []
+
+
+def test_grep_tracked_fails_loudly_on_git_error() -> None:
+    """A broken git grep (invalid regex) raises instead of reporting zero hits."""
+    with pytest.raises(AssertionError, match="git grep failed"):
+        grep_tracked("(")
