@@ -1,6 +1,6 @@
 ---
 title: Head camera node config
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The head camera node has a validated config and a package skeleton every later C++ task builds on."
 files: [nodes/head_camera_cpp/package.xml, nodes/head_camera_cpp/CMakeLists.txt, nodes/head_camera_cpp/include/head_camera_cpp/config.hpp, nodes/head_camera_cpp/src/core/config.cpp, nodes/head_camera_cpp/test/core/test_config.cpp, nodes/head_camera_cpp/README.md]
