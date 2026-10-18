@@ -809,6 +809,8 @@ def test_mcp_server_get_camera_image_docs_name_the_front_camera_module_3() -> No
     assert "Camera Module 3" in row and "1152x648" in row and "384x216" in row
     assert "head_camera" in row
     assert "front`: 640x480" not in row and "640x480 at 10 fps" not in row and "overhead" not in row
+    assert "640x480" not in row
+    assert "defaults to 384x288" not in texts[str(mcp_dir / "README.md")]
 
 
 def test_mcp_gripper_closed_target_is_inside_the_follower_gripper_command_range() -> None:
