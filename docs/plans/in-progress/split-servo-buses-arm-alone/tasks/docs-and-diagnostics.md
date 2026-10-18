@@ -1,6 +1,6 @@
 ---
 title: Docs and diagnostics
-status: done
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Operators and agents find the arm and the base on separate buses in every README, skill and diagnostic script."
 files: [README.md, ansible/README.md, .claude/skills/ansible-deploy/SKILL.md, .claude/skills/teleop-diagnostics/SKILL.md, scripts/swerve_diag.sh, scripts/README.md, MEMORY.md]
