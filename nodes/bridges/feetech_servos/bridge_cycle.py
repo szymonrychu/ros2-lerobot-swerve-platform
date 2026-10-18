@@ -12,11 +12,18 @@ from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .command_mapping import is_finite_command, map_position_to_steps, position_to_raw_steps, velocity_to_speed_register
+from .command_mapping import (
+    acceleration_cap_register,
+    is_finite_command,
+    map_position_to_steps,
+    position_to_raw_steps,
+    speed_cap_register,
+    velocity_to_speed_register,
+)
 from .config import DEFAULT_GOAL_REFRESH_INTERVAL_S, JointEntry, JointGroup
 from .metrics import COMMANDS, CYCLE_DURATION
-from .registers import RegisterEntry, write_register
-from .sync_write import sync_write_register
+from .registers import STS_ACC, RegisterEntry, write_register
+from .sync_write import register_bytes, sync_write_block, sync_write_register
 from .velocity_watchdog import apply_velocity_command, expired_velocity_joints
 
 MIN_STEPS = 0
@@ -82,6 +89,30 @@ def end_cycle(period_s: float, elapsed_s: float) -> float:
     """
     CYCLE_DURATION.observe(elapsed_s)
     return remaining_sleep_s(period_s, elapsed_s)
+
+
+def has_position_caps(joint: JointEntry) -> bool:
+    """Return True when the joint has a speed or acceleration cap configured."""
+    return joint.max_speed_rad_s is not None or joint.max_acceleration_rad_s2 is not None
+
+
+def goal_block(joint: JointEntry, steps: int) -> list[int]:
+    """Build the 7-byte register block starting at STS_ACC for a capped joint.
+
+    Layout (little-endian): acceleration (1), goal_position (2), goal_time (2, always 0), goal_speed (2). A cap
+    that is not configured is written as 0 (unlimited). The caps are written with every goal so a servo that reset
+    after a brownout (registers back to defaults) is capped again by the next goal refresh.
+
+    Args:
+        joint (JointEntry): Position joint with at least one cap.
+        steps (int): Target goal_position steps.
+
+    Returns:
+        list[int]: The 7 data bytes.
+    """
+    accel = acceleration_cap_register(joint.max_acceleration_rad_s2) if joint.max_acceleration_rad_s2 is not None else 0
+    speed = speed_cap_register(joint.max_speed_rad_s) if joint.max_speed_rad_s is not None else 0
+    return [accel, *register_bytes(steps, 2), *register_bytes(0, 2), *register_bytes(speed, 2)]
 
 
 @dataclass
@@ -286,18 +317,28 @@ class BridgeCycle:
         """
         name = self.goal_entry.name
         now = self.clock()
-        changed: dict[int, int] = {}
+        plain: dict[int, int] = {}
+        capped: dict[int, int] = {}
+        blocks: dict[int, list[int]] = {}
         for target in targets:
             sid = target.joint.id
             steps = int(target.value)
-            if self.last_written.setdefault(sid, {}).get(name) != steps or self.goal_refresh_due(sid, now):
-                changed[sid] = steps
-        if not sync_write_register(self.servo, self.goal_entry, changed):
-            return False
-        for sid, steps in changed.items():
-            self.last_written[sid][name] = steps
-            self.goal_written_at[sid] = now
-        return True
+            if self.last_written.setdefault(sid, {}).get(name) == steps and not self.goal_refresh_due(sid, now):
+                continue
+            if has_position_caps(target.joint):
+                capped[sid] = steps
+                blocks[sid] = goal_block(target.joint, steps)
+            else:
+                plain[sid] = steps
+        # Both sends are attempted even if the first fails; the cache follows what actually went out.
+        sent_plain = sync_write_register(self.servo, self.goal_entry, plain)
+        sent_capped = sync_write_block(self.servo, STS_ACC, blocks)
+        for sent, written in ((sent_plain, plain), (sent_capped, capped)):
+            if sent:
+                for sid, steps in written.items():
+                    self.last_written[sid][name] = steps
+                    self.goal_written_at[sid] = now
+        return sent_plain and sent_capped
 
     def goal_refresh_due(self, sid: int, now: float) -> bool:
         """Return True when the servo's goal_position should be rewritten even though it is unchanged.

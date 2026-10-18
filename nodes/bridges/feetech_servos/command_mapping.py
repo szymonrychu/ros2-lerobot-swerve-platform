@@ -15,6 +15,9 @@ STEPS_PER_RADIAN = STEPS_PER_REVOLUTION / (2 * math.pi)  # ~651.9 steps/rad
 # goal_speed / present_speed are sign-magnitude: bit 15 = negative direction, low 15 bits = steps/s.
 SPEED_SIGN_BIT = 1 << 15
 SPEED_MAGNITUDE_MASK = SPEED_SIGN_BIT - 1
+MAX_SPEED_CAP_REGISTER = SPEED_MAGNITUDE_MASK - 1  # 32766 steps/s
+ACCELERATION_UNIT_STEPS_S2 = 100  # the acceleration register counts units of 100 steps/s^2
+MAX_ACCELERATION_CAP_REGISTER = 254  # 255 is not a valid acceleration
 
 
 def is_finite_command(value: float) -> bool:
@@ -98,6 +101,37 @@ def velocity_to_speed_register(radians_per_s: float, max_velocity_rad_s: float, 
     if magnitude == 0:
         return 0
     return magnitude | SPEED_SIGN_BIT if velocity < 0 else magnitude
+
+
+def speed_cap_register(rad_s: float) -> int:
+    """Encode a position-joint speed cap as a goal_speed register value (steps/s, rounded up).
+
+    A configured cap never encodes as 0, which the STS treats as unlimited.
+
+    Args:
+        rad_s (float): Speed cap in rad/s (> 0).
+
+    Returns:
+        int: Steps per second clamped to 1..32766.
+    """
+    require_finite(rad_s, "speed cap")
+    return max(1, min(MAX_SPEED_CAP_REGISTER, math.ceil(rad_s * STEPS_PER_RADIAN)))
+
+
+def acceleration_cap_register(rad_s2: float) -> int:
+    """Encode an acceleration cap as an acceleration register value (units of 100 steps/s^2, rounded up).
+
+    A configured cap never encodes as 0, which the STS treats as unlimited.
+
+    Args:
+        rad_s2 (float): Acceleration cap in rad/s^2 (> 0).
+
+    Returns:
+        int: Register units clamped to 1..254.
+    """
+    require_finite(rad_s2, "acceleration cap")
+    units = math.ceil(rad_s2 * STEPS_PER_RADIAN / ACCELERATION_UNIT_STEPS_S2)
+    return max(1, min(MAX_ACCELERATION_CAP_REGISTER, units))
 
 
 def speed_register_to_velocity(raw: int, inverted: bool = False) -> float:

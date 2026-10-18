@@ -1,6 +1,7 @@
 """Configuration loading for Feetech servos bridge (namespace, joints with name+id, device)."""
 
 import logging
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -66,6 +67,8 @@ class JointEntry:
         inverted: If True, joint positive direction is opposite to the servo's (positions without
             source range mapping, and velocities).
         max_velocity_rad_s: Velocity command magnitude limit for velocity-mode joints, rad/s.
+        max_speed_rad_s: Optional speed cap of a position joint, rad/s (None = servo default, unlimited).
+        max_acceleration_rad_s2: Optional acceleration cap of a position joint, rad/s^2 (None = unlimited).
     """
 
     name: str
@@ -78,6 +81,8 @@ class JointEntry:
     mode: str = "position"
     inverted: bool = False
     max_velocity_rad_s: float = DEFAULT_MAX_VELOCITY_RAD_S
+    max_speed_rad_s: float | None = None
+    max_acceleration_rad_s2: float | None = None
 
 
 @dataclass
@@ -206,6 +211,34 @@ class BridgeConfig:
         return None
 
 
+def parse_position_cap(item: dict, key: str, name: str, mode: str) -> tuple[bool, float | None]:
+    """Parse an optional position-joint cap (speed or acceleration); only valid on position joints and > 0.
+
+    Args:
+        item (dict): Raw joint entry.
+        key (str): Cap key in the entry.
+        name (str): Joint name for the log message.
+        mode (str): Joint mode.
+
+    Returns:
+        tuple[bool, float | None]: (valid, cap); cap is None when the key is absent.
+    """
+    if item.get(key) is None:
+        return True, None
+    try:
+        cap = float(item[key])
+    except (TypeError, ValueError):
+        LOGGER.warning("joint %r: %s must be a number, got %r", name, key, item[key])
+        return False, None
+    if not math.isfinite(cap) or cap <= 0:
+        LOGGER.warning("joint %r: %s must be > 0, got %r", name, key, item[key])
+        return False, None
+    if mode != "position":
+        LOGGER.warning("joint %r: %s is only allowed on mode: position joints", name, key)
+        return False, None
+    return True, cap
+
+
 def parse_joints(raw_joints: object, seen_ids: set[int]) -> list[JointEntry] | None:
     """Parse a joint_names list of { name, id, ... } entries.
 
@@ -253,6 +286,10 @@ def parse_joints(raw_joints: object, seen_ids: set[int]) -> list[JointEntry] | N
             return None
         if max_velocity <= 0:
             return None
+        speed_ok, max_speed = parse_position_cap(item, "max_speed_rad_s", name, mode)
+        accel_ok, max_accel = parse_position_cap(item, "max_acceleration_rad_s2", name, mode)
+        if not (speed_ok and accel_ok):
+            return None
         if source_min is not None and source_max is not None and source_min > source_max:
             source_min, source_max = None, None
         if cmd_min is not None and cmd_max is not None and cmd_min > cmd_max:
@@ -269,6 +306,8 @@ def parse_joints(raw_joints: object, seen_ids: set[int]) -> list[JointEntry] | N
                 mode=mode,
                 inverted=bool(item.get("inverted", False)),
                 max_velocity_rad_s=max_velocity,
+                max_speed_rad_s=max_speed,
+                max_acceleration_rad_s2=max_accel,
             )
         )
     if len({j.name for j in joints}) != len(joints):

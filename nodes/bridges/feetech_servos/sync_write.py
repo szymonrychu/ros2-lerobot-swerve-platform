@@ -43,3 +43,26 @@ def sync_write_register(servo: Any, entry: RegisterEntry, values: dict[int, int]
     for sts_id, value in values.items():
         group.addParam(sts_id, register_bytes(value, entry.size))
     return group.txPacket() == COMM_SUCCESS
+
+
+def sync_write_block(servo: Any, start_address: int, blocks: dict[int, list[int]]) -> bool:
+    """Write a multi-register byte block on every servo in blocks with one GroupSyncWrite packet.
+
+    Same semantics as sync_write_register (broadcast, no status reply, empty input sends nothing), for several
+    adjacent registers at once.
+
+    Args:
+        servo (Any): ST3215-compatible bus (syncWriteTxOnly).
+        start_address (int): Address of the first register of the block.
+        blocks (dict[int, list[int]]): servo_id -> data bytes (same length for every servo), low byte first.
+
+    Returns:
+        bool: True if the packet was sent (also True for an empty dict: nothing to send).
+    """
+    if not blocks:
+        return True
+    length = len(next(iter(blocks.values())))
+    group = GroupSyncWrite(servo, start_address, length)
+    for sts_id, data in blocks.items():
+        group.addParam(sts_id, data)
+    return group.txPacket() == COMM_SUCCESS
