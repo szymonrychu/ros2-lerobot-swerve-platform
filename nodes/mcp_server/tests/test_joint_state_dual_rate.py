@@ -26,6 +26,7 @@ import yaml
 from pydantic import ValidationError
 
 from mcp_server.config import JointStateRateSettings, McpServerConfig
+from mcp_server.head_tools import TOOL_NAMES as HEAD_TOOL_NAMES
 from mcp_server.tools import RATE_SUBSYSTEMS, TOOL_SUBSYSTEM, build_mcp_server
 
 from .fakes import FakeArmBackend
@@ -518,6 +519,9 @@ def test_release_control_switches_both_and_sensor_tools_switch_nothing(rate_serv
     assert not any(c[0] == "begin_motion" for c in robot.calls)
     assert set(RATE_SUBSYSTEMS["release_control"]) == {"arm", "base"}
     for name, need in TOOL_SUBSYSTEM.items():
+        if name in HEAD_TOOL_NAMES:  # the head servos are on neither joint-state stream
+            assert name not in RATE_SUBSYSTEMS
+            continue
         assert RATE_SUBSYSTEMS[name] == (("arm", "base") if need == "any" else (need,))
 
 

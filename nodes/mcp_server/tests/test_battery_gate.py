@@ -39,6 +39,9 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
     "go_to_frontier": {"id": 1},
     "look_toward_frontier": {"id": 1},
     "approach_for_grasp": {"x": 1.5, "y": 2.0, "z": 0.05},
+    "set_head_angles": {"pan_deg": 0.0, "tilt_deg": 10.0},
+    "head_look_at": {"x": 2.0, "y": 0.0, "z": 0.3},
+    "head_home": {},
 }
 ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_robot_state": {},

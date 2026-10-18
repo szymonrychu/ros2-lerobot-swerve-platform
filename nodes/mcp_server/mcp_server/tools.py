@@ -30,6 +30,7 @@ from . import (
     frontier_tools,
     grasp_tools,
     guard_tools,
+    head_tools,
     lookup_tools,
     map_tools,
     motion_tools,
@@ -113,6 +114,7 @@ TOOL_NAMES = (
     *map_tools.TOOL_NAMES,
     *frontier_tools.TOOL_NAMES,
     *approach_tools.TOOL_NAMES,
+    *head_tools.TOOL_NAMES,
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
@@ -137,6 +139,9 @@ MOTION_TOOLS = frozenset(
         "go_to_frontier",
         "look_toward_frontier",
         "approach_for_grasp",
+        "set_head_angles",
+        "head_look_at",
+        "head_home",
     }
 )
 ALWAYS_ALLOWED_TOOLS = frozenset(
@@ -172,7 +177,7 @@ QUEUE_EXCLUSIVE_TOOLS = MOTION_TOOLS - {"enqueue_motions", "resume_motions", "ar
 # before the battery and tilt gates. enqueue_motions is checked per step kind inside the tool (arm_joints /
 # arm_cartesian / gripper / grasp need arm, the Nav2 steps in motion_queue.BASE_KINDS need base). Every other tool
 # (stop, cancel_motions, wait_for_event, get_motion_status, take/release/get_control_state, plan_grasp, camera,
-# perception, POI, lookup, arm_set_home) needs none. A future head tool takes "any": either lease satisfies it, so a
+# perception, POI, lookup, arm_set_home) needs none. The head tools take "any": either lease satisfies them, so a
 # base-to-arm hand-over needs no head reset.
 TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
     "move_arm_joints": "arm",
@@ -188,6 +193,7 @@ TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
     "go_to_frontier": "base",
     "look_toward_frontier": "base",  # base-only turn (the arm never moves)
     "approach_for_grasp": "base",  # drives to the grasp pose (suggest_approach_pose is read-only and needs none)
+    **{name: "any" for name in head_tools.TOOL_NAMES},
 }
 # Tools that may move while parking (release_control homes the arm): counted as a running blocking motion so the queue
 # does not start meanwhile; their own queue-busy refusal lives in the tool (control.QUEUE_BUSY_REFUSAL).
@@ -197,7 +203,13 @@ PARKING_TOOLS = frozenset({"release_control"})
 # release_control (parks the arm and resets the base). Queued steps and the web UI / service motions switch in
 # ArmController's MotionGuard and RosRobot's base motions.
 RATE_SUBSYSTEMS: dict[str, tuple[Subsystem, ...]] = {
-    **{name: ("arm", "base") if need == "any" else (need,) for name, need in TOOL_SUBSYSTEM.items()},
+    **{
+        name: ("arm", "base") if need == "any" else (need,)
+        for name, need in TOOL_SUBSYSTEM.items()
+        # Explicit exclusion: the head servos sit on neither the arm nor the base joint-state stream, so a head tool
+        # has no full-rate joint states to wait for.
+        if name not in head_tools.TOOL_NAMES
+    },
     **{name: ("arm", "base") for name in PARKING_TOOLS},
 }
 DIGEST_EVENTS_KEY = "robot_events_since_last_call"
@@ -220,7 +232,7 @@ Look before moving: call get_robot_state, get_map_summary and get_camera_image f
 move_relative (Nav2 plans around obstacles) over drive. Arm motions are slow, clamped to joint limits and abort on
 stale feedback or tracking error. Control leases: call take_control(subsystem='arm') before any arm or gripper tool
 and take_control(subsystem='base') before any base tool (navigate_to_pose, move_relative, drive, look_around,
-approach_for_grasp); a tool without its lease is refused and nothing moves. Both may be held at once. The arm
+approach_for_grasp); a tool without its lease is refused and nothing moves. Both may be held at once. The head tools (set_head_angles, head_look_at, head_home; degrees, the head looks forward and down at home) need either lease, and releasing the controlling lease sends the head home. The arm
 lease is sticky: while held the leader arm and web UI are ignored. When done call release_control(subsystem='arm'|'base'|'all'): by default it parks
 (the arm drives to its stored home pose, the base stops and its steering straightens) and always releases, reporting
 a failed park; keep_position=true releases without moving. get_control_state shows both leases and whether the arm
@@ -1249,6 +1261,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     map_tools.register,
     frontier_tools.register,
     approach_tools.register,
+    head_tools.register,
 )
 
 

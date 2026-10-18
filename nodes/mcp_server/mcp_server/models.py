@@ -130,6 +130,13 @@ class ArmState(BaseModel):
     )
 
 
+class HeadAngles(BaseModel):
+    """Head pan/tilt in degrees (pan + left, tilt + down; 0/0 is straight ahead and level)."""
+
+    pan_deg: float
+    tilt_deg: float
+
+
 class RobotState(BaseModel):
     """Snapshot of the robot; any source older than its staleness limit is omitted and listed in notes."""
 
@@ -138,6 +145,7 @@ class RobotState(BaseModel):
     nav_goal: NavGoalStatus | None = None
     collision_monitor: CollisionMonitorInfo | None = None
     arm: ArmState | None = None
+    head: HeadAngles | None = Field(default=None, description="Measured head pan/tilt; absent without a fresh sample")
     data_age_s: dict[str, float] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
 

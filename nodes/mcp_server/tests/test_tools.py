@@ -14,6 +14,8 @@ from starlette.testclient import TestClient
 from mcp_server.arm import ArmController
 from mcp_server.base_motion import DriveOutcome, SpinOutcome
 from mcp_server.config import McpServerConfig
+from mcp_server.head import HeadController
+from mcp_server.head_kinematics import HeadKinematics
 from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import (
     BasePose,
@@ -39,7 +41,7 @@ from mcp_server.tools import (
     build_mcp_server,
 )
 
-from .fakes import FakeArmBackend, PerceptionFakeMixin
+from .fakes import FakeArmBackend, FakeHeadBackend, PerceptionFakeMixin
 
 TOKEN = "t" * 48
 PERCEPTION_TOOLS = (
@@ -72,6 +74,8 @@ class FakeRobot(PerceptionFakeMixin):
             load_joint_limits(cfg.arm.urdf_path),
             cfg,
         )
+        self.head_backend = FakeHeadBackend()
+        self.head = HeadController(self.head_backend, HeadKinematics(cfg.head.urdf_path), cfg.head)
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.camera_error: str | None = None
         self.init_perception()
@@ -81,6 +85,7 @@ class FakeRobot(PerceptionFakeMixin):
         return RobotState(
             pose=BasePose(frame="map", x=1.0, y=2.0, yaw=0.5, age_s=0.05),
             arm=self.arm.state(),
+            head=self.head.angles_deg(),
             data_age_s={"tf_map_base_link": 0.05},
         )
 
@@ -209,6 +214,9 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         *FRONTIER_TOOLS,
         "suggest_approach_pose",
         "approach_for_grasp",
+        "set_head_angles",
+        "head_look_at",
+        "head_home",
     }
     for t in tools:
         assert t.description and len(t.description) > 60, t.name

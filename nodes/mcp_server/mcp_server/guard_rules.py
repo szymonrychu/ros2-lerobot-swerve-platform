@@ -58,6 +58,9 @@ GUARDABLE_TOOLS = frozenset(
         "go_to_frontier",
         "look_toward_frontier",
         "approach_for_grasp",
+        "set_head_angles",
+        "head_look_at",
+        "head_home",
         "take_control",
     }
 )

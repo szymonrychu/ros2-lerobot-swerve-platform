@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from .arm import JointSample
 from .config import HeadSettings
 from .head_kinematics import HeadKinematics
+from .models import HeadAngles
 
 HEAD_FRAME_ID = "autonomy"
 POLL_INTERVAL_S = 0.05
@@ -90,6 +91,18 @@ class HeadController:
         if any(name not in sample.positions for name in names):
             return None
         return {name: sample.positions[name] for name in names}
+
+    def angles_deg(self) -> HeadAngles | None:
+        """Measured head angles in degrees from a fresh sample.
+
+        Returns:
+            HeadAngles | None: Pan/tilt in degrees, None when measured() has no fresh sample.
+        """
+        measured = self.measured()
+        if measured is None:
+            return None
+        pan, tilt = (measured[name] for name in self.settings.joint_names)
+        return HeadAngles(pan_deg=math.degrees(pan), tilt_deg=math.degrees(tilt))
 
     def check(self, pan: float, tilt: float) -> None:
         """Refuse angles outside the URDF limits (no clamping).

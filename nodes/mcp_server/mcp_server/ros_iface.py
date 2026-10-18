@@ -1731,6 +1731,7 @@ class RosRobot:
         state.arm = self.arm.state()
         if state.arm.positions is None:
             state.notes.append("arm joint states missing or stale")
+        state.head = self.head.angles_deg()
         return state
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:

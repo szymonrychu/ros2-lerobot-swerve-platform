@@ -59,6 +59,9 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
 | `list_frontiers(max_count, reachable_only)` / `plan_frontier_visit(id)` | Frontiers of the SLAM map (numbered, stable ids) with geodesic distance, bearing, observation pose, nearest POI and last facing lookup; plan one visit with a Nav2 check. Sensors, no lease. See [Frontiers](#frontiers). |
 | `go_to_frontier(id, timeout_s)` / `look_toward_frontier(id, camera)` | Effectors (base lease, battery and tilt gates): Nav2 drive to a frontier's observation pose; in-place turn plus one recorded camera image toward it (no travel). See [Frontiers](#frontiers). |
+| `set_head_angles(pan_deg, tilt_deg)` | Move the pan/tilt head (degrees; pan + left, tilt + down, 0/0 level ahead). Lease `any` (arm or base), a motion tool (refused under battery cut-off), not in `RATE_SUBSYSTEMS`. Outside the URDF limits it is refused naming the limits in degrees. Returns status (`converged`/`timeout`/`no_feedback`), commanded and measured pan/tilt in degrees. |
+| `head_look_at(x, y, z, frame='base_link'\|'map')` | Aim the RGB camera axis once at a point (`HeadKinematics.look_at`, no tracking) and move there. `map` points are converted with the current robot map pose (refused when unknown). Unreachable points are refused with the pan/tilt they would need and nothing is published. Same lease/battery rules; also returns the target in base_link. |
+| `head_home()` | Move to the configured head home (`head.home_pan_rad` / `head.home_tilt_rad`, forward and down). Same lease/battery rules. |
 | `remember_object` / `list_objects` / `forget_object` | Object memory in map coordinates, stored as object POIs in poi_store (merge, distance/bearing from the robot). Sensor. |
 | `look_around(captures=4, camera='front', mode=None, return_to_start=None)` | Effector, ONE motion call: in-place turn through equal headings with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). |
 | `enqueue_motions(steps, replace=false, watch_constraints=None)` | Effector: queue motion steps and return at once (job ids, queue length, blend groups); `watch_constraints` abort or pause the queue on a sensor condition. See [Motion queue](#motion-queue). |
@@ -671,6 +674,16 @@ partition every tool):
 | `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `check_guard_rules`, `plan_grasp`, `suggest_approach_pose`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi`, `clear_pois`, `list_lookups`, `get_lookup_image`, `annotate_lookup`, `delete_photos` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
+
+## Head
+
+`head_tools.py` (`set_head_angles`, `head_look_at`, `head_home`) drives the pan/tilt head through `head.HeadController`
+(`RosRobot.head`). Config section `head` (`HeadSettings`): `urdf_path`, `joint_names` (`head_pan`, `head_tilt`),
+`command_topic` (`/head/joint_commands`), `state_topic` (`/head/joint_states`), `home_pan_rad` / `home_tilt_rad` (home
+looks forward and down, must lie inside the URDF limits), `tolerance_rad`, `move_timeout_s`, `state_max_age_s`. The tools
+need either the arm or the base lease (`TOOL_SUBSYSTEM` `"any"`), are in `MOTION_TOOLS` and are deliberately absent from
+`RATE_SUBSYSTEMS` (the head is on neither joint-state stream). `get_robot_state` carries `head: {pan_deg, tilt_deg}` only
+from a fresh `/head/joint_states` sample.
 
 ## Control leases
 
