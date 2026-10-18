@@ -184,7 +184,7 @@ POI category tags in the note (`ros2_common.poi_categories`): constants, round t
 
 ### `test_shared_maps.py`
 
-Named maps contract (`ros2_common.maps`): topic constants, `validate_map_name` accept/reject, `Pose2D` finiteness, `MapCommand` per-op field rules (name required for save/load/delete and empty for relocalise, `pose` load only, `note` save only, `since` / `discard_on_fail` relocalise only, unknown op / extra keys rejected), `MapResult`, `Localisation` (states, ratio 0..1), `MapSummary` and `MapStatus` (`load_seq >= 0`), and JSON round trips.
+Named maps contract (`ros2_common.maps`): topic constants, `validate_map_name` accept/reject, `Pose2D` finiteness, `MapCommand` per-op field rules (name required for save/load/delete and empty for relocalise, `pose` load only, `note` save only, `since` / `discard_on_fail` relocalise only, unknown op / extra keys rejected), `MapResult`, `Localisation` (states, ratio 0..1), `clear_live` (no name or other field; `test_command_clear_live_takes_no_fields`), `MapSummary` (`photo_count` defaults to 0 and is >= 0; `test_summary_photo_count_defaults_and_bounds`) and `MapStatus` (`load_seq >= 0`), and JSON round trips.
 
 ### `test_shared_battery.py`
 

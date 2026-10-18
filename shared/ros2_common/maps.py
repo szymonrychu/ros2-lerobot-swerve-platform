@@ -22,7 +22,7 @@ MAP_NAME_RULE = "1-40 characters: letters, digits, '_' and '-', starting with a 
 MAX_NOTE_CHARS = 500
 NAMED_OPS = ("save", "load", "delete")
 
-MapOp = Literal["save", "load", "delete", "relocalise"]
+MapOp = Literal["save", "load", "delete", "relocalise", "clear_live"]
 LocalisationState = Literal["unknown", "loading", "localised", "not_localised", "ambiguous"]
 
 _NAME_RE = re.compile(MAP_NAME_PATTERN)
@@ -64,9 +64,10 @@ class Pose2D(BaseModel):
 class MapCommand(BaseModel):
     """A command on ``COMMAND_TOPIC``.
 
-    ``name`` is required and validated for save/load/delete and must be empty for relocalise. ``pose`` is load
-    only, ``note`` and ``overwrite`` are save only (overwrite is refused on relocalise), ``since`` and
-    ``discard_on_fail`` are relocalise only.
+    ``name`` is required and validated for save/load/delete and must be empty for relocalise and clear_live
+    (clear_live empties the live POIs and photos and takes no other field). ``pose`` is load only, ``note`` and
+    ``overwrite`` are save only (overwrite is refused on relocalise), ``since`` and ``discard_on_fail`` are
+    relocalise only.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -86,13 +87,13 @@ class MapCommand(BaseModel):
         if self.op in NAMED_OPS:
             validate_map_name(self.name)
         elif self.name:
-            raise ValueError("relocalise takes no map name")
+            raise ValueError(f"{self.op} takes no map name")
         if self.pose is not None and self.op != "load":
             raise ValueError("pose is only allowed on load")
         if self.note and self.op != "save":
             raise ValueError("note is only allowed on save")
-        if self.op == "relocalise" and self.overwrite:
-            raise ValueError("overwrite is not allowed on relocalise")
+        if self.op in ("relocalise", "clear_live") and self.overwrite:
+            raise ValueError(f"overwrite is not allowed on {self.op}")
         if self.op != "relocalise" and (self.since is not None or self.discard_on_fail):
             raise ValueError("since and discard_on_fail are only allowed on relocalise")
         if self.since is not None and not math.isfinite(self.since):
@@ -120,12 +121,17 @@ class Localisation(BaseModel):
 
 
 class MapSummary(BaseModel):
-    """One saved map; ``error`` is non-empty only for an invalid bundle."""
+    """One saved map; ``error`` is non-empty only for an invalid bundle.
+
+    ``poi_count`` counts the non-photo POIs and ``photo_count`` the photos of the bundle (0 for bundles saved
+    before photos were bundled, and for status payloads that predate the field).
+    """
 
     name: str
     saved_at: float
     note: str
     poi_count: int
+    photo_count: int = Field(default=0, ge=0)
     last_pose: Pose2D
     valid: bool
     error: str = ""
