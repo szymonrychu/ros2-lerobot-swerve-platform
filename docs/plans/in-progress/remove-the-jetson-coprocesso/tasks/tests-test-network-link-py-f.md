@@ -1,6 +1,6 @@
 ---
 title: "tests/test_network_link.py fails 2 tests (test_all_yml_defines_the_link_vars_and_names_d8 and test_all_yml_keys_the_link_by_group_membership; they read jetson_link_* vars and the templated network_link_ethernets from all.yml)."
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "This task's requirement removes those vars from all.yml. The file belongs to drop-network-link-support, which deletes it. Integration must merge both tasks, or the full suite fails on this file."
 files: ["tests/test_network_link.py:180-215"]
@@ -54,3 +54,7 @@ Test first. One step per bullet, with the exact command and the output to expect
 
 Discovered in task `remove-jetson-link-on-client` during run `remove-the-jetson-coprocesso`.
 
+
+## Resolution
+
+No change needed (orchestrator ruling 2026-10-18): drop-network-link-support deleted tests/test_network_link.py and both tasks are merged; main runs 1117 passed.
