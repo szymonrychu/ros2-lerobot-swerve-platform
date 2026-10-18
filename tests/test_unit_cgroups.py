@@ -55,11 +55,11 @@ AGENT = {
     ],
 }
 # Background tier: work the robot can lose: the systemd default weight and no OOM protection, below every robot and
-# agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers, pi_cameras the front/back
-# previews (the retired depth nodes that once shared the tier are gone, D7).
+# agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers, head_camera_cpp the head
+# camera preview (the retired depth nodes that once shared the tier are gone, D7).
 BACKGROUND = {
     "weights": (100, 100, 0),
-    "types": ["joint_state_throttle_follower", "joint_state_throttle_swerve", "pi_cameras"],
+    "types": ["joint_state_throttle_follower", "joint_state_throttle_swerve", "head_camera_cpp"],
 }
 TIERS = [CRITICAL, NORMAL, AGENT]
 ALL_TIERS = [*TIERS, BACKGROUND]
@@ -326,6 +326,7 @@ def test_every_client_type_is_tiered() -> None:
         "stereo_depth",
         "stereo_depth_cpp",
         "overview_camera",
+        "pi_cameras",
         "jetson_bridge_cpp",
     }
     assert set(type_defaults(CLIENT_VARS)) - TIERED_TYPES == uninstalled

@@ -285,82 +285,15 @@ ros2_node_type_defaults:
   overview_camera:
     deploy_mode: native
     node_launch_command: "ros2 launch overview_camera overview_camera.launch.py"
-  # Two Camera Module 3 (IMX708) on the Pi 5 CSI ports: front/back previews only (nothing but the web_ui camera tab
-  # consumes them). Raspberry Pi libcamera fork + camera_ros built from the same pinned sources as the earlier
-  # Pi camera node into /opt/ros2-ws (libcamera first), so the existing build stamps match and nothing rebuilds. The
-  # apt ros-jazzy-camera-ros / ros-jazzy-libcamera packages must NOT be installed: they would shadow the fork. The
-  # boot config loads the imx708 overlay on cam0 (playbooks/tasks/pi_camera_boot_config.yml). See nodes/pi_cameras/README.md.
+  # Retired (D9 of the head camera epic): the Camera Module 3 is the head camera, served by head_camera_cpp. Only the
+  # uninstall path stays: present: false removes the unit, launcher and config, and colcon_purge removes the
+  # camera_ros install. libcamera is NOT purged: head_camera_cpp builds against it.
   pi_cameras:
     deploy_mode: native
-    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/pi_cameras/launch/pi_cameras.launch.py"
-    node_src_dir: ""
-    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
-    src_paths: [nodes/pi_cameras]
-    # Background tier: a preview the robot can lose, so it yields to every robot and agent node under contention. No
-    # series yet: the retired one-camera 640x480 15 fps JPEG unit had a working set p50/24 h peak of 94.6/95.6 MiB
-    # (Mimir, 2026-10-11); two cameras share one process and CameraManager, so MemoryLow ~ 1.33x that p50 and
-    # MemoryMax 4x the peak. Re-measure now that the pair runs again.
-    memory_low: "128M"
-    memory_max: "384M"
-    cpu_weight: 100
-    io_weight: 100
-    oom_score_adjust: 0
-    nice: 10
-    config_path: /etc/ros2/pi_cameras
-    env:
-      - PI_CAMERAS_CONFIG=/etc/ros2/pi_cameras/config.yaml
-    colcon_source:
-      - repo: https://github.com/raspberrypi/libcamera.git
-        commit: v0.7.2+rpt20260817
-        package: libcamera
+    node_launch_command: "ros2 launch pi_cameras pi_cameras.launch.py"
+    colcon_purge:
+      - package: camera_ros
         workspace: /opt/ros2-ws
-        # colcon-meson needs a package.xml (build_type meson); libpisp comes from its meson wrap (needs network).
-        patches:
-          - "{{ ros2_repo_dest }}/nodes/pi_cameras/patches/libcamera-0001-add-package-xml.patch"
-        meson_args:
-          - -Dpipelines=rpi/pisp
-          - -Dipas=rpi/pisp
-          - -Dcam=enabled
-          - -Dqcam=disabled
-          - -Dgstreamer=disabled
-          - -Dv4l2=false
-          - -Dtest=false
-          - -Ddocumentation=disabled
-          - -Dpycamera=disabled
-          # No -Dprefix/-Dlibdir/-Dbuildtype: colcon-meson passes --prefix, --libdir (install/lib) and --buildtype
-          # itself, and meson fails on a duplicate ("Got argument buildtype as both -Dbuildtype and --buildtype").
-      - repo: https://github.com/christianrauch/camera_ros.git
-        commit: 8f792e27a6dbc81e4943a75765fc1b7b7d37b301
-        package: camera_ros
-        workspace: /opt/ros2-ws
-        # Exposes the rpi::SyncMode and rpi::SyncFrames controls as parameters; kept (unused) so the build stamp of the
-        # existing install still matches and the Pi does not rebuild.
-        patches:
-          - "{{ ros2_repo_dest }}/nodes/pi_cameras/patches/camera_ros-0001-expose-sync-controls.patch"
-    apt_packages:
-      - git
-      - build-essential
-      - cmake
-      - pkg-config
-      - python3-colcon-common-extensions
-      - python3-colcon-meson
-      - meson
-      - ninja-build
-      - python3-ply
-      - python3-jinja2
-      - python3-yaml
-      - libyaml-dev
-      - libgnutls28-dev
-      - ros-jazzy-ament-cmake
-      - ros-jazzy-rclcpp
-      - ros-jazzy-rclcpp-components
-      - ros-jazzy-sensor-msgs
-      - ros-jazzy-diagnostic-msgs
-      - ros-jazzy-camera-info-manager
-      - ros-jazzy-cv-bridge
-      - ros-jazzy-image-transport
-      - ros-jazzy-image-transport-plugins
-      - ros-jazzy-compressed-image-transport
   # Head RGB camera (Camera Module 3 on CSI cam0): 30 fps /head_camera/* plus autofocused full-resolution zoom crops
   # (nodes/head_camera_cpp/README.md). It replaces pi_cameras and builds against the same pinned libcamera: the first
   # colcon_source dict is identical to pi_cameras' (repo, commit, meson_args, patch contents; the patch path is not part
@@ -1199,20 +1132,14 @@ ros2_nodes:
   - name: overview_camera
     node_type: overview_camera
     present: false
-  # Front/back Camera Module 3 previews (/front_camera/* and /back_camera/*).
-  # front_port is the CSI connector of the front camera: cam0 (default) is front, cam1 is back; set cam1 to swap.
-  # Camera IDs: `cam -l` on the client (defaults in nodes/pi_cameras/config/params.yaml). roles lists the cameras to
-  # launch: only front, because CSI cam1 now carries the Arducam ToF camera (arducam_tof).
+  # Retired (D9): the Camera Module 3 is the head camera served by head_camera_cpp (/head_camera/*).
+  # present: false uninstalls the unit, launcher and config on the next deploy and purges camera_ros.
   - name: pi_cameras
     node_type: pi_cameras
-    present: true
-    enabled: true
-    config: |
-      front_port: cam0
-      roles: [front]
+    present: false
   # Head RGB camera of the pan/tilt head: Camera Module 3 on CSI cam0 (the Arducam ToF is on cam1). Publishes
   # /head_camera/* in head_camera_optical_frame; no TF is published (the frame is parented to the pan/tilt chain
-  # when that exists). Replaces pi_cameras: never enable both (one camera owner).
+  # when that exists). Replaces the retired pi_cameras (one camera owner).
   - name: head_camera_cpp
     node_type: head_camera_cpp
     present: true

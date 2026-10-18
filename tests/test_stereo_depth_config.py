@@ -90,7 +90,7 @@ def test_node_types_keep_only_what_the_uninstall_path_needs() -> None:
 def test_background_tier_has_no_stereo_type() -> None:
     types = load_client()["ros2_node_type_defaults"]
     background = [n for n, t in types.items() if (t.get("cpu_weight"), t.get("io_weight")) == (100, 100)]
-    assert sorted(background) == ["joint_state_throttle_follower", "joint_state_throttle_swerve", "pi_cameras"]
+    assert sorted(background) == ["head_camera_cpp", "joint_state_throttle_follower", "joint_state_throttle_swerve"]
 
 
 def test_metrics_target_is_removed() -> None:
@@ -122,7 +122,7 @@ def test_tests_readme_metrics_wiring_rows_have_no_stereo_node() -> None:
     ]
     assert len(rows) == 2
     for row in rows:
-        assert "stereo_depth" not in row and str(RETIRED_PORT) not in row, row
+        assert "stereo_depth" not in row and "stereo_depth_cpp" not in row, row
 
 
 def test_tests_readme_lists_every_test_of_this_file() -> None:

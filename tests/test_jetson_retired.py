@@ -194,17 +194,6 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     ("tests/test_mcp_server_config.py", r'assert "fused_depth_topic" not in head$', "retirement-test"),
     (
-        "tests/test_pi_cameras_config.py",
-        r"def test_namespaces_are_not_the_overview_camera_namespace",
-        "retirement-test",
-    ),
-    ("tests/test_pi_cameras_deploy.py", r"The retired /overview_camera/\* names must not be$", "retirement-test"),
-    (
-        "tests/test_pi_cameras_deploy.py",
-        r"def test_web_ui_shows_the_previews_not_the_overview_camera_names|assert \"overview_camera\" not in text$",
-        "retirement-test",
-    ),
-    (
         "tests/test_unit_cgroups.py",
         r'^        "(stereo_depth|stereo_depth_cpp|overview_camera|jetson_bridge_cpp)",$',
         "retirement-test",
@@ -718,7 +707,6 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     ("nodes/pi_cameras/README.md", r"The retired `/overview_camera/\*` names are not used here", "retirement-doc"),
     # pinned-build: part of the libcamera build stamp, changing it would rebuild.
-    ("nodes/pi_cameras/patches/**", r"overview_camera", "pinned-build"),
     ("nodes/head_camera_cpp/patches/**", r"overview_camera", "pinned-build"),
 )
 
@@ -750,7 +738,7 @@ def test_allowed_references_use_only_the_known_categories() -> None:
     """Every entry carries one of the six categories, and a directory-wide glob appears only for the archive and pinned patches."""
     assert {category for _, _, category in ALLOWED_REFERENCES} <= ALLOWED_CATEGORIES
     wide = {glob for glob, _, _ in ALLOWED_REFERENCES if "**" in glob}
-    assert wide <= {*ARCHIVE_GLOBS, "nodes/pi_cameras/patches/**", "nodes/head_camera_cpp/patches/**"}
+    assert wide <= {*ARCHIVE_GLOBS, "nodes/head_camera_cpp/patches/**"}
 
 
 def test_no_live_jetson_stereo_or_overview_reference() -> None:

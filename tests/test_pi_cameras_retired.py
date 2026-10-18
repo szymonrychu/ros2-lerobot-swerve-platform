@@ -1,8 +1,12 @@
-"""Static invariants of the Pi camera retirement (D7): no cameras on the Pi.
+"""Static invariants of the two Pi camera retirements: the overview camera (D7) and pi_cameras (D9).
 
 The overview_camera ros2_nodes entry is present: false (the next deploy uninstalls its unit) and its node type keeps
 only what the uninstall path needs. The boot config that replaced its overlay file is covered by
 test_pi_camera_boot_config.py.
+
+D9 of the head camera epic retires pi_cameras the same way: its entry is present: false with no config, its node type
+keeps only the launch command and the camera_ros purge (libcamera stays: head_camera_cpp builds against it), and
+nodes/pi_cameras and its two test files are deleted.
 """
 
 from pathlib import Path
@@ -16,6 +20,7 @@ CLIENT_PLAYBOOK = ANSIBLE / "playbooks" / "deploy_nodes_client.yml"
 TASKS = ANSIBLE / "playbooks" / "tasks"
 REMOVED_TASKS = TASKS / "pi_camera_overlays_removed.yml"
 OLD_TASKS = TASKS / "overview_camera_boot_config.yml"
+PI_CAMERAS_DIR = REPO_ROOT / "nodes" / "pi_cameras"
 ANSIBLE_README = ANSIBLE / "README.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
 DEPLOY_ONLY_KEYS = (
@@ -70,10 +75,48 @@ def test_overview_camera_node_type_keeps_only_what_the_uninstall_path_needs() ->
     assert set(defaults) == {"deploy_mode", "node_launch_command"}
 
 
-def test_only_pi_cameras_builds_libcamera_and_camera_ros() -> None:
+def test_pi_cameras_entry_is_uninstalled_by_the_next_deploy() -> None:
+    node = next(n for n in load_client()["ros2_nodes"] if n["name"] == "pi_cameras")
+    assert node["node_type"] == "pi_cameras"
+    assert node["present"] is False
+    assert "config" not in node
+
+
+def test_pi_cameras_entry_names_d9_in_its_comment() -> None:
+    lines = CLIENT_VARS.read_text().splitlines()
+    index = lines.index("  - name: pi_cameras")
+    comment = []
+    while lines[index - 1].lstrip().startswith("#"):
+        index -= 1
+        comment.append(lines[index])
+    assert "D9" in " ".join(comment)
+
+
+def test_pi_cameras_node_type_keeps_only_launch_command_and_camera_ros_purge() -> None:
+    defaults = load_client()["ros2_node_type_defaults"]["pi_cameras"]
+    assert set(defaults) == {"deploy_mode", "node_launch_command", "colcon_purge"}
+    assert defaults["deploy_mode"] == "native"
+    assert defaults["node_launch_command"]
+    assert [p["package"] for p in defaults["colcon_purge"]] == ["camera_ros"]
+    assert defaults["colcon_purge"][0]["workspace"] == "/opt/ros2-ws"
+
+
+def test_only_head_camera_cpp_builds_libcamera_and_nobody_builds_camera_ros() -> None:
     defaults = load_client()["ros2_node_type_defaults"]
     builders = [name for name, node in defaults.items() if "raspberrypi/libcamera" in str(node.get("colcon_source"))]
-    assert sorted(builders) == ["head_camera_cpp", "pi_cameras"]
+    assert builders == ["head_camera_cpp"]
+    camera_ros = [name for name, node in defaults.items() if "camera_ros.git" in str(node.get("colcon_source"))]
+    assert camera_ros == []
+
+
+def test_pi_cameras_sources_and_old_tests_are_deleted() -> None:
+    assert not PI_CAMERAS_DIR.exists()
+    assert not (REPO_ROOT / "tests" / "test_pi_cameras_config.py").exists()
+    assert not (REPO_ROOT / "tests" / "test_pi_cameras_deploy.py").exists()
+
+
+def test_client_playbook_still_deploys_pi_cameras_so_the_uninstall_runs() -> None:
+    assert "_deploy_node_name: pi_cameras" in CLIENT_PLAYBOOK.read_text()
 
 
 def test_old_boot_file_and_old_tests_are_deleted() -> None:

@@ -1895,24 +1895,6 @@ Static checks of the web_ui Agent tab in `ansible/group_vars/client.yml` (no ROS
 | `test_agent_tab_url_matches_claude_agent_port` | `agent_url` is 127.0.0.1 with the same port as the claude_agent `http_port` (18300). |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_web_ui_agent_tab.py` is listed in this section. |
 
-### `test_pi_cameras_deploy.py`
-
-Static invariants of the front/back Camera Module 3 previews (`pi_cameras`): pinned libcamera and camera_ros sources and existing patches, no apt camera stack, launch command and env, background tier, entry with `front_port: cam0`, the web_ui `pi_cameras` tab on `/front_camera` and `/back_camera` topics, boot config without an imx708 overlay, docs.
-
-| Test | Covers |
-|---|---|
-| `test_node_type_builds_libcamera_then_camera_ros_from_the_pinned_sources` | See the function docstring/name. |
-| `test_node_type_never_installs_the_apt_camera_stack` | See the function docstring/name. |
-| `test_node_type_launches_the_pi_cameras_launch_file` | See the function docstring/name. |
-| `test_node_type_is_a_background_preview_that_loses_to_the_robot` | See the function docstring/name. |
-| `test_node_entry_is_present_and_enabled_with_the_front_port_documented` | See the function docstring/name. |
-| `test_node_entry_launches_only_the_front_camera_while_cam1_carries_the_tof` | The entry config holds `roles: [front]`. |
-| `test_entry_comment_documents_the_port_to_role_mapping` | See the function docstring/name. |
-| `test_web_ui_shows_the_previews_not_the_overview_camera_names` | The web_ui tab shows only the front preview. |
-| `test_boot_config_loads_the_imx708_overlay_on_cam0` | `pi_camera_boot_config.yml` writes `dtoverlay=imx708,cam0`. |
-| `test_launch_file_uses_the_pi_cameras_namespaces_only` | See the function docstring/name. |
-| `test_docs_describe_the_previews_and_the_front_port` | See the function docstring/name. |
-
 ### `test_head_camera_deploy.py`
 
 Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group_vars/client.yml`): the libcamera source is the pinned dict of `pi_cameras` (same build stamp, nothing rebuilds), the patch is a byte-identical copy.
@@ -1930,28 +1912,6 @@ Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group
 | `test_monitoring_target_is_present` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19113/metrics`. |
 | `test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras` | `deploy_nodes_client.yml` has a `Deploy head_camera_cpp` step directly after `Deploy pi_cameras` (resolve_and_deploy, apply tag and `_deploy_node_name` `head_camera_cpp`, tags incl. apt/python/build/config). |
 
-### `test_pi_cameras_config.py`
-
-The pure-Python launch helper `nodes/pi_cameras/launch/pi_cameras_config.py`: settings merge, `front_port` to front/back camera ID, namespaces, camera_ros parameters.
-
-| Test | Covers |
-|---|---|
-| `test_deep_merge_overrides_nested_keys_without_touching_the_base` | See the function name. |
-| `test_defaults_put_cam0_in_front_with_the_pi5_libcamera_ids` | See the function name. |
-| `test_defaults_are_a_cheap_640x480_10fps_preview` | See the function name. |
-| `test_override_file_is_merged_over_the_defaults` | See the function name. |
-| `test_empty_override_file_keeps_the_defaults` | See the function name. |
-| `test_cam0_front_maps_cam0_to_front_and_cam1_to_back` | See the function name. |
-| `test_front_port_cam1_swaps_the_roles` | See the function name. |
-| `test_unknown_front_port_is_rejected` | See the function name. |
-| `test_namespaces_are_not_the_overview_camera_namespace` | See the function name. |
-| `test_camera_parameters_select_the_camera_and_compress_the_stream` | See the function name. |
-| `test_back_camera_has_its_own_frame_id` | See the function name. |
-| `test_unknown_role_is_rejected` | See the function name. |
-| `test_defaults_launch_both_roles` | Default `launch.roles` is front and back. |
-| `test_flat_roles_override_launches_only_the_listed_cameras` | A flat `roles: [front]` override moves into `launch` and launches only front. |
-| `test_unknown_or_empty_roles_are_rejected` | An unknown or empty `roles` raises `ValueError`. |
-
 ### `test_pi_camera_boot_config.py`
 
 Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on CSI cam0, Arducam ToF on cam1).
@@ -1968,14 +1928,19 @@ Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on 
 
 ### `test_pi_cameras_retired.py`
 
-Static checks of the Pi camera retirement (D7: no cameras on the Pi), read as YAML and text.
+Static checks of the two Pi camera retirements (D7 the overview camera, D9 `pi_cameras`), read as YAML and text.
 
 | Test | What it pins |
 |---|---|
 | `test_overview_camera_entry_is_uninstalled_by_the_next_deploy` | The `overview_camera` ros2_nodes entry is `present: false` with no config. |
 | `test_overview_camera_entry_names_d7_in_its_comment` | The comment above the entry names D7. |
 | `test_overview_camera_node_type_keeps_only_what_the_uninstall_path_needs` | The node type has only `deploy_mode: native` and a launch command: no source, build, tier or env keys. |
-| `test_only_pi_cameras_builds_libcamera_and_camera_ros` | Of all client node types exactly `head_camera_cpp` and `pi_cameras` build libcamera. |
+| `test_pi_cameras_entry_is_uninstalled_by_the_next_deploy` | The `pi_cameras` ros2_nodes entry is `present: false` with no config. |
+| `test_pi_cameras_entry_names_d9_in_its_comment` | The comment above the entry names D9. |
+| `test_pi_cameras_node_type_keeps_only_launch_command_and_camera_ros_purge` | The node type keys are exactly `deploy_mode`, `node_launch_command`, `colcon_purge`, and the purge list names `camera_ros` only (libcamera stays). |
+| `test_only_head_camera_cpp_builds_libcamera_and_nobody_builds_camera_ros` | Only `head_camera_cpp` builds libcamera; no node type builds camera_ros. |
+| `test_pi_cameras_sources_and_old_tests_are_deleted` | `nodes/pi_cameras`, `test_pi_cameras_config.py` and `test_pi_cameras_deploy.py` do not exist. |
+| `test_client_playbook_still_deploys_pi_cameras_so_the_uninstall_runs` | The playbook still deploys the name so the uninstall runs. |
 | `test_old_boot_file_and_old_tests_are_deleted` | `overview_camera_boot_config.yml`, `pi_camera_overlays_removed.yml` and the two `test_overview_camera*.py` files are gone. |
 | `test_client_playbook_still_deploys_overview_camera_so_the_uninstall_runs` | The playbook still deploys the name so the uninstall runs. |
 | `test_ansible_readme_describes_the_removal` | `ansible/README.md` names neither removed boot file and has no memory row for `overview_camera`. |
@@ -2309,7 +2274,7 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_jetson_bridge_type_keeps_only_the_uninstall_and_purge_keys` | The node type has exactly `deploy_mode: native`, the launch command and `colcon_purge` of `jetson_bridge_cpp` in `/opt/ros2-ws`. |
 | `test_client_playbook_still_deploys_jetson_bridge_so_the_uninstall_runs` | `deploy_nodes_client.yml` still deploys the name. |
 | `test_jetson_bridge_metrics_target_is_removed` | No `monitoring_agent_node_targets` row for the bridge or port 19114. |
-| `test_allowed_references_use_only_the_known_categories` | Every `ALLOWED_REFERENCES` entry is `archive`, `retired-entry`, `uninstall-artifact`, `retirement-test`, `retirement-doc` or `pinned-build`, and only the two archive directories, `nodes/pi_cameras/patches/**` and `nodes/head_camera_cpp/patches/**` (pinned-build) use a directory-wide glob. |
+| `test_allowed_references_use_only_the_known_categories` | Every `ALLOWED_REFERENCES` entry is `archive`, `retired-entry`, `uninstall-artifact`, `retirement-test`, `retirement-doc` or `pinned-build`, and only the two archive directories and `nodes/head_camera_cpp/patches/**` (pinned-build) use a directory-wide glob. |
 | `test_no_live_jetson_stereo_or_overview_reference` | `git grep -n -i -E` over tracked files for `jetson`, `depthd`, `stereo`, `overview_camera`, `depth_wire`, `fused_depth` and `10.77.0.` finds no hit outside the `(path glob, line regex, category)` allowlist; any other hit is fixed by editing the line. |
 
 ## test_node_cpu_compare.py
