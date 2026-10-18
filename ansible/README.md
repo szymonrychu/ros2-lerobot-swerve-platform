@@ -701,7 +701,6 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 | `costmap_zones` | 19111 | `metrics_port` |
 | `arducam_tof` (disabled: add its target when enabling) | 19112 | `metrics_port` |
 | `jetson_bridge_cpp` | 19114 | `metrics_port` |
-| `jetson_depthd` (not a ROS node: depthd on the Jetson at `{{ jetson_link_jetson_ip }}:8090`, scraped by the Pi's Alloy because the Jetson has no route to the server) | 8090 | own `/metrics` (`depthd` HTTP API) |
 | `web_ui` | 8080 | `http_port` (own server) |
 | `test_joint_api` | 18080 | `port` (own server) |
 | `topic_scraper_api` | 18100 | `port` (own server) |
