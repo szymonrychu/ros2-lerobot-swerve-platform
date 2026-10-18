@@ -58,7 +58,7 @@ from .metrics import (
     USAGE_TOKEN_KINDS,
     WATCHDOG_FIRES,
 )
-from .plan_tools import PLAN_SERVER_NAME, RobotToolCaller, build_plan_server
+from .plan_tools import PLAN_SERVER_NAME, RobotToolCaller, SessionToolsProvider, build_plan_server
 from .plan_tree import STATUS_PENDING, reachable_phases
 from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
@@ -217,6 +217,7 @@ def build_options(
     system_prompt: str,
     post_tool_use: HookCallback | None = None,
     robot_tool_caller: RobotToolCaller | None = None,
+    session_tools: SessionToolsProvider | None = None,
 ) -> ClaudeAgentOptions:
     """Build the SDK options: the robot MCP tools, the in-process planning server and the five notes file tools, permissions decided by the gate.
 
@@ -228,6 +229,8 @@ def build_options(
         system_prompt (str): System prompt text.
         post_tool_use (HookCallback | None): PostToolUse hook whose context is appended to every tool result.
         robot_tool_caller (RobotToolCaller | None): Robot tool caller complete_phase reads list_pois through for its POI hint.
+        session_tools (SessionToolsProvider | None): Returns the session's tool names (None while unknown) for the
+            start_workflow perception capability line.
 
     Returns:
         ClaudeAgentOptions: Options whose built-in tools are exactly Read/Write/Edit/Glob/Grep (the gate confines them to
@@ -266,7 +269,7 @@ def build_options(
         setting_sources=[],
         mcp_servers={
             MCP_SERVER_NAME: {"type": "http", "url": config.mcp_url, "headers": {"Authorization": f"Bearer {token}"}},
-            PLAN_SERVER_NAME: build_plan_server(gate.plan, robot_tool_caller),
+            PLAN_SERVER_NAME: build_plan_server(gate.plan, robot_tool_caller, session_tools),
         },
         strict_mcp_config=True,
         env=env,
@@ -395,6 +398,7 @@ class AgentRunner:
         self.poi_clearer = poi_clearer or self.default_poi_clearer
         self.mcp_prober = mcp_prober or self.default_mcp_prober
         self.robot_tool_caller = robot_tool_caller or self.default_robot_tool_caller
+        self.session_tools: set[str] | None = None
         self.job_end_followups = 0
         self.poi_review_sent = False
         self.explored = False
@@ -863,6 +867,7 @@ class AgentRunner:
                 build_system_prompt(self.config),
                 self.add_time_left,
                 self.call_robot_tool_safely,
+                lambda: self.session_tools,
             )
             client = self.client_factory(options)
             try:
@@ -1128,6 +1133,8 @@ class AgentRunner:
                 if isinstance(message, StreamEvent):
                     self.note_stream_event(message)
                     continue
+                if isinstance(message, SystemMessage):
+                    self.note_session_tools(message)
                 if isinstance(message, AssistantMessage):
                     self.plan.count_turn()
                     TURNS.inc()
@@ -1176,6 +1183,17 @@ class AgentRunner:
         finally:
             self.streaming = False
         return finished, followup
+
+    def note_session_tools(self, message: SystemMessage) -> None:
+        """Record the session's tool names from the CLI's ``init`` system message (start_workflow's capability line).
+
+        Args:
+            message (SystemMessage): A system message of the response stream; only subtype ``init`` with a ``tools``
+                list is read.
+        """
+        tools = message.data.get("tools") if message.subtype == "init" else None
+        if isinstance(tools, list):
+            self.session_tools = {str(name) for name in tools}
 
     def job_end_applies(self, result: ResultMessage) -> bool:
         """Whether the job-end check runs for a result (user stop, timeout, turn cap, errors and max_turns skip it).
@@ -1668,6 +1686,7 @@ class AgentRunner:
             self.end_turn(status=STATUS_INTERRUPTED, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
         self.client = None
         self.session_totals = {}
+        self.session_tools = None
         if client is not None:
             try:
                 await asyncio.wait_for(self.disconnect_quietly(client), limit)

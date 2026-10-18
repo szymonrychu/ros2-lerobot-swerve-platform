@@ -167,6 +167,10 @@ class PlanTracker:
         revised (bool): Whether the one revision of the instruction was used.
         revision_rationale (str): Why the plan was revised ("" when it was not).
         time_budget_min (float | None): The declared time budget of the whole task in minutes (None before a plan).
+        workflow (str | None): Name of the workflow template agent.start_workflow seeded the plan from (None for a
+            free-form plan); kept across revise_plan.
+        mandatory_ids (list[str]): Ids of the workflow's mandatory phases (the template's, even when the agent edited
+            them out); kept across revise_plan.
         ro_used (int): Sensor calls so far in the instruction (telemetry only, never capped).
         rw_used (int): Effector calls allowed so far in the instruction.
         turns_used (int): Model turns so far in the instruction.
@@ -238,6 +242,8 @@ class PlanTracker:
         self.revised = False
         self.revision_rationale = ""
         self.time_budget_min: float | None = None
+        self.workflow: str | None = None
+        self.mandatory_ids: list[str] = []
         self.ro_used = 0
         self.rw_used = 0
         self.turns_used = 0
@@ -274,8 +280,9 @@ class PlanTracker:
         """The plan as the event/API payload.
 
         Returns:
-            dict[str, Any] | None: complexity, rationale, time_budget_min, revised, revision_rationale, active_phase,
-            phases (flat, preorder, with index), tree and pending_condition; None before a plan.
+            dict[str, Any] | None: complexity, rationale, time_budget_min, workflow (None for a free-form plan),
+            revised, revision_rationale, active_phase, phases (flat, preorder, with index; a mandatory workflow phase
+            carries ``mandatory: true``), tree and pending_condition; None before a plan.
         """
         if self.root is None:
             return None
@@ -283,6 +290,7 @@ class PlanTracker:
             "complexity": self.complexity,
             "rationale": self.rationale,
             "time_budget_min": self.time_budget_min,
+            "workflow": self.workflow,
             "revised": self.revised,
             "revision_rationale": self.revision_rationale,
             "active_phase": self.active,
@@ -303,9 +311,11 @@ class PlanTracker:
         """Return all phases as payloads.
 
         Returns:
-            list[dict[str, Any]]: One dict per phase, in flat preorder.
+            list[dict[str, Any]]: One dict per phase, in flat preorder; a phase whose id is in mandatory_ids also has
+            ``mandatory: true``.
         """
-        return [phase.as_dict() for phase in self.phases]
+        mandatory = set(self.mandatory_ids)
+        return [phase.as_dict() | ({"mandatory": True} if phase.id in mandatory else {}) for phase in self.phases]
 
     def instruction_maxima(self) -> dict[str, int]:
         """Return the instruction-level hard maxima.
@@ -565,7 +575,14 @@ class PlanTracker:
             self.on_time_budget(minutes)
 
     def set_plan(
-        self, complexity: Any, rationale: Any, phases: Any = None, plan: Any = None, time_budget_min: Any = None
+        self,
+        complexity: Any,
+        rationale: Any,
+        phases: Any = None,
+        plan: Any = None,
+        time_budget_min: Any = None,
+        workflow: str | None = None,
+        mandatory_ids: list[str] | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         """Accept the plan (once per instruction) and walk to its first phase or pending condition.
 
@@ -576,6 +593,8 @@ class PlanTracker:
             plan (Any): Plan tree root node, or None (exactly one of phases and plan).
             time_budget_min (Any): Minutes for the whole task, above 0 and at most max_instruction_time_min. The
                 set_task_plan tool requires it; None (internal callers only) keeps the pre-plan instruction_timeout_s.
+            workflow (str | None): The workflow template the plan comes from (agent.start_workflow), None otherwise.
+            mandatory_ids (list[str] | None): The workflow's mandatory phase ids (None: none).
 
         Returns:
             tuple[dict[str, Any], list[str]]: The plan payload and the notes about clamped caps.
@@ -594,6 +613,8 @@ class PlanTracker:
         self.check_sums(parser.phases, {cap: 0 for cap in CAP_FIELDS})
         self.complexity = complexity
         self.rationale = text
+        self.workflow = workflow
+        self.mandatory_ids = list(mandatory_ids or [])
         self.phases = parser.phases
         self.root = root
         self.stack = (Frame(root),)

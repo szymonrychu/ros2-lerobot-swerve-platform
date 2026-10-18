@@ -658,7 +658,14 @@ def test_tool_names_and_schemas() -> None:
     assert ANSWER_CONDITION_TOOL == "answer_condition"
     assert "mcp__agent__answer_condition" in FULL_TOOL_NAMES
     tools = {tool.name: tool for tool in build_plan_tools(PlanTracker(ClaudeAgentConfig()))}
-    assert set(tools) == {"set_task_plan", "complete_phase", "revise_plan", "raise_phase_budget", "answer_condition"}
+    assert set(tools) == {
+        "set_task_plan",
+        "complete_phase",
+        "revise_plan",
+        "raise_phase_budget",
+        "answer_condition",
+        "start_workflow",
+    }
     plan_schema = tools["set_task_plan"].input_schema
     assert plan_schema["required"] == ["complexity", "rationale", "time_budget_min"]
     assert {"phases", "plan"} <= set(plan_schema["properties"])

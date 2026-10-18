@@ -20,12 +20,12 @@ web_ui (later: proxy)  --HTTP/WS-->  claude_agent (127.0.0.1:18300)
   starts a new one), one instruction at a time. The MCP token file is read when a session is created and never logged.
 - `plan_tree.py`: the plan tree grammar (phase / seq / if / while nodes, `Phase` records, `TreeParser` validation of the tree and the flat form) and the pure cursor walk `advance()` plus `reachable_phases()` (see "Plan tree").
 - `budget.py`: `PlanTracker`, the per-instruction plan state: phases with their own caps, maxima and budget room, completion with the retry policy, one revision, one raise per phase entry, and the counters the gate charges (see "Task plan").
-- `plan_tools.py`: the in-process SDK MCP server `agent` with the tools `set_task_plan`, `complete_phase`, `revise_plan`, `raise_phase_budget` and `answer_condition`: schemas, descriptions and result texts.
+- `plan_tools.py`: the in-process SDK MCP server `agent` with the tools `set_task_plan`, `complete_phase`, `revise_plan`, `raise_phase_budget`, `answer_condition` and `start_workflow` (see "Workflows"): schemas, descriptions and result texts.
 - `robot_events.py`: parsing of the `/robot_events` JSON and the follow-up text (see "Robot events and interrupts").
 - `tools.py`: `EffectorGate`, the `can_use_tool` callback. The only built-in tools are the five notes file tools
   (`tools=[Read, Write, Edit, Glob, Grep]`, see "Workdir and notes"); everything else is disabled (a deny list for Bash,
   WebFetch, WebSearch, Task/Agent, TodoWrite, NotebookEdit, AskUserQuestion, plan mode, ...) and no allow rules exist, so
-  calls reach the gate: `mcp__robot__*` (within the budget), the four `mcp__agent__*` planning tools and the sandboxed file tools are allowed, everything else denied.
+  calls reach the gate: `mcp__robot__*` (within the budget), the `mcp__agent__*` planning tools and the sandboxed file tools are allowed, everything else denied.
 - `poi_clear.py`: calls the mcp_server admin route `POST /admin/clear_agent_pois` (HTTP, bearer token) on reset; never raises.
 - `robot_stop.py`: `call_robot_tool(url, token_file, timeout_s, name, args)` calls one robot MCP tool directly with the
   official `mcp` client (Streamable HTTP, bearer token from the token file; `mcp` is pinned in `pyproject.toml`) and
@@ -389,6 +389,49 @@ Mandatory phases inside an `if` branch (place_checklist, verify_place) are requi
 The time budgets come from `workflow_time_budget_min` (see Configuration); the sightseeing skill uses the discovery
 budget as its time limit. The caps of every template fit both the code defaults and the deployed config in
 `ansible/group_vars/client.yml` without clamping.
+
+### start_workflow
+
+`agent.start_workflow` (in `plan_tools.py`, one of the planning tools, so the gate classifies it as `plan` and allows
+it without a plan) seeds the task plan from a template in one call; it is the workflow alternative to
+`agent.set_task_plan`, which stays unchanged for free-form jobs. Jobs start from free text only: the agent picks the
+workflow that matches the person's request (the tool description lists each template with its one-line description
+and params). Arguments:
+
+| Argument | Meaning |
+|---|---|
+| `name` (required) | The template, an enum of the loaded templates. |
+| `params` | Object of strings, the template's params by name (a missing required param or an unknown param is an error naming it). |
+| `time_budget_min` | Optional; default `workflow_time_budget_min[name]`. Above the ceiling `max_instruction_time_min` the plan is rejected, as with set_task_plan. |
+| `plan` | Optional edited plan tree (from a dry run) set instead of the expanded template. |
+| `dry_run` | `true`: return the expanded tree as JSON and set nothing. |
+
+**Dry run.** The result text is a JSON object: `workflow`, `complexity`, `time_budget_min`, `plan` (the expanded
+tree, ready to edit), `mandatory_ids`, `skills` and `capabilities` (the capability line). Nothing is set on the
+tracker.
+
+**Setting the plan.** The plan (the edited `plan` or the expanded template) goes through
+`PlanTracker.set_plan(template.complexity, "workflow <name>: <params>", plan=..., time_budget_min=...)`, so every limit
+and cap applies (caps above the per-phase maxima are clamped with an "Adjusted:" note; sums above the instruction
+maxima are rejected), and a plan already set for the instruction (by start_workflow or set_task_plan) gives the same
+"Plan rejected: a plan is already set ..." error as set_task_plan. The result is the usual accepted-plan text plus
+`Workflow <name>; mandatory steps: <ids>` and the capability line. After that the plan works like any other: the
+gate allows effector tools, and `revise_plan` stays available once.
+
+**Editing.** The agent may add, reorder or drop phases in the dry-run tree and pass it back as `plan`. The tracker
+always records the template's mandatory ids, even for phases the edit dropped: the job-end check flags dropped or
+skipped mandatory steps.
+
+**Tracker state.** `PlanTracker.workflow` (template name, None for a free-form plan) and `PlanTracker.mandatory_ids`
+are set by a successful start_workflow, kept across `revise_plan` and cleared by `reset()`. The plan payload (events
+and API) carries `workflow`, and each phase whose id is mandatory carries `mandatory: true`, for the web UI.
+
+**Capability line.** `perception_capabilities(tools)` returns `head aiming: yes|no, 3D map: yes|no` from whether the
+session has `mcp__robot__head_look_at` and `mcp__robot__get_3d_map_status` (`unknown` for both before the session
+reported its tools). The runner records the session's tool names from the CLI's `init` system message
+(`AgentRunner.session_tools`, cleared when the session is dropped) and passes `lambda: self.session_tools` to
+`build_plan_tools` through `build_options`. Zoom is not in the line: it is a `get_camera_image` parameter the agent
+reads from the tool description.
 
 **Adding a template.** Create `workflow_templates/<name>.yaml` with `name` (= file name), `title`, a one-line
 `description`, `complexity`, `params` (`name`, `description`, `required`, and `default` for an optional param) and
