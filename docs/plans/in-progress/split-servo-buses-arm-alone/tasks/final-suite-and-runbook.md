@@ -1,6 +1,6 @@
 ---
 title: Final suite and runbook
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Every suite is green, no live text puts the swerve servos on the arm bus, and the orchestrator has a staged robot runbook."
 files: [tests/test_servo_bus_live_refs.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--final-suite-and-runbook
 branch: split-servo-buses-arm-alone--final-suite-and-runbook
 verified_head: ""
-run: ""
+run: split-servo-buses-arm-alone
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Final suite and runbook

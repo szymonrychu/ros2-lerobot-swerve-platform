@@ -2,7 +2,7 @@
 title: Split servo buses arm alone base plus head
 blockers: []
 stage: build
-owner: ""
+owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
 ---
@@ -35,7 +35,9 @@ The SO-101 follower arm and the swerve base servos share one Feetech USB bus ins
 
 
 
-Estimate: 440 min | Actual: 0 min | Remaining estimate: 440 min
+
+
+Estimate: 440 min | Actual: 0 min | Remaining estimate: 360 min
 
 ## Review
 

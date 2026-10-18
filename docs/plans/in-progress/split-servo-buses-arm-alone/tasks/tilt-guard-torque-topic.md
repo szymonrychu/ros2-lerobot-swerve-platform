@@ -1,6 +1,6 @@
 ---
 title: Tilt guard torque topic
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: A tilt-guard torque_off reaches the drive servos on their own bus instead of being dropped by the arm bridge.
 files: [nodes/swerve_drive_controller/swerve_drive_controller/tilt_guard.py, nodes/swerve_drive_controller/tests/test_tilt_guard.py, nodes/swerve_drive_controller/tests/test_node_tilt_guard.py, nodes/swerve_drive_controller/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--tilt-guard-torque-topic
 branch: split-servo-buses-arm-alone--tilt-guard-torque-topic
-verified_head: ""
-run: ""
+verified_head: 83af294455d8aa6986d54f93927266765dc6b374
+run: split-servo-buses-arm-alone
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Tilt guard torque topic

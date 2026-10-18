@@ -1,6 +1,6 @@
 ---
 title: Bus budget test
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "A byte-count test proves the arm-only bus keeps headroom at 100 Hz and base plus head fit the base bus, before any hardware is touched."
 files: [nodes/bridges/feetech_servos/tests/test_bus_budget.py, nodes/bridges/feetech_servos/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--bus-budget-test
 branch: split-servo-buses-arm-alone--bus-budget-test
 verified_head: ""
-run: ""
+run: split-servo-buses-arm-alone
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Bus budget test

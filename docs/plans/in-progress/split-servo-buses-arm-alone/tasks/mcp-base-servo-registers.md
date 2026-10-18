@@ -1,6 +1,6 @@
 ---
 title: MCP base servo registers
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: Overheat and servo-error events for the swerve servos keep reaching the agent after the base moves to its own bus.
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_on_demand_subscriptions.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml, tests/test_mcp_server_config.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--mcp-base-servo-registers
 branch: split-servo-buses-arm-alone--mcp-base-servo-registers
-verified_head: ""
-run: ""
+verified_head: 3eb7eea753291d2698ff5cf088c3dff31724c3ed
+run: split-servo-buses-arm-alone
 provides: []
+acs_for_audit: [a4]
+process_gaps: []
 ---
 
 # MCP base servo registers

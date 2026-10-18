@@ -1,6 +1,6 @@
 ---
 title: Docs and diagnostics
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Operators and agents find the arm and the base on separate buses in every README, skill and diagnostic script."
 files: [README.md, ansible/README.md, .claude/skills/ansible-deploy/SKILL.md, .claude/skills/teleop-diagnostics/SKILL.md, scripts/swerve_diag.sh, scripts/README.md, MEMORY.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--docs-and-diagnostics
 branch: split-servo-buses-arm-alone--docs-and-diagnostics
 verified_head: ""
-run: ""
+run: split-servo-buses-arm-alone
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Docs and diagnostics
