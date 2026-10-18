@@ -330,3 +330,30 @@ joint limits or offsets, the tool point, the jaw, the body check margins or the 
 uv run python scripts/gen_reach_map.py          # rebuild
 uv run python scripts/gen_reach_map.py --check  # exit 1 when stale
 ```
+
+## markers_generate.py
+
+Writes the QR metadata markers (payload `P1/K:<kind>/N:<name>/S:<mm>`, see `shared/ros2_common/marker_payload.py`) and the ChArUco calibration board of the head RGB-D calibration as print-ready files. Libraries: segno (QR), reportlab (PDF), trimesh + manifold3d (meshes), OpenCV (board).
+
+```bash
+uv run python -m scripts.markers_generate [config]   # default scripts/markers_generate.yaml
+```
+
+The only argument is an optional config path. Exit 1 on an invalid config (pydantic error naming the key, nothing written) or when a marker cannot be produced (named in the error, its files are not written, the others are still produced).
+
+Config keys (`scripts/markers_generate.yaml`):
+
+- `output_dir`: relative paths resolve against the repo root (default `.logs/markers`, gitignored; never commit print files).
+- `defaults`: `ecc` (m/q), `min_version`/`max_version` (2..4), `quiet_zone_modules` (>= 2), `page` (`size` A4/A3/LETTER or `width_mm`+`height_mm`, `orientation`).
+- `stl`: `base_thickness_mm`, `relief_mm`, `inlay_mm` (0 = raised modules, > 0 = flush inlay), `margin_mm`, `min_module_mm` (refuse below, default 1.5), `warn_module_mm` (warn below, default 2.0).
+- `markers[]`: `kind_code`, `name`, `size_mm`, optional `params`, `outputs` (subset of `pdf`, `stl`, `3mf`), `page` override.
+- `charuco`: `squares_x`, `squares_y` (odd), `square_mm`, `marker_mm`, `dictionary`, `margin_mm`, `thickness_mm` (>= 4), `relief_mm`, `bed_mm`, `page`, `outputs`. Omit to skip the board.
+
+Outputs per marker, stem `<kind>-<name>` in lower case: `charger-dock-1.pdf`, `charger-dock-1-base.stl`, `charger-dock-1-modules.stl`, `charger-dock-1.3mf`. The board uses the stem `charuco-6x5-40mm` with the same four suffixes (6x5 squares of 40 mm with 30 mm markers, plate 250 x 210 mm, fits a 256 mm bed).
+
+Size definition: `size_mm` is the symbol edge, finder outer edge to outer edge, quiet zone excluded. The module edge is `size_mm / (17 + 4 * version)`; the STL path refuses a module under `min_module_mm` (1.5 mm) and warns under `warn_module_mm` (2 mm). A 20 mm marker is therefore too small for STL, 100 mm marker modules are 3.4-4 mm.
+
+Printing:
+
+- PDF: print at 100 % (actual size, no fit to page) on the media in the config; the page carries a 100 mm ruler to check the scale with calipers. Mount on a rigid plate and keep the white quiet zone.
+- STL: load both STLs together (base and modules) or the 3MF, which holds the two parts as separate objects. In Bambu Studio assign white filament to the base and black to the modules (3MF extruders 1 and 2); the modules are raised by `relief_mm`.

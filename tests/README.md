@@ -2348,3 +2348,62 @@ ChArUco calibration board from `scripts/markers/charuco.py`; the PDF raster and 
 | `test_mesh_footprint_matches_board_corners` | Top view of the module body detects 20 corners within 0.2 mm of `getChessboardCorners()`. |
 | `test_stl_base_is_4_mm_thick_and_plate_sized` | Base STL is 250 x 210 x 4 mm, modules rise 0.6 mm; pdf, two STLs and 3MF are written. |
 | `test_outputs_subset` | `outputs: [pdf]` writes only the PDF. |
+
+### `test_shared_marker_payload.py`
+
+The marker payload codec `shared/ros2_common/marker_payload.py` (`P1/K:<kind>/N:<name>/S:<mm>/<KEY>:<VAL>`), no hardware needed.
+
+| Test | What it covers |
+|------|----------------|
+| `test_round_trip_known_kinds` | Encode then decode returns the same payload for every known kind code and its POI kind. |
+| `test_round_trip_params_and_minor` | Extra params (including alphanumeric punctuation and empty values) and a minor version survive a round trip. |
+| `test_decode_example` | The documented example string decodes to the expected fields. |
+| `test_canonical_order_and_size_format` | Encoding emits fields in canonical order and formats sizes without trailing zeros. |
+| `test_minor_accepted_major_rejected` | `P1.3` is accepted, an unknown major version is rejected. |
+| `test_unknown_kind_lowercased` | An unknown kind code decodes and maps to a lower-case POI kind. |
+| `test_malformed` | Malformed texts raise `PayloadError` with the matching reason. |
+| `test_payload_error_is_value_error` | `PayloadError` subclasses `ValueError`. |
+| `test_model_validation` | The pydantic model refuses invalid kind, name, size and params. |
+| `test_marker_info_carries_canonical_text` / `test_marker_info_from_decoded_payload` | `marker_info` carries the canonical text, key and pose sample count, also from a decoded payload. |
+
+### `test_markers_symbol.py`
+
+Generator config loading (`scripts/markers/config.py`) and the QR symbol builder (`scripts/markers/symbol.py`).
+
+| Test | What it covers |
+|------|----------------|
+| `test_shipped_yaml_covers_known_kinds` | `scripts/markers_generate.yaml` loads and has a marker per known kind. |
+| `test_unknown_key_names_it` / `test_invalid_marker_name_names_it` / `test_defaults_are_validated` | Invalid config raises a pydantic error naming the key or marker. |
+| `test_charuco_slot_is_a_validated_spec` | The `charuco` section is validated as a `CharucoSpec`. |
+| `test_charger_builds_v2_q_6mm_modules` | A 150 mm CHARGER marker is version 2-Q with 6 mm modules. |
+| `test_longer_payload_picks_v3` / `test_over_capacity_raises_naming_capacity` / `test_ecc_m` | Version selection, over-capacity error and error-correction level are honoured (no silent EC boost). |
+| `test_raster_decodes_to_payload` | A rendered raster decodes with zxing-cpp to the payload. |
+| `test_capacity_table_matches_segno` | `ALNUM_CAPACITY` equals what segno accepts. |
+
+### `test_markers_mesh.py`
+
+Two-body marker meshes and the Bambu 3MF from `scripts/markers/mesh.py`.
+
+| Test | What it covers |
+|------|----------------|
+| `test_bodies_watertight_and_disjoint` / `test_bodies_disjoint_with_inlay` | Base and modules are watertight and do not overlap, also with a flush inlay. |
+| `test_module_footprint_matches_matrix` / `test_no_module_material_in_quiet_zone` | The module top view equals the QR matrix and the quiet zone stays free. |
+| `test_heights` / `test_flush_inlay_heights_and_pockets` | Base thickness, relief height and inlay pockets are as configured. |
+| `test_plate_size_150mm_v2` | Plate side is size + quiet zone + margin. |
+| `test_module_too_small_raises_naming_size` / `test_module_size_warning` | Modules under `min_module_mm` raise, under `warn_module_mm` log a warning. |
+| `test_invalid_heights_raise` | Zero module height or an inlay deeper than the base raises. |
+| `test_write_bodies_3mf_structure` | The 3MF holds two named objects with extruders 1 and 2; both STLs are written. |
+| `test_render_then_decode` | The module body rendered from above decodes to the payload. |
+| `test_mask_bodies_unions_adjacent_cells_and_orients_rows` | Adjacent cells merge and mask row 0 is the top. |
+
+### `test_markers_generate_cli.py`
+
+The `scripts/markers_generate.py` command end to end, with tmp configs and output dirs.
+
+| Test | What it covers |
+|------|----------------|
+| `test_two_markers_and_charuco_write_expected_files` | Two markers plus the `charuco` section write exactly the expected file set (`<kind>-<name>` stems, `charuco-6x5-40mm`), print each file and return 0. |
+| `test_unknown_key_returns_1_and_writes_nothing` | An unknown config key returns 1, the error names the key, nothing is written. |
+| `test_too_small_stl_marker_fails_others_written` | A marker too small for FDM returns 1, is named in the error, writes none of its files, and the other marker's files exist. |
+| `test_relative_output_dir_resolves_against_repo_root` | A relative `output_dir` lands under the repo root. |
+| `test_shipped_config_runs_and_pdfs_decode` | The shipped `markers_generate.yaml` (output redirected) runs; every marker PDF, rasterised, decodes to its own payload; STL and 3MF exist. |
