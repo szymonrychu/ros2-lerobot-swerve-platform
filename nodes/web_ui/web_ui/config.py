@@ -139,7 +139,6 @@ GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "camera_info_topic",
     "rgb_camera_topic",
     "tof_depth_topic",
-    "fused_depth_topic",
     "tof_amplitude_topic",
 )
 
@@ -269,7 +268,6 @@ class TabConfig(BaseModel):
     arm_take_control_service: str | None = None  # arm: std_srvs/Trigger taking the arm lease for the web UI
     arm_release_control_service: str | None = None  # arm: std_srvs/Trigger releasing the lease to the leader
     rgb_camera_topic: str | None = None  # head: sensor_msgs/CompressedImage of the head RGB camera
-    fused_depth_topic: str | None = None  # head: optional AI-filled 16UC1 mm depth (same format as tof_depth_topic)
     tof_depth_topic: str | None = None  # head: sensor_msgs/Image 16UC1 (mm, 0 = invalid) ToF depth
     tof_amplitude_topic: str | None = None  # head: sensor_msgs/Image mono8 or mono16 ToF amplitude
     tof_range_m: float = Field(
@@ -503,17 +501,12 @@ class AppConfig(BaseModel):
         return [tab for tab in self.tabs if tab.type == HEAD_TAB_TYPE]
 
     def tof_ranges(self) -> dict[str, float]:
-        """Map each head tab's depth topics (raw and fused) to the depth range of their greyscale previews.
+        """Map each head tab's depth topics to the depth range of their greyscale previews.
 
         Returns:
             dict[str, float]: Depth topic -> tof_range_m in metres.
         """
-        return {
-            topic: tab.tof_range_m
-            for tab in self.head_tabs()
-            for topic in (tab.tof_depth_topic, tab.fused_depth_topic)
-            if topic
-        }
+        return {topic: tab.tof_range_m for tab in self.head_tabs() for topic in (tab.tof_depth_topic,) if topic}
 
     def map_reset_services(self) -> list[str]:
         """Return the slam_toolbox Reset services of all map_nav tabs.
@@ -613,7 +606,6 @@ class AppConfig(BaseModel):
             for topic, role in (
                 (tab.rgb_camera_topic, HEAD_RGB_ROLE),
                 (tab.tof_depth_topic, HEAD_DEPTH_ROLE),
-                (tab.fused_depth_topic, HEAD_DEPTH_ROLE),
                 (tab.tof_amplitude_topic, HEAD_AMPLITUDE_ROLE),
             ):
                 if topic:

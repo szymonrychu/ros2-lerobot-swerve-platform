@@ -68,14 +68,12 @@ tabs:
     arm_joint_states_topic: /follower/joint_states
 
   # Head tab: overview camera (left IMX219) as head RGB and greyscale depth (near bright) from stereo_depth (16UC1 mm,
-  # the ToF contract; no amplitude image from a stereo pair). fused_depth_topic is the Jetson AI-filled depth (same
-  # format); it adds a raw/fused toggle and leaves the raw stereo topic untouched. Pan/tilt is a disabled placeholder; nothing is published.
+  # the ToF contract; no amplitude image from a stereo pair). Pan/tilt is a disabled placeholder; nothing is published.
   - id: head
     type: head
     label: "Head"
     rgb_camera_topic: /overview_camera/image_raw/compressed
     tof_depth_topic: /stereo/depth/image_raw
-    fused_depth_topic: /stereo/depth/fused
     tof_range_m: 4.0
 
   - id: overview_camera

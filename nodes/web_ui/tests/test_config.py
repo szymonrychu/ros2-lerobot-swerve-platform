@@ -321,7 +321,6 @@ tabs:
     rgb_camera_topic: /head_camera/image_raw/compressed
     tof_depth_topic: /tof/depth/image_raw
     tof_amplitude_topic: /tof/amplitude/image_raw
-    fused_depth_topic: /stereo/depth/fused
     tof_range_m: 3.0
 overlays: []
 """
@@ -372,20 +371,21 @@ def test_head_topic_roles_and_ranges(tmp_path: Path) -> None:
         "/head_camera/image_raw/compressed": "head_rgb",
         "/tof/depth/image_raw": "head_depth",
         "/tof/amplitude/image_raw": "head_amplitude",
-        "/stereo/depth/fused": "head_depth",
     }
-    assert cfg.tof_ranges() == {"/tof/depth/image_raw": 3.0, "/stereo/depth/fused": 3.0}
+    assert cfg.tof_ranges() == {"/tof/depth/image_raw": 3.0}
 
 
-def test_head_fused_depth_topic_is_optional_and_subscribed(tmp_path: Path) -> None:
-    """fused_depth_topic defaults to None (not subscribed) and is subscribed when set."""
-    assert TabConfig(id="h", type="head", label="Head").fused_depth_topic is None
+def test_head_tab_has_no_fused_depth_topic(tmp_path: Path) -> None:
+    """fused_depth_topic is not a field; a YAML key of that name is ignored (not subscribed, no role)."""
+    assert "fused_depth_topic" not in TabConfig.model_fields
     p = tmp_path / "cfg.yaml"
-    p.write_text(HEAD_TAB_YAML)
-    assert "/stereo/depth/fused" in load_config(p).all_subscribed_topics()
-    bare = AppConfig(tabs=[TabConfig(id="h", type="head", label="Head", tof_depth_topic="/d")])
-    assert "/stereo/depth/fused" not in bare.topic_roles()
-    assert bare.tof_ranges() == {"/d": 4.0}
+    p.write_text(
+        HEAD_TAB_YAML.replace("    tof_range_m", "    fused_depth_topic: /stereo/depth/fused\n    tof_range_m")
+    )
+    cfg = load_config(p)
+    assert "/stereo/depth/fused" not in cfg.all_subscribed_topics()
+    assert "/stereo/depth/fused" not in cfg.topic_roles()
+    assert "/stereo/depth/fused" not in cfg.tof_ranges()
 
 
 # ---------------------------------------------------------------- calibration
