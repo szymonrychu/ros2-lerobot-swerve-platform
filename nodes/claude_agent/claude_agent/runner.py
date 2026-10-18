@@ -106,7 +106,7 @@ JOB_END_PARK_ARGS: dict[str, Any] = {"subsystem": "all"}
 JOB_END_KEEP_ARGS: dict[str, Any] = {"subsystem": "all", "keep_position": True}
 JOB_END_FOLLOWUP_MARKER = "JOB END REFUSED:"
 # Turn-end POI review: an instruction that looked or moved but wrote no POI gets one last chance to mark the map.
-# Job-end workflow check: mandatory workflow steps skipped, dropped or never run get one follow-up (never parks).
+# Job-end workflow check: mandatory workflow steps skipped, dropped or never run get one extra prompt (never parks).
 WORKFLOW_CHECK_MARKER = "WORKFLOW CHECK:"
 WORKFLOW_CHECK_TEXT = (
     f"{WORKFLOW_CHECK_MARKER} mandatory steps skipped: {{ids}}. Add them with agent.revise_plan (one extra revision "
@@ -1180,13 +1180,13 @@ class AgentRunner:
         return result_to_turn_end(result, False, 0)["status"] == STATUS_DONE
 
     def take_workflow_check(self) -> str | None:
-        """The one WORKFLOW CHECK follow-up of an instruction, once the job-end check passed (before the POI review).
+        """The one WORKFLOW CHECK prompt of an instruction, once the job-end check passed (before the POI review).
 
         Lists the mandatory workflow steps skipped, dropped or never run and grants one extra agent.revise_plan. It
         never counts toward job_end_max_followups and never parks the arm.
 
         Returns:
-            str | None: The follow-up, or None (no workflow, already sent, or nothing skipped).
+            str | None: The prompt, or None (no workflow, already sent, or nothing skipped).
         """
         if self.workflow_check_sent or self.plan.workflow is None:
             return None

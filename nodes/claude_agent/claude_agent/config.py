@@ -151,7 +151,7 @@ class ClaudeAgentConfig(BaseModel):
             the oldest half is dropped (at least 50).
         retro_feed_count: How many recent retrospectives are fed into a new instruction's prompt (0 to 20, 0 disables).
         retro_feed_max_chars: Most characters of the fed RECENT RETROSPECTIVES block (at least 200).
-        retro_followup: Ask the agent for a retrospective with a "RETROSPECTIVE" follow-up when a job ends.
+        retro_followup: Ask the agent for a retrospective with a "RETROSPECTIVE" prompt when a job ends.
         job_end_max_followups: "JOB END REFUSED" follow-ups the runner sends when an instruction would end with the arm
             out of home, a lease held or the plan unfinished; after that many the runner parks the arm itself.
         poi_review_followup: Send one "POI REVIEW" follow-up when an instruction used camera or motion tools and wrote

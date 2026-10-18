@@ -23,7 +23,7 @@ def test_relpath() -> None:
     assert RETRO_RELPATH == Path("retrospectives") / "retrospectives.jsonl"
 
 
-def test_append_list_recent_and_before(tmp_path: Path) -> None:
+def test_store_append_list_recent_and_before(tmp_path: Path) -> None:
     store = RetroStore(tmp_path / RETRO_RELPATH, 100)
     assert store.count() == 0 and store.list(10, None) == [] and store.recent(3) == []
     for ts in (1.0, 2.0, 3.0):
@@ -36,7 +36,7 @@ def test_append_list_recent_and_before(tmp_path: Path) -> None:
     assert [r.created_at for r in store.recent(2)] == [3.0, 2.0]
 
 
-def test_bound_drops_oldest_half(tmp_path: Path) -> None:
+def test_store_bound_drops_oldest_half(tmp_path: Path) -> None:
     store = RetroStore(tmp_path / RETRO_RELPATH, 4)
     for ts in range(1, 6):
         store.append(make(float(ts)))
@@ -44,7 +44,7 @@ def test_bound_drops_oldest_half(tmp_path: Path) -> None:
     assert store.count() == 3
 
 
-def test_corrupt_line_skipped_with_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_store_corrupt_line_skipped_with_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     path = tmp_path / RETRO_RELPATH
     store = RetroStore(path, 100)
     store.append(make(1.0))
@@ -92,7 +92,7 @@ def tools_with(sink: Any) -> dict[str, Any]:
     return {t.name: t.handler for t in build_plan_tools(PlanTracker(ClaudeAgentConfig()), retro_sink=sink)}
 
 
-def test_tool_calls_sink() -> None:
+def test_record_retrospective_calls_sink() -> None:
     seen: list[dict[str, Any]] = []
 
     def sink(args: dict[str, Any]) -> str:
@@ -107,7 +107,7 @@ def test_tool_calls_sink() -> None:
     assert seen[0]["outcome"] == "partial" and seen[0]["went_wrong"] == ["a"]
 
 
-def test_tool_errors_without_sink_or_summary() -> None:
+def test_record_retrospective_errors_without_sink_or_summary() -> None:
     result = asyncio.run(tools_with(None)[RECORD_RETROSPECTIVE_TOOL]({"outcome": "done", "summary": "s"}))
     assert result["is_error"] and "retrospectives are not enabled" in result["content"][0]["text"]
     result = asyncio.run(tools_with(lambda _args: "id")[RECORD_RETROSPECTIVE_TOOL]({"outcome": "done", "summary": " "}))

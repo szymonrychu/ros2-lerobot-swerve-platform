@@ -365,7 +365,7 @@ Every job leaves one structured, bounded retrospective on the robot, so lessons 
 - **Bound**: `retro_max_records` (default 500, at least 50); past it the oldest half is dropped by an atomic rewrite.
 - **Feed**: `feed_text(records, max_chars)` builds the RECENT RETROSPECTIVES block (newest first: date, workflow or
   "free", outcome, summary, went wrong, improvements), cut on a record boundary. `retro_feed_count` (0 to 20, 0
-  disables) and `retro_feed_max_chars` size it; `retro_followup` enables the RETROSPECTIVE follow-up.
+  disables) and `retro_feed_max_chars` size it; `retro_followup` enables the RETROSPECTIVE prompt.
 - **Tool**: `agent.record_retrospective` (outcome done|partial|failed, summary, optional lists), backed by the
   `retro_sink` given to `build_plan_tools`; without a sink it answers "retrospectives are not enabled". A second call in
   the same instruction replaces the first narrative. The `retrospective` skill tells the agent how to write it.
@@ -577,7 +577,7 @@ from `answer_condition` answers and `outcome_of` evaluations). Sending it calls 
 `revise_plan` gets through even after the instruction's one revision. The check never counts toward
 `job_end_max_followups` and never triggers the forced park; the job-end check runs again after its reply.
 
-Follow-up order at the end of an instruction: `JOB END REFUSED` -> `WORKFLOW CHECK` -> `POI REVIEW`.
+Order of end-of-instruction prompts at the end of an instruction: `JOB END REFUSED` -> `WORKFLOW CHECK` -> `POI REVIEW`.
 
 Whenever a workflow was started, `turn_end` carries `job_end.workflow: {name, skipped_mandatory}` (the ids still skipped
 at the end, an empty list when none), also when there is no other job_end problem; it sits next to `forced_park` or
