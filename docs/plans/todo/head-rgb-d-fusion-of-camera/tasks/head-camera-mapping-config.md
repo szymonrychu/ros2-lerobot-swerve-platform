@@ -29,9 +29,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: lens_position, mapping.lock_focus (the focus-lock control, default true, af_mode default continuous) and the mapping section load and validate [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_config.cpp -q]
-- a2: the decimator emits the configured rate from a 30 fps stamp sequence [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_mapping_stream.cpp -q]
-- a3: intrinsics are scaled to the mapping size and an aspect change is refused [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_mapping_stream.cpp -q]
+- a1: lens_position, mapping.lock_focus (the focus-lock control, default true, af_mode default continuous) and the mapping section load and validate [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a2: the decimator emits the configured rate from a 30 fps stamp sequence [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a3: intrinsics are scaled to the mapping size and an aspect change is refused [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 - a4: the package builds and its tests and linters pass in docker [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 
 ## Files

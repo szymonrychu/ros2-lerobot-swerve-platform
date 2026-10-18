@@ -2,7 +2,7 @@
 title: Named maps with POIs and relocalisation
 blockers: []
 stage: build
-owner: ""
+owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
 ---
@@ -35,6 +35,7 @@ The POI store and the map are saved and loaded separately today, and POIs cannot
 - 3D map (RTAB-Map) bundles; the RTAB-Map epic owns its own database save/load.
 
 ## Time
+
 
 
 

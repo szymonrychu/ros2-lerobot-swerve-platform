@@ -31,9 +31,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the compensated transform registers a panning head within 0.5 px where the static transform misses by 3 px or more [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_motion.cpp -q]
-- a2: frame angular and linear rates are computed from two poses [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_motion.cpp -q]
-- a3: pairs too far apart in time or captured during fast motion are dropped with their reason [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_motion.cpp -q]
+- a1: the compensated transform registers a panning head within 0.5 px where the static transform misses by 3 px or more [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a2: frame angular and linear rates are computed from two poses [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a3: pairs too far apart in time or captured during fast motion are dropped with their reason [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
 
 ## Files
 

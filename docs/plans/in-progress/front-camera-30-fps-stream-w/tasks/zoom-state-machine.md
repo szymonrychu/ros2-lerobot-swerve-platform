@@ -31,10 +31,10 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: a successful zoom runs AF, switch, crop and restore in order and returns an ok result with a JPEG [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_zoom_controller.cpp -q]
-- a2: every failure branch (AF failed or timed out, switch timeout, configure failure, watchdog) restores the video mode and only af_failed carries an image [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_zoom_controller.cpp -q]
-- a3: restore retries once, then re-acquires, then calls fatal [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_zoom_controller.cpp -q]
-- a4: a concurrent request gets busy without touching the camera [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_zoom_controller.cpp -q]
+- a1: a successful zoom runs AF, switch, crop and restore in order and returns an ok result with a JPEG [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a2: every failure branch (AF failed or timed out, switch timeout, configure failure, watchdog) restores the video mode and only af_failed carries an image [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a3: restore retries once, then re-acquires, then calls fatal [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a4: a concurrent request gets busy without touching the camera [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 - a5: package gtests and linters pass [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 
 ## Files

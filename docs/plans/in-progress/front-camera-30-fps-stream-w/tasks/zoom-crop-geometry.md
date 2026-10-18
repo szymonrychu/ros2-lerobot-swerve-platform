@@ -31,9 +31,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: zoom 2/4/8 regions are full/zoom, centred and shifted inside the 4608x2592 frame with even coordinates [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_crop.cpp -q]
-- a2: output size caps the longest side at max_px and never upscales [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_crop.cpp -q]
-- a3: the AF window is a clamped fraction of ScalerCropMaximum around the point [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_crop.cpp -q]
+- a1: zoom 2/4/8 regions are full/zoom, centred and shifted inside the 4608x2592 frame with even coordinates [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a2: output size caps the longest side at max_px and never upscales [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a3: the AF window is a clamped fraction of ScalerCropMaximum around the point [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 - a4: package gtests and linters pass [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 
 ## Files

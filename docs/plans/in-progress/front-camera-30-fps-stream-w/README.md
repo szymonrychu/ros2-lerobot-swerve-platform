@@ -2,7 +2,7 @@
 title: Head camera 30 fps stream with full-res zoom
 blockers: []
 stage: build
-owner: ""
+owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
 ---
@@ -36,6 +36,7 @@ The Camera Module 3 (IMX708, autofocus, CSI cam0) and the Arducam ToF (CSI cam1)
 - TF for the head camera: the pan/tilt servos are not built, so this epic adds no transform; head_camera_optical_frame will be parented to the pan/tilt joint chain when the head is built.
 
 ## Time
+
 
 
 

@@ -28,9 +28,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: mixed pixels on a synthetic depth step are removed while the surfaces on both sides stay [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_tof_filter.cpp -q]
-- a2: flat and slanted planes up to 70 deg survive the filter [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_tof_filter.cpp -q]
-- a3: isolated speckle is removed and invalid pixels stay invalid [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_tof_filter.cpp -q]
+- a1: mixed pixels on a synthetic depth step are removed while the surfaces on both sides stay [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a2: flat and slanted planes up to 70 deg survive the filter [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a3: isolated speckle is removed and invalid pixels stay invalid [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
 
 ## Files
 

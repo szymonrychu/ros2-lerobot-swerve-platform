@@ -31,8 +31,8 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: video, AF and still control lists hold exactly the D2/D6 controls [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/test_libcamera_controls.cpp -q]
-- a2: libcamera AfState values map onto the backend AfState [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/test_libcamera_controls.cpp -q]
+- a1: video, AF and still control lists hold exactly the D2/D6 controls [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a2: libcamera AfState values map onto the backend AfState [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 - a3: LibcameraBackend implements every CameraBackend method [evidence: symbol: head_camera_cpp::LibcameraBackend]
 - a4: requestCompleted never blocks: it only hands frames to the callback or the still queue [evidence: judgement]
 - a5: the adapter compiles against the docker libcamera and all package tests and linters pass [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]

@@ -31,12 +31,12 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the mapping stream is published at the configured rate only with a subscriber and only when enabled [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/test_node.cpp -q]
-- a2: mapping camera_info is published only from a loaded calibration, scaled, with the image's stamp [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/test_node.cpp -q]
-- a3: every zoom outcome returns to the mapping focus lock at the configured lens position while mapping is active, and to the configured af_mode otherwise [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/core/test_zoom_controller.cpp -q]
-- a4: the lock controls carry AfMode Manual and LensPosition [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/test_libcamera_controls.cpp -q]
+- a1: the mapping stream is published at the configured rate only with a subscriber and only when enabled [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a2: mapping camera_info is published only from a loaded calibration, scaled, with the image's stamp [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a3: every zoom outcome returns to the mapping focus lock at the configured lens position while mapping is active, and to the configured af_mode otherwise [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a4: the lock controls carry AfMode Manual and LensPosition [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 - a5: the README documents the mapping stream [evidence: doc-section: nodes/head_camera_cpp/README.md#Mapping stream]
-- a6: focus is locked at lens_position only while the mapping image topic has subscribers and mapping.lock_focus is true, continuous autofocus otherwise, with a zoom autofocusing then returning to the lock [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/test_node.cpp -q]
+- a6: focus is locked at lens_position only while the mapping image topic has subscribers and mapping.lock_focus is true, continuous autofocus otherwise, with a zoom autofocusing then returning to the lock [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 - a7: the package builds and its tests and linters pass in docker [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 
 ## Files

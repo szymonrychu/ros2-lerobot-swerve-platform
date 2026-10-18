@@ -33,9 +33,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: compressed frames are encoded only with subscribers and at the configured jpeg_quality [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/test_node.cpp -q]
-- a2: camera_info is published only from a configured calibration file [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/test_node.cpp -q]
-- a3: a zoom command publishes the crop image then a result with the same stamp_ns; busy, invalid and camera_error publish no image [evidence: command: cd nodes/head_camera_cpp && uv run --frozen pytest test/test_node.cpp -q]
+- a1: compressed frames are encoded only with subscribers and at the configured jpeg_quality [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a2: camera_info is published only from a configured calibration file [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
+- a3: a zoom command publishes the crop image then a result with the same stamp_ns; busy, invalid and camera_error publish no image [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 - a4: the head_camera_node executable is registered [evidence: command: grep -q 'EXECUTABLE head_camera_node' nodes/head_camera_cpp/CMakeLists.txt]
 - a5: all package tests and linters pass [evidence: command: scripts/cpp-node-test.sh head_camera_cpp]
 

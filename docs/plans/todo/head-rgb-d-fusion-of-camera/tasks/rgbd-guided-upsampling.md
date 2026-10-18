@@ -28,9 +28,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: upsampled depth edges follow the RGB edges more closely than nearest upsampling [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_upsample.cpp -q]
-- a2: holes larger than the radius stay empty and zeros never bleed into valid depth [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_upsample.cpp -q]
-- a3: upsampling lowers the error against ground truth on a slanted plane [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_upsample.cpp -q]
+- a1: upsampled depth edges follow the RGB edges more closely than nearest upsampling [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a2: holes larger than the radius stay empty and zeros never bleed into valid depth [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a3: upsampling lowers the error against ground truth on a slanted plane [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
 
 ## Files
 

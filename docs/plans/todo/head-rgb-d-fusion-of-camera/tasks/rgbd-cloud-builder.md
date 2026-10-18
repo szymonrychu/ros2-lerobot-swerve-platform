@@ -31,9 +31,9 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: the cloud reproduces pinhole geometry and RGB colours from a synthetic pair [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_cloud.cpp -q]
-- a2: no points for invalid depth and no cloud without a real RGB image [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_cloud.cpp -q]
-- a3: the cloud rate decimator emits the configured rate [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/core/test_cloud.cpp -q]
+- a1: the cloud reproduces pinhole geometry and RGB colours from a synthetic pair [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a2: no points for invalid depth and no cloud without a real RGB image [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a3: the cloud rate decimator emits the configured rate [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
 
 ## Files
 

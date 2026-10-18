@@ -35,10 +35,10 @@ provides: []
 
 ## Acceptance conditions
 
-- a1: inputs are subscribed only while an output has a subscriber and are released afterwards [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/test_node.cpp -q]
-- a2: a synchronised set publishes registered depth, its camera_info and the unchanged RGB pair, all with the RGB stamp [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/test_node.cpp -q]
-- a3: nothing is published without TF, calibration, camera_info, the right ToF size, or during fast motion, each drop counted [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/test_node.cpp -q]
-- a4: the cloud respects its rate and upsampled outputs exist only when enabled [evidence: command: cd nodes/head_rgbd_cpp && uv run --frozen pytest test/test_node.cpp -q]
+- a1: inputs are subscribed only while an output has a subscriber and are released afterwards [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a2: a synchronised set publishes registered depth, its camera_info and the unchanged RGB pair, all with the RGB stamp [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a3: nothing is published without TF, calibration, camera_info, the right ToF size, or during fast motion, each drop counted [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
+- a4: the cloud respects its rate and upsampled outputs exist only when enabled [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
 - a5: the README documents topics, configuration, metrics, lazy inputs and the placeholder rules [evidence: doc-section: nodes/head_rgbd_cpp/README.md#No placeholder data]
 - a6: the package builds and its tests and linters pass in docker [evidence: command: scripts/cpp-node-test.sh head_rgbd_cpp]
 
