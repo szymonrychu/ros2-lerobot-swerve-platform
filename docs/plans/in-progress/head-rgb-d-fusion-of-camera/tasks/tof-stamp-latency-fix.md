@@ -65,3 +65,7 @@ ToF headers are stamped at frame return minus a configurable latency; the deploy
 - Do not touch topics, encodings or the confidence handling: only the stamp changes (epic non-goal: no driver changes beyond synchronisation).
 - The SDK frame timestamp is not used: its clock domain is undocumented (design D5).
 - numpy guard already satisfied (numpy is a dependency).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).

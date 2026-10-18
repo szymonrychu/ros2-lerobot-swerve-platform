@@ -66,3 +66,7 @@ process_gaps: []
 - A locked lens while mapping is the precondition for valid intrinsics (outside mapping the camera keeps continuous AF) (prior-art fix-as-ac: autofocus changes intrinsics).
 - No camera_info without a calibration file stays the rule (front-camera D3): scale_intrinsics only scales a loaded calibration.
 - Moved unchanged in substance from epic rtab-map-rgb-d-3d-mapping-on (which now depends on this epic, U3); the RGB-D fusion node is its first consumer and engages the focus lock by subscribing (U4).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).

@@ -63,3 +63,7 @@ Recorded bags turn into the methodology's numbers with pass/fail against the tar
 
 - Validation uses OpenCV projections of a few corner points; it does not reimplement the node's z-buffer.
 - Pan sweep for the time offset: head pan only, +-20 deg at about 20 deg/s, inside the pan/tilt epic's verified range (servo safety: least dramatic joint).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).

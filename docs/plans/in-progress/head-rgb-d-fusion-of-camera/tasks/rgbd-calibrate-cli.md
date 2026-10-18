@@ -67,3 +67,7 @@ process_gaps: []
 
 - Replaces the RTAB-Map epic's planned `scripts/head_camera_calibrate.py` (design D3); do not create that file.
 - Do not touch the robot here.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).

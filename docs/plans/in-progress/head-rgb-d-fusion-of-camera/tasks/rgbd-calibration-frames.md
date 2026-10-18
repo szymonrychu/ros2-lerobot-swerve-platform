@@ -80,3 +80,7 @@ process_gaps: []
 - Root tests import scripts as `scripts.<module>` (see tests/test_calibrate_retry_threshold.py); `scripts/head_rgbd_calibration/` is a regular package inside that namespace.
 - Never SSH by hand: the capture step is the scripted way (pattern: scripts/rtk_calibrate.sh).
 - Do not touch the robot in this task; the runbook runs the capture.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).

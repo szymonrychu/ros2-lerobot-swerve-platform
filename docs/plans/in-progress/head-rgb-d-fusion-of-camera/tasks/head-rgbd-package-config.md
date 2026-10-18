@@ -1,6 +1,6 @@
 ---
 title: Head RGBD package config
-status: blocked
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The fusion node has a buildable, tested C++ package with a validated config, so every later piece lands in a known structure."
 files: [nodes/head_rgbd_cpp/CMakeLists.txt, nodes/head_rgbd_cpp/package.xml, nodes/head_rgbd_cpp/include/head_rgbd_cpp/config.hpp, nodes/head_rgbd_cpp/src/core/config.cpp, nodes/head_rgbd_cpp/test/core/test_config.cpp, nodes/head_rgbd_cpp/config/head_rgbd.yaml, nodes/head_rgbd_cpp/test/data/tof_calibration.yaml, scripts/cpp-node-test.Dockerfile]
@@ -66,3 +66,7 @@ process_gaps: ["The apt signature failure of the cpp-node-test image blocks ever
 
 - shared/ros2_common_cpp provides `load_config_or_exit`, `Metrics` and the process CPU collector (see nodes/map_guard_cpp for usage).
 - ROS Jazzy on noble uses system OpenCV 4.6; ximgproc comes from libopencv-contrib-dev of the same version.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).

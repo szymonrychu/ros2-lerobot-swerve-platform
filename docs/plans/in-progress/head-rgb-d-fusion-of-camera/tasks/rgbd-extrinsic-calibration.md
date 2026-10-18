@@ -60,3 +60,7 @@ A set of still pairs produces `head_rgbd_extrinsics.yaml` with the measured tran
 
 - OpenCV's stereoCalibrate returns R, T mapping camera-1 points into camera-2; pass the ToF as camera 1 and the RGB as camera 2 so the result is ToF -> RGB, and test the direction explicitly.
 - The node never reads this file (design D4); the URDF hand-off does.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).

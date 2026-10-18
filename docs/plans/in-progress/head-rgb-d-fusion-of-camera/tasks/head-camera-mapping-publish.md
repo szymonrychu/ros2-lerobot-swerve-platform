@@ -72,3 +72,7 @@ With `mapping.enabled: true` and a calibration file, a subscriber receives 576x3
 - The Ansible config (`mapping.enabled`, `mapping.lock_focus`, `lens_position`, `camera_info_file`; `af_mode` stays continuous) is set by head-rgbd-node-type and rgbd-final-suite-and-runbook, not here.
 - CPU: the mapping encode at 576x324 / 2 Hz is a few ms per second; the runbook measures it.
 - Moved unchanged in substance from epic rtab-map-rgb-d-3d-mapping-on (which now depends on this epic, U3); the RGB-D fusion node is its first consumer and engages the focus lock by subscribing (U4).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).

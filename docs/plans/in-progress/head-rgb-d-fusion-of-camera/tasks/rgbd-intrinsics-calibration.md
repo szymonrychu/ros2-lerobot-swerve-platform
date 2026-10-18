@@ -65,3 +65,7 @@ Synthetic ChArUco sets recover both cameras' intrinsics and write YAML files hea
 - Folds in the RTAB-Map epic's planned RGB-only `camera-calibration-script` (design D3): one calibration path, ChArUco instead of a checkerboard because the 240x180 amplitude image often shows partial boards.
 - opencv-python-headless >= 4.9 ships `cv2.aruco.CharucoDetector` (objdetect); no contrib wheel needed.
 - RGB is calibrated at the 576x324 mapping size; head_camera_cpp scales a calibration to each published size (front-camera D3).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).

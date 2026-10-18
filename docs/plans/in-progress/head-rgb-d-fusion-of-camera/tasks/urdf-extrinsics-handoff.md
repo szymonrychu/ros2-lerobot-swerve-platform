@@ -64,3 +64,7 @@ Given an extrinsics file, the head URDF's tof_joint is rewritten so TF reproduce
 
 - The head URDF is created by the pan/tilt epic (blocker); its chain: head_link -> head_camera_joint / tof_joint -> optical joints with rpy (-pi/2, 0, -pi/2).
 - After the runbook rewrites the URDF, head_state_publisher (robot_state_publisher) must be redeployed to publish the new TF.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1507 passed); head-rgbd-package-config verified by hand: scripts/cpp-node-test.sh head_rgbd_cpp PASS after freeing the Docker VM disk (the apt signature failure was a full Docker disk).
