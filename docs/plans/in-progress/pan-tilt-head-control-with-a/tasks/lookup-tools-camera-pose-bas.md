@@ -1,6 +1,6 @@
 ---
 title: "lookup_tools.camera_pose_base still uses np.eye(4) for the front parent pose instead of parent_transform(..., head=robot.head)"
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Lookups record a wrong front camera pose once the head moves. This belongs to task mcp-lookups-follow-head-pose, which should call camera_scene.parent_transform with head=robot.head."
 files: ["nodes/mcp_server/mcp_server/lookup_tools.py:~133"]
@@ -55,3 +55,7 @@ lookup_tools.camera_pose_base still uses np.eye(4) for the front parent pose ins
 
 Discovered in task `mcp-front-camera-on-head` during run `pan-tilt-head-control-with-a`.
 
+
+## Ruling
+
+Already delivered by mcp-lookups-follow-head-pose (lookup_tools.py:132 uses head_parent_transform with robot.head), merged into main. Closed by the orchestrator.
