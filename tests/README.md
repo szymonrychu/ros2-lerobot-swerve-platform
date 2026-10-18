@@ -2272,12 +2272,9 @@ The client `chrony` role: template rendered with jinja2 and the task file read a
 
 | Test | Covers |
 |---|---|
-| `test_pools_rendered_one_line_each` | One `pool <pool> iburst` line per default pool. |
-| `test_fixed_directives_present` | driftfile, ntsdumpdir, logdir, rtcsync and `makestep 1.0 3`. |
-| `test_no_jetson_serving_directives` | No allow, local stratum, server line or 10.77 address. |
-| `test_timesyncd_tasks_guarded_on_unit_presence` | Service facts gathered; timesyncd stop only when the unit exists. |
-| `test_restart_gated_on_template_result` | Restart runs only when the registered template task changed. |
-| `test_client_playbook_lists_role` | `playbooks/client.yml` lists `chrony`. |
+| `test_chrony_conf_is_plain_pools` | One `pool <pool> iburst` line per default pool, the base directives (driftfile, ntsdumpdir, logdir, rtcsync, `makestep 1.0 3`), and no allow, local stratum, server line or 10.77 address. |
+| `test_tasks_guard_timesyncd_and_restart_on_change` | Service facts gathered; timesyncd stop only when the unit exists; restart only when the registered template task changed. |
+| `test_client_provisioning_applies_chrony` | `playbooks/client.yml` lists `chrony`. |
 
 ## test_jetson_link_role.py
 

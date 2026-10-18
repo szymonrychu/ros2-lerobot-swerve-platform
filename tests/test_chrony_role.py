@@ -46,18 +46,13 @@ def tasks() -> list[dict[str, Any]]:
     return load_yaml(ROLE_DIR / "tasks" / "main.yml")
 
 
-def test_pools_rendered_one_line_each() -> None:
-    """Each default pool gets a `pool <pool> iburst` line."""
+def test_chrony_conf_is_plain_pools() -> None:
+    """Rendered conf has one pool line per pool, the base directives, and no serving lines."""
     lines = render()
     pools = load_yaml(ROLE_DIR / "defaults" / "main.yml")["chrony_ntp_pools"]
     assert pools
     for pool in pools:
         assert f"pool {pool} iburst" in lines
-
-
-def test_fixed_directives_present() -> None:
-    """The drift, NTS, log, rtcsync and makestep lines are rendered."""
-    lines = render()
     for line in (
         "driftfile /var/lib/chrony/chrony.drift",
         "ntsdumpdir /var/lib/chrony",
@@ -66,19 +61,15 @@ def test_fixed_directives_present() -> None:
         "makestep 1.0 3",
     ):
         assert line in lines
-
-
-def test_no_jetson_serving_directives() -> None:
-    """No allow, local stratum, server line or 10.77 address."""
-    for line in render():
+    for line in lines:
         if line.startswith("#"):
             continue
         for bad in FORBIDDEN:
             assert bad not in line, line
 
 
-def test_timesyncd_tasks_guarded_on_unit_presence() -> None:
-    """Service facts are gathered and the timesyncd stop is conditional on the unit existing."""
+def test_tasks_guard_timesyncd_and_restart_on_change() -> None:
+    """timesyncd is stopped only when its unit exists; chrony restarts only on template change."""
     all_tasks = tasks()
     assert any("ansible.builtin.service_facts" in t for t in all_tasks)
     stops = [t for t in all_tasks if "systemd-timesyncd" in str(t.get("ansible.builtin.systemd", {}).get("name", ""))]
@@ -86,10 +77,7 @@ def test_timesyncd_tasks_guarded_on_unit_presence() -> None:
     for task in stops:
         assert "systemd-timesyncd" in str(task.get("when", ""))
 
-
-def test_restart_gated_on_template_result() -> None:
-    """The restart runs only when the registered template task changed."""
-    all_tasks = tasks()
+    # The restart runs only when the registered template task changed.
     template = next(t for t in all_tasks if "ansible.builtin.template" in t)
     assert template["ansible.builtin.template"]["dest"] == "/etc/chrony/chrony.conf"
     var = template["register"]
@@ -97,7 +85,7 @@ def test_restart_gated_on_template_result() -> None:
     assert f"{var} is changed" in restart["when"]
 
 
-def test_client_playbook_lists_role() -> None:
+def test_client_provisioning_applies_chrony() -> None:
     """playbooks/client.yml applies the chrony role."""
     roles = load_yaml(CLIENT_PLAYBOOK)[0]["roles"]
     names = [r if isinstance(r, str) else r.get("role") for r in roles]
