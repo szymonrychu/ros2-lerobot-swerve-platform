@@ -56,7 +56,7 @@ def test_node_type_is_declared_on_the_client() -> None:
     assert defaults["deploy_mode"] == "native"
     assert defaults["node_launch_command"] == "python3 -m arducam_tof"
     assert defaults["node_src_dir"] == "nodes/bridges/arducam_tof"
-    assert defaults["pythonpath_parent"] is True
+    assert not defaults.get("pythonpath_parent")  # nested layout: the package is nodes/bridges/arducam_tof/arducam_tof
     assert defaults["src_shared"] is True
     assert defaults["config_path"] == "/etc/ros2/arducam_tof"
     assert "ARDUCAM_TOF_CONFIG=/etc/ros2/arducam_tof/config.yaml" in defaults["env"]

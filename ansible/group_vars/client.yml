@@ -136,7 +136,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m arducam_tof"
     node_src_dir: "nodes/bridges/arducam_tof"
-    pythonpath_parent: true
+    # No pythonpath_parent: the package sits one level down (nodes/bridges/arducam_tof/arducam_tof), so PYTHONPATH is
+    # the node dir itself.
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
     # Estimate, no series yet (deployed disabled): a 240x180 ToF frame pair at publish_rate_hz is small, so MemoryLow
