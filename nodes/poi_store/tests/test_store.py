@@ -284,7 +284,7 @@ def test_clear_via_handle_message(store):
     store.apply(Command(op="add", poi=point()))
     out = json.loads(store.handle_message(json.dumps({"op": "clear", "created_by": "agent", "request_id": "q"})))
     assert out["ok"] and out["request_id"] == "q" and out["poi"] == {"removed": 1}
-    bad = json.loads(store.handle_message(json.dumps({"op": "clear", "request_id": "q2"})))
+    bad = json.loads(store.handle_message(json.dumps({"op": "clear", "created_by": "robot", "request_id": "q2"})))
     assert not bad["ok"]
 
 
