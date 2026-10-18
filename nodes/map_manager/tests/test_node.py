@@ -406,3 +406,23 @@ def test_main_exits_78_on_a_config_error(tmp_path: Path, monkeypatch: pytest.Mon
     assert main() == 78
     monkeypatch.setenv("MAP_MANAGER_CONFIG", str(tmp_path / "missing.yaml"))
     assert main() == 78
+
+
+def test_readme_documents_topics_bundle_layout_and_load_sequence() -> None:
+    readme = Path(__file__).resolve().parent.parent / "README.md"
+    assert readme.is_file()
+    text = readme.read_text()
+    headings = {line.lstrip("#").strip() for line in text.splitlines() if line.startswith("#")}
+    assert {"Bundle layout", "Topics", "Load sequence (design D5, verified slam_toolbox facts)"} <= headings
+    for topic in (
+        COMMAND_TOPIC,
+        RESULT_TOPIC,
+        STATUS_TOPIC,
+        LOCALISED_TOPIC,
+        "/poi/list",
+        "/poi/result",
+        "/map",
+        "/scan_filtered",
+        "/pose",
+    ):
+        assert topic in text
