@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
+#include <opencv2/core.hpp>
 #include <stdexcept>
 #include <utility>
 #include <variant>
@@ -161,7 +162,19 @@ void HeadCameraNode::init()
     metrics_.histogram("head_camera_zoom_phase_seconds", ZOOM_PHASE_HELP, PHASE_BUCKETS, {{"phase", phase}});
   }
 
-  zoom_ = std::make_unique<ZoomController>(*backend_, *clock_, config_.zoom);
+  published_mapping_image_ =
+    &metrics_.counter("head_camera_frames_published_total", published_help, {{"topic", "mapping_image"}});
+  published_mapping_info_ =
+    &metrics_.counter("head_camera_frames_published_total", published_help, {{"topic", "mapping_camera_info"}});
+
+  // RESTORE returns the lens to the mapping lock when it is active, else to the configured AF mode.
+  zoom_ = std::make_unique<ZoomController>(
+    *backend_, *clock_, config_.zoom, [] { std::exit(1); },
+    [this] {
+      const bool wanted = focus_lock_desired();
+      focus_lock_applied_ = wanted;
+      return wanted;
+    });
 
   image_pub_ = create_publisher<sensor_msgs::msg::Image>(config_.image_raw(), reliable_qos(IMAGE_QOS_DEPTH));
   compressed_pub_ =
@@ -171,14 +184,45 @@ void HeadCameraNode::init()
     create_publisher<sensor_msgs::msg::CompressedImage>(config_.zoom_image(), reliable_qos(ZOOM_IMAGE_QOS_DEPTH));
   zoom_result_pub_ = create_publisher<std_msgs::msg::String>(config_.zoom_result(), reliable_qos(COMMAND_QOS_DEPTH));
 
+  if (config_.mapping.enabled) {
+    const rclcpp::QoS best_effort = rclcpp::QoS(rclcpp::KeepLast(IMAGE_QOS_DEPTH)).best_effort();
+    mapping_pub_ = create_publisher<sensor_msgs::msg::CompressedImage>(config_.mapping_image_topic(), best_effort);
+    mapping_info_pub_ =
+      create_publisher<sensor_msgs::msg::CameraInfo>(config_.mapping_camera_info_topic(), best_effort);
+    mapping_decimator_.emplace(config_.mapping.rate_hz);
+    lock_focus_param_ = declare_parameter(LOCK_FOCUS_PARAMETER, config_.mapping.lock_focus);
+    parameter_callback_ = add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter> & parameters) {
+      rcl_interfaces::msg::SetParametersResult result;
+      result.successful = true;
+      for (const auto & parameter : parameters) {
+        if (parameter.get_name() == LOCK_FOCUS_PARAMETER) {
+          if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+            result.successful = false;
+            result.reason = std::string(LOCK_FOCUS_PARAMETER) + " must be a bool";
+          } else {
+            lock_focus_param_ = parameter.as_bool();
+          }
+        }
+      }
+      return result;
+    });
+  }
+
   if (config_.camera_info_file) {
     try {
       camera_info_ = load_camera_info(*config_.camera_info_file, config_.width, config_.height, config_.frame_id);
+      if (config_.mapping.enabled) {
+        mapping_info_ =
+          load_camera_info(*config_.camera_info_file, config_.mapping.width, config_.mapping.height, config_.frame_id);
+      }
     } catch (const std::exception & e) {
       RCLCPP_ERROR(get_logger(), "camera_info not published: %s", e.what());
     }
   } else {
     RCLCPP_INFO(get_logger(), "no camera_info_file configured: camera_info is not published");
+  }
+  if (config_.mapping.enabled && !mapping_info_) {
+    RCLCPP_WARN(get_logger(), "mapping image is published without camera_info: no calibration is loaded");
   }
 
   video_thread_ = std::thread([this] { video_loop(); });
@@ -191,6 +235,7 @@ void HeadCameraNode::init()
 
   {
     std::lock_guard<std::mutex> lock(backend_mutex_);
+    apply_focus_lock();
     video_running_ = backend_->start_video();
   }
   if (!video_running_) {
@@ -198,12 +243,16 @@ void HeadCameraNode::init()
   }
   retry_timer_ = create_wall_timer(std::chrono::milliseconds(START_RETRY_PERIOD_MS), [this] { retry_start(); });
   fps_timer_ = create_wall_timer(std::chrono::seconds(1), [this] { expire_capture_fps(); });
+  if (config_.mapping.enabled) {
+    focus_timer_ = create_wall_timer(std::chrono::milliseconds(FOCUS_POLL_PERIOD_MS), [this] { update_focus_lock(); });
+  }
 }
 
 HeadCameraNode::~HeadCameraNode()
 {
   retry_timer_.reset();
   fps_timer_.reset();
+  focus_timer_.reset();
   backend_->set_video_callback({});
   {
     std::lock_guard<std::mutex> lock(zoom_mutex_);
@@ -228,6 +277,31 @@ int64_t HeadCameraNode::to_ros_ns(int64_t steady_ns) const
   return steady_ns + (get_clock()->now().nanoseconds() - steady_now_ns());
 }
 
+bool HeadCameraNode::focus_lock_desired() const
+{
+  return mapping_pub_ && lock_focus_param_ && mapping_pub_->get_subscription_count() > 0;
+}
+
+void HeadCameraNode::apply_focus_lock()
+{
+  const bool desired = focus_lock_desired();
+  backend_->set_focus_lock(desired);
+  focus_lock_applied_ = desired;
+}
+
+void HeadCameraNode::update_focus_lock()
+{
+  if (!video_running_ || focus_lock_desired() == focus_lock_applied_) {
+    return;
+  }
+  std::unique_lock<std::mutex> lock(backend_mutex_, std::try_to_lock);
+  if (!lock.owns_lock()) {
+    return;  // a zoom is running and sets the lock itself when it restores the stream
+  }
+  apply_focus_lock();
+  RCLCPP_INFO(get_logger(), "mapping focus %s", focus_lock_applied_ ? "locked" : "released");
+}
+
 void HeadCameraNode::retry_start()
 {
   if (video_running_) {
@@ -237,6 +311,7 @@ void HeadCameraNode::retry_start()
   if (!lock.owns_lock()) {
     return;  // a zoom is running and restores the stream itself
   }
+  apply_focus_lock();
   video_running_ = backend_->start_video();
   if (video_running_) {
     RCLCPP_INFO(get_logger(), "camera started");
@@ -351,6 +426,37 @@ void HeadCameraNode::publish_frame(const Frame & frame)
     info->header = header;
     info_pub_->publish(std::move(info));
     published_info_->Increment();
+  }
+
+  publish_mapping(frame, header);
+}
+
+void HeadCameraNode::publish_mapping(const Frame & frame, const std_msgs::msg::Header & header)
+{
+  // The encode runs only for a due frame with a subscriber, and never while a zoom holds the camera.
+  if (!mapping_pub_ || zoom_->busy() || mapping_pub_->get_subscription_count() == 0) {
+    return;
+  }
+  if (!mapping_decimator_->due(frame.stamp_ns)) {
+    return;
+  }
+  const cv::Mat source(
+    frame.size.height, frame.size.width, CV_8UC3, const_cast<uint8_t *>(frame.bgr.data()),
+    static_cast<size_t>(frame.stride));
+  const cv::Mat small = resize_for_mapping(source, config_.mapping.width, config_.mapping.height);
+  auto image = std::make_unique<sensor_msgs::msg::CompressedImage>();
+  image->header = header;
+  image->format = COMPRESSED_FORMAT;
+  const int quality = config_.mapping.jpeg_quality;
+  image->data = encode_bgr_jpeg(small.data, small.cols, small.rows, static_cast<int>(small.step), quality);
+  mapping_pub_->publish(std::move(image));
+  published_mapping_image_->Increment();
+
+  if (mapping_info_) {  // no placeholder intrinsics without a calibration
+    auto info = std::make_unique<sensor_msgs::msg::CameraInfo>(*mapping_info_);
+    info->header = header;
+    mapping_info_pub_->publish(std::move(info));
+    published_mapping_info_->Increment();
   }
 }
 

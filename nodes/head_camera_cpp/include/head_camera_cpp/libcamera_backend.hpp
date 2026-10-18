@@ -55,10 +55,24 @@ using LogFunction = std::function<void(LogLevel, const std::string &)>;
  * Controls of the 30 fps video stream (D2): FrameDurationLimits [frame_duration_us, frame_duration_us] and AfMode from
  * config.af_mode (continuous, auto or manual).
  *
+ * With focus_locked (the mapping focus lock) AfMode is Manual and LensPosition config.lens_position instead; an
+ * af_mode manual config also carries LensPosition.
+ *
  * @param config The node configuration.
+ * @param focus_locked Whether the mapping focus lock is engaged.
  * @return The control list, keyed by libcamera::controls::controls.
  */
-libcamera::ControlList video_controls(const Config & config);
+libcamera::ControlList video_controls(const Config & config, bool focus_locked = false);
+
+/**
+ * The focus controls alone: locked is AfMode Manual and LensPosition config.lens_position; unlocked is the AfMode of
+ * config.af_mode (with LensPosition when that is manual).
+ *
+ * @param config The node configuration.
+ * @param locked Whether the mapping focus lock is engaged.
+ * @return The control list, keyed by libcamera::controls::controls.
+ */
+libcamera::ControlList focus_controls(const Config & config, bool locked);
 
 /**
  * Controls of an AF request (the D6 AF step): AfMode Auto; AfMetering Windows plus AfWindows = the window when windowed,
@@ -124,6 +138,7 @@ public:
   bool configure(Mode mode) override;
   bool start_still() override;
   bool set_af(const AfRequest & request) override;
+  bool set_focus_lock(bool locked) override;
   AfState af_state() override;
   std::optional<StillFrame> wait_still_frame(std::chrono::milliseconds timeout) override;
   void set_video_callback(std::function<void(const VideoFrame &)> callback) override;
@@ -177,6 +192,7 @@ private:
   std::mutex mutex_;
   std::condition_variable frame_ready_;
   bool running_ = false;
+  bool focus_locked_ = false;  // the mapping focus lock; start_video starts in this state
   bool shutdown_ = false;
   AfState af_state_ = AfState::Idle;
   libcamera::ControlList pending_controls_;

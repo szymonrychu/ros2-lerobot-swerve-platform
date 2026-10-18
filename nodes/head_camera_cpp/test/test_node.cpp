@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -8,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
@@ -413,6 +415,237 @@ TEST_F(NodeTest, FailedStartIsRetriedWithoutPublishing)
   EXPECT_EQ(size_of(images_), 0u);
   ASSERT_TRUE(wait_until([this] { return backend_->count("start_video") >= 2; }));
   ASSERT_TRUE(emit_until([this] { return size_of(images_) >= 1; }));
+}
+
+// --- mapping stream and focus lock (D2, U4) -----------------------------------------------------------------------
+
+namespace
+{
+
+constexpr int MAP_W = 32;
+constexpr int MAP_H = 18;
+constexpr double MAP_RATE_HZ = 2.0;
+
+Config mapping_config(bool with_calibration = false)
+{
+  Config config = test_config();
+  config.mapping.enabled = true;
+  config.mapping.width = MAP_W;
+  config.mapping.height = MAP_H;
+  config.mapping.rate_hz = MAP_RATE_HZ;
+  config.mapping.jpeg_quality = 80;
+  if (with_calibration) {
+    config.camera_info_file = std::string(HEAD_CAMERA_TEST_DATA_DIR) + "/calibration.yaml";
+  }
+  return config;
+}
+
+rclcpp::QoS best_effort_1() { return rclcpp::QoS(rclcpp::KeepLast(1)).best_effort(); }
+
+}  // namespace
+
+TEST_F(NodeTest, MappingPublishersExistOnlyWhenEnabled)
+{
+  start(test_config());
+  EXPECT_TRUE(node_->get_publishers_info_by_topic(config_.mapping_image_topic()).empty());
+  EXPECT_TRUE(node_->get_publishers_info_by_topic(config_.mapping_camera_info_topic()).empty());
+}
+
+TEST_F(NodeTest, MappingPublishersAreBestEffort)
+{
+  start(mapping_config());
+  for (const auto & topic : {config_.mapping_image_topic(), config_.mapping_camera_info_topic()}) {
+    const auto infos = node_->get_publishers_info_by_topic(topic);
+    ASSERT_EQ(infos.size(), 1u) << topic;
+    EXPECT_EQ(infos[0].qos_profile().reliability(), rclcpp::ReliabilityPolicy::BestEffort) << topic;
+  }
+}
+
+TEST_F(NodeTest, MappingImageAtTwoHertzFromThirtyFpsWithSubscriber)
+{
+  start(mapping_config());
+  std::vector<sensor_msgs::msg::CompressedImage> mapping;
+  listen(config_.mapping_image_topic(), best_effort_1(), mapping);
+  ASSERT_TRUE(wait_until([this] { return node_->count_subscribers(config_.mapping_image_topic()) > 0; }));
+  ASSERT_TRUE(emit_until([&] { return size_of(mapping) >= 1; }));
+  const auto first = copy_of(mapping).front();
+  EXPECT_EQ(first.format, "bgr8; jpeg compressed bgr8");
+  EXPECT_EQ(first.header.frame_id, "head_camera_optical_frame");
+  const cv::Mat decoded = cv::imdecode(first.data, cv::IMREAD_COLOR);
+  EXPECT_EQ(decoded.cols, MAP_W);
+  EXPECT_EQ(decoded.rows, MAP_H);
+
+  // Stream frames for about 2.5 s at 50 Hz from the camera thread: at most one per period lands.
+  const auto start_time = std::chrono::steady_clock::now();
+  mapping.clear();
+  while (std::chrono::steady_clock::now() - start_time < milliseconds(2500)) {
+    backend_->emit_video_frame(steady_ns());
+    std::this_thread::sleep_for(FRAME_PERIOD);
+  }
+  EXPECT_GE(size_of(mapping), 4u);
+  EXPECT_LE(size_of(mapping), 6u);
+  const std::string metrics = node_->metrics().render();
+  EXPECT_NE(metrics.find("head_camera_frames_published_total{topic=\"mapping_image\"}"), std::string::npos) << metrics;
+}
+
+TEST_F(NodeTest, MappingEncodesAtMostTwoPerSecondAtThirtyFps)
+{
+  start(mapping_config());
+  std::vector<sensor_msgs::msg::CompressedImage> mapping;
+  listen(config_.mapping_image_topic(), best_effort_1(), mapping);
+  ASSERT_TRUE(wait_until([this] { return node_->count_subscribers(config_.mapping_image_topic()) > 0; }));
+  // Frames stamped 33.3 ms apart for 3 s of stamps, delivered as fast as the worker takes them.
+  const int64_t base = steady_ns();
+  for (int i = 0; i < 90; ++i) {
+    backend_->emit_video_frame(base + static_cast<int64_t>(i) * 33'333'333);
+    std::this_thread::sleep_for(milliseconds(5));
+  }
+  std::this_thread::sleep_for(milliseconds(200));
+  EXPECT_GE(size_of(mapping), 5u);
+  EXPECT_LE(size_of(mapping), 7u);  // 3 s * 2 Hz, plus the first frame
+}
+
+TEST_F(NodeTest, NoMappingImageWithoutSubscriber)
+{
+  start(mapping_config());
+  listen(config_.image_raw(), reliable_1(), images_);
+  ASSERT_TRUE(emit_until([this] { return size_of(images_) >= 5; }));
+  const std::string metrics = node_->metrics().render();
+  EXPECT_NE(metrics.find("head_camera_frames_published_total{topic=\"mapping_image\"} 0"), std::string::npos)
+    << metrics;
+}
+
+TEST_F(NodeTest, MappingCameraInfoOnlyWithCalibrationScaledWithSameStamp)
+{
+  start(mapping_config(true));
+  std::vector<sensor_msgs::msg::CompressedImage> mapping;
+  listen(config_.mapping_image_topic(), best_effort_1(), mapping);
+  listen(config_.mapping_camera_info_topic(), best_effort_1(), infos_);
+  ASSERT_TRUE(emit_until([this, &mapping] { return size_of(mapping) >= 1 && size_of(infos_) >= 1; }));
+  const auto info = copy_of(infos_).front();
+  EXPECT_EQ(info.width, static_cast<uint32_t>(MAP_W));
+  EXPECT_EQ(info.height, static_cast<uint32_t>(MAP_H));
+  EXPECT_EQ(info.header.frame_id, "head_camera_optical_frame");
+  EXPECT_NEAR(info.k[0], 1600.0 * MAP_W / 2304.0, 1e-9);
+  EXPECT_NEAR(info.k[2], 1150.0 * MAP_W / 2304.0, 1e-9);
+  EXPECT_NEAR(info.k[4], 1620.0 * MAP_H / 1296.0, 1e-9);
+  EXPECT_NEAR(info.k[5], 640.0 * MAP_H / 1296.0, 1e-9);
+  bool matched = false;
+  for (const auto & image : copy_of(mapping)) {
+    matched = matched || rclcpp::Time(image.header.stamp) == rclcpp::Time(info.header.stamp);
+  }
+  EXPECT_TRUE(matched);
+}
+
+TEST_F(NodeTest, MappingImageWithoutCalibrationHasNoCameraInfo)
+{
+  start(mapping_config(false));
+  std::vector<sensor_msgs::msg::CompressedImage> mapping;
+  listen(config_.mapping_image_topic(), best_effort_1(), mapping);
+  listen(config_.mapping_camera_info_topic(), best_effort_1(), infos_);
+  ASSERT_TRUE(emit_until([this, &mapping] { return size_of(mapping) >= 2; }));
+  EXPECT_EQ(size_of(infos_), 0u);
+}
+
+TEST_F(NodeTest, NothingMappedWhileZoomHoldsTheCamera)
+{
+  start(mapping_config(true));
+  listen_zoom();
+  std::vector<sensor_msgs::msg::CompressedImage> mapping;
+  listen(config_.mapping_image_topic(), best_effort_1(), mapping);
+  listen(config_.mapping_camera_info_topic(), best_effort_1(), infos_);
+  ASSERT_TRUE(wait_until([this] { return node_->count_subscribers(config_.mapping_image_topic()) > 0; }));
+
+  std::mutex gate_mutex;
+  std::condition_variable gate_cv;
+  bool release = false;
+  std::atomic<bool> held{false};
+  backend_->on_call = [&](const std::string & call) {
+    if (call == "set_af" && !held.exchange(true)) {
+      std::unique_lock<std::mutex> lock(gate_mutex);
+      gate_cv.wait(lock, [&] { return release; });
+    }
+  };
+  send_command(json{{"request_id", "z"}, {"u", 0.5}, {"v", 0.5}, {"zoom", 2}, {"max_px", 256}, {"af", true}}.dump());
+  ASSERT_TRUE(wait_until([&] { return held.load(); }));
+  for (int i = 0; i < 20; ++i) {
+    backend_->emit_video_frame(steady_ns() + static_cast<int64_t>(i) * 600'000'000);
+    std::this_thread::sleep_for(milliseconds(10));
+  }
+  std::this_thread::sleep_for(milliseconds(200));
+  EXPECT_EQ(size_of(mapping), 0u);
+  EXPECT_EQ(size_of(infos_), 0u);
+  {
+    std::lock_guard<std::mutex> lock(gate_mutex);
+    release = true;
+  }
+  gate_cv.notify_all();
+  ASSERT_TRUE(wait_until([this] { return size_of(results_) >= 1; }));
+}
+
+TEST_F(NodeTest, FocusLocksOnFirstMappingSubscriberAndReleasesOnLast)
+{
+  Config config = mapping_config();
+  config.lens_position = 1.5;
+  start(config);
+  EXPECT_FALSE(backend_->focus_locked());
+  {
+    auto sub = probe_->create_subscription<sensor_msgs::msg::CompressedImage>(
+      config_.mapping_image_topic(), best_effort_1(), [](const sensor_msgs::msg::CompressedImage &) {});
+    ASSERT_TRUE(wait_until([this] { return backend_->focus_locked(); }));
+    sub.reset();
+  }
+  ASSERT_TRUE(wait_until([this] { return !backend_->focus_locked(); }));
+}
+
+TEST_F(NodeTest, FocusLockIsDisabledByLockFocusFalseAtRuntime)
+{
+  start(mapping_config());
+  EXPECT_TRUE(node_->has_parameter("mapping.lock_focus"));
+  auto sub = probe_->create_subscription<sensor_msgs::msg::CompressedImage>(
+    config_.mapping_image_topic(), best_effort_1(), [](const sensor_msgs::msg::CompressedImage &) {});
+  ASSERT_TRUE(wait_until([this] { return backend_->focus_locked(); }));
+
+  EXPECT_TRUE(node_->set_parameter(rclcpp::Parameter("mapping.lock_focus", false)).successful);
+  ASSERT_TRUE(wait_until([this] { return !backend_->focus_locked(); }));
+
+  EXPECT_TRUE(node_->set_parameter(rclcpp::Parameter("mapping.lock_focus", true)).successful);
+  ASSERT_TRUE(wait_until([this] { return backend_->focus_locked(); }));
+}
+
+TEST_F(NodeTest, FocusNeverLocksWithLockFocusConfiguredFalse)
+{
+  Config config = mapping_config();
+  config.mapping.lock_focus = false;
+  start(config);
+  std::vector<sensor_msgs::msg::CompressedImage> mapping;
+  listen(config_.mapping_image_topic(), best_effort_1(), mapping);
+  ASSERT_TRUE(emit_until([this, &mapping] { return size_of(mapping) >= 1; }));
+  EXPECT_FALSE(backend_->focus_locked());
+}
+
+TEST_F(NodeTest, FocusNeverLocksWhenMappingDisabled)
+{
+  start(test_config());
+  listen(config_.image_raw(), reliable_1(), images_);
+  ASSERT_TRUE(emit_until([this] { return size_of(images_) >= 3; }));
+  EXPECT_FALSE(backend_->focus_locked());
+  EXPECT_FALSE(node_->has_parameter("mapping.lock_focus"));
+}
+
+TEST_F(NodeTest, ZoomWhileLockedRestoresTheMappingLock)
+{
+  start(mapping_config());
+  listen_zoom();
+  auto sub = probe_->create_subscription<sensor_msgs::msg::CompressedImage>(
+    config_.mapping_image_topic(), best_effort_1(), [](const sensor_msgs::msg::CompressedImage &) {});
+  ASSERT_TRUE(wait_until([this] { return backend_->focus_locked(); }));
+  send_command(command("a"));
+  ASSERT_TRUE(wait_until([this] { return size_of(results_) >= 1; }));
+  EXPECT_EQ(json::parse(copy_of(results_).front().data)["status"], "ok");
+  EXPECT_TRUE(backend_->video_running());
+  EXPECT_TRUE(backend_->focus_locked());
+  EXPECT_TRUE(backend_->lock_at_start_video().back());
 }
 
 // --- metrics (D13) -------------------------------------------------------------------------------------------------

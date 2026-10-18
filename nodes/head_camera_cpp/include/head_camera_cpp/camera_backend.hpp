@@ -127,6 +127,16 @@ public:
   virtual bool set_af(const AfRequest & request) = 0;
 
   /**
+   * Engage or release the mapping focus lock: locked is AfMode Manual at the configured lens position, released is
+   * the configured af_mode. Kept across stop/configure/start_video (the next start_video starts in the state set
+   * here); on a running video stream it is queued for the next request.
+   *
+   * @param locked Whether the lens is locked.
+   * @return true when the state was recorded (and queued when streaming).
+   */
+  virtual bool set_focus_lock(bool locked) = 0;
+
+  /**
    * @return The AF state of the latest frame (Scanning after a trigger until a frame with the request arrives).
    */
   virtual AfState af_state() = 0;

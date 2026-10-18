@@ -19,6 +19,7 @@
 
 #include "head_camera_cpp/camera_backend.hpp"
 #include "head_camera_cpp/config.hpp"
+#include "head_camera_cpp/mapping_stream.hpp"
 #include "head_camera_cpp/zoom_controller.hpp"
 #include "head_camera_cpp/zoom_json.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -37,6 +38,8 @@ constexpr const char * COMPRESSED_FORMAT = "bgr8; jpeg compressed bgr8";
 constexpr const char * ZOOM_IMAGE_FORMAT = "jpeg";
 constexpr int START_RETRY_PERIOD_MS = 2000;
 constexpr double FPS_WINDOW_S = 1.0;
+constexpr int FOCUS_POLL_PERIOD_MS = 100;
+constexpr const char * LOCK_FOCUS_PARAMETER = "mapping.lock_focus";
 
 /**
  * Load a ROS camera_calibration YAML and scale its intrinsics to an image size.
@@ -87,6 +90,10 @@ private:
   void zoom_loop();
   void publish_zoom(const ZoomOutcome & outcome);
   void publish_result(const ZoomResult & result);
+  void publish_mapping(const Frame & frame, const std_msgs::msg::Header & header);
+  bool focus_lock_desired() const;
+  void apply_focus_lock();
+  void update_focus_lock();
   void retry_start();
   void record_capture(Clock::TimePoint now);
   void expire_capture_fps();
@@ -107,6 +114,18 @@ private:
   rclcpp::TimerBase::SharedPtr retry_timer_;
   rclcpp::TimerBase::SharedPtr fps_timer_;
   std::optional<sensor_msgs::msg::CameraInfo> camera_info_;
+
+  // The 2 Hz mapping stream (only when config_.mapping.enabled) and its focus lock.
+  rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr mapping_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr mapping_info_pub_;
+  std::optional<sensor_msgs::msg::CameraInfo> mapping_info_;  // only with a loaded calibration
+  std::optional<MappingDecimator> mapping_decimator_;         // video thread only
+  rclcpp::TimerBase::SharedPtr focus_timer_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_;
+  std::atomic<bool> lock_focus_param_{true};     // runtime parameter mapping.lock_focus
+  std::atomic<bool> focus_lock_applied_{false};  // what the backend was last told
+  prometheus::Counter * published_mapping_image_ = nullptr;
+  prometheus::Counter * published_mapping_info_ = nullptr;
 
   prometheus::Counter * frames_captured_ = nullptr;
   prometheus::Counter * published_raw_ = nullptr;
