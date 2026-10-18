@@ -378,7 +378,7 @@ def test_slow_value_translates_to_a_non_lethal_grid_value() -> None:
     assert verify.published_grid_value(verify.keepout_cost(60)) == 59
 
 
-def test_mask_problems_accepts_the_slow_value_and_rejects_others() -> None:
+def test_mask_values_accept_the_slow_value_and_reject_others() -> None:
     geo = geometry(width=2, height=2)
     assert verify.mask_problems(geo, geo, [-1, 60, 100, -1], geo, [0] * 4, slow_value=60) == []
     problems = verify.mask_problems(geo, geo, [-1, 50, 100, -1], geo, [0] * 4, slow_value=60)
@@ -446,7 +446,7 @@ class FakeSlowVerifier:
         return self.outcome
 
 
-def test_slow_cost_step_passes_on_59_and_a_successful_plan() -> None:
+def test_slow_step_passes_on_59_and_a_successful_plan() -> None:
     fake = FakeSlowVerifier(keepout=60, costmap=59, plan_ok=True, crosses=True)
     detail = fake.step_slow_cost()
     assert "59" in detail and "crosses" in detail
@@ -455,21 +455,21 @@ def test_slow_cost_step_passes_on_59_and_a_successful_plan() -> None:
 
 
 @pytest.mark.parametrize("costmap", [99, 100])
-def test_slow_cost_step_fails_when_the_costmap_is_lethal(costmap: int) -> None:
+def test_slow_step_fails_when_the_costmap_is_lethal(costmap: int) -> None:
     fake = FakeSlowVerifier(keepout=60, costmap=costmap, plan_ok=True)
     with pytest.raises(verify.VerifyError, match="59"):
         fake.step_slow_cost()
     assert fake.deleted == ["slow-id"]
 
 
-def test_slow_cost_step_fails_when_the_plan_fails() -> None:
+def test_slow_step_fails_when_the_plan_fails() -> None:
     fake = FakeSlowVerifier(keepout=60, costmap=59, plan_ok=False)
     with pytest.raises(verify.VerifyError, match="plan"):
         fake.step_slow_cost()
     assert fake.deleted == ["slow-id"]
 
 
-def test_slow_cost_step_fails_when_the_mask_lacks_the_slow_value() -> None:
+def test_slow_step_fails_when_the_mask_lacks_the_slow_value() -> None:
     fake = FakeSlowVerifier(keepout=100, costmap=59, plan_ok=True)
     with pytest.raises(verify.VerifyError, match="mask"):
         fake.step_slow_cost()
