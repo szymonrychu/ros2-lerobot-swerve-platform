@@ -2648,3 +2648,7 @@ Tests for `scripts/head_rgbd_calibration` (config, capture commands, bag reading
 | `test_normalise_amplitude_*` | 1st/99th percentiles map to 0/255; an empty frame returns None. |
 | `test_read_frames_decodes_everything` | Decoded RGB, amplitude, depth, stamps and camera infos. |
 | `test_still_pairs_two_windows`, `test_still_pairs_ignores_skip_start`, `test_still_pairs_none_when_always_moving` | Two still windows give two pairs with dt <= 50 ms; the first `skip_start_s` is ignored; constant motion gives none. |
+
+### `test_head_rgbd_validate.py`
+
+Covers `scripts/head_rgbd_calibration/validate.py` on synthetic data: `depth_accuracy` (flat target at 1.0 m with +12 mm bias and 8 mm noise gives bias 12 +- 2 mm and RMSE within 2 mm of the truth; zeros excluded; no valid pixel raises), `registration_bias`, `valid_ratio`, `edge_alignment` (board in front of a wall: median 0 +- 0.3 px unshifted, 2 +- 0.3 px with the depth shifted 2 px; no board raises), `time_offset` (pan-sweep corner tracks with a true 25 ms / 0 ms offset give 25 / 0 +- 3 ms; slow pairs ignored; a static scene raises), and `check_targets` (limit flags, per-range depth limits, unmeasured targets fail, lower-bound valid ratio).
