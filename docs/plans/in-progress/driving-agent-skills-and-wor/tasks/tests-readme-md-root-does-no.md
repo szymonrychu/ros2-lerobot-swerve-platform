@@ -1,9 +1,9 @@
 ---
 title: "tests/README.md (root) does not list the node test files added in this epic: test_workflow_check.py here, and test_start_workflow.py, test_workflows.py and test_skills.py from sibling tasks."
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "CLAUDE.md requires tests/README.md to describe every test file. That file is not in this task's file ownership, so I did not edit it."
-files: []
+files: [tests/README.md]
 verify: ""
 depends_on: []
 owns: []
@@ -35,6 +35,7 @@ Why: CLAUDE.md requires tests/README.md to describe every test file. That file i
 
 ## Files
 
+- tests/README.md
 
 
 ## Interfaces
@@ -55,3 +56,7 @@ tests/README.md (root) does not list the node test files added in this epic: tes
 
 Discovered in task `job-end-mandatory-check` during run `driving-agent-skills-and-wor`.
 
+
+## Ruling
+
+Folded into skills-suite-and-runbook by the orchestrator (run 2 planText note). Not a separate task.
