@@ -395,6 +395,29 @@ def test_frame_id_and_near_range_come_from_config(monkeypatch: pytest.MonkeyPatc
     assert h.published(bridge.DEPTH_TOPIC)[0].header.frame_id == "head_tof"
 
 
+def test_open_uses_the_index_resolved_from_csi_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bridge, "resolve_camera_index", lambda config: 10)
+    h = Harness(monkeypatch, TofConfig(camera_index=8, csi_device="1f00128000.csi"))
+    h.prepare = lambda camera: camera.frames.append(good_frame())
+
+    h.bridge.step()
+
+    assert ("open", "CSI", 10) in h.cameras[0].calls
+
+
+def test_unresolvable_csi_device_is_an_open_failure_that_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(_config: TofConfig) -> int:
+        raise LookupError("no csi2_ch0 video node for 1f00128000.csi")
+
+    monkeypatch.setattr(bridge, "resolve_camera_index", missing)
+    h = Harness(monkeypatch, TofConfig(csi_device="1f00128000.csi"))
+
+    h.bridge.step()
+
+    assert h.bridge.camera is None
+    assert "1f00128000.csi" in h.logger.error.call_args[0][0]
+
+
 def test_range_in_metres_is_tried_when_the_sdk_rejects_millimetres(harness: Harness) -> None:
     def reject_mm(camera: FakeCamera) -> None:
         camera.range_rets[4000] = -1

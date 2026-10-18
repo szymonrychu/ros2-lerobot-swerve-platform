@@ -16,6 +16,8 @@ MAX_CAMERA_INDEX = 63
 MAX_CONFIDENCE = 65535.0
 MAX_PUBLISH_RATE_HZ = 30.0
 MAX_PORT = 65535
+VIDEO4LINUX_ROOT = Path("/sys/class/video4linux")
+CAPTURE_NODE_SUFFIX = "csi2_ch0"
 
 
 class ConfigError(Exception):
@@ -26,8 +28,11 @@ class TofConfig(BaseModel):
     """arducam_tof settings.
 
     Attributes:
-        camera_index (int): Video device index the SDK opens over CSI (/dev/video<N>); 0 by default, the ToF on
-            the Pi 5 cam1 connector may need 1 (or the index its video node gets).
+        camera_index (int): Video device index the SDK opens over CSI (/dev/video<N>); 0 by default. Used only when
+            csi_device is unset.
+        csi_device (str | None): CSI controller the ToF hangs off (e.g. "1f00128000.csi", the Pi 5 cam1 port). When
+            set, the index is resolved at every open from its csi2_ch0 video node, because the kernel's video
+            numbering is not stable across kernel versions.
         range_mode (str): "near" (2 m) or "far" (4 m, default): longer range at lower depth precision.
         confidence_threshold (float): Pixels whose SDK confidence is below this are published as depth 0 (invalid).
         frame_id (str): TF frame of every published header.
@@ -38,6 +43,7 @@ class TofConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     camera_index: int = Field(default=0, ge=0, le=MAX_CAMERA_INDEX)
+    csi_device: str | None = None
     range_mode: Literal["near", "far"] = "far"
     confidence_threshold: float = Field(default=30.0, ge=0.0, le=MAX_CONFIDENCE)
     frame_id: str = DEFAULT_FRAME_ID
@@ -59,6 +65,28 @@ class TofConfig(BaseModel):
         if not frame_id:
             raise ValueError("frame_id must not be empty")
         return frame_id
+
+
+def resolve_camera_index(config: TofConfig, root: Path = VIDEO4LINUX_ROOT) -> int:
+    """Return the video device index the SDK should open.
+
+    Args:
+        config (TofConfig): Settings; csi_device selects the controller, else camera_index is returned as is.
+        root (Path): video4linux sysfs class directory.
+
+    Returns:
+        int: N of the /dev/video<N> capture node.
+
+    Raises:
+        LookupError: If csi_device is set and no csi2_ch0 node of that controller exists.
+    """
+    if config.csi_device is None:
+        return config.camera_index
+    for node in sorted(root.glob("video*")):
+        name = (node / "name").read_text().strip()
+        if name.endswith(CAPTURE_NODE_SUFFIX) and (node / "device").resolve().name == config.csi_device:
+            return int(node.name.removeprefix("video"))
+    raise LookupError(f"no {CAPTURE_NODE_SUFFIX} video node for {config.csi_device} under {root}")
 
 
 def config_path_from_env() -> Path:

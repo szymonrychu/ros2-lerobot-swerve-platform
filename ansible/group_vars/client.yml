@@ -1108,9 +1108,9 @@ ros2_nodes:
     config: |
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
       metrics_port: 19112
-      # /dev/video<N> the SDK opens: video8 is csi2_ch0 of the cam1 controller (1f00128000.csi; cam0 registers
-      # video0-7 first). Check with `readlink -f /sys/class/video4linux/video8/device`.
-      camera_index: 8
+      # Pi 5 cam1 controller; the node opens its csi2_ch0 video node, found in sysfs at every open (the /dev/video
+      # number changes between kernels: video8 on 6.8.0-1051, video10 on 6.8.0-1065).
+      csi_device: 1f00128000.csi
       # near or far (the driver rejects anything else, and any key not listed here).
       range_mode: far
       confidence_threshold: 30

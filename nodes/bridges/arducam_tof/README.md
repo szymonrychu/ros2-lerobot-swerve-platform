@@ -28,7 +28,8 @@ YAML file named by `ARDUCAM_TOF_CONFIG` (default `/etc/ros2/arducam_tof/config.y
 
 | Key | Default | Allowed | Meaning |
 |-----|---------|---------|---------|
-| `camera_index` | `0` | 0..63 | Video device index the SDK opens over CSI (`/dev/video<N>`). The robot entry uses `8`: the ToF sits on the Pi 5 cam1 connector, whose controller (`1f00128000.csi`) registers `/dev/video8` as its `csi2_ch0` after cam0 takes video0-7. Check with `readlink -f /sys/class/video4linux/video8/device`. |
+| `camera_index` | `0` | 0..63 | Video device index the SDK opens over CSI (`/dev/video<N>`). Used only when `csi_device` is unset. |
+| `csi_device` | unset | CSI controller name | When set, the node opens the `csi2_ch0` video node of that controller, found under `/sys/class/video4linux` at every open. The robot uses `1f00128000.csi` (Pi 5 cam1): the `/dev/video` number changes between kernels (video8 on 6.8.0-1051, video10 on 6.8.0-1065). |
 | `range_mode` | `far` | `near`, `far` | `far` is 4 m (head camera looking across a room); `near` is 2 m with finer depth. The SDK gets millimetres; if it rejects them, metres are tried. |
 | `confidence_threshold` | `30.0` | 0..65535 | Pixels with SDK confidence below this are published as depth 0. |
 | `frame_id` | `tof_optical_frame` | non-empty | TF frame of every header. |
@@ -60,8 +61,12 @@ Node name `arducam_tof`, via `ros2-metrics`.
 
 Run in this directory: `uv run pytest tests -q` and `uv run poe lint` (ruff and vulture).
 
-- `tests/test_config.py` - defaults, every key, rejection of unknown keys and out-of-range values, file and YAML errors.
-- `tests/test_bridge.py` - the SDK (`ArducamDepthCamera`) and rclpy are mocked: encodings, the confidence mask, one shared header, the rate bound, no publish on a failed, missing or malformed frame, open failure and retry, release of a camera that fails after start, reopen after a stall, and `main()`.
+- `tests/test_config.py` - defaults, every key, rejection of unknown keys and out-of-range values, file and YAML errors, `csi_device` resolution against a fake sysfs tree.
+- `tests/test_bridge.py` - the SDK (`ArducamDepthCamera`) and rclpy are mocked: encodings, the confidence mask, one shared header, the rate bound, no publish on a failed, missing or malformed frame, open failure and retry, open with the index resolved from `csi_device` (an unresolvable one retries), release of a camera that fails after start, reopen after a stall, and `main()`.
+
+## Pi 5: camera firmware
+
+On the Pi 5 the RP1 CSI receiver drops every packet unless the sensor sends MIPI Frame Start/End packets (Arducam issue #121): `CSI2_DISCARDS_UNMATCHED` in `/sys/kernel/debug/rp1-cfe:1f00128000.csi/csi2_regs` climbs and the SDK never gets a frame. Reflashing the camera with Arducam's `B0410_Tof_Firmware.tar.gz` tool fixed it on the robot (2026-10-18; it still reports 0x10002): power off, bridge the two recovery pads, power on, remove the bridge, then `sudo ./firmware_update -i 11 -m b0410_tof_firmware` (i2c-11 = cam1; needs `libtinfo.so.5`), reboot.
 
 ## Deploy
 

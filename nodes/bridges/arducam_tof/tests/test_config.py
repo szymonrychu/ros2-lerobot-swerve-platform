@@ -11,6 +11,7 @@ from arducam_tof.config import (
     TofConfig,
     config_path_from_env,
     load_config,
+    resolve_camera_index,
 )
 
 
@@ -108,3 +109,47 @@ def test_config_path_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch)
     assert config_path_from_env() == DEFAULT_CONFIG_PATH
     monkeypatch.setenv(CONFIG_ENV_VAR, "/tmp/tof.yaml")
     assert config_path_from_env() == Path("/tmp/tof.yaml")
+
+
+def fake_video_node(root: Path, index: int, name: str, controller: str) -> None:
+    """Create a sysfs-like /sys/class/video4linux/video<index> entry.
+
+    Args:
+        root (Path): Fake video4linux class directory.
+        index (int): Video node number.
+        name (str): Content of the name file (e.g. rp1-cfe-csi2_ch0).
+        controller (str): Basename the device symlink resolves to (e.g. 1f00128000.csi).
+    """
+    devices = root.parent / "devices" / controller
+    devices.mkdir(parents=True, exist_ok=True)
+    node = root / f"video{index}"
+    node.mkdir(parents=True)
+    (node / "name").write_text(f"{name}\n")
+    (node / "device").symlink_to(devices)
+
+
+def test_csi_device_defaults_to_none_and_the_fixed_index_is_used(tmp_path: Path) -> None:
+    config = TofConfig(camera_index=3)
+    assert config.csi_device is None
+    assert resolve_camera_index(config, tmp_path / "video4linux") == 3
+
+
+def test_csi_device_resolves_the_csi2_ch0_node_of_that_controller(tmp_path: Path) -> None:
+    root = tmp_path / "video4linux"
+    fake_video_node(root, 0, "rp1-cfe-csi2_ch0", "1f00110000.csi")
+    fake_video_node(root, 9, "rp1-cfe-embedded", "1f00128000.csi")
+    fake_video_node(root, 10, "rp1-cfe-csi2_ch0", "1f00128000.csi")
+    config = TofConfig(camera_index=8, csi_device="1f00128000.csi")
+    assert resolve_camera_index(config, root) == 10
+
+
+def test_csi_device_without_a_capture_node_raises(tmp_path: Path) -> None:
+    root = tmp_path / "video4linux"
+    fake_video_node(root, 0, "rp1-cfe-csi2_ch0", "1f00110000.csi")
+    with pytest.raises(LookupError, match="1f00128000.csi"):
+        resolve_camera_index(TofConfig(csi_device="1f00128000.csi"), root)
+
+
+def test_csi_device_is_loaded_from_yaml(tmp_path: Path) -> None:
+    config = load_config(write(tmp_path, "csi_device: 1f00128000.csi\n"))
+    assert config.csi_device == "1f00128000.csi"

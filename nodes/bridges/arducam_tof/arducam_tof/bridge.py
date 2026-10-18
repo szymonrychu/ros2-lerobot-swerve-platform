@@ -33,7 +33,7 @@ from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Header
 
-from .config import TofConfig
+from .config import TofConfig, resolve_camera_index
 
 NODE_NAME = "arducam_tof"
 DEPTH_TOPIC = "/tof/depth/image_raw"
@@ -216,7 +216,8 @@ class TofBridge:
         self.last_frame_s = clock()
         node.create_timer(1.0 / config.publish_rate_hz, self.step)
         self.logger.info(
-            f"arducam_tof: camera_index={config.camera_index} range_mode={config.range_mode} "
+            f"arducam_tof: camera_index={config.camera_index} csi_device={config.csi_device} "
+            f"range_mode={config.range_mode} "
             f"confidence_threshold={config.confidence_threshold} frame_id={config.frame_id} "
             f"publish_rate_hz={config.publish_rate_hz}"
         )
@@ -242,10 +243,11 @@ class TofBridge:
         camera: Any = None
         opened = started = False
         try:
+            index = resolve_camera_index(self.config)
             camera = ac.ArducamCamera()
-            ret = camera.open(ac.Connection.CSI, self.config.camera_index)
+            ret = camera.open(ac.Connection.CSI, index)
             if not sdk_ok(ret):
-                raise RuntimeError(f"open(CSI, {self.config.camera_index}) returned {ret}")
+                raise RuntimeError(f"open(CSI, {index}) returned {ret}")
             opened = True
             ret = camera.start(ac.FrameType.DEPTH)
             if not sdk_ok(ret):
@@ -260,7 +262,8 @@ class TofBridge:
             if opened:  # release the device, else every retry fails with it busy
                 self.release(camera, started)
             self.logger.error(
-                f"Could not open the ToF camera (index {self.config.camera_index}): {e}; retrying in {OPEN_RETRY_S} s."
+                f"Could not open the ToF camera ({self.config.csi_device or self.config.camera_index}): {e}; "
+                f"retrying in {OPEN_RETRY_S} s."
             )
             self.next_open_s = self.clock() + OPEN_RETRY_S
             return
