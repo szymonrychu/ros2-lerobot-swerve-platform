@@ -1,0 +1,62 @@
+---
+title: Agent head tools and prompt
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: The robot agent knows it can aim its head camera and that the head goes home when it parks.
+files: [nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_config.py, nodes/claude_agent/tests/test_prompt.py, nodes/claude_agent/README.md, ansible/group_vars/client.yml]
+verify: "cd nodes/claude_agent && uv run --frozen pytest tests -q && uv run --frozen poe lint && cd ../.. && uv run pytest tests/test_claude_agent_config.py -q"
+depends_on: [mcp-lease-release-homes-head, mcp-front-camera-on-head]
+owns: []
+uses: [head-tool-names]
+model: sonnet
+estimate: 45
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# Agent head tools and prompt
+
+## Requirement
+
+- `nodes/claude_agent/claude_agent/config.py` (D12, U5): `set_head_angles`, `head_look_at`, `head_home` join `DEFAULT_EFFECTOR_TOOLS` (effector + denied = mcp_server `MOTION_TOOLS`); the camera note (as rewritten by the head-camera epic) adds that the front (head) camera sits on a pan/tilt head with the ToF, can be aimed once at a point with `head_look_at` (base_link or map) and then zoomed, and that the head returns home when the job parks.
+- `prompt.py`: the control-lease paragraph says the head tools work under either the arm or the base lease and that a release leaving no lease homes the head (`reset.head`); the zoom paragraph says zoom never moves the head (look at first if needed).
+- `ansible/group_vars/client.yml` claude_agent config: effector list equals the code defaults (root `tests/test_claude_agent_config.py`).
+- `nodes/claude_agent/README.md`: head tools in the tool classification.
+- Tests first in `nodes/claude_agent/tests/test_config.py` (head tools are effectors) and `tests/test_prompt.py` (prompt names head_look_at, the lease rule and the home on park), seen failing; root `tests/test_claude_agent_config.py` passes unchanged in its rules.
+
+## Acceptance conditions
+
+- a1: the head tools are effector tools and the lists match mcp_server MOTION_TOOLS [evidence: test: nodes/claude_agent/tests/test_config.py]
+- a2: the prompt explains aiming with head_look_at, the either-lease rule and homing on park [evidence: test: nodes/claude_agent/tests/test_prompt.py]
+- a3: client.yml claude_agent config equals the code defaults [evidence: test: tests/test_claude_agent_config.py]
+- a4: claude_agent tests and lint pass [evidence: command: cd nodes/claude_agent && uv run --frozen pytest tests -q && uv run --frozen poe lint]
+
+## Files
+
+- `nodes/claude_agent/claude_agent/config.py`
+- `nodes/claude_agent/claude_agent/prompt.py`
+- `nodes/claude_agent/tests/test_config.py`
+- `nodes/claude_agent/tests/test_prompt.py`
+- `nodes/claude_agent/README.md`
+- `ansible/group_vars/client.yml`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
