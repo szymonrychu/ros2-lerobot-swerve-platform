@@ -196,3 +196,20 @@ def test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras() -> Non
     assert include["apply"]["tags"] == ["head_camera_cpp"]
     assert step["vars"] == {"_deploy_node_name": "head_camera_cpp"}
     assert step["tags"] == ["head_camera_cpp", "apt", "python", "build", "config"]
+
+
+def test_docs_describe_head_camera_cpp() -> None:
+    node_readme = (NODE_DIR / "README.md").read_text()
+    assert "## Zoom interface" in node_readme
+    assert "## Configuration" in node_readme
+    for doc in (
+        REPO_ROOT / "nodes" / "README.md",
+        REPO_ROOT / "ansible" / "README.md",
+        REPO_ROOT / ".claude" / "skills" / "ansible-deploy" / "SKILL.md",
+        REPO_ROOT / "MEMORY.md",
+        NODE_DIR / "README.md",
+    ):
+        assert "head_camera_cpp" in doc.read_text(), doc
+    for doc in (REPO_ROOT / "nodes" / "README.md", REPO_ROOT / ".claude" / "skills" / "ansible-deploy" / "SKILL.md"):
+        lines = [line for line in doc.read_text().splitlines() if "pi_cameras" in line]
+        assert any("etired" in line for line in lines), doc

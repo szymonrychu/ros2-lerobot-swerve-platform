@@ -1910,6 +1910,7 @@ Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group
 | `test_config_path_and_env` | `/etc/ros2/head_camera_cpp` and `HEAD_CAMERA_CONFIG`. |
 | `test_entry_is_live_after_pi_cameras_with_valid_config` | The entry follows `pi_cameras`, is present and enabled, and its config keys are known to the node (`camera_id` of cam0, `jpeg_quality: 70`, `metrics_port: 19116`). |
 | `test_monitoring_target_is_present` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19116/metrics`. |
+| `test_docs_describe_head_camera_cpp` | `nodes/head_camera_cpp/README.md` has `## Zoom interface` and `## Configuration`; the node README, `nodes/README.md`, `ansible/README.md`, the ansible-deploy SKILL and `MEMORY.md` name `head_camera_cpp`; `nodes/README.md` and the SKILL mark `pi_cameras` retired. |
 | `test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras` | `deploy_nodes_client.yml` has a `Deploy head_camera_cpp` step directly after `Deploy pi_cameras` (resolve_and_deploy, apply tag and `_deploy_node_name` `head_camera_cpp`, tags incl. apt/python/build/config). |
 
 ### `test_pi_camera_boot_config.py`

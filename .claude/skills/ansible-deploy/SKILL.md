@@ -101,7 +101,8 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `rplidar_a1` | LiDAR bridge (USB) |
 | `realsense_d435i` | Removed (present: false): replaced by `overview_camera` |
 | `overview_camera` | Retired (D7): `present: false`, deploying it uninstalls the unit; `pi_camera_boot_config.yml` holds the CSI overlays. no node publishes `/overview_camera/*` any more |
-| `pi_cameras` | Camera Module 3 (IMX708) previews; only the front one runs (`roles: [front]`, CSI cam0) because cam1 carries the Arducam ToF; libcamera fork + camera_ros built from source into `/opt/ros2-ws`; boot overlay from `pi_camera_boot_config.yml` (reboots on change); publishes `/front_camera/image_raw/compressed` (640x480, 10 fps), background cgroup tier |
+| `head_camera_cpp` | Head Camera Module 3 (IMX708, CSI cam0) on the pan/tilt head; C++ node (`ros2 run head_camera_cpp head_camera_node`) built against the pinned libcamera fork in `/opt/ros2-ws`; publishes `/head_camera/image_raw[/compressed]` (1152x648, 30 fps) and serves zoom crops on `/head_camera/zoom/{command,image,result}`; background cgroup tier, metrics on 19116 |
+| `pi_cameras` | Retired: `present: false`, deploying it uninstalls the unit and purges `camera_ros`; replaced by `head_camera_cpp` (the `Deploy pi_cameras` step stays so the uninstall runs) |
 | `arducam_tof` | Arducam ToF on CSI cam1 (`csi_device: 1f00128000.csi`, `dtoverlay=arducam-pivariety,cam1`; needs the camera firmware reflashed for the Pi 5); publishes `/tof/depth/image_raw`, `/tof/amplitude/image_raw`, `/tof/camera_info`; metrics 19112 |
 | `stereo_depth` | Retired (D7, sources deleted): `present: false`; deploying it stops and removes the unit. No node publishes `/stereo/*` any more |
 | `stereo_depth_cpp` | Retired (D7, sources deleted): `present: false`; deploying it stops and removes the unit. No node publishes `/stereo/*` any more |
