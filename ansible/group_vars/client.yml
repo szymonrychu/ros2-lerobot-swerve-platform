@@ -2397,8 +2397,9 @@ ros2_nodes:
         max_records: 3000
         # Most total JPEG bytes kept (300 MB).
         max_bytes: 300000000
-        # Oldest photo age kept (days).
-        max_age_days: 14
+        # Photos are map POIs and leave with their map (a map load restores them), so there is no age limit;
+        # max_records and max_bytes guard the disk.
+        max_age_days: null
         # Largest single JPEG an add accepts (5 MB).
         max_image_bytes: 5000000
         # Period of the retention timer (s), so the age limit holds without camera activity.

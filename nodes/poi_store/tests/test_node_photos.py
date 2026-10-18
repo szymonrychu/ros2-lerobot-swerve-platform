@@ -124,7 +124,7 @@ def test_photos_summary_published_latched_after_initial_load(node_module: Module
     assert len(pub.sent) == 1
     summary = json.loads(pub.sent[0])
     assert summary["count"] == 0 and summary["bytes"] == 0 and summary["oldest_ts"] is None
-    assert summary["limits"] == {"max_records": 3000, "max_bytes": 300_000_000, "max_age_days": 14.0}
+    assert summary["limits"] == {"max_records": 3000, "max_bytes": 300_000_000, "max_age_days": None}
 
 
 def test_custom_summary_topic(node_module: ModuleType, tmp_path: Path) -> None:

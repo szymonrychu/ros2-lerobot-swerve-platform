@@ -30,7 +30,7 @@ def test_photo_settings_defaults():
     assert photos.store_dir == "/var/lib/ros2/poi/lookups"
     assert photos.max_records == 3000
     assert photos.max_bytes == 300_000_000
-    assert photos.max_age_days == 14
+    assert photos.max_age_days is None
     assert photos.max_image_bytes == 5_000_000
     assert photos.prune_interval_s == 3600
     assert photos.summary_topic == "/poi/photos"
@@ -51,6 +51,7 @@ def test_photo_settings_from_yaml(tmp_path: Path):
         {"max_records": 0},
         {"max_bytes": 0},
         {"max_age_days": 0},
+        {"max_age_days": float("inf")},
         {"max_image_bytes": 0},
         {"prune_interval_s": 0},
         {"store_dir": ""},

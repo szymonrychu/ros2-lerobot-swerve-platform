@@ -240,6 +240,28 @@ def test_prune_by_age(make_store, clock: FakeClock):
     assert [r.id for r in store.records()] == [pid(2), pid(3), pid(4)]
 
 
+def test_no_age_limit_keeps_old_records(make_store, clock: FakeClock):
+    store = make_store(max_age_days=None, max_records=3)
+    clock.now = T0 + 30 * DAY_S
+    add(store, 1, ts=T0)  # 30 days old
+    add(store, 2, ts=T0 + DAY_S)
+    assert store.prune_now() == 0
+    assert [r.id for r in store.records()] == [pid(1), pid(2)]
+    assert store.summary()["limits"]["max_age_days"] is None
+    add(store, 3, ts=clock.now)
+    add(store, 4, ts=clock.now)  # count limit still prunes the oldest
+    assert [r.id for r in store.records()] == [pid(2), pid(3), pid(4)]
+
+
+def test_no_age_limit_bytes_limit_still_prunes(make_store, clock: FakeClock):
+    store = make_store(max_age_days=None, max_bytes=1000)
+    clock.now = T0 + 30 * DAY_S
+    for n in (1, 2, 3, 4):
+        add(store, n, ts=T0 + n, size=250)
+    add(store, 5, ts=T0 + 5, size=300)
+    assert [r.id for r in store.records()] == [pid(3), pid(4), pid(5)]
+
+
 def test_newly_added_record_is_never_pruned(make_store):
     old = make_store(max_age_days=1.0)
     rec = add(old, 1, ts=T0 - 10 * DAY_S)  # older than max_age_days on its own
