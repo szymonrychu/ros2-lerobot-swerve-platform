@@ -1,9 +1,9 @@
 ---
 title: "Two other node memory comments in client.yml still say 'Not measured yet (C++ relay ...): MemoryLow is an estimate'."
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "This is the same parking wording the review flagged, but it predates this task and belongs to other nodes' entries, so I left it alone."
-files: []
+files: [ansible/group_vars/client.yml]
 verify: ""
 depends_on: []
 owns: []
@@ -35,6 +35,7 @@ Why: This is the same parking wording the review flagged, but it predates this t
 
 ## Files
 
+- ansible/group_vars/client.yml
 
 
 ## Interfaces
@@ -55,3 +56,7 @@ Two other node memory comments in client.yml still say 'Not measured yet (C++ re
 
 Discovered in task `laser-filter-tof-self-filter` during run `tof-3d-obstacle-detection-fo`.
 
+
+## Ruling
+
+Folded into final-suite-and-runbook by the orchestrator (run 3 planText note).
