@@ -1,6 +1,6 @@
 ---
 title: Final suite and runbook
-status: escalated
+status: blocked
 repo: ros2-lerobot-sverve-platform
 value: "Named maps are proven on the robot: a saved map is loaded after a reset and the robot relocalises near the saved pose, with measured timings and thresholds."
 files: [docs/runbooks/named-maps.md, ansible/group_vars/client.yml, nodes/map_manager/README.md]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--final-suite-and-runbook
 branch: named-maps-with-pois-and-rel--final-suite-and-runbook
-verified_head: ""
+verified_head: a163e35851e394c324c6be452195545e6d636033
 run: named-maps-with-pois-and-rel
 provides: []
-acs_for_audit: []
+acs_for_audit: [a3]
 process_gaps: []
 ---
 
