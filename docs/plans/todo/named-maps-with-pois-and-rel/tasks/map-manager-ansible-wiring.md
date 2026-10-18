@@ -59,16 +59,21 @@ Ansible for map_manager (CLAUDE.md "Ansible and ROS2 nodes").
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `ros2_node_type_defaults.map_manager` and the `ros2_nodes` `map_manager` entry in `ansible/group_vars/client.yml`.
+- Deploy block in `ansible/playbooks/deploy_nodes_client.yml`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`./scripts/deploy-nodes.sh client map_manager` would deploy, configure and start the node.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `uv run pytest tests/test_map_manager_config.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `uv run pytest tests/test_map_manager_config.py -q && uv run poe lint-ansible && uv run poe test-ansible`; expect every test passed and lint clean.
+- Commit: `feat(ansible): deploy map_manager`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Follow poi_store's node type and its deploy block; include `tasks/slam_maps_dir.yml` so `/var/lib/ros2/maps` exists owned by the node user (map_manager creates `named/` itself).
+- Servo safety (CLAUDE.md): this task moves no servo.

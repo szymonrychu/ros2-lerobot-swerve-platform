@@ -59,16 +59,21 @@ Add a `replace` op to poi_store (design D8): `{"op": "replace", "request_id": ..
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `Command.op` `"replace"`, `Command.pois`.
+- `PoiStore.op_replace(pois) -> Result` with result `{"replaced": n, "removed": m}`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A replace swaps the whole non-photo POI set atomically or changes nothing; costmap_zones and every `/poi/list` reader see one new revision.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/poi_store && uv run --frozen pytest tests/test_replace.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/poi_store && uv run --frozen pytest tests/test_replace.py -q && uv run --frozen pytest -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(poi_store): replace op for loading a map's POIs`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Reuse `apply`'s rollback (pois_before / revision_before) and `strip_photo_links`. The node republishes `/poi/list` because the revision moved; no node.py change is needed.
+- Servo safety (CLAUDE.md): this task moves no servo.

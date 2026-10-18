@@ -59,16 +59,20 @@ Map tab UI for named maps (design D12).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/frontend/src/map/mapsApi.ts`, `MapsDialog.tsx`; status types in `src/types.ts`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The Map tab offers Save map as and Maps (load, delete, retry) and shows the localisation state.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/web_ui/frontend && npx vitest run src/map/MapsDialog.test.tsx` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/web_ui/frontend && npx vitest run src/map/MapsDialog.test.tsx src/tabs/MapNavTab.toolbar.test.tsx && npx tsc --noEmit && npm run lint`; expect every test passed and lint clean.
+- Commit: `feat(web_ui): named maps dialog in the Map tab`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Use the existing `runAction`, ToolButton and dialog patterns of `MapNavTab.tsx`; keep the toolbar groups test (`toolbarGroups.ts`) consistent.
+- Servo safety (CLAUDE.md): this task moves no servo.

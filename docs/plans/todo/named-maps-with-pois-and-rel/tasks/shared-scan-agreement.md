@@ -62,16 +62,21 @@ only if a consumer needs it (map_manager builds GridMap from occupancy.npz).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/scan_agreement.py`: `GridMap`, `PreparedMap`, `AgreementResult`, `dilate`, `prepare_map`, `scan_endpoints`, `yaw_quaternion`, `quaternion_matrix`, `transform_points`, `agreement` (signatures of `nodes/map_guard/map_guard/agreement.py` today).
+- `nodes/map_guard/map_guard/agreement.py` keeps `MismatchMonitor` and re-exports the moved names.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One agreement implementation in shared/, used by map_guard unchanged and available to map_manager; map_guard_cpp fixtures stay current.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `uv run pytest tests/test_shared_scan_agreement.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `uv run pytest tests/test_shared_scan_agreement.py tests/test_shared_package.py -q && uv run poe lint && cd nodes/map_guard && uv run --frozen pytest -q && uv run --frozen poe lint && uv run --frozen python ../map_guard_cpp/test/gen_fixtures.py --check`; expect every test passed and lint clean.
+- Commit: `refactor(shared): move scan-to-map agreement into ros2_common`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+`nodes/map_guard_cpp/test/gen_fixtures.py` imports `map_guard.agreement` and `tests.test_agreement` helpers; the re-export keeps it working. Do not regenerate fixtures: `--check` must pass as is.
+- Servo safety (CLAUDE.md): this task moves no servo.

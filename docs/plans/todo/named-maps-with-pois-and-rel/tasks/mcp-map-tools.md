@@ -57,16 +57,21 @@ mcp_server tools for named maps (design D11).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/mcp_server/mcp_server/map_tools.py`: `register(ctx)`, tools `save_map`, `list_maps`, `load_map`.
+- `MapRequests`, `MapManagerDown`, `MapTimeout`; `maps` config section.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent saves, lists and loads named maps and gets the relocalisation verdict.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_map_tools.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/mcp_server && uv run --frozen pytest tests/test_map_tools.py tests/test_config.py -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(mcp_server): named map tools`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Copy the request/result matching of `poi_client.PoiRequests`. Deploying mcp_server kills a running agent session (MEMORY): the final task batches the deploy.
+- Servo safety (CLAUDE.md): this task moves no servo.

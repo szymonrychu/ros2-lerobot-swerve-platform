@@ -1,6 +1,6 @@
 ---
 title: Named maps with POIs and relocalisation
-blockers: []
+blockers: [Remove the Jetson coprocessor]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -34,7 +34,9 @@ The POI store and the map are saved and loaded separately today, and POIs cannot
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+
+
+Estimate: 1315 min | Actual: 0 min | Remaining estimate: 1315 min
 
 ## Review
 

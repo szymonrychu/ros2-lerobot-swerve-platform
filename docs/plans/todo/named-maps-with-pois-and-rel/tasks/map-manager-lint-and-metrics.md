@@ -47,16 +47,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `CONFIG_METRICS_PORTS["map_manager"] = 19113` in `tests/test_node_metrics_wiring.py`; scrape target in `ansible/roles/monitoring_agent/defaults/main.yml`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+map_manager is linted locally, in CI and by root lint-nodes, and its metrics are scraped.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `uv run pytest tests/test_node_metrics_wiring.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `uv run pytest tests/test_node_metrics_wiring.py tests/test_node_lint_coverage.py tests/test_ci_workflow.py -q && uv run poe lint-nodes`; expect every test passed and lint clean.
+- Commit: `chore: lint, CI and metrics scrape for map_manager`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Mirror every place poi_store appears in these files.
+- Servo safety (CLAUDE.md): this task moves no servo.

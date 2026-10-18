@@ -60,16 +60,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/named-maps.md` with a `## Results` section.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The epic's goals are verified on the robot with recorded numbers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `uv run pytest tests/ -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && (cd nodes/poi_store && uv run --frozen pytest -q) && (cd nodes/map_manager && uv run --frozen pytest -q) && (cd nodes/map_guard && uv run --frozen pytest -q) && (cd nodes/web_ui && uv run --frozen pytest -q) && (cd nodes/mcp_server && uv run --frozen pytest -q) && (cd nodes/claude_agent && uv run --frozen pytest -q) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)`; expect every test passed and lint clean.
+- Commit: `docs: named maps runbook with measured results`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Use the ansible-deploy skill before deploying (CLAUDE.md); logs in `.logs/`. Driving for step 6 is slow and short; no arm motion. Deploy mcp_server and claude_agent only when no agent session runs (MEMORY).

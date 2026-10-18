@@ -60,16 +60,21 @@ web_ui backend for named maps (design D9, D12); the unnamed `/api/map/save` and 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Routes `GET /api/maps`, `POST /api/maps/save`, `POST /api/maps/load`, `POST /api/maps/delete` in `nodes/web_ui/web_ui/server.py`.
+- `BridgeNode.map_request_async`, `BridgeNode.map_status` and the `load_seq` watch in `nodes/web_ui/web_ui/bridge.py`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The browser API drives map_manager; any load (web or agent) clears the cached map and resets the GPS anchor.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/web_ui && uv run --frozen pytest tests/test_named_maps.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/web_ui && uv run --frozen pytest tests/test_named_maps.py -q && uv run --frozen pytest -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(web_ui): named maps API`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Reuse `call_ros_service`/`await_ros_future`, `coalesce`, `action_response`, `battery_block`, `cancel_all_goals_async`, `clear_and_notify`, `reset_gps_anchor` (see the map reset route and `/map_guard/map_reset` handling). Keep `/api/map/save` and `/api/map/reset` unchanged.
+- Servo safety (CLAUDE.md): this task moves no servo.

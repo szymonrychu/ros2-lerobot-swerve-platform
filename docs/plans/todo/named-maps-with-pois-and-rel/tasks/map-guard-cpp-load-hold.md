@@ -58,16 +58,20 @@ map_guard_cpp follows map_manager's localisation verdict (design D9).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `MapGuardConfig::localised_topic`; `MapGuard::set_hold(bool)`; `MapGuardNode` Bool subscription.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+With `/map_manager/localised` false, map_guard_cpp makes no slam_toolbox call and publishes nothing; true re-arms it; absent, nothing changes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `scripts/cpp-node-test.sh map_guard_cpp` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `scripts/cpp-node-test.sh map_guard_cpp`; expect every test passed and lint clean.
+- Commit: `feat(map_guard_cpp): hold the guard while a loaded map is not localised`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The golden-fixture gtests compare with the Python node; the hold is C++-only and off unless a message arrives, so existing fixtures stay valid. The Python map_guard (disabled rollback) is not changed; the docs task records that.
+- Servo safety (CLAUDE.md): this task moves no servo.

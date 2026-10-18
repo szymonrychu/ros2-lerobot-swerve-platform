@@ -49,16 +49,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `POST /api/poi` op `clear` in `nodes/web_ui/web_ui/server.py:poi_command`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The POI clear filters reach poi_store from the browser API with validation.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/web_ui && uv run --frozen pytest tests/test_poi_clear.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/web_ui && uv run --frozen pytest tests/test_poi_clear.py -q && uv run --frozen pytest -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(web_ui): POI clear route`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+poi_store validates again; the route rejects bad values early with 422 so the UI gets a clear message.
+- Servo safety (CLAUDE.md): this task moves no servo.

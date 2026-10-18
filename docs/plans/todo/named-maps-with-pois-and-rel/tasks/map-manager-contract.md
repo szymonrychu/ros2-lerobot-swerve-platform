@@ -61,16 +61,20 @@ constants; no ROS imports.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/maps.py`: `COMMAND_TOPIC`, `RESULT_TOPIC`, `STATUS_TOPIC`, `LOCALISED_TOPIC`, `MAP_NAME_PATTERN`, `validate_map_name`, `Pose2D`, `MapCommand`, `MapResult`, `LocalisationState`, `Localisation`, `MapSummary`, `MapStatus`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+map_manager, web_ui and mcp_server can import one contract; invalid names, misplaced poses and unknown states are rejected by the models.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `uv run pytest tests/test_shared_maps.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `uv run pytest tests/test_shared_maps.py -q && uv run poe lint`; expect every test passed and lint clean.
+- Commit: `feat(shared): named maps topic contract`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Shared part `map-manager-contract` (design Contracts). web_ui and mcp_server already depend on ros2-common by editable path, so no lock change is needed there. Keep the module free of rclpy.
+- Servo safety (CLAUDE.md): this task moves no servo.

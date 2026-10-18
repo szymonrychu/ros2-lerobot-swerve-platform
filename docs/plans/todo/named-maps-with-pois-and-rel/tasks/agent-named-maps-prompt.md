@@ -50,16 +50,20 @@ claude_agent side of the new tools (design D11).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `DEFAULT_SENSOR_TOOLS` in `nodes/claude_agent/claude_agent/config.py`; prompt text in `prompt.py`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent classifies the map tools as non-motion and follows the not-localised and consent rules.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/claude_agent && uv run --frozen pytest tests/test_named_maps_prompt.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/claude_agent && uv run --frozen pytest tests/test_named_maps_prompt.py tests/test_config.py tests/test_prompt.py -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(claude_agent): named map tools and prompt rules`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Deploying claude_agent kills a running session (MEMORY); the final task batches it.
+- Servo safety (CLAUDE.md): this task moves no servo.

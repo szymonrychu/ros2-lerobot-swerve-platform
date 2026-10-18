@@ -60,16 +60,20 @@ Pure relocalisation logic in `map_manager/relocalise.py` (design D5 step 4 and D
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map_manager/map_manager/relocalise.py`: `SearchSettings`, `SearchResult`, `search_candidates(prepared, points_base, hint, settings)`, `LocalisationJudge`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Given the saved grid, a live scan and a hint, the robot's pose is found within 0.1 m / 5 deg when the hint is up to 0.6 m / 40 deg off, ambiguity is detected, and the verdict comes from measured agreement only.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/map_manager && uv run --frozen pytest tests/test_relocalise.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/map_manager && uv run --frozen pytest tests/test_relocalise.py -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(map_manager): candidate pose search and localisation verdict`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+slam_toolbox's near-region match only searches the 0.8 m correlation window and +-0.349 rad around the hint and never rejects a match (design D5), so this search must bring the hint inside that window. Reuse `prepare_map`, `scan_endpoints`, `transform_points`, `agreement` from the shared module; vectorise over candidates with numpy.
+- Servo safety (CLAUDE.md): this task moves no servo.

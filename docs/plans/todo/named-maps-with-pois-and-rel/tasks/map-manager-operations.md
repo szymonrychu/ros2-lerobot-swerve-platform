@@ -79,16 +79,21 @@ D6, D8).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map_manager/map_manager/config.py:MapManagerConfig`.
+- `nodes/map_manager/map_manager/manager.py`: `SlamPort`, `PoiPort`, `SensorPort`, `MapManager.handle`, `MapManager.status`, `MapManager.localised`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Save, load and delete run the designed sequences against fakes; every failure path leaves a truthful status and slam paused when the map is not trusted.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/map_manager && uv run --frozen pytest tests/test_manager.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/map_manager && uv run --frozen pytest tests/test_manager.py -q && uv run --frozen pytest -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(map_manager): save, load and delete operations`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Design D5 load sequence is the contract; verified slam facts: async node refuses LOCALIZE_AT_POSE, an unreadable file still returns success (pre-check files, confirm with `/pose`), the first scan after deserialize is processed even while paused. Pause is a toggle: copy map_guard's read-compare-toggle-re-read pattern (`nodes/map_guard/map_guard/guard.py`).
+- Servo safety (CLAUDE.md): this task moves no servo.

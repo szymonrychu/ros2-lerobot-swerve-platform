@@ -44,16 +44,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `maps` section of the mcp_server `config: |` block in `ansible/group_vars/client.yml`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Deployed config, README and map_manager topics agree, enforced by the root test.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `uv run pytest tests/test_mcp_server_config.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `uv run pytest tests/test_mcp_server_config.py tests/test_map_manager_config.py -q && uv run poe lint-ansible`; expect every test passed and lint clean.
+- Commit: `docs(mcp_server): named map tools and config`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Read map_manager's topics from its ros2_nodes config block in the test rather than hard-coding them twice.
+- Servo safety (CLAUDE.md): this task moves no servo.

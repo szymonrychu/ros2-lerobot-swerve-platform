@@ -57,16 +57,21 @@ Extend poi_store's `clear` op (design D7), backward compatible with claude_agent
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/poi_store/poi_store/models.py:Command` fields `kinds`, `keep_zones`; `created_by` optional for clear.
+- `nodes/poi_store/poi_store/store.py:PoiStore.op_clear(created_by, statuses, kinds, keep_zones)`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`{"op": "clear"}` with any combination of creator, kinds, statuses and keep_zones removes exactly the matching POIs; the New-session agent clear is unchanged.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/poi_store && uv run --frozen pytest tests/test_clear_filters.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/poi_store && uv run --frozen pytest tests/test_clear_filters.py -q && uv run --frozen pytest -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(poi_store): filtered clear (all creators, kinds, keep zones)`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+claude_agent's `clear_agent_pois` sends `created_by: agent` with optional statuses; mcp_server's admin route forwards it. The printable-markers epic also edits models.py later (Poi fields); keep the change inside `Command` and `op_clear`.
+- Servo safety (CLAUDE.md): this task moves no servo.

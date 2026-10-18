@@ -54,16 +54,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Doc sections named in the requirement.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+READMEs, tests/README.md and MEMORY.md describe what landed.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `grep -q START_AT_GIVEN_POSE nodes/slam_toolbox/README.md` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `grep -q START_AT_GIVEN_POSE nodes/slam_toolbox/README.md && grep -q localised_topic nodes/map_guard_cpp/README.md && grep -q test_map_manager_config.py tests/README.md && grep -q test_shared_scan_agreement.py tests/README.md && grep -q 'Named maps' MEMORY.md && uv run poe lint`; expect every test passed and lint clean.
+- Commit: `docs: named maps, relocalisation and map_guard hold`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Docs task: the TDD exception for doc edits applies (tdd.md); verify by the grep command.
+- Servo safety (CLAUDE.md): this task moves no servo.

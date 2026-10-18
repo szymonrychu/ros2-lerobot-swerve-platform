@@ -70,16 +70,21 @@ The rclpy layer of map_manager (design D4, D10), the only rclpy module, tested w
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map_manager/map_manager/node.py:run_node(config)`; `__main__.py` entry; `metrics.py` metric objects.
+- Topics and services of design D4.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`python3 -m map_manager` serves the contract on the robot with no heavy subscriptions while idle.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/map_manager && uv run --frozen pytest tests/test_node.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/map_manager && uv run --frozen pytest tests/test_node.py -q && uv run --frozen pytest -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(map_manager): ROS node, metrics and README`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+slam_toolbox service types: `slam_toolbox.srv.SerializePoseGraph`, `DeserializePoseGraph` (match_type 2 = START_AT_GIVEN_POSE, initial_pose geometry_msgs/Pose2D), `Pause`, plus `rcl_interfaces/srv/GetParameters` for `paused_new_measurements`. `/pose` is geometry_msgs/PoseWithCovarianceStamped. numpy guard (CLAUDE.md): sensor_msgs pulls numpy; it is declared in pyproject.
+- Servo safety (CLAUDE.md): this task moves no servo.

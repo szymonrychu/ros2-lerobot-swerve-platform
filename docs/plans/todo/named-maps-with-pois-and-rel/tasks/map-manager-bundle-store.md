@@ -68,16 +68,20 @@ sensor_msgs later) and its bundle store `map_manager/bundle.py` (design D2), no 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map_manager/map_manager/bundle.py`: `BundleStore`, `BundleMeta`, `LoadedBundle`, `BundleExists`, `BundleInvalid`, `BundleNotFound`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A bundle directory with map.posegraph, map.data, occupancy.npz and bundle.json appears only complete under its name; list, load and delete work on it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/map_manager && uv run --frozen pytest tests/test_bundle.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/map_manager && uv run --frozen pytest tests/test_bundle.py -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(map_manager): named map bundle store`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Run `uv lock` once after writing pyproject.toml so `uv run --frozen` works. Copy the poi_store pyproject layout (ruff, vulture, poe tasks). GridMap comes from `ros2_common.scan_agreement`.
+- Servo safety (CLAUDE.md): this task moves no servo.

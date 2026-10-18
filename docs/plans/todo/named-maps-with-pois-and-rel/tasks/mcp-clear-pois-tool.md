@@ -50,16 +50,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `clear_pois(creator, kinds, include_zones)` in `nodes/mcp_server/mcp_server/perception_tools.py`; `PoiRequests.clear(created_by, statuses, kinds, keep_zones)`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent clears its own POIs in one call, zones kept, and can clear more only by explicit arguments.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_clear_pois_tool.py -q` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/mcp_server && uv run --frozen pytest tests/test_clear_pois_tool.py tests/test_poi_client.py -q && uv run --frozen poe lint`; expect every test passed and lint clean.
+- Commit: `feat(mcp_server): clear_pois tool`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The admin route `/admin/clear_agent_pois` (tools.py) keeps its payload; `test_poi_client.py` guards it.
+- Servo safety (CLAUDE.md): this task moves no servo.

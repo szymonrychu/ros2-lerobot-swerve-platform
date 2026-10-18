@@ -49,16 +49,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/frontend/src/poi/ClearPoisDialog.tsx`; `clearPois` in `src/poi/api.ts`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The POI panel clears POIs with a previewed count and zones kept by default.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test(s) named in the requirement first; run `cd nodes/web_ui/frontend && npx vitest run src/poi/ClearPoisDialog.test.tsx` and see it fail for the missing behaviour.
+- Implement the smallest change that makes it pass, then refactor with the test green.
+- Run the verify command `cd nodes/web_ui/frontend && npx vitest run src/poi/ClearPoisDialog.test.tsx src/poi/PoiPanels.test.tsx && npx tsc --noEmit && npm run lint`; expect every test passed and lint clean.
+- Commit: `feat(web_ui): clear POIs dialog`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The preview applies the same rules as poi_store `op_clear` (creator, kinds, keep_zones) to the current POI list.
+- Servo safety (CLAUDE.md): this task moves no servo.
