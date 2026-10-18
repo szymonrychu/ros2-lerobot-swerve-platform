@@ -165,6 +165,7 @@ public:
     }
     guard = std::make_unique<mg::MapGuard>(
       config, slam, notifier, [this]() { ++resets_published; },
+      [this](const std::string & id, double since) { relocalise_requests.emplace_back(id, since); },
       [this](const std::string & line) { logs.push_back(line); }, guard_metrics, []() { return FIXED_UTC; });
   }
   ~Harness() { fs::remove_all(dir); }
@@ -186,6 +187,27 @@ public:
     }
   }
 
+  // Answer the newest relocalise request as map_manager would.
+  void answer(bool ok, const std::string & state, int discarded_pois = 0)
+  {
+    guard->on_relocalise_result(relocalise_requests.back().first, ok, state, discarded_pois);
+  }
+
+  // Answer the newest request as unrecoverable and let the guard finish.
+  void fail_relocalise(int discarded_pois = 0)
+  {
+    answer(false, "not_localised", discarded_pois);
+    run(0.2, {}, BAD);
+  }
+
+  // Carry the robot, settle and let a poor evaluation window end (the guard asks for a relocalise).
+  void poor_evaluation()
+  {
+    run(0.1, {mg::REASON_CARRIED});
+    run(3.2, {}, BAD);
+    run(4.2, {}, BAD);
+  }
+
   bool logged(const std::function<bool(const std::string &)> & match) const
   {
     return std::any_of(logs.begin(), logs.end(), match);
@@ -199,6 +221,7 @@ public:
   FakeSlam slam;
   FakeNotifier notifier;
   int resets_published = 0;
+  std::vector<std::pair<std::string, double>> relocalise_requests;
   std::vector<std::string> logs;
   ros2_common_cpp::Metrics metrics{"map_guard_cpp"};
   mg::GuardMetrics guard_metrics{metrics};
@@ -290,6 +313,7 @@ TEST(Guard, LowAgreementAfterSettlingBacksUpAndResets)
   h.run(3.2, {}, BAD);
   EXPECT_EQ(h.guard->state(), mg::State::EVALUATING);
   h.run(4.2, {}, BAD);
+  h.fail_relocalise();
   h.run(0.2, {}, BAD);
   EXPECT_EQ(h.guard->state(), mg::State::OK);
   const std::string expected = (h.dir / "map_guard_backup_20261010T120000Z").string();
@@ -316,6 +340,7 @@ TEST(Guard, ResetPrunesOldBackups)
   }
   h.run(0.1, CARRIED);
   h.run(8.0, {}, BAD);
+  h.fail_relocalise();
   std::set<std::string> stems;
   for (const auto & entry : fs::directory_iterator(h.dir)) {
     stems.insert(entry.path().stem().string());
@@ -331,6 +356,7 @@ TEST(Guard, FailedBackupSkipsTheReset)
   Harness h(nullptr, [](FakeSlam & s) { s.serialize_ok = false; });
   h.run(0.1, CARRIED);
   h.run(8.0, {}, BAD);
+  h.fail_relocalise();
   EXPECT_EQ(h.guard->state(), mg::State::OK);
   EXPECT_FALSE(h.slam.called("reset"));
   EXPECT_FALSE(h.slam.paused);
@@ -343,6 +369,7 @@ TEST(Guard, FailedResetDoesNotPublish)
   Harness h(nullptr, [](FakeSlam & s) { s.reset_ok = false; });
   h.run(0.1, CARRIED);
   h.run(8.0, {}, BAD);
+  h.fail_relocalise();
   EXPECT_TRUE(h.slam.called("reset"));
   EXPECT_EQ(h.resets_published, 0);
   EXPECT_FALSE(h.slam.paused);
@@ -369,6 +396,7 @@ TEST(Guard, MismatchAlonePausesAndEvaluatesWithoutSettling)
   EXPECT_EQ(h.notifier.events[0].kind, mg::EVENT_DISTURBED);
   EXPECT_EQ(h.notifier.events[0].reason, mg::REASON_MISMATCH);
   h.run(4.5, {}, BAD);
+  h.fail_relocalise();
   EXPECT_TRUE(h.slam.called("reset"));
   EXPECT_EQ(h.notifier.events.back().kind, mg::EVENT_RESET);
   EXPECT_EQ(h.notifier.events.back().reason, mg::REASON_MISMATCH);
@@ -378,13 +406,15 @@ TEST(Guard, CooldownBlocksMismatchRetrigger)
 {
   Harness h([](mg::Config & c) { c.cooldown_s = 30.0; });
   h.run(5.0, {}, HEALTHY);
-  h.run(12.5, {}, BAD);  // mismatch -> evaluate -> reset
+  h.run(12.5, {}, BAD);  // mismatch -> evaluate -> relocalise
+  h.fail_relocalise();   // unrecoverable -> reset
   EXPECT_EQ(h.slam.count("reset"), 1);
   h.run(4.0, {}, HEALTHY);  // the new map is healthy (re-arms the monitor)
   h.run(10.0, {}, BAD);     // still inside the 30 s cooldown
   EXPECT_EQ(h.guard->state(), mg::State::OK);
   EXPECT_EQ(h.slam.count("reset"), 1);
-  h.run(20.0, {}, BAD);  // cooldown over: the mismatch fires, is evaluated and resets again
+  h.run(25.0, {}, BAD);  // cooldown over: the mismatch fires, is evaluated and asks to relocalise again
+  h.fail_relocalise();
   EXPECT_EQ(h.slam.count("reset"), 2);
 }
 
@@ -393,6 +423,7 @@ TEST(Guard, CooldownDoesNotBlockPhysicalTriggers)
   Harness h;
   h.run(0.1, CARRIED);
   h.run(8.0, {}, BAD);
+  h.fail_relocalise();
   EXPECT_EQ(h.slam.count("reset"), 1);
   h.run(0.1, LIFTED);
   EXPECT_EQ(h.guard->state(), mg::State::DISTURBED);
@@ -456,6 +487,161 @@ TEST(GuardPause, UnknownParameterStateFallsBackToTracking)
   EXPECT_EQ(h.guard->paused(), std::optional<bool>(false));
 }
 
+// --- Relocalise before reset (design D13, U8) -----------------------------------------------------------------------
+
+namespace
+{
+
+bool has_serialize(const FakeSlam & slam)
+{
+  return std::any_of(
+    slam.calls.begin(), slam.calls.end(), [](const std::string & c) { return c.rfind("serialize ", 0) == 0; });
+}
+
+}  // namespace
+
+TEST(GuardRelocalise, PoorMedianRequestsRelocaliseAndStaysPaused)
+{
+  Harness h;
+  h.poor_evaluation();
+  EXPECT_EQ(h.guard->state(), mg::State::RELOCALISING);
+  ASSERT_EQ(h.relocalise_requests.size(), 1u);
+  EXPECT_EQ(h.relocalise_requests[0].first, "map_guard-1");
+  EXPECT_LE(h.relocalise_requests[0].second, 1791633600.0);
+  EXPECT_TRUE(h.slam.paused);
+  EXPECT_FALSE(has_serialize(h.slam));
+  EXPECT_FALSE(h.slam.called("reset"));
+  EXPECT_EQ(h.resets_published, 0);
+  h.run(5.0, {}, BAD);  // still waiting: no second request, still paused
+  EXPECT_EQ(h.relocalise_requests.size(), 1u);
+  EXPECT_EQ(h.guard->state(), mg::State::RELOCALISING);
+  EXPECT_EQ(h.state_gauge(mg::State::RELOCALISING), 1.0);
+}
+
+TEST(GuardRelocalise, LocalisedResultResumesWithoutDeleting)
+{
+  Harness h;
+  h.poor_evaluation();
+  h.answer(true, "localised");
+  EXPECT_EQ(h.guard->state(), mg::State::RESUMED);
+  h.run(0.2, {}, HEALTHY);
+  EXPECT_EQ(h.guard->state(), mg::State::OK);
+  EXPECT_FALSE(h.slam.paused);
+  EXPECT_FALSE(h.slam.called("reset"));
+  EXPECT_FALSE(has_serialize(h.slam));
+  EXPECT_EQ(h.resets_published, 0);
+  EXPECT_EQ(h.counter("map_guard_resumes_total"), 1.0);
+  EXPECT_EQ(h.notifier.events.back().kind, mg::EVENT_RESUMED);
+  EXPECT_EQ(h.notifier.events.back().reason, mg::REASON_CARRIED);
+}
+
+TEST(GuardRelocalise, FailedResultBacksUpAndResetsOnceWithDiscardedPois)
+{
+  Harness h;
+  h.poor_evaluation();
+  h.answer(false, "not_localised", 7);
+  h.run(0.5, {}, BAD);
+  const std::string expected = (h.dir / "map_guard_backup_20261010T120000Z").string();
+  EXPECT_EQ(h.slam.count("serialize " + expected), 1);
+  EXPECT_EQ(h.slam.count("reset"), 1);
+  EXPECT_EQ(h.resets_published, 1);
+  EXPECT_FALSE(h.slam.paused);
+  const auto & last = h.notifier.events.back();
+  EXPECT_EQ(last.kind, mg::EVENT_RESET);
+  EXPECT_EQ(last.reason, mg::REASON_CARRIED);
+  EXPECT_EQ(last.data.at("discarded_pois"), 7);
+  EXPECT_EQ(last.data.at("backup"), expected);
+  h.answer(false, "not_localised", 7);  // late duplicate
+  EXPECT_EQ(h.slam.count("reset"), 1);
+}
+
+TEST(GuardRelocalise, OkResultWithOtherStateIsUnrecoverable)
+{
+  Harness h;
+  h.poor_evaluation();
+  h.answer(true, "ambiguous");
+  EXPECT_EQ(h.slam.count("reset"), 1);
+}
+
+TEST(GuardRelocalise, TimeoutCountsAsUnrecoverable)
+{
+  Harness h([](mg::Config & c) { c.relocalise_timeout_s = 10.0; });
+  h.poor_evaluation();
+  h.run(9.0, {}, BAD);
+  EXPECT_EQ(h.guard->state(), mg::State::RELOCALISING);
+  EXPECT_FALSE(h.slam.called("reset"));
+  h.run(1.5, {}, BAD);
+  EXPECT_EQ(h.slam.count("reset"), 1);
+  EXPECT_EQ(h.resets_published, 1);
+  const auto & last = h.notifier.events.back();
+  EXPECT_EQ(last.kind, mg::EVENT_RESET);
+  EXPECT_EQ(last.data.at("discarded_pois"), 0);
+}
+
+TEST(GuardRelocalise, ForeignRequestIdIsIgnored)
+{
+  Harness h;
+  h.poor_evaluation();
+  h.guard->on_relocalise_result("someone-else-1", true, "localised", 0);
+  h.guard->on_relocalise_result("someone-else-2", false, "not_localised", 3);
+  EXPECT_EQ(h.guard->state(), mg::State::RELOCALISING);
+  EXPECT_FALSE(h.slam.called("reset"));
+  EXPECT_EQ(h.resets_published, 0);
+}
+
+TEST(GuardRelocalise, ResultWithoutPendingRequestIsIgnored)
+{
+  Harness h;
+  h.guard->on_relocalise_result("map_guard-1", false, "not_localised", 0);
+  EXPECT_EQ(h.guard->state(), mg::State::OK);
+  EXPECT_TRUE(h.slam.calls.empty());
+}
+
+TEST(GuardRelocalise, HealthyMedianResumesWithoutRelocalise)
+{
+  Harness h;
+  h.run(0.1, CARRIED);
+  h.run(8.0, {}, HEALTHY);
+  EXPECT_EQ(h.guard->state(), mg::State::OK);
+  EXPECT_TRUE(h.relocalise_requests.empty());
+  EXPECT_EQ(h.notifier.events.back().kind, mg::EVENT_RESUMED);
+}
+
+TEST(GuardRelocalise, NewRequestIdPerEpisode)
+{
+  Harness h([](mg::Config & c) { c.cooldown_s = 1.0; });
+  h.poor_evaluation();
+  h.fail_relocalise();
+  h.run(2.0, {}, HEALTHY);
+  h.poor_evaluation();
+  ASSERT_EQ(h.relocalise_requests.size(), 2u);
+  EXPECT_EQ(h.relocalise_requests[0].first, "map_guard-1");
+  EXPECT_EQ(h.relocalise_requests[1].first, "map_guard-2");
+}
+
+TEST(GuardRelocalise, HoldDuringOwnRelocaliseKeepsThePendingRequest)
+{
+  Harness h;
+  h.poor_evaluation();
+  h.guard->set_hold(true);  // map_manager reports not localised while it relocalises
+  h.guard->set_hold(false);
+  EXPECT_EQ(h.guard->state(), mg::State::RELOCALISING);
+  h.guard->set_hold(true);
+  h.answer(true, "localised");  // the result still resolves the request while held
+  EXPECT_EQ(h.guard->state(), mg::State::RESUMED);
+  EXPECT_FALSE(h.slam.called("reset"));
+  EXPECT_EQ(h.relocalise_requests.size(), 1u);
+}
+
+TEST(GuardRelocalise, TimeoutStillFiresWhileHeld)
+{
+  Harness h([](mg::Config & c) { c.relocalise_timeout_s = 10.0; });
+  h.poor_evaluation();
+  h.guard->set_hold(true);
+  h.run(11.0, {}, BAD);
+  EXPECT_EQ(h.slam.count("reset"), 1);
+}
+
 // --- Dry run --------------------------------------------------------------------------------------------------------
 
 TEST(GuardDryRun, NeverCallsServicesOrPublishes)
@@ -468,11 +654,13 @@ TEST(GuardDryRun, NeverCallsServicesOrPublishes)
   EXPECT_TRUE(h.slam.calls.empty());
   EXPECT_EQ(h.resets_published, 0);
   EXPECT_TRUE(fs::is_empty(h.dir));
-  EXPECT_EQ(h.counter("map_guard_resets_total", {{"dry_run", "true"}}), 1.0);
+  EXPECT_TRUE(h.relocalise_requests.empty());
+  EXPECT_EQ(h.counter("map_guard_resets_total", {{"dry_run", "true"}}), 0.0);
   EXPECT_EQ(h.counter("map_guard_pauses_total"), 1.0);
   ASSERT_EQ(h.notifier.events.size(), 2u);
   EXPECT_EQ(h.notifier.events[0].kind, mg::EVENT_DISTURBED);
-  EXPECT_EQ(h.notifier.events[1].kind, mg::EVENT_RESET);
+  EXPECT_EQ(h.notifier.events[1].kind, mg::EVENT_RESUMED);
+  EXPECT_TRUE(h.logged([](const std::string & l) { return contains(l, "would request relocalise"); }));
   EXPECT_TRUE(h.logged([](const std::string & l) { return contains(l, "dry run") && contains(l, "carried"); }));
   EXPECT_TRUE(h.logged([](const std::string & l) { return contains(l, "ratio"); }));
 }
@@ -552,6 +740,9 @@ TEST(GuardFixture, ScenariosMatchPython)
         if (overrides.contains("keep_backups")) {
           c.keep_backups = overrides["keep_backups"];
         }
+        if (overrides.contains("relocalise_timeout_s")) {
+          c.relocalise_timeout_s = overrides["relocalise_timeout_s"];
+        }
         if (overrides.contains("cooldown_s")) {
           c.cooldown_s = overrides["cooldown_s"];
         }
@@ -574,6 +765,17 @@ TEST(GuardFixture, ScenariosMatchPython)
     }
     std::vector<std::pair<std::string, int>> states;
     for (const auto & step : s["steps"]) {
+      if (step.contains("answer")) {
+        const auto & a = step["answer"];
+        const std::string which = a.value("request", "last");
+        std::string request_id = which;
+        if (which == "last" || which == "first") {
+          const auto & requests = h.relocalise_requests;
+          request_id = requests.empty() ? "" : (which == "last" ? requests.back().first : requests.front().first);
+        }
+        h.guard->on_relocalise_result(
+          request_id, a["ok"].get<bool>(), a["state"].get<std::string>(), a["discarded_pois"].get<int>());
+      }
       std::set<std::string> reasons;
       for (const auto & r : step.value("reasons", nlohmann::json::array())) {
         reasons.insert(r.get<std::string>());
@@ -621,7 +823,7 @@ TEST(GuardFixture, ScenariosMatchPython)
       }
       mg::EventData data;
       for (const auto & [k, v] : e[3].items()) {
-        data[k] = untoken(v.get<std::string>(), token, dir);
+        data[k] = v.is_string() ? nlohmann::json(untoken(v.get<std::string>(), token, dir)) : v;
       }
       EXPECT_EQ(got.data, data) << name;
     }
@@ -633,6 +835,11 @@ TEST(GuardFixture, ScenariosMatchPython)
     EXPECT_EQ(h.logs, expected_logs) << name;
 
     EXPECT_EQ(h.resets_published, s["resets_published"].get<int>()) << name;
+    ASSERT_EQ(h.relocalise_requests.size(), s["relocalise_requests"].size()) << name;
+    for (std::size_t i = 0; i < h.relocalise_requests.size(); ++i) {
+      EXPECT_EQ(h.relocalise_requests[i].first, s["relocalise_requests"][i][0].get<std::string>()) << name;
+      EXPECT_NEAR(h.relocalise_requests[i].second, s["relocalise_requests"][i][1].get<double>(), 1e-6) << name;
+    }
     if (s["paused"].is_null()) {
       EXPECT_FALSE(h.guard->paused()) << name;
     } else {

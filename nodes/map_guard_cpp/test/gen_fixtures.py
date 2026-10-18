@@ -643,6 +643,14 @@ def run_guard_scenario(spec: dict[str, Any]) -> dict[str, Any]:
                 states.append([state, 1])
 
         for step in spec["steps"]:
+            answer = step.get("answer")
+            if answer:
+                # A map_manager result, applied before the step's ticks: request "last" answers the newest request,
+                # "first" the oldest, any other text is a foreign request id.
+                requests = h.relocalise_requests
+                ids = {"last": requests[-1][0] if requests else "", "first": requests[0][0] if requests else ""}
+                request_id = ids.get(answer.get("request", "last"), answer.get("request"))
+                h.guard.on_relocalise_result(request_id, answer["ok"], answer["state"], answer["discarded_pois"])
             sample = step.get("sample")
             for _ in range(int(round(step["seconds"] / 0.1))):
                 h.run(0.1, reasons=step.get("reasons", []), sample=tuple(sample) if sample else None)
@@ -661,6 +669,7 @@ def run_guard_scenario(spec: dict[str, Any]) -> dict[str, Any]:
             "events": tokenize([list(e) for e in h.notifier.events], tmp),
             "logs": sort_deleted_runs(tokenize(h.logs, tmp)),
             "resets_published": h.resets_published,
+            "relocalise_requests": [list(r) for r in h.relocalise_requests],
             "paused": h.guard.paused,
             "slam_paused": slam.paused,
             "counters": counters,
@@ -679,6 +688,9 @@ def guard_fixture() -> dict[str, Any]:
     """
     healthy, bad = list(HEALTHY), list(BAD)
     lifted, carried = ["lifted"], ["carried"]
+    fail = {"ok": False, "state": "not_localised", "discarded_pois": 0}
+    found = {"ok": True, "state": "localised", "discarded_pois": 0}
+    answer_fail = {"seconds": 0.5, "sample": bad, "answer": fail}
     specs: list[dict[str, Any]] = [
         {"name": "starts_ok", "steps": [{"seconds": 1.0, "sample": healthy}]},
         {"name": "lifted_pauses_settles_and_resumes", "steps": [
@@ -693,23 +705,25 @@ def guard_fixture() -> dict[str, Any]:
             {"seconds": 0.1, "reasons": carried, "sample": healthy}]},
         {"name": "low_agreement_after_settling_backs_up_and_resets", "steps": [
             {"seconds": 0.1, "reasons": carried}, {"seconds": 3.2, "sample": bad}, {"seconds": 4.2, "sample": bad},
-            {"seconds": 0.2, "sample": bad}]},
+            answer_fail, {"seconds": 0.2, "sample": bad}]},
         {"name": "reset_prunes_old_backups", "overrides": {"keep_backups": 3},
          "existing_backups": [f"map_guard_backup_2026010{i}T000000Z" for i in range(6)],
-         "steps": [{"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}]},
+         "steps": [{"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}, answer_fail]},
         {"name": "failed_backup_skips_the_reset", "slam": {"serialize_ok": False},
-         "steps": [{"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}]},
+         "steps": [{"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}, answer_fail]},
         {"name": "failed_reset_does_not_publish", "slam": {"reset_ok": False},
-         "steps": [{"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}]},
+         "steps": [{"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}, answer_fail]},
         {"name": "no_agreement_samples_during_evaluation_resumes",
          "steps": [{"seconds": 0.1, "reasons": lifted}, {"seconds": 8.0}]},
         {"name": "mismatch_alone_pauses_and_evaluates_without_settling", "steps": [
-            {"seconds": 5.0, "sample": healthy}, {"seconds": 7.5, "sample": bad}, {"seconds": 4.5, "sample": bad}]},
+            {"seconds": 5.0, "sample": healthy}, {"seconds": 7.5, "sample": bad}, {"seconds": 4.5, "sample": bad},
+            answer_fail]},
         {"name": "cooldown_blocks_mismatch_retrigger", "overrides": {"cooldown_s": 30.0}, "steps": [
-            {"seconds": 5.0, "sample": healthy}, {"seconds": 12.5, "sample": bad},
-            {"seconds": 4.0, "sample": healthy}, {"seconds": 10.0, "sample": bad}, {"seconds": 20.0, "sample": bad}]},
+            {"seconds": 5.0, "sample": healthy}, {"seconds": 12.5, "sample": bad}, answer_fail,
+            {"seconds": 4.0, "sample": healthy}, {"seconds": 10.0, "sample": bad}, {"seconds": 25.0, "sample": bad},
+            answer_fail]},
         {"name": "cooldown_does_not_block_physical_triggers", "steps": [
-            {"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad},
+            {"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}, answer_fail,
             {"seconds": 0.1, "reasons": lifted}]},
         {"name": "disabled_reasons_are_ignored", "overrides": {"reasons": ["mismatch"]},
          "steps": [{"seconds": 3.0, "reasons": ["lifted", "carried"]}]},
@@ -730,7 +744,37 @@ def guard_fixture() -> dict[str, Any]:
             {"seconds": 5.0, "sample": healthy}, {"seconds": 12.5, "sample": bad}]},
         {"name": "rotated_and_mismatch_episode", "steps": [
             {"seconds": 5.0, "sample": healthy}, {"seconds": 0.3, "reasons": ["rotated"], "sample": bad},
-            {"seconds": 0.2, "reasons": ["rotated", "lifted"], "sample": bad}, {"seconds": 8.0, "sample": bad}]},
+            {"seconds": 0.2, "reasons": ["rotated", "lifted"], "sample": bad}, {"seconds": 8.0, "sample": bad},
+            answer_fail]},
+        {"name": "poor_median_requests_relocalise_and_stays_paused", "steps": [
+            {"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}, {"seconds": 5.0, "sample": bad}]},
+        {"name": "localised_result_resumes_without_deleting", "steps": [
+            {"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad},
+            {"seconds": 0.5, "sample": healthy, "answer": found}, {"seconds": 0.5, "sample": healthy}]},
+        {"name": "failed_result_resets_once_with_discarded_pois", "steps": [
+            {"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad},
+            {"seconds": 0.5, "sample": bad, "answer": {"ok": False, "state": "not_localised", "discarded_pois": 7}},
+            {"seconds": 0.5, "sample": bad},
+            {"seconds": 0.1, "sample": bad, "answer": {"ok": False, "state": "not_localised", "discarded_pois": 7}}]},
+        {"name": "ok_result_with_other_state_is_unrecoverable", "steps": [
+            {"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad},
+            {"seconds": 0.5, "sample": bad, "answer": {"ok": True, "state": "ambiguous", "discarded_pois": 0}}]},
+        {"name": "timeout_is_unrecoverable", "overrides": {"relocalise_timeout_s": 10.0}, "steps": [
+            {"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}, {"seconds": 9.0, "sample": bad},
+            {"seconds": 1.5, "sample": bad}]},
+        {"name": "foreign_request_id_is_ignored", "steps": [
+            {"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad},
+            {"seconds": 0.5, "sample": bad, "answer": {**found, "request": "someone-else-1"}},
+            {"seconds": 0.5, "sample": bad,
+             "answer": {"ok": False, "state": "not_localised", "discarded_pois": 3, "request": "someone-else-2"}}]},
+        {"name": "result_without_pending_request_is_ignored", "steps": [
+            {"seconds": 0.5, "sample": healthy, "answer": {**fail, "request": "map_guard-1"}}]},
+        {"name": "new_request_id_per_episode", "overrides": {"cooldown_s": 1.0}, "steps": [
+            {"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}, answer_fail,
+            {"seconds": 2.0, "sample": healthy}, {"seconds": 0.1, "reasons": carried},
+            {"seconds": 8.0, "sample": bad}]},
+        {"name": "dry_run_requests_nothing_and_resets_nothing", "overrides": {"dry_run": True, "relocalise_timeout_s": 5.0},
+         "steps": [{"seconds": 0.1, "reasons": carried}, {"seconds": 8.0, "sample": bad}, {"seconds": 6.0, "sample": bad}]},
     ]  # fmt: skip
     report_gauges = None
     with tempfile.TemporaryDirectory() as tmp:

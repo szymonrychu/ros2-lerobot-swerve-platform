@@ -9,7 +9,7 @@ the SLAM map when the robot is:
 - seeing a scan that no longer agrees with the map
 
 When that happens it pauses new measurements, waits for the robot to settle, and then does one of two things. If the
-scan agrees with the map again, it resumes. If not, it backs up the map and resets SLAM.
+scan agrees with the map again, it resumes. If not, it asks map_manager to relocalise against the live map from the last pose; only when that fails (or times out) does it back up the map and reset SLAM.
 
 The behaviour, topics, QoS, services, config file and metric names are those of the Python node. The C++ port exists
 to save CPU on the client Pi: the Python node used 0.33 cores, and the target is under 0.08.
@@ -38,6 +38,9 @@ The two nodes are separate node types and run side by side. The Python `map_guar
 |---|---|---|
 | `/robot_events` (`events_topic`) | `std_msgs/String` (JSON) | Only while claude_agent is busy (see below) |
 | `/map_guard/map_reset` (`reset_topic`) | `std_msgs/Empty` | After a real map reset; never in dry run |
+| `/map_manager/command` (`command_topic`) | `std_msgs/String` (JSON) | `{"op":"relocalise","request_id":"map_guard-<n>","since","discard_on_fail":true}`; never in dry run |
+
+It also subscribes to `/map_manager/result` (`result_topic`, `std_msgs/String` JSON) and acts on the answer to its own request id.
 
 ### Service clients
 
@@ -63,7 +66,7 @@ The states and transitions are those of `guard.py`; `include/map_guard_cpp/guard
 
 - **Physical disturbance.** OK goes to DISTURBED, then SETTLING, then EVALUATING.
 - **Mismatch alone.** OK goes straight to EVALUATING.
-- **End of EVALUATING.** The guard either resumes, or runs RESET: backup, prune, reset, unpause and publish.
+- **End of EVALUATING.** The guard either resumes, or enters RELOCALISING: it stays paused and requests a relocalise (`relocalise_timeout_s`, default 90 s, without an answer counts as failure). A `localised` result resumes with the map and POIs kept. A failed, ambiguous or timed-out result runs RESET: backup, prune, reset, unpause and publish, with `data.discarded_pois` in the event. Answers to other request ids are ignored. A localised-topic hold during the guard's own relocalise does not cancel the request.
 - **After a reset.** A cooldown of `cooldown_s` follows, during which a mismatch cannot trigger.
 
 The log lines are the same text as the Python node's. The golden fixtures check this.
@@ -74,6 +77,7 @@ In dry run (`dry_run: true`, the default) the state machine, logs, events and me
 
 - No slam_toolbox service is ever called.
 - The reset topic is never published.
+- No relocalise is requested: a poor median counts as recovered and the guard resumes.
 - No backup is written.
 
 Every log line starts with `[dry run] `.
@@ -156,7 +160,7 @@ library is prometheus-cpp, through `ros2_common_cpp::Metrics`.
 | Metric | Labels | Meaning |
 |---|---|---|
 | `map_guard_agreement_ratio` | | Latest scan-to-map agreement ratio |
-| `map_guard_state` | `state` = ok, disturbed, settling, evaluating, resumed, reset | 1 for the current state, 0 for the others |
+| `map_guard_state` | `state` = ok, disturbed, settling, evaluating, relocalising, resumed, reset | 1 for the current state, 0 for the others |
 | `map_guard_triggers_total` | `reason` | Triggers acted on |
 | `map_guard_pauses_total` | | SLAM pauses requested (dry run included) |
 | `map_guard_resets_total` | `dry_run` = true, false | Backup and reset (dry run: would-have-reset) |
@@ -194,7 +198,7 @@ uv run --frozen python ../map_guard_cpp/test/gen_fixtures.py --check  # exit 1 w
 |---|---|---|
 | `tests/test_agreement.py` | `test/test_agreement.cpp` | `agreement.json`: room grid, dilation, endpoints, transform, every scored scan (ratio, evaluated and agreeing counts on the Python points and on the C++ points), MismatchMonitor sequences |
 | `tests/test_detectors.py` | `test/test_detectors.cpp` | `detectors.json`: helper outputs, and the reasons at every 20 Hz step of all 23 scenarios, including a 40 s re-baseline |
-| `tests/test_guard.py` | `test/test_guard.cpp` | `guard.json`, for 21 scenarios: per-tick states, slam_toolbox calls, events, exact log lines, reset publishes, metric counts, backups left on disk |
+| `tests/test_guard.py` | `test/test_guard.cpp` | `guard.json`, for 32 scenarios (including the relocalise flow): per-tick states, slam_toolbox calls, events, exact log lines, reset publishes, metric counts, backups left on disk |
 | `tests/test_timing.py` | `test/test_timing.cpp` | `timing.json`: HoldTimer and RateLimiter sequences |
 | `tests/test_backup.py` | `test/test_backup.cpp` | `backup.json`: names, prune deleted and remaining files |
 | `tests/test_agent.py` | `test/test_agent.cpp` | `agent.json`: busy parsing, severities, built events. Also a real cpp-httplib GET against a local server (busy, 404, timeout, unreachable) |

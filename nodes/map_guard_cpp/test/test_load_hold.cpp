@@ -73,7 +73,7 @@ public:
     config.dry_run = false;
     config.backup_dir = "/tmp/map_guard_cpp_load_hold_unused";
     guard = std::make_unique<mg::MapGuard>(
-      config, slam, notifier, [this]() { ++resets_published; },
+      config, slam, notifier, [this]() { ++resets_published; }, [](const std::string &, double) {},
       [this](const std::string & line) { logs.push_back(line); }, guard_metrics,
       []() { return std::chrono::system_clock::time_point(std::chrono::seconds(1791633600)); });
   }

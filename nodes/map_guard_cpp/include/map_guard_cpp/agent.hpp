@@ -22,8 +22,8 @@ constexpr const char * SEVERITY_WARNING = "warning";
 constexpr const char * SEVERITY_CRITICAL = "critical";
 constexpr const char * DRY_RUN_PREFIX = "[dry run] ";
 
-// Extra string fields of an event's data (e.g. {"backup": "<path>"}).
-using EventData = std::map<std::string, std::string>;
+// Extra fields of an event's data (e.g. {"backup": "<path>", "discarded_pois": 3}).
+using EventData = std::map<std::string, nlohmann::json>;
 
 // GET url with a timeout (s): the body of a 2xx response, nullopt on any failure (unreachable, timeout, HTTP error).
 using HttpGet = std::function<std::optional<std::string>(const std::string & url, double timeout_s)>;

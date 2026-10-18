@@ -39,6 +39,36 @@ rclcpp::QoS sensor_qos() { return rclcpp::QoS(rclcpp::KeepLast(SENSOR_QOS_DEPTH)
 
 rclcpp::QoS map_qos() { return rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(); }
 
+std::string relocalise_command(const std::string & request_id, double since)
+{
+  return nlohmann::ordered_json{
+    {"op", "relocalise"}, {"request_id", request_id}, {"since", since}, {"discard_on_fail", true}}
+    .dump();
+}
+
+std::optional<RelocaliseResult> parse_result(const std::string & text)
+{
+  const auto json = nlohmann::json::parse(text, nullptr, false);
+  const bool valid = json.is_object() && json.contains("request_id") && json["request_id"].is_string() &&
+                     json.contains("ok") && json["ok"].is_boolean();
+  if (!valid) {
+    return std::nullopt;
+  }
+  RelocaliseResult result;
+  result.request_id = json["request_id"].get<std::string>();
+  result.ok = json["ok"].get<bool>();
+  const auto data = json.find("data");
+  if (data != json.end() && data->is_object()) {
+    if (const auto state = data->find("state"); state != data->end() && state->is_string()) {
+      result.state = state->get<std::string>();
+    }
+    if (const auto pois = data->find("discarded_pois"); pois != data->end() && pois->is_number_integer()) {
+      result.discarded_pois = pois->get<int>();
+    }
+  }
+  return result;
+}
+
 double monotonic_s()
 {
   return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -159,8 +189,10 @@ MapGuardNode::MapGuardNode(const rclcpp::NodeOptions & options, const Config & c
     },
     config_.dry_run);
   slam_ = std::make_unique<SlamServices>(*this, config_);
+  command_pub_ = create_publisher<std_msgs::msg::String>(config_.command_topic, COMMAND_QOS_DEPTH);
   guard_ = std::make_unique<MapGuard>(
     config_, *slam_, *notifier_, [this]() { reset_pub_->publish(std_msgs::msg::Empty()); },
+    [this](const std::string & request_id, double since) { request_relocalise(request_id, since); },
     [this](const std::string & line) { RCLCPP_WARN(get_logger(), "%s", line.c_str()); }, guard_metrics_);
 
   using std::placeholders::_1;
@@ -168,6 +200,8 @@ MapGuardNode::MapGuardNode(const rclcpp::NodeOptions & options, const Config & c
     config_.map_topic, map_qos(), std::bind(&MapGuardNode::on_map, this, _1)));
   subscriptions_.push_back(create_subscription<std_msgs::msg::Bool>(
     config_.localised_topic, map_qos(), std::bind(&MapGuardNode::on_localised, this, _1)));
+  subscriptions_.push_back(create_subscription<std_msgs::msg::String>(
+    config_.result_topic, rclcpp::QoS(COMMAND_QOS_DEPTH), std::bind(&MapGuardNode::on_result, this, _1)));
   subscriptions_.push_back(create_subscription<sensor_msgs::msg::LaserScan>(
     config_.scan_topic, sensor_qos(),
     [this](std::shared_ptr<const rclcpp::SerializedMessage> serialized) { on_scan(serialized); }));
@@ -216,6 +250,26 @@ void MapGuardNode::on_localised(const std_msgs::msg::Bool::ConstSharedPtr & msg)
   if (held_) {
     pending_.clear();  // samples scored against the not yet localised map are dropped
   }
+}
+
+void MapGuardNode::request_relocalise(const std::string & request_id, double since)
+{
+  RCLCPP_WARN(
+    get_logger(), "map_guard: requesting relocalise %s on %s", request_id.c_str(), config_.command_topic.c_str());
+  std_msgs::msg::String msg;
+  msg.data = relocalise_command(request_id, since);
+  command_pub_->publish(msg);
+}
+
+void MapGuardNode::on_result(const std_msgs::msg::String::ConstSharedPtr & msg)
+{
+  const auto result = parse_result(msg->data);
+  if (!result) {
+    return;
+  }
+  // The guard worker thread owns the state machine (its service calls block): it applies the answer on its next tick.
+  std::lock_guard<std::mutex> lock(lock_);
+  results_.push_back(*result);
 }
 
 void MapGuardNode::on_scan(const std::shared_ptr<const rclcpp::SerializedMessage> & serialized)
@@ -303,6 +357,7 @@ void MapGuardNode::run_guard()
     double now = 0.0;
     DisturbanceReport report;
     std::vector<MapGuard::Sample> samples;
+    std::vector<RelocaliseResult> results;
     bool held = false;
     {
       std::lock_guard<std::mutex> lock(lock_);
@@ -310,9 +365,13 @@ void MapGuardNode::run_guard()
       now = monotonic_s();
       report = detectors_.evaluate(now);
       samples.swap(pending_);
+      results.swap(results_);
     }
     try {
       guard_->set_hold(held);
+      for (const auto & result : results) {
+        guard_->on_relocalise_result(result.request_id, result.ok, result.state, result.discarded_pois);
+      }
       guard_->tick(now, report, samples);
     } catch (const std::exception & exc) {  // keep guarding after an unexpected error
       RCLCPP_ERROR(get_logger(), "map_guard tick failed: %s", exc.what());

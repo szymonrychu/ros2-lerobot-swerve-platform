@@ -43,7 +43,8 @@ std::string message(const std::string & kind, const std::string & reason, const 
            "; SLAM resumed";
   }
   return "SLAM map guard: map no longer matches after " + reason + " (agreement " + ratio +
-         "); map backed up and reset, poses and POIs of the old map are invalid";
+         "); map backed up and reset, relocalising against it failed, so the old poses and POIs were discarded "
+         "(data.discarded_pois)";
 }
 
 double wall_clock_s()

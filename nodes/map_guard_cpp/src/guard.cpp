@@ -30,6 +30,8 @@ std::string state_name(State state)
       return "settling";
     case State::EVALUATING:
       return "evaluating";
+    case State::RELOCALISING:
+      return "relocalising";
     case State::RESUMED:
       return "resumed";
     case State::RESET:
@@ -138,11 +140,13 @@ void GuardMetrics::inc_resets(bool dry_run)
 
 MapGuard::MapGuard(
   const Config & config, SlamPort & slam, Notifier & notifier, std::function<void()> publish_reset,
-  std::function<void(const std::string &)> warn, GuardMetrics & metrics, Clock utc_now)
+  std::function<void(const std::string &, double)> request_relocalise, std::function<void(const std::string &)> warn,
+  GuardMetrics & metrics, Clock utc_now)
 : config_(config),
   slam_(slam),
   notifier_(notifier),
   publish_reset_(std::move(publish_reset)),
+  request_relocalise_(std::move(request_relocalise)),
   warn_(std::move(warn)),
   metrics_(metrics),
   utc_now_(utc_now ? std::move(utc_now) : Clock([]() { return std::chrono::system_clock::now(); })),
@@ -178,16 +182,20 @@ void MapGuard::set_hold(bool held)
     return;
   }
   monitor_.reset();
-  episode_reasons_.clear();
-  evaluation_.clear();
-  state_ = State::OK;
-  metrics_.set_state(state_);
+  if (state_ != State::RELOCALISING) {  // our own relocalise stays pending: its answer decides the episode
+    episode_reasons_.clear();
+    evaluation_.clear();
+    state_ = State::OK;
+    metrics_.set_state(state_);
+  }
   warn_("map_guard: loaded map localised, guard re-armed");
 }
 
 void MapGuard::tick(double now, const DisturbanceReport & report, const std::vector<Sample> & samples)
 {
+  last_now_ = now;
   if (held_) {
+    check_relocalise_deadline(now);
     return;
   }
   if (report.tilt_deg) {
@@ -239,6 +247,18 @@ void MapGuard::tick(double now, const DisturbanceReport & report, const std::vec
     transition(now, State::EVALUATING, reason_text());
   } else if (state_ == State::EVALUATING && now - state_since_ >= config_.evaluate_s - TIME_EPS) {
     decide(now);
+  } else {
+    check_relocalise_deadline(now);
+  }
+}
+
+void MapGuard::check_relocalise_deadline(double now)
+{
+  if (state_ == State::RELOCALISING && relocalise_deadline_ && now >= *relocalise_deadline_ - TIME_EPS) {
+    warn_(
+      "map_guard: no relocalise answer for " + float_repr(config_.relocalise_timeout_s) +
+      " s; treated as unrecoverable");
+    finish_relocalise(now, false, 0);
   }
 }
 
@@ -265,6 +285,7 @@ void MapGuard::start_episode(double now, const std::set<std::string> & reasons, 
 {
   episode_reasons_.clear();
   evaluation_.clear();
+  episode_started_ = now;
   add_reasons(now, reasons, false);
   transition(now, state, reason_text());
   metrics_.inc_pauses();
@@ -303,8 +324,51 @@ void MapGuard::decide(double now)
     transition(now, State::RESUMED, reason_text(), detail);
     resume(now, reason, med);
   } else {
-    transition(now, State::RESET, reason_text(), detail);
-    reset_map(now, reason, med);
+    transition(now, State::RELOCALISING, reason_text(), detail);
+    start_relocalise(now, med);
+  }
+}
+
+void MapGuard::start_relocalise(double now, double median)
+{
+  relocalise_median_ = median;
+  pending_request_.reset();
+  relocalise_deadline_.reset();
+  if (config_.dry_run) {
+    warn_(dry() + "map_guard would request relocalise on " + config_.command_topic + "; counted as recovered");
+    transition(now, State::RESUMED, reason_text(), "dry run: relocalise assumed to succeed");
+    resume(now, primary_reason(), median);
+    return;
+  }
+  ++request_seq_;
+  pending_request_ = "map_guard-" + std::to_string(request_seq_);
+  relocalise_deadline_ = now + config_.relocalise_timeout_s;
+  const double utc_s = std::chrono::duration<double>(utc_now_().time_since_epoch()).count();
+  request_relocalise_(*pending_request_, utc_s - (now - episode_started_));
+}
+
+void MapGuard::on_relocalise_result(
+  const std::string & request_id, bool ok, const std::string & state, int discarded_pois)
+{
+  if (state_ != State::RELOCALISING || !pending_request_ || request_id != *pending_request_) {
+    return;
+  }
+  finish_relocalise(last_now_, ok && state == "localised", discarded_pois);
+}
+
+void MapGuard::finish_relocalise(double now, bool recovered, int discarded_pois)
+{
+  const std::string reason = primary_reason();
+  const std::optional<double> median = relocalise_median_;
+  pending_request_.reset();
+  relocalise_deadline_.reset();
+  if (recovered) {
+    transition(now, State::RESUMED, reason_text(), "relocalised against the live map");
+    resume(now, reason, median);
+  } else {
+    transition(
+      now, State::RESET, reason_text(), "unrecoverable, " + std::to_string(discarded_pois) + " POIs discarded");
+    reset_map(now, reason, median.value_or(0.0), discarded_pois);
   }
 }
 
@@ -316,7 +380,7 @@ void MapGuard::resume(double now, const std::string & reason, const std::optiona
   notifier_.notify(now, EVENT_RESUMED, reason, median, {});
 }
 
-void MapGuard::reset_map(double now, const std::string & reason, double median)
+void MapGuard::reset_map(double now, const std::string & reason, double median, int discarded_pois)
 {
   const Config & cfg = config_;
   const std::string target =
@@ -324,12 +388,6 @@ void MapGuard::reset_map(double now, const std::string & reason, double median)
   metrics_.inc_resets(cfg.dry_run);
   cooldown_until_ = now + cfg.cooldown_s;
   monitor_.reset();
-  if (cfg.dry_run) {
-    warn_(dry() + "map_guard would serialize " + target + ", reset SLAM, unpause and publish " + cfg.reset_topic);
-    paused_ = false;
-    notifier_.notify(now, EVENT_RESET, reason, median, {{"backup", target}});
-    return;
-  }
   if (!slam_.serialize_map(target)) {
     warn_("map_guard: serialize_map to " + target + " failed; map NOT reset");
     set_paused(false);
@@ -345,7 +403,7 @@ void MapGuard::reset_map(double now, const std::string & reason, double median)
   }
   set_paused(false);
   publish_reset_();
-  notifier_.notify(now, EVENT_RESET, reason, median, {{"backup", target}});
+  notifier_.notify(now, EVENT_RESET, reason, median, {{"backup", target}, {"discarded_pois", discarded_pois}});
 }
 
 void MapGuard::set_paused(bool desired)

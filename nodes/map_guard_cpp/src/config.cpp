@@ -44,6 +44,8 @@ const std::vector<std::string> & config_keys()
     "reset_topic",
     "events_topic",
     "localised_topic",
+    "command_topic",
+    "result_topic",
     "pause_service",
     "reset_service",
     "serialize_service",
@@ -86,6 +88,7 @@ const std::vector<std::string> & config_keys()
     "settle_s",
     "evaluate_s",
     "cooldown_s",
+    "relocalise_timeout_s",
     "backup_dir",
     "backup_prefix",
     "keep_backups"};
@@ -135,6 +138,8 @@ Config parse_config(const YAML::Node & node, ros2_common_cpp::Errors & errors)
          {"reset_topic", &c.reset_topic},
          {"events_topic", &c.events_topic},
          {"localised_topic", &c.localised_topic},
+         {"command_topic", &c.command_topic},
+         {"result_topic", &c.result_topic},
          {"pause_service", &c.pause_service},
          {"reset_service", &c.reset_service},
          {"serialize_service", &c.serialize_service},
@@ -175,7 +180,8 @@ Config parse_config(const YAML::Node & node, ros2_common_cpp::Errors & errors)
          {"rotate_s", &c.rotate_s},
          {"settle_s", &c.settle_s},
          {"evaluate_s", &c.evaluate_s},
-         {"cooldown_s", &c.cooldown_s}}) {
+         {"cooldown_s", &c.cooldown_s},
+         {"relocalise_timeout_s", &c.relocalise_timeout_s}}) {
     *field = ros2_common_cpp::get_or<double>(node, key, *field, errors, lax);
     ros2_common_cpp::gt(key, *field, 0.0, errors);
   }

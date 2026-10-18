@@ -54,11 +54,29 @@ constexpr const char * PAUSED_PARAMETER = "paused_new_measurements";
 constexpr double SERVICE_WAIT_S = 1.0;
 constexpr std::size_t SENSOR_QOS_DEPTH = 5;
 constexpr std::size_t EVENTS_QOS_DEPTH = 10;
+// The map_manager command/result topics are reliable, keep last 10 (a command or answer must not be lost).
+constexpr std::size_t COMMAND_QOS_DEPTH = 10;
 
 // Sensor topics: best effort, keep last 5.
 rclcpp::QoS sensor_qos();
 // slam_toolbox publishes /map reliable + transient_local with depth 1: match it to receive the latched map.
 rclcpp::QoS map_qos();
+
+// The relocalise command JSON for map_manager (discard_on_fail: map_manager clears the live POIs on failure).
+std::string relocalise_command(const std::string & request_id, double since);
+
+// The parts of a map_manager result the guard acts on.
+struct RelocaliseResult
+{
+  std::string request_id;
+  bool ok = false;
+  std::string state;
+  int discarded_pois = 0;
+};
+
+// Parse a map_manager result message; nullopt when the text is not a valid result (JSON object with request_id and
+// ok; data.state and data.discarded_pois are optional).
+std::optional<RelocaliseResult> parse_result(const std::string & text);
 
 // Seconds of the steady (monotonic) clock.
 double monotonic_s();
@@ -113,6 +131,8 @@ private:
   void on_lidar_odom(const nav_msgs::msg::Odometry::ConstSharedPtr & msg);
   void on_cmd(const geometry_msgs::msg::Twist::ConstSharedPtr & msg);
   void on_localised(const std_msgs::msg::Bool::ConstSharedPtr & msg);
+  void on_result(const std_msgs::msg::String::ConstSharedPtr & msg);
+  void request_relocalise(const std::string & request_id, double since);
   void run_guard();
 
   Config config_;
@@ -130,9 +150,11 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr events_pub_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr reset_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr command_pub_;
   std::unique_ptr<EventNotifier> notifier_;
   std::unique_ptr<SlamServices> slam_;
   std::unique_ptr<MapGuard> guard_;
+  std::vector<RelocaliseResult> results_;  // map_manager answers waiting for the worker thread; guarded by lock_
   std::vector<rclcpp::SubscriptionBase::SharedPtr> subscriptions_;
   std::mutex stop_lock_;
   std::condition_variable stop_cv_;

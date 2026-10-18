@@ -42,6 +42,9 @@ struct Config
   std::string events_topic = "/robot_events";
   // std_msgs/Bool from map_manager: false while a loaded map is not yet localised (the guard then holds). C++-only.
   std::string localised_topic = "/map_manager/localised";
+  // std_msgs/String JSON: the relocalise command goes to command_topic, the answer comes on result_topic.
+  std::string command_topic = "/map_manager/command";
+  std::string result_topic = "/map_manager/result";
 
   std::string pause_service = "/slam_toolbox/pause_new_measurements";
   std::string reset_service = "/slam_toolbox/reset";
@@ -91,6 +94,8 @@ struct Config
   double settle_s = 3.0;
   double evaluate_s = 4.0;
   double cooldown_s = 30.0;
+  // A relocalise request without an answer for this long counts as unrecoverable, s.
+  double relocalise_timeout_s = 90.0;
   std::string backup_dir = "/var/lib/ros2/maps";
   std::string backup_prefix = "map_guard_backup";
   long keep_backups = 5;  // NOLINT(runtime/int)
