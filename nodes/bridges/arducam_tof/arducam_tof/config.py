@@ -16,6 +16,7 @@ MAX_CAMERA_INDEX = 63
 MAX_CONFIDENCE = 65535.0
 MAX_PUBLISH_RATE_HZ = 30.0
 MAX_PORT = 65535
+MAX_STAMP_LATENCY_MS = 200.0
 VIDEO4LINUX_ROOT = Path("/sys/class/video4linux")
 CAPTURE_NODE_SUFFIX = "csi2_ch0"
 
@@ -38,6 +39,9 @@ class TofConfig(BaseModel):
         frame_id (str): TF frame of every published header.
         publish_rate_hz (float): Upper bound of the publish rate (one frame request per timer tick), 0 < rate <= 30.
         metrics_port (int | None): Prometheus /metrics port on 127.0.0.1; None falls back to METRICS_PORT, then off.
+        stamp_latency_ms (float): Measured capture-to-return latency of the SDK frame in milliseconds, i.e. the
+            ToF-RGB offset found by the pan-sweep procedure; subtracted from the frame-return time to stamp
+            the frame. 0 <= v <= 200; 0 stamps with the frame-return time.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -49,6 +53,7 @@ class TofConfig(BaseModel):
     frame_id: str = DEFAULT_FRAME_ID
     publish_rate_hz: float = Field(default=10.0, gt=0.0, le=MAX_PUBLISH_RATE_HZ)
     metrics_port: int | None = Field(default=None, ge=1, le=MAX_PORT)
+    stamp_latency_ms: float = Field(default=0.0, ge=0.0, le=MAX_STAMP_LATENCY_MS)
 
     @field_validator("frame_id")
     @classmethod

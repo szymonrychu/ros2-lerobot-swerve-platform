@@ -12,6 +12,9 @@ Topics (one header, one stamp and config.frame_id shared by the three messages o
 Range mode: "far" (4 m, the default, suits a head camera looking across a room) or "near" (2 m, finer depth).
 The SDK takes the range in millimetres; when it rejects that, metres are tried (the vendor samples use both).
 
+Stamp: the node clock read right after requestFrame returns, minus config.stamp_latency_ms (the SDK frame
+timestamp is not used: its clock domain is undocumented).
+
 A timer ticks at config.publish_rate_hz and requests one frame per tick, so publishing never exceeds that rate. A
 missing, failed or malformed frame publishes nothing for that tick: it is logged and counted in
 tof_frames_dropped_total{reason}. A camera that fails to open or start is logged, counted and retried every
@@ -29,6 +32,7 @@ from prometheus_client import Counter
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.time import Time
 from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Header
@@ -51,6 +55,7 @@ SDK_OK = 0
 RANGE_MM = {"near": 2000, "far": 4000}
 MM_PER_M = 1000
 INTRINSIC_SCALE = 100.0
+NS_PER_MS = 1_000_000
 MAX_UINT16 = 65535
 DISTORTION_MODEL = "plumb_bob"
 NO_DISTORTION = [0.0] * 5
@@ -209,6 +214,7 @@ class TofBridge:
         self.amplitude_pub = node.create_publisher(Image, AMPLITUDE_TOPIC, PUBLISH_QOS_DEPTH)
         self.info_pub = node.create_publisher(CameraInfo, CAMERA_INFO_TOPIC, PUBLISH_QOS_DEPTH)
         self.camera: Any = None
+        self.clamp_logged = False
         self.width = 0
         self.height = 0
         self.intrinsics: Intrinsics | None = None
@@ -219,7 +225,7 @@ class TofBridge:
             f"arducam_tof: camera_index={config.camera_index} csi_device={config.csi_device} "
             f"range_mode={config.range_mode} "
             f"confidence_threshold={config.confidence_threshold} frame_id={config.frame_id} "
-            f"publish_rate_hz={config.publish_rate_hz}"
+            f"publish_rate_hz={config.publish_rate_hz} stamp_latency_ms={config.stamp_latency_ms}"
         )
 
     def step(self) -> None:
@@ -335,6 +341,7 @@ class TofBridge:
             return self.drop("error", f"ToF frame request failed: {e}")
         if frame is None:
             return self.drop("no_frame", f"No ToF frame within {FRAME_TIMEOUT_MS} ms.")
+        returned_at = self.node.get_clock().now()  # before any conversion, so their time is not added to the latency
         try:
             if not isinstance(frame, ac.DepthData):
                 return self.drop("wrong_type", f"ToF frame is {type(frame).__name__}, not DepthData.")
@@ -348,7 +355,7 @@ class TofBridge:
             self.camera.releaseFrame(frame)
 
         header = Header()
-        header.stamp = self.node.get_clock().now().to_msg()
+        header.stamp = self.frame_stamp(returned_at)
         header.frame_id = self.config.frame_id
         self.depth_pub.publish(image_msg(header, depth_mm, DEPTH_ENCODING))
         self.amplitude_pub.publish(image_msg(header, amplitude16, AMPLITUDE_ENCODING))
@@ -356,6 +363,26 @@ class TofBridge:
             self.info_pub.publish(camera_info_msg(header, depth_mm.shape[1], depth_mm.shape[0], self.intrinsics))
         FRAMES_PUBLISHED.inc()
         return True
+
+    def frame_stamp(self, returned_at: Any) -> Any:
+        """Return the frame's stamp: the frame-return time minus config.stamp_latency_ms, never negative.
+
+        Args:
+            returned_at (Any): rclpy Time read right after requestFrame returned the frame.
+
+        Returns:
+            Any: builtin_interfaces/Time. A result below zero is clamped to returned_at itself and logged once.
+        """
+        stamp_ns = returned_at.nanoseconds - round(self.config.stamp_latency_ms * NS_PER_MS)
+        if stamp_ns < 0:
+            if not self.clamp_logged:
+                self.clamp_logged = True
+                self.logger.warning(
+                    f"stamp_latency_ms={self.config.stamp_latency_ms} exceeds the clock reading; "
+                    "stamping frames with the frame-return time."
+                )
+            return returned_at.to_msg()
+        return Time(nanoseconds=stamp_ns, clock_type=returned_at.clock_type).to_msg()
 
     def drop(self, reason: str, message: str) -> bool:
         """Log and count a frame that publishes nothing.
