@@ -12,8 +12,8 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--shared-poi-category-tags
+branch: driving-agent-skills-and-wor--shared-poi-category-tags
 verified_head: ""
 run: ""
 provides: []

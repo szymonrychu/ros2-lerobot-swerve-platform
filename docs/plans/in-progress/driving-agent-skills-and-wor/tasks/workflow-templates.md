@@ -12,8 +12,8 @@ model: opus
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--workflow-templates
+branch: driving-agent-skills-and-wor--workflow-templates
 verified_head: ""
 run: ""
 provides: []

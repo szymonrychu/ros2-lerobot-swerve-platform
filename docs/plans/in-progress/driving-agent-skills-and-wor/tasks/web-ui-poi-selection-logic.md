@@ -12,8 +12,8 @@ model: sonnet
 estimate: 40
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--web-ui-poi-selection-logic
+branch: driving-agent-skills-and-wor--web-ui-poi-selection-logic
 verified_head: ""
 run: ""
 provides: []
