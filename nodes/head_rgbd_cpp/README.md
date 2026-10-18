@@ -113,6 +113,19 @@ Nothing is published for a set that cannot be registered from real data; the set
 A JPEG that does not decode skips the upsampled depth or the cloud of that set (logged, throttled); colour is never
 made up.
 
+## Methodology
+
+Calibration, synchronisation, registration, filtering, upsampling and validation (with targets and a results table) are
+written down in [`docs/head-rgbd-fusion-methodology.md`](../../docs/head-rgbd-fusion-methodology.md). Defaults in short:
+
+- Output 288x162 (`output.divisor` 2 of the 576x324 mapping image), registered by an own z-buffer with footprint splat.
+- Pairing: ApproximateTime, `sync.max_pair_dt_s` 0.06; the whole set is stamped with the RGB stamp (exact pairs).
+- Motion: tf2 time travel through `odom`; pairs above 10 deg/s or 0.3 m/s are dropped.
+- Jump-edge filter 30 mm / 5 % / 3 valid neighbours; depth range 0.1-4.0 m.
+- Upsampling off (masked guided filter, radius 4, `min_support` 0.5, when on); cloud 1 Hz.
+- Geometry only from the head URDF; intrinsics from `tof_calibration.yaml` and the RGB camera_info, valid only at the
+  locked `lens_position`. CPU target 0.2 core p95.
+
 ## Test
 
 `scripts/cpp-node-test.sh head_rgbd_cpp`
