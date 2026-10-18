@@ -531,6 +531,20 @@ After code changes, run from repo root:
 
 Fields (`TabConfig` in `web_ui/config.py`; all topics optional, unset topics default to `None` and are not subscribed): `rgb_camera_topic`, `tof_depth_topic`, `tof_amplitude_topic`, `tof_range_m` (default `DEFAULT_TOF_RANGE_M` = 4.0, must be > 0). `AppConfig.head_tabs()` lists the head tabs, `AppConfig.tof_ranges()` maps each depth topic to its `tof_range_m`, and `topic_roles()` gives the topics the roles `head_rgb` (CompressedImage), `head_depth` and `head_amplitude` (Image), so the bridge takes the message type from the role for any topic name.
 
+**Zoom (click-to-zoom backend).** Optional head tab keys, set together or not at all (validated; head tab only, never the gripper camera or the ToF): `zoom_command_topic` (`/head_camera/zoom/command`, `std_msgs/String`), `zoom_result_topic` (`/head_camera/zoom/result`, `std_msgs/String`), `zoom_image_topic` (`/head_camera/zoom/image`, `sensor_msgs/CompressedImage`) and `zoom_timeout_s` (default 8.0, > 0). The JSON contract is `nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp`. The bridge creates the command publisher and the reliable result and image subscriptions at startup; `BridgeNode.zoom_request_async(tab_id, u, v, zoom)` publishes `{request_id, u, v, zoom, max_px: 1024, af: true}` with a fresh `request_id` and resolves with `{result, jpeg}` once the result and (for `ok` / `af_failed`) the image whose header stamp equals the result `stamp_ns` arrived, in either order (the last 4 images are kept); it returns `None` when the tab has no zoom or nothing subscribes the command topic.
+
+`POST /api/camera/zoom?tab=<id>` with body `{"u": 0..1, "v": 0..1, "zoom": 2|4|8}` (point in the default view, top-left origin). Not blocked by the battery guard (nothing moves). The crop is returned to the browser only and never written to disk.
+
+| Status | Meaning |
+|---|---|
+| 200 | `ok` or `af_failed`: the zoom result fields plus `jpeg_b64` (the picture is taken even when focus did not converge) |
+| 404 | unknown tab, or a tab without zoom topics |
+| 422 | bad body (u or v outside [0, 1], zoom not 2, 4 or 8, not JSON) |
+| 503 | ROS bridge unavailable, or `head_camera_cpp` not running (nothing subscribes the command topic) |
+| 409 | result `busy`: another zoom is running |
+| 502 | result `timeout`, `camera_error` or `invalid` (body is the result) |
+| 504 | no answer within `zoom_timeout_s` |
+
 Backend (`web_ui/bridge.py`, `web_ui/msg_serializer.py`): head topics use the sensor (best effort) QoS. Each head topic is serialised at most every `HEAD_PREVIEW_MIN_INTERVAL_S` (0.1 s), so the Pi skips the JPEG encode of the frames in between. A 16UC1 depth frame with a range gives `depth_preview_b64`, a greyscale JPEG over [0, `tof_range_m`] (near bright, far and invalid black). mono8 and mono16 Images give a greyscale `jpeg_b64` (mono16 scaled to the frame peak); only rgb8/bgr8 are decoded as colour, any other encoding (32FC1, 16-bit colour, bayer) is rejected. A frame that cannot be decoded is logged and dropped: nothing is cached or sent for it.
 
 Frontend (`frontend/src/tabs/HeadTab.tsx`, vitest `HeadTab.test.tsx`): on a phone the previews stack vertically and the page scrolls; on tablet and desktop they sit side by side. The depth cell always shows `tof_depth_topic`. The amplitude switch exists only when the tab has a `tof_amplitude_topic` and is off by default. `depth range N m` is shown under the previews. The pan/tilt block reads `pan/tilt: no head mount configured`. `head` is in `SUPPORTED_TAB_TYPES` (`frontend/src/tabSelection.ts`) and HeadTab is covered by the design guard (`tabs/tabsDesign.test.ts`).

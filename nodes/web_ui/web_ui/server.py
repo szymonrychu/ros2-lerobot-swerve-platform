@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import time
@@ -120,6 +121,18 @@ class PoiClearFilters(BaseModel):
         default=None, max_length=POI_CLEAR_MAX_IDS
     )
 
+
+class ZoomBody(BaseModel):
+    """Body of POST /api/camera/zoom: a point in the default head view and a zoom factor."""
+
+    u: float = Field(ge=0.0, le=1.0)
+    v: float = Field(ge=0.0, le=1.0)
+    zoom: Literal[2, 4, 8]
+
+
+# Zoom result statuses that carry an image (HTTP 200), and the HTTP code of each failure status (others are 502).
+ZOOM_OK_STATUSES = frozenset({"ok", "af_failed"})
+ZOOM_BUSY_STATUS = "busy"
 
 # Seconds to wait for mcp_server's answer to a grasp stop (it answers at once).
 GRASP_STOP_TIMEOUT_S = 3.0
@@ -1037,6 +1050,35 @@ def build_app(
             return action_response("poi", False, f"poi_store did not answer within {POI_TIMEOUT_S:g} s", 504)
         log.info("poi_result", op=op, ok=result.get("ok"), message=result.get("message"))
         return JSONResponse(result, status_code=200 if result.get("ok") else 400)
+
+    @app.post("/api/camera/zoom")
+    async def camera_zoom(tab: str, request: Request) -> JSONResponse:
+        # Not robot motion (the camera zooms, nothing moves): deliberately not blocked by the battery guard.
+        # The crop goes to the browser only; nothing is written to disk.
+        tab_cfg = next((t for t in config.head_tabs() if t.id == tab and t.zoom_command_topic), None)
+        if tab_cfg is None:
+            return action_response("camera_zoom", False, f"no head tab {tab!r} with zoom", 404)
+        try:
+            body = ZoomBody.model_validate(await request.json())
+        except ValueError as exc:
+            detail = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else "body is not JSON"
+            return action_response("camera_zoom", False, f"invalid zoom body: {detail}", 422)
+        if bridge_node is None:
+            return action_response("camera_zoom", False, "ROS bridge unavailable", 503)
+        future = bridge_node.zoom_request_async(tab, body.u, body.v, body.zoom)
+        if future is None:
+            return action_response("camera_zoom", False, "head_camera_cpp is not running", 503)
+        timeout_s = tab_cfg.zoom_timeout_s
+        try:
+            outcome = await await_ros_future(future, timeout_s)
+        except TimeoutError:
+            return action_response("camera_zoom", False, f"head camera did not answer within {timeout_s:g} s", 504)
+        result = outcome["result"]
+        status = result.get("status")
+        log.info("camera_zoom_result", tab=tab, zoom=body.zoom, status=status)
+        if status in ZOOM_OK_STATUSES:
+            return JSONResponse({**result, "jpeg_b64": base64.b64encode(outcome["jpeg"]).decode("ascii")})
+        return JSONResponse(result, status_code=409 if status == ZOOM_BUSY_STATUS else 502)
 
     @app.post("/api/grasp")
     async def grasp_command(tab: str, request: Request) -> JSONResponse:

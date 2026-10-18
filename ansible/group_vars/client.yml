@@ -1710,6 +1710,10 @@ ros2_nodes:
           label: "Head"
           # Head RGB camera: Camera Module 3 on the pan/tilt head (head_camera_cpp).
           rgb_camera_topic: /head_camera/image_raw/compressed
+          # Click-to-zoom: head_camera_cpp autofocused full-resolution crop (command, result, image).
+          zoom_command_topic: /head_camera/zoom/command
+          zoom_result_topic: /head_camera/zoom/result
+          zoom_image_topic: /head_camera/zoom/image
           tof_depth_topic: /tof/depth/image_raw
           tof_amplitude_topic: /tof/amplitude/image_raw
           tof_range_m: 4.0
