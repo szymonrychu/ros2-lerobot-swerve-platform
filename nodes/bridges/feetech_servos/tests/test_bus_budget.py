@@ -86,19 +86,28 @@ def config_groups(cfg: BridgeConfig) -> list[JointGroup]:
     return [JointGroup(cfg.namespace, cfg.joints), *cfg.extra_groups]
 
 
-def head_group(base_cfg: BridgeConfig, follower_cfg: BridgeConfig) -> JointGroup:
-    """The pan/tilt head group: the base config's real `head` group, else the HEAD stand-in.
+def real_head_group(base_cfg: BridgeConfig) -> JointGroup:
+    """The base config's real `head` group (capped 7-byte goal block).
 
     Args:
         base_cfg (BridgeConfig): base_servos config.
-        follower_cfg (BridgeConfig): lerobot_follower config (its IDs are excluded from the stand-in IDs).
+
+    Returns:
+        JointGroup: The two head position joints.
+    """
+    return next(g for g in base_cfg.extra_groups if g.namespace == HEAD_NAMESPACE)
+
+
+def head_group(base_cfg: BridgeConfig, follower_cfg: BridgeConfig) -> JointGroup:
+    """The HEAD stand-in: two uncapped position joints with IDs above every configured one (arm + head option).
+
+    Args:
+        base_cfg (BridgeConfig): base_servos config.
+        follower_cfg (BridgeConfig): lerobot_follower config.
 
     Returns:
         JointGroup: Two position joints.
     """
-    for group in base_cfg.extra_groups:
-        if group.namespace == HEAD_NAMESPACE:
-            return group
     top_id = max(j.id for cfg in (base_cfg, follower_cfg) for g in config_groups(cfg) for j in g.joints)
     return JointGroup(HEAD_NAMESPACE, [JointEntry(name, top_id + 1 + i) for i, name in enumerate(HEAD_NAMES)])
 
@@ -191,11 +200,12 @@ def budget_rows(tmp_path: Path) -> list[tuple[str, float, float, float, str]]:
     base = load_node_config(tmp_path, BASE_NODE)
     head = head_group(base, follower)
     rows = []
+    base_layout = config_groups(base)
     for label, groups, cfg, headroom in (
         ("old shared bus (14 servos, wheels driving)", OLD_SHARED_GROUPS, None, None),
         ("arm only (6 servos)", config_groups(follower), follower, ARM_HEADROOM),
         ("arm + head (8 servos)", [*config_groups(follower), head], follower, 1.0),
-        ("base + head (10 servos, wheels driving)", [*config_groups(base), head], base, BASE_HEADROOM),
+        ("base + head (10 servos, wheels driving)", base_layout, base, BASE_HEADROOM),
     ):
         wire = worst_case_wire_time_s(groups, read_length=read_length_of(cfg or follower))
         if cfg is None:
@@ -211,6 +221,7 @@ def test_deployed_configs_have_the_split_shape(tmp_path: Path) -> None:
     base = load_node_config(tmp_path, BASE_NODE)
     assert len(follower.joints) == FOLLOWER_JOINT_COUNT and follower.control_loop_hz == FOLLOWER_HZ
     assert len(base.joints) == BASE_JOINT_COUNT and base.control_loop_hz == BASE_HZ
+    assert [g.namespace for g in base.extra_groups] == [HEAD_NAMESPACE]
     assert not follower.extra_groups
 
 
@@ -226,10 +237,8 @@ def test_arm_bus_projected_cycle_keeps_headroom_at_the_follower_rate(tmp_path: P
 
 
 def test_base_plus_head_projected_cycle_fits_the_base_rate(tmp_path: Path) -> None:
-    follower = load_node_config(tmp_path, FOLLOWER_NODE)
     base = load_node_config(tmp_path, BASE_NODE)
-    groups = [*config_groups(base), head_group(base, follower)]
-    wire = worst_case_wire_time_s(groups, read_length=read_length_of(base))
+    wire = worst_case_wire_time_s(config_groups(base), read_length=read_length_of(base))
     assert projected_cycle_s(wire) <= BASE_HEADROOM / base.control_loop_hz
 
 
@@ -246,11 +255,17 @@ def test_fake_wire_time_alone_is_under_half_the_period_on_both_buses(tmp_path: P
     follower = load_node_config(tmp_path, FOLLOWER_NODE)
     base = load_node_config(tmp_path, BASE_NODE)
     arm_wire = worst_case_wire_time_s(config_groups(follower), read_length=read_length_of(follower))
-    base_wire = worst_case_wire_time_s(
-        [*config_groups(base), head_group(base, follower)], read_length=read_length_of(base)
-    )
+    base_wire = worst_case_wire_time_s(config_groups(base), read_length=read_length_of(base))
     assert arm_wire < WIRE_TIME_FRACTION / follower.control_loop_hz
     assert base_wire < WIRE_TIME_FRACTION / base.control_loop_hz
+
+
+def test_base_layout_carries_the_real_capped_head_group(tmp_path: Path) -> None:
+    base = load_node_config(tmp_path, BASE_NODE)
+    head = real_head_group(base)
+    assert head.joint_names == HEAD_NAMES
+    assert all(j.max_speed_rad_s and j.max_acceleration_rad_s2 for j in head.joints)
+    assert head in config_groups(base)
 
 
 def test_head_stand_in_ids_are_above_every_configured_id(tmp_path: Path) -> None:
@@ -258,9 +273,8 @@ def test_head_stand_in_ids_are_above_every_configured_id(tmp_path: Path) -> None
     base = load_node_config(tmp_path, BASE_NODE)
     head = head_group(base, follower)
     configured = {j.id for cfg in (follower, base) for g in config_groups(cfg) for j in g.joints}
-    if not base.extra_groups:
-        assert head.joint_names == HEAD_NAMES
-        assert min(j.id for j in head.joints) > max(configured)
+    assert head.joint_names == HEAD_NAMES
+    assert min(j.id for j in head.joints) > max(configured)
     assert all(j.mode == "position" for j in head.joints)
 
 

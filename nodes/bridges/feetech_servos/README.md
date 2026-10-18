@@ -99,14 +99,14 @@ The watchdog stops a wheel (goal_speed = 0) only when it is moving and **no driv
 - remainder = 1 / 95.7 Hz - fake wire time of the old shared layout with idle wheels (10.45 ms - 4.28 ms = 6.17 ms: CPU, ROS publishing, sleeps);
 - projected cycle of a layout = remainder + its worst-case fake wire time.
 
-The remainder is held fixed, so the per-servo CPU savings of a smaller bus are not credited (a conservative projection). Targets: arm only <= `ARM_HEADROOM` (0.95) of the follower period, base + head <= `BASE_HEADROOM` (0.8) of the base period, arm + head below the follower period (the head may also go on the arm adapter), and the fake wire time alone below half the period on both buses. `HEAD` (`head_pan`, `head_tilt`, IDs above every configured ID) models the head: a pan/tilt pair of two servos projected onto whichever bus is being checked.
+The remainder is held fixed, so the per-servo CPU savings of a smaller bus are not credited (a conservative projection). Targets: arm only <= `ARM_HEADROOM` (0.95) of the follower period, base + head <= `BASE_HEADROOM` (0.8) of the base period, arm + head below the follower period (the head may also go on the arm adapter), and the fake wire time alone below half the period on both buses. The base + head row uses the real `head` group of the `base_servos` config (IDs 20 and 21, with the speed/acceleration caps, so their goals go out as the 7-byte `acceleration` block: a few bytes more than the plain stand-in, 9.42 ms instead of 8.24 ms of wire time). The arm + head row keeps the `HEAD` stand-in (`head_pan`, `head_tilt`, uncapped, IDs above every configured ID): a pan/tilt pair of two servos projected onto the arm bus.
 
 | Layout | Fake wire time | Projected cycle | Capacity | Target |
 |---|---|---|---|---|
 | old shared bus, 14 servos, wheels driving | 8.88 ms | 15.05 ms | 10.45 ms (measured 95.7 Hz, wheels idle) | reference |
 | arm only, 6 servos (100 Hz) | 3.12 ms | 9.29 ms | 10 ms | <= 95% of 10 ms (9.5 ms) |
 | arm + head, 8 servos (100 Hz) | 3.44 ms | 9.61 ms | 10 ms | < 10 ms |
-| base + head, 10 servos, wheels driving (50 Hz) | 8.24 ms | 14.41 ms | 20 ms | <= 80% of 20 ms (16 ms) |
+| base + head, 10 servos, wheels driving (50 Hz) | 9.42 ms | 15.59 ms | 20 ms | <= 80% of 20 ms (16 ms) |
 
 The old shared bus row shows why the split was needed: with the wheels driving it projects far past its 10 ms period.
 

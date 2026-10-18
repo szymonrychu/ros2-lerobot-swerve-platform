@@ -161,9 +161,9 @@ def test_base_servos_carries_the_eight_swerve_joints() -> None:
     """base_servos serves the eight swerve joints verbatim (ID, mode, inversion) on namespace swerve_drive."""
     cfg = node_config(BASE)
     assert cfg["namespace"] == BASE_NAMESPACE
-    joints = [(j["name"], j["id"], j.get("mode", "position"), j.get("inverted", False)) for j in all_joints(cfg)]
+    joints = [(j["name"], j["id"], j.get("mode", "position"), j.get("inverted", False)) for j in cfg["joint_names"]]
     assert joints == BASE_JOINTS
-    assert "extra_groups" not in cfg, "no head group is configured by the bus split"
+    assert [g["namespace"] for g in cfg["extra_groups"]] == ["head"], "only the head group shares the base bus"
 
 
 def test_base_servos_runtime_settings() -> None:
@@ -214,7 +214,7 @@ def test_present_feetech_instances_are_exactly_follower_and_base() -> None:
 def test_swerve_controller_drives_the_base_joints() -> None:
     """swerve_controller joint names equal the base bridge's joints, on the /swerve_drive/* topics."""
     controller = node_config("swerve_controller")
-    base_names = [j["name"] for j in all_joints(node_config(BASE))]
+    base_names = [j["name"] for j in node_config(BASE)["joint_names"]]
     assert list(controller["joint_names"]) == base_names
     assert controller["joint_states_topic"] == f"/{BASE_NAMESPACE}/joint_states"
     assert controller["joint_commands_topic"] == f"/{BASE_NAMESPACE}/joint_commands"
