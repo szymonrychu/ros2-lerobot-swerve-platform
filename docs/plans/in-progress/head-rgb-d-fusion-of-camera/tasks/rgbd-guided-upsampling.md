@@ -59,3 +59,7 @@ A tested optional upsampler with a validity mask; disabled by default.
 - Library first: cv::ximgproc::guidedFilter (O(N), radius-independent); do not hand-write box-filter guided filtering.
 
 - 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on rgbd-registration-zbuffer
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1571 passed after integration fixes; head_rgbd_cpp C++ PASS); rgbd-methodology-doc parking flags were false positives describing runtime measurement by the robot runbook.

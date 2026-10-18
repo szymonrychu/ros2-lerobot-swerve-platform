@@ -75,3 +75,7 @@ process_gaps: []
 - Raw RGB is never subscribed (UDPv4 fragment drops, design Constraints).
 
 - 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on tof-jump-edge-filter, rgbd-motion-compensation, rgbd-guided-upsampling, rgbd-cloud-builder
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1571 passed after integration fixes; head_rgbd_cpp C++ PASS); rgbd-methodology-doc parking flags were false positives describing runtime measurement by the robot runbook.

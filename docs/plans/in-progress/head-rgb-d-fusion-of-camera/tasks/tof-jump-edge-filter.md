@@ -59,3 +59,7 @@ A tested flying-pixel filter for the raw ToF depth, called by the node before re
 - The bridge's confidence threshold does not remove flying pixels (SCCG 2008, doi:10.1145/1921264.1921293); this filter runs on every frame before reprojection.
 
 - 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on head-rgbd-package-config
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1571 passed after integration fixes; head_rgbd_cpp C++ PASS); rgbd-methodology-doc parking flags were false positives describing runtime measurement by the robot runbook.

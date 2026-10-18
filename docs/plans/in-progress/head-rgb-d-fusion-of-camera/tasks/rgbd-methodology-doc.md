@@ -1,6 +1,6 @@
 ---
 title: RGBD methodology doc
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Anyone can reproduce and judge the RGB-D fusion: calibration, synchronisation, registration, filtering, upsampling and validation are written down with their targets."
 files: [docs/head-rgbd-fusion-methodology.md, nodes/head_rgbd_cpp/README.md, tests/README.md, MEMORY.md]
@@ -65,3 +65,7 @@ The methodology is written down; the runbook only has to fill in measured number
 - Mostly prose: `review: skip`, judged at the epic audit (start-development: prose stays out of the review loop).
 
 - 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on head-rgbd-node-type
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1571 passed after integration fixes; head_rgbd_cpp C++ PASS); rgbd-methodology-doc parking flags were false positives describing runtime measurement by the robot runbook.

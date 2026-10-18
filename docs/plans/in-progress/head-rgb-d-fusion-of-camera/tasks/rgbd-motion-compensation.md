@@ -63,3 +63,7 @@ Tested motion maths: the node only performs the two TF lookups and calls these f
 - A ToF frame integrates four phase captures, so blur during fast motion is gated, not corrected (design D6).
 
 - 2026-10-18 run head-rgb-d-fusion-of-camera: dependency-failed on rgbd-registration-zbuffer
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1571 passed after integration fixes; head_rgbd_cpp C++ PASS); rgbd-methodology-doc parking flags were false positives describing runtime measurement by the robot runbook.
