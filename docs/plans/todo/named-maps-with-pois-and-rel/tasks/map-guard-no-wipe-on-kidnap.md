@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Stop wiping the live map on the first poor evaluation: ask map_manager to relocalise first (design D13, U8). Python rollback node `nodes/map_guard`, mirroring the C++ task map-guard-cpp-no-wipe-on-kidnap.
+Stop wiping the live map on the first poor evaluation: ask map_manager to relocalise first (design D13, U8). Python rollback node `nodes/map_guard`, mirroring the C++ task map-guard-cpp-no-wipe-on-kid.
 
 Code path changed: `nodes/map_guard/map_guard/guard.py:MapGuard.decide` (poor median -> `State.RESET` -> `MapGuard.reset_map`).
 
@@ -50,16 +50,18 @@ Code path changed: `nodes/map_guard/map_guard/guard.py:MapGuard.decide` (poor me
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `guard.py:State.RELOCALISING`, `MapGuard.on_relocalise_result`; command JSON `{op, request_id, since, discard_on_fail}` on `/map_manager/command` (contract `map-manager-contract`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A poor evaluation first requests a relocalise; the map is reset only when it fails or times out.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend `tests/test_guard.py` first; run `cd nodes/map_guard && uv run --frozen pytest tests/test_guard.py -q`; expect failures.
+- Implement; run the verify command; expect all passed.
+- Commit: `feat(map_guard): relocalise before resetting the map`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+map_guard stays the only caller of `/slam_toolbox/reset`; map_manager clears the live POIs on a failed relocalise (`discard_on_fail`). Saved named maps are never touched. README documents the flow. Servo safety (CLAUDE.md): this task moves no servo.

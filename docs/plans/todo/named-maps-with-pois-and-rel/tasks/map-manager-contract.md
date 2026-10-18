@@ -31,7 +31,7 @@ constants; no ROS imports.
 - `MAP_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"` and `validate_map_name(name: str) -> str` (raises
   ValueError naming the rule).
 - `Pose2D` (`x`, `y`, `yaw`, all finite floats).
-- `MapCommand`: `op` Literal `save`/`load`/`delete`, `request_id: str = ""`, `name` (validated), `overwrite: bool =
+- `MapCommand`: `op` Literal `save`/`load`/`delete`/`relocalise` (D13; `name` is required and validated for save/load/delete only and must be empty for relocalise), `since: float | None = None` and `discard_on_fail: bool = False` (relocalise only), `request_id: str = ""`, `name` (validated), `overwrite: bool =
   False`, `pose: Pose2D | None = None` (load only; any other op with a pose is rejected), `note: str` (<= 500 chars,
   save only). `extra="forbid"`.
 - `MapResult`: `request_id`, `ok`, `message`, `data: dict | None`.
@@ -45,6 +45,8 @@ constants; no ROS imports.
   operation at a time; a second command is answered `ok: false` with `busy: <op> <name>`).
 - Test first: `tests/test_shared_maps.py` written and seen failing before `maps.py` exists.
 
+- Tests also cover the D13 ops: `relocalise` with and without `since` and `discard_on_fail`, a name on it rejected, `since` or `discard_on_fail` on load rejected.
+
 ## Acceptance conditions
 
 - a1: valid and invalid map names (empty, leading dash, 41 chars, slash, space) are accepted or rejected by validate_map_name and MapCommand [evidence: test: tests/test_shared_maps.py]
@@ -52,6 +54,7 @@ constants; no ROS imports.
 - a3: MapStatus with every LocalisationState round-trips through JSON unchanged and rejects an unknown state [evidence: test: tests/test_shared_maps.py]
 - a4: the contract models exist in shared/ros2_common/maps.py [evidence: symbol: MapStatus]
 - a5: shared/README.md documents the contract [evidence: doc-section: shared/README.md#Named maps contract]
+- a6: relocalise validates without a name, rejects a name or pose, and `since` / `discard_on_fail` are rejected on any other op [evidence: test: tests/test_shared_maps.py]
 
 ## Files
 

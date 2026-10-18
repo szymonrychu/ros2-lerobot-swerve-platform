@@ -11,7 +11,7 @@ at the refined pose, replaces the POI set, and then judges the match with the sc
 map_guard already uses. A good match unpauses SLAM (mapping continues on the loaded map); a poor or ambiguous one
 leaves SLAM paused, reports "not localised" and keeps the saved pose as the hint, and nothing fake is published.
 poi_store gains a filtered `clear` and a `replace` op. The web UI and the agent get save-as, list, load, delete
-(web UI only) and clear-POIs.
+(agent: with confirmation) and clear-POIs.
 
 ## Intent and why
 
@@ -36,7 +36,6 @@ the robot match its live readings against the loaded map and reorient itself whe
 - 3D map (RTAB-Map) bundles; that epic owns its database save/load.
 - Global relocalisation anywhere in the map without a hint (no AMCL, no localization-mode switch).
 - Loading a named map automatically at boot (boot keeps resuming `slam_map`, D3).
-- Agent tool for deleting maps (web UI only).
 - Per-map photos: photos stay one global store (D8).
 
 ## Anti-goals
@@ -152,8 +151,8 @@ the result for diagnosis only. Serves G3, U5.
 
 poi_store's `clear` op: `created_by` becomes optional (absent: every creator), new optional `kinds`
 (`point`/`area`/`object`), `keep_zones` (true keeps areas whose zone is `keepout` or `slow`) and `ids` (list of POI ids; the batch delete-by-ids, ANDed with the rest); `statuses` stays; photos
-are never cleared; cleared POIs are stripped from photo links as today. claude_agent's New-session clear keeps working
-unchanged (it sends `created_by: agent`). The web UI "Clear POIs" dialog offers all / mine (user) / agent's, kinds,
+are never cleared; cleared POIs are stripped from photo links as today. the op stays backward compatible with a bare `created_by: agent` payload. New session no longer clears POIs at all (U9): the driving-agent-skills-and-wor epic
+removes the reset-time clear; POI removal happens only through this explicit clear op, the web UI dialog and the agent tool. The web UI "Clear POIs" dialog offers all / mine (user) / agent's, kinds,
 and "keep zones" (default on); the dialog is a thin clear-all / clear-by-filter action over the same `clearPois` call, with an optional "Choose individual POIs" link into the POI list that the epic driving-agent-skills-and-wor adds (per-POI marking, category filter and delete-marked live there, not here). The agent's `clear_pois(creator="agent", kinds=None, include_zones=False)` defaults to
 its own POIs and keeps zones; `creator` `user`/`all` or `include_zones=True` only after the person asked (tool
 description and claude_agent prompt, the same consent pattern as cancelling a keep-out today). Serves G1, U1.
@@ -165,7 +164,12 @@ Save copies the latched `/poi/list` POIs into `bundle.json`. Load sends poi_stor
 replace, store untouched), ids and timestamps are kept, the non-photo POI set is swapped atomically (rollback on a
 failed write), the revision increments (never reset, consumers see a change), and photo links to POIs no longer present
 are stripped. Photos stay one global store: their capture poses refer to the map active at capture (my call; gate
-question). Serves G2, G3, U2, U3.
+question).
+
+U7: POIs are part of the map. Every POI of a saved map lives in its `bundle.json`; save stores the current set, load
+replaces the live set with exactly the bundle's POIs, and delete removes the bundle with its POIs. Deleting the
+*active* map also empties the live POI set (poi_store `replace` with an empty list, so the live POIs do not outlive the
+map they belong to); deleting another map touches only its bundle. Serves G2, G3, U2, U3, U7.
 
 ### D9: Consistency after a load
 
@@ -177,13 +181,15 @@ question). Serves G2, G3, U2, U3.
 ### D10: CPU: heavy subscriptions only during an operation
 
 map_manager keeps only `/poi/list` (latched, small), `/poi/result`, `/map_manager/command` and slam_toolbox service
-clients while idle. The TF listener, `/map`, `/scan_filtered` and `/pose` subscriptions are created when an operation
+clients while idle, plus one 1 Hz timer that records the TF map <- base_link pose into a 120 s ring (D13; a single
+lookup, no subscription). The TF listener, `/map`, `/scan_filtered` and `/pose` subscriptions are created when an operation
 starts and destroyed when it ends. Serves G2, G3 under the client CPU constraint.
 
 ### D11: Agent tools
 
 mcp_server adds `save_map(name, overwrite=False, note="")`, `list_maps()` (maps plus active map and localisation
-state), `load_map(name, x=None, y=None, yaw=None)` (calls `stop` first; returns the verdict) and
+state), `delete_map(name, confirm=False)` (refuses unless `confirm` is true; the prompt says to ask the person first, U7),
+`load_map(name, x=None, y=None, yaw=None)` (calls `stop` first; returns the verdict) and
 `clear_pois(creator="agent", kinds=None, include_zones=False)`. claude_agent lists them in `sensor_tools` (non-motion,
 like `add_poi`; my call) and its prompt says: after `load_map`, check `list_maps` localisation and do not navigate when
 not localised; `list_pois` and check zones after a load; ask before clearing the person's POIs or zones. Serves G1, G4,
@@ -192,11 +198,38 @@ U6.
 ### D12: Web UI
 
 Backend: `GET /api/maps?tab=` (status cache), `POST /api/maps/save` `{name, overwrite, note}`,
-`POST /api/maps/load` `{name, pose?}` (cancels the tab's Nav2 goals first), `POST /api/maps/delete` `{name}`;
+`POST /api/maps/load` `{name, pose?}` (cancels the tab's Nav2 goals first), `POST /api/maps/delete` `{name}` (the map and
+its POIs, U7);
 `POST /api/poi` accepts `op: clear` with `created_by`, `kinds`, `keep_zones`. Frontend: Map tab toolbar "Save map as"
-(name dialog, overwrite confirmation), "Maps" dialog (list with saved time, POI count, load, delete with
-confirmation, retry on a not-localised map), the localisation state in the map status line; "Clear POIs" dialog in the
+(name dialog, overwrite confirmation), "Maps" dialog (explicit Save, Load and Delete buttons: list with saved time, POI
+count, load, delete with a confirmation that names the map and its POI count, retry on a not-localised map), the localisation state in the map status line; "Clear POIs" dialog in the
 POI panel. Serves G1, G2, G4.
+
+### D13: Moved by hand: relocalise first, discard the live map only when unrecoverable (U8, 2026-10-18)
+
+Current wipe path (found by grep): `nodes/map_guard_cpp/src/guard.cpp:MapGuard::decide` -> `MapGuard::reset_map`
+(the enabled node; Python twin `nodes/map_guard/map_guard/guard.py:MapGuard.decide` -> `MapGuard.reset_map`, disabled
+rollback). After a lifted / carried / rotated / mismatch disturbance whose evaluation median stays under
+`healthy_ratio`, `reset_map` serializes a backup, calls `/slam_toolbox/reset` (`SlamPort::reset`) and
+`publish_reset_` publishes `/map_guard/map_reset`, on which `nodes/web_ui/web_ui/bridge.py:on_map_guard_reset` drops
+the cached map and the GPS anchor. Today that reset happens immediately and never tries to recover the pose.
+
+New behaviour, the same in both implementations: on a poor evaluation median map_guard keeps slam_toolbox paused and
+first publishes `{"op": "relocalise", "request_id": "map_guard-<n>", "since": <time of first disturbance>,
+"discard_on_fail": true}` on `/map_manager/command` (config `relocalise_timeout_s` 90). map_manager runs the load
+sequence of D5 against the *current* map: it serializes the live pose graph to a scratch dir (not a named map), takes the
+hint from its pose ring (newest sample older than `since`, D10; else the request `pose`), refines, deserializes with
+`START_AT_GIVEN_POSE`, verifies (D6). No autosave, POIs untouched while it runs.
+- Recovered (localised): unpause, `/map_manager/localised` true, result `ok` with `data.state = localised`; map_guard
+  re-arms and does nothing else. Map and POIs kept.
+- Not recoverable (not_localised, ambiguous, unconfirmed or no result within `relocalise_timeout_s`): with
+  `discard_on_fail` map_manager empties the live POI set (poi_store `replace` with an empty list) and answers `ok:
+  false` with `data.discarded_pois = N`; map_guard then runs its existing `reset_map` unchanged (backup, `/slam_toolbox/reset`,
+  unpause, `/map_guard/map_reset`) and notifies the event (`reset`, with the reason and the discarded POI count) which
+  reaches the web UI and the agent. Named bundles under `/var/lib/ros2/maps/named/` are never touched by this path
+  (only `delete` removes a bundle); the user loads a saved map afterwards.
+Alternatives rejected: relocalise inside map_guard (duplicates the matcher and the pose search), keeping a map whose
+pose is lost (navigation on a wrong pose, an anti-goal). Serves G3, U5, U8.
 
 ## Research
 
@@ -236,11 +269,12 @@ POI panel. Serves G1, G2, G4.
 | D5 relocalisation mechanism | map-manager-relocaliser, map-manager-operations, map-manager-ros-node, final-suite-and-runbook |
 | D6 match quality | shared-scan-agreement, map-manager-relocaliser, map-manager-operations |
 | D7 clear POIs | poi-store-clear-filters, web-ui-poi-clear-route, web-ui-clear-pois-dialog, mcp-clear-pois-tool, agent-named-maps-prompt |
-| D8 POIs with the map | poi-store-replace-op, map-manager-operations |
+| D8 POIs with the map (U7) | poi-store-replace-op, map-manager-operations, mcp-map-tools, web-ui-maps-dialog |
 | D9 consistency after load | map-guard-cpp-load-hold, web-ui-named-maps-backend, final-suite-and-runbook |
 | D10 on-demand subscriptions | map-manager-ros-node |
 | D11 agent tools | mcp-map-tools, mcp-clear-pois-tool, agent-named-maps-prompt, mcp-named-maps-config-docs |
 | D12 web UI | web-ui-named-maps-backend, web-ui-poi-clear-route, web-ui-maps-dialog, web-ui-clear-pois-dialog |
+| D13 moved by hand: relocalise, discard live map only if unrecoverable | map-manager-contract, map-manager-relocalise-op, map-manager-ros-node, map-guard-no-wipe-on-kidnap, map-guard-cpp-no-wipe-on-kid, agent-named-maps-prompt, final-suite-and-runbook |
 
 ## Contracts
 
@@ -252,7 +286,8 @@ POI panel. Serves G1, G2, G4.
 | `poi-replace-op` | poi-store-replace-op | map-manager-operations | `nodes/poi_store/poi_store/models.py` (`Command`) |
 | `map-bundle-store` | map-manager-bundle-store | map-manager-operations | `nodes/map_manager/map_manager/bundle.py` |
 | `relocaliser` | map-manager-relocaliser | map-manager-operations | `nodes/map_manager/map_manager/relocalise.py` |
-| `map-manager-core` | map-manager-operations | map-manager-ros-node | `nodes/map_manager/map_manager/manager.py` |
+| `map-manager-core` | map-manager-operations | map-manager-relocalise-op, map-manager-ros-node |
+| `relocalise-op` | map-manager-relocalise-op | map-manager-ros-node, map-guard-no-wipe-on-kidnap, map-guard-cpp-no-wipe-on-kid | `nodes/map_manager/map_manager/manager.py` (`MapManager.relocalise`, `record_pose`) |
 
 ## Review focus
 
@@ -279,7 +314,7 @@ POI panel. Serves G1, G2, G4.
 
 ## Irreversible operations in scope
 
-- Deleting a named map (`delete`) removes its directory; the web UI asks for confirmation.
+- Deleting a named map (`delete`) removes its directory and its POIs (and empties the live POI set when it is the active map); the web UI asks for confirmation and the agent tool needs `confirm=true`.
 - Overwriting a named map (`overwrite: true`) replaces the old bundle; the web UI asks for confirmation.
 - Load replaces the current POI set and the in-memory map; covered by the automatic `autosave` bundle before every load (D5 step 2).
 - `clear` deletes POIs; the web UI asks for confirmation; the agent defaults to its own POIs and keeps zones.

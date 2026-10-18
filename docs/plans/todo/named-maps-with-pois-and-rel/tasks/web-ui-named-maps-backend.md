@@ -35,13 +35,15 @@ web_ui backend for named maps (design D9, D12); the unnamed `/api/map/save` and 
   `GET /api/maps?tab=` returns the cached status (503 "no map_manager status yet" before the first message; nothing
   invented); `POST /api/maps/save?tab=` `{name, overwrite?, note?}`; `POST /api/maps/load?tab=` `{name, pose?}`
   which first cancels the tab's Nav2 goals (`cancel_all_goals_async`) and refuses the load when the cancel fails;
-  `POST /api/maps/delete?tab=` `{name}`. Bodies are validated with the shared `MapCommand` (422 with the reason).
+  `POST /api/maps/delete?tab=` `{name}` (the map and its POIs, U7). Bodies are validated with the shared `MapCommand` (422 with the reason).
   Results map `ok` to 200 / 400. Coalesce concurrent identical requests like map reset.
 - Save and load are battery-guarded like `map_save` (`battery_block`); delete is not.
 - `nodes/web_ui/tests/test_named_maps.py` (test first): each route's success, validation error, map_manager down,
   timeout; load cancels goals first and stops when the cancel fails; status 503 before the first message; a
   `load_seq` change clears the map cache and resets the GPS anchor while an unchanged one does not.
 - README: a `## Named maps` section (routes, bridge topics, load behaviour).
+
+- D13: an unrecoverable move publishes `/map_guard/map_reset` (existing handler clears the cached map and GPS anchor); the cached status shows the empty POI set. No new route: Save, Load and Delete stay the user's explicit paths (U7); saved bundles are listed unchanged after such an event (test).
 
 ## Acceptance conditions
 
@@ -50,6 +52,7 @@ web_ui backend for named maps (design D9, D12); the unnamed `/api/map/save` and 
 - a3: a load_seq change clears the cached map and resets the GPS anchor [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_named_maps.py -q -k load_seq]
 - a4: the unnamed save and reset tests still pass [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_map_nav.py -q]
 - a5: README documents named maps [evidence: doc-section: nodes/web_ui/README.md#Named maps]
+- a6: after /map_guard/map_reset the saved maps list from the status cache is unchanged [evidence: command: cd nodes/web_ui && uv run --frozen pytest tests/test_named_maps.py -q -k map_reset_keeps_saved]
 
 ## Files
 

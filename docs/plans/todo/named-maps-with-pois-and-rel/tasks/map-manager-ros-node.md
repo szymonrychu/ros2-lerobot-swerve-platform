@@ -5,9 +5,9 @@ repo: ros2-lerobot-sverve-platform
 value: "map_manager runs on the robot: it answers named-map commands over topics, publishes a truthful status, and costs no CPU while idle."
 files: [nodes/map_manager/map_manager/node.py, nodes/map_manager/map_manager/__main__.py, nodes/map_manager/map_manager/metrics.py, nodes/map_manager/tests/ros_stubs.py, nodes/map_manager/tests/test_node.py, nodes/map_manager/README.md]
 verify: "cd nodes/map_manager && uv run --frozen pytest tests/test_node.py -q && uv run --frozen pytest -q && uv run --frozen poe lint"
-depends_on: [map-manager-operations]
+depends_on: [map-manager-operations, map-manager-relocalise-op]
 owns: []
-uses: [map-manager-core, map-manager-contract, scan-agreement]
+uses: [relocalise-op, map-manager-core, map-manager-contract, scan-agreement]
 model: sonnet
 estimate: 90
 actual: ""
@@ -50,6 +50,8 @@ The rclpy layer of map_manager (design D4, D10), the only rclpy module, tested w
   subscriptions; a command produces a result; status at start; localised not published at start; invalid JSON;
   numpy import guard (the module imports sensor_msgs-dependent code with numpy declared).
 
+- D13 wiring: a 1 Hz timer calls `MapManager.record_pose()` (one TF lookup, no subscription, nothing recorded when TF is missing); the command dispatcher routes `relocalise` to the manager and answers on `/map_manager/result` with the request_id. `tests/test_node.py` covers the timer and the routing.
+
 ## Acceptance conditions
 
 - a1: while idle only the command, POI list and POI result subscriptions exist [evidence: command: cd nodes/map_manager && uv run --frozen pytest tests/test_node.py -q -k idle]
@@ -58,6 +60,7 @@ The rclpy layer of map_manager (design D4, D10), the only rclpy module, tested w
 - a4: a JSON command is answered on the result topic, invalid JSON with ok false [evidence: command: cd nodes/map_manager && uv run --frozen pytest tests/test_node.py -q -k command]
 - a5: README documents topics, bundle layout and the load sequence [evidence: doc-section: nodes/map_manager/README.md#Load sequence]
 - a6: the whole map_manager suite and lint pass [evidence: command: cd nodes/map_manager && uv run --frozen pytest -q && uv run --frozen poe lint]
+- a_d13: the pose timer and relocalise routing work [evidence: command: cd nodes/map_manager && uv run --frozen pytest tests/test_node.py -q -k 'pose_timer or relocalise']
 
 ## Files
 

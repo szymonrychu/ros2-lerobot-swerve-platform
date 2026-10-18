@@ -106,15 +106,13 @@
   },
   {
     "id": "G8",
-    "text": "Survey POIs are cleared on New session (no persistence beyond the session), consistent with the existing agent POI reset; keep-out zones always survive it.",
+    "text": "POI removal happens only through explicit actions (POI list delete marked, the Clear POIs dialog, the agent clear_pois tool); New session deletes no POIs or maps (U11).",
     "decisions": [
       "D11",
       "D14"
     ],
     "tasks": [
-      "poi-store-clear-by-tag",
-      "mcp-admin-clear-by-tag",
-      "reset-clears-survey-pois"
+      "new-session-keeps-pois"
     ],
     "status": "approved"
   },
@@ -242,15 +240,13 @@
   },
   {
     "id": "U9",
-    "text": "Survey POIs are cleared on New session, except keep-out zones, which always survive (amended by U10).",
+    "text": "Survey POIs are cleared on New session, except keep-out zones, which always survive (amended by U10). SUPERSEDED by U11: New session deletes no POIs.",
     "decisions": [
       "D11",
       "D14"
     ],
     "tasks": [
-      "poi-store-clear-by-tag",
-      "mcp-admin-clear-by-tag",
-      "reset-clears-survey-pois"
+      "new-session-keeps-pois"
     ],
     "status": "approved"
   },
@@ -269,19 +265,31 @@
   },
   {
     "id": "U10",
-    "text": "Keep-out zones survive New session (the reset clears the other survey POIs, never keep-outs); the web UI POI list can be filtered by category, POIs marked individually, mark all visible marks every POI passing the filter, delete marked deletes them in one action with a confirmation naming the count and listing categories, and keep-outs in the batch need an explicit extra confirmation; a poi_store batch delete-by-ids and web_ui route are reused from the named-maps clear work, not duplicated.",
+    "text": "Keep-out zones survive New session (the reset clears the other survey POIs, never keep-outs); the web UI POI list can be filtered by category, POIs marked individually, mark all visible marks every POI passing the filter, delete marked deletes them in one action with a confirmation naming the count and listing categories, and keep-outs in the batch need an explicit extra confirmation; a poi_store batch delete-by-ids and web_ui route are reused from the named-maps clear work, not duplicated. (The New-session part is SUPERSEDED by U11; the POI list filter, mark and delete-marked stay.)",
     "decisions": [
       "D14"
     ],
     "tasks": [
-      "poi-store-clear-by-tag",
-      "mcp-admin-clear-by-tag",
-      "reset-clears-survey-pois",
       "prompt-skills-and-workflows",
       "skills-suite-and-runbook",
       "web-ui-poi-selection-logic",
       "web-ui-poi-list-filter-and-m",
       "web-ui-poi-delete-marked"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U11",
+    "text": "New session no longer deletes POIs or maps at all (neither survey POIs nor keep-outs): it only resets the agent conversation and job state. POI removal happens only through the explicit buttons and tools; the filter, mark and delete-marked list from U10 stays. Supersedes the New-session clearing of U9 and U10.",
+    "decisions": [
+      "D11",
+      "D14"
+    ],
+    "tasks": [
+      "agent-poi-reset-config-remov",
+      "new-session-keeps-pois",
+      "prompt-skills-and-workflows",
+      "skills-suite-and-runbook"
     ],
     "status": "approved"
   }

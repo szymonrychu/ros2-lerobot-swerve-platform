@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "The deployed claude_agent config stops carrying the New-session POI clearing setting, so the code can drop it."
 files: [ansible/group_vars/client.yml, tests/test_claude_agent_config.py, tests/test_mcp_server_config.py, tests/README.md]
 verify: "uv run pytest tests/test_claude_agent_config.py tests/test_mcp_server_config.py -q && uv run poe lint-ansible"
-depends_on: []
+depends_on: [agent-runner-enables-skills, eval-workflow-checks, eval-workflow-testset, agent-skill-plugin-loader, retro-pull-script, shared-poi-category-tags, web-ui-retros-proxy]
 owns: []
 uses: []
 model: sonnet
@@ -45,16 +45,18 @@ Remove the `agent_poi_reset` setting from the deployed claude_agent config and i
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Rendered config of the claude_agent entry in `ansible/group_vars/client.yml`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+client.yml and its pins no longer mention agent_poi_reset.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Change the two root tests first; run `uv run pytest tests/test_claude_agent_config.py tests/test_mcp_server_config.py -q`; expect failures.
+- Edit client.yml and tests/README.md; run the verify command; expect all passed.
+- Commit: `chore(ansible): drop agent_poi_reset from the claude_agent config`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Lands before new-session-keeps-pois so the config model never sees an unknown key. Servo safety (CLAUDE.md): this task moves no servo.

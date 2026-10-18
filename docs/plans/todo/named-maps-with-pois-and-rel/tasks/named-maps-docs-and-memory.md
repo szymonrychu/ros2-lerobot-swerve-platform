@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "Developers find how named maps, relocalisation and the map_guard hold work, and the decisions are recorded for later agents."
 files: [nodes/slam_toolbox/README.md, nodes/map_guard_cpp/README.md, nodes/map_guard/README.md, nodes/web_ui/README.md, tests/README.md, MEMORY.md]
 verify: "grep -q START_AT_GIVEN_POSE nodes/slam_toolbox/README.md && grep -q localised_topic nodes/map_guard_cpp/README.md && grep -q test_map_manager_config.py tests/README.md && grep -q test_shared_scan_agreement.py tests/README.md && grep -q 'Named maps' MEMORY.md && uv run poe lint"
-depends_on: [map-manager-lint-and-metrics, map-guard-cpp-load-hold, web-ui-maps-dialog, web-ui-clear-pois-dialog, mcp-named-maps-config-docs]
+depends_on: [map-manager-lint-and-metrics, map-guard-cpp-load-hold, map-guard-no-wipe-on-kidnap, map-guard-cpp-no-wipe-on-kid, web-ui-maps-dialog, web-ui-clear-pois-dialog, mcp-named-maps-config-docs]
 owns: []
 uses: []
 model: sonnet

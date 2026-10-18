@@ -46,11 +46,14 @@ provides: []
      so, and record the final values in `nodes/map_manager/README.md`.
 - The task ends with the runbook committed with real numbers, or with a named blocker (robot offline) per CLAUDE.md.
 
+- Runbook step 7b (U8, executed on the robot, hand-carried, no servo moves): (i) lift and set the robot down about 0.5 m away: map_guard_cpp (dry_run false for the step) requests relocalise, state `localised`, map and POI counts unchanged; (ii) carry it to another room: unrecoverable, the live map and POIs are cleared, the event reaches the web UI, and the saved `runbook-room` bundle is still listed and loads.
+
 ## Acceptance conditions
 
 - a1: the whole repository suite, node suites, frontend and C++ tests pass [evidence: command: uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp]
 - a2: the runbook records save, reset, load at the saved pose, load after a move and a failed load with numbers [evidence: doc-section: docs/runbooks/named-maps.md#Results]
 - a3: a failed relocalisation left slam_toolbox paused and the loaded map intact on the robot [evidence: judgement]
+- a4: the runbook records a recoverable move (nothing deleted) and an unrecoverable one (live map and POIs cleared, saved bundle intact) [evidence: doc-section: docs/runbooks/named-maps.md#Moved by hand]
 
 ## Files
 

@@ -26,7 +26,7 @@ provides: []
 `clear_pois(creator="agent", kinds=None, include_zones=False)` (design D7, D11).
 
 - `poi_client.PoiRequests.clear(created_by: str | None, statuses=None, kinds=None, keep_zones=False)`: sends only the
-  given fields; `created_by=None` omits it (every creator). The existing callers (admin clear for New session) keep
+  given fields; `created_by=None` omits it (every creator). The existing callers (the admin clear route) keep
   their payload.
 - `ros_iface` passes the new arguments through.
 - Tool: `creator` in agent/user/all (all sends no created_by), `kinds` subset of point/area/object, `include_zones`

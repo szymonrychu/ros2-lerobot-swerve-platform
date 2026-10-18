@@ -25,6 +25,8 @@ The POI store and the map are saved and loaded separately today, and POIs cannot
 - Named maps: save writes one named bundle (slam_toolbox serialized map / pose graph and occupancy image, the POI set, the robot's last known pose in the map frame, timestamp, metadata) to a maps directory on the robot; list, load and delete named maps; the existing unnamed save/reset keeps working or becomes the default name.
 - Load restores the map and its POIs (replacing the current POI set) and starts relocalisation: initial pose from the saved last pose, then scan matching against the loaded map (slam_toolbox localization / continue-mapping with pose hint, or an equivalent proven mechanism); success when the match quality passes a threshold, else the robot reports it is not localised and keeps the saved pose hint; no placeholder poses are published.
 - Web UI: map save-as (name), map list with load/delete, POI clear; agent tools: save_map(name), list_maps, load_map(name), clear_pois; map-dependent nodes (costmap_zones, map_guard_cpp, poi_store, GPS anchor) stay consistent after a load.
+- POIs belong to their map (saved, loaded and deleted with it); explicit Save, Load and Delete buttons and matching agent tools (delete confirmed) (U7).
+- Being moved by hand first relocalises against the current map from the last known pose; recovered: map and POIs kept; unrecoverable: only the live map and its POIs are cleared, saved bundles never (U8). New session deletes no POIs or maps (U9).
 - Tests (poi_store, web_ui, mcp_server, root config), READMEs; deployed and verified: save a named map, reboot/reset, load it, robot relocalises near the saved pose.
 
 ## Non-goals
@@ -41,7 +43,13 @@ The POI store and the map are saved and loaded separately today, and POIs cannot
 
 
 
-Estimate: 1315 min | Actual: 0 min | Remaining estimate: 1315 min
+
+
+
+
+
+
+Estimate: 1535 min | Actual: 0 min | Remaining estimate: 1535 min
 
 ## Review
 

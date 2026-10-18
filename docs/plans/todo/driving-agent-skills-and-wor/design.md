@@ -9,8 +9,7 @@ drive-to-target, pick/place) seeded into the job's task plan by a new `agent.sta
 check that flags skipped mandatory steps, and a retrospective after every job stored robot-side, shown in a new web UI
 tab, pulled by a script and fed to the next session. POI categories ride on the existing POI fields as note tags
 (no schema field); slow zones additionally carry a non-lethal Nav2 path cost through the existing keepout mask; a new
-exploration-status tool tells the agent when the surroundings are completely mapped and surveyed. Survey POIs are
-cleared on "New session".
+exploration-status tool tells the agent when the surroundings are completely mapped and surveyed. "New session" deletes no POIs or maps (U11).
 
 ## Intent and why
 
@@ -36,7 +35,7 @@ retrospective for future agents and for the developer agents that fix the robot.
   text only.
 - G7: retrospective after every job (short for trivial jobs) in a robot-side store, shown in a web UI tab and available
   through an API and a script; recent ones fed to future agents.
-- G8: survey POIs cleared on "New session", consistent with the existing agent POI reset; keep-out zones always survive it (U10).
+- G8: "New session" deletes no POIs or maps; POI removal only through explicit buttons and tools (U11, supersedes the clearing of U9/U10).
 - G10: the web UI POI list filters by category, marks POIs, and deletes the marked ones in one confirmed action (U10).
 - G9: tests (claude_agent, mcp_server, poi_store, costmap_zones, web_ui), evals extended beyond pick-and-place, READMEs;
   deployed without killing a running agent session.
@@ -216,15 +215,18 @@ and a new tab type `agent_retros` ("Retros") lists records with outcome, workflo
 Markdown and JSONL for developer agents. The first instruction of every new session is prefixed with a
 `RECENT RETROSPECTIVES` block (newest `retro_feed_count` 5, at most `retro_feed_max_chars` 3000). Serves G7, U4.
 
-### D11: Survey POIs cleared on "New session"
+### D11: New session deletes nothing (U11, 2026-10-18; supersedes the original survey clearing)
 
-poi_store `clear` gains an optional `tag` filter (ANDed with created_by and statuses); the mcp_server admin route
-passes `tag`; `AgentRunner.reset` keeps the existing clear (agent_poi_reset) and adds a second clear of agent POIs
-tagged `#survey` in any status (survey spots included). User POIs never match (created_by agent only). Serves G8, U9.
+`AgentRunner.reset` stops the robot and resets the conversation, plan and job state only. It no longer calls the mcp_server
+admin route `/admin/clear_agent_pois`, so no POI (survey, keep-out, other agent POIs) and no map is deleted on New
+session; the `agent_poi_reset` setting, `poi_clear.py` and the claude_agent clearer hook are removed (tasks
+agent-poi-reset-config-remov, then new-session-keeps-pois). The admin route itself stays in mcp_server, unused by
+claude_agent (noted, not removed). The tag and keep-out clear terms originally planned for it (poi_store `tag`,
+`keep_keepout`, admin route body) are dropped: nothing needs them. Serves G8, U11.
 
-### D14: Keep-outs survive New session; POI list filter, mark and delete marked (U10, 2026-10-18)
+### D14: POI list filter, mark and delete marked (U10, 2026-10-18)
 
-(a) Both reset clears (the agent_poi_reset one, also in `clear_all` mode, and the `#survey` one) carry `keep_keepout`: poi_store `clear` gets a `keep_keepout` flag that spares areas with zone keepout whether or not they carry a tag, and the admin route forwards it. This amends D11/U9: survey POIs go, keep-outs never do. Rationale: a keep-out is a safety boundary created for free and removable only with the person's consent; a session reset is neither. The claude_agent default is on and never turned off by the reset.
+(a) SUPERSEDED by U11/D11: New session no longer clears anything, so no `keep_keepout` flag exists. Keep-outs are removed only by an explicit action with the person's consent.
 (b) The POI tab gets a category filter (the D4 categories plus `uncategorised`; untagged POIs fall back to their zone), per-row marks, "Mark all visible" (exactly the POIs passing the current filter) and "Delete marked (N)". Marks are pruned when the filter changes so a delete can only hit visible POIs. The confirmation names the count and lists categories; any keep-out in the batch (decided by zone, not tag) needs an extra explicit checkbox, consistent with the keep-out consent rule.
 (c) No new backend: delete-by-ids is an `ids` filter on poi_store `clear` (AND with the other filters) and on the web_ui `POST /api/poi` clear route, owned by the named-maps epic (poi-store-clear-filters, web-ui-poi-clear-route; contract `poi-clear-filters`), which runs first (no dependencies of its own; ours depends on the tag grammar). This epic only consumes it and lists named-maps in its README blockers because web-ui-poi-delete-marked cannot work before it. Rejected: a separate delete-by-ids op or route (duplicates op_clear), a mechanical server gate on keep-out deletion (U2: consent is a confirmation, not a gate). Serves G8, G10, U9, U10.
 
@@ -286,8 +288,8 @@ in the Retros tab and through the script. Serves G9.
 | D8 Job-end workflow check | job-end-mandatory-check |
 | D9 Retrospective store and ritual | retro-store-and-tool, retro-followup-and-feed |
 | D10 Retrospective surfaces and feed | retro-followup-and-feed, retro-api-endpoint, web-ui-retros-proxy, web-ui-retros-tab, retro-pull-script |
-| D11 Survey POIs cleared on New session | poi-store-clear-by-tag, mcp-admin-clear-by-tag, reset-clears-survey-pois |
-| D14 Keep-outs survive; POI list filter, mark, delete marked | poi-store-clear-by-tag, mcp-admin-clear-by-tag, reset-clears-survey-pois, prompt-skills-and-workflows, skills-suite-and-runbook, web-ui-poi-selection-logic, web-ui-poi-list-filter-and-m, web-ui-poi-delete-marked |
+| D11 New session deletes nothing | agent-poi-reset-config-remov, new-session-keeps-pois |
+| D14 POI list filter, mark, delete marked | prompt-skills-and-workflows, skills-suite-and-runbook, web-ui-poi-selection-logic, web-ui-poi-list-filter-and-m, web-ui-poi-delete-marked |
 | D12 Evals | eval-workflow-checks, eval-workflow-testset |
 | D13 Verification and deploy | skills-suite-and-runbook |
 
@@ -295,12 +297,11 @@ in the Retros tab and through the script. Serves G9.
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
-| `poi-category-tags` | shared-poi-category-tags | poi-store-clear-by-tag, mcp-poi-category-args, mcp-exploration-status-tool, web-ui-poi-category-chips, reset-clears-survey-pois | `shared/ros2_common/poi_categories.py` |
+| `poi-category-tags` | shared-poi-category-tags | mcp-poi-category-args, mcp-exploration-status-tool, web-ui-poi-category-chips | `shared/ros2_common/poi_categories.py` |
 | `slow-zone-mask-value` | costmap-slow-zone-cost | costmap-verify-slow-cost | `nodes/costmap_zones/costmap_zones/config.py` |
 | `exploration-coverage` | mcp-exploration-coverage | mcp-exploration-status-tool | `nodes/mcp_server/mcp_server/exploration.py` |
 | `exploration-status` | mcp-exploration-status-tool | skill-survey-and-sightseeing, workflow-templates | `nodes/mcp_server/mcp_server/perception_models.py` |
 | `poi-selection` | web-ui-poi-selection-logic | web-ui-poi-list-filter-and-m, web-ui-poi-delete-marked | `nodes/web_ui/frontend/src/poi/selection.ts` |
-| `admin-clear-tag` | mcp-admin-clear-by-tag | reset-clears-survey-pois | `nodes/mcp_server/mcp_server/tools.py` |
 | `skills-plugin` | agent-skill-plugin-loader | agent-runner-enables-skills, skill-survey-and-sightseeing, skill-helpers, workflow-templates, skill-planning, retro-store-and-tool | `nodes/claude_agent/claude_agent/skills.py` |
 | `workflow-templates` | workflow-templates | start-workflow-tool, job-end-mandatory-check | `nodes/claude_agent/claude_agent/workflows.py` |
 | `workflow-job-end-report` | job-end-mandatory-check | retro-followup-and-feed, eval-workflow-checks | `nodes/claude_agent/claude_agent/budget.py` |
@@ -346,7 +347,7 @@ External contract (not in the table, its owner is in another epic): `poi-clear-f
 
 ## Irreversible operations in scope
 
-- "New session" now also deletes agent POIs tagged `#survey` in any status (U9, approved), never keep-outs (U10). User POIs never match.
+- None added by this epic for New session: it now deletes nothing (U11). Removing the reset-time clearing is a behaviour removal, not a deletion.
 - "Delete marked" deletes the chosen POIs, keep-outs only after the extra confirmation (U10).
 - Deploys restart claude_agent and mcp_server, which ends a running agent session: the runbook checks the agent is idle
   first and asks otherwise.

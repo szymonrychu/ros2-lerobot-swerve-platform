@@ -54,7 +54,7 @@ D6, D8).
   localised: unpause toggle-safe, state `localised`; otherwise stay paused with `not_localised`/`ambiguous` and the
   reason; in every completed load `active_map` = name and `load_seq` += 1; the result `data` holds state, ratio,
   refined pose, search ratio, ambiguity and the `/pose` covariance diagonal.
-- delete: deleting the active map is allowed and clears `active_map`; an unknown name answers `ok: false`.
+- delete (U7): removes the bundle, which holds the map's POIs; deleting the active map is allowed, clears `active_map` and empties the live POI set through `PoiPort.replace([])` (a replace failure is reported in the result); deleting another map never touches the live POIs; an unknown name answers `ok: false` and changes nothing.
 - `status() -> MapStatus` and `localised() -> bool | None` (None until the first verdict; never a placeholder).
 - `tests/fakes.py` and `tests/test_manager.py` (test first) cover each bullet: save success / each missing input /
   serialize failure; load happy path call order; load with explicit pose; missing files; laser frame mismatch;
@@ -69,6 +69,7 @@ D6, D8).
 - a4: an explicit pose hint replaces the saved last pose [evidence: command: cd nodes/map_manager && uv run --frozen pytest tests/test_manager.py -q -k explicit_pose]
 - a5: a second command while busy is refused [evidence: command: cd nodes/map_manager && uv run --frozen pytest tests/test_manager.py -q -k busy]
 - a6: config defaults and unknown keys [evidence: command: cd nodes/map_manager && uv run --frozen pytest tests/test_manager.py -q -k config]
+- a7: deleting a map removes its POIs with it; deleting the active map also empties the live POI set and a non-active one leaves it alone [evidence: command: cd nodes/map_manager && uv run --frozen pytest tests/test_manager.py -q -k delete]
 
 ## Files
 

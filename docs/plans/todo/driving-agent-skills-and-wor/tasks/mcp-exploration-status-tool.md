@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "The agent knows when the surroundings are completely mapped and surveyed, and when to stop for the battery."
 files: [nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/perception_models.py, nodes/mcp_server/tests/test_exploration_tools.py, nodes/mcp_server/README.md, nodes/claude_agent/claude_agent/config.py, ansible/group_vars/client.yml]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_exploration_tools.py tests/test_frontier_tools.py -q && uv run --frozen poe lint && cd ../claude_agent && uv run --frozen pytest tests/test_config.py -q && cd ../.. && uv run pytest tests/test_claude_agent_config.py tests/test_mcp_server_config.py -q && uv run poe lint-ansible"
-depends_on: [mcp-exploration-coverage, mcp-admin-clear-by-tag, mcp-poi-category-args, shared-poi-category-tags, costmap-slow-zone-cost]
+depends_on: [mcp-exploration-coverage, mcp-poi-category-args, shared-poi-category-tags, costmap-slow-zone-cost]
 owns: [exploration-status]
 uses: [exploration-coverage, poi-category-tags]
 model: sonnet

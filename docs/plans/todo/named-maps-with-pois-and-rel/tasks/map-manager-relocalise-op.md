@@ -48,16 +48,18 @@ Relocalise the robot against the CURRENT map after an uncontrolled move (design 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map_manager/map_manager/manager.py`: `MapManager.record_pose`, `MapManager.handle` op `relocalise` (contract `relocalise-op`); `config.py:pose_ring_s`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A hand-moved robot's pose is recovered on the current map, or on failure the live POIs are emptied; named bundles are untouched.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_relocalise.py` first; run `cd nodes/map_manager && uv run --frozen pytest tests/test_relocalise.py -q`; expect failures.
+- Implement; run the verify command; expect every test passed and lint clean.
+- Commit: `feat(map_manager): relocalise op for hand-moved robots`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Reuses the D5 sequence and `relocaliser`; the scratch serialize target is under `maps_root/.relocalise` and is not listed as a map. Servo safety (CLAUDE.md): this task moves no servo.

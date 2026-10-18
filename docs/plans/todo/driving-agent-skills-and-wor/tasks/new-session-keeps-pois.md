@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: New session resets only the agent conversation and job state and never deletes POIs or maps.
 files: [nodes/claude_agent/claude_agent/runner.py, nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/poi_clear.py, nodes/claude_agent/tests/test_runner.py, nodes/claude_agent/tests/test_poi_clear.py, nodes/claude_agent/README.md]
 verify: "cd nodes/claude_agent && uv run --frozen pytest tests/test_runner.py -q && uv run --frozen pytest -q && uv run --frozen poe lint"
-depends_on: [agent-poi-reset-config-removal, retro-api-endpoint]
+depends_on: [agent-poi-reset-config-remov, retro-api-endpoint]
 owns: []
 uses: []
 model: sonnet
@@ -50,16 +50,18 @@ New session deletes nothing (U11, supersedes U9 and U10 clearing). `AgentRunner.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `runner.py:AgentRunner.reset` (no POI clear); `config.py:ClaudeAgentConfig` without `agent_poi_reset`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+New session leaves every POI and map as it was.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Rewrite the clearer tests in `tests/test_runner.py` first; run `cd nodes/claude_agent && uv run --frozen pytest tests/test_runner.py -q`; expect failures.
+- Implement the removal; run the verify command; expect all passed and lint clean.
+- Commit: `feat(claude_agent): New session no longer deletes POIs`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Deploying claude_agent kills a running agent session: the epic runbook batches the deploy. Servo safety (CLAUDE.md): this task moves no servo.

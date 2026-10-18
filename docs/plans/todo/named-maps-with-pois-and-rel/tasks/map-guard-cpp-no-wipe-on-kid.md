@@ -51,16 +51,18 @@ The enabled C++ node follows the same flow as the Python rollback (design D13, U
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `guard.hpp/.cpp`: `State::Relocalising`, `MapGuard::on_relocalise_result`; config keys `relocalise_timeout_s`, `command_topic`, `result_topic`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The enabled C++ guard asks for a relocalise first and resets only when it fails, matching the Python node.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the gtests and regenerate fixtures first (`python3 nodes/map_guard_cpp/test/gen_fixtures.py`); run `scripts/cpp-node-test.sh map_guard_cpp`; expect failures.
+- Implement; run the verify command; expect all gtests passed and lint clean.
+- Commit: `feat(map_guard_cpp): relocalise before resetting the map`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Golden fixtures are produced from the Python node; land map-guard-no-wipe-on-kidnap first. Servo safety (CLAUDE.md): this task moves no servo.

@@ -31,7 +31,7 @@ Map tab UI for named maps (design D12).
   "Overwrite <name>?" and resends with `overwrite: true`; optional note); "Maps" opens `MapsDialog`. "Save map" and
   "Reset map" keep their current behaviour.
 - `MapsDialog`: lists maps (name, saved time, POI count, invalid ones marked with their error and no Load button),
-  Load (confirmation text: the current map and POIs are replaced; an autosave is kept), Delete (confirmation), a busy
+  Load (confirmation text: the current map and POIs are replaced; an autosave is kept), Delete (confirmation that names the map and its POI count: "Delete <name> and its N POIs?", U7), a busy
   state while a request runs, the result message, and for the active map in state `not_localised`/`ambiguous` a
   "Retry at saved pose" action (load again with the saved pose).
 - `MapStatusLine` shows the active map and the localisation state ("Localised on <map>", "Not localised on <map>:
@@ -41,11 +41,14 @@ Map tab UI for named maps (design D12).
   invalid map, load and delete confirmations post the right bodies, retry posts the saved pose, status line text for
   each state and nothing before the first status.
 
+- Explicit Save (Save map as), Load and Delete buttons (U7). After an unrecoverable move (state `not_localised` with message "map discarded") the status line says "Map cleared after the robot was moved; load a saved map" and the dialog stays usable; saved maps are still listed.
+
 ## Acceptance conditions
 
 - a1: save-as, overwrite, load, delete and retry post the right requests [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map/MapsDialog.test.tsx]
 - a2: the toolbar keeps Save map and Reset map and adds Save map as and Maps [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/tabs/MapNavTab.toolbar.test.tsx]
 - a3: types and lint are clean [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm run lint]
+- a4: Delete asks with the POI count, and the status line text after a discarded map is shown with saved maps still listed [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map/MapsDialog.test.tsx -t 'delete confirmation|discarded']
 
 ## Files
 
