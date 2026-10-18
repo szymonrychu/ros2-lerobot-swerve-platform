@@ -656,7 +656,7 @@ def test_claude_agent_config_pins_poi_behaviour() -> None:
     """The robot runs the POI behaviour of design D8a/c/d by explicit config, not by code defaults."""
     pytest.importorskip("pydantic")
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
-    assert raw["agent_poi_reset"] == "keep_open"
+    assert "agent_poi_reset" not in raw
     assert raw["poi_review_followup"] is True
     assert raw["poi_hint_radius_m"] == 0.5
     load_agent_config_module().ClaudeAgentConfig.model_validate(raw)
