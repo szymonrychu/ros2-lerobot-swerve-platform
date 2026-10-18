@@ -26,6 +26,10 @@ tabs:
     local_plan_topic: /optimal_trajectory
     footprint_topic: /local_costmap/published_footprint
     local_costmap_topic: /local_costmap/costmap
+    # "3D obstacles" layer, subscribed only while a browser shows it: the ToF obstacle cloud (PointCloud2, ground
+    # removed by the tof pipeline) and the lidar points (LaserScan, robot body removed), drawn together.
+    obstacle_cloud_topic: /tof/points_filtered
+    scan_points_topic: /scan_filtered
     goal_topic: /goal_pose
     map_frame: map
     base_frame: base_link

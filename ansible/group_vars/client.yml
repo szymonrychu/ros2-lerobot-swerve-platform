@@ -1718,6 +1718,10 @@ ros2_nodes:
           map_save_path: /var/lib/ros2/maps/slam_map
           # Merged 3D view: local costmap, swerve base and the interactive arm (client-local topics).
           local_costmap_topic: /local_costmap/costmap
+          # 3D obstacles layer (on demand): ToF obstacle cloud (sensor_msgs/PointCloud2) and lidar points
+          # (sensor_msgs/LaserScan) shown together, each with its sensor frame pose in map from TF.
+          obstacle_cloud_topic: /tof/points_filtered
+          scan_points_topic: /scan_filtered
           base_urdf: robot.urdf
           base_joint_states_topic: /swerve_drive/joint_states
           arm_urdf: so101_arm.urdf

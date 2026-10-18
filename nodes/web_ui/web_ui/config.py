@@ -77,6 +77,8 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "navigate_action": "/navigate_to_pose",
     "footprint_topic": "/local_costmap/published_footprint",
     "local_costmap_topic": "/local_costmap/costmap",
+    "obstacle_cloud_topic": "/tof/points_filtered",
+    "scan_points_topic": "/scan_filtered",
     "gps_fix_topic": "/client/gps/fix",
     "tile_url": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
     "tile_subdomains": "abcd",
@@ -169,6 +171,8 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("goal_topic", "goal"),
     ("footprint_topic", "footprint"),
     ("local_costmap_topic", "costmap"),
+    ("obstacle_cloud_topic", "cloud"),
+    ("scan_points_topic", "scan_points"),
     ("gps_fix_topic", "gps"),
     ("poi_list_topic", "poi_list"),
     ("poi_result_topic", "poi_result"),
@@ -315,6 +319,8 @@ class TabConfig(BaseModel):
     map_reset_service: str | None = None  # map_nav: slam_toolbox/srv/Reset service cleared by "Reset map"
     navigate_action: str | None = None  # map_nav: Nav2 NavigateToPose action whose goals "Stop" cancels
     local_costmap_topic: str | None = None  # map_nav: Nav2 local costmap (nav_msgs/OccupancyGrid, odom frame)
+    obstacle_cloud_topic: str | None = None  # map_nav: sensor_msgs/PointCloud2 ToF obstacle cloud (3D obstacles layer)
+    scan_points_topic: str | None = None  # map_nav: sensor_msgs/LaserScan lidar points shown with the obstacle cloud
     gps_fix_topic: str | None = None  # map_nav: sensor_msgs/NavSatFix of the rover
     poi_list_topic: str | None = None  # map_nav: std_msgs/String JSON POI list (latched, from poi_store)
     poi_command_topic: str | None = None  # map_nav: std_msgs/String JSON POI add/update/delete commands
@@ -679,7 +685,7 @@ class AppConfig(BaseModel):
     def topic_roles(self) -> dict[str, str]:
         """Map each map_nav topic to its bridge subscription role.
 
-        Roles are "map" and "costmap" (OccupancyGrid), "path" (Path), "goal" (PoseStamped), "footprint"
+        Roles are "map" and "costmap" (OccupancyGrid), "cloud" (PointCloud2) and "scan_points" (LaserScan), "path" (Path), "goal" (PoseStamped), "footprint"
         (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" (CompressedImage), "head_depth" and "head_amplitude" (Image) of head tabs and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 

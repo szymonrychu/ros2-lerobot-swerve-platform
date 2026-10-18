@@ -37,7 +37,17 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
 from ros2_common.maps import COMMAND_TOPIC, RESULT_TOPIC, STATUS_TOPIC, MapCommand, MapStatus
-from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
+from sensor_msgs.msg import (
+    BatteryState,
+    CameraInfo,
+    CompressedImage,
+    Image,
+    Imu,
+    JointState,
+    LaserScan,
+    NavSatFix,
+    PointCloud2,
+)
 from slam_toolbox.srv import Reset, SerializePoseGraph
 from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
@@ -82,7 +92,9 @@ from .msg_serializer import (
     serialize_path,
     serialize_poi_list,
     serialize_poi_photos,
+    serialize_point_cloud,
     serialize_polygon,
+    serialize_scan_points,
     stamp_to_seconds,
     transform_points_2d,
     transform_to_pose_dict,
@@ -178,6 +190,9 @@ ROBOT_POSE_STALE_S = 2.0
 # map_nav roles whose messages are re-expressed in map_frame (plans, goals, robot footprint, costmap origin);
 # every other topic passes through.
 MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint", "costmap"})
+# 3D obstacle roles: points stay in the sensor frame and gain "frame_pose", the pose of that frame in map_frame at the
+# message stamp; without that TF the message is not sent.
+POSE_FRAME_ROLES: frozenset[str] = frozenset({"cloud", "scan_points"})
 
 # Serializers take the message and return a JSON-serializable dict.
 Serializer = Callable[[Any], dict[str, Any]]
@@ -207,6 +222,9 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     # Nav2 publishes costmaps reliable + transient_local: match it so a (re)connecting UI gets the last one.
     "costmap": (OccupancyGrid, MAP_SUB_QOS, serialize_costmap),
     "gps": (NavSatFix, SENSOR_SUB_QOS, serialize_navsatfix),
+    # ToF obstacle cloud and lidar points of the 3D obstacles layer: sensor data, latest wins.
+    "cloud": (PointCloud2, SENSOR_SUB_QOS, serialize_point_cloud),
+    "scan_points": (LaserScan, SENSOR_SUB_QOS, serialize_scan_points),
     # poi_store publishes the list reliable + transient_local (latched): match it so a (re)connecting UI gets it.
     "poi_list": (String, MAP_SUB_QOS, serialize_poi_list),
     # poi_store latches the photo store summary like the list: a (re)connecting UI gets the current revision.
@@ -453,7 +471,7 @@ class BridgeNode(Node):
             if role == "map" or (role == "gps" and gps_anchor is not None):
                 self.subscribe_always_on(msg_cls, topic, callback, qos, monitored=True)
             else:
-                self.register_on_demand(topic, msg_cls, callback, qos, needs_tf=role in MAP_FRAME_ROLES)
+                self.register_on_demand(topic, msg_cls, callback, qos, needs_tf=role in MAP_FRAME_ROLES | POSE_FRAME_ROLES)
 
         if robot_pose_frames is not None:
             self._tf_buffer = Buffer()
@@ -730,7 +748,7 @@ class BridgeNode(Node):
         """
         try:
             payload = serializer(msg)
-            data = self.to_map_frame(payload, role)
+            data = self.attach_frame_pose(payload) if role in POSE_FRAME_ROLES else self.to_map_frame(payload, role)
         except Exception as exc:
             log.warning("serialize_error", topic=topic, error=str(exc))
             return None
@@ -1117,6 +1135,30 @@ class BridgeNode(Node):
             self._cleared.discard(topic)
             if topic in self._topic_last_rx:  # health-checked topics only (not a late message of a dropped one)
                 self._topic_last_rx[topic] = time.monotonic()
+
+    def attach_frame_pose(self, data: dict[str, Any]) -> dict[str, Any] | None:
+        """Add "frame_pose" (the pose of the payload's sensor frame in map_frame at its stamp) to a 3D obstacle payload.
+
+        Args:
+            data (dict[str, Any]): Serialized cloud / scan points with "frame" and "stamp".
+
+        Returns:
+            dict[str, Any] | None: Data with frame_pose {x, y, z, qx, qy, qz, qw}, or None when TF tracking is off
+                or the transform is unknown (nothing is sent rather than a placeholder pose).
+        """
+        if self._robot_pose_frames is None or self._tf_buffer is None:
+            return None
+        stamp_ns = int(data["stamp"] * 1e9)
+        try:
+            tf = self._tf_buffer.lookup_transform(
+                self._robot_pose_frames[0], data["frame"], Time(nanoseconds=stamp_ns) if stamp_ns > 0 else Time()
+            )
+        except TransformException:
+            return None
+        t = tf.transform.translation
+        q = tf.transform.rotation
+        pose = {"x": t.x, "y": t.y, "z": t.z, "qx": q.x, "qy": q.y, "qz": q.z, "qw": q.w}
+        return dict(data, frame_pose={k: float(v) for k, v in pose.items()})
 
     def to_map_frame(self, data: dict[str, Any], role: str | None) -> dict[str, Any] | None:
         """Re-express a serialized path/footprint ("points"), goal ("x", "y", "yaw") or costmap ("origin") in the map frame.
