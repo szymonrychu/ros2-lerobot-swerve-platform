@@ -19,15 +19,17 @@ from claude_agent_sdk import (
     HookMatcher,
     ResultMessage,
     StreamEvent,
+    SystemMessage,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
 )
 
-from .budget import PlanTracker
+from .budget import OUTCOME_FAILED, PlanTracker
 from .config import ClaudeAgentConfig, MissingTokenError, read_mcp_token
 from .digest import build_digest
 from .events import (
+    RETROSPECTIVE_RECORDED,
     STATUS_DONE,
     STATUS_ERROR,
     STATUS_INTERRUPTED,
@@ -38,6 +40,7 @@ from .events import (
     detect_auth_error,
     normalize_message,
     result_to_turn_end,
+    retrospective_event,
 )
 from .failure import EvidenceCollector
 from .mcp_health import probe_mcp_server
@@ -57,10 +60,17 @@ from .metrics import (
     USAGE_TOKEN_KINDS,
     WATCHDOG_FIRES,
 )
-from .plan_tools import PLAN_SERVER_NAME, RobotToolCaller, build_plan_server
+from .plan_tools import (
+    PLAN_SERVER_NAME,
+    RETRO_LIST_FIELDS,
+    RobotToolCaller,
+    SessionToolsProvider,
+    build_plan_server,
+)
 from .plan_tree import STATUS_PENDING, reachable_phases
 from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
+from .retrospectives import RETRO_RELPATH, WRITE_FAILED_MESSAGE, RetroPhase, Retrospective, RetroStore, feed_text
 from .retry_ledger import RETRY_LEDGER_RELPATH, RetryLedger
 from .robot_events import (
     FOLLOWUP_TEMPLATE,
@@ -105,7 +115,46 @@ JOB_END_PARK_ARGS: dict[str, Any] = {"subsystem": "all"}
 JOB_END_KEEP_ARGS: dict[str, Any] = {"subsystem": "all", "keep_position": True}
 JOB_END_FOLLOWUP_MARKER = "JOB END REFUSED:"
 # Turn-end POI review: an instruction that looked or moved but wrote no POI gets one last chance to mark the map.
+# Job-end workflow check: mandatory workflow steps skipped, dropped or never run get one extra prompt (never parks).
+WORKFLOW_CHECK_MARKER = "WORKFLOW CHECK:"
+WORKFLOW_CHECK_TEXT = (
+    f"{WORKFLOW_CHECK_MARKER} mandatory steps skipped: {{ids}}. Add them with agent.revise_plan (one extra revision "
+    "allowed now) or say in one line why they cannot apply."
+)
 POI_REVIEW_MARKER = "POI REVIEW:"
+# Retrospective (D9): after a normal end the agent is asked once to record one; every other end gets a runner record.
+RETROSPECTIVE_MARKER = "RETROSPECTIVE:"
+RETROSPECTIVE_TEXT = (
+    f"{RETROSPECTIVE_MARKER} the job has ended. Load the skill robot-skills:retrospective and record the retrospective "
+    "with agent.record_retrospective: outcome, summary, what went well, what went wrong, what could be better and "
+    "notes for the developers who fix the robot. Do not start new work or move the robot."
+)
+RETROSPECTIVE_SHORT_TEXT = (
+    f"{RETROSPECTIVE_MARKER} the job was trivial. Call agent.record_retrospective with a one-line summary plus anything "
+    "that went wrong (went_wrong; leave it out when nothing did). Do not start new work or move the robot."
+)
+TRIVIAL_COMPLEXITY = "trivial"
+RETRO_SUMMARY_DONE = "finished; the agent recorded no retrospective"
+RETRO_SUMMARY_USER_STOP = "stopped by the user"
+RETRO_SUMMARY_INTERRUPTED = "interrupted"
+RETRO_SUMMARY_TIMEOUT = "timed out"
+RETRO_SUMMARY_TURN_CAP = "stopped at the instruction turn cap after {turns} model turns"
+RETRO_SUMMARY_MAX_TURNS = "ended at the SDK turn maximum (max_turns)"
+RETRO_SUMMARY_ERROR = "ended with an error: {message}"
+RETRO_WRONG_FAILED_PHASE = "phase '{name}' failed"
+RETRO_WRONG_SKIPPED = "mandatory workflow steps skipped: {ids}"
+RETRO_WRONG_FORCED_PARK = "the runner had to park the arm itself after the JOB END REFUSED prompts"
+RETRO_WRONG_CHECK_ERROR = "job-end check failed: {reason}"
+RETRO_WRONG_PLAN_UNFINISHED = "the plan was not finished"
+# turn_end status -> outcome of a runner record (a done status is refined to partial from the facts).
+RUNNER_OUTCOMES = {
+    STATUS_DONE: "done",
+    STATUS_INTERRUPTED: "interrupted",
+    STATUS_TURN_CAP: "interrupted",
+    STATUS_MAX_TURNS: "interrupted",
+    STATUS_TIMEOUT: "timeout",
+    STATUS_ERROR: "error",
+}
 POI_WRITE_TOOLS = frozenset({"add_poi", "update_poi", "remember_object", "annotate_lookup"})
 CAMERA_TOOLS = frozenset({"get_camera_image", "get_annotated_camera_image", "get_topdown_view"})
 POI_REVIEW_TEXT = (
@@ -214,6 +263,8 @@ def build_options(
     system_prompt: str,
     post_tool_use: HookCallback | None = None,
     robot_tool_caller: RobotToolCaller | None = None,
+    session_tools: SessionToolsProvider | None = None,
+    retro_sink: Callable[[dict[str, Any]], str] | None = None,
 ) -> ClaudeAgentOptions:
     """Build the SDK options: the robot MCP tools, the in-process planning server and the five notes file tools, permissions decided by the gate.
 
@@ -225,6 +276,10 @@ def build_options(
         system_prompt (str): System prompt text.
         post_tool_use (HookCallback | None): PostToolUse hook whose context is appended to every tool result.
         robot_tool_caller (RobotToolCaller | None): Robot tool caller complete_phase reads list_pois through for its POI hint.
+        session_tools (SessionToolsProvider | None): Returns the session's tool names (None while unknown) for the
+            start_workflow perception capability line.
+        retro_sink (Callable[[dict[str, Any]], str] | None): Stores the arguments of agent.record_retrospective and
+            returns the record id (None: the tool answers that retrospectives are not enabled).
 
     Returns:
         ClaudeAgentOptions: Options whose built-in tools are exactly Read/Write/Edit/Glob/Grep (the gate confines them to
@@ -252,7 +307,7 @@ def build_options(
         setting_sources=[],
         mcp_servers={
             MCP_SERVER_NAME: {"type": "http", "url": config.mcp_url, "headers": {"Authorization": f"Bearer {token}"}},
-            PLAN_SERVER_NAME: build_plan_server(gate.plan, robot_tool_caller),
+            PLAN_SERVER_NAME: build_plan_server(gate.plan, robot_tool_caller, session_tools, retro_sink),
         },
         strict_mcp_config=True,
         env=env,
@@ -295,6 +350,7 @@ class AgentRunner:
         mcp_prober: Callable[[], Awaitable[str | None]] | None = None,
         robot_tool_caller: Callable[[str, dict[str, Any], float], Awaitable[RobotToolResult]] | None = None,
         retry_ledger_path: Path | None = None,
+        retro_store_path: Path | None = None,
     ) -> None:
         """Create the runner (the Claude session starts lazily at the first instruction).
 
@@ -316,6 +372,8 @@ class AgentRunner:
                 call_robot_tool with the configured URL and token file.
             retry_ledger_path (Path | None): File of the retry calibration ledger; defaults to
                 ``<state_dir>/calibration/retry_outcomes.jsonl``.
+            retro_store_path (Path | None): File of the retrospective store; defaults to
+                ``<state_dir>/retrospectives/retrospectives.jsonl``.
         """
         self.config = config
         self.events = events
@@ -331,6 +389,13 @@ class AgentRunner:
             self.logger,
         )
         self.ledger_close: tuple[dict[str, Any], float] | None = None
+        self.retro_store = RetroStore(
+            retro_store_path or Path(config.state_dir) / RETRO_RELPATH, config.retro_max_records, self.logger
+        )
+        self.retro_record: Retrospective | None = None
+        self.retro_sent = False
+        self.result_cost = 0.0
+        self.feed_pending = True
         RETRY_SUCCESS_THRESHOLD.set(config.retry_success_threshold)
         self.gate = EffectorGate(
             config,
@@ -380,7 +445,9 @@ class AgentRunner:
         self.poi_clearer = poi_clearer or self.default_poi_clearer
         self.mcp_prober = mcp_prober or self.default_mcp_prober
         self.robot_tool_caller = robot_tool_caller or self.default_robot_tool_caller
+        self.session_tools: set[str] | None = None
         self.job_end_followups = 0
+        self.workflow_check_sent = False
         self.poi_review_sent = False
         self.explored = False
         self.poi_writes = 0
@@ -480,12 +547,20 @@ class AgentRunner:
         """
         self.evidence.add_event(self.events.append(event_type, **fields))
 
-    def end_turn(self, **fields: Any) -> None:
-        """Emit the turn_end event of the instruction and count its status and duration.
+    def end_turn(self, retro_summary: str | None = None, **fields: Any) -> None:
+        """Close the instruction's retrospective, emit the turn_end event and count its status and duration.
+
+        When the plan came from agent.start_workflow, ``job_end.workflow`` carries {name, skipped_mandatory} (empty
+        list when none), also when there is no other job_end problem.
 
         Args:
+            retro_summary (str | None): What happened, for a runner retrospective (None: derived from the status).
             **fields: Payload of the turn_end event (must contain ``status``).
         """
+        workflow = self.plan.workflow_report()
+        if workflow is not None:
+            fields["job_end"] = {**(fields.get("job_end") or {}), "workflow": workflow}
+        self.close_retrospective(fields, retro_summary)
         self.flush_ledger_close()
         self.ledger.end_instruction(self.instruction_id)
         self.events.append("turn_end", instruction_id=self.instruction_id, **fields)
@@ -647,6 +722,26 @@ class AgentRunner:
         self.fail_turn(UNAVAILABLE_MESSAGE.format(status=new_status, error=f" ({error})" if error else ""))
         return None
 
+    def retrospectives(self, limit: int, before: float | None = None) -> list[Retrospective]:
+        """Return stored retrospectives newest first (for the API).
+
+        Args:
+            limit (int): Most records returned.
+            before (float | None): Only records created before this Unix time.
+
+        Returns:
+            list[Retrospective]: Newest first.
+        """
+        return self.retro_store.list(limit, before)
+
+    def retrospective_count(self) -> int:
+        """Return how many retrospectives are stored.
+
+        Returns:
+            int: Record count.
+        """
+        return self.retro_store.count()
+
     def usage_fields(self) -> dict[str, Any]:
         """Return the usage counters and the plan of the current (or last) instruction.
 
@@ -789,7 +884,11 @@ class AgentRunner:
         self.pending_followup = None
         self.interrupt_pending = False
         self.job_end_followups = 0
+        self.workflow_check_sent = False
         self.poi_review_sent = False
+        self.retro_sent = False
+        self.retro_record = None
+        self.result_cost = 0.0
         self.explored = False
         self.poi_writes = 0
         self.took_control = False
@@ -846,6 +945,8 @@ class AgentRunner:
                 build_system_prompt(self.config),
                 self.add_time_left,
                 self.call_robot_tool_safely,
+                lambda: self.session_tools,
+                self.record_agent_retrospective,
             )
             client = self.client_factory(options)
             try:
@@ -871,6 +972,7 @@ class AgentRunner:
         """Disconnect and forget the session client, ignoring disconnect errors."""
         client, self.client = self.client, None
         self.session_totals = {}
+        self.session_tools = None
         if client is not None:
             await self.disconnect_quietly(client)
 
@@ -978,6 +1080,7 @@ class AgentRunner:
         self.last_status = turn_end["status"]
         if self.turn_capped and turn_end["status"] == STATUS_INTERRUPTED:
             turn_end["status"] = STATUS_TURN_CAP
+        retro_summary = None
         if turn_end["status"] == STATUS_ERROR:
             message = (
                 AUTH_ERROR_MESSAGE
@@ -985,9 +1088,10 @@ class AgentRunner:
                 else (result.result or "; ".join(result.errors or []) or "agent error")
             )
             self.events.append("error", message=message)
+            retro_summary = RETRO_SUMMARY_ERROR.format(message=message)
         if job_end is not None:
             turn_end["job_end"] = job_end
-        self.end_turn(**turn_end)
+        self.end_turn(retro_summary, **turn_end)
         return turn_end["status"]
 
     def fail_turn(self, message: str) -> None:
@@ -998,7 +1102,13 @@ class AgentRunner:
         """
         self.logger.error(message)
         self.events.append("error", message=message)
-        self.end_turn(status=STATUS_ERROR, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
+        self.end_turn(
+            RETRO_SUMMARY_ERROR.format(message=message),
+            status=STATUS_ERROR,
+            cost_usd=0.0,
+            num_turns=0,
+            effector_calls=self.plan.rw_used,
+        )
 
     async def run_instruction(self, text: str) -> None:
         """Run one instruction under the watchdog and publish its events.
@@ -1044,7 +1154,7 @@ class AgentRunner:
         await self.halt(STOP_SOURCE_TIMEOUT)
         await self.drop_client()
         self.events.append("error", message=message, **fields)
-        self.end_turn(status=STATUS_TIMEOUT, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
+        self.end_turn(message, status=STATUS_TIMEOUT, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
 
     async def start_session(self) -> ClientLike:
         """Create the session client within connect_timeout_s.
@@ -1083,6 +1193,8 @@ class AgentRunner:
                 if isinstance(message, StreamEvent):
                     self.note_stream_event(message)
                     continue
+                if isinstance(message, SystemMessage):
+                    self.note_session_tools(message)
                 if isinstance(message, AssistantMessage):
                     self.plan.count_turn()
                     TURNS.inc()
@@ -1113,6 +1225,7 @@ class AgentRunner:
                 if isinstance(message, ResultMessage):
                     finished = True
                     self.record_usage(message)
+                    self.result_cost = message.total_cost_usd or 0.0
                     followup = self.take_followup(message)
                     if followup is not None:
                         continue
@@ -1120,7 +1233,7 @@ class AgentRunner:
                     if self.job_end_applies(message):
                         followup, job_end = await self.run_job_end_check()
                         if followup is None and job_end is None:
-                            followup = self.take_poi_review()
+                            followup = self.take_workflow_check() or self.take_poi_review() or self.take_retrospective()
                         if followup is not None:
                             continue
                     status = self.finish_turn(message, job_end)
@@ -1131,6 +1244,17 @@ class AgentRunner:
         finally:
             self.streaming = False
         return finished, followup
+
+    def note_session_tools(self, message: SystemMessage) -> None:
+        """Record the session's tool names from the CLI's ``init`` system message (start_workflow's capability line).
+
+        Args:
+            message (SystemMessage): A system message of the response stream; only subtype ``init`` with a ``tools``
+                list is read.
+        """
+        tools = message.data.get("tools") if message.subtype == "init" else None
+        if isinstance(tools, list):
+            self.session_tools = {str(name) for name in tools}
 
     def job_end_applies(self, result: ResultMessage) -> bool:
         """Whether the job-end check runs for a result (user stop, timeout, turn cap, errors and max_turns skip it).
@@ -1145,6 +1269,25 @@ class AgentRunner:
             return False
         return result_to_turn_end(result, False, 0)["status"] == STATUS_DONE
 
+    def take_workflow_check(self) -> str | None:
+        """The one WORKFLOW CHECK prompt of an instruction, once the job-end check passed (before the POI review).
+
+        Lists the mandatory workflow steps skipped, dropped or never run and grants one extra agent.revise_plan. It
+        never counts toward job_end_max_followups and never parks the arm.
+
+        Returns:
+            str | None: The prompt, or None (no workflow, already sent, or nothing skipped).
+        """
+        if self.workflow_check_sent or self.plan.workflow is None:
+            return None
+        skipped = self.plan.skipped_mandatory()
+        if not skipped:
+            return None
+        self.workflow_check_sent = True
+        self.plan.grant_extra_revision()
+        self.logger.warning(f"workflow check: mandatory steps skipped: {', '.join(skipped)}")
+        return WORKFLOW_CHECK_TEXT.format(ids=", ".join(skipped))
+
     def take_poi_review(self) -> str | None:
         """The one POI REVIEW follow-up of an instruction, once the job-end check passed.
 
@@ -1155,6 +1298,173 @@ class AgentRunner:
             return None
         self.poi_review_sent = True
         return POI_REVIEW_TEXT
+
+    def trivial_job(self) -> bool:
+        """Whether the instruction was a trivial job (short-form retrospective).
+
+        Returns:
+            bool: True when there was no plan or its complexity was trivial, and no effector call was made.
+        """
+        return (self.plan.root is None or self.plan.complexity == TRIVIAL_COMPLEXITY) and self.plan.rw_used == 0
+
+    def take_retrospective(self) -> str | None:
+        """The one RETROSPECTIVE prompt of an instruction, last of the end-of-instruction prompts (normal end only).
+
+        Returns:
+            str | None: The short form for a trivial job, else the full form; None when retro_followup is off, it was
+            already sent, or the agent already recorded a retrospective in this instruction.
+        """
+        if not self.config.retro_followup or self.retro_sent or self.retro_record is not None:
+            return None
+        self.retro_sent = True
+        return RETROSPECTIVE_SHORT_TEXT if self.trivial_job() else RETROSPECTIVE_TEXT
+
+    def retro_facts(self, cost_usd: float | None = None, num_turns: int | None = None) -> dict[str, Any]:
+        """The facts the runner knows about the instruction, for a retrospective.
+
+        Args:
+            cost_usd (float | None): Cost as in turn_end; None or 0 falls back to the last result's cost.
+            num_turns (int | None): Turns as in turn_end; None or 0 falls back to the model turns the runner counted.
+
+        Returns:
+            dict[str, Any]: instruction, workflow, phases (name, outcome), skipped_mandatory, cost_usd, num_turns,
+            effector_calls, duration_s and trivial.
+        """
+        report = self.plan.workflow_report()
+        return {
+            "instruction": self.last_instruction or "",
+            "workflow": self.plan.workflow,
+            "phases": [RetroPhase(name=phase.name, outcome=phase.status) for phase in self.plan.phases],
+            "skipped_mandatory": report["skipped_mandatory"] if report else [],
+            "cost_usd": cost_usd or self.result_cost,
+            "num_turns": num_turns or self.plan.turns_used,
+            "effector_calls": self.plan.rw_used,
+            "duration_s": round(time.monotonic() - self.instruction_started_at, 1),
+            "trivial": self.trivial_job(),
+        }
+
+    def store_retrospective(self, record: Retrospective, replace: bool) -> Retrospective:
+        """Store a record (appended, or replacing the one with its id) and emit ``retrospective_recorded``.
+
+        Args:
+            record (Retrospective): The record.
+            replace (bool): Replace the stored record with the same id instead of appending.
+
+        Returns:
+            Retrospective: The stored record.
+
+        Raises:
+            OSError: When the store cannot be written (logged first).
+        """
+        try:
+            stored = self.retro_store.replace(record) if replace else self.retro_store.append(record)
+        except OSError as exc:
+            self.logger.warning(WRITE_FAILED_MESSAGE.format(path=self.retro_store.path, error=exc))
+            raise
+        self.events.append(RETROSPECTIVE_RECORDED, instruction_id=self.instruction_id, **retrospective_event(stored))
+        return stored
+
+    def record_agent_retrospective(self, args: dict[str, Any]) -> str:
+        """retro_sink of agent.record_retrospective: store the agent's narrative with the runner's facts.
+
+        A second call in the same instruction replaces the first record (same id and created_at).
+
+        Args:
+            args (dict[str, Any]): Validated tool arguments (outcome, summary, optional lists).
+
+        Returns:
+            str: The record id.
+
+        Raises:
+            OSError: When the store cannot be written (the tool answers with the error).
+        """
+        previous = self.retro_record
+        fields: dict[str, Any] = {
+            **self.retro_facts(),
+            "author": "agent",
+            "outcome": args["outcome"],
+            "summary": args["summary"],
+            **{name: args.get(name) or [] for name in RETRO_LIST_FIELDS},
+        }
+        if previous is not None:
+            fields.update(id=previous.id, created_at=previous.created_at)
+        self.retro_record = self.store_retrospective(Retrospective(**fields), replace=previous is not None)
+        return self.retro_record.id
+
+    def runner_retrospective(self, fields: dict[str, Any], summary: str | None, facts: dict[str, Any]) -> Retrospective:
+        """Build the runner's record of an instruction the agent wrote no retrospective for (facts only).
+
+        Args:
+            fields (dict[str, Any]): The turn_end payload (status, job_end).
+            summary (str | None): What happened (None: derived from the status).
+            facts (dict[str, Any]): retro_facts() of the instruction.
+
+        Returns:
+            Retrospective: The record (author runner).
+        """
+        status = fields["status"]
+        job_end = fields.get("job_end") or {}
+        went_wrong = [
+            RETRO_WRONG_FAILED_PHASE.format(name=p.name) for p in self.plan.phases if p.status == OUTCOME_FAILED
+        ]
+        if facts["skipped_mandatory"]:
+            went_wrong.append(RETRO_WRONG_SKIPPED.format(ids=", ".join(facts["skipped_mandatory"])))
+        if job_end.get("forced_park"):
+            went_wrong.append(RETRO_WRONG_FORCED_PARK)
+        if "check_error" in job_end:
+            went_wrong.append(RETRO_WRONG_CHECK_ERROR.format(reason=job_end["check_error"]))
+        if status == STATUS_DONE and self.plan.root is not None and not self.plan.plan_finished:
+            went_wrong.append(RETRO_WRONG_PLAN_UNFINISHED)
+        outcome = RUNNER_OUTCOMES.get(status, "error")
+        if outcome == "done" and went_wrong:
+            outcome = "partial"
+        if summary is None:
+            summary = {
+                STATUS_DONE: RETRO_SUMMARY_DONE,
+                STATUS_INTERRUPTED: RETRO_SUMMARY_USER_STOP if self.interrupted else RETRO_SUMMARY_INTERRUPTED,
+                STATUS_TURN_CAP: RETRO_SUMMARY_TURN_CAP.format(turns=self.plan.turns_used),
+                STATUS_MAX_TURNS: RETRO_SUMMARY_MAX_TURNS,
+                STATUS_TIMEOUT: RETRO_SUMMARY_TIMEOUT,
+            }.get(status, RETRO_SUMMARY_ERROR.format(message=status))
+        return Retrospective(**facts, author="runner", outcome=outcome, summary=summary, went_wrong=went_wrong)
+
+    def close_retrospective(self, fields: dict[str, Any], summary: str | None) -> None:
+        """At the turn end: refresh the agent's record with the final facts, or write a runner record (no model turn).
+
+        A failing store is logged and never breaks the turn end.
+
+        Args:
+            fields (dict[str, Any]): The turn_end payload (status, cost_usd, num_turns, job_end).
+            summary (str | None): What happened, for a runner record (None: derived from the status).
+        """
+        facts = self.retro_facts(fields.get("cost_usd"), fields.get("num_turns"))
+        try:
+            if self.retro_record is not None:
+                record = Retrospective.model_validate({**self.retro_record.model_dump(), **facts})
+                self.retro_record = self.retro_store.replace(record)
+                return
+            self.store_retrospective(self.runner_retrospective(fields, summary, facts), replace=False)
+        except OSError as exc:
+            self.logger.warning(WRITE_FAILED_MESSAGE.format(path=self.retro_store.path, error=exc))
+
+    def take_feed(self) -> str | None:
+        """The RECENT RETROSPECTIVES block for the first instruction of a session (after start or reset), once.
+
+        Returns:
+            str | None: feed_text of the newest retro_feed_count records within retro_feed_max_chars; None for the
+            second and subsequent instructions of the session, retro_feed_count 0, an empty or unreadable store.
+        """
+        if not self.feed_pending:
+            return None
+        self.feed_pending = False
+        if self.config.retro_feed_count == 0:
+            return None
+        try:
+            records = self.retro_store.recent(self.config.retro_feed_count)
+        except OSError as exc:
+            self.logger.warning(f"retrospectives: cannot read {self.retro_store.path} ({exc}); no feed")
+            return None
+        return feed_text(records, self.config.retro_feed_max_chars) or None
 
     def note_poi_activity(self, name: str, is_error: bool) -> None:
         """Track, for the POI review, camera or motion use and successful POI writes of the instruction.
@@ -1515,6 +1825,9 @@ class AgentRunner:
             prompt: str | None = text
             if self.digest is not None:
                 prompt = f"{self.digest}\n\nNew instruction:\n{text}"
+            feed = self.take_feed()
+            if feed is not None:
+                prompt = f"{feed}\n\n{prompt}"
             finished = False
             while prompt is not None and not self.interrupted:
                 self.request_sent_at = self.clock()
@@ -1577,6 +1890,7 @@ class AgentRunner:
             await self.drop_client()
             self.gate.reset()
             self.last_instruction, self.digest = None, None
+            self.feed_pending = True
             self.events.reset()
             self.session_started_at = self.last_activity_at = time.time()
             self.emit_state()
@@ -1620,9 +1934,16 @@ class AgentRunner:
         if instruction_running:
             self.logger.warning(SHUTDOWN_INTERRUPTED_MESSAGE)
             self.events.append("error", message=SHUTDOWN_INTERRUPTED_MESSAGE)
-            self.end_turn(status=STATUS_INTERRUPTED, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
+            self.end_turn(
+                SHUTDOWN_INTERRUPTED_MESSAGE,
+                status=STATUS_INTERRUPTED,
+                cost_usd=0.0,
+                num_turns=0,
+                effector_calls=self.plan.rw_used,
+            )
         self.client = None
         self.session_totals = {}
+        self.session_tools = None
         if client is not None:
             try:
                 await asyncio.wait_for(self.disconnect_quietly(client), limit)

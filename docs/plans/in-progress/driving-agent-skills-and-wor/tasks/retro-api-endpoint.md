@@ -12,8 +12,8 @@ model: sonnet
 estimate: 35
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--retro-api-endpoint
+branch: driving-agent-skills-and-wor--retro-api-endpoint
 verified_head: ""
 run: ""
 provides: []

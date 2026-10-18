@@ -1,0 +1,5 @@
+{
+  "name": "robot-skills",
+  "version": "0.1.0",
+  "description": "Read-only procedures for the driving robot agent: recovery, survey, sightseeing and planning."
+}

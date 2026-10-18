@@ -1,0 +1,60 @@
+# Discovery: explore and survey until the map is complete or a time/battery limit is hit, then report.
+# Grammar: plan_tools.PLAN_NODE_DESCRIPTION; a phase may add mandatory (flagged at job end when skipped) and skill.
+name: discovery
+title: Discovery (explore and survey)
+description: Explore the reachable surroundings, surveying every area, until the map is complete or a time or battery limit is reached, then summarise for the person.
+complexity: complex
+params:
+  - name: area
+    description: Area to explore, e.g. "the kitchen".
+    required: false
+    default: the whole reachable map
+plan:
+  type: seq
+  children:
+    - type: phase
+      id: orient
+      name: Orient
+      goal: >-
+        Read NOTES.md and the RECENT RETROSPECTIVES block, then call get_body_state, get_map_summary and
+        get_exploration_status; know the pose, the battery, the reachable frontiers and the unsurveyed areas of
+        {area}.
+      rw_cap: 0
+      turn_cap: 15
+      mandatory: true
+      skill: sightseeing
+    - type: phase
+      id: survey_start
+      name: Survey the start spot
+      goal: Survey the start spot of {area} and record it with mark_survey_spot.
+      rw_cap: 15
+      turn_cap: 20
+      mandatory: true
+      skill: survey
+    - type: while
+      id: explore
+      condition:
+        ask: >-
+          Is the exploration of {area} still not complete (get_exploration_status) and are the battery and time
+          limits still not reached?
+      max_iterations: 5
+      body:
+        type: phase
+        id: visit
+        name: Visit frontiers
+        goal: >-
+          Visit up to 3 reachable frontiers of {area} (look_toward_frontier, go_to_frontier) and survey at each
+          (mark_survey_spot).
+        rw_cap: 60
+        turn_cap: 60
+        skill: survey
+    - type: phase
+      id: summary
+      name: Summary
+      goal: >-
+        Report to the person: complete or not and why, coverage surveyed, frontiers left, POIs per category, battery
+        and time used.
+      rw_cap: 5
+      turn_cap: 10
+      mandatory: true
+      skill: sightseeing

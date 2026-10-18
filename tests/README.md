@@ -178,6 +178,10 @@ Tests of `shared/ros2_common/camera_geometry.py` and `scripts/solve_camera_mount
 
 Pure scan-to-map agreement functions of `ros2_common.scan_agreement` on a synthetic square room (ported from map_guard): endpoint filtering, TF projection, dilation, scored scans (aligned, shifted, rotated, one/three cells off), empty or missing map, too few points, points outside the map or in unknown space, rotated map origin, known cell count.
 
+### `test_shared_poi_categories.py`
+
+POI category tags in the note (`ros2_common.poi_categories`): constants, round trip `parse_tags(apply_tags(note, category_tags(...)))` for every category and every problem type, `category_tags` validation, `parse_tags` edge cases (first line only, unknown words ignored), `apply_tags` replacing the category while keeping survey tags and free text, no duplicate tags on repeat, tag line prepending, the length error, `has_tag` / `strip_tags`, and `check_category` accepting each valid kind / zone combination and rejecting each invalid one with the rule named.
+
 ### `test_shared_maps.py`
 
 Named maps contract (`ros2_common.maps`): topic constants, `validate_map_name` accept/reject, `Pose2D` finiteness, `MapCommand` per-op field rules (name required for save/load/delete and empty for relocalise, `pose` load only, `note` save only, `since` / `discard_on_fail` relocalise only, unknown op / extra keys rejected), `MapResult`, `Localisation` (states, ratio 0..1), `MapSummary` and `MapStatus` (`load_seq >= 0`), and JSON round trips.
@@ -719,6 +723,7 @@ Covers:
   `/api/reset` (409 while busy), `/ws/events` history on connect then live events, shutdown hook
 - entry point (`test_main.py`): loopback bind and port from config, the `/robot_events` subscription (volatile QoS) and its callback, no POI publisher is created (the clear goes over HTTP), ROS2 logger, API key removed from the process env, invalid config exits 1, uvicorn `timeout_graceful_shutdown` is the 3 s constant
 - clean stop (`test_runner.py`): `close()` finishes within a bound with a hung model interrupt, a hung disconnect and a background task that never ends (task cancelled, client dropped); the CLI subprocess is terminated, killed when it ignores terminate and left alone when already exited; an instruction in progress is recorded as an `error` "interrupted by service shutdown" plus one `interrupted` `turn_end`, an idle close records no `turn_end`
+- retrospective after every job and feed (`test_retro_followup.py`, per-query scripted fake client; the runner's `retro_sink` is captured from `build_plan_server` and called through the real `record_retrospective` tool): a normal end gets one `RETROSPECTIVE` prompt after `JOB END REFUSED`, `WORKFLOW CHECK` and `POI REVIEW` (full form names the `robot-skills:retrospective` skill) and stores the agent record with the facts (instruction, workflow, phases, skipped_mandatory, cost and turns refreshed to the `turn_end` values, effector calls, duration, trivial); no RETROSPECTIVE prompt when the agent already recorded one; state reset per instruction; trivial jobs (no plan or complexity trivial, zero effector calls) get the short form, a trivial plan with an effector call the full form; runner records when the agent skips the call, with the flag off, after a skipped mandatory step (partial), after a user stop, timeout, error result, session exception, `max_turns` and the turn cap (no model turn after any of them); a stop during the RETROSPECTIVE turn keeps the agent record; an unwritable store never breaks `turn_end`; `retrospective_recorded` {id, author, outcome, workflow, instruction_id} before `turn_end`; a second `record_retrospective` replaces the first (same id, two events); `RetroStore.replace`; the RECENT RETROSPECTIVES feed on the first instruction of a session only (again after a reset), sized by `retro_feed_count` / `retro_feed_max_chars`, off at 0, absent for an empty store, before the digest under `fresh_with_digest`, the `user_message` text unchanged; the store under `<state_dir>`. `make_runner` keeps the RETROSPECTIVE prompt and the feed off unless `retro_followup` / `retro_feed` ask for them
 
 - Metrics (`test_metrics.py`): `agent_busy` during and after an instruction; `agent_instructions_total{status}` and `agent_instruction_duration_seconds` for done, interrupted, error and timeout; `agent_watchdog_fires_total`; `agent_turns_total` and `agent_tool_uses_total{tool}` from a scripted stream; `agent_session_resets_total` (refused reset not counted); `agent_tokens_total{kind}` and `agent_cost_usd_total` as session-total deltas (absent usage adds nothing); `agent_seconds_since_activity` computed at scrape time; `GET /metrics` route.
 
@@ -2470,3 +2475,17 @@ Static invariants of the map_manager wiring (Ansible, playbook, docs).
 | `test_maps_dir_task_creates_parent_owned_by_node_user` | `slam_maps_dir.yml` creates `/var/lib/ros2/maps` owned by `ansible_user`. |
 | `test_playbook_deploys_map_manager_after_poi_store_with_maps_dir` | The playbook deploys map_manager after poi_store, tagged, with the maps dir task. |
 | `test_docs_mention_map_manager` | nodes/README.md, ansible/README.md and the ansible-deploy SKILL.md list the node. |
+
+### test_agent_skills.py
+
+Static invariants of the agent skills shipped in `nodes/claude_agent/claude_agent/agent_plugin`.
+
+| Test | Covers |
+|---|---|
+| `test_skills_exist` | The `recover-from-failure` skill file exists. |
+| `test_every_referenced_tool_exists` | Every backticked tool call or `agent.<tool>` in a SKILL.md is a registered mcp_server tool, a claude_agent planning tool or `Skill`. |
+| `test_tool_reference_scanner_flags_bare_unknown_tool` | The scanner picks up bare backticked tool names (no call parenthesis) and `agent.<tool>` references, not other identifiers. |
+| `test_tool_reference_scanner_flags_unknown_tool` | The scanner finds unknown tool references. |
+| `test_optional_tools_only_in_optional_section` | Head, 3D-map tools and `zoom` appear only under `## When extra perception tools exist`, which also names `look_around`. |
+| `test_split_optional_isolates_section` | The section splitter separates the optional section from the rest. |
+| `test_plugin_ships_read_only_from_root_checkout` | The repo is cloned with `become`, the service user is `claude_agent`, the plugin is under `nodes/claude_agent/` and the workdir is outside the repo. |

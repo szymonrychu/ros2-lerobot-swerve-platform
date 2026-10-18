@@ -68,6 +68,8 @@ DEFAULT_SENSOR_TOOLS = [
     "delete_photos",
     "list_frontiers",
     "plan_frontier_visit",
+    "get_exploration_status",
+    "mark_survey_spot",
     "confirm_grasp",
 ]
 # Approximate maximum horizontal reach of the SO-101 from the shoulder_lift axis, in cm: the straight-line sum of the link
@@ -106,11 +108,22 @@ DEFAULT_RETRY_SUCCESS_THRESHOLD = 0.5
 DEFAULT_MAX_AUTO_RETRIES = 6
 DEFAULT_RETRY_LEDGER_MAX_RECORDS = 5000
 MIN_RETRY_LEDGER_MAX_RECORDS = 100
+DEFAULT_RETRO_MAX_RECORDS = 500
+MIN_RETRO_MAX_RECORDS = 50
+DEFAULT_RETRO_FEED_COUNT = 5
+MAX_RETRO_FEED_COUNT = 20
+DEFAULT_RETRO_FEED_MAX_CHARS = 3000
+MIN_RETRO_FEED_MAX_CHARS = 200
 DEFAULT_JOB_END_MAX_FOLLOWUPS = 2
 DEFAULT_JOB_END_PARK_TIMEOUT_S = 60.0
 # mcp_server re-emits a bump at most every 2 s: on a rough floor one interrupt per 10 s per warning type is enough.
 DEFAULT_WARNING_INTERRUPT_DEBOUNCE_S = 10.0
 DEFAULT_INTERRUPT_WARNING_TYPES = ("bump",)
+# Workflow templates (workflows.py): one YAML file per template, the file stem is the template name.
+WORKFLOW_TEMPLATE_DIR = Path(__file__).parent / "workflow_templates"
+WORKFLOW_TEMPLATE_SUFFIX = ".yaml"
+# Default time budget (minutes) of each workflow; the discovery budget is also the sightseeing time limit.
+DEFAULT_WORKFLOW_TIME_BUDGET_MIN = {"discovery": 30.0, "drive_to_target": 10.0, "pick_place": 15.0}
 
 
 class MissingTokenError(RuntimeError):
@@ -134,6 +147,11 @@ class ClaudeAgentConfig(BaseModel):
         max_auto_retries: Most automatic phase re-entries per instruction, across all phases.
         retry_ledger_max_records: Bound of the retry calibration ledger ``<state_dir>/calibration/retry_outcomes.jsonl``;
             past it the oldest half of the records is dropped (at least 100).
+        retro_max_records: Bound of the retrospective store ``<state_dir>/retrospectives/retrospectives.jsonl``; past it
+            the oldest half is dropped (at least 50).
+        retro_feed_count: How many recent retrospectives are fed into a new instruction's prompt (0 to 20, 0 disables).
+        retro_feed_max_chars: Most characters of the fed RECENT RETROSPECTIVES block (at least 200).
+        retro_followup: Ask the agent for a retrospective with a "RETROSPECTIVE" prompt when a job ends.
         job_end_max_followups: "JOB END REFUSED" follow-ups the runner sends when an instruction would end with the arm
             out of home, a lease held or the plan unfinished; after that many the runner parks the arm itself.
         poi_review_followup: Send one "POI REVIEW" follow-up when an instruction used camera or motion tools and wrote
@@ -199,6 +217,10 @@ class ClaudeAgentConfig(BaseModel):
             starts a new session per instruction and carries a short digest of the previous one; ``keep`` changes nothing.
         autocompact_pct: Context fill percent that triggers auto-compaction under the ``compact`` policy.
         digest_max_chars: Maximum length of the digest under ``fresh_with_digest``.
+        workflow_time_budget_min: Time budget in minutes per workflow template (agent.start_workflow declares it as
+            the task's time_budget_min unless the agent passes its own). Keys are exactly the template names under
+            ``workflow_templates/``; each value is above 0 and at most max_instruction_time_min. The discovery budget
+            is the time limit of the sightseeing skill.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -212,6 +234,10 @@ class ClaudeAgentConfig(BaseModel):
     retry_success_threshold: float = Field(default=DEFAULT_RETRY_SUCCESS_THRESHOLD, ge=0, le=1)
     max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
     retry_ledger_max_records: int = Field(default=DEFAULT_RETRY_LEDGER_MAX_RECORDS, ge=MIN_RETRY_LEDGER_MAX_RECORDS)
+    retro_max_records: int = Field(default=DEFAULT_RETRO_MAX_RECORDS, ge=MIN_RETRO_MAX_RECORDS)
+    retro_feed_count: int = Field(default=DEFAULT_RETRO_FEED_COUNT, ge=0, le=MAX_RETRO_FEED_COUNT)
+    retro_feed_max_chars: int = Field(default=DEFAULT_RETRO_FEED_MAX_CHARS, ge=MIN_RETRO_FEED_MAX_CHARS)
+    retro_followup: bool = True
     job_end_max_followups: int = Field(default=DEFAULT_JOB_END_MAX_FOLLOWUPS, ge=0)
     poi_review_followup: bool = True
     job_end_park_timeout_s: float = Field(default=DEFAULT_JOB_END_PARK_TIMEOUT_S, gt=0)
@@ -258,6 +284,7 @@ class ClaudeAgentConfig(BaseModel):
     context_policy: Literal["compact", "fresh_with_digest", "keep"] = "compact"
     autocompact_pct: int = Field(default=DEFAULT_AUTOCOMPACT_PCT, ge=1, le=95)
     digest_max_chars: int = Field(default=DEFAULT_DIGEST_MAX_CHARS, ge=100)
+    workflow_time_budget_min: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_WORKFLOW_TIME_BUDGET_MIN))
 
     @property
     def max_turns(self) -> int:
@@ -288,6 +315,43 @@ class ClaudeAgentConfig(BaseModel):
                 if overlap:
                     raise ValueError(f"{sorted(overlap)} listed in both {first} and {second}")
         return self
+
+    @model_validator(mode="after")
+    def check_workflow_time_budgets(self) -> "ClaudeAgentConfig":
+        """Require one time budget per workflow template, each above 0 and at most max_instruction_time_min.
+
+        Returns:
+            ClaudeAgentConfig: The validated config.
+        """
+        names = set(workflow_template_names(WORKFLOW_TEMPLATE_DIR))
+        budgets = self.workflow_time_budget_min
+        unknown = sorted(set(budgets) - names)
+        if unknown:
+            raise ValueError(f"workflow_time_budget_min: {unknown} are not workflow templates ({sorted(names)})")
+        missing = sorted(names - set(budgets))
+        if missing:
+            raise ValueError(f"workflow_time_budget_min: no time budget for the workflow templates {missing}")
+        for name, minutes in budgets.items():
+            if not 0 < minutes <= self.max_instruction_time_min:
+                raise ValueError(
+                    f"workflow_time_budget_min.{name} must be above 0 and at most max_instruction_time_min "
+                    f"{self.max_instruction_time_min:g}, got {minutes:g}"
+                )
+        return self
+
+
+def workflow_template_names(directory: Path) -> list[str]:
+    """List the workflow template names (file stems) of a template directory.
+
+    Args:
+        directory (Path): Directory holding ``<name>.yaml`` templates.
+
+    Returns:
+        list[str]: Sorted template names; empty when the directory does not exist.
+    """
+    if not directory.is_dir():
+        return []
+    return sorted(path.stem for path in directory.glob(f"*{WORKFLOW_TEMPLATE_SUFFIX}"))
 
 
 def config_path_from_env(env: Mapping[str, str]) -> Path | None:

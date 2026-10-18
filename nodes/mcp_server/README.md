@@ -58,6 +58,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `clear_calibration_samples(camera)` | Delete the stored samples of a camera. |
 | `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
 | `list_frontiers(max_count, reachable_only)` / `plan_frontier_visit(id)` | Frontiers of the SLAM map (numbered, stable ids) with geodesic distance, bearing, observation pose, nearest POI and last facing lookup; plan one visit with a Nav2 check. Sensors, no lease. See [Frontiers](#frontiers). |
+| `get_exploration_status()` / `mark_survey_spot(note, x, y)` | Is the surrounding area mapped and surveyed, and is the battery above the survey stop limit; mark where you looked around. Sensors, no lease, no motion. See [Exploration status](#exploration-status). |
 | `go_to_frontier(id, timeout_s)` / `look_toward_frontier(id, camera)` | Effectors (base lease, battery and tilt gates): Nav2 drive to a frontier's observation pose; in-place turn plus one recorded camera image toward it (no travel). See [Frontiers](#frontiers). |
 | `remember_object` / `list_objects` / `forget_object` | Object memory in map coordinates, stored as object POIs in poi_store (merge, distance/bearing from the robot). Sensor. |
 | `look_around(captures=4, camera='front', mode=None, return_to_start=None)` | Effector, ONE motion call: in-place turn through equal headings with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). |
@@ -619,6 +620,35 @@ stage p95 values exceeds 300 ms, raise `frontiers.geodesic_downsample` (2 -> 3).
 frontiers of the latest computed version. A frontier that is `reachable: true` here can still fail the Nav2 check (the
 geodesic uses half-width clearance, Nav2 the real footprint on a lattice): `plan_frontier_visit` is the authority for
 the chosen pose; tune `pass_clearance_margin_m` if the two disagree often.
+
+## Exploration status
+
+`get_exploration_status()` and `mark_survey_spot(note="", x=None, y=None)` (in `frontier_tools.py`, both in `ALWAYS_ALLOWED_TOOLS`, no lease, no motion) tell the agent when the surroundings are completely mapped and surveyed and when to stop for the battery. Coverage maths is `exploration.py`; the survey spot tags are `ros2_common.poi_categories`.
+
+**`mark_survey_spot`** adds an agent point POI named `survey spot` at the robot pose (or at `x`, `y`, both required together) with the note `#survey #survey-spot` on the first line and your note text after it. Error without a robot pose and without `x`/`y`. Result: the poi_store answer.
+
+**`get_exploration_status`** refreshes the frontier snapshot and returns:
+
+- `frontiers[]`: the reachable frontiers (`reachable: true`) with `id`, `path_distance_m` and `looked` (a lookup already faced it, `last_lookup_facing` not null); counts `reachable_frontiers`, `unreachable_frontiers`, `unlooked_frontiers`.
+- `survey_spots[]`: open `agent` POIs whose first note line has `#survey-spot` (a `#survey` sighting alone, another creator or a done/cancelled POI does not count).
+- `coverage`: share of the reachable free cells (the robot's connected traversable region) that lie within `exploration.survey_radius_m` line of sight of a survey spot, plus the `unsurveyed_areas` (centroid, `area_m2`, largest first).
+- `battery`: `{pack_v, stop_v, limit_reached}` from the `BatteryGuard` the motion gates use; `stop_v = cells * (cutoff_cell_v + exploration.stop_margin_cell_v)`, `limit_reached` when `pack_v < stop_v`. All null plus a note without a guard or a fresh reading.
+- `complete` and `reasons[]`.
+
+**Completion rule.** `complete` is true only when the robot pose is known AND no reachable frontier is left AND no reachable area is unsurveyed. `reasons` names every unmet condition (the remaining frontier ids, the unsurveyed areas with size and place). With no `/map`, no robot pose or no poi_store the result is null (`complete`, `coverage`, `frontiers`) with a note, never a guess; the battery is still reported.
+
+`exploration:` settings (`ExplorationSettings`, all optional, defaults shown):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `survey_radius_m` | 2.5 | A survey spot counts free cells it sees within this range |
+| `rays` | 72 | Minimum rays per spot (raised to one per cell on the radius arc) |
+| `min_unsurveyed_area_m2` | 0.5 | Smaller unsurveyed pockets are ignored |
+| `downsample` | 2 | Coverage grid cell = map resolution x this |
+| `stop_margin_cell_v` | 0.3 | Survey stop voltage per cell = `battery.cutoff_cell_v` + this |
+| `max_unsurveyed_listed` | 10 | Largest unsurveyed areas listed |
+
+Tests: `tests/test_exploration_tools.py`.
 
 ## Tilt guard
 
@@ -2238,7 +2268,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `jog.py` | no | web-UI arm jog: `JogSpec`, `Jogger` (gripper-frame cartesian steps via IK, joint and gripper steps, step caps, refusals, last-request-wins coalescing), `gripper_axes` |
 | `auto_poi.py` | no | `AutoPoiMarker` (stuck events to point POIs, merge by radius), `attach_auto_poi` (monitor sink + `auto_poi_id` annotation) |
 | `frontiers.py` | no | frontier core: `MapGrid`, vectorised WFD `extract_frontiers`, `traversability`, `geodesic_from`, `observation_pose`, `FrontierTracker` (stable ids, epochs, retired successors), `facing_lookup`, `nearest_poi`, cell/map conversion |
-| `frontier_tools.py` | no | `list_frontiers`, `plan_frontier_visit`, `go_to_frontier`, `look_toward_frontier` (one `TOOL_MODULES` entry) |
+| `frontier_tools.py` | no | `list_frontiers`, `plan_frontier_visit`, `get_exploration_status`, `mark_survey_spot`, `go_to_frontier`, `look_toward_frontier` (one `TOOL_MODULES` entry) |
 | `perception_tools.py` | no | the perception, memory, look_around and POI tools (one `TOOL_MODULES` entry) |
 | `home_store.py`, `staleness.py`, `geometry.py`, `models.py` | no | home YAML, data age, pose math, result models |
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
@@ -2469,6 +2499,8 @@ frontiers:                # frontier tools (see Frontiers); all optional, defaul
   compute_path_timeout_s: 5.0    # plan_frontier_visit Nav2 check
   look_timeout_s: 20.0           # look_toward_frontier rotation timeout
   look_camera: front             # default camera (front | gripper)
+exploration: {survey_radius_m: 2.5, rays: 72, min_unsurveyed_area_m2: 0.5, downsample: 2,
+              stop_margin_cell_v: 0.3, max_unsurveyed_listed: 10}  # see Exploration status
 motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events: 40, wait_default_s: 30,
                wait_max_s: 120, poll_s: 0.05, base_still_linear_mps: 0.02, base_still_angular_rps: 0.05,
                holding_min_effort: 100.0, holding_min_gap_rad: 0.05,
@@ -2586,11 +2618,21 @@ Deploy: `./scripts/deploy-nodes.sh client mcp_server` (a `--tags mcp_server` run
 `add_poi(kind='area', zone=..., speed_limit_pct=...)` and `update_poi(id, zone=..., speed_limit_pct=...)` write the zone fields of the area POI in `poi_store`; the `costmap_zones` node turns active zones into Nav2 keepout and speed masks.
 
 - `zone='keepout'`: Nav2 does not plan or drive into the area. A robot already inside can leave. Never send a navigation goal inside one.
-- `zone='slow'` with `speed_limit_pct` (10..100): MPPI is capped to that percentage while the robot centre is inside.
+- `zone='slow'` with `speed_limit_pct` (10..100): the planner prefers routes around the area (non-lethal path cost) and MPPI is capped to that percentage while the robot centre is inside.
 - `zone='none'` (default) removes a zone. Switching to `slow` needs `speed_limit_pct` in the same `update_poi` call.
 - Active only while `status` is `open`; `done` / `cancelled` switch the zone off and keep the record.
 - Zones created by the agent are session-scoped: agent POIs are removed at the next session start.
 - Client-side checks mirror `poi_store` and raise `ValueError` before any request: zone on a point, `slow` without a percentage, percentage with a zone other than `slow`.
+
+### POI categories
+
+`add_poi` and `update_poi` take optional `category` (`target`, `slow`, `keepout`, `problem`, `detail`), `problem_type` (`window`, `mirror`, `glass`, `tight`, `overhang`, `low_obstacle`, `drop`, `cable`, `soft_floor`, `other`) and `survey` (bool, default false). They map onto the existing kind/zone/`speed_limit_pct` fields and write a tag on the first line of the note (no new schema field); the rest of the note is free text. Tag format, mapping table and parsers: [shared/README.md](../../shared/README.md) (`ros2_common.poi_categories`).
+
+- Validation (`check_category`, shared) runs on the resulting kind, zone and speed cap before any request; for `update_poi` on the stored POI's current values merged with the change. A broken rule is a tool error naming it: keepout/slow need an area with zone `keepout`/`slow` (and `speed_limit_pct` for slow, passed explicitly: no implicit zone), `problem` needs a `problem_type`, `problem_type` is refused for other categories.
+- `update_poi` with a category replaces the category tag and keeps the free text and an existing `#survey` tag. `survey=true` adds `#survey` (with or without a category).
+- `remember_object(survey=true)` writes `#target #survey` into the object's note.
+- `list_pois` views carry `category`, `problem_type` and `survey` parsed from the note (null / false when untagged).
+- Creating a keep-out is free; cancelling or deleting one needs the person's consent.
 
 ## Named maps
 

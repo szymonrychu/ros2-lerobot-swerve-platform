@@ -67,6 +67,7 @@ PLAN_TOOLS = [
     "mcp__agent__revise_plan",
     "mcp__agent__raise_phase_budget",
     "mcp__agent__answer_condition",
+    "mcp__agent__start_workflow",
 ]
 
 

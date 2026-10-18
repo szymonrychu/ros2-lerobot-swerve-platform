@@ -51,6 +51,8 @@ def test_constants() -> None:
         "mcp__agent__revise_plan",
         "mcp__agent__raise_phase_budget",
         "mcp__agent__answer_condition",
+        "mcp__agent__start_workflow",
+        "mcp__agent__record_retrospective",
     )
 
 
@@ -443,7 +445,15 @@ def test_server_is_an_in_process_sdk_server_named_agent() -> None:
     server = build_plan_server(tracker())
     assert server["type"] == "sdk" and server["name"] == "agent"
     tools = {t.name: t for t in build_plan_tools(tracker())}
-    assert set(tools) == {"set_task_plan", "complete_phase", "revise_plan", "raise_phase_budget", "answer_condition"}
+    assert set(tools) == {
+        "set_task_plan",
+        "complete_phase",
+        "revise_plan",
+        "raise_phase_budget",
+        "answer_condition",
+        "start_workflow",
+        "record_retrospective",
+    }
     schema = tools["set_task_plan"].input_schema
     assert schema["required"] == ["complexity", "rationale", "time_budget_min"]
     assert schema["properties"]["complexity"]["enum"] == list(COMPLEXITIES)

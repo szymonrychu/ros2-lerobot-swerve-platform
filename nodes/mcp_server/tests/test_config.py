@@ -576,3 +576,21 @@ def test_zoom_config_defaults_and_validation(tmp_path: Path) -> None:
         path.write_text(f"timeouts:\n  {key}: 0\n")
         with pytest.raises(ValidationError):
             load_config(path)
+
+
+def test_exploration_defaults_and_bounds() -> None:
+    e = McpServerConfig().exploration
+    assert (e.survey_radius_m, e.rays, e.min_unsurveyed_area_m2) == (2.5, 72, 0.5)
+    assert (e.downsample, e.stop_margin_cell_v, e.max_unsurveyed_listed) == (2, 0.3, 10)
+    for bad in (
+        {"survey_radius_m": 0.0},
+        {"rays": 7},
+        {"min_unsurveyed_area_m2": 0.0},
+        {"downsample": 0},
+        {"stop_margin_cell_v": 0.0},
+        {"max_unsurveyed_listed": 0},
+        {"nope": 1},
+    ):
+        with pytest.raises(ValidationError):
+            McpServerConfig.model_validate({"exploration": bad})
+    assert McpServerConfig.model_validate({"exploration": {"rays": 8, "downsample": 1}}).exploration.rays == 8
