@@ -120,3 +120,18 @@ def test_marker_info_carries_canonical_text() -> None:
         MarkerInfo(**{**info.model_dump(), "extra": 1})
     with pytest.raises(ValidationError):
         marker_info(p, pose_samples=-1)
+
+
+def test_marker_info_from_decoded_payload() -> None:
+    text = "P1.3/K:LAMP/N:L-1/S:42.5/Z:9/A:1"
+    info = marker_info(decode_payload(text), pose_samples=4)
+    assert info.payload == "P1.3/K:LAMP/N:L-1/S:42.5/A:1/Z:9"
+    assert (info.kind, info.id, info.key, info.size_mm, info.version, info.pose_samples) == (
+        "lamp",
+        "L-1",
+        "lamp/L-1",
+        42.5,
+        1,
+        4,
+    )
+    assert info.params == {"A": "1", "Z": "9"}
