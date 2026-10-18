@@ -144,7 +144,7 @@ def test_base_to_map_rotates_by_the_robot_yaw() -> None:
     assert base_to_map(POSE, 0.0, 1.0) == pytest.approx((0.0, 2.0))
 
 
-def test_ground_report_front_camera(kin: ArmKinematics) -> None:
+def test_ground_report_front_view(kin: ArmKinematics) -> None:
     cfg = camera_config()
     scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
     ex, _ = front_ground_of_center()

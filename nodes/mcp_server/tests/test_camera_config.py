@@ -47,7 +47,7 @@ def test_mount_parent_frame_is_adopted_and_must_match() -> None:
         McpServerConfig.model_validate({"cameras": {"gripper": {"parent_frame": "wrist_link", "mount": MOUNT}}})
 
 
-def test_front_camera_must_be_mounted_on_base_link() -> None:
+def test_front_view_camera_must_be_mounted_on_base_link() -> None:
     with pytest.raises(ValidationError, match="base_link"):
         McpServerConfig.model_validate({"cameras": {"front": {"mount": MOUNT}}})
     ok = McpServerConfig.model_validate({"cameras": {"front": {"mount": {**MOUNT, "parent_frame": "base_link"}}}})
