@@ -423,6 +423,18 @@
       register: node_config_result
       tags: [config]
 
+    - name: Queue a restart (node config changed)
+      ansible.builtin.lineinfile:
+        path: "{{ ros2_restart_queue }}"
+        line: "{{ node_name }}"
+        create: true
+        mode: "0644"
+      become: true
+      when:
+        - node_config_result is changed
+        - node_enabled | default(true) | bool
+      tags: [config]
+
     - name: Look for the repo files the node reads from its config directory
       ansible.builtin.stat:
         path: "{{ repo_dest }}/{{ item.src }}"
@@ -448,7 +460,7 @@
       register: node_config_files_result
       tags: [config]
 
-    - name: Queue a restart (node config changed)
+    - name: Queue a restart (node config files changed)
       ansible.builtin.lineinfile:
         path: "{{ ros2_restart_queue }}"
         line: "{{ node_name }}"
@@ -456,7 +468,7 @@
         mode: "0644"
       become: true
       when:
-        - node_config_result is changed or node_config_files_result is changed
+        - node_config_files_result is changed
         - node_enabled | default(true) | bool
       tags: [config]
 
