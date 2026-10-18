@@ -68,7 +68,6 @@ jobs:
           - rf2o_odom_relay
           - static_tf_publisher
           - steamdeck_ui/bridge
-          - stereo_depth
           - swerve_drive_controller
           - test_joint_api
           - topic_scraper_api

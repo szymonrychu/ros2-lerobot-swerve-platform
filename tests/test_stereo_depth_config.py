@@ -1,6 +1,6 @@
 """Static invariants of the stereo_depth / stereo_depth_cpp retirement (D7).
 
-The Pi's stereo pipeline never produced depth; the Jetson depthd replaces it (jetson_bridge_cpp republishes it). Both
+The Pi's stereo pipeline never produced depth; it is retired (D7) and its Python sources are deleted. Both
 ros2_nodes entries are present: false, so the next deploy of those names uninstalls their units. Their node types keep
 only what the uninstall path of roles/ros2_node_deploy/tasks/main.yml needs: no source, build or tier settings, and the
 19113 monitoring target is gone.
@@ -8,6 +8,7 @@ only what the uninstall path of roles/ros2_node_deploy/tasks/main.yml needs: no 
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -128,3 +129,12 @@ def test_tests_readme_lists_every_test_of_this_file() -> None:
     assert "### test_stereo_depth_config.py" in readme
     for name in [n for n in globals() if n.startswith("test_")]:
         assert f"`{name}`" in readme, name
+
+
+@pytest.mark.parametrize("name", ["stereo_depth"])
+def test_stereo_sources_are_deleted(name: str) -> None:
+    """The retired stereo node's sources are gone (D7); only the uninstall entry stays.
+
+    :param name: node directory name under nodes/.
+    """
+    assert not (REPO_ROOT / "nodes" / name).exists()

@@ -92,7 +92,6 @@ lint-nodes = { shell = """
   (cd nodes/map_guard && uv run --frozen poe lint)
   (cd nodes/costmap_zones && uv run --frozen poe lint)
   (cd nodes/steamdeck_ui/bridge && uv run --frozen poe lint)
-  (cd nodes/stereo_depth && uv run --frozen poe lint)
 """ }
 # C++ (ament_cmake) packages: shared/ros2_common_cpp plus nodes/*_cpp, each built and tested in docker by
 # scripts/cpp-node-test.sh (see scripts/README.md). lint-cpp runs only the ament linters.

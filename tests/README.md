@@ -434,18 +434,6 @@ The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run f
 
 The **arducam_tof** node has tests under `nodes/bridges/arducam_tof/tests/`. Run from `nodes/bridges/arducam_tof`: `uv run pytest tests -q` (the `ArducamDepthCamera` SDK and rclpy are mocked, so they run on macOS). `test_config.py` covers `TofConfig` / `load_config`: an empty file gives the defaults, every key is read, unknown keys and out-of-range values are rejected, `frame_id` is stripped, a missing file, invalid YAML or a non-mapping is a config error, and the path comes from `ARDUCAM_TOF_CONFIG`. `test_bridge.py` covers the topic and encoding contract (`/tof/depth/image_raw` 16UC1, `/tof/amplitude/image_raw` mono16, `/tof/camera_info`); depth below `confidence_threshold`, non-finite or out of range is 0 and the rest rounded millimetres; amplitude rounded and clipped to mono16, falling back to confidence when the SDK has no amplitude; the publish timer runs at `publish_rate_hz`; a good frame publishes depth, amplitude and camera_info with one header, `frame_id` and near range from config, the range in metres retried when the SDK rejects millimetres; a missing frame, a frame request error, a frame of another type or a malformed frame publishes nothing, is logged and counted (`tof_frames_dropped_total{reason}`) and the frame is released; a camera that fails to open, start or set up after start is stopped and closed as needed, logged and retried without publishing; a constructor error is an open failure; camera_info is skipped without intrinsics and the principal point defaults to the image centre; a camera without frames for the reopen delay is closed and reopened; `close` stops and closes an open camera; `run` shuts down cleanly; `main` returns 1 on a config error and runs the bridge with the loaded config.
 
-### Per-node tests (stereo_depth)
-
-The **stereo_depth** node has tests under `nodes/stereo_depth/tests/`. Run from `nodes/stereo_depth`: `uv run pytest tests -v` (rclpy, message_filters and the message packages are replaced by doubles in `tests/conftest.py`, so they run on macOS). Details per test in `nodes/stereo_depth/README.md` ("Tests").
-
-- `test_config.py` - `DepthConfig` defaults, every key, frozen model, unknown keys and invalid values rejected, file and YAML errors, `STEREO_DEPTH_CONFIG`.
-- `test_calibration.py` - the calibration files contract: written-file round trip, camera_info layout, rejection rules with the reason, CV_16SC2 maps, the change signature.
-- `test_depth.py` - disparity to mm, SGBM on synthetic shifted pairs within 2% of `f*B/d`, invalid / unmatched / out-of-range pixels 0.
-- `test_messages.py` - grey decoding per encoding, the 16UC1 depth layout, rectified camera_info, DisparityImage, stamps.
-- `test_node.py` - synchronizer and slop, no publish without calibration / on size mismatch / above the skew, the rate cap, metrics, `run()` and `main()`.
-- `test_calibrate.py` - the calibration tool: config, chessboard and ChArUco detection, the synthetic-board solve (baseline within 1%, RMS under 0.5 px), the files loading in the node loader and passing the overview_camera launch gate, the RMS gate, pair files and the capture node.
-- `test_bench.py` - the benchmark tool: config, synthetic pair, each matcher, one timed cell, the table shape and `main()`.
-
 ### Per-node tests (stereo_depth_cpp)
 
 The **stereo_depth_cpp** package (rclcpp port of stereo_depth) has gtests under `nodes/stereo_depth_cpp/test/`. Run from the repo root: `./scripts/cpp-node-test.sh stereo_depth_cpp` (docker, ros:jazzy-ros-base; also runs clang-format, cppcheck and xmllint). Golden fixtures come from the Python node: `cd nodes/stereo_depth && uv run --frozen python ../stereo_depth_cpp/test/gen_fixtures.py --check` fails when they are stale. Details per test in `nodes/stereo_depth_cpp/README.md` ("Tests").
@@ -1506,6 +1494,7 @@ Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and
 | `test_ansible_readme_documents_the_retirement` | `ansible/README.md` "Cut-over and rollback" names D7 and `present: false`, has no 19113 and no stereo row in the tier or memory tables. |
 | `test_tests_readme_metrics_wiring_rows_have_no_stereo_node` | The `test_config_metrics_port` and `src_shared` rows of this README name no stereo node and no 19113. |
 | `test_tests_readme_lists_every_test_of_this_file` | This README has a row for every test of this file. |
+| `test_stereo_sources_are_deleted` | `nodes/stereo_depth` does not exist (parametrized per retired node directory); only the uninstall entry remains. |
 
 ### test_arducam_tof_config.py
 

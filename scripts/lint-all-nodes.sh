@@ -4,7 +4,7 @@
 # Or: uv run poe lint-nodes
 set -euo pipefail
 cd "$(dirname "$0")/.."
-for dir in nodes/master2master nodes/leader_bridge nodes/bridges/arducam_tof nodes/bridges/uvc_camera nodes/bridges/feetech_servos nodes/bridges/gps_rtk nodes/bridges/bno055_imu nodes/lerobot_teleop nodes/filter_node nodes/test_joint_api nodes/haptic_controller nodes/topic_scraper_api nodes/swerve_drive_controller nodes/web_ui nodes/claude_agent nodes/mcp_server nodes/poi_store nodes/static_tf_publisher nodes/laser_filter nodes/rf2o_odom_relay nodes/map_guard nodes/costmap_zones nodes/steamdeck_ui/bridge nodes/stereo_depth; do
+for dir in nodes/master2master nodes/leader_bridge nodes/bridges/arducam_tof nodes/bridges/uvc_camera nodes/bridges/feetech_servos nodes/bridges/gps_rtk nodes/bridges/bno055_imu nodes/lerobot_teleop nodes/filter_node nodes/test_joint_api nodes/haptic_controller nodes/topic_scraper_api nodes/swerve_drive_controller nodes/web_ui nodes/claude_agent nodes/mcp_server nodes/poi_store nodes/static_tf_publisher nodes/laser_filter nodes/rf2o_odom_relay nodes/map_guard nodes/costmap_zones nodes/steamdeck_ui/bridge; do
   echo "Linting $dir ..."
   (cd "$dir" && uv run --frozen poe lint)
 done
