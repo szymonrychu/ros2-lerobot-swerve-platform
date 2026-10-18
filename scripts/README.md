@@ -358,3 +358,9 @@ Printing:
 
 - PDF: print at 100 % (actual size, no fit to page) on the media in the config; the page carries a 100 mm ruler to check the scale with calipers. Mount on a rigid plate and keep the white quiet zone.
 - STL: load both STLs together (base and modules) or the 3MF, which holds the two parts as separate objects. In Bambu Studio assign white filament to the base and black to the modules (3MF extruders 1 and 2); the modules are raised by `relief_mm`.
+
+## head_rgbd_calibration/ (frames and config)
+
+Head RGB-D calibration tool, configured by `scripts/head_rgbd_calibrate.yaml` (pydantic `CalibrationConfig` in `head_rgbd_calibration/config.py`: `capture`, `board`, `selection`, `limits`, `outputs`, `validation`; unknown keys are rejected and `capture.topics` must include the mapping image topic so the focus lock engages). `board` must equal the `charuco` block of `markers_generate.yaml` (a test pins this).
+
+`frames.py`: `capture_bag` records on the robot over ssh (`timeout -s INT` around `ros2 bag record -s sqlite3`), `scp -r`s the bag to `capture.local_dir/<name>` and removes the remote copy; `read_frames` decodes a bag with `rosbags`; `still_pairs` picks one RGB and ToF pair per still window (after `skip_start_s`, pair dt <= `max_pair_dt_s`); `normalise_amplitude` percentile-stretches ToF amplitude to uint8 (None for an empty frame).

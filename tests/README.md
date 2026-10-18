@@ -2619,3 +2619,17 @@ Static checks of the `tof_obstacle_cloud` deployment (config-only rtabmap_util p
 | `test_ros2_nodes_entry_present_enabled_after_arducam_tof` | The `ros2_nodes` entry is present, enabled and right after arducam_tof. |
 | `test_node_is_not_on_the_server` | Not in server.yml. |
 | `test_readme_documents_topics_and_placeholder_rule` | README names the topic, frame, rationale and empty-cloud rule. |
+### `test_head_rgbd_calib_frames.py`
+
+Tests for `scripts/head_rgbd_calibration` (config, capture commands, bag reading, still-pair selection). Synthetic bags are written with the `rosbags` writer.
+
+| `test_defaults_load_from_shipped_yaml` | Shipped `scripts/head_rgbd_calibrate.yaml` loads with the documented defaults. |
+| `test_unknown_key_rejected_naming_it` | An unknown key fails validation and the message names it. |
+| `test_topics_without_mapping_image_rejected` | `topics` and `validation_topics` without the mapping image topic are rejected. |
+| `test_duration_range_enforced` | `duration_s` outside 10..600 is rejected. |
+| `test_board_matches_marker_generator_charuco` | `board` equals the `charuco` spec of `markers_generate.yaml`. |
+| `test_capture_commands_contents`, `test_capture_commands_custom_topics` | ssh target, duration, storage, topics, scp destination and remote `rm -rf`. |
+| `test_capture_bag_runs_steps_in_order`, `test_capture_bag_names_failed_step` | Fake runner: record, copy, remove order; a failed step is named in the error. |
+| `test_normalise_amplitude_*` | 1st/99th percentiles map to 0/255; an empty frame returns None. |
+| `test_read_frames_decodes_everything` | Decoded RGB, amplitude, depth, stamps and camera infos. |
+| `test_still_pairs_two_windows`, `test_still_pairs_ignores_skip_start`, `test_still_pairs_none_when_always_moving` | Two still windows give two pairs with dt <= 50 ms; the first `skip_start_s` is ignored; constant motion gives none. |
