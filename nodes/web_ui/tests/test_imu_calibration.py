@@ -51,9 +51,7 @@ def make_client(tmp_path: Path, bridge: Any, calibration: bool = True) -> TestCl
     from web_ui.server import build_app
 
     config = AppConfig(
-        calibration=CalibrationConfig(imu_service_timeout_s=0.05, imu_stale_s=3.0)
-        if calibration
-        else None
+        calibration=CalibrationConfig(imu_service_timeout_s=0.05, imu_stale_s=3.0) if calibration else None
     )
     return TestClient(build_app(config=config, urdf_dir=tmp_path, static_dir=tmp_path / "none", bridge_node=bridge))
 
