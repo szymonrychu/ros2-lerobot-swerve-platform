@@ -12,7 +12,7 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--mcp-camera-image-zoom-param
+worktree: ""
 branch: front-camera-30-fps-stream-w--mcp-camera-image-zoom-param
 verified_head: not obtained
 run: front-camera-30-fps-stream-w

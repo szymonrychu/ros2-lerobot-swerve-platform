@@ -12,7 +12,7 @@ model: sonnet
 estimate: 40
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--deploy-head-camera-playbook
+worktree: ""
 branch: front-camera-30-fps-stream-w--deploy-head-camera-playbook
 verified_head: f35b0329aa53e2e95cd1084337acdae68dc6db20
 run: front-camera-30-fps-stream-w

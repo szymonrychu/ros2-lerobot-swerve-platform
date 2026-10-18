@@ -12,7 +12,7 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--retire-pi-cameras
+worktree: ""
 branch: front-camera-30-fps-stream-w--retire-pi-cameras
 verified_head: bc5971eeb9721d796fc215a3e00637d6ddd778ec
 run: front-camera-30-fps-stream-w

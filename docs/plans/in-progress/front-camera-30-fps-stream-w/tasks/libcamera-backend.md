@@ -12,7 +12,7 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--libcamera-backend
+worktree: ""
 branch: front-camera-30-fps-stream-w--libcamera-backend
 verified_head: f107bf718a0859e10f39b2c205b5e13d2b0cfb38
 run: front-camera-30-fps-stream-w
