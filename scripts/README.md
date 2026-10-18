@@ -142,7 +142,7 @@ python scripts/topic_scraper_collect.py \
 
 ## swerve_diag.sh
 
-Read-only health check of the swerve drive on the client: service states (`lerobot_follower` hosts the swerve servos, `swerve_controller`), rates of `/swerve_drive/joint_states`, `/swerve_drive/joint_commands`, `/odom`, `/cmd_vel`, one joint-state / odom sample, and recent warnings from both services.
+Read-only health check of the swerve drive on the client: service states (`base_servos` hosts the swerve servos on the second adapter, `swerve_controller`), rates of `/swerve_drive/joint_states`, `/swerve_drive/joint_commands`, `/odom`, `/cmd_vel`, one joint-state / odom sample, and recent warnings from both services.
 
 ```bash
 ./scripts/swerve_diag.sh

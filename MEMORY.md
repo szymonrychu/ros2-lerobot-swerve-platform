@@ -92,10 +92,16 @@
 * **rplidar_a1** node: Client-only. Uses [rplidar_ros](https://github.com/Slamtec/rplidar_ros) (Slamtec, BSD-2-Clause) via `ros-jazzy-rplidar-ros`. Publishes `sensor_msgs/LaserScan` on `/scan`. Device: `/dev/ttyUSB0` (or `/dev/serial/by-id/...`); container `--device=/dev/ttyUSB0:/dev/ttyUSB0`. Headless launch in `nodes/bridges/rplidar_a1/launch/rplidar_a1.launch.py` (no RViz). Env `RPLIDAR_SERIAL_PORT` overrides default port.
 * **realsense_d435i** node: Client-only. Uses [realsense-ros](https://github.com/realsenseai/realsense-ros) (Intel RealSense, Apache 2.0) via `ros-jazzy-realsense2-camera`. Publishes color, depth, point cloud, IMU (D435i). Launch enables accel/gyro and `unite_imu_method:=linear_interpolation` so unified `sensor_msgs/Imu` is on `/camera/imu` for robot_localization. Container runs with `--privileged` for USB 3.0 access.
 
+## Servo bus split (arm alone, base on a second adapter)
+
+* **Decision D4**: arm bus (`lerobot_follower`, IDs 1-6) stays at 100 Hz; base bus (`base_servos`, IDs 32-39) runs 50 Hz, equal to swerve_controller's loop. At 100 Hz the base would not fit while driving.
+* **Decision D5**: bus budget test (`nodes/bridges/feetech_servos/tests/test_bus_budget.py`) is anchored on the measured shared-bus 95.7 Hz (10.45 ms cycle, 4.28 ms fake wire time): non-bus remainder 6.17 ms kept fixed. Projections: shared 14 servos 95.7 Hz idle / 66 Hz driving; arm only about 108 Hz capacity; arm + 2-servo head about 104 Hz; base + head about 69 Hz of capacity vs the 50 Hz target. Gate on the robot: `/follower/joint_states` >= 98 Hz (was 95).
+* The head (pan/tilt) fits on either bus: base bus with 28 % headroom, or the arm bus (projected 9.61 ms < 10 ms).
+
 ## Swerve drive and Nav2 (client)
 
 * **UVC camera**: Deployed with `enabled: false` when camera is unplugged; set `enabled: true` in client.yml when camera is in use.
-* **swerve_drive_servos**: Second feetech_servos instance; namespace `swerve_drive`, 8 joints (fl/fr/rl/rr × drive+steer), device e.g. `/dev/ttyUSB1`. Same bridge code as follower; config defines joint names and IDs.
+* **base_servos**: Second feetech_servos instance (`node_name: base_servos`, unit `ros2-base_servos`); namespace `swerve_drive`, 8 joints (fl/fr/rl/rr × drive+steer, IDs 32-39) on its own adapter by `/dev/serial/by-id`, `control_loop_hz: 50`, battery reading off (`lerobot_follower` is the only `/battery_state` publisher), critical tier, metrics 19115. Same bridge code as the arm.
 * **swerve_controller**: New node under `nodes/swerve_drive_controller`. Subscribes `/cmd_vel` (Twist), `/swerve_drive/joint_states`; publishes `/swerve_drive/joint_commands`, `/odom` (Odometry), TF odom→base_link. Forward and inverse kinematics for symmetric 4-wheel swerve (configurable half_length_m, half_width_m, wheel_radius_m). No-propulsion safeguard: zero drive when steer error exceeds `steer_error_threshold_rad`. ST3215 steering rate ~4.71 rad/s (0.222 s/60°); tune Nav2 max velocities accordingly.
 * **static_tf_publisher**: Publishes static TF from base_link to imu_link, laser_frame (configurable offsets). Config: YAML with `frames` list or shorthand frame_id: [x, y, yaw].
 * **robot_localization_ekf**: Container runs robot_localization ekf_node; fuses `/odom` (swerve) and `/imu/data` (BNO055); publishes `/odometry/filtered`. Config deployed as config.yaml (Ansible); env ROBOT_LOCALIZATION_EKF_CONFIG points to it. BNO055 assumed working for full fusion; EKF can run with odom + RealSense IMU if BNO055 unavailable.

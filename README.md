@@ -123,11 +123,11 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `ros2-master` | ros2_master | DDS daemon | — |
 | `master2master` | master2master | Proxies `/leader/joint_states` → `/filter/input_joint_updates` | — |
 | `filter_node` | filter_node | `/filter/input_joint_updates`, `/filter/web_ui_joint_commands`, `/filter/autonomy_joint_commands` (sub) → `/follower/joint_commands` (pub); `/filter/autonomy_release` (sub), `/filter/active_source` (pub). Arbitrates sources, priority autonomy > web_ui > leader; the autonomy lease is sticky (no timeout) until released | — |
-| `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm (USB serial, shared with the swerve servos) |
+| `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm alone on its own USB adapter (servos 1-6, 100 Hz) |
 | `gps_rtk_rover` | gps_rtk | `/client/gps/fix` (pub), RTCM3 from Server :5016 | LC29H-DA HAT (`/dev/ttyAMA0`) |
 | `bno055_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
 | `gripper_uvc_camera` | uvc_camera | `/camera_0/image_raw/compressed` (pub, `sensor_msgs/CompressedImage`) | USB camera |
-| `lerobot_follower` (group `swerve_drive`) | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 swerve servos (IDs 32-39) on the follower arm bus |
+| `base_servos` | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 swerve servos (IDs 32-39) on the second USB adapter, 50 Hz |
 | `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub); TF off (EKF owns odom→base_link) | — |
 | `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame | — |
 | `rf2o_laser_odometry` | rf2o_laser_odometry (source build) | `/scan_filtered` (sub), `/odom_rf2o` (pub) | — |

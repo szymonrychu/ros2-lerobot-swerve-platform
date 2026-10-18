@@ -3,7 +3,7 @@
 #
 # Data path:
 #   /cmd_vel -> swerve_controller (IK) -> /swerve_drive/joint_commands
-#     -> lerobot_follower feetech bridge (extra group swerve_drive, servos 32-39 on the arm bus)
+#     -> base_servos feetech bridge (servos 32-39 on the second USB adapter, 50 Hz)
 #     -> /swerve_drive/joint_states -> swerve_controller (FK) -> /odom + TF odom->base_link
 #
 # Usage:
@@ -46,12 +46,11 @@ ssh_cmd() {
 
 section_services() {
   echo "--- Services ($CLIENT) ---"
-  for svc in ros2-lerobot_follower ros2-swerve_controller ros2-swerve_drive_servos; do
+  for svc in ros2-base_servos ros2-swerve_controller; do
     local state
     state=$(ssh_cmd "systemctl is-active $svc 2>/dev/null") || true
     echo "  $svc: ${state:-absent}"
   done
-  echo "  (ros2-swerve_drive_servos is expected to be absent: swerve servos run inside lerobot_follower)"
 }
 
 section_topics() {

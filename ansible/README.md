@@ -176,6 +176,8 @@ ros2_nodes:
       - UVC_TOPIC=/camera_0/image_raw
 ```
 
+Servo buses (client): `lerobot_follower` drives the SO-101 arm (IDs 1-6, 100 Hz) alone on its own USB adapter; `base_servos` is the second `feetech_servos` instance (critical tier, metrics 19115) for the swerve base (IDs 32-39, namespace `swerve_drive`, 50 Hz, `node_name: base_servos`) on the other adapter. Both adapters are referenced by `/dev/serial/by-id/...`.
+
 Battery voltage wiring (client): `lerobot_follower` sets `battery_topic: /battery_state`, `battery_interval_s: 1.0`, `battery_cells: 3` and publishes the pack voltage read from the servos; the `web_ui` config has a `battery:` block (same topic and cells, `cutoff_cell_v: 2.8`, `resume_cell_v: 2.9`, `stale_s: 5.0`) that shows the voltage and rejects web UI commands below 3 x 2.8 = 8.4 V. The server's `lerobot_leader` sets `battery_interval_s: 0` (its bus is not the robot pack) and the server runs no web_ui, so it gets no `battery:` block. `tests/test_battery_config.py` pins this wiring.
 
 When you add, remove, or reconfigure ROS2 nodes, update these vars and re-run the deploy playbook.
@@ -425,7 +427,7 @@ straight through (empty when unset, nothing is derived). A unit change queues th
 
 | Tier | cpu_weight | io_weight | oom_score_adjust | Node types |
 |---|---|---|---|---|
-| critical | 1000 | 1000 | -900 | `feetech_servos` (lerobot_follower, swerve_drive_servos), `swerve_controller`, `ros2_master`, `filter_node`, `static_tf_publisher`, `bno055_imu` |
+| critical | 1000 | 1000 | -900 | `feetech_servos` (lerobot_follower, base_servos), `swerve_controller`, `ros2_master`, `filter_node`, `static_tf_publisher`, `bno055_imu` |
 | normal robot | 500 | 500 | -500 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `costmap_zones`, `uvc_camera`, `arducam_tof`, `realsense_d435i`, `test_joint_api`, `map_guard`, `map_guard_cpp` |
 | agent-facing | 300 | 300 | -200 | `mcp_server`, `claude_agent`, `web_ui`, `topic_scraper_api`, `master2master`, `haptic_controller` |
 | background | 100 | 100 | 0 | `joint_state_throttle_follower`, `joint_state_throttle_swerve`, `pi_cameras` (work the robot can lose: under contention the relay rate drops, and it is killed before any robot node) |
@@ -706,6 +708,7 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 | Node | Port | Configured by |
 |---|---|---|
 | `lerobot_follower` | 19101 | `metrics_port` |
+| `base_servos` | 19115 | `metrics_port` |
 | `filter_node` | 19102 | `metrics_port` |
 | `bno055_imu` | 19103 | `metrics_port` |
 | `gps_rtk_rover` | 19104 | `metrics_port` |

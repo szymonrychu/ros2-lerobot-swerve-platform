@@ -51,6 +51,7 @@ test_joint_api  →  REST POST  →  /filter/input_joint_updates
 |---------|-------|-----|
 | `lerobot_leader` service `inactive` | Node crashed (common: `RCLError: publisher's context is invalid` on SIGTERM) | `sudo systemctl restart ros2-lerobot_leader` on server |
 | `lerobot_follower` service `inactive` | Node failed to start (servo device not found or permission error) | `sudo systemctl restart ros2-lerobot_follower` on client |
+| Swerve/base bus problems (servo timeouts, `base_servos` down) | The base is on its own bus and adapter; it no longer stalls teleop | Run `scripts/swerve_diag.sh`; teleop (`/follower/joint_states` rate) is unaffected |
 | `/leader/joint_states` MISSING in scraper | Leader not publishing; DDS discovery not working; master2master not relaying | Check lerobot_leader logs; verify `ROS_DOMAIN_ID` matches on server and client |
 | `/filter/input_joint_updates` MISSING | master2master relay not forwarding; rule not in config | Check master2master logs for startup rule list; verify relay config |
 | `/follower/joint_commands` MISSING | filter_node not running or not receiving input | Check filter_node logs for `stale input` warnings or startup errors |
@@ -94,4 +95,5 @@ Look for: timing skew (`received_at_ns` / `header_stamp_ns`), command stability 
 - **lerobot_leader**: `ros2-lerobot_leader.service` on `server.ros2.lan`; topic `/leader/joint_states` (JointState)
 - **master2master**: `ros2-master2master.service` on `client.ros2.lan`; config `/etc/ros2/master2master/config.yaml`
 - **filter_node**: `ros2-filter_node.service` on `client.ros2.lan`; algorithm Kalman; input `/filter/input_joint_updates`, output `/follower/joint_commands`
-- **lerobot_follower**: `ros2-lerobot_follower.service` on `client.ros2.lan`; subscribes `/follower/joint_commands`
+- **lerobot_follower**: `ros2-lerobot_follower.service` on `client.ros2.lan`; subscribes `/follower/joint_commands`; drives the SO-101 arm alone on its own USB bus (the swerve base is `base_servos` on a second adapter)
+- **Expected rate**: `/follower/joint_states` >= 98 Hz (the shared-bus gate was 95 Hz). Check with Grafana `rate(servo_cycle_duration_seconds_count{host="client",node="lerobot_follower"}[5m])`, or the topic_scraper workflow with `sample_seq` deltas over a known interval.
