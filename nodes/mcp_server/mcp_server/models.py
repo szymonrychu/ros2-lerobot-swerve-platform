@@ -39,6 +39,36 @@ class SectorObstacle(BaseModel):
     bearing_rad: float | None = Field(description="Bearing of that return in base_link (0 = ahead, + = left)")
 
 
+class TofSector(BaseModel):
+    """Nearest 3D obstacle and nearest cliff (drop-off) from the head ToF depth in one 45 deg sector around base_link."""
+
+    sector: str = Field(description="front, front_left, left, rear_left, rear, rear_right, right or front_right")
+    nearest_m: float | None = Field(
+        description="Horizontal distance from base_link to the nearest obstacle point (between the floor and the "
+        "robot height, so it includes overhangs and low objects the lidar misses); null if none"
+    )
+    bearing_rad: float | None = Field(description="Bearing of that point in base_link (0 = ahead, + = left)")
+    min_z: float | None = Field(
+        description="Lowest height (m above the floor) of obstacle points within 0.1 m of nearest_m"
+    )
+    max_z: float | None = Field(
+        description="Highest height (m above the floor) of obstacle points within 0.1 m of nearest_m"
+    )
+    cliff_m: float | None = Field(
+        description="Horizontal distance from base_link to the nearest point below the floor (a drop-off or stairs "
+        "edge); null if none"
+    )
+
+
+class Obstacles3d(BaseModel):
+    """Nearby 3D obstacles and cliffs per direction, from the head ToF cloud in base_link."""
+
+    sectors: list[TofSector] = Field(description="One entry per 45 deg sector, counter-clockwise from the front")
+    cloud_age_s: float | None = Field(description="Age of the ToF cloud (s); large means the data is stale")
+    frame: str = Field(description="Frame the distances and bearings are expressed in (base_link)")
+    point_count: int = Field(description="Number of finite cloud points considered")
+
+
 class MapStats(BaseModel):
     """Size and cell counts of the SLAM occupancy grid."""
 

@@ -8,10 +8,11 @@ import numpy as np
 
 from mcp_core_cpp import camera as core_camera
 
-from .models import MapStats, SectorObstacle
+from .models import MapStats, SectorObstacle, TofSector
 
 # Eight 45 deg sectors counter-clockwise from the robot's front (base_link +x), centred on their direction.
 SECTOR_NAMES = ("front", "front_left", "left", "rear_left", "rear", "rear_right", "right", "front_right")
+TOF_HEIGHT_WINDOW_M = 0.1
 OCCUPIED_THRESHOLD = 65
 FREE_THRESHOLD = 25
 UNKNOWN_GREY = 160
@@ -59,6 +60,19 @@ def scan_points(
     return np.stack([laser_x + c * lx - s * ly, laser_y + s * lx + c * ly], axis=1)
 
 
+def sector_indices(bearing: np.ndarray) -> np.ndarray:
+    """Index into SECTOR_NAMES of each bearing.
+
+    Args:
+        bearing (np.ndarray): Bearings in base_link (rad, 0 = ahead, + = left).
+
+    Returns:
+        np.ndarray: Integer sector index per bearing.
+    """
+    width = 2 * math.pi / len(SECTOR_NAMES)
+    return np.floor(((bearing + width / 2) % (2 * math.pi)) / width).astype(int) % len(SECTOR_NAMES)
+
+
 def summarize_scan(
     ranges: Sequence[float],
     angle_min: float,
@@ -88,8 +102,7 @@ def summarize_scan(
     bx, by = points[:, 0], points[:, 1]
     dist = np.hypot(bx, by)
     bearing = np.arctan2(by, bx)
-    width = 2 * math.pi / len(SECTOR_NAMES)
-    sector_idx = np.floor(((bearing + width / 2) % (2 * math.pi)) / width).astype(int) % len(SECTOR_NAMES)
+    sector_idx = sector_indices(bearing)
     out: list[SectorObstacle] = []
     for i, name in enumerate(SECTOR_NAMES):
         mask = sector_idx == i
@@ -98,6 +111,56 @@ def summarize_scan(
             continue
         k = int(np.argmin(np.where(mask, dist, np.inf)))
         out.append(SectorObstacle(sector=name, nearest_m=round(float(dist[k]), 3), bearing_rad=float(bearing[k])))
+    return out
+
+
+def tof_obstacle_sectors(
+    points_base: np.ndarray, obstacle_band: tuple[float, float], cliff_max_z: float, max_range_m: float
+) -> list[TofSector]:
+    """Nearest 3D obstacle and nearest cliff per sector from a ToF cloud in base_link.
+
+    Args:
+        points_base (np.ndarray): Nx3 (x forward, y left, z up) points in base_link (m).
+        obstacle_band (tuple[float, float]): (min_z, max_z) heights that count as obstacles (m).
+        cliff_max_z (float): Points with z below this are cliff points (m).
+        max_range_m (float): Points farther than this horizontal distance are ignored (m).
+
+    Returns:
+        list[TofSector]: One entry per SECTOR_NAMES item; fields are None when the sector has no such point.
+    """
+    pts = np.asarray(points_base, dtype=float).reshape(-1, 3)
+    pts = pts[np.isfinite(pts).all(axis=1)]
+    dist = np.hypot(pts[:, 0], pts[:, 1])
+    in_range = dist <= max_range_m
+    pts, dist = pts[in_range], dist[in_range]
+    z = pts[:, 2]
+    bearing = np.arctan2(pts[:, 1], pts[:, 0])
+    sector_idx = sector_indices(bearing)
+    obstacle = (z >= obstacle_band[0]) & (z <= obstacle_band[1])
+    cliff = z < cliff_max_z
+    out: list[TofSector] = []
+    for i, name in enumerate(SECTOR_NAMES):
+        in_sector = sector_idx == i
+        obs = in_sector & obstacle
+        cliff_dist = dist[in_sector & cliff]
+        cliff_m = round(float(cliff_dist.min()), 3) if cliff_dist.size else None
+        if not obs.any():
+            out.append(
+                TofSector(sector=name, nearest_m=None, bearing_rad=None, min_z=None, max_z=None, cliff_m=cliff_m)
+            )
+            continue
+        k = int(np.argmin(np.where(obs, dist, np.inf)))
+        near = obs & (dist <= dist[k] + TOF_HEIGHT_WINDOW_M)
+        out.append(
+            TofSector(
+                sector=name,
+                nearest_m=round(float(dist[k]), 3),
+                bearing_rad=float(bearing[k]),
+                min_z=round(float(z[near].min()), 3),
+                max_z=round(float(z[near].max()), 3),
+                cliff_m=cliff_m,
+            )
+        )
     return out
 
 
