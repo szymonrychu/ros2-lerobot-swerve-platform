@@ -19,4 +19,63 @@ farther than `ambiguity_distance_m` / `ambiguity_yaw_deg` scores within `ambigui
 few evaluated points it keeps the hint unchanged. `LocalisationJudge` turns live agreement samples into
 `localised` / `not_localised` / `ambiguous` (median >= `localised_ratio`, at least `min_samples`).
 
-Tests: `uv run --frozen pytest tests/ -v`; lint: `uv run --frozen poe lint`.
+## ROS node (`map_manager/node.py`, the only rclpy module)
+
+`__main__.py` loads `MapManagerConfig` (`MAP_MANAGER_CONFIG` or `/etc/ros2/map_manager/config.yaml`), exits 78
+(`EX_CONFIG`, systemd does not restart) on a missing or invalid config, starts `/metrics` (also
+`robot_node_info{node="map_manager"}`) and runs the node on a `MultiThreadedExecutor`. `cleanup_temp()` runs at start.
+
+| Topic | Type / QoS | Direction | Payload |
+|---|---|---|---|
+| `/map_manager/command` | std_msgs/String, reliable | in | `MapCommand` JSON: `save`, `load`, `delete`, `relocalise` |
+| `/map_manager/result` | std_msgs/String, reliable, volatile | out | `MapResult` (`request_id`, `ok`, `message`, `data`); a load answers after the verdict |
+| `/map_manager/status` | std_msgs/String, reliable, latched | out | `MapStatus` (maps, active map, `load_seq`, `localisation`); published at start and after every change |
+| `/map_manager/localised` | std_msgs/Bool, reliable, latched | out | not published at start; false while loading or not localised, true when localised |
+| `/poi/list` | std_msgs/String, latched | in | live POIs and revision |
+| `/poi/command`, `/poi/result` | std_msgs/String | out / in | the `replace` op, matched by `request_id` within `poi_timeout_s` |
+| `/map`, `/scan_filtered`, `/pose` | OccupancyGrid (latched), LaserScan (sensor QoS), PoseWithCovarianceStamped | in, only during an operation | |
+
+slam_toolbox service clients: `serialize_map` (`SerializePoseGraph`), `deserialize_map` (`DeserializePoseGraph`,
+`match_type` 2 = `START_AT_GIVEN_POSE`, `initial_pose` Pose2D), `pause_new_measurements` (`Pause`, a toggle) and
+`get_parameters` (`paused_new_measurements`).
+
+Idle the node holds only the command, `/poi/list` and `/poi/result` subscriptions, the publishers, the service
+clients and a 1 Hz timer calling `MapManager.record_pose()` (one TF `map <- base_link` lookup, nothing recorded when
+TF is missing or older than `max_pose_age_s`). `start_operation` creates the TF buffer and listener and the `/map`,
+`/scan_filtered` and `/pose` subscriptions, `end_operation` destroys them; the first TF, map and scan are awaited for
+`sensor_wait_s`. Without a listener there is no TF to look up, so the pose ring that feeds `relocalise` fills
+whenever an operation's listener is alive and the idle timer records nothing. Agreement samples are computed at
+`agreement_hz` from scans through TF `map <- laser` with `ros2_common.scan_agreement` against the latest `/map`.
+Every command runs on its own worker thread (service calls and waits never block the executor); the manager
+answers a second command with `busy: <op> <name>`. An unparseable command is answered `ok: false` with the reason.
+
+## Load sequence (design D5, verified slam_toolbox facts)
+
+Validate the bundle and the laser frame; autosave the current map; status `loading` (localised false); refine the
+pose hint with the candidate search; pause new measurements (toggle-safe, the parameter is read first);
+`deserialize_map` with `START_AT_GIVEN_POSE` at the refined pose; wait for the first `/pose` after the call; replace
+the POI set; collect agreement samples and judge; unpause only when localised. Why: slam_toolbox never judges the
+near-region match (0.8 m, +-0.349 rad window, no rejection), an unreadable file still answers success so the files
+are checked first and the load is confirmed by `/pose`, and the first scan after the deserialize is processed even
+while new measurements are paused. `relocalise` (kidnap, design D13) runs the same steps on the live graph
+serialized to a scratch directory; with `discard_on_fail` it empties the live POIs when the pose is not recovered.
+Named bundles are never touched by it.
+
+## Config keys (`/etc/ros2/map_manager/config.yaml`)
+
+`maps_root`, `command_topic`, `result_topic`, `status_topic`, `localised_topic`, `poi_list_topic`,
+`poi_command_topic`, `poi_result_topic`, `map_topic`, `scan_topic`, `pose_topic`, `map_frame`, `base_frame`,
+`serialize_service`, `deserialize_service`, `pause_service`, `parameters_service`, `service_timeout_s`,
+`load_timeout_s`, `poi_timeout_s`, `sensor_wait_s`, `max_pose_age_s`, `autosave_before_load`, `autosave_name`,
+`verify_window_s`, `agreement_hz`, `localised_ratio`, `min_samples`, `pose_ring_s`, `search` (the candidate search
+window and acceptance rules), `metrics_port` (default 19113). Unknown keys are rejected.
+
+## Metrics
+
+`map_manager_operations_total{op,ok}` (`op=invalid` for unparseable commands), `map_manager_localisation_ratio`
+(set only after a measured verdict of a load or relocalise), `map_manager_load_seconds` (histogram of loads) and
+`robot_node_info{node="map_manager"}`.
+
+Tests: `uv run --frozen pytest tests/ -v` (`tests/test_node.py` runs the node on stubbed rclpy from `tests/ros_stubs.py`:
+idle subscriptions, operation lifecycle, commands and results, status/localised at start, the pose timer, relocalise
+routing, POI replace, slam requests, numpy guard); lint: `uv run --frozen poe lint`.

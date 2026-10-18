@@ -42,6 +42,7 @@ class MapManagerConfig(BaseModel):
         service_timeout_s: Timeout of one slam_toolbox service call, s.
         load_timeout_s: Wait for the first /pose after deserialize, s.
         poi_timeout_s: Wait for poi_store's answer to a replace, s.
+        sensor_wait_s: How long a fresh operation waits for the first TF, map and scan, s.
         max_pose_age_s: Oldest TF map <- base_link accepted as the robot pose, s.
         autosave_before_load: Save the current map as ``autosave_name`` before a load.
         autosave_name: Name of the autosave bundle.
@@ -76,6 +77,7 @@ class MapManagerConfig(BaseModel):
     service_timeout_s: float = Field(default=15.0, gt=0.0, allow_inf_nan=False)
     load_timeout_s: float = Field(default=60.0, gt=0.0, allow_inf_nan=False)
     poi_timeout_s: float = Field(default=5.0, gt=0.0, allow_inf_nan=False)
+    sensor_wait_s: float = Field(default=3.0, gt=0.0, allow_inf_nan=False)
     max_pose_age_s: float = Field(default=1.0, gt=0.0, allow_inf_nan=False)
     autosave_before_load: bool = True
     autosave_name: Annotated[str, AfterValidator(validate_map_name)] = "autosave"
