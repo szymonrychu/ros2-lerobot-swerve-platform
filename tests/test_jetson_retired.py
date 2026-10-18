@@ -24,6 +24,7 @@ REMOVED_PATHS: list[str] = [
     "tests/test_jetson_base_role.py",
     "tests/test_jetson_depthd_role.py",
     "tests/test_jetson_bridge_config.py",
+    "nodes/jetson_bridge_cpp",
 ]
 
 ABSENT_TOKENS: list[tuple[str, str]] = [
@@ -34,6 +35,8 @@ ABSENT_TOKENS: list[tuple[str, str]] = [
     ("ansible/README.md", "jetson_depthd"),
     ("ansible/README.md", "deploy-nodes.sh jetson"),
     ("ansible/README.md", "group_vars/jetson.yml"),
+    (".github/workflows/ci.yml", "jetson_bridge_cpp"),
+    ("nodes/README.md", "jetson_bridge_cpp"),
 ]
 
 
