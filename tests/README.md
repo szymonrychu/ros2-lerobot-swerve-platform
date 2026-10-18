@@ -2316,3 +2316,20 @@ The `colcon_purge` node type key: the uninstall path removes a retired C++ node'
 | `test_uninstall_block_includes_colcon_purge_with_length_guard` | The uninstall block includes `colcon_purge.yml` with `become`, the length guard, after the config removal and before the systemd reload. |
 | `test_purge_task_file_sets_no_become` | The task file itself sets no `become`. |
 | `test_resolve_and_deploy_maps_colcon_purge_with_empty_default` | `resolve_and_deploy.yml` maps `colcon_purge` to `node_colcon_purge` with `default([])`. |
+
+### `test_markers_pdf.py`
+
+Exact-size marker PDF from `scripts/markers/pdf.py`. Each test renders page 0 with pypdfium2 at 600 dpi to a grey array and measures it, so the printed size is checked, not just the drawing calls.
+
+| Test | What it covers |
+|------|----------------|
+| `test_page_size_pt` | `page_size_pt` returns A4, A3, landscape and custom media in points (A4 = 595.28 x 841.89). |
+| `test_pdf_mediabox_equals_media` | The PDF MediaBox equals the media size (no scaling). |
+| `test_symbol_edge_measured_on_raster` | The dark bounding box of the symbol on the raster equals `size_mm` within 0.1 mm for 60, 100 and 150 mm markers. |
+| `test_quiet_zone_is_white` | The ring around the symbol is white for at least `quiet_zone_modules` modules. |
+| `test_cut_square_is_grey_outside_quiet_zone` | The thin grey cut square lies outside the quiet zone and is lighter than the dark modules. |
+| `test_ruler_measures_100_mm` | The ruler bar measures 100 mm within 0.1 mm and starts at the reported origin. |
+| `test_page_text_has_payload_and_scale_note` | Extracted page text contains the payload text, label, `Print at 100 %` and `100 mm`. |
+| `test_raster_decodes_to_payload` | zxing-cpp decodes the rendered raster to the payload text (60, 100, 150 mm). |
+| `test_oversize_marker_raises_does_not_fit` | A 200 mm marker on A4 portrait raises the does-not-fit error naming needed and available mm. |
+| `test_draw_mask_pdf_draws_cells_at_origin` | `draw_mask_pdf` draws a boolean mask as vector cells at the given origin with the right extent, gaps left white and the label as text. |
