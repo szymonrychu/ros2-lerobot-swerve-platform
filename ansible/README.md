@@ -269,16 +269,7 @@ raspi-gpio get 4
 i2cdetect -y -r 1
 ```
 
-## Jetson (vision coprocessor)
-
-The Jetson Nano computes stereo depth and runs no ROS and no Pi roles.
-
-- **Group:** `[jetson]` in the inventory (`jetson-nano ansible_host=192.168.1.32`), vars in `group_vars/jetson.yml` (`ansible_user: jetson`, Python 3.8, hostname `nano`, `192.168.1.32/24`).
-- **Kept out of the Pi plays:** `site.yml` (provision) and `playbooks/optimize.yml` target `server:client`, so `common`, `network`, `hostname` and `system_optimize` never run on it. `tests/test_jetson_ansible.py` pins this.
-- **Deploy targets:** `./scripts/deploy-nodes.sh jetson base build_deps depthd` (or `jetson --all`) runs `playbooks/deploy_nodes_jetson.yml -l jetson`; it has no `ros2_nodes` entries, only those three targets. The Pi side of the cable is `./scripts/deploy-nodes.sh client jetson_link`.
-- **WiFi kept:** the Jetson stays on WiFi (192.168.1.32) for development; only the depth stream uses the cabled link.
-
-### Time sync and NAT for the Jetson (role `jetson_link`)
+## Time sync and NAT for the Jetson (role `jetson_link`)
 
 The Pi is the Jetson's time server and its way to the internet, so the Jetson's frame timestamps share the Pi's clock.
 
@@ -287,18 +278,6 @@ The Pi is the Jetson's time server and its way to the internet, so the Jetson's 
 - **NAT (Pi only):** `net.ipv4.ip_forward = 1` in `/etc/sysctl.d/90-jetson-link-forward.conf`, and the nftables table `jetson_link` in `/etc/nftables.d/jetson-nat.nft` (included from `/etc/nftables.conf`, loaded on boot). It masquerades `10.77.0.0/30` out of the Pi's primary interface and forwards only between the link interface and the primary interface; all other forwarding is untouched.
 - **Names:** `/etc/hosts` gets `10.77.0.2 jetson.ros2.lan` on the Pi and `10.77.0.1 client.ros2.lan` on the Jetson.
 - **Idempotent:** every change task registers; chrony is restarted and the ruleset reloaded only when its file changed.
-
-### OS base of the Jetson (role `jetson_base`)
-
-`./scripts/deploy-nodes.sh jetson base` (tag `base` of `playbooks/deploy_nodes_jetson.yml`) applies, in order, the `network` role (Jetson link vars, WiFi stanza unchanged), `jetson_link` with `jetson_link_side: client`, and `jetson_base`. `jetson_base` codifies the end state of the 2026-10-14 cleanup (`docs/plans/2026-10-14-jetson-depth-offload-briefs/jetson-cleanup-log.md`).
-
-- **Masked units:** `jetson_base_masked_units` (defaults, each with its reason, copied from the log) are linked to `/dev/null` in `/etc/systemd/system`; default target `multi-user.target`.
-- **Journal:** `/etc/systemd/journald.conf.d/persistent.conf` (`Storage=persistent`, `SystemMaxUse=200M`) and `/var/log/journal`; journald restarts only when the file changed.
-- **Clocks:** `nvpmodel -q` is read and `nvpmodel -m 0` (MAXN) runs only when it differs; `/etc/systemd/system/jetson-clocks.service` (oneshot, `After=nvpmodel.service`, `jetson_clocks`) is enabled.
-- **Keep-list:** the role fails when any `jetson_base_keep_packages` (the 27 `nvidia-l4t-*`, CUDA 10.2 runtime and nvcc, `libcudnn8`, `libnvinfer8`, `libnvvpi1`) or `/usr/lib/python3/dist-packages/cv2` (OpenCV 4.8 with CUDA) is missing. The role never purges a package.
-- **ISP override:** `files/camera_overrides.isp` (Waveshare IMX219 stereo wiki, `Camera_overrides.tar.gz`; URL and sha256 in the defaults) goes to `/var/nvidia/nvcam/settings/` mode 0664; `nvargus-daemon` restarts only when it changed (fixes the pink cast).
-- **Controller:** ansible-core >= 2.19 refuses the Jetson's Python 3.8, so `deploy-nodes.sh jetson ...` runs ansible-core 2.18 through `uvx` when the installed one is newer. The Jetson's chrony 3.5 has no `ntsdumpdir`, so that line is Pi-only; check the source with `chronyc -n sources` (without `-n` the Pi shows as `client.ros2.lan`).
-- **WiFi safety:** after the network role, `/etc/netplan/00-wifi.yaml` is removed by the `network` role (`network_netplan_superseded_files`), before netplan applies and only when `01-ansible-netplan.yaml` contains the `wlan0` stanza (netplan rejects the same access point in two files).
 
 ## Network and hostname (provision)
 
@@ -346,26 +325,6 @@ A deploy no longer stops the whole stack up front. The role's `stop_for_build.ym
 
 The web_ui frontend is built on the client during deploy (`npm ci`, `npm run build`), but only when needed: `npm ci` when the hash of `package.json` + `package-lock.json` differs from `frontend/.npm-ci-stamp` (or `node_modules` is gone), `npm run build` when the git tree hash of `nodes/web_ui/frontend` differs from `frontend/.build-stamp`, after an `npm ci`, or when `dist/index.html` / `web_ui/static/index.html` is missing. The stamps are written after the step succeeded; the node restarts only when a build ran. Both steps run in a transient systemd scope (`systemd-run --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p CPUWeight={{ ros2_build_cpu_weight }} -p IOWeight=10`, 400% = all four cores since the Pi got active cooling; was 100% while it overheated) under `nice -n 19 ionice -c 3`, which keeps the running ROS nodes first in line. On 2026-10-03 a full-priority build next to Nav2, SLAM and the bridges on the then-uncooled Pi 5 overheated it until it stopped responding: lower `ros2_build_cpu_quota` again if temperatures climb.
 
-
-### Build dependencies of depthd (role `jetson_depthd`, tag `build_deps`)
-
-`./scripts/deploy-nodes.sh jetson build_deps` applies `jetson_depthd` (tags `build_deps` and `depthd`). `tasks/main.yml` imports `tasks/deps.yml` under `build_deps`.
-
-- **cmake:** the Kitware APT repository for focal (key in `/usr/share/keyrings/kitware-archive-keyring.asc`, `signed-by`) and `cmake`/`cmake-data` at `state: latest` replace the distro 3.16 with >= 3.20 (`ctest --test-dir`, libSGM); the role asserts the version. This is the only upgrade the role makes.
-- **Packages:** `libzmq3-dev`, `libzstd-dev`, `nlohmann-json3-dev`, `libyaml-cpp-dev`, `libgtest-dev`, `pkg-config` (`jetson_depthd_build_packages`).
-- **CUDA stack:** the cleanup purge removed the `cuda-toolkit-10-2` and `tensorrt` metapackages. The role installs the leaf dev packages (`cuda-compiler-10-2`, `cuda-cudart-dev-10-2`, `cuda-libraries-dev-10-2`, `libcudnn8-dev`, `libnvinfer-dev`, `libnvonnxparsers-dev`, `libnvinfer-plugin-dev`, `vpi1-dev`) from the L4T r32.6 repository (added only when missing) and points `/usr/local/cuda` at cuda-10.2 with `update-alternatives` only when it does not already resolve there. The metapackages are not reinstalled because they pull the docs and samples the cleanup removed.
-- **Never touched:** no OpenCV package is installed (OpenCV 4.8 CUDA stays) and nothing is removed.
-- **Directories:** `/var/lib/depthd` (`jetson:jetson` 0755) and `/etc/depthd` (`root` 0755). A second run reports no changes.
-### depthd on the Jetson (role `jetson_depthd`, tag `depthd`)
-
-`./scripts/deploy-nodes.sh jetson depthd` syncs, builds, configures and runs depthd. `tasks/build.yml` and `tasks/service.yml` are imported under `depthd`.
-
-- **Sources:** the Jetson is not a git-clone host (feature branches stay local). `ansible.posix.synchronize` copies `jetson/depthd` and `shared/ros2_common_cpp` from the controller checkout (`ros2_repo_root`, excluding `build/`, `.venv/`, Python caches, no `--delete`) to `/opt/depthd/src`.
-- **Build:** the synced tree is hashed (`sha256sum` of every file in byte order); `/opt/depthd/.built-<hash>` is the stamp. cmake Release, target `depthd`, `-j3` under `nice -n 10`, runs only when the stamp or `/usr/local/bin/depthd` is missing (build tree `/opt/depthd/build`), then the binary is installed to `/usr/local/bin/depthd`.
-- **Engines:** `tasks/engines.yml` asserts `jetson/models/build/<model>.onnx` exists on the controller (message: run the T17 export), copies `dav2_small_266` and `midas_small_128` (`jetson_depthd_engine_models`) to `/var/lib/depthd/models`, and runs `trtexec --fp16 --saveEngine` as `jetson` only when the ONNX sha256 differs from `<model>.onnx.sha256` there (registered as `jetson_depthd_engine_build`; a rebuilt engine restarts depthd so the mono stage loads it). Build time and throughput: `jetson/models/RESULTS.md`.
-- **Config:** `templates/depthd.yaml.j2` renders `depthd_config` (defaults/main.yml, every key of `jetson/depthd/config/depthd.yaml`; matcher `cuda_sgm`, `mono.enabled: true` with the engine and rate recorded in `jetson/models/RESULTS.md`) to `/etc/depthd/depthd.yaml`, validated on the host with `depthd --check-config` before it is written.
-- **Unit:** `depthd.service` runs as `jetson:video` after `nvargus-daemon`, `network-online` and `jetson-clocks`, `Restart=always`, `RestartSec=2`, `CPUWeight=500`, `IOWeight=500`, `Nice=-5`, `LimitMEMLOCK=infinity`; weights, no `CPUQuota` or `MemoryMax`. It restarts only when the binary, the config, the unit or a mono engine changed.
-- **Calibration tool:** `jetson/calibrate` is synced to `/opt/depthd/calibrate` and runs with the system python3 (no venv); the role imports it as the `jetson` user (under root's sudo numpy dies with SIGILL).
 
 ### Source-built ROS packages (colcon)
 

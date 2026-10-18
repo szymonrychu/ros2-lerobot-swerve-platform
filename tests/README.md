@@ -2314,19 +2314,6 @@ The `jetson_link` role (design D8): both chrony templates and the nft template r
 | `test_hosts_entries_per_side` / `test_side_is_validated` | `10.77.0.2 jetson.ros2.lan` on the Pi, `10.77.0.1 client.ros2.lan` on the Jetson; bad side fails. |
 | `test_client_play_applies_network_then_jetson_link_under_one_tag` / `test_no_other_client_task_carries_the_jetson_link_tag` | The tagged "Direct link to the Jetson" block in deploy_nodes_client.yml, and nothing else carries the tag. |
 
-## test_jetson_base_role.py
-
-The `jetson_base` role and `playbooks/deploy_nodes_jetson.yml`, read as data and pinned against the cleanup log; nothing runs ansible.
-
-| Test | Description |
-|---|---|
-| `test_masked_list_covers_every_service_the_cleanup_log_disabled_or_masked` / `test_every_masked_unit_carries_a_reason` | The masked units equal the services parsed from step 2 of the cleanup log; each has a reason. |
-| `test_masking_links_each_unit_to_dev_null_and_reloads_systemd_on_change` / `test_default_target_is_multi_user` | Masking is a `/dev/null` link plus a conditional daemon-reload; default target multi-user. |
-| `test_journald_is_persistent_with_a_200m_cap` | `Storage=persistent`, `SystemMaxUse=200M`, `/var/log/journal`, conditional restart. |
-| `test_nvpmodel_is_set_to_maxn_only_when_the_query_differs` / `test_jetson_clocks_is_an_enabled_oneshot_after_nvpmodel` | `nvpmodel -m 0` only when `-q` lacks MAXN; jetson-clocks oneshot unit after nvpmodel, enabled. |
-| `test_keep_list_names_the_accelerated_stack` / `test_keep_list_assert_fails_on_a_missing_package_or_path` / `test_role_never_removes_a_package` | Keep-list contents, the failing asserts, and no purge/remove/autoremove anywhere. |
-| `test_isp_override_is_installed_0664_and_restarts_nvargus_only_on_change` | File sha256 equals the defaults, URL and sha in the comment, mode 0664, conditional nvargus-daemon restart. |
-| `test_playbook_targets_jetson_and_tags_the_base_roles` / `test_wifi_file_is_removed_only_after_the_ansible_netplan_has_the_wlan0_stanza` / `test_test_ansible_syntax_checks_the_jetson_playbook` | Roles network, jetson_link (client), jetson_base under tag base; 00-wifi.yaml removed only after the wlan0 stanza check; poe test-ansible syntax-checks the playbook. |
 
 ## test_network_link.py
 
@@ -2355,27 +2342,3 @@ The jetson_link role (design D8): chrony, Pi NAT and hosts entries, rendered wit
 | `test_hosts_entries_per_side` / `test_side_is_validated` | `jetson.ros2.lan` on the Pi, `client.ros2.lan` on the Jetson; side assert and defaults. |
 | `test_client_play_applies_network_then_jetson_link_under_one_tag` / `test_no_other_client_task_carries_the_jetson_link_tag` | The 'Direct link to the Jetson' block is tagged `jetson_link` and applies network then jetson_link (server); nothing else carries the tag. |
 
-## test_jetson_depthd_role.py
-
-The `jetson_depthd` role, part 1 (build dependencies) and part 2 (sync, build, config, service, calibration tool); defaults, tasks and the playbook are read as data.
-
-| Test | What it pins |
-|---|---|
-| `test_build_packages_are_pinned` | The build package list (ZeroMQ, zstd, JSON, yaml-cpp, gtest, pkg-config) and `state: present`. |
-| `test_cmake_comes_from_kitware_at_least_3_20` | Kitware focal repository with a `signed-by` keyring, cmake at `state: latest`, and a cmake >= 3.20 assert. |
-| `test_nvidia_dev_packages_come_from_the_l4t_repo` | CUDA 10.2, cuDNN, TensorRT and VPI dev packages from the L4T r32.6 repositories. |
-| `test_usr_local_cuda_resolves_to_cuda_10_2` | `/usr/local/cuda` is read and re-pointed with update-alternatives only when it differs. |
-| `test_no_opencv_cuda_or_tensorrt_runtime_package_is_touched` | Forbidden packages are absent; no purge, autoremove or upgrade. |
-| `test_directories_are_created_with_owners` | `/var/lib/depthd` jetson:jetson 0755 and `/etc/depthd` root 0755. |
-| `test_main_includes_deps_under_the_build_deps_tag` | `main.yml` imports `deps.yml` under `build_deps`. |
-| `test_sources_sync_from_the_controller_checkout_without_build_dirs` | Both synchronize tasks read `ros2_repo_root`, exclude `build/`, never delete, no git clone. |
-| `test_build_runs_only_when_the_stamp_is_missing` | Tree hash, `.built-<hash>` stamp, Release build of target `depthd` with `-j3` and `nice -n 10`. |
-| `test_binary_is_installed_to_usr_local_bin_and_reports_change` | `/usr/local/bin/depthd` 0755 registered for the restart condition. |
-| `test_engine_step_copies_onnx_and_builds_fp16_only_on_sha_change` | `engines.yml`: ONNX existence assert (T17 export message), copy to `/var/lib/depthd/models`, `trtexec --fp16` gated on the ONNX sha256 and registered as `jetson_depthd_engine_build`, imported under `depthd`. |
-| `test_calibrate_tool_is_synced_and_runs_on_system_python` | `jetson/calibrate` to `/opt/depthd/calibrate`, import check with python3, no venv. |
-| `test_template_keys_equal_the_depthd_yaml_keys` | `depthd_config` has exactly the keys of `config/depthd.yaml`; `cuda_sgm`; mono on with an engine the engine step builds (under `/var/lib/depthd/models`, matching `mono.model`) and `rate_hz` in 2..4. |
-| `test_config_is_rendered_and_validated_before_restart` | Template validated with `depthd --check-config %s`, before the restart task. |
-| `test_unit_directives` | User, Group, After, Restart, weights, Nice, LimitMEMLOCK; no CPUQuota or MemoryMax. |
-| `test_service_restarts_only_on_binary_config_unit_or_engine_change` | Restart on a binary, config, unit or engine rebuild; enable/start. |
-| `test_main_imports_build_and_service_under_the_depthd_tag` | `main.yml` imports `build.yml` and `service.yml` under `depthd`. |
-| `test_playbook_applies_the_role_with_build_deps_and_depthd_tags` | The Jetson playbook applies the role after `jetson_base` with both tags. |

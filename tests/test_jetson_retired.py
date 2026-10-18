@@ -14,11 +14,20 @@ REMOVED_PATHS: list[str] = [
     "scripts/jetson_e2e_check.py",
     "scripts/jetson_e2e_check.yaml",
     "tests/test_jetson_e2e_check.py",
+    "ansible/roles/jetson_base",
+    "ansible/roles/jetson_depthd",
+    "tests/test_jetson_base_role.py",
+    "tests/test_jetson_depthd_role.py",
 ]
 
 ABSENT_TOKENS: list[tuple[str, str]] = [
     ("scripts/README.md", "jetson_e2e_check"),
     ("ansible/playbooks/optimize.yml", "jetson"),
+    ("ansible/site.yml", "jetson"),
+    ("ansible/README.md", "jetson_base"),
+    ("ansible/README.md", "jetson_depthd"),
+    ("ansible/README.md", "deploy-nodes.sh jetson"),
+    ("ansible/README.md", "group_vars/jetson.yml"),
 ]
 
 
