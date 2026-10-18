@@ -220,6 +220,8 @@ TEST(ConfigFixture, DefaultsMatchPython)
     keys.push_back(key);
   }
   std::vector<std::string> ours = mg::config_keys();
+  // localised_topic is C++-only (the hold follows map_manager; the Python guard has no such setting).
+  ours.erase(std::remove(ours.begin(), ours.end(), "localised_topic"), ours.end());
   std::sort(ours.begin(), ours.end());
   EXPECT_EQ(ours, keys);
 }

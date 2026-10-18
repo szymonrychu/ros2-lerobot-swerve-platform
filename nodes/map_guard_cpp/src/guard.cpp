@@ -167,8 +167,29 @@ void MapGuard::transition(double now, State state, const std::string & reason, c
   metrics_.set_state(state_);
 }
 
+void MapGuard::set_hold(bool held)
+{
+  if (held == held_) {
+    return;
+  }
+  held_ = held;
+  if (held) {
+    warn_("map_guard: holding while the loaded map is not localised");
+    return;
+  }
+  monitor_.reset();
+  episode_reasons_.clear();
+  evaluation_.clear();
+  state_ = State::OK;
+  metrics_.set_state(state_);
+  warn_("map_guard: loaded map localised, guard re-armed");
+}
+
 void MapGuard::tick(double now, const DisturbanceReport & report, const std::vector<Sample> & samples)
 {
+  if (held_) {
+    return;
+  }
   if (report.tilt_deg) {
     metrics_.set_tilt_deg(*report.tilt_deg);
   }

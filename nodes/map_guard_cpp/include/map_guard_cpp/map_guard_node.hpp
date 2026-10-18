@@ -36,6 +36,7 @@
 #include "slam_toolbox/srv/pause.hpp"
 #include "slam_toolbox/srv/reset.hpp"
 #include "slam_toolbox/srv/serialize_pose_graph.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/empty.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "tf2_ros/buffer.h"
@@ -111,6 +112,7 @@ private:
   void on_wheel_odom(const nav_msgs::msg::Odometry::ConstSharedPtr & msg);
   void on_lidar_odom(const nav_msgs::msg::Odometry::ConstSharedPtr & msg);
   void on_cmd(const geometry_msgs::msg::Twist::ConstSharedPtr & msg);
+  void on_localised(const std_msgs::msg::Bool::ConstSharedPtr & msg);
   void run_guard();
 
   Config config_;
@@ -120,6 +122,7 @@ private:
   Disturbances detectors_;
   std::shared_ptr<const PreparedMap> prepared_;
   std::vector<MapGuard::Sample> pending_;
+  bool held_ = false;  // not localised yet, from the localised topic; guarded by lock_
   RateLimiter agreement_limiter_;
   std::optional<PlanarStamp> lidar_pose_;
   rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization_;

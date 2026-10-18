@@ -121,6 +121,12 @@ public:
   // Advance the state machine at now (monotonic s) with the detector report and the new agreement samples.
   void tick(double now, const DisturbanceReport & report, const std::vector<Sample> & samples);
 
+  // The localisation verdict of map_manager (design D9). While held the tick does nothing: no state change, pause,
+  // serialize, reset, reset publish or event. On held -> released the mismatch monitor is reset (re-armed only once
+  // the new map is healthy) and the state returns to OK. Never called: the guard behaves as without it.
+  void set_hold(bool held);
+  bool held() const { return held_; }
+
   State state() const { return state_; }
   // Tracked pause state of slam_toolbox (none until the first pause request).
   std::optional<bool> paused() const { return paused_; }
@@ -148,6 +154,7 @@ private:
   Clock utc_now_;
   std::set<std::string> enabled_;
   MismatchMonitor monitor_;
+  bool held_ = false;
   State state_ = State::OK;
   double state_since_ = 0.0;
   std::optional<bool> paused_;

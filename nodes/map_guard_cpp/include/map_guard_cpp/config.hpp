@@ -40,6 +40,8 @@ struct Config
   std::string map_frame = "map";
   std::string reset_topic = "/map_guard/map_reset";
   std::string events_topic = "/robot_events";
+  // std_msgs/Bool from map_manager: false while a loaded map is not yet localised (the guard then holds). C++-only.
+  std::string localised_topic = "/map_manager/localised";
 
   std::string pause_service = "/slam_toolbox/pause_new_measurements";
   std::string reset_service = "/slam_toolbox/reset";

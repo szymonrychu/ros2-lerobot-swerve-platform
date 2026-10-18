@@ -83,7 +83,7 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   # One gtest per Python test file of nodes/map_guard/tests; each also checks the golden fixtures of
   # test/gen_fixtures.py.
-  foreach(name timing agreement detectors guard backup agent config)
+  foreach(name timing agreement detectors guard backup agent config load_hold)
     ament_add_gtest(test_${name} test/test_${name}.cpp TIMEOUT 120)
     target_link_libraries(test_${name} map_guard_core)
     target_compile_definitions(test_${name} PRIVATE MAP_GUARD_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")

@@ -166,6 +166,8 @@ MapGuardNode::MapGuardNode(const rclcpp::NodeOptions & options, const Config & c
   using std::placeholders::_1;
   subscriptions_.push_back(create_subscription<nav_msgs::msg::OccupancyGrid>(
     config_.map_topic, map_qos(), std::bind(&MapGuardNode::on_map, this, _1)));
+  subscriptions_.push_back(create_subscription<std_msgs::msg::Bool>(
+    config_.localised_topic, map_qos(), std::bind(&MapGuardNode::on_localised, this, _1)));
   subscriptions_.push_back(create_subscription<sensor_msgs::msg::LaserScan>(
     config_.scan_topic, sensor_qos(),
     [this](std::shared_ptr<const rclcpp::SerializedMessage> serialized) { on_scan(serialized); }));
@@ -207,6 +209,15 @@ void MapGuardNode::on_map(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & m
   prepared_ = std::move(prepared);
 }
 
+void MapGuardNode::on_localised(const std_msgs::msg::Bool::ConstSharedPtr & msg)
+{
+  std::lock_guard<std::mutex> lock(lock_);
+  held_ = !msg->data;
+  if (held_) {
+    pending_.clear();  // samples scored against the not yet localised map are dropped
+  }
+}
+
 void MapGuardNode::on_scan(const std::shared_ptr<const rclcpp::SerializedMessage> & serialized)
 {
   // Only the scans the rate limit lets through are deserialized, transformed and scored.
@@ -242,6 +253,9 @@ void MapGuardNode::on_scan(const std::shared_ptr<const rclcpp::SerializedMessage
     return;
   }
   std::lock_guard<std::mutex> lock(lock_);
+  if (held_) {
+    return;
+  }
   pending_.emplace_back(result->ratio, prepared->known_cells);
 }
 
@@ -289,13 +303,16 @@ void MapGuardNode::run_guard()
     double now = 0.0;
     DisturbanceReport report;
     std::vector<MapGuard::Sample> samples;
+    bool held = false;
     {
       std::lock_guard<std::mutex> lock(lock_);
+      held = held_;
       now = monotonic_s();
       report = detectors_.evaluate(now);
       samples.swap(pending_);
     }
     try {
+      guard_->set_hold(held);
       guard_->tick(now, report, samples);
     } catch (const std::exception & exc) {  // keep guarding after an unexpected error
       RCLCPP_ERROR(get_logger(), "map_guard tick failed: %s", exc.what());
