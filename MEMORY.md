@@ -207,3 +207,12 @@
 - **Home pose**: pan 0, tilt +30 deg (looking down), not the servo centre 2048. It lives in four places (bridge `startup_position_rad`, mcp_server `head.home_*`, web_ui `head_home_deg`, URDF limits it must sit inside), pinned by `tests/test_head_config_consistency.py` together with ranges (pan +-90, tilt -30/+45 deg), joint names and topics.
 - **Lease**: the head is under lease "any" (arm or base); home is commanded on the last release.
 - **Signs (R3, confirmed 2026-10-18)**: pan positive = looking left (CCW from above); tilt positive = looking down. Flip only via `inverted` plus the URDF axis.
+
+## Head ToF 3D obstacles (2026-10-19)
+
+- **Decision**: the head ToF depth becomes obstacles and cliffs through `tof_obstacle_cloud` (rtabmap_util `point_cloud_xyz`, `/tof/points`), the `laser_filter` self filter (`/tof/points_filtered`), an STVL `tof_voxel_layer` in the local costmap only, and two collision_monitor pointcloud sources (`tof_obstacles` into StopBox, `tof_cliff` into CliffStop).
+- **Height bands, not obstacles_detection**: floor and overhang are separated by fixed bands in base_link (obstacles 6 cm to 0.6 m, cliffs -1 m to -10 cm; STVL and collision monitor use the same numbers), not by rtabmap's `obstacles_detection`; the head TF comes from the pan/tilt joint states.
+- **Lidar layers stay separate**: the lidar `obstacle_layer` keeps its own grid, so ToF clearing never erases lidar cells (U5); slam_toolbox keeps `map -> odom` and no ToF node publishes TF.
+- **Fail-safe**: a ToF or head-TF outage makes the collision_monitor sources invalid and stops motion; `tof_obstacles.enabled` and `tof_cliff.enabled` are runtime switches.
+- **CPU budget**: the pipeline adds at most 0.15 core mean on the client (new unit plus nav2_bringup and laser_filter deltas), EKF keeps 30 Hz; measured with `scripts/node_cpu_compare.py`.
+- Wiring is pinned across files by `tests/test_tof_obstacle_wiring.py`.
