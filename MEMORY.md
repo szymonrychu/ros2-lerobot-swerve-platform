@@ -207,3 +207,7 @@
 - **Home pose**: pan 0, tilt +30 deg (looking down), not the servo centre 2048. It lives in four places (bridge `startup_position_rad`, mcp_server `head.home_*`, web_ui `head_home_deg`, URDF limits it must sit inside), pinned by `tests/test_head_config_consistency.py` together with ranges (pan +-90, tilt -30/+45 deg), joint names and topics.
 - **Lease**: the head is under lease "any" (arm or base); home is commanded on the last release.
 - **Signs (R3, confirmed 2026-10-18)**: pan positive = looking left (CCW from above); tilt positive = looking down. Flip only via `inverted` plus the URDF axis.
+
+## Head RGB-D fusion (2026-10-19)
+
+- **Decision**: head ToF depth is registered on the client by `head_rgbd_cpp` into the head camera mapping image (576x324, default output 288x162) and published as exact-stamp pairs (RGB stamp on depth, camera_infos, RGB and cloud). RTAB-Map consumes the pair. The head URDF is the only extrinsic source (`scripts/head_rgbd_calibrate.py urdf` rewrites `tof_joint`); the node never reads the extrinsics file. Focus is locked only while the mapping stream has subscribers (the node subscribes lazily). Methodology and targets: `docs/head-rgbd-fusion-methodology.md`.

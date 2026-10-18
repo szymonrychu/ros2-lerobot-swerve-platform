@@ -217,7 +217,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; the retired `stereo_depth`, `stereo_depth_cpp` and `jetson_bridge_cpp` types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` (head RGB-D fusion) joins `head_camera_cpp` in the background tier (weights 100/100, no OOM protection); the retired `stereo_depth`, `stereo_depth_cpp` and `jetson_bridge_cpp` types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -2166,7 +2166,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, arducam_tof, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ node head_camera_cpp 19116) `metrics_port` 19101-19112; base_servos 19115. |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, arducam_tof, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ nodes head_camera_cpp 19116 and head_rgbd_cpp 19117) `metrics_port` 19101-19112; base_servos 19115. |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
@@ -2739,3 +2739,24 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 | `test_session_defaults_to_newest_calibration_bag` | The default session is the newest bag, validation bags excluded. |
 | `test_sweep_offset_is_zero_for_synchronous_streams` | A synchronous synthetic sweep gives a time offset under 10 ms. |
 | `test_wall_metrics_on_registered_board` | Registration bias, edge alignment and valid ratio of a synthetic registered board are finite and in range. |
+
+### `test_head_rgbd_urdf_handoff.py`
+
+Tests for `scripts/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.
+
+| Test | What it checks |
+|---|---|
+| `test_read_chain_parses_joints` | The camera, ToF and optical joint origins are read from the URDF. |
+| `test_missing_joint_raises` | A URDF without `tof_joint` raises. |
+| `test_rewrite_reproduces_extrinsic` | The rewritten `tof_joint` origin, composed with the other joints, reproduces the calibrated transform. |
+| `test_diff_touches_only_origin_and_comment` | A text diff shows only the `tof_joint` origin and the calibration comment changed. |
+| `test_second_rewrite_replaces_comment` | A second rewrite replaces the stamped comment instead of adding one. |
+| `test_drift_equals_injected_offset` | `check_drift` reports the translation and rotation offset that was injected. |
+
+### `rgbd_synthetic.py`
+
+Shared helper module (no tests) for the head RGB-D calibration and validation tests: `SyntheticCamera` pinholes for the
+576x324 RGB and 240x180 ToF, `Extrinsic`, board poses, and renderers (`render_rgb`, `render_tof_amplitude`,
+`render_depth`) that draw the ChArUco board through a known pose so results compare with ground truth. Used by
+`test_head_rgbd_calib_intrinsics.py`, `test_head_rgbd_calib_extrinsics.py`, `test_head_rgbd_validate.py` and
+`test_head_rgbd_calibrate_cli.py`.
