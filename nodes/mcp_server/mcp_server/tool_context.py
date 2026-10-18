@@ -28,6 +28,7 @@ from .models import (
     RobotState,
     ScanPoints,
     StopResult,
+    TofPoints,
 )
 from .monitor import BaseUse, RobotMonitor
 from .topdown import TopdownInputs
@@ -115,6 +116,10 @@ class RobotApi(Protocol):
 
     def map_summary(self, include_png: bool, radius_m: float, png_max_px: int) -> tuple[MapSummary, bytes | None]:
         """Obstacle sectors, map stats and optional PNG crop."""
+        ...
+
+    def tof_points(self) -> TofPoints | None:
+        """Latest head ToF cloud in base_link (TF at the cloud stamp); None when missing, stale or no TF."""
         ...
 
     def navigate(

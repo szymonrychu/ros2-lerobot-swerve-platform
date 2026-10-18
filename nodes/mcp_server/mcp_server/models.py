@@ -1,7 +1,9 @@
 """Pydantic result models returned by the robot interface and exposed as MCP structured tool outputs."""
 
+from dataclasses import dataclass
 from typing import Any, Literal
 
+import numpy as np
 from pydantic import BaseModel, Field
 
 from .grasp_check import GraspCheck
@@ -67,6 +69,16 @@ class Obstacles3d(BaseModel):
     cloud_age_s: float | None = Field(description="Age of the ToF cloud (s); large means the data is stale")
     frame: str = Field(description="Frame the distances and bearings are expressed in (base_link)")
     point_count: int = Field(description="Number of finite cloud points considered")
+
+
+@dataclass
+class TofPoints:
+    """Latest head ToF cloud transformed to base_link (internal; summarised as Obstacles3d)."""
+
+    points: np.ndarray  # Nx3 (x forward, y left, z up), metres
+    age_s: float  # receive age (s)
+    frame: str  # frame of `points` (base_link)
+    stamp_s: float  # header stamp of the cloud (s)
 
 
 class MapStats(BaseModel):
@@ -138,6 +150,9 @@ class MapSummary(BaseModel):
     map: MapStats | None = None
     map_age_s: float | None = None
     robot_pose: BasePose | None = None
+    obstacles_3d: Obstacles3d | None = Field(
+        default=None, description="Head ToF obstacles and cliffs per sector; null when no fresh cloud (see notes)"
+    )
     notes: list[str] = Field(default_factory=list)
 
 

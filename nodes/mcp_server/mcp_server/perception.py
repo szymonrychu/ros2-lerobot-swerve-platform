@@ -8,11 +8,15 @@ import numpy as np
 
 from mcp_core_cpp import camera as core_camera
 
-from .models import MapStats, SectorObstacle, TofSector
+from .models import MapStats, Obstacles3d, SectorObstacle, TofPoints, TofSector
 
 # Eight 45 deg sectors counter-clockwise from the robot's front (base_link +x), centred on their direction.
 SECTOR_NAMES = ("front", "front_left", "left", "rear_left", "rear", "rear_right", "right", "front_right")
 TOF_HEIGHT_WINDOW_M = 0.1
+# Same bands as the Nav2 STVL layer (nav2_params): obstacle heights above the floor, cliff below, summary range.
+TOF_OBSTACLE_BAND_M = (0.06, 0.6)
+TOF_CLIFF_MAX_Z_M = -0.10
+TOF_SUMMARY_RANGE_M = 2.0
 OCCUPIED_THRESHOLD = 65
 FREE_THRESHOLD = 25
 UNKNOWN_GREY = 160
@@ -162,6 +166,24 @@ def tof_obstacle_sectors(
             )
         )
     return out
+
+
+def summarize_tof(cloud: TofPoints) -> Obstacles3d:
+    """Obstacles3d of a base_link ToF cloud with the STVL bands.
+
+    Args:
+        cloud (TofPoints): Cloud in base_link.
+
+    Returns:
+        Obstacles3d: Per-sector nearest obstacle and cliff within TOF_SUMMARY_RANGE_M.
+    """
+    pts = np.asarray(cloud.points, dtype=float).reshape(-1, 3)
+    return Obstacles3d(
+        sectors=tof_obstacle_sectors(pts, TOF_OBSTACLE_BAND_M, TOF_CLIFF_MAX_Z_M, TOF_SUMMARY_RANGE_M),
+        cloud_age_s=round(cloud.age_s, 3),
+        frame=cloud.frame,
+        point_count=int(np.isfinite(pts).all(axis=1).sum()),
+    )
 
 
 def map_stats(data: Sequence[int], width: int, height: int, resolution: float) -> MapStats:

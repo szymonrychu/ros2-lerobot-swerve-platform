@@ -30,7 +30,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `annotate_lookup(lookup_id, note, poi_ids)` | Set a photo's note and/or POI links (replacing them; omitted fields stay) through a poi_store `update`; errors when poi_store is down. Sensor. |
 | `delete_photos(ids, older_than_days, keep_newest, dry_run=false)` | Delete photos (index lines and JPEGs) through a poi_store `delete_photos` with exactly one selector; `dry_run` only reports. Sensor, no motion. |
 | `get_body_state` | Body vitals (sensor, always allowed): per-servo latest temperature / load / current / voltage / status flags with data age, hottest servo, battery V, per-cell V, margin to cut-off and cut-off state, IMU roll/pitch/tilt and last bump, wheel slip residual, commanded vs measured base speed, CPU temperature and firmware throttling flag, active source + lease, last 10 events. Missing data is `null` with a reason in `notes`. |
-| `get_map_summary(include_png, radius_m)` | Nearest `/scan_filtered` obstacle in 8 sectors around base_link, `/map` size and known/occupied/free cells, robot pose, optional small PNG of the map around the robot. |
+| `get_map_summary(include_png, radius_m)` | Nearest `/scan_filtered` obstacle in 8 sectors around base_link, `/map` size and known/occupied/free cells, robot pose, `obstacles_3d` (head ToF cloud `topics.tof_points`, `/tof/points_filtered`, subscribed lazily, latest message only, placed in base_link with the TF at the cloud stamp: per 45 deg sector the nearest obstacle 0.06-0.6 m above the floor with its height range and the nearest cliff below -0.10 m, within 2 m; only what the head currently sees; `null` plus a note when the cloud is missing, older than `timeouts.tof_points_stale_s` (1 s) or has no TF), optional small PNG of the map around the robot. |
 | `navigate_to_pose(x, y, yaw, frame='map', timeout_s, precise=false)` | Nav2 `NavigateToPose`; by default the goal ends early (cancelled, base zeroed, status `succeeded`) as soon as the measured pose is within `nav.intermediate_xy_tolerance_m` / `nav.intermediate_yaw_tolerance_deg` (3 cm / 5 deg); `precise=true` waits for Nav2's own checker (`nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg`, 1 cm / 2 deg, slower). Blocks until result/timeout (goal cancelled on timeout or stop); returns result and final pose. The description states the goal precision from `nav.goal_xy_tolerance_m` / `nav.goal_yaw_tolerance_deg` (default 1 cm / 2 deg, keep equal to the Nav2 goal checker) and that a sideways goal first turns the robot toward the path (front leading) and turns back to the goal heading at the end. |
 | `move_relative(dx, dy, dyaw, timeout_s, precise=false)` | Same (incl. `precise`), goal given in base_link (converted to a map goal via TF). Small moves (a few cm) really move. |
 | `drive(vx, vy, wz, duration_s<=2)` | 20 Hz on `/cmd_vel_nav` (through velocity smoother + collision monitor), clamped to 0.25 m/s / 0.5 rad/s, then zero. |
@@ -2493,6 +2493,7 @@ battery:                  # optional; absent = battery gate off
   stale_s: 5.0
 topics:                   # perception additions (defaults shown)
   local_costmap: /local_costmap/costmap
+  tof_points: /tof/points_filtered   # get_map_summary obstacles_3d (lazy, latest only)
   plan: /plan
   poi_list: /poi/list
   poi_command: /poi/command
