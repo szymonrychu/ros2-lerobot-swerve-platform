@@ -2381,6 +2381,14 @@ ros2_nodes:
       # p_retry_success paired with the next attempt's outcome; survives /api/reset). Past it the oldest half is
       # dropped. At least 100.
       retry_ledger_max_records: 5000
+      # Retrospectives: one structured record per job in <state_dir>/retrospectives/retrospectives.jsonl (survives
+      # /api/reset). retro_max_records bounds the file (oldest half dropped past it, at least 50); retro_feed_count
+      # recent records (0 to 20, 0 disables) are fed to a new instruction, cut at retro_feed_max_chars (at least 200);
+      # retro_followup asks the agent for the retrospective when a job ends.
+      retro_max_records: 500
+      retro_feed_count: 5
+      retro_feed_max_chars: 3000
+      retro_followup: true
       # Job end: an instruction may only end with the arm at home, no control lease held and the plan finished.
       # The runner sends up to job_end_max_followups refusal follow-ups, then parks the arm itself (release_control all).
       job_end_max_followups: 2
