@@ -1732,6 +1732,10 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_footprint_geometry_is_shared_with_mcp_server` | The generator's outline, parked-arm union, offset and vertex-order functions are imported from `mcp_server.footprint_geometry` (one implementation for the static and the dynamic footprint). |
 | `test_inflation_formula_lives_in_footprint_geometry` | Circumscribed / inscribed radius, inflation radius and cost scaling factor come from `mcp_server.footprint_geometry` (mcp_server sets the dynamic footprint's inflation with the same formula). |
 | `test_generated_values_land_in_the_parsed_yaml` | Parsed footprints, padding, inflation, StopBox order/points/ranges, the laser polygon and the mcp_server `nav_footprint` numbers equal the generator output. |
+| `test_cliff_polygon_is_the_footprint_grown_by_the_cliff_margin` | The CliffStop polygon equals the footprint offset by `cliff_margin_m` (0.25), contains the footprint and has >= 4 points. |
+| `test_cliff_margin_must_be_positive` | `Settings` rejects `cliff_margin_m` 0. |
+| `test_cliffstop_region_is_the_points_line_of_the_cliff_polygon` | The `cliffstop` region renders one `points:` line parsing back to the cliff polygon. |
+| `test_nav2_cliffstop_polygon_is_wired_but_not_yet_listed` | `CliffStop` block in nav2_params (polygon, approach, 1.2 s, tof_cliff, >= 4 points) exists and is not in `polygons`. |
 | `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config (and no client.yml, whose region is then skipped), `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
 
 ### test_poi_store_config.py

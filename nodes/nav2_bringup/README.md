@@ -76,6 +76,11 @@ Non-convex footprints in Nav2 Jazzy (checked in the navigation2 1.3.13 sources a
   switched off on both costmaps (`footprint_clearing_enabled: false`); the robot's own returns are already removed by
   the laser_filter self polygon, and raytracing clears stale cells.
 
+The collision_monitor also carries a `CliffStop` polygon (`polygon`, `approach`, `time_before_collision` 1.2 s,
+source `tof_cliff`): the footprint grown by `cliff_margin_m` (0.25 m, `gen_nav_footprint.yaml`; the head ToF at
+0.35-0.40 m sees the lower floor of a 15 cm step about 0.2 m beyond the edge, so the guard reaches past it). It is
+generated into the `cliffstop` region; the collision monitor only evaluates it once it is listed in `polygons`.
+
 ### Dynamic footprint (arm released)
 
 The footprint above is the static one, loaded from the params at startup. mcp_server replaces it at runtime while the

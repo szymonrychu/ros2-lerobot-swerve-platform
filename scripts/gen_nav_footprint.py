@@ -13,6 +13,7 @@ derives:
   footprint_geometry, mcp_server applies it to the dynamic footprint),
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
   the bounding box + margin for rotation in place,
+- the collision_monitor CliffStop polygon (footprint + cliff_margin_m: the head ToF sees the floor beyond a cliff),
 - the laser_filter self polygon (footprint + laser_filter_margin_m),
 - the mcp_server nav_footprint numbers (circle segments, gap closing, margins, simplification, decimals, costmap
   resolution, maximum cost scaling, parked-arm shadow), so the footprint mcp_server publishes uses the same geometry
@@ -122,6 +123,7 @@ class Settings(BaseModel):
     close_gap_m: float = Field(ge=0.0)
     laser_filter_margin_m: float = Field(ge=0.0)
     stopbox_margin_m: float = Field(gt=0.0)
+    cliff_margin_m: float = Field(gt=0.0)
     dynamic_simplify_m: float = Field(ge=0.0)
     max_cost_scaling_factor: float = Field(gt=0.0)
     decimals: int = Field(ge=3, le=6)
@@ -153,6 +155,7 @@ class Generated(BaseModel):
     cost_scaling_factor: float
     stopbox: dict[str, dict]
     laser_polygon: list[Point2]
+    cliff_polygon: list[Point2]
     mcp_nav_footprint: dict[str, float | int | list[list[float]]]
 
 
@@ -358,7 +361,7 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
         repo_root (Path): Base of relative paths.
 
     Returns:
-        Generated: Footprint, inflation, StopBox and laser polygon.
+        Generated: Footprint, inflation, StopBox, CliffStop and laser polygon.
     """
     body, source = resolve_body(settings, repo_root)
     shadow = parked_shadow(settings, repo_root)
@@ -371,6 +374,7 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
         cost_scaling_factor=cost_scaling_factor(footprint, settings.max_cost_scaling_factor),
         stopbox=stopbox_polygons(footprint, settings.stopbox_margin_m, settings.decimals),
         laser_polygon=offset_polygon(footprint, settings.laser_filter_margin_m, settings.decimals),
+        cliff_polygon=offset_polygon(footprint, settings.cliff_margin_m, settings.decimals),
         mcp_nav_footprint={
             "circle_segments": settings.circle_segments,
             "close_gap_m": settings.close_gap_m,
@@ -416,6 +420,10 @@ def region_lines(name: str, gen: Generated) -> list[str]:
         return [f"cost_scaling_factor: {gen.cost_scaling_factor}", f"inflation_radius: {gen.inflation_radius}"]
     if name == "laser_polygon":
         return [f"polygon: {polygon_string(gen.laser_polygon)}"]
+    if name == "cliffstop":
+        if len(gen.cliff_polygon) < MIN_POLYGON_POINTS:
+            raise ValueError(f"CliffStop has fewer than {MIN_POLYGON_POINTS} points")
+        return [f"points: {polygon_string(gen.cliff_polygon)}"]
     if name == "mcp_nav_footprint":
         lines = []
         for key, value in gen.mcp_nav_footprint.items():
@@ -492,7 +500,7 @@ def render_nav2(text: str, gen: Generated) -> str:
     Returns:
         str: New content.
     """
-    return render_regions(text, gen, {"footprint", "inflation", "stopbox"})
+    return render_regions(text, gen, {"footprint", "inflation", "stopbox", "cliffstop"})
 
 
 def render_laser_filter(text: str, gen: Generated) -> str:
