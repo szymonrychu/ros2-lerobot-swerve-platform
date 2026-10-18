@@ -7,6 +7,7 @@ import { PoiEditorPanel, PoiListPanel } from './PoiPanels'
 import { designViolations, SOURCES } from '../layout/designRules'
 import { POI_NAME_MAX } from './types'
 import type { Poi } from './types'
+import type { Photo } from '../photos/api'
 
 let viewportWidth = 1400
 
@@ -164,6 +165,16 @@ describe('Clear POIs button', () => {
     renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} tabId="map" />)
     fireEvent.click(screen.getByRole('button', { name: 'Clear POIs' }))
     expect(screen.getByTestId('clear-pois-preview').textContent).toContain('1')
+  })
+})
+
+describe('Clear POIs dialog photos', () => {
+  it('counts the photos handed to the list panel in the clear preview', () => {
+    viewportWidth = 1400
+    const photo = { id: 'f1', createdBy: 'agent', x: 1, y: 2 } as unknown as Photo
+    renderWithTheme(<PoiListPanel pois={[POI]} photos={[photo, { ...photo, id: 'f2' }]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} tabId="map" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear POIs' }))
+    expect(screen.getByTestId('clear-pois-preview').textContent).toBe('Removes 1 POIs and 2 photos')
   })
 })
 
