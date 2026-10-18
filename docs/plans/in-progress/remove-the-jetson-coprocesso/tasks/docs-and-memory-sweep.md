@@ -1,6 +1,6 @@
 ---
 title: Docs and memory sweep
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Project memory, the deploy skill and the remaining READMEs and comments describe the robot without the Jetson."
 files: [MEMORY.md, .claude/skills/ansible-deploy/SKILL.md, ansible/README.md, nodes/pi_cameras/README.md, tests/test_pi_cameras_deploy.py, nodes/README.md, ansible/group_vars/client.yml, tests/README.md]
@@ -74,3 +74,7 @@ MEMORY.md, the deploy skill and the READMEs describe the robot without the Jetso
 
 
 - Doc-only edits (exception to test-first: comment/doc edit); the D7 retirement tests guard the README/comment facts they pin.
+
+## Ruling
+
+Accepted by the orchestrator (2026-10-18): verified and merged; the gate-repeat was a parking-wording flag on phrases the requirement mandates; root 1117 passed.
