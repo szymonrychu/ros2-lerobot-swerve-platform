@@ -135,16 +135,24 @@ describe('HeadTab', () => {
       expect(screen.getByTestId('head-measured').textContent).toContain('-15')
     })
 
-    it('release publishes radians with both joint names', () => {
+    function release(): void {
+      fireEvent.mouseUp(document, { clientX: 150, clientY: 5 })
+    }
+
+    it('release publishes radians with both joint names, once more after the drag', () => {
       setViewport(1400)
+      vi.useFakeTimers()
       const publish = vi.fn()
       renderTab({ ...FRAMES, ...SAMPLE }, publish, HEAD_TAB)
-      fireEvent.change(sliderInputs()[0], { target: { value: '45' } })
+      dragPan([90, 150])
+      const beforeRelease = publish.mock.calls.length
+      release()
+      expect(publish.mock.calls.length).toBe(beforeRelease + 1)
       const last = publish.mock.calls[publish.mock.calls.length - 1]
       expect(last[0]).toBe(CMD)
       expect(last[1]).toBe('sensor_msgs/JointState')
       expect(last[2].name).toEqual(['head_pan', 'head_tilt'])
-      expect(last[2].position[0]).toBeCloseTo(45 * DEG, 5)
+      expect(last[2].position[0]).toBeCloseTo(60 * DEG, 5)
       expect(last[2].position[1]).toBeCloseTo(-15 * DEG, 5)
     })
 
@@ -163,7 +171,25 @@ describe('HeadTab', () => {
       act(() => {
         vi.advanceTimersByTime(250)
       })
-      expect(publish.mock.calls.length).toBeLessThanOrEqual(2)
+      expect(publish.mock.calls.length).toBe(2)
+      release()
+      expect(publish.mock.calls.length).toBe(3)
+    })
+
+    it('after release the other joint keeps its commanded value, clamped to the range', () => {
+      setViewport(1400)
+      vi.useFakeTimers()
+      const publish = vi.fn()
+      const over = { [STATES]: { name: ['head_pan', 'head_tilt'], position: [90.0002 * DEG, -15 * DEG] } }
+      renderTab({ ...FRAMES, ...over }, publish, HEAD_TAB)
+      fireEvent.click(screen.getByRole('button', { name: 'Home' }))
+      publish.mockClear()
+      // tilt commanded to 30 and still travelling (measured -15): a pan drag must not send the stale -15
+      vi.advanceTimersByTime(300)
+      dragPan([90])
+      const msg = publish.mock.calls[0][2]
+      expect(msg.position[1]).toBeCloseTo(30 * DEG, 5)
+      expect(msg.position[0]).toBeLessThanOrEqual(90 * DEG + 1e-9)
     })
 
     it('Home publishes the home pose', () => {

@@ -29,6 +29,7 @@ const HEAD_PUBLISH_INTERVAL_MS = 200
 const DEFAULT_PAN_RANGE_DEG: [number, number] = [-90, 90]
 const DEFAULT_TILT_RANGE_DEG: [number, number] = [-30, 45]
 const DEFAULT_HOME_DEG: [number, number] = [0, 30]
+const COMMAND_ARRIVED_DEG = 1
 const DEG_PER_RAD = 180 / Math.PI
 const ZOOM_FACTORS: ZoomFactor[] = [2, 4, 8]
 const DEFAULT_ZOOM_FACTOR: ZoomFactor = 4
@@ -90,13 +91,30 @@ function PanTiltControls({ tab, sample, publish }: PanTiltProps) {
   const lastSent = useRef(-Infinity)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latest = useRef<[number, number] | null>(null)
+  // Last commanded pair, kept after release so the other joint is not re-sent from a stale measurement.
+  const commanded = useRef<[number, number] | null>(null)
   const shown = target ?? measured
+  const ranges = [panRange, tiltRange]
 
-  function send(deg: [number, number]): void {
+  function clampDeg(deg: [number, number]): [number, number] {
+    return [0, 1].map((i) => Math.min(Math.max(deg[i], ranges[i][0]), ranges[i][1])) as [number, number]
+  }
+
+  function send(raw: [number, number]): void {
+    const deg = clampDeg(raw)
+    commanded.current = deg
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
     lastSent.current = Date.now()
     publish(topic, HEAD_MSG_TYPE, { name: HEAD_JOINTS, position: deg.map((d) => d / DEG_PER_RAD) })
+  }
+
+  /** Value for the joint not being dragged: the commanded one while it is still travelling, else the measured one. */
+  function otherJoint(i: 0 | 1): number {
+    const cmd = commanded.current?.[i]
+    const meas = measured?.[i]
+    if (cmd !== undefined && (meas === undefined || Math.abs(meas - cmd) > COMMAND_ARRIVED_DEG)) return cmd
+    return meas ?? 0
   }
 
   function onDrag(deg: [number, number]): void {
@@ -123,7 +141,7 @@ function PanTiltControls({ tab, sample, publish }: PanTiltProps) {
   }, [])
 
   function slider(index: 0 | 1, label: string, range: [number, number]) {
-    const update = (v: number): [number, number] => (index === 0 ? [v, (shown as [number, number])[1]] : [(shown as [number, number])[0], v])
+    const update = (v: number): [number, number] => (index === 0 ? [v, otherJoint(1)] : [otherJoint(0), v])
     return (
       <Stack spacing={0} sx={{ flex: 1 }}>
         <Typography variant="body2" color="text.secondary">{label}</Typography>
