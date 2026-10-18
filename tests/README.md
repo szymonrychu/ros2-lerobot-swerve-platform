@@ -2039,6 +2039,16 @@ The dev-only MuJoCo grasp replay harness has its own uv project and tests under 
 | `test_report.py` | SimReport schema and JSON round trip. |
 | `test_cli.py` | `grasp-sim example/run`, exit codes, report file, YAML scene, frames and GIF output, mjpython hint for `--render`. |
 
+### `test_servo_bus_live_refs.py`
+
+Pins the arm-alone bus split: stale text and the retired group name stay out of live files, and servo IDs stay on their own node.
+
+| Test | What it covers |
+|------|----------------|
+| `test_no_live_text_puts_swerve_servos_on_the_arm_bus` | `git grep` finds none of the stale arm-bus phrases outside `docs/plans/**` and `graphify-out/**`. |
+| `test_retired_swerve_drive_servos_name_is_gone` | `swerve_drive_servos` appears nowhere outside `docs/plans/**`, `graphify-out/**`, `tests/**` and `MEMORY.md`. |
+| `test_no_feetech_entry_but_the_base_serves_swerve_ids` | In client.yml only `base_servos` lists IDs 32-39 and only `lerobot_follower` lists IDs 1-6. |
+
 ### `test_joint_state_throttle_config.py`
 
 The 10 Hz joint-state copies (`ros-jazzy-topic-tools` `throttle messages`) deployed on the client.
