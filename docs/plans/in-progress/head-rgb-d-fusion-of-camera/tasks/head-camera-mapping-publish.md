@@ -16,6 +16,7 @@ branch: head-rgb-d-fusion-of-camera--head-camera-mapping-publish
 verified_head: ""
 run: ""
 provides: []
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-camera-mapping-publish
 ---
 
 # Head camera mapping publish

@@ -16,6 +16,7 @@ branch: head-rgb-d-fusion-of-camera--tof-jump-edge-filter
 verified_head: ""
 run: ""
 provides: []
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--tof-jump-edge-filter
 ---
 
 # ToF jump edge filter

@@ -16,6 +16,7 @@ branch: head-rgb-d-fusion-of-camera--rgbd-extrinsic-calibration
 verified_head: ""
 run: ""
 provides: []
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-extrinsic-calibration
 ---
 
 # RGBD extrinsic calibration
