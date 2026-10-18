@@ -143,8 +143,9 @@ pydantic, unknown keys rejected). Its geometry is relative to the robot pose (`m
 | `goal_ahead_m` | `1.2` | planning goal straight ahead of the robot |
 | `rect_ahead_m` / `rect_depth_m` / `rect_width_m` | `0.6` / `0.3` / `1.0` | test rectangle across the robot -> goal line (must lie between the robot box and the goal) |
 | `robot_box_m` | `0.6` | square zone centred on `base_link` (steps 4 and 5) |
-| `slow_pct` | `40` | speed limit of the step 5 slow zone |
-| `poi_name_prefix` | `E7-verify-` | every test POI carries it; step 6 deletes all of them |
+| `slow_pct` | `40` | speed limit of the step 6 slow zone |
+| `slow_zone_mask_value` | `60` | slow-zone keepout-mask value, used only when the costmap_zones node config cannot be read (otherwise the node's value wins) |
+| `poi_name_prefix` | `E7-verify-` | every test POI carries it; step 7 deletes all of them |
 | `timeouts.*` | see the file | `nav_status_s`, `discovery_s`, `tf_s`, `poi_s`, `mask_s`, `costmap_s`, `plan_s`, `speed_limit_s` (3 s) |
 
 Topic, frame and action names are also keys of the file (defaults as in the tables above, plus
@@ -154,12 +155,13 @@ Topic, frame and action names are also keys of the file (defaults as in the tabl
 | Step | Check |
 |---|---|
 | 0 | `ros-jazzy-nav2-costmap-2d` >= 1.3.10 (live mask updates) and `ros2-costmap_zones`, `ros2-poi_store`, `ros2-nav2_bringup` active (shell script) |
-| 1 | both masks received; their frame and info equal `/map`; keepout values only -1/100, speed values only 0..100 |
+| 1 | both masks received; their frame and info equal `/map`; keepout values only -1, the slow-zone mask value (node config `slow_zone_mask_value`, else `verify.yaml`, default 60) and 100; speed values only 0..100 |
 | 2 | control: `compute_path_to_pose` (robot -> goal, `use_start: false`) succeeds and its path crosses the test rectangle |
 | 3 | keepout POI `E7-verify-keepout` (created_by user) on the rectangle: mask 100 at its centre, `/global_costmap/costmap` 99/100 there, and the planner fails or returns a path that avoids the rectangle; the POI is deleted afterwards |
 | 4 | keepout POI around the robot: the global costmap cell under the robot is >= 98 (lethal_override_cost 252 translates to 98), and a path to the goal still succeeds (`override_lethal_cost`) |
-| 5 | slow POI (40 %) around the robot: `/speed_limit` reports `speed_limit: 40.0, percentage: true` within 3 s; after deleting it, `speed_limit: 0.0` within 3 s |
-| 6 | always (also after a failure or Ctrl+C / SIGTERM / SIGHUP): every `E7-verify-*` POI is deleted, the masks return to background at the rectangle and the robot, and the costmap cell at the rectangle centre is no longer 100 |
+| 5 | slow step: slow POI `E7-verify-slow-cost` on the rectangle: the keepout mask holds the slow value at its centre; `/global_costmap/costmap` there equals the published translation of cost `round(v * 254 / 100)` (60 -> 152 -> 59; the publisher maps 1..252 to `1 + 97 * (c - 1) / 251`), never 99/100; `compute_path_to_pose` still succeeds; whether the path crosses the rectangle is printed only |
+| 6 | slow POI (40 %) around the robot: `/speed_limit` reports `speed_limit: 40.0, percentage: true` within 3 s; after deleting it, `speed_limit: 0.0` within 3 s |
+| 7 | always (also after a failure or Ctrl+C / SIGTERM / SIGHUP): every `E7-verify-*` POI is deleted, the masks return to background at the rectangle and the robot, and the costmap cell at the rectangle centre is no longer 100 |
 
 Safety and output:
 

@@ -4,13 +4,17 @@ python -m costmap_zones.verify (normally via scripts/costmap_zones_verify.sh, wh
 nav2_costmap_2d version and the service states). It reads verify.yaml (env COSTMAP_ZONES_VERIFY_CONFIG, default
 the file next to this package) and runs, relative to the robot pose (map -> base_link) at the start:
 
-1. Both masks are received, their grid equals /map, keepout holds only -1/100 and speed only 0..100.
+1. Both masks are received, their grid equals /map, keepout holds only -1, the slow-zone mask value (node config
+   slow_zone_mask_value, else verify.yaml, default 60) and 100, and speed only 0..100.
 2. Control: compute_path_to_pose (robot -> goal ahead, use_start false) succeeds and crosses the test rectangle.
 3. A keepout POI on the rectangle: the mask has 100 at its centre, the global costmap 99/100 there, and the
    planner fails or plans around it.
 4. A keepout POI around the robot: the planner still finds a path out (override_lethal_cost).
-5. A slow POI around the robot: /speed_limit reports slow_pct with percentage true, and 0 after deleting it.
-6. Always: every POI named poi_name_prefix* is deleted, and the masks and costmap return to background there.
+5. A slow POI on the test rectangle: the keepout mask holds the slow value at its centre, the global costmap there
+   equals the published translation of round(v * 254 / 100) (60 -> 152 -> 59), never 99/100, and
+   compute_path_to_pose still succeeds (whether the path crosses the rectangle is printed, not judged).
+6. A slow POI around the robot: /speed_limit reports slow_pct with percentage true, and 0 after deleting it.
+7. Always: every POI named poi_name_prefix* is deleted, and the masks and costmap return to background there.
 
 It only publishes /poi/command and calls the compute_path_to_pose action: the base never moves. It refuses to run
 while /navigate_to_pose has an active goal. One PASS/FAIL line per step, then a RESULT line; the exit code is 0 only
@@ -47,6 +51,12 @@ from rclpy.time import Time
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from .config import (
+    DEFAULT_SLOW_ZONE_MASK_VALUE,
+    MAX_SLOW_ZONE_MASK_VALUE,
+    MIN_SLOW_ZONE_MASK_VALUE,
+    load_config_from_env,
+)
 from .raster import KEEPOUT_BACKGROUND, KEEPOUT_INSIDE, SPEED_BACKGROUND, MapGeometry
 
 ENV_VERIFY_CONFIG_KEY = "COSTMAP_ZONES_VERIFY_CONFIG"
@@ -65,7 +75,13 @@ ACTIVE_GOAL_STATUSES = frozenset({1, 2, 3})
 # 1..252 -> 1 + 97 * (cost - 1) / 251, so the KeepoutFilter lethal_override_cost 252 (robot inside) -> 98.
 KEEPOUT_GRID_VALUES = frozenset({99, 100})
 KEEPOUT_GRID_MIN_ROBOT_INSIDE = 98
-KEEPOUT_MASK_VALUES = frozenset({KEEPOUT_BACKGROUND, KEEPOUT_INSIDE})
+COSTMAP_INSCRIBED = 253
+COSTMAP_LETHAL_COST = 254
+COSTMAP_NO_INFORMATION = 255
+GRID_SPAN = 97  # OccupancyGrid values 1..98 carry the costs 1..252
+COST_SPAN = 251
+MASK_SCALE_NUM = 254  # KeepoutFilter: mask value v -> cost round(v * 254 / 100)
+MASK_SCALE_DEN = 100
 COSTMAP_LETHAL = 100
 
 LATCHED_QOS = QoSProfile(
@@ -119,9 +135,10 @@ class VerifyConfig(BaseModel):
         rect_ahead_m: Centre of the test rectangle on the robot -> goal line, m.
         rect_depth_m: Rectangle size along the heading, m.
         rect_width_m: Rectangle size across the heading, m.
-        robot_box_m: Side of the square zone centred on base_link (steps 4 and 5), m.
-        slow_pct: Speed limit of the step 5 slow zone, percent (10..100).
-        poi_name_prefix: Name prefix of every POI this run creates (and step 6 deletes).
+        robot_box_m: Side of the square zone centred on base_link (steps 4 and 6), m.
+        slow_pct: Speed limit of the step 6 slow zone, percent (10..100).
+        slow_zone_mask_value: Keepout-mask value of slow zones when the costmap_zones node config is unavailable.
+        poi_name_prefix: Name prefix of every POI this run creates (and step 7 deletes).
         map_frame: Global frame.
         base_frame: Robot frame.
         map_topic: SLAM map.
@@ -145,6 +162,9 @@ class VerifyConfig(BaseModel):
     rect_width_m: float = Field(default=1.0, gt=0)
     robot_box_m: float = Field(default=0.6, gt=0)
     slow_pct: int = Field(default=40, ge=MIN_SPEED_LIMIT_PCT, le=MAX_SPEED_LIMIT_PCT)
+    slow_zone_mask_value: int = Field(
+        default=DEFAULT_SLOW_ZONE_MASK_VALUE, ge=MIN_SLOW_ZONE_MASK_VALUE, le=MAX_SLOW_ZONE_MASK_VALUE
+    )
     poi_name_prefix: str = Field(default="E7-verify-", min_length=1)
     map_frame: str = Field(default="map", min_length=1)
     base_frame: str = Field(default="base_link", min_length=1)
@@ -199,7 +219,7 @@ class StepResult:
     """Outcome of one verification step.
 
     Attributes:
-        number: Step number (1..6; step 0 is in the shell script).
+        number: Step number (1..7; step 0 is in the shell script).
         name: Short step name.
         passed: True when the step passed.
         detail: What was observed.
@@ -428,8 +448,9 @@ def mask_problems(
     keepout_data: Sequence[int],
     speed_geometry: MapGeometry,
     speed_data: Sequence[int],
+    slow_value: int = DEFAULT_SLOW_ZONE_MASK_VALUE,
 ) -> list[str]:
-    """Step 1 checks: both masks on the /map grid, keepout values only -1/100, speed values only 0..100.
+    """Step 1 checks: both masks on the /map grid, keepout values only -1/slow_value/100, speed only 0..100.
 
     Args:
         map_geometry (MapGeometry): /map geometry.
@@ -437,6 +458,7 @@ def mask_problems(
         keepout_data (Sequence[int]): Keepout mask data.
         speed_geometry (MapGeometry): Speed mask geometry.
         speed_data (Sequence[int]): Speed mask data.
+        slow_value (int): Keepout-mask value of slow zones.
 
     Returns:
         list[str]: One message per problem; empty when the masks are right.
@@ -451,12 +473,60 @@ def mask_problems(
             continue
         values = set(np.unique(np.asarray(data, dtype=np.int16)).tolist())
         if name == "keepout":
-            bad = sorted(values - KEEPOUT_MASK_VALUES)
+            bad = sorted(values - {KEEPOUT_BACKGROUND, slow_value, KEEPOUT_INSIDE})
         else:
             bad = sorted(v for v in values if not SPEED_BACKGROUND <= v <= MAX_SPEED_LIMIT_PCT)
         if bad:
             problems.append(f"{name} mask holds invalid values {bad}")
     return problems
+
+
+def keepout_cost(mask_value: int) -> int:
+    """Costmap cost the KeepoutFilter writes for a keepout-mask value (costmap_filter getMaskCost).
+
+    Args:
+        mask_value (int): Mask value 1..100.
+
+    Returns:
+        int: round(mask_value * 254 / 100), e.g. 60 -> 152, 100 -> 254.
+    """
+    return (2 * mask_value * MASK_SCALE_NUM + MASK_SCALE_DEN) // (2 * MASK_SCALE_DEN)
+
+
+def published_grid_value(cost: int) -> int:
+    """OccupancyGrid value nav2 costmap_2d_publisher publishes for a costmap cost.
+
+    Args:
+        cost (int): Costmap cost 0..255.
+
+    Returns:
+        int: 0 -> 0, 253 -> 99, 254 -> 100, 255 -> -1, 1..252 -> 1 + (97 * (cost - 1)) // 251 (152 -> 59).
+    """
+    if cost == COSTMAP_NO_INFORMATION:
+        return -1
+    if cost == COSTMAP_LETHAL_COST:
+        return COSTMAP_LETHAL
+    if cost == COSTMAP_INSCRIBED:
+        return 99
+    if cost == 0:
+        return 0
+    return 1 + (GRID_SPAN * (cost - 1)) // COST_SPAN
+
+
+def resolve_slow_value(config: VerifyConfig) -> int:
+    """The slow-zone mask value in force: the costmap_zones node config, else verify.yaml.
+
+    Args:
+        config (VerifyConfig): Verification config.
+
+    Returns:
+        int: slow_zone_mask_value of the node config when it loads, else config.slow_zone_mask_value.
+    """
+    try:
+        node_config = load_config_from_env()
+    except Exception:  # an unreadable node config falls back to verify.yaml
+        node_config = None
+    return node_config.slow_zone_mask_value if node_config else config.slow_zone_mask_value
 
 
 def keepout_marked(value: int | None, robot_inside: bool) -> bool:
@@ -619,7 +689,7 @@ def summarise(results: Sequence[StepResult]) -> tuple[list[str], int]:
 
 
 class Verifier:
-    """Runs steps 1-6 against the live graph. Creates exactly one publisher (/poi/command); never a velocity one."""
+    """Runs steps 1-7 against the live graph. Creates exactly one publisher (/poi/command); never a velocity one."""
 
     def __init__(self, node: Any, config: VerifyConfig) -> None:
         """Create the publisher, subscriptions, planner client and TF listener.
@@ -634,6 +704,7 @@ class Verifier:
         self.poi_results: list[str] = []
         self.results: list[StepResult] = []
         self.pose: Pose2D | None = None
+        self.slow_value = resolve_slow_value(config)
         self.command_pub = node.create_publisher(String, config.poi_command_topic, VOLATILE_QOS)
         node.create_subscription(String, config.poi_result_topic, self.on_poi_result, VOLATILE_QOS)
         for key, msg_type, topic, qos in (
@@ -931,7 +1002,12 @@ class Verifier:
                 return False
             map_grid, keepout, speed = grids
             problems[:] = mask_problems(
-                grid_geometry(map_grid), grid_geometry(keepout), keepout.data, grid_geometry(speed), speed.data
+                grid_geometry(map_grid),
+                grid_geometry(keepout),
+                keepout.data,
+                grid_geometry(speed),
+                speed.data,
+                self.slow_value,
             )
             return not problems
 
@@ -1046,8 +1122,44 @@ class Verifier:
             return "no /speed_limit message"
         return f"speed_limit {msg.speed_limit}, percentage {msg.percentage}"
 
+    def step_slow_cost(self) -> str:
+        """Step 5: slow zone on the rectangle -> mask holds the slow value, costmap is the non-lethal translation.
+
+        Returns:
+            str: Detail.
+
+        Raises:
+            VerifyError: Any expectation unmet, or the plan fails.
+        """
+        rect = self.rectangle()
+        centre = point_ahead(self.require_pose(), self.config.rect_ahead_m)
+        timeouts = self.config.timeouts
+        value = self.slow_value
+        cost = keepout_cost(value)
+        expected = published_grid_value(cost)
+        poi_id = self.add_zone("slow-cost", "slow", rect, speed_limit_pct=self.config.slow_pct)
+        try:
+            if not self.wait_until(lambda: self.latest_cell("keepout", centre) == value, timeouts.mask_s):
+                raise VerifyError(f"keepout mask centre cell is {self.latest_cell('keepout', centre)}, not {value}")
+            if not self.wait_until(lambda: self.latest_cell("costmap", centre) == expected, timeouts.costmap_s):
+                raise VerifyError(
+                    f"global costmap centre cell is {self.latest_cell('costmap', centre)}, "
+                    f"expected {expected} (cost {cost}), never 99/100"
+                )
+            outcome = self.plan(self.goal(), self.require_pose().yaw)
+            if not outcome.succeeded:
+                raise VerifyError(f"plan through the slow zone failed ({outcome.detail})")
+            crossing = "crosses" if path_crosses_polygon(outcome.points, rect) else "avoids"
+            return (
+                f"mask {value}, costmap {expected} (cost {cost}) at the centre; plan succeeds and {crossing} "
+                f"the slow zone ({outcome.detail})"
+            )
+        finally:
+            self.delete_poi(poi_id)
+            self.wait_until(lambda: self.latest_cell("keepout", centre) != value, timeouts.mask_s)
+
     def step_slow_robot(self) -> str:
-        """Step 5: slow zone around the robot -> /speed_limit slow_pct percent, then 0 after deleting it.
+        """Step 6: slow zone around the robot -> /speed_limit slow_pct percent, then 0 after deleting it.
 
         Returns:
             str: Detail.
@@ -1070,7 +1182,7 @@ class Verifier:
         return f"/speed_limit {pct} % (percentage true), then 0 after delete"
 
     def step_cleanup(self) -> str:
-        """Step 6: delete every prefixed POI; masks back to background and the costmap centre cell no longer 100.
+        """Step 7: delete every prefixed POI; masks back to background and the costmap centre cell no longer 100.
 
         Returns:
             str: Detail.
@@ -1121,7 +1233,7 @@ class Verifier:
         return result
 
     def run(self) -> list[StepResult]:
-        """Remove leftovers of an interrupted run, then steps 1-5, then always step 6.
+        """Remove leftovers of an interrupted run, then steps 1-6, then always step 7.
 
         Returns:
             list[StepResult]: Outcomes in run order.
@@ -1137,9 +1249,10 @@ class Verifier:
             self.run_step(2, "control path", self.step_control)
             self.run_step(3, "keepout ahead", self.step_keepout_ahead)
             self.run_step(4, "keepout around robot", self.step_keepout_robot)
-            self.run_step(5, "slow zone", self.step_slow_robot)
+            self.run_step(5, "slow zone cost", self.step_slow_cost)
+            self.run_step(6, "slow zone", self.step_slow_robot)
         finally:
-            self.run_step(6, "cleanup", self.step_cleanup)
+            self.run_step(7, "cleanup", self.step_cleanup)
         return self.results
 
 
