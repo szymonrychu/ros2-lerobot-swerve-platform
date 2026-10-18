@@ -19,6 +19,8 @@ import PlaceIcon from '@mui/icons-material/Place'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
 import FitScreenIcon from '@mui/icons-material/FitScreen'
+import SaveAsIcon from '@mui/icons-material/SaveAs'
+import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import SaveIcon from '@mui/icons-material/Save'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LayersIcon from '@mui/icons-material/Layers'
@@ -43,7 +45,9 @@ import { goalButtonState } from '../map/goalControl'
 import { anyInRow, splitToolbar, stopGroupIds, TOOLBAR_GROUPS } from '../map/toolbarGroups'
 import { StatusItem } from '../components/StatusItem'
 import { LayersPanel } from '../map/LayersPanel'
-import { MapStatusLine } from '../map/MapStatusLine'
+import { MapStatusLine, mapStatusText } from '../map/MapStatusLine'
+import { MapsDialog, SaveMapAsDialog } from '../map/MapsDialog'
+import { useMapStatus } from '../map/mapsApi'
 import { ToolButton, ToolGroup } from '../components/ToolButton'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { MapSidebar } from '../layout/MapSidebar'
@@ -454,6 +458,10 @@ export default function MapNavTab({
 
   const draftGoal = useMemo(() => (draft ? draftGoalPose(draft, robotPose) : null), [draft, robotPose])
 
+  const { status: mapsStatus, refresh: refreshMaps } = useMapStatus(tab.id)
+  const [mapsOpen, setMapsOpen] = useState(false)
+  const [saveAsOpen, setSaveAsOpen] = useState(false)
+
   const runAction = async (path: string, busyMessage: string) => {
     setAction({ state: 'busy', message: busyMessage })
     try {
@@ -508,7 +516,8 @@ export default function MapNavTab({
       tooltip={robotPose ? undefined : 'No pose in the map frame: the robot is drawn at the origin'}
     />
   )
-  const statusItems = [...hintItems, poseItem]
+  const mapText = mapStatusText(mapsStatus)
+  const statusItems = [...hintItems, poseItem, ...(mapText ? [mapText] : [])]
 
   // POI list, POI editor, photo panel and photo list. Phone: a column spanning the map, so the panels' bottom
   // sheets anchor to its bottom edge (hidden while the layers or grasp sheet is up). Wide: sections of the sidebar.
@@ -704,6 +713,8 @@ export default function MapNavTab({
           {inRow('mapFile') && (
             <ToolGroup label="Map file">
               <ToolButton label="Save map" icon={<SaveIcon />} disabled={busy} onClick={() => void runAction('/api/map/save', 'Saving map...')} />
+              <ToolButton label="Save map as" icon={<SaveAsIcon />} disabled={busy} onClick={() => setSaveAsOpen(true)} />
+              <ToolButton label="Maps" icon={<FolderOpenIcon />} onClick={() => setMapsOpen(true)} />
               <ToolButton label="Reset map" icon={<RestartAltIcon />} disabled={busy} onClick={() => setResetOpen(true)} />
             </ToolGroup>
           )}
@@ -870,6 +881,27 @@ export default function MapNavTab({
                     Save map
                   </MenuItem>,
                   <MenuItem
+                    key="save-as"
+                    disabled={busy}
+                    sx={{ minHeight: TOUCH_TARGET }}
+                    onClick={() => {
+                      closeMore()
+                      setSaveAsOpen(true)
+                    }}
+                  >
+                    Save map as
+                  </MenuItem>,
+                  <MenuItem
+                    key="maps"
+                    sx={{ minHeight: TOUCH_TARGET }}
+                    onClick={() => {
+                      closeMore()
+                      setMapsOpen(true)
+                    }}
+                  >
+                    Maps
+                  </MenuItem>,
+                  <MenuItem
                     key="reset"
                     disabled={busy}
                     sx={{ minHeight: TOUCH_TARGET }}
@@ -998,6 +1030,23 @@ export default function MapNavTab({
         </Box>
         {!narrow && sidebarOpen && <MapSidebar>{panels}</MapSidebar>}
       </Box>
+      <SaveMapAsDialog
+        open={saveAsOpen}
+        tabId={tab.id}
+        existing={(mapsStatus?.maps ?? []).map((m) => m.name)}
+        onClose={() => setSaveAsOpen(false)}
+        onSaved={(result) => {
+          setAction(result)
+          void refreshMaps()
+        }}
+      />
+      <MapsDialog
+        open={mapsOpen}
+        tabId={tab.id}
+        status={mapsStatus}
+        onClose={() => setMapsOpen(false)}
+        onChanged={() => void refreshMaps()}
+      />
       <ConfirmDialog
         open={resetOpen}
         title="Reset map?"

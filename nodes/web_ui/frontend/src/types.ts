@@ -93,3 +93,39 @@ export interface AppConfig {
   tabs: TabConfig[]
   overlays: OverlayItem[]
 }
+
+/** A 2D pose in the map frame (map_manager Pose2D). */
+export interface MapPose {
+  x: number
+  y: number
+  yaw: number
+}
+
+export type LocalisationState = 'unknown' | 'loading' | 'localised' | 'not_localised' | 'ambiguous'
+
+export interface MapLocalisation {
+  state: LocalisationState
+  ratio: number | null
+  pose: MapPose | null
+  message: string
+  updated_at: number | null
+}
+
+/** One saved named map as listed by GET /api/maps. */
+export interface MapSummary {
+  name: string
+  saved_at: number
+  note: string
+  poi_count: number
+  last_pose: MapPose
+  valid: boolean
+  error: string
+}
+
+/** The latched map_manager status served by GET /api/maps. */
+export interface MapStatus {
+  maps: MapSummary[]
+  active_map: string | null
+  load_seq: number
+  localisation: MapLocalisation
+}

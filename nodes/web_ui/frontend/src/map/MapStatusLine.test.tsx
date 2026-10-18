@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
-import { MapStatusLine } from './MapStatusLine'
+import { MapStatusLine, mapStatusText } from './MapStatusLine'
+import type { MapStatus } from '../types'
 import { StatusItem } from '../components/StatusItem'
 import { designViolations, SOURCES } from '../layout/designRules'
 import { theme } from '../theme'
@@ -50,5 +51,44 @@ describe('MapStatusLine', () => {
 
   it('MapStatusLine.tsx has no design violations', () => {
     expect(designViolations('map/MapStatusLine.tsx', SOURCES['map/MapStatusLine.tsx'])).toEqual([])
+  })
+})
+
+const STATUS: MapStatus = {
+  maps: [],
+  active_map: 'lab',
+  load_seq: 1,
+  localisation: { state: 'localised', ratio: 0.9, pose: null, message: '', updated_at: 1 },
+}
+const withLoc = (state: MapStatus['localisation']['state'], message = '', active: string | null = 'lab'): MapStatus => ({
+  ...STATUS,
+  active_map: active,
+  localisation: { ...STATUS.localisation, state, message },
+})
+
+describe('mapStatusText', () => {
+  it('shows nothing before a status arrives', () => {
+    expect(mapStatusText(undefined)).toBeNull()
+  })
+
+  it('says localised on the active map', () => {
+    expect(mapStatusText(STATUS)).toBe('Localised on lab')
+  })
+
+  it('says not localised with the reason, also when ambiguous', () => {
+    expect(mapStatusText(withLoc('not_localised', 'scan does not match'))).toBe('Not localised on lab: scan does not match')
+    expect(mapStatusText(withLoc('ambiguous', 'two candidates'))).toBe('Not localised on lab: two candidates')
+  })
+
+  it('explains a discarded map', () => {
+    expect(mapStatusText(withLoc('not_localised', 'map discarded', null))).toBe(
+      'Map cleared after the robot was moved; load a saved map',
+    )
+  })
+
+  it('shows loading and the bare active map for unknown', () => {
+    expect(mapStatusText(withLoc('loading'))).toBe('Loading lab')
+    expect(mapStatusText(withLoc('unknown'))).toBe('Map lab')
+    expect(mapStatusText(withLoc('unknown', '', null))).toBeNull()
   })
 })

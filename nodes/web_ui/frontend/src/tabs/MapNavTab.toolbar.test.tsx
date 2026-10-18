@@ -48,9 +48,17 @@ const PHOTOS: PhotoLayerData = { photos: [], total: 0, error: null }
 const RUNNING = { '/web_ui/grasp_result': { request_id: 'r1', state: 'running', action: 'execute' } }
 
 const fetchMock = vi.fn()
+let mapsStatus: unknown = null
+const MAPS_STATUS = {
+  maps: [{ name: 'lab', saved_at: 1700000000, note: '', poi_count: 3, last_pose: { x: 1, y: 2, yaw: 0 }, valid: true, error: '' }],
+  active_map: 'lab',
+  load_seq: 1,
+  localisation: { state: 'localised', ratio: 0.9, pose: null, message: '', updated_at: 1 },
+}
 
 beforeEach(() => {
   viewportWidth = 1000
+  mapsStatus = null
   vi.stubGlobal('matchMedia', matchMediaStub)
   window.matchMedia = matchMediaStub
   const store = new Map<string, string>()
@@ -64,6 +72,11 @@ beforeEach(() => {
   })
   fetchMock.mockReset()
   fetchMock.mockResolvedValue({ status: 200, json: async () => ({ ok: true }) })
+  fetchMock.mockImplementation(async (url: string, init?: { method?: string }) =>
+    init?.method !== 'POST' && url.startsWith('/api/maps?') && mapsStatus
+      ? { status: 200, json: async () => mapsStatus }
+      : { status: 200, json: async () => ({ ok: true }) },
+  )
   vi.stubGlobal('fetch', fetchMock)
 })
 afterEach(() => {
@@ -190,6 +203,50 @@ describe('map toolbar controls', () => {
     await renderTab()
     fireEvent.click(screen.getByRole('button', { name: 'More map controls' }))
     expect(within(screen.getByRole('menu')).getByText('Save map')).toBeTruthy()
+  })
+})
+
+describe('named maps toolbar', () => {
+  it('shows no map status before the first status arrives', async () => {
+    await renderTab()
+    expect(screen.getByTestId('map-status-line').textContent).not.toMatch(/Localised|localised/)
+  })
+
+  it('shows the localisation state in the status line once polled', async () => {
+    mapsStatus = MAPS_STATUS
+    await renderTab()
+    await waitFor(() => expect(screen.getByTestId('map-status-line').textContent).toContain('Localised on lab'))
+  })
+
+  it('Save map as asks for a name, then posts the save with the tab id', async () => {
+    await renderTab()
+    fireEvent.click(screen.getByRole('button', { name: 'Save map as' }))
+    fireEvent.change(screen.getByLabelText('Map name'), { target: { value: 'garage' } })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(posted('/api/maps/save?tab=map')).toBe(true))
+  })
+
+  it('Maps opens the dialog listing the saved maps', async () => {
+    mapsStatus = MAPS_STATUS
+    await renderTab()
+    await waitFor(() => expect(screen.getByTestId('map-status-line').textContent).toContain('lab'))
+    fireEvent.click(screen.getByRole('button', { name: 'Maps' }))
+    expect(await screen.findByText('3 POIs', { exact: false })).toBeTruthy()
+  })
+
+  it('Save map keeps posting the old save', async () => {
+    await renderTab()
+    fireEvent.click(screen.getByRole('button', { name: 'Save map' }))
+    await waitFor(() => expect(posted('/api/map/save?tab=map')).toBe(true))
+  })
+
+  it('the phone overflow menu holds Save map as and Maps', async () => {
+    viewportWidth = 400
+    await renderTab()
+    fireEvent.click(screen.getByRole('button', { name: 'More map controls' }))
+    const menu = within(screen.getByRole('menu'))
+    expect(menu.getByText('Save map as')).toBeTruthy()
+    expect(menu.getByText('Maps')).toBeTruthy()
   })
 })
 
