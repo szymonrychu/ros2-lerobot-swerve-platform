@@ -133,7 +133,7 @@ class TopicSettings(StrictModel):
     compute_path_action: str = "/compute_path_to_pose"  # Nav2 planner_server, checks one frontier observation pose
     planner_id: str = "GridBased"  # planner_server plugin id used by compute_path_action
     gripper_camera: str = "/camera_0/image_raw/compressed"
-    front_camera: str = "/overview_camera/image_raw/compressed"
+    front_camera: str = "/front_camera/image_raw/compressed"
     local_costmap: str = "/local_costmap/costmap"  # subscribed lazily by get_topdown_view, latest message only
     plan: str = "/plan"  # Nav2 global plan (nav_msgs/Path)
     poi_list: str = "/poi/list"  # poi_store, latched JSON {pois, revision}

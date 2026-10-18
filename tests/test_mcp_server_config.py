@@ -779,37 +779,33 @@ def test_claude_agent_nav_tolerances_match_mcp_server() -> None:
     assert agent["nav_intermediate_yaw_tolerance_deg"] == pytest.approx(nav["intermediate_yaw_tolerance_deg"])
 
 
-def test_mcp_server_front_camera_is_the_compressed_overview_camera() -> None:
-    """mcp_server's `front` camera reads the overhead camera's JPEG stream (sensor_msgs/CompressedImage)."""
+def test_mcp_server_front_camera_is_the_compressed_front_camera() -> None:
+    """mcp_server's `front` camera reads the pi_cameras front Camera Module 3 JPEG stream (CompressedImage)."""
     topics = node_config("mcp_server").get("topics", {})
-    assert topics["front_camera"] == "/overview_camera/image_raw/compressed"
+    assert topics["front_camera"] == "/front_camera/image_raw/compressed"
     assert "realsense_camera" not in topics
 
 
 def test_mcp_server_states_no_hardcoded_front_camera_size() -> None:
-    """The front camera is now the left IMX219 at 480x360: tool descriptions name no size, the READMEs say 480x360."""
+    """Tool descriptions name no size; the mcp_server README gives 640x480 for the front camera."""
     tools_source = (REPO_ROOT / "nodes" / "mcp_server" / "mcp_server" / "tools.py").read_text()
     assert "overhead camera (640x480)" not in tools_source
     assert "front of the robot, 640x480" not in tools_source
     mcp_readme = (REPO_ROOT / "nodes" / "mcp_server" / "README.md").read_text()
     assert "640x480 for both" not in mcp_readme
-    assert "480x360" in mcp_readme
-    web_readme = (REPO_ROOT / "nodes" / "web_ui" / "README.md").read_text()
-    assert "/stereo/depth/image_raw" in web_readme and "stereo_depth" in web_readme
-    assert "480x360, 5 Hz" in web_readme and "640x480, 15 Hz" not in web_readme
+    assert "640x480" in mcp_readme
 
 
-def test_mcp_server_get_camera_image_docs_name_the_imx219_left_camera() -> None:
-    """No text calls the front camera a 640x480 Camera Module 3, and calibrated_image is not given as 640x480 here."""
+def test_mcp_server_get_camera_image_docs_name_the_front_camera_module_3() -> None:
+    """The get_camera_image row names Camera Module 3 at 640x480; no mcp_server text names IMX219 or 480x360."""
     mcp_dir = REPO_ROOT / "nodes" / "mcp_server"
     texts = {str(p): p.read_text() for p in [mcp_dir / "README.md", *(mcp_dir / "mcp_server").glob("*.py")]}
     for name, text in texts.items():
-        assert "Camera Module 3" not in text, name
-        assert "640x480 overhead" not in text, name
-        assert "640x480 here" not in text, name
+        assert "IMX219" not in text, name
+        assert "480x360" not in text, name
     readme_lines = texts[str(mcp_dir / "README.md")].splitlines()
     row = next(line for line in readme_lines if line.startswith("| `get_camera_image("))
-    assert "IMX219" in row and "480x360" in row
+    assert "Camera Module 3" in row and "640x480" in row
 
 
 def test_mcp_gripper_closed_target_is_inside_the_follower_gripper_command_range() -> None:

@@ -1693,8 +1693,8 @@ ros2_nodes:
         port: 18200
         path: /mcp
       topics:
-        # Front camera: the overview camera (left IMX219, 480x360 at 5 fps) looking down at the front of the robot.
-        front_camera: /overview_camera/image_raw/compressed
+        # Front camera: the pi_cameras front Camera Module 3 (640x480 at 10 fps).
+        front_camera: /front_camera/image_raw/compressed
         # Body monitor feeds (get_body_state, /robot_events): servo register dump, swerve odom (twist covariance = slip
         # residual), rf2o twist, BNO055 IMU.
         servo_registers: /follower/servo_registers

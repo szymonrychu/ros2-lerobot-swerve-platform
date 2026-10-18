@@ -431,7 +431,7 @@ def test_camera_tool_offers_the_overhead_front_camera_not_realsense_or_stereo(se
     assert "front" in schema and "realsense" not in schema.lower()
     text = (tool.description or "") + schema
     assert "overhead" in text and "gripper-to-object" in text
-    assert "640x480" not in text, "no hardcoded front camera size (the IMX219 pair streams 480x360)"
+    assert "640x480" not in text, "no hardcoded front camera size (the front camera streams its own size)"
     assert "stereo" not in text.lower() and "/stereo" not in text
     with pytest.raises(ToolError):
         call(server, "get_camera_image", {"camera": "realsense"})
