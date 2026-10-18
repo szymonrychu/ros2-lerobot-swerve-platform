@@ -68,6 +68,10 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `cancel_motions` | Uncapped control: drop the pending steps and abort the running one (base zeroed, arm held when a motion step runs). |
 | `wait_for_event(timeout_s, until='queue_empty', since_seq)` | Sensor: block until the queue drains or something relevant happens; returns the new events, the queue status and a compact state digest. |
 | `clear_pois(creator='agent', kinds=None, include_zones=False)` | Clears POIs in one call through `poi_store` `clear`: `creator` agent (default) / user / all (all sends no `created_by`), `kinds` subset of point/area/object, zones kept unless `include_zones=true` (`keep_zones`). The person's POIs or zones only when the person asked; photos are never cleared. Returns `{"removed": n}`. Sensor, no motion. |
+| `save_map(name, overwrite=false, note='')` | Saves the current map, its POIs and the last robot pose as the named map `name` through `map_manager`. Refuses an existing name unless `overwrite`. Errors when map_manager is down or the name breaks the rule. No motion. |
+| `list_maps` | Saved maps (name, saved_at, note, poi_count, last_pose, valid), the active map and the localisation (state, ratio, pose). Sensor, read-only; errors until map_manager has published a status. |
+| `load_map(name, x=None, y=None, yaw=None)` | Loads the named map (the current map and POIs are first kept as `autosave`) and relocalises; returns the verdict (state, ratio, pose, reason). Calls stop first (halts the motion queue and zeroes the base); that is the only motion, no servo moves. Pose hint needs x, y and yaw together. Not navigable unless the state is `localised`. Consent default: none needed, but the load replaces the live map and POIs, so do it only when asked. |
+| `delete_map(name, confirm=false)` | Deletes a saved map and its POIs for good. Consent default: `confirm=false`, nothing is sent until the person agreed and the call repeats with `confirm=true`. No motion. |
 | `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. Areas can carry a Nav2 zone: `add_poi` / `update_poi` take `zone` (`none` / `keepout` / `slow`, `none` removes it) and `speed_limit_pct` (int 10..100, required for `slow`, refused for any other zone); `list_pois` returns both on every view. `keepout`: Nav2 will not plan or drive into the area (the robot can leave if it is inside; never set a goal inside). `slow`: MPPI speed cap while the robot centre is inside. A zone is active only while the POI status is `open`. A zone on a point, `slow` without a percentage, or a percentage with another zone is refused before the request. Agent zones are session-scoped (agent POIs are cleared at each new session). See [POI zones](#poi-zones). |
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
@@ -2587,3 +2591,30 @@ Deploy: `./scripts/deploy-nodes.sh client mcp_server` (a `--tags mcp_server` run
 - Active only while `status` is `open`; `done` / `cancelled` switch the zone off and keep the record.
 - Zones created by the agent are session-scoped: agent POIs are removed at the next session start.
 - Client-side checks mirror `poi_store` and raise `ValueError` before any request: zone on a point, `slow` without a percentage, percentage with a zone other than `slow`.
+
+## Named maps
+
+`save_map`, `list_maps`, `load_map` and `delete_map` talk to the `map_manager` node (`nodes/map_manager`) over three
+topics, configured under `maps:` and equal to the map_manager entry in `ansible/group_vars/client.yml`
+(`tests/test_mcp_server_config.py` checks it): `command` (`/map_manager/command`, std_msgs/String JSON), `result`
+(`/map_manager/result`) and `status` (`/map_manager/status`, latched, the saved maps, active map and localisation).
+
+```yaml
+maps:
+  command: /map_manager/command
+  result: /map_manager/result
+  status: /map_manager/status
+  save_timeout_s: 30.0     # wait for the save result
+  load_timeout_s: 120.0    # wait for the load result (after the relocalisation verdict)
+  delete_timeout_s: 10.0
+```
+
+- A named map bundles the slam_toolbox graph, the POIs and the last robot pose. `clear_pois` (above) empties the POI set
+  alone, by default only the agent's own POIs and without zones.
+- None of the map tools moves a servo or drives the base. `load_map` stops the robot first (motion queue halted, base
+  zeroed) because the map under it is replaced; the stop is its only motion.
+- Consent defaults: `save_map` refuses an existing name unless `overwrite=true`; `delete_map` sends nothing without
+  `confirm=true`, which the agent sets only after the person agreed; `clear_pois` clears only creator `agent` unless
+  the person asked for more.
+- After `load_map`, navigate only when the verdict state is `localised`; otherwise retry with a pose hint or tell the
+  person.

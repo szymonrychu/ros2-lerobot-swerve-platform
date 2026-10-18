@@ -2075,6 +2075,15 @@ ros2_nodes:
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0
+      # Named map tools (save_map, list_maps, load_map, delete_map; nodes/mcp_server/README.md, "Named maps"): topics equal
+      # the map_manager entry's command_topic, result_topic and status_topic (tests/test_mcp_server_config.py checks it).
+      maps:
+        command: /map_manager/command
+        result: /map_manager/result
+        status: /map_manager/status
+        save_timeout_s: 30.0
+        load_timeout_s: 120.0
+        delete_timeout_s: 10.0
       # Auto stuck points (nodes/mcp_server/README.md, "Auto stuck points" and "poi_hint nudge"): collision_stop and Nav2
       # aborts drop a point POI at the robot pose; hint_after_images camera / look_around results without a POI write
       # add a poi_hint to the result.

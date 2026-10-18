@@ -1034,3 +1034,36 @@ def test_gen_reach_map_check_passes_on_committed_artifact() -> None:
         ["uv", "run", "python", str(REACH_MAP_SCRIPT), "--check"], cwd=REPO_ROOT, capture_output=True, text=True
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_mcp_server_maps_section_validates_and_matches_map_manager_topics() -> None:
+    """client.yml mcp_server `maps:` validates and uses the topics map_manager is configured with."""
+    pytest.importorskip("pydantic")
+    sys.path[:0] = [str(REPO_ROOT / "nodes" / "mcp_server"), str(REPO_ROOT / "shared")]
+    try:
+        from mcp_server.config import McpServerConfig
+
+        raw = node_config("mcp_server")
+        cfg = McpServerConfig.model_validate(raw)
+    finally:
+        del sys.path[:2]
+    manager = node_config("map_manager")
+    assert raw["maps"]["command"] == manager["command_topic"]
+    assert raw["maps"]["result"] == manager["result_topic"]
+    assert raw["maps"]["status"] == manager["status_topic"]
+    assert (cfg.maps.command, cfg.maps.result, cfg.maps.status) == (
+        manager["command_topic"],
+        manager["result_topic"],
+        manager["status_topic"],
+    )
+    for key in ("save_timeout_s", "load_timeout_s", "delete_timeout_s"):
+        assert raw["maps"][key] > 0
+
+
+def test_mcp_server_readme_documents_the_named_map_tools() -> None:
+    """The README tool table lists the four map tools (and delete_map) and has a `## Named maps` section."""
+    text = (NODE_DIR / "README.md").read_text()
+    rows = [line for line in text.splitlines() if line.startswith("| `")]
+    for tool in ("save_map", "list_maps", "load_map", "clear_pois", "delete_map"):
+        assert any(row.startswith(f"| `{tool}") for row in rows), tool
+    assert "\n## Named maps\n" in text
