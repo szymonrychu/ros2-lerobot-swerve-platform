@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import signal
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -19,6 +20,7 @@ from web_ui.config import AppConfig, TabConfig
 
 CMD = "/head/joint_commands"
 MSG_TYPE = "sensor_msgs/JointState"
+WS_REPLY_TIMEOUT_S = 15
 
 
 def head_tab(**kw: Any) -> TabConfig:
@@ -85,6 +87,20 @@ def make_guard(voltage: float | None) -> BatteryGuard | None:
     guard = BatteryGuard(cells=3, cutoff_cell_v=2.8, resume_cell_v=3.0, stale_s=10.0)
     guard.update(voltage)
     return guard
+
+
+@pytest.fixture(autouse=True)
+def fail_instead_of_hanging() -> Any:
+    """A missing WS reply blocks receive_json forever; turn that into a test failure."""
+
+    def on_alarm(_signum: int, _frame: Any) -> None:
+        raise TimeoutError("no WebSocket reply within WS_REPLY_TIMEOUT_S")
+
+    previous = signal.signal(signal.SIGALRM, on_alarm)
+    signal.alarm(WS_REPLY_TIMEOUT_S)
+    yield
+    signal.alarm(0)
+    signal.signal(signal.SIGALRM, previous)
 
 
 @pytest.fixture
