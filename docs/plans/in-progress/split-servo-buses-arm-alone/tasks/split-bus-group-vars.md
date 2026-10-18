@@ -1,6 +1,6 @@
 ---
 title: Split bus group vars
-status: escalated
+status: blocked
 repo: ros2-lerobot-sverve-platform
 value: "The arm owns its bus and the swerve servos run in their own bridge on the second adapter, with every consumer wired to it."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_servo_bus_split_config.py, tests/test_node_metrics_wiring.py, tests/test_battery_config.py, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/split-servo-buses-arm-alone--split-bus-group-vars
 branch: split-servo-buses-arm-alone--split-bus-group-vars
-verified_head: ""
+verified_head: e51e4a6f6a1673d8c02da31e1bce30c86b303099
 run: split-servo-buses-arm-alone
 provides: []
 acs_for_audit: []
