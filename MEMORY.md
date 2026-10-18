@@ -210,7 +210,7 @@
 
 ## Head ToF 3D obstacles (2026-10-19)
 
-- **Decision**: the head ToF depth becomes obstacles and cliffs through `tof_obstacle_cloud` (rtabmap_util `point_cloud_xyz`, `/tof/points`), the `laser_filter` self filter (`/tof/points_filtered`), an STVL `tof_voxel_layer` in the local costmap only, and two collision_monitor pointcloud sources (`tof_obstacles` into StopBox, `tof_cliff` into CliffStop).
+- **Decision**: the head ToF depth becomes obstacles and cliffs through `tof_obstacle_cloud` (rtabmap_util `point_cloud_xyz`, `/tof/points`), the `laser_filter` self filter (`/tof/points_filtered`), an STVL (`spatio_temporal_voxel_layer`) `tof_voxel_layer` in the local costmap only, and two collision_monitor pointcloud sources (`tof_obstacles` into StopBox, `tof_cliff` into CliffStop).
 - **Height bands, not obstacles_detection**: floor and overhang are separated by fixed bands in base_link (obstacles 6 cm to 0.6 m, cliffs -1 m to -10 cm; STVL and collision monitor use the same numbers), not by rtabmap's `obstacles_detection`; the head TF comes from the pan/tilt joint states.
 - **Lidar layers stay separate**: the lidar `obstacle_layer` keeps its own grid, so ToF clearing never erases lidar cells (U5); slam_toolbox keeps `map -> odom` and no ToF node publishes TF.
 - **Fail-safe**: a ToF or head-TF outage makes the collision_monitor sources invalid and stops motion; `tof_obstacles.enabled` and `tof_cliff.enabled` are runtime switches.
