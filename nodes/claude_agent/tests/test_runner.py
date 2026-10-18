@@ -22,6 +22,7 @@ from claude_agent_sdk import (
 from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig, MissingTokenError
 from claude_agent.events import EventLog
 from claude_agent.poi_clear import PoiClearResult
+from claude_agent.retrospectives import RETRO_RELPATH
 from claude_agent.retry_ledger import RETRY_LEDGER_RELPATH
 from claude_agent.robot_stop import RobotToolResult
 from claude_agent.runner import AgentRunner, build_child_env, build_options
@@ -201,12 +202,18 @@ def make_runner(
     probe_result: str | None = None,
     tool_caller: FakeToolCaller | None = None,
     config_ledger: bool = False,
+    retro_followup: bool = False,
+    retro_feed: bool = False,
 ):
+    """Runner with a scripted FakeClient; the RETROSPECTIVE follow-up and the RECENT RETROSPECTIVES feed are off unless
+    asked for (tests/test_retro_followup.py covers them), so the prompts of the other tests stay as they are."""
     FakeClient.instances.clear()
     FakeClient.status_scripts = statuses or []
     token = tmp_path / "token"
     token.write_text("MCP_SERVER_TOKEN=secret-mcp\n")
-    cfg = config or ClaudeAgentConfig(mcp_token_file=str(token))
+    cfg = (config or ClaudeAgentConfig(mcp_token_file=str(token))).model_copy(update={"retro_followup": retro_followup})
+    if not retro_feed:
+        cfg = cfg.model_copy(update={"retro_feed_count": 0})
     events = EventLog(100)
 
     def factory(options: ClaudeAgentOptions) -> FakeClient:
@@ -225,6 +232,7 @@ def make_runner(
         mcp_prober=FakeProber(probe_result),
         robot_tool_caller=tool_caller or FakeToolCaller(),
         retry_ledger_path=None if config_ledger else tmp_path / RETRY_LEDGER_RELPATH,
+        retro_store_path=tmp_path / RETRO_RELPATH,
     )
     return runner, events, cfg
 
@@ -286,6 +294,7 @@ async def test_instruction_flow_emits_events(tmp_path: Path) -> None:
         "tool_result",
         "assistant_text",
         "state",
+        "retrospective_recorded",
         "turn_end",
         "state",
     ]

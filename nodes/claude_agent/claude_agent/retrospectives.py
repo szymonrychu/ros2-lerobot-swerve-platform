@@ -176,6 +176,24 @@ class RetroStore:
             tmp.replace(self.path)
         return record
 
+    def replace(self, record: Retrospective) -> Retrospective:
+        """Replace the stored record with the same id (atomic rewrite, position kept); append it when there is none.
+
+        Args:
+            record (Retrospective): The new version of the record.
+
+        Returns:
+            Retrospective: The stored record.
+        """
+        records = self.read_all()
+        if not any(r.id == record.id for r in records):
+            return self.append(record)
+        updated = [record if r.id == record.id else r for r in records]
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text("".join(r.model_dump_json() + "\n" for r in updated), encoding="utf-8")
+        tmp.replace(self.path)
+        return record
+
     def list(self, limit: int, before: float | None = None) -> list[Retrospective]:
         """Return records newest first.
 

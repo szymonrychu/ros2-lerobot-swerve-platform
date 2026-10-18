@@ -270,9 +270,11 @@ async def test_runner_records_session_tools_from_init_and_feeds_the_plan_tools(t
     captured: dict[str, Any] = {}
     real = runner_module.build_plan_server
 
-    def recording(tracker: PlanTracker, robot_tool_caller: Any = None, session_tools: Any = None) -> Any:
+    def recording(
+        tracker: PlanTracker, robot_tool_caller: Any = None, session_tools: Any = None, retro_sink: Any = None
+    ) -> Any:
         captured["session_tools"] = session_tools
-        return real(tracker, robot_tool_caller, session_tools)
+        return real(tracker, robot_tool_caller, session_tools, retro_sink)
 
     monkeypatch.setattr(runner_module, "build_plan_server", recording)
     init = SystemMessage(subtype="init", data={"tools": [HEAD_TOOL, "mcp__agent__start_workflow", "Read"]})
