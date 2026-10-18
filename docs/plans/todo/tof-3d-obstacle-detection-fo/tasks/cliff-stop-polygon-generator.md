@@ -59,16 +59,22 @@ Test first: new tests in `tests/test_nav_footprint.py` fail before the generator
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `cliffstop-polygon`: the `cliffstop` marker region written by `scripts/gen_nav_footprint.py` into
+  `collision_monitor.CliffStop.points`; consumed by collision-monitor-tof-stop, which lists `CliffStop` in `polygons`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`python -m scripts.gen_nav_footprint` (or the repo's documented invocation) rewrites the CliffStop points from the body
+model; the polygon block exists but does not change runtime behaviour yet.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Add failing tests to `tests/test_nav_footprint.py`; run `uv run pytest tests/test_nav_footprint.py -q`.
+- Extend Settings, `generate`, `region_lines`/`render_nav2`; add the CliffStop block with empty markers; run the
+  generator to fill it; rerun the verify command.
+- README + tests/README; commit `feat(nav2): generated CliffStop polygon (footprint + cliff margin)`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Never hand-edit generated regions; the markers are `# >>> gen_nav_footprint: cliffstop` / `# <<< ...`.
+- Jazzy rejects polygons with <= 3 points and one bad polygon aborts the whole nav2 bringup (existing comment).

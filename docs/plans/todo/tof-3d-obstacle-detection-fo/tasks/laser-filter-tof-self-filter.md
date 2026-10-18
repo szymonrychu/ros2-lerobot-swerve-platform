@@ -78,16 +78,27 @@ Test first: `nodes/laser_filter/tests/test_cloud_filter.py` fails before the cod
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Topic `/tof/points_filtered` (PointCloud2 xyz float32, frame and stamp of `/tof/points`): contract
+  `tof-points-filtered-topic`, defined by `cloud_filtered_topic` in `nodes/laser_filter/config/footprint_filter.yaml`.
+- `laser_filter.self_filter.cloud_self_mask(points_base, polygon, max_height_m) -> np.ndarray[bool]`.
+- Existing runtime parameter `polygon` (set by mcp_server `footprint.py`) is the only polygon source; unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`/tof/points_filtered` carries the ToF points minus the robot itself (body, parked or released arm, carried object),
+stamped with the ToF capture time, while `/scan_filtered` keeps its rate.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_cloud_filter.py`; `cd nodes/laser_filter && uv run --frozen pytest tests/test_cloud_filter.py -q`
+  fails (missing function / config fields).
+- Implement `cloud_self_mask` and the transform helper, then the config fields, then the node wiring; rerun tests.
+- Update the client.yml apt list and the root wiring test; run the verify command.
+- README section; commit `feat(laser_filter): self-filter the ToF cloud with the runtime self polygon`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Reuse `parse_polygon`, `apply_polygon_param`, `quaternion_matrix` and the prepared polygon already in
+  `self_filter.py`; do not add a second polygon parameter (mcp_server keeps setting only `polygon`).
+- The head TF moves: never cache the cloud transform (the scan's static transform cache stays as it is).
+- rclpy TransformListener already subscribes /tf and /tf_static; keep one Buffer.

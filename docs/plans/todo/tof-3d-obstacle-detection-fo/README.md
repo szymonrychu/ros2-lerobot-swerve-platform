@@ -1,6 +1,6 @@
 ---
 title: ToF 3D obstacle detection for Nav2
-blockers: [Pan tilt head control with agent and web UI]
+blockers: [Pan tilt head control with agent and web UI, Head camera 30 fps stream with full-res zoom, Remove the Jetson coprocessor]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -36,7 +36,9 @@ Nav2 sees only the 2D lidar today. The head ToF (240x180 depth, ~10 Hz, up to 4 
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+
+
+Estimate: 650 min | Actual: 0 min | Remaining estimate: 650 min
 
 ## Review
 

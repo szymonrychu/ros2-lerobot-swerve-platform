@@ -57,16 +57,57 @@ Test first: `tests/test_tof_obstacle_wiring.py` is written and seen failing on a
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- None new; `tests/test_tof_obstacle_wiring.py`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+All suites green with an end-to-end wiring check; the orchestrator deploys and verifies on the robot with the runbook.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+Implementer:
+- Write `tests/test_tof_obstacle_wiring.py`; run `uv run pytest tests/test_tof_obstacle_wiring.py -q`; fix real breaks;
+  add the cpu-compare entries and the MEMORY.md line; run the full verify command and quote each summary line; commit
+  `test: ToF obstacle pipeline wiring`.
+
+Orchestrator runbook (after merge, robot reachable; every deploy via the ansible-deploy skill, logged to `.logs/`):
+1. Preconditions: pan/tilt epic deployed (`/head/joint_states` live, `tof_optical_frame` in TF: ansible ad-hoc
+   `ros2 run tf2_ros tf2_echo base_link tof_optical_frame` for 3 s, no manual SSH); ToF streaming: Grafana MCP
+   `rate(tof_frames_published_total{host="client"}[1m])` about 10. If either fails, stop and report the robot steps
+   pending on it.
+2. CPU before: note `date +%s` as switch time; record 30 min of `rate(container_cpu_usage_seconds_total{host="client",
+   id="/system.slice/<unit>"}[1m])` for ros2-nav2_bringup, ros2-laser_filter, ros2-arducam_tof (robot idle, nodes up),
+   and client total CPU from the "Robot resources" dashboard panel query.
+3. Check no agent session is running (claude_agent `GET http://client.ros2.lan:18300/api/state`); if one is, ask before
+   deploying mcp_server. Deploy: `./scripts/deploy-nodes.sh client tof_obstacle_cloud laser_filter nav2_bringup 2>&1 |
+   tee .logs/deploy-client-tof-obstacles.log`, then `./scripts/deploy-nodes.sh client web_ui mcp_server 2>&1 | tee
+   .logs/deploy-client-tof-consumers.log`. Units active; nav2 lifecycle active (no STVL plugin load error in journal via
+   the deploy log / Loki).
+4. Rates (topic_scraper_api enabled per CLAUDE.md, `scripts/topic_scraper_collect.py --source
+   client=http://client.ros2.lan:18100 --select /tof/points_filtered:.header.stamp --select /scan_filtered:.header.stamp
+   --interval 0.1`): `/tof/points_filtered` about 10 Hz, `/scan_filtered` unchanged rate.
+5. FOV: read `/tof/camera_info` fx, fy (scraper); compute hfov/vfov; if below 1.0 / 0.78 rad, lower the STVL FOV, commit,
+   redeploy nav2_bringup.
+6. Empty floor: robot stationary, head home pose, 60 s: no ToF cells in `/local_costmap/costmap` on the floor ahead and
+   no CliffStop/StopBox action in `/collision_monitor_state` (web UI 3D obstacles layer on, Map tab, Claude in Chrome
+   screenshot).
+7. Above the lidar plane: a box edge or table top at 0.3-0.5 m height, 1.0 m ahead (nothing at 0.20 m): cells appear in
+   the local costmap within 1 s (agent `get_topdown_view` costmap layer and `get_map_summary.obstacles_3d`); remove it:
+   cells gone within ~15 s. Below the lidar plane: an object 5-15 cm high: same check.
+8. Lidar survival (U5): a lidar-visible obstacle outside the ToF view (behind the robot) stays marked while the ToF
+   looks at empty space for 30 s.
+9. Cliff at low speed: with a spotter and a physical stop, approach a 10-20 cm step down (or a platform edge) with the
+   head in home pose at <= 0.1 m/s (Nav2 goal beyond the edge or `move_relative` with speed limit): the robot stops
+   before the front reaches the edge (CliffStop in `/collision_monitor_state`); a backward command still moves it.
+10. Outage: `ros2 param set /collision_monitor tof_obstacles.enabled false` and true again works; stopping arducam_tof
+    stops Nav2 motion ("invalid source") and restarting it resumes.
+11. CPU after: from switch + 10 min, 30 min windows as in step 2 plus ros2-tof_obstacle_cloud; run `uv run python -m
+    scripts.node_cpu_compare` with the switch time set (local edit, not committed); added CPU (new unit + deltas) <= 0.15
+    core mean and EKF `/odometry/filtered` still ~30 Hz; record the table in the record. If over budget, report with the
+    numbers (do not tighten cgroups).
+12. Disable topic_scraper_api again if it was disabled before.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- A failing suite owned by pre-existing work is cleared per the boy-scout rule, not reported as this task's failure.
+- If the robot is offline, runbook steps are reported pending on the robot, with everything else done.

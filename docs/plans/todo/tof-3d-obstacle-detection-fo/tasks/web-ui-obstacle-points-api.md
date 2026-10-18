@@ -62,16 +62,22 @@ Test first: `nodes/web_ui/tests/test_obstacle_points.py` fails before the code e
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `obstacle-points-payload` (defined in `nodes/web_ui/web_ui/msg_serializer.py`): role `cloud` -> `{stamp: float,
+  frame: str, frame_pose: {x, y, z, qx, qy, qz, qw}, points: number[] (x,y,z repeated)}`; role `scan_points` -> same
+  with `points` (x,y repeated). Consumed by web-ui-obstacle-points-layer.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+With the layer requested by a browser, the WS stream carries the ToF cloud (<= 2000 points) and lidar points (<= 720)
+with their map poses; with no viewer, nothing is subscribed.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_obstacle_points.py`; `cd nodes/web_ui && uv run --frozen pytest tests/test_obstacle_points.py -q` fails.
+- Add serialisers, config fields/roles, bridge wiring; rerun; run the verify command.
+- README; commit `feat(web_ui): obstacle cloud and lidar points roles for the 3D map`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Reuse `downsample_points`, `transform_to_pose_dict` and the existing costmap TF-to-map handling in `bridge.py`.
+- web_ui stays Python (auto-memory); keep serialisation lazy like the other on-demand roles.

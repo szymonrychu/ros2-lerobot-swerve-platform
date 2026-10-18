@@ -74,16 +74,28 @@ Test first: write `tests/test_tof_obstacle_cloud_config.py` and see it fail befo
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Topic `/tof/points` (sensor_msgs/PointCloud2, xyz float32, frame `tof_optical_frame`, stamp of the ToF frame):
+  contract `tof-points-topic`, defined by the remap in `ansible/group_vars/client.yml` (tof_obstacle_cloud type).
+- Inputs (existing): `/tof/depth/image_raw` 16UC1 mm (0 = invalid), `/tof/camera_info`, one shared header per frame
+  (`nodes/bridges/arducam_tof/arducam_tof/bridge.py`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+After deploy, `ros2-tof_obstacle_cloud.service` runs point_cloud_xyz and `/tof/points` carries at most 2700 points per
+ToF frame at the ToF rate, only while real ToF frames arrive.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_tof_obstacle_cloud_config.py`; run `uv run pytest tests/test_tof_obstacle_cloud_config.py -q`;
+  expect failures (no type, no params file).
+- Add the params file, node type, entry, playbook block and cgroup tier; rerun until green; run the verify command.
+- Write the README sections (heading `## Placeholder data` included), `nodes/README.md` row, `tests/README.md` rows.
+- Commit `feat(tof_obstacle_cloud): decimated ToF point cloud via rtabmap_util point_cloud_xyz`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Verified 2026-10-18: `ros-jazzy-rtabmap-util 0.23.13` is in the Jazzy arm64 apt index; it pulls the rtabmap core
+  libraries. point_cloud_xyz params and topic names are from rtabmap_ros 0.23.13 `point_cloud_xyz.cpp` (design,
+  Verified facts).
+- The node publishes only from its synced callback; do not add any republisher or timer.
+- Do not add the node to any other host. Do not touch nav2_params here.

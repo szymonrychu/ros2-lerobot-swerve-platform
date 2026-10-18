@@ -51,16 +51,19 @@ Test first: `tests/test_tof_obstacles.py` fails before the function exists (D11)
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `tof-sector-summary`: `mcp_server.perception.tof_obstacle_sectors(...) -> list[TofSector]` and
+  `perception_models.Obstacles3d`; consumed by map-summary-tof-obstacles.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A pure, ROS-free function turns base_link points into the 8-sector 3D obstacle/cliff summary used by the agent tool.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_tof_obstacles.py`; run it; it fails on the missing import.
+- Implement the models and the function with numpy; rerun; run the verify command.
+- Commit `feat(mcp_server): ToF obstacle and cliff sector summary`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Reuse `SECTOR_NAMES` and the bearing/sector index maths in `perception.py` (scan summary) rather than duplicating it.

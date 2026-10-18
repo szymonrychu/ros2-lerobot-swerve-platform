@@ -72,16 +72,23 @@ Test first: `tests/test_nav_tof_collision.py` fails before the config exists (D4
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Consumes `tof-points-filtered-topic` and `cliffstop-polygon`.
+- collision_monitor source names `tof_obstacles`, `tof_cliff` (runtime-toggled via `<source>.enabled`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The collision monitor stops for ToF obstacles inside the swept StopBox, blocks motion toward below-floor points within
+0.25 m of the footprint while allowing motion away, and stops Nav2 motion when the ToF cloud or its TF goes stale.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_nav_tof_collision.py`; `uv run pytest tests/test_nav_tof_collision.py -q` fails.
+- Edit the collision_monitor block (outside generated regions); rerun the verify command.
+- Run the Docker param-load check; record the outcomes in the README; tests/README rows.
+- Commit `feat(nav2): collision monitor ToF obstacle and cliff sources`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Verified in navigation2 1.3.13 source: pointcloud heights compare in the base frame (negative bands work);
+  `sources_names` per polygon; an enabled source with non-zero timeout and no fresh data or TF forces STOP.
+- The approach model needs the ToF to see the lower floor; the polygon margin (0.25 m) covers the occlusion offset.

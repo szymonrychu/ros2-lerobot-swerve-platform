@@ -58,16 +58,20 @@ Test first: `map3d/obstaclePoints.test.ts` and the new `layers.test.ts` cases fa
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Consumes `obstacle-points-payload` (backend `msg_serializer.py`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+In the Map tab, toggling "3D obstacles (ToF + lidar)" shows the ToF points coloured by height and the lidar points in
+the 3D scene; toggling it off stops both subscriptions.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `obstaclePoints.test.ts` and the layer test; `cd nodes/web_ui/frontend && npm test` fails on them.
+- Implement the pure module, the layer entry, the scene drawing and the on-demand wiring; run the verify command.
+- Commit `feat(web_ui): 3D obstacles layer with ToF and lidar points`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Follow the existing layer and on-demand subscription patterns of the local costmap layer (`layers.ts`,
+  `hooks/subscription.ts`, `MapNavTab.tsx`). If the LayersPanel needs a change to show the new layer, keep it minimal.

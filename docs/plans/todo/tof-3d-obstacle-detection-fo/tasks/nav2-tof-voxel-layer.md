@@ -72,16 +72,23 @@ Test first: `tests/test_nav_tof_voxel_layer.py` fails before the config exists (
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Consumes `tof-points-filtered-topic` (`/tof/points_filtered`).
+- Layer name `tof_voxel_layer` in `local_costmap` (mcp_server and web_ui read the merged `/local_costmap/costmap`; no
+  change there).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+On the robot the local costmap marks ToF obstacles between 6 and 60 cm and below-floor cliff points, decaying 15 s after
+they leave view, while lidar cells behave as before.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_nav_tof_voxel_layer.py` and update the parametrisation; `uv run pytest tests/test_nav_tof_voxel_layer.py -q` fails.
+- Edit `nav2_params.yaml` (outside generated regions) and the apt list; rerun the verify command.
+- README section and tests/README rows; commit `feat(nav2): ToF spatio-temporal voxel layer in the local costmap`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Verified: `ros-jazzy-spatio-temporal-voxel-layer 2.5.5` on Jazzy arm64; parameter names from the STVL jazzy source
+  (design, Verified facts). Heights in STVL are in the costmap global frame (odom), where z = 0 is the floor.
+- Do not touch the collision_monitor here (next task) or generated regions.

@@ -61,16 +61,20 @@ Test first: `tests/test_map_summary_tof.py` fails before the wiring exists (D11)
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Consumes `tof-sector-summary` and `tof-points-filtered-topic`.
+- New `RobotApi` method (name chosen by the builder) returning base_link points, stamp and frame or None.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`get_map_summary` gives the agent a per-sector 3D obstacle and cliff view from the head ToF, or an explicit null.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_map_summary_tof.py`; run it; it fails.
+- Add the topic setting, RobotApi method, ros_iface subscription, fake, tool output; rerun; run the verify command.
+- README and client.yml; commit `feat(mcp_server): 3D obstacles in get_map_summary`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Deploying mcp_server kills a running agent session (auto-memory): the runbook checks first. mcp_server stays Python.
+- No new tool, so the claude_agent tool lists stay unchanged.
