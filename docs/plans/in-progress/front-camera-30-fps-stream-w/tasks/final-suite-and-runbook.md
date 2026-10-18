@@ -1,6 +1,6 @@
 ---
 title: Final suite and runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Every suite is green, no live /front_camera reference remains, and the orchestrator has a precise deploy-and-verify runbook."
 files: [tests/test_head_camera_live_refs.py, tests/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--final-suite-and-runbook
+branch: front-camera-30-fps-stream-w--final-suite-and-runbook
 verified_head: ""
 run: ""
 provides: []

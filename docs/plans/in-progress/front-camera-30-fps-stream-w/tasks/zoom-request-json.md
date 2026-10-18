@@ -1,6 +1,6 @@
 ---
 title: Zoom request JSON
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One authoritative zoom request/result contract shared by the node, mcp_server and the web UI."
 files: [nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp, nodes/head_camera_cpp/src/core/zoom_json.cpp, nodes/head_camera_cpp/test/core/test_zoom_json.cpp]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--zoom-request-json
+branch: front-camera-30-fps-stream-w--zoom-request-json
 verified_head: ""
 run: ""
 provides: []

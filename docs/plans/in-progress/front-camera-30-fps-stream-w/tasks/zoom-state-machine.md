@@ -1,6 +1,6 @@
 ---
 title: Zoom state machine
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: A zoom always returns a sharp crop or a clear error and always gives the 30 fps stream back.
 files: [nodes/head_camera_cpp/include/head_camera_cpp/camera_backend.hpp, nodes/head_camera_cpp/include/head_camera_cpp/zoom_controller.hpp, nodes/head_camera_cpp/src/core/zoom_controller.cpp, nodes/head_camera_cpp/test/core/fake_camera_backend.hpp, nodes/head_camera_cpp/test/core/test_zoom_controller.cpp]
@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--zoom-state-machine
+branch: front-camera-30-fps-stream-w--zoom-state-machine
 verified_head: ""
 run: ""
 provides: []

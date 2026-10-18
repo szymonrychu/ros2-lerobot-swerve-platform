@@ -1,6 +1,6 @@
 ---
 title: MCP camera image zoom param
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The agent can zoom into any point of the head camera view with one optional parameter.
 files: [nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/tests/test_camera_zoom_tool.py, nodes/mcp_server/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--mcp-camera-image-zoom-param
+branch: front-camera-30-fps-stream-w--mcp-camera-image-zoom-param
 verified_head: ""
 run: ""
 provides: []

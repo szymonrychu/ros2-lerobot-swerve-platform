@@ -1,6 +1,6 @@
 ---
 title: MCP head camera topic
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The agent's camera tool reads the head camera stream, described as the head camera."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_config.py, nodes/mcp_server/tests/test_on_demand_subscriptions.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml, tests/test_mcp_server_config.py, tests/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--mcp-head-camera-topic
+branch: front-camera-30-fps-stream-w--mcp-head-camera-topic
 verified_head: ""
 run: ""
 provides: []

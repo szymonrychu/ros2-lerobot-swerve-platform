@@ -1,6 +1,6 @@
 ---
 title: MCP zoom request client
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: mcp_server can ask the head camera for a zoom crop and gets the image or a precise error.
 files: [nodes/mcp_server/mcp_server/zoom_client.py, nodes/mcp_server/tests/test_zoom_client.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/test_config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/mcp_server/tool_context.py, nodes/mcp_server/tests/fakes.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--mcp-zoom-request-client
+branch: front-camera-30-fps-stream-w--mcp-zoom-request-client
 verified_head: ""
 run: ""
 provides: []

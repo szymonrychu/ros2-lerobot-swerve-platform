@@ -1,6 +1,6 @@
 ---
 title: Head tab click to zoom
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The user clicks the Head tab RGB view and sees a sharp full-resolution crop, then the live view again."
 files: [nodes/web_ui/frontend/src/tabs/HeadTab.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--head-tab-click-to-zoom
+branch: front-camera-30-fps-stream-w--head-tab-click-to-zoom
 verified_head: ""
 run: ""
 provides: []

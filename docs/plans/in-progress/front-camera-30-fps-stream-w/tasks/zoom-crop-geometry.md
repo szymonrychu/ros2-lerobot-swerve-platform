@@ -1,6 +1,6 @@
 ---
 title: Zoom crop geometry
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Zoom requests map to the exact full-resolution crop and AF window the user pointed at.
 files: [nodes/head_camera_cpp/include/head_camera_cpp/crop.hpp, nodes/head_camera_cpp/src/core/crop.cpp, nodes/head_camera_cpp/test/core/test_crop.cpp]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--zoom-crop-geometry
+branch: front-camera-30-fps-stream-w--zoom-crop-geometry
 verified_head: ""
 run: ""
 provides: []

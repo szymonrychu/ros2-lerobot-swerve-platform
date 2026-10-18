@@ -1,6 +1,6 @@
 ---
 title: Web UI head camera frontend
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The Arm tab's second stream reads the head camera field the backend now sends."
 files: [nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/tabs/ArmTab.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx, nodes/web_ui/frontend/src/hooks/subscription.ts, nodes/web_ui/frontend/src/tabs/CameraTab.test.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--web-ui-head-camera-frontend
+branch: front-camera-30-fps-stream-w--web-ui-head-camera-frontend
 verified_head: ""
 run: ""
 provides: []
