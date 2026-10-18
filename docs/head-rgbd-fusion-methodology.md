@@ -198,7 +198,7 @@ Pan-sweep motion stays inside the pan/tilt epic's verified range (+-20 deg at 20
 
 ### Results
 
-The robot runbook `docs/runbooks/head-rgbd-fusion.md` (date, commit and operator noted there).
+The measured and pass columns are completed by the robot runbook `docs/runbooks/head-rgbd-fusion.md`, which records date, commit and operator.
 
 | Metric | Target | Measured | Pass |
 |---|---|---|---|
