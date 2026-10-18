@@ -578,8 +578,8 @@ ros2_node_type_defaults:
   # Head RGB-D fusion (nodes/head_rgbd_cpp/README.md): registers the head ToF depth (/tof/depth/image_raw) into the Camera
   # Module 3 mapping stream frame and publishes /head_rgbd/* (aligned depth + RGB, coloured cloud, optional upsampled
   # depth). Consumers: the RTAB-Map epic. Built from the repo tree as colcon local sources (-j2). Background tier: the map
-  # input is work the robot can lose, so no protection. The memory figures are an estimate until the runbook measures
-  # the working set (Mimir p50 and 24 h peak): then MemoryLow ~1.33x p50, MemoryMax 4x the peak. No ROS_STATIC_PEERS.
+  # input is work the robot can lose, so no protection. The memory figures are initial sizing; the runbook's measured
+  # working set (Mimir p50 and 24 h peak) sets MemoryLow ~1.33x p50 and MemoryMax 4x the peak. No ROS_STATIC_PEERS.
   head_rgbd_cpp:
     deploy_mode: native
     node_launch_command: "ros2 run head_rgbd_cpp head_rgbd_node"
@@ -1222,8 +1222,8 @@ ros2_nodes:
       confidence_threshold: 30
       frame_id: tof_optical_frame
       publish_rate_hz: 10.0
-      # Capture-to-return latency of the SDK frame, ms: the frame is stamped with its return time minus this. 0.0 until
-      # the runbook (nodes/head_rgbd_cpp/README.md, pan-sweep procedure) writes the measured value here.
+      # Capture-to-return latency of the SDK frame, ms: the frame is stamped with its return time minus this. 0.0 means
+      # no correction; the runbook (nodes/head_rgbd_cpp/README.md, pan-sweep procedure) writes the measured value here.
       stamp_latency_ms: 0.0
       # Topics are fixed in the driver (the web_ui head tab subscribes to them):
       # /tof/depth/image_raw
