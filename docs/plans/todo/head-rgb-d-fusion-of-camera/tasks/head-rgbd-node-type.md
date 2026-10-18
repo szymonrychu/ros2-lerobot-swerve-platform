@@ -50,16 +50,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Deployed unit `ros2-head_rgbd_cpp`; ansible node type `head_rgbd_cpp`; client.yml keys `head_camera_cpp.config.mapping.*`, `arducam_tof.config.stamp_latency_ms`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`./scripts/deploy-nodes.sh client head_rgbd_cpp` builds and starts the fusion node with its config.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write tests/test_head_rgbd_deploy.py and the cgroup/metrics test changes; run `uv run pytest tests/test_head_rgbd_deploy.py -q`; see it fail.
+- Edit client.yml and the playbook; run the verify command until green.
+- Update the READMEs and the deploy skill; commit `feat(ansible): head_rgbd_cpp node type`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern: the map_guard_cpp and head_camera_cpp node types in client.yml (colcon_source, stamp_apt_packages).
+- MEMORY: cgroups guarantee headroom for robot nodes; the fusion node is background work, so it gets the background tier, not protection.
+- Do not deploy in this task; the runbook does.

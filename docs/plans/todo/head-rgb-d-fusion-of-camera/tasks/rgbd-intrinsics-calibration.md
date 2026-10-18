@@ -44,16 +44,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/head_rgbd_calibration/charuco.py:make_board`, `detect`, `Detection` (part `head-rgbd-charuco`).
+- `scripts/head_rgbd_calibration/intrinsics.py:calibrate`, `calibrate_tof`, `compare_sdk`, `write_camera_calibration_yaml`, `IntrinsicsResult`.
+- `tests/rgbd_synthetic.py` (part `rgbd-synthetic-scenes`): `render_rgb_view`, `render_tof_view`, `board_poses`, `RGB_K`, `TOF_K`, `TRUE_EXTRINSIC`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Synthetic ChArUco sets recover both cameras' intrinsics and write YAML files head_camera_cpp and head_rgbd_cpp load.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write tests/rgbd_synthetic.py and the tests; run `uv run pytest tests/test_head_rgbd_calib_intrinsics.py -q`; see them fail.
+- Implement charuco.py and intrinsics.py; rerun until green; `uv run poe lint && uv run ruff check scripts/head_rgbd_calibration && uv run ruff format --check scripts/head_rgbd_calibration`.
+- Commit `feat(scripts): ChArUco intrinsics for head RGB and ToF`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Folds in the RTAB-Map epic's planned RGB-only `camera-calibration-script` (design D3): one calibration path, ChArUco instead of a checkerboard because the 240x180 amplitude image often shows partial boards.
+- opencv-python-headless >= 4.9 ships `cv2.aruco.CharucoDetector` (objdetect); no contrib wheel needed.
+- RGB is calibrated at the 576x324 mapping size; head_camera_cpp scales a calibration to each published size (front-camera D3).

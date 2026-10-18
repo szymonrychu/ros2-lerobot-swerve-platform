@@ -43,16 +43,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_rgbd_cpp/include/head_rgbd_cpp/cloud.hpp`: `RateDecimator`, `decode_rgb_for_depth`, `build_cloud` (part `head-rgbd-cloud`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Tested coloured-cloud construction reusing depth_image_proc's conversions.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write test_cloud.cpp; run `scripts/cpp-node-test.sh head_rgbd_cpp`; see `FAIL`.
+- Implement cloud.cpp; rerun until `PASS`.
+- Commit `feat(head_rgbd_cpp): decimated coloured cloud`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- If `depth_image_proc/conversions.hpp` is not installed or exported by ros-jazzy-depth-image-proc, write the back-projection with image_geometry and say so in the commit message (design D9).

@@ -48,16 +48,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_rgbd_cpp/include/head_rgbd_cpp/config.hpp`: `head_rgbd_cpp::Config` and nested `OutputConfig`, `SyncConfig`, `MotionConfig`, `FilterConfig`, `DepthConfig`, `UpsamplingConfig`, `CloudConfig`, `LazyConfig`, `validate`, `from_yaml`, `load_config_or_exit` (part `head-rgbd-config`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh head_rgbd_cpp` ends `cpp-node-test: head_rgbd_cpp PASS`.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write CMakeLists/package.xml and test_config.cpp; run `scripts/cpp-node-test.sh head_rgbd_cpp`; see `FAIL`.
+- Implement config.cpp and the yaml; rerun until `PASS` (if ximgproc is missing in the image, add `libopencv-contrib-dev` to the Dockerfile and rerun).
+- Commit `feat(head_rgbd_cpp): package skeleton and config`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- shared/ros2_common_cpp provides `load_config_or_exit`, `Metrics` and the process CPU collector (see nodes/map_guard_cpp for usage).
+- ROS Jazzy on noble uses system OpenCV 4.6; ximgproc comes from libopencv-contrib-dev of the same version.

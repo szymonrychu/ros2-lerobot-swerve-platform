@@ -43,16 +43,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_rgbd_cpp/include/head_rgbd_cpp/motion.hpp`: `compensated_transform`, `frame_rate`, `MotionRate`, `evaluate_pair`, `PairDecision` (part `head-rgbd-motion`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Tested motion maths: the node only performs the two TF lookups and calls these functions.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write test_motion.cpp; run `scripts/cpp-node-test.sh head_rgbd_cpp`; see `FAIL`.
+- Implement motion.cpp; rerun until `PASS`.
+- Commit `feat(head_rgbd_cpp): motion compensation and gate`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Opus: frame conventions (which side is inverted) are the classic bug here; test both directions.
+- A ToF frame integrates four phase captures, so blur during fast motion is gated, not corrected (design D6).

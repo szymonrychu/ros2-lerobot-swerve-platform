@@ -1,0 +1,150 @@
+[
+  {
+    "id": "G1",
+    "text": "Methodology document: intrinsic calibration of both cameras (ToF SDK intrinsics vs a calibration on the amplitude image), extrinsic ToF-to-RGB calibration feeding the head URDF, time synchronisation of 10 Hz depth with the RGB stream (approximate time, latency budget, pan/tilt motion and rolling-shutter error), registration with occlusion handling, optional RGB-guided upsampling and its validity mask, and the validation procedure with measured reprojection error and depth accuracy.",
+    "decisions": [
+      "D3",
+      "D5",
+      "D7",
+      "D8",
+      "D11"
+    ],
+    "tasks": [
+      "rgbd-methodology-doc",
+      "rgbd-validation-metrics",
+      "rgbd-final-suite-and-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G2",
+    "text": "A C++ fusion node (reusing depth_image_proc where it fits, own code only for what it lacks) publishing an RGB-registered 16UC1 depth image in head_camera_optical_frame (RGB resolution or a configurable fraction), its camera_info and a coloured point cloud at a configurable reduced rate; nothing published without real synchronised inputs and valid TF.",
+    "decisions": [
+      "D1",
+      "D2",
+      "D5",
+      "D6",
+      "D7",
+      "D8",
+      "D9"
+    ],
+    "tasks": [
+      "tof-stamp-latency-fix",
+      "head-camera-mapping-config",
+      "head-camera-mapping-publish",
+      "head-rgbd-package-config",
+      "tof-jump-edge-filter",
+      "rgbd-registration-zbuffer",
+      "rgbd-motion-compensation",
+      "rgbd-guided-upsampling",
+      "rgbd-cloud-builder",
+      "head-rgbd-node-wiring"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G3",
+    "text": "A calibration tool producing the intrinsics and extrinsics files consumed by the node and the head URDF, with tests on synthetic data.",
+    "decisions": [
+      "D3",
+      "D4"
+    ],
+    "tasks": [
+      "rgbd-calibration-frames",
+      "rgbd-intrinsics-calibration",
+      "rgbd-extrinsic-calibration",
+      "urdf-extrinsics-handoff",
+      "rgbd-calibrate-cli"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G4",
+    "text": "Unit tests for the projection/registration/upsampling maths on synthetic scenes; CPU budget measured on the Pi 5 (Grafana) within 0.2 core; Ansible node type, config, README; deployed and validated on the robot against a target at known distances.",
+    "decisions": [
+      "D7",
+      "D10",
+      "D11"
+    ],
+    "tasks": [
+      "tof-jump-edge-filter",
+      "rgbd-registration-zbuffer",
+      "rgbd-motion-compensation",
+      "rgbd-guided-upsampling",
+      "head-rgbd-node-type",
+      "rgbd-final-suite-and-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G5",
+    "text": "The RTAB-Map epic consumes the registered RGB-D pair from this node (its uplink, server pipeline and status are amended; it is blocked by this epic).",
+    "decisions": [
+      "D12",
+      "D1"
+    ],
+    "tasks": [
+      "head-rgbd-node-wiring",
+      "head-rgbd-node-type"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U1",
+    "text": "A fusion node registering ToF depth into the RGB camera, publishing a registered depth image, its camera_info and a coloured cloud.",
+    "decisions": [
+      "D1",
+      "D7",
+      "D9"
+    ],
+    "tasks": [
+      "head-rgbd-node-wiring",
+      "rgbd-registration-zbuffer",
+      "rgbd-cloud-builder"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U2",
+    "text": "The methodology is written down and measured: calibration, synchronisation, registration, upsampling, validation.",
+    "decisions": [
+      "D3",
+      "D5",
+      "D8",
+      "D11"
+    ],
+    "tasks": [
+      "rgbd-methodology-doc",
+      "rgbd-validation-metrics",
+      "rgbd-final-suite-and-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U3",
+    "text": "The RTAB-Map epic consumes the registered RGB-D pair from this node.",
+    "decisions": [
+      "D12",
+      "D1"
+    ],
+    "tasks": [
+      "head-rgbd-node-wiring",
+      "head-rgbd-node-type"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "U4",
+    "text": "The head camera keeps continuous autofocus normally and locks focus (about 1 m) only while mapping or fusion consumers need calibrated intrinsics, consistent with the RTAB-Map epic's mapping.lock_focus.",
+    "decisions": [
+      "D2"
+    ],
+    "tasks": [
+      "head-camera-mapping-config",
+      "head-camera-mapping-publish",
+      "head-rgbd-node-wiring",
+      "head-rgbd-node-type"
+    ],
+    "status": "approved"
+  }
+]

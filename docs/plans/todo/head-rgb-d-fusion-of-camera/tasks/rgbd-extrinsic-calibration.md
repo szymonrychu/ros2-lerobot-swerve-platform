@@ -42,16 +42,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/head_rgbd_calibration/extrinsics.py:stereo_calibrate`, `plane_depth_bias`, `write_extrinsics_yaml`, `load_extrinsics_yaml`, `ExtrinsicResult` and the extrinsics YAML schema (part `head-rgbd-extrinsics-file`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A set of still pairs produces `head_rgbd_extrinsics.yaml` with the measured transform and its quality figures.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests; run `uv run pytest tests/test_head_rgbd_calib_extrinsics.py -q`; see them fail.
+- Implement extrinsics.py; rerun until green; `uv run poe lint && uv run ruff check scripts/head_rgbd_calibration && uv run ruff format --check scripts/head_rgbd_calibration`.
+- Commit `feat(scripts): ToF-to-RGB extrinsic calibration`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- OpenCV's stereoCalibrate returns R, T mapping camera-1 points into camera-2; pass the ToF as camera 1 and the RGB as camera 2 so the result is ToF -> RGB, and test the direction explicitly.
+- The node never reads this file (design D4); the URDF hand-off does.

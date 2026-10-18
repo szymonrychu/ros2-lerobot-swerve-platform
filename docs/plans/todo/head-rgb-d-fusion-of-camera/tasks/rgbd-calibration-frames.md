@@ -58,16 +58,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/head_rgbd_calibration/config.py:CalibrationConfig`, `load_calibration_config` (part `head-rgbd-calib-config`).
+- `scripts/head_rgbd_calibration/frames.py:capture_commands`, `capture_bag`, `read_frames`, `FrameSet`, `FramePair`, `normalise_amplitude`, `still_pairs` (part `head-rgbd-calib-frames`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_head_rgbd_calib_frames.py -q` passes; a recorded bag becomes a list of still RGB/ToF pairs.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- `uv add --group dev 'rosbags>=0.10,<1'`.
+- Write the tests (synthetic bag via `rosbags.rosbag2.Writer`); run `uv run pytest tests/test_head_rgbd_calib_frames.py -q`; see them fail.
+- Implement config.py, frames.py and the yaml; rerun until green; `uv run poe lint && uv run ruff check scripts/head_rgbd_calibration && uv run ruff format --check scripts/head_rgbd_calibration`.
+- Commit `feat(scripts): RGB-D calibration capture and frame selection`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Root tests import scripts as `scripts.<module>` (see tests/test_calibrate_retry_threshold.py); `scripts/head_rgbd_calibration/` is a regular package inside that namespace.
+- Never SSH by hand: the capture step is the scripted way (pattern: scripts/rtk_calibrate.sh).
+- Do not touch the robot in this task; the runbook runs the capture.

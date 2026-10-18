@@ -57,16 +57,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/head-rgbd-fusion.md` with a `## Results` section.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The epic's goals are verified on the robot with recorded numbers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Run the full verify command; fix or report any failure with its output.
+- Write the runbook; execute it step by step with `.logs/` logs; fill `## Results` and the methodology results table.
+- Commit the calibration files, URDF, client.yml values and docs: `docs: head RGB-D fusion runbook and measured calibration`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Servo safety: the head pan sweep is the only motion; stay inside the pan/tilt epic's verified pan range and speed caps.
+- Use the ansible-deploy skill before deploying (CLAUDE.md); check no claude_agent session runs before any mcp_server/claude_agent deploy (none planned here).
+- Use the grafana MCP or Grafana Explore for CPU; do not SSH to read top.

@@ -49,16 +49,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/head_rgbd_calibrate.py:main` and modes `capture`, `calibrate`, `urdf`, `validate`; outputs as configured in `scripts/head_rgbd_calibrate.yaml`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`python scripts/head_rgbd_calibrate.py calibrate` turns a capture bag into the three calibration files; the runbook drives every robot step through it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the end-to-end tests; run `uv run pytest tests/test_head_rgbd_calibrate_cli.py -q`; see them fail.
+- Implement the entry point; rerun until green; run the verify command.
+- Update scripts/README.md; commit `feat(scripts): head RGB-D calibration CLI`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Replaces the RTAB-Map epic's planned `scripts/head_camera_calibrate.py` (design D3); do not create that file.
+- Do not touch the robot here.

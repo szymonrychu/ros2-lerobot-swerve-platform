@@ -40,16 +40,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_rgbd_cpp/include/head_rgbd_cpp/tof_filter.hpp`: `filter_jump_edges`, `FilterStats` (part `head-rgbd-tof-filter`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A tested flying-pixel filter for the raw ToF depth, called by the node before registration.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write test_tof_filter.cpp; run `scripts/cpp-node-test.sh head_rgbd_cpp`; see `FAIL`.
+- Implement tof_filter.cpp; rerun until `PASS`.
+- Commit `feat(head_rgbd_cpp): jump-edge flying-pixel filter`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The bridge's confidence threshold does not remove flying pixels (SCCG 2008, doi:10.1145/1921264.1921293); this filter runs on every frame before reprojection.

@@ -3,8 +3,9 @@
 ## Summary
 
 RTAB-Map (split apt packages, Jazzy arm64) runs on the server Pi 4b as a depth-only 3D mapper. A single client process
-(`map3d_uplink`, the only new static-peer process) relays a new 2 Hz 576x324 JPEG mapping stream from the head camera,
-throttled ToF depth (compressedDepth), camera_infos, `/scan_filtered` and TF over WiFi, and brings the voxelized 3D map
+(`map3d_uplink`, the only new static-peer process) relays the head RGB-D pair registered on the client by `head_rgbd_cpp` (blocker epic
+head-rgb-d-fusion-of-camera: the 2 Hz 576x324 mapping JPEG plus 288x162 registered depth as compressedDepth, exact
+stamps), their camera_infos, `/scan_filtered` and TF over WiFi, and brings the voxelized 3D map
 back. RTAB-Map uses slam_toolbox's `map` frame as its odometry and builds no links of its own, so its map frame
 (`rtabmap_map`) stays identical to slam_toolbox's `map` and slam_toolbox keeps owning `map -> odom`. A small C++ node
 on the server (`map3d_manager_cpp`) saves and resets the 3D database with the 2D map and publishes a status line. The
@@ -49,7 +50,7 @@ costmap_zones, map_guard, poi_store, frontiers and the web UI all depend on `/ma
 
 - ROS 2 Jazzy, Ubuntu 24.04; client Pi 5 (8 GB, 80-90 % CPU busy), server Pi 4b (4 cores, 3.8 GB; monitoring.slice up to 2.2 GB / 150 % CPU, ~1.1 GB left for ROS units; server units use CPUQuota + MemoryMax, no tiers: `tests/test_unit_cgroups.py::test_server_keeps_its_limits_without_tiers`).
 - DDS: Fast DDS UDPv4 only, `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` for every unit; cross-host traffic only through processes given `ROS_STATIC_PEERS` (`ansible/README.md` "Cross-host", `tests/test_dds_discovery_config.py`); host clocks synced by systemd-timesyncd (leader_bridge README).
-- Plans against the end state of the blocking epics: head_camera_cpp owns the IMX708 and publishes `/head_camera/*` with `camera_info` only from a calibration file (front-camera D3) and `af_mode` continuous|auto|manual; the pan/tilt epic's robot_state_publisher publishes `head_camera_optical_frame` and `tof_optical_frame` on `/tf` / `/tf_static` from the head joint states; arducam_tof publishes `/tof/depth/image_raw` (16UC1 mm, 0 invalid) and `/tof/camera_info` at <= 10 Hz; the ToF obstacle epic owns onboard depth-to-costmap.
+- Plans against the end state of the blocking epics: head_camera_cpp owns the IMX708 and publishes `/head_camera/*` with `camera_info` only from a calibration file (front-camera D3) and `af_mode` continuous|auto|manual; the pan/tilt epic's robot_state_publisher publishes `head_camera_optical_frame` and `tof_optical_frame` on `/tf` / `/tf_static` from the head joint states; arducam_tof publishes `/tof/depth/image_raw` (16UC1 mm, 0 invalid) and `/tof/camera_info` at <= 10 Hz; head_rgbd_cpp (epic head-rgb-d-fusion-of-camera) publishes the exact-stamp pair `/head_rgbd/rgb/image_raw/compressed`, `/head_rgbd/rgb/camera_info`, `/head_rgbd/depth/image_raw` (16UC1 mm, half the RGB size), `/head_rgbd/depth/camera_info` at the mapping rate, with the head camera's mapping stream, focus lock and calibration delivered by that epic; the ToF obstacle epic owns onboard depth-to-costmap.
 - New non-web nodes are C++ (MEMORY "Python nodes stay"); web_ui and mcp_server stay Python; pydantic configs; config files over CLI.
 - No placeholder data on topics (CLAUDE.md). TDD for every behaviour. Deploys only through `scripts/deploy-nodes.sh` with logs in `.logs/`; deploying mcp_server or claude_agent kills a running agent session (MEMORY).
 
@@ -71,7 +72,7 @@ TransformListener uses an internal node that node-scoped remaps do not reach). A
 ### D2: One uplink process, one contract file
 
 The client gets one new static-peer process, `map3d_uplink`: a component_container loading `topic_tools::ThrottleNode`
-/ `RelayNode` (lazy) per stream and an `image_transport::Republisher` (raw -> compressedDepth) for the ToF depth; it
+/ `RelayNode` (lazy) per stream and an `image_transport::Republisher` (raw -> compressedDepth) for the registered depth; it
 also relays the server's outputs back (downlink). It publishes only new names (`/uplink/*` towards the server,
 `/map3d/*` on the client), never a client topic under its own name (that would add duplicate publishers to every
 client subscriber). `/tf` and `/tf_static` go up as `/uplink/tf` and `/uplink/tf_static` (tf_static with explicit
@@ -88,24 +89,28 @@ Uplink, per message size estimates (replaced by measured values in the runbook):
 
 | Stream | Rate | Bytes/msg | Mbit/s |
 |---|---|---|---|
-| head mapping JPEG 576x324 q80 | 2 Hz | ~40 000 | 0.64 |
-| head mapping camera_info | 2 Hz | ~400 | 0.01 |
-| ToF depth 240x180 16UC1, compressedDepth (PNG, raw 86 400) | 5 Hz | ~45 000 | 1.80 |
-| ToF camera_info | 5 Hz | ~400 | 0.02 |
+| head_rgbd RGB (mapping JPEG 576x324 q80, passed through) | 2 Hz | ~40 000 | 0.64 |
+| head_rgbd RGB camera_info | 2 Hz | ~400 | 0.01 |
+| head_rgbd registered depth 288x162 16UC1, compressedDepth (PNG, raw 93 312) | 2 Hz | ~45 000 | 0.72 |
+| head_rgbd depth camera_info | 2 Hz | ~400 | 0.01 |
 | `/scan_filtered` (RPLidar A1, ~1 450 ranges + intensities) | ~7 Hz | ~12 000 | 0.67 |
 | `/tf` (EKF 30 Hz, slam 20 Hz, head joints) | ~100 msg/s | ~200 | 0.16 |
 | `/tf_static`, map_guard reset, map3d command | rare | small | ~0 |
-| **total** (+~10 % RTPS overhead) | | | **~3.6** |
+| **total** (+~10 % RTPS overhead) | | | **~2.4** |
 
 Ceiling `uplink_mbit_s_max: 8.0` (my call; Pi WiFi links give tens of Mbit/s, the leader teleop shares the link).
 Downlink: `/rtabmap/cloud_map` throttled to 0.1 Hz and lazy (~1.5 MB for a furnished room at 5 cm voxels, ~1.2 Mbit/s,
-ceiling 2.0 Mbit/s), status 1 Hz, results rare. The ToF is throttled to 5 Hz (not the full 10 Hz) and synchronised
-with the 2 Hz RGB at <= 100 ms; doubling it to 10 Hz halves the sync gap for +1.8 Mbit/s if the runbook shows
-smearing. Raw 1152x648 bgr8 at 30 fps would be ~67 MB/s; it never crosses. (my call) Serves G2.
+ceiling 2.0 Mbit/s), status 1 Hz, results rare. The RGB-D pair arrives as exact-stamp pairs at the mapping rate (2 Hz) and is relayed unthrottled,
+because two independent throttles could split a pair; raising `mapping.rate_hz` raises both streams together. Raw 1152x648 bgr8 at 30 fps would be ~67 MB/s; it never crosses. (my call) Serves G2.
 
 ### D4: Head camera mapping stream, focus lock while mapping and a real calibration
 
-head_camera_cpp gains `mapping.*` (enabled, 2 Hz, 576x324, JPEG q80) publishing
+Delivered by the blocker epic head-rgb-d-fusion-of-camera (its D2 and D3): the tasks `head-camera-mapping-config` and
+`head-camera-mapping-publish` moved there, and this epic's planned `camera-calibration-script` is folded into that
+epic's ChArUco calibration tool `scripts/head_rgbd_calibrate.py`, which writes
+`nodes/head_camera_cpp/config/head_camera_calibration.yaml` at the locked focus. head_rgbd_cpp subscribes the mapping
+stream only while its outputs have subscribers, so the uplink relay (lazy) engages the lock exactly while 3D mapping
+runs. The design as agreed: head_camera_cpp gains `mapping.*` (enabled, 2 Hz, 576x324, JPEG q80) publishing
 `/head_camera/mapping/image_raw/compressed` and `/head_camera/mapping/camera_info` only while subscribed, decimated
 from the 30 fps capture, so the client pays ~2 small encodes per second instead of a 30 fps JPEG stream for the relay.
 camera_info stays calibration-only (front-camera D3) and is scaled to 576x324. RTAB-Map needs fixed intrinsics, so
@@ -114,22 +119,23 @@ the camera keeps continuous autofocus normally and locks focus at `lens_position
 subscribes only while 3D mapping runs) and the node parameter `mapping.lock_focus` (default true) is set, and releases
 back to the configured `af_mode` (default continuous) when the last subscriber leaves. A zoom still autofocuses on its
 point for its single still and then returns to the mapping lock (or to continuous when no lock is active). The
-intrinsics used for mapping are those calibrated at the locked focus (the calibration is captured with the lock on). The intrinsics come from `scripts/head_camera_calibrate.py`
-(checkerboard frames fetched from topic_scraper_api, OpenCV calibrateCamera, ROS camera_calibration YAML), run in the
-runbook. Alternatives: relaying `/head_camera/image_raw/compressed` (forces 30 fps encoding on the busy client and 3x
+intrinsics used for mapping are those calibrated at the locked focus (the calibration is captured with the lock on). The intrinsics come from the blocker epic's calibration tool (ChArUco, OpenCV calibrateCamera, ROS
+camera_calibration YAML), run in that epic's runbook. Alternatives: relaying `/head_camera/image_raw/compressed` (forces 30 fps encoding on the busy client and 3x
 the bandwidth), nominal datasheet intrinsics (approximate, not measured: rejected as placeholder-like), keeping
 continuous AF while mapping (intrinsics drift with focus), a permanent manual lock (rejected by the user: close-up shots keep working AF outside mapping). Decided by the user on 2026-10-18. Serves G1.
 
-### D5: Depth registered to RGB on the server
+### D5: Depth registered to RGB on the client by head_rgbd_cpp
 
 RTAB-Map requires depth registered to the RGB camera, at an integer fraction of its size; the ToF (240x180, 4:3) and
-the RGB (16:9) are separate cameras. `depth_image_proc::RegisterNode` (input transport compressedDepth, output size
-= the RGB camera_info, `fill_upsampling_holes: true`) registers the ToF into the 576x324 mapping camera using the rigid
-`tof_optical_frame -> head_camera_optical_frame` transform from the pan/tilt URDF on `/uplink/tf_static`;
-`rtabmap_sync::RGBDSync` pairs it with the RGB (`image_transport: compressed`, approx sync, max interval 0.1 s).
-Alternatives: `rtabmap_util/pointcloud_to_depthimage` (needs a cloud: bigger on the wire), registering on the client
-(client CPU). Serves G1.
-
+the RGB (16:9) are separate cameras. Per the user's decision U3 of epic head-rgb-d-fusion-of-camera, registration
+happens on the client in `head_rgbd_cpp` (own z-buffer with motion compensation, flying-pixel filter and the calibrated
+extrinsic from the head URDF), which publishes the 288x162 registered depth (half the 576x324 mapping image) and the
+mapping RGB passed through, with one stamp per pair. The uplink relays the pair; on the server `rtabmap_sync::RGBDSync`
+pairs `/uplink/head_rgbd/rgb/image_raw` (compressed) with `/uplink/head_rgbd/depth/image_raw` (compressedDepth) with
+exact sync (`approx_sync: false`), using `/uplink/head_rgbd/rgb/camera_info`. `depth_image_proc::RegisterNode` is no
+longer loaded (Jazzy bounds bug in `fill_upsampling_holes`, TF only at the depth stamp, no motion compensation).
+Alternatives: RegisterNode on the server (the former choice, rejected for the reasons above),
+`rtabmap_util/pointcloud_to_depthimage` (needs a cloud: bigger on the wire). Serves G1.
 ### D6: RTAB-Map parameters
 
 `subscribe_rgbd: true`, `subscribe_scan: true`, `frame_id: base_link`, `Reg/Force3DoF: true` (ground robot),
@@ -246,9 +252,9 @@ feature extraction, which D7/D8 disable).
 | prior-art fix-as-ac | STVL used for planar lidar | rejected: ToF obstacle epic |
 | prior-art fix-as-ac | stale head TF smearing data | map3d-uplink-node-type (/tf with head joints uplinked), rtabmap-server-launch (wait_for_transform, approx sync 0.1 s) |
 | prior-art fix-as-ac | obstacle_layer footprint clearing | rejected: no costmap layer here |
-| prior-art fix-as-ac | placeholder data rule | head-camera-mapping-publish, map3d-manager-status, web-ui-map3d-cloud-backend, mcp-map3d-grid-model, final-suite-and-runbook |
+| prior-art fix-as-ac | placeholder data rule | map3d-manager-status, web-ui-map3d-cloud-backend, mcp-map3d-grid-model, final-suite-and-runbook |
 | prior-art fix-as-ac | raw 30 fps RGB over WiFi | map3d-topic-contract, final-suite-and-runbook |
-| prior-art fix-as-ac | autofocus changing intrinsics | head-camera-mapping-config, head-camera-mapping-publish |
+| prior-art fix-as-ac | autofocus changing intrinsics | moved to epic head-rgb-d-fusion-of-camera (head-camera-mapping-config, head-camera-mapping-publish); map3d-uplink-node-type relays its lock-engaging pair |
 | prior-art ideas | ToF -> point_cloud_xyz -> STVL onboard | rejected here: ToF obstacle epic |
 | prior-art ideas | rtabmap RGB-D + scan offloaded, publish_tf false | rtabmap-server-launch (adopted with D7: no own ICP links) |
 | prior-art ideas | below-floor cliff source | rejected: ToF obstacle epic |
@@ -259,7 +265,7 @@ feature extraction, which D7/D8 disable).
 | prior-art ideas | Bonxai, EasyNav | rejected: no ROS 2 release / replaces Nav2 |
 | prior-art ideas | depthimage_to_laserscan | rejected: loses height |
 | docs reuse | split rtabmap apt packages, skip metapackage and viz | rtabmap-server-node-type, rtabmap-server-launch |
-| docs reuse | RegisterNode (compressedDepth) -> rgbd_sync (compressed) | rtabmap-server-launch |
+| docs reuse | RegisterNode (compressedDepth) -> rgbd_sync (compressed) | rejected: registration moved to head_rgbd_cpp on the client (D5); rgbd_sync with exact pairs in rtabmap-server-launch |
 | docs reuse | mapGraph.map_to_odom as the alignment check | map3d-manager-status, map3d-manager-node |
 | docs reuse | topic_tools Throttle/Relay with lazy | map3d-uplink-node-type |
 | docs do-not-build | custom depth registration, cloud downsampler, map save | rtabmap-server-launch, map3d-manager-node (backup service) |
@@ -284,8 +290,8 @@ feature extraction, which D7/D8 disable).
 | D1 RTAB-Map from split apt packages, one container | rtabmap-server-launch, rtabmap-server-node-type |
 | D2 One uplink process, one contract file | map3d-topic-contract, map3d-uplink-node-type |
 | D3 Rates and bandwidth budget | map3d-topic-contract, final-suite-and-runbook |
-| D4 Head camera mapping stream, focus lock while mapping, calibration | head-camera-mapping-config, head-camera-mapping-publish, camera-calibration-script |
-| D5 Depth registered to RGB on the server | rtabmap-server-launch |
+| D4 Head camera mapping stream, focus lock while mapping, calibration | map3d-uplink-node-type, final-suite-and-runbook |
+| D5 Depth registered to RGB on the client by head_rgbd_cpp | map3d-topic-contract, map3d-uplink-node-type, rtabmap-server-launch, map3d-manager-config |
 | D6 RTAB-Map parameters | rtabmap-server-launch |
 | D7 Alignment with slam_toolbox's map frame | rtabmap-server-launch, map3d-manager-status, mcp-map3d-grid-model, final-suite-and-runbook |
 | D8 Memory and CPU on the Pi 4b | rtabmap-server-launch, rtabmap-server-node-type, final-suite-and-runbook |
@@ -300,8 +306,6 @@ feature extraction, which D7/D8 disable).
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
 | `map3d-topics` | map3d-topic-contract | map3d-uplink-node-type, rtabmap-server-launch, web-ui-map3d-cloud-backend | `nodes/rtabmap_mapping/config/map3d_topics.yaml` |
-| `head-camera-mapping-core` | head-camera-mapping-config | head-camera-mapping-publish | `nodes/head_camera_cpp/include/head_camera_cpp/mapping_stream.hpp` |
-| `head-camera-mapping-topics` | head-camera-mapping-publish | map3d-uplink-node-type | `nodes/head_camera_cpp/src/head_camera_node.cpp` |
 | `rtabmap-mapping-launch` | rtabmap-server-launch | rtabmap-server-node-type | `nodes/rtabmap_mapping/launch/rtabmap_mapping.launch.py` |
 | `rtabmap-mapping-node-type` | rtabmap-server-node-type | map3d-manager-node-type | `ansible/group_vars/server.yml` |
 | `map3d-manager-config` | map3d-manager-config | map3d-manager-status, map3d-manager-node | `nodes/map3d_manager_cpp/include/map3d_manager_cpp/config.hpp` |
@@ -323,8 +327,8 @@ feature extraction, which D7/D8 disable).
 
 ## Left to the builder
 
-- Exact Fast DDS QoS depths within the contract's ranges, PNG compression level (1-3), and whether the ToF throttle
-  and republisher chain uses an intermediate topic name other than `/map3d_uplink/tof_depth_throttled`.
+- Exact Fast DDS QoS depths within the contract's ranges and the PNG compression level (1-3) of the registered-depth
+  republisher.
 - The web UI point size and wall colour within the existing palette, provided measured and lidar-derived layers stay
   visually distinct.
 - mcp result model field names beyond those in the task requirements.
@@ -334,11 +338,11 @@ feature extraction, which D7/D8 disable).
 
 - Server RTAB-Map CPU and RSS with feature extraction off: estimated < 1 core and < 600 MB for a room; confirmed by the runbook (Grafana/Mimir).
 - Real JPEG and compressedDepth sizes and WiFi headroom: estimated in D3; measured in the runbook (`ros2 topic bw`, WiFi panel).
-- ToF-to-RGB extrinsic accuracy from the pan/tilt URDF spacing: assumed good enough for 5 cm voxels; checked in the runbook by colours sitting on the right surfaces; a measured extrinsic is a follow-up if not.
-- Sync gap RGB 2 Hz vs ToF 5 Hz (<= 100 ms) smearing at the robot's mapping speed: runbook drives slowly and checks; 10 Hz ToF is the documented knob.
+- ToF-to-RGB extrinsic: measured by the blocker epic's calibration and written into the head URDF; this runbook checks colours sitting on the right surfaces.
+- RGB and depth arrive as exact-stamp pairs from head_rgbd_cpp (motion-compensated, fast-motion frames dropped there); this runbook drives slowly and checks for smearing.
 - arducam_tof delivering frames on the Pi 5 and the pan/tilt TF existing: blocking epics' deliverables.
 - `octomap`-enabled apt build: not needed (cloud_map is used); probe lists topics.
-- Head camera calibration needs a printed 9x6 checkerboard and a person moving it in front of the robot (runbook step 1).
+- Head camera and ToF calibration are done by the blocker epic's runbook (ChArUco board); this runbook only confirms they are deployed.
 
 ## Irreversible operations in scope
 

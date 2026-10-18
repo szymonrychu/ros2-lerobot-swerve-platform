@@ -45,16 +45,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/head_rgbd_calibration/validate.py:depth_accuracy`, `registration_bias`, `edge_alignment`, `valid_ratio`, `time_offset`, `check_targets` (part `head-rgbd-validate`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Recorded bags turn into the methodology's numbers with pass/fail against the targets.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests with synthetic scenes from tests/rgbd_synthetic.py; run `uv run pytest tests/test_head_rgbd_validate.py -q`; see them fail.
+- Implement validate.py; rerun until green; `uv run poe lint && uv run ruff check scripts/head_rgbd_calibration && uv run ruff format --check scripts/head_rgbd_calibration`.
+- Commit `feat(scripts): RGB-D validation metrics`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Validation uses OpenCV projections of a few corner points; it does not reimplement the node's z-buffer.
+- Pan sweep for the time offset: head pan only, +-20 deg at about 20 deg/s, inside the pan/tilt epic's verified range (servo safety: least dramatic joint).

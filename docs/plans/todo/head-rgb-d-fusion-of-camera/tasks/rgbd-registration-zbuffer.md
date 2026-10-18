@@ -48,16 +48,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_rgbd_cpp/include/head_rgbd_cpp/registration.hpp`: `PinholeModel`, `scale_model`, `RayTable`, `register_depth`, `clip_footprint`, `RegistrationStats` (part `head-rgbd-registration`).
+- `nodes/head_rgbd_cpp/test/core/synthetic_scene.hpp` (part `head-rgbd-synthetic-scene`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Tested z-buffer registration from the ToF into any scaled RGB model, ready for the motion-compensated transform.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write synthetic_scene.hpp and test_registration.cpp; run `scripts/cpp-node-test.sh head_rgbd_cpp`; see `FAIL`.
+- Implement registration.cpp; rerun until `PASS`.
+- Commit `feat(head_rgbd_cpp): z-buffer ToF-to-RGB registration`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Opus: projection direction, distortion order (undistort ToF rays, distort RGB projection) and the z-buffer are where correctness lives.
+- Do not use depth_image_proc::RegisterNode (design D7); its footprint idea is kept with correct clipping.
+- Output depth is z in the RGB optical frame (not ray length), in mm, rounded.

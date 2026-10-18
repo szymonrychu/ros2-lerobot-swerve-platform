@@ -1,6 +1,6 @@
 ---
 title: RTAB-Map RGB-D 3D mapping on the server
-blockers: [ToF 3D obstacle detection for Nav2, Remove the Jetson coprocessor]
+blockers: [ToF 3D obstacle detection for Nav2, Remove the Jetson coprocessor, Head RGB-D fusion of camera and ToF]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -39,7 +39,9 @@ An RGB-D 3D map of the robot's environment, built by RTAB-Map on the server Pi 4
 
 
 
-Estimate: 1370 min | Actual: 0 min | Remaining estimate: 1370 min
+
+
+Estimate: 1175 min | Actual: 0 min | Remaining estimate: 1175 min
 
 ## Review
 

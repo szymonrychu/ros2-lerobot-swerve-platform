@@ -52,16 +52,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Topics `/head_camera/mapping/image_raw/compressed` (CompressedImage, JPEG) and `/head_camera/mapping/camera_info` (CameraInfo, frame `head_camera_optical_frame`): the `head-camera-mapping-topics` part, consumed by head_rgbd_cpp (head-rgbd-node-wiring), which passes the pair on to RTAB-Map.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+With `mapping.enabled: true` and a calibration file, a subscriber receives 576x324 JPEG + matching CameraInfo at 2 Hz; focus is locked while subscribed (continuous otherwise) and returns to the lock after zooms.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the node, zoom controller and controls tests; run `scripts/cpp-node-test.sh head_camera_cpp`; see `FAIL`.
+- Implement the wiring, restore change and controls; rerun until `cpp-node-test: head_camera_cpp PASS`.
+- Update the README; commit `feat(head_camera_cpp): 2 Hz mapping stream and focus lock`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- File names are the front-camera epic's end state (`src/head_camera_node.cpp`, `src/core/zoom_controller.cpp`, `src/libcamera_controls.cpp`).
+- The Ansible config (`mapping.enabled`, `mapping.lock_focus`, `lens_position`, `camera_info_file`; `af_mode` stays continuous) is set by head-rgbd-node-type and rgbd-final-suite-and-runbook, not here.
+- CPU: the mapping encode at 576x324 / 2 Hz is a few ms per second; the runbook measures it.
+- Moved unchanged in substance from epic rtab-map-rgb-d-3d-mapping-on (which now depends on this epic, U3); the RGB-D fusion node is its first consumer and engages the focus lock by subscribing (U4).

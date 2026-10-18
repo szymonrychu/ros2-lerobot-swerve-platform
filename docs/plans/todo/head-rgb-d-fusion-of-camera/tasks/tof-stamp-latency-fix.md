@@ -46,16 +46,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/bridges/arducam_tof/arducam_tof/config.py:TofConfig.stamp_latency_ms`; `nodes/bridges/arducam_tof/arducam_tof/bridge.py:TofBridge.publish_frame` (stamp semantics consumed by head_rgbd_cpp pairing).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+ToF headers are stamped at frame return minus a configurable latency; the deployed value is set by the runbook.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Add the tests; run `cd nodes/bridges/arducam_tof && uv run --frozen pytest tests -q && uv run --frozen poe lint`; see them fail on the missing field and the late stamp.
+- Implement the config field and move the clock read; rerun until green.
+- Update the README; commit `fix(arducam_tof): stamp ToF frames at frame return minus measured latency`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Do not touch topics, encodings or the confidence handling: only the stamp changes (epic non-goal: no driver changes beyond synchronisation).
+- The SDK frame timestamp is not used: its clock domain is undocumented (design D5).
+- numpy guard already satisfied (numpy is a dependency).

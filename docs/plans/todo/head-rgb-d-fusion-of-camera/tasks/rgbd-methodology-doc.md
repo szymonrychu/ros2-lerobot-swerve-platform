@@ -46,16 +46,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/head-rgbd-fusion-methodology.md` with a `### Results` table filled by rgbd-final-suite-and-runbook.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The methodology is written down; the runbook only has to fill in measured numbers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the document and README sections from design.md (Methodology, D3-D8, targets).
+- Run the verify command; expect pass.
+- Commit `docs: head RGB-D fusion methodology`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Mostly prose: `review: skip`, judged at the epic audit (start-development: prose stays out of the review loop).

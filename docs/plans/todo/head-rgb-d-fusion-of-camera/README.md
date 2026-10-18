@@ -1,6 +1,6 @@
 ---
 title: Head RGB-D fusion of camera and ToF
-blockers: [Pan tilt head control with agent and web UI]
+blockers: [Pan tilt head control with agent and web UI, Remove the Jetson coprocessor]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
@@ -34,7 +34,10 @@ The head carries a Camera Module 3 (RGB, 1152x648 @ 30 fps, rolling shutter, aut
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+
+
+
+Estimate: 1290 min | Actual: 0 min | Remaining estimate: 1290 min
 
 ## Review
 

@@ -53,16 +53,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Topics `/head_rgbd/depth/image_raw`, `/head_rgbd/depth/camera_info`, `/head_rgbd/rgb/image_raw/compressed`, `/head_rgbd/rgb/camera_info`, `/head_rgbd/points`, `/head_rgbd/depth_upsampled/*` (part `head-rgbd-topics`), consumed by the RTAB-Map epic's uplink and by future web UI / agent views.
+- Executable `head_rgbd_cpp head_rgbd_node`, env `HEAD_RGBD_CONFIG`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`ros2 run head_rgbd_cpp head_rgbd_node` publishes exact-stamp RGB-D pairs from live inputs and nothing otherwise.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write test_node.cpp; run `scripts/cpp-node-test.sh head_rgbd_cpp`; see `FAIL`.
+- Implement the node, main and CMake targets; rerun until `PASS`.
+- Write the README; commit `feat(head_rgbd_cpp): fusion node wiring`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The node never reads the extrinsics file: geometry comes from TF (head URDF, design D4).
+- The mapping stream (head-camera-mapping-publish) publishes best_effort depth 1; match it.
+- Raw RGB is never subscribed (UDPv4 fragment drops, design Constraints).

@@ -46,16 +46,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/head_rgbd_calibration/urdf_handoff.py:read_chain`, `tof_joint_origin`, `rewrite_tof_joint`, `check_drift` (part `head-rgbd-urdf-handoff`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Given an extrinsics file, the head URDF's tof_joint is rewritten so TF reproduces the calibration exactly.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests and relax the web_ui URDF test; run `uv run pytest tests/test_head_rgbd_urdf_handoff.py -q`; see it fail.
+- Implement urdf_handoff.py; rerun until green; run the full verify command.
+- Commit `feat(scripts): write calibrated ToF extrinsic into the head URDF`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The head URDF is created by the pan/tilt epic (blocker); its chain: head_link -> head_camera_joint / tof_joint -> optical joints with rpy (-pi/2, 0, -pi/2).
+- After the runbook rewrites the URDF, head_state_publisher (robot_state_publisher) must be redeployed to publish the new TF.
