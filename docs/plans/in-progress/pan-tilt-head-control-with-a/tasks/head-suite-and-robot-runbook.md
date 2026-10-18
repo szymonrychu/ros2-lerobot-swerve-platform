@@ -1,6 +1,6 @@
 ---
 title: Head suite and robot runbook
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Everything is green together and the head goes live in safe stages, +-5 deg pan first."
 files: [tests/test_head_live_refs.py, tests/README.md]
@@ -73,3 +73,7 @@ All suites green with the live-refs check; the orchestrator brings the head live
 - Servo safety (CLAUDE.md): +-5 deg pan first; ask before widening.
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on head-config-consistency
+
+## Ruling
+
+Accepted by the orchestrator: verified by hand on the committed HEAD and merged into main (full suite green: root 1417, mcp_server 2678, frontend 1017); escalations were verifier/process gates. head-tab-pan-tilt-controls stale-command finding fixed test-first (609ed96f).
