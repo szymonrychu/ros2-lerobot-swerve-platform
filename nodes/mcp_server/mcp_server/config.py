@@ -1508,6 +1508,17 @@ class FrontierSettings(StrictModel):
         return self
 
 
+class ExplorationSettings(StrictModel):
+    """Survey coverage of the reachable space (exploration.py) and the exploration status tool."""
+
+    survey_radius_m: float = Field(default=2.5, gt=0.0)  # a spot surveys free cells it sees within this range
+    rays: int = Field(default=72, ge=8)  # minimum rays cast per spot (raised to one per cell on the radius arc)
+    min_unsurveyed_area_m2: float = Field(default=0.5, gt=0.0)  # smaller unsurveyed pockets are not listed
+    downsample: int = Field(default=2, ge=1)  # coverage grid cell = map resolution x this (speed on a Pi)
+    stop_margin_cell_v: float = Field(default=0.3, gt=0.0)  # survey stop margin on the cell value (cell_v)
+    max_unsurveyed_listed: int = Field(default=10, ge=1)  # largest unsurveyed areas listed
+
+
 class GraspCheckSettings(StrictModel):
     """Post-lift visual grasp check: the gripper camera frame cropped to the region between the jaws."""
 
@@ -1578,6 +1589,7 @@ class McpServerConfig(StrictModel):
     # Declarative guard rules (guard_rules.py); code default: enabled, no rules (the deployed set lives in client.yml).
     guard_rules: GuardRuleSettings = GuardRuleSettings()
     frontiers: FrontierSettings = FrontierSettings()
+    exploration: ExplorationSettings = ExplorationSettings()
     grasp_check: GraspCheckSettings = GraspCheckSettings()
 
 
