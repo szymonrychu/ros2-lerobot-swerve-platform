@@ -164,8 +164,8 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its params file.
     src_paths: [nodes/tof_obstacle_cloud]
-    # Estimate, no series yet: one decimated 60x45 depth frame per cycle is small, MemoryLow follows arducam_tof
-    # (p50 ~64 MiB incl. the rtabmap shared libraries), MemoryMax 3x. Re-measure once enabled.
+    # Sized by analogy: one decimated 60x45 depth frame per cycle is small, MemoryLow follows arducam_tof
+    # (p50 ~64 MiB incl. the rtabmap shared libraries), MemoryMax 3x. Same basis as the other unmeasured types.
     memory_low: "64M"
     memory_max: "192M"
     cpu_weight: 500

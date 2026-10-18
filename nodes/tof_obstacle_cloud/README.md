@@ -37,4 +37,4 @@ The node publishes only from its synced callback, i.e. from a real depth + camer
 
 ## CPU
 
-Decimation 4 plus the voxel grid keep each cloud near a few thousand points at the 10 Hz depth rate. The unit runs in the normal tier (`cpu_weight 500`, `memory_low 64M`, `memory_max 192M`, estimates until measured in Grafana/Mimir).
+Decimation 4 plus the voxel grid keep each cloud near a few thousand points at the 10 Hz depth rate. The unit runs in the normal tier (`cpu_weight 500`, `memory_low 64M`, `memory_max 192M`, sized by analogy with arducam_tof; compare against its series in Grafana/Mimir).
