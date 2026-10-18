@@ -13,7 +13,7 @@ function mk(id: string, over: Partial<Poi>): Poi {
     status: 'open', created_by: 'user', created_at: 1, updated_at: 1, ...over,
   }
 }
-const area = [[0, 0], [1, 0], [1, 1]]
+const area: [number, number][] = [[0, 0], [1, 0], [1, 1]]
 const POIS: Poi[] = [
   mk('t1', { note: '#target' }),
   mk('t2', { note: '#target' }),
@@ -32,7 +32,9 @@ function setup(marked: string[], pois = POIS) {
 }
 const confirmBtn = () => screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement
 
-beforeEach(() => vi.mocked(clearPois).mockReset())
+beforeEach(() => {
+  vi.mocked(clearPois).mockReset()
+})
 afterEach(() => cleanup())
 
 describe('DeleteMarkedDialog', () => {
