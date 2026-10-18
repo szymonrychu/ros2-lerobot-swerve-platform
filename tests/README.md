@@ -2257,7 +2257,7 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 
 ## test_jetson_retired.py
 
-Retirement pin for the Jetson coprocessor; later tasks of the retirement extend only the two lists in the test module.
+Retirement pin for the Jetson coprocessor. Extend it by adding entries to the two lists in the test module.
 
 | Test | Description |
 |---|---|

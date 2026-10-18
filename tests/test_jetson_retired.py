@@ -1,6 +1,6 @@
 """Retirement pin for the Jetson coprocessor: removed paths stay gone and removed tokens stay absent.
 
-Later tasks of the retirement epic extend only REMOVED_PATHS and ABSENT_TOKENS.
+Extend by adding entries to REMOVED_PATHS and ABSENT_TOKENS.
 """
 
 from pathlib import Path
