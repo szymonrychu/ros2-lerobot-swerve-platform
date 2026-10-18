@@ -42,6 +42,8 @@ BASE_JOINTS = [
 ]
 CRITICAL_WEIGHTS = (1000, 1000, -900)
 CGROUP_OVERRIDE_KEYS = ("cpu_weight", "io_weight", "oom_score_adjust")
+# Deferral wording that must not appear in the bridge entries' comments: they state facts and mechanisms only.
+PARKING_WORDS = ("later", "next epic", "follow-up", "yet", "todo", "re-measure")
 
 
 def client_vars() -> dict:
@@ -237,6 +239,16 @@ def test_base_servos_gets_the_critical_cgroup_tier_from_type_defaults() -> None:
     assert tuple(defaults[key] for key in CGROUP_OVERRIDE_KEYS) == CRITICAL_WEIGHTS
     entry = node_entry(BASE)
     assert not [key for key in CGROUP_OVERRIDE_KEYS if key in entry]
+
+
+def test_bridge_entry_comments_carry_no_parking_wording() -> None:
+    """Comments from the lerobot_follower entry through base_servos state facts, never deferrals."""
+    text = CLIENT_VARS.read_text()
+    start = text.index(f"  - name: {FOLLOWER}\n")
+    end = text.index("  - name: swerve_controller\n", start)
+    comments = [line.split("#", 1)[1].lower() for line in text[start:end].splitlines() if "#" in line]
+    found = [(word, c.strip()) for c in comments for word in PARKING_WORDS if word in c]
+    assert not found, f"parking wording in bridge entry comments: {found}"
 
 
 def test_every_test_is_documented_in_tests_readme() -> None:

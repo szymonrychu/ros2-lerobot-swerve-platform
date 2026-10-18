@@ -1149,8 +1149,8 @@ ros2_nodes:
       # Cost: the one state sync read grows from 6 to 15 bytes for all 6 arm servos on this bus (+54 bytes per
       # cycle, about +0.54 ms at 1 Mbaud). Gate: /follower/joint_states must still publish at 95 Hz or more.
       # Rollback: set this to an empty list ([]) and redeploy; the read shrinks back and nothing is published.
-      # ROLLED BACK 2026-10-11 on the shared 14-servo bus: with [gripper] the bridge ran at 93.4 Hz, p99 18 ms
-      # (gate 95 Hz; before 95.7 Hz, 12 ms). Re-measure on the arm-only bus before enabling it again.
+      # Measured 2026-10-11 on the former shared 14-servo bus: with [gripper] the bridge ran at 93.4 Hz, p99 18 ms
+      # (gate 95 Hz; before 95.7 Hz, 12 ms), so the list is empty. The 95 Hz gate above decides any change.
       publish_current_joints: []
       # filter_node tags /follower/joint_commands with its source in header.frame_id. web_ui and autonomy
       # (mcp_server) positions are follower joint radians (as in /follower/joint_states): the gripper's
@@ -1181,7 +1181,7 @@ ros2_nodes:
           source_max_steps: 3289
           command_min_steps: 1900
   # Swerve base servos (IDs 32-39) on their own bus: the original adapter, served as /swerve_drive/* by a second
-  # feetech_servos instance. The pan/tilt head servos join this bus later (see the comment at the end of the config).
+  # feetech_servos instance. This bus also has room for the pan/tilt head group (see extra_groups at the end).
   - name: base_servos
     node_type: feetech_servos
     present: true
@@ -1236,10 +1236,10 @@ ros2_nodes:
           mode: velocity
         - name: rr_steer
           id: 37
-      # Pan/tilt head (next epic): its two position servos join this bus as a second group here, e.g.
+      # Head group slot (design D7): the pan/tilt position servos go on this bus as a second group here, as
       #   extra_groups: [{namespace: head, joint_names: [...]}]
       # giving /head/joint_states and /head/joint_commands (set command_min_steps/command_max_steps per joint).
-      # No head joints are configured yet.
+      # This entry configures the eight base joints only.
   - name: swerve_controller
     node_type: swerve_controller
     present: true

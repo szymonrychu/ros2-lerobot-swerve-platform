@@ -1809,6 +1809,7 @@ Servo bus split in `ansible/group_vars/client.yml` and the client deploy playboo
 | `test_tilt_guard_torque_reaches_the_base_bridge` | `swerve_controller` `tilt_guard.torque_topic` is `/swerve_drive/set_register`, so a `torque_off` reaches the drive servos. |
 | `test_mcp_server_register_topics_follow_the_split` | mcp_server `topics.base_servo_registers` is `/swerve_drive/servo_registers`, `topics.servo_registers` `/follower/servo_registers`, `topics.follower_set_register` `/follower/set_register`. |
 | `test_base_servos_gets_the_critical_cgroup_tier_from_type_defaults` | The `feetech_servos` type defaults are the critical tier (CPUWeight/IOWeight 1000, OOMScoreAdjust -900) and the `base_servos` entry overrides none of `cpu_weight`, `io_weight`, `oom_score_adjust`. |
+| `test_bridge_entry_comments_carry_no_parking_wording` | The comments from the `lerobot_follower` entry through the `base_servos` entry contain no deferral wording (`later`, `next epic`, `follow-up`, `yet`, `todo`, `re-measure`). |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_servo_bus_split_config.py` is listed in this section. |
 
 ### test_gps_status_config.py
