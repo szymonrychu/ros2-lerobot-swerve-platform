@@ -142,6 +142,9 @@ class TopicSettings(StrictModel):
     poi_list: str = "/poi/list"  # poi_store, latched JSON {pois, revision}
     poi_command: str = "/poi/command"
     poi_result: str = "/poi/result"
+    head_camera_zoom_command: str = "/head_camera/zoom/command"  # head_camera zoom request (JSON)
+    head_camera_zoom_result: str = "/head_camera/zoom/result"  # JSON result; its stamp_ns pairs it with the image
+    head_camera_zoom_image: str = "/head_camera/zoom/image"  # CompressedImage JPEG of the zoom crop
     map_frame: str = "map"
     base_frame: str = "base_link"
     home_service: str = "/arm/home"
@@ -307,6 +310,8 @@ class TimeoutSettings(StrictModel):
     arm_converge_timeout_s: float = Field(default=3.0, gt=0.0)
     image_timeout_s: float = Field(default=2.0, gt=0.0)
     image_max_age_s: float = Field(default=1.0, gt=0.0)
+    zoom_timeout_s: float = Field(default=8.0, gt=0.0)  # wait for the head camera zoom result
+    zoom_image_grace_s: float = Field(default=1.0, gt=0.0)  # wait for the zoom image after an ok result
     state_stale_s: float = Field(default=1.0, gt=0.0)
     map_stale_s: float = Field(default=30.0, gt=0.0)
     tf_timeout_s: float = Field(default=0.5, gt=0.0)

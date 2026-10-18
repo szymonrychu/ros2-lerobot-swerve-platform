@@ -563,3 +563,16 @@ def test_contact_load_delta_appears_in_the_resolved_grip_report() -> None:
     custom = resolve_grip_profile(cfg.grip_profiles, cfg.limits, {"base": "firm", "contact_load_delta": 20.0})
     assert custom.report()["contact_load_delta"] == 20.0
     assert custom.name == "firm+custom"
+
+
+def test_zoom_config_defaults_and_validation(tmp_path: Path) -> None:
+    cfg = McpServerConfig()
+    assert cfg.topics.head_camera_zoom_command == "/head_camera/zoom/command"
+    assert cfg.topics.head_camera_zoom_result == "/head_camera/zoom/result"
+    assert cfg.topics.head_camera_zoom_image == "/head_camera/zoom/image"
+    assert cfg.timeouts.zoom_timeout_s == 8.0 and cfg.timeouts.zoom_image_grace_s == 1.0
+    for key in ("zoom_timeout_s", "zoom_image_grace_s"):
+        path = tmp_path / "c.yaml"
+        path.write_text(f"timeouts:\n  {key}: 0\n")
+        with pytest.raises(ValidationError):
+            load_config(path)

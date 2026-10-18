@@ -17,7 +17,17 @@ from .base_dock import DockGoal, DockResult
 from .base_motion import DriveOutcome, SpinOutcome
 from .config import McpServerConfig
 from .frontiers import FrontierTracker, MapGrid
-from .models import BasePose, CameraFrame, MapSummary, NavigationResult, PathPlan, RobotState, ScanPoints, StopResult
+from .models import (
+    BasePose,
+    CameraFrame,
+    CameraZoomFrame,
+    MapSummary,
+    NavigationResult,
+    PathPlan,
+    RobotState,
+    ScanPoints,
+    StopResult,
+)
 from .monitor import BaseUse, RobotMonitor
 from .topdown import TopdownInputs
 
@@ -91,6 +101,10 @@ class RobotApi(Protocol):
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:
         """One fresh camera frame."""
+        ...
+
+    def camera_zoom(self, camera: str, u: float, v: float, zoom: int, max_px: int) -> CameraZoomFrame:
+        """Autofocused full-resolution zoom crop around (u, v) of the default view (head camera only)."""
         ...
 
     def scan_points(self) -> ScanPoints | None:

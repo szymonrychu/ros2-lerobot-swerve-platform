@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
+import cv2
 import numpy as np
 import rclpy
 from action_msgs.msg import GoalStatus, GoalStatusArray
@@ -72,6 +73,7 @@ from .models import (
     BaseMotionBusyError,
     BasePose,
     CameraFrame,
+    CameraZoomFrame,
     CollisionMonitorInfo,
     MapSummary,
     NavGoalStatus,
@@ -109,6 +111,7 @@ from .ros_dock import (
 from .spin import FrameCache
 from .staleness import LazyStamped, MonitorFeed, Stamped, sample_ages
 from .topdown import TopdownInputs, grid_layer, transform_points
+from .zoom_client import ZoomRequests
 
 NODE_NAME = "mcp_server"
 # Best effort subscribers match both reliable and best-effort publishers.
@@ -130,6 +133,7 @@ TILT_GUARD_QOS = QoSProfile(
 )
 # filter_node subscribes reliable, depth 10.
 COMMAND_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
+ZOOM_IMAGE_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=2)
 # /robot_events: reliable so a consumer never misses an event.
 EVENT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=50)
 MONITOR_TICK_S = 0.25
@@ -718,6 +722,23 @@ class RosRobot:
             config.poi.request_timeout_s,
         )
         self.subscribe(String, t.poi_result, lambda msg: self.poi.on_result(msg.data), COMMAND_QOS)
+        self.zoom_command_pub = self.node.create_publisher(String, t.head_camera_zoom_command, COMMAND_QOS)
+        self.zoom = ZoomRequests(
+            lambda payload: self.zoom_command_pub.publish(String(data=payload)),
+            lambda: self.zoom_command_pub.get_subscription_count() > 0,
+            config.timeouts.zoom_timeout_s,
+            config.timeouts.zoom_image_grace_s,
+        )
+        # Permanent subscriptions (never created or destroyed from a tool thread).
+        self.subscribe(String, t.head_camera_zoom_result, lambda msg: self.zoom.on_result(msg.data), COMMAND_QOS)
+        self.subscribe(
+            CompressedImage,
+            t.head_camera_zoom_image,
+            lambda msg: self.zoom.on_image(
+                msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec, bytes(msg.data)
+            ),
+            ZOOM_IMAGE_QOS,
+        )
         self.map_command_pub = self.node.create_publisher(String, config.maps.command, COMMAND_QOS)
         self.map_requests = MapRequests(
             lambda payload: self.map_command_pub.publish(String(data=payload)),
@@ -1718,6 +1739,43 @@ class RosRobot:
             height=height,
             stamp_s=stamp.sec + stamp.nanosec / 1e9,
             age_s=round(age, 3),
+        )
+
+    def camera_zoom(self, camera: str, u: float, v: float, zoom: int, max_px: int) -> CameraZoomFrame:
+        """Ask the head camera for an autofocused full-resolution crop around (u, v) of the default view.
+
+        Args:
+            camera (str): Only 'front' (the head camera) can zoom.
+            u (float): Normalised x in the default view, in [0, 1].
+            v (float): Normalised y in the default view, in [0, 1].
+            zoom (int): Zoom factor (2, 4 or 8).
+            max_px (int): Longest side of the returned image; the node already scales to it.
+
+        Returns:
+            CameraZoomFrame: The JPEG as published, with its decoded size and the node's result fields.
+        """
+        if camera != "front":
+            raise RobotError(f"camera {camera!r} cannot zoom; only 'front' (the head camera) supports zoom")
+        reply = self.zoom.request(u, v, zoom, max_px)
+        image = cv2.imdecode(np.frombuffer(reply.jpeg, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise RobotError("the head camera zoom image is not a decodable JPEG")
+        height, width = image.shape[:2]
+        return CameraZoomFrame(
+            camera=camera,
+            topic=self.cfg.topics.head_camera_zoom_image,
+            jpeg=reply.jpeg,
+            width=width,
+            height=height,
+            stamp_s=reply.stamp_s,
+            status=reply.status,
+            crop=reply.crop,
+            full=reply.full,
+            out=reply.out,
+            af_state=reply.af_state,
+            lens_position=reply.lens_position,
+            phase_ms=reply.phase_ms,
+            request={"u": u, "v": v, "zoom": zoom},
         )
 
     def scan_points(self) -> ScanPoints | None:

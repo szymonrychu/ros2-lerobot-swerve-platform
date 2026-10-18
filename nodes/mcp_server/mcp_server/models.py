@@ -364,6 +364,25 @@ class CameraFrame(BaseModel):
     age_s: float
 
 
+class CameraZoomFrame(BaseModel):
+    """One autofocused full-resolution zoom crop from the head camera, with the node's result fields."""
+
+    camera: str
+    topic: str
+    jpeg: bytes = Field(exclude=True)
+    width: int
+    height: int
+    stamp_s: float = Field(description="Capture time from the image header (ROS time, s)")
+    status: str = Field(description="ok, or af_failed when focus did not converge (the picture is still taken)")
+    crop: list[int] | None = Field(description="Region taken from the full frame: x, y, w, h")
+    full: list[int] = Field(description="Full frame size: w, h")
+    out: list[int] | None = Field(description="Image size the node reported: w, h")
+    af_state: str
+    lens_position: float | None = Field(description="Lens position (dioptres) after the capture")
+    phase_ms: dict[str, float] = Field(description="Duration of the af, switch, capture and restore phases")
+    request: dict[str, float] = Field(description="The request: u, v, zoom")
+
+
 class ScanPoints(BaseModel):
     """Latest lidar scan as points in a robot frame (used to overlay lidar returns on camera images)."""
 

@@ -18,7 +18,7 @@ from mcp_server.arm import JointSample
 from mcp_server.base_dock import DockGoal, DockResult
 from mcp_server.frontiers import MapGrid
 from mcp_server.map_client import MapRequests
-from mcp_server.models import BasePose, PathPlan, RobotError
+from mcp_server.models import BasePose, CameraZoomFrame, PathPlan, RobotError
 from mcp_server.poi_client import PoiStoreDown
 from mcp_server.staleness import Stamped
 from mcp_server.topdown import TopdownInputs
@@ -273,6 +273,24 @@ class PerceptionFakeMixin:
         self.photo_commands: list[tuple[str, dict]] = []
         self.photo_error: Exception | None = None
         self.base_resets = 0
+        # camera_zoom: every call (camera, u, v, zoom, max_px) and the scripted answer (a frame or an error to raise).
+        self.zoom_calls: list[tuple[str, float, float, int, int]] = []
+        self.zoom_result: CameraZoomFrame | Exception = CameraZoomFrame(
+            camera="front",
+            topic="/head_camera/zoom/image",
+            jpeg=b"\xff\xd8zoom\xff\xd9",
+            width=1024,
+            height=576,
+            stamp_s=1.0,
+            status="ok",
+            crop=[0, 0, 1152, 648],
+            full=[4608, 2592],
+            out=[1024, 576],
+            af_state="focused",
+            lens_position=4.0,
+            phase_ms={"af": 1.0, "switch": 1.0, "capture": 1.0, "restore": 1.0},
+            request={"u": 0.5, "v": 0.5, "zoom": 4},
+        )
         # Grasp docking (no motion): goals counted, detections recorded, costmap and planner results set by the test.
         self.dock_goals: list[tuple[DockGoal, float]] = []
         self.dock_result: DockResult | None = None  # None = succeeded
@@ -409,6 +427,12 @@ class PerceptionFakeMixin:
 
     def topdown_inputs(self) -> TopdownInputs:
         return self.topdown
+
+    def camera_zoom(self, camera: str, u: float, v: float, zoom: int, max_px: int) -> CameraZoomFrame:
+        self.zoom_calls.append((camera, u, v, zoom, max_px))
+        if isinstance(self.zoom_result, Exception):
+            raise self.zoom_result
+        return self.zoom_result.model_copy(update={"camera": camera, "request": {"u": u, "v": v, "zoom": zoom}})
 
     def poi_list(self) -> tuple[list[dict], int]:
         if not self.poi_store_up:
