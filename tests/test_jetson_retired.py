@@ -494,9 +494,15 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "nodes/web_ui/tests/test_bridge.py",
-        "^def\\ test_front_camera_resolves_and_overview_camera_is_gone\\(\\)\\ \\-",
+        "^def\\ test_head_camera_resolves_and_overview_camera_is_gone\\(\\)\\ \\-",
         "retirement-test",
     ),
+    (
+        "nodes/web_ui/tests/test_bridge.py",
+        '^\\ \\ \\ \\ """/head_camera\\ resolves\\ to\\ CompressedImage;\\ the\\ retired\\ /overview_camera',
+        "retirement-test",
+    ),
+    ("tests/README.md", "^\\-\\ Head\\ tab\\ \\(`head`\\):", "retirement-test"),
     (
         "nodes/web_ui/tests/test_bridge.py",
         '^\\ \\ \\ \\ """/front_camera\\ resolves\\ to\\ CompressedImage;\\ the\\ retired\\ /overview_camera\\ name\\ has\\ no',
