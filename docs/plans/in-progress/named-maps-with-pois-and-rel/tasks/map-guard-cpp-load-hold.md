@@ -1,6 +1,6 @@
 ---
 title: Map guard cpp load hold
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "map_guard cannot unpause or reset SLAM while a loaded map is not yet trusted, so a failed relocalisation never destroys the loaded map."
 files: [nodes/map_guard_cpp/include/map_guard_cpp/config.hpp, nodes/map_guard_cpp/src/config.cpp, nodes/map_guard_cpp/include/map_guard_cpp/guard.hpp, nodes/map_guard_cpp/src/guard.cpp, nodes/map_guard_cpp/include/map_guard_cpp/map_guard_node.hpp, nodes/map_guard_cpp/src/map_guard_node.cpp, nodes/map_guard_cpp/test/test_load_hold.cpp, nodes/map_guard_cpp/CMakeLists.txt]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-guard-cpp-load-hold
+branch: named-maps-with-pois-and-rel--map-guard-cpp-load-hold
 verified_head: ""
 run: ""
 provides: []

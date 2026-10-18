@@ -1,6 +1,6 @@
 ---
 title: Named maps docs and memory
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Developers find how named maps, relocalisation and the map_guard hold work, and the decisions are recorded for later agents."
 files: [nodes/slam_toolbox/README.md, nodes/map_guard_cpp/README.md, nodes/map_guard/README.md, nodes/web_ui/README.md, tests/README.md, MEMORY.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--named-maps-docs-and-memory
+branch: named-maps-with-pois-and-rel--named-maps-docs-and-memory
 verified_head: ""
 run: ""
 provides: []

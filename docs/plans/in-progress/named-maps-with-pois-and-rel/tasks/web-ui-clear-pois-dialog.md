@@ -1,6 +1,6 @@
 ---
 title: Web UI clear POIs dialog
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The user clears POIs from the POI panel in one step, choosing whose and which kinds, with zones kept unless they opt in."
 files: [nodes/web_ui/frontend/src/poi/ClearPoisDialog.tsx, nodes/web_ui/frontend/src/poi/ClearPoisDialog.test.tsx, nodes/web_ui/frontend/src/poi/api.ts, nodes/web_ui/frontend/src/poi/PoiPanels.tsx]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 55
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--web-ui-clear-pois-dialog
+branch: named-maps-with-pois-and-rel--web-ui-clear-pois-dialog
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: MCP clear POIs tool
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The agent can clear POIs in one call, its own by default, keeping zones and the person's POIs unless the person asked."
 files: [nodes/mcp_server/mcp_server/perception_tools.py, nodes/mcp_server/mcp_server/poi_client.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_clear_pois_tool.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--mcp-clear-pois-tool
+branch: named-maps-with-pois-and-rel--mcp-clear-pois-tool
 verified_head: ""
 run: ""
 provides: []

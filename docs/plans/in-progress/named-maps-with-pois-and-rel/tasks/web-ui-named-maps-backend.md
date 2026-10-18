@@ -1,6 +1,6 @@
 ---
 title: Web UI named maps backend
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The web UI server can save, list, load and delete named maps and keeps its map view and GPS anchor consistent after any load, including one the agent started."
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_named_maps.py, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 80
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--web-ui-named-maps-backend
+branch: named-maps-with-pois-and-rel--web-ui-named-maps-backend
 verified_head: ""
 run: ""
 provides: []

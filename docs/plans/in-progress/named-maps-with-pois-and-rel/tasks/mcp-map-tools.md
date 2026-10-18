@@ -1,6 +1,6 @@
 ---
 title: MCP map tools
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The agent can save, list and load named maps and learns whether the robot is localised after a load."
 files: [nodes/mcp_server/mcp_server/map_tools.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/tests/test_map_tools.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 80
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--mcp-map-tools
+branch: named-maps-with-pois-and-rel--mcp-map-tools
 verified_head: ""
 run: ""
 provides: []

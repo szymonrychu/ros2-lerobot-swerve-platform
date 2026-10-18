@@ -1,6 +1,6 @@
 ---
 title: Map manager contract
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One definition of the named-map commands, results and status that map_manager, the web UI and the agent all share, so they cannot drift apart."
 files: [shared/ros2_common/maps.py, tests/test_shared_maps.py, shared/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-manager-contract
+branch: named-maps-with-pois-and-rel--map-manager-contract
 verified_head: ""
 run: ""
 provides: []

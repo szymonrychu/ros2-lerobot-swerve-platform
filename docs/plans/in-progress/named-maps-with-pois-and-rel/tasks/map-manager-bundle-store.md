@@ -1,6 +1,6 @@
 ---
 title: Map manager bundle store
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Named maps exist on disk as self-contained bundles (pose graph, grid, POIs, last pose) that are written atomically and can be listed and deleted."
 files: [nodes/map_manager/pyproject.toml, nodes/map_manager/uv.lock, nodes/map_manager/map_manager/__init__.py, nodes/map_manager/map_manager/bundle.py, nodes/map_manager/tests/__init__.py, nodes/map_manager/tests/test_bundle.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 70
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-manager-bundle-store
+branch: named-maps-with-pois-and-rel--map-manager-bundle-store
 verified_head: ""
 run: ""
 provides: []

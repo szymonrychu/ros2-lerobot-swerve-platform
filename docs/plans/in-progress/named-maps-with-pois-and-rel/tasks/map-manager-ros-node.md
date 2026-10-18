@@ -1,6 +1,6 @@
 ---
 title: Map manager ROS node
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "map_manager runs on the robot: it answers named-map commands over topics, publishes a truthful status, and costs no CPU while idle."
 files: [nodes/map_manager/map_manager/node.py, nodes/map_manager/map_manager/__main__.py, nodes/map_manager/map_manager/metrics.py, nodes/map_manager/tests/ros_stubs.py, nodes/map_manager/tests/test_node.py, nodes/map_manager/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-manager-ros-node
+branch: named-maps-with-pois-and-rel--map-manager-ros-node
 verified_head: ""
 run: ""
 provides: []

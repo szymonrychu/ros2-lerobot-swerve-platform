@@ -1,6 +1,6 @@
 ---
 title: Map manager operations
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Save, load and delete of named maps follow one tested sequence: the map, its POIs and last pose are written together, and a load only claims localisation after a measured match."
 files: [nodes/map_manager/map_manager/config.py, nodes/map_manager/map_manager/manager.py, nodes/map_manager/tests/fakes.py, nodes/map_manager/tests/test_manager.py]
@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--map-manager-operations
+branch: named-maps-with-pois-and-rel--map-manager-operations
 verified_head: ""
 run: ""
 provides: []

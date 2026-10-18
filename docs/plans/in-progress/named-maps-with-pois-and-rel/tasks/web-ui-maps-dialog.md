@@ -1,6 +1,6 @@
 ---
 title: Web UI maps dialog
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "From the Map tab the user names and saves a map, sees saved maps with their POI counts, loads or deletes one, and sees whether the robot is localised."
 files: [nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.toolbar.test.tsx, nodes/web_ui/frontend/src/map/MapsDialog.tsx, nodes/web_ui/frontend/src/map/MapsDialog.test.tsx, nodes/web_ui/frontend/src/map/mapsApi.ts, nodes/web_ui/frontend/src/map/MapStatusLine.tsx, nodes/web_ui/frontend/src/types.ts]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 85
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/named-maps-with-pois-and-rel--web-ui-maps-dialog
+branch: named-maps-with-pois-and-rel--web-ui-maps-dialog
 verified_head: ""
 run: ""
 provides: []
