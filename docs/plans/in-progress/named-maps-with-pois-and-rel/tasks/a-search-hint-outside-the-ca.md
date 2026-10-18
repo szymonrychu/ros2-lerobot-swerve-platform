@@ -1,6 +1,6 @@
 ---
 title: A search hint outside the candidate window can return a wrong pose with ratio 1.00 over only 126 of about 330 points and no ambiguity flag.
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Measured on the live scan with hint (3.0, 2.0, 1.0). The post-load agreement check is the only guard against it. Consider requiring a minimum evaluated fraction of the scan for ok."
 files: []
@@ -35,7 +35,7 @@ Why: Measured on the live scan with hint (3.0, 2.0, 1.0). The post-load agreemen
 
 ## Files
 
-
+- (none)
 
 ## Interfaces
 
@@ -59,3 +59,7 @@ A search hint outside the candidate window can return a wrong pose with ratio 1.
 
 Discovered in task `final-suite-and-runbook` during run `named-maps-with-pois-and-rel`.
 
+
+## Resolution
+
+Superseded by task relocalise-requires-a-minimu (written by the orchestrator with ACs).

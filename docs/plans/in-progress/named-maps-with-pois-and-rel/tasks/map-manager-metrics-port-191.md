@@ -1,6 +1,6 @@
 ---
 title: map_manager metrics_port 19113 equals the retired stereo_depth port that tests/test_stereo_depth_config.py guards against in the tests README rows.
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "I worked around it by removing the number from the README row; reassigning the port or relaxing the guard is the proper resolution."
 files: []
@@ -35,7 +35,7 @@ Why: I worked around it by removing the number from the README row; reassigning 
 
 ## Files
 
-
+- (none)
 
 ## Interfaces
 
@@ -59,3 +59,7 @@ map_manager metrics_port 19113 equals the retired stereo_depth port that tests/t
 
 Discovered in task `final-suite-and-runbook` during run `named-maps-with-pois-and-rel`.
 
+
+## Resolution
+
+No change (orchestrator ruling 2026-10-18): stereo_depth is retired (present: false, sources deleted), so 19113 is free and owned by map_manager; head_camera_cpp moved to 19116; the root suite passes (1304).
