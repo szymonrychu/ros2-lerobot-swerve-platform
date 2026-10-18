@@ -767,7 +767,7 @@ Covers:
   `phase_completed` / `plan_revised` and `state` events (ro/rw/turns/plan), `condition_pending` / `condition_answered` events of a plan
   tree and the tree fields of `phase_started` / `phase_completed` (`id`, `attempt`, `iteration`, `depth`, `p_retry_success`,
   `retry_change`, an automatic retry emitting a second `phase_started`) and the plan's `tree`, the instruction turn maximum (interrupt, robot stop, `turn_cap` status), the phase turn cap note (follow-up, no stop), the phase note interrupt deferred until a parallel tool call in flight finished (the 2026-10-11 cancelled-camera-call sequence), Claude Code's generic "user doesn't want to proceed" result corrected in a follow-up with a `tool_cancelled` event (not after a user stop), denial events,
-  auth error, session failure and missing token become error events, reset starts a new session and clears the agent POIs through the injected clearer (fake; not on start, not on a refused reset, an error result or a raising clearer is logged and does not break the reset)
+  auth error, session failure and missing token become error events, reset starts a new session and deletes no POIs (an HTTP spy sees no clear call; an `agent_poi_reset` key is rejected)
 - robot tools check (`test_runner.py`): a connected robot MCP server runs the instruction with no probe or reconnect; a failed
   server that answers is reconnected in place (`robot_tools_reconnected` event, session kept); a failed reconnect restarts the
   session and says so; an unreachable mcp_server fails the instruction at once (`robot server unreachable`, no query); `pending`
@@ -775,7 +775,6 @@ Covers:
   instruction runs
 - mcp_server probe (`test_mcp_health.py`, uvicorn on an ephemeral port): `/metrics` URL derivation, 200 = reachable, an error
   status, a hung server (timeout) and a closed port become reasons, never exceptions
-- POI clear (`test_poi_clear.py`): `clear_url` keeps scheme/host/port and swaps the path; the POST carries the bearer token and reports the removed count; wrong token, poi_store down (503), unreachable server, missing token file and timeout all return an error result instead of raising (real uvicorn app on an ephemeral port)
 - API (`test_api.py`): `/api/state` (plan, active phase, usage, hard and per-phase maxima), `/api/history`, `/api/message` (202 / 409 busy / 400 empty or invalid), `/api/stop`,
   `/api/reset` (409 while busy), `/ws/events` history on connect then live events, shutdown hook
 - entry point (`test_main.py`): loopback bind and port from config, the `/robot_events` subscription (volatile QoS) and its callback, no POI publisher is created (the clear goes over HTTP), ROS2 logger, API key removed from the process env, invalid config exits 1, uvicorn `timeout_graceful_shutdown` is the 3 s constant
