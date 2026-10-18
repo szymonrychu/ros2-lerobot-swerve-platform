@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--agent-skill-plugin-loader
+branch: driving-agent-skills-and-wor--agent-skill-plugin-loader
 verified_head: ""
 run: ""
 provides: []

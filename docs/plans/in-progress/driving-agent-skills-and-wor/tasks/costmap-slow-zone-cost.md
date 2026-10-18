@@ -12,8 +12,8 @@ model: opus
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/driving-agent-skills-and-wor--costmap-slow-zone-cost
+branch: driving-agent-skills-and-wor--costmap-slow-zone-cost
 verified_head: ""
 run: ""
 provides: []

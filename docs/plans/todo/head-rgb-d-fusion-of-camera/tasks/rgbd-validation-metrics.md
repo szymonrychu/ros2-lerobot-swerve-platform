@@ -12,7 +12,6 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-validation-metrics
 branch: head-rgb-d-fusion-of-camera--rgbd-validation-metrics
 verified_head: ""
 run: ""

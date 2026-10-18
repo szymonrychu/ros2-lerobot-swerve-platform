@@ -12,7 +12,6 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--rgbd-extrinsic-calibration
 branch: head-rgb-d-fusion-of-camera--rgbd-extrinsic-calibration
 verified_head: ""
 run: ""

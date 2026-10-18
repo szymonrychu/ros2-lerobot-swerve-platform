@@ -12,7 +12,6 @@ model: sonnet
 estimate: 90
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-fusion-of-camera--head-rgbd-node-wiring
 branch: head-rgb-d-fusion-of-camera--head-rgbd-node-wiring
 verified_head: ""
 run: ""
