@@ -47,16 +47,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- client.yml `mcp_server` config keys `topics.map3d_*`, `map3d.*`; claude_agent allowed tools.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+After deploy the agent can call the 3D map tools and is told how to read their answers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend the tests; run them; see them fail.
+- Edit config, prompt, READMEs, client.yml; run the verify command.
+- Commit `feat(agent): expose the 3D map tools`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `tests/test_mcp_server_config.py` couples client.yml, READMEs and sources; keep every coupling it checks.

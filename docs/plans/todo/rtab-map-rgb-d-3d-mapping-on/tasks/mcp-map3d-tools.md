@@ -51,16 +51,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- MCP tools `get_3d_map_status`, `query_3d_map_at`, `get_3d_free_space` (`nodes/mcp_server/mcp_server/map3d_tools.py:SENSOR_TOOL_NAMES`): the `mcp-map3d-tools` part; config `topics.map3d_cloud`, `topics.map3d_status`, `map3d.*`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent can query the 3D map through three read-only tools.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_map3d_tools.py` and the test_tools/battery gate entries; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_map3d_tools.py tests/test_tools.py tests/test_battery_gate.py -q`; see them fail.
+- Implement; run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Commit `feat(mcp_server): 3D map query tools`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern: `frontier_tools.py` (module TOOL_NAMES, register(ctx), pydantic results, tool_errors).
+- Do not deploy mcp_server during an agent session (MEMORY).

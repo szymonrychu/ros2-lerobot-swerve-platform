@@ -1,0 +1,86 @@
+[
+  {
+    "id": "G1",
+    "text": "RTAB-Map (rtabmap_ros apt for Jazzy arm64) deployed on the server Pi 4b by Ansible: RGB-D + 2D scan inputs, publish_tf false, memory management tuned for the Pi 4b; inputs are compressed head RGB, ToF depth, camera_info, /scan_filtered, odometry and TF from the client.",
+    "decisions": ["D1", "D4", "D5", "D6", "D8"],
+    "tasks": ["rtabmap-server-launch", "rtabmap-server-node-type", "head-camera-mapping-config", "head-camera-mapping-publish", "camera-calibration-script"],
+    "status": "approved"
+  },
+  {
+    "id": "G2",
+    "text": "Client-to-server transport proven over WiFi (DDS UDPv4; rates and sizes budgeted; client CPU cost of the extra streams measured).",
+    "decisions": ["D2", "D3"],
+    "tasks": ["map3d-topic-contract", "map3d-uplink-node-type", "final-suite-and-runbook"],
+    "status": "approved"
+  },
+  {
+    "id": "G3",
+    "text": "The 3D map is aligned with slam_toolbox's map frame; save/load of the 3D map database alongside the 2D map.",
+    "decisions": ["D7", "D9"],
+    "tasks": ["rtabmap-server-launch", "map3d-manager-config", "map3d-manager-status", "map3d-manager-node", "map3d-manager-node-type", "web-ui-map3d-save-reset", "final-suite-and-runbook"],
+    "status": "approved"
+  },
+  {
+    "id": "G4",
+    "text": "Web UI: 3D map view (point cloud) in the existing map3d view, downsampled for the browser.",
+    "decisions": ["D10", "D13"],
+    "tasks": ["web-ui-map3d-cloud-backend", "map3d-frontend-layers", "map3d-frontend-status"],
+    "status": "approved"
+  },
+  {
+    "id": "G5",
+    "text": "Agent: tools to query the 3D map (what is at a location, height of obstacles, free space around a point).",
+    "decisions": ["D11", "D13"],
+    "tasks": ["mcp-map3d-grid-model", "mcp-map3d-tools", "mcp-map3d-config-docs"],
+    "status": "approved"
+  },
+  {
+    "id": "G6",
+    "text": "Tests, READMEs, Grafana CPU/memory checks on both Pis; deployed and verified by mapping a room.",
+    "decisions": ["D8", "D12"],
+    "tasks": ["mapping-cpu-dashboards", "map3d-docs-and-memory", "final-suite-and-runbook"],
+    "status": "approved"
+  },
+  {
+    "id": "U1",
+    "text": "RTAB-Map runs on the server Pi 4b, fed compressed head RGB + ToF depth + lidar over WiFi.",
+    "decisions": ["D1", "D2", "D3"],
+    "tasks": ["map3d-topic-contract", "map3d-uplink-node-type", "rtabmap-server-launch"],
+    "status": "approved"
+  },
+  {
+    "id": "U2",
+    "text": "slam_toolbox keeps owning map->odom.",
+    "decisions": ["D7"],
+    "tasks": ["rtabmap-server-launch", "final-suite-and-runbook"],
+    "status": "approved"
+  },
+  {
+    "id": "U3",
+    "text": "Web UI 3D map view in the existing map3d view.",
+    "decisions": ["D10"],
+    "tasks": ["web-ui-map3d-cloud-backend", "map3d-frontend-layers"],
+    "status": "approved"
+  },
+  {
+    "id": "U4",
+    "text": "Agent tools to query the 3D map.",
+    "decisions": ["D11"],
+    "tasks": ["mcp-map3d-grid-model", "mcp-map3d-tools"],
+    "status": "approved"
+  },
+  {
+    "id": "U5",
+    "text": "Outdoor elevation mapping and 3D path planning are out of scope.",
+    "decisions": ["D6", "D11"],
+    "tasks": ["rtabmap-server-launch", "mcp-map3d-tools"],
+    "status": "approved"
+  },
+  {
+    "id": "U6",
+    "text": "The lidar map should extend the ToF and 3D SLAM where possible. Interpretation: the 360 deg, ~12 m RPLidar complements the narrow 4 m ToF; RTAB-Map gets /scan_filtered with the RGB-D, and the 3D map view and queries show lidar-derived structure (2D-map walls extruded to a configurable height) where no depth has been seen, clearly distinguishable from measured 3D points, within the Pi 4b budget. Planned per D13: the lidar reaches the 3D map through slam_toolbox (RTAB-Map's odometry is slam_toolbox's lidar localisation; /map walls extruded in the web UI and reported as lidar_2d by the agent), because fusing scan into RTAB-Map's grid makes scan and depth points indistinguishable and scan links would break the D7 alignment.",
+    "decisions": ["D13", "D6"],
+    "tasks": ["map3d-frontend-layers", "mcp-map3d-grid-model", "rtabmap-server-launch"],
+    "status": "approved"
+  }
+]

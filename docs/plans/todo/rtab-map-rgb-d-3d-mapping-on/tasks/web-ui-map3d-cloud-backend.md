@@ -47,16 +47,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- WS roles `map3d_cloud` (payload `points_b64`, `colors_b64`, `count`, `source_count`, `voxel_m`, `dropped_out_of_range`, `frame_id`, `stamp`), `map3d_status`, `map3d_result`; TabConfig fields `map3d_*` and `lidar_wall_height_m`: the `web-ui-map3d-roles` part (`nodes/web_ui/web_ui/cloud_serializer.py:serialize_map3d_cloud`, `nodes/web_ui/web_ui/config.py`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+With the Map tab's 3D layer on, web_ui sends at most 60k points of the downlinked map; with it off nothing is subscribed.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `nodes/web_ui/tests/test_map3d_cloud.py`; run `cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_cloud.py -q`; see it fail.
+- Implement serializer, config and bridge roles; run `cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint` until green.
+- Commit `feat(web_ui): map3d cloud, status and result roles`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- If the ToF obstacle epic already added a PointCloud2 decoder to web_ui, reuse it inside serialize_map3d_cloud instead of a second decoder (one PointCloud2 parser per node).
+- `/map3d/cloud` frame is `rtabmap_map` (design D7: identical to `map`); the serializer keeps frame_id and the frontend refuses any frame other than `map3d_frame_id` (map3d-frontend-layers).
+- Placeholder rule: the payload only ever carries decoded points.

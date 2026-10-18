@@ -52,16 +52,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/map3d-mapping.md` with a `## Results` section.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The epic's goals are verified on the robot with recorded numbers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Run the full verify command; fix or report any failure with its output.
+- Write the runbook; execute it step by step with `.logs/` logs; fill `## Results`.
+- Commit the calibration file, measured budgets and the runbook: `docs: 3D mapping runbook and measured budget`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Servo safety: the head pans are the only motion besides slow driving; keep pans within the pan/tilt epic's verified range.
+- Use the ansible-deploy skill before deploying (CLAUDE.md).

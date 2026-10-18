@@ -43,16 +43,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map3d_manager_cpp/include/map3d_manager_cpp/status.hpp` (`StatusInputs`, `Status`, `build_status`, `to_json`, `read_cgroup_memory_bytes`): the `map3d-status-contract` part read by the web UI and mcp_server.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A pure function turns the manager's observations into the status JSON every consumer reads.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write test/test_status.cpp; run `scripts/cpp-node-test.sh map3d_manager_cpp`; see `FAIL`.
+- Implement; rerun until `PASS`.
+- Commit `feat(map3d_manager_cpp): status contract`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `graph_correction_*` is RTAB-Map's `MapGraph.map_to_odom`: identity while D7 holds; anything else means RTAB-Map built its own links and the 3D map has left slam_toolbox's frame.

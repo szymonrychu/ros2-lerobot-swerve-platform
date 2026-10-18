@@ -51,16 +51,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/frontend/src/map3d/cloudDecode.ts:decodeMap3dCloud`, `nodes/web_ui/frontend/src/map3d/lidarWalls.ts:buildLidarWalls`, `measuredColumnsFromCloud`; layer keys `map3dCloud`, `lidarWalls`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The Map tab renders the room in 3D: coloured measured points, and translucent lidar walls only where the ToF never looked.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the three test files; run `cd nodes/web_ui/frontend && npx vitest run src/map3d/cloudDecode.test.ts src/map3d/lidarWalls.test.ts src/map3d/layers.test.ts`; see them fail.
+- Implement; run `cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build`.
+- Commit `feat(web_ui): 3D map and lidar wall layers`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The LayersPanel lists layers from LAYER_LABELS, so no panel edit is needed; check `map/LayersPanel.test.tsx` still passes.
+- Keep the point count from the backend cap; no client-side resampling beyond decoding.

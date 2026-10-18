@@ -50,16 +50,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/rtabmap_mapping/launch/rtabmap_mapping.launch.py:build_container`, `nodes/rtabmap_mapping/config/rtabmap_params.yaml` (the `rtabmap-mapping-launch` part); RTAB-Map topics `/rtabmap/cloud_map`, `/rtabmap/mapGraph`, `/rtabmap/info`, services `/rtabmap/backup`, `/rtabmap/reset`, `/rtabmap/pause`, `/rtabmap/resume`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/rtabmap-launch-probe.sh` prints `rtabmap-launch-probe: PASS` on the arm64 Mac, proving the apt packages and parameters before any Pi deploy.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write tests/test_rtabmap_mapping_config.py; run `uv run pytest tests/test_rtabmap_mapping_config.py -q`; see it fail.
+- Write the launch file and params; rerun until green; `uv run poe lint`.
+- Write scripts/rtabmap-launch-probe.sh; run it; expect `rtabmap-launch-probe: PASS` (first run downloads the image and PCL/VTK/gtsam; minutes).
+- Write the README; commit `feat(rtabmap_mapping): depth-only RTAB-Map aligned to slam_toolbox`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Research (scratchpad nav3d-rtabmap-docs.md, recorded in design.md): publish_tf false stops only the broadcast; the graph would still diverge after own loop closures, hence no own links; depth must be an integer fraction of RGB and registered; Grid/Sensor 2 mixes scan and depth indistinguishably; there is no scan_map topic; RegisterNode output size follows rgb camera_info.
+- If the probe shows a parameter name differs in 0.23.13, fix the name and say so in the commit; never drop a parameter silently.
+- Opus: the parameter set is where the design's correctness lives.

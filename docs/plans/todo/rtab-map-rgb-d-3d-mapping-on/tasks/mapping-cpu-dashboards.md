@@ -39,16 +39,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Dashboard panel titles used by the runbook: "3D mapping server unit CPU", "3D mapping server unit memory", "Map3d uplink client CPU", "Server memory available", "WiFi throughput".
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One Grafana row shows server and client cost and the link bandwidth of 3D mapping.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend the tests; run `uv run pytest tests/test_monitoring_dashboards.py -q`; see them fail.
+- Edit robot-slam.json; rerun with test_monitoring_real_binaries.py.
+- Commit `feat(monitoring): 3D mapping cost panels`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Unit names come from the node names in group_vars (rtabmap_mapping, map3d_manager on the server; map3d_uplink, head_camera_cpp on the client).
+- Deploying the dashboard is `./scripts/deploy-nodes.sh server monitoring` in the runbook.

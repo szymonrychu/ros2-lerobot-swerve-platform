@@ -50,16 +50,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/rtabmap_mapping/config/map3d_topics.yaml` and `nodes/rtabmap_mapping/map3d_topics.py:load_map3d_topics` / `Map3dTopics` / `estimated_mbit_s`: the `map3d-topics` contract read by the uplink launch, the RTAB-Map launch, web_ui, mcp_server and map3d_manager_cpp config tests.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_map3d_topics.py -q` passes; the contract states every cross-host stream with its budget.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write tests/test_map3d_topics.py; run `uv run pytest tests/test_map3d_topics.py -q`; see it fail on the missing module.
+- Write the yaml and map3d_topics.py; rerun until green; `uv run poe lint`.
+- Write the README; commit `feat(rtabmap_mapping): cross-host map3d topic contract`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Root ruff excludes `nodes/`; the module is still linted by the test importing it. Keep it dependency-light: launch files import it on the Pis with the system python (pyyaml and pydantic are available from apt `python3-yaml`, `python3-pydantic`; the node-type tasks add them to apt_packages).
+- Budget numbers come from design D3; the runbook replaces them with measured values only through a later commit.

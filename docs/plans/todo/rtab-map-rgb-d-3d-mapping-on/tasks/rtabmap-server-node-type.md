@@ -44,16 +44,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Unit `ros2-rtabmap_mapping` on the server, tag `rtabmap_mapping` for `scripts/deploy-nodes.sh server rtabmap_mapping`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`./scripts/deploy-nodes.sh server rtabmap_mapping` installs and starts RTAB-Map with its caps.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the test; run `uv run pytest tests/test_rtabmap_mapping_deploy.py -q`; see it fail.
+- Edit server.yml, the playbook and the db dir task; run the verify command.
+- Commit `feat(ansible): deploy rtabmap_mapping on the server`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Server budget: monitoring.slice up to 2.2 GB / 150 % CPU; ~1.1 GB left for ROS units (server.yml comment). 900M leaves room for lerobot_leader, gps_rtk_base, ros2-master and map3d_manager; the runbook measures and proposes final caps.

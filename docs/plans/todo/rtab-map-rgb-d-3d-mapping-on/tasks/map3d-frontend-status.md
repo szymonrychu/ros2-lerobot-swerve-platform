@@ -45,16 +45,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Reads the map3d status contract (`nodes/map3d_manager_cpp/include/map3d_manager_cpp/status.hpp`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+An operator sees at a glance whether the 3D map is being built and aligned with the 2D map.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests; run `cd nodes/web_ui/frontend && npx vitest run src/map/Map3dStatus.test.tsx src/map/LayersPanel.test.tsx src/tabs/MapNavTab.toolbar.test.tsx`; see them fail.
+- Implement; run `cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build`.
+- Commit `feat(web_ui): 3D map status and save/reset results`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Status fields and thresholds are defined once in the map3d status contract; do not invent missing ones in the UI.

@@ -45,16 +45,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Uses the map3d command contract (`nodes/map3d_manager_cpp/include/map3d_manager_cpp/command_json.hpp`); response field `map3d` on `/api/map/save` and `/api/map/reset`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Save in the web UI writes the 2D posegraph and backs up the RTAB-Map database; reset clears both.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests; run `cd nodes/web_ui && uv run --frozen pytest tests/test_map3d_commands.py -q`; see them fail.
+- Implement; run `cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Commit `feat(web_ui): save and reset the 3D map with the 2D map`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- map_guard_cpp resets reach the 3D map through `/map_guard/map_reset` in the uplink (map3d-manager-node), not through web_ui.

@@ -45,16 +45,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/head_camera_calibrate.py` (`main`, `capture_images`, `solve_calibration`, `write_camera_info_yaml`) and its yaml config; output path `nodes/head_camera_cpp/config/head_camera_calibration.yaml` (written in the runbook, final-suite-and-runbook).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Running the script against the robot with a printed 9x6 board produces a calibration file the head camera loads.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests; run `uv run pytest tests/test_head_camera_calibrate.py -q`; see them fail.
+- Implement the script and yaml; rerun until green; `uv run poe lint`.
+- Update scripts/README.md; commit `feat(scripts): head camera intrinsics calibration`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Root dev deps already include opencv-python-headless, numpy, httpx, pydantic, pyyaml.
+- Do not touch the robot here; the runbook runs it.

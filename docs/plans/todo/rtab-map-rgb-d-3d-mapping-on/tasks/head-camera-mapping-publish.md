@@ -51,16 +51,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Topics `/head_camera/mapping/image_raw/compressed` (CompressedImage, JPEG) and `/head_camera/mapping/camera_info` (CameraInfo, frame `head_camera_optical_frame`): the `head-camera-mapping-topics` part, consumed through the map3d topic contract.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+With `mapping.enabled: true` and a calibration file, a subscriber receives 576x324 JPEG + matching CameraInfo at 2 Hz; focus is fixed and survives zooms.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the node, zoom controller and controls tests; run `scripts/cpp-node-test.sh head_camera_cpp`; see `FAIL`.
+- Implement the wiring, restore change and controls; rerun until `cpp-node-test: head_camera_cpp PASS`.
+- Update the README; commit `feat(head_camera_cpp): 2 Hz mapping stream and fixed focus`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- File names are the front-camera epic's end state (`src/head_camera_node.cpp`, `src/core/zoom_controller.cpp`, `src/libcamera_controls.cpp`).
+- The Ansible config (`mapping.enabled`, `af_mode: manual`, `lens_position`, `camera_info_file`) is set by map3d-uplink-node-type and final-suite-and-runbook, not here.
+- CPU: the mapping encode at 576x324 / 2 Hz is a few ms per second; the runbook measures it.

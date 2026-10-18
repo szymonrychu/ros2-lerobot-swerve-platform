@@ -48,16 +48,17 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Docs only.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The docs describe the 3D mapping stack end to end.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Edit the docs; run the verify command.
+- Commit `docs: 3D mapping stack`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Doc-only task (TDD exception: documentation).

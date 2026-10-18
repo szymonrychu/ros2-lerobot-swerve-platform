@@ -45,16 +45,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `head_camera_cpp::MappingConfig`, `Config::lens_position`, `Config::mapping_image_topic()`, `Config::mapping_camera_info_topic()` (`include/head_camera_cpp/config.hpp`).
+- `MappingDecimator`, `resize_for_mapping`, `scale_intrinsics` (`include/head_camera_cpp/mapping_stream.hpp`): the `head-camera-mapping-core` part.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh head_camera_cpp` ends `cpp-node-test: head_camera_cpp PASS` with the new config keys and the mapping core tested.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Extend test_config.cpp and add test_mapping_stream.cpp (core sources and tests are globbed by CMakeLists, D7 of the front-camera epic); run `scripts/cpp-node-test.sh head_camera_cpp`; see `FAIL`.
+- Implement the config keys and mapping_stream.cpp; rerun until `PASS`.
+- Commit `feat(head_camera_cpp): manual focus and mapping stream core`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Builds on the end state of epic front-camera-30-fps-stream-w (head_camera_cpp exists with `af_mode` continuous|auto|manual, `camera_info_file`, the globbed core library).
+- A fixed lens is the precondition for valid intrinsics (prior-art fix-as-ac: autofocus changes intrinsics).
+- No camera_info without a calibration file stays the rule (front-camera D3): scale_intrinsics only scales a loaded calibration.

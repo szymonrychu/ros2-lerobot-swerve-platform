@@ -50,16 +50,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map3d_uplink/launch/map3d_uplink.launch.py:build_uplink_nodes` and the deployed unit `ros2-map3d_uplink` ; publishes the contract's `/uplink/*` and `/map3d/*` dests.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`./scripts/deploy-nodes.sh client map3d_uplink` installs one process that bridges only the contract streams.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write tests/test_map3d_uplink_config.py and the dds/cgroups test changes; run `uv run pytest tests/test_map3d_uplink_config.py tests/test_dds_discovery_config.py -q`; see them fail.
+- Write the launch file, README, client.yml and playbook step; run the verify command until green.
+- Commit `feat(map3d_uplink): single static-peer relay for 3D mapping streams`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- topic_tools copies publisher QoS (reliable/transient_local only if all publishers are), hence the explicit tf_static override (research brief, topic_tools tool_base_node.cpp).
+- image_transport::Republisher is a lazy component (image_common jazzy republish.cpp).
+- Static-peer rule: ansible/README.md "Cross-host" (one process per route); keep the discovery test's intent.

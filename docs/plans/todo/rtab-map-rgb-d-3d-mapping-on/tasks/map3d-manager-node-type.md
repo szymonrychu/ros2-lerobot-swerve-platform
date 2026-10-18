@@ -43,16 +43,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Unit `ros2-map3d_manager` on the server, tag `map3d_manager`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`./scripts/deploy-nodes.sh server map3d_manager` builds and starts the manager.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write the tests; run them; see them fail.
+- Edit server.yml and the playbook; run the verify command.
+- Commit `feat(ansible): deploy map3d_manager on the server`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The server has not built in-repo C++ before: check `ros2_node_deploy` colcon tasks need no client-only variable (e.g. nav2 overlay vars) and say what you found in the commit.

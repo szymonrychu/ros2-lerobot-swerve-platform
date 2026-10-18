@@ -47,16 +47,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Executable `map3d_manager_node`; topics `/map3d/result_server`, `/map3d/status_server` (downlinked to `/map3d/result`, `/map3d/status`); consumes `/uplink/map3d/command`, `/uplink/map_guard/map_reset`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A command from the web UI saves or resets the RTAB-Map database on the server and the robot sees the result and a live status.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write test/test_node.cpp; run `scripts/cpp-node-test.sh map3d_manager_cpp`; see `FAIL`.
+- Implement node, main and CMake targets; rerun until `PASS`.
+- Write the README; commit `feat(map3d_manager_cpp): save, reset and status node`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern for request/result JSON over topics: poi_store and head_camera zoom.
+- Do not subscribe any large uplink stream here (one WiFi copy per server reader, contract rule).

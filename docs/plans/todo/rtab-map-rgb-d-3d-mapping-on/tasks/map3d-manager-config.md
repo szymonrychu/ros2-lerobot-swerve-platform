@@ -47,16 +47,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/map3d_manager_cpp/include/map3d_manager_cpp/command_json.hpp` (`Command`, `Result`, `parse_command`, `to_json`): the `map3d-command-contract` part used by web_ui.
+- `nodes/map3d_manager_cpp/include/map3d_manager_cpp/config.hpp`: the `map3d-manager-config` part.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh map3d_manager_cpp` ends `cpp-node-test: map3d_manager_cpp PASS`.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write package.xml, CMakeLists and both tests with stub sources; run `scripts/cpp-node-test.sh map3d_manager_cpp`; see `FAIL`.
+- Implement; rerun until `PASS`.
+- Commit `feat(map3d_manager_cpp): package, config and command contract`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The docker image is rebuilt from every package.xml; `rtabmap_msgs` resolves through rosdep (apt ros-jazzy-rtabmap-msgs).
+- New non-web nodes are C++ (MEMORY: Python nodes stay only for web_ui and mcp_server).

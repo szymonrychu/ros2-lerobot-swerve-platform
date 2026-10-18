@@ -46,16 +46,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/mcp_server/mcp_server/map3d.py`: `VoxelMap`, `LidarGrid`, `query_at`, `free_space`, `status_summary`, `alignment_agreement`, result dataclasses `AtResult`, `FreeSpaceResult`: the `map3d-voxel-query` part.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Pure, fast queries over the 3D map that separate measured 3D structure from lidar-only structure.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
+- Write `tests/test_map3d.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_map3d.py -q`; see it fail.
+- Implement; run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Commit `feat(mcp_server): 3D map voxel model and queries`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Reuse `frontiers.MapGrid` for /map decoding if it fits instead of a second OccupancyGrid parser.
+- Opus: the honest-unknown rules are where the value is.
