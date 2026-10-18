@@ -1,6 +1,6 @@
 ---
 title: Zoom request JSON
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "One authoritative zoom request/result contract shared by the node, mcp_server and the web UI."
 files: [nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp, nodes/head_camera_cpp/src/core/zoom_json.cpp, nodes/head_camera_cpp/test/core/test_zoom_json.cpp]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--zoom-request-json
 branch: front-camera-30-fps-stream-w--zoom-request-json
-verified_head: ""
+verified_head: ad02b56261defe6cced7f0616f13f8b347f9dedf
 run: front-camera-30-fps-stream-w
-provides: []
+provides: [zoom-json-contract]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["No red run recorded for the round-2 zoom overflow tests, which breaks the TDD rule; process note only."]
 ---
 
 # Zoom request JSON

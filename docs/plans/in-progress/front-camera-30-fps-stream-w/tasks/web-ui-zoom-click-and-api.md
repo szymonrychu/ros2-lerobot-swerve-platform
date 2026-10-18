@@ -1,6 +1,6 @@
 ---
 title: Web UI zoom click and API
-status: escalated
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: A click on a camera picture becomes an exact zoom point and request from the browser.
 files: [nodes/web_ui/frontend/src/camera/zoomApi.ts, nodes/web_ui/frontend/src/camera/zoomApi.test.ts, nodes/web_ui/frontend/src/components/CameraStream.tsx, nodes/web_ui/frontend/src/components/CameraStream.test.tsx, nodes/web_ui/frontend/src/types.ts]
@@ -61,3 +61,5 @@ The browser can turn a click into a zoom request; the Head tab UI uses it next.
 ## Notes
 
 - Normalised (u, v) must refer to the full 16:9 frame: the preview is not cropped, so the displayed image's natural size is the reference.
+
+- 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on web-ui-zoom-backend

@@ -1,6 +1,6 @@
 ---
 title: Deploy head camera playbook
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: A client deploy installs head_camera_cpp right after the pi_cameras uninstall and keeps the camera overlay.
 files: [ansible/playbooks/deploy_nodes_client.yml, ansible/playbooks/tasks/pi_camera_boot_config.yml, tests/test_head_camera_deploy.py, tests/test_pi_camera_boot_config.py, tests/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--deploy-head-camera-playbook
 branch: front-camera-30-fps-stream-w--deploy-head-camera-playbook
-verified_head: ""
+verified_head: f35b0329aa53e2e95cd1084337acdae68dc6db20
 run: front-camera-30-fps-stream-w
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["The implementer's change is split over two commits with the same message. The second touches only the tag assertion in tests/test_pi_camera_boot_config.py."]
 ---
 
 # Deploy head camera playbook

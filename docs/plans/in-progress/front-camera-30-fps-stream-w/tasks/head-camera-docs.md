@@ -1,6 +1,6 @@
 ---
 title: Head camera docs
-status: escalated
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Anyone can read how the head camera node works, deploys and is verified."
 files: [nodes/head_camera_cpp/README.md, nodes/README.md, ansible/README.md, .claude/skills/ansible-deploy/SKILL.md, MEMORY.md, tests/test_head_camera_deploy.py, tests/README.md]
@@ -62,3 +62,5 @@ Docs and memory describe the head camera node, its zoom contract and the retirem
 ## Notes
 
 - CLAUDE.md audience: mid-level Python developer with ROS 2 experience.
+
+- 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on agent-zoom-prompt-and-docs, head-tab-click-to-zoom

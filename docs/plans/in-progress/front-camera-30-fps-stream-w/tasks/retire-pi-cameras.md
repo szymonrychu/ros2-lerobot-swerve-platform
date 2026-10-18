@@ -1,6 +1,6 @@
 ---
 title: Retire pi_cameras
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: No camera_ros node competes for the head camera and no dead pi_cameras code remains.
 files: [ansible/group_vars/client.yml, nodes/pi_cameras, tests/test_pi_cameras_config.py, tests/test_pi_cameras_deploy.py, tests/test_pi_cameras_retired.py, tests/test_jetson_retired.py, tests/README.md]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--retire-pi-cameras
 branch: front-camera-30-fps-stream-w--retire-pi-cameras
-verified_head: ""
+verified_head: bc5971eeb9721d796fc215a3e00637d6ddd778ec
 run: front-camera-30-fps-stream-w
 provides: []
-acs_for_audit: []
+acs_for_audit: [a2]
 process_gaps: []
 ---
 

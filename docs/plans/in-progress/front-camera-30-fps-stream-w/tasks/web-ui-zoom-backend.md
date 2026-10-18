@@ -1,6 +1,6 @@
 ---
 title: Web UI zoom backend
-status: escalated
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The web UI backend can request a head camera zoom and hand the crop to the browser.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/tests/test_camera_zoom.py, nodes/web_ui/tests/test_bridge.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/README.md]
@@ -67,3 +67,5 @@ The web_ui backend serves head camera zoom crops over REST; nothing is broadcast
 
 - Pattern: `poi_request_async` (`bridge.py`) and `POST /api/poi` (`server.py:poi_command`), `await_ros_future`, `action_response`.
 - JSON contract: `nodes/head_camera_cpp/include/head_camera_cpp/zoom_json.hpp`.
+
+- 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on web-ui-head-camera-frontend

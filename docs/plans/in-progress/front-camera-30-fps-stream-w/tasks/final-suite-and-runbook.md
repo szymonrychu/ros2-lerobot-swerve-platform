@@ -1,6 +1,6 @@
 ---
 title: Final suite and runbook
-status: escalated
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Every suite is green, no live /front_camera reference remains, and the orchestrator has a precise deploy-and-verify runbook."
 files: [tests/test_head_camera_live_refs.py, tests/README.md]
@@ -68,3 +68,5 @@ Orchestrator runbook (after merge, robot reachable; every deploy logged to `.log
 
 - A failing suite owned by pre-existing work is cleared per the boy-scout rule, not reported as this task's failure.
 - If the robot is offline the runbook steps 2-8 are reported as pending on the robot, with everything else done.
+
+- 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on head-camera-docs

@@ -1,6 +1,6 @@
 ---
 title: Head camera ROS wiring
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The robot gets /head_camera topics at 30 fps and a working zoom command, with metrics to measure both."
 files: [nodes/head_camera_cpp/include/head_camera_cpp/head_camera_node.hpp, nodes/head_camera_cpp/src/head_camera_node.cpp, nodes/head_camera_cpp/CMakeLists.txt, nodes/head_camera_cpp/test/test_node.cpp, nodes/head_camera_cpp/test/data/calibration.yaml]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--head-camera-ros-wiring
 branch: front-camera-30-fps-stream-w--head-camera-ros-wiring
-verified_head: ""
+verified_head: e43c1c68a3d00ce96306412e5d08065842e12e30
 run: front-camera-30-fps-stream-w
 provides: []
 acs_for_audit: []

@@ -1,6 +1,6 @@
 ---
 title: JPEG encode and YUV crop
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Preview frames are compressed at the configured quality and zoom crops are converted only where needed.
 files: [nodes/head_camera_cpp/include/head_camera_cpp/encode.hpp, nodes/head_camera_cpp/src/core/encode.cpp, nodes/head_camera_cpp/test/core/test_encode.cpp]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--jpeg-encode-and-yuv-crop
 branch: front-camera-30-fps-stream-w--jpeg-encode-and-yuv-crop
-verified_head: ""
+verified_head: 5c2b6ea405445603d10e3fa6661c615f369af806
 run: front-camera-30-fps-stream-w
-provides: []
+provides: [jpeg-encoding]
 acs_for_audit: []
 process_gaps: []
 ---

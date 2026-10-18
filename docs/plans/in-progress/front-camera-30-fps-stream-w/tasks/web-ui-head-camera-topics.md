@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--web-ui-head-camera-topics
 branch: front-camera-30-fps-stream-w--web-ui-head-camera-topics
-verified_head: ""
+verified_head: e92b02a7910cae9664178628bb2adf89448575fa
 run: front-camera-30-fps-stream-w
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["Task changes are uncommitted in the worktree (git status shows 7 modified files, nothing committed); the specified git diff merge-base..HEAD shows no config.py or default.yaml change.", "No recorded red/green evidence (tests.red) for the config.py, default.yaml and client.yml changes. The checklist requires reverting each non-test file to the merge-base, showing the failing tail, then restoring it and showing the passing tail."]
 ---
 
 # Web UI head camera topics

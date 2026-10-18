@@ -1,6 +1,6 @@
 ---
 title: Agent zoom prompt and docs
-status: escalated
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The agent knows the front camera is the head camera and when and how to zoom.
 files: [nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_prompt.py, nodes/claude_agent/tests/test_config.py, nodes/claude_agent/README.md]
@@ -62,3 +62,5 @@ claude_agent's prompt describes the head camera and the zoom parameter.
 
 - The gripper's calibrated 640x480 pixel-tool wording stays (it is the gripper camera).
 - No client.yml change: claude_agent's camera_note default is used.
+
+- 2026-10-18 run front-camera-30-fps-stream-w: dependency-failed on mcp-camera-image-zoom-param

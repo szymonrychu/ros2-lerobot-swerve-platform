@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--mcp-camera-image-zoom-param
 branch: front-camera-30-fps-stream-w--mcp-camera-image-zoom-param
-verified_head: ""
+verified_head: not obtained
 run: front-camera-30-fps-stream-w
 provides: []
 acs_for_audit: []

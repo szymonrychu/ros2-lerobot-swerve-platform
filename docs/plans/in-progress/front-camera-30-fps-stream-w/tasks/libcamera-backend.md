@@ -1,6 +1,6 @@
 ---
 title: Libcamera backend
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The node drives the real IMX708: 30 fps video, a full-resolution still on request and windowed autofocus."
 files: [nodes/head_camera_cpp/include/head_camera_cpp/libcamera_backend.hpp, nodes/head_camera_cpp/src/libcamera_backend.cpp, nodes/head_camera_cpp/src/libcamera_controls.cpp, nodes/head_camera_cpp/test/test_libcamera_controls.cpp, nodes/head_camera_cpp/CMakeLists.txt]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/front-camera-30-fps-stream-w--libcamera-backend
 branch: front-camera-30-fps-stream-w--libcamera-backend
-verified_head: ""
+verified_head: f107bf718a0859e10f39b2c205b5e13d2b0cfb38
 run: front-camera-30-fps-stream-w
-provides: []
+provides: [libcamera-backend, backend-log-hook]
 acs_for_audit: []
 process_gaps: []
 ---
