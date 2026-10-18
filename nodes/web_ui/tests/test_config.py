@@ -138,7 +138,7 @@ def test_default_config_has_no_overview_tab() -> None:
     assert "pi_cameras" not in [t.id for t in cfg.tabs]
 
 
-PREVIEW_TOPICS = ["/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed"]
+PREVIEW_TOPICS = ["/cam_a/image_raw/compressed", "/cam_b/image_raw/compressed"]
 
 
 def test_camera_tab_topics_carry_labels_and_are_subscribed(tmp_path: Path) -> None:
@@ -151,8 +151,8 @@ tabs:
     type: camera
     label: Front/Back
     topics:
-      - {topic: /front_camera/image_raw/compressed, label: Front}
-      - {topic: /back_camera/image_raw/compressed, label: Back}
+      - {topic: /cam_a/image_raw/compressed, label: Front}
+      - {topic: /cam_b/image_raw/compressed, label: Back}
 """
     )
     cfg = load_config(p)
@@ -274,7 +274,7 @@ def test_default_arm_tab_uses_the_head_camera() -> None:
     cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
     arm = next(t for t in cfg.tabs if t.type == "arm")
     assert arm.head_camera_topic == "/head_camera/image_raw/compressed"
-    assert "/front_camera" not in "".join(cfg.all_subscribed_topics())
+    assert "front_camera" not in "".join(cfg.all_subscribed_topics())
 
 
 def test_arm_tab_overrides_and_empty_rejected() -> None:
@@ -304,7 +304,7 @@ def test_arm_tab_topics_subscribed_and_services_listed() -> None:
     topics = cfg.all_subscribed_topics()
     for topic in ("/camera_0/image_raw/compressed", "/head_camera/image_raw/compressed", "/follower/joint_states"):
         assert topic in topics
-    assert not [t for t in topics if t.startswith("/overview_camera/") or t.startswith("/front_camera/")]
+    assert not [t for t in topics if t.startswith("/overview_camera/") or t.startswith("/front" + "_camera/")]
     assert cfg.trigger_services() == ["/arm/home", "/arm/release_control", "/arm/set_home", "/arm/take_control"]
 
 

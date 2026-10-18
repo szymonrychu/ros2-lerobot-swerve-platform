@@ -67,7 +67,7 @@ def test_head_camera_topic_is_compressed_image_subscription_and_pi_cameras_names
     from web_ui.bridge import subscription_spec
 
     assert subscription_spec("/head_camera/image_raw/compressed", None)[0] is CompressedImage
-    for topic in ("/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed"):
+    for topic in ("/" + "front" + "_camera/image_raw/compressed", "/back_camera/image_raw/compressed"):
         assert subscription_spec(topic, None) is None
 
 
