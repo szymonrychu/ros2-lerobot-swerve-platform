@@ -47,6 +47,14 @@ describe('CalibratePage', () => {
     expect(screen.queryByText('IMU calibration')).toBeNull()
   })
 
+  it('imu-only config renders the IMU section and no stereo section', async () => {
+    respond(200, { imu: true, stereo: true, arm: 'deferred' })
+    render(<CalibratePage onBack={() => {}} />)
+    await screen.findByText('IMU calibration')
+    expect(screen.queryByText(/Stereo calibration/)).toBeNull()
+    expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining('stereo'), expect.anything())
+  })
+
   it('always shows the deferred arm line once loaded', async () => {
     respond(200, { imu: false })
     render(<CalibratePage onBack={() => {}} />)

@@ -56,7 +56,7 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url: string) =>
       url === '/api/calibration/config'
-        ? new Response(JSON.stringify({ imu: true }), { status: 200 })
+        ? new Response(JSON.stringify({ imu: true, stereo: true }), { status: 200 })
         : { json: async () => CONFIG },
     ),
   )
@@ -100,6 +100,7 @@ describe('Calibrate routing', () => {
     fireEvent.click(await screen.findByText('Calibrate'))
     expect(window.location.hash).toBe('#/calibrate')
     await screen.findByText('IMU calibration')
+    expect(screen.queryByText(/Stereo calibration/)).toBeNull()
     expect(store.size).toBe(0)
   })
 
