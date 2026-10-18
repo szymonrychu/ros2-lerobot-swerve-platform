@@ -1647,7 +1647,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_obstacle_layer_keeps_obstacles_in_the_notches` | Both costmaps: obstacle layer `footprint_clearing_enabled: false` (its column fill treats the H as convex and would erase obstacles in the notches). |
 | `test_slam_map_resolution_cost_is_bounded` | slam_toolbox correlation and loop search windows are whole numbers of their own cells, the correlation grid is no coarser than the map, and `map_update_interval` is 10 s (the 2.5 cm raster has 4x the cells). |
 | `test_nav2_velocity_smoother_matches_swerve` | Smoother limits `[0.25, 0.25, 0.5]`, odom `/odometry/filtered`. |
-| `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) (static ones 4+ points, the dynamic ArmStop a `polygon_sub_topic`) and a `/scan` observation source. |
+| `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) (static ones 4+ points, every sub-polygon of StopBox and CliffStop 4+ points, the dynamic ArmStop a `polygon_sub_topic`) and an enabled `/scan_filtered` scan observation source (U5: kept next to the ToF sources). |
 | `test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; `StopBox` (holonomic stop `velocity_polygon`, min 4 points) is enabled on the footprint-filtered scan. |
 | `test_stopbox_covers_every_velocity` | Every command (directions in 5 deg steps, speeds 0 to 0.25 m/s, yaw rates -0.5 to 0.5) selects a StopBox sub-polygon, as Nav2 keeps the previous one for an uncovered velocity. |
 | `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side (ahead of a front wheel, x 0.23; ahead of the lidar dome in the front notch, x 0.202 (dome front 0.187); behind a rear wheel; beside each side frame, y +-0.1658 with the measured 35 mm frames), a return 1.5 cm outside the H footprint (just outside the self-filter polygon) stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
@@ -1732,10 +1732,12 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_footprint_geometry_is_shared_with_mcp_server` | The generator's outline, parked-arm union, offset and vertex-order functions are imported from `mcp_server.footprint_geometry` (one implementation for the static and the dynamic footprint). |
 | `test_inflation_formula_lives_in_footprint_geometry` | Circumscribed / inscribed radius, inflation radius and cost scaling factor come from `mcp_server.footprint_geometry` (mcp_server sets the dynamic footprint's inflation with the same formula). |
 | `test_generated_values_land_in_the_parsed_yaml` | Parsed footprints, padding, inflation, StopBox order/points/ranges, the laser polygon and the mcp_server `nav_footprint` numbers equal the generator output. |
-| `test_cliff_polygon_is_the_footprint_grown_by_the_cliff_margin` | The CliffStop polygon equals the footprint offset by `cliff_margin_m` (0.25), contains the footprint and has >= 4 points. |
+| `test_cliff_polygon_is_the_footprint_grown_by_the_cliff_margin` | The cliff polygon equals the footprint offset by `cliff_margin_m` (0.25), contains the footprint and has >= 4 points. |
 | `test_cliff_margin_must_be_positive` | `Settings` rejects `cliff_margin_m` 0. |
-| `test_cliffstop_region_is_the_points_line_of_the_cliff_polygon` | The `cliffstop` region renders one `points:` line parsing back to the cliff polygon. |
-| `test_nav2_cliffstop_polygon_is_wired_but_not_yet_listed` | `CliffStop` block in nav2_params (polygon, approach, 1.2 s, tof_cliff, >= 4 points) exists and is not in `polygons`. |
+| `test_cliffstop_region_renders_the_direction_aware_sub_polygons` | The `cliffstop` region renders `velocity_polygons: [rotate, forward, back]` and each sub-polygon's points and ranges as generated. |
+| `test_cliffstop_checks_the_cliff_margin_except_while_backing_away` | `rotate` (below the StopBox rotate speed) and `forward` are the cliff polygon, `back` the footprint; every sub-polygon has >= 4 points and yaw limits +-10. |
+| `test_cliffstop_selects_by_command_direction` | Every 5 deg at 0.1 m/s, first-match selection picks `forward` within +-90 deg (sideways included) and `back` beyond. |
+| `test_nav2_cliffstop_polygon_is_wired_and_listed` | `CliffStop` block in nav2_params (holonomic velocity_polygon, approach, 1.2 s, tof_cliff, >= 4 points per sub-polygon) exists and is listed in `polygons`. |
 | `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config (and no client.yml, whose region is then skipped), `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
 
 ### test_poi_store_config.py
@@ -2648,6 +2650,31 @@ Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, ST
 | `test_nav2_bringup_installs_stvl` | nav2_bringup `apt_packages` lists `ros-jazzy-spatio-temporal-voxel-layer` with a comment. |
 | `test_readme_documents_the_tof_obstacle_layer` | The nav2_bringup README "ToF obstacle layer" section names the pipeline, layer settings, the U5 separation, local-only and the no-returns cliff limitation. |
 | `test_readme_tof_section_has_no_parking_wording` | The nav2_bringup README "ToF obstacle layer" section states what the values are and how to check them, with no wording that defers the values to a later change. |
+| `test_tests_readme_documents_this_file` | This section lists every test of the file. |
+
+### test_nav_tof_collision.py
+
+Static checks of the collision_monitor ToF sources `tof_obstacles` / `tof_cliff`, the per-polygon source sets and the direction-aware CliffStop approach polygon (design D4, D5; U1, U5). Reads `nav2_params.yaml` (values and comments), the generator output of `scripts/gen_nav_footprint.py` and the READMEs; replays the nav2 1.3.13 approach model (`VelocityPolygon::isInRange`, `Polygon::getCollisionTime`, translation only) on the CliffStop sub-polygons.
+
+| Test | Covers |
+|---|---|
+| `test_observation_sources_are_scan_and_the_two_tof_sources` | `observation_sources` is exactly `scan, tof_obstacles, tof_cliff`. |
+| `test_tof_source_settings` | Both ToF sources: `pointcloud` on `/tof/points_filtered`, bands 0.06-0.6 m and -1.0 to -0.10 m, `min_range` 0.0, enabled (values and types). |
+| `test_tof_source_band_equals_the_stvl_mark_band` | `tof_obstacles` band equals the STVL `tof_mark` band, `tof_cliff` equals `tof_cliff_mark`, same topic. |
+| `test_scan_source_is_unchanged` | U5: `scan` stays `type: scan` on `/scan_filtered`, enabled. |
+| `test_polygons_include_cliffstop` | `polygons` is exactly `StopBox, ArmStop, CliffStop`. |
+| `test_every_polygon_names_only_declared_sources` | Every listed polygon has a non-empty `sources_names` that names only declared observation sources. |
+| `test_polygon_source_sets` | StopBox `scan, tof_obstacles`; ArmStop `scan`; CliffStop `tof_cliff`. |
+| `test_cliffstop_is_a_direction_aware_approach_polygon_with_the_generated_points` | CliffStop is an enabled holonomic `velocity_polygon` with `approach`, `time_before_collision` > 0 and sub-polygons `rotate, forward, back`; `rotate` / `forward` equal the generator's cliff polygon, `back` the footprint. |
+| `test_cliffstop_stops_motion_toward_or_along_cliff_points_inside` | Cliff points 0.42-0.52 m ahead (inside CliffStop): forward, left, right, forward-left and a zero command get collision time 0 (stop). |
+| `test_cliffstop_passes_backing_away_from_cliff_points_inside` | The same points: back, back-left and back-right get no collision (pass). |
+| `test_cliffstop_slows_the_approach_to_a_cliff_outside_and_passes_backing_away` | Cliff points 0.62-0.72 m ahead: forward 0.2 m/s gets a collision time inside `time_before_collision` (slowdown), backward none. |
+| `test_tof_sources_keep_the_stale_source_stop` | Node `source_timeout` 1.0 and no ToF source overrides it (no `source_timeout: 0.0`), so a ToF or head-TF outage stops motion. |
+| `test_comments_explain_the_outage_stop_and_the_runtime_switch` | The collision_monitor comments name "invalid source", `collision_monitor_node.cpp`, `ros2 param set /collision_monitor tof_cliff.enabled false`, the ArmStop edge noise and the arm shadow. |
+| `test_cliffstop_comment_explains_the_direction_aware_shape` | The CliffStop comment names `getCollisionTime`, the `rotate` / `forward` / `back` sub-polygons and that backing away passes. |
+| `test_readme_documents_the_tof_collision_sources` | The nav2_bringup README "Collision monitor" section names both ToF sources, the topic, CliffStop / ArmStop, the invalid-source stop, the runtime switch, that backing away from a seen cliff passes and the cliff view limitation. |
+| `test_readme_records_the_docker_validation` | The README "ToF validation in Docker" section names the image, the three packages, `tof_optical_frame`, `cmd_vel_smoothed` and the invalid-source outcome; every case with cliff points inside CliffStop records that backward -0.1 passes. |
+| `test_readme_sections_have_no_parking_wording` | Neither README section defers anything to a later change. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 
 ### test_tof_obstacle_cloud_config.py

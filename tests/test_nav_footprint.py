@@ -326,18 +326,63 @@ def test_cliff_margin_must_be_positive() -> None:
         Settings(**config)
 
 
-def test_cliffstop_region_is_the_points_line_of_the_cliff_polygon() -> None:
+def test_cliffstop_region_renders_the_direction_aware_sub_polygons() -> None:
     gen = generated()
-    lines = region_lines("cliffstop", gen)
-    assert len(lines) == 1 and lines[0].startswith("points: ")
-    parsed = yaml.safe_load(yaml.safe_load(lines[0])["points"])
-    assert parsed == [list(p) for p in gen.cliff_polygon]
+    region = yaml.safe_load("\n".join(region_lines("cliffstop", gen)))
+    assert region["velocity_polygons"] == ["rotate", "forward", "back"]
+    for name, sub in gen.cliffstop.items():
+        assert yaml.safe_load(region[name]["points"]) == [list(p) for p in sub["points"]], name
+        for key in (
+            "linear_min",
+            "linear_max",
+            "theta_min",
+            "theta_max",
+            "direction_start_angle",
+            "direction_end_angle",
+        ):
+            assert region[name][key] == sub[key], f"{name}.{key}"
 
 
-def test_nav2_cliffstop_polygon_is_wired_but_not_yet_listed() -> None:
+def test_cliffstop_checks_the_cliff_margin_except_while_backing_away() -> None:
+    """Rotation and every command with a forward or sideways component check the footprint + cliff margin (the true
+    edge lies up to ~0.2 m inside the seen below-floor points); a command with a backward component checks the
+    footprint only, so the robot can back away from cliff points inside the margin (nav2 1.3.13
+    Polygon::getCollisionTime returns 0 for points already inside the selected polygon)."""
+    gen = generated()
+    subs = gen.cliffstop
+    assert list(subs) == ["rotate", "forward", "back"]
+    assert subs["rotate"]["points"] == gen.cliff_polygon
+    assert subs["rotate"]["linear_max"] == stopbox_polygons(gen.footprint, 0.02, 4)["rotate"]["linear_max"]
+    assert subs["forward"]["points"] == gen.cliff_polygon
+    assert subs["back"]["points"] == gen.footprint
+    for sub in subs.values():
+        assert len(sub["points"]) >= MIN_POLYGON_POINTS
+        assert (sub["theta_min"], sub["theta_max"]) == (-10.0, 10.0)
+
+
+@pytest.mark.parametrize("degrees", range(-180, 181, 5))
+def test_cliffstop_selects_by_command_direction(degrees: int) -> None:
+    """Nav2 (VelocityPolygon::isInRange) takes the first sub-polygon whose speed and direction ranges match."""
+    subs = generated().cliffstop
+    direction = math.atan2(math.sin(math.radians(degrees)), math.cos(math.radians(degrees)))
+    chosen = next(
+        name
+        for name, sub in subs.items()
+        if sub["linear_min"] <= 0.1 <= sub["linear_max"]
+        and (
+            sub["direction_start_angle"] <= direction <= sub["direction_end_angle"]
+            if sub["direction_start_angle"] <= sub["direction_end_angle"]
+            else direction >= sub["direction_start_angle"] or direction <= sub["direction_end_angle"]
+        )
+    )
+    assert chosen == ("forward" if abs(degrees) <= 90 else "back")
+
+
+def test_nav2_cliffstop_polygon_is_wired_and_listed() -> None:
     params = yaml.safe_load(NAV2_PARAMS.read_text())["collision_monitor"]["ros__parameters"]
     cliff = params["CliffStop"]
-    assert cliff["type"] == "polygon"
+    assert cliff["type"] == "velocity_polygon"
+    assert cliff["holonomic"] is True
     assert cliff["action_type"] == "approach"
     assert cliff["time_before_collision"] == 1.2
     assert cliff["simulation_time_step"] == 0.05
@@ -345,8 +390,9 @@ def test_nav2_cliffstop_polygon_is_wired_but_not_yet_listed() -> None:
     assert cliff["visualize"] is False
     assert cliff["enabled"] is True
     assert cliff["sources_names"] == ["tof_cliff"]
-    assert len(yaml.safe_load(cliff["points"])) >= MIN_POLYGON_POINTS
-    assert "CliffStop" not in params["polygons"]
+    for sub in cliff["velocity_polygons"]:
+        assert len(yaml.safe_load(cliff[sub]["points"])) >= MIN_POLYGON_POINTS, sub
+    assert "CliffStop" in params["polygons"]
 
 
 # --- collision_monitor StopBox ----------------------------------------------------------------------

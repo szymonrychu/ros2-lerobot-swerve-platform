@@ -13,7 +13,8 @@ derives:
   footprint_geometry, mcp_server applies it to the dynamic footprint),
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
   the bounding box + margin for rotation in place,
-- the collision_monitor CliffStop polygon (footprint + cliff_margin_m: the head ToF sees the floor beyond a cliff),
+- the collision_monitor CliffStop: the footprint + cliff_margin_m (the head ToF sees the floor beyond a cliff) for
+  rotation and every command with a forward or sideways component, the footprint alone while backing away,
 - the laser_filter self polygon (footprint + laser_filter_margin_m),
 - the mcp_server nav_footprint numbers (circle segments, gap closing, margins, simplification, decimals, costmap
   resolution, maximum cost scaling, parked-arm shadow), so the footprint mcp_server publishes uses the same geometry
@@ -81,6 +82,7 @@ ROTATE_LINEAR_MAX = 0.005
 LINEAR_MAX = 10.0
 THETA_LIMIT = 10.0
 FULL_TURN = 3.1416
+HALF_TURN = 1.5708
 # Minimum number of vertices Jazzy's collision_monitor accepts per polygon (Polygon::getPolygonFromString).
 MIN_POLYGON_POINTS = 4
 
@@ -156,6 +158,7 @@ class Generated(BaseModel):
     stopbox: dict[str, dict]
     laser_polygon: list[Point2]
     cliff_polygon: list[Point2]
+    cliffstop: dict[str, dict]
     mcp_nav_footprint: dict[str, float | int | list[list[float]]]
 
 
@@ -353,6 +356,46 @@ def stopbox_polygons(points: list[Point2], margin: float, decimals: int) -> dict
     return subs
 
 
+def cliffstop_polygons(footprint: list[Point2], cliff_polygon: list[Point2]) -> dict[str, dict]:
+    """collision_monitor CliffStop velocity sub-polygons (approach model).
+
+    nav2 1.3.13 Polygon::getCollisionTime returns 0 for any command when min_points are inside the selected polygon,
+    so one static polygon would also stop backing away from a seen cliff. The head ToF looks forward, so below-floor
+    points are ahead: rotation and commands with a forward or sideways component check the footprint + cliff margin
+    (the true edge lies up to ~0.2 m inside the seen points), commands with a backward component the footprint only.
+
+    Args:
+        footprint (list[Point2]): Footprint.
+        cliff_polygon (list[Point2]): Footprint grown by cliff_margin_m.
+
+    Returns:
+        dict[str, dict]: Sub-polygon name -> points and selection ranges, in Nav2 selection order.
+
+    Raises:
+        ValueError: A sub-polygon has fewer than MIN_POLYGON_POINTS vertices.
+    """
+    subs = {
+        "rotate": (cliff_polygon, ROTATE_LINEAR_MAX, -FULL_TURN, FULL_TURN),
+        "forward": (cliff_polygon, LINEAR_MAX, -HALF_TURN, HALF_TURN),
+        "back": (footprint, LINEAR_MAX, HALF_TURN, -HALF_TURN),
+    }
+    for name, (points, *_) in subs.items():
+        if len(points) < MIN_POLYGON_POINTS:
+            raise ValueError(f"CliffStop {name} has fewer than {MIN_POLYGON_POINTS} points")
+    return {
+        name: {
+            "points": points,
+            "linear_min": 0.0,
+            "linear_max": linear_max,
+            "theta_min": -THETA_LIMIT,
+            "theta_max": THETA_LIMIT,
+            "direction_start_angle": start,
+            "direction_end_angle": end,
+        }
+        for name, (points, linear_max, start, end) in subs.items()
+    }
+
+
 def generate(settings: Settings, repo_root: Path) -> Generated:
     """Compute every generated value.
 
@@ -361,12 +404,13 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
         repo_root (Path): Base of relative paths.
 
     Returns:
-        Generated: Footprint, inflation, StopBox, CliffStop and laser polygon.
+        Generated: Footprint, inflation, StopBox, CliffStop (polygon and sub-polygons) and laser polygon.
     """
     body, source = resolve_body(settings, repo_root)
     shadow = parked_shadow(settings, repo_root)
     outline = body_outline(body.boxes, body.cylinders, settings.circle_segments, settings.close_gap_m)
     footprint = to_points(static_outline(outline, shadow), settings.decimals)
+    cliff_polygon = offset_polygon(footprint, settings.cliff_margin_m, settings.decimals)
     return Generated(
         body_source=source + (" + parked arm" if shadow else ""),
         footprint=footprint,
@@ -374,7 +418,8 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
         cost_scaling_factor=cost_scaling_factor(footprint, settings.max_cost_scaling_factor),
         stopbox=stopbox_polygons(footprint, settings.stopbox_margin_m, settings.decimals),
         laser_polygon=offset_polygon(footprint, settings.laser_filter_margin_m, settings.decimals),
-        cliff_polygon=offset_polygon(footprint, settings.cliff_margin_m, settings.decimals),
+        cliff_polygon=cliff_polygon,
+        cliffstop=cliffstop_polygons(footprint, cliff_polygon),
         mcp_nav_footprint={
             "circle_segments": settings.circle_segments,
             "close_gap_m": settings.close_gap_m,
@@ -401,6 +446,31 @@ def polygon_string(points: list[Point2]) -> str:
     return f'"{polygon_text(points)}"'
 
 
+def velocity_polygon_lines(subs: dict[str, dict]) -> list[str]:
+    """Unindented YAML lines of a collision_monitor velocity_polygon: the sub-polygon list and each sub-polygon.
+
+    Args:
+        subs (dict[str, dict]): Sub-polygon name -> points and selection ranges, in Nav2 selection order.
+
+    Returns:
+        list[str]: Lines.
+    """
+    lines = ["velocity_polygons: [" + ", ".join(f'"{n}"' for n in subs) + "]"]
+    for sub_name, sub in subs.items():
+        lines.append(f"{sub_name}:")
+        lines.append(f"  points: {polygon_string(sub['points'])}")
+        for key in (
+            "linear_min",
+            "linear_max",
+            "theta_min",
+            "theta_max",
+            "direction_start_angle",
+            "direction_end_angle",
+        ):
+            lines.append(f"  {key}: {sub[key]}")
+    return lines
+
+
 def region_lines(name: str, gen: Generated) -> list[str]:
     """Unindented YAML lines of one generated region.
 
@@ -421,9 +491,7 @@ def region_lines(name: str, gen: Generated) -> list[str]:
     if name == "laser_polygon":
         return [f"polygon: {polygon_string(gen.laser_polygon)}"]
     if name == "cliffstop":
-        if len(gen.cliff_polygon) < MIN_POLYGON_POINTS:
-            raise ValueError(f"CliffStop has fewer than {MIN_POLYGON_POINTS} points")
-        return [f"points: {polygon_string(gen.cliff_polygon)}"]
+        return velocity_polygon_lines(gen.cliffstop)
     if name == "mcp_nav_footprint":
         lines = []
         for key, value in gen.mcp_nav_footprint.items():
@@ -434,20 +502,7 @@ def region_lines(name: str, gen: Generated) -> list[str]:
                 lines.append(f"{key}: {value}")
         return lines
     if name == "stopbox":
-        lines = ["velocity_polygons: [" + ", ".join(f'"{n}"' for n in gen.stopbox) + "]"]
-        for sub_name, sub in gen.stopbox.items():
-            lines.append(f"{sub_name}:")
-            lines.append(f"  points: {polygon_string(sub['points'])}")
-            for key in (
-                "linear_min",
-                "linear_max",
-                "theta_min",
-                "theta_max",
-                "direction_start_angle",
-                "direction_end_angle",
-            ):
-                lines.append(f"  {key}: {sub[key]}")
-        return lines
+        return velocity_polygon_lines(gen.stopbox)
     raise ValueError(f"unknown generated region {name!r}")
 
 
