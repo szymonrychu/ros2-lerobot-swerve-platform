@@ -1,10 +1,10 @@
 ---
-# Boot config for the Pi 5 CSI ports: a Camera Module 3 (IMX708, pi_cameras front preview) on cam0 and the Arducam
+# Boot config for the Pi 5 CSI ports: the Camera Module 3 (IMX708, the head RGB camera of head_camera_cpp) on cam0 and the Arducam
 # ToF camera on cam1. The firmware's auto detection does not know the ToF, so it is turned off and both overlays are
 # written explicitly; the IMX219 overlays of the retired Pi camera pair are removed. The firmware reads config.txt at
 # boot, so the client reboots when (and only when) a line changed. Same pattern as the UART overlay in
 # deploy_nodes_client.yml and bno055_i2c_boot_config.yml. Included from pre_tasks (after the stop-all) by the full
-# client playbook (tags boot, pi_cameras and arducam_tof, so a deploy of either camera node reaches it).
+# client playbook (tags boot, pi_cameras, head_camera_cpp and arducam_tof, so a deploy of any camera node reaches it).
 - name: Remove the IMX219 overlay from CSI cam0 (left camera, retired)
   ansible.builtin.lineinfile:
     path: /boot/firmware/config.txt

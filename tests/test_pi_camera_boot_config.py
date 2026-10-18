@@ -1,7 +1,7 @@
 """Static invariants of the Pi 5 CSI boot config (ansible/playbooks/tasks/pi_camera_boot_config.yml).
 
-CSI cam0 carries a Camera Module 3 (IMX708, pi_cameras front preview) and cam1 the Arducam ToF camera. The firmware's
-auto detection does not know the ToF, so the file turns it off and writes both overlays explicitly, removes the
+CSI cam0 carries a Camera Module 3 (IMX708, the head RGB camera head_camera_cpp) and cam1 the Arducam ToF camera.
+The firmware's auto detection does not know the ToF, so the file turns it off and writes both overlays explicitly, removes the
 retired IMX219 overlays, and reboots the client only when a line changed.
 """
 
@@ -18,7 +18,7 @@ TESTS_README = REPO_ROOT / "tests" / "README.md"
 CONFIG_TXT = "/boot/firmware/config.txt"
 RETIRED_OVERLAYS = ("dtoverlay=imx219,cam0", "dtoverlay=imx219,cam1")
 WRITTEN_LINES = ("camera_auto_detect=0", "dtoverlay=imx708,cam0", "dtoverlay=arducam-pivariety,cam1")
-INCLUDE_TAGS = ["boot", "pi_cameras", "arducam_tof"]
+INCLUDE_TAGS = ["boot", "pi_cameras", "arducam_tof", "head_camera_cpp"]
 
 
 def boot_tasks() -> list[dict]:

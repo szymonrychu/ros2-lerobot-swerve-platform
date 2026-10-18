@@ -1928,6 +1928,7 @@ Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group
 | `test_config_path_and_env` | `/etc/ros2/head_camera_cpp` and `HEAD_CAMERA_CONFIG`. |
 | `test_entry_is_live_after_pi_cameras_with_valid_config` | The entry follows `pi_cameras`, is present and enabled, and its config keys are known to the node (`camera_id` of cam0, `jpeg_quality: 70`, `metrics_port: 19113`). |
 | `test_monitoring_target_is_present` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19113/metrics`. |
+| `test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras` | `deploy_nodes_client.yml` has a `Deploy head_camera_cpp` step directly after `Deploy pi_cameras` (resolve_and_deploy, apply tag and `_deploy_node_name` `head_camera_cpp`, tags incl. apt/python/build/config). |
 
 ### `test_pi_cameras_config.py`
 
@@ -1961,7 +1962,7 @@ Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on 
 | `test_auto_detect_is_off_and_both_overlays_are_written` | Exactly `camera_auto_detect=0`, `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` are written. |
 | `test_every_line_task_is_aarch64_only_and_registers_its_result` | Five `lineinfile` tasks, each aarch64-only, tagged `boot`, with its own registered result. |
 | `test_client_reboots_only_when_a_line_changed` | The last task reboots (timeout 120) when any registered result changed. |
-| `test_client_playbook_includes_the_boot_config_under_both_camera_node_tags` | `pre_tasks` includes the file with tags `boot`, `pi_cameras`, `arducam_tof` (also on `apply`). |
+| `test_client_playbook_includes_the_boot_config_under_both_camera_node_tags` | `pre_tasks` includes the file with tags `boot`, `pi_cameras`, `arducam_tof`, `head_camera_cpp` (also on `apply`). |
 | `test_ansible_readme_describes_the_boot_config` | `ansible/README.md` names the file and the three written lines. |
 | `test_tests_readme_lists_every_test_of_this_file` | Every test of this file is listed here. |
 

@@ -82,8 +82,8 @@
       ansible.builtin.include_tasks:
         file: tasks/pi_camera_boot_config.yml
         apply:
-          tags: [boot, pi_cameras, arducam_tof]
-      tags: [boot, pi_cameras, arducam_tof]
+          tags: [boot, pi_cameras, arducam_tof, head_camera_cpp]
+      tags: [boot, pi_cameras, arducam_tof, head_camera_cpp]
 
     - name: Arducam ToF SDK apt repo and package (non-fatal when unavailable)
       ansible.builtin.include_tasks: tasks/arducam_tof_sdk.yml
@@ -293,6 +293,15 @@
           vars:
             _deploy_node_name: pi_cameras
           tags: [pi_cameras, apt, python, build, config]
+
+        - name: Deploy head_camera_cpp
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [head_camera_cpp]
+          vars:
+            _deploy_node_name: head_camera_cpp
+          tags: [head_camera_cpp, apt, python, build, config]
 
         - name: Deploy stereo_depth
           ansible.builtin.include_tasks:

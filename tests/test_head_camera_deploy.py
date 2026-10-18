@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml"
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 NODE_DIR = REPO_ROOT / "nodes" / "head_camera_cpp"
 PATCH = NODE_DIR / "patches" / "libcamera-0001-add-package-xml.patch"
@@ -181,3 +182,17 @@ def test_entry_is_live_after_pi_cameras_with_valid_config() -> None:
 def test_monitoring_target_is_present() -> None:
     targets = client_vars()["monitoring_agent_node_targets"]
     assert {"node": "head_camera_cpp", "address": f"127.0.0.1:{METRICS_PORT}", "path": "/metrics"} in targets
+
+
+def test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras() -> None:
+    play = yaml.safe_load(CLIENT_PLAYBOOK.read_text())[0]
+    blocks = [t for t in play["tasks"] if "block" in t]
+    steps = next(b["block"] for b in blocks if any(s["name"] == "Deploy pi_cameras" for s in b["block"]))
+    names = [s["name"] for s in steps]
+    assert names.index("Deploy head_camera_cpp") == names.index("Deploy pi_cameras") + 1
+    step = steps[names.index("Deploy head_camera_cpp")]
+    include = step["ansible.builtin.include_tasks"]
+    assert include["file"] == "tasks/resolve_and_deploy.yml"
+    assert include["apply"]["tags"] == ["head_camera_cpp"]
+    assert step["vars"] == {"_deploy_node_name": "head_camera_cpp"}
+    assert step["tags"] == ["head_camera_cpp", "apt", "python", "build", "config"]
