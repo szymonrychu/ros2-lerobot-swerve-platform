@@ -65,3 +65,7 @@ The agent sees the head tools as effectors and is told how to aim and that the h
 - Root `tests/test_claude_agent_config.py`: effector + denied must equal mcp_server MOTION_TOOLS; client.yml must equal the code defaults.
 
 - 2026-10-18 run pan-tilt-head-control-with-a: dependency-failed on mcp-lease-release-homes-head, mcp-front-camera-on-head
+
+## Ruling
+
+Accepted by the orchestrator: verified (mcp-lookups-follow-head-pose by hand: mcp_server 2620 passed, lint clean; its verifier agent died) and merged into main.
