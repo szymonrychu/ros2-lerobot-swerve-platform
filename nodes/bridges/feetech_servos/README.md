@@ -96,7 +96,7 @@ The watchdog stops a wheel (goal_speed = 0) only when it is moving and **no driv
 - remainder = 1 / 95.7 Hz - fake wire time of the old shared layout with idle wheels (10.45 ms - 4.28 ms = 6.17 ms: CPU, ROS publishing, sleeps);
 - projected cycle of a layout = remainder + its worst-case fake wire time.
 
-The remainder is kept fixed, which is conservative: the per-servo CPU savings of a smaller bus are not credited. Targets: arm only <= `ARM_HEADROOM` (0.95) of the follower period, base + head <= `BASE_HEADROOM` (0.8) of the base period, arm + head below the follower period (the head may also go on the arm adapter), and the fake wire time alone below half the period on both buses. `HEAD` (`head_pan`, `head_tilt`, IDs above every configured ID) stands in for the head until `base_servos` configures a `head` extra group; then the test uses that real group.
+The remainder is held fixed, so the per-servo CPU savings of a smaller bus are not credited (a conservative projection). Targets: arm only <= `ARM_HEADROOM` (0.95) of the follower period, base + head <= `BASE_HEADROOM` (0.8) of the base period, arm + head below the follower period (the head may also go on the arm adapter), and the fake wire time alone below half the period on both buses. `HEAD` (`head_pan`, `head_tilt`, IDs above every configured ID) models the head: a pan/tilt pair of two servos projected onto whichever bus is being checked.
 
 | Layout | Fake wire time | Projected cycle | Capacity | Target |
 |---|---|---|---|---|

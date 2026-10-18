@@ -36,7 +36,7 @@ MEASURED_SHARED_BUS_HZ = 95.7
 # The old shared layout: the six arm joints and the eight swerve joints in one bridge (from test_bus_io.py).
 OLD_SHARED_GROUPS = [ARM_GROUP, SWERVE_GROUP]
 HEAD_NAMESPACE = "head"
-# Pan/tilt head stand-in, used only while the base config has no `head` extra group. IDs are above every configured one.
+# Pan/tilt head model: two servos with IDs above every configured one.
 HEAD_NAMES = ["head_pan", "head_tilt"]
 # Fraction of the control period a bus layout's projected cycle may use.
 ARM_HEADROOM = 0.95

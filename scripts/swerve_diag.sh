@@ -69,7 +69,7 @@ section_topics() {
 }
 
 section_logs() {
-  for svc in ros2-lerobot_follower ros2-swerve_controller; do
+  for svc in ros2-base_servos ros2-swerve_controller; do
     echo "--- $svc logs (last $LOG_LINES, warnings/errors and swerve lines) ---"
     ssh_cmd "sudo -n journalctl -u $svc -n 400 --no-pager 2>/dev/null" \
       | grep -E 'WARN|ERROR|swerve|wheel mode|Swerve' | tail -n "$LOG_LINES" | cut -c1-240 | sed 's/^/  /' \
