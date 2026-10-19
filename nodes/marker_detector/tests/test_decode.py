@@ -116,3 +116,23 @@ def test_find_undecoded_skips_decoded_markers():
     grey = scene([PAYLOAD], [150.0], [pose_facing(1.0)])
     candidates, _ = decode_frame(grey)
     assert find_undecoded(grey, candidates) == []
+
+
+def test_render_marker_scene_is_public_package_api():
+    import inspect
+
+    import marker_detector.synthetic as synthetic
+
+    params = list(inspect.signature(synthetic.render_marker_scene).parameters)
+    assert params == [
+        "payloads",
+        "sizes_mm",
+        "poses",
+        "K",
+        "image_size",
+        "noise_px",
+        "blur_px",
+        "seed",
+    ]
+    assert synthetic.STREAM_K[0, 0] == 887
+    assert callable(synthetic.pose_facing)
