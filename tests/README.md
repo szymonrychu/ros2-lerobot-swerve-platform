@@ -2774,14 +2774,16 @@ another still pose at 0.33 m.
 
 | Test | What it checks |
 |---|---|
-| `test_counter_captures_each_still_pose_once_when_both_cameras_see_the_board` | The two near still poses are captured once each (numbers 1 and 2); the far one is not. |
-| `test_counter_reports_moving_and_too_far_for_the_tof` | Statuses include `moving` and `move closer`. |
+| `test_counts_one_pose_per_still_window` | The two near still poses are captured once each (numbers 1 and 2); the far one is not. |
+| `test_moving_board_is_not_counted` | Statuses include `moving` and no pose is attached to them. |
+| `test_status_names_missing_tof_board` | A board not found by the ToF gives the `move closer` status and no pose. |
 | `test_counter_agrees_with_the_offline_still_pairs` | The live count equals the offline `still_pairs` with both detections. |
 | `test_counter_counts_a_still_board_under_mains_flicker` | Real flickering RGB frames of a still board (`fixtures/head_rgbd/rgb_flicker_*.png`) with a real ToF frame count one pose. |
-| `test_captured_pose_carries_frames_detections_raw_and_nearest_depth` | A captured pose has the raw bytes passed with the RGB frame, the judged detections, the paired amplitude and the nearest depth frame. |
-| `test_captured_pose_has_no_depth_when_none_is_close_enough_and_never_a_substitute` | Depth outside `max_pair_dt_s` or absent leaves `depth` None; the pose is still captured. |
-| `test_start_count_continues_the_numbering` | `start_count=4` numbers the next poses 5 and 6. |
-| `test_status_is_waiting_until_an_rgb_and_an_amplitude_frame_arrived` | `status` is `waiting for frames` until frames arrived and one was judged, then the last judged status. |
+| `test_captured_pose_carries_judged_detections` | A captured pose has the raw bytes passed with the RGB frame, the judged detections, the paired amplitude and the nearest depth frame. |
+| `test_depth_absent_beyond_max_dt` | Depth outside `max_pair_dt_s` or absent leaves `depth` None; the pose is still captured. |
+| `test_start_count_continues_numbering` | `start_count=4` numbers the next poses 5 and 6. |
+| `test_waiting_until_both_streams` | `status` is `waiting for frames` until frames arrived and one was judged, then the last judged status. |
+| `test_depth_paired_within_max_dt` | A depth frame within `max_pair_dt_s` of the amplitude is attached to the pose. |
 | `test_depth_history_is_pruned_like_the_amplitude` | Depth frames older than `TOF_HISTORY_S` are dropped. |
 | `test_unknown_frame_kind_is_rejected` | An unknown kind raises `ValueError`. |
 

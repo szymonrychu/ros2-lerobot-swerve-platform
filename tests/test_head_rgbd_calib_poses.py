@@ -85,7 +85,7 @@ def run_counter() -> tuple[PoseCounter, list[PoseEvent]]:
     return counter, events
 
 
-def test_counter_captures_each_still_pose_once_when_both_cameras_see_the_board() -> None:
+def test_counts_one_pose_per_still_window() -> None:
     counter, events = run_counter()
     assert counter.count == 2
     captured = [e.status for e in events if e.pose is not None]
@@ -93,11 +93,16 @@ def test_counter_captures_each_still_pose_once_when_both_cameras_see_the_board()
     assert [e.pose.number for e in events if e.pose is not None] == [1, 2]
 
 
-def test_counter_reports_moving_and_too_far_for_the_tof() -> None:
+def test_moving_board_is_not_counted() -> None:
     _, events = run_counter()
-    statuses = [e.status for e in events]
-    assert MOVE_STATUS in statuses
-    assert any(CLOSER_STATUS in status for status in statuses)
+    assert MOVE_STATUS in [e.status for e in events]
+    assert all(e.pose is None for e in events if e.status == MOVE_STATUS)
+
+
+def test_status_names_missing_tof_board() -> None:
+    _, events = run_counter()
+    assert any(CLOSER_STATUS in e.status for e in events)
+    assert all(e.pose is None for e in events if CLOSER_STATUS in e.status)
 
 
 def test_counter_agrees_with_the_offline_still_pairs() -> None:
@@ -140,7 +145,7 @@ def run_with_depth(depth_offset_ns: int | None, **kwargs: object) -> list[PoseEv
     return events
 
 
-def test_captured_pose_carries_frames_detections_raw_and_nearest_depth() -> None:
+def test_captured_pose_carries_judged_detections() -> None:
     poses = [e.pose for e in run_with_depth(2_000_000) if e.pose is not None]
     assert len(poses) == 2
     board = make_board(BOARD_CFG)
@@ -153,20 +158,20 @@ def test_captured_pose_carries_frames_detections_raw_and_nearest_depth() -> None
         assert np.array_equal(pose.tof_detection.ids, detect_tof(pose.amplitude.image, board, sel).ids)
 
 
-def test_captured_pose_has_no_depth_when_none_is_close_enough_and_never_a_substitute() -> None:
+def test_depth_absent_beyond_max_dt() -> None:
     far_ns = int((SelectionConfig().max_pair_dt_s + 0.01) * 1e9)
     assert all(e.pose.depth is None for e in run_with_depth(far_ns) if e.pose is not None)
     assert all(e.pose.depth is None for e in run_with_depth(None) if e.pose is not None)
     assert sum(e.pose is not None for e in run_with_depth(None)) == 2
 
 
-def test_start_count_continues_the_numbering() -> None:
+def test_start_count_continues_numbering() -> None:
     events = run_with_depth(None, start_count=4)
     assert [e.pose.number for e in events if e.pose is not None] == [5, 6]
     assert [e.status for e in events if e.pose is not None][0] == "pose 5 captured - move to the next pose"
 
 
-def test_status_is_waiting_until_an_rgb_and_an_amplitude_frame_arrived() -> None:
+def test_waiting_until_both_streams() -> None:
     counter = PoseCounter(make_board(BOARD_CFG), SelectionConfig())
     assert counter.status == WAITING
     rgb, amp = still_view(NEAR_M)
@@ -178,6 +183,11 @@ def test_status_is_waiting_until_an_rgb_and_an_amplitude_frame_arrived() -> None
         counter.add(kind, frame)
     assert counter.status != WAITING
     assert counter.status == [e.status for e in run_counter()[1]][-1]
+
+
+def test_depth_paired_within_max_dt() -> None:
+    poses = [e.pose for e in run_with_depth(2_000_000) if e.pose is not None]
+    assert poses and all(p.depth is not None and p.depth.stamp_ns - p.amplitude.stamp_ns == 2_000_000 for p in poses)
 
 
 def test_depth_history_is_pruned_like_the_amplitude() -> None:
