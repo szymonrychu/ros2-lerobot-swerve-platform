@@ -1,6 +1,6 @@
 ---
 title: Marker detector Ansible
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The detector deploys, starts and is monitored on the client like every other node, configured from group_vars."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, ansible/README.md, .claude/skills/ansible-deploy/SKILL.md, tests/test_marker_detector_config.py, tests/test_node_metrics_wiring.py, nodes/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-detector-ansible
 branch: printable-metadata-markers-t--marker-detector-ansible
-verified_head: ""
+verified_head: 8b50b398d578788bdbd7c24860c9977f01dbc390
 run: printable-metadata-markers-t
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: [tests/README.md and tests/test_node_metrics_wiring.py changed in the fix round without a finding or tests.added naming them]
 ---
 
 # Marker detector Ansible

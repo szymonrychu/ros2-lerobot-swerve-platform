@@ -1,6 +1,6 @@
 ---
 title: Markers user doc
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "One document tells the user how to make, print, place and use markers, and what the robot does with them."
 files: [docs/markers.md, tests/README.md, MEMORY.md]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--markers-user-doc
 branch: printable-metadata-markers-t--markers-user-doc
-verified_head: ""
+verified_head: 5c0334d34a99904ccabefbf2535b9eeead588ccc
 run: printable-metadata-markers-t
 provides: []
-acs_for_audit: []
+acs_for_audit: [a1]
 process_gaps: []
 ---
 
