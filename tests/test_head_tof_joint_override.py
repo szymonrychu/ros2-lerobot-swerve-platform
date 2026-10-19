@@ -37,7 +37,7 @@ def build(description: ModuleType, override: Path) -> str:
     return description.robot_description(URDF, override, URDF_TEXT)
 
 
-def test_override_applied(description: ModuleType, tmp_path: Path) -> None:
+def test_override_rewrites_only_tof_joint(description: ModuleType, tmp_path: Path) -> None:
     """The tof_joint origin carries the JSON values; every other line is unchanged."""
     override = tmp_path / "tof_joint.json"
     override.write_text(json.dumps({"xyz": [0.01, 0.02, 0.03], "rpy": [0.1, 0.2, 0.3], "note": "test note"}))
@@ -55,7 +55,7 @@ def test_override_applied(description: ModuleType, tmp_path: Path) -> None:
     assert all("origin" in line or "<!--" in line for line in diff)
 
 
-def test_missing_file_gives_repo_urdf(description: ModuleType, tmp_path: Path) -> None:
+def test_missing_override_keeps_repo_urdf(description: ModuleType, tmp_path: Path) -> None:
     assert build(description, tmp_path / "absent.json") == URDF.read_text()
 
 
@@ -63,7 +63,7 @@ def test_missing_file_gives_repo_urdf(description: ModuleType, tmp_path: Path) -
     "content",
     ["{not json", json.dumps({"xyz": [1, 2], "rpy": [0, 0, 0], "note": "x"}), json.dumps([1, 2, 3])],
 )
-def test_invalid_override_gives_repo_urdf_and_warns(
+def test_invalid_override_ignored_with_warning(
     description: ModuleType, tmp_path: Path, caplog: pytest.LogCaptureFixture, content: str
 ) -> None:
     override = tmp_path / "tof_joint.json"
@@ -74,7 +74,7 @@ def test_invalid_override_gives_repo_urdf_and_warns(
     assert any(r.levelno == logging.WARNING and str(override) in r.getMessage() for r in caplog.records)
 
 
-def test_head_description_imports_only_stdlib() -> None:
+def test_head_description_is_stdlib_only() -> None:
     tree = ast.parse(HEAD_DESCRIPTION.read_text())
     roots = set()
     for node in ast.walk(tree):
