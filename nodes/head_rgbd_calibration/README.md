@@ -79,6 +79,22 @@ A run over the limits has `passed: false`, `failed_limits`, and only `report.md`
 (too few views, no ToF camera_info) or an unreadable URDF writes only `result.json` with `passed: false` and `error`,
 so there is no report.
 
+## Apply and download
+
+`head_rgbd_calibration/apply.py` (design D6). `apply_result(store, sid, rid, now)` refuses unless the result's
+`result.json` has `passed: true` (`NotApplicable`), copies `head_camera_calibration.yaml`, `tof_calibration.yaml`,
+`head_rgbd_extrinsics.yaml` and `tof_joint.json` into `<state_dir>/applied/` (each through a temp file and
+`os.replace`), then writes `applied.json` (`session`, `result`, `applied_at`, `files`) last, so a failure mid-apply
+leaves the previous marker intact. The head nodes and the Ansible path unit read this directory; the node never runs
+`systemctl restart`.
+
+`applied_state(store, units, run)` returns `applied.json` plus per unit `{name, active_state, restarted}` from the
+unprivileged `systemctl show --timestamp=unix -p ActiveEnterTimestamp -p ActiveState <unit>`; `restarted` is true when
+the unit became active at or after `applied_at`. It is None when nothing is applied.
+
+`download_zip(store, sid, rid)` returns `<sid>-<rid>.zip` holding the three YAMLs, `tof_joint.json`, `head.urdf` and
+`report.md` so the result can be committed.
+
 ## Tests
 
 `cd nodes/head_rgbd_calibration && uv run pytest tests/ -v`
@@ -90,6 +106,7 @@ so there is no report.
 - `tests/test_images.py` - RGB thumbnail width, corners drawn, input untouched; ToF thumbnail 2x with corners, `None`
   for an empty frame.
 - `tests/pose_factory.py` - helper building poses from the core synthetic board renderer (not a test).
+- `tests/test_apply.py` - apply writes every file and applied.json last, failing result refused, os.replace failure keeps the previous marker, restart flags from a fake systemctl, zip members.
 - `tests/test_compute.py` - synthetic session through the store: passing result and files, limits exceeded, too few
   poses, missing ToF camera_info, `tof_joint.json` agrees with `head.urdf`, `main`.
 - `tests/test_jobs.py` - command and niceness, busy, timeout, stderr tail, unknown session (fake child commands).
