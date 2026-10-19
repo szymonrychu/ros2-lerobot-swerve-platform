@@ -24,23 +24,29 @@ export interface ComputeState {
 /** One restarted consumer unit after an apply. */
 export interface UnitRestart {
   name: string
+  active_state?: string
   restarted: boolean
 }
 
+/** applied.json as the node writes it (`session`, `result`, `applied_at`, `files`); `units` is added by the apply answer and GET /applied. */
+export interface AppliedRecord {
+  session: string
+  result: string
+  applied_at: string
+  files: string[]
+  units?: UnitRestart[]
+}
+
 /** Body of GET /applied and the answer of apply: applied.json plus the unit restarts. */
-export interface AppliedState {
-  session_id?: string
-  result_id?: string
-  applied_at?: string | number
+export interface AppliedState extends AppliedRecord {
   units: UnitRestart[]
-  [key: string]: unknown
 }
 
 /** Body of GET /state; `applied` is null while nothing is applied. */
 export interface RgbdState {
   capture: CaptureState
   compute: ComputeState
-  applied: AppliedState | null
+  applied: AppliedRecord | null
 }
 
 export interface SessionSummary {
@@ -118,10 +124,16 @@ function isCompute(v: unknown): boolean {
 }
 
 const isUnit = (v: unknown) => isObj(v) && isStr(v.name) && typeof v.restarted === 'boolean'
-const isApplied = (v: unknown) => isObj(v) && (v.units === undefined || isArrayOf(isUnit)(v.units))
+const isApplied = (v: unknown) =>
+  isObj(v) &&
+  isStr(v.session) &&
+  isStr(v.result) &&
+  isStr(v.applied_at) &&
+  isArrayOf(isStr)(v.files) &&
+  (v.units === undefined || isArrayOf(isUnit)(v.units))
 
 /** applied.json is read back with `units`; the apply answer without it is rejected so the UI never shows a guess. */
-const isAppliedWithUnits = (v: unknown) => isObj(v) && isArrayOf(isUnit)(v.units)
+const isAppliedWithUnits = (v: unknown) => isApplied(v) && isArrayOf(isUnit)((v as Record<string, unknown>).units)
 
 const isState = (v: unknown) =>
   isObj(v) && isCapture(v.capture) && isCompute(v.compute) && isNullOr(isApplied)(v.applied ?? null)
