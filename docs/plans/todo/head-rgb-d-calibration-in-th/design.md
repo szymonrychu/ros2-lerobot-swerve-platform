@@ -302,6 +302,7 @@ web_ui maps `/api/calibration/rgbd/<rest>` to node `/api/<rest>`.
 none
 - Q1: Apply restarts head_camera_cpp, head_rgbd_cpp and head_state_publisher (a few seconds without head camera, RGB-D and head TF) instead of adding hot-reload services to the C++ nodes; OK? [recommended: yes, restart through the systemd path unit]
 - Q2: Apply is refused for a result that fails any limit (RGB, ToF or stereo RMS, view counts); the operator deletes poses or recaptures and recomputes. OK? [recommended: yes, refuse]
+- Q3: A capture stops by itself after 15 minutes so the head camera focus lock is never left engaged. OK? [recommended: yes, 15 minutes]
 
 ## Irreversible operations in scope
 
