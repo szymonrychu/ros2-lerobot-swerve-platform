@@ -1,6 +1,6 @@
 ---
 title: Web UI RGBD calib proxy
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The Calibrate page reaches the robot calibration node through web_ui, and the IMU section is unaffected."
 files: [nodes/web_ui/web_ui/rgbd_calibration.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/imu_calibration.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/tests/test_rgbd_calibration_proxy.py, nodes/web_ui/tests/test_imu_calibration.py, nodes/web_ui/README.md]

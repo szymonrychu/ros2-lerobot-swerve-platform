@@ -1,6 +1,6 @@
 ---
 title: Calib node compute job
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The calibration is computed on the robot from stored poses in a niced child process, without blocking the UI or the capture."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py, nodes/head_rgbd_calibration/head_rgbd_calibration/jobs.py, nodes/head_rgbd_calibration/tests/test_compute.py, nodes/head_rgbd_calibration/tests/test_jobs.py, nodes/head_rgbd_calibration/README.md]

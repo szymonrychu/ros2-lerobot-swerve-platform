@@ -1,6 +1,6 @@
 ---
 title: Head URDF tof joint override
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The head TF uses the applied tof_joint after a restart, without editing the repo URDF on the robot."
 files: [nodes/head_state_publisher/launch/head_state_publisher.launch.py, nodes/head_state_publisher/launch/head_description.py, tests/test_head_tof_joint_override.py, tests/test_head_state_publisher_config.py, ansible/group_vars/client.yml, nodes/head_state_publisher/README.md]

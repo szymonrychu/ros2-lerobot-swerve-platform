@@ -1,6 +1,6 @@
 ---
 title: RGBD sessions and results UI
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The operator reopens any past session, computes on it, reads the report, applies a passing result and downloads the files to commit."
 files: [nodes/web_ui/frontend/src/calibrate/RgbdSessions.tsx, nodes/web_ui/frontend/src/calibrate/RgbdSessions.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdResults.tsx, nodes/web_ui/frontend/src/calibrate/RgbdResults.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCalibration.tsx, nodes/web_ui/README.md]

@@ -1,6 +1,6 @@
 ---
 title: Jetson retirement allowlist for the calibration core
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The retirement guard test passes again after the calibration core moved into shared/ and the node and UI name the stereo calibration.
 files: [tests/test_jetson_retired.py, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 20
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--jetson-retirement-allowlist
+branch: head-rgb-d-calibration-in-th--jetson-retirement-allowlist
 verified_head: ""
 run: ""
 provides: []
@@ -51,6 +51,10 @@ What is true and observable when the task is done.
 
 Test first. One step per bullet, with the exact command and the output to expect.
 A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+- Merge every other epic task into this worktree, run `uv run --frozen pytest tests/test_jetson_retired.py -q` and read the unallowed hits (expect failures naming shared/ros2_common/head_rgbd_calibration files).
+- Edit ALLOWED_REFERENCES: drop entries for deleted scripts/head_rgbd_calibration files, add one rgbd-calibration entry per new file that names the stereo calibration.
+- Re-run the verify command (all pass); update tests/README.md if a test description changes; commit `test: allowlist the moved head RGB-D calibration core in the Jetson retirement guard`.
 
 ## Notes
 

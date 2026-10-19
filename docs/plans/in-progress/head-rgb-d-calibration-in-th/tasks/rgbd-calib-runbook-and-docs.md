@@ -1,6 +1,6 @@
 ---
 title: RGBD calib runbook and docs
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Operators follow one written procedure for calibrating on the robot, and the overlap with the fusion epic is explicit."
 files: [docs/runbooks/head-rgbd-fusion.md, docs/head-rgbd-fusion-methodology.md, scripts/README.md, MEMORY.md]
