@@ -126,7 +126,7 @@ def assert_error(response, status: int) -> None:
     assert body["ok"] is False and isinstance(body["message"], str) and body["message"]
 
 
-def test_state_has_capture_compute_and_null_applied(client: TestClient) -> None:
+def test_state_shape(client: TestClient) -> None:
     body = client.get("/api/state").json()
     assert body["capture"]["running"] is False and body["compute"]["running"] is False
     assert body["applied"] is None
@@ -169,12 +169,20 @@ def test_capture_start_invalid_id_is_404(client: TestClient, capture: FakeCaptur
     assert_error(client.post("/api/capture/start", json={"session_id": "../x"}), 404)
 
 
-def test_capture_start_refused_while_compute_runs(client: TestClient, job: FakeJob, capture: FakeCapture) -> None:
+def test_capture_and_compute_exclusive(
+    client: TestClient, store: SessionStore, job: FakeJob, capture: FakeCapture
+) -> None:
     job.running = True
     response = client.post("/api/capture/start")
     assert_error(response, 409)
     assert "compute" in response.json()["message"]
     assert capture.running is False
+    job.running = False
+    sid = new_session(store)
+    capture.running = True
+    response = client.post(f"/api/sessions/{sid}/compute")
+    assert_error(response, 409)
+    assert "capture" in response.json()["message"]
 
 
 def test_sessions_list_and_detail_with_coverage(client: TestClient, store: SessionStore) -> None:
@@ -195,7 +203,7 @@ def test_sessions_list_and_detail_with_coverage(client: TestClient, store: Sessi
     assert [r["id"] for r in detail["results"]] == [RID]
 
 
-def test_unknown_or_invalid_session_is_404(client: TestClient) -> None:
+def test_bad_ids_are_404(client: TestClient) -> None:
     assert_error(client.get("/api/sessions/calib-20200101-000000"), 404)
     assert_error(client.get("/api/sessions/not-a-session"), 404)
 
@@ -208,8 +216,11 @@ def test_delete_pose(client: TestClient, store: SessionStore) -> None:
     assert_error(client.delete(f"/api/sessions/{sid}/poses/abc"), 404)
 
 
-def test_thumbnails_are_jpeg(client: TestClient, store: SessionStore) -> None:
+def test_binary_routes_content_types(client: TestClient, store: SessionStore) -> None:
     sid = new_session(store, poses=1)
+    new_result(store, sid)
+    zipped = client.get(f"/api/sessions/{sid}/results/{RID}/download")
+    assert zipped.headers["content-type"] == "application/zip"
     for kind in ("rgb", "tof"):
         response = client.get(f"/api/sessions/{sid}/poses/001/{kind}.jpg")
         assert response.status_code == 200
@@ -228,7 +239,7 @@ def test_compute_starts_with_enough_poses(
     assert job.started == [sid]
 
 
-def test_compute_refused_with_too_few_poses(client: TestClient, store: SessionStore, job: FakeJob) -> None:
+def test_compute_needs_min_views(client: TestClient, store: SessionStore, job: FakeJob) -> None:
     sid = new_session(store, poses=1)
     response = client.post(f"/api/sessions/{sid}/compute")
     assert_error(response, 409)
@@ -287,7 +298,7 @@ def test_apply_and_applied_units(client: TestClient, store: SessionStore) -> Non
     assert calls and calls[0][-1] == UNIT
 
 
-def test_apply_not_passed_is_409(client: TestClient, store: SessionStore) -> None:
+def test_apply_failing_result_409(client: TestClient, store: SessionStore) -> None:
     sid = new_session(store)
     new_result(store, sid, passed=False)
     assert_error(client.post(f"/api/sessions/{sid}/results/{RID}/apply"), 409)

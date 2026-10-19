@@ -133,6 +133,32 @@ the unit became active at or after `applied_at`. It is None when nothing is appl
 `download_zip(store, sid, rid)` returns `<sid>-<rid>.zip` holding the three YAMLs, `tof_joint.json`, `head.urdf` and
 `report.md` so the result can be committed.
 
+## HTTP API
+
+Bound to `http_host:http_port` (127.0.0.1 by default). Every error body is `{"ok": false, "message": ...}`; unknown or
+malformed ids give 404, busy or not-applicable give 409.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/state` | capture status, compute status and `applied.json` (null when nothing applied; no systemctl call) |
+| `POST /api/capture/start` | start capture (body optional `session_id`); 409 while compute runs |
+| `POST /api/capture/stop` | stop capture |
+| `GET /api/sessions` | list sessions |
+| `GET /api/sessions/{sid}` | session detail with poses, results and `coverage` |
+| `DELETE /api/sessions/{sid}/poses/{pid}` | delete one pose |
+| `GET /api/sessions/{sid}/poses/{pid}/{rgb\|tof}.jpg` | thumbnail, `image/jpeg` |
+| `POST /api/sessions/{sid}/compute` | start compute (202 `{result_id}`); 409 while capture runs or fewer than `limits.min_views` poses |
+| `GET /api/sessions/{sid}/results/{rid}` | result with report |
+| `GET /api/sessions/{sid}/results/{rid}/download` | `application/zip`, attachment `<sid>-<rid>.zip` |
+| `POST /api/sessions/{sid}/results/{rid}/apply` | apply a passed result; 409 if it did not pass or compute runs |
+| `GET /api/applied` | applied info plus per-unit restart state; 404 when nothing applied |
+
+## Process
+
+`python -m head_rgbd_calibration` loads the config from `HEAD_RGBD_CALIBRATION_CONFIG`, runs one rclpy node
+`head_rgbd_calibration` on a `MultiThreadedExecutor` in a daemon thread and serves the API with uvicorn. On shutdown it
+stops capture, kills a running compute child and destroys the node.
+
 ## Tests
 
 `cd nodes/head_rgbd_calibration && uv run pytest tests/ -v`
