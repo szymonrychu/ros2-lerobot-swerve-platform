@@ -32,18 +32,10 @@ export const APPLIED_POLL_MS = 2000
 export const APPLIED_POLL_MAX_MS = 60000
 /** Units restarted by an apply, named in the confirmation. */
 const RESTART_UNITS = ['head_camera_cpp', 'head_rgbd_cpp', 'head_state_publisher']
-/** Limits of the node config defaults, used when result.json carries no `limits` object. */
-const DEFAULT_LIMITS: Record<string, number> = {
-  rgb_max_rms_px: 0.5,
-  tof_max_rms_px: 0.3,
-  stereo_max_rms_px: 1.0,
-  min_views: 12,
-}
-
 interface Row {
   label: string
   field: string
-  limitKey: string | null
+  limitKey: string
   limitPrefix: string
   unit: string
 }
@@ -52,16 +44,17 @@ const ROWS: Row[] = [
   { label: 'RGB RMS', field: 'rgb_rms_px', limitKey: 'rgb_max_rms_px', limitPrefix: '<=', unit: 'px' },
   { label: 'ToF RMS', field: 'tof_rms_px', limitKey: 'tof_max_rms_px', limitPrefix: '<=', unit: 'px' },
   { label: 'Stereo RMS', field: 'stereo_rms_px', limitKey: 'stereo_max_rms_px', limitPrefix: '<=', unit: 'px' },
-  { label: 'Plane bias', field: 'plane_bias_mm', limitKey: null, limitPrefix: '', unit: 'mm' },
+  { label: 'Plane bias', field: 'plane_bias_mm', limitKey: 'plane_max_bias_mm', limitPrefix: '|bias| <=', unit: 'mm' },
   { label: 'RGB views', field: 'rgb_views', limitKey: 'min_views', limitPrefix: '>=', unit: '' },
   { label: 'ToF views', field: 'tof_views', limitKey: 'min_views', limitPrefix: '>=', unit: '' },
 ]
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
 
+/** Limit as recorded in the result's own `limits` object; undefined when the result carries none. */
 function limitOf(result: ResultSummary, key: string): number | undefined {
   const own = isRec(result.limits) ? result.limits[key] : undefined
-  return typeof own === 'number' ? own : DEFAULT_LIMITS[key]
+  return typeof own === 'number' ? own : undefined
 }
 
 /** Metrics value as shown: numbers trimmed to 2 decimals, missing as a dash. */
@@ -192,12 +185,12 @@ export function RgbdResults({ sessionId, compute }: Props) {
             </TableHead>
             <TableBody>
               {ROWS.map((row) => {
-                const lim = row.limitKey === null ? undefined : limitOf(res, row.limitKey)
+                const lim = limitOf(res, row.limitKey)
                 return (
                   <TableRow key={row.label}>
                     <TableCell>{row.label}</TableCell>
                     <TableCell>{`${show(res[row.field])}`}</TableCell>
-                    <TableCell>{lim === undefined ? '-' : `${row.limitPrefix} ${lim}`}</TableCell>
+                    <TableCell>{lim === undefined ? '-' : `${row.limitPrefix} ${lim}${row.unit ? ` ${row.unit}` : ''}`}</TableCell>
                   </TableRow>
                 )
               })}
@@ -222,6 +215,7 @@ export function RgbdResults({ sessionId, compute }: Props) {
       ))}
       {applied && (
         <Alert severity={applied.units.every((u) => u.restarted) ? 'success' : 'info'} sx={{ mt: 1 }}>
+          <div>{`Applied result ${applied.result} of session ${applied.session}`}</div>
           {applied.units.map((u) => (
             <div key={u.name}>{`${u.name}: ${u.restarted ? 'restarted' : 'restarting'}`}</div>
           ))}

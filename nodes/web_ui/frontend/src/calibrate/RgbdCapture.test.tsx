@@ -4,6 +4,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { RgbdCalibration } from './RgbdCalibration'
 import { CoverageGrid } from './CoverageGrid'
 import type { CaptureState, Coverage } from './rgbdApi'
+import { RgbdCapture } from './RgbdCapture'
+import captureStartFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_start.json'
+import captureStopFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_stop.json'
 
 const IDLE: CaptureState = { running: false, session_id: null, status: 'idle', pose_count: 0, started_at: null, stops_at: null }
 const COMPUTE = { running: false, session_id: null, result_id: null, started_at: null, error: null }
@@ -164,5 +167,54 @@ describe('CoverageGrid', () => {
     expect(screen.getByText('3 of 4 image areas without corners')).toBeTruthy()
     expect(screen.getByText('2 of 4 image areas without corners')).toBeTruthy()
     expect(screen.getAllByTestId('coverage-cell-empty').length).toBe(5)
+  })
+})
+
+describe('RgbdCapture with the node contract fixtures', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  const serve = (body: unknown) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })))
+
+  it('Start with capture_start.json hands the state up and shows no error', async () => {
+    serve(captureStartFx)
+    const onState = vi.fn()
+    render(<RgbdCapture capture={IDLE} compute={COMPUTE} sessionId={null} onState={onState} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Start capture' }))
+    await waitFor(() => expect(onState).toHaveBeenCalledWith(captureStartFx))
+    expect(screen.queryByText(/Unexpected calibration response/)).toBeNull()
+  })
+
+  it('Stop with capture_stop.json hands the state up and shows no error', async () => {
+    serve(captureStopFx)
+    const onState = vi.fn()
+    const running = { ...IDLE, ...captureStartFx.capture }
+    render(<RgbdCapture capture={running} compute={COMPUTE} sessionId={null} onState={onState} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    await waitFor(() => expect(onState).toHaveBeenCalledWith(captureStopFx))
+    expect(screen.queryByText(/Unexpected calibration response/)).toBeNull()
+  })
+
+  it('RgbdCalibration shows the started capture from the Start answer', async () => {
+    const sid = captureStartFx.capture.session_id
+    const detail = { id: sid, created: 'c', lens_position: null, poses: [], coverage: { rgb: cov([[0]]), tof: cov([[0]]) }, results: [] }
+    const f = vi.fn(async (url: string) => {
+      const body = url.endsWith('/capture/start')
+        ? captureStartFx
+        : url.endsWith('/state')
+          ? { ...captureStartFx, capture: IDLE }
+          : url.endsWith('/sessions')
+            ? []
+            : detail
+      return new Response(JSON.stringify(body), { status: 200 })
+    })
+    vi.stubGlobal('fetch', f)
+    render(<RgbdCalibration />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start capture' }))
+    await screen.findByText(/waiting for frames/)
+    expect(screen.queryByText(/Unexpected calibration response/)).toBeNull()
+    expect(document.querySelector('.MuiAlert-colorError')?.textContent ?? null).toBeNull()
   })
 })

@@ -4,6 +4,11 @@ import {
   applyResult, computeSession, deletePose, downloadUrl, emptyCells, getApplied, getResult, getSession, getState,
   listSessions, startCapture, statusSeverity, stopCapture, thumbnailUrl,
 } from './rgbdApi'
+import captureStartFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_start.json'
+import captureStopFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_stop.json'
+import applyFx from '../../../../head_rgbd_calibration/tests/fixtures/api/apply.json'
+import appliedFx from '../../../../head_rgbd_calibration/tests/fixtures/api/applied.json'
+import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 
 const B = '/api/calibration/rgbd'
 const state = {
@@ -18,7 +23,7 @@ const detail = {
   coverage: { rgb: coverage, tof: coverage }, results: [{ id: 'r1', created: 'c', passed: true }],
 }
 const result = { id: 'r1', created: 'c', passed: false, report: '# rep' }
-const applied = { session_id: 's1', result_id: 'r1', applied_at: 'a', units: [{ name: 'u', restarted: true }] }
+const applied = appliedFx
 
 function stub(status: number, body: unknown) {
   const f = vi.fn(async () => new Response(JSON.stringify(body), { status }))
@@ -138,5 +143,40 @@ describe('rgbdApi calls', () => {
     expect((await getResult('s', 'r1')).ok).toBe(false)
     stub(200, { units: 'x' })
     expect((await getApplied()).ok).toBe(false)
+  })
+})
+
+describe('rgbdApi accepts the node contract fixtures', () => {
+  it('getState accepts state.json', async () => {
+    stub(200, stateFx)
+    expect(await getState()).toEqual({ ok: true, value: stateFx })
+  })
+  it('startCapture accepts capture_start.json', async () => {
+    stub(200, captureStartFx)
+    expect(await startCapture()).toEqual({ ok: true, value: captureStartFx })
+  })
+  it('stopCapture accepts capture_stop.json', async () => {
+    stub(200, captureStopFx)
+    expect(await stopCapture()).toEqual({ ok: true, value: captureStopFx })
+  })
+  it('applyResult accepts apply.json and exposes the node key names', async () => {
+    stub(200, applyFx)
+    const r = await applyResult('s', 'r')
+    expect(r).toEqual({ ok: true, value: applyFx })
+    if (r.ok) {
+      expect(r.value.session).toBe(applyFx.session)
+      expect(r.value.result).toBe(applyFx.result)
+      expect(r.value.units[0].name).toBe('ros2-head_camera_cpp.service')
+    }
+  })
+  it('getApplied accepts applied.json', async () => {
+    stub(200, appliedFx)
+    expect(await getApplied()).toEqual({ ok: true, value: appliedFx })
+  })
+  it('a malformed start body still yields the unexpected-response error', async () => {
+    stub(200, { capture: { running: 'yes' } })
+    const r = await startCapture()
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toContain('Unexpected calibration response')
   })
 })
