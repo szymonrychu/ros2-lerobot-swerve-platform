@@ -43,6 +43,8 @@ export const SCENE_COLORS = {
   obstacle: TOKENS.warning, // ToF in the 0.06-0.6 m obstacle band (reuses the slow-zone hue)
   obstacleOther: '#8a8a8a',
   lidar: '#f2f2f2',
+  map3dPoints: '#e6e6e6', // measured 3D map points without a colour
+  lidarWall: '#6e6e6e', // translucent lidar-derived wall boxes, never used for measured points
   gridCentre: '#2a2a2a',
   gridLine: '#1a1a1a',
 } as const
@@ -57,6 +59,8 @@ export const LAYER_SWATCH: Partial<Record<LayerKey, string>> = {
   footprint: SCENE_COLORS.robot,
   pois: KIND_COLORS.point,
   photos: PHOTO_COLOR,
+  map3dCloud: SCENE_COLORS.map3dPoints,
+  lidarWalls: SCENE_COLORS.lidarWall,
 }
 
 export const MAP_LEGEND: [string, string][] = [

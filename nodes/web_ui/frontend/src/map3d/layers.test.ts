@@ -49,12 +49,19 @@ describe('layer defaults', () => {
         'pois',
         'photos',
         'obstacles3d',
+        'map3dCloud',
+        'lidarWalls',
       ].sort(),
     )
   })
 
   it('shows everything except the GPS map and the 3D obstacles by default', () => {
     for (const k of LAYER_KEYS) expect(DEFAULT_LAYERS[k]).toBe(k !== 'gpsMap' && k !== 'obstacles3d')
+  })
+
+  it('shows both 3D map layers by default', () => {
+    expect(DEFAULT_LAYERS.map3dCloud).toBe(true)
+    expect(DEFAULT_LAYERS.lidarWalls).toBe(true)
   })
 })
 
@@ -111,5 +118,21 @@ describe('obstacles3d layer', () => {
     expect(DEFAULT_LAYERS.obstacles3d).toBe(false)
     expect(parseLayerState(null).obstacles3d).toBe(false)
     expect(LAYER_TOPIC_FIELDS.obstacles3d).toEqual(['obstacle_cloud_topic', 'scan_points_topic'])
+  })
+})
+
+describe('map3d layers', () => {
+  it('are labelled and the cloud depends on its topic', () => {
+    expect(LAYER_LABELS.map3dCloud).toBe('3D map (measured)')
+    expect(LAYER_LABELS.lidarWalls).toBe('Lidar walls (2D only)')
+    expect(LAYER_TOPIC_FIELDS.map3dCloud).toEqual(['map3d_cloud_topic'])
+  })
+
+  it('parse from legacy stored state that predates them', () => {
+    const s = parseLayerState(JSON.stringify({ slamMap: false, obstacles3d: true }))
+    expect(s.slamMap).toBe(false)
+    expect(s.map3dCloud).toBe(true)
+    expect(s.lidarWalls).toBe(true)
+    expect(parseLayerState(JSON.stringify({ lidarWalls: false })).lidarWalls).toBe(false)
   })
 })
