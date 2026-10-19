@@ -219,3 +219,9 @@
 - **Fail-safe**: a ToF or head-TF outage makes the collision_monitor sources invalid and stops motion; `tof_obstacles.enabled` and `tof_cliff.enabled` are runtime switches.
 - **CPU budget**: the pipeline adds at most 0.15 core mean on the client (new unit plus nav2_bringup and laser_filter deltas), EKF keeps 30 Hz; measured with `scripts/node_cpu_compare.py`.
 - Wiring is pinned across files by `tests/test_tof_obstacle_wiring.py`.
+
+## Printable metadata markers (2026-10-19)
+
+- **Decision**: fixed places (base, charger, drop-off, button, switch, tool station) are marked with printed QR Model 2 symbols carrying the P1 text payload `P1/K:<KIND>/N:<NAME>/S:<MM>[/KEY:VAL]`, not AprilTag/ArUco. QR carries the meaning and the true side length itself (no id table), is printable on paper and in two colours on the Bambu AMS, and zxing-cpp plus OpenCV IPPE give a full 6-DoF pose from 24 refined finder corners. AprilTag `tagStandard41h12` via `apriltag_ros` is the documented fallback if field range proves insufficient; it is not built.
+- **POIs**: the detector (`nodes/marker_detector`) sends `upsert_marker` to `poi_store`, which keeps one `marker` POI per `marker.key` (`<kind>/<N>`), refines its pose by confidence-weighted mean, replaces it on relocation and never overwrites user name/note/status. Automatic zoom requests stay off (`zoom.auto_zoom: false`) until the user decides.
+- **ChArUco spec owned by the generator**: the 6x5, 40 mm board lives in the `charuco` block of `scripts/markers_generate.yaml`; `scripts/head_rgbd_calibrate.yaml` must equal it (pinned by a test). Guide: `docs/markers.md`.
