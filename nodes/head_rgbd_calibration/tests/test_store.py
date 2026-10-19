@@ -52,7 +52,7 @@ def test_create_session_same_second_gets_suffix(store: SessionStore) -> None:
     assert ids == ["calib-20261019-123045", "calib-20261019-123045-2", "calib-20261019-123045-3"]
 
 
-def test_list_sessions_newest_first_with_counts(store: SessionStore) -> None:
+def test_sessions_listed_newest_first(store: SessionStore) -> None:
     old = store.create_session(datetime(2026, 10, 18, 8, 0, 0), LENS)
     new = store.create_session(NOW, LENS)
     store.add_pose(new, make_pose())
@@ -90,7 +90,7 @@ def test_set_image_sizes_and_mismatch_refused(store: SessionStore) -> None:
         store.set_image_sizes(sid, (640, 480), TOF_SIZE)
 
 
-def test_add_pose_writes_layout(store: SessionStore) -> None:
+def test_add_pose_writes_all_files_atomically(store: SessionStore) -> None:
     sid = store.create_session(NOW, LENS)
     pose = make_pose()
     pid = store.add_pose(sid, pose)
@@ -167,7 +167,7 @@ def test_add_pose_with_empty_amplitude_not_stored(store: SessionStore) -> None:
     assert not poses.exists() or not list(poses.iterdir())
 
 
-def test_load_views_rebuilds_detections_and_depth(store: SessionStore) -> None:
+def test_load_views_round_trip(store: SessionStore) -> None:
     sid = store.create_session(NOW, LENS)
     store.set_tof_info(sid, tof_info())
     a, b = make_pose(), make_pose(2, seed=2, with_depth=False)
@@ -190,7 +190,7 @@ def test_load_views_without_tof_info(store: SessionStore) -> None:
     assert store.load_views(sid).tof_info is None
 
 
-def test_coverage_counts_stored_corners_only(store: SessionStore) -> None:
+def test_coverage_counts_corners_per_cell(store: SessionStore) -> None:
     sid = store.create_session(NOW, LENS)
     empty = store.coverage(sid)
     assert empty["rgb"]["cols"] == 4 and empty["rgb"]["rows"] == 3
@@ -243,7 +243,7 @@ def test_invalid_session_ids_rejected(store: SessionStore, sid: str) -> None:
 
 
 @pytest.mark.parametrize("pid", ["1", "01", "../001", "00a", "001/..", ".."])
-def test_invalid_pose_ids_rejected(store: SessionStore, pid: str) -> None:
+def test_rejects_traversal_ids(store: SessionStore, pid: str) -> None:
     sid = store.create_session(NOW, LENS)
     with pytest.raises(InvalidId):
         store.delete_pose(sid, pid)
