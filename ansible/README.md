@@ -568,6 +568,23 @@ slam_toolbox saves and reloads its posegraph there (`slam_map.posegraph` / `slam
 `bno055_imu` is deployed, in `deploy_nodes_client.yml` (tags `setup`, `bno055_imu`). The node saves and restores the
 BNO055 calibration offsets there (`calibration.json`); delete the file to reset them.
 
+### head_rgbd_calibration (client)
+
+The **head_rgbd_calibration** node (`node_type: head_rgbd_calibration`, HTTP `127.0.0.1:18110`, proxied by web_ui) runs the
+web UI Calibrate page: capture, review, compute and apply the head RGB-D calibration. It sits below every robot tier
+(`cpu_weight`/`io_weight` 200, `memory_low` 64M, `memory_max` 768M, `oom_score_adjust` 0); its compute child is niced.
+
+`playbooks/tasks/head_rgbd_calibration_setup.yml` (tags `setup`, `head_rgbd_calibration`) runs before the node is deployed:
+
+- Creates `/var/lib/ros2/head_rgbd_calibration`, `sessions/` and `applied/` (owner `ansible_user`, mode `0755`). No task
+  removes, truncates or overwrites anything below them, so sessions and the applied calibration survive every redeploy.
+- Seeding rule: each committed calibration file that exists in the repo on the Pi (`nodes/head_camera_cpp/config/head_camera_calibration.yaml`,
+  `nodes/head_rgbd_cpp/config/tof_calibration.yaml`, `nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml`) is copied into
+  `applied/` with `force: false`, so it only fills a missing file and never replaces an applied one. Missing sources are skipped.
+- Installs `ros2-head-rgbd-calibration-apply.path` (watches `applied/applied.json`, enabled and started) and
+  `ros2-head-rgbd-calibration-apply.service` (oneshot `systemctl try-restart` of `ros2-head_camera_cpp`,
+  `ros2-head_rgbd_cpp` and `ros2-head_state_publisher`), so Apply picks up the new calibration without a redeploy.
+
 ### web_ui tile cache directory
 
 `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui/tiles` (and its parent, owner `ansible_user`,
