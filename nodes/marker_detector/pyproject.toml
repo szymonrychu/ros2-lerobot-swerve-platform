@@ -1,0 +1,64 @@
+[project]
+name = "marker_detector"
+version = "0.1.0"
+description = "Printed QR metadata marker detector (decode, pose, ToF disambiguation, zoom stills, map POIs)"
+readme = "README.md"
+requires-python = ">=3.12,<4"
+dependencies = [
+    "opencv-python-headless>=4.9,<5",
+    "zxing-cpp>=2.2,<4",
+    "segno>=1.6,<2",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pyyaml>=6.0",
+    "pydantic>=2.5",
+    "ros2-common",
+    "ros2-metrics",
+]
+
+[tool.uv.sources]
+ros2-common = { path = "../../shared", editable = true }
+ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
+
+[dependency-groups]
+dev = [
+    "ruff==0.15.20",
+    "vulture>=2.11,<3",
+    "poethepoet>=0.42.0,<0.43",
+    "pytest>=8.0.0,<9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["marker_detector"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+ignore = ["E501"]
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  ruff check marker_detector tests
+  ruff format --check marker_detector tests
+  vulture marker_detector tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  ruff check --fix marker_detector tests
+  ruff format marker_detector tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
