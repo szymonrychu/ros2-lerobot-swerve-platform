@@ -36,7 +36,7 @@ Nav2 sees only the 2D lidar today. The head ToF (240x180 depth, ~10 Hz, up to 4 
 
 ## Time
 
-Estimate: 650 min | Actual: 0 min | Remaining estimate: 420 min
+Estimate: 650 min | Actual: 0 min | Remaining estimate: 60 min
 
 ## Review
 

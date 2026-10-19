@@ -1,6 +1,6 @@
 ---
 title: Web UI obstacle points layer
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The operator can switch on a 3D obstacles view that shows what the ToF and the lidar see around the robot.
 files: [nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/map3d/obstaclePoints.ts, nodes/web_ui/frontend/src/map3d/obstaclePoints.test.ts, nodes/web_ui/frontend/src/map3d/layers.ts, nodes/web_ui/frontend/src/map3d/layers.test.ts, nodes/web_ui/frontend/src/map3d/sceneLayers.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/frontend/src/hooks/subscription.ts]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--web-ui-obstacle-points-layer
 branch: tof-3d-obstacle-detection-fo--web-ui-obstacle-points-layer
-verified_head: ""
+verified_head: 05be88c263ac186466242023076ecd1d2778d533
 run: tof-3d-obstacle-detection-fo
 provides: []
-acs_for_audit: []
+acs_for_audit: [a3]
 process_gaps: []
 ---
 

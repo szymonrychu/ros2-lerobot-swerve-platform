@@ -1,6 +1,6 @@
 ---
 title: Final suite and runbook
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Every suite is green, the ToF pipeline is wired consistently end to end, and the robot verification is precise."
 files: [tests/test_tof_obstacle_wiring.py, tests/README.md, scripts/node_cpu_compare.yaml, MEMORY.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--final-suite-and-runbook
 branch: tof-3d-obstacle-detection-fo--final-suite-and-runbook
-verified_head: ""
+verified_head: unknown
 run: tof-3d-obstacle-detection-fo
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["The full verify command was not run by the implementer, so the report quotes no summary lines. Per the prompt, the full suite runs once over the integrated branch before merge."]
 ---
 
 # Final suite and runbook

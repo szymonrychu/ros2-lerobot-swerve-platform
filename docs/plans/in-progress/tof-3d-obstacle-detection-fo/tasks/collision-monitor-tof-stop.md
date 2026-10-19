@@ -1,6 +1,6 @@
 ---
 title: Collision monitor ToF stop
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The robot stops for 3D obstacles and refuses to drive toward a cliff, while the lidar keeps guarding all around."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_tof_collision.py, tests/test_nav_stack_config.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--collision-monitor-tof-stop
 branch: tof-3d-obstacle-detection-fo--collision-monitor-tof-stop
-verified_head: ""
+verified_head: 3b27ad9559953651df82aed22e35d83f2fbbfcec
 run: tof-3d-obstacle-detection-fo
 provides: []
-acs_for_audit: []
-process_gaps: []
+acs_for_audit: [a3]
+process_gaps: ["tests/README.md and tests/test_nav_footprint.py / tests/test_nav_tof_collision.py were changed in the fix round (CliffStop direction-aware rewrite for findings 4-5); the independent check wants the finding or tests.added to name them. The changes are documentation rows and tests that follow the fix, and all 230 targeted tests pass."]
 ---
 
 # Collision monitor ToF stop

@@ -1,6 +1,6 @@
 ---
 title: Map summary ToF obstacles
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The agent can ask get_map_summary what 3D obstacles and cliffs are near the robot.
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tool_context.py, nodes/mcp_server/mcp_server/perception_tools.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/fakes.py, nodes/mcp_server/tests/test_map_summary_tof.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--map-summary-tof-obstacles
 branch: tof-3d-obstacle-detection-fo--map-summary-tof-obstacles
-verified_head: ""
+verified_head: 9ba93ff46cbb186c97942fc1e1538e7d9ffb275b
 run: tof-3d-obstacle-detection-fo
 provides: []
-acs_for_audit: []
+acs_for_audit: [a3]
 process_gaps: []
 ---
 
