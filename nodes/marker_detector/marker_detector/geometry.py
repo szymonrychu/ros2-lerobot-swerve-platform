@@ -9,7 +9,7 @@ from scipy.spatial.transform import Rotation
 from marker_detector.config import ZoomConfig
 from marker_detector.decode import Candidate
 from marker_detector.pose import PoseResult
-from marker_detector.zoom import UNDECODED_ZOOM, ZOOM_STEPS
+from marker_detector.zoom import ZoomTarget
 
 REPORT_SOURCES = frozenset({"stream", "zoom"})
 
@@ -70,10 +70,7 @@ def zoom_factor(module_px: float | None, cfg: ZoomConfig) -> int:
     Returns:
         The zoom factor.
     """
-    if module_px is None or module_px <= 0:
-        return UNDECODED_ZOOM
-    needed = cfg.target_module_px / module_px
-    return next((z for z in ZOOM_STEPS if z >= needed), ZOOM_STEPS[-1])
+    return ZoomTarget(0.0, 0.0, module_px).zoom_for(cfg.target_module_px)
 
 
 def zoom_request(u: float, v: float, module_px: float | None, cfg: ZoomConfig, request_id: str) -> dict:
