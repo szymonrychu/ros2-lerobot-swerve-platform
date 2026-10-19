@@ -3,6 +3,8 @@ import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import { RgbdCapture } from './RgbdCapture'
+import { RgbdResults } from './RgbdResults'
+import { RgbdSessions } from './RgbdSessions'
 import { CaptureState, ComputeState, RgbdState, getState } from './rgbdApi'
 
 /** State poll period: 1 Hz. */
@@ -37,6 +39,12 @@ export function RgbdCalibration() {
     }
   }, [apply])
 
+  const reload = useCallback(async () => {
+    const r = await getState()
+    if (r.ok) apply(r.value)
+    else setError(r.message)
+  }, [apply])
+
   const running = live !== null && (live.capture.running || live.compute.running)
 
   useEffect(() => {
@@ -66,6 +74,10 @@ export function RgbdCalibration() {
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}
       {live && <RgbdCapture capture={live.capture} compute={live.compute} sessionId={sessionId} onState={apply} />}
+      {live && (
+        <RgbdSessions capture={live.capture} compute={live.compute} openId={sessionId} onOpen={setSessionId} onStarted={() => void reload()} />
+      )}
+      {live && <RgbdResults sessionId={sessionId} compute={live.compute} />}
     </Box>
   )
 }
