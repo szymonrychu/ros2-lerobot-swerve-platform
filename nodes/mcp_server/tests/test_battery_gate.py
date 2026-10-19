@@ -1,9 +1,11 @@
 """Battery cut-off gate: motion/effector tools are refused in cut-off, stop and read-only tools keep working."""
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryConfig, BatteryGuard
@@ -12,6 +14,7 @@ from ros2_common.maps import Localisation, MapStatus
 from mcp_server.approach_tools import SENSOR_TOOL_NAMES as APPROACH_TOOL_NAMES
 from mcp_server.camera_tools import TOOL_NAMES as CAMERA_TOOL_NAMES
 from mcp_server.config import McpServerConfig, load_config
+from mcp_server.models import Map3dCloud
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, TOOL_NAMES, build_mcp_server
 
 from .test_frontier_tools import room
@@ -91,6 +94,9 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_exploration_status": {},
     "mark_survey_spot": {},
     "suggest_approach_pose": {"x": 1.5, "y": 2.0, "z": 0.05},
+    "get_3d_map_status": {},
+    "query_3d_map_at": {"x": 1.0, "y": 1.0},
+    "get_3d_free_space": {"x": 1.0, "y": 1.0},
 }
 
 
@@ -142,6 +148,7 @@ def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> N
     robot = FakeRobot(tmp_path)
     robot.pois.append({"id": "id0", "name": "dock", "kind": "point", "x": 0.0, "y": 0.0, "status": "open"})
     robot.map = room()  # a map with frontier 1 for the frontier sensor tools
+    robot.map3d_cloud_msg = Map3dCloud(frame_id="rtabmap_map", stamp_s=time.time(), xyz=np.zeros((0, 3)), rgb=None)
     robot.map_status_msg = MapStatus(maps=[], active_map=None, load_seq=0, localisation=Localisation(state="unknown"))
     server = make_server(robot, make_guard(LOW_V))
     args = dict(ALLOWED_ARGS[name])

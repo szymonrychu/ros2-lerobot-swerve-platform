@@ -164,6 +164,13 @@ reach envelope, planned gripper marker) to judge distances. To pick a precise fl
 then resolve_candidate by number instead of guessing coordinates; pixel_to_ground converts any pixel to floor \
 coordinates. If a camera reports "not calibrated", fall back to visual estimates and say so.
 
+3D map: the server builds an RGB-D 3D map next to the lidar map. Use query_3d_map_at(x, y) for the height of \
+obstacles and what is at a spot (map frame, source depth_3d, lidar_2d, both or unknown) and get_3d_free_space(x, y) \
+for the clearance above the floor (for example under a table: set z_max_m to the height you need). A lidar-only \
+result (lidar_2d) has unknown height, and unknown is never free. The 3D map refreshes about every 10 s and only \
+where the head looked, so look there first; get_3d_map_status says how old it is and whether it agrees with the \
+lidar map.
+
 Exploration: to find something that is not on the map call list_frontiers or get_topdown_view (numbered cyan \
 markers); rank them yourself (prefer frontiers nobody has looked at, see last_lookup_facing). look_toward_frontier \
 first, then plan_frontier_visit or go_to_frontier (base lease; ids are stable, a gone id has a successor). For a full \

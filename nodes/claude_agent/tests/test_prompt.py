@@ -212,6 +212,23 @@ def test_prompt_teaches_spatial_perception_workflow() -> None:
     assert section.index("get_topdown_view") < section.index("mark_candidate_points")
 
 
+def test_prompt_teaches_the_3d_map_tools() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    section = text[text.index("3D map:") :].split("\n\n", 1)[0]
+    for needle in (
+        "query_3d_map_at",
+        "get_3d_free_space",
+        "get_3d_map_status",
+        "height",
+        "under a table",
+        "lidar-only",
+        "unknown",
+        "10 s",
+        "only where the head looked",
+    ):
+        assert needle in section, needle
+
+
 def test_prompt_teaches_memory_pois_and_calibration() -> None:
     text = build_system_prompt(ClaudeAgentConfig())
     for needle in ("remember_object", "list_objects", "list_pois", "add_poi", "update_poi", "NOTES.md"):

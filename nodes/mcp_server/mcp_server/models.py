@@ -81,6 +81,16 @@ class TofPoints:
     stamp_s: float  # header stamp of the cloud (s)
 
 
+@dataclass
+class Map3dCloud:
+    """Decoded /map3d/cloud (internal; voxelised by map3d_tools)."""
+
+    frame_id: str
+    stamp_s: float  # header stamp (s, ROS time = wall clock)
+    xyz: np.ndarray  # Nx3 finite points (m)
+    rgb: np.ndarray | None  # Nx3 uint8 colours, None when the cloud has no colour field
+
+
 class MapStats(BaseModel):
     """Size and cell counts of the SLAM occupancy grid."""
 
