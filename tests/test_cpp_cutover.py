@@ -87,6 +87,7 @@ def test_background_tier_holds_only_throttles_and_previews() -> None:
         "head_rgbd_cpp",
         "joint_state_throttle_follower",
         "joint_state_throttle_swerve",
+        "map3d_uplink",
     ]
 
 
