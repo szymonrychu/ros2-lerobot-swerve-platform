@@ -32,8 +32,6 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import SessionStore
 
-MONO16_ENCODINGS = ("mono16", "16UC1")
-BYTES_PER_MONO16_PIXEL = 2
 TOF_INFO_QOS_DEPTH = 1
 IDLE = "idle"
 STOPPED = "stopped"
