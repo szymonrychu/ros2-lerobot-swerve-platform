@@ -102,6 +102,7 @@ lint-nodes = { shell = """
   (cd nodes/map_guard && uv run --frozen poe lint)
   (cd nodes/map_manager && uv run --frozen poe lint)
   (cd nodes/costmap_zones && uv run --frozen poe lint)
+  (cd nodes/marker_detector && uv run --frozen poe lint)
   (cd nodes/steamdeck_ui/bridge && uv run --frozen poe lint)
 """ }
 # C++ (ament_cmake) packages: shared/ros2_common_cpp plus nodes/*_cpp, each built and tested in docker by
