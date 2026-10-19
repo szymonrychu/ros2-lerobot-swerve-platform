@@ -63,3 +63,7 @@ One script measures decode and pose cost on the Pi 5 and stores the JSON in `.lo
 - Do not run the script against the robot in this task; the runbook does.
 
 - 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-detector-node
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1691 passed after the tier/order fix; marker_detector 154 passed); user-doc parking flags concern the design's rejected AprilTag alternative.

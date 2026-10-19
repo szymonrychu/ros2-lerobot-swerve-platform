@@ -67,3 +67,7 @@ process_gaps: [tests/README.md and tests/test_node_metrics_wiring.py changed in 
 - Do not deploy in this task; the runbook deploys through scripts/deploy-nodes.sh after invoking the ansible-deploy skill.
 
 - 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-detector-node
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1691 passed after the tier/order fix; marker_detector 154 passed); user-doc parking flags concern the design's rejected AprilTag alternative.

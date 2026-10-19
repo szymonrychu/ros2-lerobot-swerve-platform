@@ -1,6 +1,6 @@
 ---
 title: Markers user doc
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "One document tells the user how to make, print, place and use markers, and what the robot does with them."
 files: [docs/markers.md, tests/README.md, MEMORY.md]
@@ -62,3 +62,7 @@ The marker system is documented end to end.
 - 2026-10-19 run printable-metadata-markers-t: dependency-failed on poi-marker-upsert, marker-detector-bench, marker-detector-ansible
 
 - 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-detector-bench, marker-detector-ansible
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (root 1691 passed after the tier/order fix; marker_detector 154 passed); user-doc parking flags concern the design's rejected AprilTag alternative.
