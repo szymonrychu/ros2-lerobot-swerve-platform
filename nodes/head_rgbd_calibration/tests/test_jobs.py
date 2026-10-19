@@ -59,7 +59,7 @@ def sid(store: SessionStore) -> str:
     return store.create_session(NOW, 1.0)
 
 
-def test_command_and_nice(cfg: NodeConfig, store: SessionStore, sid: str) -> None:
+def test_child_is_niced(cfg: NodeConfig, store: SessionStore, sid: str) -> None:
     calls: list = []
     job = ComputeJob(cfg, store, fake_popen("pass", calls), FakeClock(), CONFIG_PATH)
     rid = job.start(sid)

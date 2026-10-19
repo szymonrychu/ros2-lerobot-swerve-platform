@@ -87,7 +87,7 @@ def store(cfg: NodeConfig) -> SessionStore:
     return SessionStore(Path(cfg.state_dir), cfg)
 
 
-def test_passing_result_and_files(store: SessionStore, cfg: NodeConfig) -> None:
+def test_passing_session_writes_all_result_files(store: SessionStore, cfg: NodeConfig) -> None:
     sid = make_session(store, POSES)
     rid = store.new_result_id(NOW)
     result = compute_result(store, sid, rid, cfg, NOW)
@@ -117,7 +117,7 @@ def test_passing_result_and_files(store: SessionStore, cfg: NodeConfig) -> None:
     assert sid in (out / "report.md").read_text()
 
 
-def test_tof_joint_json_and_head_urdf_agree(store: SessionStore, cfg: NodeConfig) -> None:
+def test_tof_joint_matches_rewritten_urdf(store: SessionStore, cfg: NodeConfig) -> None:
     sid = make_session(store, POSES)
     rid = store.new_result_id(NOW)
     compute_result(store, sid, rid, cfg, NOW)
@@ -130,7 +130,7 @@ def test_tof_joint_json_and_head_urdf_agree(store: SessionStore, cfg: NodeConfig
     assert "stereo RMS" in joint["note"]
 
 
-def test_limits_exceeded_gives_failed_result_with_report(tmp_path: Path) -> None:
+def test_limits_exceeded_marks_not_passed(tmp_path: Path) -> None:
     cfg = make_cfg(tmp_path, rgb_max_rms_px=1e-6)
     store = SessionStore(Path(cfg.state_dir), cfg)
     sid = make_session(store, POSES)
@@ -144,7 +144,7 @@ def test_limits_exceeded_gives_failed_result_with_report(tmp_path: Path) -> None
     assert not list(out.glob("*.yaml"))
 
 
-def test_too_few_poses_gives_error_and_no_yaml(store: SessionStore, cfg: NodeConfig) -> None:
+def test_too_few_poses_reports_error(store: SessionStore, cfg: NodeConfig) -> None:
     sid = make_session(store, 3)
     rid = store.new_result_id(NOW)
     result = compute_result(store, sid, rid, cfg, NOW)
