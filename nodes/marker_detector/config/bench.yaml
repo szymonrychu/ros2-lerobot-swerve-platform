@@ -1,0 +1,39 @@
+# Benchmark of decode and pose cost (python -m marker_detector.bench [this file]).
+# Scenes are synthetic: QR markers warped through a pinhole camera with the stream intrinsics scaled to the image size.
+# focal_scale omitted = image width / 1152 (a downscaled stream); the zoom crop uses focal_scale 2 (a 2x optical zoom).
+iterations: 200
+warmup: 20
+seed: 1
+scenes:
+  - name: stream_1
+    image_size: [1152, 648]
+    markers:
+      - {size_mm: 150, distance_m: 1.0}
+  - name: stream_3
+    image_size: [1152, 648]
+    markers:
+      - {size_mm: 150, distance_m: 1.0}
+      - {size_mm: 100, distance_m: 0.8}
+      - {size_mm: 60, distance_m: 0.5}
+  - name: half_1
+    image_size: [576, 324]
+    markers:
+      - {size_mm: 100, distance_m: 0.5}
+  - name: half_3
+    image_size: [576, 324]
+    markers:
+      - {size_mm: 100, distance_m: 0.5}
+      - {size_mm: 100, distance_m: 0.6}
+      - {size_mm: 100, distance_m: 0.7}
+  - name: zoom_1
+    image_size: [1024, 576]
+    focal_scale: 2.0
+    markers:
+      - {size_mm: 100, distance_m: 2.0}
+  - name: zoom_3
+    image_size: [1024, 576]
+    focal_scale: 2.0
+    markers:
+      - {size_mm: 100, distance_m: 2.0}
+      - {size_mm: 100, distance_m: 2.2}
+      - {size_mm: 100, distance_m: 2.4}

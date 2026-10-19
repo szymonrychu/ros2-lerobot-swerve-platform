@@ -359,6 +359,17 @@ Printing:
 - PDF: print at 100 % (actual size, no fit to page) on the media in the config; the page carries a 100 mm ruler to check the scale with calipers. Mount on a rigid plate and keep the white quiet zone.
 - STL: load both STLs together (base and modules) or the 3MF, which holds the two parts as separate objects. In Bambu Studio assign white filament to the base and black to the modules (3MF extruders 1 and 2); the modules are raised by `relief_mm` (shipped config: `relief_mm: 0`, `inlay_mm: 1.2`, so the black sits flush in a 4 mm white plate).
 
+## marker_bench.sh
+
+Times marker decode and pose on the client RPi 5 with `python -m marker_detector.bench` in the deployed node venv. Streams `nodes/marker_detector/config/bench.yaml` (or `--config FILE`) over ssh, writes the JSON to `.logs/marker_bench.json` and prints p50/p95/max per scene and stage. Budget: decode + pose p95 <= 100 ms per 1152x648 frame (design D14).
+
+```bash
+./scripts/marker_bench.sh            # default scenes
+./scripts/marker_bench.sh --help
+```
+
+Env: `MARKER_BENCH_CLIENT_HOST` (default `client.ros2.lan`), `MARKER_BENCH_SSH_USER` (default from `ansible/inventory`), `MARKER_BENCH_REMOTE_VENV` (default `/opt/ros2-nodes/marker_detector/venv`). Needs the node deployed with this bench module.
+
 ## head_rgbd_calibrate.py
 
 Calibrates the head Camera Module 3 and the ToF sensor against each other and hands the result to the nodes and the URDF. One script, one config (`scripts/head_rgbd_calibrate.yaml`); the only arguments are the mode, an optional `--config FILE` and, for `capture-validation`, a suffix. `session` in the yaml names the bag every mode uses (default: the newest calibration bag under `capture.local_dir`).
