@@ -2,7 +2,7 @@
 title: Printable metadata markers that become POIs
 blockers: [Marker and calibration board generator, Head RGB-D fusion of camera and ToF, Remove the Jetson coprocessor, POI fixes photos as POIs and cleanups]
 stage: build
-owner: ""
+owner: "Szymon Richert"
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
 ---
@@ -32,10 +32,6 @@ Printable square black/white markers (QR or another square fiducial) that carry 
 - Coloured or non-square markers.
 
 ## Time
-
-
-
-
 
 Estimate: 990 min | Actual: 0 min | Remaining estimate: 990 min
 
