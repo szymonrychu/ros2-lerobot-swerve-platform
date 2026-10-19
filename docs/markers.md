@@ -119,3 +119,5 @@ Pose needs about 4 px per module (`pose.min_module_px`); zxing-cpp alone decodes
 So a 100 mm v3 marker decodes to about 0.75 m in the stream and about 3 m through a 4x zoom still. Off-axis viewing, blur and autofocus shift reduce this; the robot runbook measures the real range and pose error. Use larger or lower-version (shorter payload) markers for anything the robot must see from far.
 
 Fallback: if the field range is insufficient, use AprilTag `tagStandard41h12` detected with `apriltag_ros` (id-only markers, a separate id-to-meaning table, a larger range per printed size). It replaces only the decode and pose stages; the `upsert_marker` POI contract is unchanged.
+
+Measured field ranges: not yet measured. The robot runbook `docs/runbooks/printable-markers.md` (step 10) fills this section; it is blocked on the head camera calibration (fusion epic) and on the printed markers. The table above is computed, not measured.
