@@ -1,6 +1,6 @@
 ---
 title: Markers final runbook
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Printed markers placed at measured spots become correct POIs on the real robot, with measured error and CPU cost."
 files: [docs/runbooks/printable-markers.md, ansible/group_vars/client.yml, docs/markers.md]

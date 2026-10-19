@@ -33,7 +33,7 @@ Printable square black/white markers (QR or another square fiducial) that carry 
 
 ## Time
 
-Estimate: 990 min | Actual: 0 min | Remaining estimate: 130 min
+Estimate: 990 min | Actual: 0 min | Remaining estimate: 90 min
 
 ## Review
 
