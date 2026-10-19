@@ -39,11 +39,15 @@ import {
   GridImageMsg,
   LIFT,
   ObstaclePointsLayer,
+  Map3dCloudLayer,
+  LidarWallsLayer,
+  useMap3dCloud,
   PathLayer,
   PathMsg,
   SCENE_COLORS,
 } from './sceneLayers'
 
+const DEFAULT_LIDAR_WALL_HEIGHT_M = 1 // matches the backend default of lidar_wall_height_m
 const CAMERA_FOV = 50
 const INITIAL_CAMERA: ThreeTuple = [-3, 3, 3]
 const ORBIT_MAX_POLAR = Math.PI / 2 - 0.05 // keep the orbit camera above the ground
@@ -76,6 +80,10 @@ export interface MapSceneProps {
   /** Raw ToF cloud and lidar scan payloads (with frame_pose) of the 3D obstacles layer. */
   obstacleCloud?: unknown
   scanPoints?: unknown
+  /** Raw map3d_cloud payload, the tab's map3d_frame_id and the lidar wall height. */
+  map3dCloud?: unknown
+  map3dFrameId?: string
+  lidarWallHeightM?: number
   globalPath: PathMsg | null | undefined
   localPath: PathMsg | null | undefined
   goal: Pose2D | null | undefined
@@ -324,6 +332,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
   const orbitRef = useRef<OrbitControlsImpl | null>(null)
   const { layers } = props
   const armOffset = props.armOffset ?? DEFAULT_ARM_OFFSET
+  const map3dCloud = useMap3dCloud(props.map3dCloud, props.map3dFrameId)
   return (
     <>
       <ambientLight intensity={0.7} />
@@ -345,6 +354,8 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
       {layers.gpsMap && layers.rtkBase && props.basePosition && (
         <BaseStationMarker position={props.basePosition} label={props.baseLabel} />
       )}
+      <Map3dCloudLayer cloud={map3dCloud} visible={layers.map3dCloud} />
+      <LidarWallsLayer map={props.map} cloud={map3dCloud} heightM={props.lidarWallHeightM ?? DEFAULT_LIDAR_WALL_HEIGHT_M} visible={layers.lidarWalls} />
       <ObstaclePointsLayer cloud={props.obstacleCloud} scan={props.scanPoints} visible={layers.obstacles3d} />
       <GridImageLayer msg={props.map} lift={LIFT.map} opacity={1} visible={layers.slamMap} />
       <GridImageLayer

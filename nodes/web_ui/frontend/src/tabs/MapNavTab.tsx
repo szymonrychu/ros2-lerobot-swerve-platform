@@ -105,6 +105,7 @@ interface Props {
   onFocusConsumed?: () => void
   /** Reports whether the 3D obstacles layer needs its topics; false again when it is switched off or the tab unmounts. */
   onObstaclesWanted?: (wanted: boolean) => void
+  onMap3dCloudWanted?: (wanted: boolean) => void
 }
 
 interface FramedPose extends Pose2D {
@@ -135,6 +136,7 @@ export default function MapNavTab({
   pendingFocus = null,
   onFocusConsumed,
   onObstaclesWanted,
+  onMap3dCloudWanted,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<SceneController | null>(null)
@@ -180,6 +182,8 @@ export default function MapNavTab({
   const obstaclesWanted = layers.obstacles3d && obstaclesConfigured
   const obstacleCloud = topicData[tab.obstacle_cloud_topic ?? '']
   const scanPoints = topicData[tab.scan_points_topic ?? '']
+  const map3dCloudWanted = layers.map3dCloud && Boolean(tab.map3d_cloud_topic)
+  const map3dCloud = topicData[tab.map3d_cloud_topic ?? '']
   const globalPath = topicData[tab.global_plan_topic ?? ''] as PathMsg | null | undefined
   const localPath = topicData[tab.local_plan_topic ?? ''] as PathMsg | null | undefined
   const goalMsg = topicData[tab.goal_topic ?? ''] as FramedPose | null | undefined
@@ -205,6 +209,10 @@ export default function MapNavTab({
     onObstaclesWanted?.(obstaclesWanted)
     return () => onObstaclesWanted?.(false)
   }, [obstaclesWanted, onObstaclesWanted])
+  useEffect(() => {
+    onMap3dCloudWanted?.(map3dCloudWanted)
+    return () => onMap3dCloudWanted?.(false)
+  }, [map3dCloudWanted, onMap3dCloudWanted])
 
   // Map reset: fit the next map that arrives.
   useEffect(() => {
@@ -971,6 +979,9 @@ export default function MapNavTab({
               costmap={isCleared(costmapMsg) ? null : costmapMsg}
               obstacleCloud={obstacleCloud}
               scanPoints={scanPoints}
+              map3dCloud={map3dCloud}
+              map3dFrameId={tab.map3d_frame_id}
+              lidarWallHeightM={tab.lidar_wall_height_m}
               globalPath={globalPath}
               localPath={localPath}
               goal={goal}

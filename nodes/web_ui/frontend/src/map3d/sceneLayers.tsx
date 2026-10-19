@@ -2,15 +2,17 @@
  * Scene objects of the 3D map tab, all in the ROS map frame via rosToThree. Each is memoised so a topic update
  * only re-renders the object that draws it.
  */
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useThree } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import log from '../logging'
 import { frontEdgeIndex, MapMeta, Pose2D, Vec2 } from '../map/mapMath'
+import { decodeMap3dCloud, type DecodedMap3dCloud } from './cloudDecode'
 import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor, tilesAround } from './geo'
 import { mapPlacement } from './groundMath'
+import { buildLidarWalls, measuredColumnsFromCloud, type WallGrid } from './lidarWalls'
 import { MapLabel } from './MapLabel'
 import { cloudToMapPoints, LIDAR_COLOR, scanToMapPoints, tofColors } from './obstaclePoints'
 import { SCENE_COLORS } from './palette'
@@ -426,7 +428,17 @@ function rosXyzToThree(xyz: Float32Array): Float32Array {
 }
 
 /** One three.js point set; positions are three-layout xyz, colors optional (else the uniform color). */
-function PointSet({ positions, colors, color }: { positions: Float32Array; colors?: Float32Array; color?: string }) {
+function PointSet({
+  positions,
+  colors,
+  color,
+  size = OBSTACLE_POINT_SIZE,
+}: {
+  positions: Float32Array
+  colors?: Float32Array
+  color?: string
+  size?: number
+}) {
   const { invalidate } = useThree()
   const geometry = useMemo(() => {
     const g = new THREE.BufferGeometry()
@@ -440,7 +452,7 @@ function PointSet({ positions, colors, color }: { positions: Float32Array; color
   }, [geometry, invalidate])
   return (
     <points geometry={geometry} frustumCulled={false}>
-      <pointsMaterial size={OBSTACLE_POINT_SIZE} sizeAttenuation vertexColors={Boolean(colors)} color={colors ? undefined : color} />
+      <pointsMaterial size={size} sizeAttenuation vertexColors={Boolean(colors)} color={colors ? undefined : color} />
     </points>
   )
 }
@@ -472,5 +484,140 @@ export const ObstaclePointsLayer = memo(function ObstaclePointsLayer({
       {tof && <PointSet positions={tof.positions} colors={tof.colors} />}
       {lidar && <PointSet positions={lidar} color={LIDAR_COLOR} />}
     </>
+  )
+})
+
+/**
+ * Decode the map3d_cloud payload once per update.
+ *
+ * @param payload - raw map3d_cloud topic value
+ * @param frameId - the tab's map3d_frame_id
+ * @returns the decoded cloud, or null when absent, cleared or rejected
+ */
+export function useMap3dCloud(payload: unknown, frameId: string | undefined): DecodedMap3dCloud | null {
+  return useMemo(() => decodeMap3dCloud(payload, frameId), [payload, frameId])
+}
+
+/** Measured 3D map: one point per voxel (point size = voxel), vertex colours when the payload has them. */
+export const Map3dCloudLayer = memo(function Map3dCloudLayer({
+  cloud,
+  visible,
+}: {
+  cloud: DecodedMap3dCloud | null
+  visible: boolean
+}) {
+  if (!visible || !cloud || cloud.count === 0) return null
+  return <PointSet positions={cloud.positions} colors={cloud.colors} color={SCENE_COLORS.map3dPoints} size={cloud.voxel} />
+})
+
+const WALL_MIN_INTERVAL_MS = 1000
+const WALL_OPACITY = 0.35
+
+/**
+ * Hold back a changing value so it updates at most once per interval (the latest value always arrives, trailing).
+ *
+ * @param value - the live value
+ * @param intervalMs - minimum time between updates
+ * @returns the throttled value
+ */
+function useThrottled<T>(value: T, intervalMs: number): T {
+  const [held, setHeld] = useState(value)
+  const last = useRef(0)
+  useEffect(() => {
+    const wait = Math.max(0, last.current + intervalMs - Date.now())
+    const t = setTimeout(() => {
+      last.current = Date.now()
+      setHeld(value)
+    }, wait)
+    return () => clearTimeout(t)
+  }, [value, intervalMs])
+  return held
+}
+
+/** Decode the SLAM map PNG into grey cells (image order) with its placement; null while decoding or absent. */
+function useWallGrid(msg: GridImageMsg | null | undefined): WallGrid | null {
+  const [grid, setGrid] = useState<WallGrid | null>(null)
+  const png = msg?.png_b64
+  const width = msg?.width
+  const height = msg?.height
+  const resolution = msg?.resolution
+  const origin = msg?.origin
+  useEffect(() => {
+    if (!png || !width || !height || !resolution || !origin) {
+      setGrid(null)
+      return
+    }
+    let cancelled = false
+    const img = new Image()
+    img.onload = () => {
+      if (cancelled) return
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.drawImage(img, 0, 0)
+      const rgba = ctx.getImageData(0, 0, width, height).data
+      const cells = new Uint8Array(width * height)
+      for (let i = 0; i < cells.length; i++) cells[i] = rgba[i * 4]
+      setGrid({ width, height, resolution, origin, cells })
+    }
+    img.onerror = () => log.warn('[map3d] failed to decode map image for lidar walls')
+    img.src = `data:image/png;base64,${png}`
+    return () => {
+      cancelled = true
+    }
+  }, [png, width, height, resolution, origin])
+  return grid
+}
+
+/**
+ * Lidar-only structure: occupied SLAM map cells extruded to heightM, translucent and in their own flat colour without
+ * vertex colours, so they are never mistaken for measured points. Columns holding a measured point are left out.
+ * Recomputed when the map or the cloud changes, at most once per second.
+ */
+export const LidarWallsLayer = memo(function LidarWallsLayer({
+  map,
+  cloud,
+  heightM,
+  visible,
+}: {
+  map: GridImageMsg | null | undefined
+  cloud: DecodedMap3dCloud | null
+  heightM: number
+  visible: boolean
+}) {
+  const live = useWallGrid(visible ? map : null)
+  const input = useMemo(() => ({ grid: live, cloud, heightM }), [live, cloud, heightM])
+  const { grid, cloud: heldCloud, heightM: height } = useThrottled(input, WALL_MIN_INTERVAL_MS)
+  const boxes = useMemo(() => {
+    if (!grid) return []
+    const measured = heldCloud ? measuredColumnsFromCloud(heldCloud.positions, grid.resolution, grid.origin) : new Set<string>()
+    return buildLidarWalls(grid, measured, height)
+  }, [grid, heldCloud, height])
+  const { invalidate } = useThree()
+  const mesh = useRef<THREE.InstancedMesh>(null)
+  useEffect(() => {
+    const m = mesh.current
+    if (!m) return
+    const obj = new THREE.Object3D()
+    boxes.forEach((b, i) => {
+      const [x, y, z] = rosToThree({ x: b.center.x, y: b.center.y, z: b.height / 2 })
+      obj.position.set(x, y, z)
+      obj.rotation.set(0, rosYawToThreeY(b.yaw), 0)
+      obj.scale.set(b.length, b.height, b.width)
+      obj.updateMatrix()
+      m.setMatrixAt(i, obj.matrix)
+    })
+    m.count = boxes.length
+    m.instanceMatrix.needsUpdate = true
+    invalidate()
+  }, [boxes, invalidate])
+  if (!visible || boxes.length === 0) return null
+  return (
+    <instancedMesh key={boxes.length} ref={mesh} args={[undefined, undefined, boxes.length]} frustumCulled={false}>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshBasicMaterial color={SCENE_COLORS.lidarWall} transparent opacity={WALL_OPACITY} depthWrite={false} />
+    </instancedMesh>
   )
 })

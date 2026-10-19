@@ -21,7 +21,7 @@ const SWATCH_REM = '0.875rem'
 const TOGGLE_SX = { py: 0, px: 1, textTransform: 'none' } as const
 
 const LAYER_GROUPS: { title: string; keys: LayerKey[] }[] = [
-  { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase', 'obstacles3d'] },
+  { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase', 'obstacles3d', 'map3dCloud', 'lidarWalls'] },
   { title: 'Navigation', keys: ['globalPlan', 'localPlan', 'goal', 'footprint'] },
   { title: 'Robot model', keys: ['robotBase', 'robotWheels', 'robotArm', 'head'] },
   { title: 'Points of interest', keys: ['pois', 'photos'] },
