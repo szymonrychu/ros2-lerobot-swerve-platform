@@ -181,7 +181,7 @@ Calibration procedure:
    `python scripts/solve_camera_mount.py samples.json --camera gripper`.
 4. Paste the printed YAML into the Ansible node config; the RMS should be around 1 px or less.
 
-## head_rgbd_calibration (`ros2_common.head_rgbd_calibration`)
+## head_rgbd_calibration
 
 The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subprocess` or ssh code, so node venvs can use it.
 

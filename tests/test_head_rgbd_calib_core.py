@@ -29,7 +29,7 @@ def imported_roots(path: Path) -> set[str]:
     return roots
 
 
-def test_core_modules_import_no_scripts_rosbags_or_subprocess() -> None:
+def test_core_imports_no_scripts_rosbags_or_subprocess() -> None:
     files = sorted(CORE_DIR.glob("*.py"))
     assert {f.name for f in files} >= {"__init__.py", "config.py", "charuco.py"}
     for f in files:
@@ -39,14 +39,14 @@ def test_core_modules_import_no_scripts_rosbags_or_subprocess() -> None:
 @pytest.mark.parametrize(
     ("model", "block"), [(BoardConfig, "board"), (SelectionConfig, "selection"), (LimitsConfig, "limits")]
 )
-def test_core_config_rejects_unknown_keys_and_defaults_match_yaml(model: type, block: str) -> None:
+def test_core_config_defaults_match_cli_yaml(model: type, block: str) -> None:
     with pytest.raises(ValidationError):
         model(bogus=1)
     yaml_block = yaml.safe_load(CALIBRATE_YAML.read_text())[block]
     assert model.model_validate(yaml_block) == model()
 
 
-def test_core_detect_finds_the_synthetic_board() -> None:
+def test_core_detect_finds_synthetic_board() -> None:
     cfg = BoardConfig()
     camera = rgb_camera()
     image = render_rgb(camera, board_poses(1, camera, cfg)[0], cfg)
