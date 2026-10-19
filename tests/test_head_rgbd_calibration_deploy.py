@@ -22,8 +22,8 @@ TIER = {
     "src_shared": True,
     "memory_low": "64M",
     "memory_max": "768M",
-    "cpu_weight": 200,
-    "io_weight": 200,
+    "cpu_weight": 100,
+    "io_weight": 100,
     "oom_score_adjust": 0,
     "config_path": "/etc/ros2/head_rgbd_calibration",
 }

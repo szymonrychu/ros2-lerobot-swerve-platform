@@ -220,7 +220,8 @@ ros2_node_type_defaults:
     env:
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   # Head RGB-D calibration (nodes/head_rgbd_calibration/README.md): interactive operator tool behind the web UI Calibrate
-  # page (capture, review, compute, apply). Below every robot tier: weights under head_rgbd_cpp, no OOM protection; the
+  # page (capture, review, compute, apply). Background tier (work the robot can lose): the systemd default weights and no
+  # OOM protection, so capture and compute never starve robot nodes; own memory cap below. The
   # compute child runs niced (compute_nice). Sessions and applied files live in /var/lib/ros2/head_rgbd_calibration.
   head_rgbd_calibration:
     deploy_mode: native
@@ -230,8 +231,8 @@ ros2_node_type_defaults:
     src_shared: true
     memory_low: "64M"
     memory_max: "768M"
-    cpu_weight: 200
-    io_weight: 200
+    cpu_weight: 100
+    io_weight: 100
     oom_score_adjust: 0
     config_path: /etc/ros2/head_rgbd_calibration
     env:
