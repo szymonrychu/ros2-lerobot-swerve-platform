@@ -22,7 +22,7 @@ function install(o: Opts): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
-      o.calls.push(`${init?.method ?? 'GET'} ${url}`)
+      o.calls.push(`${init?.method ?? 'GET'} ${url}${init?.body ? ' ' + String(init.body) : ''}`)
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status })
       if (url.endsWith('/sessions')) return json(o.sessions ?? SESSIONS)
       if (url.endsWith('/compute')) {
@@ -70,7 +70,7 @@ describe('RgbdSessions', () => {
     await screen.findAllByRole('button', { name: /^Open/ })
     fireEvent.click(screen.getAllByRole('button', { name: /^Resume capture/ })[1])
     await waitFor(() => expect(p.onStarted).toHaveBeenCalled())
-    expect(calls).toContain('POST /api/calibration/rgbd/capture/start')
+    expect(calls).toContain('POST /api/calibration/rgbd/capture/start {"session_id":"s1"}')
   })
 
   it('Compute is disabled while a capture or a compute runs', async () => {
@@ -98,6 +98,7 @@ describe('RgbdSessions', () => {
     await screen.findAllByRole('button', { name: /^Open/ })
     fireEvent.click(screen.getAllByRole('button', { name: /^Compute/ })[0])
     await waitFor(() => expect(p.onStarted).toHaveBeenCalled())
+    expect(calls.some((c) => c.startsWith('POST ') && c.includes('/s2/compute'))).toBe(true)
     rerender(<RgbdSessions {...props({ compute: { ...NOT_RUNNING, running: true, session_id: 's2' } })} />)
     const before = calls.filter((c) => c.endsWith('/sessions')).length
     rerender(<RgbdSessions {...props({ compute: { ...NOT_RUNNING, error: 'too few views' } })} />)

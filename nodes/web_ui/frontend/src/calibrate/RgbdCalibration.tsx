@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -21,10 +21,15 @@ export function RgbdCalibration() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const followed = useRef<string | null>(null)
+
   const apply = useCallback((s: RgbdState) => {
     setLive({ capture: s.capture, compute: s.compute })
     setError(null)
-    if (s.capture.running && s.capture.session_id) setSessionId(s.capture.session_id)
+    // Follow a capture's session once, when it appears; later polls must not undo an Open.
+    const live = s.capture.running ? s.capture.session_id : null
+    if (live && live !== followed.current) setSessionId(live)
+    followed.current = live
   }, [])
 
   useEffect(() => {
