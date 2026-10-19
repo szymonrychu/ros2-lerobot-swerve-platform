@@ -1,0 +1,68 @@
+---
+title: Calib node HTTP API
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "web_ui, and through it the operator, drives capture, sessions, compute, apply and download over one localhost API."
+files: [nodes/head_rgbd_calibration/head_rgbd_calibration/app.py, nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py, nodes/head_rgbd_calibration/tests/test_app.py, nodes/head_rgbd_calibration/tests/test_main.py, nodes/head_rgbd_calibration/README.md]
+verify: "(cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv run --frozen poe lint)"
+depends_on: [calib-node-live-capture, calib-node-compute-job, calib-node-apply-download]
+owns: [rgbd-calib-node-http-api]
+uses: [rgbd-calib-session-store, rgbd-calib-result-files, rgbd-calib-applied-files, rgbd-calib-node-config]
+model: ""
+estimate: 75
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# Calib node HTTP API
+
+## Requirement
+
+The node's localhost HTTP API and process entry point (design D1, D5, Contracts table "Node HTTP API").
+
+- `head_rgbd_calibration/app.py` `build_app(capture, job, store, cfg, run) -> FastAPI` with exactly the routes of the design's Node HTTP API table; every error body is `{ok: false, message}`; `InvalidId`/`NotFound` give 404, `Busy`/`NotApplicable` give 409; capture start is refused while compute runs and compute while capture runs (409 naming the other job); compute is refused when the session has fewer poses than `limits.min_views` (409 naming both counts); thumbnails served as `image/jpeg`; download as `application/zip` with `Content-Disposition: attachment; filename="<sid>-<rid>.zip"`; `GET /api/applied` 404 when nothing is applied; `GET /api/sessions/{sid}` includes `coverage` from the store.
+- `head_rgbd_calibration/__main__.py`: loads the config from `HEAD_RGBD_CALIBRATION_CONFIG`; `rclpy.init`; one node `head_rgbd_calibration`; `MultiThreadedExecutor` spinning in a daemon thread; uvicorn bound to `cfg.http_host:cfg.http_port` (127.0.0.1 by default, never 0.0.0.0); on shutdown stops any capture, kills a running compute child and destroys the node.
+- Tests `tests/test_app.py` (TestClient with fake capture, job and a tmp store) and `tests/test_main.py` (bind host and port come from the config; shutdown stops capture).
+- README `## HTTP API` section listing every route (doc file).
+
+## Acceptance conditions
+
+- a1: GET /api/state reports capture, compute and applied [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_app.py::test_state_shape -q]
+- a2: capture and compute exclude each other with 409 [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_app.py::test_capture_and_compute_exclusive -q]
+- a3: compute needs limits.min_views poses [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_app.py::test_compute_needs_min_views -q]
+- a4: unknown and traversal ids answer 404 [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_app.py::test_bad_ids_are_404 -q]
+- a5: thumbnails and the zip are served with their content types [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_app.py::test_binary_routes_content_types -q]
+- a6: applying a failing result answers 409 [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_app.py::test_apply_failing_result_409 -q]
+- a7: the server binds the configured localhost address and shutdown stops the capture [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_main.py -q]
+- a8: node lint passes [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen poe lint]
+- a9: the README lists the HTTP API [evidence: doc-section:nodes/head_rgbd_calibration/README.md#HTTP API]
+
+## Files
+
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/app.py`
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py`
+- `nodes/head_rgbd_calibration/tests/test_app.py`
+- `nodes/head_rgbd_calibration/tests/test_main.py`
+- `nodes/head_rgbd_calibration/README.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
