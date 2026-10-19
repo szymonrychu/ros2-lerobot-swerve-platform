@@ -16,12 +16,16 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-import cv2
-import numpy as np
 import yaml
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from ros2_common.head_rgbd_calibration.charuco import make_board
-from ros2_common.head_rgbd_calibration.frames import NS_PER_S, CameraInfoData, StampedImage
+from ros2_common.head_rgbd_calibration.frames import (
+    StampedImage,
+    decode_camera_info,
+    decode_compressed,
+    decode_mono16,
+    stamp_ns,
+)
 from ros2_common.head_rgbd_calibration.poses import AMPLITUDE, DEPTH, RGB, WAITING, PoseCounter
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
@@ -74,80 +78,6 @@ class Capture:
     store_error: tuple[str, str] | None = None
     subscriptions: list[Any] = field(default_factory=list)
     timer: Any = None
-
-
-def stamp_ns(msg: Any) -> int:
-    """Header stamp of a ROS message in ns.
-
-    Args:
-        msg: Message with a std_msgs/Header `header`.
-
-    Returns:
-        sec * 1e9 + nanosec.
-    """
-    return int(msg.header.stamp.sec) * NS_PER_S + int(msg.header.stamp.nanosec)
-
-
-def decode_mono16(msg: Any) -> np.ndarray:
-    """Decode a 16-bit single-channel sensor_msgs/Image (mono16 or 16UC1), honouring step and is_bigendian.
-
-    Args:
-        msg: The Image message.
-
-    Returns:
-        (height, width) uint16 array.
-
-    Raises:
-        ValueError: another encoding, or data that does not hold height rows of step bytes.
-    """
-    if msg.encoding not in MONO16_ENCODINGS:
-        raise ValueError(f"encoding {msg.encoding!r} is not one of {', '.join(MONO16_ENCODINGS)}")
-    height, width, step = int(msg.height), int(msg.width), int(msg.step)
-    data = np.frombuffer(msg.data, dtype=np.uint8)
-    if height <= 0 or width <= 0 or step < width * BYTES_PER_MONO16_PIXEL or data.size != height * step:
-        raise ValueError(f"{data.size} bytes do not hold a {width}x{height} mono16 image with step {step}")
-    rows = data.reshape(height, step)[:, : width * BYTES_PER_MONO16_PIXEL]
-    return rows.copy().view(">u2" if msg.is_bigendian else "<u2").astype(np.uint16)
-
-
-def decode_compressed(raw: bytes) -> np.ndarray:
-    """Decode compressed image bytes (sensor_msgs/CompressedImage data) to a BGR uint8 array.
-
-    Args:
-        raw: JPEG or PNG bytes.
-
-    Returns:
-        The BGR image.
-
-    Raises:
-        ValueError: the bytes do not decode.
-    """
-    try:
-        image = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
-    except cv2.error as exc:
-        raise ValueError(f"cannot decode {len(raw)} bytes: {exc}") from exc
-    if image is None:
-        raise ValueError(f"cannot decode {len(raw)} bytes as an image")
-    return image
-
-
-def camera_info_data(msg: Any) -> CameraInfoData:
-    """Reduce a sensor_msgs/CameraInfo to CameraInfoData.
-
-    Args:
-        msg: The CameraInfo message.
-
-    Returns:
-        width, height, distortion_model, d, k and p.
-    """
-    return CameraInfoData(
-        width=int(msg.width),
-        height=int(msg.height),
-        distortion_model=str(msg.distortion_model),
-        d=np.asarray(msg.d, dtype=np.float64),
-        k=np.asarray(msg.k, dtype=np.float64),
-        p=np.asarray(msg.p, dtype=np.float64),
-    )
 
 
 def read_lens_position(path: str | Path, default: float) -> float:
@@ -388,7 +318,7 @@ class CaptureController:
             return
         raw = bytes(msg.data)
         try:
-            frame = StampedImage(stamp_ns(msg), decode_compressed(raw))
+            frame = StampedImage(stamp_ns(msg), decode_compressed(msg, topic))
         except ValueError as exc:
             self.drop(topic, exc)
             return
@@ -401,7 +331,7 @@ class CaptureController:
                 return
             capture.tof_info_stored = True
         try:
-            self.store.set_tof_info(capture.session_id, camera_info_data(msg))
+            self.store.set_tof_info(capture.session_id, decode_camera_info(msg))
         except Exception as exc:  # an executor callback must not raise; retried on the next message
             self.logger.error(f"storing the ToF camera_info failed: {exc}")
             with self.lock:

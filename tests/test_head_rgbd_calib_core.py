@@ -7,6 +7,7 @@ import sys
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -29,7 +30,11 @@ from ros2_common.head_rgbd_calibration.frames import (
     CameraInfoData,
     FrameSet,
     StampedImage,
+    decode_camera_info,
+    decode_compressed,
+    decode_mono16,
     rgb_difference,
+    stamp_ns,
     still_pairs,
 )
 from ros2_common.head_rgbd_calibration.intrinsics import KIND_RGB, KIND_TOF, IntrinsicsResult, calibrate
@@ -321,3 +326,69 @@ def test_failed_limits_flags_plane_bias_over_limit() -> None:
 def test_report_markdown_golden() -> None:
     text = report_markdown(fixed_run(), LimitsConfig(), "calib-test", 4.5, "2026-01-02T03:04:05")
     assert text == GOLDEN_REPORT
+
+
+def stamped_msg(sec: int = 3, nanosec: int = 250, **fields: object) -> SimpleNamespace:
+    """A duck-typed message with a header stamp and the given fields."""
+    return SimpleNamespace(header=SimpleNamespace(stamp=SimpleNamespace(sec=sec, nanosec=nanosec)), **fields)
+
+
+def mono16_msg(image: np.ndarray, bigendian: bool, pad: int = 0, encoding: str = "mono16") -> SimpleNamespace:
+    """A sensor_msgs/Image look-alike holding a uint16 image with pad bytes of row padding."""
+    rows = image.astype(">u2" if bigendian else "<u2").view(np.uint8).reshape(image.shape[0], -1)
+    rows = np.pad(rows, ((0, 0), (0, pad)))
+    return stamped_msg(
+        height=image.shape[0],
+        width=image.shape[1],
+        step=rows.shape[1],
+        is_bigendian=int(bigendian),
+        encoding=encoding,
+        data=rows.tobytes(),
+    )
+
+
+def test_stamp_ns_combines_sec_and_nanosec() -> None:
+    assert stamp_ns(stamped_msg(sec=3, nanosec=250)) == 3_000_000_250
+
+
+@pytest.mark.parametrize("bigendian", [False, True])
+@pytest.mark.parametrize("encoding", ["mono16", "16UC1"])
+def test_decode_mono16_both_endiannesses_and_step(bigendian: bool, encoding: str) -> None:
+    image = np.arange(12, dtype=np.uint16).reshape(3, 4) * 1000 + 7
+    decoded = decode_mono16(mono16_msg(image, bigendian, pad=6, encoding=encoding))
+    assert decoded.dtype == np.uint16
+    np.testing.assert_array_equal(decoded, image)
+
+
+def test_decode_mono16_rejects_other_encoding_and_short_data() -> None:
+    image = np.ones((2, 2), dtype=np.uint16)
+    with pytest.raises(ValueError, match="encoding"):
+        decode_mono16(mono16_msg(image, False, encoding="rgb8"))
+    short = mono16_msg(image, False)
+    short.data = short.data[:-2]
+    with pytest.raises(ValueError, match="do not hold"):
+        decode_mono16(short)
+
+
+def test_decode_compressed_returns_bgr_and_names_topic_on_failure() -> None:
+    bgr = np.full((8, 8, 3), (10, 120, 200), dtype=np.uint8)
+    ok, png = cv2.imencode(".png", bgr)
+    assert ok
+    np.testing.assert_array_equal(decode_compressed(stamped_msg(data=png.tobytes()), "/rgb"), bgr)
+    with pytest.raises(ValueError, match="/rgb") as err:
+        decode_compressed(stamped_msg(data=b"not an image"), "/rgb")
+    assert "3000000250" in str(err.value)
+
+
+def test_decode_camera_info_reduces_fields() -> None:
+    msg = SimpleNamespace(
+        width=640,
+        height=480,
+        distortion_model="plumb_bob",
+        d=[0.1, 0.0, 0.0, 0.0, 0.0],
+        k=list(range(9)),
+        p=list(range(12)),
+    )
+    info = decode_camera_info(msg)
+    assert (info.width, info.height, info.distortion_model) == (640, 480, "plumb_bob")
+    assert info.k.shape == (9,) and info.p.shape == (12,) and info.d.dtype == np.float64

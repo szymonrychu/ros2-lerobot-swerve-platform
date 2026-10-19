@@ -9,6 +9,8 @@ from ros2_common.head_rgbd_calibration.config import SelectionConfig
 
 NS_PER_S = 1_000_000_000
 MAX_UINT8 = 255
+MONO16_ENCODINGS = ("mono16", "16UC1")
+BYTES_PER_MONO16_PIXEL = 2
 RGB_DIFF_BLUR_SIGMA = 1.0  # px; suppresses sensor and JPEG noise before comparing frames
 
 
@@ -182,3 +184,79 @@ def still_pairs(frames: FrameSet, sel: SelectionConfig) -> list[FramePair]:
                 depth = frames.depth[d].image
         pairs.append(FramePair(rgb.stamp_ns, amp.stamp_ns, rgb.image, amp.image, depth))
     return pairs
+
+
+def stamp_ns(msg: object) -> int:
+    """Header stamp of a ROS message in ns.
+
+    Args:
+        msg: Message with a std_msgs/Header `header` (rosbags and rclpy messages alike).
+
+    Returns:
+        sec * 1e9 + nanosec.
+    """
+    stamp = msg.header.stamp
+    return int(stamp.sec) * NS_PER_S + int(stamp.nanosec)
+
+
+def decode_mono16(msg: object) -> np.ndarray:
+    """Decode a 16-bit single-channel sensor_msgs/Image (mono16 or 16UC1), honouring step and is_bigendian.
+
+    Args:
+        msg: The Image message; data is any buffer of bytes (bytes, array.array, uint8 ndarray).
+
+    Returns:
+        (height, width) uint16 array.
+
+    Raises:
+        ValueError: another encoding, or data that does not hold height rows of step bytes.
+    """
+    if msg.encoding not in MONO16_ENCODINGS:
+        raise ValueError(f"encoding {msg.encoding!r} is not one of {', '.join(MONO16_ENCODINGS)}")
+    height, width, step = int(msg.height), int(msg.width), int(msg.step)
+    data = np.frombuffer(msg.data, dtype=np.uint8)
+    if height <= 0 or width <= 0 or step < width * BYTES_PER_MONO16_PIXEL or data.size != height * step:
+        raise ValueError(f"{data.size} bytes do not hold a {width}x{height} mono16 image with step {step}")
+    rows = data.reshape(height, step)[:, : width * BYTES_PER_MONO16_PIXEL]
+    return rows.copy().view(">u2" if msg.is_bigendian else "<u2").astype(np.uint16)
+
+
+def decode_compressed(msg: object, topic: str = "") -> np.ndarray:
+    """Decode a sensor_msgs/CompressedImage to a BGR uint8 array.
+
+    Args:
+        msg: The CompressedImage message (header stamp and data bytes).
+        topic: Topic name, for the error message.
+
+    Returns:
+        The BGR image.
+
+    Raises:
+        ValueError: naming the stamp and topic when the data does not decode.
+    """
+    try:
+        image = cv2.imdecode(np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error as exc:
+        raise ValueError(f"cannot decode compressed image at {stamp_ns(msg)} ns on {topic}: {exc}") from exc
+    if image is None:
+        raise ValueError(f"cannot decode compressed image at {stamp_ns(msg)} ns on {topic}")
+    return image
+
+
+def decode_camera_info(msg: object) -> CameraInfoData:
+    """Reduce a sensor_msgs/CameraInfo to CameraInfoData.
+
+    Args:
+        msg: The CameraInfo message.
+
+    Returns:
+        width, height, distortion_model, d, k and p.
+    """
+    return CameraInfoData(
+        width=int(msg.width),
+        height=int(msg.height),
+        distortion_model=str(msg.distortion_model),
+        d=np.asarray(msg.d, dtype=np.float64),
+        k=np.asarray(msg.k, dtype=np.float64),
+        p=np.asarray(msg.p, dtype=np.float64),
+    )

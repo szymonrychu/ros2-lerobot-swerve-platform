@@ -6,8 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import cv2
-import numpy as np
 import yaml
 from ros2_common.head_rgbd_calibration.frames import (
     MAX_UINT8,
@@ -17,10 +15,14 @@ from ros2_common.head_rgbd_calibration.frames import (
     FramePair,
     FrameSet,
     StampedImage,
+    decode_camera_info,
+    decode_compressed,
+    decode_mono16,
     mean_abs_diff,
     nearest_index,
     normalise_amplitude,
     rgb_difference,
+    stamp_ns,
     still_pairs,
     tof_diff_fraction,
 )
@@ -150,43 +152,6 @@ def capture_bag(
     if bag_message_count(bag) == 0:
         raise RuntimeError(f"the bag {bag} recorded no messages: are the topics published on the robot?")
     return bag
-
-
-def stamp_ns(msg: object) -> int:
-    """Header stamp of a ROS message in ns."""
-    stamp = msg.header.stamp
-    return int(stamp.sec) * NS_PER_S + int(stamp.nanosec)
-
-
-def decode_mono16(msg: object) -> np.ndarray:
-    """Decode a sensor_msgs/Image of 16-bit single channel (mono16 or 16UC1) to a uint16 array."""
-    dtype = ">u2" if msg.is_bigendian else "<u2"
-    rows = np.asarray(msg.data, dtype=np.uint8).reshape(msg.height, msg.step)
-    return rows[:, : msg.width * 2].copy().view(dtype).astype(np.uint16).reshape(msg.height, msg.width)
-
-
-def decode_compressed(msg: object, topic: str) -> np.ndarray:
-    """Decode a sensor_msgs/CompressedImage to a BGR uint8 array.
-
-    Raises:
-        ValueError: naming the stamp and topic when the data does not decode.
-    """
-    image = cv2.imdecode(np.asarray(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError(f"cannot decode compressed image at {stamp_ns(msg)} ns on {topic}")
-    return image
-
-
-def decode_camera_info(msg: object) -> CameraInfoData:
-    """Reduce a sensor_msgs/CameraInfo to CameraInfoData."""
-    return CameraInfoData(
-        width=int(msg.width),
-        height=int(msg.height),
-        distortion_model=str(msg.distortion_model),
-        d=np.asarray(msg.d, dtype=np.float64),
-        k=np.asarray(msg.k, dtype=np.float64),
-        p=np.asarray(msg.p, dtype=np.float64),
-    )
 
 
 def read_frames(bag: Path, topics: TopicNames) -> FrameSet:
