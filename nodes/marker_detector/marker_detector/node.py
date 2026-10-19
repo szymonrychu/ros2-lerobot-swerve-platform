@@ -172,7 +172,7 @@ def run_node(cfg: MarkerDetectorConfig) -> None:
     rclpy.init()
     node = Node(NODE_NAME)
     buffer = tf2_ros.Buffer()
-    tf2_ros.TransformListener(buffer, node)
+    tf2_ros.TransformListener(buffer, node, spin_thread=True)
     MarkerDetectorRos(cfg, node, MarkerPipeline(cfg), buffer)
     try:
         rclpy.spin(node)

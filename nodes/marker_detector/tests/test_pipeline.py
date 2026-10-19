@@ -1,7 +1,7 @@
 """Tests for the marker detector pipeline and node wiring on synthetic scenes (no ROS)."""
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import cv2
 import numpy as np
@@ -292,3 +292,17 @@ def test_node_skips_depth_and_zoom_subscriptions_when_disabled():
     MarkerDetectorRos(cfg, node, MarkerPipeline(cfg))
     subscribed = [call.args[1] for call in node.create_subscription.call_args_list]
     assert sorted(subscribed) == sorted([cfg.topics.image, cfg.topics.camera_info])
+
+
+def test_run_node_tf_listener_uses_spin_thread():
+    install_ros_stubs()
+    import marker_detector.node as node_module
+
+    listener = MagicMock()
+    with (
+        patch.object(node_module.tf2_ros, "TransformListener", listener),
+        patch.object(node_module, "start_metrics_server"),
+        patch.object(node_module, "MarkerDetectorRos"),
+    ):
+        node_module.run_node(MarkerDetectorConfig())
+    assert listener.call_args.kwargs.get("spin_thread") is True
