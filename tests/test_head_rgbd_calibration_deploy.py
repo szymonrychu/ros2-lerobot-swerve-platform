@@ -42,7 +42,7 @@ def setup_tasks() -> list[dict[str, Any]]:
     return yaml.safe_load(SETUP_TASKS.read_text())
 
 
-def test_node_type_keys_and_tier() -> None:
+def test_node_type_and_tier() -> None:
     node_type = client_vars()["ros2_node_type_defaults"]["head_rgbd_calibration"]
     for key, value in TIER.items():
         assert node_type[key] == value, key
@@ -51,7 +51,7 @@ def test_node_type_keys_and_tier() -> None:
     assert node_type["oom_score_adjust"] >= 0
 
 
-def test_entry_present_enabled_after_head_rgbd_cpp_with_default_config() -> None:
+def test_ros2_nodes_entry_matches_defaults() -> None:
     nodes = client_vars()["ros2_nodes"]
     names = [n["name"] for n in nodes]
     entry = nodes[names.index("head_rgbd_calibration")]
@@ -85,7 +85,7 @@ def test_seed_copies_never_overwrite_and_need_existing_source() -> None:
     assert "exists" in str(copies[0]["when"])
 
 
-def test_no_task_removes_or_overwrites_state() -> None:
+def test_no_task_clears_state_dir() -> None:
     for task in setup_tasks():
         for module, spec in task.items():
             if not module.startswith("ansible.builtin.") or not isinstance(spec, dict):
@@ -99,7 +99,7 @@ def test_no_task_removes_or_overwrites_state() -> None:
     assert "force: true" not in SETUP_TASKS.read_text()
 
 
-def test_apply_units() -> None:
+def test_apply_units_content() -> None:
     path_unit = (TEMPLATES / "ros2-head-rgbd-calibration-apply.path.j2").read_text()
     service_unit = (TEMPLATES / "ros2-head-rgbd-calibration-apply.service.j2").read_text()
     assert f"PathChanged={STATE_DIR}/applied/applied.json" in path_unit
@@ -119,7 +119,7 @@ def test_apply_units() -> None:
     assert enable["state"] == "started"
 
 
-def test_setup_include_precedes_deploy_step_with_tags() -> None:
+def test_playbook_setup_before_deploy() -> None:
     plays = yaml.safe_load(CLIENT_PLAYBOOK.read_text())
     tasks = [t for play in plays for block in play.get("tasks", []) for t in block.get("block", [block])]
     names = [t.get("name") for t in tasks]
