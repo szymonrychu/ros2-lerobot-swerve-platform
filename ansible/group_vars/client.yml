@@ -881,7 +881,7 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/map_manager"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    # Sized for opencv + numpy at 2 Hz on 4608x2592 stills (~36 MB per BGR frame, a few live copies); MemoryMax is generous.
+    # Initial values, not measured: re-measure the working set in Mimir after 24 h and adjust.
     memory_low: "64M"
     memory_max: "256M"
     cpu_weight: 500
@@ -900,7 +900,7 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/costmap_zones"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    # Sized for opencv + numpy at 2 Hz on 4608x2592 stills (~36 MB per BGR frame, a few live copies); MemoryMax is generous.
+    # Initial values, not measured: re-measure the working set in Mimir after 24 h and adjust.
     memory_low: "96M"
     memory_max: "256M"
     cpu_weight: 500
