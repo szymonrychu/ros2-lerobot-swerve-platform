@@ -2648,49 +2648,6 @@ ros2_nodes:
       speed_info_topic: /costmap_filter_info/speed
       # Keepout-mask value in slow zones (1..99, cost round(v * 254 / 100) = 152): Nav2 detours around them.
       slow_zone_mask_value: 60
-  - name: marker_detector
-    node_type: marker_detector
-    present: true
-    enabled: true
-    config: |
-      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
-      metrics_port: 19118
-      topics:
-        image: /head_camera/image_raw/compressed
-        camera_info: /head_camera/camera_info
-        zoom_command: /head_camera/zoom/command
-        zoom_image: /head_camera/zoom/image
-        zoom_result: /head_camera/zoom/result
-        depth: /head_rgbd/depth/image_raw
-        depth_info: /head_rgbd/depth/camera_info
-        poi_command: /poi/command
-        detections: /markers/detections
-      # Stream frames processed per second (0.1..15).
-      process_hz: 2.0
-      map_frame: map
-      tf_timeout_s: 0.2
-      pose:
-        # Second IPPE solution counts as ambiguous unless its RMS is at least this many times the best's.
-        ambiguity_ratio: 2.0
-        max_rms_px: 1.0
-        min_module_px: 4.0
-        min_confidence: 0.3
-      zoom:
-        process_stills: true
-        auto_zoom: false
-        min_interval_s: 10.0
-        min_module_px: 6.0
-        target_module_px: 12.0
-        cooldown_s: 30.0
-        timeout_s: 8.0
-        max_px: 1024
-        full_size: [4608, 2592]
-      tof:
-        enabled: true
-        max_dt_s: 0.15
-        max_angle_deg: 20.0
-        min_valid_px: 30
-        max_residual_mm: 10.0
   - name: claude_agent
     node_type: claude_agent
     present: true
@@ -2852,6 +2809,49 @@ ros2_nodes:
         - get_exploration_status
         - mark_survey_spot
         - confirm_grasp
+  - name: marker_detector
+    node_type: marker_detector
+    present: true
+    enabled: true
+    config: |
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
+      metrics_port: 19118
+      topics:
+        image: /head_camera/image_raw/compressed
+        camera_info: /head_camera/camera_info
+        zoom_command: /head_camera/zoom/command
+        zoom_image: /head_camera/zoom/image
+        zoom_result: /head_camera/zoom/result
+        depth: /head_rgbd/depth/image_raw
+        depth_info: /head_rgbd/depth/camera_info
+        poi_command: /poi/command
+        detections: /markers/detections
+      # Stream frames processed per second (0.1..15).
+      process_hz: 2.0
+      map_frame: map
+      tf_timeout_s: 0.2
+      pose:
+        # Second IPPE solution counts as ambiguous unless its RMS is at least this many times the best's.
+        ambiguity_ratio: 2.0
+        max_rms_px: 1.0
+        min_module_px: 4.0
+        min_confidence: 0.3
+      zoom:
+        process_stills: true
+        auto_zoom: false
+        min_interval_s: 10.0
+        min_module_px: 6.0
+        target_module_px: 12.0
+        cooldown_s: 30.0
+        timeout_s: 8.0
+        max_px: 1024
+        full_size: [4608, 2592]
+      tof:
+        enabled: true
+        max_dt_s: 0.15
+        max_angle_deg: 20.0
+        min_valid_px: 30
+        max_residual_mm: 10.0
   - name: map_manager
     node_type: map_manager
     present: true
