@@ -1,6 +1,6 @@
 ---
 title: Map3d manager node type
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The 3D map manager is built and deployed on the server by Ansible next to RTAB-Map.
 files: [ansible/group_vars/server.yml, ansible/playbooks/deploy_nodes_server.yml, tests/test_map3d_manager_deploy.py, tests/test_cpp_node_deploy.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-manager-node-type
 branch: rtab-map-rgb-d-3d-mapping-on--map3d-manager-node-type
-verified_head: ""
-run: ""
+verified_head: 6a1af434a70ac00ada34dc72db7aae78f6e6a93c
+run: rtab-map-rgb-d-3d-mapping-on
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Map3d manager node type

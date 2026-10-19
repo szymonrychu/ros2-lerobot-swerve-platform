@@ -1,6 +1,6 @@
 ---
 title: Map3d manager config
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The 3D map's save, reset and status messages have one defined JSON contract shared by the server node, web UI and agent."
 files: [nodes/map3d_manager_cpp/package.xml, nodes/map3d_manager_cpp/CMakeLists.txt, nodes/map3d_manager_cpp/include/map3d_manager_cpp/config.hpp, nodes/map3d_manager_cpp/src/config.cpp, nodes/map3d_manager_cpp/test/test_config.cpp, nodes/map3d_manager_cpp/include/map3d_manager_cpp/command_json.hpp, nodes/map3d_manager_cpp/src/command_json.cpp, nodes/map3d_manager_cpp/test/test_command_json.cpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-manager-config
 branch: rtab-map-rgb-d-3d-mapping-on--map3d-manager-config
-verified_head: ""
-run: ""
+verified_head: 0807e2648be212ce4fc612dc79d8cb3f413b5f00
+run: rtab-map-rgb-d-3d-mapping-on
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Map3d manager config

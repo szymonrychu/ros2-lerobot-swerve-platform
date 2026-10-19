@@ -1,6 +1,6 @@
 ---
 title: Rtabmap server launch
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "RTAB-Map runs on the server as a depth-only 3D mapper locked to slam_toolbox's map frame, within the Pi 4b's memory, with its parameters proven to load in Jazzy on arm64."
 files: [nodes/rtabmap_mapping/launch/rtabmap_mapping.launch.py, nodes/rtabmap_mapping/config/rtabmap_params.yaml, tests/test_rtabmap_mapping_config.py, scripts/rtabmap-launch-probe.sh, nodes/rtabmap_mapping/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--rtabmap-server-launch
 branch: rtab-map-rgb-d-3d-mapping-on--rtabmap-server-launch
-verified_head: ""
-run: ""
-provides: []
+verified_head: d49c9fa1c2d7c6d78b7c9dd79d281a34a81f817f
+run: rtab-map-rgb-d-3d-mapping-on
+provides: [rtabmap-mapping-launch, map3d-topics-pydantic-compat]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Rtabmap server launch

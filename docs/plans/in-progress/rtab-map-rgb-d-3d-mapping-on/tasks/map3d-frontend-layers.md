@@ -1,6 +1,6 @@
 ---
 title: Map3d frontend layers
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The Map tab shows the measured 3D map as coloured points and lidar-only walls as clearly different extruded outlines where no depth was seen.
 files: [nodes/web_ui/frontend/src/map3d/cloudDecode.ts, nodes/web_ui/frontend/src/map3d/cloudDecode.test.ts, nodes/web_ui/frontend/src/map3d/lidarWalls.ts, nodes/web_ui/frontend/src/map3d/lidarWalls.test.ts, nodes/web_ui/frontend/src/map3d/layers.ts, nodes/web_ui/frontend/src/map3d/layers.test.ts, nodes/web_ui/frontend/src/map3d/sceneLayers.tsx, nodes/web_ui/frontend/src/types.ts]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-frontend-layers
 branch: rtab-map-rgb-d-3d-mapping-on--map3d-frontend-layers
-verified_head: ""
-run: ""
-provides: []
+verified_head: b91e5ee944d223b32e8484504d6430c2ab0e5c84
+run: rtab-map-rgb-d-3d-mapping-on
+provides: [lidar-wall-geometry, map3d-cloud-decoder]
+acs_for_audit: [a4]
+process_gaps: []
 ---
 
 # Map3d frontend layers

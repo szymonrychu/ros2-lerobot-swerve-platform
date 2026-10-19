@@ -1,6 +1,6 @@
 ---
 title: Web UI map3d cloud backend
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The browser gets the 3D map as a compact, capped point payload in the map frame, only while the Map tab shows it."
 files: [nodes/web_ui/web_ui/cloud_serializer.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_map3d_cloud.py, ansible/group_vars/client.yml]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--web-ui-map3d-cloud-backend
 branch: rtab-map-rgb-d-3d-mapping-on--web-ui-map3d-cloud-backend
-verified_head: ""
-run: ""
-provides: []
+verified_head: a46e254fc8a0195dda111d8bd793d56ae04c26ce
+run: rtab-map-rgb-d-3d-mapping-on
+provides: [point-cloud2-column-parser, json-object-string-serializer]
+acs_for_audit: []
+process_gaps: ["nodes/web_ui/README.md and tests/README.md are not updated for the new map3d config fields, bridge roles and test_map3d_cloud.py (CLAUDE.md documentation expectations)"]
 ---
 
 # Web UI map3d cloud backend

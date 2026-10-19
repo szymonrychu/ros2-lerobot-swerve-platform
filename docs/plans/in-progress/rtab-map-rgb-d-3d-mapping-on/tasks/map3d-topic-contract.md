@@ -1,6 +1,6 @@
 ---
 title: Map3d topic contract
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "One file names every stream that crosses the WiFi link, its rate, size and QoS, so the uplink, RTAB-Map and the budget can never disagree."
 files: [nodes/rtabmap_mapping/config/map3d_topics.yaml, nodes/rtabmap_mapping/map3d_topics.py, tests/test_map3d_topics.py, nodes/rtabmap_mapping/README.md]
@@ -13,10 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-topic-contract
-branch: rtab-map-rgb-d-3d-mapping-on--map3d-topic-contract
-verified_head: ""
-run: ""
-provides: []
+branch: "current worktree branch (commit c4c20988)"
+verified_head: c4c20988e8f637a4a18fc838f830a86e7174f50f
+run: rtab-map-rgb-d-3d-mapping-on
+provides: [map3d-topics]
+acs_for_audit: [a2, a3, a4, a5, a6]
+process_gaps: ["Project CLAUDE.md asks for tests/README.md to list each test file; the diff does not touch it and the task item list does not name it.", "tests/README.md has no entry for tests/test_map3d_topics.py (project CLAUDE.md requires listing each test file)"]
 ---
 
 # Map3d topic contract

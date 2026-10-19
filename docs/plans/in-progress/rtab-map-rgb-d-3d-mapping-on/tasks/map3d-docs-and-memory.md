@@ -1,6 +1,6 @@
 ---
 title: Map3d docs and memory
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Anyone can find what the 3D mapping pieces are, how they connect and how they were tested, from the repo docs alone."
 files: [tests/README.md, nodes/README.md, ansible/README.md, MEMORY.md, .claude/skills/ansible-deploy/SKILL.md, docs/diagrams/topic_flow.puml]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-docs-and-memory
 branch: rtab-map-rgb-d-3d-mapping-on--map3d-docs-and-memory
-verified_head: ""
-run: ""
+verified_head: b2bde7000cc5b2e437edc52a949dcf0e790e1e61
+run: rtab-map-rgb-d-3d-mapping-on
 provides: []
+acs_for_audit: [a4]
+process_gaps: []
 ---
 
 # Map3d docs and memory

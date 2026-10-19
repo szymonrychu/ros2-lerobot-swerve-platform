@@ -1,6 +1,6 @@
 ---
 title: Rtabmap server node type
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: One deploy command puts RTAB-Map on the server Pi 4b with a database directory and hard CPU and memory caps that protect the leader arm and the monitoring stack.
 files: [ansible/group_vars/server.yml, ansible/playbooks/deploy_nodes_server.yml, ansible/playbooks/tasks/rtabmap_db_dir.yml, tests/test_rtabmap_mapping_deploy.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--rtabmap-server-node-type
 branch: rtab-map-rgb-d-3d-mapping-on--rtabmap-server-node-type
-verified_head: ""
-run: ""
+verified_head: 97a2c1420d1d952dc6e0a843e12d6f199a6272f1
+run: rtab-map-rgb-d-3d-mapping-on
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Rtabmap server node type
