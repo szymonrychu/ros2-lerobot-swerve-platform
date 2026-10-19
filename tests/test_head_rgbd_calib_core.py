@@ -392,3 +392,19 @@ def test_decode_camera_info_reduces_fields() -> None:
     info = decode_camera_info(msg)
     assert (info.width, info.height, info.distortion_model) == (640, 480, "plumb_bob")
     assert info.k.shape == (9,) and info.p.shape == (12,) and info.d.dtype == np.float64
+
+
+def test_core_decoders() -> None:
+    """Core decoders handle mono16 (both endiannesses), compressed images, camera_info and stamps."""
+    assert stamp_ns(stamped_msg(sec=1, nanosec=2)) == 1_000_000_002
+    image = np.arange(6, dtype=np.uint16).reshape(2, 3) + 300
+    for bigendian in (False, True):
+        np.testing.assert_array_equal(decode_mono16(mono16_msg(image, bigendian)), image)
+    bgr = np.full((4, 4, 3), (10, 120, 200), dtype=np.uint8)
+    ok, png = cv2.imencode(".png", bgr)
+    assert ok
+    np.testing.assert_array_equal(decode_compressed(stamped_msg(data=png.tobytes())), bgr)
+    info = decode_camera_info(
+        SimpleNamespace(width=4, height=2, distortion_model="plumb_bob", d=[0.0], k=[0.0] * 9, p=[0.0] * 12)
+    )
+    assert (info.width, info.height) == (4, 2)
