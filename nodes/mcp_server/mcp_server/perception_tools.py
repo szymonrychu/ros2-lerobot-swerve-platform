@@ -491,25 +491,41 @@ def register(ctx: ToolContext) -> None:
 
     @server.tool(
         description=(
-            "List all points, areas and remembered objects (kind 'point', 'area' or 'object') from poi_store, each with "
+            "List all points, areas, remembered objects and marker POIs (kind 'point', 'area', 'object' or 'marker') from poi_store, each with "
             "distance_m and bearing_deg from the robot (0 = ahead, positive = left; areas use the centroid and report "
             "`inside`). Filter by status ('open', 'done', 'cancelled'). near=true keeps only POIs within {poi_cfg.near_radius_m:g} m, nearest "
             "first. Areas show their `zone` ('none', 'keepout', 'slow') and `speed_limit_pct`; a zone is active only "
             "while status is 'open'. Each view also has `category`, `problem_type` and `survey` parsed from the note tags "
-            "(null/false when untagged). Photos (POIs of kind 'photo', one per camera image) are not listed here: list "
+            "(null/false when untagged). Kind 'marker' = a fixed place from a printed marker seen by the head camera (base, "
+            "charger, drop-off, button, switch, tool station); its pose is owned by the marker detector (do not add or "
+            "move it). Marker views carry `z` (height, m), `marker` (kind, id, size_mm, params, times_seen, last_seen, "
+            "confidence), `facing_yaw_deg` (map yaw of the marker's front; null for a marker lying flat or on a ceiling) "
+            "and `approach_pose` {x, y, yaw_deg} (where to park in front of it, facing it); all null for other kinds. "
+            "marker_kind keeps only marker POIs of that kind; marker POIs are valid approach targets (poi_id, height "
+            "taken from `z`). Photos (POIs of kind 'photo', one per camera image) are not listed here: list "
             "them with list_lookups. Errors if poi_store is not running. No motion."
         )
     )
     def list_pois(
         status: Annotated[PoiStatus | None, Field(description="Only POIs with this status")] = None,
         near: Annotated[bool, Field(description="Only POIs near the robot, nearest first")] = False,
+        marker_kind: Annotated[
+            str | None, Field(description="Only marker POIs of this marker kind (e.g. 'charger', 'base')")
+        ] = None,
     ) -> PoiList:
         """List POIs with distance and bearing."""
         with tool_errors():
             pois, revision = robot.poi_list()
             pose = pose_tuple(robot)
             notes = [] if pose is not None else ["robot pose unavailable: no distance/bearing"]
-            views = describe_pois(pois, pose, status, poi_cfg.near_radius_m if near else None)
+            views = describe_pois(
+                pois,
+                pose,
+                status,
+                poi_cfg.near_radius_m if near else None,
+                marker_kind,
+                config.markers.standoff_m,
+            )
         return PoiList(pois=views, revision=revision, notes=notes)
 
     @server.tool(

@@ -226,7 +226,7 @@ def test_target_forms_accept_exactly_one() -> None:
         ApproachTarget(object_id="cup-1", poi_id="table", z_m=0.1)
 
 
-@pytest.mark.parametrize("fields", [{"object_id": "cup-1"}, {"poi_id": "table"}])
+@pytest.mark.parametrize("fields", [{"object_id": "cup-1"}])
 def test_target_object_and_poi_require_z(fields: dict[str, Any]) -> None:
     with pytest.raises(ValidationError, match="z_m is required"):
         ApproachTarget(**fields)
