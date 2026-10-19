@@ -8,9 +8,8 @@ from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
-
-from scripts.head_rgbd_calibration.charuco import make_board
-from scripts.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.charuco import make_board
+from ros2_common.head_rgbd_calibration.config import BoardConfig
 
 BOARD_PX_PER_M = 3000.0
 MARGIN_PX = 40

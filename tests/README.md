@@ -2731,6 +2731,10 @@ Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof 
 | `test_no_other_client_node_publishes_map_to_odom` | No other client node sets `publish_tf: true` (but the EKF, odom -> base_link), the static TF publisher has no map parent or odom child, tof_obstacle_cloud has no TF argument. |
 | `test_new_nodes_and_tests_are_in_the_tests_readme` | tof_obstacle_cloud and the four ToF obstacle test files have a section here. |
 
+### `test_head_rgbd_calib_core.py`
+
+Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan proves no module imports `scripts`, `rosbags` or `subprocess`; `BoardConfig`, `SelectionConfig`, `LimitsConfig` reject unknown keys and their defaults equal the `board`, `selection`, `limits` blocks of `scripts/head_rgbd_calibrate.yaml`; the core `detect` finds the synthetic board of `tests/rgbd_synthetic.py`.
+
 ### `test_head_rgbd_calib_intrinsics.py`
 
 Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
@@ -2764,24 +2768,40 @@ Tests for `scripts/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF p
 | `test_yaml_round_trips` | Written extrinsics YAML has the documented keys and loads back. |
 | `test_rms_over_limit_writes_nothing` | Stereo RMS over `stereo_max_rms_px` raises and writes no file. |
 
+### `test_head_rgbd_calib_poses.py`
+
+Tests for `ros2_common.head_rgbd_calibration.poses` (`PoseCounter`), on a synthetic 15 s stream (ToF 10 Hz, RGB 2 Hz
+from `tests/rgbd_synthetic.py`): moving board, a still pose at 0.33 m, a still pose at 1.2 m (too far for the ToF),
+another still pose at 0.33 m.
+
+| Test | What it checks |
+|---|---|
+| `test_counts_one_pose_per_still_window` | The two near still poses are captured once each (numbers 1 and 2); the far one is not. |
+| `test_moving_board_is_not_counted` | Statuses include `moving` and no pose is attached to them. |
+| `test_status_names_missing_tof_board` | A board not found by the ToF gives the `move closer` status and no pose. |
+| `test_counter_agrees_with_the_offline_still_pairs` | The live count equals the offline `still_pairs` with both detections. |
+| `test_counter_counts_a_still_board_under_mains_flicker` | Real flickering RGB frames of a still board (`fixtures/head_rgbd/rgb_flicker_*.png`) with a real ToF frame count one pose. |
+| `test_captured_pose_carries_judged_detections` | A captured pose has the raw bytes passed with the RGB frame, the judged detections, the paired amplitude and the nearest depth frame. |
+| `test_depth_absent_beyond_max_dt` | Depth outside `max_pair_dt_s` or absent leaves `depth` None; the pose is still captured. |
+| `test_start_count_continues_numbering` | `start_count=4` numbers the next poses 5 and 6. |
+| `test_waiting_until_both_streams` | `status` is `waiting for frames` until frames arrived and one was judged, then the last judged status. |
+| `test_depth_paired_within_max_dt` | A depth frame within `max_pair_dt_s` of the amplitude is attached to the pose. |
+| `test_depth_history_is_pruned_like_the_amplitude` | Depth frames older than `TOF_HISTORY_S` are dropped. |
+| `test_unknown_frame_kind_is_rejected` | An unknown kind raises `ValueError`. |
+
 ### `test_head_rgbd_calib_live.py`
 
-Tests for `scripts/head_rgbd_calibration/live.py`, the live pose counter of `capture`, on a synthetic 15 s stream
-(ToF 10 Hz, RGB 2 Hz from `tests/rgbd_synthetic.py`): moving board, a still pose at 0.33 m, a still pose at 1.2 m
-(too far for the ToF), another still pose at 0.33 m.
+Tests for `scripts/head_rgbd_calibration/live.py` (relay stream, monitor, ssh start of `capture`); the stream is the
+synthetic scene of `test_head_rgbd_calib_poses.py`. The counter itself is tested there.
 
 | Test | What it checks |
 |---|---|
 | `test_read_stream_decodes_rgb_and_amplitude_and_ignores_a_truncated_tail` | The relay framing decodes to stamped BGR and uint16 frames; a truncated tail ends the stream. |
 | `test_read_stream_skips_unknown_topic_index` | A frame with an unknown topic index is skipped. |
-| `test_counter_counts_each_still_pose_once_when_both_cameras_see_the_board` | The two near still poses count once each; the far one does not. |
-| `test_counter_reports_moving_and_too_far_for_the_tof` | Statuses include `moving` and `move closer`. |
-| `test_counter_agrees_with_the_offline_still_pairs` | The live count equals the offline `still_pairs` with both detections. |
 | `test_monitor_prints_status_changes_and_rings_on_each_capture` | Status lines print only on change, prefixed with time and count; each capture rings the bell. |
 | `test_start_live_runs_the_relay_and_stop_reports_the_count` | `start_live` runs `relay_command`, pipes `live_relay.py` to it, and `stop()` terminates it and prints the total. |
 | `test_relay_command_runs_the_piped_script_bounded_by_the_capture` | ssh command sources ROS, exports the robot's CLI discovery environment, bounds the relay by the duration + 10 s and passes the header and topics. |
 | `test_relay_script_compiles_and_takes_header_and_topics_from_argv` | `live_relay.py` compiles and takes its arguments from argv with raw subscriptions. |
-| `test_counter_counts_a_still_board_under_mains_flicker` | Real flickering RGB frames of a still board (`fixtures/head_rgbd/rgb_flicker_*.png`) with a real ToF frame count one pose. |
 | `test_relay_keeps_native_stdout_writes_out_of_the_frame_stream` | With rclpy stubbed, a raw fd 1 write and a Python print after `frame_output()` land on stderr; only the frame bytes reach stdout. |
 | `test_live_is_on_by_default` | `capture.live` defaults to true. |
 
