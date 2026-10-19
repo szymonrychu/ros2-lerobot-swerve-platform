@@ -10,7 +10,7 @@
 database_dir: /var/lib/ros2/rtabmap   # live.db and saved.db (D9); Ansible creates it, the launch restores saved.db
 
 rgbd_sync:
-  ros__parameters: {}   # exact sync, transports and QoS are fixed by the launch; add sync tuning here if ever needed
+  ros__parameters: {}   # empty: exact sync, transports and QoS are all set by the launch from the topic contract
 
 rtabmap:
   ros__parameters:

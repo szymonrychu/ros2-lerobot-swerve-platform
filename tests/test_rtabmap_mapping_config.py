@@ -78,7 +78,9 @@ HEAD_DEPTH = "/uplink/head_rgbd/depth/image_raw"
 HEAD_RGB_INFO = "/uplink/head_rgbd/rgb/camera_info"
 SCAN = "/uplink/scan_filtered"
 PARKING_WORDING = re.compile(
-    r"for later|later runs|accepted limitation|\bTODO\b|follow-up|out of scope|phase 2|runbook measures", re.IGNORECASE
+    r"for later|later runs|accepted limitation|\bTODO\b|follow-up|out of scope|phase 2|runbook measures"
+    r"|if ever|when needed|if needed",
+    re.IGNORECASE,
 )
 VALUED_LINE = re.compile(r"^\s*[^#\s][^#]*:\s+[^#\s]")  # "key: value", not a section header or a comment
 
