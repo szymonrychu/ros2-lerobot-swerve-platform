@@ -1,6 +1,6 @@
 ---
 title: Mapping CPU dashboards
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Grafana shows what the 3D mapping costs on both Pis and on the WiFi link, so the budget is checked on real numbers."
 files: [ansible/roles/monitoring/files/robot-slam.json, tests/test_monitoring_dashboards.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--mapping-cpu-dashboards
+branch: rtab-map-rgb-d-3d-mapping-on--mapping-cpu-dashboards
 verified_head: ""
 run: ""
 provides: []

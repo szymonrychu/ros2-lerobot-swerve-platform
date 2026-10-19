@@ -1,6 +1,6 @@
 ---
 title: Final suite and runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The 3D map is proven on the robot: a mapped room aligned with the 2D map, measured CPU, memory and WiFi cost on both Pis, built from the calibrated head RGB-D pair."
 files: [docs/runbooks/map3d-mapping.md, ansible/group_vars/client.yml, nodes/rtabmap_mapping/config/map3d_topics.yaml, nodes/rtabmap_mapping/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--final-suite-and-runbook
+branch: rtab-map-rgb-d-3d-mapping-on--final-suite-and-runbook
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: Mcp map3d tools
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The agent can ask what is at a spot, how tall it is and how much free space surrounds a point in 3D."
 files: [nodes/mcp_server/mcp_server/map3d_tools.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_map3d_tools.py, nodes/mcp_server/tests/test_tools.py, nodes/mcp_server/tests/test_battery_gate.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--mcp-map3d-tools
+branch: rtab-map-rgb-d-3d-mapping-on--mcp-map3d-tools
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: Map3d manager node
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Save, reset, pause and map_guard resets reach RTAB-Map on the server, and the 3D map's status reaches the robot, without a new cross-host service path."
 files: [nodes/map3d_manager_cpp/include/map3d_manager_cpp/map3d_manager_node.hpp, nodes/map3d_manager_cpp/src/map3d_manager_node.cpp, nodes/map3d_manager_cpp/src/main.cpp, nodes/map3d_manager_cpp/test/test_node.cpp, nodes/map3d_manager_cpp/CMakeLists.txt, nodes/map3d_manager_cpp/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 80
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-manager-node
+branch: rtab-map-rgb-d-3d-mapping-on--map3d-manager-node
 verified_head: ""
 run: ""
 provides: []

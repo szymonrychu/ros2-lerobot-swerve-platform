@@ -1,6 +1,6 @@
 ---
 title: Mcp map3d grid model
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The agent's 3D answers come from one tested model of measured voxels and lidar-only walls that never invents a height it did not measure."
 files: [nodes/mcp_server/mcp_server/map3d.py, nodes/mcp_server/tests/test_map3d.py]
@@ -12,8 +12,8 @@ model: opus
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--mcp-map3d-grid-model
+branch: rtab-map-rgb-d-3d-mapping-on--mcp-map3d-grid-model
 verified_head: ""
 run: ""
 provides: []

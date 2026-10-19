@@ -1,6 +1,6 @@
 ---
 title: Map3d uplink node type
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Exactly one client process carries the mapping streams to the server and the 3D map back, throttled and only while someone uses them."
 files: [nodes/map3d_uplink/launch/map3d_uplink.launch.py, nodes/map3d_uplink/README.md, ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_map3d_uplink_config.py, tests/test_dds_discovery_config.py, tests/test_unit_cgroups.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-uplink-node-type
+branch: rtab-map-rgb-d-3d-mapping-on--map3d-uplink-node-type
 verified_head: ""
 run: ""
 provides: []

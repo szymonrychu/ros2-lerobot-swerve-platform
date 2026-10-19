@@ -1,6 +1,6 @@
 ---
 title: Map3d manager status
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The 3D map reports a truthful health line: state, size, memory, RTAB-Map's graph correction and which inputs are missing."
 files: [nodes/map3d_manager_cpp/include/map3d_manager_cpp/status.hpp, nodes/map3d_manager_cpp/src/status.cpp, nodes/map3d_manager_cpp/test/test_status.cpp]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 55
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-manager-status
+branch: rtab-map-rgb-d-3d-mapping-on--map3d-manager-status
 verified_head: ""
 run: ""
 provides: []

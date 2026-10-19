@@ -1,6 +1,6 @@
 ---
 title: Map3d frontend status
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The Map tab shows whether the 3D map is alive, aligned and how big it is, and the result of a 3D save or reset."
 files: [nodes/web_ui/frontend/src/map/Map3dStatus.tsx, nodes/web_ui/frontend/src/map/Map3dStatus.test.tsx, nodes/web_ui/frontend/src/map/LayersPanel.tsx, nodes/web_ui/frontend/src/map/LayersPanel.test.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.toolbar.test.tsx]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-frontend-status
+branch: rtab-map-rgb-d-3d-mapping-on--map3d-frontend-status
 verified_head: ""
 run: ""
 provides: []

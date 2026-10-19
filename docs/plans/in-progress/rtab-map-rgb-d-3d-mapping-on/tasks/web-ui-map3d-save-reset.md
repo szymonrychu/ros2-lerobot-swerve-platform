@@ -1,6 +1,6 @@
 ---
 title: Web UI map3d save reset
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Saving or resetting the map in the web UI saves or resets the 3D map with it, so the 3D map never outlives the 2D map frame it belongs to."
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_map3d_commands.py, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--web-ui-map3d-save-reset
+branch: rtab-map-rgb-d-3d-mapping-on--web-ui-map3d-save-reset
 verified_head: ""
 run: ""
 provides: []

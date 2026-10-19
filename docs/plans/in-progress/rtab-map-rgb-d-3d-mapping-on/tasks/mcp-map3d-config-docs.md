@@ -1,6 +1,6 @@
 ---
 title: Mcp map3d config docs
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The deployed agent knows the 3D map tools exist and when to use them, and the robot config points them at the downlinked map."
 files: [ansible/group_vars/client.yml, tests/test_mcp_server_config.py, nodes/mcp_server/README.md, nodes/claude_agent/claude_agent/config.py, nodes/claude_agent/claude_agent/prompt.py, nodes/claude_agent/tests/test_prompt.py, nodes/claude_agent/tests/test_config.py, nodes/claude_agent/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--mcp-map3d-config-docs
+branch: rtab-map-rgb-d-3d-mapping-on--mcp-map3d-config-docs
 verified_head: ""
 run: ""
 provides: []

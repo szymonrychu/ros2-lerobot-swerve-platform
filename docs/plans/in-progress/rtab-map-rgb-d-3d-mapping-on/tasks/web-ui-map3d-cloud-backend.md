@@ -1,6 +1,6 @@
 ---
 title: Web UI map3d cloud backend
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The browser gets the 3D map as a compact, capped point payload in the map frame, only while the Map tab shows it."
 files: [nodes/web_ui/web_ui/cloud_serializer.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_map3d_cloud.py, ansible/group_vars/client.yml]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--web-ui-map3d-cloud-backend
+branch: rtab-map-rgb-d-3d-mapping-on--web-ui-map3d-cloud-backend
 verified_head: ""
 run: ""
 provides: []

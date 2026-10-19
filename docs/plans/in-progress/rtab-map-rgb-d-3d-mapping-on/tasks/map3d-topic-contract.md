@@ -1,6 +1,6 @@
 ---
 title: Map3d topic contract
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One file names every stream that crosses the WiFi link, its rate, size and QoS, so the uplink, RTAB-Map and the budget can never disagree."
 files: [nodes/rtabmap_mapping/config/map3d_topics.yaml, nodes/rtabmap_mapping/map3d_topics.py, tests/test_map3d_topics.py, nodes/rtabmap_mapping/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rtab-map-rgb-d-3d-mapping-on--map3d-topic-contract
+branch: rtab-map-rgb-d-3d-mapping-on--map3d-topic-contract
 verified_head: ""
 run: ""
 provides: []
