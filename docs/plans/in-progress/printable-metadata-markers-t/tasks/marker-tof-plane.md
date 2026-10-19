@@ -62,3 +62,7 @@ Ambiguous poses with ToF coverage are resolved; others stay rejected.
 - Normal sign: the marker's +z points out of the face, i.e. towards the camera; keep one convention in both modules (review focus).
 
 - 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-pose-ippe
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 150 passed); symbol-AC escalations were verifier false positives (the symbols exist: render_marker_scene, merge_marker_sighting, run_node at node.py:165).

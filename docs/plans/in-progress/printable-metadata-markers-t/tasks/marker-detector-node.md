@@ -1,6 +1,6 @@
 ---
 title: Marker detector node
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Markers the head camera sees turn into POIs automatically, and nothing is sent without a real, unambiguous detection."
 files: [nodes/marker_detector/marker_detector/pipeline.py, nodes/marker_detector/marker_detector/node.py, nodes/marker_detector/marker_detector/__main__.py, nodes/marker_detector/marker_detector/metrics.py, nodes/marker_detector/tests/ros_stubs.py, nodes/marker_detector/tests/test_pipeline.py, nodes/marker_detector/README.md]
@@ -69,3 +69,7 @@ process_gaps: []
 - Pattern for a ROS-free core plus a thin node: nodes/poi_store (store.py vs node.py) and its tests/ros_stubs.py.
 
 - 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-tof-plane, marker-map-pose-poi
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 150 passed); symbol-AC escalations were verifier false positives (the symbols exist: render_marker_scene, merge_marker_sighting, run_node at node.py:165).

@@ -70,3 +70,7 @@ Each candidate yields an accepted pose with confidence, or a named rejection.
 - The ambiguity is the classic planar flip; it grows with distance and frontal views, which is what the reject path and the ToF chooser handle.
 
 - 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-decode
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 150 passed); symbol-AC escalations were verifier false positives (the symbols exist: render_marker_scene, merge_marker_sighting, run_node at node.py:165).

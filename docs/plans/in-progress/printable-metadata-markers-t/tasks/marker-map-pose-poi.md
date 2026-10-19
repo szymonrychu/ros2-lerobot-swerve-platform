@@ -65,3 +65,7 @@ Pure functions turn a camera-frame pose into the POI command and the detection r
 - `marker-payload` (`shared/ros2_common/marker_payload.py`: `decode_payload`, `MarkerInfo`, `marker_info`) is delivered by the blocker epic marker-and-calibration-board; it exists before this task runs.
 
 - 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-pose-ippe, poi-marker-upsert
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 150 passed); symbol-AC escalations were verifier false positives (the symbols exist: render_marker_scene, merge_marker_sighting, run_node at node.py:165).
