@@ -497,10 +497,17 @@ calibration:
   imu_reset_service: /imu/calibration/reset
   imu_stale_s: 3.0                    # > 0
   imu_service_timeout_s: 5.0          # > 0, wait for the save / reset Trigger response
+  rgbd_url: http://127.0.0.1:18400    # optional http(s) base URL of the head RGB-D calibration node; absent: no RGB-D section
+  rgbd_timeout_s: 10.0                # > 0, wait for one forwarded RGB-D call
 ```
 
 Routes (all under `/api/calibration`):
-- `GET /config` returns `{imu: true, arm: "deferred"}`.
+- `GET /config` returns `{imu: true, rgbd: <rgbd_url is set>, arm: "deferred"}`.
+- RGB-D (`web_ui/rgbd_calibration.py`, no ROS subscription): `GET|POST|DELETE /rgbd/{path}` forwards method, query and body to
+  `<rgbd_url>/api/<path>` (httpx, timeout `rgbd_timeout_s`). Status, `content-type`, `content-disposition` and body bytes pass
+  through unchanged (JPEG thumbnails, zip downloads; bodies are buffered). A POST forwards its `content-type`. A path outside
+  `[A-Za-z0-9_.\-/]` or with a `..` segment answers `400`; no `rgbd_url` answers `404 {"ok": false, "message": "RGB-D calibration not configured"}`;
+  a connect error or timeout answers `503 {"ok": false, "message": "calibration node unreachable"}`. Tests: `tests/test_rgbd_calibration_proxy.py`.
 - IMU (needs the ROS bridge; the bridge subscribes `imu_status_topic` always-on and creates Trigger clients for the two IMU services):
   - `GET /imu` returns `{sys, gyro, accel, mag, restored, age_s}`, the node's latest `std_msgs/String` JSON sample. No sample yet
     answers `503 {"ok": false, "message": "no IMU calibration sample yet"}`; older than `imu_stale_s` answers

@@ -163,7 +163,7 @@ def test_subscription_only_with_calibration() -> None:
 def test_calibration_config_route_is_imu_only(tmp_path: Path) -> None:
     response = make_client(tmp_path, FakeBridge()).get("/api/calibration/config")
     assert response.status_code == 200
-    assert response.json() == {"imu": True, "arm": "deferred"}
+    assert response.json() == {"imu": True, "rgbd": False, "arm": "deferred"}
 
 
 def test_calibration_config_route_404_when_not_configured(tmp_path: Path) -> None:
