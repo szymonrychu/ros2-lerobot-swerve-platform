@@ -1,0 +1,66 @@
+---
+title: Calib node apply download
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "A computed calibration goes live on the robot with one press and survives deploys; the operator can also download it to commit."
+files: [nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py, nodes/head_rgbd_calibration/tests/test_apply.py, nodes/head_rgbd_calibration/README.md]
+verify: "(cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_apply.py -q && uv run --frozen poe lint)"
+depends_on: [calib-node-compute-job]
+owns: [rgbd-calib-applied-files]
+uses: [rgbd-calib-result-files, rgbd-calib-session-store, rgbd-calib-node-config]
+model: ""
+estimate: 50
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# Calib node apply download
+
+## Requirement
+
+Apply a passing result to the robot atomically and package a result for download (design D6).
+
+- `head_rgbd_calibration/apply.py`:
+  - `APPLIED_FILES = ("head_camera_calibration.yaml", "tof_calibration.yaml", "head_rgbd_extrinsics.yaml", "tof_joint.json")` and `APPLIED_MARKER = "applied.json"` (the contract the Ansible path unit and the head nodes read).
+  - `apply_result(store, sid, rid, now) -> dict`: refuses with `NotApplicable` unless `result.json` has `passed: true`; copies each of `APPLIED_FILES` into `<state_dir>/applied/` through a temporary file and `os.replace`, then writes `applied.json` (`session`, `result`, `applied_at`, `files`) last, also through `os.replace`.
+  - `applied_state(store, units, run) -> dict | None`: `applied.json` plus per unit `{name, active_state, restarted}`, where `restarted` means the unit's `ActiveEnterTimestamp` (read with `systemctl show --timestamp=unix -p ActiveEnterTimestamp -p ActiveState <unit>`, unprivileged, through the injectable `run`) is not older than `applied_at`; None when nothing is applied.
+  - `download_zip(store, sid, rid) -> tuple[str, bytes]`: file name `<sid>-<rid>.zip` and a zip holding the three YAMLs, `tof_joint.json`, `head.urdf` and `report.md`; `NotApplicable` when the result has no YAMLs.
+- Tests `tests/test_apply.py`: a passing result is applied with every file and `applied.json` written last; a failing result is refused and `applied/` is unchanged; an `os.replace` failure mid-apply leaves the previous `applied.json` untouched; restart flags from a fake `systemctl`; zip member names and content.
+- README `## Apply and download` section (doc file).
+
+## Acceptance conditions
+
+- a1: a passing result is applied with applied.json written last [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_apply.py::test_apply_writes_marker_last -q]
+- a2: a failing result is refused and applied/ is unchanged [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_apply.py::test_failing_result_refused -q]
+- a3: a failure mid-apply keeps the previous marker [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_apply.py::test_interrupted_apply_keeps_previous_marker -q]
+- a4: per-unit restart state is reported from systemctl show [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_apply.py::test_units_restarted_after_apply -q]
+- a5: the download zip holds the YAMLs, tof_joint.json, head.urdf and report.md [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_apply.py::test_download_zip_members -q]
+- a6: node lint passes [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen poe lint]
+
+## Files
+
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py`
+- `nodes/head_rgbd_calibration/tests/test_apply.py`
+- `nodes/head_rgbd_calibration/README.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
