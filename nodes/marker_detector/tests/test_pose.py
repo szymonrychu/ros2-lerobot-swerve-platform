@@ -71,8 +71,8 @@ def angle_deg(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class TruthPlaneChooser:
-    """Stand-in for the ToF ``plane_chooser`` (task marker-tof-plane): the plane normal is the renderer's true marker
-    normal; returns the solution within TOF_MAX_ANGLE_DEG of it when exactly one is, else None. Records each call."""
+    """Test double with the ``choose`` contract of the ToF ``plane_chooser``, using the renderer's true marker normal as
+    the plane normal; returns the solution within TOF_MAX_ANGLE_DEG of it when exactly one is, else None. Records each call."""
 
     def __init__(self, true_normal: np.ndarray) -> None:
         self.true_normal = true_normal
@@ -156,7 +156,7 @@ def test_accuracy_within_one_percent_and_two_degrees(distance, yaw):
 
     At 2 m the module is ~2.5 px (below the default 4 px gate, so min_module_px is lowered here) and the view is
     nearly weak-perspective: the planar flip reprojects within ~0.5 px, so the RMS ratio can fall just under 2 and
-    the pose is deferred to the ToF plane (design D10b), emulated by TruthPlaneChooser. Up to 1 m the RMS ratio or
+    the ``choose`` callback decides (design D10b), here TruthPlaneChooser with the true normal. Up to 1 m the RMS ratio or
     the frontal agreement alone must accept every pose, without consulting the chooser.
     """
     pose = pose_facing(distance, yaw_deg=yaw)

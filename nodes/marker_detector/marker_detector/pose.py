@@ -317,7 +317,7 @@ def refine_and_solve(
 ) -> tuple[list[Solution], np.ndarray]:
     """Refine the finder corners and solve, ``REFINE_PASSES`` times.
 
-    The first pass starts from the homography prediction; each later pass restarts ``refine_corners`` from the
+    The first pass starts from the homography prediction; each subsequent pass restarts ``refine_corners`` from the
     reprojection of the best solution, which is consistent across all 24 corners and so much closer than a prediction
     from four decoder corners that may be a pixel off.
 
