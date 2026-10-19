@@ -1,6 +1,6 @@
 ---
 title: POI marker upsert
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Seeing the same marker again refines its POI instead of creating a duplicate, and never overwrites what the user edited."
 files: [nodes/poi_store/poi_store/models.py, nodes/poi_store/poi_store/markers.py, nodes/poi_store/poi_store/store.py, nodes/poi_store/poi_store/config.py, nodes/poi_store/poi_store/node.py, nodes/poi_store/tests/test_marker_upsert.py, nodes/poi_store/README.md]
@@ -69,3 +69,7 @@ A detector can send every sighting; poi_store keeps one refined POI per marker.
 
 - Commands are handled one at a time in the node callback, so matching in the store is atomic (design D12).
 - Quaternion averaging: flip a sample whose dot product with the reference is negative, weighted sum, normalise (fine for the small spreads the relocation gate allows).
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 45, poi_store 269 passed); marker-decode a4 and poi-marker-upsert a5 escalations were symbol-lookup false positives (render_marker_scene at synthetic.py:79, merge_marker_sighting at markers.py:41).

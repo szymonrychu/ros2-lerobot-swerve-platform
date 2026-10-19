@@ -1,6 +1,6 @@
 ---
 title: Marker decode
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Markers in a camera frame are found and decoded into validated payloads with ordered corners, and undecodable QR codes are located for a zoom."
 files: [nodes/marker_detector/marker_detector/decode.py, nodes/marker_detector/marker_detector/synthetic.py, nodes/marker_detector/tests/test_decode.py]
@@ -66,3 +66,7 @@ A grey frame becomes a list of valid marker candidates and zoom targets.
 - Research: zxing-cpp is the fastest maintained decoder; QRCodeDetectorAruco (OpenCV >= 4.8) is the second opinion for finding quads.
 
 - `marker-payload` (`shared/ros2_common/marker_payload.py`: `decode_payload`, `MarkerInfo`, `marker_info`) is delivered by the blocker epic marker-and-calibration-board; it exists before this task runs.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 45, poi_store 269 passed); marker-decode a4 and poi-marker-upsert a5 escalations were symbol-lookup false positives (render_marker_scene at synthetic.py:79, merge_marker_sighting at markers.py:41).

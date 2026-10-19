@@ -72,3 +72,7 @@ process_gaps: []
 
 - On the Pi the venv is `--system-site-packages`; the wheel inside the venv shadows apt python3-opencv 4.6, which the import test proves locally and the runbook proves on the robot.
 - The CI and lint wiring is the next task (marker-detector-ci-wiring); until it lands the root lint-coverage test lists the new directory as missing.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 45, poi_store 269 passed); marker-decode a4 and poi-marker-upsert a5 escalations were symbol-lookup false positives (render_marker_scene at synthetic.py:79, merge_marker_sighting at markers.py:41).

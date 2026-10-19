@@ -68,3 +68,7 @@ The agent can list chargers or buttons and send the base or the arm to them.
 
 - Deploying mcp_server kills a running agent session (MEMORY): the runbook checks first.
 - No `category`: the agent-skills epic adds it later and can derive it from `marker.kind`.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 45, poi_store 269 passed); marker-decode a4 and poi-marker-upsert a5 escalations were symbol-lookup false positives (render_marker_scene at synthetic.py:79, merge_marker_sighting at markers.py:41).

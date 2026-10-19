@@ -57,3 +57,7 @@ CI and `uv run poe lint-nodes` include the detector.
 ## Notes
 
 - Other epics may add nodes first; set the count to what the tree holds.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 45, poi_store 269 passed); marker-decode a4 and poi-marker-upsert a5 escalations were symbol-lookup false positives (render_marker_scene at synthetic.py:79, merge_marker_sighting at markers.py:41).

@@ -58,3 +58,7 @@ The node can ask for zoom stills at a bounded rate and pair the answers.
 ## Notes
 
 - Each zoom gaps the 30 fps stream for 0.5-0.8 s (front camera epic): keep the defaults conservative.
+
+## Ruling
+
+Accepted by the orchestrator: verified and merged into main (marker_detector 45, poi_store 269 passed); marker-decode a4 and poi-marker-upsert a5 escalations were symbol-lookup false positives (render_marker_scene at synthetic.py:79, merge_marker_sighting at markers.py:41).
