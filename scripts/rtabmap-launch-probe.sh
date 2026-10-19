@@ -14,7 +14,7 @@
 #      /tf or /uplink/tf, the container survived the whole run and RTAB-Map created live.db in the database dir.
 # Prints PASS/FAIL per check and one final line "rtabmap-launch-probe: PASS|FAIL"; exits non-zero on failure.
 # The first run downloads the image and PCL/VTK/gtsam (several minutes); apt archives are cached in the docker volume
-# rtabmap-launch-probe-apt for later runs.
+# rtabmap-launch-probe-apt, so repeat runs skip the download.
 # Usage: from repo root, run: ./scripts/rtabmap-launch-probe.sh
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1

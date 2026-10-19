@@ -22,6 +22,7 @@ from .ros_stubs import install_ros_stubs
 REPO_ROOT = Path(__file__).resolve().parent.parent
 NODE_DIR = REPO_ROOT / "nodes" / "rtabmap_mapping"
 LAUNCH_FILE = NODE_DIR / "launch" / "rtabmap_mapping.launch.py"
+PROBE_SCRIPT = REPO_ROOT / "scripts" / "rtabmap-launch-probe.sh"
 PARAMS_FILE = NODE_DIR / "config" / "rtabmap_params.yaml"
 README = NODE_DIR / "README.md"
 LAUNCH_STUBS = ("launch", "launch.actions", "launch_ros", "launch_ros.actions", "launch_ros.descriptions")
@@ -76,6 +77,9 @@ HEAD_RGB = "/uplink/head_rgbd/rgb/image_raw"
 HEAD_DEPTH = "/uplink/head_rgbd/depth/image_raw"
 HEAD_RGB_INFO = "/uplink/head_rgbd/rgb/camera_info"
 SCAN = "/uplink/scan_filtered"
+PARKING_WORDING = re.compile(
+    r"for later|later runs|accepted limitation|\bTODO\b|follow-up|out of scope|phase 2|runbook measures", re.IGNORECASE
+)
 VALUED_LINE = re.compile(r"^\s*[^#\s][^#]*:\s+[^#\s]")  # "key: value", not a section header or a comment
 
 
@@ -427,10 +431,25 @@ def test_readme_sections() -> None:
         assert section in text, section
 
 
-def test_readme_documents_scan_grid_override_and_rebend_limitation() -> None:
+def test_readme_documents_scan_grid_override_and_rebend_behaviour() -> None:
     text = README.read_text()
     assert re.search(r'Grid/Sensor: "2"', text)
     assert "indistinguishable" in text
     assert "re-bend" in text
     for key in EXPECTED_RTABMAP:
         assert f"`{key}`" in text, key
+
+
+@pytest.mark.parametrize("path", [README, PARAMS_FILE, LAUNCH_FILE, PROBE_SCRIPT], ids=lambda p: p.name)
+def test_no_parking_wording(path: Path) -> None:
+    """The node's docs, config, launch and probe state what is done, never what is deferred.
+
+    :param path: Path - file under review.
+    :return: None
+    """
+    hits = [
+        f"{number}: {line.strip()}"
+        for number, line in enumerate(path.read_text().splitlines(), start=1)
+        if PARKING_WORDING.search(line)
+    ]
+    assert not hits, hits

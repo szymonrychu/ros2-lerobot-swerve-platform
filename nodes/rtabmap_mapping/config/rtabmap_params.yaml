@@ -45,7 +45,7 @@ rtabmap:
     Rtabmap/TimeThr: "0"               # no time-based transfer: memory is bounded by MemoryThr
     Mem/STMSize: "10"                  # short-term memory nodes
     Mem/ImagePostDecimation: "2"       # images stored at half size (288x162)
-    Mem/BinDataKept: "true"            # keep images in the database for later re-processing (~30-50 KB per node)
+    Mem/BinDataKept: "true"            # keep images in the database so it can be re-processed (~30-50 KB per node)
     Mem/RawDescriptorsKept: "false"    # no raw descriptors (there are none with Kp/MaxFeatures -1)
     Rtabmap/ImageBufferSize: "1"       # process only the latest input, drop older ones instead of queueing
     # --- outputs (D10) ---

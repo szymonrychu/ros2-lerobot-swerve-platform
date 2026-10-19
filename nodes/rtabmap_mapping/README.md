@@ -105,10 +105,10 @@ coincides with `map`: consumers draw `/map3d/cloud` (frame `rtabmap_map`) in the
 `graph_correction_m/deg` from `MapGraph.map_to_odom` (non-identity means the alignment broke) and mcp_server's
 `alignment_agreement` measures how many measured obstacle columns at lidar height lie on `/map` walls.
 
-**Accepted limitation** (decided by the user on 2026-10-18): older 3D map parts do not re-bend after later 2D loop
-closures. A RTAB-Map node keeps the slam_toolbox pose it was created with; when slam_toolbox later closes a loop and
-moves the 2D map, the older 3D nodes stay where they were. Mitigation: map a room at a time, and reset the 3D map
-after a large 2D correction (map_guard's map resets reach it automatically through map3d_manager, D9).
+**No re-bend on 2D loop closures** (design decision of 2026-10-18): each RTAB-Map node keeps the slam_toolbox pose
+it was created with. When slam_toolbox closes a loop and moves the 2D map, the 3D nodes created before that closure
+keep their poses and do not re-bend with it. Operating rule: map a room at a time, and reset the 3D map after a large
+2D correction (map_guard's map resets reach it automatically through map3d_manager, D9).
 
 ## Parameters
 
@@ -162,12 +162,11 @@ From `config/rtabmap_params.yaml` (overridable) unless marked fixed (set by the 
 Design D8, for the Pi 4b (4 cores, 3.8 GB, about 1.1 GB left for ROS units next to monitoring): at most
 `Rtabmap/MemoryThr: "400"` nodes stay in working memory and older nodes move to the database (`Rtabmap/TimeThr: "0"`:
 no time-based transfer), `Mem/STMSize: "10"`, images are stored at half size (`Mem/ImagePostDecimation: "2"`, 288x162)
-and kept (`Mem/BinDataKept: "true"`, about 30-50 KB per node) for later re-processing, no raw descriptors
+and kept (`Mem/BinDataKept: "true"`, about 30-50 KB per node) so the database can be re-processed, no raw descriptors
 (`Mem/RawDescriptorsKept: "false"`), and only the latest input is processed (`Rtabmap/ImageBufferSize: "1"`). With
 `Kp/MaxFeatures: "-1"` there is no feature extraction, RTAB-Map's main CPU cost; what remains is JPEG and PNG decode at
 the 2 Hz mapping rate, one local grid per node and cloud assembly while `/rtabmap/cloud_map` has a subscriber. The
-systemd unit is capped (`cpu_quota: 200%`, `memory_max: 900M`, set by the node type); the mapping runbook measures
-CPU and peak working set.
+systemd unit is capped at `cpu_quota: 200%` and `memory_max: 900M` (the rtabmap_mapping node type in Ansible).
 
 ## Database
 
