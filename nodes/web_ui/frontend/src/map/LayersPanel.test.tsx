@@ -40,6 +40,23 @@ function wrap(node: ReactNode) {
 
 afterEach(cleanup)
 
+describe('LayersPanel 3D status', () => {
+  it('shows the status summary next to the 3D map row', () => {
+    wrap(<LayersPanel {...props({ map3dStatus: { state: 'mapping', nodes: 120, graph_correction_m: 0.01, graph_correction_deg: 0, correction_warn_m: 0.1, correction_warn_deg: 2 } })} />)
+    expect(within(screen.getByTestId('layer-row-map3dCloud')).getByText('mapping, 120 nodes')).toBeTruthy()
+  })
+
+  it('says there is no status yet when none arrived', () => {
+    wrap(<LayersPanel {...props({ map3dStatus: undefined })} />)
+    expect(within(screen.getByTestId('layer-row-map3dCloud')).getByText('no 3D map status yet')).toBeTruthy()
+  })
+
+  it('shows no summary on other rows', () => {
+    wrap(<LayersPanel {...props({ map3dStatus: { state: 'paused' } })} />)
+    expect(within(screen.getByTestId('layer-row-goal')).queryByText(/paused/)).toBeNull()
+  })
+})
+
 describe('LayersPanel', () => {
   it('lists every layer as a toggle and reports toggles', () => {
     const p = props()

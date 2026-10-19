@@ -66,7 +66,7 @@ import type { SceneController } from '../map3d/MapScene'
 import type { GridImageMsg, PathMsg } from '../map3d/sceneLayers'
 import { browserStorage } from '../tabSelection'
 import { CANVAS_BG } from '../theme'
-import { TabConfig } from '../types'
+import { Map3dStatusPayload, TabConfig } from '../types'
 import { PhotoList } from '../photos/PhotoList'
 import { PhotoPanel } from '../photos/PhotoPanel'
 import type { Photo } from '../photos/api'
@@ -90,7 +90,8 @@ const GPS_ANCHOR_TOPIC = '/web_ui/gps_anchor'
 const STOP_SX = { px: 3, flexShrink: 0, fontWeight: 500, letterSpacing: 0 }
 const TOUCH_TARGET = '2.75rem' // 44 px minimum touch target
 const ROBOT_FIT_SPAN_M = 4 // view size around the robot when there is no map to fit
-const SNACKBAR_MS: Record<ActionResult['state'], number | null> = { idle: null, busy: null, ok: 4000, error: 10000 }
+const ALERT_SEVERITY = { idle: 'info', busy: 'info', ok: 'success', warning: 'warning', error: 'error' } as const
+const SNACKBAR_MS: Record<ActionResult['state'], number | null> = { idle: null, busy: null, ok: 4000, warning: 10000, error: 10000 }
 
 interface Props {
   tab: TabConfig
@@ -184,6 +185,7 @@ export default function MapNavTab({
   const scanPoints = topicData[tab.scan_points_topic ?? '']
   const map3dCloudWanted = layers.map3dCloud && Boolean(tab.map3d_cloud_topic)
   const map3dCloud = topicData[tab.map3d_cloud_topic ?? '']
+  const map3dStatus = topicData[tab.map3d_status_topic ?? '']
   const globalPath = topicData[tab.global_plan_topic ?? ''] as PathMsg | null | undefined
   const localPath = topicData[tab.local_plan_topic ?? ''] as PathMsg | null | undefined
   const goalMsg = topicData[tab.goal_topic ?? ''] as FramedPose | null | undefined
@@ -634,6 +636,7 @@ export default function MapNavTab({
         goalMode={goalMode}
         hasArm={Boolean(tab.arm_command_topic)}
         armReady={armReady}
+        map3dStatus={map3dStatus as Map3dStatusPayload | null | undefined}
       />
     </>
   )
@@ -1048,7 +1051,7 @@ export default function MapNavTab({
             <Alert
               onPointerDown={(e) => e.stopPropagation()}
               variant="standard"
-              severity={action.state === 'ok' ? 'success' : action.state === 'error' ? 'error' : 'info'}
+              severity={ALERT_SEVERITY[action.state]}
               onClose={busy ? undefined : () => setAction({ state: 'idle', message: '' })}
               sx={{ width: '100%' }}
             >

@@ -3,7 +3,7 @@
 /** How long the first click on a two-step button stays armed, in milliseconds. */
 export const RESET_CONFIRM_MS = 4000
 
-export type ActionState = 'idle' | 'busy' | 'ok' | 'error'
+export type ActionState = 'idle' | 'busy' | 'ok' | 'warning' | 'error'
 
 export interface ActionResult {
   state: ActionState
@@ -35,12 +35,18 @@ export function isCleared(value: unknown): value is null {
 }
 
 /**
- * Turn an action endpoint response ({ok, message}) into a displayable result.
+ * Turn an action endpoint response ({ok, message, map3d?: {status, message}}) into a displayable result.
  * @param status HTTP status code
  * @param body parsed JSON body (any shape)
  */
 export function parseActionResult(status: number, body: unknown): ActionResult {
-  const b = (body ?? {}) as { ok?: unknown; message?: unknown }
-  const message = typeof b.message === 'string' && b.message ? b.message : `HTTP ${status}`
-  return { state: b.ok === true ? 'ok' : 'error', message }
+  const b = (body ?? {}) as { ok?: unknown; message?: unknown; map3d?: unknown }
+  let message = typeof b.message === 'string' && b.message ? b.message : `HTTP ${status}`
+  let state: ActionState = b.ok === true ? 'ok' : 'error'
+  const m3 = b.map3d as { status?: unknown; message?: unknown } | null | undefined
+  if (m3 && typeof m3 === 'object' && typeof m3.status === 'string') {
+    message += `. 3D map: ${m3.status}${typeof m3.message === 'string' && m3.message ? ` - ${m3.message}` : ''}`
+    if (state === 'ok' && m3.status !== 'ok') state = 'warning'
+  }
+  return { state, message }
 }

@@ -15,6 +15,8 @@ import type { TileSourceInfo } from '../map3d/tileSources'
 import { LAYER_MAX_PHOTOS, PHOTO_AGE_LABELS, PHOTO_AGES, type PhotoAge } from '../photos/geometry'
 import { PoiLegend } from '../poi/PoiLegend'
 import { TOKENS } from '../theme'
+import type { Map3dStatusPayload } from '../types'
+import { Map3dStatus, map3dSummary } from './Map3dStatus'
 
 const GPS_ANCHOR_TOPIC = '/web_ui/gps_anchor'
 const SWATCH_REM = '0.875rem'
@@ -55,6 +57,8 @@ export interface LayersPanelProps {
   /** The tab has an arm command topic. */
   hasArm: boolean
   armReady: boolean
+  /** Latest /map3d/status JSON; undefined/null before one arrived. */
+  map3dStatus?: Map3dStatusPayload | null
 }
 
 /**
@@ -155,8 +159,18 @@ export function LayersPanel(p: LayersPanelProps) {
                         </Box>
                       }
                     />
+                    {k === 'map3dCloud' && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pl: 4, mt: -1 }}>
+                        {map3dSummary(p.map3dStatus)}
+                      </Typography>
+                    )}
                   </Box>
                 </Tooltip>
+                {k === 'map3dCloud' && layers.map3dCloud && p.map3dStatus && (
+                  <Box sx={{ pl: 4, mb: 0.5 }}>
+                    <Map3dStatus status={p.map3dStatus} />
+                  </Box>
+                )}
                 {k === 'gpsMap' && tileSources.length > 1 && tileSource && (
                   <ToggleButtonGroup
                     exclusive
