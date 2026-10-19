@@ -1,0 +1,62 @@
+---
+title: RGBD calib runbook and docs
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "Operators follow one written procedure for calibrating on the robot, and the overlap with the fusion epic is explicit."
+files: [docs/runbooks/head-rgbd-fusion.md, docs/head-rgbd-fusion-methodology.md, scripts/README.md, MEMORY.md]
+verify: "grep -q 'Calibrate page' docs/runbooks/head-rgbd-fusion.md && grep -q 'head_rgbd_calibration/applied' MEMORY.md"
+depends_on: [head-nodes-use-applied-calib, rgbd-sessions-and-results-ui, calib-core-retire-shims, head-urdf-tof-joint-override]
+owns: []
+uses: []
+model: ""
+estimate: 30
+actual: ""
+review: skip
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# RGBD calib runbook and docs
+
+## Requirement
+
+Document the robot-side calibration flow and the decisions (design D11). Prose task.
+
+- `docs/runbooks/head-rgbd-fusion.md` steps 2 and 3 describe the web UI flow: ToF warm-up and board check as today; open the hamburger menu, Calibrate; Start capture; 20-30 poses 0.25-0.45 m from the head, resting the board about 3 s each, tilts and image corners; watch the status line, the pose count and the RGB and ToF coverage grids; delete bad poses; Stop; Compute; read the report against the limits (RGB <= 0.5 px, ToF <= 0.3 px, ToF-to-RGB extrinsic RMS <= 1.0 px, plane bias <= 15 mm) and recapture or prune when it fails; Apply (restarts head_camera_cpp, head_rgbd_cpp, head_state_publisher; the section shows each unit restarted); confirm `/head_rgbd/depth/image_raw` publishes at the mapping rate with a subscriber and that the focus is continuous again once the capture stopped; optionally Download and commit the zip's files to `nodes/head_camera_cpp/config/head_camera_calibration.yaml`, `nodes/head_rgbd_cpp/config/tof_calibration.yaml`, `nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml` and `nodes/web_ui/urdf/head.urdf` (they seed `applied/` on a reflashed robot). Steps 1 and 4-8 keep their content; any mention of the ssh live counter is removed.
+- `docs/head-rgbd-fusion-methodology.md`: the capture description points to the robot-side flow and the state dir.
+- `scripts/README.md`: the CLI is for bags, validation captures and offline calibration; robot capture is the Calibrate page.
+- `MEMORY.md`: one decision line: head RGB-D calibration is captured, computed and applied on the robot (`/var/lib/ros2/head_rgbd_calibration/applied`, Apply restarts the head nodes; repo files only seed it).
+
+## Acceptance conditions
+
+- a1: the runbook calibration steps use the Calibrate page and no longer the ssh live counter [evidence: command:grep -q "Calibrate page" docs/runbooks/head-rgbd-fusion.md && ! grep -q "live line" docs/runbooks/head-rgbd-fusion.md]
+- a2: MEMORY.md records the robot-side delivery decision [evidence: command:grep -q "head_rgbd_calibration/applied" MEMORY.md]
+- a3: the runbook still has its steps and results sections [evidence: doc-section:docs/runbooks/head-rgbd-fusion.md#Steps]
+- a4: the documented flow matches the built UI and node behaviour [evidence: judgement:]
+
+## Files
+
+- `docs/runbooks/head-rgbd-fusion.md`
+- `docs/head-rgbd-fusion-methodology.md`
+- `scripts/README.md`
+- `MEMORY.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
