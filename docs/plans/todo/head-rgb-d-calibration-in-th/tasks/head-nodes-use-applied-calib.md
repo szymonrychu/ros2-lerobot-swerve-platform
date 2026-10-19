@@ -26,11 +26,11 @@ provides: []
 The head nodes read the robot's applied calibration and the Calibrate page gets its RGB-D section; deploys keep it (design D7, D9, D11; cross-epic contract `head-rgbd-applied-calibration`).
 
 - `ansible/group_vars/client.yml`:
-  - head_camera_cpp `config`: `camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml`, commented (written by Apply on the Calibrate page, seeded from the committed file when absent; missing file: no camera_info, as today).
-  - head_rgbd_cpp `config`: `tof_calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml`; the head_rgbd_cpp node type `config_files` entry and its comment are removed (the seed in calib-node-ansible-deploy replaces it).
+  - head_camera_cpp `config`: `camera_info_file` (not set today, added): /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml`, commented (written by Apply on the Calibrate page, seeded from the committed file when absent; missing file: no camera_info, as today).
+  - head_rgbd_cpp `config`: `tof_calibration_file` (client.yml:1346; line 1330 is a comment): /var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml`; the head_rgbd_cpp node type `config_files` entry and its comment are removed (the seed in calib-node-ansible-deploy replaces it).
   - web_ui `config` `calibration:` gains `rgbd_url: http://127.0.0.1:18110`; the IMU keys stay.
 - Tests: `tests/test_head_rgbd_deploy.py` (config equals the defaults plus `metrics_port` plus the applied `tof_calibration_file`; no `config_files`), `tests/test_head_camera_deploy.py` (applied `camera_info_file`), `tests/test_web_ui_calibration_config.py` (`rgbd_url` port equals the head_rgbd_calibration entry's `http_port`; IMU assertions unchanged).
-- `nodes/head_camera_cpp/README.md` and `nodes/head_rgbd_cpp/README.md` say where the calibration comes from (applied dir, Calibrate page, seeding) (doc files).
+- `nodes/head_camera_cpp/README.md` and `nodes/head_rgbd_cpp/README.md` say where the calibration comes from (the applied state paths under `/var/lib/ros2/head_rgbd_calibration/applied`, not `/etc/ros2/...`; Calibrate page; seeding) (doc files).
 - `uv run poe test-ansible` passes.
 
 ## Acceptance conditions
@@ -39,7 +39,8 @@ The head nodes read the robot's applied calibration and the Calibrate page gets 
 - a2: head_camera_cpp reads the applied camera calibration [evidence: test:tests/test_head_camera_deploy.py::test_camera_info_file_is_the_applied_file]
 - a3: web_ui points the RGB-D section at the node port and keeps the IMU names [evidence: test:tests/test_web_ui_calibration_config.py::test_web_ui_rgbd_url_points_at_calibration_node]
 - a4: the IMU wiring test still passes [evidence: test:tests/test_web_ui_calibration_config.py::test_web_ui_enables_the_imu_calibration_section]
-- a5: ansible lint and syntax checks pass [evidence: command:uv run poe test-ansible]
+- a5: both node READMEs name the applied state paths instead of /etc/ros2/... [evidence: command:grep -q "head_rgbd_calibration/applied" nodes/head_rgbd_cpp/README.md && grep -q "head_rgbd_calibration/applied" nodes/head_camera_cpp/README.md && ! grep -q "/etc/ros2/head_rgbd_cpp/tof_calibration" nodes/head_rgbd_cpp/README.md]
+- a6: ansible lint and syntax checks pass [evidence: command:uv run poe test-ansible]
 
 ## Files
 

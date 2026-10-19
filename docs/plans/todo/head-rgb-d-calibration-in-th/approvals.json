@@ -2,7 +2,7 @@
   {
     "id": "A1",
     "text": "Results live on the robot: the computed calibration is written to a robot state dir (/var/lib/ros2/head_rgbd_calibration); an Apply button makes head_camera_cpp (camera_info), head_rgbd_cpp (ToF calibration) and the head URDF tof_joint use it without a redeploy (restart triggered on the robot), it survives Ansible deploys, and a Download button returns the result YAMLs so they can be committed.",
-    "decisions": ["D3", "D6", "D7", "D8"],
+    "decisions": ["D3", "D6", "D7", "D8", "D12"],
     "tasks": ["calib-node-session-store", "calib-node-compute-job", "calib-node-apply-download", "calib-node-http-api", "head-urdf-tof-joint-override", "calib-node-ansible-deploy", "head-nodes-use-applied-calib", "rgbd-sessions-and-results-ui"],
     "status": "approved"
   },

@@ -126,7 +126,7 @@ Ids: session `calib-YYYYmmdd-HHMMSS`, pose zero-padded `001` (stable, never reus
 
 ### D4: Capture subscribes only during a session, with the measured QoS
 
-Start creates the subscriptions, stop (or `max_capture_s`, default 900 s, my call) destroys them, so the focus lock
+Start creates the subscriptions, stop (or `max_capture_s`, default 900 s, D12 c) destroys them, so the focus lock
 is released. `/tof/amplitude/image_raw`, `/tof/depth/image_raw` RELIABLE depth 10; `/tof/camera_info` RELIABLE;
 `/head_camera/mapping/image_raw/compressed` BEST_EFFORT depth 5. Frames feed the core `PoseCounter`; a captured pose
 is written with its detections (no re-detection) and thumbnails. The status line is the PoseCounter status, or
@@ -143,7 +143,7 @@ exclusive (409). Serves A3, A4.
 
 ### D6: Apply writes `applied/` atomically; a systemd path unit restarts the consumers
 
-Apply copies a `passed: true` result into `applied/` (a failing result answers 409, my call) and writes
+Apply copies a `passed: true` result into `applied/` (a failing result answers 409, D12 b) and writes
 `applied.json` last. Ansible installs `ros2-head-rgbd-calibration-apply.path` (`PathChanged=` on `applied.json`) and
 a oneshot `.service` running `systemctl try-restart ros2-head_camera_cpp.service ros2-head_rgbd_cpp.service
 ros2-head_state_publisher.service`. The node needs no privilege; it reports each unit's restart by reading
@@ -169,8 +169,8 @@ the repo URDF unchanged, with a log line. Serves A1.
 ### D9: web_ui proxies; the IMU section is untouched
 
 `CalibrationConfig.rgbd_url: str | None` (absent: no RGB-D section) and `rgbd_timeout_s`. `GET /api/calibration/config`
-adds `rgbd: bool`. New module `rgbd_calibration.py` forwards method, path, query and body to the node and streams
-binary bodies (JPEG, zip) back with their content type and `Content-Disposition`; an unreachable node answers 503
+adds `rgbd: bool`. New module `rgbd_calibration.py` forwards method, path, query and body to the node and forwards
+binary bodies (JPEG, zip) back, buffered (the zip is a few MB), plus the request content-type on POST, with their content type and `Content-Disposition`; an unreachable node answers 503
 `{ok: false, message}`. IMU routes and their tests stay green. Serves A3, A6.
 
 ### D10: Frontend section with poll-on-press
@@ -189,6 +189,10 @@ optional Download and commit). The in-progress task `head-rgb-d-fusion-of-camera
 source of truth, the committed files are the downloaded copies that seed `applied/`, and `camera_info_file` points at
 `applied/head_camera_calibration.yaml` (that task's grep AC on `head_camera_calibration.yaml` still holds). Registered
 as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
+
+### D12: User-approved decisions at the gate
+
+(a) Apply restarts head_camera_cpp, head_rgbd_cpp and head_state_publisher through a systemd path unit (D6) rather than hot reload in the C++ nodes (calib-node-apply-download, calib-node-ansible-deploy). (b) Apply is refused for a result that fails any limit (RGB, ToF or stereo RMS, view counts); the operator deletes poses or recaptures and recomputes (calib-node-apply-download a2, calib-node-http-api a6, rgbd-sessions-and-results-ui). (c) A capture stops by itself after 15 minutes (`max_capture_s` 900) so the head camera focus lock is released (calib-node-live-capture a4).
 
 ## Research
 
@@ -243,6 +247,7 @@ as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
 | D9 web_ui proxy, IMU untouched | web-ui-rgbd-calib-proxy, head-nodes-use-applied-calib |
 | D10 frontend section | rgbd-calib-frontend-api, rgbd-capture-section-ui, rgbd-sessions-and-results-ui |
 | D11 docs and overlap | rgbd-calib-runbook-and-docs |
+| D12 user-approved decisions | calib-node-apply-download, calib-node-ansible-deploy, calib-node-http-api, calib-node-live-capture, rgbd-sessions-and-results-ui |
 
 ## Contracts
 
@@ -308,9 +313,7 @@ web_ui maps `/api/calibration/rgbd/<rest>` to node `/api/<rest>`.
 
 ## Open questions
 
-- Q1: Apply restarts head_camera_cpp, head_rgbd_cpp and head_state_publisher (a few seconds without head camera, RGB-D and head TF) instead of adding hot-reload services to the C++ nodes; OK? [recommended: yes, restart through the systemd path unit]
-- Q2: Apply is refused for a result that fails any limit (RGB, ToF or stereo RMS, view counts); the operator deletes poses or recaptures and recomputes. OK? [recommended: yes, refuse]
-- Q3: A capture stops by itself after 15 minutes so the head camera focus lock is never left engaged. OK? [recommended: yes, 15 minutes]
+None. Q1-Q3 (restart through a path unit, refuse failing results, 15-minute auto-stop) were approved at the gate and are D12.
 
 ## Irreversible operations in scope
 

@@ -28,7 +28,7 @@ A typed, tested frontend client for every RGB-D calibration call (design D10, Co
 - New `nodes/web_ui/frontend/src/calibrate/rgbdApi.ts` following `imuApi.ts` (`call<T>(url, init, validator)` returning `{ok: true, value} | {ok: false, status, message}` with the server `message` passed through):
   - types `CaptureState`, `ComputeState`, `RgbdState`, `SessionSummary`, `PoseSummary`, `Coverage` (`{cols, rows, counts: number[][]}`), `SessionDetail`, `ResultSummary`, `ResultDetail` (with `report`), `UnitRestart`, `AppliedState`;
   - `getState`, `startCapture(sessionId?)`, `stopCapture`, `listSessions`, `getSession`, `deletePose`, `computeSession`, `getResult`, `applyResult`, `getApplied` against `/api/calibration/rgbd/...` (paths of the design's Node HTTP API table with the `/api` prefix replaced);
-  - `thumbnailUrl(sid, pid, kind)` and `downloadUrl(sid, rid)` with every id `encodeURIComponent`-ed;
+  - `thumbnailUrl(sid, pid, kind: 'rgb' | 'tof')` (maps to the node routes `rgb.jpg` / `tof.jpg`) and `downloadUrl(sid, rid)` with every id `encodeURIComponent`-ed;
   - pure helpers `emptyCells(coverage): number` and `statusSeverity(status): 'success' | 'info' | 'warning'` (captured is success, moving and waiting info, the three `still - ...` messages warning).
 - Validators reject wrong shapes (a 200 with a malformed body gives `ok: false`).
 - New `rgbdApi.test.ts`: URL, method and body of every call; validator failure; server message passed through; helpers.

@@ -26,10 +26,10 @@ provides: []
 The capture part of the RGB-D section: live status, pose count, thumbnails with corners, delete, and coverage (design D10). The IMU section keeps working.
 
 - `CalibratePage.tsx`: `CalibrationConfig` gains `rgbd: boolean` (`body.rgbd === true`); renders `ImuCalibration` when `imu` and the new `RgbdCalibration` when `rgbd`.
-- New `RgbdCalibration.tsx`: section container holding the open session id; renders `RgbdCapture`.
-- New `RgbdCapture.tsx`: Start capture (new session) and Stop buttons (`TOUCH_TARGET_PX`); while a capture runs, an `Alert` with the status line (severity from `statusSeverity`), the pose count and the auto-stop time; `getState` polled every 1000 ms only while a capture runs and `document.visibilityState === 'visible'` (`visibilitychange` listener), interval cleared on stop and unmount; when `pose_count` changes the session detail is refetched; a thumbnail grid of the open session (RGB and ToF `img` per pose via `thumbnailUrl`, pose id, corner counts, a depth marker) with a delete `IconButton` opening `layout/ConfirmDialog`, then `deletePose` and a refresh; API errors shown in an error `Alert` with the server message.
+- New `RgbdCalibration.tsx`: section root holding the open session id; calls `getState` on mount and owns `{capture, compute}`; passes them to `RgbdCapture` (and later `RgbdSessions`) as props; runs the 1000 ms poll (visible document only) while a capture or compute is running, so a page reload mid-capture or a Resume capture from `RgbdSessions` keeps polling; renders `RgbdCapture`.
+- New `RgbdCapture.tsx`: Start capture (new session) and Stop buttons (`TOUCH_TARGET_PX`); while a capture runs, an `Alert` with the status line (severity from `statusSeverity`), the pose count and the auto-stop time; reads the capture state from props (the poll itself lives in `RgbdCalibration`: every 1000 ms only while a capture or compute runs and `document.visibilityState === 'visible'`, `visibilitychange` listener, interval cleared when both stop and on unmount); when `pose_count` changes the session detail is refetched; a thumbnail grid of the open session (RGB and ToF `img` per pose via `thumbnailUrl`, pose id, corner counts, a depth marker) with a delete `IconButton` opening `layout/ConfirmDialog`, then `deletePose` and a refresh; API errors shown in an error `Alert` with the server message.
 - New `CoverageGrid.tsx`: RGB and ToF grids (cells shaded by corner count, empty cells marked) and the text `N of M image areas without corners` from `emptyCells`.
-- Tests (`// @vitest-environment jsdom`, fetch stubbed with `vi.stubGlobal`): new `RgbdCapture.test.tsx` (start shows the status and count; a new pose's thumbnails appear; delete through the dialog calls DELETE and refreshes; polling stops on stop and while hidden; coverage hint text) and `CalibratePage.test.tsx` (both sections with `{imu: true, rgbd: true}`, IMU only with `rgbd: false`; existing assertions kept).
+- Tests (`// @vitest-environment jsdom`, fetch stubbed with `vi.stubGlobal`): new `RgbdCapture.test.tsx` (a reload mid-capture resumes polling from the mounted state; start shows the status and count; a new pose's thumbnails appear; delete through the dialog calls DELETE and refreshes; polling stops on stop and while hidden; coverage hint text) and `CalibratePage.test.tsx` (both sections with `{imu: true, rgbd: true}`, IMU only with `rgbd: false`; existing assertions kept).
 - `src/layout/designRules.test.ts` and `hardcodedSizes.test.ts` stay green; `nodes/web_ui/README.md` test list updated (doc file).
 
 ## Acceptance conditions
@@ -51,7 +51,7 @@ The capture part of the RGB-D section: live status, pose count, thumbnails with 
 
 ## Interfaces
 
-- `RgbdCalibration` (props: none), `RgbdCapture` (props: `sessionId: string | null`, `onSession(id)`), `CoverageGrid` (props: `coverage: Coverage`, `label`).
+- `RgbdCalibration` (props: none; owns `{capture, compute}` and the poll), `RgbdCapture` (props: `sessionId: string | null`, `onSession(id)`, `capture`, `onStarted()`), `CoverageGrid` (props: `coverage: Coverage`, `label`).
 - `CalibratePage` `CalibrationConfig { imu: boolean; rgbd: boolean }`.
 
 ## Expected outcome
