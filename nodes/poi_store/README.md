@@ -187,6 +187,22 @@ Lines written before photo POIs existed (the mcp_server lookup format) load unch
 `agent`, `status` `open`, `name` `""`, `updated_at` 0 and `view` derived on read; they update and delete like any
 other photo.
 
+## Marker sightings (`upsert_marker`)
+
+`{"op": "upsert_marker", "poi": <sighting>}` sends a printed-marker sighting (`kind: "marker"`, `x`, `y`, `z`,
+`orientation`, `marker` (MarkerInfo), `confidence`). The matching key is `marker.key`: the one `marker` POI with that
+key is updated, otherwise a POI is added (`created_by` agent, name `<marker.kind> <marker.id>` cut to 60 characters,
+`times_seen` 1, `first_seen` = `last_seen` = now, `pose_samples` 1). The result message is `added` or `updated`; either
+bumps the revision and persists. An invalid sighting (no marker block, bad quaternion, other kind) returns `ok: false`
+and changes nothing. Commands run one at a time, so the match is atomic.
+
+Merge (`markers.py`, `merge_marker_sighting`): when the sighting is within `relocate_m` and `relocate_deg` of the stored
+pose, position and the sign-aligned quaternion become a weighted mean (old weight `min(pose_samples, max_pose_samples) *
+confidence`, new weight the sighting confidence), confidence the same weighted mean, `pose_samples` + 1. Beyond either
+threshold the pose and confidence are replaced and `pose_samples` is 1. Always `times_seen` + 1, `last_seen` = now, and
+marker size, params, payload and version from the sighting. `name`, `note`, `status`, `created_by`, `created_at` and
+`first_seen` are never overwritten, so user edits survive.
+
 ## Persistence
 
 `store_path` (default `/var/lib/ros2/poi/poi.json`, directory created and owned by the node user by Ansible) holds
@@ -209,6 +225,10 @@ photos:                         # photo store; unknown keys are rejected
   max_image_bytes: 5000000      # largest single JPEG an add accepts
   prune_interval_s: 3600        # retention timer period, so the age limit holds without camera activity
   summary_topic: /poi/photos    # latched photo summary topic
+markers:                        # upsert_marker merge; unknown keys are rejected
+  relocate_m: 0.25              # sighting farther than this (m) replaces the pose
+  relocate_deg: 20.0            # sighting rotated more than this (deg) replaces the pose
+  max_pose_samples: 20          # cap of the old-pose weight
 ```
 
 ## Metrics
@@ -240,4 +260,4 @@ Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Be
   store, 500-photo export + replace under 2 s), `test_photo_cleanup.py` (clear removes photos and JPEGs by the POI filters, counts, rollback), `test_clear_filters.py` (clear by creator/kind/zone/ids/status filters), `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear removes
   matching photos and JPEGs and strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore), `test_photo_store_sync.py` (export, replace_all),
   `test_node_photos.py` (`/poi/photos` publishing, missing/unreadable directory, prune timer; rclpy stubbed via
-  `ros_stubs.py`), `test_shutdown.py`, `test_config.py`, `test_metrics.py`, `test_zone_models.py`, `test_marker_model.py` (marker kind, pose, MarkerInfo, legacy loading).
+  `ros_stubs.py`), `test_shutdown.py`, `test_config.py`, `test_metrics.py`, `test_zone_models.py`, `test_marker_model.py` (marker kind, pose, MarkerInfo, legacy loading), `test_marker_upsert.py` (upsert_marker add, weighted merge, relocation, user edits kept, invalid input, reload, end to end).

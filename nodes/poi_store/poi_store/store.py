@@ -20,8 +20,10 @@ from pydantic import ValidationError
 from ros2_common.lookups import LookupRecord
 from ros2_common.photos import PHOTO_KIND, PhotoAdd, PhotoSelector, photo_as_poi, poi_as_record
 
+from .config import MarkerMergeConfig
+from .markers import merge_marker_sighting
 from .metrics import POI_COMMANDS, POI_COUNT, POI_SAVE_FAILURES
-from .models import ZONE_KEEPOUT, ZONE_SLOW, Command, Poi
+from .models import MAX_NAME_LEN, ZONE_KEEPOUT, ZONE_SLOW, Command, Poi
 from .photo_store import PhotoNotFoundError, PhotoStore, PhotoStoreError
 
 LOGGER = logging.getLogger("poi_store")
@@ -56,7 +58,11 @@ class PoiStore:
     """
 
     def __init__(
-        self, path: Path | str, clock: Callable[[], float] = time.time, photos: PhotoStore | None = None
+        self,
+        path: Path | str,
+        clock: Callable[[], float] = time.time,
+        photos: PhotoStore | None = None,
+        markers: MarkerMergeConfig | None = None,
     ) -> None:
         """Load the store file (a corrupt one is moved aside) and start from it.
 
@@ -64,10 +70,12 @@ class PoiStore:
             path: JSON file {"pois": [...], "revision": int}; created on the first change.
             clock: Unix-seconds time source.
             photos: Photo store for kind "photo" commands; None rejects them.
+            markers: Marker sighting merge settings; defaults when None.
         """
         self.path = Path(path)
         self.clock = clock
         self.photos = photos
+        self.markers = markers or MarkerMergeConfig()
         self.revision = 0
         self.photos_seen = photos.revision if photos is not None else 0
         self.pois: dict[str, Poi] = {}
@@ -228,6 +236,46 @@ class PoiStore:
         self.pois[poi.id] = poi
         self.commit()
         return True, "added", poi.to_json_dict()
+
+    def op_upsert_marker(self, fields: dict[str, Any]) -> Result:
+        """Add a marker POI for a sighting, or merge the sighting into the POI with the same marker.key.
+
+        Args:
+            fields: The sighting as a marker POI (kind marker, x, y, z, orientation, marker, confidence).
+
+        Returns:
+            Result: ("added" | "updated", the resulting POI), or an error result with nothing changed.
+        """
+        now = self.clock()
+        try:
+            sighting = Poi(**fields)
+        except ValidationError as exc:
+            return False, describe_error(exc), None
+        if sighting.kind != "marker" or sighting.marker is None:
+            return False, "upsert_marker needs a POI of kind 'marker' with a marker block", None
+        existing = next(
+            (p for p in self.pois.values() if p.marker is not None and p.marker.key == sighting.marker.key), None
+        )
+        if existing is None:
+            poi = sighting.model_copy(deep=True)
+            poi.id = uuid.uuid4().hex
+            poi.name = f"{poi.marker.kind} {poi.marker.id}"[:MAX_NAME_LEN]
+            poi.note = ""
+            poi.status = "open"
+            poi.created_by = "agent"
+            poi.created_at = poi.updated_at = now
+            poi.times_seen = 1
+            poi.first_seen = poi.last_seen = now
+            poi.marker.pose_samples = 1
+            self.pois[poi.id] = poi
+            message = "added"
+        else:
+            poi = merge_marker_sighting(existing, sighting, self.markers, now)
+            poi.updated_at = now
+            self.pois[poi.id] = poi
+            message = "updated"
+        self.commit()
+        return True, message, poi.to_json_dict()
 
     def op_update(self, fields: dict[str, Any]) -> Result:
         """Merge changed fields into an existing POI and bump updated_at.

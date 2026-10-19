@@ -37,6 +37,22 @@ class PhotoSettings(BaseModel):
     summary_topic: str = Field(default="/poi/photos", min_length=1)
 
 
+class MarkerMergeConfig(BaseModel):
+    """How a marker sighting merges into the existing marker POI.
+
+    Attributes:
+        relocate_m: A sighting farther than this (m) from the stored position replaces the pose.
+        relocate_deg: A sighting rotated by more than this (deg) from the stored orientation replaces the pose.
+        max_pose_samples: Cap of the old-pose weight, so the pose stays able to follow slow drift.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    relocate_m: float = Field(default=0.25, gt=0.0, allow_inf_nan=False)
+    relocate_deg: float = Field(default=20.0, gt=0.0, allow_inf_nan=False)
+    max_pose_samples: int = Field(default=20, gt=0)
+
+
 class PoiStoreConfig(BaseModel):
     """Node settings.
 
@@ -47,6 +63,7 @@ class PoiStoreConfig(BaseModel):
         result_topic: std_msgs/String result topic.
         metrics_port: Prometheus /metrics port on 127.0.0.1; None falls back to env METRICS_PORT, else disabled.
         photos: Photo store settings.
+        markers: Marker sighting merge settings.
     """
 
     store_path: str = DEFAULT_STORE_PATH
@@ -55,6 +72,7 @@ class PoiStoreConfig(BaseModel):
     result_topic: str = "/poi/result"
     metrics_port: int | None = None
     photos: PhotoSettings = Field(default_factory=PhotoSettings)
+    markers: MarkerMergeConfig = Field(default_factory=MarkerMergeConfig)
 
 
 def load_config(path: Path | None = None) -> PoiStoreConfig | None:

@@ -190,9 +190,9 @@ class Command(BaseModel):
     """A /poi/command message.
 
     Attributes:
-        op: "add", "update", "delete", "clear", "replace", "delete_photos" or "export_photos".
+        op: "add", "update", "delete", "clear", "replace", "delete_photos", "export_photos" or "upsert_marker".
         request_id: Echoed in /poi/result.
-        poi: add: the POI (kind "photo": a PhotoAdd payload plus kind); update: id plus changed fields; delete: id;
+        poi: add: the POI (kind "photo": a PhotoAdd payload plus kind); update: id plus changed fields; delete: id; upsert_marker: the sighting (kind marker, x, y, z, orientation, marker, confidence);
             other ops: unused.
         created_by: clear: only delete POIs created by this creator ("agent" or "user"; None: every creator); photos match by
             their own created_by.
@@ -211,7 +211,7 @@ class Command(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    op: Literal["add", "update", "delete", "clear", "replace", "delete_photos", "export_photos"]
+    op: Literal["add", "update", "delete", "clear", "replace", "delete_photos", "export_photos", "upsert_marker"]
     request_id: str = ""
     poi: dict[str, Any] = Field(default_factory=dict)
     created_by: Literal["agent", "user"] | None = None
