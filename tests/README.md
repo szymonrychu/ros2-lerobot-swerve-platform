@@ -2836,7 +2836,7 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 | `test_validate_fails_when_bias_exceeds_target` | A 40 mm bias at 1 m prints FAIL and exits 1. |
 | `test_validate_missing_distance_bag_exits_one` | A missing `<session>-<d>m` bag exits 1 naming it. |
 | `test_capture_runs_only_record_copy_remove` | `capture` runs exactly the ssh record, scp copy and ssh remove commands and nothing else. |
-| `test_capture_live_key_rejected` | A config setting `capture.live` fails validation and the message names `live`. |
+| `test_capture_live_key_rejected` | A config setting the removed `live` key under `capture` fails validation and the message names `live`. |
 | `test_capture_prints_bag_path` | `capture` with a fake runner runs exactly the ssh record, scp copy and ssh remove commands, nothing else, and prints the bag path. |
 | `test_capture_validation_names_bag_and_uses_validation_topics` | `capture-validation 0.5m` names the bag `<session>-0.5m`, records the validation topics and runs no live counter. |
 | `test_capture_validation_rejects_unknown_suffix` | An unknown suffix is rejected. |
