@@ -38,7 +38,7 @@ From the page the operator starts a capture session, moves the ChArUco board thr
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+Estimate: 1215 min | Actual: 0 min | Remaining estimate: 1215 min
 
 ## Review
 

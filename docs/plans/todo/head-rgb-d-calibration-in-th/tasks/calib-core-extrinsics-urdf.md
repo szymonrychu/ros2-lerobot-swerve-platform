@@ -52,17 +52,20 @@ Move the stereo extrinsic and the URDF hand-off into the core, with the tof_join
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/head_rgbd_calibration/urdf_text.py::rewrite_tof_joint(urdf_text: str, origin: Origin, note: str) -> str`, `Origin(xyz, rpy)`, `format_vec`, `TOF_JOINT`, `NOTE_MARKER` (stdlib only; loaded by path by head-urdf-tof-joint-override).
+- `shared/ros2_common/head_rgbd_calibration/urdf_handoff.py::read_chain`, `tof_joint_origin`, `check_drift`.
+- `shared/ros2_common/head_rgbd_calibration/extrinsics.py::stereo_calibrate`, `plane_depth_bias`, `write_extrinsics_yaml`, `load_extrinsics_yaml`, `ExtrinsicResult`, `PlaneCheck`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`urdf_text.py` loads in a bare `python3 -I` by file path; extrinsics and the URDF hand-off import from the core; CLI `urdf` mode output is unchanged.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the four tests; run: red.
+- `git mv` extrinsics.py; split urdf_handoff.py into `urdf_text.py` (stdlib) and `urdf_handoff.py`; re-create the two transitional re-exports.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- head_state_publisher runs on the system Python without numpy guarantees: keep `urdf_text.py` free of numpy, scipy and package-relative imports.

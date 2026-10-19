@@ -46,17 +46,16 @@ Document the robot-side calibration flow and the decisions (design D11). Prose t
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/head-rgbd-fusion.md` steps 2-3; `MEMORY.md` decision line.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The runbook's calibration steps can be followed at the robot with the Calibrate page alone.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Edit the four documents; run the verify command (both greps succeed).
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Prose task (review skip). The runbook belongs to the in-progress task rgbd-final-suite-and-runbook, which executes it later; keep its `## Results` section untouched.

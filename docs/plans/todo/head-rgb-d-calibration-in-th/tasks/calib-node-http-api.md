@@ -52,17 +52,20 @@ The node's localhost HTTP API and process entry point (design D1, D5, Contracts 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/app.py::build_app(capture, job, store, cfg, run) -> FastAPI`; routes exactly as the design's Node HTTP API table.
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py::main() -> None`.
+- Contract `rgbd-calib-node-http-api` (owned here; consumed by web-ui-rgbd-calib-proxy and calib-node-ansible-deploy).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`python3 -m head_rgbd_calibration` serves the API on 127.0.0.1:18110 and spins the ROS node; the whole node suite passes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_app.py` and `tests/test_main.py`; run: red.
+- Implement the app and the entry point; document the routes.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Error body shape `{ok: false, message}` matches web_ui's `imu_calibration.error`.

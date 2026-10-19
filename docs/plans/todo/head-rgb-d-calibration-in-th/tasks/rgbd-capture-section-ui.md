@@ -51,17 +51,19 @@ The capture part of the RGB-D section: live status, pose count, thumbnails with 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `RgbdCalibration` (props: none), `RgbdCapture` (props: `sessionId: string | null`, `onSession(id)`), `CoverageGrid` (props: `coverage: Coverage`, `label`).
+- `CalibratePage` `CalibrationConfig { imu: boolean; rgbd: boolean }`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+On the robot the operator presses Start, sees `waiting for frames`, then `moving` / `still - ...` / `pose N captured - move to the next pose`, the count rising and thumbnails with corners appearing, and can delete a pose.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `RgbdCapture.test.tsx` and extend `CalibratePage.test.tsx`; run: red.
+- Implement the components.
+- Run the verify command: tests pass, tsc and eslint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Poll-on-press pattern and visibility handling: `ImuCalibration.tsx`; dialogs: `src/layout/ConfirmDialog.tsx`; sizes: `TOUCH_TARGET_PX`.

@@ -53,17 +53,21 @@ web_ui forwards the RGB-D calibration calls to the node; the IMU section is unaf
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/web_ui/rgbd_calibration.py::register_rgbd_calibration_routes(app: FastAPI, config: AppConfig) -> None`.
+- `nodes/web_ui/web_ui/config.py::CalibrationConfig.rgbd_url`, `.rgbd_timeout_s`.
+- Contract `rgbd-calib-web-api` (owned here): `/api/calibration/rgbd/<rest>` maps to node `/api/<rest>`; `/api/calibration/config` carries `rgbd`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+With `rgbd_url` set the page's RGB-D calls reach the node and binary bodies arrive intact; IMU calls behave exactly as before.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_rgbd_calibration_proxy.py` and the `rgbd` flag test; run: red.
+- Implement config, flag, proxy module, registration; update the README.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern: `nodes/web_ui/web_ui/agent_proxy.py` (httpx, JSON error bodies). httpx is already a web_ui dependency.
+- web_ui subscribes nothing for this section (design D1).

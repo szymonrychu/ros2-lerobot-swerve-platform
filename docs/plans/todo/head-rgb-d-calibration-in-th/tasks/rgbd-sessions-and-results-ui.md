@@ -48,17 +48,18 @@ Sessions and results in the RGB-D section: reopen any session, compute, read the
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `RgbdSessions` (props: `openSessionId`, `onOpen(id)`, `busy`), `RgbdResults` (props: `sessionId`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+From the page the operator reopens an old session, recomputes, reads the report, applies a passing result and sees the three head nodes restart, or downloads the zip.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `RgbdSessions.test.tsx` and `RgbdResults.test.tsx`; run: red.
+- Implement the components and wire them into `RgbdCalibration`.
+- Run the verify command: whole frontend suite, tsc and eslint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Apply is offered only for `passed: true` results (open question Q2).

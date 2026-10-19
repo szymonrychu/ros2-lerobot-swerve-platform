@@ -59,17 +59,22 @@ Create the shared calibration core package and move its first two modules into i
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/head_rgbd_calibration/config.py::StrictModel`, `BoardConfig`, `SelectionConfig`, `LimitsConfig` (fields unchanged from `scripts/head_rgbd_calibration/config.py`).
+- `shared/ros2_common/head_rgbd_calibration/charuco.py::make_board(cfg) -> cv2.aruco.CharucoBoard`, `detect(image, board, upscale=1) -> Detection | None`, `Detection`, `MIN_CORNERS`.
+- Contract `rgbd-calib-core` (owned here, design Contracts table).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`from ros2_common.head_rgbd_calibration.charuco import detect` works in the root venv and in any node venv that depends on ros2-common; the CLI and every calibration test behave exactly as before.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_rgbd_calib_core.py` first; `uv run --frozen pytest tests/test_head_rgbd_calib_core.py -q` fails on the missing package (red).
+- Add ros2-common to the root dev group and `uv lock`; `git mv` charuco; move the three config models and StrictModel; re-create the transitional `scripts/head_rgbd_calibration/charuco.py` re-export.
+- Run the verify command: every listed test passes, `uv run poe lint` prints no findings.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `scripts/markers/models.py:StrictModel` stays for the markers code; the core defines its own so it never imports `scripts`.
+- README updates (`shared/README.md`, `tests/README.md`) are doc files outside the 8-file cap.
+- Design D2; the transitional re-export is removed by calib-core-retire-shims.

@@ -51,17 +51,19 @@ head_state_publisher uses an applied tof_joint without editing the repo URDF on 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_state_publisher/launch/head_description.py::robot_description(urdf_path: Path, override_path: Path, urdf_text_path: Path) -> str`.
+- Reads contract `rgbd-calib-applied-files` (`tof_joint.json`); loads `shared/ros2_common/head_rgbd_calibration/urdf_text.py` by path.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+After an Apply and the path-unit restart, `/tf_static` carries the calibrated tof_joint; without an applied file the repo URDF is published unchanged.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_tof_joint_override.py` and update `tests/test_head_state_publisher_config.py`; run: red.
+- Implement `head_description.py`, wire the launch file, extend `src_paths`.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The launch runs on the system Python (no node venv): stdlib only.

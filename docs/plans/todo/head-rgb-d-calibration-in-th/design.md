@@ -84,7 +84,7 @@ Alternatives: capture and compute inside web_ui (rejected: 512M cap, a ~500 MB w
 loop contention with the UI, and the focus-lock subscription tied to the UI process); a C++ node (rejected: the
 calibration core is Python and must be reused). The node has its own cgroup: memory_low 64M, memory_max 768M,
 cpu_weight 200, io_weight 200, oom_score_adjust 0 (my call: below the robot tiers 500/1000, above pure background,
-because capture is interactive). It runs `enabled: true`; idle it holds no subscriptions. Serves A1, A3, A6.
+because capture is interactive). It runs `enabled: true`; idle it holds no subscriptions. Serves A2, A4.
 
 ### D2: The calibration core moves to `shared/ros2_common/head_rgbd_calibration`
 
@@ -97,7 +97,10 @@ and `poses.py` (PoseCounter, extended for depth and capture payloads). rosbags, 
 `scripts/head_rgbd_calibration` (frames bag reading, capture_bag, CLI config models, outputs, lens_position, validation).
 The root uv project gains `ros2-common` as an editable dev dependency so root tests import the package.
 `live.py`, `live_relay.py`, `capture.live` and their tests are deleted, pinned by a `git ls-files` retirement test.
-Serves A5.
+The 8-file task cap splits the move into a chain (config and charuco; frames and intrinsics; extrinsics and urdf;
+calibrate), each green on its own: a moved module leaves a one-line re-export in `scripts/head_rgbd_calibration` for
+its remaining importers, and `calib-core-retire-shims` deletes every re-export once the live counter is retired,
+pinned by a `git ls-files` retirement test (my call). Serves A5.
 
 ### D3: Robot state dir layout, only selected poses stored
 
@@ -203,15 +206,17 @@ as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
 | brief Plan inputs reuse | `imu_calibration.py:register_imu_calibration_routes`, `error`, `get_config` flag dict | web-ui-rgbd-calib-proxy |
 | brief Plan inputs reuse | `server.py:call_ros_service`, `await_ros_future` | rejected: the RGB-D section talks HTTP to the node, not ROS services |
 | brief Plan inputs reuse | `bridge.py:subscribe_always_on`, `SENSOR_SUB_QOS` | rejected: web_ui subscribes nothing for this section (D1); the node sets RELIABLE for ToF (D4) |
-| brief Plan inputs reuse | `photos.py:scaled_jpeg`, `image_path` | calib-node-package-and-store (thumbnail and path-safety pattern) |
+| brief Plan inputs reuse | `photos.py:scaled_jpeg`, `image_path` | calib-node-session-store (thumbnail and path-safety pattern) |
 | brief Plan inputs reuse | `config.py:CalibrationConfig` (extend) | web-ui-rgbd-calib-proxy |
 | brief Plan inputs reuse | frontend `CalibratePage.tsx` flags, `imuApi.ts:call`, `ImuCalibration.tsx` poll-on-press, `layout/ConfirmDialog` | rgbd-calib-frontend-api, rgbd-capture-section-ui, rgbd-sessions-and-results-ui |
-| brief Plan inputs reuse | `charuco.make_board/detect`, `pipeline.detect_tof/run_calibration/failed_limits/report_markdown`, `frames.*`, intrinsics/extrinsics writers | calib-core-shared-library |
+| brief Plan inputs reuse | `charuco.make_board/detect`, `frames.*` | calib-core-config-charuco, calib-core-frames-intrinsics |
+| brief Plan inputs reuse | intrinsics/extrinsics writers, `urdf_handoff` | calib-core-frames-intrinsics, calib-core-extrinsics-urdf |
+| brief Plan inputs reuse | `pipeline.detect_tof/run_calibration/failed_limits/report_markdown` | calib-core-calibrate-run |
 | brief Plan inputs reuse | `live.PoseCounter` | calib-pose-counter-in-core |
-| brief Plan inputs reuse | `config.CalibrationConfig` (board, selection, limits) | calib-core-shared-library, calib-node-package-and-store |
-| brief Plan inputs reuse | `shared/ros2_common` with `[tool.uv.sources]`, `src_shared: true` | calib-core-shared-library, calib-node-package-and-store, calib-node-ansible-deploy |
+| brief Plan inputs reuse | `config.CalibrationConfig` (board, selection, limits) | calib-core-config-charuco, calib-node-scaffold-config |
+| brief Plan inputs reuse | `shared/ros2_common` with `[tool.uv.sources]`, `src_shared: true` | calib-core-config-charuco, calib-node-scaffold-config, calib-node-ansible-deploy |
 | brief Plan inputs reuse | `ansible/playbooks/tasks/bno055_state_dir.yml`; `config_files` copy | calib-node-ansible-deploy, head-nodes-use-applied-calib |
-| brief do-not-build | new ChArUco detector, still-pose logic, solver, report generator | calib-core-shared-library (moved, not rewritten) |
+| brief do-not-build | new ChArUco detector, still-pose logic, solver, report generator | calib-core-config-charuco, calib-core-frames-intrinsics, calib-core-extrinsics-urdf, calib-core-calibrate-run (moved, not rewritten) |
 | brief do-not-build | new IMU backend or frontend | rejected as work: IMU enabled in 053adfe3; regression ACs in web-ui-rgbd-calib-proxy and rgbd-capture-section-ui |
 | brief do-not-build | ssh/scp capture path for the robot-side job | calib-node-live-capture subscribes with rclpy on the robot |
 | brief risk | whole-bag decode, over 512M | calib-node-live-capture, calib-node-compute-job (poses only) |
@@ -219,22 +224,22 @@ as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
 | brief risk | overlap with rgbd-final-suite-and-runbook | rgbd-calib-runbook-and-docs, contract head-rgbd-applied-calibration |
 | brief risk | focus lock fires whenever the view is open | calib-node-live-capture (subscriptions only during capture) |
 | brief risk | amplitude RELIABLE at the publisher | calib-node-live-capture |
-| brief risk | `scripts.*` imports and `StrictModel` from `scripts.markers` | calib-core-shared-library |
-| brief risk | `CalibrationConfig` name clash | calib-node-package-and-store (node model `NodeConfig`), web-ui-rgbd-calib-proxy |
-| brief risk | `scripts/` outside root lint | calib-core-shared-library (the core moves under `shared/`, which root lint covers) |
+| brief risk | `scripts.*` imports and `StrictModel` from `scripts.markers` | calib-core-config-charuco, calib-core-retire-shims |
+| brief risk | `CalibrationConfig` name clash | calib-node-scaffold-config (node model `NodeConfig`), web-ui-rgbd-calib-proxy |
+| brief risk | `scripts/` outside root lint | calib-core-config-charuco (the core moves under `shared/`, which root lint covers) |
 
 ## Decision coverage
 
 | Decision | Tasks |
 |---|---|
-| D1 dedicated node, web_ui proxies | calib-node-package-and-store, calib-node-http-api, calib-node-ansible-deploy, web-ui-rgbd-calib-proxy |
-| D2 core in shared/ros2_common | calib-core-shared-library, calib-pose-counter-in-core, retire-ssh-live-counter |
-| D3 state dir layout | calib-node-package-and-store, calib-node-live-capture, calib-node-compute-job, calib-node-apply-download |
+| D1 dedicated node, web_ui proxies | calib-node-scaffold-config, calib-node-http-api, calib-node-ansible-deploy, web-ui-rgbd-calib-proxy |
+| D2 core in shared/ros2_common | calib-core-config-charuco, calib-core-frames-intrinsics, calib-core-extrinsics-urdf, calib-core-calibrate-run, calib-pose-counter-in-core, retire-ssh-live-counter, calib-core-retire-shims |
+| D3 state dir layout | calib-node-session-store, calib-node-live-capture, calib-node-compute-job, calib-node-apply-download |
 | D4 capture subscriptions and QoS | calib-node-live-capture, calib-pose-counter-in-core |
 | D5 compute child process | calib-node-compute-job, calib-node-http-api |
 | D6 apply and path unit restart | calib-node-apply-download, calib-node-ansible-deploy |
 | D7 nodes read applied files | head-nodes-use-applied-calib, calib-node-ansible-deploy |
-| D8 head_state_publisher tof_joint override | head-urdf-tof-joint-override, calib-core-shared-library |
+| D8 head_state_publisher tof_joint override | head-urdf-tof-joint-override, calib-core-extrinsics-urdf |
 | D9 web_ui proxy, IMU untouched | web-ui-rgbd-calib-proxy, head-nodes-use-applied-calib |
 | D10 frontend section | rgbd-calib-frontend-api, rgbd-capture-section-ui, rgbd-sessions-and-results-ui |
 | D11 docs and overlap | rgbd-calib-runbook-and-docs |
@@ -243,17 +248,21 @@ as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
-| `rgbd-calib-core` | calib-core-shared-library | calib-pose-counter-in-core, retire-ssh-live-counter, calib-node-package-and-store, calib-node-compute-job, head-urdf-tof-joint-override | `shared/ros2_common/head_rgbd_calibration/calibrate.py` |
+| `rgbd-calib-core` | calib-core-config-charuco | calib-core-frames-intrinsics, calib-core-extrinsics-urdf, calib-core-calibrate-run, calib-pose-counter-in-core, calib-core-retire-shims, calib-node-scaffold-config, calib-node-session-store, calib-node-compute-job, head-urdf-tof-joint-override | `shared/ros2_common/head_rgbd_calibration/config.py` |
 | `rgbd-pose-counter` | calib-pose-counter-in-core | calib-node-live-capture | `shared/ros2_common/head_rgbd_calibration/poses.py` |
-| `rgbd-calib-session-store` | calib-node-package-and-store | calib-node-live-capture, calib-node-compute-job, calib-node-apply-download, calib-node-http-api | `nodes/head_rgbd_calibration/head_rgbd_calibration/store.py` |
+| `rgbd-calib-node-config` | calib-node-scaffold-config | calib-node-session-store, calib-node-live-capture, calib-node-compute-job, calib-node-apply-download, calib-node-http-api | `nodes/head_rgbd_calibration/head_rgbd_calibration/config.py` |
+| `rgbd-calib-session-store` | calib-node-session-store | calib-node-live-capture, calib-node-compute-job, calib-node-apply-download, calib-node-http-api | `nodes/head_rgbd_calibration/head_rgbd_calibration/store.py` |
 | `rgbd-calib-result-files` | calib-node-compute-job | calib-node-apply-download, calib-node-http-api | `nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py` |
 | `rgbd-calib-applied-files` | calib-node-apply-download | head-urdf-tof-joint-override, calib-node-ansible-deploy, head-nodes-use-applied-calib | `nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py` |
 | `rgbd-calib-node-http-api` | calib-node-http-api | calib-node-ansible-deploy, web-ui-rgbd-calib-proxy | `nodes/head_rgbd_calibration/head_rgbd_calibration/app.py` |
 | `rgbd-calib-web-api` | web-ui-rgbd-calib-proxy | head-nodes-use-applied-calib, rgbd-calib-frontend-api | `nodes/web_ui/web_ui/rgbd_calibration.py` |
 | `rgbd-calib-frontend-api` | rgbd-calib-frontend-api | rgbd-capture-section-ui, rgbd-sessions-and-results-ui | `nodes/web_ui/frontend/src/calibrate/rgbdApi.ts` |
-| `head-rgbd-applied-calibration` (cross-epic) | head-nodes-use-applied-calib | head-rgb-d-fusion-of-camera (rgbd-final-suite-and-runbook) | `ansible/group_vars/client.yml` |
 
-Node HTTP API (`rgbd-calib-node-http-api`, all JSON errors `{ok: false, message}`):
+Cross-epic: `head-rgbd-applied-calibration` (registered in `docs/plans/contracts.json`), owner task head-nodes-use-applied-calib, defined in `ansible/group_vars/client.yml`; consumer epic head-rgb-d-fusion-of-camera (its task rgbd-final-suite-and-runbook).
+
+## Node HTTP API
+
+Contract `rgbd-calib-node-http-api` (all JSON errors `{ok: false, message}`):
 
 | Method and path | Answer |
 |---|---|
@@ -299,7 +308,6 @@ web_ui maps `/api/calibration/rgbd/<rest>` to node `/api/<rest>`.
 
 ## Open questions
 
-none
 - Q1: Apply restarts head_camera_cpp, head_rgbd_cpp and head_state_publisher (a few seconds without head camera, RGB-D and head TF) instead of adding hot-reload services to the C++ nodes; OK? [recommended: yes, restart through the systemd path unit]
 - Q2: Apply is refused for a result that fails any limit (RGB, ToF or stereo RMS, view counts); the operator deletes poses or recaptures and recomputes. OK? [recommended: yes, refuse]
 - Q3: A capture stops by itself after 15 minutes so the head camera focus lock is never left engaged. OK? [recommended: yes, 15 minutes]
@@ -310,5 +318,8 @@ none
   covered by a ConfirmDialog in the UI. Sessions are never deleted by this work.
 - Apply replaces the files in `applied/`; the previous applied result stays in its session's `results/` dir and can be
   re-applied.
-- `git rm` of `scripts/head_rgbd_calibration/live.py`, `live_relay.py` and `tests/test_head_rgbd_calib_live.py`
-  (reversible through git).
+- `git rm` of `scripts/head_rgbd_calibration/live.py`, `live_relay.py`, `tests/test_head_rgbd_calib_live.py` and the
+  transitional re-exports `scripts/head_rgbd_calibration/{charuco,intrinsics,extrinsics,urdf_handoff}.py` (reversible
+  through git).
+- Removing the head_rgbd_cpp `config_files` entry leaves a stale `/etc/ros2/head_rgbd_cpp/tof_calibration.yaml` only if
+  one was ever deployed; nothing reads it after head-nodes-use-applied-calib.

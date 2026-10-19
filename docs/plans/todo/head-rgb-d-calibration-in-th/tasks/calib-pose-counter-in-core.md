@@ -55,17 +55,19 @@ Move the live pose counter into the core and extend it so the robot node gets ev
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/head_rgbd_calibration/poses.py::PoseCounter(board, sel, start_count=0)`, `.add(kind, frame, raw=None) -> list[PoseEvent]`, `.status`, `.count`; `PoseEvent`, `CapturedPose`; kinds `RGB`, `AMPLITUDE`, `DEPTH`; statuses `WAITING`, `MOVING`, `NO_TOF_FRAME`, `NO_RGB_BOARD`, `NO_TOF_BOARD`, `captured_status(n)`.
+- Contract `rgbd-pose-counter` (owned here; consumed by calib-node-live-capture).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The capture node can feed frames as they arrive and receive complete poses (RGB with raw JPEG, amplitude, optional depth, both detections) with the same stillness rules the terminal counter used.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_rgbd_calib_poses.py` (port the PoseCounter tests from `tests/test_head_rgbd_calib_live.py`, add the new ones); run: red.
+- Move and extend the counter; adapt `live.py`'s `monitor` to `PoseEvent`.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Never store a pose without both detections; never fill a missing depth (CLAUDE.md no placeholder data).

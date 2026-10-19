@@ -60,17 +60,21 @@ Session store and thumbnails of the calibration node: only selected poses persis
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/store.py::SessionStore` (methods in the requirement), `InvalidId`, `NotFound`, `SessionViews`, `SESSION_ID_RE`, `POSE_ID_RE`, `RESULT_ID_RE`.
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/images.py::rgb_thumbnail`, `tof_thumbnail`.
+- Contract `rgbd-calib-session-store` (owned here); layout of design D3.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A session directory under a temp state dir holds exactly the D3 files per pose; ids from the outside can never reach a path outside the state dir.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_store.py` and `tests/test_images.py`; run: red.
+- Implement the store and the images module; write the README.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern for thumbnails and path safety: `nodes/web_ui/web_ui/photos.py`.
+- Coverage counts are derived only from stored corners (never invented).

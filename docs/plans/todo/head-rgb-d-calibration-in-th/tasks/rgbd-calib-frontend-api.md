@@ -46,17 +46,19 @@ A typed, tested frontend client for every RGB-D calibration call (design D10, Co
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/frontend/src/calibrate/rgbdApi.ts`: the calls, types and helpers in the requirement.
+- Contract `rgbd-calib-frontend-api` (owned here).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Every component task imports its calls and types from one module; malformed responses never reach the UI as data.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `rgbdApi.test.ts`; `npx vitest run src/calibrate/rgbdApi.test.ts`: red.
+- Implement `rgbdApi.ts`.
+- Run the verify command: tests pass, tsc and eslint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern: `src/calibrate/imuApi.ts` and its test.

@@ -55,17 +55,19 @@ Retire the ssh-streamed live counter; the web UI Calibrate page replaces it (des
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `scripts/head_rgbd_calibration/config.py::CaptureConfig` without `live`.
+- `scripts/head_rgbd_calibrate.py::capture(cfg, suffix) -> int` records the bag only.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`git ls-files scripts/head_rgbd_calibration/live.py scripts/head_rgbd_calibration/live_relay.py tests/test_head_rgbd_calib_live.py` prints nothing; the CLI capture records bags as before.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_rgbd_calib_retired.py` and the two CLI tests; run: red (files still tracked, key still accepted).
+- `git rm` the three files; remove `capture.live` and the LIVE hook; update the docs.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- TDD exception for the deletions: deletion pinned by a retirement test (name it in `tests.note`).

@@ -49,17 +49,18 @@ Delete the transitional re-export modules left by the core move so the calibrati
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- No new interface; importers use `ros2_common.head_rgbd_calibration.{charuco,intrinsics,extrinsics,urdf_handoff}`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/head_rgbd_calibration/` holds only CLI-side modules (config, frames, pipeline, validate); no transitional re-export remains.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add `test_moved_modules_left_scripts`; run: red.
+- `git rm` the four re-exports; rewrite the remaining importers.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- TDD exception: deletion pinned by a retirement test.

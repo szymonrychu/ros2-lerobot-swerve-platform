@@ -55,17 +55,21 @@ Deploy the calibration node, its state dir and the apply restart unit with the s
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `ansible/group_vars/client.yml` node type and entry `head_rgbd_calibration`; `ansible/playbooks/tasks/head_rgbd_calibration_setup.yml`; units `ros2-head-rgbd-calibration-apply.path` and `.service`.
+- Uses contracts `rgbd-calib-applied-files` (watched marker) and `rgbd-calib-node-http-api` (port 18110).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`./scripts/deploy-nodes.sh client head_rgbd_calibration` installs the node, the state dir and the apply units; a redeploy never touches sessions or an applied calibration.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_rgbd_calibration_deploy.py`; run: red.
+- Add the node type, entry, setup tasks, templates and playbook steps; document.
+- Run the verify command: all pass, `uv run poe test-ansible` clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Patterns: `ansible/playbooks/tasks/bno055_state_dir.yml`, `tasks/mcp_server_setup.yml`, topic_scraper_api deploy step, `playbooks/templates/*.j2`.
+- Memory note "cgroups guarantee headroom": robot nodes keep their weights; this node sits below them.
+- Deploy is done by the orchestrator after merge.

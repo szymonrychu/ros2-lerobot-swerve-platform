@@ -53,17 +53,21 @@ Compute the calibration on the robot from a session's stored poses in a niced ch
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py::compute_result(store, sid, rid, cfg, now) -> dict`, `main(argv) -> int`.
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/jobs.py::ComputeJob`, `.start(sid) -> str`, `.state() -> dict`, `.stop()`.
+- Contract `rgbd-calib-result-files` (owned here): the `results/<rid>/` file set of design D3 and the `result.json` keys.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A compute on a stored session produces a result directory in one rename; the HTTP thread only starts and polls a child process.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_compute.py` and `tests/test_jobs.py`; run: red.
+- Implement compute and the job runner.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Memory: load only the session's poses (about 6 MB for 30); never a bag.
+- The deployed checkout URDF path comes from `cfg.head_urdf_file`; the node never writes into the checkout.

@@ -56,17 +56,21 @@ Robot-side live capture: subscribe the head topics only while a session runs, wi
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py::CaptureController(node, store, cfg, clock)`, `.start(session_id: str | None) -> dict`, `.stop() -> dict`, `.state() -> dict`, `Busy`.
+- Uses `rgbd-pose-counter`, `rgbd-calib-session-store`, `rgbd-calib-node-config`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Starting a capture subscribes four topics with the measured QoS; stopping, timing out or a failed start leaves zero subscriptions (focus lock released); every still pose with the board in both cameras is on disk within one judgement.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/conftest.py` stubs and `tests/test_capture.py`; run: red.
+- Implement the controller.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Constraints measured on the robot: ToF topics RELIABLE at the publisher, BEST_EFFORT loses about half the frames under load; mapping topic BEST_EFFORT 2 Hz and any subscriber engages the focus lock (`nodes/head_camera_cpp/src/head_camera_node.cpp:280`).
+- The node units already set `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST FASTDDS_BUILTIN_TRANSPORTS=UDPv4`.
+- Model opus: thread safety between the executor and HTTP threads.

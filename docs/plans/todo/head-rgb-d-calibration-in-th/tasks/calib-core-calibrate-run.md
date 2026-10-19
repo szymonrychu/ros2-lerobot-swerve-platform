@@ -53,17 +53,19 @@ Move the calibration run into the core so it can run from stored poses with thei
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/head_rgbd_calibration/calibrate.py::calibrate_detections(views: list[PoseView], rgb_size: tuple[int, int], tof_size: tuple[int, int], tof_info: CameraInfoData | None, board_cfg: BoardConfig, limits: LimitsConfig) -> CalibrationRun`.
+- `detect_tof(amplitude, board, sel) -> Detection | None`, `failed_limits(run, limits) -> list[str]`, `report_markdown(run, limits, session, lens, date) -> str`, `PoseView`, `CalibrationRun`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The node can calibrate from stored detections; `scripts/head_rgbd_calibrate.py calibrate` writes the same files and report as before for the same bag.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the parity, limits and golden-report tests; run: red.
+- Move `detect_tof`, `CalibrationRun`, `failed_limits`, `report_markdown`; extract `calibrate_detections` from `run_calibration`; switch the listed importers to the core.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `run_calibration` keeps its signature for the CLI; only the fit half moves.

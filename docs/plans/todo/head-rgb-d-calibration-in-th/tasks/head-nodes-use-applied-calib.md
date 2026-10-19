@@ -52,17 +52,20 @@ The head nodes read the robot's applied calibration and the Calibrate page gets 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `ansible/group_vars/client.yml`: head_camera_cpp `camera_info_file`, head_rgbd_cpp `tof_calibration_file`, web_ui `calibration.rgbd_url`.
+- Owns cross-epic contract `head-rgbd-applied-calibration` (consumer: head-rgb-d-fusion-of-camera, task rgbd-final-suite-and-runbook).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+After deploy the head nodes read the applied files; the Calibrate page shows the RGB-D section next to IMU.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the three root tests to the new values; run: red.
+- Edit client.yml; update the two node READMEs.
+- Run the verify command: all pass, `uv run poe test-ansible` clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The in-progress task rgbd-final-suite-and-runbook greps `head_camera_calibration.yaml` in client.yml; the applied path keeps that true (design D11).
+- No C++ change: both nodes already read these keys at startup.

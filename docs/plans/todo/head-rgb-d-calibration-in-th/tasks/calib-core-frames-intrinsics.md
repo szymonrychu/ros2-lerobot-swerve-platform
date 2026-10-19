@@ -50,17 +50,20 @@ Move the frame selection and the intrinsic solver into the core; maths and behav
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/head_rgbd_calibration/frames.py::still_pairs(frames, sel) -> list[FramePair]`, `rgb_difference`, `tof_diff_fraction`, `normalise_amplitude`, `nearest_index`, dataclasses `StampedImage`, `CameraInfoData`, `FrameSet`, `FramePair`.
+- `shared/ros2_common/head_rgbd_calibration/intrinsics.py::calibrate`, `calibrate_tof`, `compare_sdk`, `write_camera_calibration_yaml`, `IntrinsicsResult`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The pure frame functions and the intrinsic solver import from the core without rosbags; the CLI still reads bags through `scripts/head_rgbd_calibration/frames.py`.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the three new tests to `tests/test_head_rgbd_calib_core.py`; run them: red on the missing core modules.
+- Move the pure part of frames.py and `git mv` intrinsics.py; re-create the transitional intrinsics re-export.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `decode_*` and `read_frames` stay in scripts (they use the rosbags typestore messages).
+- Do not change any threshold or formula (design non-goal).
