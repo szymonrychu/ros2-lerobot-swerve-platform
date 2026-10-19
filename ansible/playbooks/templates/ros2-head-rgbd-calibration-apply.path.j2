@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+# Fires when the head_rgbd_calibration apply step rewrites applied.json.
+[Unit]
+Description=Watch the applied head RGB-D calibration
+
+[Path]
+PathChanged=/var/lib/ros2/head_rgbd_calibration/applied/applied.json
+Unit=ros2-head-rgbd-calibration-apply.service
+
+[Install]
+WantedBy=multi-user.target

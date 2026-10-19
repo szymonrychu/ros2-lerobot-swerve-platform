@@ -7,10 +7,9 @@ from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
-
-from scripts.head_rgbd_calibration.charuco import Detection, detect
-from scripts.head_rgbd_calibration.extrinsics import ExtrinsicResult
-from scripts.head_rgbd_calibration.intrinsics import IntrinsicsResult
+from ros2_common.head_rgbd_calibration.charuco import Detection, detect
+from ros2_common.head_rgbd_calibration.extrinsics import ExtrinsicResult
+from ros2_common.head_rgbd_calibration.intrinsics import IntrinsicsResult
 
 MM_PER_M = 1000.0
 STEP_THRESHOLD_MM = 300.0

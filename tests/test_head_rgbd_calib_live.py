@@ -1,56 +1,35 @@
-"""Tests for scripts/head_rgbd_calibration/live.py: the live pose counter shown while a calibration bag records."""
+"""Tests for scripts/head_rgbd_calibration/live.py: relay stream, monitor and ssh start (counter: see poses tests)."""
 
 import io
 import struct
 import subprocess
 import sys
-from functools import cache
 from pathlib import Path
 
 import cv2
 import numpy as np
+from ros2_common.head_rgbd_calibration.poses import AMPLITUDE, RGB, PoseCounter
 from rosbags.typesys import Stores, get_typestore
 
-from scripts.head_rgbd_calibration.charuco import detect, make_board
+from scripts.head_rgbd_calibration.charuco import make_board
 from scripts.head_rgbd_calibration.config import BoardConfig, CalibrationConfig, SelectionConfig
-from scripts.head_rgbd_calibration.frames import FrameSet, StampedImage, still_pairs
+from scripts.head_rgbd_calibration.frames import StampedImage
 from scripts.head_rgbd_calibration.live import (
     AMPLITUDE_INDEX,
     BELL,
     FRAME_HEADER,
     RELAY_SCRIPT,
     RGB_INDEX,
-    PoseCounter,
     monitor,
     read_stream,
     relay_command,
     start_live,
 )
-from scripts.head_rgbd_calibration.pipeline import detect_tof
-from tests.rgbd_synthetic import (
-    centred_pose,
-    default_extrinsic,
-    render_rgb,
-    render_tof_amplitude,
-    rgb_camera,
-    rotation,
-    tof_camera,
-)
+from tests.test_head_rgbd_calib_poses import sequence as poses_sequence
 
 TYPESTORE = get_typestore(Stores.ROS2_JAZZY)
 BOARD_CFG = BoardConfig()
-T0_NS = 1_700_000_000 * 10**9
-TOF_PERIOD_S = 0.1
-RGB_EVERY = 5  # RGB at 2 Hz, ToF at 10 Hz
-RGB_OFFSET_NS = 5_000_000
-NEAR_M = 0.33
-FAR_M = 1.2  # RGB still resolves the board, the 240x180 ToF does not
-# (start s, end s, board distance or None for a moving board)
-TIMELINE = [(0.0, 3.0, None), (3.0, 6.0, NEAR_M), (6.0, 7.0, None), (7.0, 10.0, FAR_M), (10.0, 11.0, None)]
-TIMELINE += [(11.0, 14.0, NEAR_M), (14.0, 15.0, None)]
-MOVE_STATUS = "moving"
-CLOSER_STATUS = "move closer"
-FIXTURES = Path(__file__).parent / "fixtures" / "head_rgbd"
+KIND_INDEX = {RGB: RGB_INDEX, AMPLITUDE: AMPLITUDE_INDEX}
 # a relay run with rclpy and sensor_msgs stubbed: a native library writing a log line to fd 1 after the relay
 # claimed its frame output (Fast DDS logs SHM port errors to stdout)
 RELAY_STDOUT_PROBE = """
@@ -70,45 +49,9 @@ out.flush()
 """
 
 
-@cache
-def still_view(distance_m: float) -> tuple[np.ndarray, np.ndarray]:
-    rgb_pose = centred_pose(BOARD_CFG, rotation(8, -6, 3), np.array([0.0, 0.0, distance_m]))
-    tof_pose = default_extrinsic().tof_pose(rgb_pose)
-    return (
-        render_rgb(rgb_camera(), rgb_pose, BOARD_CFG, seed=1),
-        render_tof_amplitude(tof_camera(), tof_pose, BOARD_CFG, seed=1),
-    )
-
-
-@cache
-def moving_view(step: int) -> tuple[np.ndarray, np.ndarray]:
-    rng = np.random.default_rng(step)
-    rgb_pose = centred_pose(
-        BOARD_CFG, rotation(*rng.uniform(-30, 30, 3)), np.array([*rng.uniform(-0.05, 0.05, 2), rng.uniform(0.3, 0.6)])
-    )
-    tof_pose = default_extrinsic().tof_pose(rgb_pose)
-    return (
-        render_rgb(rgb_camera(), rgb_pose, BOARD_CFG, seed=step),
-        render_tof_amplitude(tof_camera(), tof_pose, BOARD_CFG, seed=step),
-    )
-
-
-def view_at(step: int) -> tuple[np.ndarray, np.ndarray]:
-    t = step * TOF_PERIOD_S
-    distance = next(d for a, b, d in TIMELINE if a <= t < b)
-    return moving_view(step) if distance is None else still_view(distance)
-
-
 def sequence() -> list[tuple[int, StampedImage]]:
-    """(topic index, frame) in arrival order: ToF every 0.1 s, RGB every 0.5 s just after its ToF frame."""
-    out = []
-    for step in range(int(TIMELINE[-1][1] / TOF_PERIOD_S)):
-        rgb, amp = view_at(step)
-        ns = T0_NS + int(step * TOF_PERIOD_S * 1e9)
-        out.append((AMPLITUDE_INDEX, StampedImage(ns, amp)))
-        if step % RGB_EVERY == 0:
-            out.append((RGB_INDEX, StampedImage(ns + RGB_OFFSET_NS, rgb)))
-    return out
+    """(topic index, frame) in arrival order, the scene of the pose counter tests."""
+    return [(KIND_INDEX[kind], frame) for kind, frame in poses_sequence()]
 
 
 def header(ns: int, frame: str):
@@ -143,12 +86,6 @@ def stream_bytes() -> bytes:
     return b"".join(serialize(index, frame) for index, frame in sequence())
 
 
-def run_counter() -> tuple[PoseCounter, list[tuple[str, bool]]]:
-    counter = PoseCounter(make_board(BOARD_CFG), SelectionConfig())
-    events = [event for index, frame in sequence() for event in counter.add(index, frame)]
-    return counter, events
-
-
 def test_read_stream_decodes_rgb_and_amplitude_and_ignores_a_truncated_tail() -> None:
     frames = sequence()[:7]
     data = b"".join(serialize(i, f) for i, f in frames)
@@ -159,33 +96,6 @@ def test_read_stream_decodes_rgb_and_amplitude_and_ignores_a_truncated_tail() ->
         assert got.image.shape == want.image.shape
         assert got.image.dtype == want.image.dtype
     assert np.array_equal(decoded[1][1].image, frames[1][1].image)
-
-
-def test_counter_counts_each_still_pose_once_when_both_cameras_see_the_board() -> None:
-    counter, events = run_counter()
-    assert counter.count == 2
-    captured = [status for status, is_new in events if is_new]
-    assert captured == ["pose 1 captured - move to the next pose", "pose 2 captured - move to the next pose"]
-
-
-def test_counter_reports_moving_and_too_far_for_the_tof() -> None:
-    _, events = run_counter()
-    statuses = [status for status, _ in events]
-    assert MOVE_STATUS in statuses
-    assert any(CLOSER_STATUS in status for status in statuses)
-
-
-def test_counter_agrees_with_the_offline_still_pairs() -> None:
-    frames = FrameSet()
-    for index, frame in sequence():
-        (frames.rgb if index == RGB_INDEX else frames.amplitude).append(frame)
-    board = make_board(BOARD_CFG)
-    sel = SelectionConfig()
-    usable = [
-        p for p in still_pairs(frames, sel) if detect(p.rgb, board) is not None and detect_tof(p.amplitude, board, sel)
-    ]
-    counter, _ = run_counter()
-    assert counter.count == len(usable)
 
 
 def test_monitor_prints_status_changes_and_rings_on_each_capture() -> None:
@@ -264,18 +174,6 @@ def test_read_stream_skips_unknown_topic_index() -> None:
     junk = struct.pack(FRAME_HEADER, 7, 3) + b"abc"
     data = junk + b"".join(serialize(i, f) for i, f in frames)
     assert [i for i, _ in read_stream(io.BytesIO(data))] == [i for i, _ in frames]
-
-
-def test_counter_counts_a_still_board_under_mains_flicker() -> None:
-    rgb = [cv2.imread(str(FIXTURES / f"rgb_flicker_{k}.png")) for k in range(2)]
-    amplitude = cv2.imread(str(FIXTURES / "tof_amplitude_near_5.png"), cv2.IMREAD_GRAYSCALE).astype(np.uint16) * 16
-    counter = PoseCounter(make_board(BOARD_CFG), SelectionConfig())
-    for step in range(60):
-        ns = T0_NS + int(step * TOF_PERIOD_S * 1e9)
-        counter.add(AMPLITUDE_INDEX, StampedImage(ns, amplitude))
-        if step % RGB_EVERY == 0:
-            counter.add(RGB_INDEX, StampedImage(ns + RGB_OFFSET_NS, rgb[step // RGB_EVERY % 2]))
-    assert counter.count == 1
 
 
 def test_relay_keeps_native_stdout_writes_out_of_the_frame_stream() -> None:

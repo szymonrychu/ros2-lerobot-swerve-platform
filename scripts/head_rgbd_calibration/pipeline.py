@@ -8,34 +8,29 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
-
-from scripts.head_rgbd_calibration.charuco import Detection, detect, make_board
-from scripts.head_rgbd_calibration.config import CalibrationConfig, HeadCameraConfig, SelectionConfig
-from scripts.head_rgbd_calibration.extrinsics import (
+from ros2_common.head_rgbd_calibration.calibrate import (
+    CalibrationRun,
+    PoseView,
+    calibrate_detections,
+    detect_tof,
+    report_markdown,
+)
+from ros2_common.head_rgbd_calibration.charuco import detect, make_board
+from ros2_common.head_rgbd_calibration.extrinsics import (
     ExtrinsicResult,
-    PlaneCheck,
     load_extrinsics_yaml,
-    plane_depth_bias,
-    stereo_calibrate,
     write_extrinsics_yaml,
 )
-from scripts.head_rgbd_calibration.frames import (
-    NS_PER_S,
-    FrameSet,
-    TopicNames,
-    normalise_amplitude,
-    read_frames,
-    still_pairs,
-)
-from scripts.head_rgbd_calibration.intrinsics import (
+from ros2_common.head_rgbd_calibration.frames import NS_PER_S, FrameSet, still_pairs
+from ros2_common.head_rgbd_calibration.intrinsics import (
     KIND_RGB,
     KIND_TOF,
     IntrinsicsResult,
-    calibrate,
-    calibrate_tof,
-    compare_sdk,
     write_camera_calibration_yaml,
 )
+
+from scripts.head_rgbd_calibration.config import CalibrationConfig, HeadCameraConfig
+from scripts.head_rgbd_calibration.frames import TopicNames, read_frames
 from scripts.head_rgbd_calibration.validate import (
     RgbSample,
     TargetResult,
@@ -134,28 +129,6 @@ def load_intrinsics_yaml(path: Path, kind: str) -> IntrinsicsResult:
     )
 
 
-@dataclass(frozen=True)
-class CalibrationRun:
-    """Everything calibrate computes before any file is written."""
-
-    rgb: IntrinsicsResult
-    tof: IntrinsicsResult
-    extrinsic: ExtrinsicResult
-    plane: PlaneCheck
-    sdk_diff_pct: dict[str, float]
-    pair_count: int
-
-
-def detect_tof(amplitude: np.ndarray, board: cv2.aruco.CharucoBoard, sel: SelectionConfig) -> Detection | None:
-    """Detect the board in a ToF amplitude frame: normalised by sel.amplitude_percentiles, enlarged sel.tof_upscale.
-
-    Returns:
-        The Detection in amplitude pixels, or None (empty frame or too few corners).
-    """
-    image = normalise_amplitude(amplitude, sel.amplitude_percentiles)
-    return None if image is None else detect(image, board, sel.tof_upscale)
-
-
 def run_calibration(frames: FrameSet, cfg: CalibrationConfig) -> CalibrationRun:
     """Detect the board in the still pairs and fit RGB intrinsics, ToF intrinsics and the extrinsic.
 
@@ -166,60 +139,10 @@ def run_calibration(frames: FrameSet, cfg: CalibrationConfig) -> CalibrationRun:
         raise ValueError("the bag has no ToF camera_info; cannot compare with the SDK")
     pairs = still_pairs(frames, cfg.selection)
     board = make_board(cfg.board)
-    rgb_dets: list[Detection | None] = [detect(p.rgb, board) for p in pairs]
-    tof_dets = [detect_tof(p.amplitude, board, cfg.selection) for p in pairs]
+    views = [PoseView(detect(p.rgb, board), detect_tof(p.amplitude, board, cfg.selection), p.depth) for p in pairs]
     rgb_size = (pairs[0].rgb.shape[1], pairs[0].rgb.shape[0]) if pairs else (0, 0)
     tof_size = (pairs[0].amplitude.shape[1], pairs[0].amplitude.shape[0]) if pairs else (0, 0)
-    rgb = calibrate([d for d in rgb_dets if d is not None], board, rgb_size, cfg.limits)
-    tof = calibrate_tof([d for d in tof_dets if d is not None], board, tof_size, cfg.limits)
-    both = [(r, t, p) for r, t, p in zip(rgb_dets, tof_dets, pairs, strict=True) if r is not None and t is not None]
-    extrinsic = stereo_calibrate([(r, t) for r, t, _ in both], board, rgb, tof, cfg.limits)
-    with_depth = [(r, t, p.depth) for r, t, p in both if p.depth is not None]
-    plane = plane_depth_bias(with_depth, board, rgb, tof, extrinsic)
-    return CalibrationRun(rgb, tof, extrinsic, plane, compare_sdk(tof, frames.tof_info), len(pairs))
-
-
-def failed_limits(run: CalibrationRun, cfg: CalibrationConfig) -> list[str]:
-    """Descriptions of every exceeded limit, each naming its limits.* key."""
-    limits = cfg.limits
-    checks = [
-        ("limits.rgb_max_rms_px", "RGB RMS", run.rgb.rms, limits.rgb_max_rms_px),
-        ("limits.tof_max_rms_px", "ToF RMS", run.tof.rms, limits.tof_max_rms_px),
-        ("limits.stereo_max_rms_px", "stereo RMS", run.extrinsic.stereo_rms, limits.stereo_max_rms_px),
-    ]
-    return [f"{key}: {label} {value:.3f} px exceeds {limit} px" for key, label, value, limit in checks if value > limit]
-
-
-def report_markdown(run: CalibrationRun, cfg: CalibrationConfig, session: str, lens: float, date: str) -> str:
-    """The calibration run report as markdown."""
-    lines = [
-        f"# Head RGB-D calibration {session}",
-        "",
-        f"Date: {date}",
-        f"Head camera lens position: {lens:g} dioptres (changing lens_position invalidates the RGB calibration)",
-        f"Still pairs: {run.pair_count}",
-        "",
-        "| Item | Value | Limit |",
-        "|---|---|---|",
-        f"| RGB intrinsic RMS | {run.rgb.rms:.3f} px | {cfg.limits.rgb_max_rms_px} px |",
-        f"| RGB views | {run.rgb.view_count} | >= {cfg.limits.min_views} |",
-        f"| ToF intrinsic RMS | {run.tof.rms:.3f} px | {cfg.limits.tof_max_rms_px} px |",
-        f"| ToF views | {run.tof.view_count} | >= {cfg.limits.min_views} |",
-        f"| ToF zero-distortion RMS | {run.tof.zero_distortion_rms:.3f} px | "
-        f"{cfg.limits.tof_zero_distortion_rms_px} px |",
-        f"| Stereo RMS | {run.extrinsic.stereo_rms:.3f} px | {cfg.limits.stereo_max_rms_px} px |",
-        f"| Stereo pairs | {run.extrinsic.pair_count} | >= {cfg.limits.min_views} |",
-        f"| Board plane depth bias (median) | {run.plane.median_mm:.1f} mm | |",
-        "",
-        "ToF intrinsics versus the SDK /tof/camera_info (percent difference):",
-        "",
-        *[f"- {name}: {value:+.2f} %" for name, value in run.sdk_diff_pct.items()],
-        "",
-        "Extrinsic (tof_optical_frame in head_camera_optical_frame), metres: "
-        + ", ".join(f"{v:.5f}" for v in run.extrinsic.t),
-        "",
-    ]
-    return "\n".join(lines)
+    return calibrate_detections(views, rgb_size, tof_size, frames.tof_info, cfg.board, cfg.limits)
 
 
 def write_calibration(run: CalibrationRun, cfg: CalibrationConfig, session: str, now: datetime) -> list[Path]:
@@ -246,7 +169,7 @@ def write_calibration(run: CalibrationRun, cfg: CalibrationConfig, session: str,
     write_extrinsics_yaml(paths[2], run.extrinsic, run.plane, meta, cfg.limits)
     report = resolve_path(out.report_dir) / f"{session}-calibration.md"
     report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(report_markdown(run, cfg, session, lens, date))
+    report.write_text(report_markdown(run, cfg.limits, session, lens, date))
     return [*paths, report]
 
 
