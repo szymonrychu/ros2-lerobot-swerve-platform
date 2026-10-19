@@ -53,4 +53,5 @@ class LimitsConfig(StrictModel):
     tof_max_rms_px: float = Field(default=0.3, gt=0)
     stereo_max_rms_px: float = Field(default=1.0, gt=0)
     tof_zero_distortion_rms_px: float = Field(default=0.3, gt=0)
+    plane_max_bias_mm: float = Field(default=15.0, gt=0)
     min_views: int = Field(default=12, ge=1)

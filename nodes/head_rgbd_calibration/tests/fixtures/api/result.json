@@ -1,0 +1,28 @@
+{
+  "id": "r-20261019-123045",
+  "session": "calib-20261019-120000",
+  "created": "2026-10-19T12:30:45",
+  "passed": true,
+  "failed_limits": [],
+  "rgb_rms_px": 0.21,
+  "tof_rms_px": 0.12,
+  "stereo_rms_px": 0.55,
+  "plane_bias_mm": -3.5,
+  "rgb_views": 18,
+  "tof_views": 18,
+  "stereo_pairs": 18,
+  "lens_position": 1.5,
+  "pose_ids": [
+    "001",
+    "002"
+  ],
+  "limits": {
+    "rgb_max_rms_px": 0.5,
+    "tof_max_rms_px": 0.3,
+    "stereo_max_rms_px": 1.0,
+    "tof_zero_distortion_rms_px": 0.3,
+    "plane_max_bias_mm": 15.0,
+    "min_views": 12
+  },
+  "report": "# Head RGB-D calibration\n"
+}

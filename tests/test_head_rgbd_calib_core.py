@@ -5,7 +5,9 @@ import difflib
 import subprocess
 import sys
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -28,7 +30,11 @@ from ros2_common.head_rgbd_calibration.frames import (
     CameraInfoData,
     FrameSet,
     StampedImage,
+    decode_camera_info,
+    decode_compressed,
+    decode_mono16,
     rgb_difference,
+    stamp_ns,
     still_pairs,
 )
 from ros2_common.head_rgbd_calibration.intrinsics import KIND_RGB, KIND_TOF, IntrinsicsResult, calibrate
@@ -209,7 +215,7 @@ Still pairs: 15
 | ToF zero-distortion RMS | 0.120 px | 0.3 px |
 | Stereo RMS | 0.600 px | 1.0 px |
 | Stereo pairs | 12 | >= 12 |
-| Board plane depth bias (median) | -3.5 mm | |
+| Board plane depth bias (median) | -3.5 mm | 15.0 mm |
 
 ToF intrinsics versus the SDK /tof/camera_info (percent difference):
 
@@ -305,9 +311,22 @@ def test_failed_limits_names_limit_keys() -> None:
     assert failures[0] == "limits.rgb_max_rms_px: RGB RMS 0.250 px exceeds 0.1 px"
 
 
+def test_failed_limits_flags_plane_bias_over_limit() -> None:
+    run = fixed_run()
+    assert LimitsConfig().plane_max_bias_mm == 15.0
+    assert failed_limits(run, LimitsConfig(plane_max_bias_mm=3.5)) == []
+    failures = failed_limits(run, LimitsConfig(plane_max_bias_mm=3.0))
+    assert failures == ["limits.plane_max_bias_mm: plane depth bias -3.5 mm exceeds 3.0 mm"]
+    over = replace(run, plane=PlaneCheck([20.0], 20.0))
+    assert [f.split(":")[0] for f in failed_limits(over, LimitsConfig())] == ["limits.plane_max_bias_mm"]
+    under = replace(run, plane=PlaneCheck([-20.0], -20.0))
+    assert [f.split(":")[0] for f in failed_limits(under, LimitsConfig())] == ["limits.plane_max_bias_mm"]
+
+
 def test_report_markdown_golden() -> None:
     text = report_markdown(fixed_run(), LimitsConfig(), "calib-test", 4.5, "2026-01-02T03:04:05")
     assert text == GOLDEN_REPORT
+
 
 
 def test_moved_modules_left_scripts() -> None:
@@ -326,3 +345,85 @@ def test_moved_modules_left_scripts() -> None:
         text=True,
     )
     assert found.returncode == 1, found.stdout
+
+
+def stamped_msg(sec: int = 3, nanosec: int = 250, **fields: object) -> SimpleNamespace:
+    """A duck-typed message with a header stamp and the given fields."""
+    return SimpleNamespace(header=SimpleNamespace(stamp=SimpleNamespace(sec=sec, nanosec=nanosec)), **fields)
+
+
+def mono16_msg(image: np.ndarray, bigendian: bool, pad: int = 0, encoding: str = "mono16") -> SimpleNamespace:
+    """A sensor_msgs/Image look-alike holding a uint16 image with pad bytes of row padding."""
+    rows = image.astype(">u2" if bigendian else "<u2").view(np.uint8).reshape(image.shape[0], -1)
+    rows = np.pad(rows, ((0, 0), (0, pad)))
+    return stamped_msg(
+        height=image.shape[0],
+        width=image.shape[1],
+        step=rows.shape[1],
+        is_bigendian=int(bigendian),
+        encoding=encoding,
+        data=rows.tobytes(),
+    )
+
+
+def test_stamp_ns_combines_sec_and_nanosec() -> None:
+    assert stamp_ns(stamped_msg(sec=3, nanosec=250)) == 3_000_000_250
+
+
+@pytest.mark.parametrize("bigendian", [False, True])
+@pytest.mark.parametrize("encoding", ["mono16", "16UC1"])
+def test_decode_mono16_both_endiannesses_and_step(bigendian: bool, encoding: str) -> None:
+    image = np.arange(12, dtype=np.uint16).reshape(3, 4) * 1000 + 7
+    decoded = decode_mono16(mono16_msg(image, bigendian, pad=6, encoding=encoding))
+    assert decoded.dtype == np.uint16
+    np.testing.assert_array_equal(decoded, image)
+
+
+def test_decode_mono16_rejects_other_encoding_and_short_data() -> None:
+    image = np.ones((2, 2), dtype=np.uint16)
+    with pytest.raises(ValueError, match="encoding"):
+        decode_mono16(mono16_msg(image, False, encoding="rgb8"))
+    short = mono16_msg(image, False)
+    short.data = short.data[:-2]
+    with pytest.raises(ValueError, match="do not hold"):
+        decode_mono16(short)
+
+
+def test_decode_compressed_returns_bgr_and_names_topic_on_failure() -> None:
+    bgr = np.full((8, 8, 3), (10, 120, 200), dtype=np.uint8)
+    ok, png = cv2.imencode(".png", bgr)
+    assert ok
+    np.testing.assert_array_equal(decode_compressed(stamped_msg(data=png.tobytes()), "/rgb"), bgr)
+    with pytest.raises(ValueError, match="/rgb") as err:
+        decode_compressed(stamped_msg(data=b"not an image"), "/rgb")
+    assert "3000000250" in str(err.value)
+
+
+def test_decode_camera_info_reduces_fields() -> None:
+    msg = SimpleNamespace(
+        width=640,
+        height=480,
+        distortion_model="plumb_bob",
+        d=[0.1, 0.0, 0.0, 0.0, 0.0],
+        k=list(range(9)),
+        p=list(range(12)),
+    )
+    info = decode_camera_info(msg)
+    assert (info.width, info.height, info.distortion_model) == (640, 480, "plumb_bob")
+    assert info.k.shape == (9,) and info.p.shape == (12,) and info.d.dtype == np.float64
+
+
+def test_core_decoders() -> None:
+    """Core decoders handle mono16 (both endiannesses), compressed images, camera_info and stamps."""
+    assert stamp_ns(stamped_msg(sec=1, nanosec=2)) == 1_000_000_002
+    image = np.arange(6, dtype=np.uint16).reshape(2, 3) + 300
+    for bigendian in (False, True):
+        np.testing.assert_array_equal(decode_mono16(mono16_msg(image, bigendian)), image)
+    bgr = np.full((4, 4, 3), (10, 120, 200), dtype=np.uint8)
+    ok, png = cv2.imencode(".png", bgr)
+    assert ok
+    np.testing.assert_array_equal(decode_compressed(stamped_msg(data=png.tobytes())), bgr)
+    info = decode_camera_info(
+        SimpleNamespace(width=4, height=2, distortion_model="plumb_bob", d=[0.0], k=[0.0] * 9, p=[0.0] * 12)
+    )
+    assert (info.width, info.height) == (4, 2)

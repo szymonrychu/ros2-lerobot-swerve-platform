@@ -51,7 +51,8 @@ def compute_result(store: SessionStore, sid: str, rid: str, cfg: NodeConfig, now
 
     Returns:
         The result.json content (id, session, created, passed, failed_limits, rgb_rms_px, tof_rms_px,
-        stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids, plus `error`
+        stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids, limits (every
+        acceptance limit used), plus `error`
         on failure).
     """
     final = store.result_dir(sid, rid)
@@ -74,6 +75,7 @@ def compute_result(store: SessionStore, sid: str, rid: str, cfg: NodeConfig, now
         "stereo_pairs": None,
         "lens_position": views.lens_position,
         "pose_ids": views.pose_ids,
+        "limits": cfg.limits.model_dump(),
     }
     try:
         if views.rgb_size is None or views.tof_size is None:

@@ -106,19 +106,24 @@ def build_app(capture: CaptureController, job: ComputeJob, store: SessionStore, 
         problems = "; ".join(f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors())
         return error_response(HTTP_UNPROCESSABLE, problems)
 
+    def full_state() -> dict[str, Any]:
+        return {"capture": capture.state(), "compute": job.state(), "applied": read_applied_marker(store)}
+
     @app.get("/api/state")
     def state() -> dict[str, Any]:
-        return {"capture": capture.state(), "compute": job.state(), "applied": read_applied_marker(store)}
+        return full_state()
 
     @app.post("/api/capture/start")
     def capture_start(body: StartRequest | None = None) -> Any:
         if job.state()["running"]:
             return error_response(HTTP_CONFLICT, "a compute is running; wait for it to finish")
-        return capture.start(body.session_id if body else None)
+        capture.start(body.session_id if body else None)
+        return full_state()
 
     @app.post("/api/capture/stop")
     def capture_stop() -> dict[str, Any]:
-        return capture.stop()
+        capture.stop()
+        return full_state()
 
     @app.get("/api/sessions")
     def sessions() -> list[dict[str, Any]]:
@@ -192,7 +197,8 @@ def build_app(capture: CaptureController, job: ComputeJob, store: SessionStore, 
             return error_response(HTTP_CONFLICT, "a compute is running; wait for it to finish")
         if not (store.result_dir(sid, rid) / RESULT_FILE).is_file():
             raise NotFound(f"no such result: {rid}")
-        return apply_result(store, sid, rid, datetime.now().astimezone())
+        apply_result(store, sid, rid, datetime.now().astimezone())
+        return applied_state(store, cfg.restart_units, run)
 
     @app.get("/api/applied")
     def applied() -> Any:

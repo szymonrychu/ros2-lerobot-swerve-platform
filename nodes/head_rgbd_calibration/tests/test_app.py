@@ -19,6 +19,7 @@ from head_rgbd_calibration.compute import REPORT_FILE, URDF_FILE
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.jobs import Busy as JobBusy
 from head_rgbd_calibration.store import RESULT_FILE, NotFound, SessionStore
+from tests.contract import assert_matches_fixture, load_fixture
 from tests.pose_factory import make_pose
 
 RID = "r-20261019-123045"
@@ -33,13 +34,14 @@ class FakeCapture:
         self.stopped = 0
 
     def state(self) -> dict[str, Any]:
+        began = self.session_id is not None
         return {
             "running": self.running,
             "session_id": self.session_id,
-            "status": "idle",
+            "status": "waiting for frames" if self.running else "stopped by operator" if began else "idle",
             "pose_count": 0,
-            "started_at": None,
-            "stops_at": None,
+            "started_at": "2026-10-19T12:00:00+00:00" if began else None,
+            "stops_at": "2026-10-19T12:02:00+00:00" if self.running else None,
         }
 
     def start(self, session_id: str | None) -> dict[str, Any]:
@@ -115,7 +117,9 @@ def new_session(store: SessionStore, poses: int = 0) -> str:
 def new_result(store: SessionStore, sid: str, passed: bool = True) -> None:
     path = store.result_dir(sid, RID)
     path.mkdir(parents=True)
-    (path / RESULT_FILE).write_text(json.dumps({"id": RID, "passed": passed}))
+    body = {**load_fixture("result"), "id": RID, "passed": passed}
+    del body["report"]
+    (path / RESULT_FILE).write_text(json.dumps(body))
     for name in (*APPLIED_FILES, URDF_FILE, REPORT_FILE):
         (path / name).write_text(f"{name} text")
 
@@ -126,6 +130,15 @@ def assert_error(response, status: int) -> None:
     assert body["ok"] is False and isinstance(body["message"], str) and body["message"]
 
 
+def write_applied_marker(store: SessionStore) -> dict[str, Any]:
+    applied = store.state_dir / "applied"
+    applied.mkdir(parents=True, exist_ok=True)
+    info = load_fixture("applied")
+    del info["units"]
+    (applied / APPLIED_MARKER).write_text(json.dumps(info))
+    return info
+
+
 def test_state_shape(client: TestClient) -> None:
     body = client.get("/api/state").json()
     assert body["capture"]["running"] is False and body["compute"]["running"] is False
@@ -133,21 +146,41 @@ def test_state_shape(client: TestClient) -> None:
     assert calls == []
 
 
+def test_state_matches_contract_fixture(client: TestClient, store: SessionStore, capture: FakeCapture) -> None:
+    capture.start("calib-20261019-120000")
+    write_applied_marker(store)
+    assert_matches_fixture(client.get("/api/state").json(), "state")
+
+
 def test_state_carries_applied_json_without_systemctl(client: TestClient, store: SessionStore) -> None:
-    applied = store.state_dir / "applied"
-    applied.mkdir(parents=True)
-    info = {"session": "s", "result": RID, "applied_at": "2026-10-19T12:00:00+00:00", "files": []}
-    (applied / APPLIED_MARKER).write_text(json.dumps(info))
+    info = write_applied_marker(store)
     assert client.get("/api/state").json()["applied"] == info
     assert calls == []
 
 
 def test_capture_start_stop(client: TestClient, capture: FakeCapture) -> None:
     response = client.post("/api/capture/start", json={})
-    assert response.status_code == 200 and response.json()["running"] is True
+    assert response.status_code == 200 and response.json()["capture"]["running"] is True
     assert_error(client.post("/api/capture/start"), 409)
-    assert client.post("/api/capture/stop").json()["running"] is False
+    assert client.post("/api/capture/stop").json()["capture"]["running"] is False
     assert capture.stopped == 1
+
+
+def test_capture_start_returns_nested_state(client: TestClient, store: SessionStore) -> None:
+    write_applied_marker(store)
+    response = client.post("/api/capture/start", json={"session_id": "calib-20261019-120000"})
+    assert response.status_code == 200
+    assert_matches_fixture(response.json(), "capture_start")
+    assert response.json() == client.get("/api/state").json()
+
+
+def test_capture_stop_returns_nested_state(client: TestClient, store: SessionStore) -> None:
+    write_applied_marker(store)
+    client.post("/api/capture/start", json={"session_id": "calib-20261019-120000"})
+    response = client.post("/api/capture/stop")
+    assert response.status_code == 200
+    assert_matches_fixture(response.json(), "capture_stop")
+    assert response.json() == client.get("/api/state").json()
 
 
 def test_capture_start_passes_session_id(client: TestClient, capture: FakeCapture) -> None:
@@ -264,6 +297,12 @@ def test_compute_busy_and_unknown(client: TestClient, store: SessionStore, job: 
     assert_error(client.post("/api/sessions/calib-20200101-000000/compute"), 404)
 
 
+def test_result_matches_contract_fixture(client: TestClient, store: SessionStore) -> None:
+    sid = new_session(store)
+    new_result(store, sid)
+    assert_matches_fixture(client.get(f"/api/sessions/{sid}/results/{RID}").json(), "result")
+
+
 def test_result_includes_report(client: TestClient, store: SessionStore) -> None:
     sid = new_session(store)
     new_result(store, sid)
@@ -290,12 +329,19 @@ def test_apply_and_applied_units(client: TestClient, store: SessionStore) -> Non
     new_result(store, sid)
     response = client.post(f"/api/sessions/{sid}/results/{RID}/apply")
     assert response.status_code == 200
-    assert response.json()["result"] == RID and "units" not in response.json()
-    assert calls == []
+    assert response.json()["result"] == RID
     applied = client.get("/api/applied").json()
+    assert response.json() == applied
     assert applied["session"] == sid
     assert applied["units"] == [{"name": UNIT, "active_state": "active", "restarted": True}]
     assert calls and calls[0][-1] == UNIT
+
+
+def test_apply_matches_contract_fixture(client: TestClient, store: SessionStore) -> None:
+    sid = new_session(store)
+    new_result(store, sid)
+    assert_matches_fixture(client.post(f"/api/sessions/{sid}/results/{RID}/apply").json(), "apply")
+    assert_matches_fixture(client.get("/api/applied").json(), "applied")
 
 
 def test_apply_failing_result_409(client: TestClient, store: SessionStore) -> None:
@@ -316,3 +362,26 @@ def test_apply_refused_while_compute_runs(client: TestClient, store: SessionStor
 def test_validation_error_body_shape(client: TestClient) -> None:
     assert_error(client.post("/api/capture/start", json={"session_id": 5}), 422)
     assert_error(client.get("/api/nothing"), 404)
+
+
+def test_capture_start_and_stop_return_the_state_fixture(client: TestClient, store: SessionStore) -> None:
+    write_applied_marker(store)
+    started = client.post("/api/capture/start", json={"session_id": "calib-20261019-120000"})
+    assert started.status_code == 200
+    assert_matches_fixture(started.json(), "capture_start")
+    assert started.json() == client.get("/api/state").json()
+    stopped = client.post("/api/capture/stop")
+    assert stopped.status_code == 200
+    assert_matches_fixture(stopped.json(), "capture_stop")
+    assert stopped.json() == client.get("/api/state").json()
+
+
+def test_apply_and_applied_match_the_fixtures(client: TestClient, store: SessionStore) -> None:
+    sid = new_session(store)
+    new_result(store, sid)
+    applied_response = client.post(f"/api/sessions/{sid}/results/{RID}/apply").json()
+    assert_matches_fixture(applied_response, "apply")
+    applied = client.get("/api/applied").json()
+    assert_matches_fixture(applied, "applied")
+    assert applied_response == applied
+    assert applied["session"] == sid and applied["result"] == RID

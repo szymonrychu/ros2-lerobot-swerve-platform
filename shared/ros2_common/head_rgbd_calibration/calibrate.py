@@ -105,7 +105,15 @@ def failed_limits(run: CalibrationRun, limits: LimitsConfig) -> list[str]:
         ("limits.tof_max_rms_px", "ToF RMS", run.tof.rms, limits.tof_max_rms_px),
         ("limits.stereo_max_rms_px", "stereo RMS", run.extrinsic.stereo_rms, limits.stereo_max_rms_px),
     ]
-    return [f"{key}: {label} {value:.3f} px exceeds {limit} px" for key, label, value, limit in checks if value > limit]
+    failures = [
+        f"{key}: {label} {value:.3f} px exceeds {limit} px" for key, label, value, limit in checks if value > limit
+    ]
+    bias = run.plane.median_mm
+    if abs(bias) > limits.plane_max_bias_mm:
+        failures.append(
+            f"limits.plane_max_bias_mm: plane depth bias {bias:.1f} mm exceeds {limits.plane_max_bias_mm} mm"
+        )
+    return failures
 
 
 def report_markdown(run: CalibrationRun, limits: LimitsConfig, session: str, lens: float, date: str) -> str:
@@ -126,7 +134,7 @@ def report_markdown(run: CalibrationRun, limits: LimitsConfig, session: str, len
         f"| ToF zero-distortion RMS | {run.tof.zero_distortion_rms:.3f} px | {limits.tof_zero_distortion_rms_px} px |",
         f"| Stereo RMS | {run.extrinsic.stereo_rms:.3f} px | {limits.stereo_max_rms_px} px |",
         f"| Stereo pairs | {run.extrinsic.pair_count} | >= {limits.min_views} |",
-        f"| Board plane depth bias (median) | {run.plane.median_mm:.1f} mm | |",
+        f"| Board plane depth bias (median) | {run.plane.median_mm:.1f} mm | {limits.plane_max_bias_mm} mm |",
         "",
         "ToF intrinsics versus the SDK /tof/camera_info (percent difference):",
         "",

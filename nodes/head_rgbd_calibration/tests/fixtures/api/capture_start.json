@@ -1,0 +1,28 @@
+{
+  "capture": {
+    "running": true,
+    "session_id": "calib-20261019-120000",
+    "status": "waiting for frames",
+    "pose_count": 0,
+    "started_at": "2026-10-19T12:00:00+00:00",
+    "stops_at": "2026-10-19T12:02:00+00:00"
+  },
+  "compute": {
+    "running": false,
+    "session_id": null,
+    "result_id": null,
+    "started_at": null,
+    "error": null
+  },
+  "applied": {
+    "session": "calib-20261019-120000",
+    "result": "r-20261019-123045",
+    "applied_at": "2026-10-19T12:31:00+00:00",
+    "files": [
+      "head_camera_calibration.yaml",
+      "tof_calibration.yaml",
+      "head_rgbd_extrinsics.yaml",
+      "tof_joint.json"
+    ]
+  }
+}

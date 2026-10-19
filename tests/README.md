@@ -218,7 +218,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` (head RGB-D fusion) and `map3d_uplink` (map3d stream relay) join `head_camera_cpp` in the background tier (weights 100/100, no OOM protection); the retired types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` (head RGB-D fusion), `head_rgbd_calibration` (operator calibration tool) and `map3d_uplink` (map3d stream relay) join `head_camera_cpp` in the background tier (weights 100/100, no OOM protection); the retired types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -2870,6 +2870,21 @@ Tests for `shared/ros2_common/head_rgbd_calibration/urdf_handoff.py` on a copy o
 | `test_diff_touches_only_origin_and_comment` | A text diff shows only the `tof_joint` origin and the calibration comment changed. |
 | `test_second_rewrite_replaces_comment` | A second rewrite replaces the stamped comment instead of adding one. |
 | `test_drift_equals_injected_offset` | `check_drift` reports the translation and rotation offset that was injected. |
+
+### `test_head_rgbd_calibration_deploy.py`
+
+Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nodes` entry in `ansible/group_vars/client.yml`, `ansible/playbooks/tasks/head_rgbd_calibration_setup.yml`, the apply units, `deploy_nodes_client.yml`).
+
+| Test | What it pins |
+|---|---|
+| `test_node_type_and_tier` | The node type fields, the config env and the background tier keys (cpu and io weight 100, `oom_score_adjust` 0, own memory cap). |
+| `test_ros2_nodes_entry_matches_defaults` | The `ros2_nodes` entry is present and enabled after `head_rgbd_cpp`, and its config equals the node's shipped default YAML. |
+| `test_state_dirs_owned_by_node_user_mode_0755` | The state, `sessions` and `applied` directories are created owned by the node user, mode 0755. |
+| `test_seed_copies_never_overwrite_and_need_existing_source` | Seeding the applied calibration files copies only when the source exists and never overwrites (`force: false`). |
+| `test_no_task_clears_state_dir` | No setup task removes, forces over or rewrites state dir content. |
+| `test_apply_units_content` | The apply path unit watches `applied.json` and the oneshot service try-restarts the head camera, RGB-D and state publisher units; both units are reloaded, enabled and started. |
+| `test_playbook_setup_before_deploy` | The setup include precedes `Deploy head_rgbd_calibration` in the client playbook, with the right tags and node name. |
+| `test_http_port_unique_in_client_vars` | The node's HTTP port appears exactly once in `client.yml`. |
 
 ### `rgbd_synthetic.py`
 
