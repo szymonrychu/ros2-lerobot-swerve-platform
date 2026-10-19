@@ -1,14 +1,18 @@
 """Single typed definition of the cross-host map3d streams (design D2, D3).
 
 Read by the client uplink launch file, the server rtabmap launch file, map3d_manager and the tests.
-Depends only on the stdlib, pyyaml and pydantic so it imports on the Pis with the system python.
+Depends only on the stdlib, pyyaml and pydantic so it imports on the Pis with the system python. Works with pydantic
+1.10 (Ubuntu 24.04's python3-pydantic, what the launch files get on the Pis) and pydantic 2 (the dev and test venvs):
+config through class keywords, validation through the model constructor and after_validator().
 """
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+import pydantic
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field
 
 DEFAULT_YAML = Path(__file__).resolve().parent / "config" / "map3d_topics.yaml"
 UPLINK_PREFIX = "/uplink/"
@@ -16,14 +20,37 @@ DOWNLINK_PREFIX = "/map3d/"
 TF_STATIC_TOPIC = "/tf_static"
 SMALL_BYTES_PER_S = 1000.0
 BITS_PER_MBIT = 1e6
+PYDANTIC_V2 = pydantic.VERSION.startswith("2.")
 
 Reader = Literal["rtabmap_mapping", "map3d_manager"]
 
 
-class Forbid(BaseModel):
-    """Base model that rejects unknown keys."""
+def after_validator(check: Callable[[Any], None]) -> Any:
+    """Model validator that runs check(model) after the fields validated, on pydantic 1.10 and 2.
 
-    model_config = ConfigDict(extra="forbid")
+    Args:
+        check: Raises ValueError when the model is invalid; pydantic reports it as a ValidationError.
+
+    Returns:
+        Any: The validator to assign in the class body.
+    """
+    if PYDANTIC_V2:
+
+        def run(model: Any) -> Any:
+            check(model)
+            return model
+
+        return pydantic.model_validator(mode="after")(run)
+
+    def run_v1(cls: Any, values: dict[str, Any]) -> dict[str, Any]:
+        check(cls.construct(**values))
+        return values
+
+    return pydantic.root_validator(skip_on_failure=True, allow_reuse=True)(run_v1)
+
+
+class Forbid(BaseModel, extra="forbid"):
+    """Base model that rejects unknown keys."""
 
 
 class Qos(Forbid):
@@ -63,14 +90,14 @@ class Stream(Forbid):
     server_readers: list[Reader] = []
     small: bool = False
 
-    @model_validator(mode="after")
-    def check_rates(self) -> "Stream":
+    def check_rates(self) -> None:
         """Require expected_rate_hz for unthrottled streams and a truthful small flag."""
         if self.rate_hz is None and self.expected_rate_hz is None:
             raise ValueError(f"expected_rate_hz is required when rate_hz is null ({self.source})")
         if self.small != (self.budget_bytes * self.effective_rate() < SMALL_BYTES_PER_S):
             raise ValueError(f"small must be true exactly when budget_bytes x rate < 1 KB/s ({self.source})")
-        return self
+
+    rates_valid = after_validator(check_rates)
 
     def effective_rate(self, expected_rates: dict[str, float] | None = None) -> float:
         """Return the message rate used for budgeting.
@@ -114,8 +141,7 @@ class Map3dTopics(Forbid):
     frames: Frames
     budget: Budget
 
-    @model_validator(mode="after")
-    def check_contract(self) -> "Map3dTopics":
+    def check_contract(self) -> None:
         """Check prefixes, relay loops, uniqueness, tf_static QoS and reader counts."""
         for s in self.uplink:
             if not s.dest.startswith(UPLINK_PREFIX):
@@ -137,7 +163,8 @@ class Map3dTopics(Forbid):
                 raise ValueError(f"dest {d} equals a source (relay loop)")
         if len(set(dests)) != len(dests):
             raise ValueError("dest values must be unique")
-        return self
+
+    contract_valid = after_validator(check_contract)
 
 
 def load_map3d_topics(path: Path | None = None) -> Map3dTopics:
@@ -149,7 +176,7 @@ def load_map3d_topics(path: Path | None = None) -> Map3dTopics:
     Returns:
         The validated contract.
     """
-    return Map3dTopics.model_validate(yaml.safe_load((path or DEFAULT_YAML).read_text()))
+    return Map3dTopics(**yaml.safe_load((path or DEFAULT_YAML).read_text()))
 
 
 def estimated_mbit_s(streams: list[Stream], expected_rates: dict[str, float]) -> float:
