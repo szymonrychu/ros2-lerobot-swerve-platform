@@ -1,6 +1,6 @@
 ---
 title: Calib core retire shims
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The calibration code lives in one place; no transitional module re-exports remain."
 files: [scripts/head_rgbd_calibration/charuco.py, scripts/head_rgbd_calibration/intrinsics.py, scripts/head_rgbd_calibration/extrinsics.py, scripts/head_rgbd_calibration/urdf_handoff.py, tests/test_head_rgbd_calib_extrinsics.py, tests/test_head_rgbd_calib_intrinsics.py, tests/test_head_rgbd_urdf_handoff.py, tests/test_head_rgbd_calib_core.py]

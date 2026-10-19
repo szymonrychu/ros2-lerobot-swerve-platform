@@ -1,6 +1,6 @@
 ---
 title: Calib node HTTP API
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "web_ui, and through it the operator, drives capture, sessions, compute, apply and download over one localhost API."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/app.py, nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py, nodes/head_rgbd_calibration/tests/test_app.py, nodes/head_rgbd_calibration/tests/test_main.py, nodes/head_rgbd_calibration/README.md]

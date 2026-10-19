@@ -1,6 +1,6 @@
 ---
 title: Calib core config charuco
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The board, selection and limits settings and the ChArUco detector become importable from node venvs: the base every robot-side calibration piece builds on."
 files: [pyproject.toml, uv.lock, shared/ros2_common/head_rgbd_calibration/__init__.py, shared/ros2_common/head_rgbd_calibration/config.py, shared/ros2_common/head_rgbd_calibration/charuco.py, scripts/head_rgbd_calibration/config.py, scripts/head_rgbd_calibration/charuco.py, tests/test_head_rgbd_calib_core.py]

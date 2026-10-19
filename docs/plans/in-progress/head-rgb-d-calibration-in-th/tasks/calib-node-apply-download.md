@@ -1,6 +1,6 @@
 ---
 title: Calib node apply download
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A computed calibration goes live on the robot with one press and survives deploys; the operator can also download it to commit."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py, nodes/head_rgbd_calibration/tests/test_apply.py, nodes/head_rgbd_calibration/README.md]

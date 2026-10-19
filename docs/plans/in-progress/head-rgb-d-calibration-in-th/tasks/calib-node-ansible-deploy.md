@@ -1,6 +1,6 @@
 ---
 title: Calib node Ansible deploy
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The calibration node, its state dir and the apply restart unit deploy with the standard script and survive every redeploy."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, ansible/playbooks/tasks/head_rgbd_calibration_setup.yml, ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.path.j2, ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.service.j2, tests/test_head_rgbd_calibration_deploy.py, ansible/README.md]

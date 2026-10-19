@@ -1,6 +1,6 @@
 ---
 title: RGBD capture section UI
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Standing at the robot, the operator sees each pose land live with thumbnails and coverage, and prunes bad ones."
 files: [nodes/web_ui/frontend/src/calibrate/RgbdCalibration.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx, nodes/web_ui/frontend/src/calibrate/CoverageGrid.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx, nodes/web_ui/README.md]

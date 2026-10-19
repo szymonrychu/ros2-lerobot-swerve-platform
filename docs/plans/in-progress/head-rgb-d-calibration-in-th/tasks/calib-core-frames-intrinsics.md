@@ -1,6 +1,6 @@
 ---
 title: Calib core frames intrinsics
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Still-pose selection, flicker-proof stillness and the intrinsic solver become importable from the robot node."
 files: [shared/ros2_common/head_rgbd_calibration/frames.py, shared/ros2_common/head_rgbd_calibration/intrinsics.py, scripts/head_rgbd_calibration/frames.py, scripts/head_rgbd_calibration/intrinsics.py, tests/test_head_rgbd_calib_core.py]

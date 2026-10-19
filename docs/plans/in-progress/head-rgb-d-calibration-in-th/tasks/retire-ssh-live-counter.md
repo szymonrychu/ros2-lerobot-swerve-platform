@@ -1,6 +1,6 @@
 ---
 title: Retire ssh live counter
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One capture path: the ssh-streamed counter that lost frames on the loaded robot is gone, replaced by the web UI."
 files: [scripts/head_rgbd_calibration/live.py, scripts/head_rgbd_calibration/live_relay.py, tests/test_head_rgbd_calib_live.py, scripts/head_rgbd_calibration/config.py, scripts/head_rgbd_calibrate.py, scripts/head_rgbd_calibrate.yaml, tests/test_head_rgbd_calibrate_cli.py, tests/test_head_rgbd_calib_retired.py]

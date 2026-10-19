@@ -1,6 +1,6 @@
 ---
 title: Calib node live capture
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The operator captures poses on the robot without frame loss: RELIABLE ToF, focus lock only while capturing, each usable pose stored as it is judged."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py, nodes/head_rgbd_calibration/tests/test_capture.py, nodes/head_rgbd_calibration/tests/conftest.py, nodes/head_rgbd_calibration/README.md]

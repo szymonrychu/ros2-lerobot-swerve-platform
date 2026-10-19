@@ -1,6 +1,6 @@
 ---
 title: Head nodes use applied calib
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "After Apply the head camera publishes camera_info and head_rgbd_cpp registered depth from the robot's own calibration, and deploys keep it."
 files: [ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, tests/test_head_camera_deploy.py, tests/test_web_ui_calibration_config.py, nodes/head_rgbd_cpp/README.md, nodes/head_camera_cpp/README.md]

@@ -1,6 +1,6 @@
 ---
 title: RGBD calib frontend API
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The page has a typed, tested client for every calibration call, with server messages shown verbatim."
 files: [nodes/web_ui/frontend/src/calibrate/rgbdApi.ts, nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts]

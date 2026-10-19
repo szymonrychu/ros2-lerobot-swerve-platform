@@ -1,6 +1,6 @@
 ---
 title: Calib node scaffold config
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The robot-side calibration node exists as a linted, tested uv project with a validated config."
 files: [nodes/head_rgbd_calibration/pyproject.toml, nodes/head_rgbd_calibration/uv.lock, nodes/head_rgbd_calibration/head_rgbd_calibration/__init__.py, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, nodes/head_rgbd_calibration/tests/test_config.py, pyproject.toml, .github/workflows/ci.yml]
