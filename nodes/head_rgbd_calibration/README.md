@@ -3,8 +3,7 @@
 Robot-side capture, review and compute service for the head RGB-D calibration (ChArUco board seen by the Camera Module 3
 mapping stream and the ToF camera). It keeps the selected poses, thumbnails with the detected corners, coverage and
 results on the robot, so a session survives restarts and deploys. The calibration maths lives in
-`shared/ros2_common/head_rgbd_calibration`; this node owns the state and (in later modules) the capture, compute and
-HTTP layers.
+`shared/ros2_common/head_rgbd_calibration`; this node owns the session state: poses, thumbnails, coverage and results.
 
 This README covers the config and the session store (`head_rgbd_calibration/store.py`, `images.py`).
 
