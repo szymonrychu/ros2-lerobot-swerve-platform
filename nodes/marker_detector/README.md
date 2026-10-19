@@ -1,6 +1,6 @@
 # marker_detector
 
-Detects printed QR metadata markers in the head camera image and turns them into POIs with pose and metadata (design D8). This task provides the package skeleton, its own uv environment (modern `opencv-python-headless` and `zxing-cpp`, which must shadow Ubuntu's OpenCV 4.6 in the `--system-site-packages` venv) and the validated config. Later tasks add decode, pose, ToF disambiguation, zoom planning and the node.
+Detects printed QR metadata markers in the head camera image and turns them into POIs with pose and metadata (design D8). This task provides the package skeleton, its own uv environment (modern `opencv-python-headless` and `zxing-cpp`, which must shadow Ubuntu's OpenCV 4.6 in the `--system-site-packages` venv) and the validated config.
 
 ## Requirements
 
