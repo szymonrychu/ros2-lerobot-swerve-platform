@@ -1,6 +1,6 @@
 ---
 title: Calib node cgroup tier and docs
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The robot unit tiers stay complete with the new node in the background tier, and the test docs list every new test file."
 files: [tests/test_unit_cgroups.py, ansible/group_vars/client.yml, tests/README.md, shared/ros2_common/head_rgbd_calibration/__init__.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 25
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-cgroup-tier-and-d
+branch: head-rgb-d-calibration-in-th--calib-node-cgroup-tier-and-d
 verified_head: ""
 run: ""
 provides: []
@@ -48,12 +48,12 @@ Signatures, schemas and contracts this task builds or must keep, with file:symbo
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+tests/test_unit_cgroups.py passes in full with head_rgbd_calibration in the background tier; tests/README.md describes test_head_rgbd_calibration_deploy.py; the core package docstring names every module.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Run `uv run --frozen pytest tests/test_unit_cgroups.py -q` and see test_every_client_type_is_tiered fail.
+- Add the type to the background tier (test and client.yml weights), add the README entry and the docstring; run the verify command (all pass) and commit `fix: background cgroup tier for head_rgbd_calibration, test docs`.
 
 ## Notes
 

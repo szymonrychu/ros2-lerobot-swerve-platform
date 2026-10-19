@@ -1,6 +1,6 @@
 ---
 title: RGBD API contract frontend
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The Calibrate page accepts exactly what the node returns: no false errors on Start, Stop or Apply, and limits shown from the result."
 files: [nodes/web_ui/frontend/src/calibrate/rgbdApi.ts, nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts, nodes/web_ui/frontend/src/calibrate/RgbdResults.tsx, nodes/web_ui/frontend/src/calibrate/RgbdResults.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCalibration.tsx, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-api-contract-frontend
+branch: head-rgb-d-calibration-in-th--rgbd-api-contract-frontend
 verified_head: ""
 run: ""
 provides: []
@@ -33,9 +33,9 @@ The Calibrate page frontend must accept exactly what the node returns. Consume t
 
 ## Acceptance conditions
 
-- a1: every rgbdApi call accepts its node fixture body [evidence: test: nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts]
-- a2: Start, Stop and Apply driven by fixture bodies show the new state and no error [evidence: test: nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx]
-- a3: the results table shows each limit from result.json limits, including plane bias, and DEFAULT_LIMITS is gone [evidence: test: nodes/web_ui/frontend/src/calibrate/RgbdResults.test.tsx]
+- a1: every rgbdApi call accepts its node fixture body [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/calibrate/rgbdApi.test.ts]
+- a2: Start, Stop and Apply driven by fixture bodies show the new state and no error [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/calibrate/RgbdCapture.test.tsx]
+- a3: the results table shows each limit from result.json limits, including plane bias, and DEFAULT_LIMITS is gone [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/calibrate/RgbdResults.test.tsx]
 
 ## Files
 
@@ -54,12 +54,12 @@ Signatures, schemas and contracts this task builds or must keep, with file:symbo
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The Calibrate page shows no false errors on Start, Stop or Apply and shows each limit from result.json next to its metric.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Import the node fixtures in rgbdApi/RgbdCapture/RgbdResults tests; run `npm test` and see them fail.
+- Fix the validators, AppliedState names, results limits and Start/Stop state handling; run the verify command (all pass) and commit `fix(web_ui): Calibrate RGB-D section follows the node API contract`.
 
 ## Notes
 

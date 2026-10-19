@@ -1,19 +1,19 @@
 ---
 title: Calib core shared decoders
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One implementation of the sensor_msgs decoders, shared by the CLI and the robot node."
 files: [shared/ros2_common/head_rgbd_calibration/frames.py, scripts/head_rgbd_calibration/frames.py, nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py, tests/test_head_rgbd_calib_core.py, nodes/head_rgbd_calibration/tests/test_capture.py]
 verify: "uv run --frozen pytest tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_calib_frames.py -q && uv run poe lint && (cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/ -q && uv run --frozen poe lint)"
-depends_on: [jetson-retirement-allowlist, calib-node-cgroup-tier-and-docs, rgbd-api-contract-node]
+depends_on: [jetson-retirement-allowlist, calib-node-cgroup-tier-and-d, rgbd-api-contract-node]
 owns: []
 uses: []
 model: sonnet
 estimate: 30
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-core-shared-decoders
+branch: head-rgb-d-calibration-in-th--calib-core-shared-decoders
 verified_head: ""
 run: ""
 provides: []
@@ -48,12 +48,12 @@ Signatures, schemas and contracts this task builds or must keep, with file:symbo
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The four decoders exist once, in the core frames module; the CLI and the node import them; all CLI and node tests pass.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write tests/test_head_rgbd_calib_core.py::test_core_decoders against the core module; run it and see the import fail.
+- Move the decoders, switch scripts/frames.py and capture.py to them, delete the node copies; run the verify command (all pass) and commit `refactor: one copy of the head RGB-D sensor_msgs decoders in the core`.
 
 ## Notes
 

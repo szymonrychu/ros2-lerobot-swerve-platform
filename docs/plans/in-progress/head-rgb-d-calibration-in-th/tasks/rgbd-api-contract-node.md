@@ -1,6 +1,6 @@
 ---
 title: RGBD API contract node
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Start, Stop and Apply work end to end: the node's responses match one documented contract pinned by JSON fixtures, and result.json carries its limits."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/app.py, nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py, nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py, nodes/head_rgbd_calibration/tests/test_app.py, nodes/head_rgbd_calibration/tests/test_compute.py, nodes/head_rgbd_calibration/tests/fixtures/api, nodes/head_rgbd_calibration/README.md, shared/ros2_common/head_rgbd_calibration/config.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-api-contract-node
+branch: head-rgb-d-calibration-in-th--rgbd-api-contract-node
 verified_head: ""
 run: ""
 provides: []
@@ -54,12 +54,12 @@ Signatures, schemas and contracts this task builds or must keep, with file:symbo
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Start, Stop, Apply and applied responses of the node match the documented contract and the JSON fixtures; result.json carries all limits including plane_max_bias_mm.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the fixtures and the failing tests (start/stop nested state, apply/applied fixtures, result limits, plane bias limit); run the verify command and see them fail.
+- Change app.py/apply.py/compute.py/config.py to the contract; update the node README; run the verify command (all pass) and commit `fix(head_rgbd_calibration): one API contract pinned by JSON fixtures`.
 
 ## Notes
 
