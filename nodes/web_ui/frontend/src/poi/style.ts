@@ -7,13 +7,13 @@ import { POI_STATUSES, POI_ZONES, ZONE_PCT_MAX, ZONE_PCT_MIN, type PoiZone } fro
 const DEFAULT_CONFIDENCE = 1
 
 /** Marker shapes: the one cue (besides zone colour) that tells POI kinds apart now that their hues are greyscale. */
-export type MarkerShape = 'circle' | 'square' | 'diamond' | 'triangle'
+export type MarkerShape = 'circle' | 'square' | 'diamond' | 'triangle' | 'hexagon'
 
 /** Shape of each POI kind on the map and in the legend; all distinct. */
-export const KIND_SHAPE: Record<PoiKind, MarkerShape> = { point: 'circle', area: 'square', object: 'diamond', photo: 'triangle' }
+export const KIND_SHAPE: Record<PoiKind, MarkerShape> = { point: 'circle', area: 'square', object: 'diamond', photo: 'triangle', marker: 'hexagon' }
 
 const CIRCLE_SEGMENTS = 40
-const SHAPE_SIDES: Record<MarkerShape, number> = { circle: CIRCLE_SEGMENTS, square: 4, diamond: 4, triangle: 3 }
+const SHAPE_SIDES: Record<MarkerShape, number> = { circle: CIRCLE_SEGMENTS, square: 4, diamond: 4, triangle: 3, hexagon: 6 }
 
 /**
  * Polygon sides of the filled marker mesh of a kind (a circle is a fine polygon).
@@ -31,6 +31,7 @@ export const SHAPE_CLIP: Record<MarkerShape, string> = {
   square: 'none',
   diamond: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)',
   triangle: 'polygon(50% 0, 100% 100%, 0 100%)',
+  hexagon: 'polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%)',
 }
 
 export { CREATOR_OUTLINE, KIND_COLORS, OBJECT_COLOR, STATUS_COLORS, ZONE_COLORS }
@@ -196,7 +197,7 @@ function isPoi(raw: unknown): raw is Poi {
   if (!raw || typeof raw !== 'object') return false
   const p = raw as Record<string, unknown>
   if (typeof p.id !== 'string' || !p.id) return false
-  if (p.kind !== 'point' && p.kind !== 'area' && p.kind !== 'object') return false
+  if (p.kind !== 'point' && p.kind !== 'area' && p.kind !== 'object' && p.kind !== 'marker') return false
   if (!isNum(p.x) || !isNum(p.y) || !isNum(p.radius_m) || !isNum(p.created_at) || !isNum(p.updated_at)) return false
   if (typeof p.name !== 'string' || typeof p.note !== 'string') return false
   if (!POI_STATUSES.includes(p.status as never) || (p.created_by !== 'agent' && p.created_by !== 'user')) return false
@@ -268,7 +269,28 @@ export function formatUpdated(updatedAt: number, now: number): string {
  */
 export function objectDetails(poi: Poi, now: number): string {
   const seen = poi.times_seen ?? 0
-  if (poi.kind !== 'object' || seen < 1) return ''
+  if ((poi.kind !== 'object' && poi.kind !== 'marker') || seen < 1) return ''
   const confidence = Math.round((poi.confidence ?? DEFAULT_CONFIDENCE) * 100)
   return `seen ${seen}x, last seen ${formatUpdated(poi.last_seen ?? poi.updated_at, now)}, confidence ${confidence}%`
+}
+
+/** Largest tilt of a marker's +z from the horizontal plane for which it still faces a direction, degrees (45 deg from vertical). */
+const FACING_MAX_TILT_DEG = 45
+
+/**
+ * Map yaw a marker faces: its +z axis (out of the printed face) projected on the floor.
+ * Same rule as mcp_server: null when +z is within 45 deg of vertical (a floor or ceiling marker).
+ *
+ * @param poi - POI
+ * @returns yaw in degrees (atan2(y, x), 0 = +x, 90 = +y), or null for a non-marker, a missing orientation or a flat marker
+ */
+export function facingYaw(poi: Poi): number | null {
+  if (poi.kind !== 'marker' || !poi.orientation) return null
+  const [x, y, z, w] = poi.orientation
+  const nx = 2 * (x * z + w * y)
+  const ny = 2 * (y * z - w * x)
+  const nz = 1 - 2 * (x * x + y * y)
+  const tilt = (Math.atan2(Math.hypot(nx, ny), Math.abs(nz)) * 180) / Math.PI
+  if (tilt < FACING_MAX_TILT_DEG) return null
+  return (Math.atan2(ny, nx) * 180) / Math.PI
 }

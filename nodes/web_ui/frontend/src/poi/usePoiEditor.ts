@@ -253,7 +253,8 @@ export function usePoiEditor(args: PoiEditorArgs): PoiEditor {
       e.stopPropagation() // the camera must not pan under a POI press
       const wasSelected = hit.id === selectedRef.current
       setSelectedId(hit.id)
-      if (wasSelected && topView) {
+      const movable = storeRef.current.find((q) => q.id === hit.id)?.kind !== 'marker' // the detector owns a marker's pose
+      if (wasSelected && topView && movable) {
         dragRef.current = startDrag(hit, at, screen(e))
         setDrag(dragRef.current)
       }

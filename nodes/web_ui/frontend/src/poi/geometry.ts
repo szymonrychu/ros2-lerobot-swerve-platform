@@ -128,7 +128,7 @@ export function hitTest(pois: Poi[], p: Vec2, tolerance: number, selectedId: str
   for (const q of pois) {
     if (!isPointLike(q.kind)) continue
     const d = distance(p, q)
-    const radius = q.kind === 'object' ? OBJECT_HIT_RADIUS_M : q.radius_m
+    const radius = q.kind === 'object' || q.kind === 'marker' ? OBJECT_HIT_RADIUS_M : q.radius_m
     if (d <= Math.max(radius, tolerance) && d < nearestDist) {
       nearest = q
       nearestDist = d
