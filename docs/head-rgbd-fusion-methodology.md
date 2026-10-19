@@ -47,6 +47,11 @@ so the ToF amplitude image shows the pattern, and gloss would cause specular sat
 
 ### Capture protocol
 
+On the robot the capture runs from the web UI Calibrate page (hamburger menu, Calibrate): a robot-side service reads the
+live topics, keeps the still poses in the state dir `/var/lib/ros2/head_rgbd_calibration` (sessions, then `applied/`)
+and computes and applies the result there; see `docs/runbooks/head-rgbd-fusion.md` steps 2-3. The bag capture below is
+the CLI path used for validation captures and offline calibration.
+
 `capture` records a rosbag on the client over ssh (`ros2 bag record` of `/tof/amplitude/image_raw`,
 `/tof/depth/image_raw`, `/tof/camera_info`, the mapping image and camera_info, `/tf`, `/tf_static`) and copies it to
 `.logs/head_rgbd/`. The operator holds the board still in 20-30 poses at 0.5-1.5 m, tilted up to 45 deg, covering the
