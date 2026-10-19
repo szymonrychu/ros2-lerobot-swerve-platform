@@ -15,7 +15,7 @@ DOCS = [
     REPO_ROOT / ".claude" / "skills" / "ansible-deploy" / "SKILL.md",
     REPO_ROOT / "nodes" / "README.md",
 ]
-METRICS_PORT = 19114
+METRICS_PORT = 19118
 METRICS_TARGET = {"node": "marker_detector", "address": f"127.0.0.1:{METRICS_PORT}", "path": "/metrics"}
 
 sys.path.insert(0, str(NODE_DIR))
@@ -51,7 +51,8 @@ def test_marker_detector_entry_after_poi_store_with_config() -> None:
     assert entry["node_type"] == "marker_detector" and entry["present"] and entry["enabled"]
     config = yaml.safe_load(entry["config"])
     assert config["metrics_port"] == METRICS_PORT
-    assert MarkerDetectorConfig(**config).model_dump() == MarkerDetectorConfig(**config).model_dump()
+    assert set(config) == set(MarkerDetectorConfig.model_fields)
+    MarkerDetectorConfig(**config)
 
 
 def test_metrics_target_for_marker_detector() -> None:

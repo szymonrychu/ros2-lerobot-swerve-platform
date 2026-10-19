@@ -27,7 +27,7 @@ CONFIG_METRICS_PORTS = {
     "poi_store": 19109,
     "map_guard": 19110,
     "costmap_zones": 19111,
-    "marker_detector": 19114,
+    "marker_detector": 19118,
     "arducam_tof": 19112,
     "map_manager": 19113,
     "base_servos": 19115,

@@ -478,7 +478,7 @@ estimate.
 | poi_store | 53.8 / 54.3 | 56M | 128M |
 | map_manager | sized like laser_filter (python node); no Mimir measurement available | 64M | 256M |
 | costmap_zones | not measured (initial values; re-measure in Mimir after 24 h) | 96M | 256M |
-| marker_detector | not measured (initial values; re-measure in Mimir after 24 h) | 128M | 512M |
+| marker_detector | sized from opencv + numpy at 2 Hz on 4608x2592 stills (~36 MB per BGR frame, a few live copies); no Mimir measurement available | 128M | 512M |
 | gripper_uvc_camera (`uvc_camera`) | 66.7 / 68.2 | 72M | 256M |
 | arducam_tof (disabled) | no data (estimate from uvc_camera plus the SDK and numpy; re-measure once enabled) | 64M | 192M |
 | head_camera_cpp | sized from the retired pi_cameras unit (94.6 / 95.6 MiB, camera_ros, one camera) | 128M | 384M |
@@ -727,7 +727,7 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 | `map_guard` | 19110 | `metrics_port` |
 | `map_guard_cpp` (live; `map_guard` is the disabled rollback, never both enabled) | 19110 | `metrics_port` |
 | `costmap_zones` | 19111 | `metrics_port` |
-| `marker_detector` | 19114 | `metrics_port` |
+| `marker_detector` | 19118 | `metrics_port` |
 | `arducam_tof` (disabled: add its target when enabling) | 19112 | `metrics_port` |
 | `web_ui` | 8080 | `http_port` (own server) |
 | `test_joint_api` | 18080 | `port` (own server) |

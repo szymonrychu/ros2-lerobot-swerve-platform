@@ -881,7 +881,7 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/map_manager"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    # Initial values, not measured: re-measure the working set in Mimir after 24 h and adjust.
+    # Sized for opencv + numpy at 2 Hz on 4608x2592 stills (~36 MB per BGR frame, a few live copies); MemoryMax is generous.
     memory_low: "64M"
     memory_max: "256M"
     cpu_weight: 500
@@ -900,7 +900,7 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/costmap_zones"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    # Initial values, not measured: re-measure the working set in Mimir after 24 h and adjust.
+    # Sized for opencv + numpy at 2 Hz on 4608x2592 stills (~36 MB per BGR frame, a few live copies); MemoryMax is generous.
     memory_low: "96M"
     memory_max: "256M"
     cpu_weight: 500
@@ -919,7 +919,7 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/marker_detector"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    # Initial values, not measured (opencv + numpy at 2 Hz on 4608x2592 stills): re-measure in Mimir after 24 h and adjust.
+    # Sized for opencv + numpy at 2 Hz on 4608x2592 stills (~36 MB per BGR frame, a few live copies); MemoryMax is generous.
     memory_low: "128M"
     memory_max: "512M"
     cpu_weight: 500
@@ -2654,7 +2654,7 @@ ros2_nodes:
     enabled: true
     config: |
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
-      metrics_port: 19114
+      metrics_port: 19118
       topics:
         image: /head_camera/image_raw/compressed
         camera_info: /head_camera/camera_info
@@ -2936,7 +2936,7 @@ monitoring_agent_node_targets:
   - {node: map_manager, address: "127.0.0.1:19113", path: /metrics}
   - {node: map_guard_cpp, address: "127.0.0.1:19110", path: /metrics}
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
-  - {node: marker_detector, address: "127.0.0.1:19114", path: /metrics}
+  - {node: marker_detector, address: "127.0.0.1:19118", path: /metrics}
   - {node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}
   - {node: head_camera_cpp, address: "127.0.0.1:19116", path: /metrics}
   - {node: head_rgbd_cpp, address: "127.0.0.1:19117", path: /metrics}

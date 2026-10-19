@@ -1781,11 +1781,11 @@ Static wiring invariants of the marker_detector node (Ansible node type, entry, 
 | Test | What it covers |
 |---|---|
 | `test_marker_detector_node_type_defaults` | Native `python3 -m marker_detector`, `nodes/marker_detector`, `src_shared`, memory 128M/512M, weights 500/500/-500, `config_path`, env `MARKER_DETECTOR_CONFIG`. |
-| `test_marker_detector_entry_after_poi_store_with_config` | Present + enabled entry after `poi_store`; config keys are exactly the `MarkerDetectorConfig` fields, validate against it, `metrics_port` 19114. |
-| `test_metrics_target_for_marker_detector` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19114/metrics`. |
+| `test_marker_detector_entry_after_poi_store_with_config` | Present + enabled entry after `poi_store`; config keys are exactly the `MarkerDetectorConfig` fields (no missing, no extra), validate against it, `metrics_port` 19118. |
+| `test_metrics_target_for_marker_detector` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19118/metrics`. |
 | `test_playbook_deploys_marker_detector_after_poi_store` | `deploy_nodes_client.yml` deploys it after `poi_store` with tags `marker_detector, apt, python, build, config`. |
 | `test_node_files_exist` | pyproject, uv.lock and README of the node exist. |
-| `test_docs_mention_marker_detector_and_port` | ansible/README.md (incl. port 19114 table), the ansible-deploy skill and nodes/README.md mention it. |
+| `test_docs_mention_marker_detector_and_port` | ansible/README.md (incl. port 19118 table), the ansible-deploy skill and nodes/README.md mention it. |
 
 ### test_mcp_camera_config.py
 
