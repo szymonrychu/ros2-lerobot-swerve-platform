@@ -7,7 +7,7 @@ import {
 
 const B = '/api/calibration/rgbd'
 const state = {
-  capture: { running: true, session_id: 's1', status: 'moving', pose_count: 2, started_at: 1, stops_at: 9 },
+  capture: { running: true, session_id: 's1', status: 'moving', pose_count: 2, started_at: '2026-01-01T00:00:00+00:00', stops_at: '2026-01-01T00:01:00+00:00' },
   compute: { running: false, session_id: null, result_id: null, started_at: null, error: null },
   applied: null,
 }
@@ -94,6 +94,16 @@ describe('rgbdApi calls', () => {
     const f = stub(200, result)
     expect(await getResult('s', 'r1')).toEqual({ ok: true, value: result })
     expect(f).toHaveBeenCalledWith(`${B}/sessions/s/results/r1`, { cache: 'no-store' })
+  })
+  it('getResult accepts a null report', async () => {
+    const noReport = { ...result, report: null }
+    stub(200, noReport)
+    expect(await getResult('s', 'r1')).toEqual({ ok: true, value: noReport })
+  })
+  it('getState accepts an iso compute started_at', async () => {
+    const st = { ...state, compute: { ...state.compute, running: true, started_at: '2026-01-01T00:00:00+00:00' } }
+    stub(200, st)
+    expect((await getState()).ok).toBe(true)
   })
   it('applyResult and getApplied', async () => {
     let f = stub(200, applied)

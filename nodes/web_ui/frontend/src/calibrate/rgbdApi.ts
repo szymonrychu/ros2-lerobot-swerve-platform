@@ -8,8 +8,8 @@ export interface CaptureState {
   session_id: string | null
   status: string
   pose_count: number
-  started_at: number | null
-  stops_at: number | null
+  started_at: string | null
+  stops_at: string | null
 }
 
 /** Compute job state of the calibration node. */
@@ -17,7 +17,7 @@ export interface ComputeState {
   running: boolean
   session_id: string | null
   result_id: string | null
-  started_at: number | null
+  started_at: string | null
   error: string | null
 }
 
@@ -73,7 +73,7 @@ export interface ResultSummary {
 }
 
 export interface ResultDetail extends ResultSummary {
-  report: string
+  report: string | null
 }
 
 export interface SessionDetail {
@@ -101,8 +101,8 @@ function isCapture(v: unknown): boolean {
     isNullOr(isStr)(v.session_id) &&
     isStr(v.status) &&
     isNum(v.pose_count) &&
-    isNullOr(isNum)(v.started_at) &&
-    isNullOr(isNum)(v.stops_at)
+    isNullOr(isStr)(v.started_at) &&
+    isNullOr(isStr)(v.stops_at)
   )
 }
 
@@ -112,7 +112,7 @@ function isCompute(v: unknown): boolean {
     typeof v.running === 'boolean' &&
     isNullOr(isStr)(v.session_id) &&
     isNullOr(isStr)(v.result_id) &&
-    isNullOr(isNum)(v.started_at) &&
+    isNullOr(isStr)(v.started_at) &&
     isNullOr(isStr)(v.error)
   )
 }
@@ -147,7 +147,7 @@ const isSession = (v: unknown) =>
   isCoverage(v.coverage.tof) &&
   isArrayOf(isResult)(v.results)
 
-const isResultDetail = (v: unknown) => isResult(v) && isStr((v as Record<string, unknown>).report)
+const isResultDetail = (v: unknown) => isResult(v) && isNullOr(isStr)((v as Record<string, unknown>).report)
 const isComputeStarted = (v: unknown) => isObj(v) && isStr(v.result_id)
 const isAnyObject = (v: unknown) => isObj(v)
 
