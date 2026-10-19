@@ -1,8 +1,8 @@
 # rtabmap_mapping
 
 Launch/config-only node (no Python package of its own) for RTAB-Map RGB-D 3D mapping on the server Pi 4b,
-aligned to slam_toolbox's `map`. This first version holds the cross-host topic contract; the server launch
-file and node-type wiring are added by the later tasks of the epic.
+aligned to slam_toolbox's `map`. It holds the cross-host topic contract (`config/map3d_topics.yaml`) and its
+pydantic loader (`map3d_topics.py`).
 
 `config/map3d_topics.yaml` is the single definition (design D2, D3) of every stream that crosses the WiFi link:
 source, destination, type, rate, QoS, transport, lazy flag, expected bytes per message and the server processes
@@ -55,4 +55,4 @@ Sum of bytes x rate x 8 / 1e6 per stream:
 - Downlink: cloud 1.5 MB x 0.1 Hz = 1.2 Mbit/s plus status, ceiling `downlink_mbit_s_max: 2.0`.
 - Raw 1152x648 bgr8 at 30 fps would be about 67 MB/s and never crosses the link.
 
-Sizes are estimates; the runbook replaces them with measured values through a later commit.
+Sizes are the design D3 estimates.

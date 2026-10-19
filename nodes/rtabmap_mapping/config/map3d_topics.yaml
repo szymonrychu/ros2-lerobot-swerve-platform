@@ -1,6 +1,6 @@
 # Single definition (design D2, D3) of every stream crossing the client <-> server WiFi link.
 # Read by the client map3d_uplink launch, the server rtabmap launch, map3d_manager and tests/test_map3d_topics.py.
-# budget_bytes are design D3 estimates; the runbook replaces them with measured values.
+# budget_bytes are design D3 estimates.
 # rate_hz null = pass every message; expected_rate_hz is then the budgeting rate.
 uplink:
   # head_rgbd_cpp exact-stamp pairs at the 2 Hz mapping rate, relayed unthrottled so a pair is never split (D5).
