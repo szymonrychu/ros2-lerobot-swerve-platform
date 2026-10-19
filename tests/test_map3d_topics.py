@@ -59,32 +59,32 @@ def test_unknown_keys_forbidden() -> None:
     doc = raw()
     doc["bogus"] = 1
     with pytest.raises(ValidationError, match="bogus"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
     doc = raw()
     doc["uplink"][0]["extra"] = 1
     with pytest.raises(ValidationError, match="extra"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_uplink_dest_prefix() -> None:
     doc = raw()
     uplink(doc, "/scan_filtered")["dest"] = "/scan_up"
     with pytest.raises(ValidationError, match="dest.*/uplink/"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_downlink_dest_prefix() -> None:
     doc = raw()
     doc["downlink"][0]["dest"] = "/cloud"
     with pytest.raises(ValidationError, match="dest.*/map3d/"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_dest_equals_source_rejected() -> None:
     doc = raw()
     doc["downlink"][1]["source"] = doc["downlink"][1]["dest"]
     with pytest.raises(ValidationError, match="dest.*source"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_dest_equals_other_stream_source_rejected() -> None:
@@ -92,14 +92,14 @@ def test_dest_equals_other_stream_source_rejected() -> None:
     doc["downlink"][0]["dest"] = "/map3d/command"
     doc["uplink"][-1]["source"] = "/map3d/command"
     with pytest.raises(ValidationError, match="dest.*source"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_dests_unique() -> None:
     doc = raw()
     uplink(doc, "/scan_filtered")["dest"] = uplink(doc, "/tf")["dest"]
     with pytest.raises(ValidationError, match="dest.*unique"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 @pytest.mark.parametrize("bad", [0, -1.0])
@@ -107,7 +107,7 @@ def test_rate_positive(bad: float) -> None:
     doc = raw()
     doc["downlink"][0]["rate_hz"] = bad
     with pytest.raises(ValidationError, match="rate_hz"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 @pytest.mark.parametrize("bad", [0, -5])
@@ -115,51 +115,53 @@ def test_budget_bytes_positive(bad: int) -> None:
     doc = raw()
     uplink(doc, "/scan_filtered")["budget_bytes"] = bad
     with pytest.raises(ValidationError, match="budget_bytes"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_null_rate_requires_expected_rate() -> None:
     doc = raw()
     del uplink(doc, "/scan_filtered")["expected_rate_hz"]
     with pytest.raises(ValidationError, match="expected_rate_hz"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_tf_static_must_be_transient_local() -> None:
     doc = raw()
     uplink(doc, "/tf_static")["qos"]["durability"] = "volatile"
     with pytest.raises(ValidationError, match="tf_static.*transient_local"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_large_stream_with_two_readers_rejected() -> None:
     doc = raw()
     uplink(doc, "/scan_filtered")["server_readers"] = ["rtabmap_mapping", "map3d_manager"]
     with pytest.raises(ValidationError, match="server_readers"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_small_stream_may_have_two_readers() -> None:
     topics = load_map3d_topics()
-    infos = [s for s in topics.uplink if s.source.endswith("camera_info")]
+    infos = {s.source: s for s in topics.uplink if s.source.endswith("camera_info")}
     assert len(infos) == 2
-    for s in infos:
+    for s in infos.values():
         assert s.small
-        assert set(s.server_readers) == {"rtabmap_mapping", "map3d_manager"}
+    assert set(infos["/head_rgbd/rgb/camera_info"].server_readers) == {"rtabmap_mapping", "map3d_manager"}
+    # rgbd_sync takes the intrinsics of the registered depth from the RGB camera_info (D5): only map3d_manager reads it.
+    assert infos["/head_rgbd/depth/camera_info"].server_readers == ["map3d_manager"]
 
 
 def test_small_flag_must_be_true_for_small_budget() -> None:
     doc = raw()
     uplink(doc, "/scan_filtered")["small"] = True
     with pytest.raises(ValidationError, match="small"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_every_uplink_has_a_reader() -> None:
     doc = raw()
     uplink(doc, "/scan_filtered")["server_readers"] = []
     with pytest.raises(ValidationError, match="server_readers"):
-        Map3dTopics.model_validate(doc)
+        Map3dTopics(**doc)
 
 
 def test_bandwidth_within_budget() -> None:

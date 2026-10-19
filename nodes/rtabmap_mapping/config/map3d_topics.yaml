@@ -44,7 +44,7 @@ uplink:
     transport: raw
     lazy: true
     budget_bytes: 400   # ~400 B CameraInfo (D3 estimate)
-    server_readers: [rtabmap_mapping, map3d_manager]
+    server_readers: [map3d_manager]   # rgbd_sync takes the registered depth's intrinsics from the RGB camera_info (D5)
     small: true
   - source: /scan_filtered
     dest: /uplink/scan_filtered
