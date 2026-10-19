@@ -303,3 +303,15 @@ def test_status_json_passed_through(subs: list[SimpleNamespace]) -> None:
     sub_of(subs, "/map3d/status").callback(SimpleNamespace(data='{"state": "mapping", "nodes": 3}'))
     node.serialize_pending(["/map3d/status"])
     assert node._latest["/map3d/status"]["data"] == {"state": "mapping", "nodes": 3}
+
+
+def test_result_burst_delivers_every_message_and_is_not_replayed(subs: list[SimpleNamespace]) -> None:
+    node = make_node()
+    node.update_demand({"/map3d/result"}, now=0.0)
+    callback = sub_of(subs, "/map3d/result").callback
+    callback(SimpleNamespace(data='{"request_id": "a", "ok": true}'))
+    callback(SimpleNamespace(data='{"request_id": "b", "ok": false}'))
+    envelopes = node.flush_dirty()
+    assert [e["data"]["request_id"] for e in envelopes if e["topic"] == "/map3d/result"] == ["a", "b"]
+    assert node.flush_dirty() == []
+    assert [e for e in node.latest_envelopes() if e["topic"] == "/map3d/result"] == []

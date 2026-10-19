@@ -351,6 +351,8 @@ class BridgeNode(Node):
 
     # Seconds after which the cached tilt guard state is marked stale (set from the config in __init__).
     _tilt_stale_s: float = TILT_STALE_S_DEFAULT
+    # Queued per-command results awaiting the next flush (replaced, never mutated, so the class default is safe).
+    _bursts: tuple[dict[str, Any], ...] = ()
 
     def __init__(
         self,
@@ -421,6 +423,7 @@ class BridgeNode(Node):
         self._tilt_stale_s = tilt_stale_s
         self._latest: dict[str, dict[str, Any]] = {}
         self._pending: dict[str, tuple[Any, Serializer, str | None]] = {}
+        self._bursts = ()
         self._dirty: set[str] = set()
         self._cleared: set[str] = set()
         self._lock = threading.Lock()
@@ -715,12 +718,33 @@ class BridgeNode(Node):
             if role == "gps":
                 self.store_eager(topic, serializer, role, msg)
                 return
+            if role == "map3d_result":
+                self.queue_burst(topic, serializer, role, msg)
+                return
             self.store_raw(topic, msg, serializer, role)
             if role == "map":
                 MAP_UPDATES.inc()
                 touch_map()
 
         return callback
+
+    def queue_burst(self, topic: str, serializer: Serializer, role: str | None, msg: Any) -> None:
+        """Serialize msg now and queue it for the next flush; every message is delivered, none is cached.
+
+        Used for per-command results: a burst inside one flush tick must not lose one, and a reconnecting client
+        must not be replayed a stale result.
+
+        Args:
+            topic (str): WS topic name.
+            serializer (Serializer): Converts msg into a JSON-serializable dict.
+            role (str | None): map_nav role of the topic.
+            msg (Any): ROS2 message.
+        """
+        data = self.serialize_message(topic, msg, serializer, role)
+        if data is None:
+            return
+        with self._lock:
+            self._bursts = (*self._bursts, {"topic": topic, "data": data})
 
     def store_raw(self, topic: str, msg: Any, serializer: Serializer, role: str | None) -> None:
         """Keep msg as the latest raw message of topic and mark it for serialization at the next flush.
@@ -1587,12 +1611,18 @@ class BridgeNode(Node):
             cleared = list(self._cleared)
             self._dirty.clear()
             self._cleared.clear()
+            if topics is None:
+                bursts, self._bursts = list(self._bursts), ()
+            else:
+                bursts = [e for e in self._bursts if e["topic"] in topics]
+                self._bursts = tuple(e for e in self._bursts if e["topic"] not in topics)
         if topics is not None:
             dirty = [t for t in dirty if t in topics]
         dropped = self.serialize_pending(dirty)
         with self._lock:
             envelopes = [self._latest[t] for t in dirty if t in self._latest and t not in dropped]
         envelopes.extend({"topic": t, "data": None} for t in cleared)
+        envelopes.extend(bursts)
         return envelopes
 
     def latest_envelopes(self, topics: Collection[str] | None = None, serialize: bool = True) -> list[dict[str, Any]]:

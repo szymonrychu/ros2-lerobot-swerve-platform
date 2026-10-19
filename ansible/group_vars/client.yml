@@ -713,7 +713,7 @@ ros2_node_type_defaults:
   # Map3d uplink (nodes/map3d_uplink/README.md): ONE component_container with a topic_tools throttle/relay or an
   # image_transport republisher per entry of the map3d topic contract (nodes/rtabmap_mapping/config/map3d_topics.yaml),
   # lazy, so nothing is carried or encoded while the server has no subscriber. The single static-peer process of the
-  # mapping streams (ansible/README.md "Cross-host"). Background tier; MemoryMax is an estimate until measured.
+  # mapping streams (ansible/README.md "Cross-host"). Background tier.
   map3d_uplink:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/map3d_uplink/launch/map3d_uplink.launch.py"

@@ -32,7 +32,7 @@ ros2 topic bw /uplink/head_rgbd/depth/image_raw/compressedDepth
 ros2 topic hz /uplink/scan_filtered
 ```
 
-Sum against the contract budget (`budget.uplink_mbit_s_max` / `downlink_mbit_s_max`). Client CPU cost: `top -H -p $(pgrep -f map3d_uplink)` or the Mimir process series. The unit's `memory_max` (256M) stays an estimate until the working set is measured.
+Sum against the contract budget (`budget.uplink_mbit_s_max` / `downlink_mbit_s_max`). Client CPU cost: `top -H -p $(pgrep -f map3d_uplink)` or the Mimir process series.
 
 ## Deploy
 
