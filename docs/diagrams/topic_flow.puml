@@ -78,6 +78,24 @@ participant "uvc_camera\n(Client)" as cam #64B5F6
 
 cam -> cam : /camera_0/image_compressed\n(sensor_msgs/CompressedImage)
 
+== 3D Mapping (RTAB-Map) ==
+
+participant "head_rgbd_cpp\n(Client)" as rgbd #64B5F6
+participant "map3d_uplink\n(Client)" as uplink #90CAF9
+participant "rtabmap_mapping\n(Server)" as rtabmap #A5D6A7
+participant "map3d_manager\n(Server)" as m3dman #A5D6A7
+participant "web_ui / mcp_server\n(Client)" as m3dview #90CAF9
+
+rgbd -> uplink : /head_rgbd/rgb/image_raw/compressed, /head_rgbd/depth/image_raw\n(+ camera_info, 2 Hz exact-stamp pairs)
+rplidar -> uplink : /scan_filtered (7 Hz), /tf, /tf_static\n(map3d_uplink: lazy relay, only while the server subscribes)
+uplink -> rtabmap : UPLINK /uplink/head_rgbd/rgb/...compressed\n/uplink/head_rgbd/depth/...compressedDepth\n/uplink/scan_filtered, /uplink/tf, /uplink/tf_static\n(DDS/WiFi, single static-peer process)
+m3dview -> uplink : /map3d/command (save, load, reset)
+uplink -> m3dman : /uplink/map3d/command, /uplink/map_guard/map_reset
+m3dman -> rtabmap : RTAB-Map Empty services (reset, backup)
+rtabmap -> uplink : DOWNLINK /rtabmap/cloud_map as /map3d/cloud (0.1 Hz)
+m3dman -> uplink : DOWNLINK /map3d/status, /map3d/result
+uplink -> m3dview : /map3d/cloud, /map3d/status, /map3d/result\n(3D view in web_ui, agent tools)
+
 == SteamDeck UI ==
 
 participant "steamdeck_ui bridge\n(Controller)" as ui_bridge #FFF176
