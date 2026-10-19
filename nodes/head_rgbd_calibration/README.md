@@ -147,9 +147,14 @@ the unit became active at or after `applied_at`. It is None when nothing is appl
   nothing subscribed, lens position source and failures, `Busy`, unknown session, a still board stored as a pose (raw
   JPEG, depth, camera_info), reopened session numbering, undecodable frames dropped, frames after stop ignored, a
   refused pose shown in the status, `decode_mono16` step and endianness, `state` polled while frames arrive.
-- `tests/conftest.py` - stub `rclpy`, `rclpy.qos`, `sensor_msgs`, `sensor_msgs.msg` modules for the dev environment.
+- `tests/conftest.py` - stub `rclpy`, `rclpy.qos`, `rclpy.executors`, `sensor_msgs`, `sensor_msgs.msg` modules for the dev environment.
 - `tests/pose_factory.py` - helper building poses from the core synthetic board renderer (not a test).
 - `tests/test_apply.py` - apply writes every file and applied.json last, failing result refused, os.replace failure keeps the previous marker, restart flags from a fake systemctl, zip members.
 - `tests/test_compute.py` - synthetic session through the store: passing result and files, limits exceeded, too few
   poses, missing ToF camera_info, `tof_joint.json` agrees with `head.urdf`, `main`.
 - `tests/test_jobs.py` - command and niceness, busy, timeout, stderr tail, unknown session (fake child commands).
+- `tests/test_app.py` - every route with a fake capture, a fake job and a tmp store: error body shape, 404/409/400/422
+  mapping, capture/compute mutual refusal, min_views refusal, coverage, thumbnails `image/jpeg`, zip headers, apply,
+  `/api/state` without systemctl, `/api/applied` units.
+- `tests/test_main.py` - bind host and port from the config (loopback by default), shutdown stops capture and job and
+  destroys the node, missing config env gives exit 78.

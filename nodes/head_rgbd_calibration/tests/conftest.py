@@ -1,6 +1,7 @@
 """Shared pytest setup: stub ROS 2 modules that are not installed in the dev environment.
 
-The stubs only stand in for what capture.py imports: rclpy.qos QoSProfile and its policy enums, and the
+The stubs only stand in for what capture.py and __main__.py import: rclpy.qos QoSProfile and its policy enums,
+rclpy.executors.MultiThreadedExecutor, and the
 sensor_msgs.msg message classes. QoSProfile records its keyword arguments so tests can assert the QoS.
 """
 
@@ -9,7 +10,7 @@ import sys
 import types
 from typing import Any
 
-ROS2_MODULES = ("rclpy", "rclpy.qos", "sensor_msgs", "sensor_msgs.msg")
+ROS2_MODULES = ("rclpy", "rclpy.qos", "rclpy.executors", "sensor_msgs", "sensor_msgs.msg")
 
 
 class ReliabilityPolicy(enum.Enum):
@@ -31,6 +32,10 @@ class QoSProfile:
 
     def __init__(self, **kwargs: Any) -> None:
         self.__dict__.update(kwargs)
+
+
+class MultiThreadedExecutor:
+    """Stand-in for rclpy.executors.MultiThreadedExecutor (type marker only)."""
 
 
 class Image:
@@ -58,6 +63,9 @@ def install_ros2_stubs() -> None:
     }.items():
         if not hasattr(qos, name):
             setattr(qos, name, value)
+    executors = sys.modules["rclpy.executors"]
+    if not hasattr(executors, "MultiThreadedExecutor"):
+        executors.MultiThreadedExecutor = MultiThreadedExecutor
     msg = sys.modules["sensor_msgs.msg"]
     for cls in (Image, CompressedImage, CameraInfo):
         if not hasattr(msg, cls.__name__):
