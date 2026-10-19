@@ -59,8 +59,8 @@ ros2_node_type_defaults:
   # RTAB-Map RGB-D mapping (nodes/rtabmap_mapping/README.md): one component_container with the rgbd_sync and rtabmap
   # nodes fed over WiFi by the client's map3d_uplink; the database lives in /var/lib/ros2/rtabmap
   # (playbooks/tasks/rtabmap_db_dir.yml). Server rule: quota and cap, no tier keys. The monitoring stack may take up to
-  # 2.2 GB / 150 % CPU, so 900M leaves room for lerobot_leader, gps_rtk_base, ros2-master and map3d_manager; the runbook
-  # measures and sets the final caps. No ROS_STATIC_PEERS (only the client uplink bridges the hosts).
+  # 2.2 GB / 150 % CPU, so the 200 % quota and 900M cap leave room for lerobot_leader, gps_rtk_base, ros2-master and
+  # map3d_manager. No ROS_STATIC_PEERS (only the client uplink bridges the hosts).
   rtabmap_mapping:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/rtabmap_mapping/launch/rtabmap_mapping.launch.py"
