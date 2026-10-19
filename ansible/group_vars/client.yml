@@ -1472,6 +1472,7 @@ ros2_nodes:
         tof_max_rms_px: 0.3
         stereo_max_rms_px: 1.0
         tof_zero_distortion_rms_px: 0.3
+        plane_max_bias_mm: 15.0
         min_views: 12
   # Carries the head RGB-D, scan, TF and command streams to the server and the 3D map back (lazy, throttled).
   - name: map3d_uplink

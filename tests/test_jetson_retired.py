@@ -801,6 +801,11 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         "rgbd-calibration",
     ),
     (
+        "nodes/head_rgbd_calibration/tests/fixtures/api/result.json",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
         "nodes/web_ui/frontend/src/calibrate/RgbdResults.test.tsx",
         r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",

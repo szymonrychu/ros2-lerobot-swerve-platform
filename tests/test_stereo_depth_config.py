@@ -92,6 +92,7 @@ def test_background_tier_has_no_stereo_type() -> None:
     background = [n for n, t in types.items() if (t.get("cpu_weight"), t.get("io_weight")) == (100, 100)]
     assert sorted(background) == [
         "head_camera_cpp",
+        "head_rgbd_calibration",
         "head_rgbd_cpp",
         "joint_state_throttle_follower",
         "joint_state_throttle_swerve",
