@@ -149,6 +149,22 @@
             _deploy_node_name: gps_rtk_base
           tags: [gps_rtk_base, apt, python, build, config]
 
+        - name: RTAB-Map database directory
+          ansible.builtin.include_tasks:
+            file: tasks/rtabmap_db_dir.yml
+            apply:
+              tags: [rtabmap_mapping]
+          tags: [setup, rtabmap_mapping]
+
+        - name: Deploy rtabmap_mapping
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [rtabmap_mapping]
+          vars:
+            _deploy_node_name: rtabmap_mapping
+          tags: [rtabmap_mapping, apt, python, build, config]
+
         # Not ROS nodes: only `./scripts/deploy-nodes.sh server monitoring` (--tags monitoring) or an untagged run
         # (--all without --tags) installs them; node and phase tags never pull them in. Order: the agent installs
         # monitoring.slice (and Alloy), nginx fronts Grafana, then the stack, whose readiness check goes through nginx.

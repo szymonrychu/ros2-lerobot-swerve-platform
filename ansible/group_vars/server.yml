@@ -56,6 +56,33 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/gps_rtk
     env:
       - GPS_RTK_CONFIG=/etc/ros2/gps_rtk/config.yaml
+  # RTAB-Map RGB-D mapping (nodes/rtabmap_mapping/README.md): one component_container with the rgbd_sync and rtabmap
+  # nodes fed over WiFi by the client's map3d_uplink; the database lives in /var/lib/ros2/rtabmap
+  # (playbooks/tasks/rtabmap_db_dir.yml). Server rule: quota and cap, no tier keys. The monitoring stack may take up to
+  # 2.2 GB / 150 % CPU, so the 200 % quota and 900M cap leave room for lerobot_leader, gps_rtk_base, ros2-master and
+  # map3d_manager. No ROS_STATIC_PEERS (only the client uplink bridges the hosts).
+  rtabmap_mapping:
+    deploy_mode: native
+    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/rtabmap_mapping/launch/rtabmap_mapping.launch.py"
+    node_src_dir: ""
+    # The launch file and its config/contract yaml; a change restarts the node.
+    src_paths: [nodes/rtabmap_mapping]
+    # Individual packages, never ros-jazzy-rtabmap-ros (pulls rtabmap-viz and Qt) or ros-jazzy-rtabmap-viz.
+    apt_packages:
+      - ros-jazzy-rtabmap-slam
+      - ros-jazzy-rtabmap-sync
+      - ros-jazzy-rtabmap-util
+      - ros-jazzy-rtabmap-msgs
+      - ros-jazzy-rtabmap-conversions
+      - ros-jazzy-image-transport-plugins
+      - ros-jazzy-rclcpp-components
+      - python3-pydantic
+      - python3-yaml
+    cpu_quota: "200%"
+    memory_max: "900M"
+    config_path: /etc/ros2/rtabmap_mapping
+    env:
+      - RTABMAP_MAPPING_CONFIG=/etc/ros2/rtabmap_mapping/config.yaml
 
 # Nodes to deploy: name, node_type, present, enabled, config.
 ros2_nodes:
@@ -132,6 +159,21 @@ ros2_nodes:
       ntrip_mountpoint: /rtk
       ntrip_user: ""
       ntrip_password: ""
+  - name: rtabmap_mapping
+    node_type: rtabmap_mapping
+    present: true
+    enabled: true
+    # No config block: the defaults of nodes/rtabmap_mapping/config/rtabmap_params.yaml apply. Overrides are merged key
+    # by key on top; tunable keys (RTAB-Map core parameters are strings):
+    # config: |
+    #   database_dir: /var/lib/ros2/rtabmap
+    #   rtabmap:
+    #     ros__parameters:
+    #       Mem/STMSize: "10"
+    #       Mem/ImagePreDecimation: "2"
+    #       Rtabmap/DetectionRate: "1"
+    #       Grid/CellSize: "0.05"
+    #       Grid/RangeMax: "4.0"
 
 # ---- monitoring (roles/monitoring_agent + roles/web_proxy + roles/monitoring; deploy-nodes.sh server monitoring) -----
 # The server stores everything: Mimir (metrics, 1 d), Loki (logs, 1 d) and Grafana at http://server.ros2.lan/grafana/.
