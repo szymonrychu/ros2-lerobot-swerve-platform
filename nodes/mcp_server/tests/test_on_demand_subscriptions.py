@@ -10,6 +10,7 @@ and its client.yml value.
 """
 
 import json
+import struct
 import threading
 import time
 from pathlib import Path
@@ -358,3 +359,47 @@ def test_client_yml_sets_the_linger() -> None:
     deployed = yaml.safe_load(node["config"])
     assert deployed["on_demand"]["linger_s"] == McpServerConfig.model_validate(deployed).on_demand.linger_s
     assert deployed["on_demand"]["linger_s"] > 0
+
+
+def cloud_msg(sec: int = 5) -> SimpleNamespace:
+    """A one-point PointCloud2-like message (x, y, z float32) in frame rtabmap_map."""
+    return SimpleNamespace(
+        header=SimpleNamespace(frame_id="rtabmap_map", stamp=SimpleNamespace(sec=sec, nanosec=0)),
+        fields=[SimpleNamespace(name=n, offset=4 * i) for i, n in enumerate("xyz")],
+        point_step=12,
+        width=1,
+        height=1,
+        is_bigendian=False,
+        data=struct.pack("<fff", 1.0, 2.0, 0.5),
+    )
+
+
+def test_map3d_topics_are_subscribed_only_on_the_first_use_and_reaped(rig: Rig) -> None:
+    assert "/map3d/cloud" not in rig.topics() and "/map3d/status" not in rig.topics()
+    start = rig.clock[0]
+    assert rig.robot.map3d_cloud() is None  # nothing published: bounded wait, no placeholder
+    waited = rig.clock[0] - start
+    window = rig.robot.cfg.map3d.cloud_wait_s
+    assert window <= waited < window + 0.2
+    assert rig.topics().count("/map3d/cloud") == 1 and rig.topics().count("/map3d/status") == 1
+    callback, sub = rig.latest("/map3d/cloud")
+    callback(cloud_msg())
+    cloud = rig.robot.map3d_cloud()
+    assert cloud is not None and cloud.xyz.tolist() == [[1.0, 2.0, 0.5]] and cloud.stamp_s == 5.0
+    assert rig.robot.map3d_cloud() is cloud  # decoded once per stamp
+    status_cb, _ = rig.latest("/map3d/status")
+    status_cb(SimpleNamespace(data='{"state": "mapping"}'))
+    assert rig.robot.map3d_status() == {"state": "mapping"}
+    rig.clock[0] += rig.robot.cfg.on_demand.linger_s + 1.0
+    rig.robot.reap_on_demand()
+    assert {"/map3d/cloud", "/map3d/status"} <= rig.destroyed_topics()
+    assert "map3d_cloud" not in rig.robot.latest
+
+
+def test_map3d_status_that_is_not_a_json_object_is_none(rig: Rig) -> None:
+    rig.robot.map3d_status()
+    status_cb, _ = rig.latest("/map3d/status")
+    status_cb(SimpleNamespace(data="[1, 2]"))
+    assert rig.robot.map3d_status() is None
+    status_cb(SimpleNamespace(data="nope"))
+    assert rig.robot.map3d_status() is None
