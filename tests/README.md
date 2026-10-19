@@ -1857,6 +1857,8 @@ fake `ssh`; no ROS needed).
 | `test_reach_map_artifact_grid_equals_configured_grid` | The artifact's meta grid (steps, radius and height counts, planar samples, samples per cell) equals client.yml's `reach_map:` block. |
 | `test_reach_map_block_is_explicit_and_default_file` | client.yml spells out every `reach_map` grid field (no `file` override) and names `scripts/gen_reach_map.py`. |
 | `test_gen_reach_map_check_passes_on_committed_artifact` | `scripts/gen_reach_map.py --check` exits 0 for the committed artifact. |
+| `test_mcp_server_map3d_topics_match_the_topic_contract` | client.yml `topics.map3d_cloud` / `topics.map3d_status` equal the downlink dests of the map3d topic contract and the `map3d:` block spells out the defaults with `frame_id` equal to the contract's `map3d_frame`. |
+| `test_mcp_server_readme_documents_map3d_tools` | The mcp_server README tool table has rows for `get_3d_map_status`, `query_3d_map_at` and `get_3d_free_space` and a `## 3D map` section (cloud topic, refresh period, measured vs lidar-only, unknown). |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_mcp_server_config.py` is listed in this section. |
 
 ### test_battery_config.py

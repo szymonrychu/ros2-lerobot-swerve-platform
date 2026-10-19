@@ -179,6 +179,7 @@ def test_mcp_server_node_entry_and_config() -> None:
     assert set(cfg) <= {
         "server",
         "frontiers",
+        "map3d",
         "exploration",
         "maps",
         "grasp_check",
@@ -457,6 +458,36 @@ def test_mcp_server_readme_documents_perception_tools() -> None:
         assert tool in text, tool
     for needle in (OBJECTS_FILE, "robot-up", "layers_missing", "look_around", "MOTION_TOOLS"):
         assert needle in text, needle
+
+
+def test_mcp_server_map3d_topics_match_the_topic_contract() -> None:
+    """The mcp_server map3d topics are the contract's downlink dests; the map3d block follows the contract frame."""
+    sys.path.insert(0, str(REPO_ROOT / "nodes" / "rtabmap_mapping"))
+    from map3d_topics import load_map3d_topics
+
+    contract = load_map3d_topics()
+    dests = {s.dest for s in contract.downlink}
+    cfg = node_config("mcp_server")
+    assert cfg["topics"]["map3d_cloud"] == "/map3d/cloud" in dests
+    assert cfg["topics"]["map3d_status"] == "/map3d/status" in dests
+    assert cfg["map3d"]["frame_id"] == contract.frames.map3d_frame
+    assert cfg["map3d"] == {
+        "frame_id": "rtabmap_map",
+        "voxel_m": 0.05,
+        "lidar_plane_height_m": 0.20,
+        "robot_height_m": 0.55,
+        "max_age_s": 120.0,
+        "cloud_wait_s": 12.0,
+    }
+
+
+def test_mcp_server_readme_documents_map3d_tools() -> None:
+    text = (NODE_DIR / "README.md").read_text()
+    for tool in ("get_3d_map_status", "query_3d_map_at", "get_3d_free_space"):
+        assert re.search(rf"^\| `{tool}[`(]", text, re.MULTILINE), tool
+    section = text.split("\n## 3D map\n", 1)[1].split("\n## ", 1)[0]
+    for needle in ("/map3d/cloud", "10 s", "lidar_2d", "unknown", "map3d:"):
+        assert needle in section, needle
 
 
 def test_mcp_server_readme_documents_monitor_and_events_contract() -> None:
