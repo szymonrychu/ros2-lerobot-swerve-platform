@@ -1,0 +1,8 @@
+[
+  {
+    "task": "calib-node-scaffold-config",
+    "accept": true,
+    "reason": "verifier crashed on --prev-head unknown (tooling); orchestrator re-ran the task verify on HEAD 52434e47: 16 passed, lint clean, 14 passed (ci_workflow, node_lint_coverage), clean tree",
+    "at": "2026-10-19T21:05:39Z"
+  }
+]

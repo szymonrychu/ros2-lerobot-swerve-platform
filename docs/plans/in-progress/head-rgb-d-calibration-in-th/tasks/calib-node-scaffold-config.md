@@ -1,6 +1,6 @@
 ---
 title: Calib node scaffold config
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The robot-side calibration node exists as a linted, tested uv project with a validated config."
 files: [nodes/head_rgbd_calibration/pyproject.toml, nodes/head_rgbd_calibration/uv.lock, nodes/head_rgbd_calibration/head_rgbd_calibration/__init__.py, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, nodes/head_rgbd_calibration/tests/test_config.py, pyproject.toml, .github/workflows/ci.yml]
@@ -67,6 +67,10 @@ Create the robot-side calibration node `head_rgbd_calibration` as a uv project w
 - Write `tests/test_config.py`; `uv run --frozen pytest tests/test_config.py -q`: red.
 - Write `pyproject.toml`, `uv lock`, `config.py`, the shipped yaml; add the node to root `lint-nodes` and the CI matrix.
 - Run the verify command: all pass, lint clean.
+
+## Ruling
+
+- 2026-10-19 accepted: verifier crashed on --prev-head unknown (tooling); orchestrator re-ran the task verify on HEAD 52434e47: 16 passed, lint clean, 14 passed (ci_workflow, node_lint_coverage), clean tree
 
 ## Notes
 
