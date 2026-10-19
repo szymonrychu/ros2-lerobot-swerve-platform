@@ -47,6 +47,8 @@ Signatures, schemas and contracts this task builds or must keep, with file:symbo
 
 What is true and observable when the task is done.
 
+tests/test_jetson_retired.py passes in full on the integrated epic branch; the allowlist names the moved calibration files instead of the deleted scripts paths.
+
 ## Steps
 
 Test first. One step per bullet, with the exact command and the output to expect.

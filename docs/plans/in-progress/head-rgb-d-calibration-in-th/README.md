@@ -38,7 +38,7 @@ From the page the operator starts a capture session, moves the ChArUco board thr
 
 ## Time
 
-Estimate: 1235 min | Actual: 0 min | Remaining estimate: 895 min
+Estimate: 1235 min | Actual: 0 min | Remaining estimate: 845 min
 
 ## Review
 
