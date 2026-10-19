@@ -111,7 +111,9 @@ Output goes to `sessions/<sid>/results/<rid>/`, written under `.tmp-<rid>` and r
 | `tof_joint.json` | `{xyz, rpy, note}` of the head URDF `tof_joint` |
 | `head.urdf` | `cfg.head_urdf_file` with that `tof_joint` rewritten (the checkout is never written) |
 | `report.md` | Run report |
-| `result.json` | `id, session, created, passed, failed_limits, rgb_rms_px, tof_rms_px, stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids` (plus `error` on failure) |
+| `result.json` | `id, session, created, passed, failed_limits, rgb_rms_px, tof_rms_px, stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids, limits` (plus `error` on failure) |
+| `limits` | every acceptance limit that judged the result: `rgb_max_rms_px, tof_max_rms_px, stereo_max_rms_px, tof_zero_distortion_rms_px, plane_max_bias_mm, min_views`; a result fails when the absolute median plane depth bias exceeds `plane_max_bias_mm` (15 mm) |
+| `limits` in `result.json` | every acceptance limit that judged the result: `rgb_max_rms_px, tof_max_rms_px, stereo_max_rms_px, tof_zero_distortion_rms_px, plane_max_bias_mm, min_views` |
 
 A run over the limits has `passed: false`, `failed_limits`, and only `report.md` + `result.json`. A core `ValueError`
 (too few views, no ToF camera_info) or an unreadable URDF writes only `result.json` with `passed: false` and `error`,
@@ -141,8 +143,8 @@ malformed ids give 404, busy or not-applicable give 409.
 | Route | Purpose |
 |---|---|
 | `GET /api/state` | capture status, compute status and `applied.json` (null when nothing applied; no systemctl call) |
-| `POST /api/capture/start` | start capture (body optional `session_id`); 409 while compute runs |
-| `POST /api/capture/stop` | stop capture |
+| `POST /api/capture/start` | start capture (body optional `session_id`); answers the `GET /api/state` body; 409 while compute runs |
+| `POST /api/capture/stop` | stop capture; answers the `GET /api/state` body |
 | `GET /api/sessions` | list sessions |
 | `GET /api/sessions/{sid}` | session detail with poses, results and `coverage` |
 | `DELETE /api/sessions/{sid}/poses/{pid}` | delete one pose |
@@ -150,8 +152,22 @@ malformed ids give 404, busy or not-applicable give 409.
 | `POST /api/sessions/{sid}/compute` | start compute (202 `{result_id}`); 409 while capture runs or fewer than `limits.min_views` poses |
 | `GET /api/sessions/{sid}/results/{rid}` | result with report |
 | `GET /api/sessions/{sid}/results/{rid}/download` | `application/zip`, attachment `<sid>-<rid>.zip` |
-| `POST /api/sessions/{sid}/results/{rid}/apply` | apply a passed result; 409 if it did not pass or compute runs |
+| `POST /api/sessions/{sid}/results/{rid}/apply` | apply a passed result; answers the applied record plus `units`, the same body as `GET /api/applied`; 409 if it did not pass or compute runs |
 | `GET /api/applied` | applied info plus per-unit restart state; 404 when nothing applied |
+
+### Response contract
+
+One body shape per route, pinned by the literal JSON examples in `tests/fixtures/api/` (`state.json`,
+`capture_start.json`, `capture_stop.json`, `apply.json`, `applied.json`, `result.json`); `tests/contract.py` checks
+that real responses have exactly the fixture's keys and value types.
+
+- State (`GET /api/state`, `POST /api/capture/start`, `POST /api/capture/stop`): `{capture, compute, applied}`.
+  `capture` is `{running, session_id, status, pose_count, started_at, stops_at}`, `compute` is
+  `{running, session_id, result_id, started_at, error}`, `applied` is the applied record or null.
+- Applied record (`applied.json`, embedded in every response): `{session, result, applied_at, files}`. The keys are
+  `session` and `result` everywhere, not `session_id`/`result_id`.
+- Apply and `GET /api/applied`: the applied record plus `units`, a list of `{name, active_state, restarted}`.
+- Result: the `result.json` fields plus `report` (markdown or null).
 
 ## Process
 

@@ -17,6 +17,7 @@ from ros2_common.head_rgbd_calibration.urdf_handoff import read_chain
 from head_rgbd_calibration.compute import compute_result, main
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import SessionStore
+from tests.contract import assert_matches_fixture
 from tests.pose_factory import BOARD_CFG, RGB_STAMP_NS, SELECTION, TOF_STAMP_NS, load_synthetic
 
 NOW = datetime(2026, 10, 19, 12, 30, 45)
@@ -110,6 +111,8 @@ def test_passing_session_writes_all_result_files(store: SessionStore, cfg: NodeC
     assert result["rgb_views"] == POSES and result["tof_views"] == POSES and result["stereo_pairs"] == POSES
     for key in ("rgb_rms_px", "tof_rms_px", "stereo_rms_px", "plane_bias_mm"):
         assert isinstance(result[key], float)
+    assert_matches_fixture({**result, "report": (out / "report.md").read_text()}, "result")
+    assert result["limits"] == cfg.limits.model_dump() and result["limits"]["plane_max_bias_mm"] == 15.0
     assert yaml.safe_load((out / "head_camera_calibration.yaml").read_text())["camera_name"] == "head_camera"
     assert yaml.safe_load((out / "tof_calibration.yaml").read_text())["camera_name"] == "tof"
     meta = yaml.safe_load((out / "head_rgbd_extrinsics.yaml").read_text())
@@ -144,10 +147,21 @@ def test_limits_exceeded_marks_not_passed(tmp_path: Path) -> None:
     assert not list(out.glob("*.yaml"))
 
 
+def test_plane_bias_over_limit_marks_not_passed(tmp_path: Path) -> None:
+    cfg = make_cfg(tmp_path, plane_max_bias_mm=1e-6)
+    store = SessionStore(Path(cfg.state_dir), cfg)
+    sid = make_session(store, POSES)
+    result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
+    assert result["passed"] is False
+    assert any("limits.plane_max_bias_mm" in f for f in result["failed_limits"])
+    assert result["limits"]["plane_max_bias_mm"] == 1e-6
+
+
 def test_too_few_poses_reports_error(store: SessionStore, cfg: NodeConfig) -> None:
     sid = make_session(store, 3)
     rid = store.new_result_id(NOW)
     result = compute_result(store, sid, rid, cfg, NOW)
+    assert result["limits"] == cfg.limits.model_dump()
     out = store.result_dir(sid, rid)
     assert result["passed"] is False and result["error"]
     assert [p.name for p in out.iterdir()] == ["result.json"]
