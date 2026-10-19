@@ -187,6 +187,8 @@ The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subproc
 
 - `config`: `StrictModel` (pydantic, unknown keys rejected) and the `BoardConfig`, `SelectionConfig`, `LimitsConfig` settings.
 - `charuco`: `make_board`, `detect` and `Detection` (ChArUco detection for the RGB image and the normalised ToF amplitude).
+- `frames`: `FrameSet`, `StampedImage`, `CameraInfoData`, `FramePair`, `normalise_amplitude`, `rgb_difference` (stillness measure with mains flicker removed), `tof_diff_fraction` and `still_pairs` (one RGB and ToF pair per still window).
+- `intrinsics`: `calibrate`, `calibrate_tof`, `compare_sdk`, `IntrinsicsResult` and `write_camera_calibration_yaml` (camera intrinsics from ChArUco detections).
 
 Imported by the calibration CLI under `scripts/head_rgbd_calibration/` and by the head_rgbd_calibration node.
 

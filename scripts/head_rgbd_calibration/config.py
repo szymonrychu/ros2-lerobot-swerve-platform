@@ -5,7 +5,6 @@ from typing import Self
 
 import yaml
 from pydantic import Field, model_validator
-
 from ros2_common.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig, StrictModel
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "head_rgbd_calibrate.yaml"
