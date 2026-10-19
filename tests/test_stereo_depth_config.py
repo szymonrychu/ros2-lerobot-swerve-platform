@@ -95,6 +95,7 @@ def test_background_tier_has_no_stereo_type() -> None:
         "head_rgbd_cpp",
         "joint_state_throttle_follower",
         "joint_state_throttle_swerve",
+        "map3d_uplink",
     ]
 
 

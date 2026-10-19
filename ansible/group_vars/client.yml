@@ -2822,6 +2822,9 @@ ros2_nodes:
         - solve_camera_calibration
         - clear_calibration_samples
         - get_topdown_view
+        - get_3d_map_status
+        - query_3d_map_at
+        - get_3d_free_space
         - remember_object
         - list_objects
         - forget_object
