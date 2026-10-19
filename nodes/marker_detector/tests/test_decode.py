@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from ros2_common.marker_payload import decode_payload
 
-from marker_detector.decode import decode_frame, find_undecoded
+from marker_detector.decode import decode_frame, find_undecoded, order_corners
 from marker_detector.synthetic import (
     STREAM_K,
     STREAM_SIZE,
@@ -43,6 +43,19 @@ def test_roll_keeps_corner_order_tied_to_symbol(roll):
     candidates, _ = decode_frame(scene([PAYLOAD], [150.0], [pose]))
     assert len(candidates) == 1
     assert np.abs(candidates[0].corners - truth(150.0, pose)).max() < 1.0
+
+
+@pytest.mark.parametrize("roll", [0, 90, 180, 270])
+@pytest.mark.parametrize("shift", [1, 2, 3])
+def test_order_corners_restores_symbol_order_from_shifted_start(roll, shift):
+    pose = pose_facing(1.0, roll_deg=roll)
+    grey = scene([PAYLOAD], [150.0], [pose])
+    candidates, _ = decode_frame(grey)
+    expected = truth(150.0, pose)
+    modules = 21 + 4 * (candidates[0].version - 1)
+    shifted = np.roll(expected, -shift, axis=0)
+    restored = order_corners(grey, shifted, modules)
+    assert np.abs(restored - expected).max() < 1.0
 
 
 def test_two_markers_give_two_candidates():
