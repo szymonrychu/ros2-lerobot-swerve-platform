@@ -53,6 +53,7 @@ limits:
   tof_max_rms_px: 0.3
   stereo_max_rms_px: 1.0
   tof_zero_distortion_rms_px: 0.3
+  plane_max_bias_mm: 15.0 # |median board plane depth bias|
   min_views: 12
 outputs:
   rgb_calibration: nodes/head_camera_cpp/config/head_camera_calibration.yaml
