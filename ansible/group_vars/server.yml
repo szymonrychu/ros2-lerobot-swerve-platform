@@ -83,6 +83,50 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/rtabmap_mapping
     env:
       - RTABMAP_MAPPING_CONFIG=/etc/ros2/rtabmap_mapping/config.yaml
+  # 3D map manager (nodes/map3d_manager_cpp/README.md): save/load/reset commands for the RTAB-Map database, alignment
+  # check against slam_toolbox's map, status and result topics. In-repo C++ built as colcon local sources into
+  # /opt/ros2-ws (ros2_common_cpp first); the build uses only all.yml and role variables, no client-only ones.
+  # Server rule: quota and cap, no tier keys.
+  map3d_manager_cpp:
+    deploy_mode: native
+    node_launch_command: "ros2 run map3d_manager_cpp map3d_manager_node"
+    node_src_dir: ""
+    # Runs no repo file (the binary is in /opt/ros2-ws/install): the build stamp restarts it when its source changes.
+    src_paths: []
+    colcon_source:
+      - local: shared/ros2_common_cpp
+        package: ros2_common_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [libyaml-cpp-dev, prometheus-cpp-dev]
+      - local: nodes/map3d_manager_cpp
+        package: map3d_manager_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [ros-jazzy-rclcpp, ros-jazzy-rtabmap-msgs, nlohmann-json3-dev, libyaml-cpp-dev]
+    apt_packages:
+      - build-essential
+      - cmake
+      - rsync
+      - python3-colcon-common-extensions
+      - ros-jazzy-ament-cmake
+      - ros-jazzy-rclcpp
+      - ros-jazzy-std-msgs
+      - ros-jazzy-std-srvs
+      - ros-jazzy-sensor-msgs
+      - ros-jazzy-rtabmap-msgs
+      - nlohmann-json3-dev
+      - libyaml-cpp-dev
+      - prometheus-cpp-dev
+    cpu_quota: "20%"
+    memory_max: "128M"
+    config_path: /etc/ros2/map3d_manager
+    env:
+      - MAP3D_MANAGER_CONFIG=/etc/ros2/map3d_manager/config.yaml
 
 # Nodes to deploy: name, node_type, present, enabled, config.
 ros2_nodes:
@@ -174,6 +218,12 @@ ros2_nodes:
     #       Rtabmap/DetectionRate: "1"
     #       Grid/CellSize: "0.05"
     #       Grid/RangeMax: "4.0"
+  - name: map3d_manager
+    node_type: map3d_manager_cpp
+    present: true
+    enabled: true
+    # No config block: the code defaults of nodes/map3d_manager_cpp (config.hpp) equal the map3d topic contract
+    # (nodes/rtabmap_mapping/config/map3d_topics.yaml) and differ from nothing deployed here.
 
 # ---- monitoring (roles/monitoring_agent + roles/web_proxy + roles/monitoring; deploy-nodes.sh server monitoring) -----
 # The server stores everything: Mimir (metrics, 1 d), Loki (logs, 1 d) and Grafana at http://server.ros2.lan/grafana/.
