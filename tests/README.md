@@ -2425,7 +2425,7 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_client_playbook_still_deploys_jetson_bridge_so_the_uninstall_runs` | `deploy_nodes_client.yml` still deploys the name. |
 | `test_jetson_bridge_metrics_target_is_removed` | No `monitoring_agent_node_targets` row for the bridge or port 19114. |
 | `test_allowed_references_use_only_the_known_categories` | Every `ALLOWED_REFERENCES` entry is `archive`, `retired-entry`, `uninstall-artifact`, `retirement-test`, `retirement-doc` or `pinned-build`, and only the two archive directories and `nodes/head_camera_cpp/patches/**` (pinned-build) use a directory-wide glob. |
-| `test_no_live_jetson_stereo_or_overview_reference` | `git grep -n -i -E` over tracked files for `jetson`, `depthd`, `stereo`, `overview_camera`, `depth_wire`, `fused_depth` and `10.77.0.` finds no hit outside the `(path glob, line regex, category)` allowlist; any other hit is fixed by editing the line. |
+| `test_no_live_jetson_stereo_or_overview_reference` | `git grep -n -i -E` over tracked files for `jetson`, `depthd`, `stereo`, `overview_camera`, `depth_wire`, `fused_depth` and `10.77.0.` finds no hit outside the `(path glob, line regex, category)` allowlist; any other hit is fixed by editing the line. The head RGB-D calibration (shared core, `head_rgbd_calibration` node, web_ui RGB-D section) names its ToF-to-RGB stereo extrinsic calibration (`stereo_calibrate`, stereo RMS, `stereo_max_rms_px`); each such file has its own `rgbd-calibration` entry with the stereo-calibration regex. |
 
 ## test_node_cpu_compare.py
 

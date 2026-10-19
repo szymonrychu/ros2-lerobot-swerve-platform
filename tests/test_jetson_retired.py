@@ -782,12 +782,12 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| extrinsic| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
     (
         "nodes/head_rgbd_calibration/tests/test_compute.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| extrinsic| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
     (
@@ -812,7 +812,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "shared/ros2_common/head_rgbd_calibration/calibrate.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| extrinsic| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
     (
@@ -832,7 +832,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "tests/test_head_rgbd_calib_core.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| extrinsic| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
     # pinned-build: part of the libcamera build stamp, changing it would rebuild.
