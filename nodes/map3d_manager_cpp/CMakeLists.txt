@@ -33,6 +33,25 @@ target_link_libraries(map3d_manager_core PUBLIC
   nlohmann_json::nlohmann_json)
 set_target_properties(map3d_manager_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# The ROS wiring: the node library and the standalone executable (single-threaded executor).
+add_library(map3d_manager_component STATIC src/map3d_manager_node.cpp)
+target_include_directories(map3d_manager_component PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
+target_link_libraries(map3d_manager_component PUBLIC
+  map3d_manager_core
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
+  ${std_srvs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${rtabmap_msgs_TARGETS})
+set_target_properties(map3d_manager_component PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+add_executable(map3d_manager_node src/main.cpp)
+target_link_libraries(map3d_manager_node map3d_manager_component)
+
+install(TARGETS map3d_manager_node RUNTIME DESTINATION lib/${PROJECT_NAME})
+
 if(BUILD_TESTING)
   set(ament_cmake_clang_format_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../../.clang-format")
   find_package(ament_lint_auto REQUIRED)
@@ -43,6 +62,9 @@ if(BUILD_TESTING)
     ament_add_gtest(test_${name} test/test_${name}.cpp TIMEOUT 120)
     target_link_libraries(test_${name} map3d_manager_core)
   endforeach()
+  # The ROS wiring against in-process fake RTAB-Map services.
+  ament_add_gtest(test_node test/test_node.cpp TIMEOUT 120)
+  target_link_libraries(test_node map3d_manager_component)
 endif()
 
 ament_package()
