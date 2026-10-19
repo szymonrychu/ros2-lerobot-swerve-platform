@@ -1,0 +1,77 @@
+# head_rgbd_calibration keeps sessions/ and applied/ here; the node runs as ansible_user. Nothing in this file removes,
+# truncates or overwrites their contents: committed calibration files only seed applied/ when a file is missing
+# (force: false), and the apply unit restarts the head nodes when applied/applied.json changes.
+- name: Ensure head_rgbd_calibration state directories exist (owned by the node user)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  loop:
+    - /var/lib/ros2/head_rgbd_calibration
+    - /var/lib/ros2/head_rgbd_calibration/sessions
+    - /var/lib/ros2/head_rgbd_calibration/applied
+  tags: [setup]
+
+- name: Check for committed calibration seed files
+  ansible.builtin.stat:
+    path: "{{ ros2_repo_dest }}/{{ item }}"
+  loop:
+    - nodes/head_camera_cpp/config/head_camera_calibration.yaml
+    - nodes/head_rgbd_cpp/config/tof_calibration.yaml
+    - nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml
+  register: head_rgbd_calibration_seed_stat
+  tags: [setup]
+
+- name: Seed applied/ from committed calibration files (never overwrites an applied file)
+  ansible.builtin.copy:
+    src: "{{ ros2_repo_dest }}/{{ item.item }}"
+    dest: "/var/lib/ros2/head_rgbd_calibration/applied/{{ item.item | basename }}"
+    remote_src: true
+    force: false
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+  loop: "{{ head_rgbd_calibration_seed_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
+  tags: [setup]
+
+- name: Install head_rgbd_calibration apply path unit
+  ansible.builtin.template:
+    src: ros2-head-rgbd-calibration-apply.path.j2
+    dest: /etc/systemd/system/ros2-head-rgbd-calibration-apply.path
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: head_rgbd_calibration_path_unit
+  tags: [setup]
+
+- name: Install head_rgbd_calibration apply service unit
+  ansible.builtin.template:
+    src: ros2-head-rgbd-calibration-apply.service.j2
+    dest: /etc/systemd/system/ros2-head-rgbd-calibration-apply.service
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: head_rgbd_calibration_service_unit
+  tags: [setup]
+
+- name: Reload systemd after head_rgbd_calibration apply unit changes
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: head_rgbd_calibration_path_unit.changed or head_rgbd_calibration_service_unit.changed
+  tags: [setup]
+
+- name: Enable and start head_rgbd_calibration apply path unit
+  ansible.builtin.systemd:
+    name: ros2-head-rgbd-calibration-apply.path
+    enabled: true
+    state: started
+  become: true
+  tags: [setup]

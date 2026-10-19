@@ -10,21 +10,21 @@ from datetime import datetime
 from pathlib import Path
 
 from pydantic import ValidationError
+from ros2_common.head_rgbd_calibration.calibrate import failed_limits
+from ros2_common.head_rgbd_calibration.extrinsics import load_extrinsics_yaml
+from ros2_common.head_rgbd_calibration.urdf_handoff import check_drift, read_chain, rewrite_tof_joint, tof_joint_origin
 
 from scripts.head_rgbd_calibration.config import DEFAULT_CONFIG, CalibrationConfig, load_calibration_config
-from scripts.head_rgbd_calibration.extrinsics import load_extrinsics_yaml
 from scripts.head_rgbd_calibration.frames import TopicNames, capture_bag, read_frames
 from scripts.head_rgbd_calibration.live import start_live
 from scripts.head_rgbd_calibration.pipeline import (
     bag_path,
-    failed_limits,
     resolve_path,
     run_calibration,
     run_validation,
     session_name,
     write_calibration,
 )
-from scripts.head_rgbd_calibration.urdf_handoff import check_drift, read_chain, rewrite_tof_joint, tof_joint_origin
 
 MODES = ("capture", "capture-validation", "calibrate", "urdf", "validate")
 VALIDATION_SUFFIXES = ("0.5m", "1.0m", "2.0m", "3.0m", "sweep", "wall")
@@ -71,7 +71,7 @@ def calibrate(cfg: CalibrationConfig) -> int:
     """Calibrate from the session bag and write the three files and the report; 1 when any limit fails."""
     session = session_name(cfg)
     run = run_calibration(read_frames(bag_path(cfg, session), TopicNames()), cfg)
-    failures = failed_limits(run, cfg)
+    failures = failed_limits(run, cfg.limits)
     if failures:
         print("calibration rejected, nothing written:\n  " + "\n  ".join(failures), file=sys.stderr)
         return 1

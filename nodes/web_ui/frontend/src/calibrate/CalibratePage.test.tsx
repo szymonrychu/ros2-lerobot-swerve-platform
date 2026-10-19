@@ -59,6 +59,27 @@ describe('CalibratePage', () => {
     await screen.findByText('Arm calibration - deferred')
   })
 
+  it('renders both sections with imu and rgbd', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/state')) {
+        const capture = { running: false, session_id: null, status: 'idle', pose_count: 0, started_at: null, stops_at: null }
+        const compute = { running: false, session_id: null, result_id: null, started_at: null, error: null }
+        return new Response(JSON.stringify({ capture, compute, applied: null }))
+      }
+      return new Response(JSON.stringify({ imu: true, rgbd: true }))
+    }))
+    render(<CalibratePage onBack={() => {}} />)
+    await screen.findByText('IMU calibration')
+    await screen.findByText('RGB-D calibration')
+  })
+
+  it('imu only with rgbd false', async () => {
+    respond(200, { imu: true, rgbd: false })
+    render(<CalibratePage onBack={() => {}} />)
+    await screen.findByText('IMU calibration')
+    expect(screen.queryByText('RGB-D calibration')).toBeNull()
+  })
+
   it('back button clears the hash and calls onBack', async () => {
     respond(200, { imu: true })
     const onBack = vi.fn()

@@ -57,6 +57,7 @@ jobs:
           - claude_agent
           - costmap_zones
           - filter_node
+          - head_rgbd_calibration
           - haptic_controller
           - laser_filter
           - leader_bridge

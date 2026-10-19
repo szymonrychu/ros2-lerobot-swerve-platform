@@ -113,6 +113,11 @@ the same rules as `camera_info`; there are no placeholder intrinsics). Without a
 and `camera_info` is not, so `head_rgbd_cpp` publishes nothing. The intrinsics are valid only at the focus they were
 calibrated at, hence the focus lock.
 
+**Calibration source.** The deployed `camera_info_file` is the applied state file
+`/var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml` (not under `/etc/ros2`). It is written by Apply on the web UI Calibrate page
+(RGB-D section) and survives Ansible deploys. When the applied dir is empty, the deploy seeds it from the committed
+`head_camera_calibration.yaml`; a missing file means no `camera_info`. Apply restarts the node to re-read it.
+
 **Focus lock.** The camera keeps the configured `af_mode` (default continuous) normally. While `mapping.enabled`,
 the runtime parameter `mapping.lock_focus` is true and `<ns>/mapping/image_raw/compressed` has at least one subscriber,
 the node applies `AfMode` Manual and `LensPosition` = `lens_position`; when the last subscriber leaves, or
@@ -160,7 +165,7 @@ invalid value, stop the node with exit code 78. Every error line names its key (
 | `mapping.width` / `mapping.height` | `576` / `324` | Even, within the stream size, stream aspect within 1 px |
 | `mapping.jpeg_quality` | `80` | 1..100 |
 | `jpeg_quality` | `70` | Quality (1..100) of `image_raw/compressed` |
-| `camera_info_file` | none | Optional YAML calibration file for `camera_info` |
+| `camera_info_file` | none | Optional YAML calibration file for `camera_info`; deployed: `/var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml` (see Calibration source) |
 | `metrics_port` | `19116` | Prometheus port (1..65535); `null` disables metrics |
 | `zoom.still_size` | `[4608, 2592]` | Full-resolution still (width, height) the crops are cut from |
 | `zoom.factors` | `[2, 4, 8]` | Allowed zoom factors; non-empty subset of 2, 4, 8 |

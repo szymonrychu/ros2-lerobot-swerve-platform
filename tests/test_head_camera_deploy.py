@@ -20,6 +20,7 @@ CONFIG_CPP = NODE_DIR / "src" / "core" / "config.cpp"
 WORKSPACE = "/opt/ros2-ws"
 CAM0_ID = "/base/axi/pcie@120000/rp1/i2c@88000/imx708@1a"
 METRICS_PORT = 19116
+APPLIED_CAMERA_INFO = "/var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml"
 # sha1 of nodes/pi_cameras/patches/libcamera-0001-add-package-xml.patch: the patch contents are part of the build stamp.
 PATCH_SHA1 = "422bd0e3b23dbbbdbd09435ab90cac84ded67166"
 # The libcamera colcon source of pi_cameras as recorded: any difference changes the build stamp and rebuilds libcamera.
@@ -177,11 +178,17 @@ def test_entry_is_live_after_pi_cameras_with_valid_config() -> None:
     config = yaml.safe_load(entry["config"])
     assert set(config) <= node_config_keys()
     # lens_position and mapping (focus lock, 2 Hz stream) are pinned in test_head_rgbd_deploy.py.
-    assert {k: config[k] for k in ("camera_id", "jpeg_quality", "metrics_port")} == {
+    assert {k: config[k] for k in ("camera_id", "camera_info_file", "jpeg_quality", "metrics_port")} == {
         "camera_id": CAM0_ID,
+        "camera_info_file": APPLIED_CAMERA_INFO,
         "jpeg_quality": 70,
         "metrics_port": METRICS_PORT,
     }
+
+
+def test_camera_info_file_is_the_applied_file() -> None:
+    config = yaml.safe_load(node_entry()["config"])
+    assert config["camera_info_file"] == APPLIED_CAMERA_INFO
 
 
 def test_monitoring_target_is_present() -> None:
