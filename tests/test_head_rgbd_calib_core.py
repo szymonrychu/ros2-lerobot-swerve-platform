@@ -4,6 +4,7 @@ import ast
 import difflib
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import cv2
@@ -191,8 +192,7 @@ RGB_EVERY = 5
 START_S = 2.5
 CYCLE_S = 3.0
 WINDOW_S = 2.0
-# cv2.calibrateCamera is not bit-deterministic: two runs on identical input differ by about 1e-7 in K
-FIT_NOISE = 1e-6
+FIT_TOL = 1e-9
 SDK_K = np.array([191.0, 0.0, 120.0, 0.0, 191.0, 90.0, 0.0, 0.0, 1.0])
 GOLDEN_REPORT = """# Head RGB-D calibration calib-test
 
@@ -253,6 +253,16 @@ def fixed_run() -> CalibrationRun:
     return CalibrationRun(rgb, tof, extrinsic, PlaneCheck([-3.5], -3.5), {"fx": 0.5, "fy": -0.25}, 15)
 
 
+@pytest.fixture
+def single_thread_cv2() -> Iterator[None]:
+    """Multithreaded cv2 reductions are not bit-reproducible; one thread makes two fits comparable at 1e-9."""
+    previous = cv2.getNumThreads()
+    cv2.setNumThreads(1)
+    yield
+    cv2.setNumThreads(previous)
+
+
+@pytest.mark.usefixtures("single_thread_cv2")
 def test_calibrate_detections_equals_run_calibration() -> None:
     cfg = load_calibration_config(DEFAULT_CONFIG)
     frames = scene_frames()
@@ -268,12 +278,12 @@ def test_calibrate_detections_equals_run_calibration() -> None:
     assert run.tof.view_count == expected.tof.view_count
     assert run.extrinsic.pair_count == expected.extrinsic.pair_count
     for got, want in ((run.rgb, expected.rgb), (run.tof, expected.tof)):
-        assert abs(got.rms - want.rms) < FIT_NOISE
-        np.testing.assert_allclose(got.k, want.k, atol=FIT_NOISE, rtol=0)
-    assert abs(run.extrinsic.stereo_rms - expected.extrinsic.stereo_rms) < FIT_NOISE
+        assert abs(got.rms - want.rms) < FIT_TOL
+        np.testing.assert_allclose(got.k, want.k, atol=FIT_TOL, rtol=0)
+    assert abs(run.extrinsic.stereo_rms - expected.extrinsic.stereo_rms) < FIT_TOL
     np.testing.assert_allclose(run.extrinsic.t, expected.extrinsic.t, atol=1e-9, rtol=0)
-    assert abs(run.plane.median_mm - expected.plane.median_mm) < FIT_NOISE
-    assert run.sdk_diff_pct == pytest.approx(expected.sdk_diff_pct, abs=FIT_NOISE)
+    assert abs(run.plane.median_mm - expected.plane.median_mm) < FIT_TOL
+    assert run.sdk_diff_pct == pytest.approx(expected.sdk_diff_pct, abs=FIT_TOL)
 
 
 def test_calibrate_detections_requires_tof_info() -> None:
