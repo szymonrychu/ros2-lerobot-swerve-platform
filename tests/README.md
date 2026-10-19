@@ -51,7 +51,7 @@ Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every Python n
 | `test_workflow_has_no_poetry` | The workflow never mentions Poetry. |
 | `test_uv_pinned_in_every_job` | Every job installs uv through `astral-sh/setup-uv` pinned to version 0.11.29, except the `cpp` job, which runs everything inside its docker image. |
 | `test_root_tests_job_present` | A job runs the root test suite (`uv run --frozen pytest tests`). |
-| `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q`, with no duplicate entries. The count is derived from the filesystem, not hardcoded, so adding a node only touches the matrix. |
+| `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q`, with no duplicate entries. The count is derived from the filesystem, not hardcoded, so adding a node only touches the matrix; the marker epic added `marker_detector` to the matrix (own `pyproject.toml` and `uv.lock`) and no test edit was needed. |
 | `test_uv_node_matrix_skips_cpp_packages` | The uv `nodes` matrix has no `*_cpp` entry and no `nodes/*_cpp` carries a `pyproject.toml`. |
 | `test_cpp_matrix_equals_filesystem` | The `cpp` job runs on `ubuntu-latest` (amd64) with `fail-fast: false`; its `package` matrix equals the discovered C++ packages (no duplicates) and it runs `./scripts/cpp-node-test.sh ${{ matrix.package }}`. |
 | `test_ansible_job_installs_collections_before_syntax_check` | The `lint-ansible` job installs `ansible/requirements.yml` collections (`ansible.posix`, used by the mount tasks) before `poe test-ansible`. |
@@ -2181,7 +2181,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, arducam_tof, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ nodes head_camera_cpp 19116 and head_rgbd_cpp 19117) `metrics_port` 19101-19112; base_servos 19115. |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, arducam_tof, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ nodes head_camera_cpp 19116 and head_rgbd_cpp 19117) `metrics_port` 19101-19112; base_servos 19115; marker_detector 19118 (added by the marker epic, which also lists `marker_detector` among the `src_shared` node types of `test_node_types_using_ros2_metrics_declare_src_shared`). |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
