@@ -1,6 +1,6 @@
 ---
 title: Marker map pose POI
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "An accepted marker pose becomes a map-frame POI sighting, including for zoom stills with their cropped intrinsics."
 files: [nodes/marker_detector/marker_detector/geometry.py, nodes/marker_detector/tests/test_geometry.py]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-map-pose-poi
 branch: printable-metadata-markers-t--marker-map-pose-poi
-verified_head: ""
+verified_head: 8cc044280756b1b35870c9a3891863057b2f5cd7
 run: printable-metadata-markers-t
-provides: []
+provides: [marker-geometry]
 acs_for_audit: []
 process_gaps: []
 ---

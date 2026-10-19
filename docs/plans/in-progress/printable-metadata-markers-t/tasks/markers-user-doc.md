@@ -60,3 +60,5 @@ The marker system is documented end to end.
 - Documentation-only task (TDD exception: doc edit); keep it in sync with the actual defaults in the code.
 
 - 2026-10-19 run printable-metadata-markers-t: dependency-failed on poi-marker-upsert, marker-detector-bench, marker-detector-ansible
+
+- 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-detector-bench, marker-detector-ansible
