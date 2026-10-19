@@ -9,6 +9,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from ros2_common.head_rgbd_calibration.calibrate import detect_tof
 from rosbags.typesys import Stores, get_typestore
 
 from scripts.head_rgbd_calibration.charuco import detect, make_board
@@ -26,7 +27,6 @@ from scripts.head_rgbd_calibration.live import (
     relay_command,
     start_live,
 )
-from scripts.head_rgbd_calibration.pipeline import detect_tof
 from tests.rgbd_synthetic import (
     centred_pose,
     default_extrinsic,

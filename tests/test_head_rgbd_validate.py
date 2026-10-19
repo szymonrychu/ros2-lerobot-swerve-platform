@@ -3,11 +3,11 @@
 import cv2
 import numpy as np
 import pytest
+from ros2_common.head_rgbd_calibration.charuco import Detection, make_board
+from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.extrinsics import ExtrinsicResult
+from ros2_common.head_rgbd_calibration.intrinsics import KIND_RGB, KIND_TOF, IntrinsicsResult
 
-from scripts.head_rgbd_calibration.charuco import Detection, make_board
-from scripts.head_rgbd_calibration.config import BoardConfig
-from scripts.head_rgbd_calibration.extrinsics import ExtrinsicResult
-from scripts.head_rgbd_calibration.intrinsics import KIND_RGB, KIND_TOF, IntrinsicsResult
 from scripts.head_rgbd_calibration.validate import (
     DepthStats,
     RgbSample,

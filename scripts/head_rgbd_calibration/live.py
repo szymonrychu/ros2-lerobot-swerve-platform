@@ -19,6 +19,7 @@ from typing import BinaryIO, TextIO
 
 import cv2
 import numpy as np
+from ros2_common.head_rgbd_calibration.calibrate import detect_tof
 
 from scripts.head_rgbd_calibration.charuco import detect, make_board
 from scripts.head_rgbd_calibration.config import CalibrationConfig, CaptureConfig, SelectionConfig
@@ -35,7 +36,6 @@ from scripts.head_rgbd_calibration.frames import (
     stamp_ns,
     tof_diff_fraction,
 )
-from scripts.head_rgbd_calibration.pipeline import detect_tof
 
 FRAME_HEADER = "<BI"  # (topic index, payload length), shared with the relay through its command line
 RGB_INDEX = 0
