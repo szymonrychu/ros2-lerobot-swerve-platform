@@ -60,7 +60,7 @@ TOOL_NAMES = ("suggest_approach_pose", "approach_for_grasp")
 SENSOR_TOOL_NAMES = ("suggest_approach_pose",)
 GRASP_DOCK_TYPE = "grasp_servoed"
 CAMERAS = ("front", "gripper")
-POI_KINDS = ("point", "area")
+POI_KINDS = ("point", "area", "marker")
 ALL_CANDIDATES = 100_000
 # A given pose counts as the same candidate within this distance / heading difference.
 POSE_TOL_M = 0.02
@@ -80,8 +80,8 @@ NAV_STATUS = {
 }
 TARGET_HELP = (
     "Target (exactly one form): a map point x, y, z (z = height above the floor, m); object_id (a remembered object) "
-    "or poi_id (a point or area POI) plus z_m, the height of the grasp point above the floor (stored objects and POIs "
-    "have no height); or a camera pixel camera, u, v (pixels of the CALIBRATED image) plus surface_height_m, the height "
+    "or poi_id (a point, area or marker POI) plus z_m, the height of the grasp point above the floor (stored objects "
+    "and point/area POIs have no height; a marker POI carries its own z, so z_m may be omitted for it and overrides it); or a camera pixel camera, u, v (pixels of the CALIBRATED image) plus surface_height_m, the height "
     "of the surface the pixel lies on."
 )
 
@@ -246,6 +246,27 @@ def poi_lookup(robot: RobotApi, kinds: tuple[str, ...]) -> Callable[[str], tuple
     return lookup
 
 
+def poi_z_lookup(robot: RobotApi, kinds: tuple[str, ...]) -> Callable[[str], float | None]:
+    """Lookup of a marker POI's own height by id.
+
+    Args:
+        robot (RobotApi): Robot (poi_list).
+        kinds (tuple[str, ...]): POI kinds that count.
+
+    Returns:
+        Callable[[str], float | None]: id -> z (m), None for an unknown POI or one without a height.
+    """
+
+    def lookup(poi_id: str) -> float | None:
+        for poi in robot.poi_list()[0]:
+            if str(poi.get("id")) == poi_id and poi.get("kind") == "marker" and poi.get("kind") in kinds:
+                z = poi.get("z")
+                return float(z) if isinstance(z, int | float) and not isinstance(z, bool) else None
+        return None
+
+    return lookup
+
+
 def camera_scene(robot: RobotApi, config: McpServerConfig, camera: str) -> tuple[Scene, CameraSetup]:
     """Scene of a calibrated camera at the current arm pose and the current measured head pose.
 
@@ -370,7 +391,7 @@ def register(ctx: ToolContext) -> None:
                 raise RobotError("robot pose unknown: cannot place the pixel on the map")
             return base_to_map(pose, float(base[0]), float(base[1]))
 
-        return resolve_target(target, objects, poi_lookup(robot, POI_KINDS), pixel_xy)
+        return resolve_target(target, objects, poi_lookup(robot, POI_KINDS), pixel_xy, poi_z_lookup(robot, POI_KINDS))
 
     def docking_state() -> dict[str, Any]:
         """Docking server readiness."""
@@ -426,7 +447,9 @@ def register(ctx: ToolContext) -> None:
         y: Annotated[float | None, Field(description="Target y (map, m)")] = None,
         z: Annotated[float | None, Field(description="Target height above the floor (m)")] = None,
         object_id: Annotated[str | None, Field(description="Remembered object id (needs z_m)")] = None,
-        poi_id: Annotated[str | None, Field(description="Point or area POI id (needs z_m)")] = None,
+        poi_id: Annotated[
+            str | None, Field(description="Point, area or marker POI id (needs z_m, except a marker: its own z)")
+        ] = None,
         z_m: Annotated[float | None, Field(description="Grasp height above the floor for object_id / poi_id")] = None,
         camera: Annotated[str | None, Field(description="'front' or 'gripper' (pixel target)")] = None,
         u: Annotated[float | None, Field(description="Pixel x of the calibrated image (pixel target)")] = None,
@@ -593,7 +616,9 @@ def register(ctx: ToolContext) -> None:
         y: Annotated[float | None, Field(description="Target y (map, m)")] = None,
         z: Annotated[float | None, Field(description="Target height above the floor (m)")] = None,
         object_id: Annotated[str | None, Field(description="Remembered object id (needs z_m)")] = None,
-        poi_id: Annotated[str | None, Field(description="Point or area POI id (needs z_m)")] = None,
+        poi_id: Annotated[
+            str | None, Field(description="Point, area or marker POI id (needs z_m, except a marker: its own z)")
+        ] = None,
         z_m: Annotated[float | None, Field(description="Grasp height above the floor for object_id / poi_id")] = None,
         camera: Annotated[str | None, Field(description="'front' or 'gripper' (pixel target)")] = None,
         u: Annotated[float | None, Field(description="Pixel x of the calibrated image (pixel target)")] = None,

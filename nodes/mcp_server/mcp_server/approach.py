@@ -54,6 +54,7 @@ MIN_POLYGON_POINTS = 3
 YAW_KEY_DECIMALS = 9
 
 ObjectLookup = Callable[[str], tuple[float, float] | None]
+HeightLookup = Callable[[str], float | None]
 PixelLookup = Callable[[str, float, float, float], tuple[float, float] | None]
 VerifyFn = Callable[[dict[str, float | None]], dict[str, Any]]
 
@@ -92,7 +93,10 @@ class ApproachTarget(BaseModel):
     object_id: str | None = None
     poi_id: str | None = None
     pixel: PixelTarget | None = None
-    z_m: float | None = Field(default=None, description="Target height above the floor for object_id / poi_id (m)")
+    z_m: float | None = Field(
+        default=None,
+        description="Target height above the floor for object_id / poi_id (m); optional for a marker poi_id (its z)",
+    )
 
     @model_validator(mode="after")
     def one_form(self) -> "ApproachTarget":
@@ -105,8 +109,9 @@ class ApproachTarget(BaseModel):
         if len(given) != 1:
             raise ValueError(f"give exactly one of xyz, object_id, poi_id, pixel (got {given or 'none'})")
         needs_z = given[0] in ("object_id", "poi_id")
-        if needs_z and self.z_m is None:
-            raise ValueError(f"z_m is required for a {given[0]} target: stored objects and POIs have no height")
+        # A poi_id may name a marker POI, which carries its own height: resolve_target checks z_m for the other kinds.
+        if given[0] == "object_id" and self.z_m is None:
+            raise ValueError("z_m is required for a object_id target: stored objects have no height")
         if not needs_z and self.z_m is not None:
             raise ValueError(f"z_m is only for object_id / poi_id targets; a {given[0]} target carries its own height")
         return self
@@ -321,7 +326,11 @@ class Seed:
 
 
 def resolve_target(
-    target: ApproachTarget, object_xy: ObjectLookup, poi_xy: ObjectLookup, pixel_xy: PixelLookup
+    target: ApproachTarget,
+    object_xy: ObjectLookup,
+    poi_xy: ObjectLookup,
+    pixel_xy: PixelLookup,
+    poi_z: HeightLookup | None = None,
 ) -> TargetPoint:
     """Resolve a target to a map point with the injected lookups.
 
@@ -331,6 +340,7 @@ def resolve_target(
         poi_xy (ObjectLookup): poi_id -> map (x, y) (point or area centroid), None when unknown.
         pixel_xy (PixelLookup): (camera, u, v, surface_height_m) -> map (x, y) of the ground point, None when the
             pixel does not hit the surface.
+        poi_z (HeightLookup | None): poi_id -> own height (m) of a marker POI, None for POIs without one.
 
     Returns:
         TargetPoint: The map point and its source.
@@ -346,8 +356,8 @@ def resolve_target(
         if xy is None:
             raise ApproachUnavailable(f"pixel ({px.u:g}, {px.v:g}) of camera {px.camera} does not hit the surface")
         return TargetPoint(x=xy[0], y=xy[1], z=px.surface_height_m, source=f"pixel:{px.camera}")
-    assert target.z_m is not None
     if target.object_id is not None:
+        assert target.z_m is not None
         xy = object_xy(target.object_id)
         if xy is None:
             raise ApproachUnavailable(f"unknown object {target.object_id!r}")
@@ -356,7 +366,10 @@ def resolve_target(
     xy = poi_xy(target.poi_id)
     if xy is None:
         raise ApproachUnavailable(f"unknown POI {target.poi_id!r}")
-    return TargetPoint(x=xy[0], y=xy[1], z=target.z_m, source=f"poi:{target.poi_id}")
+    z = target.z_m if target.z_m is not None else (poi_z(target.poi_id) if poi_z is not None else None)
+    if z is None:
+        raise ValueError("z_m is required for a poi_id target: only marker POIs carry a height")
+    return TargetPoint(x=xy[0], y=xy[1], z=z, source=f"poi:{target.poi_id}")
 
 
 def wrap_angle(angle: np.ndarray) -> np.ndarray:

@@ -1,5 +1,6 @@
 """Result models of the perception/memory tools (structured tool output)."""
 
+import math
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -39,6 +40,53 @@ class ObjectList(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+VERTICAL_LIMIT_DEG = 45.0
+
+
+def marker_facing(poi: dict[str, Any], standoff_m: float) -> tuple[float | None, dict[str, float] | None]:
+    """Where a marker POI faces and where to park in front of it.
+
+    Args:
+        poi (dict[str, Any]): Marker POI JSON (x, y and orientation [qx, qy, qz, qw] in the map frame).
+        standoff_m (float): Distance of the approach pose from the marker along its facing, m.
+
+    Returns:
+        tuple[float | None, dict[str, float] | None]: Map yaw (deg) of the marker's +z axis projected on the floor and
+            the approach pose {x, y, yaw_deg} (marker position + standoff along that direction, facing the marker);
+            (None, None) when the +z axis is within 45 deg of vertical (marker flat or on a ceiling) or the POI has
+            no orientation.
+    """
+    q = poi.get("orientation")
+    if not isinstance(q, list | tuple) or len(q) != 4:
+        return None, None
+    qx, qy, qz, qw = (float(c) for c in q)
+    nx = 2.0 * (qx * qz + qw * qy)
+    ny = 2.0 * (qy * qz - qw * qx)
+    nz = 1.0 - 2.0 * (qx * qx + qy * qy)
+    horizontal = math.hypot(nx, ny)
+    if horizontal == 0.0 or math.degrees(math.atan2(abs(nz), horizontal)) > VERTICAL_LIMIT_DEG:
+        return None, None
+    ux, uy = nx / horizontal, ny / horizontal
+    facing = math.degrees(math.atan2(uy, ux))
+    yaw = facing + 180.0
+    if yaw > 180.0:
+        yaw -= 360.0
+    pose = {"x": float(poi["x"]) + standoff_m * ux, "y": float(poi["y"]) + standoff_m * uy, "yaw_deg": yaw}
+    return facing, pose
+
+
+class MarkerView(BaseModel):
+    """Marker facts of a marker POI."""
+
+    kind: str = Field(description="Marker kind: base, charger, drop-off, button, switch, tool station, ...")
+    id: str = Field(description="Marker id within its kind")
+    size_mm: float = Field(description="Printed symbol edge, mm")
+    params: dict[str, str] = Field(default_factory=dict, description="Marker parameters printed in the payload")
+    times_seen: int = Field(description="How often the marker was sighted")
+    last_seen: float = Field(description="Unix seconds of the latest sighting")
+    confidence: float = Field(description="How sure the detection is, 0..1")
+
+
 class PoiView(BaseModel):
     """A POI plus its distance and bearing from the robot (null while the robot pose is unknown)."""
 
@@ -57,6 +105,18 @@ class PoiView(BaseModel):
     category: str | None = Field(default=None, description="Note tag: target, slow, keepout, problem or detail")
     problem_type: str | None = Field(default=None, description="Category 'problem': window, mirror, tight, ...")
     survey: bool = Field(default=False, description="Note carries the #survey tag")
+    z: float | None = Field(default=None, description="Marker POIs only: height above the floor (m)")
+    marker: MarkerView | None = Field(default=None, description="Marker POIs only: what the printed marker says")
+    facing_yaw_deg: float | None = Field(
+        default=None,
+        description="Marker POIs only: map yaw of the marker's front (+z axis on the floor); null for a marker lying "
+        "flat or on a ceiling",
+    )
+    approach_pose: dict[str, float] | None = Field(
+        default=None,
+        description="Marker POIs only: base pose {x, y, yaw_deg} in front of the marker (markers.standoff_m), "
+        "facing it; null when the marker has no facing",
+    )
 
 
 class PoiList(BaseModel):

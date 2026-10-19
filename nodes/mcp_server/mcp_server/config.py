@@ -888,6 +888,12 @@ class PoiSettings(StrictModel):
     near_radius_m: float = Field(default=5.0, gt=0.0)  # list_pois(near=True) keeps POIs within this distance
 
 
+class MarkerSettings(StrictModel):
+    """Marker POIs (printed metadata markers seen by the head camera)."""
+
+    standoff_m: float = Field(default=0.6, ge=0.2, le=2.0)  # approach pose distance in front of a marker
+
+
 class MapSettings(StrictModel):
     """Named map tools talking to map_manager (topics from ros2_common.maps)."""
 
@@ -1579,6 +1585,7 @@ class McpServerConfig(StrictModel):
     # None: no footprint is published (the Nav2 / laser_filter configs keep their static polygons).
     nav_footprint: NavFootprintSettings | None = None
     poi: PoiSettings = PoiSettings()
+    markers: MarkerSettings = MarkerSettings()
     maps: MapSettings = MapSettings()
     auto_poi: AutoPoiSettings = AutoPoiSettings()
     jog: JogSettings = JogSettings()

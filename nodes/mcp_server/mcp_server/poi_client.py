@@ -12,10 +12,11 @@ from ros2_common.poi_categories import parse_tags
 
 from .geometry import normalize_angle
 from .models import RobotError
-from .perception_models import PoiView
+from .perception_models import MarkerView, PoiView, marker_facing
 
 # poi_store bulk photo delete; its payload travels in the command's "selector" field instead of "poi".
 DELETE_PHOTOS_OP = "delete_photos"
+DEFAULT_STANDOFF_M = 0.6
 
 
 def is_number(value: Any) -> bool:
@@ -202,6 +203,8 @@ def describe_pois(
     pose: tuple[float, float, float] | None,
     status: str | None = None,
     near_radius_m: float | None = None,
+    marker_kind: str | None = None,
+    standoff_m: float = DEFAULT_STANDOFF_M,
 ) -> list[PoiView]:
     """Filter POIs and add distance/bearing from the robot.
 
@@ -210,6 +213,8 @@ def describe_pois(
         pose (tuple[float, float, float] | None): Robot (x, y, yaw) in the map frame, None when unknown.
         status (str | None): Keep only this status.
         near_radius_m (float | None): When set, keep only POIs within this distance and sort nearest first.
+        marker_kind (str | None): When set, keep only marker POIs of this marker kind.
+        standoff_m (float): Marker approach pose distance (markers.standoff_m), m.
 
     Returns:
         list[PoiView]: Views in store order, or nearest first with near_radius_m.
@@ -219,6 +224,9 @@ def describe_pois(
         if poi.get("kind") == PHOTO_KIND or not is_number(poi.get("x")) or not is_number(poi.get("y")):
             continue
         if status is not None and poi.get("status") != status:
+            continue
+        info = poi.get("marker") if poi.get("kind") == "marker" and isinstance(poi.get("marker"), dict) else None
+        if marker_kind is not None and (info is None or info.get("kind") != marker_kind):
             continue
         tags = parse_tags(str(poi.get("note") or ""))
         view = PoiView(
@@ -233,6 +241,18 @@ def describe_pois(
             problem_type=tags.problem_type,
             survey=tags.survey,
         )
+        if info is not None:
+            view.z = float(poi["z"]) if is_number(poi.get("z")) else None
+            view.marker = MarkerView(
+                kind=str(info.get("kind", "")),
+                id=str(info.get("id", "")),
+                size_mm=float(info.get("size_mm", 0.0)),
+                params=dict(info.get("params") or {}),
+                times_seen=int(poi.get("times_seen", 0)),
+                last_seen=float(poi.get("last_seen", 0.0)),
+                confidence=float(poi.get("confidence", 1.0)),
+            )
+            view.facing_yaw_deg, view.approach_pose = marker_facing(poi, standoff_m)
         if pose is not None:
             view.distance_m = round(math.hypot(poi["x"] - pose[0], poi["y"] - pose[1]), 3)
             bearing = normalize_angle(math.atan2(poi["y"] - pose[1], poi["x"] - pose[0]) - pose[2])
