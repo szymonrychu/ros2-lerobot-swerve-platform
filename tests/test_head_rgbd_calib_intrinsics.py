@@ -1,4 +1,4 @@
-"""Tests for scripts/head_rgbd_calibration charuco detection and intrinsics calibration on synthetic scenes."""
+"""Tests for scripts/head_rgbd_calibration charuco detection and intrinsics on synthetic scenes and real ToF frames."""
 
 from functools import lru_cache
 from pathlib import Path
@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from scripts.head_rgbd_calibration.charuco import Detection, detect, make_board
-from scripts.head_rgbd_calibration.config import BoardConfig, LimitsConfig
+from scripts.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
 from scripts.head_rgbd_calibration.frames import CameraInfoData, normalise_amplitude
 from scripts.head_rgbd_calibration.intrinsics import (
     IntrinsicsResult,
@@ -18,6 +18,7 @@ from scripts.head_rgbd_calibration.intrinsics import (
     compare_sdk,
     write_camera_calibration_yaml,
 )
+from scripts.head_rgbd_calibration.pipeline import detect_tof
 from tests.rgbd_synthetic import (
     board_poses,
     centred_pose,
@@ -36,6 +37,10 @@ TOF_TILT_DEG = 25.0
 TOF_LATERAL_FRACTION = 0.7  # board reaches the periphery so distortion is observable
 AMPLITUDE_PERCENTILES = (1.0, 99.0)
 TOF_K1 = -0.1
+# Real ToF amplitude frames of the printed board at about 0.3 m (2026-10-19 capture, polarity corrected). None of them
+# yields a detection at native 240x180; the 2x upscale recovers 6-20 corners each.
+NEAR_TOF_FRAMES = sorted((Path(__file__).parent / "fixtures" / "head_rgbd").glob("tof_amplitude_near_*.png"))
+UPSCALE_SHIFT_MAX_PX = 0.1
 
 
 @lru_cache(maxsize=4)
@@ -201,3 +206,38 @@ def test_synthetic_scene_geometry_is_consistent() -> None:
     obj = make_board(BOARD_CFG).getChessboardCorners()
     projected, _ = cv2.projectPoints(obj, pose.rvec, pose.t, camera.k, camera.d)
     assert projected.reshape(-1, 2).min() > 0
+
+
+def near_tof_frames() -> list[np.ndarray]:
+    return [cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) for path in NEAR_TOF_FRAMES]
+
+
+def test_real_near_tof_frames_need_the_upscale() -> None:
+    board = make_board(BOARD_CFG)
+    frames = near_tof_frames()
+    assert len(frames) == 6
+    assert all(detect(frame, board) is None for frame in frames)
+    found = [detect(frame, board, upscale=2) for frame in frames]
+    assert sum(d is not None for d in found) >= 5
+
+
+def test_upscaled_corners_are_in_source_pixels() -> None:
+    camera = tof_camera()
+    pose = centred_pose(BOARD_CFG, rotation(10, -10, 5), np.array([0.0, 0.0, 0.3]))
+    image = normalise_amplitude(render_tof_amplitude(camera, pose, BOARD_CFG, seed=1), AMPLITUDE_PERCENTILES)
+    board = make_board(BOARD_CFG)
+    native = detect(image, board)
+    upscaled = detect(image, board, upscale=2)
+    assert native is not None and upscaled is not None
+    common, i_native, i_up = np.intersect1d(native.ids, upscaled.ids, return_indices=True)
+    assert len(common) >= 15
+    shift = np.abs(native.points[i_native] - upscaled.points[i_up]).mean(axis=0)
+    assert np.all(shift < UPSCALE_SHIFT_MAX_PX)
+
+
+def test_detect_tof_upscales_by_default() -> None:
+    assert SelectionConfig().tof_upscale == 2
+    board = make_board(BOARD_CFG)
+    found = [detect_tof(frame, board, SelectionConfig()) for frame in near_tof_frames()]
+    assert sum(d is not None for d in found) >= 5
+    assert detect_tof(near_tof_frames()[0], board, SelectionConfig(tof_upscale=1)) is None

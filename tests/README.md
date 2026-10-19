@@ -2730,7 +2730,7 @@ Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof 
 
 ### `test_head_rgbd_calib_intrinsics.py`
 
-Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise).
+Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
 
 | `test_make_board_matches_config` | Board size and lengths follow `BoardConfig`. |
 | `test_rgb_views_recover_intrinsics` | 20 RGB views recover fx, fy within 1 % and cx, cy within 3 px. |
@@ -2741,6 +2741,9 @@ Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the
 | `test_yaml_round_trips_in_camera_calibration_format` | Written YAML loads with the ROS camera_calibration keys and shapes. |
 | `test_rms_over_limit_writes_nothing`, `test_rms_at_limit_is_written` | RMS over `rgb_max_rms_px` / `tof_max_rms_px` raises and writes no file. |
 | `test_compare_sdk_reports_percent_difference` | fx/fy/cx/cy differences in % against the SDK camera_info. |
+| `test_real_near_tof_frames_need_the_upscale` | Six real ToF amplitude frames of the printed board at about 0.3 m (`tests/fixtures/head_rgbd/`) give no detection at native size and at least five with `upscale=2`. |
+| `test_upscaled_corners_are_in_source_pixels` | Corners detected with `upscale=2` match the native detection within 0.1 px (mapped back to source pixels). |
+| `test_detect_tof_upscales_by_default` | `pipeline.detect_tof` uses `selection.tof_upscale` (default 2): the real near frames detect, `tof_upscale=1` does not. |
 | `test_synthetic_scene_geometry_is_consistent` | Generated poses project the board inside the RGB image. |
 
 ### `test_head_rgbd_calib_extrinsics.py`

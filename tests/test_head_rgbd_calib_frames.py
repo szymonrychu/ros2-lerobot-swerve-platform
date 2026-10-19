@@ -39,7 +39,8 @@ def test_defaults_load_from_shipped_yaml() -> None:
     cfg = load_calibration_config(DEFAULT_CONFIG)
     assert cfg.capture.host == "client.ros2.lan"
     assert cfg.capture.ssh_user == "szymonri"
-    assert cfg.capture.duration_s == 120
+    assert cfg.capture.duration_s == 180
+    assert cfg.selection.tof_upscale == 2
     assert cfg.capture.remote_dir == "/tmp/head_rgbd_capture"
     assert cfg.capture.local_dir == ".logs/head_rgbd"
     assert cfg.capture.ros_setup == "/opt/ros/jazzy/setup.bash"
@@ -93,7 +94,7 @@ def test_capture_commands_contents() -> None:
     assert "ros2 bag record" in remote
     assert "-s sqlite3" in remote
     assert "--use-sim-time" not in remote
-    assert "--max-bag-duration 120" in remote
+    assert "--max-bag-duration 180" in remote
     assert "-o /tmp/head_rgbd_capture/session1" in remote
     for topic in cfg.topics:
         assert topic in remote

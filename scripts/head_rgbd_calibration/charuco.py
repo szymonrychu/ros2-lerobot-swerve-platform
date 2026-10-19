@@ -36,18 +36,23 @@ def make_board(cfg: BoardConfig) -> cv2.aruco.CharucoBoard:
     )
 
 
-def detect(image: np.ndarray, board: cv2.aruco.CharucoBoard) -> Detection | None:
+def detect(image: np.ndarray, board: cv2.aruco.CharucoBoard, upscale: int = 1) -> Detection | None:
     """Detect ChArUco corners with sub-pixel refinement.
 
     Args:
         image: uint8 grey or BGR image (RGB frame, or normalised ToF amplitude).
         board: Board from make_board.
+        upscale: Integer factor the image is enlarged by (bicubic) before detection; the small, blurry ToF markers
+            only decode enlarged. The corners are mapped back to the source pixels.
 
     Returns:
-        The Detection, or None when fewer than MIN_CORNERS corners are found.
+        The Detection in source image pixels, or None when fewer than MIN_CORNERS corners are found.
     """
     grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    if upscale > 1:
+        grey = cv2.resize(grey, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
     corners, ids, _, _ = cv2.aruco.CharucoDetector(board, PARAMS).detectBoard(grey)
     if ids is None or len(ids) < MIN_CORNERS:
         return None
-    return Detection(ids=ids.reshape(-1).astype(np.int32), points=corners.reshape(-1, 2).astype(np.float32))
+    points = (corners.reshape(-1, 2) + 0.5) / upscale - 0.5
+    return Detection(ids=ids.reshape(-1).astype(np.int32), points=points.astype(np.float32))

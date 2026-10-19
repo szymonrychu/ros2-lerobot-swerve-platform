@@ -11,7 +11,7 @@ capture:
   ssh_user: szymonri # ansible_user of ansible/inventory
   remote_dir: /tmp/head_rgbd_capture
   local_dir: .logs/head_rgbd
-  duration_s: 120
+  duration_s: 180 # 20-30 poses of about 3 s still each, plus moving between them
   ros_setup: /opt/ros/jazzy/setup.bash
   topics:
     - /tof/amplitude/image_raw
@@ -47,6 +47,7 @@ selection:
   max_pair_dt_s: 0.05
   skip_start_s: 2.0 # focus lock settling
   amplitude_percentiles: [1, 99]
+  tof_upscale: 2 # bicubic enlargement before ToF detection: the 240x180 markers only decode enlarged (2x beat 1x, 3x, 4x on real frames)
 limits:
   rgb_max_rms_px: 0.5
   tof_max_rms_px: 0.3

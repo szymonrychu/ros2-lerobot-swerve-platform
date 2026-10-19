@@ -79,6 +79,7 @@ class SelectionConfig(StrictModel):
     max_pair_dt_s: float = Field(default=0.05, gt=0)
     skip_start_s: float = Field(default=2.0, ge=0)
     amplitude_percentiles: tuple[float, float] = (1, 99)
+    tof_upscale: int = Field(default=2, ge=1)
 
     @model_validator(mode="after")
     def check_percentiles(self) -> Self:

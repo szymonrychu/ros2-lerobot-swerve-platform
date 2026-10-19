@@ -10,7 +10,7 @@ import numpy as np
 import yaml
 
 from scripts.head_rgbd_calibration.charuco import Detection, detect, make_board
-from scripts.head_rgbd_calibration.config import CalibrationConfig, HeadCameraConfig
+from scripts.head_rgbd_calibration.config import CalibrationConfig, HeadCameraConfig, SelectionConfig
 from scripts.head_rgbd_calibration.extrinsics import (
     ExtrinsicResult,
     PlaneCheck,
@@ -146,6 +146,16 @@ class CalibrationRun:
     pair_count: int
 
 
+def detect_tof(amplitude: np.ndarray, board: cv2.aruco.CharucoBoard, sel: SelectionConfig) -> Detection | None:
+    """Detect the board in a ToF amplitude frame: normalised by sel.amplitude_percentiles, enlarged sel.tof_upscale.
+
+    Returns:
+        The Detection in amplitude pixels, or None (empty frame or too few corners).
+    """
+    image = normalise_amplitude(amplitude, sel.amplitude_percentiles)
+    return None if image is None else detect(image, board, sel.tof_upscale)
+
+
 def run_calibration(frames: FrameSet, cfg: CalibrationConfig) -> CalibrationRun:
     """Detect the board in the still pairs and fit RGB intrinsics, ToF intrinsics and the extrinsic.
 
@@ -157,10 +167,7 @@ def run_calibration(frames: FrameSet, cfg: CalibrationConfig) -> CalibrationRun:
     pairs = still_pairs(frames, cfg.selection)
     board = make_board(cfg.board)
     rgb_dets: list[Detection | None] = [detect(p.rgb, board) for p in pairs]
-    tof_dets: list[Detection | None] = []
-    for p in pairs:
-        image = normalise_amplitude(p.amplitude, cfg.selection.amplitude_percentiles)
-        tof_dets.append(None if image is None else detect(image, board))
+    tof_dets = [detect_tof(p.amplitude, board, cfg.selection) for p in pairs]
     rgb_size = (pairs[0].rgb.shape[1], pairs[0].rgb.shape[0]) if pairs else (0, 0)
     tof_size = (pairs[0].amplitude.shape[1], pairs[0].amplitude.shape[0]) if pairs else (0, 0)
     rgb = calibrate([d for d in rgb_dets if d is not None], board, rgb_size, cfg.limits)
@@ -348,8 +355,7 @@ def sweep_offset(bag: Path, cfg: CalibrationConfig, calibration: Calibration) ->
             rgb_tracks.append(RgbSample((frame.stamp_ns - t0) / NS_PER_S, detection))
     tof_tracks = []
     for frame in frames.amplitude:
-        image = normalise_amplitude(frame.image, cfg.selection.amplitude_percentiles)
-        detection = None if image is None else detect(image, board)
+        detection = detect_tof(frame.image, board, cfg.selection)
         if detection is None:
             continue
         depth = nearest(frames.depth, frame.stamp_ns).image
