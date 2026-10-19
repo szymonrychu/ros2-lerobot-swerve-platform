@@ -190,6 +190,10 @@ DASHBOARDS: dict[str, tuple[str, str, list[str]]] = {
 # Dashboards with a host picker (both Pis have these metrics); the rest show robot-only metrics.
 HOST_DASHBOARDS = {"robot-resources.json", "robot-health.json"}
 ROBOT_ONLY_DASHBOARDS = set(DASHBOARDS) - HOST_DASHBOARDS
+# Robot-only panels that read the server (host="server"); every other robot-only selector is host="client".
+SERVER_PANEL_PREFIX = "3D mapping server"
+SERVER_PANELS = {"Server memory available", "WiFi throughput"}
+UPLINK_MBIT_S_MAX = 8
 LOKI_PANELS = {"Error log lines per unit", "Recent error log lines"}
 # journald priority keywords at error or worse (Alloy's level label).
 ERROR_LEVELS = 'level=~"emerg|alert|crit|err"'
@@ -478,7 +482,12 @@ def test_every_selector_is_scoped_to_a_host(name: str) -> None:
     checked = 0
     for title, expr in dashboard_exprs(load_dashboard(name)):
         for metric, labels in vector_selectors(expr):
-            assert matcher in labels, (title, metric, expr)
+            if name == "robot-slam.json" and title.startswith(SERVER_PANEL_PREFIX):
+                assert 'host="server"' in labels, (title, metric, expr)
+            elif name == "robot-slam.json" and title in SERVER_PANELS:
+                assert 'host="server"' in labels or matcher in labels, (title, metric, expr)
+            else:
+                assert matcher in labels, (title, metric, expr)
             checked += 1
     assert checked >= 10
 
@@ -535,6 +544,42 @@ def test_slam_dashboard_queries() -> None:
     assert "mcp_nav_goal_duration_seconds_bucket" in panel_exprs(dashboard, "Nav goal duration")
     assert "imu_published_total" in panel_exprs(dashboard, "IMU publish health")
     assert "gps_fix_quality" in panel_exprs(dashboard, "GPS fix quality")
+    assert_3d_mapping_row()
+
+
+def assert_3d_mapping_row() -> None:
+    """3D mapping row: unit CPU/memory on both Pis, server memory headroom, WiFi throughput vs the uplink budget."""
+    dashboard = load_dashboard("robot-slam.json")
+    panels = {p["title"]: p for p in panel_list(dashboard)}
+    assert "3D mapping" in panels and panels["3D mapping"]["type"] == "row"
+    for title, metric in [
+        ("3D mapping server unit CPU", "container_cpu_usage_seconds_total"),
+        ("3D mapping server unit memory", "container_memory_working_set_bytes"),
+    ]:
+        expr = panel_exprs(dashboard, title)
+        assert metric in expr and 'host="server"' in expr, title
+        assert "rtabmap_mapping" in expr and "map3d_manager" in expr, title
+    assert panels["3D mapping server unit memory"]["fieldConfig"]["defaults"]["unit"] == "bytes"
+    uplink = panel_exprs(dashboard, "Map3d uplink client CPU")
+    assert 'host="client"' in uplink and "container_cpu_usage_seconds_total" in uplink
+    for unit in ("map3d_uplink", "head_rgbd_cpp", "head_camera_cpp"):
+        assert unit in uplink, unit
+    memory = panel_exprs(dashboard, "Server memory available")
+    assert memory == 'node_memory_MemAvailable_bytes{host="server"}'
+    assert panels["Server memory available"]["fieldConfig"]["defaults"]["unit"] == "bytes"
+    wifi = panels["WiFi throughput"]
+    exprs = [t["expr"] for t in wifi["targets"]]
+    for direction in ("transmit", "receive"):
+        for host in ("client", "server"):
+            assert any(
+                f"node_network_{direction}_bytes_total" in e and f'host="{host}"' in e and "*8" in e.replace(" ", "")
+                for e in exprs
+            ), (direction, host)
+    assert all('device=~"wlan.*"' in e for e in exprs)
+    assert wifi["fieldConfig"]["defaults"]["unit"] == "bps"
+    steps = wifi["fieldConfig"]["defaults"]["thresholds"]["steps"]
+    assert any(step["value"] == UPLINK_MBIT_S_MAX * 1_000_000 for step in steps)
+    assert wifi["fieldConfig"]["defaults"]["custom"]["thresholdsStyle"]["mode"] == "line"
 
 
 def test_grasping_dashboard_queries() -> None:
