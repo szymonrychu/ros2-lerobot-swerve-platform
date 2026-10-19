@@ -10,7 +10,7 @@ import type { Vec2 } from '../map/mapMath'
 import { rosToThree, ThreeTuple } from '../map3d/coords'
 import { MapLabel } from '../map3d/MapLabel'
 import { SCENE_COLORS } from '../map3d/palette'
-import { markerColors, markerSides, objectDetails, poiStyle, zoneLabel, zoneStyle } from './style'
+import { facingYaw, markerColors, markerSides, objectDetails, poiStyle, zoneLabel, zoneStyle } from './style'
 import type { Poi } from './types'
 
 /** Stacking heights (three y, metres), above the goal marker. */
@@ -18,6 +18,10 @@ const POI_LIFT = { fill: 0.034, outline: 0.036, handle: 0.04, draft: 0.042 } as 
 const DISC_SEGMENTS = 40
 const HANDLE_RADIUS_M = 0.06
 const DRAFT_COLOR = SCENE_COLORS.draft
+/** Circumradius of the hexagon that marks a detected marker, m. */
+const MARKER_RADIUS_M = 0.08
+/** Length of the facing arrow of a marker, m. */
+const FACING_ARROW_M = 0.25
 /** Half diagonal of the diamond that marks a remembered object, m. */
 const OBJECT_MARKER_RADIUS_M = 0.07
 
@@ -27,8 +31,8 @@ function closedOutline(polygon: [number, number][], lift: number): ThreeTuple[] 
 }
 
 function PoiLabel({ poi, lift }: { poi: Poi; lift: number }) {
-  const tag = poi.kind === 'object' ? 'obj' : poi.created_by === 'agent' ? 'A' : 'U'
-  const seen = poi.kind === 'object' && (poi.times_seen ?? 0) > 1 ? ` x${poi.times_seen}` : ''
+  const tag = poi.kind === 'object' ? 'obj' : poi.kind === 'marker' ? 'mk' : poi.created_by === 'agent' ? 'A' : 'U'
+  const seen = (poi.kind === 'object' || poi.kind === 'marker') && (poi.times_seen ?? 0) > 1 ? ` x${poi.times_seen}` : ''
   const zone = zoneLabel(poi)
   return (
     <Html position={rosToThree(poi, lift)} center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
@@ -104,6 +108,46 @@ const ObjectMarker = memo(function ObjectMarker({ poi, selected }: { poi: Poi; s
   )
 })
 
+/** A detected marker: a hexagon (KIND_SHAPE.marker) with a facing arrow when it faces a direction; never draggable (the detector owns its pose). */
+const MarkerPoi = memo(function MarkerPoi({ poi, selected }: { poi: Poi; selected: boolean }) {
+  const style = poiStyle(poi, selected)
+  const colors = markerColors(poi)
+  const yaw = facingYaw(poi)
+  const hexagon = useMemo(() => {
+    const sides = markerSides('marker')
+    const pts: ThreeTuple[] = []
+    for (let i = 0; i <= sides; i++) {
+      const a = (i / sides) * Math.PI * 2
+      pts.push([Math.cos(a) * MARKER_RADIUS_M, 0, Math.sin(a) * MARKER_RADIUS_M])
+    }
+    return pts
+  }, [])
+  const arrow = useMemo(() => {
+    if (yaw === null) return null
+    const a = (yaw * Math.PI) / 180
+    const dx = Math.cos(a)
+    const dy = Math.sin(a)
+    const head = FACING_ARROW_M * 0.3
+    const tip = rosToThree({ x: dx * FACING_ARROW_M, y: dy * FACING_ARROW_M }, 0)
+    const left = rosToThree({ x: dx * (FACING_ARROW_M - head) - dy * head * 0.5, y: dy * (FACING_ARROW_M - head) + dx * head * 0.5 }, 0)
+    const right = rosToThree({ x: dx * (FACING_ARROW_M - head) + dy * head * 0.5, y: dy * (FACING_ARROW_M - head) - dx * head * 0.5 }, 0)
+    return [rosToThree({ x: 0, y: 0 }, 0), tip, left, tip, right]
+  }, [yaw])
+  return (
+    <group position={rosToThree(poi, POI_LIFT.fill)}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
+        <circleGeometry args={[MARKER_RADIUS_M, markerSides('marker')]} />
+        <meshBasicMaterial color={colors.fill} transparent opacity={Math.min(1, style.opacity + 0.3)} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <group position={[0, POI_LIFT.outline - POI_LIFT.fill, 0]}>
+        <Line points={hexagon} color={selected ? style.outline : colors.outline} lineWidth={style.lineWidth} dashed={style.dashed} dashSize={0.03} gapSize={0.02} />
+        {arrow && <Line points={arrow} color={selected ? style.outline : colors.outline} lineWidth={style.lineWidth} />}
+      </group>
+      <PoiLabel poi={{ ...poi, x: 0, y: 0 }} lift={0} />
+    </group>
+  )
+})
+
 const AreaMarker = memo(function AreaMarker({ poi, selected }: { poi: Poi; selected: boolean }) {
   const zone = zoneStyle(poi, selected)
   const style = zone ?? poiStyle(poi, selected)
@@ -173,6 +217,8 @@ export const PoiLayer = memo(function PoiLayer({
           <PointMarker key={p.id} poi={p} selected={p.id === selectedId} />
         ) : p.kind === 'object' ? (
           <ObjectMarker key={p.id} poi={p} selected={p.id === selectedId} />
+        ) : p.kind === 'marker' ? (
+          <MarkerPoi key={p.id} poi={p} selected={p.id === selectedId} />
         ) : (
           <AreaMarker key={p.id} poi={p} selected={p.id === selectedId} />
         ),

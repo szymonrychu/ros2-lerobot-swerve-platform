@@ -19,6 +19,7 @@ function zoneColor(zone: Exclude<PoiZone, 'none'>): string {
 const KIND_ENTRIES: LegendEntry[] = [
   { id: 'point', label: 'Point', color: KIND_COLORS.point, shape: KIND_SHAPE.point },
   { id: 'object', label: 'Object', color: KIND_COLORS.object, shape: KIND_SHAPE.object },
+  { id: 'marker', label: 'Marker', color: KIND_COLORS.marker, shape: KIND_SHAPE.marker },
   { id: 'photo', label: 'Photo', color: KIND_COLORS.photo, shape: KIND_SHAPE.photo },
 ]
 
@@ -45,7 +46,7 @@ function Row({ entry }: { entry: LegendEntry }) {
   )
 }
 
-/** Key of the map markers: kind shapes and greyscale fills (point, object, photo) and area zones (none, slow, keepout). */
+/** Key of the map markers: kind shapes and greyscale fills (point, object, marker, photo) and area zones (none, slow, keepout). */
 export function PoiLegend() {
   return (
     <Box sx={{ mb: 1 }} aria-label="Marker legend">

@@ -221,6 +221,7 @@ export function zonePctError(zone: PoiZone, pctText: string): string | null {
  */
 export function zoneUpdateCommand(poi: Poi, form: EditorForm): Extract<PoiCommand, { op: 'update' }> {
   const changes: Partial<Poi> & { id: string } = { id: poi.id, name: form.name, note: form.note, status: form.status }
+  // A marker's pose and radius belong to the detector: only name, note and status are sent for it.
   if (poi.kind === 'point') changes.radius_m = Number(form.radiusText)
   if (poi.kind === 'area') {
     changes.zone = form.zone

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { designViolations, SOURCES } from '../layout/designRules'
-import { CATEGORY_COLORS, SURVEY_SCALE, formatUpdated, KIND_COLORS, KIND_SHAPE, markerColors, markerSides, ZONE_COLORS, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
+import { CATEGORY_COLORS, facingYaw, SURVEY_SCALE, formatUpdated, KIND_COLORS, KIND_SHAPE, markerColors, markerSides, ZONE_COLORS, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
 import type { Poi, PoiKind } from './types'
 
 function poi(over: Partial<Poi>): Poi {
@@ -192,9 +192,9 @@ describe('zoneStyle and zoneLabel', () => {
 
 describe('markerColors', () => {
   it('has kind colours that never reuse a status colour', () => {
-    expect(Object.keys(KIND_COLORS).sort()).toEqual(['area-none', 'object', 'photo', 'point'])
+    expect(Object.keys(KIND_COLORS).sort()).toEqual(['area-none', 'marker', 'object', 'photo', 'point'])
     for (const c of Object.values(KIND_COLORS)) expect(Object.values(STATUS_COLORS)).not.toContain(c)
-    expect(new Set(Object.values(KIND_COLORS)).size).toBe(4)
+    expect(new Set(Object.values(KIND_COLORS)).size).toBe(5)
   })
 
   it('fills points and objects by kind and outlines them by status', () => {
@@ -213,7 +213,7 @@ describe('markerColors', () => {
 })
 
 describe('KIND_SHAPE', () => {
-  const kinds: PoiKind[] = ['point', 'area', 'object', 'photo']
+  const kinds: PoiKind[] = ['point', 'area', 'object', 'photo', 'marker']
 
   it('gives every kind its own shape', () => {
     expect(Object.keys(KIND_SHAPE).sort()).toEqual([...kinds].sort())
@@ -276,5 +276,33 @@ describe('category styles', () => {
   })
   it('does not touch objects', () => {
     expect(markerColors(poi({ kind: 'object', note: '#detail' })).fill).toBe(KIND_COLORS.object)
+  })
+})
+
+const MARKER_INFO = { kind: 'base', id: 3, key: 'base:3', size_mm: 100, params: {}, payload: 'x', version: 1, pose_samples: 4 }
+const S = Math.SQRT1_2
+
+describe('marker POIs', () => {
+  it('draws a hexagon, distinct from the other kinds', () => {
+    expect(KIND_SHAPE.marker).toBe('hexagon')
+    expect(markerSides('marker')).toBe(6)
+    expect(new Set(Object.values(KIND_SHAPE)).size).toBe(Object.keys(KIND_SHAPE).length)
+  })
+  it('faces +y for a wall marker whose +z points along +y (90 deg)', () => {
+    // rotation of +90 deg about x maps +z to -y; -90 deg maps +z to +y
+    const wall = poi({ kind: 'marker', orientation: [-S, 0, 0, S], marker: MARKER_INFO })
+    expect(facingYaw(wall)).toBeCloseTo(90, 5)
+  })
+  it('has no facing for a floor marker, a non-marker or a missing orientation', () => {
+    expect(facingYaw(poi({ kind: 'marker', orientation: [0, 0, 0, 1], marker: MARKER_INFO }))).toBeNull()
+    expect(facingYaw(poi({ kind: 'point' }))).toBeNull()
+    expect(facingYaw(poi({ kind: 'marker', orientation: null }))).toBeNull()
+  })
+  it('keeps markers in a parsed list', () => {
+    const m = poi({ kind: 'marker', orientation: [0, 0, 0, 1], marker: MARKER_INFO, z: 0.5 })
+    expect(parsePoiList({ pois: [m], revision: 1 })!.pois).toHaveLength(1)
+  })
+  it('colours a marker by its kind', () => {
+    expect(markerColors(poi({ kind: 'marker' })).fill).toBe(KIND_COLORS.marker)
   })
 })

@@ -32,7 +32,7 @@ import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, POI_ZONES, PoiCommand, P
 /** Fraction of a text limit from which the character counter is shown. */
 const COUNTER_FROM = 0.9
 
-const KIND_TITLES = { point: 'Point', area: 'Area', object: 'Object', photo: 'Photo' } as const
+const KIND_TITLES = { point: 'Point', area: 'Area', object: 'Object', marker: 'Marker', photo: 'Photo' } as const
 
 /**
  * Character counter text, shown only within 10% of the limit.
@@ -200,8 +200,8 @@ export function PoiListPanel({
               <ListItemText
                 primary={p.name || '(unnamed)'}
                 secondary={
-                  p.kind === 'object'
-                    ? `object - ${p.created_by} - ${objectDetails(p, now) || formatUpdated(p.updated_at, now)}`
+                  p.kind === 'object' || p.kind === 'marker'
+                    ? `${p.kind} - ${p.created_by} - ${objectDetails(p, now) || formatUpdated(p.updated_at, now)}`
                     : `${p.kind} - ${p.created_by} - ${formatUpdated(p.updated_at, now)}`
                 }
                 primaryTypographyProps={{ noWrap: true }}
@@ -268,7 +268,31 @@ export function PoiListPanel({
   )
 }
 
-/** Edit form of one POI: name, note, status (and radius for a point; objects also show their sighting details); delete asks for confirmation in a dialog. */
+/** Details block of a marker POI: marker kind, id, size, height, times seen, last seen and confidence (the pose is the detector's, not editable). */
+function MarkerDetails({ poi }: { poi: Poi }) {
+  const m = poi.marker!
+  const now = Date.now() / 1000
+  const rows: [string, string][] = [
+    ['Marker kind', m.kind],
+    ['Marker id', String(m.id)],
+    ['Size', `${m.size_mm} mm`],
+    ['Height', `${(poi.z ?? 0).toFixed(2)} m`],
+    ['Times seen', String(poi.times_seen ?? 0)],
+    ['Last seen', poi.last_seen ? formatUpdated(poi.last_seen, now) : 'never'],
+    ['Confidence', `${Math.round((poi.confidence ?? 1) * 100)}%`],
+  ]
+  return (
+    <Box data-testid="poi-marker-details">
+      {rows.map(([label, value]) => (
+        <Typography key={label} variant="caption" color="text.secondary" component="div">
+          {label}: {value}
+        </Typography>
+      ))}
+    </Box>
+  )
+}
+
+/** Edit form of one POI: name, note, status (and radius for a point; objects also show their sighting details; a marker shows its marker details and has no position or radius editor); delete asks for confirmation in a dialog. */
 export function PoiEditorPanel({
   poi,
   busy,
@@ -396,11 +420,14 @@ export function PoiEditorPanel({
             slotProps={{ htmlInput: { min: 0.01, step: 0.05 } }}
           />
         )}
+        {poi.kind === 'marker' && poi.marker && <MarkerDetails poi={poi} />}
+        {poi.kind !== 'marker' && (
         <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_FONT }}>
           {poi.kind === 'area' ? 'centre' : 'at'} {poi.x.toFixed(2)}, {poi.y.toFixed(2)} (map)
           {poi.kind === 'area' ? ` - ${poi.polygon.length} vertices` : ''}
         </Typography>
-        {objectDetails(poi, Date.now() / 1000) && (
+        )}
+        {poi.kind !== 'marker' && objectDetails(poi, Date.now() / 1000) && (
           <Typography variant="caption" color="text.secondary" data-testid="poi-object-details">
             {objectDetails(poi, Date.now() / 1000)}
           </Typography>

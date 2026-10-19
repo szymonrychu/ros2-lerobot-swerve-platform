@@ -27,6 +27,13 @@ describe('PoiLegend', () => {
     for (const label of ['Point', 'Object', 'Photo']) expect(screen.getByText(label)).toBeTruthy()
   })
 
+  it('lists the Marker kind with its hexagon', () => {
+    render(<PoiLegend />)
+    expect(screen.getByText('Marker')).toBeTruthy()
+    expect(swatchColor('marker')).toBe(KIND_COLORS.marker)
+    expect(swatchShape('marker')).toBe('hexagon')
+  })
+
   it('shows a swatch per zone taken from zoneStyle / the neutral area colour', () => {
     render(<PoiLegend />)
     expect(swatchColor('none')).toBe(KIND_COLORS['area-none'])

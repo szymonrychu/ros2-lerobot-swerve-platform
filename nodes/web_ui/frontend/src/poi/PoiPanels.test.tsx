@@ -200,3 +200,38 @@ describe('POI categories', () => {
     expect((screen.getByLabelText('Note') as HTMLTextAreaElement).value).toBe('#keepout #survey\nstairs below')
   })
 })
+
+describe('marker POI editor', () => {
+  const MARKER: Poi = {
+    ...POI, id: 'm1', kind: 'marker', name: 'Charger', radius_m: 0, z: 0.45, orientation: [0, 0, 0, 1],
+    times_seen: 7, first_seen: 1, last_seen: Date.now() / 1000 - 120, confidence: 0.8,
+    marker: { kind: 'charger', id: 12, key: 'charger:12', size_mm: 80, params: {}, payload: 'p', version: 1, pose_samples: 5 },
+  }
+
+  it('shows the marker fields and no position or radius editor', () => {
+    viewportWidth = 1400
+    renderWithTheme(<PoiEditorPanel poi={MARKER} busy={false} onClose={vi.fn()} onSend={vi.fn()} />)
+    const details = screen.getByTestId('poi-marker-details').textContent ?? ''
+    for (const part of ['charger', '12', '80 mm', '0.45 m', '7', '2 min ago', '80%']) expect(details).toContain(part)
+    expect(screen.queryByLabelText(/Radius/)).toBeNull()
+    expect(screen.queryByText(/at 1\.00, 2\.00/)).toBeNull()
+    expect(screen.getByLabelText('Name')).toBeTruthy()
+    expect(screen.getByLabelText('Note')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy()
+  })
+
+  it('editing the name sends only name, note and status', () => {
+    viewportWidth = 1400
+    const onSend = vi.fn(async () => ({ ok: true, message: 'ok' }))
+    renderWithTheme(<PoiEditorPanel poi={MARKER} busy={false} onClose={vi.fn()} onSend={onSend as never} />)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Dock' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSend).toHaveBeenCalledWith({ op: 'update', poi: { id: 'm1', name: 'Dock', note: '', status: 'open' } }, 'POI saved')
+  })
+
+  it('the list shows a marker row', () => {
+    viewportWidth = 1400
+    renderWithTheme(<PoiListPanel pois={[MARKER]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
+    expect(screen.getByText(/marker - user/)).toBeTruthy()
+  })
+})

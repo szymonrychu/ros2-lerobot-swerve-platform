@@ -24,7 +24,7 @@ export const OBJECT_COLOR = '#b8b8b8'
 /** Fill of photo markers and viewing wedges, one colour for every camera. */
 export const PHOTO_COLOR = '#8c8c8c'
 /** Marker fill by POI kind. area-none is the neutral fill of an area without a zone. */
-export const KIND_COLORS = { point: '#dcdcdc', object: OBJECT_COLOR, photo: PHOTO_COLOR, 'area-none': '#707070' } as const
+export const KIND_COLORS = { point: '#dcdcdc', object: OBJECT_COLOR, photo: PHOTO_COLOR, marker: '#f4f4f4', 'area-none': '#707070' } as const
 
 /** Colours of the 3D map scene. */
 export const SCENE_COLORS = {
