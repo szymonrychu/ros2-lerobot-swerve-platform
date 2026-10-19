@@ -12,8 +12,8 @@ model: ""
 estimate: 80
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-sessions-and-results-ui
+branch: head-rgb-d-calibration-in-th--rgbd-sessions-and-results-ui
 verified_head: ""
 run: ""
 provides: []

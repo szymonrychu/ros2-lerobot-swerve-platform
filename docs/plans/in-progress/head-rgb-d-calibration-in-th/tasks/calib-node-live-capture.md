@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-live-capture
+branch: head-rgb-d-calibration-in-th--calib-node-live-capture
 verified_head: ""
 run: ""
 provides: []

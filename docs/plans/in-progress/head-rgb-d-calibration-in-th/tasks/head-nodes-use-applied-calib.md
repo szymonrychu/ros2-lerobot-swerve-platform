@@ -12,8 +12,8 @@ model: ""
 estimate: 40
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--head-nodes-use-applied-calib
+branch: head-rgb-d-calibration-in-th--head-nodes-use-applied-calib
 verified_head: ""
 run: ""
 provides: []
