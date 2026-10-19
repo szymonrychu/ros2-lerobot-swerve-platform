@@ -64,6 +64,7 @@ jobs:
           - master2master
           - map_guard
           - map_manager
+          - marker_detector
           - mcp_server
           - poi_store
           - rf2o_odom_relay
