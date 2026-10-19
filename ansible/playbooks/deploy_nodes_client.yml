@@ -544,6 +544,14 @@
           vars:
             _deploy_node_name: costmap_zones
           tags: [costmap_zones, apt, python, build, config]
+        - name: Deploy marker_detector
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [marker_detector]
+          vars:
+            _deploy_node_name: marker_detector
+          tags: [marker_detector, apt, python, build, config]
 
         - name: Claude agent user, directories and OAuth token
           ansible.builtin.include_tasks:
