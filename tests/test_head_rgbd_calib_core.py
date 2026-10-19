@@ -130,7 +130,7 @@ def test_core_intrinsics_recover_synthetic_camera() -> None:
     assert result.rms < 0.5
 
 
-def test_urdf_text_imports_only_standard_library() -> None:
+def test_urdf_text_is_stdlib_only() -> None:
     assert imported_roots(URDF_TEXT) <= set(sys.stdlib_module_names)
 
 
@@ -147,7 +147,7 @@ def test_urdf_text_loads_by_path_without_numpy() -> None:
     subprocess.run([sys.executable, "-I", "-c", code], check=True)
 
 
-def test_core_rewrite_tof_joint_changes_only_origin_and_note() -> None:
+def test_core_rewrite_tof_joint_touches_only_tof_joint() -> None:
     before = HEAD_URDF.read_text()
     after = rewrite_tof_joint(before, FIXED_ORIGIN, "2026-01-01 rms 0.1")
     diff = [
@@ -161,7 +161,7 @@ def test_core_rewrite_tof_joint_changes_only_origin_and_note() -> None:
     assert "0.010000000 -0.020000000 0.030000000" in after
 
 
-def test_core_stereo_calibrate_recovers_synthetic_extrinsic() -> None:
+def test_core_stereo_extrinsic_recovers_synthetic_pose() -> None:
     result = stereo_calibrate(detection_pairs(), BOARD, RGB, TOF)
     assert np.linalg.norm(result.t - TRUE.t) < 0.002
     assert rotation_error_deg(result.r, TRUE.r) < 0.2
