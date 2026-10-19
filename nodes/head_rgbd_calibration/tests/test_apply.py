@@ -44,7 +44,7 @@ def make_result(store: SessionStore, passed: bool = True, rid: str = RID, tag: s
     return sid, rid
 
 
-def test_passing_result_applied_with_marker_last(store: SessionStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_apply_writes_marker_last(store: SessionStore, monkeypatch: pytest.MonkeyPatch) -> None:
     sid, rid = make_result(store)
     order: list[str] = []
     real = os.replace
@@ -70,7 +70,7 @@ def test_failing_result_refused(store: SessionStore) -> None:
     assert {p.name: p.read_text() for p in (store.state_dir / "applied").iterdir()} == before
 
 
-def test_replace_failure_keeps_previous_marker(store: SessionStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_interrupted_apply_keeps_previous_marker(store: SessionStore, monkeypatch: pytest.MonkeyPatch) -> None:
     sid, rid = make_result(store)
     apply_result(store, sid, rid, NOW)
     marker_before = (store.state_dir / "applied" / APPLIED_MARKER).read_text()
@@ -102,7 +102,7 @@ def test_applied_state_none_when_nothing_applied(store: SessionStore) -> None:
     assert applied_state(store, UNITS, fake_run(0)) is None
 
 
-def test_applied_state_restart_flags(store: SessionStore) -> None:
+def test_units_restarted_after_apply(store: SessionStore) -> None:
     sid, rid = make_result(store)
     apply_result(store, sid, rid, NOW)
     at = int(NOW.timestamp())
