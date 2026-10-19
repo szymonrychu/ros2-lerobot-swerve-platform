@@ -1,6 +1,6 @@
 ---
 title: Marker decode
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Markers in a camera frame are found and decoded into validated payloads with ordered corners, and undecodable QR codes are located for a zoom."
 files: [nodes/marker_detector/marker_detector/decode.py, nodes/marker_detector/marker_detector/synthetic.py, nodes/marker_detector/tests/test_decode.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-decode
+branch: printable-metadata-markers-t--marker-decode
 verified_head: ""
 run: ""
 provides: []

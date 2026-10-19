@@ -1,6 +1,6 @@
 ---
 title: MCP marker POIs
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The agent sees marker POIs with their meaning, height and facing, and can drive up to or reach for one directly."
 files: [nodes/mcp_server/mcp_server/perception_models.py, nodes/mcp_server/mcp_server/perception_tools.py, nodes/mcp_server/mcp_server/approach_tools.py, nodes/mcp_server/mcp_server/approach.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/test_marker_pois.py, nodes/mcp_server/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--mcp-marker-pois
+branch: printable-metadata-markers-t--mcp-marker-pois
 verified_head: ""
 run: ""
 provides: []

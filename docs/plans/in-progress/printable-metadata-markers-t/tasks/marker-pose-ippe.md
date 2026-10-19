@@ -1,6 +1,6 @@
 ---
 title: Marker pose IPPE
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A decoded marker's position and orientation come out accurate to about one percent of distance, and an ambiguous pose is refused instead of guessed."
 files: [nodes/marker_detector/marker_detector/pose.py, nodes/marker_detector/tests/test_pose.py]
@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-pose-ippe
+branch: printable-metadata-markers-t--marker-pose-ippe
 verified_head: ""
 run: ""
 provides: []

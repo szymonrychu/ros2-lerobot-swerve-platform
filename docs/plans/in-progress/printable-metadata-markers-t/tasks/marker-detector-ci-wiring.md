@@ -1,6 +1,6 @@
 ---
 title: Marker detector CI wiring
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The new node is linted and tested in CI and by the root lint task like every other node.
 files: [pyproject.toml, scripts/lint-all-nodes.sh, .github/workflows/ci.yml, tests/test_ci_workflow.py]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 20
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-detector-ci-wiring
+branch: printable-metadata-markers-t--marker-detector-ci-wiring
 verified_head: ""
 run: ""
 provides: []

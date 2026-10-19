@@ -1,6 +1,6 @@
 ---
 title: Web UI marker POIs
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The person sees detected markers on the map with their facing and details, and can rename or delete them."
 files: [nodes/web_ui/frontend/src/poi/types.ts, nodes/web_ui/frontend/src/poi/style.ts, nodes/web_ui/frontend/src/poi/style.test.ts, nodes/web_ui/frontend/src/poi/PoiLayer.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.tsx, nodes/web_ui/frontend/src/poi/PoiPanels.test.tsx, nodes/web_ui/frontend/src/poi/PoiLegend.tsx, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--web-ui-marker-pois
+branch: printable-metadata-markers-t--web-ui-marker-pois
 verified_head: ""
 run: ""
 provides: []

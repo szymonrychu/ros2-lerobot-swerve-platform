@@ -1,6 +1,6 @@
 ---
 title: Marker ToF plane
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "When the camera alone cannot tell which way a marker faces, the registered ToF depth settles it."
 files: [nodes/marker_detector/marker_detector/tof_plane.py, nodes/marker_detector/tests/test_tof_plane.py]
@@ -12,8 +12,8 @@ model: opus
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-tof-plane
+branch: printable-metadata-markers-t--marker-tof-plane
 verified_head: ""
 run: ""
 provides: []

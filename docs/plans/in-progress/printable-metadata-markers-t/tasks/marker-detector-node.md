@@ -1,6 +1,6 @@
 ---
 title: Marker detector node
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Markers the head camera sees turn into POIs automatically, and nothing is sent without a real, unambiguous detection."
 files: [nodes/marker_detector/marker_detector/pipeline.py, nodes/marker_detector/marker_detector/node.py, nodes/marker_detector/marker_detector/__main__.py, nodes/marker_detector/marker_detector/metrics.py, nodes/marker_detector/tests/ros_stubs.py, nodes/marker_detector/tests/test_pipeline.py, nodes/marker_detector/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-detector-node
+branch: printable-metadata-markers-t--marker-detector-node
 verified_head: ""
 run: ""
 provides: []
