@@ -63,6 +63,7 @@ private:
 
   void on_command(const std_msgs::msg::String & msg);
   void on_map_reset();
+  void run_map_reset();
   void on_graph(const rtabmap_msgs::msg::MapGraph & msg);
   void publish_status();
   void publish_result(const Result & result);
@@ -92,6 +93,10 @@ private:
 
   std::atomic<bool> busy_{false};
   std::thread worker_;
+  // guards busy_ transitions and reset_pending_
+  std::mutex action_lock_;
+  // a map_reset arrived while an action ran; applied when it ends
+  bool reset_pending_{false};
 
   std::mutex lock_;  // guards the status inputs below
   StatusInputs inputs_;

@@ -114,15 +114,27 @@ void Map3dManagerNode::on_graph(const rtabmap_msgs::msg::MapGraph & msg)
 
 bool Map3dManagerNode::start_action(std::function<void()> work)
 {
-  if (busy_.exchange(true)) {
+  std::lock_guard<std::mutex> guard(action_lock_);
+  if (busy_) {
     return false;
   }
+  busy_ = true;
   if (worker_.joinable()) {
-    worker_.join();  // the previous action cleared busy_ as its last step
+    worker_.join();  // the previous worker released busy_ as its last locked step
   }
   worker_ = std::thread([this, work = std::move(work)]() {
     work();
-    busy_ = false;
+    for (;;) {
+      {
+        std::lock_guard<std::mutex> guard(action_lock_);
+        if (!reset_pending_) {
+          busy_ = false;
+          return;
+        }
+        reset_pending_ = false;
+      }
+      run_map_reset();
+    }
   });
   return true;
 }
@@ -162,18 +174,25 @@ void Map3dManagerNode::on_command(const std_msgs::msg::String & msg)
   }
 }
 
+void Map3dManagerNode::run_map_reset()
+{
+  RCLCPP_WARN(get_logger(), "map_reset received: resetting the 3D map");
+  const Outcome outcome = do_reset();
+  if (outcome.status != Status::OK) {
+    RCLCPP_ERROR(get_logger(), "3D map reset after map_reset failed: %s", outcome.message.c_str());
+    note_error(outcome);
+  }
+}
+
 void Map3dManagerNode::on_map_reset()
 {
-  const bool started = start_action([this]() {
-    RCLCPP_WARN(get_logger(), "map_reset received: resetting the 3D map");
-    const Outcome outcome = do_reset();
-    if (outcome.status != Status::OK) {
-      RCLCPP_ERROR(get_logger(), "3D map reset after map_reset failed: %s", outcome.message.c_str());
-      note_error(outcome);
+  while (!start_action([this]() { run_map_reset(); })) {
+    std::lock_guard<std::mutex> guard(action_lock_);
+    if (busy_) {  // checked under the lock the worker releases busy_ with, so the reset is not lost
+      reset_pending_ = true;
+      RCLCPP_WARN(get_logger(), "map_reset received while a 3D map action runs; reset queued");
+      return;
     }
-  });
-  if (!started) {
-    RCLCPP_WARN(get_logger(), "map_reset received while another 3D map action runs; not reset");
   }
 }
 

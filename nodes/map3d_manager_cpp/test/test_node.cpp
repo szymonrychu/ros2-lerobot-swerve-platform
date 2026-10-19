@@ -336,6 +336,19 @@ TEST(Map3dManagerNode, MapResetMessageTriggersResetWithoutAResult)
   EXPECT_EQ(h.result_count(), 0u);
 }
 
+TEST(Map3dManagerNode, MapResetWhileAnActionRunsIsAppliedAfterItFinishes)
+{
+  Harness h;
+  h.rtabmap->delay = 400ms;
+  ASSERT_TRUE(h.wait_for([&]() { return h.reset_pub->get_subscription_count() > 0; }));
+  h.send("s1", "pause");
+  ASSERT_TRUE(h.wait_for([&]() { return h.manager->busy(); }));
+  h.reset_pub->publish(std_msgs::msg::Empty());
+  EXPECT_EQ(h.result_of("s1")["status"], "ok");
+  ASSERT_TRUE(h.wait_for([&]() { return h.rtabmap->calls["reset"] == 1; }));
+  EXPECT_EQ(h.result_count(), 1u);
+}
+
 TEST(Map3dManagerNode, StatusWaitsForInputsThenMapsAndTakesTheGraphCorrection)
 {
   Harness h;
