@@ -181,6 +181,15 @@ Calibration procedure:
    `python scripts/solve_camera_mount.py samples.json --camera gripper`.
 4. Paste the printed YAML into the Ansible node config; the RMS should be around 1 px or less.
 
+## head_rgbd_calibration (`ros2_common.head_rgbd_calibration`)
+
+The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subprocess` or ssh code, so node venvs can use it.
+
+- `config`: `StrictModel` (pydantic, unknown keys rejected) and the `BoardConfig`, `SelectionConfig`, `LimitsConfig` settings.
+- `charuco`: `make_board`, `detect` and `Detection` (ChArUco detection for the RGB image and the normalised ToF amplitude).
+
+Imported by the calibration CLI under `scripts/head_rgbd_calibration/` and by the head_rgbd_calibration node.
+
 ## ros2_common_cpp (C++)
 
 An ament_cmake package with two plain library targets, `ros2_common_cpp::config` and `ros2_common_cpp::metrics`. None links rclcpp, so a node's pure-logic library can use them. Headers are in

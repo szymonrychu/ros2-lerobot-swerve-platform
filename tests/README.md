@@ -2729,6 +2729,10 @@ Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof 
 | `test_no_other_client_node_publishes_map_to_odom` | No other client node sets `publish_tf: true` (but the EKF, odom -> base_link), the static TF publisher has no map parent or odom child, tof_obstacle_cloud has no TF argument. |
 | `test_new_nodes_and_tests_are_in_the_tests_readme` | tof_obstacle_cloud and the four ToF obstacle test files have a section here. |
 
+### `test_head_rgbd_calib_core.py`
+
+Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan proves no module imports `scripts`, `rosbags` or `subprocess`; `BoardConfig`, `SelectionConfig`, `LimitsConfig` reject unknown keys and their defaults equal the `board`, `selection`, `limits` blocks of `scripts/head_rgbd_calibrate.yaml`; the core `detect` finds the synthetic board of `tests/rgbd_synthetic.py`.
+
 ### `test_head_rgbd_calib_intrinsics.py`
 
 Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.

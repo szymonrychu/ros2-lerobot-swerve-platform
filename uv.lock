@@ -1725,6 +1725,33 @@ wheels = [
 ]
 
 [[package]]
+name = "ros2-common"
+version = "0.1.0"
+source = { editable = "shared" }
+dependencies = [
+    { name = "numpy" },
+    { name = "opencv-python-headless" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "scipy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=1.26.0" },
+    { name = "opencv-python-headless", specifier = ">=4.9.0,<5" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "scipy", specifier = ">=1.11.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ruff", specifier = "==0.15.20" },
+    { name = "vulture", specifier = ">=2.11" },
+]
+
+[[package]]
 name = "ros2-lerobot-swerve-platform"
 version = "0.1.0"
 source = { virtual = "." }
@@ -1748,6 +1775,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pyyaml" },
     { name = "reportlab" },
+    { name = "ros2-common" },
     { name = "rosbags" },
     { name = "rtree" },
     { name = "ruff" },
@@ -1780,6 +1808,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "reportlab", specifier = ">=4,<5" },
+    { name = "ros2-common", editable = "shared" },
     { name = "rosbags", specifier = ">=0.10,<1" },
     { name = "rtree", specifier = ">=1.2" },
     { name = "ruff", specifier = "==0.15.20" },

@@ -34,10 +34,14 @@ dev = [
     "lxml>=5",
     "rtree>=1.2",
     "rosbags>=0.10,<1",
+    "ros2-common",
 ]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+ros2-common = { path = "shared", editable = true }
 
 [tool.pytest.ini_options]
 addopts = "-v -rxXs"
