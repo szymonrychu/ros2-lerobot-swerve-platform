@@ -394,14 +394,12 @@ uv run python -m scripts.head_rgbd_calibrate validate
 
 **Outputs and consumers.** `outputs.rgb_calibration` is read by `head_camera_cpp` (`camera_info_file`), `outputs.tof_calibration` and `outputs.extrinsics` by `head_rgbd_cpp` (which takes the transform itself from TF), and `outputs.urdf` (`nodes/web_ui/urdf/head.urdf`, the `tof_joint` origin) feeds the TF tree that `robot_state_publisher` publishes. Redeploy those nodes after calibrating.
 
-## head_rgbd_calibration/ (frames and config)
+## head_rgbd_calibration/ (frames, config and pipeline)
 
 Head RGB-D calibration tool, configured by `scripts/head_rgbd_calibrate.yaml` (pydantic `CalibrationConfig` in `head_rgbd_calibration/config.py`: `capture`, `board`, `selection`, `limits`, `outputs`, `validation`; unknown keys are rejected and `capture.topics` must include the mapping image topic so the focus lock engages). `board` must equal the `charuco` block of `markers_generate.yaml` (a test pins this).
 
 `frames.py`: `capture_bag` records on the robot over ssh (`timeout -s INT` around `ros2 bag record -s sqlite3`, in the robot's ROS CLI environment `ROS_CLI_ENV`; without it the recorder discovers the topics but writes an empty bag), `scp -r`s the bag to `capture.local_dir/<name>`, removes the remote copy and fails when the bag holds no messages; `read_frames` decodes a bag with `rosbags`; `still_pairs` picks one RGB and ToF pair per still window (after `skip_start_s`, pair dt <= `max_pair_dt_s`); `rgb_difference` is the RGB stillness measure: blurred frames compared row by row after scaling out the mains flicker bands of the rolling shutter (a still board under room light differs by about 5 grey levels in the plain difference, under 1.5 with it); `normalise_amplitude` percentile-stretches ToF amplitude to uint8 (None for an empty frame).
 
-`charuco.py`: `make_board` builds the OpenCV ChArUco board from `board`; `detect` returns sub-pixel corner ids and points (None below 6 corners) for the RGB image or the normalised ToF amplitude.
-
-`intrinsics.py`: `calibrate` (plumb_bob, refuses fewer than `limits.min_views` views), `calibrate_tof` (fits with distortion fixed at zero and free, keeps the zero-D model when its RMS <= `limits.tof_zero_distortion_rms_px`, records `zero_distortion_rms`), `compare_sdk` (fx/fy/cx/cy difference in % against `/tof/camera_info`) and `write_camera_calibration_yaml` (ROS camera_calibration format; raises and writes nothing when RMS exceeds `rgb_max_rms_px` / `tof_max_rms_px`). RGB is calibrated at the 576x324 mapping size. Synthetic scenes for all calibration tests live in `tests/rgbd_synthetic.py`.
+Detection, intrinsics, extrinsics and the URDF text edit live only in `ros2_common.head_rgbd_calibration` (`shared/ros2_common/head_rgbd_calibration/`); no re-export modules remain here. Synthetic scenes for all calibration tests live in `tests/rgbd_synthetic.py`.
 
 `pipeline.py`: the steps behind `head_rgbd_calibrate.py` (session lookup, calibration run, limit checks, output and report writers, validation session, wall and sweep metrics).
