@@ -483,7 +483,7 @@ estimate.
 | gripper_uvc_camera (`uvc_camera`) | 66.7 / 68.2 | 72M | 256M |
 | arducam_tof (disabled) | no data (estimate from uvc_camera plus the SDK and numpy; re-measure once enabled) | 64M | 192M |
 | head_camera_cpp | sized from the retired pi_cameras unit (94.6 / 95.6 MiB, camera_ros, one camera) | 128M | 384M |
-| map3d_uplink | not measured (estimate: launch parent plus one container, p50 ~64 MiB incl. the rtabmap shared libraries; re-measure in Mimir while mapping) | 48M | 256M |
+| map3d_uplink | launch parent plus one container, sized at ~64 MiB p50 including the rtabmap shared libraries | 48M | 256M |
 | test_joint_api | 57.6 / 58.2 | 64M | 128M |
 | mcp_server | 177.9 / 383.4 | 184M | 1G |
 | claude_agent | 93.4 / 386.5 | 96M | 1G |
