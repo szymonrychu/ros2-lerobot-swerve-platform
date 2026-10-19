@@ -35,10 +35,7 @@ def require_mapping_topic(topics: list[str], key: str) -> list[str]:
 
 
 class CaptureConfig(StrictModel):
-    """Recording session on the robot. topics: calibration topics; validation_topics: used for validation sessions.
-
-    live: the calibration capture also streams the RGB and ToF frames and prints the usable pose count as it rises.
-    """
+    """Recording session on the robot. topics: calibration topics; validation_topics: used for validation sessions."""
 
     host: str = "client.ros2.lan"
     ssh_user: str = "szymonri"
@@ -48,7 +45,6 @@ class CaptureConfig(StrictModel):
     ros_setup: str = "/opt/ros/jazzy/setup.bash"
     topics: list[str] = Field(default_factory=lambda: list(DEFAULT_TOPICS))
     validation_topics: list[str] = Field(default_factory=lambda: list(DEFAULT_VALIDATION_TOPICS))
-    live: bool = True
 
     @model_validator(mode="after")
     def check_topics(self) -> Self:
