@@ -5,7 +5,8 @@ mapping stream and the ToF camera). It keeps the selected poses, thumbnails with
 results on the robot, so a session survives restarts and deploys. The calibration maths lives in
 `shared/ros2_common/head_rgbd_calibration`; this node owns the session state: poses, thumbnails, coverage and results.
 
-This README covers the config and the session store (`head_rgbd_calibration/store.py`, `images.py`).
+This README covers the config, the session store (`head_rgbd_calibration/store.py`, `images.py`) and the live capture
+(`head_rgbd_calibration/capture.py`).
 
 ## State directory
 
@@ -33,6 +34,43 @@ applied/                                    the applied calibration
   `ValueError`. A pose whose amplitude frame is empty (no thumbnail possible) is refused too and not stored.
 - Coverage (`SessionStore.coverage`) counts the stored corners per cell of the `coverage` grid, per camera; it is never
   invented, and a session without poses gives zeros.
+
+## Capture
+
+`CaptureController(node, store, cfg, clock)` (`head_rgbd_calibration/capture.py`) subscribes the head topics only while
+a capture runs (design D4) and publishes nothing.
+
+- `start(session_id)` creates a session (`None`) or reopens an existing one to add poses (`NotFound` for an unknown id).
+  It reads `lens_position` from `head_camera_config_file` (the deployed head_camera_cpp `config.yaml`;
+  `default_lens_position` when the key is absent). An unreadable or invalid file, or a reopened session captured at
+  another lens position, fails the start with `CaptureError` naming the reason, and nothing is subscribed. A second
+  start while one runs raises `Busy`. The core `PoseCounter` starts at the stored pose count, so a reopened session
+  continues its numbering.
+- Subscriptions, with the QoS measured on the robot:
+
+  | Topic | Type | QoS |
+  |---|---|---|
+  | `topics.amplitude`, `topics.depth` | `sensor_msgs/Image` | RELIABLE KEEP_LAST `qos.tof_depth` (the publisher is RELIABLE; BEST_EFFORT loses about half the frames under load) |
+  | `topics.tof_info` | `sensor_msgs/CameraInfo` | RELIABLE depth 1 |
+  | `topics.rgb` (mapping stream) | `sensor_msgs/CompressedImage` | BEST_EFFORT KEEP_LAST `qos.rgb_depth` |
+
+- Any subscriber to the mapping topic engages the head camera focus lock (`head_camera_node.cpp`
+  `focus_lock_desired`). So `stop()`, the `max_capture_s` timer and a start that fails part-way all destroy every
+  subscription and the timer: nothing outlives the capture.
+- Frames: amplitude and depth decode as `mono16` / `16UC1` honouring `step` and `is_bigendian`; the RGB frame decodes
+  with `cv2.imdecode` and its JPEG bytes are kept as `rgb.jpg`. A frame that does not decode is logged (throttled) and
+  dropped, never fed. Header stamps order the frames. Each pose the counter captures goes to `SessionStore.add_pose`
+  with the detections of its judgement (no re-detection); the first `/tof/camera_info` of a capture is recorded with
+  `set_tof_info`. A pose the store refuses (for example another image size) is logged and shown in the status.
+- `state()` returns `{running, session_id, status, pose_count, started_at, stops_at}`. `status` is the counter status
+  (`waiting for frames` until both the RGB and the amplitude stream delivered a frame, then `moving`, `still - no board
+  in the RGB image`, `still - board not found by the ToF: move closer`, `pose N captured - move to the next pose`), or
+  why the capture stopped. `stops_at` is set only while running.
+- Threads: the subscription and timer callbacks run on the executor thread; `start`, `stop` and `state` run on HTTP
+  threads. One lock guards the shared state and is held only for field updates. Decoding, detection and pose writes
+  run on the executor thread (serialised by a second lock no HTTP call takes); an HTTP call only creates or destroys
+  subscriptions and, for a new session, writes its `session.json`. Callback errors are logged, never raised into the
+  executor.
 
 ## Config keys
 
@@ -64,4 +102,9 @@ keys are rejected.
   (traversal ids, symlink escape), concurrent adds.
 - `tests/test_images.py` - RGB thumbnail width, corners drawn, input untouched; ToF thumbnail 2x with corners, `None`
   for an empty frame.
+- `tests/test_capture.py` - ToF subscriptions RELIABLE, mapping BEST_EFFORT, stop / timeout / failed start leave
+  nothing subscribed, lens position source and failures, `Busy`, unknown session, a still board stored as a pose (raw
+  JPEG, depth, camera_info), reopened session numbering, undecodable frames dropped, frames after stop ignored, a
+  refused pose shown in the status, `decode_mono16` step and endianness, `state` polled while frames arrive.
+- `tests/conftest.py` - stub `rclpy`, `rclpy.qos`, `sensor_msgs`, `sensor_msgs.msg` modules for the dev environment.
 - `tests/pose_factory.py` - helper building poses from the core synthetic board renderer (not a test).
