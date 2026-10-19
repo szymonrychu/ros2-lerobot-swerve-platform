@@ -505,10 +505,17 @@ calibration:
   imu_reset_service: /imu/calibration/reset
   imu_stale_s: 3.0                    # > 0
   imu_service_timeout_s: 5.0          # > 0, wait for the save / reset Trigger response
+  rgbd_url: http://127.0.0.1:18400    # optional http(s) base URL of the head RGB-D calibration node; absent: no RGB-D section
+  rgbd_timeout_s: 10.0                # > 0, wait for one forwarded RGB-D call
 ```
 
 Routes (all under `/api/calibration`):
-- `GET /config` returns `{imu: true, arm: "deferred"}`.
+- `GET /config` returns `{imu: true, rgbd: <rgbd_url is set>, arm: "deferred"}`.
+- RGB-D (`web_ui/rgbd_calibration.py`, no ROS subscription): `GET|POST|DELETE /rgbd/{path}` forwards method, query and body to
+  `<rgbd_url>/api/<path>` (httpx, timeout `rgbd_timeout_s`). Status, `content-type`, `content-disposition` and body bytes pass
+  through unchanged (JPEG thumbnails, zip downloads; bodies are buffered). A POST forwards its `content-type`. A path outside
+  `[A-Za-z0-9_.\-/]` or with a `..` segment answers `400`; no `rgbd_url` answers `404 {"ok": false, "message": "RGB-D calibration not configured"}`;
+  a connect error or timeout answers `503 {"ok": false, "message": "calibration node unreachable"}`. Tests: `tests/test_rgbd_calibration_proxy.py`.
 - IMU (needs the ROS bridge; the bridge subscribes `imu_status_topic` always-on and creates Trigger clients for the two IMU services):
   - `GET /imu` returns `{sys, gyro, accel, mag, restored, age_s}`, the node's latest `std_msgs/String` JSON sample. No sample yet
     answers `503 {"ok": false, "message": "no IMU calibration sample yet"}`; older than `imu_stale_s` answers
@@ -520,7 +527,8 @@ Routes (all under `/api/calibration`):
 Frontend (`frontend/src/calibrate/`):
 - Entry: a **Calibrate** item in the hamburger menu on every layout (phone, tablet, desktop). It sets the hash `#/calibrate` and shows the page instead of the tabs; no tab is stored. Loading with `#/calibrate` opens it directly; **Back** clears the hash and returns to the stored tab. `CalibratePage` reads `GET /api/calibration/config` (404 shows "Calibration page not configured on this robot"), then renders the IMU section when `imu` is true, and a static "Arm calibration - deferred" line.
 - **IMU section** (`ImuCalibration.tsx`, calls and pure helpers in `imuApi.ts`): **Calibrate IMU** starts the flow; the section then polls `GET /api/calibration/imu` at 1 Hz (only while the browser tab is visible) and shows sys, gyro, accel and mag as 0-3 levels (green at 3, amber at 2, red at 0-1) plus the restored flag, with guidance per subsystem (gyro: keep still; accel: a few static poses, lifting the robot; mag: rotate or drive figure-eights away from motors). A 503 (no sample yet, stale) shows the server message instead of levels; values are never zeros as if measured. **Save offsets** (enabled when mag is 3) calls `POST /imu/save` and shows the message; a 409 shows the node's reason. **Reset IMU calibration** opens a confirm dialog ("The IMU forgets its calibration and starts from zero.") and calls `POST /imu/reset` only on confirm.
-- vitest: `calibrateRoute.test.ts`, `CalibrateRouting.test.tsx`, `CalibratePage.test.tsx` (T39), `imuApi.test.ts`, `ImuCalibration.test.tsx` (T41).
+- vitest: `calibrateRoute.test.ts`, `CalibrateRouting.test.tsx`, `CalibratePage.test.tsx` (T39), `imuApi.test.ts`, `ImuCalibration.test.tsx` (T41), `rgbdApi.test.ts`, `RgbdCalibration.test.tsx` (an opened past session survives capture polls), `RgbdSessions.test.tsx` (session list newest first, Open, Resume capture, Compute disabled while busy, 409 message, refresh when the compute ends), `RgbdResults.test.tsx` (chip and metrics table with limits, Apply hidden for failed results, Apply through the dialog then per-unit restart state, Download href), `RgbdCapture.test.tsx` (RGB-D capture section: resume polling after reload, start status and count, new-pose thumbnails, delete through the dialog, polling stops on stop and while hidden, coverage hint).
+- **RGB-D section** (`RgbdCalibration.tsx`, `RgbdCapture.tsx`, `RgbdSessions.tsx`, `RgbdResults.tsx`, `CoverageGrid.tsx`; shown when the config has `rgbd: true`): `RgbdCalibration` reads `GET /rgbd/state` on mount and polls it every 1 s only while a capture or compute runs and the tab is visible. `RgbdCapture` has Start capture / Stop, a status Alert with pose count and auto-stop time, a thumbnail grid (RGB and ToF with corners drawn, corner counts, depth marker) with per-pose delete behind a confirm dialog, and RGB/ToF coverage grids with the text `N of M image areas without corners`. `RgbdSessions` lists past sessions newest first (id, created, pose and result counts) with Open (selects the session shown by `RgbdCapture` and `RgbdResults`), Resume capture (`POST /rgbd/capture/start` with the session id) and Compute (disabled while a capture or compute runs; a 409 message is shown; the list refreshes when the compute ends and a job error is shown). `RgbdResults` lists the open session's results newest first: passed/failed chip, a table of RGB/ToF/stereo RMS, plane bias and view counts next to their limits, the failed limits, the report as preformatted text in a collapsible, Apply for passed results only (confirm dialog naming the restart of head_camera_cpp, head_rgbd_cpp and head_state_publisher, then `GET /rgbd/applied` every 2 s for at most 60 s showing each unit's restart state) and Download (anchor with the `download` attribute to the result zip).
 
 Errors are honest: nothing is cached, synthesized or defaulted.
 
