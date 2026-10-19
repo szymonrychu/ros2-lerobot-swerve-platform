@@ -54,6 +54,31 @@ keys are rejected.
 | `coverage.cols` / `coverage.rows` | 4 / 3 | Coverage grid |
 | `board`, `selection`, `limits` | core defaults | ChArUco board, still-pose selection (`selection.amplitude_percentiles` also normalises the ToF thumbnail), fit limits |
 
+## Compute
+
+`head_rgbd_calibration/compute.py` fits the calibration from one session's stored poses (`SessionStore.load_views`:
+`pose.json` detections and `depth.png` only, never a bag or the RGB/amplitude images). `ComputeJob` in `jobs.py` runs
+it as a child `nice -n <compute_nice> python -m head_rgbd_calibration.compute --config <HEAD_RGBD_CALIBRATION_CONFIG>
+--session <sid> --result <rid>`, one at a time (`Busy` otherwise), so it never runs in the web_ui loop or the capture
+process. The child is killed after `compute_timeout_s` (`error: timed out after N s`); a non-zero exit without
+`result.json` reports the last 20 stderr lines as `error`. `state()` returns
+`{running, session_id, result_id, started_at, error}`.
+
+Output goes to `sessions/<sid>/results/<rid>/`, written under `.tmp-<rid>` and renamed when complete:
+
+| File | Content |
+|---|---|
+| `head_camera_calibration.yaml`, `tof_calibration.yaml` | ROS camera_info YAMLs (`head_camera`, `tof`) |
+| `head_rgbd_extrinsics.yaml` | ToF in RGB optical frame, with session, lens position, board, date, RMS |
+| `tof_joint.json` | `{xyz, rpy, note}` of the head URDF `tof_joint` |
+| `head.urdf` | `cfg.head_urdf_file` with that `tof_joint` rewritten (the checkout is never written) |
+| `report.md` | Run report |
+| `result.json` | `id, session, created, passed, failed_limits, rgb_rms_px, tof_rms_px, stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids` (plus `error` on failure) |
+
+A run over the limits has `passed: false`, `failed_limits`, and only `report.md` + `result.json`. A core `ValueError`
+(too few views, no ToF camera_info) or an unreadable URDF writes only `result.json` with `passed: false` and `error`,
+so there is no report.
+
 ## Tests
 
 `cd nodes/head_rgbd_calibration && uv run pytest tests/ -v`
@@ -65,3 +90,6 @@ keys are rejected.
 - `tests/test_images.py` - RGB thumbnail width, corners drawn, input untouched; ToF thumbnail 2x with corners, `None`
   for an empty frame.
 - `tests/pose_factory.py` - helper building poses from the core synthetic board renderer (not a test).
+- `tests/test_compute.py` - synthetic session through the store: passing result and files, limits exceeded, too few
+  poses, missing ToF camera_info, `tof_joint.json` agrees with `head.urdf`, `main`.
+- `tests/test_jobs.py` - command and niceness, busy, timeout, stderr tail, unknown session (fake child commands).
