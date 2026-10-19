@@ -1895,6 +1895,12 @@ ros2_nodes:
         base_poll_hz: 1.0
         stale_after_s: 5.0
         base_timeout_s: 2.0
+      # Calibrate page (hamburger menu, #/calibrate): the IMU section reads bno055_imu's calibration status and calls
+      # its save/reset Trigger services (bno055_imu defaults). Without this block the page answers "not configured".
+      calibration:
+        imu_status_topic: /imu/calibration
+        imu_save_service: /imu/calibration/save
+        imu_reset_service: /imu/calibration/reset
       tabs:
         - id: map
           type: map_nav
