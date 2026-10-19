@@ -32,7 +32,7 @@ An update that sets `zone` to `slow` without a `speed_limit_pct` (neither sent n
 
 A zone is active when `kind` is `area`, `zone` is not `none` and `status` is `open`; `done` or `cancelled` disables it but keeps the record. The `costmap_zones` node consumes the active zones from `/poi/list` and turns them into Nav2 keepout and speed masks.
 
-All numbers must be finite. Files written before `object` existed load unchanged (the new fields take their defaults); the same holds for files written before `zone` existed and before `z`, `orientation` and `marker` existed (z 0, no orientation, no marker). A marker is point-like: it has no polygon and no zone, and the sighting fields (`times_seen`, `first_seen`, `last_seen`, `confidence`) apply to it as to an object. There is no `category` field yet.
+All numbers must be finite. Files written before `object` existed load unchanged (the new fields take their defaults); the same holds for files written before `zone` existed and before `z`, `orientation` and `marker` existed (z 0, no orientation, no marker). A marker is point-like: it has no polygon and no zone, and the sighting fields (`times_seen`, `first_seen`, `last_seen`, `confidence`) apply to it as to an object. The model has no `category` field; the POI `kind` and `marker.kind` are the only classification.
 
 ## Topics
 
