@@ -328,7 +328,6 @@ def test_report_markdown_golden() -> None:
     assert text == GOLDEN_REPORT
 
 
-
 def test_moved_modules_left_scripts() -> None:
     """The four transitional re-export modules are gone and nothing imports them."""
     root = Path(__file__).resolve().parent.parent
