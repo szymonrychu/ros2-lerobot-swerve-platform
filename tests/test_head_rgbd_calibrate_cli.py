@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.charuco import detect, make_board
 from ros2_common.head_rgbd_calibration.config import BoardConfig
 from ros2_common.head_rgbd_calibration.extrinsics import load_extrinsics_yaml
@@ -291,65 +292,45 @@ class FakeRunner:
         return subprocess.CompletedProcess(cmd, 0)
 
 
-class FakeLive:
-    def __init__(self) -> None:
-        self.started = 0
-        self.stopped = 0
-
-    def __call__(self, _cfg: object) -> object:
-        self.started += 1
-        return self.stop
-
-    def stop(self) -> None:
-        self.stopped += 1
-
-
-@pytest.fixture
-def live(monkeypatch: pytest.MonkeyPatch) -> FakeLive:
-    fake = FakeLive()
-    monkeypatch.setattr(cli, "LIVE", fake)
-    return fake
-
-
 def test_capture_prints_bag_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], live: FakeLive
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runner = FakeRunner()
     monkeypatch.setattr(cli, "RUNNER", runner)
     assert cli.main(["--config", str(make_config(tmp_path)), "capture"]) == 0
     assert capsys.readouterr().out.strip() == str(tmp_path / "bags" / "s1")
     assert "/head_camera/mapping/image_raw/compressed" in runner.commands[0][-1]
-    assert len(runner.commands) == 3
-    assert (live.started, live.stopped) == (1, 1)
+    assert [cmd[0] for cmd in runner.commands] == ["ssh", "scp", "ssh"]
+    assert "ros2 bag record" in runner.commands[0][-1]
+    assert "rm -rf" in runner.commands[2][-1]
 
 
-def test_capture_stops_live_when_the_recording_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, live: FakeLive
-) -> None:
-    monkeypatch.setattr(cli, "RUNNER", lambda cmd, **_: subprocess.CompletedProcess(cmd, 1))
-    assert cli.main(["--config", str(make_config(tmp_path)), "capture"]) == 1
-    assert (live.started, live.stopped) == (1, 1)
+def test_capture_runs_only_record_copy_remove(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = FakeRunner()
+    monkeypatch.setattr(cli, "RUNNER", runner)
+    assert cli.main(["--config", str(make_config(tmp_path)), "capture"]) == 0
+    assert [cmd[0] for cmd in runner.commands] == ["ssh", "scp", "ssh"]
+    assert "ros2 bag record" in runner.commands[0][-1]
+    assert "rm -rf" in runner.commands[2][-1]
 
 
-def test_capture_without_live(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, live: FakeLive) -> None:
-    monkeypatch.setattr(cli, "RUNNER", FakeRunner())
-    config = make_config(tmp_path)
-    data = yaml.safe_load(config.read_text())
-    data["capture"]["live"] = False
+def test_capture_live_key_rejected(tmp_path: Path) -> None:
+    data = yaml.safe_load(make_config(tmp_path).read_text())
+    data["capture"]["live"] = True
+    config = tmp_path / "live.yaml"
     config.write_text(yaml.safe_dump(data))
-    assert cli.main(["--config", str(config), "capture"]) == 0
-    assert live.started == 0
+    with pytest.raises(ValidationError, match="live"):
+        load_calibration_config(config)
 
 
 def test_capture_validation_names_bag_and_uses_validation_topics(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], live: FakeLive
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     runner = FakeRunner()
     monkeypatch.setattr(cli, "RUNNER", runner)
     assert cli.main(["--config", str(make_config(tmp_path)), "capture-validation", "0.5m"]) == 0
     assert capsys.readouterr().out.strip() == str(tmp_path / "bags" / "s1-0.5m")
     assert "/head_rgbd/depth/image_raw" in runner.commands[0][-1]
-    assert live.started == 0
 
 
 def test_capture_validation_rejects_unknown_suffix(tmp_path: Path) -> None:

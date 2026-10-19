@@ -308,3 +308,21 @@ def test_failed_limits_names_limit_keys() -> None:
 def test_report_markdown_golden() -> None:
     text = report_markdown(fixed_run(), LimitsConfig(), "calib-test", 4.5, "2026-01-02T03:04:05")
     assert text == GOLDEN_REPORT
+
+
+def test_moved_modules_left_scripts() -> None:
+    """The four transitional re-export modules are gone and nothing imports them."""
+    root = Path(__file__).resolve().parent.parent
+    paths = [
+        f"scripts/head_rgbd_calibration/{name}.py" for name in ("charuco", "intrinsics", "extrinsics", "urdf_handoff")
+    ]
+    tracked = subprocess.run(["git", "ls-files", *paths], cwd=root, capture_output=True, text=True, check=True)
+    assert tracked.stdout.strip() == ""
+    pattern = r"scripts\.head_rgbd_calibration(\.| import )(charuco|intrinsics|extrinsics|urdf_handoff)\b"
+    found = subprocess.run(
+        ["git", "grep", "-nE", pattern, "--", "*.py", ":!tests/test_head_rgbd_calib_core.py"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    assert found.returncode == 1, found.stdout

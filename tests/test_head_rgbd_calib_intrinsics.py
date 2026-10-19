@@ -8,17 +8,17 @@ import numpy as np
 import pytest
 import yaml
 from ros2_common.head_rgbd_calibration.calibrate import detect_tof
-
-from scripts.head_rgbd_calibration.charuco import Detection, detect, make_board
-from scripts.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
-from scripts.head_rgbd_calibration.frames import CameraInfoData, normalise_amplitude
-from scripts.head_rgbd_calibration.intrinsics import (
+from ros2_common.head_rgbd_calibration.charuco import Detection, detect, make_board
+from ros2_common.head_rgbd_calibration.intrinsics import (
     IntrinsicsResult,
     calibrate,
     calibrate_tof,
     compare_sdk,
     write_camera_calibration_yaml,
 )
+
+from scripts.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
+from scripts.head_rgbd_calibration.frames import CameraInfoData, normalise_amplitude
 from tests.rgbd_synthetic import (
     board_poses,
     centred_pose,

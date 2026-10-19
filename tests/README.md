@@ -2749,7 +2749,7 @@ Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan prov
 
 ### `test_head_rgbd_calib_intrinsics.py`
 
-Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
+Tests for `shared/ros2_common/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
 
 | `test_make_board_matches_config` | Board size and lengths follow `BoardConfig`. |
 | `test_rgb_views_recover_intrinsics` | 20 RGB views recover fx, fy within 1 % and cx, cy within 3 px. |
@@ -2767,7 +2767,7 @@ Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the
 
 ### `test_head_rgbd_calib_extrinsics.py`
 
-Tests for `scripts/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF pairs with a known extrinsic.
+Tests for `shared/ros2_common/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF pairs with a known extrinsic.
 
 | Test | What it checks |
 |---|---|
@@ -2801,21 +2801,16 @@ another still pose at 0.33 m.
 | `test_depth_history_is_pruned_like_the_amplitude` | Depth frames older than `TOF_HISTORY_S` are dropped. |
 | `test_unknown_frame_kind_is_rejected` | An unknown kind raises `ValueError`. |
 
-### `test_head_rgbd_calib_live.py`
+### `test_head_rgbd_calib_retired.py`
 
-Tests for `scripts/head_rgbd_calibration/live.py` (relay stream, monitor, ssh start of `capture`); the stream is the
-synthetic scene of `test_head_rgbd_calib_poses.py`. The counter itself is tested there.
+Retirement pin for the ssh-streamed live pose counter (replaced by the web UI Calibrate page).
 
 | Test | What it checks |
 |---|---|
-| `test_read_stream_decodes_rgb_and_amplitude_and_ignores_a_truncated_tail` | The relay framing decodes to stamped BGR and uint16 frames; a truncated tail ends the stream. |
-| `test_read_stream_skips_unknown_topic_index` | A frame with an unknown topic index is skipped. |
-| `test_monitor_prints_status_changes_and_rings_on_each_capture` | Status lines print only on change, prefixed with time and count; each capture rings the bell. |
-| `test_start_live_runs_the_relay_and_stop_reports_the_count` | `start_live` runs `relay_command`, pipes `live_relay.py` to it, and `stop()` terminates it and prints the total. |
-| `test_relay_command_runs_the_piped_script_bounded_by_the_capture` | ssh command sources ROS, exports the robot's CLI discovery environment, bounds the relay by the duration + 10 s and passes the header and topics. |
-| `test_relay_script_compiles_and_takes_header_and_topics_from_argv` | `live_relay.py` compiles and takes its arguments from argv with raw subscriptions. |
-| `test_relay_keeps_native_stdout_writes_out_of_the_frame_stream` | With rclpy stubbed, a raw fd 1 write and a Python print after `frame_output()` land on stderr; only the frame bytes reach stdout. |
-| `test_live_is_on_by_default` | `capture.live` defaults to true. |
+| `test_live_counter_files_untracked` | `git ls-files` returns nothing for the three removed live-counter files (counter, relay script and their test file). |
+| `test_no_live_counter_references` | `git grep` finds no relay script name, start function or dotted config key of the live counter under `scripts/` and `tests/` (this file excluded). |
+| `test_capture_config_has_no_live_field` | `CaptureConfig` has no `live` attribute. |
+| `test_config_still_setting_live_fails_naming_it` | A config that still sets the old `live` key under `capture` fails validation and the message names `live`. |
 
 ### `test_head_rgbd_calib_frames.py`
 
@@ -2854,9 +2849,9 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 | `test_validate_passes_on_accurate_distance_bags` | Distance bags within the targets print a passing table and exit 0. |
 | `test_validate_fails_when_bias_exceeds_target` | A 40 mm bias at 1 m prints FAIL and exits 1. |
 | `test_validate_missing_distance_bag_exits_one` | A missing `<session>-<d>m` bag exits 1 naming it. |
-| `test_capture_prints_bag_path` | `capture` with a fake runner runs the three steps, starts and stops the live pose counter once and prints the bag path. |
-| `test_capture_stops_live_when_the_recording_fails` | A failing record step still stops the live counter. |
-| `test_capture_without_live` | `capture.live: false` starts no live counter. |
+| `test_capture_runs_only_record_copy_remove` | `capture` runs exactly the ssh record, scp copy and ssh remove commands and nothing else. |
+| `test_capture_live_key_rejected` | A config setting the removed `live` key under `capture` fails validation and the message names `live`. |
+| `test_capture_prints_bag_path` | `capture` with a fake runner runs exactly the ssh record, scp copy and ssh remove commands, nothing else, and prints the bag path. |
 | `test_capture_validation_names_bag_and_uses_validation_topics` | `capture-validation 0.5m` names the bag `<session>-0.5m`, records the validation topics and runs no live counter. |
 | `test_capture_validation_rejects_unknown_suffix` | An unknown suffix is rejected. |
 | `test_session_defaults_to_newest_calibration_bag` | The default session is the newest bag, validation bags excluded. |
@@ -2865,7 +2860,7 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 
 ### `test_head_rgbd_urdf_handoff.py`
 
-Tests for `scripts/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.
+Tests for `shared/ros2_common/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.
 
 | Test | What it checks |
 |---|---|
