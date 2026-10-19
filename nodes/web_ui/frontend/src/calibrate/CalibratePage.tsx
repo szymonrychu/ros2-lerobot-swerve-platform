@@ -8,10 +8,12 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { TOUCH_TARGET_PX } from '../theme'
 import { clearCalibrateHash } from './calibrateRoute'
 import { ImuCalibration } from './ImuCalibration'
+import { RgbdCalibration } from './RgbdCalibration'
 
 /** Body of GET /api/calibration/config: which calibration sections this robot offers. */
 export interface CalibrationConfig {
   imu: boolean
+  rgbd: boolean
 }
 
 type LoadState =
@@ -25,7 +27,7 @@ async function loadConfig(): Promise<LoadState> {
   if (res.status === 404) return { kind: 'not_configured' }
   if (!res.ok) return { kind: 'error', message: `HTTP ${res.status}` }
   const body = (await res.json()) as Partial<CalibrationConfig>
-  return { kind: 'ready', config: { imu: body.imu === true } }
+  return { kind: 'ready', config: { imu: body.imu === true, rgbd: body.rgbd === true } }
 }
 
 interface Props {
@@ -68,6 +70,7 @@ export function CalibratePage({ onBack }: Props) {
       {state.kind === 'ready' && (
         <>
           {state.config.imu && <ImuCalibration />}
+          {state.config.rgbd && <RgbdCalibration />}
           <Typography color="text.secondary">Arm calibration - deferred</Typography>
         </>
       )}

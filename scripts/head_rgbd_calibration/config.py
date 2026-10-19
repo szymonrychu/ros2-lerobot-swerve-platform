@@ -5,8 +5,7 @@ from typing import Self
 
 import yaml
 from pydantic import Field, model_validator
-
-from scripts.markers.models import StrictModel
+from ros2_common.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig, StrictModel
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "head_rgbd_calibrate.yaml"
 MAPPING_IMAGE_TOPIC = "/head_camera/mapping/image_raw/compressed"
@@ -36,10 +35,7 @@ def require_mapping_topic(topics: list[str], key: str) -> list[str]:
 
 
 class CaptureConfig(StrictModel):
-    """Recording session on the robot. topics: calibration topics; validation_topics: used for validation sessions.
-
-    live: the calibration capture also streams the RGB and ToF frames and prints the usable pose count as it rises.
-    """
+    """Recording session on the robot. topics: calibration topics; validation_topics: used for validation sessions."""
 
     host: str = "client.ros2.lan"
     ssh_user: str = "szymonri"
@@ -49,58 +45,12 @@ class CaptureConfig(StrictModel):
     ros_setup: str = "/opt/ros/jazzy/setup.bash"
     topics: list[str] = Field(default_factory=lambda: list(DEFAULT_TOPICS))
     validation_topics: list[str] = Field(default_factory=lambda: list(DEFAULT_VALIDATION_TOPICS))
-    live: bool = True
 
     @model_validator(mode="after")
     def check_topics(self) -> Self:
         require_mapping_topic(self.topics, "capture.topics")
         require_mapping_topic(self.validation_topics, "capture.validation_topics")
         return self
-
-
-class BoardConfig(StrictModel):
-    """ChArUco board; must equal the charuco spec of scripts/markers_generate.yaml."""
-
-    squares_x: int = Field(default=6, ge=2)
-    squares_y: int = Field(default=5, ge=2)
-    square_mm: float = Field(default=40.0, gt=0)
-    marker_mm: float = Field(default=30.0, gt=0)
-    dictionary: str = "DICT_5X5_100"
-
-    @model_validator(mode="after")
-    def check_marker(self) -> Self:
-        if self.marker_mm >= self.square_mm:
-            raise ValueError("board.marker_mm must be smaller than board.square_mm")
-        return self
-
-
-class SelectionConfig(StrictModel):
-    """Still-frame selection. MADs are mean absolute differences between consecutive frames."""
-
-    still_window_s: float = Field(default=0.5, gt=0)
-    still_rgb_mad: float = Field(default=2.0, ge=0)
-    still_tof_mad: float = Field(default=0.01, ge=0)
-    max_pair_dt_s: float = Field(default=0.05, gt=0)
-    skip_start_s: float = Field(default=2.0, ge=0)
-    amplitude_percentiles: tuple[float, float] = (1, 99)
-    tof_upscale: int = Field(default=2, ge=1)
-
-    @model_validator(mode="after")
-    def check_percentiles(self) -> Self:
-        low, high = self.amplitude_percentiles
-        if not 0 <= low < high <= 100:
-            raise ValueError("selection.amplitude_percentiles must satisfy 0 <= low < high <= 100")
-        return self
-
-
-class LimitsConfig(StrictModel):
-    """Acceptance limits for the calibration fits."""
-
-    rgb_max_rms_px: float = Field(default=0.5, gt=0)
-    tof_max_rms_px: float = Field(default=0.3, gt=0)
-    stereo_max_rms_px: float = Field(default=1.0, gt=0)
-    tof_zero_distortion_rms_px: float = Field(default=0.3, gt=0)
-    min_views: int = Field(default=12, ge=1)
 
 
 class OutputsConfig(StrictModel):

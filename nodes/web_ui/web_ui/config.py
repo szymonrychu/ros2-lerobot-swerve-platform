@@ -531,6 +531,8 @@ class CalibrationConfig(BaseModel):
     imu_reset_service: str = "/imu/calibration/reset"
     imu_stale_s: float = Field(3.0, gt=0)  # IMU status older than this is reported stale
     imu_service_timeout_s: float = Field(5.0, gt=0)  # wait for the IMU save / reset Trigger response
+    rgbd_url: str | None = Field(None, pattern=r"^https?://.+")  # RGB-D calibration node base URL; absent: no section
+    rgbd_timeout_s: float = Field(10.0, gt=0)  # wait for one forwarded RGB-D calibration call
 
 
 class AppConfig(BaseModel):

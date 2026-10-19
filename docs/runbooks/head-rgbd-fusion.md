@@ -13,16 +13,23 @@ Limits and metric definitions: `docs/head-rgbd-fusion-methodology.md` (`### Resu
    `head_rgbd_pairs_published_total` stays 0 (placeholder check, part 1).
 2. Warm up the ToF 20 minutes. Print the ChArUco board (6x5, 40 mm squares): `uv run python -m scripts.markers_generate`,
    PDF at 100 % on matte laser paper on a rigid plate (or the two-colour STL/3MF); one square 40 +- 0.2 mm with a caliper.
-   `uv run python -m scripts.head_rgbd_calibrate capture` (180 s) with 20-30 poses 0.25-0.45 m from the head (the 240x180 ToF only resolves the markers this close),
-   tilts and image corners; rest the board on a support for about 3 s per pose (the mapping stream is 2 Hz and a
-   hand-held board never passes the stillness check); move on when the live line says `pose N captured` (bell), then
-   `calibrate`. Limits: RGB <= 0.5 px, ToF <= 0.3 px, ToF-to-RGB extrinsic RMS <= 1.0 px, plane bias <= 15 mm; otherwise iterate the capture.
-   Commit `nodes/head_camera_cpp/config/head_camera_calibration.yaml`, `nodes/head_rgbd_cpp/config/tof_calibration.yaml`,
-   `nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml`.
-3. `urdf` mode rewrites `tof_joint`; commit `nodes/web_ui/urdf/head.urdf`. Set `camera_info_file` (head_camera_cpp) and
-   keep `tof_calibration_file` in `ansible/group_vars/client.yml`; redeploy head_state_publisher, head_camera_cpp,
-   head_rgbd_cpp. Confirm `/head_rgbd/depth/image_raw` publishes at the mapping rate with a subscriber, and that the head
-   camera's focus is continuous again when no subscriber is left (U4).
+   Capture and compute run on the robot from the web UI: open the hamburger menu, the Calibrate page, its RGB-D section, and
+   Start capture. Hold 20-30 poses 0.25-0.45 m from the head (the 240x180 ToF only resolves the markers this close),
+   with tilts and in the image corners; rest the board on a support for about 3 s per pose (the mapping stream is 2 Hz
+   and a hand-held board never passes the stillness check). Watch the status line, the pose count and the RGB and ToF
+   coverage grids (fill the empty cells, corners first); delete bad poses in the list. Stop, then Compute. Read the
+   report against the limits: RGB <= 0.5 px, ToF <= 0.3 px, ToF-to-RGB extrinsic RMS <= 1.0 px, plane bias <= 15 mm;
+   when one fails, recapture or prune the worst poses and Compute again. Nothing is applied until step 3.
+3. Apply in the same section: it writes the result to `/var/lib/ros2/head_rgbd_calibration/applied` and restarts
+   head_camera_cpp, head_rgbd_cpp and head_state_publisher; the section shows each unit restarted (`tof_joint` in the
+   URDF is rewritten by the same Apply). `camera_info_file` and `tof_calibration_file` already point at the applied
+   state files, so no group_vars edit or redeploy is needed. Confirm `/head_rgbd/depth/image_raw` publishes at the mapping
+   rate with a subscriber, and that the head camera's focus is continuous again once the capture stopped and no
+   subscriber is left (U4). Optionally Download the zip and commit its files to
+   `nodes/head_camera_cpp/config/head_camera_calibration.yaml`, `nodes/head_rgbd_cpp/config/tof_calibration.yaml`,
+   `nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml` and `nodes/web_ui/urdf/head.urdf`: the repo files only seed
+   `applied/` on a reflashed robot. The CLI (`scripts/head_rgbd_calibrate.py`) stays for bags, validation captures
+   and offline calibration.
 4. Time offset: `capture-validation sweep` while panning +-20 deg at about 20 deg/s; `validate` gives the ToF-RGB offset;
    write it into `arducam_tof.stamp_latency_ms` in client.yml, redeploy arducam_tof, repeat the sweep: |offset| <= 10 ms.
 5. Depth accuracy: matte target perpendicular at 0.5, 1, 2, 3 m (tape reference), `capture-validation 0.5m|1.0m|2.0m|3.0m`

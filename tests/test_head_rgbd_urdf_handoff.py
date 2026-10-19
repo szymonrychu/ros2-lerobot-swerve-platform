@@ -1,19 +1,18 @@
-"""Tests for scripts/head_rgbd_calibration/urdf_handoff.py on a copy of the head URDF."""
+"""Tests for shared/ros2_common/head_rgbd_calibration/urdf_handoff.py on a copy of the head URDF."""
 
 import difflib
 from pathlib import Path
 
 import numpy as np
 import pytest
-from scipy.spatial.transform import Rotation
-
-from scripts.head_rgbd_calibration.extrinsics import ExtrinsicResult
-from scripts.head_rgbd_calibration.urdf_handoff import (
+from ros2_common.head_rgbd_calibration.extrinsics import ExtrinsicResult
+from ros2_common.head_rgbd_calibration.urdf_handoff import (
     check_drift,
     read_chain,
     rewrite_tof_joint,
     tof_joint_origin,
 )
+from scipy.spatial.transform import Rotation
 
 HEAD_URDF = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf" / "head.urdf"
 INLINE_URDF = """<?xml version="1.0"?>

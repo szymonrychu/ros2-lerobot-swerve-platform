@@ -181,6 +181,21 @@ Calibration procedure:
    `python scripts/solve_camera_mount.py samples.json --camera gripper`.
 4. Paste the printed YAML into the Ansible node config; the RMS should be around 1 px or less.
 
+## head_rgbd_calibration
+
+The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subprocess` or ssh code, so node venvs can use it.
+
+- `config`: `StrictModel` (pydantic, unknown keys rejected) and the `BoardConfig`, `SelectionConfig`, `LimitsConfig` settings.
+- `charuco`: `make_board`, `detect` and `Detection` (ChArUco detection for the RGB image and the normalised ToF amplitude).
+- `frames`: `FrameSet`, `StampedImage`, `CameraInfoData`, `FramePair`, `normalise_amplitude`, `rgb_difference` (stillness measure with mains flicker removed), `tof_diff_fraction` and `still_pairs` (one RGB and ToF pair per still window).
+- `poses`: `PoseCounter(board, sel, start_count=0)`, the live pose counter. `add(kind, frame, raw=None)` takes `RGB`, `AMPLITUDE` and `DEPTH` frames and returns a `PoseEvent(status, pose)` per judged RGB frame; `pose` is a `CapturedPose` (number, RGB frame and its compressed bytes, amplitude, the depth frame nearest the amplitude within `max_pair_dt_s` or None, and both detections) when a new still window has the board in both cameras. `status` is `WAITING` until frames arrived. Same stillness and pairing rules as `still_pairs`; history is kept `TOF_HISTORY_S`.
+- `intrinsics`: `calibrate`, `calibrate_tof`, `compare_sdk`, `IntrinsicsResult` and `write_camera_calibration_yaml` (camera intrinsics from ChArUco detections).
+- `extrinsics`: `stereo_calibrate`, `plane_depth_bias`, `ExtrinsicResult`, `PlaneCheck` and the extrinsics YAML read/write (ToF to RGB stereo extrinsic and board-plane depth check).
+- `urdf_handoff`: `read_chain`, `tof_joint_origin`, `check_drift` and the matrix helpers; re-exports `rewrite_tof_joint`.
+- `urdf_text`: `rewrite_tof_joint`, `Origin`, `format_vec`. It must stay standard-library only (no numpy, scipy or package-relative imports): the head_state_publisher launch loads it by file path on the system Python.
+
+Imported by the calibration CLI under `scripts/head_rgbd_calibration/` and by the head_rgbd_calibration node.
+
 ## ros2_common_cpp (C++)
 
 An ament_cmake package with two plain library targets, `ros2_common_cpp::config` and `ros2_common_cpp::metrics`. None links rclcpp, so a node's pure-logic library can use them. Headers are in

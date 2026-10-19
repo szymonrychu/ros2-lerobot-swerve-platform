@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from scripts.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.config import BoardConfig
 
 MM_PER_M = 1000.0
 MIN_CORNERS = 6

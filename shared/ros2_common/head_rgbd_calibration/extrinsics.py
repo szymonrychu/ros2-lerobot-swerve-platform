@@ -8,9 +8,9 @@ import numpy as np
 import yaml
 from scipy.spatial.transform import Rotation
 
-from scripts.head_rgbd_calibration.charuco import Detection
-from scripts.head_rgbd_calibration.config import LimitsConfig
-from scripts.head_rgbd_calibration.intrinsics import IntrinsicsResult
+from ros2_common.head_rgbd_calibration.charuco import Detection
+from ros2_common.head_rgbd_calibration.config import LimitsConfig
+from ros2_common.head_rgbd_calibration.intrinsics import IntrinsicsResult
 
 PARENT_FRAME = "head_camera_optical_frame"
 CHILD_FRAME = "tof_optical_frame"

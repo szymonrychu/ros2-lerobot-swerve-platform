@@ -11,11 +11,11 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml"
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
-ROLE_TASKS = REPO_ROOT / "ansible" / "roles" / "ros2_node_deploy" / "tasks" / "main.yml"
 NODE_DIR = REPO_ROOT / "nodes" / "head_rgbd_cpp"
 DEFAULTS = NODE_DIR / "config" / "head_rgbd.yaml"
 WORKSPACE = "/opt/ros2-ws"
 METRICS_PORT = 19117
+APPLIED_TOF_FILE = "/var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml"
 TIER = {"cpu_weight": 100, "io_weight": 100, "oom_score_adjust": 0, "memory_low": "48M", "memory_max": "256M"}
 REQUIRED_APT_PACKAGES = (
     "build-essential",
@@ -48,22 +48,6 @@ def client_vars() -> dict:
         dict: Parsed YAML.
     """
     return yaml.safe_load(CLIENT_VARS.read_text())
-
-
-def all_tasks(tasks: list) -> list:
-    """Flatten the tasks of a role, descending into blocks.
-
-    Args:
-        tasks (list): Parsed task list.
-
-    Returns:
-        list: Every task dict, blocks expanded.
-    """
-    flat = []
-    for task in tasks:
-        flat.append(task)
-        flat.extend(all_tasks(task.get("block", [])))
-    return flat
 
 
 def node_type() -> dict:
@@ -132,19 +116,9 @@ def test_colcon_sources_order_and_build() -> None:
     assert set(stamp) <= set(node_type()["apt_packages"])
 
 
-def test_tof_calibration_file_is_deployed_when_present() -> None:
-    files = node_type()["config_files"]
-    assert files == [{"src": "nodes/head_rgbd_cpp/config/tof_calibration.yaml", "dest": "tof_calibration.yaml"}]
-    copy = next(
-        t
-        for t in all_tasks(yaml.safe_load(ROLE_TASKS.read_text()))
-        if "ansible.builtin.copy" in t and "calibration" in t["name"]
-    )
-    assert copy["ansible.builtin.copy"]["remote_src"] is True
-    assert copy["ansible.builtin.copy"]["dest"] == "{{ node_config_path }}/{{ item.item.dest }}"
-    assert (
-        yaml.safe_load(DEFAULTS.read_text())["tof_calibration_file"] == "/etc/ros2/head_rgbd_cpp/tof_calibration.yaml"
-    )
+def test_tof_calibration_file_is_the_applied_file() -> None:
+    assert "config_files" not in node_type()
+    assert entry_config("head_rgbd_cpp")["tof_calibration_file"] == APPLIED_TOF_FILE
 
 
 def test_ros2_nodes_entry() -> None:
@@ -157,7 +131,7 @@ def test_ros2_nodes_entry() -> None:
     assert "#" in config
     parsed = yaml.safe_load(config)
     defaults = yaml.safe_load(DEFAULTS.read_text())
-    assert parsed == {**defaults, "metrics_port": METRICS_PORT}
+    assert parsed == {**defaults, "metrics_port": METRICS_PORT, "tof_calibration_file": APPLIED_TOF_FILE}
     assert names.index("head_rgbd_cpp") > names.index("head_camera_cpp")
     assert names.index("head_rgbd_cpp") > names.index("arducam_tof")
 

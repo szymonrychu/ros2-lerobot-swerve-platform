@@ -219,6 +219,23 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/topic_scraper_api
     env:
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
+  # Head RGB-D calibration (nodes/head_rgbd_calibration/README.md): interactive operator tool behind the web UI Calibrate
+  # page (capture, review, compute, apply). Below every robot tier: weights under head_rgbd_cpp, no OOM protection; the
+  # compute child runs niced (compute_nice). Sessions and applied files live in /var/lib/ros2/head_rgbd_calibration.
+  head_rgbd_calibration:
+    deploy_mode: native
+    node_launch_command: "python3 -m head_rgbd_calibration"
+    node_src_dir: nodes/head_rgbd_calibration
+    # Depends on shared/ (ros2_common.head_rgbd_calibration): shared/ changes restart and re-sync it.
+    src_shared: true
+    memory_low: "64M"
+    memory_max: "768M"
+    cpu_weight: 200
+    io_weight: 200
+    oom_score_adjust: 0
+    config_path: /etc/ros2/head_rgbd_calibration
+    env:
+      - HEAD_RGBD_CALIBRATION_CONFIG=/etc/ros2/head_rgbd_calibration/config.yaml
   bno055_imu:
     deploy_mode: native
     node_launch_command: "python3 -m bno055_imu"
@@ -624,12 +641,6 @@ ros2_node_type_defaults:
     io_weight: 100
     oom_score_adjust: 0
     config_path: /etc/ros2/head_rgbd_cpp
-    # Files copied into config_path when they exist in the repo on the Pi (src: repo-relative, dest: file name). The ToF
-    # intrinsics are written by the calibration tool (nodes/head_rgbd_cpp/README.md); without the file the node publishes
-    # nothing (no placeholder intrinsics).
-    config_files:
-      - src: nodes/head_rgbd_cpp/config/tof_calibration.yaml
-        dest: tof_calibration.yaml
     env:
       - HEAD_RGBD_CONFIG=/etc/ros2/head_rgbd_cpp/config.yaml
     apt_packages:
@@ -755,8 +766,11 @@ ros2_node_type_defaults:
     # robot_state_publisher on nodes/web_ui/urdf/head.urdf (launch file resolves it relative to itself).
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/head_state_publisher/launch/head_state_publisher.launch.py"
     node_src_dir: ""
-    # Repo paths whose change restarts the node: its launch file and the head URDF it loads.
-    src_paths: [nodes/head_state_publisher, nodes/web_ui/urdf/head.urdf]
+    # Repo paths whose change restarts the node: its launch file, the head URDF it loads and the tof_joint rewriter.
+    src_paths:
+      - nodes/head_state_publisher
+      - nodes/web_ui/urdf/head.urdf
+      - shared/ros2_common/head_rgbd_calibration/urdf_text.py
     apt_packages:
       - ros-jazzy-robot-state-publisher
     # Mid tier by estimate: head TF is part of the camera pose, so it gets protection like the other robot nodes.
@@ -1315,6 +1329,8 @@ ros2_nodes:
       camera_id: /base/axi/pcie@120000/rp1/i2c@88000/imx708@1a
       jpeg_quality: 70
       metrics_port: 19116
+      # Written by Apply on the Calibrate page, seeded from the committed file when absent; a missing file: no camera_info.
+      camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml
       # af_mode stays continuous (default); the lens is locked at lens_position only while the mapping stream has a
       # subscriber (head_rgbd_cpp, RTAB-Map), so the calibrated intrinsics hold. lens_position in dioptres (1.0 = 1 m).
       lens_position: 1.0
@@ -1342,8 +1358,9 @@ ros2_nodes:
       # points, depth_upsampled/image_raw, depth_upsampled/camera_info.
       output_namespace: /head_rgbd
 
-      # ToF intrinsics, a camera_calibration YAML file (written by the calibration tool).
-      tof_calibration_file: /etc/ros2/head_rgbd_cpp/tof_calibration.yaml
+      # ToF intrinsics, a camera_calibration YAML file: the applied state file written by Apply on the Calibrate page
+      # (seeded from the committed file when absent; a missing file: the node publishes nothing).
+      tof_calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml
 
       output:
         divisor: 2 # output size = RGB size / divisor; 1 or 2
@@ -1383,6 +1400,78 @@ ros2_nodes:
         idle_unsubscribe_s: 5.0 # drop the input subscriptions this long after the last output subscriber left, s (>= 0)
 
       metrics_port: 19117 # Prometheus /metrics port (1..65535), null disables
+  # Head RGB-D calibration service (HTTP 127.0.0.1:18110, proxied by web_ui). Defaults of
+  # nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml; state under /var/lib/ros2/head_rgbd_calibration.
+  - name: head_rgbd_calibration
+    node_type: head_rgbd_calibration
+    present: true
+    enabled: true
+    config: |
+      # head_rgbd_calibration node config (HEAD_RGBD_CALIBRATION_CONFIG points here). Every key shown at its default.
+      # Directory holding sessions, poses and results.
+      state_dir: /var/lib/ros2/head_rgbd_calibration
+      # HTTP API bind address (web_ui proxies to it).
+      http_host: 127.0.0.1
+      # HTTP API port.
+      http_port: 18110
+      # Topics the capture subscribes to.
+      topics:
+        rgb: /head_camera/mapping/image_raw/compressed # RGB (compressed) stream; engages the focus lock
+        amplitude: /tof/amplitude/image_raw # ToF amplitude image
+        depth: /tof/depth/image_raw # ToF depth image
+        tof_info: /tof/camera_info # ToF camera info
+      # Subscription queue depths (>= 1).
+      qos:
+        tof_depth: 10 # ToF amplitude and depth
+        rgb_depth: 5 # RGB
+      # Longest a single capture may run, seconds (> 0).
+      max_capture_s: 900.0
+      # Kill the compute child after this many seconds (> 0).
+      compute_timeout_s: 600.0
+      # Nice value of the compute child process (0..19).
+      compute_nice: 10
+      # head_camera_cpp config the lens position is read from.
+      head_camera_config_file: /etc/ros2/head_camera_cpp/config.yaml
+      # Lens position used when that config sets none.
+      default_lens_position: 1.0
+      # URDF the apply step updates with the head extrinsics.
+      head_urdf_file: /opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/head.urdf
+      # Units restarted after applying a calibration.
+      restart_units:
+        - ros2-head_camera_cpp.service
+        - ros2-head_rgbd_cpp.service
+        - ros2-head_state_publisher.service
+      # Seconds to wait for the restarted units to report active (> 0).
+      restart_check_s: 60.0
+      # Pose thumbnail width, pixels.
+      thumbnail_width_px: 320
+      # Coverage grid of the image area.
+      coverage:
+        cols: 4 # 3..6
+        rows: 3 # 2..4
+      # ChArUco board; must equal the charuco block of scripts/markers_generate.yaml (the printed board).
+      board:
+        squares_x: 6
+        squares_y: 5
+        square_mm: 40.0
+        marker_mm: 30.0
+        dictionary: DICT_5X5_100
+      # Still-frame selection.
+      selection:
+        still_window_s: 0.5
+        still_rgb_mad: 2.0 # mean abs difference between consecutive frames, 8-bit grey levels
+        still_tof_mad: 0.01 # same, as a fraction of the amplitude range
+        max_pair_dt_s: 0.05
+        skip_start_s: 2.0 # focus lock settling
+        amplitude_percentiles: [1.0, 99.0]
+        tof_upscale: 2 # bicubic enlargement before ToF detection
+      # Acceptance limits for the fits.
+      limits:
+        rgb_max_rms_px: 0.5
+        tof_max_rms_px: 0.3
+        stereo_max_rms_px: 1.0
+        tof_zero_distortion_rms_px: 0.3
+        min_views: 12
   # Carries the head RGB-D, scan, TF and command streams to the server and the 3D map back (lazy, throttled).
   - name: map3d_uplink
     node_type: map3d_uplink
@@ -1901,6 +1990,8 @@ ros2_nodes:
         imu_status_topic: /imu/calibration
         imu_save_service: /imu/calibration/save
         imu_reset_service: /imu/calibration/reset
+        # RGB-D section: head_rgbd_calibration HTTP API (its http_port).
+        rgbd_url: http://127.0.0.1:18110
       # Printable model files (PDF, 3MF) from the repo checkout, served at /models/{name}, listed at /api/models.
       models_dir: "{{ ros2_repo_dest }}/models"
       tabs:

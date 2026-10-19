@@ -10,27 +10,25 @@ from datetime import datetime
 from pathlib import Path
 
 from pydantic import ValidationError
+from ros2_common.head_rgbd_calibration.calibrate import failed_limits
+from ros2_common.head_rgbd_calibration.extrinsics import load_extrinsics_yaml
+from ros2_common.head_rgbd_calibration.urdf_handoff import check_drift, read_chain, rewrite_tof_joint, tof_joint_origin
 
 from scripts.head_rgbd_calibration.config import DEFAULT_CONFIG, CalibrationConfig, load_calibration_config
-from scripts.head_rgbd_calibration.extrinsics import load_extrinsics_yaml
 from scripts.head_rgbd_calibration.frames import TopicNames, capture_bag, read_frames
-from scripts.head_rgbd_calibration.live import start_live
 from scripts.head_rgbd_calibration.pipeline import (
     bag_path,
-    failed_limits,
     resolve_path,
     run_calibration,
     run_validation,
     session_name,
     write_calibration,
 )
-from scripts.head_rgbd_calibration.urdf_handoff import check_drift, read_chain, rewrite_tof_joint, tof_joint_origin
 
 MODES = ("capture", "capture-validation", "calibrate", "urdf", "validate")
 VALIDATION_SUFFIXES = ("0.5m", "1.0m", "2.0m", "3.0m", "sweep", "wall")
 CAPTURE_NAME_FORMAT = "calib-%Y%m%d-%H%M%S"
 RUNNER = subprocess.run
-LIVE = start_live
 ERRORS = (ValueError, FileNotFoundError, RuntimeError, ValidationError)
 
 
@@ -50,17 +48,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def capture(cfg: CalibrationConfig, suffix: str | None) -> int:
-    """Record a calibration bag (with the live pose count on stderr when capture.live), or a validation bag named
-    <session>-<suffix>, and print its local path."""
+    """Record a calibration bag, or a validation bag named <session>-<suffix>, and print its local path."""
     local = cfg.capture.model_copy(update={"local_dir": str(resolve_path(cfg.capture.local_dir))})
     if suffix is None:
         name = cfg.session or datetime.now().strftime(CAPTURE_NAME_FORMAT)
-        stop = LIVE(cfg) if cfg.capture.live else None
-        try:
-            path = capture_bag(local, name, run=RUNNER)
-        finally:
-            if stop is not None:
-                stop()
+        path = capture_bag(local, name, run=RUNNER)
     else:
         path = capture_bag(local, f"{session_name(cfg)}-{suffix}", cfg.capture.validation_topics, run=RUNNER)
     print(path)
@@ -71,7 +63,7 @@ def calibrate(cfg: CalibrationConfig) -> int:
     """Calibrate from the session bag and write the three files and the report; 1 when any limit fails."""
     session = session_name(cfg)
     run = run_calibration(read_frames(bag_path(cfg, session), TopicNames()), cfg)
-    failures = failed_limits(run, cfg)
+    failures = failed_limits(run, cfg.limits)
     if failures:
         print("calibration rejected, nothing written:\n  " + "\n  ".join(failures), file=sys.stderr)
         return 1

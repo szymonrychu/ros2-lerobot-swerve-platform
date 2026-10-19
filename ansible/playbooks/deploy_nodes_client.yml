@@ -225,6 +225,21 @@
             _deploy_node_name: topic_scraper_api
           tags: [topic_scraper_api, apt, python, build, config]
 
+        - name: Head RGB-D calibration state directory and apply units
+          ansible.builtin.include_tasks:
+            file: tasks/head_rgbd_calibration_setup.yml
+            apply:
+              tags: [head_rgbd_calibration]
+          tags: [head_rgbd_calibration, setup]
+        - name: Deploy head_rgbd_calibration
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [head_rgbd_calibration]
+          vars:
+            _deploy_node_name: head_rgbd_calibration
+          tags: [head_rgbd_calibration, apt, python, build, config]
+
         - name: BNO055 calibration state directory
           ansible.builtin.include_tasks:
             file: tasks/bno055_state_dir.yml

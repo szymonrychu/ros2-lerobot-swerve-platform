@@ -474,6 +474,18 @@ The `head_state_publisher` node (robot_state_publisher on `nodes/web_ui/urdf/hea
 | `test_playbook_step_exists_with_tags` | `Deploy head_state_publisher` exists with its node tag and `apt`. |
 | `test_readme_documents_frames_and_check` | The node README names `/tf_static` and the `tf2_echo` check. |
 
+### `test_head_tof_joint_override.py`
+
+The applied `tof_joint` override in the head_state_publisher launch (`head_description.py`, stdlib only).
+
+| Test | What it covers |
+|---|---|
+| `test_override_rewrites_only_tof_joint` | The tof_joint origin carries the JSON values; every other line is unchanged. |
+| `test_missing_override_keeps_repo_urdf` | No override file returns the repo URDF. |
+| `test_invalid_override_ignored_with_warning` | Invalid JSON and wrong shapes return the repo URDF and log a warning naming the file. |
+| `test_head_description_is_stdlib_only` | `head_description.py` imports only standard library modules. |
+| `test_launch_file_references_override_pieces` | The launch file names `head_description`, the applied path and `urdf_text.py`. |
+
 ### `test_head_config_consistency.py`
 
 Cross-component pin of the pan/tilt head: the same values are copied into the `base_servos` head group, `nodes/web_ui/urdf/head.urdf`, the mcp_server `head:` block and the web_ui head tab, and must never disagree. The mcp_server and web_ui code defaults are read from their config modules.
@@ -2413,7 +2425,7 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_client_playbook_still_deploys_jetson_bridge_so_the_uninstall_runs` | `deploy_nodes_client.yml` still deploys the name. |
 | `test_jetson_bridge_metrics_target_is_removed` | No `monitoring_agent_node_targets` row for the bridge or port 19114. |
 | `test_allowed_references_use_only_the_known_categories` | Every `ALLOWED_REFERENCES` entry is `archive`, `retired-entry`, `uninstall-artifact`, `retirement-test`, `retirement-doc` or `pinned-build`, and only the two archive directories and `nodes/head_camera_cpp/patches/**` (pinned-build) use a directory-wide glob. |
-| `test_no_live_jetson_stereo_or_overview_reference` | `git grep -n -i -E` over tracked files for `jetson`, `depthd`, `stereo`, `overview_camera`, `depth_wire`, `fused_depth` and `10.77.0.` finds no hit outside the `(path glob, line regex, category)` allowlist; any other hit is fixed by editing the line. |
+| `test_no_live_jetson_stereo_or_overview_reference` | `git grep -n -i -E` over tracked files for `jetson`, `depthd`, `stereo`, `overview_camera`, `depth_wire`, `fused_depth` and `10.77.0.` finds no hit outside the `(path glob, line regex, category)` allowlist; any other hit is fixed by editing the line. The head RGB-D calibration (shared core, `head_rgbd_calibration` node, web_ui RGB-D section) names its ToF-to-RGB stereo extrinsic calibration (`stereo_calibrate`, stereo RMS, `stereo_max_rms_px`); each such file has its own `rgbd-calibration` entry with the stereo-calibration regex. |
 
 ## test_node_cpu_compare.py
 
@@ -2731,9 +2743,13 @@ Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof 
 | `test_no_other_client_node_publishes_map_to_odom` | No other client node sets `publish_tf: true` (but the EKF, odom -> base_link), the static TF publisher has no map parent or odom child, tof_obstacle_cloud has no TF argument. |
 | `test_new_nodes_and_tests_are_in_the_tests_readme` | tof_obstacle_cloud and the four ToF obstacle test files have a section here. |
 
+### `test_head_rgbd_calib_core.py`
+
+Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan proves no module imports `scripts`, `rosbags` or `subprocess`; `BoardConfig`, `SelectionConfig`, `LimitsConfig` reject unknown keys and their defaults equal the `board`, `selection`, `limits` blocks of `scripts/head_rgbd_calibrate.yaml`; the core `detect` finds the synthetic board of `tests/rgbd_synthetic.py`.
+
 ### `test_head_rgbd_calib_intrinsics.py`
 
-Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
+Tests for `shared/ros2_common/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
 
 | `test_make_board_matches_config` | Board size and lengths follow `BoardConfig`. |
 | `test_rgb_views_recover_intrinsics` | 20 RGB views recover fx, fy within 1 % and cx, cy within 3 px. |
@@ -2751,7 +2767,7 @@ Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the
 
 ### `test_head_rgbd_calib_extrinsics.py`
 
-Tests for `scripts/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF pairs with a known extrinsic.
+Tests for `shared/ros2_common/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF pairs with a known extrinsic.
 
 | Test | What it checks |
 |---|---|
@@ -2764,26 +2780,37 @@ Tests for `scripts/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF p
 | `test_yaml_round_trips` | Written extrinsics YAML has the documented keys and loads back. |
 | `test_rms_over_limit_writes_nothing` | Stereo RMS over `stereo_max_rms_px` raises and writes no file. |
 
-### `test_head_rgbd_calib_live.py`
+### `test_head_rgbd_calib_poses.py`
 
-Tests for `scripts/head_rgbd_calibration/live.py`, the live pose counter of `capture`, on a synthetic 15 s stream
-(ToF 10 Hz, RGB 2 Hz from `tests/rgbd_synthetic.py`): moving board, a still pose at 0.33 m, a still pose at 1.2 m
-(too far for the ToF), another still pose at 0.33 m.
+Tests for `ros2_common.head_rgbd_calibration.poses` (`PoseCounter`), on a synthetic 15 s stream (ToF 10 Hz, RGB 2 Hz
+from `tests/rgbd_synthetic.py`): moving board, a still pose at 0.33 m, a still pose at 1.2 m (too far for the ToF),
+another still pose at 0.33 m.
 
 | Test | What it checks |
 |---|---|
-| `test_read_stream_decodes_rgb_and_amplitude_and_ignores_a_truncated_tail` | The relay framing decodes to stamped BGR and uint16 frames; a truncated tail ends the stream. |
-| `test_read_stream_skips_unknown_topic_index` | A frame with an unknown topic index is skipped. |
-| `test_counter_counts_each_still_pose_once_when_both_cameras_see_the_board` | The two near still poses count once each; the far one does not. |
-| `test_counter_reports_moving_and_too_far_for_the_tof` | Statuses include `moving` and `move closer`. |
+| `test_counts_one_pose_per_still_window` | The two near still poses are captured once each (numbers 1 and 2); the far one is not. |
+| `test_moving_board_is_not_counted` | Statuses include `moving` and no pose is attached to them. |
+| `test_status_names_missing_tof_board` | A board not found by the ToF gives the `move closer` status and no pose. |
 | `test_counter_agrees_with_the_offline_still_pairs` | The live count equals the offline `still_pairs` with both detections. |
-| `test_monitor_prints_status_changes_and_rings_on_each_capture` | Status lines print only on change, prefixed with time and count; each capture rings the bell. |
-| `test_start_live_runs_the_relay_and_stop_reports_the_count` | `start_live` runs `relay_command`, pipes `live_relay.py` to it, and `stop()` terminates it and prints the total. |
-| `test_relay_command_runs_the_piped_script_bounded_by_the_capture` | ssh command sources ROS, exports the robot's CLI discovery environment, bounds the relay by the duration + 10 s and passes the header and topics. |
-| `test_relay_script_compiles_and_takes_header_and_topics_from_argv` | `live_relay.py` compiles and takes its arguments from argv with raw subscriptions. |
 | `test_counter_counts_a_still_board_under_mains_flicker` | Real flickering RGB frames of a still board (`fixtures/head_rgbd/rgb_flicker_*.png`) with a real ToF frame count one pose. |
-| `test_relay_keeps_native_stdout_writes_out_of_the_frame_stream` | With rclpy stubbed, a raw fd 1 write and a Python print after `frame_output()` land on stderr; only the frame bytes reach stdout. |
-| `test_live_is_on_by_default` | `capture.live` defaults to true. |
+| `test_captured_pose_carries_judged_detections` | A captured pose has the raw bytes passed with the RGB frame, the judged detections, the paired amplitude and the nearest depth frame. |
+| `test_depth_absent_beyond_max_dt` | Depth outside `max_pair_dt_s` or absent leaves `depth` None; the pose is still captured. |
+| `test_start_count_continues_numbering` | `start_count=4` numbers the next poses 5 and 6. |
+| `test_waiting_until_both_streams` | `status` is `waiting for frames` until frames arrived and one was judged, then the last judged status. |
+| `test_depth_paired_within_max_dt` | A depth frame within `max_pair_dt_s` of the amplitude is attached to the pose. |
+| `test_depth_history_is_pruned_like_the_amplitude` | Depth frames older than `TOF_HISTORY_S` are dropped. |
+| `test_unknown_frame_kind_is_rejected` | An unknown kind raises `ValueError`. |
+
+### `test_head_rgbd_calib_retired.py`
+
+Retirement pin for the ssh-streamed live pose counter (replaced by the web UI Calibrate page).
+
+| Test | What it checks |
+|---|---|
+| `test_live_counter_files_untracked` | `git ls-files` returns nothing for the three removed live-counter files (counter, relay script and their test file). |
+| `test_no_live_counter_references` | `git grep` finds no relay script name, start function or dotted config key of the live counter under `scripts/` and `tests/` (this file excluded). |
+| `test_capture_config_has_no_live_field` | `CaptureConfig` has no `live` attribute. |
+| `test_config_still_setting_live_fails_naming_it` | A config that still sets the old `live` key under `capture` fails validation and the message names `live`. |
 
 ### `test_head_rgbd_calib_frames.py`
 
@@ -2822,9 +2849,9 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 | `test_validate_passes_on_accurate_distance_bags` | Distance bags within the targets print a passing table and exit 0. |
 | `test_validate_fails_when_bias_exceeds_target` | A 40 mm bias at 1 m prints FAIL and exits 1. |
 | `test_validate_missing_distance_bag_exits_one` | A missing `<session>-<d>m` bag exits 1 naming it. |
-| `test_capture_prints_bag_path` | `capture` with a fake runner runs the three steps, starts and stops the live pose counter once and prints the bag path. |
-| `test_capture_stops_live_when_the_recording_fails` | A failing record step still stops the live counter. |
-| `test_capture_without_live` | `capture.live: false` starts no live counter. |
+| `test_capture_runs_only_record_copy_remove` | `capture` runs exactly the ssh record, scp copy and ssh remove commands and nothing else. |
+| `test_capture_live_key_rejected` | A config setting the removed `live` key under `capture` fails validation and the message names `live`. |
+| `test_capture_prints_bag_path` | `capture` with a fake runner runs exactly the ssh record, scp copy and ssh remove commands, nothing else, and prints the bag path. |
 | `test_capture_validation_names_bag_and_uses_validation_topics` | `capture-validation 0.5m` names the bag `<session>-0.5m`, records the validation topics and runs no live counter. |
 | `test_capture_validation_rejects_unknown_suffix` | An unknown suffix is rejected. |
 | `test_session_defaults_to_newest_calibration_bag` | The default session is the newest bag, validation bags excluded. |
@@ -2833,7 +2860,7 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 
 ### `test_head_rgbd_urdf_handoff.py`
 
-Tests for `scripts/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.
+Tests for `shared/ros2_common/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.
 
 | Test | What it checks |
 |---|---|

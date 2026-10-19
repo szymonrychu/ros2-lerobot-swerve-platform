@@ -731,17 +731,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         "rgbd-calibration",
     ),
     (
-        "scripts/head_rgbd_calibration/extrinsics.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
         "scripts/head_rgbd_calibration/pipeline.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
-        "scripts/head_rgbd_calibration/urdf_handoff.py",
         r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
@@ -773,6 +763,76 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     (
         "docs/head-rgbd-fusion-methodology.md",
         r"(?i)stereo(_?calibrat\w*| calibration| extrinsic| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "ansible/group_vars/client.yml",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/head_rgbd_calibration/README.md",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py",
+        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/head_rgbd_calibration/tests/test_compute.py",
+        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/web_ui/README.md",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/web_ui/frontend/src/calibrate/RgbdResults.tsx",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/web_ui/frontend/src/calibrate/RgbdResults.test.tsx",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "shared/README.md",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "shared/ros2_common/head_rgbd_calibration/calibrate.py",
+        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "shared/ros2_common/head_rgbd_calibration/config.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "shared/ros2_common/head_rgbd_calibration/extrinsics.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "shared/ros2_common/head_rgbd_calibration/urdf_text.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "tests/test_head_rgbd_calib_core.py",
+        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
     # pinned-build: part of the libcamera build stamp, changing it would rebuild.

@@ -7,9 +7,9 @@ import cv2
 import numpy as np
 import yaml
 
-from scripts.head_rgbd_calibration.charuco import Detection
-from scripts.head_rgbd_calibration.config import LimitsConfig
-from scripts.head_rgbd_calibration.frames import CameraInfoData
+from ros2_common.head_rgbd_calibration.charuco import Detection
+from ros2_common.head_rgbd_calibration.config import LimitsConfig
+from ros2_common.head_rgbd_calibration.frames import CameraInfoData
 
 DISTORTION_MODEL = "plumb_bob"
 DISTORTION_COEFFS = 5
