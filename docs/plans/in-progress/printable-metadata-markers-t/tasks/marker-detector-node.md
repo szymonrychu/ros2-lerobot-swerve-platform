@@ -1,6 +1,6 @@
 ---
 title: Marker detector node
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Markers the head camera sees turn into POIs automatically, and nothing is sent without a real, unambiguous detection."
 files: [nodes/marker_detector/marker_detector/pipeline.py, nodes/marker_detector/marker_detector/node.py, nodes/marker_detector/marker_detector/__main__.py, nodes/marker_detector/marker_detector/metrics.py, nodes/marker_detector/tests/ros_stubs.py, nodes/marker_detector/tests/test_pipeline.py, nodes/marker_detector/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-detector-node
 branch: printable-metadata-markers-t--marker-detector-node
 verified_head: ""
-run: ""
+run: printable-metadata-markers-t
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Marker detector node
@@ -65,3 +67,5 @@ provides: []
 
 - numpy dependency guard (CLAUDE.md): numpy is a direct dependency already; the deploy check in the runbook confirms no ModuleNotFoundError.
 - Pattern for a ROS-free core plus a thin node: nodes/poi_store (store.py vs node.py) and its tests/ros_stubs.py.
+
+- 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-tof-plane, marker-map-pose-poi

@@ -1,6 +1,6 @@
 ---
 title: POI marker model
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The POI store can hold a marker with its full pose and decoded metadata, and every other POI keeps working unchanged."
 files: [nodes/poi_store/poi_store/models.py, nodes/poi_store/tests/test_marker_model.py, nodes/poi_store/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--poi-marker-model
 branch: printable-metadata-markers-t--poi-marker-model
-verified_head: ""
-run: ""
+verified_head: 76ad06eae9c8523816fb8cbba903bd1a481202f2
+run: printable-metadata-markers-t
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # POI marker model

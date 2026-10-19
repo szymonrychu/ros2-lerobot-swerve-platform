@@ -1,6 +1,6 @@
 ---
 title: Marker map pose POI
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "An accepted marker pose becomes a map-frame POI sighting, including for zoom stills with their cropped intrinsics."
 files: [nodes/marker_detector/marker_detector/geometry.py, nodes/marker_detector/tests/test_geometry.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-map-pose-poi
 branch: printable-metadata-markers-t--marker-map-pose-poi
 verified_head: ""
-run: ""
+run: printable-metadata-markers-t
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Marker map pose POI
@@ -61,3 +63,5 @@ Pure functions turn a camera-frame pose into the POI command and the detection r
 - The zoom command fields follow the front camera epic (D4): request_id, u, v (normalised, top-left origin of the default view), zoom 2/4/8, max_px, af.
 
 - `marker-payload` (`shared/ros2_common/marker_payload.py`: `decode_payload`, `MarkerInfo`, `marker_info`) is delivered by the blocker epic marker-and-calibration-board; it exists before this task runs.
+
+- 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-pose-ippe, poi-marker-upsert

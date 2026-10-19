@@ -1,6 +1,6 @@
 ---
 title: Markers user doc
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "One document tells the user how to make, print, place and use markers, and what the robot does with them."
 files: [docs/markers.md, tests/README.md, MEMORY.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--markers-user-doc
 branch: printable-metadata-markers-t--markers-user-doc
 verified_head: ""
-run: ""
+run: printable-metadata-markers-t
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Markers user doc
@@ -56,3 +58,5 @@ The marker system is documented end to end.
 ## Notes
 
 - Documentation-only task (TDD exception: doc edit); keep it in sync with the actual defaults in the code.
+
+- 2026-10-19 run printable-metadata-markers-t: dependency-failed on poi-marker-upsert, marker-detector-bench, marker-detector-ansible

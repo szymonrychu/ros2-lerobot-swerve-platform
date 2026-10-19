@@ -1,6 +1,6 @@
 ---
 title: POI marker upsert
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Seeing the same marker again refines its POI instead of creating a duplicate, and never overwrites what the user edited."
 files: [nodes/poi_store/poi_store/models.py, nodes/poi_store/poi_store/markers.py, nodes/poi_store/poi_store/store.py, nodes/poi_store/poi_store/config.py, nodes/poi_store/poi_store/node.py, nodes/poi_store/tests/test_marker_upsert.py, nodes/poi_store/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--poi-marker-upsert
 branch: printable-metadata-markers-t--poi-marker-upsert
-verified_head: ""
-run: ""
-provides: []
+verified_head: b8699a0102508b4cf8ee901b282f1c0c55d0dc43
+run: printable-metadata-markers-t
+provides: [poi-upsert-marker-op]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # POI marker upsert

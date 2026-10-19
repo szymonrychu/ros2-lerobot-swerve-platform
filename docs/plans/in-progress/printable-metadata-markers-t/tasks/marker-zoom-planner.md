@@ -1,6 +1,6 @@
 ---
 title: Marker zoom planner
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Distant or small markers get a full-resolution look without flooding the head camera with zoom requests.
 files: [nodes/marker_detector/marker_detector/zoom.py, nodes/marker_detector/tests/test_zoom.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-zoom-planner
 branch: printable-metadata-markers-t--marker-zoom-planner
-verified_head: ""
-run: ""
-provides: []
+verified_head: e63fee73ce9685c4a62e1fc87e6d3bb276476021
+run: printable-metadata-markers-t
+provides: [zoom-target-types]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Marker zoom planner

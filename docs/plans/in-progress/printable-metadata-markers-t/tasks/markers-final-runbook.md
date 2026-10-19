@@ -1,6 +1,6 @@
 ---
 title: Markers final runbook
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Printed markers placed at measured spots become correct POIs on the real robot, with measured error and CPU cost."
 files: [docs/runbooks/printable-markers.md, ansible/group_vars/client.yml, docs/markers.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--markers-final-runbook
 branch: printable-metadata-markers-t--markers-final-runbook
 verified_head: ""
-run: ""
+run: printable-metadata-markers-t
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Markers final runbook
@@ -66,3 +68,5 @@ The marker system is proven on the robot with numbers.
 ## Notes
 
 - Robot motion: only the head (pan/tilt within the verified range) and base moves the user approves; least-dramatic movement first (CLAUDE.md).
+
+- 2026-10-19 run printable-metadata-markers-t: dependency-failed on markers-user-doc

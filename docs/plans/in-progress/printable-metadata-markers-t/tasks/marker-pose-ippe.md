@@ -1,6 +1,6 @@
 ---
 title: Marker pose IPPE
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "A decoded marker's position and orientation come out accurate to about one percent of distance, and an ambiguous pose is refused instead of guessed."
 files: [nodes/marker_detector/marker_detector/pose.py, nodes/marker_detector/tests/test_pose.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-pose-ippe
 branch: printable-metadata-markers-t--marker-pose-ippe
 verified_head: ""
-run: ""
+run: printable-metadata-markers-t
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Marker pose IPPE
@@ -66,3 +68,5 @@ Each candidate yields an accepted pose with confidence, or a named rejection.
 
 - `SOLVEPNP_IPPE` (not `IPPE_SQUARE`) takes any >= 4 coplanar points and returns both solutions via solvePnPGeneric (OpenCV docs).
 - The ambiguity is the classic planar flip; it grows with distance and frontal views, which is what the reject path and the ToF chooser handle.
+
+- 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-decode

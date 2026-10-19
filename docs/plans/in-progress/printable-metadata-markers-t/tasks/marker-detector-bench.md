@@ -1,6 +1,6 @@
 ---
 title: Marker detector bench
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: We know what decoding and pose cost on the Pi 5 before choosing the processing rate.
 files: [nodes/marker_detector/marker_detector/bench.py, nodes/marker_detector/config/bench.yaml, nodes/marker_detector/tests/test_bench.py, scripts/marker_bench.sh, scripts/README.md, nodes/marker_detector/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-detector-bench
 branch: printable-metadata-markers-t--marker-detector-bench
 verified_head: ""
-run: ""
+run: printable-metadata-markers-t
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Marker detector bench
@@ -59,3 +61,5 @@ One script measures decode and pose cost on the Pi 5 and stores the JSON in `.lo
 ## Notes
 
 - Do not run the script against the robot in this task; the runbook does.
+
+- 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-detector-node

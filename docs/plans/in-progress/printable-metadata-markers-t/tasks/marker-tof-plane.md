@@ -1,6 +1,6 @@
 ---
 title: Marker ToF plane
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "When the camera alone cannot tell which way a marker faces, the registered ToF depth settles it."
 files: [nodes/marker_detector/marker_detector/tof_plane.py, nodes/marker_detector/tests/test_tof_plane.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-tof-plane
 branch: printable-metadata-markers-t--marker-tof-plane
 verified_head: ""
-run: ""
+run: printable-metadata-markers-t
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Marker ToF plane
@@ -58,3 +60,5 @@ Ambiguous poses with ToF coverage are resolved; others stay rejected.
 
 - `/head_rgbd/depth/image_raw` is 16UC1 mm in `head_camera_optical_frame` (fusion epic D1); its camera_info gives depth_K at 288x162.
 - Normal sign: the marker's +z points out of the face, i.e. towards the camera; keep one convention in both modules (review focus).
+
+- 2026-10-19 run printable-metadata-markers-t: dependency-failed on marker-pose-ippe

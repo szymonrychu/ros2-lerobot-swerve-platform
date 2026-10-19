@@ -1,6 +1,6 @@
 ---
 title: Marker detector skeleton
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The detector has its own environment with a modern OpenCV and zxing-cpp, and one validated config file for every knob."
 files: [nodes/marker_detector/pyproject.toml, nodes/marker_detector/uv.lock, nodes/marker_detector/marker_detector/__init__.py, nodes/marker_detector/marker_detector/config.py, nodes/marker_detector/tests/__init__.py, nodes/marker_detector/tests/test_config.py, nodes/marker_detector/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/printable-metadata-markers-t--marker-detector-skeleton
 branch: printable-metadata-markers-t--marker-detector-skeleton
-verified_head: ""
-run: ""
+verified_head: cb4e456a3a9655bf710161fb1a5831593bb77775
+run: printable-metadata-markers-t
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Marker detector skeleton
