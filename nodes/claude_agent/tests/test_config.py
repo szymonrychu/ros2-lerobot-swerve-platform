@@ -47,6 +47,7 @@ def test_defaults() -> None:
     assert {"get_body_state", "get_topdown_view", "list_pois", "add_poi", "remember_object", "pixel_to_ground"} <= set(
         cfg.sensor_tools
     )
+    assert {"get_3d_map_status", "query_3d_map_at", "get_3d_free_space"} <= set(cfg.sensor_tools)
     assert not set(cfg.effector_tools) & set(cfg.uncapped_tools)
     assert not set(cfg.effector_tools) & set(cfg.sensor_tools)
     assert {"go_to_frontier", "look_toward_frontier"} <= set(cfg.effector_tools)

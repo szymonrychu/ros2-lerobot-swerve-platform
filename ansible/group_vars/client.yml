@@ -2085,6 +2085,18 @@ ros2_nodes:
         grasp_result: /grasp/result
         # Gripper torque_limit writes of grip profiles go to the follower bridge (RAM registers only).
         follower_set_register: /follower/set_register
+        # 3D map tools: the server's map3d_manager downlinks (contract nodes/rtabmap_mapping/config/map3d_topics.yaml).
+        map3d_cloud: /map3d/cloud
+        map3d_status: /map3d/status
+      # 3D map query tools (nodes/mcp_server/README.md, "3D map"): the defaults, spelled out. frame_id is the contract's
+      # map3d_frame (RTAB-Map's map frame, aligned to map by design D7).
+      map3d:
+        frame_id: rtabmap_map
+        voxel_m: 0.05
+        lidar_plane_height_m: 0.20
+        robot_height_m: 0.55
+        max_age_s: 120.0
+        cloud_wait_s: 12.0
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml

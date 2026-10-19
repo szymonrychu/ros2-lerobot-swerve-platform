@@ -77,6 +77,9 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `load_map(name, x=None, y=None, yaw=None)` | Loads the named map (the current map and POIs are first kept as `autosave`) and relocalises; returns the verdict (state, ratio, pose, reason). Calls stop first (halts the motion queue and zeroes the base); that is the only motion, no servo moves. Pose hint needs x, y and yaw together. Not navigable unless the state is `localised`. Consent default: none needed, but the load replaces the live map and POIs, so do it only when asked. |
 | `delete_map(name, confirm=false)` | Deletes a saved map and its POIs for good. Consent default: `confirm=false`, nothing is sent until the person agreed and the call repeats with `confirm=true`. No motion. |
 | `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. Areas can carry a Nav2 zone: `add_poi` / `update_poi` take `zone` (`none` / `keepout` / `slow`, `none` removes it) and `speed_limit_pct` (int 10..100, required for `slow`, refused for any other zone); `list_pois` returns both on every view and never lists photos (`list_lookups` does); `list_pois(marker_kind=...)` keeps only marker POIs of that kind. **Marker POIs** (kind `marker`: fixed places from printed markers - base, charger, drop-off, button, switch, tool station; the pose is owned by the marker detector, `add_poi` stays point/area only) are listed with the others; their views carry `z` (height, m), `marker` (`kind`, `id`, `size_mm`, `params`, `times_seen`, `last_seen`, `confidence`), `facing_yaw_deg` (map yaw of the marker's +z axis projected on the floor; null when that axis is within 45 deg of vertical, a marker lying flat or on a ceiling) and `approach_pose` (`x`, `y`, `yaw_deg`: the marker position plus `markers.standoff_m` (default 0.6, 0.2..2.0) along the facing, yaw facing the marker; null without facing); all null for other kinds. As approach targets (`suggest_approach_pose`, `approach_for_grasp`) a marker `poi_id` takes its own `z` when `z_m` is omitted (`z_m` still overrides); point/area `poi_id` still requires `z_m`. `delete_poi` with a photo id deletes that photo and its image, deleting a POI keeps the photos linked to it. `keepout`: Nav2 will not plan or drive into the area (the robot can leave if it is inside; never set a goal inside). `slow`: MPPI speed cap while the robot centre is inside. A zone is active only while the POI status is `open`. A zone on a point, `slow` without a percentage, or a percentage with another zone is refused before the request. Agent zones are session-scoped (agent POIs are cleared at each new session). See [POI zones](#poi-zones). |
+| `get_3d_map_status` | Sensor, read-only: the latest `/map3d/status` JSON (mapping state, node count, alignment) plus the local cloud's `voxel_count`, `bounds` (map frame, m), `age_s` and `alignment_agreement` (0..1, the share of measured walls at the lidar plane that lie on the slam_toolbox `/map` walls; low means the 3D map is shifted). Fields are null with a note when nothing was received, never a guess; a result older than `map3d.max_age_s` carries a stale note. |
+| `query_3d_map_at(x, y, radius_m=0.3)` | Sensor, read-only. Map-frame x, y and radius in m (0.05..2). The highest measured obstacle within the radius (`height_m` above the floor in m, `highest_point`, median colour), floor and below-floor voxel counts and the lidar `/map` cells. `source`: `depth_3d`, `lidar_2d` (a `/map` wall depth never measured: `height_m` is null, `lidar_min_height_m` is only a lower bound), `both`, or `unknown` (nothing observed there, which is not free). Errors when no 3D map was received yet. |
+| `get_3d_free_space(x, y, radius_m=1.0, z_min_m=0.02, z_max_m=None)` | Sensor, read-only. Map-frame x, y; `radius_m` 0.2..5 m; the height band `z_min_m`..`z_max_m` in m above the floor (default top = `map3d.robot_height_m`). For 8 bearing sectors (`bearing_deg` 0 = map +x, counter-clockwise) the distance `free_m` to the nearest obstacle inside the band, plus `observed` (0..1). `free_m` is null for a sector nobody observed (unknown is never free); lidar-only walls block every height. Errors when no 3D map was received yet. |
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
 after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
@@ -485,6 +488,28 @@ current position, an area needs `polygon` (>= 3 vertices). `update_poi(id, name,
 the given fields; `delete_poi(id)`. Each call waits up to `poi.request_timeout_s` (3 s) for the `/poi/result` with the
 same `request_id`; the tool errors when poi_store is not running (no subscriber on `/poi/command`), does not answer
 or rejects the change.
+
+## 3D map
+
+Module `map3d_tools.py` (one entry in `tools.TOOL_MODULES`; the voxel model is in the rclpy-free `map3d.py`). The three
+tools `get_3d_map_status`, `query_3d_map_at` and `get_3d_free_space` read the RTAB-Map point cloud that the server's
+`map3d_manager` publishes and the client receives as `/map3d/cloud` (`topics.map3d_cloud`, PointCloud2, best effort) and
+`/map3d/status` (`topics.map3d_status`, JSON). Both are subscribed on demand like the scan: the first call subscribes and
+waits up to `map3d.cloud_wait_s` for a cloud, the subscription ends after the linger time without a use.
+
+The cloud is a snapshot of everything RTAB-Map has built, in `map3d.frame_id` (`rtabmap_map`, identical to the `map`
+frame by the alignment to slam_toolbox). It is refreshed about every 10 s (the downlink is throttled to 0.1 Hz) and only
+contains what the head RGB-D camera has seen, so an area the head never looked at is absent. The tools voxelise it at
+`map3d.voxel_m` (5 cm).
+
+Measured versus lidar-only: a cell is **measured** when depth saw points there (`source: depth_3d`, a height in m above
+the floor). A wall that only the slam_toolbox `/map` shows is **lidar-only** (`lidar_2d`): its height is unknown (null),
+only a lower bound (`lidar_plane_height_m`, the laser plane) is given, and it blocks every height band in
+`get_3d_free_space`. Cells nobody observed are `unknown`, never free. A cloud older than `map3d.max_age_s` still answers
+but every result carries a stale note.
+
+Config (`map3d:` block in `ansible/group_vars/client.yml`, defaults shown): `frame_id: rtabmap_map`, `voxel_m: 0.05`,
+`lidar_plane_height_m: 0.20`, `robot_height_m: 0.55`, `max_age_s: 120.0`, `cloud_wait_s: 12.0`.
 
 ## Photos (photo POIs)
 
