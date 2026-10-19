@@ -1,6 +1,6 @@
 ---
 title: RGBD calib frontend API
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The page has a typed, tested client for every calibration call, with server messages shown verbatim."
 files: [nodes/web_ui/frontend/src/calibrate/rgbdApi.ts, nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-calib-frontend-api
 branch: head-rgb-d-calibration-in-th--rgbd-calib-frontend-api
-verified_head: ""
+verified_head: d561360052b983f3b235f7437d2655955d70d66e
 run: head-rgb-d-calibration-in-th
 provides: []
 acs_for_audit: []

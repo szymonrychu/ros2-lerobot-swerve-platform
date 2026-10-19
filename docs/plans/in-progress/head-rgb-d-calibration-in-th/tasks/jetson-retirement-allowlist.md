@@ -1,6 +1,6 @@
 ---
 title: Jetson retirement allowlist for the calibration core
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The retirement guard test passes again after the calibration core moved into shared/ and the node and UI name the stereo calibration.
 files: [tests/test_jetson_retired.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--jetson-retirement-allowlist
 branch: head-rgb-d-calibration-in-th--jetson-retirement-allowlist
-verified_head: ""
-run: ""
+verified_head: 84bb39c7f5b9f1c2d5e945fa0ba89b17794125a8
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: ["No recorded red-then-green evidence (tests.red / verification.evidence) for the TDD check the verifier asked for"]
 ---
 
 # Jetson retirement allowlist for the calibration core

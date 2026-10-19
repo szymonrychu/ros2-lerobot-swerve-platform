@@ -1,6 +1,6 @@
 ---
 title: Head URDF tof joint override
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The head TF uses the applied tof_joint after a restart, without editing the repo URDF on the robot."
 files: [nodes/head_state_publisher/launch/head_state_publisher.launch.py, nodes/head_state_publisher/launch/head_description.py, tests/test_head_tof_joint_override.py, tests/test_head_state_publisher_config.py, ansible/group_vars/client.yml, nodes/head_state_publisher/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--head-urdf-tof-joint-override
 branch: head-rgb-d-calibration-in-th--head-urdf-tof-joint-override
-verified_head: ""
+verified_head: 1479e10d1998f57cbd6ffcfc1920c13485299a86
 run: head-rgb-d-calibration-in-th
 provides: []
 acs_for_audit: []

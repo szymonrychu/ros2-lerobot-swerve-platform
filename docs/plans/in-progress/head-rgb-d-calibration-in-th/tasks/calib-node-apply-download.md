@@ -1,6 +1,6 @@
 ---
 title: Calib node apply download
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A computed calibration goes live on the robot with one press and survives deploys; the operator can also download it to commit."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py, nodes/head_rgbd_calibration/tests/test_apply.py, nodes/head_rgbd_calibration/README.md]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-apply-download
 branch: head-rgb-d-calibration-in-th--calib-node-apply-download
-verified_head: ""
+verified_head: 4c4b01889812424747cd29ce1363e47bb11f8d7a
 run: head-rgb-d-calibration-in-th
-provides: []
+provides: [rgbd-calib-applied-files]
 acs_for_audit: []
 process_gaps: []
 ---

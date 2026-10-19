@@ -1,6 +1,6 @@
 ---
 title: RGBD calib runbook and docs
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Operators follow one written procedure for calibrating on the robot, and the overlap with the fusion epic is explicit."
 files: [docs/runbooks/head-rgbd-fusion.md, docs/head-rgbd-fusion-methodology.md, scripts/README.md, MEMORY.md]
@@ -14,7 +14,7 @@ actual: ""
 review: skip
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-calib-runbook-and-docs
 branch: head-rgb-d-calibration-in-th--rgbd-calib-runbook-and-docs
-verified_head: ""
+verified_head: d31b3933d830c732cee90092430ecf6cef88bfd3
 run: head-rgb-d-calibration-in-th
 provides: []
 acs_for_audit: []

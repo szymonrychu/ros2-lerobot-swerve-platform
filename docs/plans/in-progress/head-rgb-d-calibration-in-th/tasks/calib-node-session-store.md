@@ -1,6 +1,6 @@
 ---
 title: Calib node session store
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Captured poses, thumbnails with corners, coverage and results persist on the robot across sessions and deploys, with safe ids."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/store.py, nodes/head_rgbd_calibration/head_rgbd_calibration/images.py, nodes/head_rgbd_calibration/tests/test_store.py, nodes/head_rgbd_calibration/tests/test_images.py, nodes/head_rgbd_calibration/README.md, nodes/README.md]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-session-store
 branch: head-rgb-d-calibration-in-th--calib-node-session-store
-verified_head: ""
+verified_head: 4e01ced4a938764cf4426091e2e2f8c5ad8d0101
 run: head-rgb-d-calibration-in-th
-provides: []
+provides: [rgbd-calib-session-store, rgbd-calib-test-pose-factory]
 acs_for_audit: []
 process_gaps: []
 ---

@@ -1,6 +1,6 @@
 ---
 title: Calib node compute job
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The calibration is computed on the robot from stored poses in a niced child process, without blocking the UI or the capture."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py, nodes/head_rgbd_calibration/head_rgbd_calibration/jobs.py, nodes/head_rgbd_calibration/tests/test_compute.py, nodes/head_rgbd_calibration/tests/test_jobs.py, nodes/head_rgbd_calibration/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-compute-job
 branch: head-rgb-d-calibration-in-th--calib-node-compute-job
-verified_head: ""
+verified_head: 9f608847e8b258c46cca89d99f6dfde543e3da85
 run: head-rgb-d-calibration-in-th
-provides: []
+provides: [rgbd-calib-result-files]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["No red/green tails for the TDD proof (tests.red, verification.evidence). Both production files are new, so the red state is an ImportError at collection."]
 ---
 
 # Calib node compute job

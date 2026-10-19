@@ -1,6 +1,6 @@
 ---
 title: Calib node Ansible deploy
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The calibration node, its state dir and the apply restart unit deploy with the standard script and survive every redeploy."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, ansible/playbooks/tasks/head_rgbd_calibration_setup.yml, ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.path.j2, ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.service.j2, tests/test_head_rgbd_calibration_deploy.py, ansible/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-ansible-deploy
 branch: head-rgb-d-calibration-in-th--calib-node-ansible-deploy
-verified_head: ""
+verified_head: b34e4684b51bc7704dfec225b42cb8638688336c
 run: head-rgb-d-calibration-in-th
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["tests/README.md has no entry for tests/test_head_rgbd_calibration_deploy.py (project CLAUDE.md requires each test file be listed and described)"]
 ---
 
 # Calib node Ansible deploy
