@@ -202,7 +202,9 @@ async def await_ros_future(future: Any, timeout_s: float, cancel_on_timeout: boo
         raise
 
 
-def action_response(action: str, ok: bool, message: str, status_code: int) -> JSONResponse:
+def action_response(
+    action: str, ok: bool, message: str, status_code: int, extra: dict[str, Any] | None = None
+) -> JSONResponse:
     """Build the JSON body returned by the map_nav action endpoints (map save/reset, nav stop, arm home/set home).
 
     Args:
@@ -210,12 +212,39 @@ def action_response(action: str, ok: bool, message: str, status_code: int) -> JS
         ok (bool): Whether the action succeeded.
         message (str): Human-readable result.
         status_code (int): HTTP status code.
+        extra (dict[str, Any] | None): Further top-level body fields (e.g. "map3d").
 
     Returns:
-        JSONResponse: {"ok": bool, "message": str}.
+        JSONResponse: {"ok": bool, "message": str} plus extra.
     """
-    log.info(f"{action}_result", ok=ok, message=message)
-    return JSONResponse({"ok": ok, "message": message}, status_code=status_code)
+    log.info(f"{action}_result", ok=ok, message=message, **(extra or {}))
+    return JSONResponse({"ok": ok, "message": message, **(extra or {})}, status_code=status_code)
+
+
+async def map3d_command(node: Any, tab_cfg: TabConfig, action: str, name: str | None = None) -> dict[str, str] | None:
+    """Send one save/reset command to the 3D map manager and wait for its result (never raises).
+
+    Args:
+        node (Any): Bridge node.
+        tab_cfg (TabConfig): map_nav tab; its map3d_command_topic and map3d_command_timeout_s apply.
+        action (str): "save" or "reset".
+        name (str | None): Map name (save only).
+
+    Returns:
+        dict[str, str] | None: {"status", "message"} ("ok", "error", "timeout", ... as the manager answered); None when
+            the tab has no map3d_command_topic (3D mapping not configured).
+    """
+    if not tab_cfg.map3d_command_topic:
+        return None
+    future = node.map3d_request_async(action, name)
+    if future is None:
+        return {"status": "error", "message": "map3d manager is not running"}
+    timeout_s = tab_cfg.map3d_command_timeout_s
+    try:
+        result = await await_ros_future(future, timeout_s)
+    except TimeoutError:
+        return {"status": "timeout", "message": f"map3d {action} not confirmed within {timeout_s:g} s"}
+    return {"status": str(result.get("status", "error")), "message": str(result.get("message", ""))}
 
 
 # Start time (loop clock) of each coalesced task, for the max_age_s check.
@@ -811,20 +840,26 @@ def build_app(
             return action_response("map_save", False, f"no map_nav tab {tab!r}", 404)
         if bridge_node is None:
             return action_response("map_save", False, "ROS bridge unavailable", 503)
-        response, error = await call_ros_service(
-            "map_save",
-            bridge_node.serialize_map_async(tab_cfg.map_save_path),
-            SERIALIZE_MAP_SERVICE,
-            SAVE_MAP_TIMEOUT_S,
-        )
-        if error is not None:
-            return error
-        if response is None or response.result != SERIALIZE_MAP_RESULT_SUCCESS:
-            code = getattr(response, "result", None)
-            return action_response(
-                "map_save", False, f"slam_toolbox could not write {tab_cfg.map_save_path} (result {code})", 500
+        node = bridge_node
+        save_path = tab_cfg.map_save_path
+
+        async def run_save() -> JSONResponse:
+            response, error = await call_ros_service(
+                "map_save", node.serialize_map_async(save_path), SERIALIZE_MAP_SERVICE, SAVE_MAP_TIMEOUT_S
             )
-        return action_response("map_save", True, f"map saved to {tab_cfg.map_save_path}", 200)
+            if error is not None:
+                return error
+            if response is None or response.result != SERIALIZE_MAP_RESULT_SUCCESS:
+                code = getattr(response, "result", None)
+                return action_response(
+                    "map_save", False, f"slam_toolbox could not write {save_path} (result {code})", 500
+                )
+            map3d = await map3d_command(node, tab_cfg, "save", Path(save_path).name)
+            return action_response(
+                "map_save", True, f"map saved to {save_path}", 200, {"map3d": map3d} if map3d else None
+            )
+
+        return await coalesce(inflight_calls, f"map_save:{save_path}", run_save)
 
     @app.post("/api/map/reset")
     async def reset_map(tab: str) -> JSONResponse:
@@ -838,26 +873,36 @@ def build_app(
         service = tab_cfg.map_reset_service
         node = bridge_node
 
-        async def clear_live_set(node: Any) -> JSONResponse:
+        async def clear_live_set(node: Any, map3d: dict[str, str] | None) -> JSONResponse:
             """Empty the live POIs and photos through map_manager after a successful slam reset."""
+            extra = {"map3d": map3d} if map3d else None
             failed = "map reset; live POIs and photos not cleared: "
             future = node.map_request_async(MapCommand(op="clear_live"))
             if future is None:
-                return action_response("map_reset", False, failed + "map_manager is not running", 503)
+                return action_response("map_reset", False, failed + "map_manager is not running", 503, extra)
             try:
                 result = await await_ros_future(future, MAP_DELETE_TIMEOUT_S)
             except TimeoutError:
                 return action_response(
-                    "map_reset", False, f"{failed}map_manager did not answer within {MAP_DELETE_TIMEOUT_S:g} s", 504
+                    "map_reset",
+                    False,
+                    f"{failed}map_manager did not answer within {MAP_DELETE_TIMEOUT_S:g} s",
+                    504,
+                    extra,
                 )
             if not result.get("ok"):
-                return action_response("map_reset", False, failed + str(result.get("message", "")), 502)
+                return action_response("map_reset", False, failed + str(result.get("message", "")), 502, extra)
             data = result.get("data") or {}
             pois, photos = int(data.get("pois_removed", 0)), int(data.get("photos_removed", 0))
             message = (
                 f"map reset; SLAM is building a new map; removed {pois} live POIs and {photos} photos; saved maps kept"
             )
-            body = {"ok": True, "message": message, "data": {"pois_removed": pois, "photos_removed": photos}}
+            body = {
+                "ok": True,
+                "message": message,
+                "data": {"pois_removed": pois, "photos_removed": photos},
+                **(extra or {}),
+            }
             log.info("map_reset", ok=True, message=message)
             return JSONResponse(body, status_code=200)
 
@@ -873,7 +918,8 @@ def build_app(
             if tab_cfg.map_topic:
                 node.clear_and_notify(tab_cfg.map_topic)
             node.reset_gps_anchor()
-            return await clear_live_set(node)
+            map3d = await map3d_command(node, tab_cfg, "reset")
+            return await clear_live_set(node, map3d)
 
         return await coalesce(inflight_calls, f"map_reset:{service}", run_reset)
 

@@ -41,8 +41,8 @@ Single Python process: FastAPI (uvicorn) on port 8080 serves:
 - `GET /` and unknown client-side routes - `index.html` with `Cache-Control: no-cache` (a deploy is picked up at once; hashed `/assets/*` keep default caching); `/api/*` and `/ws*` misses stay 404
 - `GET /api/urdf/{path}` - URDF and mesh files (`Cache-Control: no-cache`: revalidated with ETag so model changes show after a reload, unchanged meshes answer 304)
 - `GET /api/urdf/status` — URDF directory scan result
-- `POST /api/map/save?tab=<tab id>` - ask slam_toolbox to save the map of a `map_nav` tab (see below)
-- `POST /api/map/reset?tab=<tab id>` - ask slam_toolbox to drop the current map and start a new one (see below)
+- `POST /api/map/save?tab=<tab id>` - ask slam_toolbox to save the map of a `map_nav` tab and save the 3D map with it (see below and `## 3D map`)
+- `POST /api/map/reset?tab=<tab id>` - ask slam_toolbox to drop the current map and start a new one, and reset the 3D map with it (see below and `## 3D map`)
 - `POST /api/nav/stop?tab=<tab id>` - cancel all Nav2 NavigateToPose goals (see below)
 - `POST /api/arm/home?tab=<tab id>` and `POST /api/arm/set_home?tab=<tab id>` - call the mcp_server arm Trigger services (see below)
 - `POST /api/arm/take_control?tab=<arm tab id>`, `POST /api/arm/release?tab=<arm tab id>` and `POST /api/arm/jog?tab=<arm tab id>` - the Arm tab's control routes (see [Arm tab routes](#arm-tab-routes)); `POST /api/arm/home` also accepts an arm tab id
@@ -415,6 +415,25 @@ Because tiles come from the same origin, the Content-Security-Policy keeps `img-
 | 500 | The action server rejected the cancel (non-zero `return_code`), or the call failed |
 | 503 | ROS bridge or the cancel service is unavailable (Nav2 not running) |
 | 504 | No response within 5 s |
+
+## 3D map
+
+The RTAB-Map 3D map (server side, aligned to slam_toolbox's `map` frame) is shown as an extra layer of the Map tab. Topics come from the `map_nav` tab, all defaulted:
+
+| Field | Default | Use |
+|---|---|---|
+| `map3d_cloud_topic` | `/map3d/cloud` | `sensor_msgs/PointCloud2`, subscribed on demand, voxel-thinned to `map3d_max_points` / `map3d_voxel_m`; only `map3d_frame_id` is accepted |
+| `map3d_status_topic` | `/map3d/status` | JSON status of the map3d manager (latest wins), relayed to the browser |
+| `map3d_result_topic` | `/map3d/result` | JSON result of each command (every one delivered), relayed and matched by `request_id` |
+| `map3d_command_topic` | `/map3d/command` | JSON commands published by web_ui (reliable, depth 10) |
+| `map3d_command_timeout_s` | `15` | Seconds to wait for a command's result (> 0) |
+
+**Save and reset follow the 2D map**, so the 3D map never outlives the 2D map frame it belongs to:
+
+- `POST /api/map/save` first does the slam_toolbox `serialize_map`. Only after it succeeds, one command `{"request_id": <uuid4 hex>, "action": "save", "name": <basename of map_save_path>}` is published on `map3d_command_topic`, and the call waits up to `map3d_command_timeout_s` for the `/map3d/result` with the same `request_id` (other results are ignored). Concurrent saves share one call.
+- `POST /api/map/reset` publishes `{"request_id", "action": "reset"}` only after slam_toolbox accepted the reset. A reset slam_toolbox refused publishes nothing.
+- The response gains `"map3d": {"status", "message"}`. `status` is what the manager answered (`ok`, `error`, ...), `timeout` when no result arrived in time, or `error` ("map3d manager is not running") when nobody subscribes to the command topic. A 3D failure never undoes or changes the 2D result: the HTTP status and `ok` stay those of the 2D map, which is the source of truth. Tabs without a `map3d_command_topic` get no `map3d` field.
+- Map guard resets reach the 3D map through `/map_guard/map_reset` in the map3d manager, not through web_ui.
 
 ## Named maps
 

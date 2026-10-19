@@ -216,6 +216,9 @@ class DemandEntry:
 
 
 MAP3D_STATUS_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=1)
+MAP3D_COMMAND_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=DEFAULT_SUB_QOS_DEPTH
+)
 MAP3D_RESULT_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=DEFAULT_SUB_QOS_DEPTH
 )
@@ -369,6 +372,7 @@ class BridgeNode(Node):
         gps_anchor: GpsAnchorEstimator | None = None,
         battery_guard: BatteryGuard | None = None,
         poi_command_topic: str | None = None,
+        map3d_command_topic: str | None = None,
         grasp_command_topic: str | None = None,
         gps_compass: CompassSettings | None = None,
         tilt_stale_s: float = TILT_STALE_S_DEFAULT,
@@ -400,6 +404,8 @@ class BridgeNode(Node):
             battery_guard (BatteryGuard | None): Guard fed with "battery" role readings, or None when battery
                 features are off.
             poi_command_topic (str | None): std_msgs/String topic POI commands are published on, or None to disable.
+            map3d_command_topic (str | None): std_msgs/String topic map3d save/reset commands are published on
+                (reliable, depth 10), or None to disable.
             grasp_command_topic (str | None): std_msgs/String topic grasp requests are published on, or None to disable.
             gps_compass (CompassSettings | None): Compass (IMU heading) anchor settings, or None to disable it.
             tilt_stale_s (float): Age in seconds after which the cached tilt guard state is marked stale.
@@ -447,6 +453,10 @@ class BridgeNode(Node):
         self._poi_pending: dict[str, Future] = {}
         self._poi_command_pub = (
             self.create_publisher(String, poi_command_topic, DEFAULT_SUB_QOS_DEPTH) if poi_command_topic else None
+        )
+        self._map3d_pending: dict[str, Future] = {}
+        self._map3d_command_pub = (
+            self.create_publisher(String, map3d_command_topic, MAP3D_COMMAND_QOS) if map3d_command_topic else None
         )
         self._map_status: MapStatus | None = None
         self._map_pending: dict[str, Future] = {}
@@ -719,6 +729,7 @@ class BridgeNode(Node):
                 self.store_eager(topic, serializer, role, msg)
                 return
             if role == "map3d_result":
+                self.on_map3d_result(msg)
                 self.queue_burst(topic, serializer, role, msg)
                 return
             self.store_raw(topic, msg, serializer, role)
@@ -954,6 +965,49 @@ class BridgeNode(Node):
             future.set_result(result)
         except InvalidStateError:
             log.debug("poi_result_after_cancel")
+
+    def map3d_request_async(self, action: str, name: str | None = None) -> Future | None:
+        """Publish a map3d command (save, reset) with a fresh request_id; the future resolves with its /map3d/result.
+
+        Args:
+            action (str): "save" or "reset".
+            name (str | None): Map name (save only); omitted from the command when None.
+
+        Returns:
+            Future | None: Resolves to the result dict {request_id, status, message, ...}; None when no map3d manager
+                subscribes to the command topic.
+        """
+        pub = self._map3d_command_pub
+        if pub is None or pub.get_subscription_count() == 0:
+            return None
+        request_id = uuid.uuid4().hex
+        command: dict[str, Any] = {"request_id": request_id, "action": action}
+        if name is not None:
+            command["name"] = name
+        future: Future = Future()
+        future.add_done_callback(lambda _fut: self._map3d_pending.pop(request_id, None))
+        self._map3d_pending[request_id] = future
+        pub.publish(String(data=json.dumps(command)))
+        return future
+
+    def on_map3d_result(self, msg: Any) -> None:
+        """Resolve the pending map3d command a /map3d/result message answers; unmatched results are ignored.
+
+        Args:
+            msg (Any): std_msgs/String with the result JSON.
+        """
+        try:
+            result = json.loads(msg.data)
+            future = self._map3d_pending.pop(result["request_id"], None)
+        except (ValueError, KeyError, TypeError):
+            log.warning("map3d_result_malformed")
+            return
+        if future is None:
+            return
+        try:
+            future.set_result(result)
+        except InvalidStateError:
+            log.debug("map3d_result_after_cancel")
 
     def zoom_request_async(self, tab_id: str, u: float, v: float, zoom: int) -> Future | None:
         """Publish a head camera zoom command with a fresh request_id.
