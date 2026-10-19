@@ -163,7 +163,7 @@ def test_subscription_only_with_calibration() -> None:
 def test_calibration_config_route_is_imu_only(tmp_path: Path) -> None:
     response = make_client(tmp_path, FakeBridge()).get("/api/calibration/config")
     assert response.status_code == 200
-    assert response.json() == {"imu": True, "arm": "deferred"}
+    assert response.json() == {"imu": True, "rgbd": False, "arm": "deferred"}
 
 
 def test_calibration_config_route_404_when_not_configured(tmp_path: Path) -> None:
@@ -175,3 +175,15 @@ def test_calibration_config_route_404_when_not_configured(tmp_path: Path) -> Non
 def test_stereo_calibration_routes_are_gone(tmp_path: Path) -> None:
     client = make_client(tmp_path, FakeBridge())
     assert client.get("/api/calibration/stereo/preview").status_code == 404
+
+
+def test_config_reports_rgbd_flag(tmp_path: Path) -> None:
+    from web_ui.server import build_app
+
+    def flag(rgbd_url: str | None) -> bool:
+        config = AppConfig(calibration=CalibrationConfig(rgbd_url=rgbd_url))
+        app = build_app(config=config, urdf_dir=tmp_path, static_dir=tmp_path / "none", bridge_node=FakeBridge())
+        return TestClient(app).get("/api/calibration/config").json()["rgbd"]
+
+    assert flag("http://robot:8100") is True
+    assert flag(None) is False

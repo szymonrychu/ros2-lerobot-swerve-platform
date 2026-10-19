@@ -43,6 +43,7 @@ from .metrics import (
     WS_PENDING_FRAMES_MAX,
 )
 from .photos import register_photo_routes
+from .rgbd_calibration import register_rgbd_calibration_routes
 from .throttle import SlowCycleTracker
 from .tiles import (
     API_KEY_PLACEHOLDER,
@@ -748,6 +749,7 @@ def build_app(
     register_agent_routes(app, config, battery_block, agent_transport)
     register_photo_routes(app, config)
     register_imu_calibration_routes(app, config, bridge_node)
+    register_rgbd_calibration_routes(app, config)
 
     tile_tab = find_tile_tab(config)
     tile_sources = {src.id: src for src in tile_tab.resolved_tile_sources()} if tile_tab is not None else {}
