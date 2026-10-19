@@ -25,6 +25,8 @@ Servo safety (CLAUDE.md): smallest moves first, stop and ask before anything lar
 | U13 | ToF obstacles: cliff stop at low speed (spotter, physical stop) | yes | PENDING |
 | U14 | ToF obstacles: outage toggle stops and resumes Nav2 | yes | PENDING |
 | U15 | Markers: print the 4 mm two-colour 3MFs and check IR contrast | yes | PENDING |
+| U16 | Metadata markers: printed QR markers become POIs (runbook) | yes | PENDING |
+| U17 | RTAB-Map 3D mapping: map a room, check alignment, CPU and WiFi (runbook) | yes | PENDING |
 
 ## Head on pan/tilt (source: `docs/plans/done/pan-tilt-head-control-with-a`)
 
@@ -100,3 +102,17 @@ Already checked after deploy: all units active, the STVL `tof_voxel_layer` loads
 - Print the 3MFs on the P2S (white PETG filament 1, black PETG filament 2, matte or textured plate). If Bambu Studio
   warns about the mesh, repair it.
 - Check the ToF amplitude image of the ChArUco board: black cells dark, white bright.
+
+## Metadata markers (source: `docs/runbooks/printable-markers.md`)
+
+### U16 - Markers become POIs
+- Needs U10 first (head camera and ToF calibration files deployed).
+- Tape printed markers at measured poses; drive past them; each marker appears as a POI with its kind, name and pose;
+  record the measured detection ranges in the runbook's Range section.
+
+## RTAB-Map 3D mapping (source: `docs/runbooks/map3d-mapping.md`)
+
+### U17 - Map a room
+- Needs U10 first (calibration artifacts and `camera_info_file` set).
+- Follow the runbook: deploy check, drive a room, alignment agreement >= 0.8, CPU/memory and WiFi measurements,
+  the ToF-unplugged placeholder check; replace the design estimates with the measured numbers.
