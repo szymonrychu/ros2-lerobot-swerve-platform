@@ -53,6 +53,7 @@ from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from .cloud_serializer import DEFAULT_MAX_POINTS, DEFAULT_VOXEL_M, serialize_map3d_cloud
 from .config import (
     ACTIVE_SOURCE_ROLE,
     BATTERY_ROLE,
@@ -87,6 +88,7 @@ from .msg_serializer import (
     serialize_battery,
     serialize_costmap,
     serialize_goal_pose,
+    serialize_json_object,
     serialize_navsatfix,
     serialize_occupancy_grid,
     serialize_path,
@@ -213,6 +215,27 @@ class DemandEntry:
     needs_tf: bool = False
 
 
+MAP3D_STATUS_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=1)
+MAP3D_COMMAND_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=DEFAULT_SUB_QOS_DEPTH
+)
+MAP3D_RESULT_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=DEFAULT_SUB_QOS_DEPTH
+)
+
+
+def serialize_map3d_cloud_default(msg: Any) -> dict[str, Any]:
+    """Serialize a 3D map cloud with the default limits (config limits are bound in subscription_spec).
+
+    Args:
+        msg (Any): sensor_msgs/PointCloud2.
+
+    Returns:
+        dict[str, Any]: See serialize_map3d_cloud.
+    """
+    return serialize_map3d_cloud(msg, DEFAULT_MAX_POINTS, DEFAULT_VOXEL_M)
+
+
 # map_nav subscription role -> (message class, QoS, serializer). Roles come from the tab config.
 ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "map": (OccupancyGrid, MAP_SUB_QOS, serialize_occupancy_grid),
@@ -225,6 +248,11 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     # ToF obstacle cloud and lidar points of the 3D obstacles layer: sensor data, latest wins.
     "cloud": (PointCloud2, SENSOR_SUB_QOS, serialize_point_cloud),
     "scan_points": (LaserScan, SENSOR_SUB_QOS, serialize_scan_points),
+    # RTAB-Map 3D map: on demand, latest wins; serialized lazily at flush so an unchanged cloud is encoded once.
+    "map3d_cloud": (PointCloud2, SENSOR_SUB_QOS, serialize_map3d_cloud_default),
+    # map3d manager status (latest wins) and per-command results (a burst must not lose one).
+    "map3d_status": (String, MAP3D_STATUS_QOS, serialize_json_object),
+    "map3d_result": (String, MAP3D_RESULT_QOS, serialize_json_object),
     # poi_store publishes the list reliable + transient_local (latched): match it so a (re)connecting UI gets it.
     "poi_list": (String, MAP_SUB_QOS, serialize_poi_list),
     # poi_store latches the photo store summary like the list: a (re)connecting UI gets the current revision.
@@ -267,7 +295,7 @@ def head_spec(topic: str, role: str, tof_range_m: float | None) -> tuple[type, A
 
 
 def subscription_spec(
-    topic: str, role: str | None, tof_range_m: float | None = None
+    topic: str, role: str | None, tof_range_m: float | None = None, map3d_limit: tuple[int, float] | None = None
 ) -> tuple[type, Any, Serializer] | None:
     """Choose message class, QoS and serializer for a topic.
 
@@ -278,12 +306,16 @@ def subscription_spec(
         topic (str): ROS2 topic name.
         role (str | None): map_nav role (a ROLE_SPECS key), a head role or None.
         tof_range_m (float | None): Depth range in metres of a head depth topic's greyscale preview.
+        map3d_limit (tuple[int, float] | None): (max_points, voxel_m) of a "map3d_cloud" topic, None for the defaults.
 
     Returns:
         tuple[type, Any, Serializer] | None: (msg class, QoS profile or depth, serializer), or None if unknown.
     """
     if role in HEAD_ROLES:
         return head_spec(topic, role, tof_range_m)
+    if role == "map3d_cloud" and map3d_limit is not None:
+        max_points, voxel_m = map3d_limit
+        return (PointCloud2, SENSOR_SUB_QOS, lambda msg: serialize_map3d_cloud(msg, max_points, voxel_m))
     if role is not None:
         return ROLE_SPECS[role]
     msg_cls = TOPIC_TYPE_HINTS.get(topic)
@@ -322,6 +354,8 @@ class BridgeNode(Node):
 
     # Seconds after which the cached tilt guard state is marked stale (set from the config in __init__).
     _tilt_stale_s: float = TILT_STALE_S_DEFAULT
+    # Queued per-command results awaiting the next flush (replaced, never mutated, so the class default is safe).
+    _bursts: tuple[dict[str, Any], ...] = ()
 
     def __init__(
         self,
@@ -338,12 +372,14 @@ class BridgeNode(Node):
         gps_anchor: GpsAnchorEstimator | None = None,
         battery_guard: BatteryGuard | None = None,
         poi_command_topic: str | None = None,
+        map3d_command_topic: str | None = None,
         grasp_command_topic: str | None = None,
         gps_compass: CompassSettings | None = None,
         tilt_stale_s: float = TILT_STALE_S_DEFAULT,
         demand_linger_s: float = DEMAND_LINGER_S,
         imu_status_topic: str | None = None,
         zoom_topics: dict[str, tuple[str, str, str]] | None = None,
+        map3d_limits: dict[str, tuple[int, float]] | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -355,6 +391,7 @@ class BridgeNode(Node):
             allowed_publish_topics (set[str]): Allowlist of topics this node may publish to.
             topic_roles (dict[str, str] | None): map_nav topic -> role ("map", "path", "goal"), head topic -> head role.
             tof_ranges (dict[str, float] | None): head depth topic -> range (m) of its greyscale preview.
+            map3d_limits (dict[str, tuple[int, float]] | None): 3D map cloud topic -> (max_points, voxel_m).
             robot_pose_frames (tuple[str, str] | None): (map_frame, base_frame) for the TF robot pose,
                 or None to disable TF tracking.
             frame_id_defaults (dict[str, str] | None): Publish topic -> header.frame_id used when the
@@ -367,6 +404,8 @@ class BridgeNode(Node):
             battery_guard (BatteryGuard | None): Guard fed with "battery" role readings, or None when battery
                 features are off.
             poi_command_topic (str | None): std_msgs/String topic POI commands are published on, or None to disable.
+            map3d_command_topic (str | None): std_msgs/String topic map3d save/reset commands are published on
+                (reliable, depth 10), or None to disable.
             grasp_command_topic (str | None): std_msgs/String topic grasp requests are published on, or None to disable.
             gps_compass (CompassSettings | None): Compass (IMU heading) anchor settings, or None to disable it.
             tilt_stale_s (float): Age in seconds after which the cached tilt guard state is marked stale.
@@ -390,6 +429,7 @@ class BridgeNode(Node):
         self._tilt_stale_s = tilt_stale_s
         self._latest: dict[str, dict[str, Any]] = {}
         self._pending: dict[str, tuple[Any, Serializer, str | None]] = {}
+        self._bursts = ()
         self._dirty: set[str] = set()
         self._cleared: set[str] = set()
         self._lock = threading.Lock()
@@ -413,6 +453,10 @@ class BridgeNode(Node):
         self._poi_pending: dict[str, Future] = {}
         self._poi_command_pub = (
             self.create_publisher(String, poi_command_topic, DEFAULT_SUB_QOS_DEPTH) if poi_command_topic else None
+        )
+        self._map3d_pending: dict[str, Future] = {}
+        self._map3d_command_pub = (
+            self.create_publisher(String, map3d_command_topic, MAP3D_COMMAND_QOS) if map3d_command_topic else None
         )
         self._map_status: MapStatus | None = None
         self._map_pending: dict[str, Future] = {}
@@ -461,7 +505,7 @@ class BridgeNode(Node):
             if role == GRASP_RESULT_ROLE:
                 self.subscribe_always_on(String, topic, self.on_grasp_result, DEFAULT_SUB_QOS_DEPTH)
                 continue
-            spec = subscription_spec(topic, role, (tof_ranges or {}).get(topic))
+            spec = subscription_spec(topic, role, (tof_ranges or {}).get(topic), (map3d_limits or {}).get(topic))
             if spec is None:
                 self.get_logger().warning(f"Unknown msg type for topic {topic!r} - skipping")
                 continue
@@ -684,12 +728,34 @@ class BridgeNode(Node):
             if role == "gps":
                 self.store_eager(topic, serializer, role, msg)
                 return
+            if role == "map3d_result":
+                self.on_map3d_result(msg)
+                self.queue_burst(topic, serializer, role, msg)
+                return
             self.store_raw(topic, msg, serializer, role)
             if role == "map":
                 MAP_UPDATES.inc()
                 touch_map()
 
         return callback
+
+    def queue_burst(self, topic: str, serializer: Serializer, role: str | None, msg: Any) -> None:
+        """Serialize msg now and queue it for the next flush; every message is delivered, none is cached.
+
+        Used for per-command results: a burst inside one flush tick must not lose one, and a reconnecting client
+        must not be replayed a stale result.
+
+        Args:
+            topic (str): WS topic name.
+            serializer (Serializer): Converts msg into a JSON-serializable dict.
+            role (str | None): map_nav role of the topic.
+            msg (Any): ROS2 message.
+        """
+        data = self.serialize_message(topic, msg, serializer, role)
+        if data is None:
+            return
+        with self._lock:
+            self._bursts = (*self._bursts, {"topic": topic, "data": data})
 
     def store_raw(self, topic: str, msg: Any, serializer: Serializer, role: str | None) -> None:
         """Keep msg as the latest raw message of topic and mark it for serialization at the next flush.
@@ -899,6 +965,49 @@ class BridgeNode(Node):
             future.set_result(result)
         except InvalidStateError:
             log.debug("poi_result_after_cancel")
+
+    def map3d_request_async(self, action: str, name: str | None = None) -> Future | None:
+        """Publish a map3d command (save, reset) with a fresh request_id; the future resolves with its /map3d/result.
+
+        Args:
+            action (str): "save" or "reset".
+            name (str | None): Map name (save only); omitted from the command when None.
+
+        Returns:
+            Future | None: Resolves to the result dict {request_id, status, message, ...}; None when no map3d manager
+                subscribes to the command topic.
+        """
+        pub = self._map3d_command_pub
+        if pub is None or pub.get_subscription_count() == 0:
+            return None
+        request_id = uuid.uuid4().hex
+        command: dict[str, Any] = {"request_id": request_id, "action": action}
+        if name is not None:
+            command["name"] = name
+        future: Future = Future()
+        future.add_done_callback(lambda _fut: self._map3d_pending.pop(request_id, None))
+        self._map3d_pending[request_id] = future
+        pub.publish(String(data=json.dumps(command)))
+        return future
+
+    def on_map3d_result(self, msg: Any) -> None:
+        """Resolve the pending map3d command a /map3d/result message answers; unmatched results are ignored.
+
+        Args:
+            msg (Any): std_msgs/String with the result JSON.
+        """
+        try:
+            result = json.loads(msg.data)
+            future = self._map3d_pending.pop(result["request_id"], None)
+        except (ValueError, KeyError, TypeError):
+            log.warning("map3d_result_malformed")
+            return
+        if future is None:
+            return
+        try:
+            future.set_result(result)
+        except InvalidStateError:
+            log.debug("map3d_result_after_cancel")
 
     def zoom_request_async(self, tab_id: str, u: float, v: float, zoom: int) -> Future | None:
         """Publish a head camera zoom command with a fresh request_id.
@@ -1556,12 +1665,18 @@ class BridgeNode(Node):
             cleared = list(self._cleared)
             self._dirty.clear()
             self._cleared.clear()
+            if topics is None:
+                bursts, self._bursts = list(self._bursts), ()
+            else:
+                bursts = [e for e in self._bursts if e["topic"] in topics]
+                self._bursts = tuple(e for e in self._bursts if e["topic"] not in topics)
         if topics is not None:
             dirty = [t for t in dirty if t in topics]
         dropped = self.serialize_pending(dirty)
         with self._lock:
             envelopes = [self._latest[t] for t in dirty if t in self._latest and t not in dropped]
         envelopes.extend({"topic": t, "data": None} for t in cleared)
+        envelopes.extend(bursts)
         return envelopes
 
     def latest_envelopes(self, topics: Collection[str] | None = None, serialize: bool = True) -> list[dict[str, Any]]:

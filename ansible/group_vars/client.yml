@@ -1896,6 +1896,17 @@ ros2_nodes:
           # (sensor_msgs/LaserScan) shown together, each with its sensor frame pose in map from TF.
           obstacle_cloud_topic: /tof/points_filtered
           scan_points_topic: /scan_filtered
+          # 3D map (RTAB-Map, on demand): cloud, status and results come down from the server, commands go up (topic
+          # contract nodes/rtabmap_mapping/config/map3d_topics.yaml). map3d_frame_id is RTAB-Map's map frame, identical to
+          # map (design D7); the cloud is capped to map3d_max_points by growing the voxel from map3d_voxel_m.
+          map3d_cloud_topic: /map3d/cloud
+          map3d_status_topic: /map3d/status
+          map3d_result_topic: /map3d/result
+          map3d_command_topic: /map3d/command
+          map3d_frame_id: rtabmap_map
+          map3d_max_points: 60000
+          map3d_voxel_m: 0.05
+          lidar_wall_height_m: 1.0
           base_urdf: robot.urdf
           base_joint_states_topic: /swerve_drive/joint_states
           arm_urdf: so101_arm.urdf
