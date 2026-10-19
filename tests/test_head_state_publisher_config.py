@@ -37,7 +37,11 @@ def test_node_type_fields_and_tier() -> None:
     )
     assert "'" not in node_type["node_launch_command"]
     assert node_type["node_src_dir"] == ""
-    assert node_type["src_paths"] == ["nodes/head_state_publisher", "nodes/web_ui/urdf/head.urdf"]
+    assert node_type["src_paths"] == [
+        "nodes/head_state_publisher",
+        "nodes/web_ui/urdf/head.urdf",
+        "shared/ros2_common/head_rgbd_calibration/urdf_text.py",
+    ]
     assert node_type["apt_packages"] == ["ros-jazzy-robot-state-publisher"]
     for key, value in EXPECTED_TIER.items():
         assert node_type[key] == value, key

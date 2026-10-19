@@ -474,6 +474,18 @@ The `head_state_publisher` node (robot_state_publisher on `nodes/web_ui/urdf/hea
 | `test_playbook_step_exists_with_tags` | `Deploy head_state_publisher` exists with its node tag and `apt`. |
 | `test_readme_documents_frames_and_check` | The node README names `/tf_static` and the `tf2_echo` check. |
 
+### `test_head_tof_joint_override.py`
+
+The applied `tof_joint` override in the head_state_publisher launch (`head_description.py`, stdlib only).
+
+| Test | What it covers |
+|---|---|
+| `test_override_applied` | The tof_joint origin carries the JSON values; every other line is unchanged. |
+| `test_missing_file_gives_repo_urdf` | No override file returns the repo URDF. |
+| `test_invalid_override_gives_repo_urdf_and_warns` | Invalid JSON and wrong shapes return the repo URDF and log a warning naming the file. |
+| `test_head_description_imports_only_stdlib` | `head_description.py` imports only standard library modules. |
+| `test_launch_file_references_override_pieces` | The launch file names `head_description`, the applied path and `urdf_text.py`. |
+
 ### `test_head_config_consistency.py`
 
 Cross-component pin of the pan/tilt head: the same values are copied into the `base_servos` head group, `nodes/web_ui/urdf/head.urdf`, the mcp_server `head:` block and the web_ui head tab, and must never disagree. The mcp_server and web_ui code defaults are read from their config modules.
