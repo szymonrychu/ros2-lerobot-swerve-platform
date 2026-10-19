@@ -43,8 +43,8 @@ No large stream is subscribed (one WiFi copy per server reader).
 - A service not available (or not answering) within `service_timeout_s` gives `timeout`; a command while an action
   runs gives `busy`; an unknown action or bad name gives `invalid` with the `request_id`; a command without a
   usable `request_id` is dropped.
-- A `map_reset` message triggers `reset` with no result message and a warning in the log (dropped with a warning if
-  an action is running).
+- A `map_reset` message triggers `reset` with no result message and a warning in the log (if an action is running the reset
+  is queued with a warning and applied once that action finishes).
 
 ## Save and load
 
