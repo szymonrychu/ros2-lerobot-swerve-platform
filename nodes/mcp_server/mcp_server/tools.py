@@ -32,6 +32,7 @@ from . import (
     guard_tools,
     head_tools,
     lookup_tools,
+    map3d_tools,
     map_tools,
     motion_tools,
     perception_tools,
@@ -114,6 +115,7 @@ TOOL_NAMES = (
     *lookup_tools.TOOL_NAMES,
     *map_tools.TOOL_NAMES,
     *frontier_tools.TOOL_NAMES,
+    *map3d_tools.TOOL_NAMES,
     *approach_tools.TOOL_NAMES,
     *head_tools.TOOL_NAMES,
 )
@@ -168,6 +170,7 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         *lookup_tools.TOOL_NAMES,
         *map_tools.TOOL_NAMES,
         *frontier_tools.SENSOR_TOOL_NAMES,
+        *map3d_tools.SENSOR_TOOL_NAMES,
         *approach_tools.SENSOR_TOOL_NAMES,
     }
 )
@@ -1271,6 +1274,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     lookup_tools.register,
     map_tools.register,
     frontier_tools.register,
+    map3d_tools.register,
     approach_tools.register,
     head_tools.register,
 )

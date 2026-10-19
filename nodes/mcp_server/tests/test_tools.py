@@ -59,6 +59,7 @@ PERCEPTION_TOOLS = (
 FRONTIER_SENSOR_TOOLS = {"list_frontiers", "plan_frontier_visit", "get_exploration_status", "mark_survey_spot"}
 FRONTIER_MOTION_TOOLS = {"go_to_frontier", "look_toward_frontier"}
 FRONTIER_TOOLS = (*sorted(FRONTIER_SENSOR_TOOLS), *sorted(FRONTIER_MOTION_TOOLS))
+MAP3D_TOOLS = ("get_3d_map_status", "query_3d_map_at", "get_3d_free_space")
 
 
 class FakeRobot(PerceptionFakeMixin):
@@ -212,6 +213,7 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "annotate_lookup",
         "delete_photos",
         *FRONTIER_TOOLS,
+        *MAP3D_TOOLS,
         "suggest_approach_pose",
         "approach_for_grasp",
         "set_head_angles",
@@ -755,6 +757,12 @@ def test_frontier_tools_are_classified_for_lease_battery_tilt_and_queue() -> Non
     }
     assert FRONTIER_MOTION_TOOLS <= TILT_NAV_TOOLS and not FRONTIER_SENSOR_TOOLS & TILT_NAV_TOOLS
     assert FRONTIER_MOTION_TOOLS <= QUEUE_EXCLUSIVE_TOOLS and not FRONTIER_SENSOR_TOOLS & QUEUE_EXCLUSIVE_TOOLS
+
+
+def test_map3d_tools_are_read_only_sensor_tools_without_lease() -> None:
+    assert set(MAP3D_TOOLS) <= ALWAYS_ALLOWED_TOOLS and not set(MAP3D_TOOLS) & MOTION_TOOLS
+    assert {TOOL_SUBSYSTEM.get(name) for name in MAP3D_TOOLS} == {None}
+    assert not set(MAP3D_TOOLS) & TILT_NAV_TOOLS and not set(MAP3D_TOOLS) & QUEUE_EXCLUSIVE_TOOLS
 
 
 @pytest.mark.parametrize("name", sorted(FRONTIER_MOTION_TOOLS))

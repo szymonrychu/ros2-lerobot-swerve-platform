@@ -22,6 +22,7 @@ from .models import (
     BasePose,
     CameraFrame,
     CameraZoomFrame,
+    Map3dCloud,
     MapSummary,
     NavigationResult,
     PathPlan,
@@ -217,6 +218,14 @@ class RobotApi(Protocol):
 
     def poi_request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
         """Send a /poi/command and wait for its /poi/result; RobotError when poi_store is down, slow or rejects."""
+        ...
+
+    def map3d_cloud(self) -> Map3dCloud | None:
+        """Latest /map3d/cloud decoded (subscribed on demand; waits a bounded time for the first one); None when none arrived."""
+        ...
+
+    def map3d_status(self) -> dict[str, Any] | None:
+        """Latest /map3d/status JSON object (subscribed on demand); None when none arrived or it was unreadable."""
         ...
 
     def map_status(self) -> MapStatus:

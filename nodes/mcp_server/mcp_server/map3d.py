@@ -25,6 +25,7 @@ from scipy import ndimage
 from scipy.spatial import cKDTree
 
 from .frontiers import MapGrid, cells_to_map
+from .models import Map3dCloud
 from .perception import OCCUPIED_THRESHOLD
 
 SOURCE_DEPTH = "depth_3d"
@@ -37,6 +38,38 @@ MIN_ALIGNMENT_COLUMNS = 50  # fewer evaluable columns than this: alignment_agree
 COLUMN_KEY_STRIDE = 1 << 32  # packs (ix, iy) into one int64 key; |iy| < 2**31
 EMPTY_INT = np.zeros(0, dtype=np.int64)
 EMPTY_FLOAT = np.zeros(0, dtype=float)
+
+
+def cloud_from_message(msg: Any) -> Map3dCloud:
+    """Decode a sensor_msgs/PointCloud2 of /map3d/cloud (float32 x, y, z and an optional packed `rgb` / `rgba` field).
+
+    Args:
+        msg (Any): PointCloud2 message.
+
+    Returns:
+        Map3dCloud: Points with a non-finite coordinate dropped; rgb is None without a colour field.
+    """
+    offsets = {f.name: f.offset for f in msg.fields}
+    order = ">" if msg.is_bigendian else "<"
+    colour_field = next((name for name in ("rgb", "rgba") if name in offsets), None)
+    names = ["x", "y", "z"] + ([colour_field] if colour_field else [])
+    dtype = np.dtype(
+        {
+            "names": names,
+            "formats": [f"{order}f4"] * 3 + ([f"{order}u4"] if colour_field else []),
+            "offsets": [offsets[n] for n in names],
+            "itemsize": msg.point_step,
+        }
+    )
+    raw = np.frombuffer(bytes(msg.data), dtype=dtype, count=msg.width * msg.height)
+    xyz = np.stack([raw["x"], raw["y"], raw["z"]], axis=1).astype(np.float64)
+    keep = np.isfinite(xyz).all(axis=1)
+    rgb = None
+    if colour_field:
+        packed = raw[colour_field][keep]
+        rgb = np.stack([(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF], axis=1).astype(np.uint8)
+    stamp = msg.header.stamp
+    return Map3dCloud(msg.header.frame_id, stamp.sec + stamp.nanosec * 1e-9, xyz[keep], rgb)
 
 
 def column_keys_of(ix: np.ndarray, iy: np.ndarray) -> np.ndarray:

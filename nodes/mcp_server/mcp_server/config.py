@@ -164,6 +164,10 @@ class TopicSettings(StrictModel):
     grasp_result: str = "/grasp/result"
     # feetech bridge RAM register writes (JSON {joint_name, register, value}): the gripper torque_limit of grip profiles.
     follower_set_register: str = "/follower/set_register"
+    # map3d_manager downlinks (server): PointCloud2 of the RTAB-Map cloud (best_effort, frame map3d.frame_id) and the
+    # JSON status; both are subscribed on demand by the 3D map tools.
+    map3d_cloud: str = "/map3d/cloud"
+    map3d_status: str = "/map3d/status"
 
 
 class LimitSettings(StrictModel):
@@ -1538,8 +1542,23 @@ class GraspCheckSettings(StrictModel):
     image_px: int = Field(default=640, ge=1)  # longest side of the attached image (capped to limits.max_image_px)
 
 
+class Map3dSettings(StrictModel):
+    """3D map query tools (map3d_tools.py): the RTAB-Map cloud as a voxel model next to slam_toolbox's /map."""
+
+    frame_id: str = (
+        "rtabmap_map"  # frame of /map3d/cloud (identical to the map frame by the D7 alignment); others refused
+    )
+    voxel_m: float = Field(default=0.05, gt=0.0)  # voxel edge of the model (m), the manager's Grid/CellSize
+    lidar_plane_height_m: float = Field(
+        default=0.20, gt=0.0
+    )  # base_link -> laser_frame z: lower bound of lidar-only obstacles
+    robot_height_m: float = Field(default=0.55, gt=0.0)  # default top of the get_3d_free_space band
+    max_age_s: float = Field(default=120.0, gt=0.0)  # a cloud older than this makes every result carry a stale note
+    cloud_wait_s: float = Field(default=12.0, gt=0.0)  # first-cloud window after subscribing (the cloud is 0.1 Hz)
+
+
 class OnDemandSettings(StrictModel):
-    """Subscriptions that exist only while a tool uses them: the cameras, topics.scan and topics.tf.
+    """Subscriptions that exist only while a tool uses them: the cameras, topics.scan, topics.tf and the 3D map topics.
 
     The first use subscribes and waits a bounded time for a first message (timeouts.image_timeout_s for a camera,
     timeouts.state_stale_s for the scan and TF); the subscription is destroyed after linger_s without a use. The
@@ -1602,6 +1621,7 @@ class McpServerConfig(StrictModel):
     frontiers: FrontierSettings = FrontierSettings()
     exploration: ExplorationSettings = ExplorationSettings()
     grasp_check: GraspCheckSettings = GraspCheckSettings()
+    map3d: Map3dSettings = Map3dSettings()
 
     @model_validator(mode="after")
     def front_parent_on_the_head(self) -> "McpServerConfig":

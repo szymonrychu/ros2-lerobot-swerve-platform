@@ -69,6 +69,7 @@ from .grasp_tools import GraspService
 from .head import HEAD_FRAME_ID, HeadController
 from .head_kinematics import HeadKinematics
 from .ik import ArmKinematics, load_joint_limits
+from .map3d import cloud_from_message
 from .map_client import MapRequests
 from .metrics import set_sample_age_source
 from .models import (
@@ -77,6 +78,7 @@ from .models import (
     CameraFrame,
     CameraZoomFrame,
     CollisionMonitorInfo,
+    Map3dCloud,
     MapSummary,
     NavGoalStatus,
     NavigationResult,
@@ -658,6 +660,18 @@ class RosRobot:
             lambda: self.drop_sample("scan"),
         )
         self.cache(OccupancyGrid, t.map, "map", MAP_QOS)
+        # /map3d/cloud and /map3d/status (server): on demand, like the scan; the decoded cloud is kept per stamp.
+        self.map3d_cloud_sub = self.on_demand_subscription(
+            lambda: self.cache(PointCloud2, t.map3d_cloud, "map3d_cloud", SENSOR_QOS),
+            config.map3d.cloud_wait_s,
+            lambda: self.drop_sample("map3d_cloud"),
+        )
+        self.map3d_status_sub = self.on_demand_subscription(
+            lambda: self.cache(String, t.map3d_status, "map3d_status", SENSOR_QOS),
+            config.map3d.cloud_wait_s,
+            lambda: self.drop_sample("map3d_status"),
+        )
+        self.map3d_decoded: tuple[tuple[int, int, int, int], Map3dCloud] | None = None
         self.cache(
             CollisionMonitorState,
             t.collision_monitor_state,
@@ -1891,6 +1905,48 @@ class RosRobot:
             frame=self.cfg.topics.base_frame,
             stamp_s=stamp.sec + stamp.nanosec * 1e-9,
         )
+
+    def map3d_cloud(self) -> Map3dCloud | None:
+        """Latest /map3d/cloud, subscribing (with /map3d/status) on demand; waits for a first cloud inside the window.
+
+        Returns:
+            Map3dCloud | None: The decoded cloud (decoded once per message), None when none arrived in time.
+        """
+        deadline = self.demand_clock() + self.map3d_cloud_sub.touch()
+        self.map3d_status_sub.touch()
+        while self.get("map3d_cloud") is None and self.demand_clock() < deadline:
+            self.demand_sleep(NAV_POLL_S)
+        item = self.get("map3d_cloud")
+        if item is None:
+            return None
+        msg = item.value
+        key = (msg.header.stamp.sec, msg.header.stamp.nanosec, msg.width, msg.height)
+        with self.lock:
+            decoded = self.map3d_decoded
+        if decoded is None or decoded[0] != key:
+            decoded = (key, cloud_from_message(msg))
+            with self.lock:
+                self.map3d_decoded = decoded
+        return decoded[1]
+
+    def map3d_status(self) -> dict[str, Any] | None:
+        """Latest /map3d/status JSON object, subscribing on demand; waits for a first message inside the window.
+
+        Returns:
+            dict[str, Any] | None: The status, None when none arrived or it is not a JSON object.
+        """
+        deadline = self.demand_clock() + self.map3d_status_sub.touch()
+        while self.get("map3d_status") is None and self.demand_clock() < deadline:
+            self.demand_sleep(NAV_POLL_S)
+        item = self.get("map3d_status")
+        if item is None:
+            return None
+        try:
+            status = json.loads(item.value.data)
+        except ValueError:
+            self.log.warning("map3d_status: invalid JSON dropped")
+            return None
+        return status if isinstance(status, dict) else None
 
     def map_summary(self, include_png: bool, radius_m: float, png_max_px: int) -> tuple[MapSummary, bytes | None]:
         """Obstacle sectors, map stats, robot pose and optional PNG crop.
