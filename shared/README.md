@@ -189,6 +189,9 @@ The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subproc
 - `charuco`: `make_board`, `detect` and `Detection` (ChArUco detection for the RGB image and the normalised ToF amplitude).
 - `frames`: `FrameSet`, `StampedImage`, `CameraInfoData`, `FramePair`, `normalise_amplitude`, `rgb_difference` (stillness measure with mains flicker removed), `tof_diff_fraction` and `still_pairs` (one RGB and ToF pair per still window).
 - `intrinsics`: `calibrate`, `calibrate_tof`, `compare_sdk`, `IntrinsicsResult` and `write_camera_calibration_yaml` (camera intrinsics from ChArUco detections).
+- `extrinsics`: `stereo_calibrate`, `plane_depth_bias`, `ExtrinsicResult`, `PlaneCheck` and the extrinsics YAML read/write (ToF to RGB stereo extrinsic and board-plane depth check).
+- `urdf_handoff`: `read_chain`, `tof_joint_origin`, `check_drift` and the matrix helpers; re-exports `rewrite_tof_joint`.
+- `urdf_text`: `rewrite_tof_joint`, `Origin`, `format_vec`. It must stay standard-library only (no numpy, scipy or package-relative imports): the head_state_publisher launch loads it by file path on the system Python.
 
 Imported by the calibration CLI under `scripts/head_rgbd_calibration/` and by the head_rgbd_calibration node.
 

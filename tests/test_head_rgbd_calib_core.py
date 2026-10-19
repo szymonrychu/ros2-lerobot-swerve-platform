@@ -1,6 +1,9 @@
 """Tests for the head RGB-D calibration core in shared/ros2_common/head_rgbd_calibration."""
 
 import ast
+import difflib
+import subprocess
+import sys
 from pathlib import Path
 
 import cv2
@@ -10,13 +13,19 @@ import yaml
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration import charuco as core_charuco
 from ros2_common.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
+from ros2_common.head_rgbd_calibration.extrinsics import stereo_calibrate
 from ros2_common.head_rgbd_calibration.frames import FrameSet, StampedImage, rgb_difference, still_pairs
 from ros2_common.head_rgbd_calibration.intrinsics import calibrate
+from ros2_common.head_rgbd_calibration.urdf_text import NOTE_MARKER, Origin, rewrite_tof_joint
 
 from tests.rgbd_synthetic import board_poses, render_rgb, rgb_camera
+from tests.test_head_rgbd_calib_extrinsics import BOARD, RGB, TOF, TRUE, detection_pairs, rotation_error_deg
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_DIR = ROOT / "shared" / "ros2_common" / "head_rgbd_calibration"
+URDF_TEXT = CORE_DIR / "urdf_text.py"
+HEAD_URDF = ROOT / "nodes" / "web_ui" / "urdf" / "head.urdf"
+FIXED_ORIGIN = Origin(xyz=(0.01, -0.02, 0.03), rpy=(0.1, -0.2, 0.3))
 CALIBRATE_YAML = ROOT / "scripts" / "head_rgbd_calibrate.yaml"
 FORBIDDEN_MODULES = {"scripts", "rosbags", "subprocess"}
 
@@ -119,3 +128,40 @@ def test_core_intrinsics_recover_synthetic_camera() -> None:
     assert abs(result.k[0, 2] - camera.k[0, 2]) < 3
     assert abs(result.k[1, 2] - camera.k[1, 2]) < 3
     assert result.rms < 0.5
+
+
+def test_urdf_text_imports_only_standard_library() -> None:
+    assert imported_roots(URDF_TEXT) <= set(sys.stdlib_module_names)
+
+
+def test_urdf_text_loads_by_path_without_numpy() -> None:
+    code = (
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('urdf_text', {str(URDF_TEXT)!r})\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "sys.modules['urdf_text'] = module\n"
+        "spec.loader.exec_module(module)\n"
+        "assert 'numpy' not in sys.modules\n"
+        "assert callable(module.rewrite_tof_joint)\n"
+    )
+    subprocess.run([sys.executable, "-I", "-c", code], check=True)
+
+
+def test_core_rewrite_tof_joint_changes_only_origin_and_note() -> None:
+    before = HEAD_URDF.read_text()
+    after = rewrite_tof_joint(before, FIXED_ORIGIN, "2026-01-01 rms 0.1")
+    diff = [
+        line
+        for line in difflib.unified_diff(before.splitlines(), after.splitlines(), lineterm="", n=0)
+        if line[0] in "+-" and not line.startswith(("+++", "---"))
+    ]
+    assert diff
+    assert all("<origin" in line or NOTE_MARKER in line for line in diff)
+    assert sum(NOTE_MARKER in line for line in diff) <= 2
+    assert "0.010000000 -0.020000000 0.030000000" in after
+
+
+def test_core_stereo_calibrate_recovers_synthetic_extrinsic() -> None:
+    result = stereo_calibrate(detection_pairs(), BOARD, RGB, TOF)
+    assert np.linalg.norm(result.t - TRUE.t) < 0.002
+    assert rotation_error_deg(result.r, TRUE.r) < 0.2
