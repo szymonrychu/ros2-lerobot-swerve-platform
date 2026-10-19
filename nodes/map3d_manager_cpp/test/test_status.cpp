@@ -108,6 +108,23 @@ TEST(Map3dStatus, ErrorWithinMinuteOnly)
   EXPECT_EQ(status_json(in)["state"], "mapping");
 }
 
+TEST(Map3dStatus, ErrorPrecedenceFollowsSpecOrder)
+{
+  m3::StatusInputs in = fresh_inputs();
+  in.last_error = "reset failed";
+  in.last_error_stamp_s = NOW - 5.0;
+
+  in.paused = true;
+  EXPECT_EQ(status_json(in)["state"], "paused");
+
+  in.paused = false;
+  in.rgb_info_stamp_s = std::nullopt;
+  EXPECT_EQ(status_json(in)["state"], "waiting_for_inputs");
+
+  in.paused = true;
+  EXPECT_EQ(status_json(in)["state"], "paused");
+}
+
 TEST(Map3dStatus, NullFieldsBeforeData)
 {
   m3::StatusInputs in;

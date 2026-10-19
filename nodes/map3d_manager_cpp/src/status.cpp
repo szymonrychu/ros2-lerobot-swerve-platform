@@ -74,12 +74,12 @@ StatusReport build_status(const StatusInputs & in, const Config & config)
 
   const bool error =
     !in.last_error.empty() && in.last_error_stamp_s && in.now_s - *in.last_error_stamp_s <= ERROR_WINDOW_S;
-  if (error) {
-    s.state = STATE_ERROR;
+  if (!in.paused && !s.missing_inputs.empty()) {
+    s.state = STATE_WAITING;
   } else if (in.paused) {
     s.state = STATE_PAUSED;
-  } else if (!s.missing_inputs.empty()) {
-    s.state = STATE_WAITING;
+  } else if (error) {
+    s.state = STATE_ERROR;
   } else {
     s.state = STATE_MAPPING;
   }

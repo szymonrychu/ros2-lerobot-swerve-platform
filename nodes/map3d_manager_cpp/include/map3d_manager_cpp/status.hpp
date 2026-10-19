@@ -21,7 +21,7 @@
 //
 // Rules: an input is missing when never seen or older than Config::input_stale_s. State: "waiting_for_inputs" when
 // any input is missing and not paused; "paused" when paused; "error" when a last error is set and is at most
-// ERROR_WINDOW_S old; else "mapping". An error outranks the other states. Unknown values are JSON null, never 0.
+// ERROR_WINDOW_S old; else "mapping". Rules apply in this order, so waiting and paused outrank error. Unknown values are JSON null, never 0.
 #ifndef MAP3D_MANAGER_CPP__STATUS_HPP_
 #define MAP3D_MANAGER_CPP__STATUS_HPP_
 
