@@ -272,15 +272,33 @@ def test_node_module_imports_and_wires_topics():
     install_ros_stubs()
     from marker_detector.node import MarkerDetectorRos
 
-    cfg = MarkerDetectorConfig()
+    cfg = MarkerDetectorConfig.model_validate(
+        {
+            "process_hz": 4.0,
+            "topics": {
+                "image": "/x/image",
+                "camera_info": "/x/info",
+                "zoom_command": "/x/zoom_cmd",
+                "zoom_image": "/x/zoom_img",
+                "zoom_result": "/x/zoom_res",
+                "depth": "/x/depth",
+                "depth_info": "/x/depth_info",
+                "poi_command": "/x/poi",
+                "detections": "/x/detections",
+            },
+        }
+    )
     node = MagicMock()
     MarkerDetectorRos(cfg, node, MarkerPipeline(cfg))
-    subscribed = [call.args[1] for call in node.create_subscription.call_args_list]
-    published = [call.args[1] for call in node.create_publisher.call_args_list]
-    t = cfg.topics
-    assert {t.image, t.camera_info, t.depth, t.depth_info, t.zoom_image, t.zoom_result} == set(subscribed)
-    assert {t.poi_command, t.detections, t.zoom_command} == set(published)
-    assert node.create_timer.call_args.args[0] == pytest.approx(1.0 / cfg.process_hz)
+    subscribed = {call.args[1] for call in node.create_subscription.call_args_list}
+    assert subscribed == {"/x/image", "/x/info", "/x/depth", "/x/depth_info", "/x/zoom_img", "/x/zoom_res"}
+    publishers = {call.args[1]: call.args[2] for call in node.create_publisher.call_args_list}
+    assert set(publishers) == {"/x/poi", "/x/detections", "/x/zoom_cmd"}
+    command_qos = publishers["/x/poi"]
+    assert (command_qos.reliability.name, command_qos.history.name, command_qos.depth) == ("RELIABLE", "KEEP_LAST", 20)
+    image_qos = next(c.args[3] for c in node.create_subscription.call_args_list if c.args[1] == "/x/image")
+    assert (image_qos.reliability.name, image_qos.history.name, image_qos.depth) == ("BEST_EFFORT", "KEEP_LAST", 1)
+    assert node.create_timer.call_args.args[0] == pytest.approx(0.25)
 
 
 def test_node_skips_depth_and_zoom_subscriptions_when_disabled():
