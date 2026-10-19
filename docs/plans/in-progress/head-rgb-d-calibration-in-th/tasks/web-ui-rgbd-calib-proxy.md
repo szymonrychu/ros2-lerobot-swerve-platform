@@ -1,6 +1,6 @@
 ---
 title: Web UI RGBD calib proxy
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The Calibrate page reaches the robot calibration node through web_ui, and the IMU section is unaffected."
 files: [nodes/web_ui/web_ui/rgbd_calibration.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/imu_calibration.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/tests/test_rgbd_calibration_proxy.py, nodes/web_ui/tests/test_imu_calibration.py, nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--web-ui-rgbd-calib-proxy
 branch: head-rgb-d-calibration-in-th--web-ui-rgbd-calib-proxy
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI RGBD calib proxy
@@ -71,3 +73,5 @@ With `rgbd_url` set the page's RGB-D calls reach the node and binary bodies arri
 
 - Pattern: `nodes/web_ui/web_ui/agent_proxy.py` (httpx, JSON error bodies). httpx is already a web_ui dependency.
 - web_ui subscribes nothing for this section (design D1).
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on calib-node-http-api

@@ -1,6 +1,6 @@
 ---
 title: RGBD calib runbook and docs
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Operators follow one written procedure for calibrating on the robot, and the overlap with the fusion epic is explicit."
 files: [docs/runbooks/head-rgbd-fusion.md, docs/head-rgbd-fusion-methodology.md, scripts/README.md, MEMORY.md]
@@ -15,8 +15,10 @@ review: skip
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-calib-runbook-and-docs
 branch: head-rgb-d-calibration-in-th--rgbd-calib-runbook-and-docs
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD calib runbook and docs
@@ -59,3 +61,5 @@ The runbook's calibration steps can be followed at the robot with the Calibrate 
 ## Notes
 
 - Prose task (review skip). The runbook belongs to the in-progress task rgbd-final-suite-and-runbook, which executes it later; keep its `## Results` section untouched.
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on head-nodes-use-applied-calib, rgbd-sessions-and-results-ui, head-urdf-tof-joint-override

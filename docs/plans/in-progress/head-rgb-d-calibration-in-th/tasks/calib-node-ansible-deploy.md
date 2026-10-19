@@ -1,6 +1,6 @@
 ---
 title: Calib node Ansible deploy
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The calibration node, its state dir and the apply restart unit deploy with the standard script and survive every redeploy."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, ansible/playbooks/tasks/head_rgbd_calibration_setup.yml, ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.path.j2, ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.service.j2, tests/test_head_rgbd_calibration_deploy.py, ansible/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-ansible-deploy
 branch: head-rgb-d-calibration-in-th--calib-node-ansible-deploy
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calib node Ansible deploy
@@ -73,3 +75,5 @@ Deploy the calibration node, its state dir and the apply restart unit with the s
 - Patterns: `ansible/playbooks/tasks/bno055_state_dir.yml`, `tasks/mcp_server_setup.yml`, topic_scraper_api deploy step, `playbooks/templates/*.j2`.
 - Memory note "cgroups guarantee headroom": robot nodes keep their weights; this node sits below them.
 - Deploy is done by the orchestrator after merge.
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on calib-node-http-api, head-urdf-tof-joint-override

@@ -1,6 +1,6 @@
 ---
 title: Calib node HTTP API
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "web_ui, and through it the operator, drives capture, sessions, compute, apply and download over one localhost API."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/app.py, nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py, nodes/head_rgbd_calibration/tests/test_app.py, nodes/head_rgbd_calibration/tests/test_main.py, nodes/head_rgbd_calibration/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-http-api
 branch: head-rgb-d-calibration-in-th--calib-node-http-api
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calib node HTTP API
@@ -69,3 +71,5 @@ The node's localhost HTTP API and process entry point (design D1, D5, Contracts 
 ## Notes
 
 - Error body shape `{ok: false, message}` matches web_ui's `imu_calibration.error`.
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on calib-node-live-capture, calib-node-compute-job, calib-node-apply-download

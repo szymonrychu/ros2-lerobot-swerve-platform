@@ -1,6 +1,6 @@
 ---
 title: Calib node session store
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Captured poses, thumbnails with corners, coverage and results persist on the robot across sessions and deploys, with safe ids."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/store.py, nodes/head_rgbd_calibration/head_rgbd_calibration/images.py, nodes/head_rgbd_calibration/tests/test_store.py, nodes/head_rgbd_calibration/tests/test_images.py, nodes/head_rgbd_calibration/README.md, nodes/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-session-store
 branch: head-rgb-d-calibration-in-th--calib-node-session-store
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calib node session store
@@ -78,3 +80,5 @@ A session directory under a temp state dir holds exactly the D3 files per pose; 
 
 - Pattern for thumbnails and path safety: `nodes/web_ui/web_ui/photos.py`.
 - Coverage counts are derived only from stored corners (never invented).
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on calib-node-scaffold-config

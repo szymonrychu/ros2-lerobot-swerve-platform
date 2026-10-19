@@ -1,6 +1,6 @@
 ---
 title: Head URDF tof joint override
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The head TF uses the applied tof_joint after a restart, without editing the repo URDF on the robot."
 files: [nodes/head_state_publisher/launch/head_state_publisher.launch.py, nodes/head_state_publisher/launch/head_description.py, tests/test_head_tof_joint_override.py, tests/test_head_state_publisher_config.py, ansible/group_vars/client.yml, nodes/head_state_publisher/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--head-urdf-tof-joint-override
 branch: head-rgb-d-calibration-in-th--head-urdf-tof-joint-override
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head URDF tof joint override
@@ -67,3 +69,5 @@ After an Apply and the path-unit restart, `/tf_static` carries the calibrated to
 ## Notes
 
 - The launch runs on the system Python (no node venv): stdlib only.
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on calib-node-apply-download

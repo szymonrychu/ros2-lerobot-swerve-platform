@@ -1,6 +1,6 @@
 ---
 title: Head nodes use applied calib
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "After Apply the head camera publishes camera_info and head_rgbd_cpp registered depth from the robot's own calibration, and deploys keep it."
 files: [ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, tests/test_head_camera_deploy.py, tests/test_web_ui_calibration_config.py, nodes/head_rgbd_cpp/README.md, nodes/head_camera_cpp/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--head-nodes-use-applied-calib
 branch: head-rgb-d-calibration-in-th--head-nodes-use-applied-calib
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head nodes use applied calib
@@ -70,3 +72,5 @@ After deploy the head nodes read the applied files; the Calibrate page shows the
 
 - The in-progress task rgbd-final-suite-and-runbook greps `head_camera_calibration.yaml` in client.yml; the applied path keeps that true (design D11).
 - No C++ change: both nodes already read these keys at startup.
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on calib-node-ansible-deploy, web-ui-rgbd-calib-proxy

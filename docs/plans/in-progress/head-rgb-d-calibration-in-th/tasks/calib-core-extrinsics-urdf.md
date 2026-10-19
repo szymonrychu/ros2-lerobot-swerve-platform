@@ -1,6 +1,6 @@
 ---
 title: Calib core extrinsics urdf
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The stereo extrinsic, plane check and tof_joint rewrite are importable by the node and, stdlib-only, by the head_state_publisher launch."
 files: [shared/ros2_common/head_rgbd_calibration/extrinsics.py, shared/ros2_common/head_rgbd_calibration/urdf_text.py, shared/ros2_common/head_rgbd_calibration/urdf_handoff.py, scripts/head_rgbd_calibration/extrinsics.py, scripts/head_rgbd_calibration/urdf_handoff.py, tests/test_head_rgbd_calib_core.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-core-extrinsics-urdf
 branch: head-rgb-d-calibration-in-th--calib-core-extrinsics-urdf
-verified_head: ""
-run: ""
+verified_head: 604b4210cbc736c449560c103a7cb92a59c2ed57
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: ["The implementer reports tests were written after the implementation (no red step)"]
 ---
 
 # Calib core extrinsics urdf

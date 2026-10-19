@@ -1,6 +1,6 @@
 ---
 title: RGBD calib frontend API
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The page has a typed, tested client for every calibration call, with server messages shown verbatim."
 files: [nodes/web_ui/frontend/src/calibrate/rgbdApi.ts, nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-calib-frontend-api
 branch: head-rgb-d-calibration-in-th--rgbd-calib-frontend-api
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD calib frontend API
@@ -62,3 +64,5 @@ Every component task imports its calls and types from one module; malformed resp
 ## Notes
 
 - Pattern: `src/calibrate/imuApi.ts` and its test.
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on web-ui-rgbd-calib-proxy

@@ -1,6 +1,6 @@
 ---
 title: Calib core calibrate run
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The calibration runs from stored poses and their detections, so the robot never decodes a bag; the CLI gives identical results."
 files: [shared/ros2_common/head_rgbd_calibration/calibrate.py, scripts/head_rgbd_calibration/pipeline.py, scripts/head_rgbd_calibration/validate.py, scripts/head_rgbd_calibrate.py, tests/rgbd_synthetic.py, tests/test_head_rgbd_calibrate_cli.py, tests/test_head_rgbd_validate.py, tests/test_head_rgbd_calib_core.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-core-calibrate-run
 branch: head-rgb-d-calibration-in-th--calib-core-calibrate-run
-verified_head: ""
-run: ""
-provides: []
+verified_head: 177a16117ab3bf8a312e9bed7111a9069b4c9578
+run: head-rgb-d-calibration-in-th
+provides: [rgbd-calibrate-detections]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calib core calibrate run

@@ -1,6 +1,6 @@
 ---
 title: RGBD capture section UI
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Standing at the robot, the operator sees each pose land live with thumbnails and coverage, and prunes bad ones."
 files: [nodes/web_ui/frontend/src/calibrate/RgbdCalibration.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx, nodes/web_ui/frontend/src/calibrate/CoverageGrid.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx, nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-capture-section-ui
 branch: head-rgb-d-calibration-in-th--rgbd-capture-section-ui
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD capture section UI
@@ -67,3 +69,5 @@ On the robot the operator presses Start, sees `waiting for frames`, then `moving
 ## Notes
 
 - Poll-on-press pattern and visibility handling: `ImuCalibration.tsx`; dialogs: `src/layout/ConfirmDialog.tsx`; sizes: `TOUCH_TARGET_PX`.
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on rgbd-calib-frontend-api

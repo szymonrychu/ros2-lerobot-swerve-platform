@@ -1,6 +1,6 @@
 ---
 title: Calib core retire shims
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The calibration code lives in one place; no transitional module re-exports remain."
 files: [scripts/head_rgbd_calibration/charuco.py, scripts/head_rgbd_calibration/intrinsics.py, scripts/head_rgbd_calibration/extrinsics.py, scripts/head_rgbd_calibration/urdf_handoff.py, tests/test_head_rgbd_calib_extrinsics.py, tests/test_head_rgbd_calib_intrinsics.py, tests/test_head_rgbd_urdf_handoff.py, tests/test_head_rgbd_calib_core.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-core-retire-shims
 branch: head-rgb-d-calibration-in-th--calib-core-retire-shims
-verified_head: ""
-run: ""
+verified_head: 6f9c9c79b54f058f6cb72fec128c69298d9ad42e
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: ["tests/test_jetson_retired.py::test_no_live_jetson_stereo_or_overview_reference fails. It also fails at 4f45efaa~1, before this task, so it is not caused by it. The allowlist still names the four deleted scripts/head_rgbd_calibration paths (lines 734 and 744) and does not cover the moved shared/ros2_common/head_rgbd_calibration files. The integration owner needs to update the allowlist before the full suite runs."]
 ---
 
 # Calib core retire shims

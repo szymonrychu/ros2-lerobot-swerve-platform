@@ -1,6 +1,6 @@
 ---
 title: RGBD sessions and results UI
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The operator reopens any past session, computes on it, reads the report, applies a passing result and downloads the files to commit."
 files: [nodes/web_ui/frontend/src/calibrate/RgbdSessions.tsx, nodes/web_ui/frontend/src/calibrate/RgbdSessions.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdResults.tsx, nodes/web_ui/frontend/src/calibrate/RgbdResults.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCalibration.tsx, nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-sessions-and-results-ui
 branch: head-rgb-d-calibration-in-th--rgbd-sessions-and-results-ui
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # RGBD sessions and results UI
@@ -63,3 +65,5 @@ From the page the operator reopens an old session, recomputes, reads the report,
 ## Notes
 
 - Apply is offered only for `passed: true` results (design D12).
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on rgbd-capture-section-ui

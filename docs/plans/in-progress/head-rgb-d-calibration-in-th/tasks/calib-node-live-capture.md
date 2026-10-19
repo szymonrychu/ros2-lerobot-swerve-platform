@@ -1,6 +1,6 @@
 ---
 title: Calib node live capture
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The operator captures poses on the robot without frame loss: RELIABLE ToF, focus lock only while capturing, each usable pose stored as it is judged."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py, nodes/head_rgbd_calibration/tests/test_capture.py, nodes/head_rgbd_calibration/tests/conftest.py, nodes/head_rgbd_calibration/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-live-capture
 branch: head-rgb-d-calibration-in-th--calib-node-live-capture
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calib node live capture
@@ -74,3 +76,5 @@ Starting a capture subscribes four topics with the measured QoS; stopping, timin
 - Constraints measured on the robot: ToF topics RELIABLE at the publisher, BEST_EFFORT loses about half the frames under load; mapping topic BEST_EFFORT 2 Hz and any subscriber engages the focus lock (`nodes/head_camera_cpp/src/head_camera_node.cpp:280`).
 - The node units already set `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST FASTDDS_BUILTIN_TRANSPORTS=UDPv4`.
 - Model opus: thread safety between the executor and HTTP threads.
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on calib-node-session-store

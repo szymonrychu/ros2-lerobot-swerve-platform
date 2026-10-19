@@ -1,6 +1,6 @@
 ---
 title: Calib node compute job
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The calibration is computed on the robot from stored poses in a niced child process, without blocking the UI or the capture."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py, nodes/head_rgbd_calibration/head_rgbd_calibration/jobs.py, nodes/head_rgbd_calibration/tests/test_compute.py, nodes/head_rgbd_calibration/tests/test_jobs.py, nodes/head_rgbd_calibration/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-compute-job
 branch: head-rgb-d-calibration-in-th--calib-node-compute-job
 verified_head: ""
-run: ""
+run: head-rgb-d-calibration-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calib node compute job
@@ -71,3 +73,5 @@ A compute on a stored session produces a result directory in one rename; the HTT
 
 - Memory: load only the session's poses (about 6 MB for 30); never a bag.
 - The deployed checkout URDF path comes from `cfg.head_urdf_file`; the node never writes into the checkout.
+
+- 2026-10-19 run head-rgb-d-calibration-in-th: dependency-failed on calib-node-session-store

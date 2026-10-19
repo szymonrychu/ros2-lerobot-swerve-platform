@@ -1,6 +1,6 @@
 ---
 title: Calib pose counter in core
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The still-pose judgement runs on the robot and hands over each captured pose with its detections and depth.
 files: [shared/ros2_common/head_rgbd_calibration/poses.py, scripts/head_rgbd_calibration/live.py, tests/test_head_rgbd_calib_poses.py, tests/test_head_rgbd_calib_live.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-pose-counter-in-core
 branch: head-rgb-d-calibration-in-th--calib-pose-counter-in-core
-verified_head: ""
-run: ""
-provides: []
+verified_head: dabec178777ffbd66e86536e41a0d9c6107c2876
+run: head-rgb-d-calibration-in-th
+provides: [rgbd-pose-counter]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calib pose counter in core
