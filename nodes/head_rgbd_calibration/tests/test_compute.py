@@ -183,3 +183,10 @@ def test_main_runs_one_computation(tmp_path: Path) -> None:
     rid = store.new_result_id(NOW)
     assert main(["--config", str(config_path), "--session", sid, "--result", rid]) == 0
     assert json.loads((store.result_dir(sid, rid) / "result.json").read_text())["passed"] is True
+
+
+def test_result_carries_the_limits(store: SessionStore, cfg: NodeConfig) -> None:
+    sid = make_session(store, POSES)
+    result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
+    assert result["limits"] == cfg.limits.model_dump()
+    assert result["limits"]["plane_max_bias_mm"] == 15.0

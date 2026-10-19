@@ -362,3 +362,26 @@ def test_apply_refused_while_compute_runs(client: TestClient, store: SessionStor
 def test_validation_error_body_shape(client: TestClient) -> None:
     assert_error(client.post("/api/capture/start", json={"session_id": 5}), 422)
     assert_error(client.get("/api/nothing"), 404)
+
+
+def test_capture_start_and_stop_return_the_state_fixture(client: TestClient, store: SessionStore) -> None:
+    write_applied_marker(store)
+    started = client.post("/api/capture/start", json={"session_id": "calib-20261019-120000"})
+    assert started.status_code == 200
+    assert_matches_fixture(started.json(), "capture_start")
+    assert started.json() == client.get("/api/state").json()
+    stopped = client.post("/api/capture/stop")
+    assert stopped.status_code == 200
+    assert_matches_fixture(stopped.json(), "capture_stop")
+    assert stopped.json() == client.get("/api/state").json()
+
+
+def test_apply_and_applied_match_the_fixtures(client: TestClient, store: SessionStore) -> None:
+    sid = new_session(store)
+    new_result(store, sid)
+    applied_response = client.post(f"/api/sessions/{sid}/results/{RID}/apply").json()
+    assert_matches_fixture(applied_response, "apply")
+    applied = client.get("/api/applied").json()
+    assert_matches_fixture(applied, "applied")
+    assert applied_response == applied
+    assert applied["session"] == sid and applied["result"] == RID
