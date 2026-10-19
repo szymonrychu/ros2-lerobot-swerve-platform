@@ -47,6 +47,7 @@ def make_bridge(clear: Any = CLEARED, slam_result: int = 0, none: bool = False) 
 
     bridge.reset_map_async.side_effect = reset
     bridge.map_request_async.side_effect = map_request
+    bridge.map3d_request_async.side_effect = lambda action, name=None: done_future({"status": "ok", "message": "done"})
     return bridge
 
 
@@ -113,4 +114,5 @@ async def test_map_manager_refusal_502(client_factory: Any) -> None:
     assert resp.json() == {
         "ok": False,
         "message": "map reset; live POIs and photos not cleared: live set not cleared: poi_store busy",
+        "map3d": {"status": "ok", "message": "done"},
     }

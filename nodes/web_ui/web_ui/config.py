@@ -334,6 +334,7 @@ class TabConfig(BaseModel):
     map3d_status_topic: str | None = None  # map_nav: std_msgs/String JSON map3d manager status
     map3d_result_topic: str | None = None  # map_nav: std_msgs/String JSON map3d command results
     map3d_command_topic: str | None = None  # map_nav: std_msgs/String JSON map3d commands (save, reset, ...)
+    map3d_command_timeout_s: float = Field(default=15.0, gt=0)  # map_nav: wait for the /map3d/result of save/reset
     map3d_frame_id: str | None = None  # map_nav: the only frame the 3D map layer accepts
     map3d_max_points: int = Field(default=60000, ge=1000, le=300000)  # map_nav: cap of points sent to a browser
     map3d_voxel_m: float = Field(default=0.05, ge=0.02, le=0.5)  # map_nav: starting voxel edge (m) of the cloud
@@ -768,6 +769,15 @@ class AppConfig(BaseModel):
         """
         tab = next(iter(self.map_nav_tabs()), None)
         return tab.poi_command_topic if tab is not None else None
+
+    def map3d_command_topic(self) -> str | None:
+        """Return the map3d command topic of the first map_nav tab.
+
+        Returns:
+            str | None: Topic the bridge publishes map3d save/reset commands on, or None without a map_nav tab.
+        """
+        tab = next(iter(self.map_nav_tabs()), None)
+        return tab.map3d_command_topic if tab is not None else None
 
     def grasp_command_topic(self) -> str | None:
         """Return the grasp command topic of the first map_nav tab, else of the first arm tab.
