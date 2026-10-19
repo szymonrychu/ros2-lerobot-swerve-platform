@@ -282,6 +282,10 @@ class FakeRunner:
 
     def __call__(self, cmd: list[str], **_: object) -> subprocess.CompletedProcess:
         self.commands.append(cmd)
+        if cmd[0] == "scp":
+            bag = Path(cmd[-1])
+            bag.mkdir(parents=True, exist_ok=True)
+            (bag / "metadata.yaml").write_text("rosbag2_bagfile_information:\n  message_count: 42\n")
         return subprocess.CompletedProcess(cmd, 0)
 
 

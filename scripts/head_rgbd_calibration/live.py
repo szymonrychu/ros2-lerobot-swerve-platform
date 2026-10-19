@@ -24,6 +24,7 @@ from scripts.head_rgbd_calibration.charuco import detect, make_board
 from scripts.head_rgbd_calibration.config import CalibrationConfig, CaptureConfig, SelectionConfig
 from scripts.head_rgbd_calibration.frames import (
     NS_PER_S,
+    ROS_CLI_ENV,
     TYPESTORE,
     StampedImage,
     TopicNames,
@@ -41,8 +42,6 @@ RGB_INDEX = 0
 AMPLITUDE_INDEX = 1
 MESSAGE_TYPES = {RGB_INDEX: "sensor_msgs/msg/CompressedImage", AMPLITUDE_INDEX: "sensor_msgs/msg/Image"}
 RELAY_SCRIPT = Path(__file__).with_name("live_relay.py")
-# the robot's ROS CLI environment (without it the relay discovers the topics but receives nothing)
-RELAY_ENV = "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST FASTDDS_BUILTIN_TRANSPORTS=UDPv4"
 RELAY_GRACE_S = 10  # the relay outlives the recording by this much at most
 STOP_TIMEOUT_S = 5.0
 TOF_HISTORY_S = 3.0
@@ -183,7 +182,7 @@ def relay_command(cfg: CaptureConfig, topics: TopicNames | None = None) -> list[
     topics = topics or TopicNames()
     args = " ".join(shlex.quote(a) for a in (FRAME_HEADER, topics.rgb, topics.amplitude))
     remote = (
-        f"source {shlex.quote(cfg.ros_setup)} && export {RELAY_ENV} && "
+        f"source {shlex.quote(cfg.ros_setup)} && export {ROS_CLI_ENV} && "
         f"timeout -s INT {cfg.duration_s + RELAY_GRACE_S:g} python3 - {args}"
     )
     return ["ssh", f"{cfg.ssh_user}@{cfg.host}", remote]

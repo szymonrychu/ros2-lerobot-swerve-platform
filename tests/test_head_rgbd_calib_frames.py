@@ -99,6 +99,9 @@ def test_capture_commands_contents() -> None:
     assert "szymonri@client.ros2.lan" in record
     remote = record[-1]
     assert "source /opt/ros/jazzy/setup.bash" in remote
+    # without the robot's ROS CLI environment ros2 bag record discovers nothing and writes an empty bag
+    assert "export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST FASTDDS_BUILTIN_TRANSPORTS=UDPv4 &&" in remote
+    assert remote.index("export ROS_AUTOMATIC") < remote.index("ros2 bag record")
     assert "ros2 bag record" in remote
     assert "-s sqlite3" in remote
     assert "--use-sim-time" not in remote
@@ -120,16 +123,25 @@ def test_capture_commands_custom_topics() -> None:
     assert "/head_rgbd/rgb/camera_info" in record[-1]
 
 
-class FakeRunner:
-    """Records commands; fails the n-th (1-based) when fail_at is set."""
+def write_bag_metadata(bag: Path, message_count: int) -> None:
+    bag.mkdir(parents=True, exist_ok=True)
+    info = {"rosbag2_bagfile_information": {"version": 9, "message_count": message_count}}
+    (bag / "metadata.yaml").write_text(yaml.safe_dump(info))
 
-    def __init__(self, fail_at: int | None = None) -> None:
+
+class FakeRunner:
+    """Records commands; fails the n-th (1-based) when fail_at is set; the scp copy writes a bag of message_count."""
+
+    def __init__(self, fail_at: int | None = None, message_count: int = 42) -> None:
         self.calls: list[list[str]] = []
         self.fail_at = fail_at
+        self.message_count = message_count
 
     def __call__(self, cmd: list[str], **_: object) -> subprocess.CompletedProcess:
         self.calls.append(cmd)
         code = 3 if self.fail_at == len(self.calls) else 0
+        if cmd[0] == "scp" and code == 0:
+            write_bag_metadata(Path(cmd[-1]), self.message_count)
         return subprocess.CompletedProcess(cmd, code)
 
 
@@ -140,6 +152,14 @@ def test_capture_bag_runs_steps_in_order(tmp_path: Path) -> None:
     assert result == tmp_path / "out" / "s"
     assert [c[0] for c in runner.calls] == ["ssh", "scp", "ssh"]
     assert (tmp_path / "out").is_dir()
+
+
+def test_capture_bag_rejects_an_empty_bag_and_still_removes_the_remote_copy(tmp_path: Path) -> None:
+    cfg = CaptureConfig(local_dir=str(tmp_path / "out"))
+    runner = FakeRunner(message_count=0)
+    with pytest.raises(RuntimeError, match="recorded no messages"):
+        capture_bag(cfg, "s", run=runner)
+    assert [c[0] for c in runner.calls] == ["ssh", "scp", "ssh"]
 
 
 @pytest.mark.parametrize(("fail_at", "step"), [(1, "record"), (2, "copy"), (3, "remove")])

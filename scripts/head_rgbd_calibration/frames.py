@@ -8,6 +8,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import yaml
 from rosbags.rosbag2 import Reader
 from rosbags.typesys import Stores, get_typestore
 
@@ -17,6 +18,9 @@ NS_PER_S = 1_000_000_000
 BAG_STORAGE = "sqlite3"
 STEP_NAMES = ("record", "copy", "remove")
 MAX_UINT8 = 255
+# the robot's ROS CLI environment: without it a CLI process discovers the topics but receives nothing
+ROS_CLI_ENV = "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST FASTDDS_BUILTIN_TRANSPORTS=UDPv4"
+BAG_METADATA = "metadata.yaml"
 RGB_DIFF_BLUR_SIGMA = 1.0  # px; suppresses sensor and JPEG noise before comparing frames
 
 TYPESTORE = get_typestore(Stores.ROS2_JAZZY)
@@ -83,7 +87,8 @@ class FramePair:
 def capture_commands(cfg: CaptureConfig, name: str, topics: list[str] | None = None) -> list[list[str]]:
     """Build the three capture steps: record on the robot, copy the bag back, remove the remote bag.
 
-    The recording is bounded by timeout (SIGINT lets ros2 bag close the bag cleanly; exit 124 is the normal end),
+    The recording runs in the robot's ROS CLI environment (ROS_CLI_ENV) and is bounded by timeout (SIGINT lets
+    ros2 bag close the bag cleanly; exit 124 is the normal end),
     --max-bag-duration equals the duration so the bag is not split earlier.
 
     Args:
@@ -98,7 +103,7 @@ def capture_commands(cfg: CaptureConfig, name: str, topics: list[str] | None = N
     remote_bag = f"{cfg.remote_dir}/{name}"
     duration = f"{cfg.duration_s:g}"
     record = (
-        f"source {shlex.quote(cfg.ros_setup)} && mkdir -p {shlex.quote(cfg.remote_dir)} && "
+        f"source {shlex.quote(cfg.ros_setup)} && export {ROS_CLI_ENV} && mkdir -p {shlex.quote(cfg.remote_dir)} && "
         f"{{ timeout -s INT {duration} ros2 bag record -s {BAG_STORAGE} --max-bag-duration {duration} "
         f"-o {shlex.quote(remote_bag)} {' '.join(shlex.quote(t) for t in (topics or cfg.topics))}; "
         "rc=$?; [ $rc -eq 0 ] || [ $rc -eq 124 ]; }"
@@ -108,6 +113,15 @@ def capture_commands(cfg: CaptureConfig, name: str, topics: list[str] | None = N
         ["scp", "-r", f"{target}:{remote_bag}", f"{cfg.local_dir}/{name}"],
         ["ssh", target, f"rm -rf {shlex.quote(remote_bag)}"],
     ]
+
+
+def bag_message_count(bag: Path) -> int:
+    """Message count from a rosbag2 directory's metadata.yaml (0 when the file is missing)."""
+    metadata = bag / BAG_METADATA
+    if not metadata.is_file():
+        return 0
+    info = yaml.safe_load(metadata.read_text()) or {}
+    return int(info.get("rosbag2_bagfile_information", {}).get("message_count", 0))
 
 
 def capture_bag(
@@ -128,14 +142,18 @@ def capture_bag(
         The local bag directory.
 
     Raises:
-        RuntimeError: naming the step (record, copy or remove) whose command failed.
+        RuntimeError: naming the step (record, copy or remove) whose command failed, or when the bag recorded no
+            messages.
     """
     Path(cfg.local_dir).mkdir(parents=True, exist_ok=True)
     for step, cmd in zip(STEP_NAMES, capture_commands(cfg, name, topics), strict=True):
         result = run(cmd, check=False)
         if result.returncode != 0:
             raise RuntimeError(f"capture step '{step}' failed with exit code {result.returncode}: {' '.join(cmd[:2])}")
-    return Path(cfg.local_dir) / name
+    bag = Path(cfg.local_dir) / name
+    if bag_message_count(bag) == 0:
+        raise RuntimeError(f"the bag {bag} recorded no messages: are the topics published on the robot?")
+    return bag
 
 
 def stamp_ns(msg: object) -> int:
