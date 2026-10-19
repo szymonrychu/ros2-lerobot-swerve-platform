@@ -256,3 +256,38 @@ describe('design rules', () => {
     expect(designViolations('tabs/MapNavTab.tsx', SOURCES['tabs/MapNavTab.tsx']).filter((v) => v.startsWith('title'))).toEqual([])
   })
 })
+
+describe('map save and reset show the 3D result', () => {
+  const respond = (body: unknown) =>
+    fetchMock.mockImplementation(async (url: string, init?: { method?: string }) =>
+      init?.method === 'POST' && (url.startsWith('/api/map/save') || url.startsWith('/api/map/reset'))
+        ? { status: 200, json: async () => body }
+        : { status: 200, json: async () => ({ ok: true }) },
+    )
+
+  it('save shows the 2D message then the 3D result', async () => {
+    respond({ ok: true, message: 'Map saved', map3d: { status: 'ok', message: 'saved slam_map.db' } })
+    await renderTab()
+    fireEvent.click(screen.getByRole('button', { name: 'Save map' }))
+    const alert = await screen.findByRole('alert')
+    await waitFor(() => expect(alert.textContent).toMatch(/Map saved.*3D map: ok - saved slam_map\.db/))
+    expect(alert.className).toMatch(/standardSuccess/)
+  })
+
+  it('reset shows the 3D result', async () => {
+    respond({ ok: true, message: 'Map reset', map3d: { status: 'ok', message: 'map3d reset' } })
+    await renderTab()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset map' }))
+    const buttons = await screen.findAllByRole('button', { name: 'Reset map' })
+    fireEvent.click(buttons[buttons.length - 1])
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/Map reset.*3D map: ok - map3d reset/))
+  })
+
+  it('a 3D timeout is a warning, not an error', async () => {
+    respond({ ok: true, message: 'Map saved', map3d: { status: 'timeout', message: 'no reply in 15 s' } })
+    await renderTab()
+    fireEvent.click(screen.getByRole('button', { name: 'Save map' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/3D map: timeout - no reply in 15 s/))
+    expect(screen.getByRole('alert').className).toMatch(/standardWarning/)
+  })
+})
