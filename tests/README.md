@@ -97,6 +97,7 @@ In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_no
 | `test_ros2_common_cpp_is_a_discovered_cpp_package` | The chained `shared/ros2_common_cpp` is a C++ package found by `discover_cpp_package_dirs`. |
 | `test_cpp_node_entry_is_live_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: true`, `enabled: true` (since the cut-over), the same `config: |` block (metrics port 19110). |
 | `test_client_playbook_deploys_the_cpp_node_after_its_python_counterpart` | The `Deploy <name>_cpp` include follows the Python node's, with the node, build and config tags and the node tag applied. |
+| `test_server_cpp_node_builds_two_local_sources_and_covers_their_package_xml` | (per server `_cpp` type, `map3d_manager_cpp`) `group_vars/server.yml` builds `ros2_common_cpp` then the node as local sources, and `apt_packages` covers every in-tree `package.xml` dependency. |
 | `test_docs_describe_the_local_source_build_and_the_cpp_nodes` | `ansible/README.md`, `nodes/README.md` and the ansible-deploy skill describe the local build and both node types. |
 
 ### `test_precommit_config.py`
@@ -217,7 +218,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` (head RGB-D fusion) joins `head_camera_cpp` in the background tier (weights 100/100, no OOM protection); the retired types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` (head RGB-D fusion) and `map3d_uplink` (map3d stream relay) join `head_camera_cpp` in the background tier (weights 100/100, no OOM protection); the retired types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -1553,7 +1554,7 @@ Client CPU load trims (load about 13 on 4 cores made the EKF miss its rate and t
 
 ### test_dds_discovery_config.py
 
-Static checks of the DDS discovery setup in Ansible: the shared `ros2_dds_env` is `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` plus `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` and the discovery-server variables are gone; no node env overrides discovery (`ROS_DISCOVERY_SERVER`, `ROS_SUPER_CLIENT`, `ROS_LOCALHOST_ONLY`, `ROS_AUTOMATIC_DISCOVERY_RANGE`) and the only `ROS_STATIC_PEERS` entries are the client `master2master` and `leader_bridge` node types pointing at the server (server nodes have none); the former `fastdds_discovery_server` node is `present: false` / `enabled: false` on both hosts; the unit template renders the shared env before node env with no discovery-server ordering; `ros2_dds_env` also carries `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` and every node type of both hosts renders it (no other unit template renders the DDS env); Steam Deck uses the client as static peer; `/etc/profile.d/ros2_dds.sh` renders the full `ros2_dds_env` (localhost discovery and UDPv4 transport) for shells; the orphan `fastdds_no_multicast.xml` is gone; the ansible README documents raw Image over loopback UDP as unsupported and the `MALLOC_MMAP_THRESHOLD_` caveat; `--all` deploys include `tasks/ros_packages_sync.yml` after the repo sync (upgrade all ros-jazzy packages together, restart running nodes if anything was upgraded); the client and server deploy playbooks never stop the stack up front (`stop_ros_nodes.yml` is gone) and finally include `tasks/start_ros_nodes.yml` (queued nodes restarted and stopped ones started one by one, `ros2_node_start_interval_s` = 2), and web_ui is deployed first in the client `--all` playbook; secondary ethernet ports are `optional: true` in the rendered netplan, and `--all` deploys install the wait-online drop-in (`--any --timeout=30`); every `env:` key is a list (an empty `env:` parses as null and breaks deploys); logind keeps the node user's shared memory (`RemoveIPC=no`) and running `ros2-*` services restart once when that is first applied.
+Static checks of the DDS discovery setup in Ansible: the shared `ros2_dds_env` is `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` plus `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` and the discovery-server variables are gone; no node env overrides discovery (`ROS_DISCOVERY_SERVER`, `ROS_SUPER_CLIENT`, `ROS_LOCALHOST_ONLY`, `ROS_AUTOMATIC_DISCOVERY_RANGE`) and the only `ROS_STATIC_PEERS` entries are the client `master2master`, `leader_bridge` and `map3d_uplink` node types pointing at the server (server nodes have none); the former `fastdds_discovery_server` node is `present: false` / `enabled: false` on both hosts; the unit template renders the shared env before node env with no discovery-server ordering; `ros2_dds_env` also carries `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` and every node type of both hosts renders it (no other unit template renders the DDS env); Steam Deck uses the client as static peer; `/etc/profile.d/ros2_dds.sh` renders the full `ros2_dds_env` (localhost discovery and UDPv4 transport) for shells; the orphan `fastdds_no_multicast.xml` is gone; the ansible README documents raw Image over loopback UDP as unsupported and the `MALLOC_MMAP_THRESHOLD_` caveat; `--all` deploys include `tasks/ros_packages_sync.yml` after the repo sync (upgrade all ros-jazzy packages together, restart running nodes if anything was upgraded); the client and server deploy playbooks never stop the stack up front (`stop_ros_nodes.yml` is gone) and finally include `tasks/start_ros_nodes.yml` (queued nodes restarted and stopped ones started one by one, `ros2_node_start_interval_s` = 2), and web_ui is deployed first in the client `--all` playbook; secondary ethernet ports are `optional: true` in the rendered netplan, and `--all` deploys install the wait-online drop-in (`--any --timeout=30`); every `env:` key is a list (an empty `env:` parses as null and breaks deploys); logind keeps the node user's shared memory (`RemoveIPC=no`) and running `ros2-*` services restart once when that is first applied.
 
 ### test_stereo_depth_config.py
 
@@ -2818,3 +2819,96 @@ Shared helper module (no tests) for the head RGB-D calibration and validation te
 `render_depth`) that draw the ChArUco board through a known pose so results compare with ground truth. Used by
 `test_head_rgbd_calib_intrinsics.py`, `test_head_rgbd_calib_extrinsics.py`, `test_head_rgbd_validate.py` and
 `test_head_rgbd_calibrate_cli.py`.
+
+### `test_map3d_topics.py`
+
+The map3d topic contract `nodes/rtabmap_mapping/config/map3d_topics.yaml` (design D2, D3), typed by `nodes/rtabmap_mapping/map3d_topics.py` (`load_map3d_topics`): the shipped yaml loads and every rule rejects a crafted bad document.
+
+| Test | Description |
+|---|---|
+| `test_shipped_yaml_loads` | The shipped contract loads and has uplink and downlink streams. |
+| `test_unknown_keys_forbidden` | An unknown key anywhere is rejected. |
+| `test_uplink_dest_prefix`, `test_downlink_dest_prefix` | Uplink dests start with `/uplink/`; downlink dests are `/map3d/*`. |
+| `test_dest_equals_source_rejected`, `test_dest_equals_other_stream_source_rejected` | A relay can never feed itself or another stream's source (no loops). |
+| `test_dests_unique` | Two streams never publish the same dest. |
+| `test_rate_positive`, `test_budget_bytes_positive` | Rates and byte budgets must be positive. |
+| `test_null_rate_requires_expected_rate` | A pass-through stream (`rate_hz: null`) must give the `expected_rate_hz` used for budgeting. |
+| `test_tf_static_must_be_transient_local` | `/tf_static` must be transient_local. |
+| `test_large_stream_with_two_readers_rejected`, `test_small_stream_may_have_two_readers`, `test_small_flag_must_be_true_for_small_budget` | Every large uplink stream has exactly one server reader (D2); only streams flagged `small` (CameraInfo) may have two, and the flag must match the budget. |
+| `test_every_uplink_has_a_reader` | Each uplink stream names at least one server reader. |
+| `test_bandwidth_within_budget`, `test_estimated_mbit_s_arithmetic` | The summed uplink and downlink estimate stays within `budget.*_mbit_s_max` and the arithmetic is bytes x rate x 8. |
+| `test_head_rgb_uplink_is_mapping_stream_passthrough`, `test_depth_uplink_is_registered_depth_not_tof`, `test_head_rgbd_entries_unthrottled` | The RGB uplink is the head camera mapping JPEG, the depth uplink is the registered `/head_rgbd/depth/image_raw` (compressedDepth), and head_rgbd pairs are never throttled so a pair is not split. |
+| `test_documented_values` | The documented rates, budgets and frames (`map3d_frame: rtabmap_map`) equal the shipped yaml. |
+
+### `test_map3d_uplink_config.py`
+
+The client `map3d_uplink` node type (`nodes/map3d_uplink`, D2): the single static-peer process carrying the map3d streams.
+
+| Test | Description |
+|---|---|
+| `test_one_node_per_contract_entry_with_unique_names` | The launch builds one composable node per contract entry, with unique names. |
+| `test_every_published_topic_is_a_contract_dest` | Every published topic is a contract dest. |
+| `test_plugin_rate_and_lazy_per_entry` | Entries with a rate get a `ThrottleNode`, the others a `RelayNode`; all lazy except `/tf_static`. |
+| `test_depth_republisher_has_no_throttle_in_front` | The registered depth goes through an `image_transport` Republisher (raw to compressedDepth) with no throttle ahead of it. |
+| `test_cloud_downlink_throttled_at_a_tenth_hz_lazy` | `/map3d/cloud` is throttled to 0.1 Hz and lazy. |
+| `test_tf_static_qos_overrides_on_both_sides` | `/tf_static` carries reliable, transient_local QoS overrides on subscription and publisher. |
+| `test_launch_file_defines_one_container_named_map3d_uplink` | One container named `map3d_uplink`, nothing else. |
+| `test_node_type_env_apt_tier_and_paths` | `group_vars/client.yml`: `ROS_STATIC_PEERS`, apt packages, background tier with `memory_low` / `memory_max`, source paths including the contract. |
+| `test_ros2_nodes_entry_present_and_enabled` | The `ros2_nodes` entry is present and enabled. |
+| `test_head_camera_mapping_stream_and_rgbd_node_present` | The head camera mapping stream (2 Hz, 576x324) and `head_rgbd_cpp` it depends on are configured. |
+| `test_playbook_step_after_head_camera_cpp` | The client playbook deploys `map3d_uplink` after `head_camera_cpp`. |
+| `test_readme_documents_purpose_lazy_and_measuring` | The node README explains the single static-peer process, lazy behaviour and how to measure bandwidth. |
+
+### `test_rtabmap_mapping_config.py`
+
+The server `rtabmap_mapping` launch and parameters (design D1, D5-D9, U1, U2, U6). `build_container` is called directly; the docker probe `scripts/rtabmap-launch-probe.sh` proves the same parameters load in Jazzy on arm64.
+
+| Test | Description |
+|---|---|
+| `test_params_yaml_sets_every_design_value`, `test_every_param_value_is_commented`, `test_rtabmap_component_gets_every_design_value` | Every D7/D8 parameter (memory limits, no features, odom from TF, ...) is in `config/params.yaml`, commented, and reaches the rtabmap component. |
+| `test_grid_is_depth_only_and_scan_is_still_subscribed`, `test_no_own_links` | The grid is built from depth only while the scan is still subscribed, and RTAB-Map adds no own scan or proximity links (alignment with slam_toolbox, D7). |
+| `test_one_component_container_with_sync_and_core`, `test_no_register_node_loaded` | One container with `rgbd_sync` and the rtabmap core; the ToF is not registered again on the server. |
+| `test_rgbd_sync_exact_sync_on_head_rgbd_pair`, `test_core_wrapper_inputs`, `test_services_are_at_the_rtabmap_namespace`, `test_sync_output_feeds_core` | Exact-sync inputs, core inputs, service names and the sync-to-core wiring. |
+| `test_qos_follows_the_contract`, `test_subscribed_topics_equal_contract_readers` | QoS and the set of subscribed topics equal the contract's `rtabmap_mapping` readers. |
+| `test_global_tf_remaps`, `test_no_tf_publisher_configured`, `test_override_cannot_enable_tf` | `/tf` remaps are process-wide to the uplink topics and RTAB-Map never publishes TF, even from an override. |
+| `test_override_cannot_change_fixed_inputs` | A config override cannot change the fixed input topics. |
+| `test_launch_description_starts_one_container_and_no_other_process` | The launch description starts exactly one container. |
+| `test_restore_*` (4), `test_database_path_is_live_db_and_never_deleted`, `test_override_cannot_delete_db_on_start`, `test_default_database_dir` | The saved database is restored when newer than the live one (never over a newer live one), a fresh start is allowed, the live database is never deleted and lives in `/var/lib/ros2/rtabmap`. |
+| `test_override_merges_key_by_key`, `test_override_ignored_when_missing_or_empty`, `test_override_rejects_unknown_top_level_key`, `test_config_env_names_and_default` | The `RTABMAP_MAPPING_CONFIG` override file semantics. |
+| `test_readme_sections`, `test_readme_documents_scan_grid_override_and_rebend_behaviour`, `test_no_parking_wording` | The node README has the required sections and no deferral wording. |
+
+### `test_rtabmap_mapping_deploy.py`
+
+Deploy wiring of the server `rtabmap_mapping` node type (D1, D8).
+
+| Test | Description |
+|---|---|
+| `test_node_type_fields` | Native launch/config-only type with `src_paths` under `nodes/rtabmap_mapping`. |
+| `test_apt_list_and_forbidden_packages` | The split `ros-jazzy-rtabmap-*` packages are installed; the `rtabmap-ros` metapackage, `rtabmap-viz` and Qt are not. |
+| `test_quota_and_cap_without_tier_keys` | Server rule: `cpu_quota` 200% and `memory_max` 900M, no tier keys. |
+| `test_no_static_peer` | No `ROS_STATIC_PEERS` (only the client uplink bridges the hosts). |
+| `test_ros2_nodes_entry` | The `ros2_nodes` entry is present and enabled. |
+| `test_db_dir_task` | `playbooks/tasks/rtabmap_db_dir.yml` creates `/var/lib/ros2/rtabmap`. |
+| `test_playbook_steps_and_order` | The server playbook deploys the node after its dependencies. |
+
+### `test_map3d_manager_deploy.py`
+
+Deploy wiring of the server `map3d_manager_cpp` node type (G3).
+
+| Test | Description |
+|---|---|
+| `test_node_type_fields` | Native `ros2 run map3d_manager_cpp map3d_manager_node`, empty `src_paths` (the build stamp restarts it). |
+| `test_colcon_sources_common_then_node_release_jobs_2` | Colcon local sources `ros2_common_cpp` then the node, Release, `-j2`. |
+| `test_apt_covers_every_package_xml_dependency` | `apt_packages` covers both `package.xml` files. |
+| `test_quota_and_cap_without_tier_keys` | Server rule: `cpu_quota` 20% and `memory_max` 128M, no tier keys. |
+| `test_ros2_nodes_entry_after_rtabmap_mapping` | The entry follows `rtabmap_mapping`. |
+| `test_config_defaults_equal_the_contract_manager_topics` | The manager's config topics equal the manager side of the topic contract. |
+| `test_playbook_deploys_after_rtabmap_mapping` | The playbook step follows `rtabmap_mapping`. |
+
+### Changed existing tests (3D mapping)
+
+- `test_dds_discovery_config.py`: `map3d_uplink` is the third and last client static-peer type (see above).
+- `test_unit_cgroups.py`: `map3d_uplink` is in the background tier with `head_camera_cpp` and `head_rgbd_cpp`.
+- `test_cpp_node_deploy.py`: `test_server_cpp_node_builds_two_local_sources_and_covers_their_package_xml` for `map3d_manager_cpp`.
+- `test_mcp_server_config.py`: `test_mcp_server_map3d_topics_match_the_topic_contract` (see above) and `test_mcp_server_readme_documents_map3d_tools`.
+- `test_monitoring_dashboards.py`: `assert_3d_mapping_row` on `robot-slam.json`: a "3D mapping" row with server unit CPU and memory (`rtabmap_mapping`, `map3d_manager`, `host="server"`), client CPU for `map3d_uplink`, `head_rgbd_cpp`, `head_camera_cpp`, server memory available, and WiFi throughput in bit/s with an 8 Mbit/s uplink budget threshold line; server-only panels are exempt from the `host="client"` selector rule.

@@ -103,6 +103,7 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `overview_camera` | Retired (D7): `present: false`, deploying it uninstalls the unit; `pi_camera_boot_config.yml` holds the CSI overlays. no node publishes `/overview_camera/*` any more |
 | `head_camera_cpp` | Head Camera Module 3 (IMX708, CSI cam0) on the pan/tilt head; C++ node (`ros2 run head_camera_cpp head_camera_node`) built against the pinned libcamera fork in `/opt/ros2-ws`; publishes `/head_camera/image_raw[/compressed]` (1152x648, 30 fps) and serves zoom crops on `/head_camera/zoom/{command,image,result}`; background cgroup tier, metrics on 19116 |
 | `head_rgbd_cpp` | Head RGB-D fusion: registers the ToF depth into the Camera Module 3 mapping frame, publishes `/head_rgbd/*` (aligned depth + RGB, coloured cloud); C++ node (`ros2 run head_rgbd_cpp head_rgbd_node`) built in `/opt/ros2-ws`; needs `head_camera_cpp` mapping and `/etc/ros2/head_rgbd_cpp/tof_calibration.yaml`; background cgroup tier, metrics on 19117. Deploy: `./scripts/deploy-nodes.sh client head_rgbd_cpp` |
+| `map3d_uplink` | The one client static-peer process carrying the map3d streams to the server and the 3D map back (lazy topic_tools relays + compressedDepth republisher, contract `nodes/rtabmap_mapping/config/map3d_topics.yaml`); background tier; deploy after `head_camera_cpp` and `head_rgbd_cpp` |
 | `pi_cameras` | Retired: `present: false`, deploying it uninstalls the unit and purges `camera_ros`; replaced by `head_camera_cpp` (the `Deploy pi_cameras` step stays so the uninstall runs) |
 | `arducam_tof` | Arducam ToF on CSI cam1 (`csi_device: 1f00128000.csi`, `dtoverlay=arducam-pivariety,cam1`; needs the camera firmware reflashed for the Pi 5); publishes `/tof/depth/image_raw`, `/tof/amplitude/image_raw`, `/tof/camera_info`; metrics 19112 |
 | `stereo_depth` | Retired (D7, sources deleted): `present: false`; deploying it stops and removes the unit. No node publishes `/stereo/*` any more |
@@ -133,6 +134,8 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `lerobot_leader` | SO-101 leader arm (feetech servos, USB) |
 | `topic_scraper_api` | Telemetry / observation API |
 | `gps_rtk_base` | GPS RTK base station (UART) |
+| `rtabmap_mapping` | RTAB-Map RGB-D 3D mapping (server): one component_container, split `ros-jazzy-rtabmap-*` apt packages, database `/var/lib/ros2/rtabmap`; `cpu_quota` 200%, `memory_max` 900M; fed by the client `map3d_uplink` |
+| `map3d_manager` | 3D map save/load/reset commands and status (server, `map3d_manager_cpp` colcon local sources); `cpu_quota` 20%, `memory_max` 128M; deploy after `rtabmap_mapping` |
 
 ---
 

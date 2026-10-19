@@ -211,6 +211,15 @@
 ## Head RGB-D fusion (2026-10-19)
 
 - **Decision**: head ToF depth is registered on the client by `head_rgbd_cpp` into the head camera mapping image (576x324, default output 288x162) and published as exact-stamp pairs (RGB stamp on depth, camera_infos, RGB and cloud). RTAB-Map consumes the pair. The head URDF is the only extrinsic source (`scripts/head_rgbd_calibrate.py urdf` rewrites `tof_joint`); the node never reads the extrinsics file. Focus is locked only while the mapping stream has subscribers (the node subscribes lazily). Methodology and targets: `docs/head-rgbd-fusion-methodology.md`.
+## 3D mapping (RTAB-Map on the server)
+
+- **D1**: RTAB-Map runs in one component_container on the Pi 4b (`rtabmap_mapping`), installed from the split `ros-jazzy-rtabmap-*` apt packages, never the `rtabmap_ros` metapackage (pulls rtabmap_viz and Qt); the Pi 5 has no CPU headroom.
+- **D2**: one client process, `map3d_uplink`, carries every cross-host map3d stream (lazy throttle/relay plus a compressedDepth republisher) from one contract file, `nodes/rtabmap_mapping/config/map3d_topics.yaml`; it is the third static-peer process, so each stream has one server reader.
+- **D7**: RTAB-Map's odometry is slam_toolbox's `map -> base_link` (`odom_frame_id: map`), no own loop closure or scan links and no TF publishing, so its 3D map stays aligned to slam_toolbox's `/map`.
+- **D8**: server caps are `rtabmap_mapping` 200% CPU / 900M and `map3d_manager` 20% / 128M, with no feature extraction and a 400-node working memory so the leader arm and the monitoring stack are never starved.
+- **D13**: the lidar reaches the 3D map through slam_toolbox's `/map` walls (shown as lidar-derived structure, `source: lidar_2d` for the agent), not through RTAB-Map's fusion of scan and depth points.
+- Pointers: `nodes/rtabmap_mapping/README.md`, `nodes/map3d_uplink/README.md`, `nodes/map3d_manager_cpp/README.md`, design `docs/plans/in-progress/rtab-map-rgb-d-3d-mapping-on/design.md`.
+
 ## Head ToF 3D obstacles (2026-10-19)
 
 - **Decision**: the head ToF depth becomes obstacles and cliffs through `tof_obstacle_cloud` (rtabmap_util `point_cloud_xyz`, `/tof/points`), the `laser_filter` self filter (`/tof/points_filtered`), an STVL (`spatio_temporal_voxel_layer`) `tof_voxel_layer` in the local costmap only, and two collision_monitor pointcloud sources (`tof_obstacles` into StopBox, `tof_cliff` into CliffStop).

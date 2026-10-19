@@ -103,6 +103,7 @@ jobs:
           - map_guard_cpp
           - head_camera_cpp
           - head_rgbd_cpp
+          - map3d_manager_cpp
     steps:
       - uses: actions/checkout@v4
       - name: Build, test and lint in ros:jazzy-ros-base
