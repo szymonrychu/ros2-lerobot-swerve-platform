@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from scripts.head_rgbd_calibration.config import DEFAULT_CONFIG, CalibrationConfig, load_calibration_config
 from scripts.head_rgbd_calibration.extrinsics import load_extrinsics_yaml
 from scripts.head_rgbd_calibration.frames import TopicNames, capture_bag, read_frames
+from scripts.head_rgbd_calibration.live import start_live
 from scripts.head_rgbd_calibration.pipeline import (
     bag_path,
     failed_limits,
@@ -29,6 +30,7 @@ MODES = ("capture", "capture-validation", "calibrate", "urdf", "validate")
 VALIDATION_SUFFIXES = ("0.5m", "1.0m", "2.0m", "3.0m", "sweep", "wall")
 CAPTURE_NAME_FORMAT = "calib-%Y%m%d-%H%M%S"
 RUNNER = subprocess.run
+LIVE = start_live
 ERRORS = (ValueError, FileNotFoundError, RuntimeError, ValidationError)
 
 
@@ -48,11 +50,17 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def capture(cfg: CalibrationConfig, suffix: str | None) -> int:
-    """Record a calibration bag, or a validation bag named <session>-<suffix>, and print its local path."""
+    """Record a calibration bag (with the live pose count on stderr when capture.live), or a validation bag named
+    <session>-<suffix>, and print its local path."""
     local = cfg.capture.model_copy(update={"local_dir": str(resolve_path(cfg.capture.local_dir))})
     if suffix is None:
         name = cfg.session or datetime.now().strftime(CAPTURE_NAME_FORMAT)
-        path = capture_bag(local, name, run=RUNNER)
+        stop = LIVE(cfg) if cfg.capture.live else None
+        try:
+            path = capture_bag(local, name, run=RUNNER)
+        finally:
+            if stop is not None:
+                stop()
     else:
         path = capture_bag(local, f"{session_name(cfg)}-{suffix}", cfg.capture.validation_topics, run=RUNNER)
     print(path)

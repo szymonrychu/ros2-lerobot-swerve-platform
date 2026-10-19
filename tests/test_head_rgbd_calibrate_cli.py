@@ -285,8 +285,28 @@ class FakeRunner:
         return subprocess.CompletedProcess(cmd, 0)
 
 
+class FakeLive:
+    def __init__(self) -> None:
+        self.started = 0
+        self.stopped = 0
+
+    def __call__(self, _cfg: object) -> object:
+        self.started += 1
+        return self.stop
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+
+@pytest.fixture
+def live(monkeypatch: pytest.MonkeyPatch) -> FakeLive:
+    fake = FakeLive()
+    monkeypatch.setattr(cli, "LIVE", fake)
+    return fake
+
+
 def test_capture_prints_bag_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], live: FakeLive
 ) -> None:
     runner = FakeRunner()
     monkeypatch.setattr(cli, "RUNNER", runner)
@@ -294,16 +314,36 @@ def test_capture_prints_bag_path(
     assert capsys.readouterr().out.strip() == str(tmp_path / "bags" / "s1")
     assert "/head_camera/mapping/image_raw/compressed" in runner.commands[0][-1]
     assert len(runner.commands) == 3
+    assert (live.started, live.stopped) == (1, 1)
+
+
+def test_capture_stops_live_when_the_recording_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, live: FakeLive
+) -> None:
+    monkeypatch.setattr(cli, "RUNNER", lambda cmd, **_: subprocess.CompletedProcess(cmd, 1))
+    assert cli.main(["--config", str(make_config(tmp_path)), "capture"]) == 1
+    assert (live.started, live.stopped) == (1, 1)
+
+
+def test_capture_without_live(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, live: FakeLive) -> None:
+    monkeypatch.setattr(cli, "RUNNER", FakeRunner())
+    config = make_config(tmp_path)
+    data = yaml.safe_load(config.read_text())
+    data["capture"]["live"] = False
+    config.write_text(yaml.safe_dump(data))
+    assert cli.main(["--config", str(config), "capture"]) == 0
+    assert live.started == 0
 
 
 def test_capture_validation_names_bag_and_uses_validation_topics(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], live: FakeLive
 ) -> None:
     runner = FakeRunner()
     monkeypatch.setattr(cli, "RUNNER", runner)
     assert cli.main(["--config", str(make_config(tmp_path)), "capture-validation", "0.5m"]) == 0
     assert capsys.readouterr().out.strip() == str(tmp_path / "bags" / "s1-0.5m")
     assert "/head_rgbd/depth/image_raw" in runner.commands[0][-1]
+    assert live.started == 0
 
 
 def test_capture_validation_rejects_unknown_suffix(tmp_path: Path) -> None:

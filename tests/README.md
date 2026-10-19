@@ -2761,6 +2761,25 @@ Tests for `scripts/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF p
 | `test_yaml_round_trips` | Written extrinsics YAML has the documented keys and loads back. |
 | `test_rms_over_limit_writes_nothing` | Stereo RMS over `stereo_max_rms_px` raises and writes no file. |
 
+### `test_head_rgbd_calib_live.py`
+
+Tests for `scripts/head_rgbd_calibration/live.py`, the live pose counter of `capture`, on a synthetic 15 s stream
+(ToF 10 Hz, RGB 2 Hz from `tests/rgbd_synthetic.py`): moving board, a still pose at 0.33 m, a still pose at 1.2 m
+(too far for the ToF), another still pose at 0.33 m.
+
+| Test | What it checks |
+|---|---|
+| `test_read_stream_decodes_rgb_and_amplitude_and_ignores_a_truncated_tail` | The relay framing decodes to stamped BGR and uint16 frames; a truncated tail ends the stream. |
+| `test_read_stream_skips_unknown_topic_index` | A frame with an unknown topic index is skipped. |
+| `test_counter_counts_each_still_pose_once_when_both_cameras_see_the_board` | The two near still poses count once each; the far one does not. |
+| `test_counter_reports_moving_and_too_far_for_the_tof` | Statuses include `moving` and `move closer`. |
+| `test_counter_agrees_with_the_offline_still_pairs` | The live count equals the offline `still_pairs` with both detections. |
+| `test_monitor_prints_status_changes_and_rings_on_each_capture` | Status lines print only on change, prefixed with time and count; each capture rings the bell. |
+| `test_start_live_runs_the_relay_and_stop_reports_the_count` | `start_live` runs `relay_command`, pipes `live_relay.py` to it, and `stop()` terminates it and prints the total. |
+| `test_relay_command_runs_the_piped_script_bounded_by_the_capture` | ssh command sources ROS, exports the robot's CLI discovery environment, bounds the relay by the duration + 10 s and passes the header and topics. |
+| `test_relay_script_compiles_and_takes_header_and_topics_from_argv` | `live_relay.py` compiles and takes its arguments from argv with raw subscriptions. |
+| `test_live_is_on_by_default` | `capture.live` defaults to true. |
+
 ### `test_head_rgbd_calib_frames.py`
 
 Tests for `scripts/head_rgbd_calibration` (config, capture commands, bag reading, still-pair selection). Synthetic bags are written with the `rosbags` writer.
@@ -2795,8 +2814,10 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 | `test_validate_passes_on_accurate_distance_bags` | Distance bags within the targets print a passing table and exit 0. |
 | `test_validate_fails_when_bias_exceeds_target` | A 40 mm bias at 1 m prints FAIL and exits 1. |
 | `test_validate_missing_distance_bag_exits_one` | A missing `<session>-<d>m` bag exits 1 naming it. |
-| `test_capture_prints_bag_path` | `capture` with a fake runner runs the three steps and prints the bag path. |
-| `test_capture_validation_names_bag_and_uses_validation_topics` | `capture-validation 0.5m` names the bag `<session>-0.5m` and records the validation topics. |
+| `test_capture_prints_bag_path` | `capture` with a fake runner runs the three steps, starts and stops the live pose counter once and prints the bag path. |
+| `test_capture_stops_live_when_the_recording_fails` | A failing record step still stops the live counter. |
+| `test_capture_without_live` | `capture.live: false` starts no live counter. |
+| `test_capture_validation_names_bag_and_uses_validation_topics` | `capture-validation 0.5m` names the bag `<session>-0.5m`, records the validation topics and runs no live counter. |
 | `test_capture_validation_rejects_unknown_suffix` | An unknown suffix is rejected. |
 | `test_session_defaults_to_newest_calibration_bag` | The default session is the newest bag, validation bags excluded. |
 | `test_sweep_offset_is_zero_for_synchronous_streams` | A synchronous synthetic sweep gives a time offset under 10 ms. |

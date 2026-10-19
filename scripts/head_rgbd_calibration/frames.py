@@ -150,6 +150,18 @@ def decode_mono16(msg: object) -> np.ndarray:
     return rows[:, : msg.width * 2].copy().view(dtype).astype(np.uint16).reshape(msg.height, msg.width)
 
 
+def decode_compressed(msg: object, topic: str) -> np.ndarray:
+    """Decode a sensor_msgs/CompressedImage to a BGR uint8 array.
+
+    Raises:
+        ValueError: naming the stamp and topic when the data does not decode.
+    """
+    image = cv2.imdecode(np.asarray(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError(f"cannot decode compressed image at {stamp_ns(msg)} ns on {topic}")
+    return image
+
+
 def decode_camera_info(msg: object) -> CameraInfoData:
     """Reduce a sensor_msgs/CameraInfo to CameraInfoData."""
     return CameraInfoData(
@@ -182,10 +194,7 @@ def read_frames(bag: Path, topics: TopicNames) -> FrameSet:
         for conn, _, raw in reader.messages(connections=connections):
             msg = TYPESTORE.deserialize_cdr(raw, conn.msgtype)
             if conn.topic == topics.rgb:
-                image = cv2.imdecode(np.asarray(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
-                if image is None:
-                    raise ValueError(f"cannot decode compressed image at {stamp_ns(msg)} ns on {conn.topic}")
-                frames.rgb.append(StampedImage(stamp_ns(msg), image))
+                frames.rgb.append(StampedImage(stamp_ns(msg), decode_compressed(msg, conn.topic)))
             elif conn.topic == topics.amplitude:
                 frames.amplitude.append(StampedImage(stamp_ns(msg), decode_mono16(msg)))
             elif conn.topic == topics.depth:

@@ -15,7 +15,7 @@ Limits and metric definitions: `docs/head-rgbd-fusion-methodology.md` (`### Resu
    PDF at 100 % on matte laser paper on a rigid plate (or the two-colour STL/3MF); one square 40 +- 0.2 mm with a caliper.
    `uv run python -m scripts.head_rgbd_calibrate capture` (180 s) with 20-30 poses 0.25-0.45 m from the head (the 240x180 ToF only resolves the markers this close),
    tilts and image corners; rest the board on a support for about 3 s per pose (the mapping stream is 2 Hz and a
-   hand-held board never passes the stillness check), then
+   hand-held board never passes the stillness check); move on when the live line says `pose N captured` (bell), then
    `calibrate`. Limits: RGB <= 0.5 px, ToF <= 0.3 px, ToF-to-RGB extrinsic RMS <= 1.0 px, plane bias <= 15 mm; otherwise iterate the capture.
    Commit `nodes/head_camera_cpp/config/head_camera_calibration.yaml`, `nodes/head_rgbd_cpp/config/tof_calibration.yaml`,
    `nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml`.
