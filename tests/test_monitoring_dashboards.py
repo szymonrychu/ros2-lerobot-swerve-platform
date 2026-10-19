@@ -548,7 +548,7 @@ def test_slam_dashboard_queries() -> None:
 
 
 def assert_3d_mapping_row() -> None:
-    """3D mapping row: server and client unit CPU/memory, server memory headroom, WiFi throughput vs the uplink budget."""
+    """3D mapping row: unit CPU/memory on both Pis, server memory headroom, WiFi throughput vs the uplink budget."""
     dashboard = load_dashboard("robot-slam.json")
     panels = {p["title"]: p for p in panel_list(dashboard)}
     assert "3D mapping" in panels and panels["3D mapping"]["type"] == "row"
