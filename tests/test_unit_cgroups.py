@@ -57,10 +57,17 @@ AGENT = {
 }
 # Background tier: work the robot can lose: the systemd default weight and no OOM protection, below every robot and
 # agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers, head_camera_cpp the head
-# camera preview, head_rgbd_cpp the head RGB-D fusion (the retired depth nodes that once shared the tier are gone, D7).
+# camera preview, head_rgbd_cpp the head RGB-D fusion, map3d_uplink the map3d stream relay
+# (the retired depth nodes that once shared the tier are gone, D7).
 BACKGROUND = {
     "weights": (100, 100, 0),
-    "types": ["joint_state_throttle_follower", "joint_state_throttle_swerve", "head_camera_cpp", "head_rgbd_cpp"],
+    "types": [
+        "joint_state_throttle_follower",
+        "joint_state_throttle_swerve",
+        "head_camera_cpp",
+        "head_rgbd_cpp",
+        "map3d_uplink",
+    ],
 }
 TIERS = [CRITICAL, NORMAL, AGENT]
 ALL_TIERS = [*TIERS, BACKGROUND]

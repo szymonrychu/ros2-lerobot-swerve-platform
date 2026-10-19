@@ -321,6 +321,15 @@
             _deploy_node_name: head_rgbd_cpp
           tags: [head_rgbd_cpp, apt, python, build, config]
 
+        - name: Deploy map3d_uplink
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [map3d_uplink]
+          vars:
+            _deploy_node_name: map3d_uplink
+          tags: [map3d_uplink, apt, python, build, config]
+
         - name: Deploy stereo_depth
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml
