@@ -18,8 +18,16 @@ NOW = [1000.0]
 def info(key: str = "base/HOME", **over) -> dict:
     """MarkerInfo dict for a key."""
     kind, ident = key.split("/")
-    d = {"kind": kind, "id": ident, "key": key, "size_mm": 150.0, "params": {}, "payload": "P1/K:BASE/N:HOME/S:150",
-         "version": 1, "pose_samples": 1}
+    d = {
+        "kind": kind,
+        "id": ident,
+        "key": key,
+        "size_mm": 150.0,
+        "params": {},
+        "payload": "P1/K:BASE/N:HOME/S:150",
+        "version": 1,
+        "pose_samples": 1,
+    }
     d.update(over)
     return MarkerInfo(**d).model_dump()
 
@@ -31,9 +39,19 @@ def quat_z(deg: float, flip: bool = False) -> list[float]:
     return [-c for c in q] if flip else q
 
 
-def sighting(x: float = 1.0, y: float = 2.0, yaw: float = 0.0, conf: float = 0.8, key: str = "base/HOME", **over) -> dict:
+def sighting(
+    x: float = 1.0, y: float = 2.0, yaw: float = 0.0, conf: float = 0.8, key: str = "base/HOME", **over
+) -> dict:
     """An upsert_marker sighting poi dict."""
-    d = {"kind": "marker", "x": x, "y": y, "z": 0.5, "orientation": quat_z(yaw), "marker": info(key), "confidence": conf}
+    d = {
+        "kind": "marker",
+        "x": x,
+        "y": y,
+        "z": 0.5,
+        "orientation": quat_z(yaw),
+        "marker": info(key),
+        "confidence": conf,
+    }
     d.update(over)
     return d
 
