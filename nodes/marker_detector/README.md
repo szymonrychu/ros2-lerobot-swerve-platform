@@ -99,3 +99,9 @@ A timer at `process_hz` processes only the newest unprocessed stream frame. TF i
 ## Node tests
 
 `tests/test_pipeline.py` covers the pipeline on synthetic scenes (single marker, missing camera_info, TF failure, invalid payload, ToF disambiguation, zoom stills, auto zoom, confidence gate) and the node wiring with `tests/ros_stubs.py` stubbing rclpy, tf2_ros, sensor_msgs and std_msgs.
+
+## Benchmark
+
+`python -m marker_detector.bench [config]` (default `config/bench.yaml`, pydantic `BenchConfig`: `iterations` 200, `warmup` 20, `seed`, `scenes[]` of `name`, `image_size`, optional `focal_scale`, `markers[]` of `size_mm` and `distance_m`, 1-3 per scene) renders each synthetic scene once and times `decode_frame`, `estimate_pose` (per candidate) and the whole frame with `time.perf_counter_ns`. It prints JSON `{scene: {stage: {p50_ms, p95_ms, max_ms}}, "decoded_ratio", "decoded_by_scene", "cv2", "zxingcpp", "machine"}`. Shipped scenes: 1152x648 and 576x324 stream frames and 1024x576 zoom crops, with 1 and 3 markers each.
+
+On the robot: `./scripts/marker_bench.sh` runs it on the client in the deployed venv and saves `.logs/marker_bench.json` (gitignored). Budget (design D14): decode + pose p95 <= 100 ms per 1152x648 frame on the Pi 5 and node CPU p95 <= 0.3 core at `process_hz` 2. A miss lowers `process_hz` in `ansible/group_vars/client.yml`, and the measured numbers are recorded in the runbook. Tests: `tests/test_bench.py`.
