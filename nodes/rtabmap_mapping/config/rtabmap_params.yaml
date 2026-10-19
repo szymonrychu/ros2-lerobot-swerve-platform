@@ -1,0 +1,54 @@
+# RTAB-Map defaults for the server rtabmap_mapping container (design D6, D7, D8, D9).
+# Loaded by launch/rtabmap_mapping.launch.py; /etc/ros2/rtabmap_mapping/config.yaml (env RTABMAP_MAPPING_CONFIG, the
+# Ansible `config: |` block) is merged on top key by key when it exists and is non-empty, same rule as slam_toolbox.
+# RTAB-Map core parameters (Kp/, RGBD/, Grid/, Mem/, Reg/, Rtabmap/) are strings because RTAB-Map declares them as
+# strings; the ROS wrapper parameters are typed.
+# Not set here, because the launch file derives or fixes them: topics, image transports, subscribe_* flags, sync mode
+# and QoS (from config/map3d_topics.yaml), database_path (<database_dir>/live.db) and delete_db_on_start (false).
+# The launch file rejects an override of publish_tf to true (U2: slam_toolbox is the only map -> odom owner).
+
+database_dir: /var/lib/ros2/rtabmap   # live.db and saved.db (D9); Ansible creates it, the launch restores saved.db
+
+rgbd_sync:
+  ros__parameters: {}   # exact sync, transports and QoS are fixed by the launch; add sync tuning here if ever needed
+
+rtabmap:
+  ros__parameters:
+    # --- frames and alignment (D7) ---
+    frame_id: base_link                # robot body frame the 3D nodes are attached to
+    odom_frame_id: map                 # slam_toolbox's map frame is RTAB-Map's odometry: its graph is the chain of slam_toolbox poses
+    map_frame_id: rtabmap_map          # RTAB-Map's own map frame; identical to map while it makes no links of its own
+    publish_tf: false                  # never broadcast rtabmap_map -> map; slam_toolbox stays the only map -> odom owner (U2)
+    wait_for_transform: 0.2            # s to wait for map -> base_link at the image stamp (slam_toolbox + EKF over the uplink)
+    odom_tf_linear_variance: 0.001     # slam_toolbox poses are lidar-localised: trust them (no own links to weigh them against)
+    odom_tf_angular_variance: 0.001    # same for yaw
+    # --- no own links (D7): own loop/proximity links would bend rtabmap_map away from map ---
+    Kp/MaxFeatures: "-1"               # no visual features: no loop closure detection, removes the main CPU cost (D8)
+    RGBD/ProximityBySpace: "false"     # no proximity links between nearby nodes
+    RGBD/OptimizeFromGraphEnd: "true"  # keep the latest node fixed so an optimisation can never move the newest pose
+    RGBD/NeighborLinkRefining: "false" # no ICP refinement of the odometry links: they stay exactly slam_toolbox's poses
+    Reg/Force3DoF: "true"              # ground robot: x, y, yaw only
+    # --- node creation (D6) ---
+    RGBD/LinearUpdate: "0.1"           # a new node every 10 cm of travel
+    RGBD/AngularUpdate: "0.1"          # or every 0.1 rad (~6 deg) of base rotation
+    Rtabmap/DetectionRate: "1"         # process at most 1 Hz (inputs arrive at the 2 Hz mapping rate)
+    # --- occupancy grid: depth only (D6, D13) ---
+    Grid/Sensor: "1"                   # depth only: measured 3D points are never mixed with scan points (U6/D13); "2" would merge the scan in
+    Grid/3D: "true"                    # 3D local grids: the source of cloud_map
+    Grid/RangeMax: "4.0"               # m, the ToF range
+    Grid/CellSize: "0.05"              # m, 5 cm voxels (cloud_map voxel size, D10)
+    Grid/DepthDecimation: "2"          # use every 2nd depth pixel: 144x81 points per node from the 288x162 registered depth
+    Grid/MaxObstacleHeight: "2.0"      # m, ignore points above 2 m (ceiling)
+    Grid/RayTracing: "false"           # no free-space ray tracing: saves CPU on the Pi 4b
+    # --- memory management for the Pi 4b (D8) ---
+    Rtabmap/MemoryThr: "400"           # at most 400 nodes in working memory; older nodes move to the database
+    Rtabmap/TimeThr: "0"               # no time-based transfer: memory is bounded by MemoryThr
+    Mem/STMSize: "10"                  # short-term memory nodes
+    Mem/ImagePostDecimation: "2"       # images stored at half size (288x162)
+    Mem/BinDataKept: "true"            # keep images in the database for later re-processing (~30-50 KB per node)
+    Mem/RawDescriptorsKept: "false"    # no raw descriptors (there are none with Kp/MaxFeatures -1)
+    Rtabmap/ImageBufferSize: "1"       # process only the latest input, drop older ones instead of queueing
+    # --- outputs (D10) ---
+    cloud_output_voxelized: true       # cloud_map voxelized at Grid/CellSize: smaller downlink and browser load
+    map_always_update: false           # update the maps only when the graph changed (a node was added)
+    latch: false                       # volatile map topics: the lazy downlink throttle gets the next assembled cloud, no stale latched copy
