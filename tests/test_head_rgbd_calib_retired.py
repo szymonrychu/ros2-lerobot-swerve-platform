@@ -24,14 +24,14 @@ def git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, check=False)
 
 
-def test_removed_files_are_not_tracked() -> None:
+def test_live_counter_files_untracked() -> None:
     assert git("ls-files", "--", *REMOVED_PATHS).stdout.strip() == ""
 
 
-@pytest.mark.parametrize("name", RETIRED_NAMES)
-def test_no_tracked_reference_to_the_live_counter(name: str) -> None:
-    result = git("grep", "-n", "-F", name, "--", "scripts", "tests", THIS_FILE)
-    assert result.stdout == ""
+def test_no_live_counter_references() -> None:
+    for name in RETIRED_NAMES:
+        result = git("grep", "-n", "-F", name, "--", "scripts", "tests", THIS_FILE)
+        assert result.stdout == "", name
 
 
 def test_capture_config_has_no_live_field() -> None:

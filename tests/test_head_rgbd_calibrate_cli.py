@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.charuco import detect, make_board
 from ros2_common.head_rgbd_calibration.config import BoardConfig
 from ros2_common.head_rgbd_calibration.extrinsics import load_extrinsics_yaml
@@ -302,6 +303,24 @@ def test_capture_prints_bag_path(
     assert [cmd[0] for cmd in runner.commands] == ["ssh", "scp", "ssh"]
     assert "ros2 bag record" in runner.commands[0][-1]
     assert "rm -rf" in runner.commands[2][-1]
+
+
+def test_capture_runs_only_record_copy_remove(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = FakeRunner()
+    monkeypatch.setattr(cli, "RUNNER", runner)
+    assert cli.main(["--config", str(make_config(tmp_path)), "capture"]) == 0
+    assert [cmd[0] for cmd in runner.commands] == ["ssh", "scp", "ssh"]
+    assert "ros2 bag record" in runner.commands[0][-1]
+    assert "rm -rf" in runner.commands[2][-1]
+
+
+def test_capture_live_key_rejected(tmp_path: Path) -> None:
+    data = yaml.safe_load(make_config(tmp_path).read_text())
+    data["capture"]["live"] = True
+    config = tmp_path / "live.yaml"
+    config.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValidationError, match="live"):
+        load_calibration_config(config)
 
 
 def test_capture_validation_names_bag_and_uses_validation_topics(

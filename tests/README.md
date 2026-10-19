@@ -2793,8 +2793,8 @@ Retirement pin for the ssh-streamed live pose counter (replaced by the web UI Ca
 
 | Test | What it checks |
 |---|---|
-| `test_removed_files_are_not_tracked` | `git ls-files` returns nothing for the three removed live-counter files (counter, relay script and their test file). |
-| `test_no_tracked_reference_to_the_live_counter` | `git grep` finds no relay script name, start function or dotted config key of the live counter under `scripts/` and `tests/` (this file excluded). |
+| `test_live_counter_files_untracked` | `git ls-files` returns nothing for the three removed live-counter files (counter, relay script and their test file). |
+| `test_no_live_counter_references` | `git grep` finds no relay script name, start function or dotted config key of the live counter under `scripts/` and `tests/` (this file excluded). |
 | `test_capture_config_has_no_live_field` | `CaptureConfig` has no `live` attribute. |
 | `test_config_still_setting_live_fails_naming_it` | A config that still sets the old `live` key under `capture` fails validation and the message names `live`. |
 
@@ -2835,6 +2835,8 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 | `test_validate_passes_on_accurate_distance_bags` | Distance bags within the targets print a passing table and exit 0. |
 | `test_validate_fails_when_bias_exceeds_target` | A 40 mm bias at 1 m prints FAIL and exits 1. |
 | `test_validate_missing_distance_bag_exits_one` | A missing `<session>-<d>m` bag exits 1 naming it. |
+| `test_capture_runs_only_record_copy_remove` | `capture` runs exactly the ssh record, scp copy and ssh remove commands and nothing else. |
+| `test_capture_live_key_rejected` | A config setting `capture.live` fails validation and the message names `live`. |
 | `test_capture_prints_bag_path` | `capture` with a fake runner runs exactly the ssh record, scp copy and ssh remove commands, nothing else, and prints the bag path. |
 | `test_capture_validation_names_bag_and_uses_validation_topics` | `capture-validation 0.5m` names the bag `<session>-0.5m`, records the validation topics and runs no live counter. |
 | `test_capture_validation_rejects_unknown_suffix` | An unknown suffix is rejected. |
