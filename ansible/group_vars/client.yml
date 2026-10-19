@@ -710,6 +710,29 @@ ros2_node_type_defaults:
       - nlohmann-json3-dev
       - libyaml-cpp-dev
       - prometheus-cpp-dev
+  # Map3d uplink (nodes/map3d_uplink/README.md): ONE component_container with a topic_tools throttle/relay or an
+  # image_transport republisher per entry of the map3d topic contract (nodes/rtabmap_mapping/config/map3d_topics.yaml),
+  # lazy, so nothing is carried or encoded while the server has no subscriber. The single static-peer process of the
+  # mapping streams (ansible/README.md "Cross-host"). Background tier; MemoryMax is an estimate until measured.
+  map3d_uplink:
+    deploy_mode: native
+    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/map3d_uplink/launch/map3d_uplink.launch.py"
+    node_src_dir: ""
+    # The launch file reads the contract module and yaml through sys.path.
+    src_paths: [nodes/map3d_uplink, nodes/rtabmap_mapping/config, nodes/rtabmap_mapping/map3d_topics.py]
+    apt_packages:
+      - ros-jazzy-topic-tools
+      - ros-jazzy-image-transport-plugins
+      - ros-jazzy-rclcpp-components
+      - python3-pydantic
+      - python3-yaml
+    memory_low: "48M"
+    memory_max: "256M"
+    cpu_weight: 100
+    io_weight: 100
+    oom_score_adjust: 0
+    env:
+      - ROS_STATIC_PEERS={{ ros2_server_hostname }}
   robot_localization_ekf:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/robot_localization_ekf/launch/ekf.launch.py"
@@ -1343,6 +1366,11 @@ ros2_nodes:
         idle_unsubscribe_s: 5.0 # drop the input subscriptions this long after the last output subscriber left, s (>= 0)
 
       metrics_port: 19117 # Prometheus /metrics port (1..65535), null disables
+  # Carries the head RGB-D, scan, TF and command streams to the server and the 3D map back (lazy, throttled).
+  - name: map3d_uplink
+    node_type: map3d_uplink
+    present: true
+    enabled: true
   # Retired (D7): the Pi never produced stereo depth (CPU-saturated) and its sources are deleted.
   # present: false makes the next deploy of these names uninstall the
   # units, launchers, venv and config directories.
