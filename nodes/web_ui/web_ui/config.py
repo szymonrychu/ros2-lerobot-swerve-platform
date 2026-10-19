@@ -79,6 +79,12 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "local_costmap_topic": "/local_costmap/costmap",
     "obstacle_cloud_topic": "/tof/points_filtered",
     "scan_points_topic": "/scan_filtered",
+    "map3d_cloud_topic": "/map3d/cloud",
+    "map3d_status_topic": "/map3d/status",
+    "map3d_result_topic": "/map3d/result",
+    "map3d_command_topic": "/map3d/command",
+    # RTAB-Map's map frame; identical to slam_toolbox's map frame (design D7), shown unchanged.
+    "map3d_frame_id": "rtabmap_map",
     "gps_fix_topic": "/client/gps/fix",
     "tile_url": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
     "tile_subdomains": "abcd",
@@ -173,6 +179,9 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("local_costmap_topic", "costmap"),
     ("obstacle_cloud_topic", "cloud"),
     ("scan_points_topic", "scan_points"),
+    ("map3d_cloud_topic", "map3d_cloud"),
+    ("map3d_status_topic", "map3d_status"),
+    ("map3d_result_topic", "map3d_result"),
     ("gps_fix_topic", "gps"),
     ("poi_list_topic", "poi_list"),
     ("poi_result_topic", "poi_result"),
@@ -321,6 +330,14 @@ class TabConfig(BaseModel):
     local_costmap_topic: str | None = None  # map_nav: Nav2 local costmap (nav_msgs/OccupancyGrid, odom frame)
     obstacle_cloud_topic: str | None = None  # map_nav: sensor_msgs/PointCloud2 ToF obstacle cloud (3D obstacles layer)
     scan_points_topic: str | None = None  # map_nav: sensor_msgs/LaserScan lidar points shown with the obstacle cloud
+    map3d_cloud_topic: str | None = None  # map_nav: sensor_msgs/PointCloud2 RTAB-Map 3D map (on demand)
+    map3d_status_topic: str | None = None  # map_nav: std_msgs/String JSON map3d manager status
+    map3d_result_topic: str | None = None  # map_nav: std_msgs/String JSON map3d command results
+    map3d_command_topic: str | None = None  # map_nav: std_msgs/String JSON map3d commands (save, reset, ...)
+    map3d_frame_id: str | None = None  # map_nav: the only frame the 3D map layer accepts
+    map3d_max_points: int = Field(default=60000, ge=1000, le=300000)  # map_nav: cap of points sent to a browser
+    map3d_voxel_m: float = Field(default=0.05, ge=0.02, le=0.5)  # map_nav: starting voxel edge (m) of the cloud
+    lidar_wall_height_m: float = Field(default=1.0, ge=0.1, le=3.0)  # map_nav: height lidar points are extruded to
     gps_fix_topic: str | None = None  # map_nav: sensor_msgs/NavSatFix of the rover
     poi_list_topic: str | None = None  # map_nav: std_msgs/String JSON POI list (latched, from poi_store)
     poi_command_topic: str | None = None  # map_nav: std_msgs/String JSON POI add/update/delete commands
@@ -606,6 +623,18 @@ class AppConfig(BaseModel):
         """
         return {topic: tab.tof_range_m for tab in self.head_tabs() for topic in (tab.tof_depth_topic,) if topic}
 
+    def map3d_limits(self) -> dict[str, tuple[int, float]]:
+        """Map each map_nav tab's 3D map cloud topic to its (max_points, voxel_m) limits.
+
+        Returns:
+            dict[str, tuple[int, float]]: Cloud topic -> (point cap, starting voxel edge in metres).
+        """
+        return {
+            tab.map3d_cloud_topic: (tab.map3d_max_points, tab.map3d_voxel_m)
+            for tab in self.map_nav_tabs()
+            if tab.map3d_cloud_topic
+        }
+
     def map_reset_services(self) -> list[str]:
         """Return the slam_toolbox Reset services of all map_nav tabs.
 
@@ -685,7 +714,7 @@ class AppConfig(BaseModel):
     def topic_roles(self) -> dict[str, str]:
         """Map each map_nav topic to its bridge subscription role.
 
-        Roles are "map" and "costmap" (OccupancyGrid), "cloud" (PointCloud2) and "scan_points" (LaserScan), "path" (Path), "goal" (PoseStamped), "footprint"
+        Roles are "map" and "costmap" (OccupancyGrid), "cloud" and "map3d_cloud" (PointCloud2) and "scan_points" (LaserScan), "map3d_status" and "map3d_result" (std_msgs/String JSON), "path" (Path), "goal" (PoseStamped), "footprint"
         (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" (CompressedImage), "head_depth" and "head_amplitude" (Image) of head tabs and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
@@ -798,6 +827,8 @@ class AppConfig(BaseModel):
                 topics.add(tab.arm_command_topic)
             if tab.head_command_topic:
                 topics.add(tab.head_command_topic)
+            if tab.type == MAP_NAV_TAB_TYPE and tab.map3d_command_topic:
+                topics.add(tab.map3d_command_topic)
         return sorted(topics)
 
 
