@@ -22,7 +22,8 @@ find_package(sensor_msgs REQUIRED)
 # The pure logic, without the ROS client library: config and the command/result JSON contract.
 add_library(map3d_manager_core STATIC
   src/config.cpp
-  src/command_json.cpp)
+  src/command_json.cpp
+  src/status.cpp)
 target_include_directories(map3d_manager_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
@@ -38,7 +39,7 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
-  foreach(name config command_json)
+  foreach(name config command_json status)
     ament_add_gtest(test_${name} test/test_${name}.cpp TIMEOUT 120)
     target_link_libraries(test_${name} map3d_manager_core)
   endforeach()
