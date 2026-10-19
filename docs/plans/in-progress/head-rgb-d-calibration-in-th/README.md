@@ -1,7 +1,7 @@
 ---
 title: Head RGB-D calibration in the web UI Calibrate page
 blockers: []
-stage: review
+stage: build
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-19
@@ -38,7 +38,7 @@ From the page the operator starts a capture session, moves the ChArUco board thr
 
 ## Time
 
-Estimate: 1235 min | Actual: 0 min | Remaining estimate: 0 min
+Estimate: 1410 min | Actual: 0 min | Remaining estimate: 175 min
 
 ## Review
 
