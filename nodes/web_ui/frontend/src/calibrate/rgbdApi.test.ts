@@ -25,7 +25,9 @@ function stub(status: number, body: unknown) {
   vi.stubGlobal('fetch', f)
   return f
 }
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('rgbdApi helpers', () => {
   it('emptyCells counts zero cells over rgb or tof grid', () => {

@@ -93,7 +93,6 @@ const isStr = (v: unknown) => typeof v === 'string'
 const isNum = (v: unknown) => typeof v === 'number'
 const isNullOr = (f: (v: unknown) => boolean) => (v: unknown) => v === null || f(v)
 const isArrayOf = (f: (v: unknown) => boolean) => (v: unknown) => Array.isArray(v) && v.every(f)
-const isId = (v: unknown) => isObj(v) && isStr(v.id)
 
 function isCapture(v: unknown): boolean {
   return (
