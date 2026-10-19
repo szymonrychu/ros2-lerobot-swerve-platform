@@ -1,0 +1,68 @@
+---
+title: Head nodes use applied calib
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "After Apply the head camera publishes camera_info and head_rgbd_cpp registered depth from the robot's own calibration, and deploys keep it."
+files: [ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, tests/test_head_camera_deploy.py, tests/test_web_ui_calibration_config.py, nodes/head_rgbd_cpp/README.md, nodes/head_camera_cpp/README.md]
+verify: "uv run --frozen pytest tests/test_head_rgbd_deploy.py tests/test_head_camera_deploy.py tests/test_web_ui_calibration_config.py tests/test_head_rgbd_calibration_deploy.py -q && uv run poe lint && uv run poe test-ansible"
+depends_on: [calib-node-ansible-deploy, web-ui-rgbd-calib-proxy]
+owns: [head-rgbd-applied-calibration]
+uses: [rgbd-calib-applied-files, rgbd-calib-web-api]
+model: ""
+estimate: 40
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# Head nodes use applied calib
+
+## Requirement
+
+The head nodes read the robot's applied calibration and the Calibrate page gets its RGB-D section; deploys keep it (design D7, D9, D11; cross-epic contract `head-rgbd-applied-calibration`).
+
+- `ansible/group_vars/client.yml`:
+  - head_camera_cpp `config`: `camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml`, commented (written by Apply on the Calibrate page, seeded from the committed file when absent; missing file: no camera_info, as today).
+  - head_rgbd_cpp `config`: `tof_calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml`; the head_rgbd_cpp node type `config_files` entry and its comment are removed (the seed in calib-node-ansible-deploy replaces it).
+  - web_ui `config` `calibration:` gains `rgbd_url: http://127.0.0.1:18110`; the IMU keys stay.
+- Tests: `tests/test_head_rgbd_deploy.py` (config equals the defaults plus `metrics_port` plus the applied `tof_calibration_file`; no `config_files`), `tests/test_head_camera_deploy.py` (applied `camera_info_file`), `tests/test_web_ui_calibration_config.py` (`rgbd_url` port equals the head_rgbd_calibration entry's `http_port`; IMU assertions unchanged).
+- `nodes/head_camera_cpp/README.md` and `nodes/head_rgbd_cpp/README.md` say where the calibration comes from (applied dir, Calibrate page, seeding) (doc files).
+- `uv run poe test-ansible` passes.
+
+## Acceptance conditions
+
+- a1: head_rgbd_cpp reads the applied ToF calibration and no longer copies a repo file [evidence: test:tests/test_head_rgbd_deploy.py::test_tof_calibration_file_is_the_applied_file]
+- a2: head_camera_cpp reads the applied camera calibration [evidence: test:tests/test_head_camera_deploy.py::test_camera_info_file_is_the_applied_file]
+- a3: web_ui points the RGB-D section at the node port and keeps the IMU names [evidence: test:tests/test_web_ui_calibration_config.py::test_web_ui_rgbd_url_points_at_calibration_node]
+- a4: the IMU wiring test still passes [evidence: test:tests/test_web_ui_calibration_config.py::test_web_ui_enables_the_imu_calibration_section]
+- a5: ansible lint and syntax checks pass [evidence: command:uv run poe test-ansible]
+
+## Files
+
+- `ansible/group_vars/client.yml`
+- `tests/test_head_rgbd_deploy.py`
+- `tests/test_head_camera_deploy.py`
+- `tests/test_web_ui_calibration_config.py`
+- `nodes/head_rgbd_cpp/README.md`
+- `nodes/head_camera_cpp/README.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
