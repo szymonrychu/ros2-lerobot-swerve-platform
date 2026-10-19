@@ -755,8 +755,11 @@ ros2_node_type_defaults:
     # robot_state_publisher on nodes/web_ui/urdf/head.urdf (launch file resolves it relative to itself).
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/head_state_publisher/launch/head_state_publisher.launch.py"
     node_src_dir: ""
-    # Repo paths whose change restarts the node: its launch file and the head URDF it loads.
-    src_paths: [nodes/head_state_publisher, nodes/web_ui/urdf/head.urdf]
+    # Repo paths whose change restarts the node: its launch file, the head URDF it loads and the tof_joint rewriter.
+    src_paths:
+      - nodes/head_state_publisher
+      - nodes/web_ui/urdf/head.urdf
+      - shared/ros2_common/head_rgbd_calibration/urdf_text.py
     apt_packages:
       - ros-jazzy-robot-state-publisher
     # Mid tier by estimate: head TF is part of the camera pose, so it gets protection like the other robot nodes.
