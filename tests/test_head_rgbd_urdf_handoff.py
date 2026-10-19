@@ -1,4 +1,4 @@
-"""Tests for scripts/head_rgbd_calibration/urdf_handoff.py on a copy of the head URDF."""
+"""Tests for shared/ros2_common/head_rgbd_calibration/urdf_handoff.py on a copy of the head URDF."""
 
 import difflib
 from pathlib import Path

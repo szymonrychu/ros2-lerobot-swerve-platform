@@ -2735,7 +2735,7 @@ Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan prov
 
 ### `test_head_rgbd_calib_intrinsics.py`
 
-Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
+Tests for `shared/ros2_common/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
 
 | `test_make_board_matches_config` | Board size and lengths follow `BoardConfig`. |
 | `test_rgb_views_recover_intrinsics` | 20 RGB views recover fx, fy within 1 % and cx, cy within 3 px. |
@@ -2753,7 +2753,7 @@ Tests for `scripts/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the
 
 ### `test_head_rgbd_calib_extrinsics.py`
 
-Tests for `scripts/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF pairs with a known extrinsic.
+Tests for `shared/ros2_common/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF pairs with a known extrinsic.
 
 | Test | What it checks |
 |---|---|
@@ -2846,7 +2846,7 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 
 ### `test_head_rgbd_urdf_handoff.py`
 
-Tests for `scripts/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.
+Tests for `shared/ros2_common/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.
 
 | Test | What it checks |
 |---|---|

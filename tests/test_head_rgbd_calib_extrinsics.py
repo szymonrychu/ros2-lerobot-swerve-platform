@@ -1,4 +1,4 @@
-"""Tests for scripts/head_rgbd_calibration/extrinsics.py on synthetic RGB + ToF scenes with a known extrinsic."""
+"""Tests for shared/ros2_common/head_rgbd_calibration/extrinsics.py on synthetic RGB + ToF scenes with a known extrinsic."""
 
 from functools import lru_cache
 from pathlib import Path
