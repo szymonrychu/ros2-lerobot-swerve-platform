@@ -51,7 +51,7 @@ level and any error exits 78 with one `<key>: <problem>` line per error.
 | `rgb_image_topic` | `/head_camera/mapping/image_raw/compressed` | RGB input (mapping stream) |
 | `rgb_info_topic` | `/head_camera/mapping/camera_info` | RGB camera_info input |
 | `output_namespace` | `/head_rgbd` | prefix of every output topic |
-| `tof_calibration_file` | `/etc/ros2/head_rgbd_cpp/tof_calibration.yaml` (code default); deployed: `/var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml` | ToF intrinsics (camera_calibration YAML) |
+| `tof_calibration_file` | deployed: `/var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml` | ToF intrinsics (camera_calibration YAML) |
 | `output.divisor` | 2 | output size = RGB size / divisor (1 or 2) |
 | `sync.max_pair_dt_s` | 0.06 | largest ToF-RGB stamp difference of a pair, s (0 < v <= 0.2) |
 | `sync.queue_size` | 10 | approximate-time queue length (>= 2) |

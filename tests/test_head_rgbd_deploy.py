@@ -116,7 +116,7 @@ def test_colcon_sources_order_and_build() -> None:
     assert set(stamp) <= set(node_type()["apt_packages"])
 
 
-def test_tof_calibration_file_is_the_applied_state_file() -> None:
+def test_tof_calibration_file_is_the_applied_file() -> None:
     assert "config_files" not in node_type()
     assert entry_config("head_rgbd_cpp")["tof_calibration_file"] == APPLIED_TOF_FILE
 

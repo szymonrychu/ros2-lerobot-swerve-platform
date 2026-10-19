@@ -34,7 +34,7 @@ def test_web_ui_enables_the_imu_calibration_section() -> None:
     assert calibration["imu_reset_service"] == IMU_RESET_SERVICE
 
 
-def test_web_ui_rgbd_url_targets_the_calibration_node_port() -> None:
+def test_web_ui_rgbd_url_points_at_calibration_node() -> None:
     """The RGB-D section proxies to head_rgbd_calibration on loopback at its http_port."""
     calibration = node_config("web_ui")["calibration"]
     port = node_config("head_rgbd_calibration")["http_port"]

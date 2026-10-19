@@ -186,6 +186,11 @@ def test_entry_is_live_after_pi_cameras_with_valid_config() -> None:
     }
 
 
+def test_camera_info_file_is_the_applied_file() -> None:
+    config = yaml.safe_load(node_entry()["config"])
+    assert config["camera_info_file"] == APPLIED_CAMERA_INFO
+
+
 def test_monitoring_target_is_present() -> None:
     targets = client_vars()["monitoring_agent_node_targets"]
     assert {"node": "head_camera_cpp", "address": f"127.0.0.1:{METRICS_PORT}", "path": "/metrics"} in targets
