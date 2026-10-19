@@ -137,3 +137,40 @@ def test_unconfigured_is_404() -> None:
 def test_dotdot_segment_invalid(path: str) -> None:
     assert not valid_path(path)
     assert valid_path("sessions/s.1/poses/3/rgb-thumb.jpg")
+
+
+def test_forwards_method_path_query_body() -> None:
+    seen: list[httpx.Request] = []
+    client = make_client(recording(httpx.Response(200, json={"ok": True}), seen))
+    client.get(PREFIX + "sessions/abc/poses?limit=5")
+    client.post(PREFIX + "capture/start?x=1", content=b'{"a": 1}', headers={"content-type": "application/json"})
+    client.delete(PREFIX + "sessions/abc/poses/3")
+    assert [r.method for r in seen] == ["GET", "POST", "DELETE"]
+    assert str(seen[0].url) == f"{RGBD_URL}/api/sessions/abc/poses?limit=5"
+    assert str(seen[1].url) == f"{RGBD_URL}/api/capture/start?x=1"
+    assert seen[1].content == b'{"a": 1}'
+    assert seen[2].url.path == "/api/sessions/abc/poses/3"
+
+
+def test_binary_bodies_and_headers_pass_through() -> None:
+    test_binary_body_and_headers_pass_through()
+    jpeg = b"\xff\xd8\xff\xe0" + bytes(range(256))
+    client = make_client(recording(httpx.Response(200, content=jpeg, headers={"content-type": "image/jpeg"}), []))
+    response = client.get(PREFIX + "sessions/abc/poses/1/rgb.jpg")
+    assert response.content == jpeg
+    assert response.headers["content-type"] == "image/jpeg"
+
+
+def test_rejects_traversal_path() -> None:
+    seen: list[httpx.Request] = []
+    client = make_client(recording(httpx.Response(200, json={}), seen))
+    assert client.get(PREFIX + "a/%2e%2e/b").status_code == 400
+    assert seen == []
+
+
+def test_unreachable_node_is_503() -> None:
+    test_unreachable_is_503()
+
+
+def test_not_configured_is_404() -> None:
+    test_unconfigured_is_404()
