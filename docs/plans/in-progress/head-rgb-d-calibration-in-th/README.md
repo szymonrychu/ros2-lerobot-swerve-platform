@@ -1,7 +1,7 @@
 ---
 title: Head RGB-D calibration in the web UI Calibrate page
 blockers: []
-stage: build
+stage: review
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-19
