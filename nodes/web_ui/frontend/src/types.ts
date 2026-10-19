@@ -50,6 +50,14 @@ export interface TabConfig {
   local_costmap_topic?: string // map/costmap payload (png_b64 + placement) in map_frame, drawn above the SLAM map
   obstacle_cloud_topic?: string // ToF obstacle cloud (PointCloud2 payload + frame_pose), subscribed only while the 3D obstacles layer is on
   scan_points_topic?: string // lidar scan points (LaserScan payload + frame_pose), subscribed with the obstacle cloud
+  map3d_cloud_topic?: string // RTAB-Map 3D map payload (map3d_cloud), subscribed only while the 3D map layer is on
+  map3d_status_topic?: string // map3d manager status (JSON String)
+  map3d_result_topic?: string // map3d command results (JSON String)
+  map3d_command_topic?: string // map3d commands (save, reset, ...)
+  map3d_frame_id?: string // the only frame the 3D map layer accepts (drawn in the map frame)
+  map3d_max_points?: number // backend cap of points sent to a browser
+  map3d_voxel_m?: number // starting voxel edge of the cloud in metres
+  lidar_wall_height_m?: number // height SLAM map walls are extruded to where no depth was measured
   base_urdf?: string // swerve base URDF under /api/urdf/, placed at /web_ui/robot_pose
   base_joint_states_topic?: string // sensor_msgs/JointState driving the base URDF (wheel steer/drive)
   arm_urdf?: string // arm URDF under /api/urdf/
@@ -142,4 +150,29 @@ export interface MapStatus {
   active_map: string | null
   load_seq: number
   localisation: MapLocalisation
+}
+
+/** map3d_cloud payload (web_ui.cloud_serializer.serialize_map3d_cloud): little-endian int16 centimetres and uint8 rgb, base64. */
+export interface Map3dCloudPayload {
+  frame_id: string
+  stamp: number
+  count: number
+  source_count: number
+  voxel_m: number
+  dropped_out_of_range: number
+  points_b64: string
+  colors_b64?: string
+}
+
+/** map3d_status payload: the map3d manager status JSON. */
+export interface Map3dStatusPayload {
+  [key: string]: unknown
+}
+
+/** map3d_result payload: the result of one map3d command, matched by request_id. */
+export interface Map3dResultPayload {
+  request_id?: string
+  ok?: boolean
+  error?: string
+  [key: string]: unknown
 }

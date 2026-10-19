@@ -27,9 +27,10 @@ export function tabTopics(t: TabConfig): string[] {
 /**
  * Topics the backend should serialize for this client: everything the app reads (fixed topics, battery, GPS,
  * overlays and tab topics), except the topics only an inactive image tab (camera, RGBD, head) shows.
- * The 3D obstacle topics of the active map tab are added only while obstacles3d (its layer) is on.
+ * The 3D obstacle topics of the active map tab are added only while obstacles3d (its layer) is on, the map3d cloud
+ * topic only while map3dCloud is on.
  */
-export function subscribedTopics(config: AppConfig, active: TabConfig | undefined, obstacles3d = false): string[] {
+export function subscribedTopics(config: AppConfig, active: TabConfig | undefined, obstacles3d = false, map3dCloud = false): string[] {
   const topics = new Set<string>(ALWAYS_TOPICS)
   config.overlays.forEach((o) => topics.add(o.topic))
   if (config.battery?.topic) topics.add(config.battery.topic)
@@ -39,6 +40,12 @@ export function subscribedTopics(config: AppConfig, active: TabConfig | undefine
   }
   if (obstacles3d && active?.type === 'map_nav') {
     for (const f of LAYER_TOPIC_FIELDS.obstacles3d ?? []) {
+      const topic = active[f]
+      if (typeof topic === 'string' && topic) topics.add(topic)
+    }
+  }
+  if (map3dCloud && active?.type === 'map_nav') {
+    for (const f of LAYER_TOPIC_FIELDS.map3dCloud ?? []) {
       const topic = active[f]
       if (typeof topic === 'string' && topic) topics.add(topic)
     }

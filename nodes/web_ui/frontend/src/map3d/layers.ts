@@ -20,6 +20,8 @@ export const LAYER_KEYS = [
   'pois',
   'photos',
   'obstacles3d',
+  'map3dCloud',
+  'lidarWalls',
 ] as const
 
 export type LayerKey = (typeof LAYER_KEYS)[number]
@@ -47,11 +49,14 @@ export const LAYER_LABELS: Record<LayerKey, string> = {
   pois: 'POIs',
   photos: 'Photos',
   obstacles3d: '3D obstacles (ToF + lidar)',
+  map3dCloud: '3D map (measured)',
+  lidarWalls: 'Lidar walls (2D only)',
 }
 
 /** Tab config fields naming the topics a layer needs; they are subscribed only while the layer is on. */
 export const LAYER_TOPIC_FIELDS: Partial<Record<LayerKey, readonly (keyof TabConfig)[]>> = {
   obstacles3d: ['obstacle_cloud_topic', 'scan_points_topic'],
+  map3dCloud: ['map3d_cloud_topic'],
 }
 
 /**
