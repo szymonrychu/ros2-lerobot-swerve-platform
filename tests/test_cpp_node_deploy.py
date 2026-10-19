@@ -46,6 +46,9 @@ METRICS_PORTS = {"map_guard_cpp": 19110}
 # _cpp types without a Python counterpart: head_camera_cpp builds the pinned libcamera first, then the two local trees.
 STANDALONE_CPP_TYPES = ("head_camera_cpp", "head_rgbd_cpp")
 ALL_CPP_TYPES = tuple(sorted([*CPP_TYPES, *STANDALONE_CPP_TYPES]))
+# In-repo C++ node types of the server (ansible/group_vars/server.yml), same two local sources.
+SERVER_VARS = ANSIBLE_DIR / "group_vars" / "server.yml"
+SERVER_CPP_TYPES = ("map3d_manager_cpp",)
 # rosdep keys of system (non-ROS) dependencies -> their Ubuntu 24.04 apt package.
 ROSDEP_APT = {
     "yaml-cpp": "libyaml-cpp-dev",
@@ -532,3 +535,15 @@ def test_docs_describe_the_local_source_build_and_the_cpp_nodes() -> None:
     for path in (NODES_README, DEPLOY_SKILL):
         text = path.read_text()
         assert "map_guard_cpp" in text, path.name
+
+
+@pytest.mark.parametrize("cpp_type", SERVER_CPP_TYPES)
+def test_server_cpp_node_builds_two_local_sources_and_covers_their_package_xml(cpp_type: str) -> None:
+    """The server's in-repo C++ node: ros2_common_cpp then the node, apt covers both package.xml files."""
+    entry = load(SERVER_VARS)["ros2_node_type_defaults"][cpp_type]
+    sources = entry["colcon_source"]
+    assert [s["local"] for s in sources] == [COMMON_SOURCE["local"], f"nodes/{cpp_type}"]
+    local_packages = {s["package"] for s in sources}
+    for source in sources:
+        missing = package_xml_apt_names(REPO_ROOT / source["local"] / "package.xml", local_packages)
+        assert not missing - set(entry["apt_packages"]), (source["package"], sorted(missing))
