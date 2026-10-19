@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Map3dCloudPayload } from '../types'
+import log from '../logging'
 import { decodeMap3dCloud } from './cloudDecode'
 
 vi.mock('../logging', () => ({ default: { warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
@@ -53,5 +54,35 @@ describe('decodeMap3dCloud', () => {
   it('rejects non-payloads', () => {
     expect(decodeMap3dCloud(null, 'rtabmap_map')).toBeNull()
     expect(decodeMap3dCloud({ count: 1 }, 'rtabmap_map')).toBeNull()
+  })
+
+  describe('rejection logging', () => {
+    beforeEach(() => {
+      vi.mocked(log.warn).mockClear()
+    })
+
+    it('logs a foreign frame once, however often it repeats', async () => {
+      vi.resetModules()
+      const fresh = await import('./cloudDecode')
+      const warn = (await import('../logging')).default.warn as ReturnType<typeof vi.fn>
+      warn.mockClear()
+      const bad = build([1, 2, 3], undefined, { frame_id: 'map' })
+      expect(fresh.decodeMap3dCloud(bad, 'rtabmap_map')).toBeNull()
+      expect(fresh.decodeMap3dCloud(bad, 'rtabmap_map')).toBeNull()
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0][0])).toContain('frame')
+    })
+
+    it('logs a byte-length mismatch once', async () => {
+      vi.resetModules()
+      const fresh = await import('./cloudDecode')
+      const warn = (await import('../logging')).default.warn as ReturnType<typeof vi.fn>
+      warn.mockClear()
+      const bad = build([1, 2, 3, 4, 5, 6], undefined, { count: 3 })
+      expect(fresh.decodeMap3dCloud(bad, 'rtabmap_map')).toBeNull()
+      expect(fresh.decodeMap3dCloud(bad, 'rtabmap_map')).toBeNull()
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0][0])).toContain('do not match count')
+    })
   })
 })
