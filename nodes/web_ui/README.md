@@ -485,6 +485,14 @@ Key fields (map_nav fields are listed in the Map tab section):
 - `tabs`: list of tab configs
 - `overlays`: list of bottom-bar overlay items
 
+## Model downloads
+
+With `models_dir` set (client.yml: `{{ ros2_repo_dest }}/models`, the repo's `models/` dir) the printable model files
+are served as they are, nothing is generated:
+- `GET /api/models` returns `{files: [{name, size, url}]}`, the PDF and 3MF files directly inside `models_dir`, sorted by name.
+- `GET /models/{name}` downloads one of them (`application/pdf` or `model/3mf`, `Content-Disposition: attachment`).
+  Any other name, file type or path answers `404`. Without `models_dir` both routes answer `404`.
+
 ## Calibrate page (hidden)
 
 Enabled only when the config has a `calibration` block; without it every `/api/calibration/*` route answers

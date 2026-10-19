@@ -544,6 +544,7 @@ class AppConfig(BaseModel):
     battery: BatteryConfig | None = None  # absent: battery features off, nothing blocked
     gps_status: GpsStatusConfig | None = None  # absent: no GPS status chips
     calibration: CalibrationConfig | None = None  # absent: the Calibrate page is off, /api/calibration/* answers 404
+    models_dir: str | None = None  # printable PDF/3MF files served at /models/{name}; absent: /api/models answers 404
     # Nav goals are refused when the cached tilt guard state is older than this many seconds (the guard sends 1 Hz).
     tilt_guard_stale_s: float = Field(TILT_STALE_S_DEFAULT, gt=0)
 

@@ -1901,6 +1901,8 @@ ros2_nodes:
         imu_status_topic: /imu/calibration
         imu_save_service: /imu/calibration/save
         imu_reset_service: /imu/calibration/reset
+      # Printable model files (PDF, 3MF) from the repo checkout, served at /models/{name}, listed at /api/models.
+      models_dir: "{{ ros2_repo_dest }}/models"
       tabs:
         - id: map
           type: map_nav
