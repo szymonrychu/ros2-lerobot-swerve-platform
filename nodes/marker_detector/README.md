@@ -1,11 +1,12 @@
 # marker_detector
 
-Detects printed QR metadata markers in the head camera image and turns them into POIs with pose and metadata (design D8). This task provides the package skeleton, its own uv environment (modern `opencv-python-headless` and `zxing-cpp`, which must shadow Ubuntu's OpenCV 4.6 in the `--system-site-packages` venv) and the validated config.
+Detects printed QR metadata markers in the head camera image and turns them into POIs with pose and metadata (design D8). It has its own uv environment (modern `opencv-python-headless` and `zxing-cpp`, which must shadow Ubuntu's OpenCV 4.6 in the `--system-site-packages` venv), a validated config, a ROS-free pipeline and a thin rclpy node.
 
 ## Requirements
 
 - A calibrated `/head_camera/camera_info` (intrinsics are needed for pose).
-- Head TF from the camera frame to `map_frame`.
+- Head TF from the camera frame (the `camera_info` frame_id) to `map_frame`.
+- Optional: the registered ToF depth `/head_rgbd/depth/image_raw` (16UC1 mm) with its camera_info, used to settle planar pose ambiguity (`tof.enabled`).
 
 ## Inputs and outputs
 
@@ -64,3 +65,37 @@ Zoom thresholds must satisfy `target_module_px > min_module_px >= pose.min_modul
 - `marker_detector/decode.py`: `decode_frame(grey)` reads QR codes with zxing-cpp and validates payloads (invalid ones become `Rejection(reason="payload")`); corners are top-left, top-right, bottom-right, bottom-left in the symbol's own orientation. `find_undecoded(grey, decoded)` returns QR quads (OpenCV `QRCodeDetectorAruco`) that zxing did not decode, as zoom targets.
 - `marker_detector/synthetic.py`: `render_marker_scene`, `pose_facing`, `STREAM_K` render segno symbols through a pinhole camera for tests and the bench.
 - Measured limit: zxing decodes down to about 1.4 px/module sharp; blur sigma 1.6 px at that size defeats it. Heavy noise is where the Aruco finder still locates what zxing misses (`tests/test_decode.py`).
+
+## Pipeline
+
+`marker_detector/pipeline.py` (`MarkerPipeline`, no ROS) per frame: decode (zxing-cpp) -> pose (IPPE, 24 finder corners; when the two solutions are ambiguous and a depth frame lies within `tof.max_dt_s`, the ToF plane picks one, chooser `tof`) -> TF (map <- camera frame at the image stamp) -> `pose.min_confidence` gate -> one `upsert_marker` per accepted marker, a report, and (only with `zoom.auto_zoom`) at most one zoom request for a small decoded marker (module < `zoom.min_module_px`) or an undecoded QR quad. `process_frame` returns a `FrameOutput` (`commands`, `report`, `zoom_request`, `rejections`).
+
+Zoom stills (`zoom.process_stills`, from any requester) are paired with their result by `stamp_ns` and processed by `process_zoom` with intrinsics from the stream camera_info scaled to the result's `full` size, shifted by its `crop` origin and scaled by out/crop. ToF is not used for stills (the depth is registered to the stream image only). A still whose result has no `crop` is rejected (`zoom_geometry`).
+
+## Placeholder rules
+
+Nothing is sent without a real detection: no camera_info (or an all-zero K) -> nothing processed, one log line per state change; undecodable JPEG, invalid payload (`payload` rejection), failed or ambiguous pose, confidence below `pose.min_confidence` (`low_confidence`) or a failed TF lookup (`tf`) -> no command. A report is published only when at least one detection was accepted.
+
+## Topics and QoS
+
+| Topic | QoS |
+|---|---|
+| image, camera_info, depth, depth_info (in) | best effort, keep last 1 |
+| zoom_image, zoom_result (in) | reliable, keep last 4 |
+| `/poi/command` (out, String JSON `upsert_marker`) | reliable, keep last 20 |
+| `/markers/detections` (out, String JSON) | reliable, keep last 10 |
+| zoom_command (out) | reliable, keep last 10 |
+
+A timer at `process_hz` processes only the newest unprocessed stream frame. TF is looked up at the image stamp, waiting up to `tf_timeout_s`.
+
+## Report format
+
+`/markers/detections`: `{"stamp_ns": int, "source": "stream"|"zoom", "markers": [{"key", "payload", "position" [x,y,z] map m, "quaternion" [x,y,z,w], "rms_px", "ratio" (null when single solution), "confidence", "module_px", "chooser": "reprojection"|"tof"}]}`.
+
+## Metrics
+
+`marker_frames_processed_total{source}`, `marker_detections_accepted_total`, `marker_rejections_total{reason}` (payload, ambiguous, rms, module_too_small, behind_camera, pnp_failed, low_confidence, tf, image, zoom_geometry), `marker_zoom_requests_total{status}` (`sent` plus the result status of our requests), `marker_process_seconds{source}` histogram. Served by `ros2_metrics` on `metrics_port`.
+
+## Node tests
+
+`tests/test_pipeline.py` covers the pipeline on synthetic scenes (single marker, missing camera_info, TF failure, invalid payload, ToF disambiguation, zoom stills, auto zoom, confidence gate) and the node wiring with `tests/ros_stubs.py` stubbing rclpy, tf2_ros, sensor_msgs and std_msgs.
