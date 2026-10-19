@@ -1,0 +1,67 @@
+---
+title: RGBD capture section UI
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "Standing at the robot, the operator sees each pose land live with thumbnails and coverage, and prunes bad ones."
+files: [nodes/web_ui/frontend/src/calibrate/RgbdCalibration.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx, nodes/web_ui/frontend/src/calibrate/CoverageGrid.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx, nodes/web_ui/README.md]
+verify: "(cd nodes/web_ui/frontend && npx vitest run src/calibrate src/layout && npx tsc --noEmit && npm run lint)"
+depends_on: [rgbd-calib-frontend-api]
+owns: []
+uses: [rgbd-calib-frontend-api]
+model: ""
+estimate: 80
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# RGBD capture section UI
+
+## Requirement
+
+The capture part of the RGB-D section: live status, pose count, thumbnails with corners, delete, and coverage (design D10). The IMU section keeps working.
+
+- `CalibratePage.tsx`: `CalibrationConfig` gains `rgbd: boolean` (`body.rgbd === true`); renders `ImuCalibration` when `imu` and the new `RgbdCalibration` when `rgbd`.
+- New `RgbdCalibration.tsx`: section container holding the open session id; renders `RgbdCapture`.
+- New `RgbdCapture.tsx`: Start capture (new session) and Stop buttons (`TOUCH_TARGET_PX`); while a capture runs, an `Alert` with the status line (severity from `statusSeverity`), the pose count and the auto-stop time; `getState` polled every 1000 ms only while a capture runs and `document.visibilityState === 'visible'` (`visibilitychange` listener), interval cleared on stop and unmount; when `pose_count` changes the session detail is refetched; a thumbnail grid of the open session (RGB and ToF `img` per pose via `thumbnailUrl`, pose id, corner counts, a depth marker) with a delete `IconButton` opening `layout/ConfirmDialog`, then `deletePose` and a refresh; API errors shown in an error `Alert` with the server message.
+- New `CoverageGrid.tsx`: RGB and ToF grids (cells shaded by corner count, empty cells marked) and the text `N of M image areas without corners` from `emptyCells`.
+- Tests (`// @vitest-environment jsdom`, fetch stubbed with `vi.stubGlobal`): new `RgbdCapture.test.tsx` (start shows the status and count; a new pose's thumbnails appear; delete through the dialog calls DELETE and refreshes; polling stops on stop and while hidden; coverage hint text) and `CalibratePage.test.tsx` (both sections with `{imu: true, rgbd: true}`, IMU only with `rgbd: false`; existing assertions kept).
+- `src/layout/designRules.test.ts` and `hardcodedSizes.test.ts` stay green; `nodes/web_ui/README.md` test list updated (doc file).
+
+## Acceptance conditions
+
+- a1: the capture section shows live status, count and thumbnails and deletes through the dialog [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/calibrate/RgbdCapture.test.tsx]
+- a2: the page renders the IMU and RGB-D sections from the config flags [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/calibrate/CalibratePage.test.tsx src/calibrate/ImuCalibration.test.tsx src/calibrate/CalibrateRouting.test.tsx]
+- a3: design rules still hold [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/layout/designRules.test.ts src/layout/hardcodedSizes.test.ts]
+- a4: the frontend compiles and lints clean [evidence: command:cd nodes/web_ui/frontend && npx tsc --noEmit && npm run lint]
+
+## Files
+
+- `nodes/web_ui/frontend/src/calibrate/RgbdCalibration.tsx`
+- `nodes/web_ui/frontend/src/calibrate/RgbdCapture.tsx`
+- `nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx`
+- `nodes/web_ui/frontend/src/calibrate/CoverageGrid.tsx`
+- `nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx`
+- `nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx`
+- `nodes/web_ui/README.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
