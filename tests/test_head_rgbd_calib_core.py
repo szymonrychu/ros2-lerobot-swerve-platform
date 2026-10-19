@@ -263,7 +263,7 @@ def single_thread_cv2() -> Iterator[None]:
 
 
 @pytest.mark.usefixtures("single_thread_cv2")
-def test_calibrate_detections_equals_run_calibration() -> None:
+def test_calibrate_detections_matches_run_calibration() -> None:
     cfg = load_calibration_config(DEFAULT_CONFIG)
     frames = scene_frames()
     expected = run_calibration(frames, cfg)
@@ -292,7 +292,7 @@ def test_calibrate_detections_requires_tof_info() -> None:
         calibrate_detections([], (1, 1), (1, 1), None, cfg.board, cfg.limits)
 
 
-def test_failed_limits_names_each_exceeded_key() -> None:
+def test_failed_limits_names_limit_keys() -> None:
     run = fixed_run()
     assert failed_limits(run, LimitsConfig()) == []
     tight = LimitsConfig(rgb_max_rms_px=0.1, tof_max_rms_px=0.05, stereo_max_rms_px=0.5)
@@ -305,6 +305,6 @@ def test_failed_limits_names_each_exceeded_key() -> None:
     assert failures[0] == "limits.rgb_max_rms_px: RGB RMS 0.250 px exceeds 0.1 px"
 
 
-def test_report_markdown_matches_golden() -> None:
+def test_report_markdown_golden() -> None:
     text = report_markdown(fixed_run(), LimitsConfig(), "calib-test", 4.5, "2026-01-02T03:04:05")
     assert text == GOLDEN_REPORT
