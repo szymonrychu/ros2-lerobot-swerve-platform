@@ -9,7 +9,7 @@ four std_msgs/String topics carrying JSON. It also owns the photo index (photo P
 | Field | Type | Notes |
 |---|---|---|
 | `id` | str | uuid4 hex (32 chars), assigned by the store on add |
-| `kind` | `"point"`, `"area"` or `"object"` | an object is a remembered object: point-like (no polygon), `name` is its label. Kind `"photo"` exists only in the photo store (see "Photo POIs") |
+| `kind` | `"point"`, `"area"`, `"object"` or `"marker"` | an object is a remembered object: point-like (no polygon), `name` is its label. Kind `"photo"` exists only in the photo store (see "Photo POIs") |
 | `frame` | `"map"` | always |
 | `x`, `y` | float | point position; for an area the polygon centroid (computed by the store) |
 | `polygon` | `[[x, y], ...]` | area only, >= 3 vertices; `[]` for a point |
@@ -19,9 +19,12 @@ four std_msgs/String topics carrying JSON. It also owns the photo index (photo P
 | `status` | `"open"`, `"done"`, `"cancelled"` | default `open` |
 | `created_by` | `"agent"` or `"user"` | |
 | `created_at`, `updated_at` | float | unix seconds, set by the store |
-| `times_seen` | int >= 0 | objects: sighting count (0 for other kinds) |
-| `first_seen`, `last_seen` | float | objects: unix seconds of the first / latest sighting (0 for other kinds) |
-| `confidence` | float 0..1 | objects: how sure the sighting was (default 1) |
+| `z` | float | height above the map plane, m (markers; 0 for other kinds) |
+| `orientation` | `[qx, qy, qz, qw]` or null | markers: required, unit quaternion in the map frame (norm within 0.01 of 1, normalised on load); null for every other kind |
+| `marker` | object or null | markers: required `MarkerInfo` (`ros2_common.marker_payload`): `kind`, `id`, `key`, `size_mm`, `params` (str to str), `payload`, `version`, `pose_samples` (int >= 0); must be null for every other kind |
+| `times_seen` | int >= 0 | objects and markers: sighting count (0 for other kinds) |
+| `first_seen`, `last_seen` | float | objects and markers: unix seconds of the first / latest sighting (0 for other kinds) |
+| `confidence` | float 0..1 | objects and markers: how sure the sighting was (default 1) |
 | `zone` | `"none"`, `"keepout"` or `"slow"` | default `none`; non-`none` only for `kind` `area` (otherwise rejected) |
 | `speed_limit_pct` | int 10..100 or `null` | required when `zone` is `slow`; any other zone normalises it to `null` |
 
@@ -29,7 +32,7 @@ An update that sets `zone` to `slow` without a `speed_limit_pct` (neither sent n
 
 A zone is active when `kind` is `area`, `zone` is not `none` and `status` is `open`; `done` or `cancelled` disables it but keeps the record. The `costmap_zones` node consumes the active zones from `/poi/list` and turns them into Nav2 keepout and speed masks.
 
-All numbers must be finite. Files written before `object` existed load unchanged (the new fields take their defaults); the same holds for files written before `zone` existed.
+All numbers must be finite. Files written before `object` existed load unchanged (the new fields take their defaults); the same holds for files written before `zone` existed and before `z`, `orientation` and `marker` existed (z 0, no orientation, no marker). A marker is point-like: it has no polygon and no zone, and the sighting fields (`times_seen`, `first_seen`, `last_seen`, `confidence`) apply to it as to an object. The model has no `category` field; the POI `kind` and `marker.kind` are the only classification.
 
 ## Topics
 
@@ -237,4 +240,4 @@ Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Be
   store, 500-photo export + replace under 2 s), `test_photo_cleanup.py` (clear removes photos and JPEGs by the POI filters, counts, rollback), `test_clear_filters.py` (clear by creator/kind/zone/ids/status filters), `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear removes
   matching photos and JPEGs and strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore), `test_photo_store_sync.py` (export, replace_all),
   `test_node_photos.py` (`/poi/photos` publishing, missing/unreadable directory, prune timer; rclpy stubbed via
-  `ros_stubs.py`), `test_shutdown.py`, `test_config.py`, `test_metrics.py`, `test_zone_models.py`.
+  `ros_stubs.py`), `test_shutdown.py`, `test_config.py`, `test_metrics.py`, `test_zone_models.py`, `test_marker_model.py` (marker kind, pose, MarkerInfo, legacy loading).

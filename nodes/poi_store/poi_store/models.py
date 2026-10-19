@@ -1,10 +1,12 @@
 """Pydantic models of the POI contract (map frame) and of the /poi/command messages."""
 
+import math
 import re
 from pathlib import PurePath
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from ros2_common.marker_payload import MarkerInfo
 from ros2_common.photos import PhotoSelector
 
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -18,6 +20,7 @@ ZONE_KEEPOUT = "keepout"
 ZONE_SLOW = "slow"
 MIN_SPEED_LIMIT_PCT = 10
 MAX_SPEED_LIMIT_PCT = 100
+QUATERNION_NORM_TOLERANCE = 0.01
 
 Coordinate = Annotated[float, Field(allow_inf_nan=False)]
 Timestamp = Annotated[float, Field(allow_inf_nan=False, ge=0)]
@@ -52,10 +55,15 @@ class Poi(BaseModel):
 
     Attributes:
         id: uuid4 hex; empty only before the store assigns it.
-        kind: "point", "area" or "object" (a remembered object: a point-like POI with sighting fields).
+        kind: "point", "area", "object" (a remembered object: a point-like POI with sighting fields) or "marker"
+            (a detected printed marker: a point-like POI with pose, MarkerInfo and sighting fields).
         frame: Always "map".
         x: Point position, or the polygon centroid for an area (computed), m.
         y: As x.
+        z: Height above the map plane, m (markers; 0 for other kinds).
+        orientation: Markers: unit quaternion [qx, qy, qz, qw] in the map frame (normalised); None for other kinds.
+        marker: Markers: decoded MarkerInfo (kind, id, key, size_mm, params, payload, version, pose_samples); None for
+            other kinds.
         polygon: Area vertices [[x, y], ...] (>= 3); empty for a point.
         radius_m: Point radius, m (> 0); kept at the default for an area.
         name: Short label.
@@ -64,10 +72,10 @@ class Poi(BaseModel):
         created_by: "agent" or "user".
         created_at: Unix seconds; 0 before the store assigns it.
         updated_at: Unix seconds; 0 before the store assigns it.
-        times_seen: Objects: how often it was sighted (0 for other kinds).
-        first_seen: Objects: unix seconds of the first sighting (0 for other kinds).
-        last_seen: Objects: unix seconds of the latest sighting (0 for other kinds).
-        confidence: Objects: how sure the sighting was, 0..1 (1 for other kinds).
+        times_seen: Objects and markers: how often it was sighted (0 for other kinds).
+        first_seen: Objects and markers: unix seconds of the first sighting (0 for other kinds).
+        last_seen: Objects and markers: unix seconds of the latest sighting (0 for other kinds).
+        confidence: Objects and markers: how sure the sighting was, 0..1 (1 for other kinds).
         zone: Areas only: "none", "keepout" (no entry) or "slow" (speed cap). Active only while status is "open".
         speed_limit_pct: Zone "slow": speed cap in percent (10..100, required); None for every other zone.
     """
@@ -75,10 +83,13 @@ class Poi(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str = ""
-    kind: Literal["point", "area", "object"]
+    kind: Literal["point", "area", "object", "marker"]
     frame: Literal["map"] = "map"
     x: Coordinate = 0.0
     y: Coordinate = 0.0
+    z: Coordinate = 0.0
+    orientation: tuple[Coordinate, Coordinate, Coordinate, Coordinate] | None = None
+    marker: MarkerInfo | None = None
     polygon: list[tuple[Coordinate, Coordinate]] = Field(default_factory=list)
     radius_m: Annotated[float, Field(allow_inf_nan=False, gt=0)] = DEFAULT_RADIUS_M
     name: str = Field(default="", max_length=MAX_NAME_LEN)
@@ -140,6 +151,30 @@ class Poi(BaseModel):
                 raise ValueError("zone 'slow' needs speed_limit_pct")
         else:
             self.speed_limit_pct = None
+        return self
+
+    @model_validator(mode="after")
+    def check_marker(self) -> "Poi":
+        """Enforce the marker rules: a marker needs marker info and a unit quaternion (normalised); any other
+        kind has neither.
+
+        Returns:
+            Poi: Self.
+        """
+        if self.kind != "marker":
+            if self.marker is not None:
+                raise ValueError("marker is only allowed for kind 'marker'")
+            self.orientation = None
+            return self
+        if self.marker is None:
+            raise ValueError("kind 'marker' needs marker")
+        if self.orientation is None:
+            raise ValueError("kind 'marker' needs orientation [qx, qy, qz, qw]")
+        norm = math.sqrt(sum(c * c for c in self.orientation))
+        if abs(norm - 1.0) > QUATERNION_NORM_TOLERANCE:
+            raise ValueError(f"orientation must be a unit quaternion (norm {norm:.4f})")
+        qx, qy, qz, qw = (c / norm for c in self.orientation)
+        self.orientation = (qx, qy, qz, qw)
         return self
 
     def to_json_dict(self) -> dict[str, Any]:
