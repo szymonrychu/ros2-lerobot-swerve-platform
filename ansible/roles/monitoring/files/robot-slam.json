@@ -1085,6 +1085,284 @@
           "legendFormat": "rx"
         }
       ]
+    },
+    {
+      "type": "row",
+      "title": "3D mapping",
+      "id": 25,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "3D mapping server unit CPU",
+      "id": 26,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "CPU cores used per 3D mapping unit on the server (cgroup).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 69
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{host=\"server\", id=~\"/system\\\\.slice/ros2-(rtabmap_mapping|map3d_manager)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "3D mapping server unit memory",
+      "id": 27,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Working-set memory per 3D mapping unit on the server (cgroup).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 69
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(container_memory_working_set_bytes{host=\"server\", id=~\"/system\\\\.slice/ros2-(rtabmap_mapping|map3d_manager)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Map3d uplink client CPU",
+      "id": 28,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "CPU cores used by the uplink and head camera units on the client (cgroup).",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 77
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{host=\"client\", id=~\"/system\\\\.slice/ros2-(map3d_uplink|head_rgbd_cpp|head_camera_cpp)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Server memory available",
+      "id": 29,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "MemAvailable on the server; the budget the mapping must not eat.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 77
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "node_memory_MemAvailable_bytes{host=\"server\"}",
+          "legendFormat": "available"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "WiFi throughput",
+      "id": 30,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "WiFi bit/s per host; the line is the contract uplink_mbit_s_max (8 Mbit/s).",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 77
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 8000000
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "rate(node_network_transmit_bytes_total{host=\"client\", device=~\"wlan.*\"}[1m])*8",
+          "legendFormat": "client tx"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "rate(node_network_transmit_bytes_total{host=\"server\", device=~\"wlan.*\"}[1m])*8",
+          "legendFormat": "server tx"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "C",
+          "expr": "rate(node_network_receive_bytes_total{host=\"client\", device=~\"wlan.*\"}[1m])*8",
+          "legendFormat": "client rx"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "D",
+          "expr": "rate(node_network_receive_bytes_total{host=\"server\", device=~\"wlan.*\"}[1m])*8",
+          "legendFormat": "server rx"
+        }
+      ]
     }
   ]
 }
