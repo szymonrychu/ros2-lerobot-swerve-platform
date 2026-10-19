@@ -58,3 +58,9 @@ Zoom thresholds must satisfy `target_module_px > min_module_px >= pose.min_modul
 ## Tests
 
 `uv run --frozen pytest tests/ -q`. `tests/test_config.py` covers config defaults/validation and checks the venv imports OpenCV >= 4.8 and zxing-cpp.
+
+## Decode and synthetic scenes
+
+- `marker_detector/decode.py`: `decode_frame(grey)` reads QR codes with zxing-cpp and validates payloads (invalid ones become `Rejection(reason="payload")`); corners are top-left, top-right, bottom-right, bottom-left in the symbol's own orientation. `find_undecoded(grey, decoded)` returns QR quads (OpenCV `QRCodeDetectorAruco`) that zxing did not decode, as zoom targets.
+- `marker_detector/synthetic.py`: `render_marker_scene`, `pose_facing`, `STREAM_K` render segno symbols through a pinhole camera for tests and the bench.
+- Measured limit: zxing decodes down to about 1.4 px/module sharp; blur sigma 1.6 px at that size defeats it. Heavy noise is where the Aruco finder still locates what zxing misses (`tests/test_decode.py`).
