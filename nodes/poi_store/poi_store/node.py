@@ -35,7 +35,7 @@ def run_node(config: PoiStoreConfig) -> None:
     rclpy.init()
     node = Node("poi_store")
     photos = PhotoStore.from_settings(config.photos, clock=time.time)
-    store = PoiStore(config.store_path, photos=photos)
+    store = PoiStore(config.store_path, photos=photos, markers=config.markers)
     list_pub = node.create_publisher(String, config.list_topic, LATCHED_QOS)
     photos_pub = node.create_publisher(String, config.photos.summary_topic, LATCHED_QOS)
     result_pub = node.create_publisher(String, config.result_topic, VOLATILE_QOS)
