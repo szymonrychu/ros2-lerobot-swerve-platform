@@ -2793,7 +2793,7 @@ Retirement pin for the ssh-streamed live pose counter (replaced by the web UI Ca
 
 | Test | What it checks |
 |---|---|
-| `test_removed_files_are_not_tracked` | `git ls-files` returns nothing for the removed `live.py`, `live_relay.py` and the retired live test file. |
+| `test_removed_files_are_not_tracked` | `git ls-files` returns nothing for the three removed live-counter files (counter, relay script and their test file). |
 | `test_no_tracked_reference_to_the_live_counter` | `git grep` finds no relay script name, start function or dotted config key of the live counter under `scripts/` and `tests/` (this file excluded). |
 | `test_capture_config_has_no_live_field` | `CaptureConfig` has no `live` attribute. |
 | `test_config_still_setting_live_fails_naming_it` | A config that still sets the old `live` key under `capture` fails validation and the message names `live`. |
