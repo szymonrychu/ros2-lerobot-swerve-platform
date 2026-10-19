@@ -28,5 +28,15 @@
       "printable-metadata-markers-t"
     ],
     "note": "/poi/list carries photo POIs (photo_as_poi form, x/y may be null) after non-photo POIs; one revision"
+  },
+  {
+    "name": "head-rgbd-applied-calibration",
+    "kind": "config",
+    "owner": "head-rgb-d-calibration-in-th",
+    "file": "ansible/group_vars/client.yml",
+    "consumers": [
+      "head-rgb-d-fusion-of-camera"
+    ],
+    "note": "head_camera_cpp camera_info_file and head_rgbd_cpp tof_calibration_file point at /var/lib/ros2/head_rgbd_calibration/applied/*; committed repo calibration files only seed an empty applied/ (force: false); head_rgbd_cpp config_files entry removed; owner task head-nodes-use-applied-calib"
   }
 ]
