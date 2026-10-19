@@ -74,7 +74,7 @@ def textured_frame(seed: int, shape: tuple[int, int] = (120, 160)) -> np.ndarray
     return cv2.cvtColor(np.rint(grey).astype(np.uint8), cv2.COLOR_GRAY2BGR)
 
 
-def test_core_still_pairs_selects_one_pair_per_still_window() -> None:
+def test_core_still_pairs_one_pair_per_window() -> None:
     still_a, still_b = textured_frame(1), textured_frame(2)
     amp_still = np.full((18, 24), 1000, dtype=np.uint16)
     amp_still[:, :12] = 3000
@@ -96,7 +96,7 @@ def test_core_still_pairs_selects_one_pair_per_still_window() -> None:
     assert 8 * NS <= pairs[1].rgb_stamp_ns < 11 * NS
 
 
-def test_core_rgb_difference_ignores_per_row_gain_flicker() -> None:
+def test_core_rgb_difference_ignores_flicker_bands() -> None:
     a = cv2.cvtColor(textured_frame(3), cv2.COLOR_BGR2GRAY)
     rows = np.arange(a.shape[0])
     gain = 1 + FLICKER_AMPLITUDE * np.sin(2 * np.pi * rows / FLICKER_PERIOD_ROWS)
@@ -105,7 +105,7 @@ def test_core_rgb_difference_ignores_per_row_gain_flicker() -> None:
     assert rgb_difference(a, b) < 1.0
 
 
-def test_core_intrinsics_calibrate_recovers_synthetic_camera() -> None:
+def test_core_intrinsics_recover_synthetic_camera() -> None:
     cfg = BoardConfig()
     camera = rgb_camera()
     board = core_charuco.make_board(cfg)

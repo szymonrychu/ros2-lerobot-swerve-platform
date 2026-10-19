@@ -1,4 +1,4 @@
-"""Transitional re-export of the core intrinsics names for importers of the scripts package."""
+"""Re-export of the core intrinsics names for importers of the scripts package."""
 
 from ros2_common.head_rgbd_calibration.intrinsics import (
     DISTORTION_COEFFS,
