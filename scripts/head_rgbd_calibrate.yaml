@@ -42,7 +42,7 @@ board:
   dictionary: DICT_5X5_100
 selection:
   still_window_s: 0.5
-  still_rgb_mad: 2.0 # mean abs difference between consecutive frames, 8-bit grey levels
+  still_rgb_mad: 2.0 # mean abs difference between consecutive frames, 8-bit grey levels, mains flicker removed (frames.rgb_difference)
   still_tof_mad: 0.01 # same, as a fraction of the amplitude range
   max_pair_dt_s: 0.05
   skip_start_s: 2.0 # focus lock settling

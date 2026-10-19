@@ -17,6 +17,7 @@ NS_PER_S = 1_000_000_000
 BAG_STORAGE = "sqlite3"
 STEP_NAMES = ("record", "copy", "remove")
 MAX_UINT8 = 255
+RGB_DIFF_BLUR_SIGMA = 1.0  # px; suppresses sensor and JPEG noise before comparing frames
 
 TYPESTORE = get_typestore(Stores.ROS2_JAZZY)
 
@@ -232,6 +233,29 @@ def mean_abs_diff(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.mean(np.abs(a.astype(np.float64) - b.astype(np.float64))))
 
 
+def rgb_difference(a: np.ndarray, b: np.ndarray) -> float:
+    """Mean absolute difference of two grey frames with mains flicker removed (inf if the shapes differ).
+
+    Under mains lighting the rolling shutter paints moving horizontal bands, so a still scene differs by several
+    grey levels between frames. Both frames are blurred by RGB_DIFF_BLUR_SIGMA, b is compared with a scaled row by
+    row by the ratio of their row means, and the mean absolute residual is returned.
+
+    Args:
+        a: Earlier uint8 grey frame.
+        b: Later uint8 grey frame.
+
+    Returns:
+        The flicker-compensated mean absolute difference in grey levels.
+    """
+    if a.shape != b.shape:
+        return float("inf")
+    a_blur = cv2.GaussianBlur(a.astype(np.float64), (0, 0), RGB_DIFF_BLUR_SIGMA)
+    b_blur = cv2.GaussianBlur(b.astype(np.float64), (0, 0), RGB_DIFF_BLUR_SIGMA)
+    a_rows = a_blur.mean(axis=1, keepdims=True)
+    gain = np.divide(b_blur.mean(axis=1, keepdims=True), a_rows, out=np.ones_like(a_rows), where=a_rows > 0)
+    return float(np.mean(np.abs(b_blur - a_blur * gain)))
+
+
 def tof_diff_fraction(a: np.ndarray, b: np.ndarray) -> float:
     """Mean absolute amplitude difference as a fraction of the amplitude range; inf for an empty frame."""
     amp_range = float(max(a.max(), b.max())) - float(min(a.min(), b.min()))
@@ -250,7 +274,7 @@ def nearest_index(stamps: np.ndarray, target: int) -> int:
 def still_pairs(frames: FrameSet, sel: SelectionConfig) -> list[FramePair]:
     """Select one RGB and ToF pair per still window.
 
-    An RGB frame is still when it differs from the previous RGB frame by less than sel.still_rgb_mad grey levels and
+    An RGB frame is still when its rgb_difference to the previous RGB frame is below sel.still_rgb_mad grey levels and
     every consecutive ToF amplitude pair within sel.still_window_s before it differs by less than sel.still_tof_mad
     (fraction of the amplitude range). Consecutive still frames form a window; its middle frame is paired with the
     nearest ToF amplitude within sel.max_pair_dt_s. Frames in the first sel.skip_start_s are ignored.
@@ -277,7 +301,7 @@ def still_pairs(frames: FrameSet, sel: SelectionConfig) -> list[FramePair]:
 
     def is_still(i: int) -> bool:
         rgb_ns = frames.rgb[i].stamp_ns
-        if rgb_ns < first_ns or i == 0 or mean_abs_diff(grey[i - 1], grey[i]) >= sel.still_rgb_mad:
+        if rgb_ns < first_ns or i == 0 or rgb_difference(grey[i - 1], grey[i]) >= sel.still_rgb_mad:
             return False
         lo = int(np.searchsorted(amp_stamps, rgb_ns - window_ns))
         hi = int(np.searchsorted(amp_stamps, rgb_ns, side="right"))

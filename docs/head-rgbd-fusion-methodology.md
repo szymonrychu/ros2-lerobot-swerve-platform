@@ -51,7 +51,7 @@ so the ToF amplitude image shows the pattern, and gloss would cause specular sat
 `/tof/depth/image_raw`, `/tof/camera_info`, the mapping image and camera_info, `/tf`, `/tf_static`) and copies it to
 `.logs/head_rgbd/`. The operator holds the board still in 20-30 poses at 0.5-1.5 m, tilted up to 45 deg, covering the
 image corners, with the head at rest. Offline the tool keeps still windows (consecutive-frame difference under
-`still_rgb_mad` / `still_tof_mad` for `still_window_s` = 0.5 s in both cameras) and pairs RGB and ToF frames at most
+`still_rgb_mad`, the RGB one with the rolling-shutter mains flicker removed row by row, / `still_tof_mad` for `still_window_s` = 0.5 s in both cameras) and pairs RGB and ToF frames at most
 `max_pair_dt_s` = 50 ms apart; at least `min_views` = 12 pairs are required. Never move the board during a window.
 
 ### Intrinsics

@@ -2778,6 +2778,8 @@ Tests for `scripts/head_rgbd_calibration/live.py`, the live pose counter of `cap
 | `test_start_live_runs_the_relay_and_stop_reports_the_count` | `start_live` runs `relay_command`, pipes `live_relay.py` to it, and `stop()` terminates it and prints the total. |
 | `test_relay_command_runs_the_piped_script_bounded_by_the_capture` | ssh command sources ROS, exports the robot's CLI discovery environment, bounds the relay by the duration + 10 s and passes the header and topics. |
 | `test_relay_script_compiles_and_takes_header_and_topics_from_argv` | `live_relay.py` compiles and takes its arguments from argv with raw subscriptions. |
+| `test_counter_counts_a_still_board_under_mains_flicker` | Real flickering RGB frames of a still board (`fixtures/head_rgbd/rgb_flicker_*.png`) with a real ToF frame count one pose. |
+| `test_relay_keeps_native_stdout_writes_out_of_the_frame_stream` | With rclpy stubbed, a raw fd 1 write and a Python print after `frame_output()` land on stderr; only the frame bytes reach stdout. |
 | `test_live_is_on_by_default` | `capture.live` defaults to true. |
 
 ### `test_head_rgbd_calib_frames.py`
@@ -2794,6 +2796,8 @@ Tests for `scripts/head_rgbd_calibration` (config, capture commands, bag reading
 | `test_normalise_amplitude_*` | 1st/99th percentiles map to 0/255; an empty frame returns None. |
 | `test_read_frames_decodes_everything` | Decoded RGB, amplitude, depth, stamps and camera infos. |
 | `test_still_pairs_two_windows`, `test_still_pairs_ignores_skip_start`, `test_still_pairs_none_when_always_moving` | Two still windows give two pairs with dt <= 50 ms; the first `skip_start_s` is ignored; constant motion gives none. |
+| `test_rgb_difference_ignores_mains_flicker_of_a_still_scene`, `test_rgb_difference_sees_the_board_move_one_pixel` | On two real flickering frames of a still board the plain difference exceeds 2x `still_rgb_mad` while `rgb_difference` stays under 0.8x; moving only the board by 1 px exceeds it. |
+| `test_still_pairs_finds_a_still_board_under_flicker` | Alternating real flickering frames with a still ToF give one pair. |
 
 ### `test_head_rgbd_validate.py`
 

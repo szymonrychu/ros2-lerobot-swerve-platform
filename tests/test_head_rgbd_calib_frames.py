@@ -19,11 +19,15 @@ from scripts.head_rgbd_calibration.config import (
     load_calibration_config,
 )
 from scripts.head_rgbd_calibration.frames import (
+    FrameSet,
+    StampedImage,
     TopicNames,
     capture_bag,
     capture_commands,
+    mean_abs_diff,
     normalise_amplitude,
     read_frames,
+    rgb_difference,
     still_pairs,
 )
 from scripts.markers.config import load_generator_config
@@ -33,6 +37,10 @@ TYPESTORE = get_typestore(Stores.ROS2_JAZZY)
 TOF_SHAPE = (24, 32)
 RGB_SHAPE = (48, 64)
 TOPICS = TopicNames()
+FIXTURES = Path(__file__).parent / "fixtures" / "head_rgbd"
+# two consecutive mapping frames of a still board under mains lighting (rolling-shutter flicker bands)
+FLICKER_FRAMES = [FIXTURES / f"rgb_flicker_{k}.png" for k in range(2)]
+BOARD_BOX = (slice(35, 265), slice(160, 352))  # rows, columns of the board in the flicker frames
 
 
 def test_defaults_load_from_shipped_yaml() -> None:
@@ -286,3 +294,37 @@ def test_still_pairs_none_when_always_moving(tmp_path: Path) -> None:
     bag = tmp_path / "bag"
     write_bag(bag, [])
     assert still_pairs(read_frames(bag, TOPICS), SelectionConfig()) == []
+
+
+def flicker_frames() -> list[np.ndarray]:
+    return [cv2.imread(str(path)) for path in FLICKER_FRAMES]
+
+
+def grey(image: np.ndarray) -> np.ndarray:
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+
+def test_rgb_difference_ignores_mains_flicker_of_a_still_scene() -> None:
+    a, b = (grey(f) for f in flicker_frames())
+    threshold = SelectionConfig().still_rgb_mad
+    assert mean_abs_diff(a, b) > 2 * threshold  # the plain difference calls the still board moving
+    assert rgb_difference(a, b) < 0.8 * threshold
+
+
+def test_rgb_difference_sees_the_board_move_one_pixel() -> None:
+    a, b = (grey(f) for f in flicker_frames())
+    shifted = cv2.warpAffine(b, np.float32([[1, 0, 1], [0, 1, 0]]), b.shape[::-1], borderMode=cv2.BORDER_REFLECT)
+    moved = b.copy()
+    moved[BOARD_BOX] = shifted[BOARD_BOX]
+    assert rgb_difference(a, moved) > SelectionConfig().still_rgb_mad
+
+
+def test_still_pairs_finds_a_still_board_under_flicker() -> None:
+    rgb = flicker_frames()
+    amplitude = np.full(TOF_SHAPE, 1000, dtype=np.uint16)
+    amplitude[:, : TOF_SHAPE[1] // 2] = 3000
+    frames = FrameSet(
+        rgb=[StampedImage(i * 500_000_000 + 5_000_000, rgb[i % 2]) for i in range(10)],
+        amplitude=[StampedImage(i * 100_000_000, amplitude) for i in range(50)],
+    )
+    assert len(still_pairs(frames, SelectionConfig())) == 1

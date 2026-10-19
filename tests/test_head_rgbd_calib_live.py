@@ -2,7 +2,10 @@
 
 import io
 import struct
+import subprocess
+import sys
 from functools import cache
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -47,6 +50,24 @@ TIMELINE = [(0.0, 3.0, None), (3.0, 6.0, NEAR_M), (6.0, 7.0, None), (7.0, 10.0, 
 TIMELINE += [(11.0, 14.0, NEAR_M), (14.0, 15.0, None)]
 MOVE_STATUS = "moving"
 CLOSER_STATUS = "move closer"
+FIXTURES = Path(__file__).parent / "fixtures" / "head_rgbd"
+# a relay run with rclpy and sensor_msgs stubbed: a native library writing a log line to fd 1 after the relay
+# claimed its frame output (Fast DDS logs SHM port errors to stdout)
+RELAY_STDOUT_PROBE = """
+import os, sys, types
+for name in ("rclpy", "rclpy.executors", "rclpy.qos", "sensor_msgs", "sensor_msgs.msg"):
+    sys.modules[name] = types.ModuleType(name)
+sys.modules["rclpy.executors"].ExternalShutdownException = Exception
+sys.modules["rclpy.qos"].qos_profile_sensor_data = None
+sys.modules["sensor_msgs.msg"].CompressedImage = sys.modules["sensor_msgs.msg"].Image = object
+from scripts.head_rgbd_calibration.live_relay import frame_output
+out = frame_output()
+os.write(1, b"[RTPS_TRANSPORT_SHM Error] Failed init_port\\n")
+print("python print")
+sys.stdout.flush()
+out.write(b"FRAME")
+out.flush()
+"""
 
 
 @cache
@@ -243,3 +264,25 @@ def test_read_stream_skips_unknown_topic_index() -> None:
     junk = struct.pack(FRAME_HEADER, 7, 3) + b"abc"
     data = junk + b"".join(serialize(i, f) for i, f in frames)
     assert [i for i, _ in read_stream(io.BytesIO(data))] == [i for i, _ in frames]
+
+
+def test_counter_counts_a_still_board_under_mains_flicker() -> None:
+    rgb = [cv2.imread(str(FIXTURES / f"rgb_flicker_{k}.png")) for k in range(2)]
+    amplitude = cv2.imread(str(FIXTURES / "tof_amplitude_near_5.png"), cv2.IMREAD_GRAYSCALE).astype(np.uint16) * 16
+    counter = PoseCounter(make_board(BOARD_CFG), SelectionConfig())
+    for step in range(60):
+        ns = T0_NS + int(step * TOF_PERIOD_S * 1e9)
+        counter.add(AMPLITUDE_INDEX, StampedImage(ns, amplitude))
+        if step % RGB_EVERY == 0:
+            counter.add(RGB_INDEX, StampedImage(ns + RGB_OFFSET_NS, rgb[step // RGB_EVERY % 2]))
+    assert counter.count == 1
+
+
+def test_relay_keeps_native_stdout_writes_out_of_the_frame_stream() -> None:
+    root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, "-c", RELAY_STDOUT_PROBE], cwd=root, capture_output=True, timeout=30, check=True
+    )
+    assert result.stdout == b"FRAME"
+    assert b"RTPS_TRANSPORT_SHM" in result.stderr
+    assert b"python print" in result.stderr

@@ -29,8 +29,8 @@ from scripts.head_rgbd_calibration.frames import (
     TopicNames,
     decode_compressed,
     decode_mono16,
-    mean_abs_diff,
     nearest_index,
+    rgb_difference,
     stamp_ns,
     tof_diff_fraction,
 )
@@ -144,7 +144,7 @@ class PoseCounter:
         still = (
             rgb.stamp_ns >= self.first_ns
             and previous is not None
-            and mean_abs_diff(previous, grey) < self.sel.still_rgb_mad
+            and rgb_difference(previous, grey) < self.sel.still_rgb_mad
             and self.tof_window_still(rgb.stamp_ns)
         )
         if not still:
