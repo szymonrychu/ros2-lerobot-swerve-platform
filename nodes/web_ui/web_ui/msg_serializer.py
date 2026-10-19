@@ -33,6 +33,9 @@ MAP_OCCUPIED_THRESH = 65
 
 # Default caps of the 3D obstacle layer payloads (points, not floats).
 CLOUD_MAX_POINTS = 2000
+# sensor_msgs/PointField datatypes of 4-byte point fields.
+UINT32_DATATYPE = 6
+FLOAT32_DATATYPE = 7
 SCAN_MAX_POINTS = 720
 
 # Nav2 costmap -> OccupancyGrid values: 0 free, 1..98 scaled inflation cost, 99 inscribed, 100 lethal, -1 unknown.
@@ -478,6 +481,64 @@ def downsample_points(points: list[list[float]], max_points: int) -> list[list[f
     return [points[i] for i in indices]
 
 
+def cloud_columns(msg: Any, names: tuple[str, ...], datatypes: dict[str, frozenset[int]]) -> dict[str, np.ndarray]:
+    """Read named fields of a sensor_msgs/PointCloud2 as little- or big-endian numpy columns (the node's one parser).
+
+    Args:
+        msg (Any): sensor_msgs/PointCloud2 message.
+        names (tuple[str, ...]): Field names to read.
+        datatypes (dict[str, frozenset[int]]): Accepted PointField datatypes per field name.
+
+    Returns:
+        dict[str, np.ndarray]: Field name -> column with one entry per point (raw bytes viewed as the field's
+        4-byte type: float32 for FLOAT32 fields, uint32 for UINT32 fields).
+
+    Raises:
+        ValueError: If a field is missing or of another datatype (naming the message's fields), or ``data`` is
+            shorter than width * height * point_step.
+    """
+    by_name = {f.name: f for f in msg.fields}
+    for name in names:
+        field = by_name.get(name)
+        if field is None or field.datatype not in datatypes[name]:
+            layout = ", ".join(f"{f.name}:{f.datatype}" for f in msg.fields)
+            raise ValueError(
+                f"unsupported PointCloud2 layout, need field {name!r} of datatype {sorted(datatypes[name])}; got [{layout}]"
+            )
+    count = msg.width * msg.height
+    data = bytes(msg.data)
+    if len(data) < count * msg.point_step:
+        raise ValueError(f"PointCloud2 data holds {len(data)} bytes, need {count * msg.point_step} for {count} points")
+    byte_order = ">" if msg.is_bigendian else "<"
+    formats = {FLOAT32_DATATYPE: f"{byte_order}f4", UINT32_DATATYPE: f"{byte_order}u4"}
+    dtype = np.dtype(
+        {
+            "names": list(names),
+            "formats": [formats[by_name[n].datatype] for n in names],
+            "offsets": [by_name[n].offset for n in names],
+            "itemsize": msg.point_step,
+        }
+    )
+    raw = np.frombuffer(data, dtype=dtype, count=count)
+    return {name: raw[name] for name in names}
+
+
+def cloud_xyz(msg: Any) -> np.ndarray:
+    """Return the x, y, z float32 fields of a sensor_msgs/PointCloud2 as an (n, 3) float64 array.
+
+    Args:
+        msg (Any): sensor_msgs/PointCloud2 message.
+
+    Returns:
+        np.ndarray: Points in the message frame, metres (non-finite coordinates kept).
+
+    Raises:
+        ValueError: See cloud_columns.
+    """
+    columns = cloud_columns(msg, ("x", "y", "z"), dict.fromkeys(("x", "y", "z"), frozenset({FLOAT32_DATATYPE})))
+    return np.stack([columns["x"], columns["y"], columns["z"]], axis=1).astype(np.float64)
+
+
 def serialize_point_cloud(msg: Any, max_points: int = CLOUD_MAX_POINTS) -> dict[str, Any]:
     """Serialize a sensor_msgs/PointCloud2 to a flat xyz list in the sensor frame.
 
@@ -491,19 +552,7 @@ def serialize_point_cloud(msg: Any, max_points: int = CLOUD_MAX_POINTS) -> dict[
     Returns:
         dict[str, Any]: {"stamp": float s, "frame": str, "points": [x0, y0, z0, x1, ...]} in metres.
     """
-    offsets = {f.name: f.offset for f in msg.fields}
-    byte_order = ">" if msg.is_bigendian else "<"
-    dtype = np.dtype(
-        {
-            "names": ["x", "y", "z"],
-            "formats": [f"{byte_order}f4"] * 3,
-            "offsets": [offsets["x"], offsets["y"], offsets["z"]],
-            "itemsize": msg.point_step,
-        }
-    )
-    count = msg.width * msg.height
-    raw = np.frombuffer(bytes(msg.data), dtype=dtype, count=count)
-    xyz = np.stack([raw["x"], raw["y"], raw["z"]], axis=1).astype(np.float64)
+    xyz = cloud_xyz(msg)
     xyz = xyz[np.isfinite(xyz).all(axis=1)]
     xyz = even_subsample(xyz, max_points)
     return {
@@ -735,3 +784,21 @@ def serialize_active_source(msg: Any) -> dict[str, Any]:
         dict[str, Any]: {"data": source name}.
     """
     return {"data": str(msg.data)}
+
+
+def serialize_json_object(msg: Any) -> dict[str, Any]:
+    """Parse a std_msgs/String holding a JSON object and pass it through unchanged.
+
+    Args:
+        msg (Any): std_msgs/String whose data is a JSON object.
+
+    Returns:
+        dict[str, Any]: The parsed object.
+
+    Raises:
+        ValueError: If the data is not a JSON object.
+    """
+    data = json.loads(msg.data)
+    if not isinstance(data, dict):
+        raise ValueError("expected a JSON object")
+    return data

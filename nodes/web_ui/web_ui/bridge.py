@@ -53,6 +53,7 @@ from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from .cloud_serializer import DEFAULT_MAX_POINTS, DEFAULT_VOXEL_M, serialize_map3d_cloud
 from .config import (
     ACTIVE_SOURCE_ROLE,
     BATTERY_ROLE,
@@ -87,6 +88,7 @@ from .msg_serializer import (
     serialize_battery,
     serialize_costmap,
     serialize_goal_pose,
+    serialize_json_object,
     serialize_navsatfix,
     serialize_occupancy_grid,
     serialize_path,
@@ -213,6 +215,24 @@ class DemandEntry:
     needs_tf: bool = False
 
 
+MAP3D_STATUS_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=1)
+MAP3D_RESULT_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=DEFAULT_SUB_QOS_DEPTH
+)
+
+
+def serialize_map3d_cloud_default(msg: Any) -> dict[str, Any]:
+    """Serialize a 3D map cloud with the default limits (config limits are bound in subscription_spec).
+
+    Args:
+        msg (Any): sensor_msgs/PointCloud2.
+
+    Returns:
+        dict[str, Any]: See serialize_map3d_cloud.
+    """
+    return serialize_map3d_cloud(msg, DEFAULT_MAX_POINTS, DEFAULT_VOXEL_M)
+
+
 # map_nav subscription role -> (message class, QoS, serializer). Roles come from the tab config.
 ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "map": (OccupancyGrid, MAP_SUB_QOS, serialize_occupancy_grid),
@@ -225,6 +245,11 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     # ToF obstacle cloud and lidar points of the 3D obstacles layer: sensor data, latest wins.
     "cloud": (PointCloud2, SENSOR_SUB_QOS, serialize_point_cloud),
     "scan_points": (LaserScan, SENSOR_SUB_QOS, serialize_scan_points),
+    # RTAB-Map 3D map: on demand, latest wins; serialized lazily at flush so an unchanged cloud is encoded once.
+    "map3d_cloud": (PointCloud2, SENSOR_SUB_QOS, serialize_map3d_cloud_default),
+    # map3d manager status (latest wins) and per-command results (a burst must not lose one).
+    "map3d_status": (String, MAP3D_STATUS_QOS, serialize_json_object),
+    "map3d_result": (String, MAP3D_RESULT_QOS, serialize_json_object),
     # poi_store publishes the list reliable + transient_local (latched): match it so a (re)connecting UI gets it.
     "poi_list": (String, MAP_SUB_QOS, serialize_poi_list),
     # poi_store latches the photo store summary like the list: a (re)connecting UI gets the current revision.
@@ -267,7 +292,7 @@ def head_spec(topic: str, role: str, tof_range_m: float | None) -> tuple[type, A
 
 
 def subscription_spec(
-    topic: str, role: str | None, tof_range_m: float | None = None
+    topic: str, role: str | None, tof_range_m: float | None = None, map3d_limit: tuple[int, float] | None = None
 ) -> tuple[type, Any, Serializer] | None:
     """Choose message class, QoS and serializer for a topic.
 
@@ -278,12 +303,16 @@ def subscription_spec(
         topic (str): ROS2 topic name.
         role (str | None): map_nav role (a ROLE_SPECS key), a head role or None.
         tof_range_m (float | None): Depth range in metres of a head depth topic's greyscale preview.
+        map3d_limit (tuple[int, float] | None): (max_points, voxel_m) of a "map3d_cloud" topic, None for the defaults.
 
     Returns:
         tuple[type, Any, Serializer] | None: (msg class, QoS profile or depth, serializer), or None if unknown.
     """
     if role in HEAD_ROLES:
         return head_spec(topic, role, tof_range_m)
+    if role == "map3d_cloud" and map3d_limit is not None:
+        max_points, voxel_m = map3d_limit
+        return (PointCloud2, SENSOR_SUB_QOS, lambda msg: serialize_map3d_cloud(msg, max_points, voxel_m))
     if role is not None:
         return ROLE_SPECS[role]
     msg_cls = TOPIC_TYPE_HINTS.get(topic)
@@ -344,6 +373,7 @@ class BridgeNode(Node):
         demand_linger_s: float = DEMAND_LINGER_S,
         imu_status_topic: str | None = None,
         zoom_topics: dict[str, tuple[str, str, str]] | None = None,
+        map3d_limits: dict[str, tuple[int, float]] | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -355,6 +385,7 @@ class BridgeNode(Node):
             allowed_publish_topics (set[str]): Allowlist of topics this node may publish to.
             topic_roles (dict[str, str] | None): map_nav topic -> role ("map", "path", "goal"), head topic -> head role.
             tof_ranges (dict[str, float] | None): head depth topic -> range (m) of its greyscale preview.
+            map3d_limits (dict[str, tuple[int, float]] | None): 3D map cloud topic -> (max_points, voxel_m).
             robot_pose_frames (tuple[str, str] | None): (map_frame, base_frame) for the TF robot pose,
                 or None to disable TF tracking.
             frame_id_defaults (dict[str, str] | None): Publish topic -> header.frame_id used when the
@@ -461,7 +492,7 @@ class BridgeNode(Node):
             if role == GRASP_RESULT_ROLE:
                 self.subscribe_always_on(String, topic, self.on_grasp_result, DEFAULT_SUB_QOS_DEPTH)
                 continue
-            spec = subscription_spec(topic, role, (tof_ranges or {}).get(topic))
+            spec = subscription_spec(topic, role, (tof_ranges or {}).get(topic), (map3d_limits or {}).get(topic))
             if spec is None:
                 self.get_logger().warning(f"Unknown msg type for topic {topic!r} - skipping")
                 continue
