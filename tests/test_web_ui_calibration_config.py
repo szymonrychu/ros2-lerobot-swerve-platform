@@ -34,6 +34,13 @@ def test_web_ui_enables_the_imu_calibration_section() -> None:
     assert calibration["imu_reset_service"] == IMU_RESET_SERVICE
 
 
+def test_web_ui_rgbd_url_targets_the_calibration_node_port() -> None:
+    """The RGB-D section proxies to head_rgbd_calibration on loopback at its http_port."""
+    calibration = node_config("web_ui")["calibration"]
+    port = node_config("head_rgbd_calibration")["http_port"]
+    assert calibration["rgbd_url"] == f"http://127.0.0.1:{port}"
+
+
 def test_bno055_keeps_the_default_calibration_names() -> None:
     """The bno055_imu entry does not rename the topic or services the web_ui section uses."""
     imu = node_config("bno055_imu")

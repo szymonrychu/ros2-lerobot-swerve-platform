@@ -641,12 +641,6 @@ ros2_node_type_defaults:
     io_weight: 100
     oom_score_adjust: 0
     config_path: /etc/ros2/head_rgbd_cpp
-    # Files copied into config_path when they exist in the repo on the Pi (src: repo-relative, dest: file name). The ToF
-    # intrinsics are written by the calibration tool (nodes/head_rgbd_cpp/README.md); without the file the node publishes
-    # nothing (no placeholder intrinsics).
-    config_files:
-      - src: nodes/head_rgbd_cpp/config/tof_calibration.yaml
-        dest: tof_calibration.yaml
     env:
       - HEAD_RGBD_CONFIG=/etc/ros2/head_rgbd_cpp/config.yaml
     apt_packages:
@@ -1335,6 +1329,8 @@ ros2_nodes:
       camera_id: /base/axi/pcie@120000/rp1/i2c@88000/imx708@1a
       jpeg_quality: 70
       metrics_port: 19116
+      # Written by Apply on the Calibrate page, seeded from the committed file when absent; a missing file: no camera_info.
+      camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml
       # af_mode stays continuous (default); the lens is locked at lens_position only while the mapping stream has a
       # subscriber (head_rgbd_cpp, RTAB-Map), so the calibrated intrinsics hold. lens_position in dioptres (1.0 = 1 m).
       lens_position: 1.0
@@ -1362,8 +1358,9 @@ ros2_nodes:
       # points, depth_upsampled/image_raw, depth_upsampled/camera_info.
       output_namespace: /head_rgbd
 
-      # ToF intrinsics, a camera_calibration YAML file (written by the calibration tool).
-      tof_calibration_file: /etc/ros2/head_rgbd_cpp/tof_calibration.yaml
+      # ToF intrinsics, a camera_calibration YAML file: the applied state file written by Apply on the Calibrate page
+      # (seeded from the committed file when absent; a missing file: the node publishes nothing).
+      tof_calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml
 
       output:
         divisor: 2 # output size = RGB size / divisor; 1 or 2
@@ -1993,6 +1990,8 @@ ros2_nodes:
         imu_status_topic: /imu/calibration
         imu_save_service: /imu/calibration/save
         imu_reset_service: /imu/calibration/reset
+        # RGB-D section: head_rgbd_calibration HTTP API (its http_port).
+        rgbd_url: http://127.0.0.1:18110
       tabs:
         - id: map
           type: map_nav
