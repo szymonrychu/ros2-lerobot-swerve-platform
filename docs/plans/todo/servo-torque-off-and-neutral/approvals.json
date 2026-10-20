@@ -120,5 +120,18 @@
       "ansible-servo-neutral-config"
     ],
     "status": "approved"
+  },
+  {
+    "id": "U3",
+    "text": "2026-10-20 gate: two steps as designed: Record neutral captures and previews; Re-enable torque + save writes the servo EEPROM; plain Re-enable torque without saving",
+    "decisions": [
+      "D13"
+    ],
+    "tasks": [
+      "bridge-runtime-neutral-save",
+      "web-ui-servo-routes",
+      "calibrate-page-servo-section"
+    ],
+    "status": "approved"
   }
 ]

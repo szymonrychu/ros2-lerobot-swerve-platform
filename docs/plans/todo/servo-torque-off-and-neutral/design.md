@@ -156,6 +156,9 @@ blocks or wheels braked), the arm only after the user confirms they support it. 
 ### D12: Base release is steering only, wheels braked
 2026-10-20 gate: base release = the 4 steering servos; the drive wheels stay torqued and braked (user decision)
 
+### D13: Two-step record then save
+2026-10-20 gate: two steps as designed: Record neutral captures and previews; Re-enable torque + save writes the servo EEPROM; plain Re-enable torque without saving (user decision)
+
 ## Research
 
 | Lens | Ran | Adopted | Rejected |
@@ -198,6 +201,7 @@ blocks or wheels braked), the arm only after the user confirms they support it. 
 | D10 Bench order | suite-and-robot-runbook |
 | D11 Gripper excluded from the arm re-zero | bridge-runtime-neutral-save, ansible-servo-neutral-config, calibrate-page-servo-section |
 | D12 Base release is steering only, wheels braked | bridge-torque-release-enable, swerve-released-steering, ansible-servo-neutral-config |
+| D13 Two-step record then save | bridge-runtime-neutral-save, web-ui-servo-routes, calibrate-page-servo-section |
 
 ## Contracts
 
