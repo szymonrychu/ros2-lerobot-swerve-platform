@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--mcp-floor-guard-ground
 branch: rgb-d-ground-estimation-and--mcp-floor-guard-ground
-verified_head: "fcc0cbc6"
+verified_head: fcc0cbc6
 run: rgb-d-ground-estimation-and
 provides: []
 acs_for_audit: []
@@ -63,6 +63,10 @@ process_gaps: []
 - run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`
 - update the README
 - commit `feat(mcp_server): floor_guard terrain from the ground estimate`.
+
+## Ruling
+
+- 2026-10-20 accepted: verify-task.py run by the orchestrator at fcc0cbc6: passed, clean, a1-a4 met; mcp_server 2791 passed, lint clean
 
 ## Notes
 

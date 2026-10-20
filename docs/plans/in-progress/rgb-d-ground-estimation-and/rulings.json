@@ -4,5 +4,11 @@
     "accept": true,
     "reason": "Verifier crashed (--prev-head unknown); manual verify at eac98687: clean tree, scripts/cpp-node-test.sh ground_estimator_cpp 80 tests 0 failures PASS. TDD process gap: test and implementation landed in one commit (0343d346); tests are new for a new module and cannot build without it.",
     "at": "2026-10-20T12:14:41Z"
+  },
+  {
+    "task": "mcp-floor-guard-ground",
+    "accept": true,
+    "reason": "verify-task.py run by the orchestrator at fcc0cbc6: passed, clean, a1-a4 met; mcp_server 2791 passed, lint clean",
+    "at": "2026-10-20T15:06:50Z"
   }
 ]
