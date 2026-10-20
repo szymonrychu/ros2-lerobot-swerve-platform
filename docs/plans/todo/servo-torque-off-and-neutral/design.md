@@ -225,6 +225,7 @@ Cross-epic (docs/plans/contracts.json): `arm-calibration-stale-marker`, `servo-t
 ## Open questions
 - Q1: Arm re-zero excludes the gripper (torque off still releases it), because its fixed open/close steps and the leader gripper mapping would shift? [recommended: yes, exclude the gripper]
 - Q2: Two steps: Record neutral only captures and previews the shift; the EEPROM is written only by Re-enable torque + save (plus a plain Re-enable torque without saving)? [recommended: yes]
+- Q3: Base torque off releases only the 4 steering servos; the drive wheels stay torqued and braked (robot cannot be pushed by hand)? [recommended: yes]
 
 ## Irreversible operations in scope
 
