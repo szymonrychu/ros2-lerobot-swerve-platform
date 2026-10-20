@@ -209,6 +209,8 @@ TOPIC_STALE_S = 10.0
 DEMAND_LINGER_S = 5.0
 # Period of the ROS timer that applies the recorded demand (all create/destroy happens on the executor thread).
 DEMAND_APPLY_PERIOD_S = 0.1
+# Longest the ROS thread waits for the TF listener's dedicated thread to stop before destroying its node.
+TF_LISTENER_JOIN_TIMEOUT_S = 2.0
 # A 3D obstacle payload whose frame pose lookup extrapolated into the future (its /tf not processed yet) is held this
 # long, from its first attempt, before it is dropped.
 FRAME_POSE_WAIT_S = 1.0
@@ -718,11 +720,27 @@ class BridgeNode(Node):
             return
         needed = self._tf_always or any(self._demand[topic].needs_tf for topic in self._active)
         if needed and self._tf_listener is None:
-            self._tf_listener = TransformListener(self._tf_buffer, self)
+            # Own node + own executor thread: /tf is processed even while the main executor is busy serializing.
+            self._tf_listener = TransformListener(self._tf_buffer, None, spin_thread=True)
         elif not needed and self._tf_listener is not None:
-            self._tf_listener.unregister()
+            self.stop_tf_listener(self._tf_listener)
             self._tf_listener = None
             self._tf_buffer.clear()
+
+    def stop_tf_listener(self, listener: Any) -> None:
+        """Stop a spin_thread TransformListener without destroying subscriptions its thread still spins.
+
+        Shuts its executor down, joins the thread (bounded by TF_LISTENER_JOIN_TIMEOUT_S), then destroys its node.
+
+        Args:
+            listener (TransformListener): Listener created with spin_thread=True.
+        """
+        listener.executor.shutdown()
+        thread = listener.dedicated_listener_thread
+        thread.join(timeout=TF_LISTENER_JOIN_TIMEOUT_S)
+        if thread.is_alive():
+            log.warning("tf_listener_join_timeout", timeout_s=TF_LISTENER_JOIN_TIMEOUT_S)
+        listener.node.destroy_node()
 
     def always_on_topics(self) -> set[str]:
         """Return the topics subscribed for the node's lifetime.

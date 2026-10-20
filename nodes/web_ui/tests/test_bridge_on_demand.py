@@ -22,6 +22,7 @@ from web_ui.bridge import (
     MAP_GUARD_RESET_TOPIC,
     MAP_SUB_QOS,
     ROBOT_POSE_TOPIC,
+    TF_LISTENER_JOIN_TIMEOUT_S,
     BridgeNode,
 )
 from web_ui.config import AppConfig, TabConfig
@@ -74,8 +75,9 @@ class FakeRos:
         self.publishers[topic] = pub
         return pub
 
-    def transform_listener(self, *_args: Any) -> Any:
+    def transform_listener(self, *args: Any, **kwargs: Any) -> Any:
         listener = MagicMock()
+        listener.call_args = (args, kwargs)
         self.listeners.append(listener)
         return listener
 
@@ -317,7 +319,7 @@ def test_tf_stays_on_while_the_gps_anchor_fit_needs_it(ros: FakeRos) -> None:
     assert len(ros.listeners) == 1
     demand(node, set(), now=0.0)
     demand(node, set(), now=100.0)
-    ros.listeners[0].unregister.assert_not_called()
+    ros.listeners[0].executor.shutdown.assert_not_called()
 
 
 def test_tf_listener_follows_demand_without_an_anchor_fit(ros: FakeRos) -> None:
@@ -329,13 +331,51 @@ def test_tf_listener_follows_demand_without_an_anchor_fit(ros: FakeRos) -> None:
     assert len(ros.listeners) == 1
     demand(node, {"/odom", "/plan"}, now=2.0)
     demand(node, {"/odom", "/plan"}, now=3.0 + DEMAND_LINGER_S)
-    ros.listeners[0].unregister.assert_not_called()  # /plan (map-frame role) still needs TF
+    ros.listeners[0].executor.shutdown.assert_not_called()  # /plan (map-frame role) still needs TF
     demand(node, {"/odom"}, now=10.0)
     demand(node, {"/odom"}, now=11.0 + DEMAND_LINGER_S)
-    ros.listeners[0].unregister.assert_called_once()
+    listener = ros.listeners[0]
+    listener.executor.shutdown.assert_called_once()
+    listener.dedicated_listener_thread.join.assert_called_once_with(timeout=TF_LISTENER_JOIN_TIMEOUT_S)
+    listener.node.destroy_node.assert_called_once()
+    listener.unregister.assert_not_called()  # would destroy subscriptions the dedicated thread may still spin
     node._tf_buffer.clear.assert_called()
     demand(node, {ROBOT_POSE_TOPIC}, now=30.0)
     assert len(ros.listeners) == 2
+    assert ros.listeners[1] is not listener
+
+
+def test_tf_listener_runs_on_its_own_node_and_thread(ros: FakeRos) -> None:
+    node = make_node()
+    args, kwargs = ros.listeners[0].call_args
+    assert args == (node._tf_buffer, None)
+    assert kwargs == {"spin_thread": True}
+
+
+def test_tf_listener_stop_orders_shutdown_join_destroy_then_clear(ros: FakeRos) -> None:
+    node = make_node(gps_anchor=None)
+    demand(node, {ROBOT_POSE_TOPIC}, now=0.0)
+    order = MagicMock()
+    listener = ros.listeners[0]
+    order.attach_mock(listener.executor.shutdown, "shutdown")
+    order.attach_mock(listener.dedicated_listener_thread.join, "join")
+    order.attach_mock(listener.node.destroy_node, "destroy")
+    order.attach_mock(node._tf_buffer.clear, "clear")
+    demand(node, set(), now=1.0)
+    demand(node, set(), now=2.0 + DEMAND_LINGER_S)
+    assert [c[0] for c in order.mock_calls] == ["shutdown", "join", "destroy", "clear"]
+
+
+def test_tf_listener_join_timeout_is_logged_and_node_still_destroyed(ros: FakeRos) -> None:
+    node = make_node(gps_anchor=None)
+    demand(node, {ROBOT_POSE_TOPIC}, now=0.0)
+    listener = ros.listeners[0]
+    listener.dedicated_listener_thread.is_alive.return_value = True
+    with patch("web_ui.bridge.log") as log:
+        demand(node, set(), now=1.0)
+        demand(node, set(), now=2.0 + DEMAND_LINGER_S)
+    log.warning.assert_called()
+    assert node._tf_listener is None
 
 
 # --- server: the client topic sets drive the demand --------------------------------------------------------------

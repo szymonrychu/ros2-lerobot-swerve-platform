@@ -94,7 +94,14 @@ with no browser. So the bridge creates a topic's rclpy subscription only while a
 - **Synthetic topics.** `/web_ui/robot_pose` runs the 20 Hz TF pose timer only while wanted (the cached pose is dropped
   when it stops); `/web_ui/gps_anchor` subscribes the compass IMU and calibration topics only while wanted (their last
   values are forgotten when it stops). The TF listener runs while an active topic needs it (robot pose, GPS anchor and
-  the map-frame roles `path`, `goal`, `footprint`, `costmap`) and is unregistered (buffer cleared) otherwise.
+  the map-frame roles `path`, `goal`, `footprint`, `costmap`) and is stopped (buffer cleared) otherwise.
+  The listener is created as `TransformListener(buffer, None, spin_thread=True)`: it gets its own internal node and
+  executor thread, so `/tf` is processed even while the main executor is busy serializing images and clouds (on the
+  shared executor `/tf` arrived ~1 s late and every stamped lookup in `attach_frame_pose` extrapolated). Start and stop
+  stay on the bridge ROS thread. Stopping (`stop_tf_listener`) shuts the listener executor down, joins its thread
+  (at most `TF_LISTENER_JOIN_TIMEOUT_S`, 2 s, logged as `tf_listener_join_timeout`), then destroys the listener node,
+  so its subscriptions are never destroyed while the thread spins them. The thread also ends on rclpy context
+  shutdown.
   `webui_robot_pose_ok` is refreshed by the 10 s health tick while the pose timer is off, and is absent (unknown)
   while TF is off too.
 - **Always on** (`BridgeNode.always_on_topics()`), because safety checks or server-side state need them with no
