@@ -85,4 +85,13 @@ describe('head RGB-D on demand', () => {
     expect(subscribedTopics(cfg([m]), m, false, false, false, true)).toContain('/head_rgbd/points')
     expect(subscribedTopics(cfg([h]), h, false, false, false, true)).not.toContain('/head_rgbd/points')
   })
+
+  it('adds the ground cloud and state topics only for the open map tab while the Ground layer is on', () => {
+    const m = { ...map, ground_cloud_topic: '/ground/labelled_points', ground_state_topic: '/ground/state' } as TabConfig
+    const GROUND = ['/ground/labelled_points', '/ground/state']
+    expect(subscribedTopics(cfg([m]), m)).not.toEqual(expect.arrayContaining([GROUND[0]]))
+    expect(subscribedTopics(cfg([m]), m)).not.toContain(GROUND[1])
+    expect(subscribedTopics(cfg([m]), m, false, false, false, false, true)).toEqual(expect.arrayContaining(GROUND))
+    expect(subscribedTopics(cfg([h]), h, false, false, false, false, true)).not.toContain(GROUND[1])
+  })
 })

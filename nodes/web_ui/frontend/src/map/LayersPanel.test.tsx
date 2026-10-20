@@ -7,7 +7,10 @@ import { LayersPanel, type LayersPanelProps } from './LayersPanel'
 import { designViolations, SOURCES } from '../layout/designRules'
 import { DEFAULT_LAYERS, LAYER_LABELS } from '../map3d/layers'
 import { LAYER_SWATCH, MAP_LEGEND } from '../map3d/palette'
+import { GROUND_COLORS, type GroundState } from '../map3d/groundLayer'
 import { theme } from '../theme'
+
+vi.mock('../logging', () => ({ default: { warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
 
 function props(over: Partial<LayersPanelProps> = {}): LayersPanelProps {
   return {
@@ -140,3 +143,60 @@ describe('LayersPanel head RGB-D layer', () => {
   })
 })
 
+
+describe('LayersPanel ground layer', () => {
+  const groundState = {
+    plane: { normal: [0, 0, 1], height_m: -0.031, inliers: 1, inlier_ratio: 1, source: 'fit', age_s: 0 },
+    slope_deg: 6.25,
+    slope_level: 'warning',
+    regions: [],
+    warnings: [],
+  } as unknown as GroundState
+
+  it('is a toggle, off by default, that reports clicks', () => {
+    const p = props({ groundConfigured: true })
+    wrap(<LayersPanel {...p} />)
+    const box = screen.getByLabelText('Ground') as HTMLInputElement
+    expect(box.disabled).toBe(false)
+    expect(box.checked).toBe(false)
+    fireEvent.click(box)
+    expect(p.onToggle).toHaveBeenCalledWith('ground')
+  })
+
+  it('is disabled with the reason when the tab names no ground topics', async () => {
+    wrap(<LayersPanel {...props({ groundConfigured: false, layers: { ...DEFAULT_LAYERS, ground: true } })} />)
+    const box = screen.getByLabelText('Ground') as HTMLInputElement
+    expect(box.disabled).toBe(true)
+    expect(box.checked).toBe(false)
+    fireEvent.mouseOver(screen.getByTestId('layer-row-ground'))
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/No ground cloud or state topic/)
+  })
+
+  it('shows no legend while the layer is off', () => {
+    wrap(<LayersPanel {...props({ groundConfigured: true })} />)
+    expect(screen.queryByTestId('ground-legend')).toBeNull()
+  })
+
+  it('shows the five label colours, the edge colours, the warning fill and the read-out while on', () => {
+    wrap(<LayersPanel {...props({ groundConfigured: true, layers: { ...DEFAULT_LAYERS, ground: true }, groundState })} />)
+    const legend = screen.getByTestId('ground-legend')
+    for (const color of [GROUND_COLORS.floor, GROUND_COLORS.obstacle, GROUND_COLORS.drop, GROUND_COLORS.mismatch, GROUND_COLORS.unlabelled, GROUND_COLORS.edgeObstacle, GROUND_COLORS.edgeWarning, GROUND_COLORS.warningFill]) {
+      expect(legend.querySelector(`[data-color="${color}"]`), color).toBeTruthy()
+    }
+    expect(within(legend).getByText('Warning area (slow down)')).toBeTruthy()
+    const readout = screen.getByTestId('ground-readout')
+    expect(readout.textContent).toMatch(/6\.3 deg/)
+    expect(readout.textContent).toMatch(/warning/)
+    expect(readout.textContent).toMatch(/-0\.031 m/)
+  })
+
+  it('shows no read-out for an absent, stale or plane-null state', () => {
+    const layers = { ...DEFAULT_LAYERS, ground: true }
+    for (const gs of [undefined, { ...groundState, stale: true }, { ...groundState, plane: null }]) {
+      wrap(<LayersPanel {...props({ groundConfigured: true, layers, groundState: gs as GroundState | undefined })} />)
+      expect(screen.queryByTestId('ground-readout')).toBeNull()
+      expect(screen.getByTestId('ground-no-estimate')).toBeTruthy()
+      cleanup()
+    }
+  })
+})

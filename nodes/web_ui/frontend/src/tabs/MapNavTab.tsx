@@ -57,6 +57,7 @@ import { useLayout } from '../layout/useLayout'
 import { tiltStatus } from '../tilt/tiltStatus'
 import type { TiltStatus } from '../tilt/tiltStatus'
 import { draftGoalPose, finishGoalDraft, GoalDraft, startGoalDraft, updateGoalDraft } from '../map3d/goalGesture'
+import type { GroundState } from '../map3d/groundLayer'
 import { Bounds, mapBounds } from '../map3d/groundMath'
 import {
   pickTileSource,
@@ -111,6 +112,8 @@ interface Props {
   onMap3dCloudWanted?: (wanted: boolean) => void
   /** Reports whether the Head RGB-D layer needs its cloud topic; false again when it is switched off or the tab unmounts. */
   onHeadRgbdCloudWanted?: (wanted: boolean) => void
+  /** Reports whether the Ground layer needs its cloud and state topics; false again when it is switched off or the tab unmounts. */
+  onGroundWanted?: (wanted: boolean) => void
 }
 
 interface FramedPose extends Pose2D {
@@ -143,6 +146,7 @@ export default function MapNavTab({
   onObstaclesWanted,
   onMap3dCloudWanted,
   onHeadRgbdCloudWanted,
+  onGroundWanted,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<SceneController | null>(null)
@@ -194,6 +198,10 @@ export default function MapNavTab({
   const rgbdCloudConfigured = Boolean(tab.rgbd_cloud_topic)
   const headRgbdCloudWanted = layers.headRgbd && rgbdCloudConfigured
   const headRgbdCloud = topicData[tab.rgbd_cloud_topic ?? '']
+  const groundConfigured = Boolean(tab.ground_cloud_topic && tab.ground_state_topic)
+  const groundWanted = layers.ground && groundConfigured
+  const groundCloud = topicData[tab.ground_cloud_topic ?? '']
+  const groundState = topicData[tab.ground_state_topic ?? ''] as GroundState | null | undefined
   const globalPath = topicData[tab.global_plan_topic ?? ''] as PathMsg | null | undefined
   const localPath = topicData[tab.local_plan_topic ?? ''] as PathMsg | null | undefined
   const goalMsg = topicData[tab.goal_topic ?? ''] as FramedPose | null | undefined
@@ -227,6 +235,10 @@ export default function MapNavTab({
     onHeadRgbdCloudWanted?.(headRgbdCloudWanted)
     return () => onHeadRgbdCloudWanted?.(false)
   }, [headRgbdCloudWanted, onHeadRgbdCloudWanted])
+  useEffect(() => {
+    onGroundWanted?.(groundWanted)
+    return () => onGroundWanted?.(false)
+  }, [groundWanted, onGroundWanted])
 
   // Map reset: fit the next map that arrives.
   useEffect(() => {
@@ -649,6 +661,8 @@ export default function MapNavTab({
         costmapConfigured={Boolean(tab.local_costmap_topic)}
         obstaclesConfigured={obstaclesConfigured}
         rgbdCloudConfigured={rgbdCloudConfigured}
+        groundConfigured={groundConfigured}
+        groundState={groundState}
         tileSources={tileSources}
         tileSource={tileSource}
         onTileSource={(id) => {
@@ -1015,6 +1029,8 @@ export default function MapNavTab({
               scanPoints={scanPoints}
               map3dCloud={map3dCloud}
               headRgbdCloud={headRgbdCloud}
+              groundCloud={groundCloud}
+              groundState={groundState}
               map3dFrameId={tab.map3d_frame_id}
               lidarWallHeightM={tab.lidar_wall_height_m}
               globalPath={globalPath}

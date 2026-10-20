@@ -52,6 +52,8 @@ export interface TabConfig {
   scan_points_topic?: string // lidar scan points (LaserScan payload + frame_pose), subscribed with the obstacle cloud
   map3d_cloud_topic?: string // RTAB-Map 3D map payload (map3d_cloud), subscribed only while the 3D map layer is on
   rgbd_cloud_topic?: string // head_rgbd_cpp XYZRGB cloud (map3d_cloud-style payload + frame_pose), subscribed only while the Head RGB-D layer is on
+  ground_cloud_topic?: string // ground_estimator_cpp labelled cloud (map3d_cloud-style payload + labels_b64 + frame_pose), subscribed only while the Ground layer is on
+  ground_state_topic?: string // ground_estimator_cpp state JSON (backend adds "stale"), subscribed with the ground cloud
   map3d_status_topic?: string // map3d manager status (JSON String)
   map3d_result_topic?: string // map3d command results (JSON String)
   map3d_command_topic?: string // map3d commands (save, reset, ...)

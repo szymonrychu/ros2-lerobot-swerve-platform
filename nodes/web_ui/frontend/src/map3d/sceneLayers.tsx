@@ -11,6 +11,17 @@ import { frontEdgeIndex, MapMeta, Pose2D, Vec2 } from '../map/mapMath'
 import { decodeMap3dCloud, type DecodedMap3dCloud } from './cloudDecode'
 import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor, tilesAround } from './geo'
+import {
+  decodeGroundCloud,
+  GROUND_COLORS,
+  groundVisible,
+  planePatch,
+  planeZ,
+  regionEdges,
+  warningPolygons,
+  type GroundState,
+  type Vec3Tuple,
+} from './groundLayer'
 import { mapPlacement } from './groundMath'
 import { buildLidarWalls, measuredColumnsFromCloud, type WallGrid } from './lidarWalls'
 import { MapLabel } from './MapLabel'
@@ -524,6 +535,91 @@ export const HeadRgbdLayer = memo(function HeadRgbdLayer({ payload, visible }: {
   }, [payload, visible])
   if (!visible || !cloud) return null
   return <PointSet positions={cloud.positions} colors={cloud.colors} color={SCENE_COLORS.map3dPoints} size={RGBD_POINT_SIZE_M} />
+})
+
+/** Point size (m) of the ground cloud: the voxel edge the backend downsamples to (web_ui.cloud_serializer.GROUND_CLOUD_VOXEL_M). */
+const GROUND_POINT_SIZE_M = 0.02
+const GROUND_PATCH_OPACITY = 0.25
+const GROUND_WARNING_OPACITY = 0.35
+/** Lift (m) of the plane overlays above the fitted plane, so they do not z-fight with it. */
+const GROUND_OVERLAY_LIFT_M = 0.004
+const GROUND_EDGE_WIDTH = 3
+
+/** base_link xyz (ROS) to the three.js position inside the base group. */
+function baseToThree([x, y, z]: Vec3Tuple): ThreeTuple {
+  return [x, z, 0 - y]
+}
+
+/** A translucent convex polygon (triangle fan) from three-layout vertices. */
+function FanMesh({ vertices, color, opacity }: { vertices: ThreeTuple[]; color: string; opacity: number }) {
+  const { invalidate } = useThree()
+  const geometry = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    const pos: number[] = []
+    for (let i = 1; i + 1 < vertices.length; i++) pos.push(...vertices[0], ...vertices[i], ...vertices[i + 1])
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    return g
+  }, [vertices])
+  useEffect(() => {
+    invalidate()
+    return () => geometry.dispose()
+  }, [geometry, invalidate])
+  return (
+    <mesh geometry={geometry} frustumCulled={false}>
+      <meshBasicMaterial color={color} transparent opacity={opacity} side={THREE.DoubleSide} depthWrite={false} />
+    </mesh>
+  )
+}
+
+/**
+ * Ground layer: the labelled points (coloured per label, placed by the cloud frame pose), and, placed by the base_link
+ * pose, the fitted plane patch, the obstacle/warning edge lines and the translucent warning areas. Nothing is drawn from
+ * the plane, edges or warning areas when the state is absent, stale or has no plane; the points are hidden with a stale state.
+ */
+export const GroundLayer = memo(function GroundLayer({
+  cloud,
+  state,
+  pose,
+  visible,
+}: {
+  cloud: unknown
+  state: GroundState | null | undefined
+  pose: Pose2D | null
+  visible: boolean
+}) {
+  const stale = state?.stale === true
+  const points = useMemo(() => {
+    const decoded = visible && !stale ? decodeGroundCloud(cloud) : null
+    return decoded && decoded.count > 0 ? { positions: rosXyzToThree(decoded.positions), colors: decoded.labelColors } : null
+  }, [cloud, visible, stale])
+  const drawn = visible && groundVisible(state)
+  const overlay = useMemo(() => {
+    if (!drawn || !state?.plane) return null
+    const plane = state.plane
+    const lift = (x: number, y: number): Vec3Tuple => [x, y, (planeZ(plane, x, y) ?? plane.height_m) + GROUND_OVERLAY_LIFT_M]
+    return {
+      patch: planePatch(state)?.map(baseToThree) ?? null,
+      edges: regionEdges(state).map((e) => ({ ...e, line: [baseToThree(lift(...e.a)), baseToThree(lift(...e.b))] })),
+      areas: warningPolygons(state).map((w) => ({ ...w, vertices: w.polygon.map(([x, y]) => baseToThree(lift(x, y))) })),
+    }
+  }, [drawn, state])
+  const p = pose ?? { x: 0, y: 0, yaw: 0 }
+  return (
+    <>
+      {points && <PointSet positions={points.positions} colors={points.colors} size={GROUND_POINT_SIZE_M} />}
+      {overlay && (
+        <group position={rosToThree(p)} rotation={[0, rosYawToThreeY(p.yaw), 0]}>
+          {overlay.patch && <FanMesh vertices={overlay.patch} color={GROUND_COLORS.plane} opacity={GROUND_PATCH_OPACITY} />}
+          {overlay.areas.map((a, i) => (
+            <FanMesh key={`${a.source}-${i}`} vertices={a.vertices} color={GROUND_COLORS.warningFill} opacity={GROUND_WARNING_OPACITY} />
+          ))}
+          {overlay.edges.map((e) => (
+            <Line key={e.name} points={e.line} color={e.colour} lineWidth={GROUND_EDGE_WIDTH} />
+          ))}
+        </group>
+      )}
+    </>
+  )
 })
 
 const WALL_MIN_INTERVAL_MS = 1000

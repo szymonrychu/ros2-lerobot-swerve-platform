@@ -17,6 +17,7 @@ import { advanceBaseJoints, BaseJointValues } from './baseJoints'
 import { headJointValues } from './headJoints'
 import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor } from './geo'
+import type { GroundState } from './groundLayer'
 import { Bounds, classifyBaseLink, fitDistance } from './groundMath'
 import { LayerState } from './layers'
 import { GraspPreview } from '../grasp/GraspPreview'
@@ -40,6 +41,7 @@ import {
   LIFT,
   ObstaclePointsLayer,
   HeadRgbdLayer,
+  GroundLayer,
   Map3dCloudLayer,
   LidarWallsLayer,
   useMap3dCloud,
@@ -85,6 +87,9 @@ export interface MapSceneProps {
   map3dCloud?: unknown
   /** Raw rgbd_cloud payload of the Head RGB-D layer (sensor-frame points with frame_pose). */
   headRgbdCloud?: unknown
+  /** Raw ground_cloud payload (labelled points with labels_b64 and frame_pose) and the ground state JSON of the Ground layer. */
+  groundCloud?: unknown
+  groundState?: GroundState | null
   map3dFrameId?: string
   lidarWallHeightM?: number
   globalPath: PathMsg | null | undefined
@@ -361,6 +366,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
       <LidarWallsLayer map={props.map} cloud={map3dCloud} heightM={props.lidarWallHeightM ?? DEFAULT_LIDAR_WALL_HEIGHT_M} visible={layers.lidarWalls} />
       <ObstaclePointsLayer cloud={props.obstacleCloud} scan={props.scanPoints} visible={layers.obstacles3d} />
       <HeadRgbdLayer payload={props.headRgbdCloud} visible={layers.headRgbd} />
+      <GroundLayer cloud={props.groundCloud} state={props.groundState} pose={props.robotPose} visible={layers.ground} />
       <GridImageLayer msg={props.map} lift={LIFT.map} opacity={1} visible={layers.slamMap} />
       <GridImageLayer
         msg={inMapFrame(props.costmap, props.mapFrame) ? props.costmap : null}

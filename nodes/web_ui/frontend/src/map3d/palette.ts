@@ -49,6 +49,19 @@ export const SCENE_COLORS = {
   gridLine: '#1a1a1a',
 } as const
 
+/** Colours of the Ground layer, also the legend of the layers panel. */
+export const GROUND_COLORS = {
+  floor: '#2e9e4f',
+  obstacle: '#d32f2f',
+  drop: '#1e66f5',
+  mismatch: '#f57c00',
+  unlabelled: '#9e9e9e',
+  edgeObstacle: '#d32f2f',
+  edgeWarning: '#fdd835',
+  plane: '#2e9e4f',
+  warningFill: '#fdd835',
+} as const
+
 /** Layer toolbar swatches (kept here so the toolbar does not pull in the 3D chunk). */
 export const LAYER_SWATCH: Partial<Record<LayerKey, string>> = {
   localCostmap: SCENE_COLORS.costmap,

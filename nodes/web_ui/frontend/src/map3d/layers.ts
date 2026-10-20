@@ -22,14 +22,15 @@ export const LAYER_KEYS = [
   'obstacles3d',
   'map3dCloud',
   'headRgbd',
+  'ground',
   'lidarWalls',
 ] as const
 
 export type LayerKey = (typeof LAYER_KEYS)[number]
 export type LayerState = Record<LayerKey, boolean>
 
-/** Layers that start hidden: the GPS map (it needs an anchor and fetches tiles) and the on-demand 3D obstacles and head RGB-D cloud. */
-const DEFAULT_OFF: readonly LayerKey[] = ['gpsMap', 'obstacles3d', 'headRgbd']
+/** Layers that start hidden: the GPS map (it needs an anchor and fetches tiles) and the on-demand 3D obstacles, head RGB-D cloud and ground estimate. */
+const DEFAULT_OFF: readonly LayerKey[] = ['gpsMap', 'obstacles3d', 'headRgbd', 'ground']
 
 /** Everything visible except the DEFAULT_OFF layers. */
 export const DEFAULT_LAYERS: Readonly<LayerState> = Object.freeze(
@@ -55,6 +56,7 @@ export const LAYER_LABELS: Record<LayerKey, string> = {
   obstacles3d: '3D obstacles (ToF + lidar)',
   map3dCloud: '3D map (measured)',
   headRgbd: 'Head RGB-D',
+  ground: 'Ground',
   lidarWalls: 'Lidar walls (2D only)',
 }
 
@@ -63,6 +65,7 @@ export const LAYER_TOPIC_FIELDS: Partial<Record<LayerKey, readonly (keyof TabCon
   obstacles3d: ['obstacle_cloud_topic', 'scan_points_topic'],
   map3dCloud: ['map3d_cloud_topic'],
   headRgbd: ['rgbd_cloud_topic'],
+  ground: ['ground_cloud_topic', 'ground_state_topic'],
 }
 
 /**

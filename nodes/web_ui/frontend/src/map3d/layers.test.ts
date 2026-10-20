@@ -51,13 +51,14 @@ describe('layer defaults', () => {
         'obstacles3d',
         'map3dCloud',
         'headRgbd',
+        'ground',
         'lidarWalls',
       ].sort(),
     )
   })
 
-  it('shows everything except the GPS map, the 3D obstacles and the head RGB-D cloud by default', () => {
-    for (const k of LAYER_KEYS) expect(DEFAULT_LAYERS[k]).toBe(k !== 'gpsMap' && k !== 'obstacles3d' && k !== 'headRgbd')
+  it('shows everything except the GPS map, the 3D obstacles, the head RGB-D cloud and the ground layer by default', () => {
+    for (const k of LAYER_KEYS) expect(DEFAULT_LAYERS[k]).toBe(!['gpsMap', 'obstacles3d', 'headRgbd', 'ground'].includes(k))
   })
 
   it('shows both 3D map layers by default', () => {
@@ -149,5 +150,15 @@ describe('headRgbd layer', () => {
   it('stored state that predates it keeps it off, and a stored true switches it on', () => {
     expect(parseLayerState(JSON.stringify({ slamMap: false })).headRgbd).toBe(false)
     expect(parseLayerState(JSON.stringify({ headRgbd: true })).headRgbd).toBe(true)
+  })
+})
+
+describe('ground layer', () => {
+  it('is labelled, off by default and depends on the ground cloud and state topics', () => {
+    expect(LAYER_LABELS.ground).toBe('Ground')
+    expect(DEFAULT_LAYERS.ground).toBe(false)
+    expect(parseLayerState(JSON.stringify({ slamMap: false })).ground).toBe(false)
+    expect(parseLayerState(JSON.stringify({ ground: true })).ground).toBe(true)
+    expect(LAYER_TOPIC_FIELDS.ground).toEqual(['ground_cloud_topic', 'ground_state_topic'])
   })
 })

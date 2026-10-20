@@ -9,6 +9,7 @@ import Typography from '@mui/material/Typography'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import { ToolButton } from '../components/ToolButton'
 import { OverlayPanel } from '../layout/OverlayPanel'
+import { GROUND_EDGE_LEGEND, GROUND_LABEL_LEGEND, groundReadout, type GroundState } from '../map3d/groundLayer'
 import { LAYER_LABELS, type LayerKey, type LayerState } from '../map3d/layers'
 import { LAYER_SWATCH, MAP_LEGEND } from '../map3d/palette'
 import type { TileSourceInfo } from '../map3d/tileSources'
@@ -23,7 +24,7 @@ const SWATCH_REM = '0.875rem'
 const TOGGLE_SX = { py: 0, px: 1, textTransform: 'none' } as const
 
 const LAYER_GROUPS: { title: string; keys: LayerKey[] }[] = [
-  { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase', 'obstacles3d', 'map3dCloud', 'headRgbd', 'lidarWalls'] },
+  { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase', 'obstacles3d', 'map3dCloud', 'headRgbd', 'ground', 'lidarWalls'] },
   { title: 'Navigation', keys: ['globalPlan', 'localPlan', 'goal', 'footprint'] },
   { title: 'Robot model', keys: ['robotBase', 'robotWheels', 'robotArm', 'head'] },
   { title: 'Points of interest', keys: ['pois', 'photos'] },
@@ -44,6 +45,10 @@ export interface LayersPanelProps {
   obstaclesConfigured?: boolean
   /** Whether the tab names rgbd_cloud_topic, the head RGB-D cloud (absent = yes). */
   rgbdCloudConfigured?: boolean
+  /** Whether the tab names both ground_cloud_topic and ground_state_topic (absent = yes). */
+  groundConfigured?: boolean
+  /** Latest ground state JSON for the read-out; undefined/null before one arrived. */
+  groundState?: GroundState | null
   tileSources: readonly TileSourceInfo[]
   tileSource: TileSourceInfo | null
   onTileSource: (id: string) => void
@@ -72,13 +77,14 @@ export interface LayersPanelProps {
  */
 export function disabledReason(
   key: LayerKey,
-  p: Pick<LayersPanelProps, 'gpsAvailable' | 'rtkAvailable' | 'costmapConfigured' | 'obstaclesConfigured' | 'rgbdCloudConfigured'>,
+  p: Pick<LayersPanelProps, 'gpsAvailable' | 'rtkAvailable' | 'costmapConfigured' | 'obstaclesConfigured' | 'rgbdCloudConfigured' | 'groundConfigured'>,
 ): string | null {
   if (key === 'gpsMap' && !p.gpsAvailable) return `Needs a GPS fix and compass heading (or drive ~5 m to fit): waiting for ${GPS_ANCHOR_TOPIC}.`
   if (key === 'rtkBase' && !p.rtkAvailable) return 'Needs the GPS anchor and a fresh base station position.'
   if (key === 'localCostmap' && !p.costmapConfigured) return 'No costmap topic configured.'
   if (key === 'obstacles3d' && p.obstaclesConfigured === false) return 'No obstacle cloud or scan points topic configured.'
   if (key === 'headRgbd' && p.rgbdCloudConfigured === false) return 'No head RGB-D cloud topic configured.'
+  if (key === 'ground' && p.groundConfigured === false) return 'No ground cloud or state topic configured.'
   return null
 }
 
@@ -90,6 +96,35 @@ function Swatch({ id, color }: { id: string; color: string }) {
       data-color={color}
       sx={{ width: SWATCH_REM, height: SWATCH_REM, bgcolor: color, border: 1, borderColor: 'divider', flexShrink: 0, display: 'inline-block' }}
     />
+  )
+}
+
+/**
+ * Legend of the Ground layer and the plane read-out of its state.
+ *
+ * @param state - latest ground state, if any
+ * @returns the label colours, the edge and warning area colours and the slope / slope level / plane height line
+ */
+function GroundLegend({ state }: { state: GroundState | null | undefined }) {
+  const readout = groundReadout(state)
+  return (
+    <Box data-testid="ground-legend" sx={{ pl: 4, mb: 0.5 }}>
+      {[...GROUND_LABEL_LEGEND, ...GROUND_EDGE_LEGEND].map(([label, color]) => (
+        <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1, lineHeight: '1.375rem' }}>
+          <Swatch id={`ground-${label}`} color={color} />
+          <Typography variant="body2">{label}</Typography>
+        </Box>
+      ))}
+      {readout ? (
+        <Typography data-testid="ground-readout" variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          Slope {readout.slope} ({readout.level}), plane height {readout.height}
+        </Typography>
+      ) : (
+        <Typography data-testid="ground-no-estimate" variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          No ground estimate
+        </Typography>
+      )}
+    </Box>
   )
 }
 
@@ -177,6 +212,7 @@ export function LayersPanel(p: LayersPanelProps) {
                     <Map3dStatus status={p.map3dStatus} />
                   </Box>
                 )}
+                {k === 'ground' && layers.ground && reason === null && <GroundLegend state={p.groundState} />}
                 {k === 'gpsMap' && tileSources.length > 1 && tileSource && (
                   <ToggleButtonGroup
                     exclusive
