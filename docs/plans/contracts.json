@@ -78,5 +78,15 @@
       "head-and-arm-calibration-fro"
     ],
     "note": "/var/lib/ros2/arm/calibration_stale.json {version:1, group, saved_at, joints:{name:{before_steps,after_steps}}, stale:[joint_offsets, home]}; writer feetech bridge after an arm neutral save; mcp_server removes home on arm_set_home; the arm calibration apply removes joint_offsets; empty list deletes the file; owner task bridge-runtime-neutral-save"
+  },
+  {
+    "name": "servo-torque-state-topic",
+    "kind": "topic",
+    "owner": "servo-torque-off-and-neutral",
+    "file": "nodes/bridges/feetech_servos/torque_control.py",
+    "consumers": [
+      "head-and-arm-calibration-fro"
+    ],
+    "note": "/{ns}/torque_state std_msgs/String JSON, reliable transient_local depth 1: {namespace, released, joints:{name:0|1}, stamp_ns, neutral_enabled, neutral_capture, last_save}; ns follower|swerve_drive|head; arm calibration must refuse while follower released; owner tasks bridge-torque-services-topic, bridge-runtime-neutral-save"
   }
 ]
