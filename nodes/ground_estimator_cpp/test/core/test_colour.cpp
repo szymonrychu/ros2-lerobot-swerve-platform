@@ -73,7 +73,7 @@ pcl::PointCloud<pcl::PointXYZ> floor_cloud() { return render(floor_scene(), SIGM
 
 FloorColourModel trained_model(const ColourConfig & cfg, uint8_t grey = GREY)
 {
-  FloorColourModel model;
+  FloorColourModel model(cfg);
   std::vector<Label> labels;
   const auto cloud = colour(floor_cloud(), false, grey);
   for (int i = 0; i < TRAIN_FRAMES; ++i) {
@@ -188,7 +188,7 @@ TEST(Colour, NothingIsMismatchBeforeMinFloorSamples)
 {
   ColourConfig cfg;
   cfg.min_floor_samples = 1000000;
-  FloorColourModel model;
+  FloorColourModel model(cfg);
   const auto cloud = colour(floor_cloud(), true);
   std::vector<Label> labels;
   const auto stats = label_cloud(cloud, Plane{}, BandsConfig{}, cfg, FLOOR_DISTANCE_M, model, labels);
@@ -217,7 +217,7 @@ TEST(Colour, DisabledGivesGeometricLabelsOnly)
 {
   ColourConfig cfg;
   cfg.enabled = false;
-  FloorColourModel model;
+  FloorColourModel model(cfg);
   auto scene = floor_scene();
   add_box(scene, Eigen::Vector3d(0.8, 0.0, 0.1), Eigen::Vector3d(0.2, 0.3, 0.2));
   const auto cloud = colour(render(scene, SIGMA_M, 0.0, SEED, DECIMATION), true);
@@ -232,7 +232,7 @@ TEST(Colour, DisabledGivesGeometricLabelsOnly)
 TEST(Colour, NoFloorPointsGivesNoRatio)
 {
   const ColourConfig cfg;
-  FloorColourModel model;
+  FloorColourModel model(cfg);
   pcl::PointCloud<pcl::PointXYZRGB> cloud;
   pcl::PointXYZRGB p;
   p.x = 0.5f;
@@ -290,4 +290,17 @@ TEST(Colour, LabelledMessageLayout)
   EXPECT_EQ(packed & 0xFFFFFFu, (10u << 16) | (20u << 8) | 30u);
   EXPECT_EQ(msg.data[16], static_cast<uint8_t>(Label::floor_colour_mismatch));
   EXPECT_EQ(msg.data[msg.point_step + 16], static_cast<uint8_t>(Label::unlabelled));
+}
+
+TEST(Colour, UpdateTakesOnlyTheSamplesAndUsesTheConfiguredSettings)
+{
+  ColourConfig cfg;
+  cfg.min_floor_samples = 10;
+  FloorColourModel model(cfg);
+  const std::vector<cv::Vec3b> samples(5, cv::Vec3b(GREY, GREY, GREY));
+  model.update(samples);
+  EXPECT_FALSE(model.ready());
+  model.update(samples);
+  EXPECT_TRUE(model.ready());
+  EXPECT_EQ(model.samples(), 10u);
 }

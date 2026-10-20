@@ -41,12 +41,14 @@ cv::Vec3f rgb_to_lab(const cv::Vec3b & rgb);
 class FloorColourModel
 {
 public:
+  // @param colour supplies forgetting (0 < v <= 1) and min_floor_samples (samples needed before ready()).
+  explicit FloorColourModel(const ColourConfig & colour = ColourConfig{}) : colour_(colour) {}
+
   // Blend a batch of floor samples into the model: mean and covariance move by weight forgetting towards the batch
   // (the first batch initialises the model); the sample count only grows.
+  // The weight is colour.forgetting and the readiness threshold colour.min_floor_samples of the constructor's config.
   // @param rgb_floor_samples floor colours in R, G, B order; empty is a no-op.
-  // @param forgetting weight of the batch, 0 < v <= 1.
-  // @param min_floor_samples samples needed before ready().
-  void update(const std::vector<cv::Vec3b> & rgb_floor_samples, double forgetting, int min_floor_samples);
+  void update(const std::vector<cv::Vec3b> & rgb_floor_samples);
 
   // @return true once at least min_floor_samples samples were seen (as of the last update).
   bool ready() const { return ready_; }
@@ -60,6 +62,7 @@ public:
   double mahalanobis(const cv::Vec3b & rgb) const;
 
 private:
+  ColourConfig colour_;
   Eigen::Vector3d mean_ = Eigen::Vector3d::Zero();
   Eigen::Matrix3d cov_ = Eigen::Matrix3d::Identity();
   Eigen::Matrix3d cov_inv_ = Eigen::Matrix3d::Identity();

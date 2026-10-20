@@ -35,9 +35,9 @@ cv::Vec3f rgb_to_lab(const cv::Vec3b & rgb)
   return dst.at<cv::Vec3f>(0, 0);
 }
 
-void FloorColourModel::update(
-  const std::vector<cv::Vec3b> & rgb_floor_samples, double forgetting, int min_floor_samples)
+void FloorColourModel::update(const std::vector<cv::Vec3b> & rgb_floor_samples)
 {
+  const double forgetting = colour_.forgetting;
   if (rgb_floor_samples.empty()) {
     return;
   }
@@ -68,7 +68,7 @@ void FloorColourModel::update(
   }
   count_ += rgb_floor_samples.size();
   cov_inv_ = (cov_ + COVARIANCE_RIDGE * Eigen::Matrix3d::Identity()).inverse();
-  ready_ = count_ >= static_cast<std::size_t>(min_floor_samples);
+  ready_ = count_ >= static_cast<std::size_t>(colour_.min_floor_samples);
 }
 
 double FloorColourModel::mahalanobis(const cv::Vec3b & rgb) const
@@ -111,7 +111,7 @@ LabelStats label_cloud(
     }
   }
   if (colour.enabled) {
-    model.update(floor_rgb, colour.forgetting, colour.min_floor_samples);
+    model.update(floor_rgb);
     if (model.ready()) {
       for (std::size_t k = 0; k < floor_index.size(); ++k) {
         if (model.mahalanobis(floor_rgb[k]) > colour.max_mahalanobis) {
