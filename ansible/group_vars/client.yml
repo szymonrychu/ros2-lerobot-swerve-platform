@@ -1090,6 +1090,8 @@ ros2_nodes:
       autonomy_input_topic: /filter/autonomy_joint_commands
       autonomy_release_topic: /filter/autonomy_release
       active_source_topic: /filter/active_source
+      # lerobot_follower torque state: while the arm is released nothing is published on /follower/joint_commands.
+      follower_torque_state_topic: /follower/torque_state
       joint_names:
         - shoulder_pan
         - shoulder_lift
@@ -1528,6 +1530,15 @@ ros2_nodes:
       # Measured 2026-10-11 on the former shared 14-servo bus: with [gripper] the bridge ran at 93.4 Hz, p99 18 ms
       # (gate 95 Hz; before 95.7 Hz, 12 ms), so the list is empty. The 95 Hz gate above decides any change.
       publish_current_joints: []
+      # Runtime torque off / neutral from the web UI Calibrate page. Follower arm only: the leader keeps its zero
+      # (server.yml lerobot_leader has no neutral keys), so teleop needs the leader re-zeroed in the same pose after
+      # a re-zero. The gripper is excluded from the re-zero (torque off still releases it). A save writes the stale
+      # marker, which mcp_server and web_ui read (same path in both).
+      neutral_enabled: true
+      neutral_exclude_joints: [gripper]
+      neutral_stale_marker: /var/lib/ros2/arm/calibration_stale.json
+      # /follower/torque_state repeat interval (filter_node, mcp_server and web_ui subscribe).
+      torque_state_interval_s: 1.0
       # filter_node tags /follower/joint_commands with its source in header.frame_id. web_ui and autonomy
       # (mcp_server) positions are follower joint radians (as in /follower/joint_states): the gripper's
       # leader -> follower source range mapping below applies only to leader (and untagged) commands.
@@ -1578,8 +1589,10 @@ ros2_nodes:
       control_loop_hz: 50
       # Same pack as the arm: lerobot_follower publishes /battery_state; 0 creates no BatteryState publisher here.
       battery_interval_s: 0
-      # Steering servos (33, 34, 37, 38): centred with `calibrate_servos.py center` (2048 = straight ahead,
-      # limits 1024..3072 = +-90 deg); position commands in rad, positive = CCW seen from above.
+      # Steering servos (33, 34, 37, 38): re-zero from the web UI Calibrate page (Torque off, Record neutral,
+      # Re-enable torque + save; 2048 = straight ahead, limits 1024..3072 = +-90 deg).
+      # `nodes/bridges/feetech_servos/scripts/calibrate_servos.py center` stays for offline use (node stopped).
+      # Position commands in rad, positive = CCW seen from above.
       # In-wheel servos (32, 35, 39, 36): wheel mode, velocity commands in rad/s, positive = forward
       # (left side 32/39 mounted mirrored -> inverted, verified on the bench 2026-10-03).
       velocity_command_timeout_s: 0.3
@@ -1589,6 +1602,10 @@ ros2_nodes:
       goal_refresh_interval_s: 1.0
       read_failure_limit: 3
       read_retry_interval_s: 5.0
+      # Runtime torque off / neutral of the primary group (the 4 steering servos; the wheels are velocity joints
+      # and are never released) and of the head group below. /swerve_drive/torque_state and /head/torque_state.
+      neutral_enabled: true
+      torque_state_interval_s: 1.0
       # filter_node-tagged commands of these sources are follower joint radians (the head group below); web_ui and
       # autonomy (mcp_server) drive the head directly.
       direct_command_sources:
@@ -1630,6 +1647,7 @@ ros2_nodes:
       # startup_position_rad is the home pose (D4): pan straight, tilt 30 deg down.
       extra_groups:
         - namespace: head
+          neutral_enabled: true
           joint_names:
             - name: head_pan
               id: 20
@@ -1673,6 +1691,8 @@ ros2_nodes:
       cmd_vel_topic: /cmd_vel
       joint_states_topic: /swerve_drive/joint_states
       joint_commands_topic: /swerve_drive/joint_commands
+      # base_servos torque state: while the steering is released cmd_vel is ignored.
+      torque_state_topic: /swerve_drive/torque_state
       odom_topic: /odom
       odom_frame_id: odom
       base_frame_id: base_link
@@ -1999,6 +2019,25 @@ ros2_nodes:
         imu_reset_service: /imu/calibration/reset
         # RGB-D section: head_rgbd_calibration HTTP API (its http_port).
         rgbd_url: http://127.0.0.1:18110
+        # Servo torque and neutral section: one card per feetech bridge group (state /<namespace>/torque_state).
+        # Publishes to command_topics are refused while the group is released.
+        servo_groups:
+          - id: arm
+            label: Arm
+            namespace: follower
+            neutral: true
+            stale_marker: /var/lib/ros2/arm/calibration_stale.json
+            command_topics: [/filter/web_ui_joint_commands]
+          - id: base
+            label: Base steering
+            namespace: swerve_drive
+            neutral: true
+            command_topics: [/goal_pose]
+          - id: head
+            label: Head
+            namespace: head
+            neutral: true
+            command_topics: [/head/joint_commands]
       # Printable model files (PDF, 3MF) from the repo checkout, served at /models/{name}, listed at /api/models.
       models_dir: "{{ ros2_repo_dest }}/models"
       tabs:
@@ -2196,6 +2235,10 @@ ros2_nodes:
         grasp_result: /grasp/result
         # Gripper torque_limit writes of grip profiles go to the follower bridge (RAM registers only).
         follower_set_register: /follower/set_register
+        # Bridge torque states (servo torque-off gate of the motion tools).
+        follower_torque_state: /follower/torque_state
+        base_torque_state: /swerve_drive/torque_state
+        head_torque_state: /head/torque_state
         # 3D map tools: the server's map3d_manager downlinks (contract nodes/rtabmap_mapping/config/map3d_topics.yaml).
         map3d_cloud: /map3d/cloud
         map3d_status: /map3d/status
@@ -2211,6 +2254,8 @@ ros2_nodes:
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml
+        # Written by lerobot_follower after an arm re-zero; arm_home is refused while it lists home.
+        calibration_stale_marker: /var/lib/ros2/arm/calibration_stale.json
         # Arm mount plane (URDF base_link origin) height above the floor: 10.0 cm (floor_z_m = -0.100). Was 10.4 cm from tip
         # touch-downs, 15 cm before. Corrected 2026-10-10 after the grid calibration was deployed: the fixed-jaw tip
         # commanded 1 cm above base_link (0.30, 0) had FK X/Y confirmed exactly by the user, FK height 6.9 mm, physically
@@ -2317,6 +2362,7 @@ ros2_nodes:
       # Camera calls subscribe per call: on the loaded Pi, DDS discovery can exceed the 2 s default.
       timeouts:
         image_timeout_s: 5.0
+        servo_torque_stale_s: 3.0
       # mount is the solve_camera_calibration output (parent_frame x y z roll pitch yaw, body frame x fwd / y left / z up).
       # The gripper mount is relative to the URDF link gripper_link of so101_arm.urdf, the front mount to base_link.
       # Pan/tilt head (head tools, front camera pose): explicit values equal to the defaults. Joint names, topics and the

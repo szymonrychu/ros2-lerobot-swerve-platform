@@ -612,7 +612,7 @@ export CARTO_API_KEY=...   # from https://carto.com/basemaps/apikey
 `playbooks/tasks/mcp_server_setup.yml` runs before `mcp_server` is deployed (in `deploy_nodes_client.yml` and in
 tags `setup`, `mcp_server`). It creates `/etc/ros2/mcp_server/token` once, containing
 `MCP_SERVER_TOKEN=<48 random letters/digits>` (mode `0600`, owner `ansible_user`, `force: false` so redeploys keep the
-token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`),
+token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`) and the arm re-zero stale marker (`calibration_stale.json`, written by the lerobot_follower bridge, read by mcp_server and web_ui),
 `/var/lib/ros2/camera_calibration` (owner `ansible_user`) for the camera calibration samples of the mcp_server camera
 tools, and `/var/lib/ros2/objects` (owner `ansible_user`) for the legacy object memory file (`objects.json`, imported once into poi_store as object POIs and renamed `objects.json.migrated`), and `/var/lib/ros2/poi` plus
 `/var/lib/ros2/poi/lookups` (owner `ansible_user`, `0755`) for the camera lookup store (every camera image the agent
@@ -620,6 +620,27 @@ received, `<id>.jpg` + `index.jsonl`; the retention limits are the `lookups:` bl
 `group_vars/client.yml`). The unit
 reads the token through `EnvironmentFile=`; the token never enters git. Fetch it on the dev machine with
 `eval "$(./scripts/robot_mcp_token.sh)"` (see `nodes/mcp_server/README.md`).
+
+### Servo torque off and neutral
+
+The web UI Calibrate page releases torque per servo group and re-zeroes (records and saves the neutral in the servo
+EEPROM) inside the running bridge. One client deploy turns it on; the keys in `group_vars/client.yml`:
+
+- `lerobot_follower` (arm, namespace `follower`): `neutral_enabled: true`, `neutral_exclude_joints: [gripper]` (the
+  gripper is never re-zeroed; torque off still releases it), `neutral_stale_marker:
+  /var/lib/ros2/arm/calibration_stale.json` (written after a save), `torque_state_interval_s: 1.0`. Follower only: the
+  leader bridge in `server.yml` has no neutral keys, so teleop needs the leader re-zeroed in the same pose.
+- `base_servos`: `neutral_enabled: true` on the primary `swerve_drive` group (the 4 steering servos; the wheels are
+  velocity joints and are never released) and on the `head` extra group; `torque_state_interval_s: 1.0`. Offline
+  centring stays `nodes/bridges/feetech_servos/scripts/calibrate_servos.py center`.
+- `filter_node.follower_torque_state_topic`, `swerve_controller.torque_state_topic`, `mcp_server.topics.*_torque_state`
+  (three), `mcp_server.timeouts.servo_torque_stale_s` and `mcp_server.arm.calibration_stale_marker` (same path as the
+  bridge) name `/{namespace}/torque_state` of those groups.
+- `web_ui` `calibration.servo_groups`: arm (`follower`), base (`swerve_drive`), head (`head`), each with `neutral: true`
+  and `command_topics` equal to the arm tab command topic, the map goal topic and the head command topic; the arm
+  entry carries `stale_marker`.
+
+`tests/test_servo_neutral_config.py` pins that these names agree.
 
 ### mcp_server guard rules
 

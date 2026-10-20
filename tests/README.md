@@ -274,6 +274,22 @@ Prometheus JSON (no network).
 | `test_memory_low_sum_counts_rows_with_a_proposal` | The MemoryLow sum skips rows without data. |
 | `test_render_table_shows_columns_and_the_memory_low_sum`, `test_render_yaml_roundtrips` | Table columns (no CPUQuota / MemoryHigh) with the closing sum line, and YAML output (`memory_low`, `memory_max`, `cpu_weight`, `io_weight`). |
 
+### `test_servo_neutral_config.py`
+
+Servo torque-off and neutral keys in `ansible/group_vars/client.yml` and `server.yml`: the client bridges, command sources, mcp_server and web_ui name the same bridge groups.
+
+| Test | Description |
+|------|-------------|
+| `test_web_ui_groups_are_bridge_groups_and_neutral_matches` | Every web_ui `calibration.servo_groups` namespace is a group of a client feetech bridge (arm = follower on lerobot_follower, base = swerve_drive and head on base_servos) and its `neutral` equals that group's `neutral_enabled`. |
+| `test_base_neutral_joints_are_the_four_steering_servos` | The base neutral joints are exactly fl/fr/rl/rr_steer; no velocity (wheel) joint. |
+| `test_follower_neutral_excludes_only_the_gripper` | lerobot_follower has `neutral_enabled: true` and `neutral_exclude_joints: [gripper]`. |
+| `test_stale_marker_path_is_identical_everywhere` | The stale marker path is the same in lerobot_follower, mcp_server `arm.calibration_stale_marker` and web_ui, under `/var/lib/ros2/arm`. |
+| `test_torque_state_topics_match_bridge_groups` | filter_node, swerve_controller and mcp_server torque state topics equal `/{namespace}/torque_state` of a configured bridge group; `servo_torque_stale_s` is set; both bridges set `torque_state_interval_s: 1.0`. |
+| `test_leader_bridge_has_no_neutral_keys` | The server.yml lerobot_leader bridge has no `neutral_*` key (the leader keeps its zero). |
+| `test_web_ui_command_topics_match_configured_topics` | web_ui group `command_topics` equal the arm tab `arm_command_topic`, the head tab `head_command_topic` and the map `goal_topic`. |
+| `test_arm_state_directory_created_on_client` | `playbooks/tasks/mcp_server_setup.yml` creates `/var/lib/ros2/arm` (home pose and stale marker). |
+| `test_tests_readme_lists_this_file` | This README has a section for the test file. |
+
 ### `test_calibrate_retry_threshold.py`
 
 Unit tests for `scripts/calibrate_retry_threshold.py` (Brier score, reliability bins, Wilson-bound threshold proposal) with fixture retry records (no network).
