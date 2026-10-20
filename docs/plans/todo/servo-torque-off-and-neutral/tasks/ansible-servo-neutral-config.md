@@ -25,7 +25,7 @@ provides: []
 
 - `ansible/group_vars/client.yml`, keeping the `ros2_nodes` schema:
   - `lerobot_follower` config: `neutral_enabled: true`, `neutral_exclude_joints: [gripper]` (D4, Q1), `neutral_stale_marker: /var/lib/ros2/arm/calibration_stale.json`, `torque_state_interval_s: 1.0`, with a comment block (D-C1, D-C2: follower only, the leader keeps its zero).
-  - `base_servos` config: `neutral_enabled: true` on the primary `swerve_drive` group (the 4 steering servos; the wheels are velocity joints and never released) and on the `head` extra group; `torque_state_interval_s: 1.0`; the steering comment updated (re-zero from the web UI Calibrate page; `calibrate_servos.py center` stays for offline use).
+  - `base_servos` config: `neutral_enabled: true` on the primary `swerve_drive` group (the 4 steering servos; the wheels are velocity joints and never released) and on the `head` extra group; `torque_state_interval_s: 1.0`; the steering comment updated (re-zero from the web UI Calibrate page; `nodes/bridges/feetech_servos/scripts/calibrate_servos.py center` stays for offline use).
   - `filter_node`: `follower_torque_state_topic: /follower/torque_state`; `swerve_controller`: `torque_state_topic: /swerve_drive/torque_state`; `mcp_server`: the three torque state topics, `timeouts.servo_torque_stale_s`, `arm.calibration_stale_marker` with the same path.
   - `web_ui` `calibration.servo_groups`: arm (`follower`, neutral, `stale_marker` same path, `command_topics` the arm tab command topic), base (`swerve_drive`, neutral, the map goal topic), head (`head`, neutral, the head command topic).
 - `server.yml` leader bridge is unchanged (no neutral keys, D-C2).
@@ -63,3 +63,5 @@ One deploy of the client nodes turns the feature on with consistent names everyw
 
 - Do not deploy here; the runbook task deploys after merge.
 - The head command steps stay as they are: they are relative to the servo centre and pinned by tests/test_head_servo_config.py.
+
+- 2026-10-20 amended: builder check: full calibrate_servos.py path
