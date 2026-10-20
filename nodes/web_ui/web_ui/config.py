@@ -152,6 +152,10 @@ HEAD_AMPLITUDE_ROLE = "head_amplitude"
 HEAD_RGBD_RGB_ROLE = "head_rgbd_rgb"  # RGB of head_rgbd_cpp: gated on the header stamp like the depth
 HEAD_RGBD_DEPTH_ROLE = "head_rgbd_depth"  # registered depth of head_rgbd_cpp: raw full-size uint16 mm, stamped
 RGBD_CLOUD_ROLE = "rgbd_cloud"  # coloured point cloud of head_rgbd_cpp, drawn in the map frame
+GROUND_CLOUD_ROLE = "ground_cloud"  # labelled cloud (XYZ rgb label) of ground_estimator_cpp, drawn in the map frame
+GROUND_STATE_ROLE = "ground_state"  # std_msgs/String JSON state of ground_estimator_cpp (latched)
+# Seconds without a ground state message after which the backend marks the cached state "stale": true.
+GROUND_STALE_S_DEFAULT = 2.0
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
 GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
@@ -188,6 +192,8 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("map3d_status_topic", "map3d_status"),
     ("map3d_result_topic", "map3d_result"),
     ("rgbd_cloud_topic", RGBD_CLOUD_ROLE),
+    ("ground_cloud_topic", GROUND_CLOUD_ROLE),
+    ("ground_state_topic", GROUND_STATE_ROLE),
     ("gps_fix_topic", "gps"),
     ("poi_list_topic", "poi_list"),
     ("poi_result_topic", "poi_result"),
@@ -347,6 +353,10 @@ class TabConfig(BaseModel):
     map3d_max_points: int = Field(default=60000, ge=1000, le=300000)  # map_nav: cap of points sent to a browser
     map3d_voxel_m: float = Field(default=0.05, ge=0.02, le=0.5)  # map_nav: starting voxel edge (m) of the cloud
     rgbd_cloud_topic: str | None = None  # map_nav: sensor_msgs/PointCloud2 XYZRGB of head_rgbd_cpp (on demand)
+    ground_cloud_topic: str | None = None  # map_nav: sensor_msgs/PointCloud2 XYZ rgb label of ground_estimator_cpp
+    ground_state_topic: str | None = None  # map_nav: std_msgs/String JSON ground state of ground_estimator_cpp
+    # map_nav: the ground state is marked "stale": true when no message arrived for this many seconds.
+    ground_state_stale_s: float = Field(default=GROUND_STALE_S_DEFAULT, gt=0)
     lidar_wall_height_m: float = Field(default=1.0, ge=0.1, le=3.0)  # map_nav: height lidar points are extruded to
     gps_fix_topic: str | None = None  # map_nav: sensor_msgs/NavSatFix of the rover
     poi_list_topic: str | None = None  # map_nav: std_msgs/String JSON POI list (latched, from poi_store)
@@ -720,6 +730,16 @@ class AppConfig(BaseModel):
             if tab.map3d_cloud_topic
         }
 
+    def ground_state_stale_s(self) -> dict[str, float]:
+        """Map each map_nav tab's ground state topic to its staleness limit.
+
+        Returns:
+            dict[str, float]: Ground state topic -> seconds without a message after which it is marked stale.
+        """
+        return {
+            tab.ground_state_topic: tab.ground_state_stale_s for tab in self.map_nav_tabs() if tab.ground_state_topic
+        }
+
     def map_reset_services(self) -> list[str]:
         """Return the slam_toolbox Reset services of all map_nav tabs.
 
@@ -809,7 +829,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "cloud" and "map3d_cloud" (PointCloud2) and "scan_points" (LaserScan), "map3d_status" and "map3d_result" (std_msgs/String JSON), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" and "head_rgbd_rgb" (CompressedImage), "head_depth", "head_rgbd_depth" and "head_amplitude" (Image) of head tabs, "rgbd_cloud" (PointCloud2) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" and "head_rgbd_rgb" (CompressedImage), "head_depth", "head_rgbd_depth" and "head_amplitude" (Image) of head tabs, "rgbd_cloud" and "ground_cloud" (PointCloud2), "ground_state" (std_msgs/String JSON) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:

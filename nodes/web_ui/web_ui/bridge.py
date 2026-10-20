@@ -54,12 +54,14 @@ from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, ExtrapolationException, TransformException, TransformListener
 
-from .cloud_serializer import DEFAULT_MAX_POINTS, DEFAULT_VOXEL_M, serialize_map3d_cloud
+from .cloud_serializer import DEFAULT_MAX_POINTS, DEFAULT_VOXEL_M, serialize_ground_cloud, serialize_map3d_cloud
 from .config import (
     ACTIVE_SOURCE_ROLE,
     BATTERY_ROLE,
     GPS_STATUS_ROLE,
     GRASP_RESULT_ROLE,
+    GROUND_CLOUD_ROLE,
+    GROUND_STATE_ROLE,
     HEAD_AMPLITUDE_ROLE,
     HEAD_DEPTH_ROLE,
     HEAD_RGB_ROLE,
@@ -223,7 +225,7 @@ ROBOT_POSE_STALE_S = 2.0
 MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint", "costmap"})
 # 3D obstacle roles: points stay in the sensor frame and gain "frame_pose", the pose of that frame in map_frame at the
 # message stamp; without that TF the message is not sent.
-POSE_FRAME_ROLES: frozenset[str] = frozenset({"cloud", "scan_points", RGBD_CLOUD_ROLE})
+POSE_FRAME_ROLES: frozenset[str] = frozenset({"cloud", "scan_points", RGBD_CLOUD_ROLE, GROUND_CLOUD_ROLE})
 
 # Serializers take the message and return a JSON-serializable dict.
 Serializer = Callable[[Any], dict[str, Any]]
@@ -303,6 +305,10 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "map3d_cloud": (PointCloud2, SENSOR_SUB_QOS, serialize_map3d_cloud_default),
     # head_rgbd_cpp coloured cloud (best effort, <= 1 Hz): points stay in the sensor frame, frame_pose places them.
     RGBD_CLOUD_ROLE: (PointCloud2, SENSOR_SUB_QOS, serialize_rgbd_cloud),
+    # ground_estimator_cpp labelled cloud (best effort, base_link frame, labels aligned with the kept points) and its
+    # latched JSON state (reliable + transient_local like the tilt guard state, so a (re)subscribing UI gets it).
+    GROUND_CLOUD_ROLE: (PointCloud2, SENSOR_SUB_QOS, serialize_ground_cloud),
+    GROUND_STATE_ROLE: (String, MAP_SUB_QOS, serialize_json_object),
     # map3d manager status (latest wins) and per-command results (a burst must not lose one).
     "map3d_status": (String, MAP3D_STATUS_QOS, serialize_json_object),
     "map3d_result": (String, MAP3D_RESULT_QOS, serialize_json_object),
@@ -411,6 +417,8 @@ class BridgeNode(Node):
 
     # Seconds after which the cached tilt guard state is marked stale (set from the config in __init__).
     _tilt_stale_s: float = TILT_STALE_S_DEFAULT
+    # Ground state topic -> seconds without a message after which it is marked stale (set in __init__).
+    _ground_stale_s: dict[str, float] = {}
     # Queued per-command results awaiting the next flush (replaced, never mutated, so the class default is safe).
     _bursts: tuple[dict[str, Any], ...] = ()
 
@@ -438,6 +446,7 @@ class BridgeNode(Node):
         servo_state_topics: dict[str, str] | None = None,
         zoom_topics: dict[str, tuple[str, str, str]] | None = None,
         map3d_limits: dict[str, tuple[int, float]] | None = None,
+        ground_stale_s: dict[str, float] | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -450,6 +459,7 @@ class BridgeNode(Node):
             topic_roles (dict[str, str] | None): map_nav topic -> role ("map", "path", "goal"), head topic -> head role.
             tof_ranges (dict[str, float] | None): head depth topic -> range (m) of its greyscale preview.
             map3d_limits (dict[str, tuple[int, float]] | None): 3D map cloud topic -> (max_points, voxel_m).
+            ground_stale_s (dict[str, float] | None): Ground state topic -> age in seconds after which it is stale.
             robot_pose_frames (tuple[str, str] | None): (map_frame, base_frame) for the TF robot pose,
                 or None to disable TF tracking.
             frame_id_defaults (dict[str, str] | None): Publish topic -> header.frame_id used when the
@@ -492,6 +502,7 @@ class BridgeNode(Node):
         self._tf_always = gps_anchor is not None
         self._pose_period_s = 1.0 / pose_rate_hz
         self._tilt_stale_s = tilt_stale_s
+        self._ground_stale_s = dict(ground_stale_s or {})
         self._latest: dict[str, dict[str, Any]] = {}
         self._pending: dict[str, tuple[Any, Serializer, str | None]] = {}
         self._frame_pose_pending: dict[str, PendingFramePose] = {}
@@ -1040,6 +1051,24 @@ class BridgeNode(Node):
                 "data": {**envelope["data"], "stale": True},
             }
             self._dirty.add(TILT_GUARD_STATE_TOPIC)
+
+    def mark_ground_stale(self) -> None:
+        """Replace each cached ground state by a copy with "stale": true once its last receive is too old.
+
+        The age is the backend receive age (monotonic), not a client clock. The copy is broadcast like any update;
+        the next real message replaces it (and clears the flag). A topic nobody subscribes to has no receive time.
+        """
+        now = time.monotonic()
+        with self._lock:
+            for topic, limit in self._ground_stale_s.items():
+                envelope = self._latest.get(topic)
+                if envelope is None or envelope["data"].get("stale"):
+                    continue
+                last_rx = self._topic_last_rx.get(topic)
+                if last_rx is None or now - last_rx <= limit:
+                    continue
+                self._latest[topic] = {"topic": topic, "data": {**envelope["data"], "stale": True}}
+                self._dirty.add(topic)
 
     def tilt_state(self) -> dict[str, Any] | None:
         """Return the latest tilt guard state, flagged stale when no message arrived for tilt_stale_s.
@@ -1930,6 +1959,7 @@ class BridgeNode(Node):
             list[dict[str, Any]]: Envelopes ready to broadcast.
         """
         self.mark_tilt_stale()
+        self.mark_ground_stale()
         with self._lock:
             dirty = list(self._dirty)
             cleared = list(self._cleared)

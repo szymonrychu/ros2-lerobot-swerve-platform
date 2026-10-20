@@ -66,6 +66,7 @@ def main() -> None:
         imu_status_topic=config.imu_status_topic(),
         servo_state_topics=config.servo_state_topics(),
         zoom_topics=config.zoom_topics(),
+        ground_stale_s=config.ground_state_stale_s(),
     )
     executor = create_bridge_executor(node)
 

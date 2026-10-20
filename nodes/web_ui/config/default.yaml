@@ -42,6 +42,11 @@ tabs:
     map3d_voxel_m: 0.05
     # "Head RGB-D" layer (on demand): head_rgbd_cpp XYZRGB cloud, placed in the map frame by the TF of its sensor frame.
     rgbd_cloud_topic: /head_rgbd/points
+    # "Ground" layer (on demand): ground_estimator_cpp labelled cloud (XYZ rgb label, base_link) and JSON state;
+    # the state is marked stale after ground_state_stale_s seconds without a message (backend receive age).
+    ground_cloud_topic: /ground/labelled_points
+    ground_state_topic: /ground/state
+    ground_state_stale_s: 2.0
     lidar_wall_height_m: 1.0
     goal_topic: /goal_pose
     map_frame: map

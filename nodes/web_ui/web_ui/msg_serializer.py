@@ -34,6 +34,7 @@ MAP_OCCUPIED_THRESH = 65
 # Default caps of the 3D obstacle layer payloads (points, not floats).
 CLOUD_MAX_POINTS = 2000
 # sensor_msgs/PointField datatypes of 4-byte point fields.
+UINT8_DATATYPE = 2
 UINT32_DATATYPE = 6
 FLOAT32_DATATYPE = 7
 SCAN_MAX_POINTS = 720
@@ -523,7 +524,7 @@ def cloud_columns(msg: Any, names: tuple[str, ...], datatypes: dict[str, frozens
 
     Returns:
         dict[str, np.ndarray]: Field name -> column with one entry per point (raw bytes viewed as the field's
-        4-byte type: float32 for FLOAT32 fields, uint32 for UINT32 fields).
+        raw bytes viewed as the field's type: float32 for FLOAT32, uint32 for UINT32, uint8 for UINT8 fields).
 
     Raises:
         ValueError: If a field is missing or of another datatype (naming the message's fields), or ``data`` is
@@ -542,7 +543,7 @@ def cloud_columns(msg: Any, names: tuple[str, ...], datatypes: dict[str, frozens
     if len(data) < count * msg.point_step:
         raise ValueError(f"PointCloud2 data holds {len(data)} bytes, need {count * msg.point_step} for {count} points")
     byte_order = ">" if msg.is_bigendian else "<"
-    formats = {FLOAT32_DATATYPE: f"{byte_order}f4", UINT32_DATATYPE: f"{byte_order}u4"}
+    formats = {FLOAT32_DATATYPE: f"{byte_order}f4", UINT32_DATATYPE: f"{byte_order}u4", UINT8_DATATYPE: "u1"}
     dtype = np.dtype(
         {
             "names": list(names),

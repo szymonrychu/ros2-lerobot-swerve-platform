@@ -2205,6 +2205,11 @@ ros2_nodes:
           map3d_voxel_m: 0.05
           # "Head RGB-D" layer (on demand): head_rgbd_cpp XYZRGB cloud, placed in map from the TF of its sensor frame.
           rgbd_cloud_topic: /head_rgbd/points
+          # "Ground" layer (on demand): ground_estimator_cpp labelled cloud (XYZ rgb label) and JSON state; the state
+          # is marked stale after ground_state_stale_s seconds without a message.
+          ground_cloud_topic: /ground/labelled_points
+          ground_state_topic: /ground/state
+          ground_state_stale_s: 2.0
           lidar_wall_height_m: 1.0
           base_urdf: robot.urdf
           base_joint_states_topic: /swerve_drive/joint_states
