@@ -136,6 +136,9 @@ def make_bridge(tf_buffer: Any) -> Any:
     node._latest = {}
     node._dirty = set()
     node._pending = {}
+    node._frame_pose_pending = {}
+    node._frame_pose_lock = threading.Lock()
+    node._frame_pose_logged = {}
     node._cleared = set()
     node._topic_last_rx = {}
     node._lock = threading.Lock()
@@ -218,3 +221,102 @@ def test_cloud_roles_are_on_demand_and_need_tf() -> None:
     from web_ui.bridge import POSE_FRAME_ROLES
 
     assert POSE_FRAME_ROLES == frozenset({"cloud", "scan_points", "rgbd_cloud"})
+
+
+def drops(role: str, reason: str) -> float:
+    from web_ui.metrics import FRAME_POSE_DROPS
+
+    return FRAME_POSE_DROPS.labels(role=role, reason=reason)._value.get()
+
+
+def pending_bridge(side_effect: Any) -> tuple[Any, Any, Any]:
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.side_effect = side_effect
+    node = make_bridge(tf_buffer)
+    cb = node._make_callback("/scan_filtered", serialize_scan_points, "scan_points")
+    return node, tf_buffer, cb
+
+
+def test_extrapolation_is_held_and_published_on_retry() -> None:
+    from tf2_ros import ExtrapolationException
+
+    node, tf_buffer, cb = pending_bridge(ExtrapolationException("future"))
+    before = drops("scan_points", "ExtrapolationException")
+    cb(make_scan([1.0, 2.0], frame="tof_link"))
+    assert node.flush_dirty() == []
+    tf_buffer.lookup_transform.side_effect = None
+    tf_buffer.lookup_transform.return_value = tf_to_map()
+    node.retry_frame_poses()
+    envelope = node.flush_dirty()[0]
+    assert envelope["topic"] == "/scan_filtered"
+    assert envelope["data"]["frame_pose"]["x"] == 1.0
+    assert drops("scan_points", "ExtrapolationException") == before
+    assert node._frame_pose_pending == {}
+
+
+def test_newer_message_supersedes_pending() -> None:
+    from tf2_ros import ExtrapolationException
+
+    node, tf_buffer, cb = pending_bridge(ExtrapolationException("future"))
+    before = drops("scan_points", "superseded")
+    cb(make_scan([1.0], frame="tof_link"))
+    node.flush_dirty()
+    cb(make_scan([5.0, 6.0], frame="tof_link"))
+    node.flush_dirty()
+    assert drops("scan_points", "superseded") == before + 1
+    tf_buffer.lookup_transform.side_effect = None
+    tf_buffer.lookup_transform.return_value = tf_to_map()
+    node.retry_frame_poses()
+    envelopes = node.flush_dirty()
+    assert len(envelopes) == 1
+    assert len(envelopes[0]["data"]["ranges"]) == 2 if "ranges" in envelopes[0]["data"] else True
+
+
+def test_pending_older_than_wait_is_dropped_and_counted() -> None:
+    from tf2_ros import ExtrapolationException
+
+    from web_ui.bridge import FRAME_POSE_WAIT_S
+
+    node, _, cb = pending_bridge(ExtrapolationException("future"))
+    before = drops("scan_points", "ExtrapolationException")
+    cb(make_scan([1.0], frame="tof_link"))
+    node.flush_dirty()
+    first = node._frame_pose_pending["/scan_filtered"].first_attempt
+    node.retry_frame_poses(now=first + FRAME_POSE_WAIT_S / 2)
+    assert "/scan_filtered" in node._frame_pose_pending
+    assert drops("scan_points", "ExtrapolationException") == before
+    node.retry_frame_poses(now=first + FRAME_POSE_WAIT_S + 0.01)
+    assert node._frame_pose_pending == {}
+    assert drops("scan_points", "ExtrapolationException") == before + 1
+    assert node.flush_dirty() == []
+
+
+def test_lookup_exception_still_drops_immediately() -> None:
+    from tf2_ros import LookupException
+
+    node, _, cb = pending_bridge(LookupException("no frame"))
+    before = drops("scan_points", "LookupException")
+    cb(make_scan([1.0], frame="tof_link"))
+    assert node.flush_dirty() == []
+    assert node._frame_pose_pending == {}
+    assert drops("scan_points", "LookupException") == before + 1
+
+
+def test_retry_runs_from_apply_demand_timer() -> None:
+    from tf2_ros import ExtrapolationException
+
+    node, tf_buffer, cb = pending_bridge(ExtrapolationException("future"))
+    cb(make_scan([1.0], frame="tof_link"))
+    node.flush_dirty()
+    tf_buffer.lookup_transform.side_effect = None
+    tf_buffer.lookup_transform.return_value = tf_to_map()
+    assert node.flush_dirty() == []  # the WS thread path never retries
+    node.run_publisher_tasks = MagicMock()
+    node._demand_lock = threading.Lock()
+    node._wanted = frozenset()
+    node._demand = {}
+    node._active = {}
+    node._linger_until = {}
+    node.reconcile_tf = MagicMock()
+    node.apply_demand()
+    assert len(node.flush_dirty()) == 1

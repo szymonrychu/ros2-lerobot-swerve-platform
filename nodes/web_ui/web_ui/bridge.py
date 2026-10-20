@@ -52,7 +52,7 @@ from sensor_msgs.msg import (
 from slam_toolbox.srv import Reset, SerializePoseGraph
 from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
-from tf2_ros import Buffer, TransformException, TransformListener
+from tf2_ros import Buffer, ExtrapolationException, TransformException, TransformListener
 
 from .cloud_serializer import DEFAULT_MAX_POINTS, DEFAULT_VOXEL_M, serialize_map3d_cloud
 from .config import (
@@ -209,6 +209,11 @@ TOPIC_STALE_S = 10.0
 DEMAND_LINGER_S = 5.0
 # Period of the ROS timer that applies the recorded demand (all create/destroy happens on the executor thread).
 DEMAND_APPLY_PERIOD_S = 0.1
+# A 3D obstacle payload whose frame pose lookup extrapolated into the future (its /tf not processed yet) is held this
+# long, from its first attempt, before it is dropped.
+FRAME_POSE_WAIT_S = 1.0
+# Minimum seconds between two info logs of timed-out payloads of one topic.
+FRAME_POSE_LOG_PERIOD_S = 60.0
 # A robot pose whose TF stamp is older than this (vs the node clock) is dropped, never replayed to late joiners.
 ROBOT_POSE_STALE_S = 2.0
 # map_nav roles whose messages are re-expressed in map_frame (plans, goals, robot footprint, costmap origin);
@@ -220,6 +225,15 @@ POSE_FRAME_ROLES: frozenset[str] = frozenset({"cloud", "scan_points", RGBD_CLOUD
 
 # Serializers take the message and return a JSON-serializable dict.
 Serializer = Callable[[Any], dict[str, Any]]
+
+
+@dataclass
+class PendingFramePose:
+    """A serialized 3D obstacle payload waiting for the TF that covers its stamp (like a tf2 MessageFilter)."""
+
+    data: dict[str, Any]
+    role: str | None
+    first_attempt: float
 
 
 @dataclass(frozen=True)
@@ -475,6 +489,9 @@ class BridgeNode(Node):
         self._tilt_stale_s = tilt_stale_s
         self._latest: dict[str, dict[str, Any]] = {}
         self._pending: dict[str, tuple[Any, Serializer, str | None]] = {}
+        self._frame_pose_pending: dict[str, PendingFramePose] = {}
+        self._frame_pose_lock = threading.Lock()
+        self._frame_pose_logged: dict[str, float] = {}
         self._bursts = ()
         self._dirty: set[str] = set()
         self._cleared: set[str] = set()
@@ -664,6 +681,7 @@ class BridgeNode(Node):
         """
         now = time.monotonic() if now is None else now
         self.run_publisher_tasks()
+        self.retry_frame_poses(now)
         with self._demand_lock:
             wanted = self._wanted
             for topic, entry in self._demand.items():
@@ -895,7 +913,9 @@ class BridgeNode(Node):
         try:
             payload = serializer(msg)
             data = (
-                self.attach_frame_pose(payload, role) if role in POSE_FRAME_ROLES else self.to_map_frame(payload, role)
+                self.attach_frame_pose(payload, role, topic)
+                if role in POSE_FRAME_ROLES
+                else self.to_map_frame(payload, role)
             )
         except Exception as exc:
             log.warning("serialize_error", topic=topic, error=str(exc))
@@ -1327,31 +1347,154 @@ class BridgeNode(Node):
             if topic in self._topic_last_rx:  # health-checked topics only (not a late message of a dropped one)
                 self._topic_last_rx[topic] = time.monotonic()
 
-    def attach_frame_pose(self, data: dict[str, Any], role: str | None = None) -> dict[str, Any] | None:
+    def attach_frame_pose(
+        self, data: dict[str, Any], role: str | None = None, topic: str | None = None
+    ) -> dict[str, Any] | None:
         """Add "frame_pose" (the pose of the payload's sensor frame in map_frame at its stamp) to a 3D obstacle payload.
+
+        A lookup that extrapolates into the future (the /tf messages covering the stamp are not processed yet) holds
+        the payload for retry_frame_poses instead of dropping it. A pending payload of the topic is replaced
+        (reason "superseded") by a newer one, whether that one succeeds now or is held.
 
         Args:
             data (dict[str, Any]): Serialized cloud / scan points with "frame" and "stamp".
             role (str | None): map_nav role of the source topic, the role label of webui_frame_pose_drops_total.
+            topic (str | None): WS topic name, the key the payload is held under; None never holds.
 
         Returns:
-            dict[str, Any] | None: Data with frame_pose {x, y, z, qx, qy, qz, qw}, or None when TF tracking is off
-                or the transform is unknown (nothing is sent rather than a placeholder pose).
+            dict[str, Any] | None: Data with frame_pose {x, y, z, qx, qy, qz, qw}, or None when TF tracking is off,
+                the transform is unknown or the payload was held (nothing is sent rather than a placeholder pose).
         """
         if self._robot_pose_frames is None or self._tf_buffer is None:
             return None
-        stamp_ns = int(data["stamp"] * 1e9)
         try:
-            tf = self._tf_buffer.lookup_transform(
-                self._robot_pose_frames[0], data["frame"], Time(nanoseconds=stamp_ns) if stamp_ns > 0 else Time()
-            )
+            out = self.lookup_frame_pose(data)
+        except ExtrapolationException:
+            if topic is None:
+                FRAME_POSE_DROPS.labels(role=role or "", reason="ExtrapolationException").inc()
+                return None
+            self.hold_frame_pose(topic, PendingFramePose(data, role, time.monotonic()))
+            return None
         except TransformException as exc:
             FRAME_POSE_DROPS.labels(role=role or "", reason=type(exc).__name__).inc()
             return None
+        if topic is not None:
+            self.discard_frame_pose(topic)
+        return out
+
+    def lookup_frame_pose(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Look up the pose of the payload's frame in map_frame at its stamp.
+
+        Args:
+            data (dict[str, Any]): Serialized payload with "frame" and "stamp".
+
+        Returns:
+            dict[str, Any]: Data with "frame_pose" added.
+
+        Raises:
+            TransformException: The transform is unavailable (ExtrapolationException when not yet covered).
+        """
+        stamp_ns = int(data["stamp"] * 1e9)
+        tf = self._tf_buffer.lookup_transform(
+            self._robot_pose_frames[0], data["frame"], Time(nanoseconds=stamp_ns) if stamp_ns > 0 else Time()
+        )
         t = tf.transform.translation
         q = tf.transform.rotation
         pose = {"x": t.x, "y": t.y, "z": t.z, "qx": q.x, "qy": q.y, "qz": q.z, "qw": q.w}
         return dict(data, frame_pose={k: float(v) for k, v in pose.items()})
+
+    def hold_frame_pose(self, topic: str, entry: PendingFramePose) -> None:
+        """Keep entry as the topic's pending payload; an older pending one is dropped as "superseded".
+
+        Args:
+            topic (str): WS topic name.
+            entry (PendingFramePose): Payload to hold.
+        """
+        with self._frame_pose_lock:
+            old = self._frame_pose_pending.get(topic)
+            self._frame_pose_pending[topic] = entry
+        if old is not None:
+            FRAME_POSE_DROPS.labels(role=old.role or "", reason="superseded").inc()
+
+    def discard_frame_pose(self, topic: str) -> None:
+        """Drop the topic's pending payload because a newer one was resolved (counted "superseded").
+
+        Args:
+            topic (str): WS topic name.
+        """
+        with self._frame_pose_lock:
+            old = self._frame_pose_pending.pop(topic, None)
+        if old is not None:
+            FRAME_POSE_DROPS.labels(role=old.role or "", reason="superseded").inc()
+
+    def retry_frame_poses(self, now: float | None = None) -> None:
+        """Retry the held 3D obstacle payloads (executor thread, from apply_demand).
+
+        A resolved payload is cached and marked for broadcast like an immediate one, unless a newer raw message of the
+        topic waits for serialization (then it is "superseded"). One older than FRAME_POSE_WAIT_S is dropped (reason
+        ExtrapolationException); any other TF failure drops it with the exception class name.
+
+        Args:
+            now (float | None): Monotonic time in seconds, None for time.monotonic().
+        """
+        with self._frame_pose_lock:
+            if not self._frame_pose_pending:
+                return
+            work = list(self._frame_pose_pending.items())
+        now = time.monotonic() if now is None else now
+        for topic, entry in work:
+            try:
+                data = self.lookup_frame_pose(entry.data)
+            except ExtrapolationException:
+                if now - entry.first_attempt < FRAME_POSE_WAIT_S:
+                    continue
+                if self.finish_frame_pose(topic, entry):
+                    FRAME_POSE_DROPS.labels(role=entry.role or "", reason="ExtrapolationException").inc()
+                    self.log_frame_pose_timeout(topic, now)
+                continue
+            except TransformException as exc:
+                if self.finish_frame_pose(topic, entry):
+                    FRAME_POSE_DROPS.labels(role=entry.role or "", reason=type(exc).__name__).inc()
+                continue
+            if not self.finish_frame_pose(topic, entry):
+                continue
+            with self._lock:
+                if topic in self._pending:
+                    FRAME_POSE_DROPS.labels(role=entry.role or "", reason="superseded").inc()
+                    continue
+                self._latest[topic] = {"topic": topic, "data": data}
+                self._dirty.add(topic)
+                self._cleared.discard(topic)
+                if topic in self._topic_last_rx:
+                    self._topic_last_rx[topic] = time.monotonic()
+
+    def finish_frame_pose(self, topic: str, entry: PendingFramePose) -> bool:
+        """Remove entry from the pending payloads if it is still the topic's one.
+
+        Args:
+            topic (str): WS topic name.
+            entry (PendingFramePose): Entry being resolved.
+
+        Returns:
+            bool: False when a newer payload replaced it meanwhile (already counted as superseded).
+        """
+        with self._frame_pose_lock:
+            if self._frame_pose_pending.get(topic) is not entry:
+                return False
+            del self._frame_pose_pending[topic]
+            return True
+
+    def log_frame_pose_timeout(self, topic: str, now: float) -> None:
+        """Log at info that payloads of the topic timed out, at most once per FRAME_POSE_LOG_PERIOD_S.
+
+        Args:
+            topic (str): WS topic name.
+            now (float): Monotonic time in seconds.
+        """
+        last = self._frame_pose_logged.get(topic)
+        if last is None or now - last >= FRAME_POSE_LOG_PERIOD_S:
+            self._frame_pose_logged[topic] = now
+            log.info("frame_pose_wait_timeout", topic=topic, wait_s=FRAME_POSE_WAIT_S)
 
     def to_map_frame(self, data: dict[str, Any], role: str | None) -> dict[str, Any] | None:
         """Re-express a serialized path/footprint ("points"), goal ("x", "y", "yaw") or costmap ("origin") in the map frame.

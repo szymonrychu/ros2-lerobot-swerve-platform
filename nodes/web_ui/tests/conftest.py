@@ -64,6 +64,9 @@ def _install_ros2_stubs() -> None:
             """Stand-in for tf2_ros.TransformException."""
 
         tf2_mod.TransformException = _StubTransformException  # type: ignore[attr-defined]
+    for name in ("ExtrapolationException", "LookupException"):
+        if not hasattr(tf2_mod, name):
+            setattr(tf2_mod, name, type(name, (tf2_mod.TransformException,), {}))
     for name in ("Buffer", "TransformListener"):
         if not hasattr(tf2_mod, name):
             setattr(tf2_mod, name, MagicMock())
