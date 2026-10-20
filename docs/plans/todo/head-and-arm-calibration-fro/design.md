@@ -284,6 +284,7 @@ Cross-epic: `head-chain-override` is registered in `docs/plans/contracts.json`; 
 
 none
 - Q1: After the reprint, set the head tilt range to -30..+60 deg (+ is down) everywhere it is pinned? [recommended: yes]
+- Q2: Gripper plate 5x3 squares of 18 mm (14 mm markers, ids 15-21, about 98 x 62 mm with margins) on a keyed clip on the fixed jaw? [recommended: yes]
 
 ## Irreversible operations in scope
 
