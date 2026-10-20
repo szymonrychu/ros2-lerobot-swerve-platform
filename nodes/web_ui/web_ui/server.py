@@ -45,6 +45,7 @@ from .metrics import (
 from .models import register_model_routes
 from .photos import register_photo_routes
 from .rgbd_calibration import register_rgbd_calibration_routes
+from .servo_calibration import register_servo_calibration_routes
 from .throttle import SlowCycleTracker
 from .tiles import (
     API_KEY_PLACEHOLDER,
@@ -750,6 +751,7 @@ def build_app(
     register_agent_routes(app, config, battery_block, agent_transport)
     register_photo_routes(app, config)
     register_imu_calibration_routes(app, config, bridge_node)
+    register_servo_calibration_routes(app, config, bridge_node, battery_block)
     register_model_routes(app, config)
     register_rgbd_calibration_routes(app, config)
 

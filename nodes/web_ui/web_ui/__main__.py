@@ -64,6 +64,7 @@ def main() -> None:
         gps_compass=config.gps_compass_settings(),
         tilt_stale_s=config.tilt_guard_stale_s,
         imu_status_topic=config.imu_status_topic(),
+        servo_state_topics=config.servo_state_topics(),
         zoom_topics=config.zoom_topics(),
     )
     executor = create_bridge_executor(node)

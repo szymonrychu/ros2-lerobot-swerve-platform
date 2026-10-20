@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -532,6 +532,53 @@ class GpsStatusConfig(BaseModel):
     base_timeout_s: float = Field(2.0, gt=0)
 
 
+SERVO_ACTION_SERVICES: dict[str, str] = {
+    "release": "release_torque",
+    "enable": "enable_torque",
+    "record": "record_neutral",
+    "save": "save_neutral",
+}
+SERVO_NEUTRAL_ACTIONS: frozenset[str] = frozenset({"record", "save"})
+
+
+class ServoGroupConfig(BaseModel):
+    """One servo group of the Calibrate page (a feetech bridge group namespace).
+
+    Attributes:
+        id: Group id: arm, base (steering servos) or head.
+        label: Display label.
+        namespace: Bridge group namespace, e.g. follower.
+        neutral: Whether record / save neutral are offered for this group.
+        stale_marker: Arm only: path of the calibration-stale marker file the bridge writes on a re-zero.
+        state_stale_s: A torque_state sample older than this is reported stale.
+        service_timeout_s: Wait for one Trigger response (a save takes about 4 s on the arm).
+    """
+
+    id: Literal["arm", "base", "head"]
+    label: str
+    namespace: str
+    neutral: bool = False
+    stale_marker: str | None = None
+    state_stale_s: float = Field(3.0, gt=0)
+    service_timeout_s: float = Field(15.0, gt=0)
+
+    @property
+    def state_topic(self) -> str:
+        """Return the group's torque_state topic."""
+        return f"/{self.namespace}/torque_state"
+
+    def service(self, action: str) -> str:
+        """Return the Trigger service of an action.
+
+        Args:
+            action (str): One of release, enable, record, save.
+
+        Returns:
+            str: The service name, e.g. /follower/servo/release_torque.
+        """
+        return f"/{self.namespace}/servo/{SERVO_ACTION_SERVICES[action]}"
+
+
 class CalibrationConfig(BaseModel):
     """Hidden Calibrate page: the IMU calibration ROS names only."""
 
@@ -542,6 +589,23 @@ class CalibrationConfig(BaseModel):
     imu_service_timeout_s: float = Field(5.0, gt=0)  # wait for the IMU save / reset Trigger response
     rgbd_url: str | None = Field(None, pattern=r"^https?://.+")  # RGB-D calibration node base URL; absent: no section
     rgbd_timeout_s: float = Field(10.0, gt=0)  # wait for one forwarded RGB-D calibration call
+    servo_groups: list[ServoGroupConfig] = Field(default_factory=list)  # torque / neutral groups; empty: no section
+
+    @field_validator("servo_groups")
+    @classmethod
+    def check_unique_group_ids(cls, groups: list[ServoGroupConfig]) -> list[ServoGroupConfig]:
+        """Require unique servo group ids.
+
+        Args:
+            groups (list[ServoGroupConfig]): The configured groups.
+
+        Returns:
+            list[ServoGroupConfig]: The groups when their ids are unique.
+        """
+        ids = [g.id for g in groups]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"servo_groups ids must be unique: {ids}")
+        return groups
 
 
 class AppConfig(BaseModel):
@@ -691,7 +755,16 @@ class AppConfig(BaseModel):
             )
         if self.calibration is not None:
             services.update((self.calibration.imu_save_service, self.calibration.imu_reset_service))
+            for group in self.calibration.servo_groups:
+                services.update(
+                    group.service(a) for a in SERVO_ACTION_SERVICES if group.neutral or a not in SERVO_NEUTRAL_ACTIONS
+                )
         return sorted(services)
+
+    def servo_state_topics(self) -> dict[str, str]:
+        """Return namespace -> torque_state topic of the configured servo groups (empty without any)."""
+        groups = self.calibration.servo_groups if self.calibration is not None else []
+        return {g.namespace: g.state_topic for g in groups}
 
     def imu_status_topic(self) -> str | None:
         """Return the IMU calibration status topic, or None when the Calibrate page is not configured."""

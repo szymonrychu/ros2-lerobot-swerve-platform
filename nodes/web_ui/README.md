@@ -534,7 +534,7 @@ calibration:
 ```
 
 Routes (all under `/api/calibration`):
-- `GET /config` returns `{imu: true, rgbd: <rgbd_url is set>, arm: "deferred"}`.
+- `GET /config` returns `{imu: true, rgbd: <rgbd_url is set>, arm: "deferred"}`, plus `servos: true` when `servo_groups` is non-empty.
 - RGB-D (`web_ui/rgbd_calibration.py`, no ROS subscription): `GET|POST|DELETE /rgbd/{path}` forwards method, query and body to
   `<rgbd_url>/api/<path>` (httpx, timeout `rgbd_timeout_s`). Status, `content-type`, `content-disposition` and body bytes pass
   through unchanged (JPEG thumbnails, zip downloads; bodies are buffered). A POST forwards its `content-type`. A path outside
@@ -555,6 +555,33 @@ Frontend (`frontend/src/calibrate/`):
 - **RGB-D section** (`RgbdCalibration.tsx`, `RgbdCapture.tsx`, `RgbdSessions.tsx`, `RgbdResults.tsx`, `CoverageGrid.tsx`; shown when the config has `rgbd: true`): `RgbdCalibration` reads `GET /rgbd/state` on mount and polls it every 1 s only while a capture or compute runs and the tab is visible. `RgbdCapture` has Start capture / Stop, a status Alert with pose count and auto-stop time, a thumbnail grid (RGB and ToF with corners drawn, corner counts, depth marker) with per-pose delete behind a confirm dialog, and RGB/ToF coverage grids with the text `N of M image areas without corners`. `RgbdSessions` lists past sessions newest first (id, created, pose and result counts) with Open (selects the session shown by `RgbdCapture` and `RgbdResults`), Resume capture (`POST /rgbd/capture/start` with the session id) and Compute (disabled while a capture or compute runs; a 409 message is shown; the list refreshes when the compute ends and a job error is shown). `RgbdResults` lists the open session's results newest first: passed/failed chip, a table of RGB/ToF/stereo RMS, plane bias and view counts next to their limits (read from the `limits` object of the result's `result.json`, plane bias against `plane_max_bias_mm`; no hard-coded copy, a result without `limits` shows a dash), the failed limits, the report as preformatted text in a collapsible, Apply for passed results only (confirm dialog naming the restart of head_camera_cpp, head_rgbd_cpp and head_state_publisher, then the applied result and session from the answer, and `GET /rgbd/applied` every 2 s for at most 60 s showing each unit's restart state) and Download (anchor with the `download` attribute to the result zip).
 
 Errors are honest: nothing is cached, synthesized or defaulted.
+
+### Servo torque and neutral
+
+Per servo group (feetech bridge namespace): read torque / neutral state, release torque, record neutral, save, enable.
+
+```yaml
+calibration:
+  servo_groups:
+    - id: arm                  # arm | base | head, unique
+      label: Arm
+      namespace: follower      # state topic /follower/torque_state, services /follower/servo/{release_torque,enable_torque,record_neutral,save_neutral}
+      neutral: true            # offer record / save (default false)
+      stale_marker: /var/lib/ros2/arm_calibration_stale.json  # arm only, optional
+      state_stale_s: 3.0       # > 0
+      service_timeout_s: 15.0  # > 0, keep above the ~4 s arm save
+```
+
+The bridge keeps an always-on subscription (reliable, transient_local, depth 1) per group's state topic and caches the
+latest parsed payload; unparsable payloads are logged and dropped.
+
+- `GET /servos` returns `{groups: [{id, label, neutral, state, age_s, stale, calibration_stale}]}`. `state` is the
+  `torque_state` payload (null until the first sample), `stale` is true when there is no sample or it is older than
+  `state_stale_s`, `calibration_stale` lists the marker file's `stale` items (null without a marker).
+- `POST /servos/{group_id}/{action}` with action `release`, `enable`, `record` or `save` calls the matching Trigger and
+  answers `{ok, message}`: 200 on success, 409 when the service refuses, 404 for an unknown group or action or
+  record / save on a group without `neutral`, 503 without a bridge or service. `save` is refused under battery
+  cut-off; release and enable never are.
 
 ## Debug Logging
 

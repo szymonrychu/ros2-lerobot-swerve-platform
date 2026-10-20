@@ -72,7 +72,10 @@ def register_imu_calibration_routes(app: FastAPI, config: AppConfig, bridge_node
     async def get_config() -> JSONResponse:
         if cal is None:
             return error(NOT_CONFIGURED_MESSAGE, HTTP_NOT_FOUND)
-        return JSONResponse({"imu": True, "rgbd": cal.rgbd_url is not None, "arm": "deferred"})
+        body: dict[str, Any] = {"imu": True, "rgbd": cal.rgbd_url is not None, "arm": "deferred"}
+        if cal.servo_groups:
+            body["servos"] = True
+        return JSONResponse(body)
 
     async def status() -> JSONResponse:
         if cal is None:

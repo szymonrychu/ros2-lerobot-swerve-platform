@@ -435,6 +435,7 @@ class BridgeNode(Node):
         tilt_stale_s: float = TILT_STALE_S_DEFAULT,
         demand_linger_s: float = DEMAND_LINGER_S,
         imu_status_topic: str | None = None,
+        servo_state_topics: dict[str, str] | None = None,
         zoom_topics: dict[str, tuple[str, str, str]] | None = None,
         map3d_limits: dict[str, tuple[int, float]] | None = None,
     ) -> None:
@@ -468,11 +469,13 @@ class BridgeNode(Node):
             tilt_stale_s (float): Age in seconds after which the cached tilt guard state is marked stale.
             demand_linger_s (float): Seconds an on-demand subscription outlives the last client wanting it.
             imu_status_topic (str | None): std_msgs/String IMU calibration status topic (Calibrate page), or None.
+            servo_state_topics (dict[str, str] | None): Servo group namespace -> torque_state topic (Calibrate page).
             zoom_topics (dict[str, tuple[str, str, str]] | None): Head tab id -> (command, result, image) topics of
                 the head camera zoom; the publisher and both subscriptions are created at startup.
         """
         super().__init__("web_ui_bridge")
         self._imu_status: tuple[dict[str, Any], float] | None = None
+        self._servo_torque: dict[str, tuple[dict[str, Any], float]] = {}
         self._demand: dict[str, DemandEntry] = {}
         self._active: dict[str, Any] = {}
         self._linger_until: dict[str, float] = {}
@@ -550,6 +553,10 @@ class BridgeNode(Node):
         self.subscribe_tilt_guard()
         if imu_status_topic:
             self.subscribe_always_on(String, imu_status_topic, self.on_imu_calibration_status, DEFAULT_SUB_QOS_DEPTH)
+        for namespace, state_topic in (servo_state_topics or {}).items():
+            self.subscribe_always_on(
+                String, state_topic, functools.partial(self.on_servo_torque_state, namespace), MAP_SUB_QOS
+            )
         if gps_compass is not None:
             self._demand[GPS_ANCHOR_TOPIC] = DemandEntry(self.start_compass_inputs, self.stop_compass_inputs, True)
 
@@ -1692,6 +1699,26 @@ class BridgeNode(Node):
     def imu_calibration_sample(self) -> tuple[dict[str, Any], float] | None:
         """Return the latest IMU calibration status and its monotonic receipt time, or None before the first one."""
         return self._imu_status
+
+    def on_servo_torque_state(self, namespace: str, msg: Any) -> None:
+        """Cache a servo group's latest torque_state payload with its receipt time; an unparsable one is dropped.
+
+        Args:
+            namespace (str): Servo group namespace.
+            msg (Any): std_msgs/String with the JSON torque_state payload (an object).
+        """
+        try:
+            state = json.loads(msg.data)
+        except (TypeError, ValueError):
+            state = None
+        if not isinstance(state, dict):
+            log.warning("servo_torque_state_malformed", namespace=namespace)
+            return
+        self._servo_torque[namespace] = (state, time.monotonic())
+
+    def servo_torque_sample(self, namespace: str) -> tuple[dict[str, Any], float] | None:
+        """Return a group's latest torque_state payload and its monotonic receipt time, or None before the first."""
+        return self._servo_torque.get(namespace)
 
     def compute_compass_anchor(self, fix: dict[str, Any], pose: dict[str, Any]) -> dict[str, Any] | None:
         """Build the compass anchor from a fix, the robot map pose and the latest IMU heading.
