@@ -294,7 +294,7 @@ def serialize_registered_depth(msg: Any) -> dict[str, Any]:
         msg (Any): sensor_msgs/Image, encoding 16UC1 (millimetres, 0 = invalid).
 
     Returns:
-        dict[str, Any]: depth_raw_b64 (little-endian uint16, row-major, no row padding), width, height, frame_id and
+        dict[str, Any]: depth_raw_b64 (little-endian uint16, row-major, no row padding; a big-endian message is byteswapped), width, height, frame_id and
         stamp (s) of the header.
 
     Raises:
@@ -305,9 +305,13 @@ def serialize_registered_depth(msg: Any) -> dict[str, Any]:
     row_values = msg.step // 2
     if row_values < msg.width or len(msg.data) < msg.height * msg.step:
         raise ValueError(f"truncated depth image: {len(msg.data)} bytes for {msg.width}x{msg.height}, step {msg.step}")
-    rows = np.frombuffer(bytes(msg.data), dtype="<u2", count=msg.height * row_values).reshape((msg.height, row_values))
+    rows = np.frombuffer(
+        bytes(msg.data), dtype=">u2" if msg.is_bigendian else "<u2", count=msg.height * row_values
+    ).reshape((msg.height, row_values))
     return {
-        "depth_raw_b64": base64.b64encode(np.ascontiguousarray(rows[:, : msg.width]).tobytes()).decode("ascii"),
+        "depth_raw_b64": base64.b64encode(np.ascontiguousarray(rows[:, : msg.width], dtype="<u2").tobytes()).decode(
+            "ascii"
+        ),
         "width": msg.width,
         "height": msg.height,
         "frame_id": msg.header.frame_id,

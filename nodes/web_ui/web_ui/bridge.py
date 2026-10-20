@@ -63,6 +63,7 @@ from .config import (
     HEAD_DEPTH_ROLE,
     HEAD_RGB_ROLE,
     HEAD_RGBD_DEPTH_ROLE,
+    HEAD_RGBD_RGB_ROLE,
     POI_RESULT_ROLE,
     RGBD_CLOUD_ROLE,
 )
@@ -146,7 +147,11 @@ HEAD_PREVIEW_MIN_INTERVAL_S = 0.1
 # Head RGB-D cloud sent to a browser: at most this many points, voxel edge (m) it starts from.
 RGBD_CLOUD_MAX_POINTS = 20000
 RGBD_CLOUD_VOXEL_M = 0.02
-HEAD_ROLES: frozenset[str] = frozenset({HEAD_RGB_ROLE, HEAD_DEPTH_ROLE, HEAD_AMPLITUDE_ROLE, HEAD_RGBD_DEPTH_ROLE})
+HEAD_ROLES: frozenset[str] = frozenset(
+    {HEAD_RGB_ROLE, HEAD_DEPTH_ROLE, HEAD_AMPLITUDE_ROLE, HEAD_RGBD_DEPTH_ROLE, HEAD_RGBD_RGB_ROLE}
+)
+# Head roles gated on the message header stamp: both RGB-D streams carry identical stamps, so both keep the same sets.
+HEAD_STAMP_GATED_ROLES: frozenset[str] = frozenset({HEAD_RGBD_DEPTH_ROLE, HEAD_RGBD_RGB_ROLE})
 
 SENSOR_SUB_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -285,6 +290,7 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
 
 HEAD_ROLE_MSG_TYPES: dict[str, type] = {
     HEAD_RGB_ROLE: CompressedImage,
+    HEAD_RGBD_RGB_ROLE: CompressedImage,
     HEAD_DEPTH_ROLE: Image,
     HEAD_AMPLITUDE_ROLE: Image,
     HEAD_RGBD_DEPTH_ROLE: Image,
@@ -729,7 +735,7 @@ class BridgeNode(Node):
         Nothing is serialized here: flush_dirty (or latest_envelopes for a connecting client) serializes the
         latest message, once, and only when a client is connected. "gps" fixes are the exception: the anchor fit
         needs the data on arrival, so they are serialized immediately; fixes without a fix (status < 0) are
-        dropped. Head topics are rate limited to HEAD_PREVIEW_MIN_INTERVAL_S.
+        dropped. Head topics are rate limited to HEAD_PREVIEW_MIN_INTERVAL_S: by arrival time, the RGB-D ones by header stamp.
 
         Args:
             topic (str): Topic the callback serves.
@@ -741,10 +747,16 @@ class BridgeNode(Node):
         """
 
         last_preview_at = -HEAD_PREVIEW_MIN_INTERVAL_S
+        last_stamp_s: float | None = None
 
         def callback(msg: Any) -> None:
-            nonlocal last_preview_at
-            if role in HEAD_ROLES:
+            nonlocal last_preview_at, last_stamp_s
+            if role in HEAD_STAMP_GATED_ROLES:
+                stamp_s = stamp_to_seconds(msg.header.stamp)
+                if last_stamp_s is not None and 0 <= stamp_s - last_stamp_s < HEAD_PREVIEW_MIN_INTERVAL_S:
+                    return
+                last_stamp_s = stamp_s
+            elif role in HEAD_ROLES:
                 now = time.monotonic()
                 if now - last_preview_at < HEAD_PREVIEW_MIN_INTERVAL_S:
                     return

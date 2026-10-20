@@ -149,6 +149,7 @@ GPS_STATUS_ROLE = "gps_status"
 HEAD_RGB_ROLE = "head_rgb"
 HEAD_DEPTH_ROLE = "head_depth"
 HEAD_AMPLITUDE_ROLE = "head_amplitude"
+HEAD_RGBD_RGB_ROLE = "head_rgbd_rgb"  # RGB of head_rgbd_cpp: gated on the header stamp like the depth
 HEAD_RGBD_DEPTH_ROLE = "head_rgbd_depth"  # registered depth of head_rgbd_cpp: raw full-size uint16 mm, stamped
 RGBD_CLOUD_ROLE = "rgbd_cloud"  # coloured point cloud of head_rgbd_cpp, drawn in the map frame
 
@@ -732,7 +733,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "cloud" and "map3d_cloud" (PointCloud2) and "scan_points" (LaserScan), "map3d_status" and "map3d_result" (std_msgs/String JSON), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" (CompressedImage), "head_depth", "head_rgbd_depth" and "head_amplitude" (Image) of head tabs, "rgbd_cloud" (PointCloud2) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" and "head_rgbd_rgb" (CompressedImage), "head_depth", "head_rgbd_depth" and "head_amplitude" (Image) of head tabs, "rgbd_cloud" (PointCloud2) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -751,7 +752,7 @@ class AppConfig(BaseModel):
                 (tab.rgb_camera_topic, HEAD_RGB_ROLE),
                 (tab.tof_depth_topic, HEAD_DEPTH_ROLE),
                 (tab.tof_amplitude_topic, HEAD_AMPLITUDE_ROLE),
-                (tab.rgbd_rgb_topic, HEAD_RGB_ROLE),
+                (tab.rgbd_rgb_topic, HEAD_RGBD_RGB_ROLE),
                 (tab.rgbd_depth_topic, HEAD_RGBD_DEPTH_ROLE),
             ):
                 if topic:

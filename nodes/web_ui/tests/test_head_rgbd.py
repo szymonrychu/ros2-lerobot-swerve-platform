@@ -6,19 +6,21 @@ import base64
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import yaml
 
+from tests.test_bridge import _make_preview_node
 from tests.test_map3d_cloud import decode_colors, decode_points, make_cloud
 from web_ui import bridge
 from web_ui.bridge import HEAD_ROLES, POSE_FRAME_ROLES, ROLE_SPECS, SENSOR_SUB_QOS, subscription_spec
 from web_ui.cloud_serializer import serialize_map3d_cloud
 from web_ui.config import (
     GENERIC_TOPIC_ATTRS,
-    HEAD_RGB_ROLE,
     HEAD_RGBD_DEPTH_ROLE,
+    HEAD_RGBD_RGB_ROLE,
     MAP_NAV_TOPIC_ROLES,
     RGBD_CLOUD_ROLE,
     AppConfig,
@@ -66,6 +68,7 @@ def depth_msg(width: int = 288, height: int = 162, fill_mm: int = 1500, step_ext
         "Image",
         header=SimpleNamespace(stamp=STAMP, frame_id="head_camera_optical_frame"),
         encoding="16UC1",
+        is_bigendian=False,
         width=width,
         height=height,
         step=(width + step_extra) * 2,
@@ -95,7 +98,7 @@ def test_rgbd_topics_get_roles_ranges_and_subscriptions(tmp_path: Path) -> None:
     p = tmp_path / "cfg.yaml"
     p.write_text(CONFIG_YAML)
     cfg = load_config(p)
-    expected = {RGBD_RGB: HEAD_RGB_ROLE, RGBD_DEPTH: HEAD_RGBD_DEPTH_ROLE, RGBD_CLOUD: RGBD_CLOUD_ROLE}
+    expected = {RGBD_RGB: HEAD_RGBD_RGB_ROLE, RGBD_DEPTH: HEAD_RGBD_DEPTH_ROLE, RGBD_CLOUD: RGBD_CLOUD_ROLE}
     roles = cfg.topic_roles()
     assert {t: roles[t] for t in expected} == expected
     assert cfg.tof_ranges() == {RGBD_DEPTH: 3.0}
@@ -128,7 +131,8 @@ def test_subscription_specs_are_best_effort_depth_one() -> None:
 
     assert HEAD_RGBD_DEPTH_ROLE in HEAD_ROLES  # shares the head preview rate limit
     assert RGBD_CLOUD_ROLE in POSE_FRAME_ROLES  # the sensor pose in map at the stamp is attached
-    assert subscription_spec(RGBD_RGB, HEAD_RGB_ROLE)[0] is CompressedImage
+    assert HEAD_RGBD_RGB_ROLE in HEAD_ROLES
+    assert subscription_spec(RGBD_RGB, HEAD_RGBD_RGB_ROLE)[0] is CompressedImage
     depth_cls, depth_qos, _ = subscription_spec(RGBD_DEPTH, HEAD_RGBD_DEPTH_ROLE, 3.0)
     assert depth_cls is Image
     assert depth_qos is SENSOR_SUB_QOS
@@ -182,7 +186,7 @@ def test_head_depth_roles_serialise_the_stamp() -> None:
 def test_compressed_rgb_payload_carries_the_same_stamp_as_depth() -> None:
     jpeg = b"\xff\xd8\xff\xe0jpegbytes"
     msg = named("CompressedImage", header=SimpleNamespace(stamp=STAMP, frame_id="f"), format="jpeg", data=jpeg)
-    out = subscription_spec(RGBD_RGB, HEAD_RGB_ROLE)[2](msg)
+    out = subscription_spec(RGBD_RGB, HEAD_RGBD_RGB_ROLE)[2](msg)
     assert base64.b64decode(out["jpeg_b64"]) == jpeg
     assert out["stamp"] == serialize_registered_depth(depth_msg())["stamp"]
 
@@ -211,3 +215,49 @@ def test_rgbd_cloud_is_capped_at_20000_points() -> None:
     assert out["count"] == len(decode_colors(out))
     assert out["voxel_m"] > 0.02
     assert out == {**serialize_map3d_cloud(msg, 20000, 0.02), "frame": "rtabmap_map"}
+
+
+def test_registered_depth_honours_big_endian() -> None:
+    msg = depth_msg(width=4, height=2)
+    msg.is_bigendian = True
+    msg.data = np.frombuffer(msg.data, dtype="<u2").astype(">u2").tobytes()
+    raw = np.frombuffer(base64.b64decode(serialize_registered_depth(msg)["depth_raw_b64"]), dtype="<u2")
+    assert raw[1 * 4 + 2] == 4321
+    assert raw[7] == 1500
+
+
+def stamped(sec: float) -> Any:
+    whole = int(sec)
+    return SimpleNamespace(header=SimpleNamespace(stamp=SimpleNamespace(sec=whole, nanosec=round((sec - whole) * 1e9))))
+
+
+def forwarded_stamps(node: Any, topic: str, role: str, arrivals: list[tuple[float, float]]) -> list[float]:
+    """Feed (arrival time, stamp) pairs to the callback and return the stamps that reached the latest-message store."""
+    seen: list[float] = []
+    node.store_raw = lambda _t, msg, _s, _r: seen.append(
+        round(msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9, 3)
+    )
+    cb = node._make_callback(topic, lambda m: {}, role)
+    with patch("web_ui.bridge.time.monotonic") as clock:
+        for arrival, stamp in arrivals:
+            clock.return_value = arrival
+            cb(stamped(stamp))
+    return seen
+
+
+def test_rgbd_roles_forward_the_same_stamps_whatever_the_arrival_jitter() -> None:
+    """Both RGB-D topics are gated on the header stamp, so arrival jitter cannot make them keep different sets."""
+    stamps = [100.0 + 0.05 * i for i in range(40)]  # sets every 0.05 s, faster than the 0.1 s gate
+    rgb = [(s + 0.03 * (-1) ** i, s) for i, s in enumerate(stamps)]
+    depth = [(s + 0.03 * (-1) ** (i // 2), s) for i, s in enumerate(stamps)]
+    got_rgb = forwarded_stamps(_make_preview_node(), RGBD_RGB, HEAD_RGBD_RGB_ROLE, rgb)
+    got_depth = forwarded_stamps(_make_preview_node(), RGBD_DEPTH, HEAD_RGBD_DEPTH_ROLE, depth)
+    assert got_rgb == got_depth
+    assert 15 <= len(got_rgb) <= 21  # one set per 0.1 s
+
+
+def test_rgbd_gate_passes_a_stamp_that_went_backwards() -> None:
+    got = forwarded_stamps(
+        _make_preview_node(), RGBD_DEPTH, HEAD_RGBD_DEPTH_ROLE, [(0.0, 100.0), (0.01, 100.01), (0.02, 5.0), (0.03, 5.2)]
+    )
+    assert got == [100.0, 5.0, 5.2]

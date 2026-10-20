@@ -432,7 +432,7 @@ def test_default_head_tab_subscribes_the_tof_topics() -> None:
     assert head.rgbd_rgb_topic == "/head_rgbd/rgb/image_raw/compressed"
     assert head.rgbd_depth_topic == "/head_rgbd/depth/image_raw"
     assert roles["/head_rgbd/depth/image_raw"] == "head_rgbd_depth"
-    assert roles["/head_rgbd/rgb/image_raw/compressed"] == "head_rgb"
+    assert roles["/head_rgbd/rgb/image_raw/compressed"] == "head_rgbd_rgb"
 
 
 AGENT_CHAT_TAB = {"id": "agent", "type": "agent_chat", "label": "Agent", "agent_url": "http://127.0.0.1:18300"}
