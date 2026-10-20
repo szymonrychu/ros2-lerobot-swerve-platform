@@ -43,3 +43,9 @@ Estimate: 1410 min | Actual: 0 min | Remaining estimate: 175 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-20)
+
+- E2E on the robot 2026-10-20: session calib-20261020-083900, 38 poses, RGB 0.10 px, ToF 0.28 px, stereo 0.28 px RMS; applied r-20261020-092536; head_rgbd publishes pairs (0 drops, valid ratio 0.42); user confirmed the RGB-D overlay is mostly right.
+- Finding acted on: plane depth check measured the ToF's own depth error (0-40 mm long at 0.2-0.4 m), 15 mm refused a good calibration; limit 40 mm, background-contaminated pairs rejected (33a73511).
+- Known residual: depth overlay shifts right for close objects (parallax from the ToF depth error); depth correction deferred to the obstacle work.
