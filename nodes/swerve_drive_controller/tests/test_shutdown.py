@@ -29,6 +29,7 @@ CONFIG = SimpleNamespace(
     odom_topic="/odom",
     publish_tf=False,
     cmd_vel_topic="/cmd_vel",
+    torque_state_topic="/swerve_drive/torque_state",
     joint_states_topic="/js",
     control_loop_hz=50.0,
     half_length_m=0.1,
