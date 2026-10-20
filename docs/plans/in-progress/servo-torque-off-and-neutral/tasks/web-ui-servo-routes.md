@@ -1,6 +1,6 @@
 ---
 title: Web UI servo routes
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The browser can read each group's torque and neutral state and run release, record, save and enable."
 files: [nodes/web_ui/web_ui/servo_calibration.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/imu_calibration.py, nodes/web_ui/tests/test_servo_calibration.py, nodes/web_ui/README.md]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--web-ui-servo-routes
 branch: servo-torque-off-and-neutral--web-ui-servo-routes
-verified_head: ""
+verified_head: 0efaa463873366ef82205de2cc74a3a0299aa755
 run: servo-torque-off-and-neutral
-provides: []
-acs_for_audit: []
+provides: [servo-calibration-api]
+acs_for_audit: [a3]
 process_gaps: []
 ---
 

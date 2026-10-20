@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--filter-node-released-arm
 branch: servo-torque-off-and-neutral--filter-node-released-arm
-verified_head: 01d055260b536c89a1cdef50d6cdb9e8eb26a7a0
+verified_head: 04325bea2dc0507adaf51ac0e5f18d3182fdea8d
 run: servo-torque-off-and-neutral
 provides: []
-acs_for_audit: [a1, a2]
-process_gaps: []
+acs_for_audit: []
+process_gaps: ["The prescribed diff command (git merge-base HEAD main..HEAD) returns an empty diff because HEAD 04325bea is already an ancestor of main (fb664f88). I reviewed git diff 717ded67..HEAD on the same paths instead (313 lines)."]
 ---
 
 # Filter node released arm

@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--set-register-torque-guard
 branch: servo-torque-off-and-neutral--set-register-torque-guard
-verified_head: 89e281085c4383b4dcbb7977d336e3161d48b9a1
+verified_head: e5f2231f1af3b31f2f32bc87a81da8a5eb2d9511
 run: servo-torque-off-and-neutral
 provides: []
-acs_for_audit: []
-process_gaps: []
+acs_for_audit: [a1, a2]
+process_gaps: ["The prescribed diff command against merge-base HEAD main printed nothing because HEAD equals main's merge-base. I used 00309663..HEAD instead (about 80 lines for the three source files)."]
 ---
 
 # Set register torque guard

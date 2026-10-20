@@ -34,7 +34,7 @@ Web UI controls to release servo torque per group (arm, base steering, head), re
 
 ## Time
 
-Estimate: 865 min | Actual: 0 min | Remaining estimate: 640 min
+Estimate: 865 min | Actual: 0 min | Remaining estimate: 370 min
 
 ## Review
 

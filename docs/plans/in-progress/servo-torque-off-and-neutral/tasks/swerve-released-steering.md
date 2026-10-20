@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--swerve-released-steering
 branch: servo-torque-off-and-neutral--swerve-released-steering
-verified_head: 81021b93915940c55cf1454a2c452a665b845e14
+verified_head: fb664f8827e9a340dd847f21a25a9de3b003a9ab
 run: servo-torque-off-and-neutral
 provides: []
 acs_for_audit: [a1, a2, a4]
-process_gaps: []
+process_gaps: ["The prescribed merge-base diff returned 0 lines because main already equals HEAD (fb664f88). I reviewed 04325bea..HEAD for the swerve_drive_controller instead."]
 ---
 
 # Swerve released steering

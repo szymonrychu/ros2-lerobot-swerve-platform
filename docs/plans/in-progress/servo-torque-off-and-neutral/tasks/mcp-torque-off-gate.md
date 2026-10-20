@@ -1,6 +1,6 @@
 ---
 title: MCP torque off gate
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The agent cannot move a released group and stops republishing a held arm setpoint into a limp arm.
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/arm.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/tests/test_torque_gate.py, nodes/mcp_server/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--mcp-torque-off-gate
 branch: servo-torque-off-and-neutral--mcp-torque-off-gate
-verified_head: ""
+verified_head: fdc4fd547801805534588b8f2661e2b485413c01
 run: servo-torque-off-and-neutral
 provides: []
 acs_for_audit: []

@@ -69,3 +69,5 @@ One deploy of the client nodes turns the feature on with consistent names everyw
 - 2026-10-20 amended: builder check: full calibrate_servos.py path
 
 - 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on bridge-runtime-neutral-save, filter-node-released-arm, mcp-arm-calibration-stale, web-ui-quiet-released-groups
+
+- 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on mcp-arm-calibration-stale
