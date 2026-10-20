@@ -103,5 +103,17 @@
       "hardware-reprint-and-plate"
     ],
     "status": "approved"
+  },
+  {
+    "id": "G2",
+    "text": "Gate Q3: the plate rotation is not observable apart from the wrist_roll zero; by default the wrist_roll zero is fixed from the servo neutral the user records with the jaws aligned by eye and the solver fits the plate rotation; an optional CAD rotation fixes the plate rotation and frees wrist_roll. Accuracy consequence in D4.",
+    "decisions": [
+      "D14"
+    ],
+    "tasks": [
+      "calib-config-and-view-types",
+      "arm-offsets-plate-solver"
+    ],
+    "status": "approved"
   }
 ]

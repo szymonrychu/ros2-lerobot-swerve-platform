@@ -187,6 +187,9 @@ noise) that must recover the parameters within stated tolerances; the epic ends 
 ### D13: Reuse the existing 6x5 board as the gripper plate
 Gate Q2: reuse the existing 6x5 ChArUco board (models/charuco-6x5-40mm, scripts/markers_generate.yaml charuco:, ids 0-14) as the gripper plate; no new plate is generated. Floor and gripper captures are separate sessions (head_chain, arm) with the one physical board, so ids never clash. (user decision)
 
+### D14: wrist_roll zero from the recorded neutral, CAD rotation optional
+Gate Q3: the plate rotation is not observable apart from the wrist_roll zero; by default the wrist_roll zero is fixed from the servo neutral the user records with the jaws aligned by eye and the solver fits the plate rotation; an optional CAD rotation fixes the plate rotation and frees wrist_roll. Accuracy consequence in D4. (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -240,6 +243,7 @@ Gate Q2: reuse the existing 6x5 ChArUco board (models/charuco-6x5-40mm, scripts/
 | D11 mcp_server reloads the applied head chain without a restart | mcp-head-kinematics-applied |
 | D12 Synthetic scenes first, robot runbook last | head-chain-board-solver, arm-offsets-plate-solver, calib-docs-and-test-index, calib-robot-runbook |
 | D13 Reuse the existing 6x5 board as the gripper plate | calib-config-and-view-types, joint-state-still-capture, arm-pose-capture-sequence, hardware-reprint-and-plate |
+| D14 wrist_roll zero from the recorded neutral, CAD rotation optional | calib-config-and-view-types, arm-offsets-plate-solver |
 
 ## Contracts
 
