@@ -1,6 +1,6 @@
 ---
 title: Web UI quiet released groups
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The web UI cannot itself command a released group: no slider, jog, home, grasp or nav goal reaches it."
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/servo_calibration.py, nodes/web_ui/tests/test_servo_quiet.py, nodes/web_ui/README.md]
@@ -60,6 +60,10 @@ The web UI itself cannot command a released group: no head slider, arm jog, home
 
 - Write `tests/test_servo_quiet.py`; run `cd nodes/web_ui && uv run --frozen pytest tests/test_servo_quiet.py -q`; expect failures.
 - Implement; run `uv run --frozen pytest tests/test_servo_quiet.py tests/test_head_control.py tests/test_arm_api.py -q`; then the verify command; commit `feat(web_ui): quiet commands to released servo groups`.
+
+## Ruling
+
+- 2026-10-20 accepted: Verifier agents died / empty merge-base diff after early merge to main; manual verify: mcp 26 passed + lint clean, web_ui 55 passed + lint clean, both trees clean; all merged to main and full suites green (mcp 2800, web_ui 1024, vitest 1196, feetech 425, root 1857)
 
 ## Notes
 

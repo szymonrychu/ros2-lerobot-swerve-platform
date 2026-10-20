@@ -34,5 +34,23 @@
     "accept": false,
     "reason": "Workbench tooling (verifier diff base), outside this repo; caused by merging task branches to main mid-run - not repeated",
     "at": "2026-10-20T12:12:15Z"
+  },
+  {
+    "task": "mcp-arm-calibration-stale",
+    "accept": true,
+    "reason": "Verifier agents died / empty merge-base diff after early merge to main; manual verify: mcp 26 passed + lint clean, web_ui 55 passed + lint clean, both trees clean; all merged to main and full suites green (mcp 2800, web_ui 1024, vitest 1196, feetech 425, root 1857)",
+    "at": "2026-10-20T12:50:07Z"
+  },
+  {
+    "task": "web-ui-quiet-released-groups",
+    "accept": true,
+    "reason": "Verifier agents died / empty merge-base diff after early merge to main; manual verify: mcp 26 passed + lint clean, web_ui 55 passed + lint clean, both trees clean; all merged to main and full suites green (mcp 2800, web_ui 1024, vitest 1196, feetech 425, root 1857)",
+    "at": "2026-10-20T12:50:07Z"
+  },
+  {
+    "task": "bridge-runtime-neutral-save",
+    "accept": true,
+    "reason": "Verifier agents died / empty merge-base diff after early merge to main; manual verify: mcp 26 passed + lint clean, web_ui 55 passed + lint clean, both trees clean; all merged to main and full suites green (mcp 2800, web_ui 1024, vitest 1196, feetech 425, root 1857)",
+    "at": "2026-10-20T12:50:07Z"
   }
 ]

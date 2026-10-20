@@ -1,6 +1,6 @@
 ---
 title: Bridge runtime neutral save
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A released group's hand-set pose becomes its servo EEPROM neutral from the running bridge, verified, with no jump."
 files: [nodes/bridges/feetech_servos/neutral.py, nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/torque_control.py, nodes/bridges/feetech_servos/tests/test_neutral.py, nodes/bridges/feetech_servos/tests/test_config.py, nodes/bridges/feetech_servos/README.md]
@@ -78,6 +78,8 @@ A released group's present pose can be recorded and stored as the servo EEPROM n
 - 2026-10-20 accepted: False positives: README/test comment describe the retry-after-fault behaviour (no deferral); SourceArbiter.on_follower_released exists at arbitration.py:137 (nested-method symbol not resolved by the checker). Both verified green.
 
 - 2026-10-20 accepted: neutral-save a7: NeutralControl exists (neutral.py:176), symbol checker false negative; mcp stale README names the head-and-arm-calibration-fro epic as the clearer of joint_offsets (cross-epic contract, not deferral); calibrate-page: verifier crashed (--prev-head unknown), manual verify at 5a9b208a clean tree, tsc clean, vitest src/calibrate 105 passed, eslint clean
+
+- 2026-10-20 accepted: Verifier agents died / empty merge-base diff after early merge to main; manual verify: mcp 26 passed + lint clean, web_ui 55 passed + lint clean, both trees clean; all merged to main and full suites green (mcp 2800, web_ui 1024, vitest 1196, feetech 425, root 1857)
 
 ## Notes
 
