@@ -1,6 +1,6 @@
 ---
 title: Bridge runtime neutral save
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A released group's hand-set pose becomes its servo EEPROM neutral from the running bridge, verified, with no jump."
 files: [nodes/bridges/feetech_servos/neutral.py, nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/torque_control.py, nodes/bridges/feetech_servos/tests/test_neutral.py, nodes/bridges/feetech_servos/tests/test_config.py, nodes/bridges/feetech_servos/README.md]
@@ -72,6 +72,10 @@ A released group's present pose can be recorded and stored as the servo EEPROM n
 
 - Write `tests/test_neutral.py` and the config tests; run `cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_neutral.py tests/test_config.py -q`; expect failures.
 - Implement config keys, `neutral.py`, the services and the payload fields; rerun; run the verify command; commit `feat(feetech): runtime neutral record and save inside the bridge`.
+
+## Ruling
+
+- 2026-10-20 accepted: False positives: README/test comment describe the retry-after-fault behaviour (no deferral); SourceArbiter.on_follower_released exists at arbitration.py:137 (nested-method symbol not resolved by the checker). Both verified green.
 
 ## Notes
 

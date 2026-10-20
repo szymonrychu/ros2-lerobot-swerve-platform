@@ -1,6 +1,6 @@
 ---
 title: Filter node released arm
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Teleop, web UI and autonomy cannot drive a limp follower arm and re-enable never snaps it to the leader."
 files: [nodes/filter_node/filter_node/arbitration.py, nodes/filter_node/filter_node/node.py, nodes/filter_node/filter_node/config.py, nodes/filter_node/tests/test_arbitration.py, nodes/filter_node/tests/test_config.py, nodes/filter_node/README.md]
@@ -62,6 +62,10 @@ Teleop, web UI and autonomy cannot drive a limp follower arm, and re-enabling it
 
 - Write the arbitration and config tests; run `cd nodes/filter_node && uv run --frozen pytest tests/test_arbitration.py tests/test_config.py -q`; expect failures.
 - Implement arbiter state, node subscription and filter reset; run the verify command; commit `feat(filter_node): quiet the follower while its torque is released`.
+
+## Ruling
+
+- 2026-10-20 accepted: False positives: README/test comment describe the retry-after-fault behaviour (no deferral); SourceArbiter.on_follower_released exists at arbitration.py:137 (nested-method symbol not resolved by the checker). Both verified green.
 
 ## Notes
 

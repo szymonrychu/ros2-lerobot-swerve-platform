@@ -1,0 +1,14 @@
+[
+  {
+    "task": "bridge-runtime-neutral-save",
+    "accept": true,
+    "reason": "False positives: README/test comment describe the retry-after-fault behaviour (no deferral); SourceArbiter.on_follower_released exists at arbitration.py:137 (nested-method symbol not resolved by the checker). Both verified green.",
+    "at": "2026-10-20T11:36:59Z"
+  },
+  {
+    "task": "filter-node-released-arm",
+    "accept": true,
+    "reason": "False positives: README/test comment describe the retry-after-fault behaviour (no deferral); SourceArbiter.on_follower_released exists at arbitration.py:137 (nested-method symbol not resolved by the checker). Both verified green.",
+    "at": "2026-10-20T11:36:59Z"
+  }
+]
