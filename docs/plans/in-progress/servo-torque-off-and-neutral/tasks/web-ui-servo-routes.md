@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--web-ui-servo-routes
 branch: servo-torque-off-and-neutral--web-ui-servo-routes
-verified_head: 0efaa463873366ef82205de2cc74a3a0299aa755
+verified_head: ca93e2249c400554f5d4e913cbb1030652716a02
 run: servo-torque-off-and-neutral
 provides: [servo-calibration-api]
 acs_for_audit: [a3]
-process_gaps: []
+process_gaps: ["Red-first cycle not rerun; wroteTestFirst is false. The code was already committed on the branch (0efaa463)."]
 ---
 
 # Web UI servo routes

@@ -18,7 +18,7 @@ verified_head: e5f2231f1af3b31f2f32bc87a81da8a5eb2d9511
 run: servo-torque-off-and-neutral
 provides: []
 acs_for_audit: [a1, a2]
-process_gaps: ["The prescribed diff command against merge-base HEAD main printed nothing because HEAD equals main's merge-base. I used 00309663..HEAD instead (about 80 lines for the three source files)."]
+process_gaps: ["The prescribed command (merge-base HEAD main..HEAD) printed 0 lines because HEAD is already an ancestor of main (merge-base equals HEAD). I read git diff 00309663..HEAD for the three files instead (about 75 lines).", "tests/README.md lists the feetech_servos test files but does not mention the new tests/test_set_register.py. The task did not require it, but the project CLAUDE.md does."]
 ---
 
 # Set register torque guard

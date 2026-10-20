@@ -1,6 +1,6 @@
 ---
 title: Web UI quiet released groups
-status: done
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The web UI cannot itself command a released group: no slider, jog, home, grasp or nav goal reaches it."
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/servo_calibration.py, nodes/web_ui/tests/test_servo_quiet.py, nodes/web_ui/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--web-ui-quiet-released-groups
 branch: servo-torque-off-and-neutral--web-ui-quiet-released-groups
-verified_head: 391d0c62895887c877cb47fee84ef0252af08f9d
+verified_head: ""
 run: servo-torque-off-and-neutral
 provides: []
-acs_for_audit: [a1, a2]
-process_gaps: ["tests/README.md has no entry for nodes/web_ui/tests/test_servo_quiet.py (project CLAUDE.md requires one per test file)"]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI quiet released groups

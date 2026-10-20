@@ -18,7 +18,7 @@ verified_head: 04325bea2dc0507adaf51ac0e5f18d3182fdea8d
 run: servo-torque-off-and-neutral
 provides: []
 acs_for_audit: []
-process_gaps: ["The prescribed diff command (git merge-base HEAD main..HEAD) returns an empty diff because HEAD 04325bea is already an ancestor of main (fb664f88). I reviewed git diff 717ded67..HEAD on the same paths instead (313 lines)."]
+process_gaps: []
 ---
 
 # Filter node released arm

@@ -17,8 +17,8 @@ branch: servo-torque-off-and-neutral--mcp-torque-off-gate
 verified_head: fdc4fd547801805534588b8f2661e2b485413c01
 run: servo-torque-off-and-neutral
 provides: []
-acs_for_audit: []
-process_gaps: []
+acs_for_audit: [a1, a2, a4]
+process_gaps: ["No red-phase evidence for the tests-first requirement; the implementing commit fdc4fd54 pre-exists and the red cycle was not re-run."]
 ---
 
 # MCP torque off gate

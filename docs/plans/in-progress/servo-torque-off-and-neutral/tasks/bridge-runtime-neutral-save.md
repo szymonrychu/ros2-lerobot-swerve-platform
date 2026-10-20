@@ -1,6 +1,6 @@
 ---
 title: Bridge runtime neutral save
-status: done
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "A released group's hand-set pose becomes its servo EEPROM neutral from the running bridge, verified, with no jump."
 files: [nodes/bridges/feetech_servos/neutral.py, nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/torque_control.py, nodes/bridges/feetech_servos/tests/test_neutral.py, nodes/bridges/feetech_servos/tests/test_config.py, nodes/bridges/feetech_servos/README.md]
@@ -17,7 +17,7 @@ branch: servo-torque-off-and-neutral--bridge-runtime-neutral-save
 verified_head: 717ded677cadce885f99892707a70b96f1679570
 run: servo-torque-off-and-neutral
 provides: [stale-marker-writer, torque-state-request, neutral-services, arm-stale-marker]
-acs_for_audit: []
+acs_for_audit: [a1, a2, a3, a4, a5, a8]
 process_gaps: []
 ---
 

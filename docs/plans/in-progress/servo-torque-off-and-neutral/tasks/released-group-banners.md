@@ -1,6 +1,6 @@
 ---
 title: Released group banners
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Wherever a released group could be commanded in the UI, the control is disabled and the user sees why."
 files: [nodes/web_ui/frontend/src/calibrate/ReleasedBanner.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.toolbar.test.tsx, nodes/web_ui/README.md]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--released-group-banners
 branch: servo-torque-off-and-neutral--released-group-banners
-verified_head: ""
+verified_head: 8a140f5c4e798f56fabb3558211ba4b84fb1da61
 run: servo-torque-off-and-neutral
-provides: []
+provides: [released-group-banner]
 acs_for_audit: []
 process_gaps: []
 ---

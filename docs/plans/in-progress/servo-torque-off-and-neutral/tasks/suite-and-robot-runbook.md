@@ -76,3 +76,5 @@ Everything is green together, and the orchestrator can bring the feature up on t
 - 2026-10-20 amended: builder check: head_pan single-joint bench first, observable checks, robot steps post-merge by orchestrator with user
 
 - 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on released-group-banners, ansible-servo-neutral-config
+
+- 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on ansible-servo-neutral-config

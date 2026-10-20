@@ -1,6 +1,6 @@
 ---
 title: MCP arm calibration stale
-status: done
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: After an arm re-zero the agent knows offsets and home are stale and cannot drive to a home from the old zero.
 files: [nodes/mcp_server/mcp_server/calibration_marker.py, nodes/mcp_server/mcp_server/arm.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/tests/test_calibration_marker.py, nodes/mcp_server/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--mcp-arm-calibration-stale
 branch: servo-torque-off-and-neutral--mcp-arm-calibration-stale
-verified_head: 6f9e535bdb1e9d47d689895c14c96e2a28b4cf21
+verified_head: ""
 run: servo-torque-off-and-neutral
 provides: []
 acs_for_audit: []

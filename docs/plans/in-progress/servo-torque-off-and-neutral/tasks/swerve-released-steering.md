@@ -18,7 +18,7 @@ verified_head: fb664f8827e9a340dd847f21a25a9de3b003a9ab
 run: servo-torque-off-and-neutral
 provides: []
 acs_for_audit: [a1, a2, a4]
-process_gaps: ["The prescribed merge-base diff returned 0 lines because main already equals HEAD (fb664f88). I reviewed 04325bea..HEAD for the swerve_drive_controller instead."]
+process_gaps: ["The prescribed command `git diff $(git merge-base HEAD main)..HEAD` returned 0 lines because HEAD (fb664f88) is already an ancestor of main, so merge-base equals HEAD. I read `git diff eabc31a4^..HEAD -- nodes/swerve_drive_controller` instead (507 lines, includes tests). The review base needs correcting for later rounds."]
 ---
 
 # Swerve released steering
