@@ -34,6 +34,7 @@ DEFAULT_BATTERY_CELLS = 3
 DEFAULT_BATTERY_FRAME_ID = "base_link"
 # One servo is read per interval, so a full round over ~14 servos takes ~14 s at 1 Hz.
 DEFAULT_BATTERY_STALE_S = 30.0
+DEFAULT_TORQUE_STATE_INTERVAL_S = 1.0
 DEFAULT_GOAL_REFRESH_INTERVAL_S = 1.0
 DEFAULT_READ_FAILURE_LIMIT = 3
 DEFAULT_READ_RETRY_INTERVAL_S = 5.0
@@ -157,6 +158,7 @@ class BridgeConfig:
             old (a broadcast has no reply, so a lost packet or a servo reset is otherwise never corrected); 0 = off.
         read_failure_limit: Consecutive failed state reads before a servo is left out of the sync read.
         read_retry_interval_s: Seconds between single-read probes of a servo left out of the sync read.
+        torque_state_interval_s: Seconds between repeats of each group's torque_state; 0 = publish on change only.
     """
 
     namespace: str
@@ -185,6 +187,7 @@ class BridgeConfig:
     goal_refresh_interval_s: float = DEFAULT_GOAL_REFRESH_INTERVAL_S
     read_failure_limit: int = DEFAULT_READ_FAILURE_LIMIT
     read_retry_interval_s: float = DEFAULT_READ_RETRY_INTERVAL_S
+    torque_state_interval_s: float = DEFAULT_TORQUE_STATE_INTERVAL_S
 
     @property
     def groups(self) -> list[JointGroup]:
@@ -535,6 +538,12 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         read_retry_interval_s = DEFAULT_READ_RETRY_INTERVAL_S
     if read_retry_interval_s <= 0:
         read_retry_interval_s = DEFAULT_READ_RETRY_INTERVAL_S
+    try:
+        torque_state_interval_s = float(data.get("torque_state_interval_s", DEFAULT_TORQUE_STATE_INTERVAL_S))
+    except (TypeError, ValueError):
+        torque_state_interval_s = DEFAULT_TORQUE_STATE_INTERVAL_S
+    if not torque_state_interval_s >= 0:  # negative or NaN
+        torque_state_interval_s = DEFAULT_TORQUE_STATE_INTERVAL_S
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -562,6 +571,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         goal_refresh_interval_s=goal_refresh_interval_s,
         read_failure_limit=read_failure_limit,
         read_retry_interval_s=read_retry_interval_s,
+        torque_state_interval_s=torque_state_interval_s,
     )
 
 

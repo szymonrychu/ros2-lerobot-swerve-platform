@@ -90,6 +90,23 @@ The watchdog stops a wheel (goal_speed = 0) only when it is moving and **no driv
 
 **Root cause of the periodic wheel stops (fixed):** the loop used to process only one callback per iteration (`spin_once` at the end of the loop, ~85 Hz). `swerve_drive_controller` publishes a steer message and a drive message back to back (~215 msg/s), so the subscription queue (depth 10) was always full, and after each new pair arrived its oldest entry - the one processed next - was always a steer message. Drive commands were only handled when loop jitter let one through; when none got through for 0.3 s the watchdog wrote goal_speed = 0 to all four wheels, which then stood still for 0.4-0.8 s until the next drive message slipped through.
 
+## Torque and neutral
+
+Every group namespace (`follower`, and `swerve_drive` / `head` with `extra_groups`) gets two `std_srvs/srv/Trigger` services, answered on the loop thread (the sole bus owner):
+
+- `/<ns>/servo/release_torque`: gates the group's commands, then writes `torque_enable = 0` to each position joint and verifies it by readback. The group goes limp.
+- `/<ns>/servo/enable_torque`: per position joint reads `present_position`, writes `goal_position = present`, then `torque_enable = 1` (verified), so nothing moves when torque returns. A joint failing a step stays gated and is named in `message`.
+
+`success` / `message` come from the result; without an open bus the answer is `success=false`, `message="no servo bus"`. Velocity (wheel) joints are never released: they are stopped and their commands dropped while the group is released, and their torque stays on.
+
+`/<ns>/torque_state` (`std_msgs/String`, JSON; QoS reliable, transient_local, depth 1):
+
+```json
+{"namespace": "follower", "released": false, "joints": {"shoulder_pan": 1, "gripper": 0}, "stamp_ns": 1700000000000000000}
+```
+
+`released` is true when any position joint of the group is gated; `joints` maps position joint names to the last known `torque_enable` (0 or 1) from a verified readback or a register dump. A joint with no reading is omitted, never defaulted. Published on every change (release, enable, a register dump showing a different `torque_enable`, so a servo that dropped torque by itself shows 0 within one `register_publish_interval_s` round) and every `torque_state_interval_s` (float >= 0, default `1.0`, `0` = on change only; a negative value falls back to the default). Nothing is published before the startup torque sequence finished or while no bus is open.
+
 ## Bus budget
 
 `tests/test_bus_budget.py` proves, before any hardware is touched, that the arm-only bus keeps headroom at 100 Hz and that base plus head fit the base bus. It loads the `lerobot_follower` and `base_servos` config blocks of `ansible/group_vars/client.yml` through `load_config`, puts exactly those servos on the emulated bus of `tests/sts_bus.py` (real st3215 packet handler, bytes at 1 Mbaud, 1 ms per transaction) and runs the worst-case cycle: every position goal due for refresh, every velocity joint's target changed, then one state sync read of all servos.

@@ -46,6 +46,31 @@ class TorqueResult:
     joints: dict[str, int] = field(default_factory=dict)
 
 
+def torque_state_payload(
+    group: JointGroup, joint_torque: dict[int, int], released_ids: set[int], stamp_ns: int
+) -> dict[str, Any]:
+    """Build the /<ns>/torque_state payload of one group (position joints only).
+
+    A joint with no verified readback or register-dump reading is omitted from "joints", never defaulted.
+
+    Args:
+        group (JointGroup): The group.
+        joint_torque (dict[int, int]): servo_id -> latest torque_enable reading.
+        released_ids (set[int]): Position-mode servo IDs that are gated (TorqueControl.released_ids).
+        stamp_ns (int): Payload time, nanoseconds.
+
+    Returns:
+        dict[str, Any]: {"namespace", "released" (any joint gated), "joints" (name -> 0|1), "stamp_ns"}.
+    """
+    position_joints = [j for j in group.joints if j.mode == "position"]
+    return {
+        "namespace": group.namespace,
+        "released": any(j.id in released_ids for j in position_joints),
+        "joints": {j.name: joint_torque[j.id] for j in position_joints if j.id in joint_torque},
+        "stamp_ns": stamp_ns,
+    }
+
+
 def read_present_position(read_once: Callable[[], int | None], attempts: int = PRESENT_READ_ATTEMPTS) -> int | None:
     """Read present_position, retrying a failed (None) read.
 
@@ -103,6 +128,7 @@ class TorqueControl:
         self.attempts = attempts
         self.verify_sleep_s = verify_sleep_s
         self.joint_torque: dict[int, int] = {}
+        self.joint_ids = {j.name: j.id for g in groups for j in g.joints}
         self.position_ids = {j.id for g in groups for j in g.joints if j.mode == "position"}
         self.torque_entry = get_register_entry_by_name(TORQUE_REGISTER)
         self.goal_entry = get_register_entry_by_name(GOAL_REGISTER)
@@ -128,6 +154,17 @@ class TorqueControl:
         """
         if TORQUE_REGISTER in registers:
             self.joint_torque[servo_id] = registers[TORQUE_REGISTER]
+
+    def note_dump(self, dump: dict[str, dict[str, int]]) -> None:
+        """Feed a complete register dump (joint name -> registers) to note_register_dump.
+
+        Args:
+            dump (dict[str, dict[str, int]]): RegisterDumpScheduler payload; unknown joint names are ignored.
+        """
+        for name, registers in dump.items():
+            servo_id = self.joint_ids.get(name)
+            if servo_id is not None:
+                self.note_register_dump(servo_id, registers)
 
     def release(self, namespace: str) -> TorqueResult:
         """Release torque of a group's position joints; stop and gate its wheels (their torque stays on).
@@ -265,3 +302,63 @@ class TorqueControl:
             attempts=self.attempts,
             verify_sleep_s=self.verify_sleep_s,
         )
+
+
+class TorqueStatePublisher:
+    """Decides when each group's torque_state is published: on change and every interval, never without a reading.
+
+    Attributes:
+        control: Torque control holding the readings and the gate.
+        interval_s: Seconds between repeats of an unchanged state; 0 = on change only.
+        publish: Called with (namespace, payload).
+    """
+
+    def __init__(
+        self,
+        control: TorqueControl,
+        interval_s: float,
+        publish: Callable[[str, dict[str, Any]], None],
+    ) -> None:
+        """Create the publisher.
+
+        Args:
+            control (TorqueControl): Torque control of the bus.
+            interval_s (float): Seconds between repeats of an unchanged state; 0 = on change only.
+            publish (Callable[[str, dict[str, Any]], None]): Sends one payload of a namespace.
+        """
+        self.control = control
+        self.interval_s = interval_s
+        self.publish = publish
+        self.last: dict[str, tuple[bool, dict[str, int]]] = {}
+        self.last_time: dict[str, float] = {}
+
+    def step(self, now: float, stamp_ns: int) -> list[str]:
+        """Publish the groups whose state changed or whose interval elapsed.
+
+        Nothing is published when no bus is open or a group has no torque reading at all.
+
+        Args:
+            now (float): Monotonic time, seconds.
+            stamp_ns (int): Payload stamp, nanoseconds.
+
+        Returns:
+            list[str]: Namespaces published.
+        """
+        if self.control.servo is None:
+            return []
+        published = []
+        released_ids = self.control.released_ids
+        for namespace, group in self.control.groups.items():
+            payload = torque_state_payload(group, self.control.joint_torque, released_ids, stamp_ns)
+            if not payload["joints"]:
+                continue
+            state = (payload["released"], payload["joints"])
+            due = namespace not in self.last_time or (
+                self.interval_s > 0 and now - self.last_time[namespace] >= self.interval_s
+            )
+            if state != self.last.get(namespace) or due:
+                self.last[namespace] = state
+                self.last_time[namespace] = now
+                self.publish(namespace, payload)
+                published.append(namespace)
+        return published

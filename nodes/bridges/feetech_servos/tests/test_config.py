@@ -526,3 +526,23 @@ def test_load_config_publish_current_joints(tmp_path: Path, caplog: pytest.LogCa
         cfg = load_config(p)
     assert cfg is not None and cfg.publish_current_joints == ["gripper"]
     assert "nope" in caplog.text and "wheel" in caplog.text
+
+
+def test_torque_state_interval_default_value_and_negative_rejected(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    base = "namespace: follower\njoint_names:\n  - name: a\n    id: 1\n"
+    p.write_text(base)
+    cfg = load_config(p)
+    assert cfg is not None and cfg.torque_state_interval_s == 1.0
+    p.write_text(base + "torque_state_interval_s: 0.25\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.torque_state_interval_s == 0.25
+    p.write_text(base + "torque_state_interval_s: 0\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.torque_state_interval_s == 0.0
+    p.write_text(base + "torque_state_interval_s: -2\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.torque_state_interval_s == 1.0  # negative rejected: default kept
+    p.write_text(base + "torque_state_interval_s: x\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.torque_state_interval_s == 1.0

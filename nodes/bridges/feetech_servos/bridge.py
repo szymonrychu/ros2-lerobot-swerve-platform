@@ -25,10 +25,12 @@ import rclpy
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import BatteryState, JointState
 from st3215.group_sync_read import GroupSyncRead
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 
 from .battery import BatteryMonitor, battery_fields
 from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, end_cycle, split_stamp_ns
@@ -57,7 +59,12 @@ from .sync_read import (
     read_servo_states,
     sync_read_length,
 )
-from .torque_control import TORQUE_VERIFY_SLEEP_S, TORQUE_WRITE_ATTEMPTS
+from .torque_control import (
+    TORQUE_VERIFY_SLEEP_S,
+    TORQUE_WRITE_ATTEMPTS,
+    TorqueControl,
+    TorqueStatePublisher,
+)
 
 DEFAULT_QOS_DEPTH = 10
 SERVO_WAIT_INTERVAL_S = 1.0
@@ -92,6 +99,51 @@ def _wait_for_servos(servo: Any, expected_ids: list[int], node: Node) -> None:
         print(f"Waiting for servos: {missing}", flush=True)
         time.sleep(SERVO_WAIT_INTERVAL_S)
     raise ExternalShutdownException()
+
+
+def setup_torque_interfaces(
+    node: Node,
+    groups: list[JointGroup],
+    control: TorqueControl,
+    callbacks_run: list[int],
+    interval_s: float,
+) -> TorqueStatePublisher:
+    """Create /<ns>/servo/release_torque, /<ns>/servo/enable_torque and /<ns>/torque_state for every group.
+
+    The service callbacks run inline on the loop thread (the executor is drained there), the sole bus owner.
+
+    Args:
+        node (Node): The rclpy node.
+        groups (list[JointGroup]): Every joint group.
+        control (TorqueControl): Torque control of the bus.
+        callbacks_run (list[int]): One-element counter incremented by every callback (see drain_callbacks).
+        interval_s (float): torque_state_interval_s.
+
+    Returns:
+        TorqueStatePublisher: Call step(now, stamp_ns) once per loop iteration with an open bus.
+    """
+    qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    publishers = {g.namespace: node.create_publisher(String, f"/{g.namespace}/torque_state", qos) for g in groups}
+
+    def make_service(namespace: str, action: Any) -> Any:
+        def on_request(_request: Any, response: Any) -> Any:
+            callbacks_run[0] += 1
+            result = action(namespace)
+            response.success = result.success
+            response.message = result.message
+            return response
+
+        return on_request
+
+    for group in groups:
+        ns = group.namespace
+        node.create_service(Trigger, f"/{ns}/servo/release_torque", make_service(ns, control.release))
+        node.create_service(Trigger, f"/{ns}/servo/enable_torque", make_service(ns, control.enable))
+
+    def publish(namespace: str, payload: dict[str, Any]) -> None:
+        publishers[namespace].publish(String(data=json.dumps(payload, separators=(",", ":"))))
+
+    return TorqueStatePublisher(control, interval_s, publish)
 
 
 def run_bridge(config: BridgeConfig) -> None:
@@ -156,6 +208,7 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
     command_limits: dict[int, tuple[int, int]] = {}  # servo_id -> (cmd_min, cmd_max)
     servo: Any = None
+    startup_torque: dict[int, int] = {}  # servo_id -> torque_enable read back by the startup sequence
     torque_on_ids: set[int] = set()  # servos holding a verified torque_enable=1 after the startup sequence
 
     if config.device:
@@ -219,11 +272,18 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                     if unheld:
                         node.get_logger().error(f"Could not hold position of servos {unheld}; torque left off.")
                         joint_ids = [sid for sid in joint_ids if sid not in unheld]
+
+                def read_startup_torque(sid: int) -> int | None:
+                    value = read_register_raw(servo, sid, torque_entry)
+                    if value is not None:
+                        startup_torque[sid] = value
+                    return value
+
                 failed_ids = set_startup_torque_state(
                     joint_ids=joint_ids,
                     torque_value=torque_value,
                     write_once=lambda sid, value: write_register(servo, sid, torque_entry, value, last_written[sid]),
-                    read_once=lambda sid: read_register_raw(servo, sid, torque_entry),
+                    read_once=read_startup_torque,
                     attempts=TORQUE_WRITE_ATTEMPTS,
                     verify_sleep_s=TORQUE_VERIFY_SLEEP_S,
                 )
@@ -286,6 +346,10 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
     def on_set_register(msg: String) -> None:
         callbacks_run[0] += 1
         apply_set_register(servo, config, last_written, msg.data, node.get_logger().warn)
+
+    torque_control = TorqueControl(servo, groups, last_written, cycle)
+    torque_control.joint_torque.update(startup_torque)
+    torque_state = setup_torque_interfaces(node, groups, torque_control, callbacks_run, config.torque_state_interval_s)
 
     for group in groups:
         node.create_subscription(
@@ -382,7 +446,10 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                 dump = register_dump.step(time.monotonic(), lambda sid: read_all_registers(servo, sid))
                 if dump is not None:
                     record_register_dump(dump, joint_inverted)
+                    torque_control.note_dump(dump)
                     pub_registers.publish(String(data=json.dumps(dump, separators=(",", ":"))))
+
+                torque_state.step(time.monotonic(), clock_ns())
 
                 # Pack voltage: one servo per interval; nothing is published without a fresh reading.
                 if voltage_entry is not None and pub_battery is not None:

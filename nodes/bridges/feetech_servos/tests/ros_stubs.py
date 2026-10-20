@@ -34,6 +34,11 @@ def install_ros_stubs(*extra_modules: str) -> None:
             setattr(module, attr, type(attr, (Exception,), {}))
 
 
+def install_service_stubs() -> None:
+    """Stub the std_srvs and std_msgs packages the torque services and torque_state topic use."""
+    install_ros_stubs("std_srvs", "std_srvs.srv", "std_msgs", "std_msgs.msg", "sensor_msgs", "sensor_msgs.msg")
+
+
 def external_shutdown() -> BaseException:
     """Build the exception rclpy.spin raises when the signal handler shut the context down.
 
