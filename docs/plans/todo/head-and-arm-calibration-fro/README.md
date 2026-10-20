@@ -17,13 +17,13 @@ Why: The head mount and arm offsets are estimates; grasping and mapping need the
 
 ## Description
 
-Calibrate the head kinematic chain and the follower arm joint offsets with ChArUco targets: a board on the floor gives head height, mount roll/pitch and tilt zero; a small ChArUco plate on the gripper, seen by the calibrated head camera from 30-40 arm poses in the air, gives the arm joint offsets and head yaw/x/y relative to the arm. Two buttons on the web UI Calibrate page ("Head", then "Arm") run capture, solve and apply. Runs after the head mount reprint, which should allow >= 60 deg tilt-down.
+Calibrate the head kinematic chain and the follower arm joint offsets with ChArUco targets: a board on the floor gives head height, mount roll/pitch and tilt zero; the same 6x5 ChArUco board clipped to the gripper, seen by the calibrated head camera from 30-40 arm poses in the air, gives the arm joint offsets and head yaw/x/y relative to the arm. Two buttons on the web UI Calibrate page ("Head", then "Arm") run capture, solve and apply. Runs after the head mount reprint, which should allow >= 60 deg tilt-down.
 
 ## Goals
 
 - Head calibrate: floor-board capture at 3-4 spots over a pan/tilt grid, joint least-squares solve, head_chain override applied to every consumer (head_state_publisher, mcp_server HeadKinematics, web_ui, front camera mount).
 - Arm calibrate: gripper ChArUco plate, scripted safe pose set (small joints first, user OK for big joints), solve of shoulder_lift/elbow/wrist_flex/wrist_roll offsets + head yaw/xy, joint_offsets_rad snippet for review, held-out validation and limits that refuse a bad result.
-- Second ChArUco plate in the marker generator; tilt range widened to match the reprinted mount.
+- The existing 6x5 ChArUco board doubles as the gripper plate (confirmed by the user 2026-10-20); tilt range widened to match the reprinted mount.
 - Calibrate page UI, docs, runbook, tests on synthetic scenes.
 
 ## Non-goals
