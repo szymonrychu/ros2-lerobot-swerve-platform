@@ -1,6 +1,6 @@
 ---
 title: Ground colour labels
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The RGB-D colour tells floor from obstacle, including flat objects the depth cannot separate."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/colour.hpp, nodes/ground_estimator_cpp/src/core/colour.cpp, nodes/ground_estimator_cpp/test/core/test_colour.cpp]
@@ -55,6 +55,10 @@ process_gaps: ["TDD red evidence (tests.red / verification.evidence) not recorde
 - run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
 - implement until PASS
 - commit `feat(ground_estimator_cpp): RGB-D floor colour labels`.
+
+## Ruling
+
+- 2026-10-20 accepted: Verifier crashed (--prev-head unknown); manual verify at eac98687: clean tree, scripts/cpp-node-test.sh ground_estimator_cpp 80 tests 0 failures PASS. TDD process gap: test and implementation landed in one commit (0343d346); tests are new for a new module and cannot build without it.
 
 ## Notes
 
