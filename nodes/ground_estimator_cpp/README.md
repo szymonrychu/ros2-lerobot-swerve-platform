@@ -1,0 +1,169 @@
+# ground_estimator_cpp
+
+Estimates the floor plane from the head ToF cloud, constrained by the IMU, and publishes obstacle and drop-off clouds
+selected by plane-relative bands, a labelled RGB-D cloud, step/drop/ramp regions, warning areas and a JSON state. The
+executable `ground_node` (ROS node name `ground_estimator`) wires the core library to ROS topics, TF and metrics.
+
+## Layout
+
+- `src/core/*.cpp` build into the static library `ground_estimator_core` (no ROS node code): plane fit, tracker,
+  segmentation, edges, traversability, colour model, state JSON, config. `test/core/test_*.cpp` each become a gtest
+  named after the file.
+- `src/ground_node.cpp`, `include/ground_estimator_cpp/ground_node.hpp`: `GroundNode`; `src/main.cpp`: the executable.
+  `test/test_node.cpp` runs the node in-process.
+- `config/ground_estimator.yaml`: every key with its default, meaning and unit (installed to
+  `/etc/ros2/ground_estimator_cpp/config.yaml`, override path with `GROUND_ESTIMATOR_CONFIG`). Unknown keys and invalid
+  values exit 78.
+- `test/data/state_example.json`, `test/data/warning_areas_example.json`: documents the consumers are tested against.
+
+## Topics
+
+Output topics are under `output_namespace` (default `/ground`). The output clouds keep base_link coordinates (the
+points are not shifted onto the plane); which points land in them is decided by plane-relative bands (height above or
+below the tracked floor plane), so they stay correct on a slope or a tilted base.
+
+| Direction | Topic | Type | QoS | Frame | Notes |
+|---|---|---|---|---|---|
+| in | `/tof/points_filtered` | `sensor_msgs/PointCloud2` | reliable, depth 1 | ToF frame, transformed to base_link | 10 Hz, drives the plane fit and every output but `/ground/labelled_points` |
+| in | `/imu/data` | `sensor_msgs/Imu` | sensor data | IMU frame | prior of the floor normal; older than `imu.timeout_s` it is not used |
+| in | `/head_rgbd/points` | `sensor_msgs/PointCloud2` (XYZRGB) | best_effort, depth 1 | base_link or camera | coloured cloud for the floor colour model; only with `colour.enabled` |
+| out | `/ground/obstacle_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | points above the plane up to `bands.obstacle_max_m`, within `bands.max_range_m` |
+| out | `/ground/drop_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | points below the plane down to `bands.drop_max_m` |
+| out | `/ground/labelled_points` | `sensor_msgs/PointCloud2` | best_effort, depth 1 | base_link | RGB-D cloud with a uint8 `label` field (see Labels); only with `colour.enabled` |
+| out | `/ground/state` | `std_msgs/String` (JSON) | reliable, transient_local, depth 1 | base_link | see State; published at `state.rate_hz` |
+| out | `/ground/warning_areas` | `std_msgs/String` (JSON) | reliable, depth 1 | `warnings.frame` | `{stamp_ns, frame, areas: [{kind, polygon, height_m, slope_deg, source}]}` for costmap_zones |
+
+## State
+
+`/ground/state` is one compact JSON object with these keys (contract `ground-state`, order fixed by `STATE_KEYS` in
+`include/ground_estimator_cpp/state.hpp`, floats rounded to 4 decimals). Without a plane, `plane`, the slope keys and
+`plane_vs_base_deg` are null, the counts are 0 and `regions` and `warnings` are empty.
+
+| Key | Meaning | Unit |
+|---|---|---|
+| `stamp_ns` | stamp of the ToF cloud the state describes | nanoseconds |
+| `frame` | frame of the plane, regions and warnings (`base_link`) | - |
+| `prior` | source of the floor-normal prior, `imu` or `nominal` (no fresh IMU) | - |
+| `imu_ok` | a fresh IMU sample was used | bool |
+| `plane` | `{normal [x,y,z], height_m, inliers, inlier_ratio, source, age_s}`; `source` is `fit` or `held`; null without a plane | m, s |
+| `reason` | why there is no plane: a fit reject (`too_few_points`, `no_plane`, `normal_off_prior`, `offset_off_prior`, `too_few_inliers`, `low_inlier_ratio`), `no_tf` or `no_cloud`; null with a plane | - |
+| `slope_deg` | total floor slope against gravity | degrees |
+| `slope_roll_deg` | roll part of the floor slope | degrees |
+| `slope_pitch_deg` | pitch part of the floor slope | degrees |
+| `slope_level` | `ok`, `warning` or `error` against the `slope.*` limits | - |
+| `base_tilt_deg` | tilt of base_link against gravity | degrees |
+| `plane_vs_base_deg` | angle between the floor normal and base_link +z | degrees |
+| `traversability` | `{max_step_m, max_slope_deg}` in force | m, degrees |
+| `obstacle_points` | points of the last obstacle cloud | count |
+| `drop_points` | points of the last drop cloud | count |
+| `regions` | step, threshold, drop and ramp regions: `name`, `kind`, `class` (`obstacle` or `warning`), `height_m`, `frame`, `edge {point, direction, side}`, `distance_m`, `points` | m |
+| `warnings` | warning areas: `kind`, `polygon` (base_link, m), `height_m`, `slope_deg`, `source` (`tof` or `colour`) | m, degrees |
+| `colour` | `{model_ok, floor_samples, mismatch_ratio, stamp_ns}` of the last labelled RGB-D cloud; null when colour is disabled or no cloud was labelled | ratio |
+
+## Labels
+
+The `label` field of `/ground/labelled_points`:
+
+| Value | Name | Meaning |
+|---|---|---|
+| 0 | floor | in the floor band and matching the floor colour |
+| 1 | above_floor | above the floor band (geometry wins over colour) |
+| 2 | below_floor | below the floor band (geometry wins over colour) |
+| 3 | floor_colour_mismatch | in the floor band but farther than `colour.max_mahalanobis` from the floor colour |
+| 4 | unlabelled | no label: no plane, colour model not ready, or no valid colour |
+
+## Obstacle or warning
+
+A step, drop or ramp is an obstacle when its edge step exceeds one third of the wheel diameter (`traversability.max_step_fraction`
+of `2 * traversability.wheel_radius_m`, 0.04 m by default) or its slope exceeds `traversability.max_slope_deg`.
+Otherwise it is a warning area: the node publishes it on `/ground/warning_areas` and costmap_zones turns it into a
+slow-down instead of a lethal cell. Colour-flagged flat objects (label 3) follow the same rule: a flat patch of a
+different colour is a warning area with `source` `colour`, unless its height or slope crosses the limits above.
+
+## Configuration
+
+Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys are rejected at every level.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `cloud_topic` | `/tof/points_filtered` | PointCloud2 of the head ToF, 10 Hz, used for the plane fit |
+| `imu_topic` | `/imu/data` | sensor_msgs/Imu, prior of the floor normal |
+| `rgbd_cloud_topic` | `/head_rgbd/points` | coloured PointCloud2, used for the floor colour model |
+| `output_namespace` | `/ground` | prefix of obstacle_points, drop_points, labelled_points, state, warning_areas |
+| `base_frame` | `base_link` | robot frame the plane is expressed in |
+| `fixed_frame` | `odom` | world-fixed frame for stamping and warning areas |
+| `tf_timeout_s` | `0.1` | seconds to wait for a transform, 0..0.5 |
+| `imu.timeout_s` | `0.5` | seconds after which an IMU sample is too old to use, > 0 |
+| `imu.level_reference_roll_deg` | `0.7` | IMU roll reading on level ground, degrees, |v| <= 30 |
+| `imu.level_reference_pitch_deg` | `1.3` | IMU pitch reading on level ground, degrees, |v| <= 30 |
+| `fit.distance_m` | `0.02` | RANSAC inlier distance to the plane, metres, 0 < v <= 0.1 |
+| `fit.max_normal_angle_deg` | `10.0` | max angle between fitted and IMU normal, degrees, 0 < v <= 30 |
+| `fit.max_offset_m` | `0.08` | max plane offset from the nominal floor, metres, 0 < v <= 0.3 |
+| `fit.min_inliers` | `150` | fewest inlier points for a valid plane, >= 10 |
+| `fit.min_inlier_ratio` | `0.2` | fewest inliers as a fraction of candidates, 0 < v <= 1 |
+| `fit.max_iterations` | `100` | RANSAC iterations, >= 10 |
+| `fit.candidate_band_m` | `0.15` | half-width of the band around the IMU plane that feeds the fit, metres, > distance_m |
+| `fit.max_range_m` | `2.5` | farthest point used for the fit, metres, > 0 |
+| `fit.hold_s` | `1.0` | seconds the last plane is kept when a fit fails, >= 0 |
+| `fit.smoothing` | `0.5` | weight of the new plane in the running estimate, 0 < v <= 1 (1 = no smoothing) |
+| `bands.obstacle_max_m` | `0.6` | obstacle band top above the plane, metres, > traversability max step |
+| `bands.drop_max_m` | `1.0` | drop band depth below the plane, metres, > traversability max step |
+| `bands.max_range_m` | `2.0` | farthest point published in the bands, metres, > 0 |
+| `traversability.wheel_radius_m` | `0.06` | wheel radius, metres, same as swerve_drive_controller wheel_radius_m |
+| `traversability.max_step_fraction` | `0.3333` | max rideable step as a fraction of the wheel diameter (0.04 m), 0 < v < 1 |
+| `traversability.max_slope_deg` | `8.0` | steepest rideable surface, degrees, <= slope.roll_warn_deg and slope.pitch_warn_deg |
+| `traversability.edge_band_m` | `0.05` | width of the strip on each side of an edge that sets its step height, metres, > 0 |
+| `warnings.frame` | `map` | frame of the published warning areas |
+| `edges.cluster_tolerance_m` | `0.1` | max gap inside one cluster, metres, > 0 |
+| `edges.min_cluster_points` | `10` | fewest points in a cluster, >= 3 |
+| `edges.max_regions` | `8` | most regions reported, 1..16 |
+| `edges.step_max_height_m` | `0.2` | tallest step still treated as a step, metres, > max step, <= bands.obstacle_max_m |
+| `edges.step_flatness_m` | `0.03` | max height spread for a flat top, metres, > 0 |
+| `slope.roll_warn_deg` | `8` | tilt_guard roll warning limit, degrees |
+| `slope.roll_error_deg` | `15` | tilt_guard roll error limit, degrees, > roll_warn_deg |
+| `slope.pitch_warn_deg` | `12` | tilt_guard pitch warning limit, degrees |
+| `slope.pitch_error_deg` | `20` | tilt_guard pitch error limit, degrees, > pitch_warn_deg |
+| `colour.enabled` | `true` | use the floor colour model |
+| `colour.max_mahalanobis` | `3.0` | distance from the floor colour above which a point is flagged, > 0 |
+| `colour.forgetting` | `0.1` | weight of new samples in the colour model, 0 < v <= 1 |
+| `colour.min_floor_samples` | `200` | floor samples needed before flagging, >= 10 |
+| `state.rate_hz` | `2.0` | state topic rate, hertz, 0 < v <= 10 |
+| `metrics_port` | `19119` | Prometheus port, 1..65535, or null to disable |
+
+## Metrics
+
+Prometheus on `metrics_port`.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `ground_fits_total` | counter, label `result` | plane fits, `ok` or the reject reason |
+| `ground_fit_seconds` | histogram | plane fit and segmentation time per ToF cloud |
+| `ground_inlier_ratio` | gauge | inlier ratio of the last valid fit |
+| `ground_slope_deg` | gauge | floor slope against gravity of the last cloud with a plane and a fresh IMU |
+| `ground_plane_vs_base_deg` | gauge | angle between the floor normal and base_link +z |
+| `ground_regions` | gauge | step and drop regions of the last cloud with a plane |
+| `ground_warning_areas` | gauge | warning areas (ToF and colour) of the last cloud with a plane |
+| `ground_obstacle_points` | gauge | points of the last obstacle cloud |
+| `ground_drop_points` | gauge | points of the last drop cloud |
+| `ground_colour_mismatch_ratio` | gauge | floor-colour mismatch share of the floor band of the last labelled RGB-D cloud |
+| `ground_clouds_dropped_total` | counter, label `reason` | ToF clouds dropped without output |
+| `ground_labelled_clouds_total` | counter | labelled RGB-D clouds published |
+
+## Plane tracking
+
+- IMU prior: the gravity direction from `/imu/data`, rotated into base_link, is the expected floor normal. The level
+  reference (`imu.level_reference_roll_deg`, `imu.level_reference_pitch_deg`) is the IMU reading on level ground and
+  is removed so a level base gives +z. Without a fresh IMU (`imu.timeout_s`) the prior is nominal (+z) and `prior`
+  says so.
+- A fit must stay within `fit.max_normal_angle_deg` of the prior and `fit.max_offset_m` of the nominal floor.
+- `PlaneTracker` keeps the recent fits and answers by stamp: the newest fit at or before the queried stamp, with
+  `source` `fit` when it is that cloud's own fit and `held` when an older one is reused. A fit older than `fit.hold_s`
+  is not used: there is no estimate beyond `hold_s`, and the plane is null with a reason.
+- `fit.smoothing` blends each new plane into the running estimate.
+
+## No placeholder data
+
+- Without a plane no obstacle, drop or labelled cloud is published; the node never publishes a cloud built on an
+  assumed floor.
+- The state then carries `plane: null` and a `reason`.
+- There is no state before the first ToF cloud, and no warning areas are published without a plane.

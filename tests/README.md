@@ -2082,6 +2082,19 @@ Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group
 | `test_docs_describe_head_camera_cpp` | `nodes/head_camera_cpp/README.md` has `## Zoom interface` and `## Configuration`; the node README, `nodes/README.md`, `ansible/README.md`, the ansible-deploy SKILL and `MEMORY.md` name `head_camera_cpp`; `nodes/README.md` and the SKILL mark `pi_cameras` retired. |
 | `test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras` | `deploy_nodes_client.yml` has a `Deploy head_camera_cpp` step directly after `Deploy pi_cameras` (resolve_and_deploy, apply tag and `_deploy_node_name` `head_camera_cpp`, tags incl. apt/python/build/config). |
 
+### `test_ground_estimator_readme.py`
+
+Keeps `nodes/ground_estimator_cpp/README.md` in sync with the node. Parses `STATE_KEYS` from `state.hpp`, the `ground_*` metric strings from `ground_node.cpp` and `ground_node.hpp`, and the shipped `config/ground_estimator.yaml` (nested keys dotted).
+
+| Test | What it covers |
+|---|---|
+| `test_readme_has_every_required_section` | Topics, State, Labels, Obstacle or warning, Configuration, Metrics, Plane tracking and No placeholder data headings exist. |
+| `test_readme_names_every_topic` | The three input topics and the five `/ground/` outputs appear, with base_link and plane-relative bands stated. |
+| `test_readme_names_every_config_key` | Every key of the shipped yaml appears in the README. |
+| `test_readme_names_every_state_key` | Every `STATE_KEYS` entry appears in the README. |
+| `test_readme_names_every_metric` | Every `ground_*` metric name of the node sources appears in the README. |
+| `test_readme_documents_labels_and_the_obstacle_rule` | Label values 0..4 are tabled and the obstacle-or-warning rule names one third of the wheel diameter, `max_slope_deg`, costmap_zones and the slow-down. |
+
 ### `test_head_rgbd_deploy.py`
 
 Static invariants of the head RGB-D fusion deploy (`head_rgbd_cpp` in `ansible/group_vars/client.yml`, the `config_files` task of the `ros2_node_deploy` role, `deploy_nodes_client.yml`).
