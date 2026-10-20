@@ -1,6 +1,6 @@
 ---
 title: Ground final suite runbook
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The epic is proven green end to end and the robot run that validates the switch-over is written down step by step.
 files: [docs/runbooks/ground-estimation.md, MEMORY.md, docs/diagrams/topic_flow.puml, tests/README.md, tests/test_ground_docs.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-final-suite-runbook
 branch: rgb-d-ground-estimation-and--ground-final-suite-runbook
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground final suite runbook
@@ -68,3 +70,5 @@ runbook pattern: docs/runbooks/head-rgbd-fusion.md, docs/runbooks/map3d-mapping.
 - 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
 
 - 2026-10-20 amended: gate 2026-10-20: user obstacle/warning rule (1/3 wheel diameter, max slope), slow-down via costmap_zones
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on nav2-ground-voxel-layer, mcp-floor-guard-ground, web-ui-ground-frontend, ground-dashboard-panels, ground-node-readme

@@ -1,6 +1,6 @@
 ---
 title: Ground colour labels
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The RGB-D colour tells floor from obstacle, including flat objects the depth cannot separate."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/colour.hpp, nodes/ground_estimator_cpp/src/core/colour.cpp, nodes/ground_estimator_cpp/test/core/test_colour.cpp]
@@ -13,10 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-colour-labels
-branch: rgb-d-ground-estimation-and--ground-colour-labels
-verified_head: ""
-run: ""
-provides: []
+branch: "worktree branch of rgb-d-ground-estimation-and--ground-colour-labels (HEAD eac98687)"
+verified_head: "not obtained (script did not run far enough to report HEAD)"
+run: rgb-d-ground-estimation-and
+provides: [rgb-to-lab]
+acs_for_audit: []
+process_gaps: ["TDD red evidence (tests.red / verification.evidence) not recorded for ground-colour-labels; test and implementation landed in one commit."]
 ---
 
 # Ground colour labels

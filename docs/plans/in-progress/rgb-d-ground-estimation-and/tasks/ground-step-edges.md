@@ -1,6 +1,6 @@
 ---
 title: Ground step edges
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Steps and drop-offs become surface regions the arm floor_guard and the agent can use directly.
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/edges.hpp, nodes/ground_estimator_cpp/src/core/edges.cpp, nodes/ground_estimator_cpp/test/core/test_edges.cpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-step-edges
 branch: rgb-d-ground-estimation-and--ground-step-edges
-verified_head: ""
-run: ""
-provides: []
+verified_head: 09464c3fcca046ac48569773b6fe223ee44cda02
+run: rgb-d-ground-estimation-and
+provides: [ground-edges]
+acs_for_audit: []
+process_gaps: ["tests.red and verification.evidence lack the red/green tails the verifier asked for (restore the pre-change files, show the failing run, restore HEAD, show the passing run). The implementer changed nothing in round 2."]
 ---
 
 # Ground step edges

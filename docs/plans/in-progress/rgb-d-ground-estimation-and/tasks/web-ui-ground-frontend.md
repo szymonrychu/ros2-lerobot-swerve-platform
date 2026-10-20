@@ -1,6 +1,6 @@
 ---
 title: Web UI ground frontend
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The map shows floor vs obstacle labels, the fitted plane and step/drop-off edges, so the user can validate the estimate by eye."
 files: [nodes/web_ui/frontend/src/map3d/groundLayer.ts, nodes/web_ui/frontend/src/map3d/groundLayer.test.ts, nodes/web_ui/frontend/src/map3d/sceneLayers.tsx, nodes/web_ui/frontend/src/map3d/layers.ts, nodes/web_ui/frontend/src/map/LayersPanel.tsx, nodes/web_ui/frontend/src/map/LayersPanel.test.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--web-ui-ground-frontend
 branch: rgb-d-ground-estimation-and--web-ui-ground-frontend
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI ground frontend
@@ -72,3 +74,5 @@ pattern: commit 044c6aae (Head RGB-D cloud layer: layers.ts, sceneLayers.tsx, La
 - 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
 
 - 2026-10-20 amended: gate 2026-10-20: user obstacle/warning rule (1/3 wheel diameter, max slope), slow-down via costmap_zones
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on web-ui-ground-backend

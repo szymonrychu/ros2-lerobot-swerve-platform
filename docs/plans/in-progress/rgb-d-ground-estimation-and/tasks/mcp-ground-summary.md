@@ -1,6 +1,6 @@
 ---
 title: MCP ground summary
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The agent sees the floor height, slope, steps and drop-offs in get_map_summary."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/tests/test_ground_summary.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--mcp-ground-summary
 branch: rgb-d-ground-estimation-and--mcp-ground-summary
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP ground summary
@@ -75,3 +77,5 @@ pattern: `tilt_guard_state` subscription (ros_iface.py:131, 798) and `tof_points
 - 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
 
 - 2026-10-20 amended: gate 2026-10-20: user obstacle/warning rule (1/3 wheel diameter, max slope), slow-down via costmap_zones
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on costmap-ground-warnings

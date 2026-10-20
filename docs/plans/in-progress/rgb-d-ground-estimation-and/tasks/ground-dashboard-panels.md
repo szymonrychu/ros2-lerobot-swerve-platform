@@ -1,6 +1,6 @@
 ---
 title: Ground dashboard panels
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Grafana shows the ground estimator's health and its CPU against the budget."
 files: [ansible/roles/monitoring/files/robot-slam.json, tests/test_monitoring_dashboards.py, scripts/node_cpu_compare.yaml, tests/test_node_cpu_compare.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-dashboard-panels
 branch: rgb-d-ground-estimation-and--ground-dashboard-panels
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground dashboard panels
@@ -63,3 +65,5 @@ dashboard row "Ground estimate" in robot-slam.json; consumes parts `ground-metri
 robot-slam.json already has head_rgbd and tof panels (pattern). The tof epic's escalated final task also lists scripts/node_cpu_compare.yaml: rebase, keep its entries.
 
 - 2026-10-20 amended: gate 2026-10-20: user obstacle/warning rule (1/3 wheel diameter, max slope), slow-down via costmap_zones
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on ground-node-type

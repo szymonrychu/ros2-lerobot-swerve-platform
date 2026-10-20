@@ -1,6 +1,6 @@
 ---
 title: Ground node README
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Operators and later builders find every topic, state key, label, config key and metric of the ground estimator documented and kept in sync by a test."
 files: [nodes/ground_estimator_cpp/README.md, tests/test_ground_estimator_readme.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-node-readme
 branch: rgb-d-ground-estimation-and--ground-node-readme
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground node README
@@ -59,3 +61,5 @@ provides: []
 Pattern: nodes/head_rgbd_cpp/README.md. Parse STATE_KEYS and metric names from the C++ sources with regexes in the test; the shipped yaml with yaml.safe_load.
 
 - 2026-10-20 amended: gate 2026-10-20: user obstacle/warning rule (1/3 wheel diameter, max slope), slow-down via costmap_zones
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on ground-node-wiring

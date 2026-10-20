@@ -1,6 +1,6 @@
 ---
 title: Ground plane tracker
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The plane survives short occlusions, follows the robot in odom and reports the slope ahead against the tilt_guard limits."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/tracker.hpp, nodes/ground_estimator_cpp/src/core/tracker.cpp, nodes/ground_estimator_cpp/test/core/test_tracker.cpp]
@@ -13,10 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-plane-tracker
-branch: rgb-d-ground-estimation-and--ground-plane-tracker
-verified_head: ""
-run: ""
-provides: []
+branch: "worktree branch of rgb-d-ground-estimation-and--ground-plane-tracker (commit 62feeea2)"
+verified_head: 62feeea26d11bc3478cd2242e0672a50632f2cf1
+run: rgb-d-ground-estimation-and
+provides: [ground-tracker]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground plane tracker

@@ -1,6 +1,6 @@
 ---
 title: Ground node type
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Ansible deploys, configures, enables and disables the ground estimator by name in the normal cgroup tier."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_ground_estimator_deploy.py, tests/test_unit_cgroups.py, tests/test_node_metrics_wiring.py, ansible/README.md, nodes/README.md, .claude/skills/ansible-deploy/SKILL.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-node-type
 branch: rgb-d-ground-estimation-and--ground-node-type
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground node type
@@ -71,3 +73,5 @@ pattern: the head_rgbd_cpp node type in client.yml (around line 599) and tests/t
 - 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
 
 - 2026-10-20 amended: gate 2026-10-20: user obstacle/warning rule (1/3 wheel diameter, max slope), slow-down via costmap_zones
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on ground-node-wiring

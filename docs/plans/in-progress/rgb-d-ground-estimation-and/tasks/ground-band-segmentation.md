@@ -1,6 +1,6 @@
 ---
 title: Ground band segmentation
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Obstacles and drop-offs are measured against the real floor, so floor tilt and the ToF depth bias no longer eat the margins."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/segmentation.hpp, nodes/ground_estimator_cpp/src/core/segmentation.cpp, nodes/ground_estimator_cpp/test/core/test_segmentation.cpp]
@@ -13,10 +13,12 @@ estimate: 45
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-band-segmentation
-branch: rgb-d-ground-estimation-and--ground-band-segmentation
-verified_head: ""
-run: ""
-provides: []
+branch: "current worktree branch (commit e061ce87)"
+verified_head: e061ce87e6dc640565bdec070c3cd8b3d6afebad
+run: rgb-d-ground-estimation-and
+provides: [ground-segmentation]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground band segmentation

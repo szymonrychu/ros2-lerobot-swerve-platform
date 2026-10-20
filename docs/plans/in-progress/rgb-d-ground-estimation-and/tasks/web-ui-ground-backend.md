@@ -1,6 +1,6 @@
 ---
 title: Web UI ground backend
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The web UI backend streams the labelled ground cloud and the ground state to the browser on demand.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/cloud_serializer.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_ground_layer.py, ansible/group_vars/client.yml, nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--web-ui-ground-backend
 branch: rgb-d-ground-estimation-and--web-ui-ground-backend
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI ground backend
@@ -70,3 +72,5 @@ roles `ground_cloud`, `ground_state` (part `web-ground-roles`); payload `{points
 pattern: commit ba48647a (rgbd_cloud role: config.py:154/349, bridge.py:277-305, cloud_serializer.py:43-110). Other epics may edit client.yml concurrently: rebase.
 
 - 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on mcp-ground-summary

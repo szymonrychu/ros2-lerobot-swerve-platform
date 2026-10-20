@@ -1,6 +1,6 @@
 ---
 title: MCP floor guard ground
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Arm motions can opt in to the measured steps and drop-offs as floor_guard terrain, refusing when the estimate is stale."
 files: [nodes/mcp_server/mcp_server/floor_guard.py, nodes/mcp_server/mcp_server/grasp_tools.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/arm.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/test_floor_guard_ground.py, nodes/mcp_server/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--mcp-floor-guard-ground
 branch: rgb-d-ground-estimation-and--mcp-floor-guard-ground
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP floor guard ground
@@ -67,3 +69,5 @@ provides: []
 surfaces.py `SurfaceRegion`/`Terrain` (46-330), floor_guard.py `surface()` (550-580); arm.py passes `FloorOverride` to the guard (arm.py:1155-1190).
 
 - 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on mcp-ground-summary

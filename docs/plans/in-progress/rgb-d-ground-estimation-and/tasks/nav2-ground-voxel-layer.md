@@ -1,6 +1,6 @@
 ---
 title: Nav2 ground voxel layer
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 avoids plane-relative obstacles and drop-offs alongside the fixed bands, with a runtime switch and written switch-over criteria."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_ground_voxel_layer.py, tests/test_nav_tof_voxel_layer.py, tests/test_tof_obstacle_wiring.py, tests/test_nav_tof_collision.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--nav2-ground-voxel-layer
 branch: rgb-d-ground-estimation-and--nav2-ground-voxel-layer
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Nav2 ground voxel layer
@@ -69,3 +71,5 @@ nav2_params.yaml `local_costmap.local_costmap.ros__parameters.ground_voxel_layer
 nav2_params.yaml:242-329 (tof_voxel_layer), 579/686 (CliffStop), 732-750 (collision monitor sources). The tof epic's escalated `final-suite-and-runbook` also edits tests/test_tof_obstacle_wiring.py: rebase onto whatever landed, keep both sets of checks.
 
 - 2026-10-20 amended: gate 2026-10-20: user obstacle/warning rule (1/3 wheel diameter, max slope), slow-down via costmap_zones
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on ground-node-type, costmap-ground-warnings

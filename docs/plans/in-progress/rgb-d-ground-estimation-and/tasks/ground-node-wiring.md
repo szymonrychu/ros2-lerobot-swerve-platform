@@ -1,6 +1,6 @@
 ---
 title: Ground node wiring
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The ground estimator runs as a ROS node: real plane-relative clouds, labelled RGB-D points and the state, with metrics."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/src/main.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/CMakeLists.txt]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-node-wiring
 branch: rgb-d-ground-estimation-and--ground-node-wiring
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground node wiring
@@ -70,3 +72,5 @@ copy the TF/metrics/QoS patterns of nodes/head_rgbd_cpp/src/head_rgbd_node.cpp. 
 - 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
 
 - 2026-10-20 amended: gate 2026-10-20: user obstacle/warning rule (1/3 wheel diameter, max slope), slow-down via costmap_zones
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on ground-state-json

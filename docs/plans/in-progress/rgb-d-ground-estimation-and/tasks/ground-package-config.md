@@ -1,6 +1,6 @@
 ---
 title: Ground package config
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The ground estimator has a buildable, tested C++ package with a validated config, so every later piece lands in a known structure."
 files: [nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/package.xml, nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, scripts/cpp-node-test.Dockerfile, .github/workflows/ci.yml]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-package-config
 branch: rgb-d-ground-estimation-and--ground-package-config
-verified_head: ""
-run: ""
-provides: []
+verified_head: f45710ed598fc2e7db1680835eb1f5fb620303ba
+run: rgb-d-ground-estimation-and
+provides: [ground-config]
+acs_for_audit: []
+process_gaps: ["Deviation from the plan (ament_lint_common not in test deps) is explained only in the implementer report, not in the plan or package.xml."]
 ---
 
 # Ground package config

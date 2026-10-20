@@ -1,6 +1,6 @@
 ---
 title: Costmap ground warnings
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 slows down over traversable steps, ramps and flagged flat objects through the existing speed limit, with a passable cost band, and keeps the global costmap untouched."
 files: [nodes/costmap_zones/costmap_zones/config.py, nodes/costmap_zones/costmap_zones/node.py, nodes/costmap_zones/costmap_zones/raster.py, nodes/costmap_zones/costmap_zones/ground_warnings.py, nodes/costmap_zones/tests/test_ground_warnings.py, nodes/costmap_zones/README.md, ansible/group_vars/client.yml]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--costmap-ground-warnings
 branch: rgb-d-ground-estimation-and--costmap-ground-warnings
 verified_head: ""
-run: ""
+run: rgb-d-ground-estimation-and
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Costmap ground warnings
@@ -66,3 +68,5 @@ provides: []
 ## Notes
 
 costmap_zones README "Slow-zone path cost" (mask 0..100 -> cost 0..254, value 60 -> 152) and raster.py `rasterise_speed` / `fill_zone`. The SpeedFilter of the local costmap turns the speed mask into `/speed_limit`, which controller_server (MPPI) honours (nav2_params.yaml speed_limit_topic).
+
+- 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on ground-node-type
