@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchServoGroups, servoAction } from './servoApi'
+import { renderHook, waitFor } from '@testing-library/react'
+import { fetchServoGroups, servoAction, useServoGroups } from './servoApi'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -46,5 +48,22 @@ describe('servoApi', () => {
     respond(409, { ok: false, message: 'not released' })
     const r = await servoAction('head', 'record')
     expect(r).toEqual({ ok: false, status: 409, message: 'not released' })
+  })
+
+  it('useServoGroups treats 404 as not configured without an error', async () => {
+    respond(404, { detail: 'nope' })
+    const { result } = renderHook(() => useServoGroups(60000))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.notConfigured).toBe(true)
+    expect(result.current.error).toBeNull()
+    expect(result.current.groups).toEqual([])
+  })
+
+  it('useServoGroups surfaces a server error without marking not configured', async () => {
+    respond(500, { message: 'boom' })
+    const { result } = renderHook(() => useServoGroups(60000))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.notConfigured).toBe(false)
+    expect(result.current.error).toBe('boom')
   })
 })

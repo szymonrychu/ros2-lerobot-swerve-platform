@@ -249,4 +249,11 @@ describe('ServoNeutral', () => {
     render(<ServoNeutral />)
     expect((await screen.findByRole('alert')).textContent).toContain('link down')
   })
+
+  it('a 404 poll shows the not-configured notice and no error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'nope' }), { status: 404 })))
+    render(<ServoNeutral />)
+    expect((await screen.findByText('No servo groups configured on this robot'))).toBeTruthy()
+    expect(screen.queryByText(/HTTP 404/)).toBeNull()
+  })
 })
