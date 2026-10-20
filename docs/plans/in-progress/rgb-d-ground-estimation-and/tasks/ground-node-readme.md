@@ -1,6 +1,6 @@
 ---
 title: Ground node README
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Operators and later builders find every topic, state key, label, config key and metric of the ground estimator documented and kept in sync by a test."
 files: [nodes/ground_estimator_cpp/README.md, tests/test_ground_estimator_readme.py, tests/README.md]

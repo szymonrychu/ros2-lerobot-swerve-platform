@@ -1,6 +1,6 @@
 ---
 title: Ground plane fit
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The floor plane is found from the ToF cloud with the IMU prior, and walls or table tops are never mistaken for it."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/plane_fit.hpp, nodes/ground_estimator_cpp/src/core/plane_fit.cpp, nodes/ground_estimator_cpp/test/core/test_plane_fit.cpp, nodes/ground_estimator_cpp/test/core/synthetic_floor.hpp]

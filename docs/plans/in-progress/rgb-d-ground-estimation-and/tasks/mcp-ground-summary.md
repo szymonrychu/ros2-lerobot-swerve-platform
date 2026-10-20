@@ -1,6 +1,6 @@
 ---
 title: MCP ground summary
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The agent sees the floor height, slope, steps and drop-offs in get_map_summary."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/tests/test_ground_summary.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml]

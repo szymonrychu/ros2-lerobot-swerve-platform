@@ -1,6 +1,6 @@
 ---
 title: Costmap ground warnings
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 slows down over traversable steps, ramps and flagged flat objects through the existing speed limit, with a passable cost band, and keeps the global costmap untouched."
 files: [nodes/costmap_zones/costmap_zones/config.py, nodes/costmap_zones/costmap_zones/node.py, nodes/costmap_zones/costmap_zones/raster.py, nodes/costmap_zones/costmap_zones/ground_warnings.py, nodes/costmap_zones/tests/test_ground_warnings.py, nodes/costmap_zones/README.md, ansible/group_vars/client.yml]

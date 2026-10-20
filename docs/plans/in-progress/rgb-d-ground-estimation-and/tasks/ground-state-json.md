@@ -1,6 +1,6 @@
 ---
 title: Ground state JSON
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One fixed JSON contract carries the plane, slope, regions and colour stats to mcp_server and the web UI."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/state.hpp, nodes/ground_estimator_cpp/src/core/state.cpp, nodes/ground_estimator_cpp/test/core/test_state.cpp, nodes/ground_estimator_cpp/test/data/state_example.json, nodes/ground_estimator_cpp/test/data/warning_areas_example.json]

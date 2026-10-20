@@ -1,6 +1,6 @@
 ---
 title: Ground node wiring
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The ground estimator runs as a ROS node: real plane-relative clouds, labelled RGB-D points and the state, with metrics."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/src/main.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/CMakeLists.txt]

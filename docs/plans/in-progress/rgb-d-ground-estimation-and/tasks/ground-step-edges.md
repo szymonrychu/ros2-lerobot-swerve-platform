@@ -1,6 +1,6 @@
 ---
 title: Ground step edges
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Steps and drop-offs become surface regions the arm floor_guard and the agent can use directly.
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/edges.hpp, nodes/ground_estimator_cpp/src/core/edges.cpp, nodes/ground_estimator_cpp/test/core/test_edges.cpp]

@@ -1,6 +1,6 @@
 ---
 title: Ground plane tracker
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The plane survives short occlusions, follows the robot in odom and reports the slope ahead against the tilt_guard limits."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/tracker.hpp, nodes/ground_estimator_cpp/src/core/tracker.cpp, nodes/ground_estimator_cpp/test/core/test_tracker.cpp]

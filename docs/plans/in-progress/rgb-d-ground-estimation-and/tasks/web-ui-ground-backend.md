@@ -1,6 +1,6 @@
 ---
 title: Web UI ground backend
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The web UI backend streams the labelled ground cloud and the ground state to the browser on demand.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/cloud_serializer.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_ground_layer.py, ansible/group_vars/client.yml, nodes/web_ui/README.md]

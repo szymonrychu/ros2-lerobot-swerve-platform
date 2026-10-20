@@ -1,6 +1,6 @@
 ---
 title: Ground band segmentation
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Obstacles and drop-offs are measured against the real floor, so floor tilt and the ToF depth bias no longer eat the margins."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/segmentation.hpp, nodes/ground_estimator_cpp/src/core/segmentation.cpp, nodes/ground_estimator_cpp/test/core/test_segmentation.cpp]

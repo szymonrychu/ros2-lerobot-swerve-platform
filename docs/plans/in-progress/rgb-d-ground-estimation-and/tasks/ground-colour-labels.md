@@ -1,6 +1,6 @@
 ---
 title: Ground colour labels
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The RGB-D colour tells floor from obstacle, including flat objects the depth cannot separate."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/colour.hpp, nodes/ground_estimator_cpp/src/core/colour.cpp, nodes/ground_estimator_cpp/test/core/test_colour.cpp]

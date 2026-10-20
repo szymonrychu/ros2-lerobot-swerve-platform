@@ -1,6 +1,6 @@
 ---
 title: Ground dashboard panels
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Grafana shows the ground estimator's health and its CPU against the budget."
 files: [ansible/roles/monitoring/files/robot-slam.json, tests/test_monitoring_dashboards.py, scripts/node_cpu_compare.yaml, tests/test_node_cpu_compare.py, tests/README.md]

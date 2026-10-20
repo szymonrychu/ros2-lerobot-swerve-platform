@@ -1,6 +1,6 @@
 ---
 title: Ground final suite runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The epic is proven green end to end and the robot run that validates the switch-over is written down step by step.
 files: [docs/runbooks/ground-estimation.md, MEMORY.md, docs/diagrams/topic_flow.puml, tests/README.md, tests/test_ground_docs.py]

@@ -1,6 +1,6 @@
 ---
 title: Ground traversability rule
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Steps, drops and ramps the wheels can ride over become slow-down areas instead of walls, while anything higher than a third of the wheel diameter or too steep stays a lethal obstacle."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/traversability.hpp, nodes/ground_estimator_cpp/src/core/traversability.cpp, nodes/ground_estimator_cpp/test/core/test_traversability.cpp]

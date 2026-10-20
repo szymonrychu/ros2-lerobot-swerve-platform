@@ -1,6 +1,6 @@
 ---
 title: Web UI ground frontend
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The map shows floor vs obstacle labels, the fitted plane and step/drop-off edges, so the user can validate the estimate by eye."
 files: [nodes/web_ui/frontend/src/map3d/groundLayer.ts, nodes/web_ui/frontend/src/map3d/groundLayer.test.ts, nodes/web_ui/frontend/src/map3d/sceneLayers.tsx, nodes/web_ui/frontend/src/map3d/layers.ts, nodes/web_ui/frontend/src/map/LayersPanel.tsx, nodes/web_ui/frontend/src/map/LayersPanel.test.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/README.md]
