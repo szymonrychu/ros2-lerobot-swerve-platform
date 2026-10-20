@@ -2082,6 +2082,31 @@ Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group
 | `test_docs_describe_head_camera_cpp` | `nodes/head_camera_cpp/README.md` has `## Zoom interface` and `## Configuration`; the node README, `nodes/README.md`, `ansible/README.md`, the ansible-deploy SKILL and `MEMORY.md` name `head_camera_cpp`; `nodes/README.md` and the SKILL mark `pi_cameras` retired. |
 | `test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras` | `deploy_nodes_client.yml` has a `Deploy head_camera_cpp` step directly after `Deploy pi_cameras` (resolve_and_deploy, apply tag and `_deploy_node_name` `head_camera_cpp`, tags incl. apt/python/build/config). |
 
+### `test_ground_docs.py`
+
+Keeps the ground estimation docs consistent with the shipped config and the repo (runbook `docs/runbooks/ground-estimation.md`, MEMORY.md, `docs/diagrams/topic_flow.puml`, this file).
+
+| Test | What it covers |
+|---|---|
+| `test_runbook_has_section` | Each required runbook section exists and is not empty: Preconditions, Deploy, Topic checks, Level floor, Scenes, CPU and memory, Build and CI validation, Threshold validation, Switch-over checklist, Results. |
+| `test_runbook_thresholds_equal_the_design` | 0.10 core CPU budget, 1 cm plane height and 1 deg slope limits are stated where the design puts them. |
+| `test_threshold_validation_defaults_equal_the_shipped_config` | The Threshold validation table equals `ground_estimator.yaml` (fit, wheel radius, max slope, step height, colour) and the costmap_zones warning percent and mask value 40. |
+| `test_runbook_scripts_exist` | Every `scripts/...` path named in the runbook is tracked by git. |
+| `test_runbook_ground_topics_are_node_outputs` | Every `/ground/` topic in the runbook is a ground_estimator_cpp output under the configured namespace and is documented in the node README. |
+| `test_runbook_pins_the_rates_and_the_deploy_command` | The 10 / 1 / 2 Hz rates, TF drop and head joint_states records, the exact deploy command and the mcp_server session check. |
+| `test_runbook_scenes_cover_both_sides_of_the_rule` | Sills and drops of 3 and 5 cm, the 10 cm drop, box, ramps, red sheet, 0.04 m, 8 deg, CliffStop, the runtime layer toggles. |
+| `test_memory_has_the_decision` | MEMORY.md has the Ground plane entry with its key terms. |
+| `test_topic_flow_names_the_node_and_the_ground_topics` | topic_flow.puml names ground_estimator_cpp, its three inputs and the four /ground topics. |
+| `test_tests_readme_lists_every_ground_test_file` | This file lists every `tests/test_*ground*.py` and the ground tests of the other suites. |
+
+### Ground estimation epic: other tests
+
+- Root tests: `test_ground_estimator_readme.py`, `test_ground_estimator_deploy.py` and `test_nav_ground_voxel_layer.py` (described in their sections); changed: `test_nav_stack_config.py` (ground layers in the local costmap only), `test_nav_tof_voxel_layer.py` and `test_nav_tof_collision.py` (the fixed bands and the collision monitor stay unchanged), `test_tof_obstacle_wiring.py` (ground topics), `test_monitoring_dashboards.py` (ground_estimator_cpp panel), `test_node_cpu_compare.py` (the `nav2_bringup_ground_layer` entry), `test_node_metrics_wiring.py`, `test_cpp_node_deploy.py`, `test_unit_cgroups.py`.
+- ground_estimator_cpp gtests (`nodes/ground_estimator_cpp/test`): `test_plane_fit.cpp` (`PlaneFit.*`: level, pitched, wall, table, box, depth bias, deterministic seed), `test_tracker.cpp` (`GravityUp.*`, `ChoosePrior.*`, `Tracker.*`, `Slope.*`, `Angles.*`: IMU prior, hold, motion in odom, smoothing, slope levels), `test_segmentation.cpp` (`Segmentation.*`: bands, box, drop-off, 3 cm sill, range, overhang, cloud round trip), `test_edges.cpp` (`Edges.*`: drop-off, step plate, ramp, box, hull, clustering cap), `test_traversability.cpp` (`Traversability.*`: thresholds are warnings, sill/drop/ramp both sides, box, colour sheet and plate), `test_colour.cpp` (`Colour.*`: Lab, red sheet, floor model, labelled message layout), `test_config.cpp` (`Config.*`: defaults, derived topics, one third max step, shipped yaml, rejected keys), `test_state.cpp` (`GroundState.*`, `WarningAreas.*`: key order, shapes, rounding, fixtures), `test_node.cpp` (`NodeTest.*`: level floor with box, 10 cm drop, 3 cm sill, 6 deg ramp, missing transform, plane hold, IMU prior).
+- costmap_zones: `nodes/costmap_zones/tests/test_ground_warnings.py` (warning areas to the speed and ground cost masks) and `test_node.py`.
+- mcp_server: `nodes/mcp_server/tests/test_ground_summary.py` (`/ground/state` contract, region conversion, summary mapping), `test_floor_guard_ground.py` (opt-in floor_guard with the ground plane).
+- web_ui: `nodes/web_ui/tests/test_ground_layer.py` and `test_obstacle_points.py` (backend topics and layer config); frontend `groundLayer.test.ts` and `groundMath.test.ts` (Ground layer cloud decode, plane patch, labels).
+
 ### `test_ground_estimator_readme.py`
 
 Keeps `nodes/ground_estimator_cpp/README.md` in sync with the node. Parses `STATE_KEYS` from `state.hpp`, the `ground_*` metric strings from `ground_node.cpp` and `ground_node.hpp`, and the shipped `config/ground_estimator.yaml` (nested keys dotted).

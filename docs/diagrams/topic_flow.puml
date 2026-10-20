@@ -96,6 +96,16 @@ rtabmap -> uplink : DOWNLINK /rtabmap/cloud_map as /map3d/cloud (0.1 Hz)
 m3dman -> uplink : DOWNLINK /map3d/status, /map3d/result
 uplink -> m3dview : /map3d/cloud, /map3d/status, /map3d/result\n(3D view in web_ui, agent tools)
 
+== Ground estimation ==
+
+participant "ground_estimator_cpp\n(Client)" as ground #64B5F6
+participant "nav2_bringup local costmap\n(Client)" as groundnav #90CAF9
+participant "mcp_server / web_ui\n(Client)" as groundview #90CAF9
+
+rgbd -> ground : /tof/points_filtered (10 Hz, via laser_filter), /imu/data,\n/head_rgbd/points (colour model)
+ground -> groundnav : /ground/obstacle_points, /ground/drop_points (10 Hz)\n(ground_voxel_layer; /ground/warning_areas via costmap_zones)
+ground -> groundview : /ground/state (2 Hz), /ground/labelled_points (1 Hz),\n/ground/obstacle_points, /ground/drop_points
+
 == SteamDeck UI ==
 
 participant "steamdeck_ui bridge\n(Controller)" as ui_bridge #FFF176

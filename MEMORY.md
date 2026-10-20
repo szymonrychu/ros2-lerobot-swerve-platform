@@ -229,6 +229,13 @@
 - **CPU budget**: the pipeline adds at most 0.15 core mean on the client (new unit plus nav2_bringup and laser_filter deltas), EKF keeps 30 Hz; measured with `scripts/node_cpu_compare.py`.
 - Wiring is pinned across files by `tests/test_tof_obstacle_wiring.py`.
 
+## Ground plane from the head ToF (2026-10-20)
+
+- **Decision**: `ground_estimator_cpp` fits the floor plane from the 10 Hz ToF (`/tof/points_filtered`) with an IMU prior and publishes plane-relative `/ground/obstacle_points` and `/ground/drop_points`, plus `/ground/labelled_points`, `/ground/state` and `/ground/warning_areas`.
+- **Nav2**: the plane-relative bands feed a second STVL layer (`ground_voxel_layer`) alongside the fixed bands; the fixed bands stay until the runbook switch-over criteria hold. The collision monitor keeps the 10 Hz ToF bands and the global costmap stays static + lidar.
+- **Obstacle vs warning**: a cluster is an obstacle when its step exceeds one third of the wheel diameter (0.04 m) or its slope exceeds 8 deg (the lower tilt_guard warn limit); otherwise it is a warning, applied as a costmap_zones slow-down (speed mask + local non-lethal ground cost filter), also for colour-flagged flat objects.
+- **mcp_server**: `floor_guard` is opt-in. **CPU budget**: 0.10 core for the node (Pi 5), +0.05 core for nav2_bringup. Runbook: `docs/runbooks/ground-estimation.md`; docs pinned by `tests/test_ground_docs.py`.
+
 ## Printable metadata markers (2026-10-19)
 
 - **Decision**: fixed places (base, charger, drop-off, button, switch, tool station) are marked with printed QR Model 2 symbols carrying the P1 text payload `P1/K:<KIND>/N:<NAME>/S:<MM>[/KEY:VAL]`, not AprilTag/ArUco. QR carries the meaning and the true side length itself (no id table), is printable on paper and in two colours on the Bambu AMS, and zxing-cpp plus OpenCV IPPE give a full 6-DoF pose from 24 refined finder corners. AprilTag `tagStandard41h12` via `apriltag_ros` is the documented alternative if field range proves insufficient (it replaces only the decode and pose stages).
