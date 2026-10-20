@@ -10,5 +10,17 @@
     "accept": true,
     "reason": "verify-task.py run by the orchestrator at fcc0cbc6: passed, clean, a1-a4 met; mcp_server 2791 passed, lint clean",
     "at": "2026-10-20T15:06:50Z"
+  },
+  {
+    "task": "nav2-ground-voxel-layer",
+    "accept": true,
+    "reason": "nav2: flagged text documents the user-approved switch-over criteria (D8), not deferral; floor-guard: orchestrator verify-task.py at fcc0cbc6 passed, clean, a1-a4 met",
+    "at": "2026-10-20T15:06:58Z"
+  },
+  {
+    "task": "mcp-floor-guard-ground",
+    "accept": true,
+    "reason": "nav2: flagged text documents the user-approved switch-over criteria (D8), not deferral; floor-guard: orchestrator verify-task.py at fcc0cbc6 passed, clean, a1-a4 met",
+    "at": "2026-10-20T15:06:58Z"
   }
 ]

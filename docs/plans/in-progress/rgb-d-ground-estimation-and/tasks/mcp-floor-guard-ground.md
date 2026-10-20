@@ -1,6 +1,6 @@
 ---
 title: MCP floor guard ground
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Arm motions can opt in to the measured steps and drop-offs as floor_guard terrain, refusing when the estimate is stale."
 files: [nodes/mcp_server/mcp_server/floor_guard.py, nodes/mcp_server/mcp_server/grasp_tools.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/arm.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/test_floor_guard_ground.py, nodes/mcp_server/README.md]
@@ -67,6 +67,8 @@ process_gaps: []
 ## Ruling
 
 - 2026-10-20 accepted: verify-task.py run by the orchestrator at fcc0cbc6: passed, clean, a1-a4 met; mcp_server 2791 passed, lint clean
+
+- 2026-10-20 accepted: nav2: flagged text documents the user-approved switch-over criteria (D8), not deferral; floor-guard: orchestrator verify-task.py at fcc0cbc6 passed, clean, a1-a4 met
 
 ## Notes
 

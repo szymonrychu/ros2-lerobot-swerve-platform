@@ -1,6 +1,6 @@
 ---
 title: Nav2 ground voxel layer
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 avoids plane-relative obstacles and drop-offs alongside the fixed bands, with a runtime switch and written switch-over criteria."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_ground_voxel_layer.py, tests/test_nav_tof_voxel_layer.py, tests/test_tof_obstacle_wiring.py, tests/test_nav_tof_collision.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -65,6 +65,10 @@ nav2_params.yaml `local_costmap.local_costmap.ros__parameters.ground_voxel_layer
 - edit nav2_params.yaml until green
 - write the README section and tests/README entries
 - commit `feat(nav2): ground voxel layer alongside the ToF bands`.
+
+## Ruling
+
+- 2026-10-20 accepted: nav2: flagged text documents the user-approved switch-over criteria (D8), not deferral; floor-guard: orchestrator verify-task.py at fcc0cbc6 passed, clean, a1-a4 met
 
 ## Notes
 
