@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--swerve-released-steering
+branch: servo-torque-off-and-neutral--swerve-released-steering
 verified_head: ""
 run: ""
 provides: []

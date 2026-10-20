@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--set-register-torque-guard
+branch: servo-torque-off-and-neutral--set-register-torque-guard
 verified_head: ""
 run: ""
 provides: []

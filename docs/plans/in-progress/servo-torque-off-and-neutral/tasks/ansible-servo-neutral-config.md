@@ -12,8 +12,8 @@ model: sonnet
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--ansible-servo-neutral-config
+branch: servo-torque-off-and-neutral--ansible-servo-neutral-config
 verified_head: ""
 run: ""
 provides: []

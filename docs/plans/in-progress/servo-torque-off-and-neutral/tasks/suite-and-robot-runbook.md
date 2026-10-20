@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--suite-and-robot-runbook
+branch: servo-torque-off-and-neutral--suite-and-robot-runbook
 verified_head: ""
 run: ""
 provides: []

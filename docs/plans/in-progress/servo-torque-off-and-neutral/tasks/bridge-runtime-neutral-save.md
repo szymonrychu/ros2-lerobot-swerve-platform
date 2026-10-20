@@ -12,8 +12,8 @@ model: opus
 estimate: 80
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--bridge-runtime-neutral-save
+branch: servo-torque-off-and-neutral--bridge-runtime-neutral-save
 verified_head: ""
 run: ""
 provides: []

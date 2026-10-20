@@ -12,8 +12,8 @@ model: opus
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--bridge-torque-release-enable
+branch: servo-torque-off-and-neutral--bridge-torque-release-enable
 verified_head: ""
 run: ""
 provides: []
