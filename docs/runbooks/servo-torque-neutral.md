@@ -59,7 +59,7 @@ Mismatch: STOP and report.
 
 ## Arm
 
-Only after the user says go and supports the folded arm.
+Start when the user gives the go and is supporting the folded arm.
 
 1. Torque off arm. Pass: filter_node active source `released`; mcp `get_control_state` lists `arm` in `servos_released`.
 2. Re-enable holds. Pass: each joint within 1 deg of its released pose for 5 s.
@@ -71,8 +71,8 @@ Mismatch: STOP and report.
 
 Filled in during the head pan single-joint bench (also copied to `nodes/bridges/feetech_servos/README.md` `## Bench findings`).
 
-- Goal write with torque off: pending
-- DefineMiddle unlock need: pending
-- Angle limits after the offset: pending
+- Goal write with torque off: result to be written here from the bench
+- DefineMiddle unlock need: result to be written here from the bench
+- Angle limits after the offset: result to be written here from the bench
 
 Final step: disable topic_scraper_api again (`enabled: false`, redeploy) if it was disabled before step 1.
