@@ -266,7 +266,7 @@ def test_ground_values_are_commented_with_their_reasons() -> None:
         assert indexes, key
         for index in indexes:
             assert lines[index - 1].strip().startswith("#") or "#" in lines[index], f"{key} has no comment"
-    assert "pass-through" in text
+    assert "pass-through" in text.lower()
     filter_text = block_text(FILTER)
     assert "override_lethal_cost" in filter_text and "#" in filter_text
     header = NAV2_PARAMS.read_text()
