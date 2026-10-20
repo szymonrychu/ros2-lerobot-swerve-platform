@@ -193,6 +193,9 @@ Gate Q3: the plate rotation is not observable apart from the wrist_roll zero; by
 ### D15: Guided step-by-step calibration
 Gate: the calibration is a guided process (UI step cards: place or move the board by hand, clip the board to the jaw, Start, Next spot, Compute, Apply); automation is kept only where it cuts work without adding risk (head grid per spot, scripted arm poses); capture, solve, apply and limits unchanged. (user decision)
 
+### D16: Tiers 0 and 1 without confirm, tier 2 confirmed
+Gate Q4: tiers 0 (wrist roll) and 1 (wrist flex and elbow, small amplitude) run without a confirm; tier 2 (shoulder joints) keeps allow_big_joints behind a confirm dialog. (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -248,6 +251,7 @@ Gate: the calibration is a guided process (UI step cards: place or move the boar
 | D13 Reuse the existing 6x5 board as the gripper plate | calib-config-and-view-types, joint-state-still-capture, arm-pose-capture-sequence, hardware-reprint-and-plate |
 | D14 wrist_roll zero from the recorded neutral, CAD rotation optional | calib-config-and-view-types, arm-offsets-plate-solver |
 | D15 Guided step-by-step calibration | head-calibrate-ui-section, arm-calibrate-ui-section, head-grid-capture-sequence |
+| D16 Tiers 0 and 1 without confirm, tier 2 confirmed | arm-pose-capture-sequence, sequence-http-api, calib-frontend-api, arm-calibrate-ui-section |
 
 ## Contracts
 

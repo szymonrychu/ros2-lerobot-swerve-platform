@@ -128,5 +128,19 @@
       "head-grid-capture-sequence"
     ],
     "status": "approved"
+  },
+  {
+    "id": "G4",
+    "text": "Gate Q4: tiers 0 (wrist roll) and 1 (wrist flex and elbow, small amplitude) run without a confirm; tier 2 (shoulder joints) keeps allow_big_joints behind a confirm dialog.",
+    "decisions": [
+      "D16"
+    ],
+    "tasks": [
+      "arm-pose-capture-sequence",
+      "sequence-http-api",
+      "calib-frontend-api",
+      "arm-calibrate-ui-section"
+    ],
+    "status": "approved"
   }
 ]
