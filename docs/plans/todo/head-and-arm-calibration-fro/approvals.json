@@ -115,5 +115,18 @@
       "arm-offsets-plate-solver"
     ],
     "status": "approved"
+  },
+  {
+    "id": "G3",
+    "text": "Gate: the calibration is a guided process (UI step cards: place or move the board by hand, clip the board to the jaw, Start, Next spot, Compute, Apply); automation is kept only where it cuts work without adding risk (head grid per spot, scripted arm poses); capture, solve, apply and limits unchanged.",
+    "decisions": [
+      "D15"
+    ],
+    "tasks": [
+      "head-calibrate-ui-section",
+      "arm-calibrate-ui-section",
+      "head-grid-capture-sequence"
+    ],
+    "status": "approved"
   }
 ]

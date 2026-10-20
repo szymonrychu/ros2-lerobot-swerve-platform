@@ -190,6 +190,9 @@ Gate Q2: reuse the existing 6x5 ChArUco board (models/charuco-6x5-40mm, scripts/
 ### D14: wrist_roll zero from the recorded neutral, CAD rotation optional
 Gate Q3: the plate rotation is not observable apart from the wrist_roll zero; by default the wrist_roll zero is fixed from the servo neutral the user records with the jaws aligned by eye and the solver fits the plate rotation; an optional CAD rotation fixes the plate rotation and frees wrist_roll. Accuracy consequence in D4. (user decision)
 
+### D15: Guided step-by-step calibration
+Gate: the calibration is a guided process (UI step cards: place or move the board by hand, clip the board to the jaw, Start, Next spot, Compute, Apply); automation is kept only where it cuts work without adding risk (head grid per spot, scripted arm poses); capture, solve, apply and limits unchanged. (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -244,6 +247,7 @@ Gate Q3: the plate rotation is not observable apart from the wrist_roll zero; by
 | D12 Synthetic scenes first, robot runbook last | head-chain-board-solver, arm-offsets-plate-solver, calib-docs-and-test-index, calib-robot-runbook |
 | D13 Reuse the existing 6x5 board as the gripper plate | calib-config-and-view-types, joint-state-still-capture, arm-pose-capture-sequence, hardware-reprint-and-plate |
 | D14 wrist_roll zero from the recorded neutral, CAD rotation optional | calib-config-and-view-types, arm-offsets-plate-solver |
+| D15 Guided step-by-step calibration | head-calibrate-ui-section, arm-calibrate-ui-section, head-grid-capture-sequence |
 
 ## Contracts
 
