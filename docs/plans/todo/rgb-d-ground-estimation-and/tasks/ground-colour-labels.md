@@ -41,7 +41,7 @@ provides: []
 
 ## Interfaces
 
-`colour.hpp` (part `ground-colour-labels`): `Label`, `FloorColourModel`, `LabelStats`, `label_cloud`, `to_labelled_msg`. The label values 0..4 are a contract read by web_ui (design D6).
+`colour.hpp` (part `ground-colour-labels`): `Label`, `FloorColourModel`, `LabelStats`, `label_cloud`, `mismatch_points`, `to_labelled_msg`. The label values 0..4 (floor, above_floor, below_floor, floor_colour_mismatch, unlabelled) are a contract read by web_ui (design D6).
 
 ## Expected outcome
 

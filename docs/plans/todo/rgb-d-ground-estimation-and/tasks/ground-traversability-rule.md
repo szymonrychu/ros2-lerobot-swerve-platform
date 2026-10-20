@@ -28,10 +28,6 @@ provides: []
 - `std::vector<WarningArea> colour_warning_areas(const pcl::PointCloud<pcl::PointXYZ> &mismatch_points_base, const std::vector<float> &heights, const Plane &, const EdgesConfig &, const TraversabilityConfig &)`: floor_colour_mismatch points (ground-colour-labels) clustered like the ToF candidates; each cluster classified by the same `classify_cluster` rule on its edge step and slope (flat objects are warnings, kind `colour`, source `colour`; a colour cluster that fails the rule is reported as an obstacle area with kind `colour` and is added to the lethal obstacle cloud by the node).
 - Tests first in `test/core/test_traversability.cpp` (synthetic_floor.hpp, segment, extract_clusters), both sides of every threshold, seen failing: sill 0.035 m -> warning `step`, sill 0.045 m -> obstacle (points in the obstacle cloud); drop 0.035 m -> warning `drop`, drop 0.045 m -> obstacle (points in the drop cloud); ramp 6 deg -> warning `ramp` with no lethal points although it rises above 0.04 m, ramp 10 deg -> obstacle by `slope`; 10 cm box -> obstacle; `classify_cluster` at exactly 0.04 / 8.0 -> warning, 0.0401 / 8.01 -> obstacle; wheel radius 0.09 -> a 0.05 m sill is a warning; a flat red sheet (colour mismatch points at h ~0) -> warning area kind `colour`; a 6 cm colour-flagged plate -> obstacle; an isolated unclustered return at 0.10 m -> in the obstacle cloud, one at 0.03 m -> nowhere; regions carry cls.
 
-**Interfaces**: `traversability.hpp` (part `ground-traversability`): `Cls`, `Verdict`, `classify_cluster`, `WarningArea`, `Traversability`, `apply_rule`, `colour_warning_areas`.
-
-**Notes**: tilt_guard warn limits roll 8 / pitch 12 deg: the 8 deg default is the lower one because a swerve base can meet a ramp at any heading (design D14, my call). swerve_drive_controller `wheel_radius_m` 0.06 (client.yml).
-
 ## Acceptance conditions
 
 - a1: steps and drops higher than one third of the wheel diameter and slopes steeper than max_slope_deg are obstacles in the lethal clouds; lower or gentler ones are warning areas with no lethal points, tested on both sides of each threshold [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
@@ -46,17 +42,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`traversability.hpp` (part `ground-traversability`): `Cls`, `Verdict`, `classify_cluster`, `WarningArea`, `Traversability`, `apply_rule`, `colour_warning_areas`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_traversability.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write test_traversability.cpp with both sides of every threshold
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement traversability.cpp until PASS
+- commit `feat(ground_estimator_cpp): obstacle vs warning traversability rule`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+tilt_guard warn limits roll 8 / pitch 12 deg: the 8 deg default is the lower one because a swerve base can meet a ramp at any heading (design D14, my call). swerve_drive_controller `wheel_radius_m` 0.06 (client.yml).

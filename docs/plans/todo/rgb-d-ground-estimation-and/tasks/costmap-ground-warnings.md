@@ -31,10 +31,6 @@ provides: []
 - Tests first in `nodes/costmap_zones/tests/test_ground_warnings.py`, seen failing: message parsing and rejection; TTL expiry; frame mismatch ignored; a warning polygon sets the speed mask to 40 and the ground cost mask to 40 inside, -1/0 outside; overlap with a 30 % POI slow zone keeps 30; keepout mask unchanged by ground areas; rate limit; expiry republishes cleared masks; no mask before /map; config defaults equal the ground_estimator_cpp topic (`nodes/ground_estimator_cpp/config/ground_estimator.yaml` output_namespace + `/warning_areas`) and the client.yml block.
 - `nodes/costmap_zones/README.md`: the ground warning input, masks, TTL, values and why the keepout mask is not used.
 
-**Interfaces**: `/costmap_zones/ground_cost_mask`, `/costmap_filter_info/ground_cost` (part `ground-cost-mask`); consumes `/ground/warning_areas` (part `ground-warning-areas`).
-
-**Notes**: costmap_zones README "Slow-zone path cost" (mask 0..100 -> cost 0..254, value 60 -> 152) and raster.py `rasterise_speed` / `fill_zone`. The SpeedFilter of the local costmap turns the speed mask into `/speed_limit`, which controller_server (MPPI) honours (nav2_params.yaml speed_limit_topic).
-
 ## Acceptance conditions
 
 - a1: active ground warning areas lower the speed mask to ground_warning_speed_pct (lowest wins with POI slow zones) and fill a local-only ground cost mask with a non-lethal value [evidence: test: nodes/costmap_zones/tests/test_ground_warnings.py]
@@ -54,17 +50,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`/costmap_zones/ground_cost_mask`, `/costmap_filter_info/ground_cost` (part `ground-cost-mask`); consumes `/ground/warning_areas` (part `ground-warning-areas`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/costmap_zones && uv run --frozen pytest tests -q` passes; with ground_estimator_cpp running, /costmap_zones/ground_cost_mask and the speed mask carry the warning areas.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write tests/test_ground_warnings.py
+- run `cd nodes/costmap_zones && uv run --frozen pytest tests/test_ground_warnings.py -q`, see FAIL
+- implement ground_warnings.py, config, raster and node wiring until green; add the client.yml keys; run the verify command
+- update the README; commit `feat(costmap_zones): ground warning slow-down masks`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+costmap_zones README "Slow-zone path cost" (mask 0..100 -> cost 0..254, value 60 -> 152) and raster.py `rasterise_speed` / `fill_zone`. The SpeedFilter of the local costmap turns the speed mask into `/speed_limit`, which controller_server (MPPI) honours (nav2_params.yaml speed_limit_topic).

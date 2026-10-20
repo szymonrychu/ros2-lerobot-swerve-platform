@@ -46,7 +46,7 @@ provides: []
 
 ## Interfaces
 
-`state.hpp` (part `ground-state`): `STATE_KEYS`, `StateInputs`, `build_state`, `to_state_string`; fixture `test/data/state_example.json`.
+`state.hpp` (part `ground-state`): `STATE_KEYS`, `StateInputs`, `build_state`, `to_state_string`; fixture `test/data/state_example.json`; `to_warning_areas_string` and fixture `test/data/warning_areas_example.json` (part `ground-warning-areas`, consumed by costmap_zones).
 
 ## Expected outcome
 

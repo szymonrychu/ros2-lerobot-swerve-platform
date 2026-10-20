@@ -22,7 +22,7 @@ The head ToF/RGB-D stream (head_rgbd_cpp, calibrated 2026-10-20) is integrated i
 ## Goals
 
 - C++ ground node: floor plane (with IMU prior) from /tof/points_filtered, obstacle and drop-off clouds selected by plane-relative bands (base_link coordinates kept), step and drop-off regions, RGB-D colour floor label; real data only.
-- Nav2: new observation sources in the local costmap alongside the current tof bands; switch-over criteria documented.
+- Nav2: new observation sources in the local costmap alongside the current tof bands; a step, drop or ramp higher than one third of the wheel diameter or steeper than the max slope is a lethal obstacle, anything lower or gentler (including colour-flagged flat objects) is a slow-down warning area (speed limit plus a passable cost band); switch-over criteria documented.
 - Ground estimate available to consumers (mcp_server surfaces/Terrain, tilt_guard cross-check) and visible in the web UI map.
 - Ansible node type, cgroup tier, metrics + Grafana panel, CPU budget measured on the Pi 5; README, runbook, tests.
 
@@ -34,7 +34,7 @@ The head ToF/RGB-D stream (head_rgbd_cpp, calibrated 2026-10-20) is integrated i
 
 ## Time
 
-Estimate: 1005 min | Actual: 0 min | Remaining estimate: 1005 min
+Estimate: 1140 min | Actual: 0 min | Remaining estimate: 1140 min
 
 ## Review
 

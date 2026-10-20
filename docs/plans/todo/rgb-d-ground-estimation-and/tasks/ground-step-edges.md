@@ -43,7 +43,7 @@ provides: []
 
 ## Interfaces
 
-`edges.hpp` (part `ground-edges`): `Region`, `extract_regions`. The Region fields map 1:1 to mcp `SurfaceRegion` (`name`, `height_m`, `frame: base_link`, `edge {point, direction, side}`) plus `kind`, `distance_m`, `points`.
+`edges.hpp` (part `ground-edges`): `Cluster`, `extract_clusters`, `Region`, `regions_from_clusters`. The Region fields map 1:1 to mcp `SurfaceRegion` (`name`, `height_m`, `frame: base_link`, `edge {point, direction, side}`) plus `kind`, `cls`, `distance_m`, `points`.
 
 ## Expected outcome
 
