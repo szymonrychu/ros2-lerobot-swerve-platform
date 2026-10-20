@@ -1,6 +1,6 @@
 ---
 title: Bridge torque release enable
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A servo group can go limp and come back holding its present pose, with no goal ever written into a limp servo."
 files: [nodes/bridges/feetech_servos/torque_control.py, nodes/bridges/feetech_servos/bridge_cycle.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/tests/test_torque_control.py, nodes/bridges/feetech_servos/tests/test_bridge_cycle.py]

@@ -1,6 +1,6 @@
 ---
 title: MCP torque off gate
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The agent cannot move a released group and stops republishing a held arm setpoint into a limp arm.
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/arm.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/tests/test_torque_gate.py, nodes/mcp_server/README.md]

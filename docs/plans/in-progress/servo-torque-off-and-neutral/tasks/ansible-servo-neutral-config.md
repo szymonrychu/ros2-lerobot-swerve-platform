@@ -1,6 +1,6 @@
 ---
 title: Ansible servo neutral config
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One client deploy turns the feature on with consistent names everywhere, pinned by a root test."
 files: [ansible/group_vars/client.yml, tests/test_servo_neutral_config.py, tests/README.md, ansible/README.md]

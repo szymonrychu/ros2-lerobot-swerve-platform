@@ -1,6 +1,6 @@
 ---
 title: Filter node released arm
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Teleop, web UI and autonomy cannot drive a limp follower arm and re-enable never snaps it to the leader."
 files: [nodes/filter_node/filter_node/arbitration.py, nodes/filter_node/filter_node/node.py, nodes/filter_node/filter_node/config.py, nodes/filter_node/tests/test_arbitration.py, nodes/filter_node/tests/test_config.py, nodes/filter_node/README.md]

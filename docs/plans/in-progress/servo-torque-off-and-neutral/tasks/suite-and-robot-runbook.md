@@ -1,6 +1,6 @@
 ---
 title: Suite and robot runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Everything is green together and the feature goes live on the robot in safe stages, head_pan first."
 files: [docs/runbooks/servo-torque-neutral.md, MEMORY.md, nodes/bridges/feetech_servos/README.md]

@@ -1,6 +1,6 @@
 ---
 title: Calibrate page servo section
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The user releases each group, records a neutral and re-enables with or without saving from the Calibrate page."
 files: [nodes/web_ui/frontend/src/calibrate/servoApi.ts, nodes/web_ui/frontend/src/calibrate/servoApi.test.ts, nodes/web_ui/frontend/src/calibrate/ServoNeutral.tsx, nodes/web_ui/frontend/src/calibrate/ServoNeutral.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx]

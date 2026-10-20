@@ -1,6 +1,6 @@
 ---
 title: Bridge runtime neutral save
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A released group's hand-set pose becomes its servo EEPROM neutral from the running bridge, verified, with no jump."
 files: [nodes/bridges/feetech_servos/neutral.py, nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/torque_control.py, nodes/bridges/feetech_servos/tests/test_neutral.py, nodes/bridges/feetech_servos/tests/test_config.py, nodes/bridges/feetech_servos/README.md]

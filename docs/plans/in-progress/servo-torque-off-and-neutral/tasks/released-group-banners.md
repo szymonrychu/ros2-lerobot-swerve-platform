@@ -1,6 +1,6 @@
 ---
 title: Released group banners
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Wherever a released group could be commanded in the UI, the control is disabled and the user sees why."
 files: [nodes/web_ui/frontend/src/calibrate/ReleasedBanner.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.tsx, nodes/web_ui/frontend/src/tabs/HeadTab.test.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.tsx, nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.toolbar.test.tsx, nodes/web_ui/README.md]

@@ -2,7 +2,7 @@
 title: Servo torque off and neutral recording in the web UI
 blockers: []
 stage: build
-owner: ""
+owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-20
 ---

@@ -1,6 +1,6 @@
 ---
 title: Web UI quiet released groups
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The web UI cannot itself command a released group: no slider, jog, home, grasp or nav goal reaches it."
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/servo_calibration.py, nodes/web_ui/tests/test_servo_quiet.py, nodes/web_ui/README.md]
