@@ -184,11 +184,24 @@ def read_register(
     sts_id: int,
     entry: RegisterEntry,
 ) -> int | None:
-    """Read one register from the servo. Returns raw value or None on error."""
-    if entry.size == 1:
-        val, comm, err = servo.read1ByteTxRx(sts_id, entry.address)
-    else:
-        val, comm, err = servo.read2ByteTxRx(sts_id, entry.address)
+    """Read one register from the servo.
+
+    Args:
+        servo (Any): st3215 packet handler.
+        sts_id (int): Servo ID.
+        entry (RegisterEntry): Register to read.
+
+    Returns:
+        int | None: Raw value, or None on a communication or servo error. A truncated status packet makes st3215
+            index an empty data list (IndexError); that is a failed read too, so callers can retry.
+    """
+    try:
+        if entry.size == 1:
+            val, comm, err = servo.read1ByteTxRx(sts_id, entry.address)
+        else:
+            val, comm, err = servo.read2ByteTxRx(sts_id, entry.address)
+    except IndexError:
+        return None
     if comm != 0 or err != 0:
         return None
     return val

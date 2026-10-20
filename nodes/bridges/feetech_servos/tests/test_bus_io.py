@@ -414,3 +414,19 @@ def test_follower_cycle_bus_time_keeps_the_control_rate() -> None:
     sync_read(bus, ids)
     assert len(port.sync_writes) == len(ARM) + len(STEER)
     assert port.wire_time_s() < CYCLE_PERIOD_S / 2
+
+
+class ShortReplyServo:
+    """st3215 stub whose reads fail like a truncated status packet: the library indexes an empty data list."""
+
+    def read1ByteTxRx(self, sts_id: int, address: int) -> tuple[int, int, int]:  # noqa: N802
+        raise IndexError("list index out of range")
+
+    def read2ByteTxRx(self, sts_id: int, address: int) -> tuple[int, int, int]:  # noqa: N802
+        raise IndexError("list index out of range")
+
+
+def test_read_register_returns_none_on_truncated_reply() -> None:
+    """A short reply (st3215 IndexError, e.g. while a servo re-reads its EEPROM after DefineMiddle) is a failed read."""
+    for entry in REGISTER_MAP[:2] + [e for e in REGISTER_MAP if e.size == 1][:1]:
+        assert read_register(ShortReplyServo(), 20, entry) is None
