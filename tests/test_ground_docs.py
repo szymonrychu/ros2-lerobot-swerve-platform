@@ -33,7 +33,20 @@ REQUIRED_SECTIONS = [
 ]
 GROUND_TOPICS = ["obstacle_points", "drop_points", "labelled_points", "state"]
 DESIGN_THRESHOLDS = ["0.10 core", "1 cm", "1 deg"]
-MEMORY_TERMS = ["ground_estimator_cpp", "IMU prior", "second STVL layer", "one third", "8 deg", "costmap_zones", "floor_guard", "0.10 core"]
+DEPLOY_COMMAND = (
+    "./scripts/deploy-nodes.sh client ground_estimator_cpp costmap_zones nav2_bringup web_ui "
+    "2>&1 | tee .logs/deploy-client-ground.log"
+)
+MEMORY_TERMS = [
+    "ground_estimator_cpp",
+    "IMU prior",
+    "second STVL layer",
+    "one third",
+    "8 deg",
+    "costmap_zones",
+    "floor_guard",
+    "0.10 core",
+]
 THRESHOLD_KEYS = [
     "fit.distance_m",
     "fit.max_normal_angle_deg",
@@ -107,7 +120,9 @@ def test_threshold_validation_defaults_equal_the_shipped_config() -> None:
 
 
 def test_runbook_scripts_exist() -> None:
-    tracked = set(subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True).stdout.split("\n"))
+    tracked = set(
+        subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True).stdout.split("\n")
+    )
     paths = set(re.findall(r"scripts/[A-Za-z0-9_./-]+\.(?:py|sh|yaml)", runbook_text()))
     assert paths
     for path in paths:
@@ -130,15 +145,29 @@ def test_runbook_pins_the_rates_and_the_deploy_command() -> None:
     for text in ["~10 Hz", "~1 Hz", "2 Hz", "TF drop", "head joint_states"]:
         assert text in topics, text
     deploy = section("Deploy")
-    assert "./scripts/deploy-nodes.sh client ground_estimator_cpp costmap_zones nav2_bringup web_ui 2>&1 | tee .logs/deploy-client-ground.log" in deploy
+    assert DEPLOY_COMMAND in deploy
     assert "ansible-deploy" in deploy
     assert "mcp_server" in deploy
 
 
 def test_runbook_scenes_cover_both_sides_of_the_rule() -> None:
     scenes = section("Scenes")
-    for text in ["3 cm sill", "5 cm sill", "3 cm drop", "5 cm drop", "10 cm drop", "box", "6 deg ramp", "red sheet",
-                 "0.04 m", "8 deg", "CliffStop", "ground_voxel_layer.enabled", "tof_voxel_layer.enabled", "/speed_limit"]:
+    for text in [
+        "3 cm sill",
+        "5 cm sill",
+        "3 cm drop",
+        "5 cm drop",
+        "10 cm drop",
+        "box",
+        "6 deg ramp",
+        "red sheet",
+        "0.04 m",
+        "8 deg",
+        "CliffStop",
+        "ground_voxel_layer.enabled",
+        "tof_voxel_layer.enabled",
+        "/speed_limit",
+    ]:
         assert text in scenes, text
 
 
@@ -165,6 +194,14 @@ def test_tests_readme_lists_every_ground_test_file() -> None:
     assert "test_ground_docs.py" in files
     for name in files:
         assert f"`{name}`" in readme or f"### {name}" in readme, name
-    for name in ["test_traversability.cpp", "test_plane_fit.cpp", "test_node.cpp", "test_ground_warnings.py",
-                 "test_floor_guard_ground.py", "test_ground_summary.py", "test_ground_layer.py", "groundLayer.test.ts"]:
+    for name in [
+        "test_traversability.cpp",
+        "test_plane_fit.cpp",
+        "test_node.cpp",
+        "test_ground_warnings.py",
+        "test_floor_guard_ground.py",
+        "test_ground_summary.py",
+        "test_ground_layer.py",
+        "groundLayer.test.ts",
+    ]:
         assert name in readme, name
