@@ -1,6 +1,6 @@
 ---
 title: Calib node cgroup tier and docs
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The robot unit tiers stay complete with the new node in the background tier, and the test docs list every new test file."
 files: [tests/test_unit_cgroups.py, ansible/group_vars/client.yml, tests/README.md, shared/ros2_common/head_rgbd_calibration/__init__.py]

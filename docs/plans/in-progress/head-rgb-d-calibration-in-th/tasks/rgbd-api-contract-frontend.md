@@ -1,6 +1,6 @@
 ---
 title: RGBD API contract frontend
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The Calibrate page accepts exactly what the node returns: no false errors on Start, Stop or Apply, and limits shown from the result."
 files: [nodes/web_ui/frontend/src/calibrate/rgbdApi.ts, nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts, nodes/web_ui/frontend/src/calibrate/RgbdResults.tsx, nodes/web_ui/frontend/src/calibrate/RgbdResults.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCalibration.tsx, nodes/web_ui/README.md]

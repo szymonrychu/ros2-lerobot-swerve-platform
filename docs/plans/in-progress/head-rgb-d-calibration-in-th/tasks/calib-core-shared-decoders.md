@@ -1,6 +1,6 @@
 ---
 title: Calib core shared decoders
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "One implementation of the sensor_msgs decoders, shared by the CLI and the robot node."
 files: [shared/ros2_common/head_rgbd_calibration/frames.py, scripts/head_rgbd_calibration/frames.py, nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py, tests/test_head_rgbd_calib_core.py, nodes/head_rgbd_calibration/tests/test_capture.py]

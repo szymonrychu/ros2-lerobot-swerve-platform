@@ -1,6 +1,6 @@
 ---
 title: RGBD API contract node
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Start, Stop and Apply work end to end: the node's responses match one documented contract pinned by JSON fixtures, and result.json carries its limits."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/app.py, nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py, nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py, nodes/head_rgbd_calibration/tests/test_app.py, nodes/head_rgbd_calibration/tests/test_compute.py, nodes/head_rgbd_calibration/tests/fixtures/api, nodes/head_rgbd_calibration/README.md, shared/ros2_common/head_rgbd_calibration/config.py]
