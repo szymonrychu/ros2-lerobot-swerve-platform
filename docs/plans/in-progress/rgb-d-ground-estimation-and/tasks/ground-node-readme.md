@@ -1,6 +1,6 @@
 ---
 title: Ground node README
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Operators and later builders find every topic, state key, label, config key and metric of the ground estimator documented and kept in sync by a test."
 files: [nodes/ground_estimator_cpp/README.md, tests/test_ground_estimator_readme.py, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-node-readme
 branch: rgb-d-ground-estimation-and--ground-node-readme
-verified_head: ""
+verified_head: dbfc3bd147f313f89a5c4680819853df4cc87553
 run: rgb-d-ground-estimation-and
 provides: []
 acs_for_audit: []

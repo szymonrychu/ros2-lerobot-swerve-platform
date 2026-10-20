@@ -1,6 +1,6 @@
 ---
 title: Nav2 ground voxel layer
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 avoids plane-relative obstacles and drop-offs alongside the fixed bands, with a runtime switch and written switch-over criteria."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_ground_voxel_layer.py, tests/test_nav_tof_voxel_layer.py, tests/test_tof_obstacle_wiring.py, tests/test_nav_tof_collision.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--nav2-ground-voxel-layer
 branch: rgb-d-ground-estimation-and--nav2-ground-voxel-layer
-verified_head: ""
+verified_head: 95e6ecd3934e83c3fa5092609fda5af412e3504f
 run: rgb-d-ground-estimation-and
 provides: []
-acs_for_audit: []
+acs_for_audit: [a4]
 process_gaps: []
 ---
 

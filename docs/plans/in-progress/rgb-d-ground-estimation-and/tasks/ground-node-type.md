@@ -1,6 +1,6 @@
 ---
 title: Ground node type
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Ansible deploys, configures, enables and disables the ground estimator by name in the normal cgroup tier."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_ground_estimator_deploy.py, tests/test_unit_cgroups.py, tests/test_node_metrics_wiring.py, ansible/README.md, nodes/README.md, .claude/skills/ansible-deploy/SKILL.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-node-type
 branch: rgb-d-ground-estimation-and--ground-node-type
-verified_head: ""
+verified_head: de86d9b1ed6a4e7d13e0d2567d6e5f2fbb604f7d
 run: rgb-d-ground-estimation-and
 provides: []
 acs_for_audit: []

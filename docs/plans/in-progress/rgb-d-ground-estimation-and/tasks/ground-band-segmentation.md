@@ -13,8 +13,8 @@ estimate: 45
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-band-segmentation
-branch: "current worktree branch (commit e061ce87)"
-verified_head: e061ce87e6dc640565bdec070c3cd8b3d6afebad
+branch: "current worktree branch (commit d09d5f91)"
+verified_head: d09d5f9132552041e1b9843316fc283707cda304
 run: rgb-d-ground-estimation-and
 provides: [ground-segmentation]
 acs_for_audit: []

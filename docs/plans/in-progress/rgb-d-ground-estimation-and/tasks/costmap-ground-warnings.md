@@ -1,6 +1,6 @@
 ---
 title: Costmap ground warnings
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 slows down over traversable steps, ramps and flagged flat objects through the existing speed limit, with a passable cost band, and keeps the global costmap untouched."
 files: [nodes/costmap_zones/costmap_zones/config.py, nodes/costmap_zones/costmap_zones/node.py, nodes/costmap_zones/costmap_zones/raster.py, nodes/costmap_zones/costmap_zones/ground_warnings.py, nodes/costmap_zones/tests/test_ground_warnings.py, nodes/costmap_zones/README.md, ansible/group_vars/client.yml]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--costmap-ground-warnings
 branch: rgb-d-ground-estimation-and--costmap-ground-warnings
-verified_head: ""
+verified_head: 21a4c45f04383ddebccc15b624f0c0d0bbaa8cef
 run: rgb-d-ground-estimation-and
-provides: []
+provides: [ground-cost-mask]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["TDD red phase not shown: implementer admits tests were written alongside the code; the red/green revert proof (merge-base file vs HEAD) is not recorded in tests.red or verification.evidence"]
 ---
 
 # Costmap ground warnings

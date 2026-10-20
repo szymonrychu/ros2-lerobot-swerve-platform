@@ -1,6 +1,6 @@
 ---
 title: Web UI ground backend
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The web UI backend streams the labelled ground cloud and the ground state to the browser on demand.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/cloud_serializer.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_ground_layer.py, ansible/group_vars/client.yml, nodes/web_ui/README.md]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--web-ui-ground-backend
 branch: rgb-d-ground-estimation-and--web-ui-ground-backend
-verified_head: ""
+verified_head: e730abde0fc87f067ed377670bec974d8a4f3647
 run: rgb-d-ground-estimation-and
-provides: []
-acs_for_audit: []
+provides: [web-ground-roles]
+acs_for_audit: [a2]
 process_gaps: []
 ---
 

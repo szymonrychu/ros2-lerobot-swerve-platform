@@ -13,8 +13,8 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-plane-tracker
-branch: "worktree branch of rgb-d-ground-estimation-and--ground-plane-tracker (commit 62feeea2)"
-verified_head: 62feeea26d11bc3478cd2242e0672a50632f2cf1
+branch: rgb-d-ground-estimation-and--ground-plane-tracker
+verified_head: 196263e30c70e3b317430eb44bb0d8d0a36b13ac
 run: rgb-d-ground-estimation-and
 provides: [ground-tracker]
 acs_for_audit: []

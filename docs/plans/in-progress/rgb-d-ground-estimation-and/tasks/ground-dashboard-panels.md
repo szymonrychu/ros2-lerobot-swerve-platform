@@ -1,6 +1,6 @@
 ---
 title: Ground dashboard panels
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Grafana shows the ground estimator's health and its CPU against the budget."
 files: [ansible/roles/monitoring/files/robot-slam.json, tests/test_monitoring_dashboards.py, scripts/node_cpu_compare.yaml, tests/test_node_cpu_compare.py, tests/README.md]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-dashboard-panels
 branch: rgb-d-ground-estimation-and--ground-dashboard-panels
-verified_head: ""
+verified_head: 36db64c70608d3194dac54d7eb85f14c725cabc1
 run: rgb-d-ground-estimation-and
 provides: []
-acs_for_audit: []
+acs_for_audit: [a1, a2]
 process_gaps: []
 ---
 

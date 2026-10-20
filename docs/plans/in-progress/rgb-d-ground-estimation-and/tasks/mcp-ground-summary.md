@@ -1,6 +1,6 @@
 ---
 title: MCP ground summary
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent sees the floor height, slope, steps and drop-offs in get_map_summary."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/tests/test_ground_summary.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--mcp-ground-summary
 branch: rgb-d-ground-estimation-and--mcp-ground-summary
-verified_head: ""
+verified_head: 4e39a3ba9a62cb26c602093745f94d3790cedb4a
 run: rgb-d-ground-estimation-and
-provides: []
+provides: [mcp-ground-state-client, ground-regions-to-surfaces]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["The failing-first (red) output of test_ground_summary.py was not saved"]
 ---
 
 # MCP ground summary

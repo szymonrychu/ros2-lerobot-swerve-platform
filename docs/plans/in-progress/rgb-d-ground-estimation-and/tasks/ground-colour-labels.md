@@ -13,12 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-colour-labels
-branch: "worktree branch of rgb-d-ground-estimation-and--ground-colour-labels (HEAD eac98687)"
-verified_head: "not obtained (script did not run far enough to report HEAD)"
+branch: rgb-d-ground-estimation-and--ground-colour-labels
+verified_head: 231ffa0da147e2009a845fb45c76d84b2a4cb555
 run: rgb-d-ground-estimation-and
 provides: [rgb-to-lab]
 acs_for_audit: []
-process_gaps: ["TDD red evidence (tests.red / verification.evidence) not recorded for ground-colour-labels; test and implementation landed in one commit."]
+process_gaps: []
 ---
 
 # Ground colour labels

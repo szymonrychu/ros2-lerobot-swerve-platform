@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-traversability-rule
 branch: rgb-d-ground-estimation-and--ground-traversability-rule
-verified_head: 21049f891296dd64838c7c920621efc99703dad6
+verified_head: ce708ba250b3bcda1ee3cffe0369d740f1c2a015
 run: rgb-d-ground-estimation-and
 provides: [traversability-rule]
 acs_for_audit: []
