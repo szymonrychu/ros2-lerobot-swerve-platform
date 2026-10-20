@@ -34,7 +34,7 @@ Calibrate the head kinematic chain and the follower arm joint offsets with ChArU
 
 ## Time
 
-Estimate: 1540 min | Actual: 0 min | Remaining estimate: 1540 min
+Estimate: 1490 min | Actual: 0 min | Remaining estimate: 1490 min
 
 ## Review
 
