@@ -6,6 +6,7 @@ from filter_node.arbitration import (
     SOURCE_AUTONOMY,
     SOURCE_LEADER,
     SOURCE_NONE,
+    SOURCE_RELEASED,
     SOURCE_WEB_UI,
     ActiveSourceReporter,
     SourceArbiter,
@@ -284,3 +285,76 @@ def test_active_source_transitions_full_cycle() -> None:
         SOURCE_NONE,
         SOURCE_LEADER,
     ]
+
+
+def released_arbiter() -> SourceArbiter:
+    """Arbiter with follower feedback, currently in the released state."""
+    arb = SourceArbiter(takeover_threshold_rad=0.15, proximity_check_enabled=True)
+    arb.update_follower_positions({"j": 0.0})
+    assert arb.on_follower_released(True)
+    return arb
+
+
+def test_released_refuses_every_source() -> None:
+    """While released no source is forwarded and nothing filtered is published."""
+    arb = released_arbiter()
+    assert arb.active_source == SOURCE_RELEASED
+    assert not arb.on_leader_input({"j": 0.0}, 1.0).accepted
+    assert not arb.on_web_ui_command(1.0)
+    assert not arb.on_autonomy_command()
+    assert arb.active_source == SOURCE_RELEASED
+    assert not arb.should_publish_filtered(100.0)
+
+
+def test_release_ends_autonomy_lease() -> None:
+    """A release while autonomy holds the lease ends it."""
+    arb = SourceArbiter(proximity_check_enabled=True)
+    arb.on_autonomy_command()
+    assert arb.autonomy_held
+    assert arb.on_follower_released(True)
+    assert not arb.autonomy_held
+    assert arb.active_source == SOURCE_RELEASED
+
+
+def test_release_from_web_ui_and_leader_states() -> None:
+    """Release overrides the leader and web UI states too."""
+    arb = SourceArbiter()
+    arb.on_web_ui_command(1.0)
+    assert arb.on_follower_released(True)
+    assert arb.active_source == SOURCE_RELEASED
+
+
+def test_reenable_requires_proximity_for_leader() -> None:
+    """After re-enable the leader is refused until within threshold, then accepted with a resume flag."""
+    arb = released_arbiter()
+    assert arb.on_follower_released(False)
+    assert arb.active_source == SOURCE_NONE
+    assert arb.proximity_required
+    assert not arb.should_publish_filtered(1.0)
+    assert not arb.on_leader_input({"j": 1.0}, 1.0).accepted
+    decision = arb.on_leader_input({"j": 0.1}, 2.0)
+    assert decision.accepted
+    assert decision.resumed_after_release
+    assert arb.active_source == SOURCE_LEADER
+
+
+def test_web_ui_accepted_after_reenable() -> None:
+    """Web UI and autonomy are accepted again once the group is re-enabled."""
+    arb = released_arbiter()
+    arb.on_follower_released(False)
+    assert arb.on_web_ui_command(1.0)
+    assert arb.active_source == SOURCE_WEB_UI
+    arb2 = released_arbiter()
+    arb2.on_follower_released(False)
+    assert arb2.on_autonomy_command()
+
+
+def test_released_transitions_reported_once() -> None:
+    """Repeated identical released values are not transitions."""
+    arb = SourceArbiter()
+    assert not arb.on_follower_released(False)
+    assert arb.on_follower_released(True)
+    assert not arb.on_follower_released(True)
+    assert arb.on_follower_released(False)
+    assert not arb.on_follower_released(False)
+    assert arb.active_source == SOURCE_NONE

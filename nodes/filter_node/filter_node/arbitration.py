@@ -11,6 +11,9 @@ Priority is autonomy > web_ui > leader:
   has actually been accepted via proximity.
 - **web_ui**: active for ``web_ui_timeout_s`` after its last command; meanwhile the leader takes over only
   via the proximity rule. After the timeout the leader resumes (legacy behaviour).
+- **released**: the follower bridge reports its torque released (limp arm). No source is forwarded, nothing
+  filtered is published and an autonomy lease ends. On re-enable the active source is ``none`` with the
+  proximity requirement set, so the leader resumes only near the follower and the arm never snaps to it.
 """
 
 from typing import NamedTuple
@@ -19,6 +22,7 @@ SOURCE_LEADER = "leader"
 SOURCE_WEB_UI = "web_ui"
 SOURCE_AUTONOMY = "autonomy"
 SOURCE_NONE = "none"
+SOURCE_RELEASED = "released"
 ACTIVE_SOURCE_PERIOD_S = 1.0
 
 
@@ -79,6 +83,7 @@ class SourceArbiter:
         self.last_web_ui_time = 0.0
         self.proximity_required = False  # set by an autonomy release, cleared when the leader is accepted
         self.follower_positions: dict[str, float] = {}
+        self.released = False  # follower torque released: every source is refused
 
     @property
     def autonomy_held(self) -> bool:
@@ -110,12 +115,36 @@ class SourceArbiter:
             return False
         return joints_within_threshold(leader_positions, self.follower_positions, self.takeover_threshold_rad)
 
+    def on_follower_released(self, released: bool) -> bool:
+        """Handle the follower torque state (latched ``released`` flag from the bridge).
+
+        Releasing ends any lease and refuses every source. Re-enabling sets the source to ``none`` and
+        requires proximity before the leader resumes.
+
+        Args:
+            released (bool): True while the follower arm is released (limp).
+
+        Returns:
+            bool: True when the state changed.
+        """
+        if released == self.released:
+            return False
+        self.released = released
+        if released:
+            self.active_source = SOURCE_RELEASED
+        else:
+            self.active_source = SOURCE_NONE
+            self.proximity_required = True
+        return True
+
     def on_autonomy_command(self) -> bool:
         """Handle an autonomy command: take (or keep) the sticky lease.
 
         Returns:
-            bool: Always True; autonomy commands are always forwarded.
+            bool: True if the command should be forwarded (False while the follower is released).
         """
+        if self.released:
+            return False
         self.active_source = SOURCE_AUTONOMY
         return True
 
@@ -141,9 +170,9 @@ class SourceArbiter:
             now (float): Monotonic time (s).
 
         Returns:
-            bool: True if the command should be forwarded (False while autonomy holds the lease).
+            bool: True if the command should be forwarded (False while autonomy holds the lease or released).
         """
-        if self.autonomy_held:
+        if self.autonomy_held or self.released:
             return False
         self.active_source = SOURCE_WEB_UI
         self.last_web_ui_time = now
@@ -159,6 +188,8 @@ class SourceArbiter:
         Returns:
             LeaderDecision: Whether to accept the message and whether it resumed control after a release.
         """
+        if self.released:
+            return LeaderDecision(accepted=False)
         if self.active_source == SOURCE_LEADER:
             return LeaderDecision(accepted=True)
         if self.autonomy_held:
@@ -186,7 +217,7 @@ class SourceArbiter:
             the web UI is active; True otherwise. Stays False
             while the post-release proximity requirement is pending, even after a web UI timeout.
         """
-        if self.proximity_required:
+        if self.released or self.proximity_required:
             return False
         if self.active_source == SOURCE_WEB_UI:
             return now - self.last_web_ui_time >= self.web_ui_timeout_s

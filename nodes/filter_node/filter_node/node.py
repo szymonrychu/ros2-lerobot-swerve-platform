@@ -1,5 +1,6 @@
 """ROS2 filter node: subscribe input JointState, run algorithm, publish filtered JointState."""
 
+import json
 import time
 from typing import Any
 
@@ -7,7 +8,7 @@ import rclpy
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
@@ -23,6 +24,13 @@ FILTER_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
+)
+
+LATCHED_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
 )
 
 INPUT_STALE_WARN_S = 5.0
@@ -158,6 +166,23 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
             log.info("Autonomy lease released: web UI active immediately, leader resumes on proximity")
             report_source()
 
+    def on_torque_state(msg: String) -> None:
+        try:
+            released = bool(json.loads(msg.data)["released"])
+        except (ValueError, KeyError, TypeError) as exc:
+            log.warning(f"Ignoring unparsable torque_state payload: {exc}")
+            return
+        if not arbiter.on_follower_released(released):
+            return
+        if released:
+            log.info("Follower released: all command sources quieted")
+        else:
+            # Drop stale estimates; the leader resumes only within the proximity threshold.
+            state_by_joint.clear()
+            last_measurement_time.clear()
+            log.info("Follower torque re-enabled: leader resumes on proximity")
+        report_source()
+
     def on_follower_feedback(msg: JointState) -> None:
         arbiter.update_follower_positions(joint_positions(msg))
 
@@ -174,6 +199,9 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
             f"Follower feedback for takeover: {config.follower_feedback_topic}"
             f" (threshold {config.takeover_threshold_rad} rad)"
         )
+    if config.follower_torque_state_topic:
+        node.create_subscription(String, config.follower_torque_state_topic, on_torque_state, LATCHED_QOS)
+        log.info(f"Follower torque state: {config.follower_torque_state_topic}")
     if config.autonomy_input_topic:
         node.create_subscription(JointState, config.autonomy_input_topic, on_autonomy_input, FILTER_QOS)
         if config.autonomy_release_topic:

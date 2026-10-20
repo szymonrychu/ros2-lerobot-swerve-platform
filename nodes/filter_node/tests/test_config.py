@@ -146,3 +146,20 @@ def test_load_config_autonomy_disabled_with_empty_string(tmp_path: Path) -> None
     assert cfg is not None
     assert cfg.autonomy_input_topic == ""
     assert cfg.active_source_topic == ""
+
+
+def test_load_config_follower_torque_state_topic(tmp_path: Path) -> None:
+    """follower_torque_state_topic defaults to /follower/torque_state, can be overridden and disabled."""
+    p = tmp_path / "c.yaml"
+    p.write_text("algorithm: kalman\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.follower_torque_state_topic == "/follower/torque_state"
+    p.write_text("follower_torque_state_topic: ' /x/torque '\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.follower_torque_state_topic == "/x/torque"
+    p.write_text("follower_torque_state_topic: ''\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.follower_torque_state_topic == ""
