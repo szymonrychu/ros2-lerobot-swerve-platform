@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "A head result is computed on the robot and applied with one click, with the ToF joint kept consistent with the new camera pose."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py, nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py, nodes/head_rgbd_calibration/tests/test_compute_head_chain.py, nodes/head_rgbd_calibration/tests/test_apply.py]
 verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_compute_head_chain.py tests/test_compute.py tests/test_apply.py -q && uv run poe lint"
-depends_on: [session-kinds-joint-poses, head-chain-board-solver]
+depends_on: [session-kinds-joint-poses, joint-state-still-capture, head-chain-board-solver]
 owns: [calib-head-result-files]
 uses: [calib-session-kinds, head-chain-fit, head-chain-override, head-arm-synthetic-scenes]
 model: ""
@@ -33,8 +33,6 @@ Compute and apply of a head_chain session (owns `calib-head-result-files`; desig
 - New `tests/test_compute_head_chain.py` (synthetic session from `pose_factory.still_pose` + `tests/head_arm_synthetic.py`): a passing result with every file; missing intrinsics error; limits exceeded -> only report and result; `tof_joint.json` equals `urdf_handoff.tof_joint_origin` on the new chain; fixed components taken from the applied chain. `tests/test_apply.py` gains: head_chain apply writes the files and `applied.json` last with `kind` and `head_session`; a failing head result refused; an rgbd apply after a head apply keeps `head_chain.json`.
 - The existing compute and apply tests pass unchanged.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: a head_chain session computes a passing result with every file [evidence: test:nodes/head_rgbd_calibration/tests/test_compute_head_chain.py::test_head_chain_result_files]
@@ -54,17 +52,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Result files `head_chain.json`, `tof_joint.json`, `head.urdf`, `report.md`, `result.json` (kind `head_chain`); `applied.json` gains `kind`, `head_session` (part `calib-head-result-files`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A head result is computed on the robot and applied with one click, with the ToF joint kept consistent with the new camera pose.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_compute_head_chain.py tests/test_compute.py tests/test_apply.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

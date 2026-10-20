@@ -30,10 +30,6 @@ Widen the head tilt range to the reprinted mount (design D10; approval A4; Q1). 
 - `nodes/web_ui/config/default.yaml` `head_tilt_range_deg: [-30, 60]`; `nodes/web_ui/web_ui/config.py` `HEAD_TAB_DEFAULT_TILT_RANGE_DEG = (-30.0, 60.0)`; `nodes/web_ui/frontend/src/tabs/HeadTab.tsx` `DEFAULT_TILT_RANGE_DEG = [-30, 60]`.
 - Tests updated to the new range: `tests/test_head_servo_config.py` (steps (1365, 2389), startup still 1707), `nodes/web_ui/tests/test_head_urdf.py` (limits), `nodes/mcp_server/tests/test_head_kinematics.py` (limits); `tests/test_head_config_consistency.py` passes unchanged.
 
-Steps: update the tests first (red against the old values), then the values, then the verify command.
-
-Notes: the first robot move to the new range is in the runbook (10 deg steps from 30 to 60 deg down, slow), not here.
-
 ## Acceptance conditions
 
 - a1: servo steps equal the widened URDF limits [evidence: test:tests/test_head_servo_config.py::test_head_steps_equal_the_urdf_limits]
@@ -56,17 +52,19 @@ Notes: the first robot move to the new range is in the runbook (10 deg steps fro
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- head_tilt limit [-0.5236, 1.0472] rad; tilt steps (1365, 2389); web_ui tilt range [-30, 60] deg.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The head can look 60 deg down at the floor board and at grasp scenes next to the robot.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- update the tests first (red against the old values), then the values, then the verify command.
+- Run `uv run --frozen pytest tests/test_head_servo_config.py tests/test_head_config_consistency.py -q && (cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q) && (cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py -q) && uv run poe lint-ansible`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- the first robot move to the new range is in the runbook (10 deg steps from 30 to 60 deg down, slow), not here.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

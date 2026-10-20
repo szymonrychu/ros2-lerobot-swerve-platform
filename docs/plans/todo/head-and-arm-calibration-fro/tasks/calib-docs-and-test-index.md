@@ -35,8 +35,6 @@ Documentation for everything this epic adds (CLAUDE.md documentation rule; desig
 - `tests/README.md`: every test file added or changed by the epic, each with what it covers.
 - Note in the node README that after new arm offsets are committed the gripper camera mount needs a re-solve (non-goal of this epic).
 
-Steps: read each merged module; write the sections; check every heading in the acceptance conditions exists.
-
 ## Acceptance conditions
 
 - a1: the node README documents the head and arm sequences [evidence: doc-section:nodes/head_rgbd_calibration/README.md#Head and arm sequences]
@@ -58,17 +56,18 @@ Steps: read each merged module; write the sections; check every heading in the a
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- README headings named in the acceptance conditions.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A mid-level developer can run, debug and extend both calibrations from the READMEs.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- read each merged module; write the sections; check every heading in the acceptance conditions exists.
+- Run `grep -q '^## Head and arm sequences' nodes/head_rgbd_calibration/README.md && grep -q '^## Head and arm calibration fits' shared/README.md`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

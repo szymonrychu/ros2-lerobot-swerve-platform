@@ -34,8 +34,6 @@ The `head_chain.json` override format and one applier used by every consumer (ow
 - New `tests/test_head_chain_override.py`: writer/parser round trip; each chain joint rewritten with every other byte unchanged; tof override still applied after the chain; invalid files (bad JSON, unknown joint, 2-vector, NaN, bool, empty joints) each give exactly one warning and leave that file's joints unchanged; empty dir gives the identical text; the module imports only standard-library modules (checked with `ast` on the source).
 - `tests/test_head_rgbd_urdf_handoff.py` and `tests/test_head_tof_joint_override.py` pass unchanged.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: head_chain.json round trips through the writer and parser [evidence: test:tests/test_head_chain_override.py::test_head_chain_json_round_trip]
@@ -52,17 +50,19 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `urdf_text.py::rewrite_joint_origin`, `parse_head_chain`, `head_chain_json`, `apply_overrides`, `HEAD_CHAIN_FILE`, `TOF_JOINT_FILE`, `APPLIED_MARKER_FILE`, `HEAD_CHAIN_JOINTS` (contract `head-chain-override`).
+- `head_chain.json`: `{joints: {head_mount_joint|head_tilt|head_camera_joint: {xyz: [3], rpy: [3]}}, note, session, result}`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One format and one applier for the calibrated head chain, so every consumer reads the same override the same way.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `uv run --frozen pytest tests/test_head_chain_override.py tests/test_head_rgbd_urdf_handoff.py tests/test_head_tof_joint_override.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

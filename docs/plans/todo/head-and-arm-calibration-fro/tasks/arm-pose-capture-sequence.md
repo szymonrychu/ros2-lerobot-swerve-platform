@@ -38,10 +38,6 @@ The Arm calibrate sequence: scripted arm poses with the plate in view, small joi
   - `state()` adds `tier` (`small` | `big`) and `allow_big_joints`.
 - New `tests/test_sequencer_arm.py` (fakes): no big pose is commanded without `allow_big_joints`; with it big poses follow the small ones; release on end, stop, tool error and exception; the floor-clearance refusal happens before any command; `speed_scale` passed; the look_at target equals the FK plate point. `tests/test_config.py`: the validation errors name the pose and joint.
 
-Steps: tests first (red), implement, verify. Choose the base pose so the plate is 0.3-0.45 m in front of the head camera; check every pose with the test before shipping it.
-
-Notes: least dramatic first (CLAUDE.md): only wrist and elbow in the small tier; the UI asks before the big tier.
-
 ## Acceptance conditions
 
 - a1: big poses never run without allow_big_joints [evidence: test:nodes/head_rgbd_calibration/tests/test_sequencer_arm.py::test_no_big_pose_without_allow_big_joints]
@@ -63,17 +59,19 @@ Notes: least dramatic first (CLAUDE.md): only wrist and elbow in the small tier;
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `sequencer.py::Sequencer.start_arm(session_id, allow_big_joints)`; config `arm_sequence` (pose set, `joint_offsets_rad`, `arm_urdf_file`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Arm calibrate moves the arm through safe poses with the plate in view, small joints first and shoulder joints only on the user's OK.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify. Choose the base pose so the plate is 0.3-0.45 m in front of the head camera; check every pose with the test before shipping it.
+- Run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_sequencer_arm.py tests/test_arm_pose_set.py tests/test_sequencer_head.py tests/test_config.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- least dramatic first (CLAUDE.md): only wrist and elbow in the small tier; the UI asks before the big tier.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

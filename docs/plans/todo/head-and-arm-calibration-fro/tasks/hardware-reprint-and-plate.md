@@ -32,10 +32,6 @@ Hardware prerequisite only the user can do (design D10; approval A4). The calibr
   4. Record the tilt-down angle the new mount allows and whether the camera/ToF bracket changed (if it changed, the RGB-D calibration must be redone before Head calibrate).
 - Ask the user for each item and record the answers (date, measured values) in the section. Until the user confirms the head mount is mounted and the plate is attached, report the task `blocked` with `whoCanClear: user` and the list above; never fill in values the user did not give.
 
-Steps: write the section; ask the user; record the answers; commit `docs: head and arm calibration hardware prerequisites`.
-
-Notes: no robot motion in this task.
-
 ## Acceptance conditions
 
 - a1: the runbook has a Hardware section with the user's recorded answers [evidence: doc-section:docs/runbooks/head-arm-calibration.md#Hardware]
@@ -47,17 +43,19 @@ Notes: no robot motion in this task.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/head-arm-calibration.md` `## Hardware`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The head can see the floor next to the robot and the plate is on the jaw, without which neither calibration can run.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the section; ask the user; record the answers; commit `docs: head and arm calibration hardware prerequisites`.
+- Run `test -f docs/runbooks/head-arm-calibration.md && grep -q '^## Hardware' docs/runbooks/head-arm-calibration.md`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- no robot motion in this task.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

@@ -38,8 +38,6 @@ A numpy forward-kinematics chain over URDF text, shared by the head fit, the arm
   - so101 gripper_link at zero joints equals the product of origins; xyz/rpy round trip within 1e-12;
   - `arm_in_robot_base` with the default gauge maps the arm root to (0.0592, -0.05, 0.100).
 
-Steps: tests first (red), implement, run the verify command.
-
 ## Acceptance conditions
 
 - a1: the head camera pose at zero equals the URDF origin product [evidence: test:tests/test_head_arm_calib_chain.py::test_head_camera_pose_at_zero_matches_urdf_origins]
@@ -57,17 +55,18 @@ Steps: tests first (red), implement, run the verify command.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `chain.py::UrdfChain.from_text`, `UrdfChain.transform`, `joint_names`, `origin`, `limits`; `pose_from_xyz_rpy`, `xyz_rpy_from_pose`, `arm_in_robot_base` (part `urdf-chain-fk`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One tested forward-kinematics chain for the head and the arm, so both fits and the pose checks agree on the geometry.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, run the verify command.
+- Run `uv run --frozen pytest tests/test_head_arm_calib_chain.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

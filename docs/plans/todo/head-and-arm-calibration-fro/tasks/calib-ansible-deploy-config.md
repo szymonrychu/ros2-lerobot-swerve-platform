@@ -30,8 +30,6 @@ Ansible keeps the node config and permissions in sync with the new features (CLA
 - `tests/test_head_rgbd_calibration_deploy.py` gains: the client.yml block validates with the node's config schema rules mirrored in the test (every key of the node's shipped YAML present; `fit.board` equals `board`); `arm_sequence.joint_offsets_rad` equals mcp_server `arm.joint_offsets_rad`; `fit.base_in_base_link` equals mcp_server `arm.base_in_base_link` and `fit.shoulder_pan_offset_rad` equals its `shoulder_pan` offset; the plate ids do not overlap the board's; the mcp-token membership task exists.
 - `uv run poe lint-ansible` and `uv run poe test-ansible` pass; any new skip or warn is documented in `ansible/.ansible-lint`.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: the arm gauge and offsets in the node config equal the mcp_server block [evidence: test:tests/test_head_rgbd_calibration_deploy.py::test_arm_gauge_and_offsets_match_mcp_server]
@@ -48,17 +46,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- client.yml `head_rgbd_calibration` config keys; setup task adding the node user to `mcp-token`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A deploy ships the new calibration config and lets the node use mcp_server, with the arm gauge pinned to the mcp_server values.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py tests/test_head_config_consistency.py -q && uv run poe lint-ansible && uv run poe test-ansible`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

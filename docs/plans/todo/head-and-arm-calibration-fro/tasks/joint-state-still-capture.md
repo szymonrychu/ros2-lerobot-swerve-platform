@@ -36,8 +36,6 @@ Still capture on request with measured joint states, for head_chain and arm sess
 - `nodes/head_rgbd_calibration/tests/conftest.py` stubs `sensor_msgs.msg.JointState`.
 - `nodes/head_rgbd_calibration/tests/test_capture.py` gains: subscriptions and QoS per kind; a still board with fresh joints stores a pose with the nearest joint sample; moving joints -> not still, nothing stored; stale joints -> `joints stale`, nothing stored; no board -> `no board`; stop leaves nothing subscribed; reopening another kind refused. `tests/test_config.py`: new defaults equal the YAML; `fit.board` mismatch refused. The existing rgbd capture tests pass unchanged.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: a still board with fresh joints is stored with the nearest joint sample [evidence: test:nodes/head_rgbd_calibration/tests/test_capture.py::test_capture_still_stores_pose_with_nearest_joints]
@@ -59,17 +57,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `capture.py::CaptureController.start_still_session(kind, session_id) -> str`, `capture_still(spot) -> StillOutcome`, `StillOutcome` (part `calib-still-capture`); config `topics.head_joint_states`, `topics.arm_joint_states`, `still`, `fit`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Each stored view pairs a still camera frame with the joint angles measured at that moment, never invented ones.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_capture.py tests/test_config.py tests/test_store.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

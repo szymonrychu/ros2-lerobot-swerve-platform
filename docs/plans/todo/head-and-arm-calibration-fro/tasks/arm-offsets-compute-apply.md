@@ -31,8 +31,6 @@ Compute and apply of an arm session: the offsets snippet for review, the head ch
 - `apply.py` for kind `arm`: applies `head_chain.json` and `tof_joint.json` only (the snippet never goes to `applied/`), `applied.json` with `kind: "arm"` and `head_session` = the floor session. `download_zip` adds `joint_offsets_snippet.yaml`.
 - New `tests/test_compute_arm.py` (synthetic floor + plate sessions): passing result with every file and the snippet; no head applied and no floor session -> error; `--floor-session` wins over `head_session`; failed limits -> only report and result. `tests/test_apply.py`: arm apply writes the chain, never the snippet, `head_session` = floor session; zip has the snippet. `tests/test_jobs.py`: the child command carries `--floor-session`.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: an arm session computes a result with the snippet and the full head chain [evidence: test:nodes/head_rgbd_calibration/tests/test_compute_arm.py::test_arm_result_files_and_snippet]
@@ -53,17 +51,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `ComputeJob.start(sid, floor_session=None)`, child arg `--floor-session`; result files add `joint_offsets_snippet.yaml`; `result.json` kind `arm`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The arm result gives a reviewable joint_offsets_rad snippet and applies the measured head yaw and position.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_compute_arm.py tests/test_compute_head_chain.py tests/test_apply.py tests/test_jobs.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

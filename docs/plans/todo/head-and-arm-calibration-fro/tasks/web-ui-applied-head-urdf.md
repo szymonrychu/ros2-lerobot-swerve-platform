@@ -30,8 +30,6 @@ The web UI head URDF (3D view, head tab) shows the applied head chain (design D5
 - `nodes/web_ui/web_ui/server.py` `/api/urdf/{path}`: when `path` is a configured head URDF name (any tab's `head_urdf`, default `head.urdf`) and the dir is set, answer `apply_overrides(text, dir)` from `ros2_common.head_rgbd_calibration.urdf_text` (`application/xml`, `Cache-Control: no-store`), logging each warning; every other file and `/api/urdf/status` unchanged; the path safety checks unchanged.
 - `nodes/web_ui/tests/test_head_urdf.py`: override applied to the served head URDF; no dir -> the file bytes; invalid override -> the URDF chain and a logged warning; other URDF files untouched; `Cache-Control: no-store` on the head URDF.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: the served head URDF carries the applied chain [evidence: test:nodes/web_ui/tests/test_head_urdf.py::test_served_head_urdf_has_applied_chain]
@@ -50,17 +48,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- web_ui config `head_applied_calibration_dir`; `/api/urdf/<head_urdf>` answers the overridden text with `Cache-Control: no-store`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The web UI 3D view and head tab draw the head where it really is after a calibration.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py tests/test_server.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

@@ -38,8 +38,6 @@ HTTP routes for the Head and Arm sequences and results (owns the `head-arm-calib
 - `tests/test_app.py`: every new route with a fake sequencer: bodies match the fixtures (contract), 409 cases, allow_big_joints passed through, arm start refused without an applied head chain, compute min views per kind, snippet field. `tests/test_main.py`: shutdown order.
 - The whole node suite passes.
 
-Steps: tests and fixtures first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: the sequence routes answer the state body matching the fixture [evidence: test:nodes/head_rgbd_calibration/tests/test_app.py::test_sequence_routes_answer_state_contract]
@@ -63,17 +61,18 @@ Steps: tests and fixtures first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Routes `POST /api/sequence/head/start`, `/api/sequence/head/next-spot`, `/api/sequence/arm/start`, `/api/sequence/stop`; `sequence` in every state body; `snippet` in results; fixtures `state.json`, `result_head_chain.json`, `result_arm.json` (contract `head-arm-calib-api`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The web UI can start, advance and stop both calibrations and read their results through one pinned API.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- tests and fixtures first (red), implement, verify.
+- Run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

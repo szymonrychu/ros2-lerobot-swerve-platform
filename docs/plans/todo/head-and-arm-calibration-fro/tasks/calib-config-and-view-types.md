@@ -38,10 +38,6 @@ Foundation config and view types for the head and arm fits (design D4, D8). Ever
 - New `tests/test_head_arm_calib_config.py`: defaults equal the values above; plate ids 15..21 and board ids 0..14 are disjoint; an image of the plate (cv2 `generateImage`) is detected by `detect` with `make_board(PLATE_BOARD)` and returns None with `make_board(BoardConfig())`, and the board image vice versa; an overflowing `first_marker_id` raises naming the field; unknown keys rejected; `board_corners_3d` shape `(8, 3)` for the plate and spacing 0.018 m.
 - Existing core tests pass with no assertion changed; root lint passes.
 
-Steps: write the tests first and run them (red: missing names); implement; run the verify command (green).
-
-Notes: the existing `BoardConfig` docstring says it must equal `scripts/markers_generate.yaml`; the plate equivalent is pinned by the gripper-plate-marker task.
-
 ## Acceptance conditions
 
 - a1: plate and board marker ids are disjoint and each image decodes only with its own board [evidence: test:tests/test_head_arm_calib_config.py::test_plate_and_board_decode_only_with_their_own_ids]
@@ -61,17 +57,20 @@ Notes: the existing `BoardConfig` docstring says it must equal `scripts/markers_
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `config.py::PLATE_BOARD`, `PlateMountConfig`, `HeadFitLimits`, `ArmFitLimits`, `BaseInBaseLink`, `HeadArmFitConfig` (part `head-arm-calib-config`).
+- `charuco.py::board_corners_3d(cfg) -> np.ndarray`; `views.py::FloorView`, `PlateView` (part `head-arm-view-types`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One validated place for the plate board, fit limits and view types, so the plate and floor board can never be confused.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the tests first and run them (red: missing names); implement; run the verify command (green).
+- Run `uv run --frozen pytest tests/test_head_arm_calib_config.py tests/test_head_rgbd_calib_core.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- the existing `BoardConfig` docstring says it must equal `scripts/markers_generate.yaml`; the plate equivalent is pinned by the gripper-plate-marker task.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

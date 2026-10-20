@@ -32,8 +32,6 @@ Typed frontend client for the head and arm calibration routes (uses the `head-ar
 - `rgbdApi.ts`: the state type gains `sequence` and the applied record `kind`/`head_session`.
 - New `headArmApi.test.ts`: each function's method, path and body; parsing of the node fixtures `nodes/head_rgbd_calibration/tests/fixtures/api/state.json`, `result_head_chain.json`, `result_arm.json` (imported as JSON); a missing key rejected; error bodies surface `message`. `rgbdApi.test.ts` passes.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: each call uses the documented method, path and body [evidence: test:nodes/web_ui/frontend/src/calibrate/headArmApi.test.ts::calls use the documented routes]
@@ -49,17 +47,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `headArmApi.ts::startHeadSequence`, `nextSpot`, `startArmSequence`, `stopSequence`, `computeSession`, `getHeadResult`, `getArmResult`, `applyResult`, `resultDownloadUrl`; types `SequenceState`, `HeadChainResult`, `ArmResult`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The Calibrate page talks to the calibration node through typed, contract-checked calls.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/web_ui/frontend && npx vitest run src/calibrate/headArmApi.test.ts src/calibrate/rgbdApi.test.ts && npx tsc --noEmit && npm run lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

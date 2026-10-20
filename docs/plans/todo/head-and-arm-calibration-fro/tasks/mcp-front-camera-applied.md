@@ -29,8 +29,6 @@ The mcp_server front camera (head RGB) uses the applied head_camera_joint and th
 - `nodes/mcp_server/mcp_server/config.py` (and `camera_scene.py` where the intrinsics are used): the front intrinsics file is read lazily at each camera call with an mtime cache, so an apply is picked up without a restart; a missing file means the camera tools answer 'not calibrated' (warning once), never a crash at startup. When the file's image size differs from the front image size with the same aspect ratio (within 0.5 %), fx and cx scale by the width ratio and fy and cy by the height ratio (distortion unchanged); a different aspect ratio keeps the front camera uncalibrated with a warning naming both sizes. Read the front stream size from the head_camera_cpp config in client.yml and pin it in the test.
 - Tests: `tests/test_camera_config.py`: the client.yml front block validates (parent is a head URDF link); scaling from 576x324 to the front size doubles or scales K exactly; different aspect ratio -> uncalibrated; missing file -> uncalibrated. `tests/test_camera_scene_head.py`: the front camera pose with a zero mount on head_camera_link equals the old mount values at the URDF chain, and moves with an applied head_camera_joint.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: applied intrinsics are scaled to the front image size [evidence: test:nodes/mcp_server/tests/test_camera_config.py::test_front_intrinsics_scaled_to_stream_size]
@@ -50,17 +48,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- client.yml `cameras.front` on `head_camera_link` with a zero mount and the applied intrinsics file; lazy intrinsics load with mtime cache and size scaling.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent's front camera tools become calibrated: pixel rays use the applied intrinsics and the measured camera mount.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_config.py tests/test_camera_scene_head.py tests/test_config.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

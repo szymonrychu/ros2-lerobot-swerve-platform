@@ -41,8 +41,6 @@ The joint head + arm fit from floor-board and gripper-plate views (owns `arm-off
   - the snippet parses as YAML (`yaml.safe_load`) to the five fitted values;
   - fewer than `min_views` plate views: `min_views` failed.
 
-Steps: extend the synthetic helper and write the tests (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: arm offsets and head x/y/yaw are recovered from noisy plate and floor views [evidence: test:tests/test_arm_offsets_fit.py::test_recovers_arm_offsets_and_head_yaw]
@@ -61,17 +59,18 @@ Steps: extend the synthetic helper and write the tests (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `arm_offsets_fit.py::fit_head_arm(...) -> HeadArmFit`, `HeadArmFit`, `offsets_snippet_yaml`, `arm_report_markdown` (part `arm-offsets-fit`); `tests/head_arm_synthetic.py::plate_scene`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The arm joint offsets and the head yaw and position relative to the arm are measured, which is what grasping from head images needs.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- extend the synthetic helper and write the tests (red), implement, verify.
+- Run `uv run --frozen pytest tests/test_arm_offsets_fit.py tests/test_head_chain_fit.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

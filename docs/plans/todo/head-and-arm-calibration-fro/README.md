@@ -34,7 +34,7 @@ Calibrate the head kinematic chain and the follower arm joint offsets with ChArU
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+Estimate: 1540 min | Actual: 0 min | Remaining estimate: 1540 min
 
 ## Review
 

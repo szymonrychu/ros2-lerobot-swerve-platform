@@ -34,15 +34,13 @@ The "Arm calibrate" button and section, with confirmations before any arm motion
 - `CalibratePage.tsx`: renders `ArmCalibration` after `HeadCalibration` when `config.rgbd`; the "Arm calibration - deferred" line is removed.
 - New `ArmCalibration.test.tsx`: disabled without an applied head chain; no start without the first confirm; `allowBigJoints` true only after the second confirm (and never on the first start); Copy writes the snippet; Apply disabled on a failed result; Stop calls the route. `CalibratePage.test.tsx`: the deferred line is gone.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
-- a1: the arm only starts after the confirm dialog [evidence: test:nodes/web_ui/frontend/src/calibrate/ArmCalibration.test.tsx::no arm start without confirm]
-- a2: shoulder moves are sent only after the second confirm [evidence: test:nodes/web_ui/frontend/src/calibrate/ArmCalibration.test.tsx::allow big joints only after the second confirm]
-- a3: Arm calibrate is disabled until a head chain is applied [evidence: test:nodes/web_ui/frontend/src/calibrate/ArmCalibration.test.tsx::disabled without an applied head chain]
-- a4: Copy writes the offsets snippet [evidence: test:nodes/web_ui/frontend/src/calibrate/ArmCalibration.test.tsx::copy writes the snippet]
-- a5: the deferred placeholder line is gone [evidence: test:nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx::has no deferred arm line]
+- a1: the arm only starts after the confirm dialog [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/calibrate/ArmCalibration.test.tsx -t "no arm start without confirm"]
+- a2: shoulder moves are sent only after the second confirm [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/calibrate/ArmCalibration.test.tsx -t "allow big joints only after the second confirm"]
+- a3: Arm calibrate is disabled until a head chain is applied [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/calibrate/ArmCalibration.test.tsx -t "disabled without an applied head chain"]
+- a4: Copy writes the offsets snippet [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/calibrate/ArmCalibration.test.tsx -t "copy writes the snippet"]
+- a5: the deferred placeholder line is gone [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/calibrate/CalibratePage.test.tsx -t "has no deferred arm line"]
 - a6: type check, lint and build pass [evidence: command:cd nodes/web_ui/frontend && npx tsc --noEmit && npm run lint && npm run build]
 
 ## Files
@@ -54,17 +52,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `ArmCalibration.tsx::ArmCalibration` rendered by `CalibratePage` after `HeadCalibration`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The user calibrates the arm from a browser, confirming every arm motion tier, and gets the offsets to review.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/web_ui/frontend && npx vitest run src/calibrate/ArmCalibration.test.tsx src/calibrate/CalibratePage.test.tsx && npx tsc --noEmit && npm run lint && npm run build`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

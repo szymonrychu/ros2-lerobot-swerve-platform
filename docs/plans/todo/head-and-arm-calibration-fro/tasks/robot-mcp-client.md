@@ -33,10 +33,6 @@ An MCP client of mcp_server so the node moves the head and arm only through the 
   - Typed helpers (sync wrappers running the coroutine, safe from a worker thread): `set_head_angles(pan_deg, tilt_deg)`, `head_look_at(x, y, z)` (base_link), `head_home()`, `take_arm()` (`take_control(subsystem="arm")`), `move_arm_joints(targets, speed_scale)` (timeout `move_timeout_s`), `release_arm()` (`release_control(subsystem="arm")`, parks home), `arm_state()`. A tool error comes back as `is_error` with the tool's text.
 - New `tests/test_robot_client.py` (fake transport): tool names and argument shapes per helper; unreachable -> `is_error`, `unreachable`, text `mcp_server unreachable at <url>`; missing token file -> `is_error` naming the file; timeout -> `is_error` with the timeout; the token string never appears in any text. `tests/test_config.py`: robot defaults.
 
-Steps: tests first (red), implement, verify.
-
-Notes: the node's service user must read the token (group `mcp-token`); the Ansible side is in calib-ansible-deploy-config.
-
 ## Acceptance conditions
 
 - a1: each helper calls its tool with the documented arguments [evidence: test:nodes/head_rgbd_calibration/tests/test_robot_client.py::test_helpers_call_tools_with_arguments]
@@ -59,17 +55,19 @@ Notes: the node's service user must read the token (group `mcp-token`); the Ansi
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `robot_client.py::RobotClient`, `ToolResult`, helpers `set_head_angles`, `head_look_at`, `head_home`, `take_arm`, `move_arm_joints`, `release_arm`, `arm_state` (part `calib-robot-client`); config `robot`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The calibrator moves the head and arm only through mcp_server's guarded tools (leases, collision and floor guards, battery gate).
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_robot_client.py tests/test_config.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- the node's service user must read the token (group `mcp-token`); the Ansible side is in calib-ansible-deploy-config.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

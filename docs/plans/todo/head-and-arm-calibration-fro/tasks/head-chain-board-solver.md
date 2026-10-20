@@ -43,8 +43,6 @@ The head chain fit from floor-board views (owns `head-chain-fit` and `head-arm-s
   - the fixed origin components equal the URDF;
   - `head_report_markdown` contains the parameter table header and every parameter name.
 
-Steps: write the synthetic helper and the tests (red), implement the fit, verify. Model this carefully: the URDF rpy is fixed-axis xyz; head_tilt + is down.
-
 ## Acceptance conditions
 
 - a1: a perturbed head chain is recovered from noisy floor views within tolerance and sigma [evidence: test:tests/test_head_chain_fit.py::test_recovers_perturbed_head_chain_with_noise]
@@ -63,17 +61,19 @@ Steps: write the synthetic helper and the tests (red), implement the fit, verify
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `head_chain_fit.py::fit_head_chain(views, camera_matrix, dist, head_urdf, cfg) -> HeadChainFit`, `HeadChainFit`, `head_report_markdown` (part `head-chain-fit`).
+- `tests/head_arm_synthetic.py::HeadArmTruth`, `floor_scene`, `SYNTH_CAMERA_MATRIX` (part `head-arm-synthetic-scenes`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The head height, mount tilt, tilt zero and camera lever are measured from a board on the floor instead of guessed from CAD.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the synthetic helper and the tests (red), implement the fit, verify. Model this carefully: the URDF rpy is fixed-axis xyz; head_tilt + is down.
+- Run `uv run --frozen pytest tests/test_head_chain_fit.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

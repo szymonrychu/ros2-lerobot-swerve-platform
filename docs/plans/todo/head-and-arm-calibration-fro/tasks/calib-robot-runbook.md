@@ -36,8 +36,6 @@ Verify the whole feature on the robot and record real numbers (design D12; appro
   7. Record that the gripper camera mount needs a re-solve with the new offsets (non-goal) and how the servo-torque epic's stale marker was cleared.
 - The task ends with the runbook committed with real numbers, or with a named blocker (robot offline, hardware not done, user OK not given) per CLAUDE.md.
 
-Steps: run the suite; write the procedure; execute step by step; commit `docs: head and arm calibration runbook with results` and the offsets commit as its own `fix(config): arm joint offsets from head-seen plate calibration`.
-
 ## Acceptance conditions
 
 - a1: the repository and node suites pass [evidence: command:uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && (cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q) && (cd nodes/mcp_server && uv run --frozen pytest tests -q) && (cd nodes/web_ui && uv run --frozen pytest tests -q) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)]
@@ -52,17 +50,18 @@ Steps: run the suite; write the procedure; execute step by step; commit `docs: h
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/head-arm-calibration.md` `## Results`; client.yml `arm.joint_offsets_rad` (after the user's review).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The calibration is proven on the robot with numbers, and the new arm offsets are committed after the user's review.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- run the suite; write the procedure; execute step by step; commit `docs: head and arm calibration runbook with results` and the offsets commit as its own `fix(config): arm joint offsets from head-seen plate calibration`.
+- Run `uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

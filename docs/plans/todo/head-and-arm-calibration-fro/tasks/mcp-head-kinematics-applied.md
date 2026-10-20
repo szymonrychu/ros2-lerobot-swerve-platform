@@ -32,8 +32,6 @@ mcp_server aims and places the head from the applied head chain, reloaded withou
 - Tests: `tests/test_head_kinematics.py`: `from_text` equals the path constructor. `tests/test_head_controller.py`: no applied dir -> repo URDF; a head_chain.json raising `head_mount_joint` z by 0.05 m changes the tilt `look_at` returns for the same floor point; a changed `applied.json` mtime reloads; a broken head_chain.json keeps the URDF chain with a logged warning; a rebuild exception keeps the previous kinematics. `tests/test_config.py`: `applied_dir` default and null.
 - The mcp_server head tests and camera scene tests pass.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: look_at follows an applied head chain [evidence: test:nodes/mcp_server/tests/test_head_controller.py::test_look_at_uses_applied_head_chain]
@@ -55,17 +53,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `HeadKinematics.from_text(urdf_text, source)`; `head.py::AppliedHeadKinematics.current()`; `HeadController.kinematics` property; config `head.applied_dir`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent's head aiming and head-camera geometry use the measured chain, reloaded on apply without killing an agent session.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py tests/test_head_controller.py tests/test_head_tools.py tests/test_camera_scene_head.py tests/test_config.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+

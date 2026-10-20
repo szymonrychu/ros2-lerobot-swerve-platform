@@ -34,8 +34,6 @@ The Head calibrate sequence: pan/tilt grid per board spot through mcp_server (ow
   - `state() -> {running, kind, session_id, spot, step, total, captured, skipped, status, error}`.
 - New `tests/test_sequencer_head.py` (fake RobotClient and fake capture): call order per grid point; skipped points with reasons; next_spot advances the spot and refuses past max_spots; stop mid-grid homes the head and stops the capture; tool error path; Busy; state keys. `tests/test_config.py`: head_sequence defaults and the hints validation.
 
-Steps: tests first (red), implement, verify.
-
 ## Acceptance conditions
 
 - a1: each grid point moves the head, settles and captures a still [evidence: test:nodes/head_rgbd_calibration/tests/test_sequencer_head.py::test_grid_moves_settles_and_captures]
@@ -55,17 +53,18 @@ Steps: tests first (red), implement, verify.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `sequencer.py::Sequencer`, `start_head`, `next_spot`, `stop`, `state`, `Busy` (part `calib-sequencer`); config `head_sequence`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Head calibrate drives the pan/tilt grid by itself; the user only moves the board between spots.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Tests first (red), implement, verify.
+- Run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_sequencer_head.py tests/test_config.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
+
