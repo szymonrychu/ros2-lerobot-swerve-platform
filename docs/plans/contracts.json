@@ -98,5 +98,13 @@
       "head-and-arm-calibration-fro"
     ],
     "note": "GET /api/calibration/config gains servos: bool; CalibratePage.tsx renders the Servo torque and neutral section (calibrate/ServoNeutral.tsx) before the arm placeholder; owner tasks web-ui-servo-routes, calibrate-page-servo-section"
+  },
+  {
+    "name": "head-chain-override",
+    "kind": "config",
+    "owner": "head-and-arm-calibration-fro",
+    "file": "shared/ros2_common/head_rgbd_calibration/urdf_text.py",
+    "consumers": [],
+    "note": "applied/head_chain.json format and apply_overrides(); read by head_state_publisher, mcp_server HeadKinematics, web_ui head URDF; changes head TF"
   }
 ]
