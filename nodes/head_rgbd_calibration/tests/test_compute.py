@@ -112,7 +112,7 @@ def test_passing_session_writes_all_result_files(store: SessionStore, cfg: NodeC
     for key in ("rgb_rms_px", "tof_rms_px", "stereo_rms_px", "plane_bias_mm"):
         assert isinstance(result[key], float)
     assert_matches_fixture({**result, "report": (out / "report.md").read_text()}, "result")
-    assert result["limits"] == cfg.limits.model_dump() and result["limits"]["plane_max_bias_mm"] == 15.0
+    assert result["limits"] == cfg.limits.model_dump() and result["limits"]["plane_max_bias_mm"] == 40.0
     assert yaml.safe_load((out / "head_camera_calibration.yaml").read_text())["camera_name"] == "head_camera"
     assert yaml.safe_load((out / "tof_calibration.yaml").read_text())["camera_name"] == "tof"
     meta = yaml.safe_load((out / "head_rgbd_extrinsics.yaml").read_text())
@@ -189,4 +189,4 @@ def test_result_carries_the_limits(store: SessionStore, cfg: NodeConfig) -> None
     sid = make_session(store, POSES)
     result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
     assert result["limits"] == cfg.limits.model_dump()
-    assert result["limits"]["plane_max_bias_mm"] == 15.0
+    assert result["limits"]["plane_max_bias_mm"] == 40.0

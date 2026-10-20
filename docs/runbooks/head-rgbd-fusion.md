@@ -18,7 +18,7 @@ Limits and metric definitions: `docs/head-rgbd-fusion-methodology.md` (`### Resu
    with tilts and in the image corners; rest the board on a support for about 3 s per pose (the mapping stream is 2 Hz
    and a hand-held board never passes the stillness check). Watch the status line, the pose count and the RGB and ToF
    coverage grids (fill the empty cells, corners first); delete bad poses in the list. Stop, then Compute. Read the
-   report against the limits: RGB <= 0.5 px, ToF <= 0.3 px, ToF-to-RGB extrinsic RMS <= 1.0 px, plane bias <= 15 mm;
+   report against the limits: RGB <= 0.5 px, ToF <= 0.3 px, ToF-to-RGB extrinsic RMS <= 1.0 px, plane bias <= 40 mm;
    when one fails, recapture or prune the worst poses and Compute again. Nothing is applied until step 3.
 3. Apply in the same section: it writes the result to `/var/lib/ros2/head_rgbd_calibration/applied` and restarts
    head_camera_cpp, head_rgbd_cpp and head_state_publisher; the section shows each unit restarted (`tof_joint` in the

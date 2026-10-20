@@ -215,7 +215,8 @@ Still pairs: 15
 | ToF zero-distortion RMS | 0.120 px | 0.3 px |
 | Stereo RMS | 0.600 px | 1.0 px |
 | Stereo pairs | 12 | >= 12 |
-| Board plane depth bias (median) | -3.5 mm | 15.0 mm |
+| Board plane depth bias (median) | -3.5 mm | 40.0 mm |
+| Board plane pairs rejected (background) | 0 | spread 50.0 mm |
 
 ToF intrinsics versus the SDK /tof/camera_info (percent difference):
 
@@ -313,13 +314,14 @@ def test_failed_limits_names_limit_keys() -> None:
 
 def test_failed_limits_flags_plane_bias_over_limit() -> None:
     run = fixed_run()
-    assert LimitsConfig().plane_max_bias_mm == 15.0
+    assert LimitsConfig().plane_max_bias_mm == 40.0
+    assert LimitsConfig().plane_max_spread_mm == 50.0
     assert failed_limits(run, LimitsConfig(plane_max_bias_mm=3.5)) == []
     failures = failed_limits(run, LimitsConfig(plane_max_bias_mm=3.0))
     assert failures == ["limits.plane_max_bias_mm: plane depth bias -3.5 mm exceeds 3.0 mm"]
-    over = replace(run, plane=PlaneCheck([20.0], 20.0))
+    over = replace(run, plane=PlaneCheck([45.0], 45.0))
     assert [f.split(":")[0] for f in failed_limits(over, LimitsConfig())] == ["limits.plane_max_bias_mm"]
-    under = replace(run, plane=PlaneCheck([-20.0], -20.0))
+    under = replace(run, plane=PlaneCheck([-45.0], -45.0))
     assert [f.split(":")[0] for f in failed_limits(under, LimitsConfig())] == ["limits.plane_max_bias_mm"]
 
 

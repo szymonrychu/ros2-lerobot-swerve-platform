@@ -21,7 +21,8 @@
     "tof_max_rms_px": 0.3,
     "stereo_max_rms_px": 1.0,
     "tof_zero_distortion_rms_px": 0.3,
-    "plane_max_bias_mm": 15.0,
+    "plane_max_bias_mm": 40.0,
+    "plane_max_spread_mm": 50.0,
     "min_views": 12
   },
   "report": "# Head RGB-D calibration\n"

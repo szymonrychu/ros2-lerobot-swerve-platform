@@ -148,6 +148,39 @@ def test_plane_check_reports_depth_bias() -> None:
     assert clean.median_mm == pytest.approx(0.0, abs=BIAS_TOLERANCE_MM)
 
 
+BACKGROUND_MM = 400.0
+
+
+def with_background(pair_index: int) -> list[tuple[Detection, Detection, np.ndarray]]:
+    """Unbiased scene where two thirds of one pair's board pixels read 1x and 2x BACKGROUND_MM farther (background)."""
+    out = with_bias(0.0)
+    rgb, tof, depth = out[pair_index]
+    spoiled = depth.astype(np.float64)
+    columns = np.nonzero(depth > 0)[1]
+    first, second = np.quantile(columns, [1 / 3, 2 / 3])
+    u = np.arange(depth.shape[1])[None, :]
+    spoiled[(depth > 0) & (u >= first)] += BACKGROUND_MM
+    spoiled[(depth > 0) & (u >= second)] += BACKGROUND_MM
+    out[pair_index] = (rgb, tof, spoiled.astype(np.uint16))
+    return out
+
+
+def test_plane_check_rejects_pair_with_background_in_outline() -> None:
+    extrinsic = ExtrinsicResult(r=TRUE.r, t=TRUE.t, stereo_rms=0.1, pair_count=PAIRS)
+    check = plane_depth_bias(with_background(0), BOARD, RGB, TOF, extrinsic, LimitsConfig())
+    assert check.rejected_pairs == 1
+    assert len(check.per_pair_mm) == len(scene()) - 1
+    assert check.median_mm == pytest.approx(0.0, abs=BIAS_TOLERANCE_MM)
+    loose = plane_depth_bias(with_background(0), BOARD, RGB, TOF, extrinsic, LimitsConfig(plane_max_spread_mm=1000.0))
+    assert loose.rejected_pairs == 0 and len(loose.per_pair_mm) == len(scene())
+
+
+def test_plane_check_keeps_every_clean_pair() -> None:
+    extrinsic = ExtrinsicResult(r=TRUE.r, t=TRUE.t, stereo_rms=0.1, pair_count=PAIRS)
+    check = plane_depth_bias(with_bias(BIAS_MM), BOARD, RGB, TOF, extrinsic, LimitsConfig())
+    assert check.rejected_pairs == 0 and len(check.per_pair_mm) == len(scene())
+
+
 META = {
     "lens_position": 4.5,
     "board": {"squares_x": 6, "squares_y": 5, "square_mm": 40.0, "marker_mm": 30.0},

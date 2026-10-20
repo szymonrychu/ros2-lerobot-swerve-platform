@@ -16,6 +16,7 @@ PARENT_FRAME = "head_camera_optical_frame"
 CHILD_FRAME = "tof_optical_frame"
 MM_PER_M = 1000.0
 MIN_PLANE_PIXELS = 20
+MAX_OFF_PLANE_FRACTION = 0.5  # a pair with more of its board pixels this far off its own median has background in it
 
 
 MIN_COMMON_CORNERS = 4  # solvePnP inside cv2.stereoCalibrate needs at least 4 points per view
@@ -33,10 +34,15 @@ class ExtrinsicResult:
 
 @dataclass(frozen=True)
 class PlaneCheck:
-    """Plane depth check: per_pair_mm is the per-pair median (measured - predicted) ToF depth, median_mm overall."""
+    """Plane depth check: per_pair_mm is the per-pair median (measured - predicted) ToF depth, median_mm overall.
+
+    rejected_pairs counts the pairs left out because most of their pixels inside the board outline were farther than
+    limits.plane_max_spread_mm from the pair median (background or a hand inside the outline).
+    """
 
     per_pair_mm: list[float]
     median_mm: float
+    rejected_pairs: int = 0
 
 
 def common_points(
@@ -101,6 +107,7 @@ def plane_depth_bias(
     rgb: IntrinsicsResult,
     tof: IntrinsicsResult,
     extrinsic: ExtrinsicResult,
+    limits: LimitsConfig | None = None,
 ) -> PlaneCheck:
     """Compare measured ToF depth with the board plane found from RGB PnP and carried through the extrinsic.
 
@@ -118,6 +125,7 @@ def plane_depth_bias(
     Raises:
         ValueError: no pair yields a plane measurement.
     """
+    limits = limits or LimitsConfig()
     corners = board.getChessboardCorners()
     width, height = (
         board.getChessboardSize()[0] * board.getSquareLength(),
@@ -125,6 +133,7 @@ def plane_depth_bias(
     )
     outline = np.array([[0, 0, 0], [width, 0, 0], [width, height, 0], [0, height, 0]], dtype=np.float64)
     per_pair: list[float] = []
+    rejected = 0
     for rgb_det, _, depth in pairs_with_depth:
         ok, rvec, tvec = cv2.solvePnP(corners[rgb_det.ids], rgb_det.points, rgb.k, rgb.d)
         if not ok:
@@ -149,10 +158,15 @@ def plane_depth_bias(
         )
         rays = np.concatenate([rays, np.ones((len(rays), 1))], axis=1)
         predicted_mm = offset_tof / (rays @ normal_tof) * MM_PER_M
-        per_pair.append(float(np.median(depth[v, u].astype(np.float64) - predicted_mm)))
+        residual_mm = depth[v, u].astype(np.float64) - predicted_mm
+        bias_mm = float(np.median(residual_mm))
+        if float(np.mean(np.abs(residual_mm - bias_mm) > limits.plane_max_spread_mm)) > MAX_OFF_PLANE_FRACTION:
+            rejected += 1
+            continue
+        per_pair.append(bias_mm)
     if not per_pair:
         raise ValueError("plane depth check found no pair with valid ToF depth inside the board")
-    return PlaneCheck(per_pair_mm=per_pair, median_mm=float(np.median(per_pair)))
+    return PlaneCheck(per_pair_mm=per_pair, median_mm=float(np.median(per_pair)), rejected_pairs=rejected)
 
 
 def write_extrinsics_yaml(

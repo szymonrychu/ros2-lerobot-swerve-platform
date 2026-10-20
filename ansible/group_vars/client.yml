@@ -1472,7 +1472,10 @@ ros2_nodes:
         tof_max_rms_px: 0.3
         stereo_max_rms_px: 1.0
         tof_zero_distortion_rms_px: 0.3
-        plane_max_bias_mm: 15.0
+        # |median ToF - RGB board plane depth|: the ToF reads 0-40 mm long at 0.2-0.4 m (2026-10-20 session), so this
+        # only catches a broken extrinsic; pairs with most board pixels > plane_max_spread_mm off their median are dropped.
+        plane_max_bias_mm: 40.0
+        plane_max_spread_mm: 50.0
         min_views: 12
   # Carries the head RGB-D, scan, TF and command streams to the server and the 3D map back (lazy, throttled).
   - name: map3d_uplink

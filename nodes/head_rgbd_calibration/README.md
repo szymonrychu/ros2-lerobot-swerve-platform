@@ -112,7 +112,7 @@ Output goes to `sessions/<sid>/results/<rid>/`, written under `.tmp-<rid>` and r
 | `head.urdf` | `cfg.head_urdf_file` with that `tof_joint` rewritten (the checkout is never written) |
 | `report.md` | Run report |
 | `result.json` | `id, session, created, passed, failed_limits, rgb_rms_px, tof_rms_px, stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids, limits` (plus `error` on failure) |
-| `limits` | every acceptance limit that judged the result: `rgb_max_rms_px, tof_max_rms_px, stereo_max_rms_px, tof_zero_distortion_rms_px, plane_max_bias_mm, min_views`; a result fails when the absolute median plane depth bias exceeds `plane_max_bias_mm` (15 mm) |
+| `limits` | every acceptance limit that judged the result: `rgb_max_rms_px, tof_max_rms_px, stereo_max_rms_px, tof_zero_distortion_rms_px, plane_max_bias_mm, plane_max_spread_mm, min_views`; a result fails when the absolute median plane depth bias exceeds `plane_max_bias_mm` (40 mm); pairs where more than half the board pixels lie farther than `plane_max_spread_mm` (50 mm) from the pair median (background inside the board outline) are left out of the median and counted in the report |
 
 A run over the limits has `passed: false`, `failed_limits`, and only `report.md` + `result.json`. A core `ValueError`
 (too few views, no ToF camera_info) or an unreadable URDF writes only `result.json` with `passed: false` and `error`,

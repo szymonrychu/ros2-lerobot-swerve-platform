@@ -2777,6 +2777,8 @@ Tests for `shared/ros2_common/head_rgbd_calibration/extrinsics.py` on synthetic 
 | `test_pair_without_common_ids_is_skipped` | A pair with no common corner ids is not counted. |
 | `test_fewer_than_min_views_raises` | Fewer than `min_views` pairs raise. |
 | `test_plane_check_reports_depth_bias` | ToF depth biased +20 mm reports 20 +- 3 mm, unbiased 0 +- 3 mm. |
+| `test_plane_check_rejects_pair_with_background_in_outline` | A pair with two thirds of its board pixels 400 and 800 mm farther (background) is rejected and counted, the median stays 0 +- 3 mm; with `plane_max_spread_mm` 1000 it is kept. |
+| `test_plane_check_keeps_every_clean_pair` | A uniformly +20 mm biased scene rejects no pair. |
 | `test_yaml_round_trips` | Written extrinsics YAML has the documented keys and loads back. |
 | `test_rms_over_limit_writes_nothing` | Stereo RMS over `stereo_max_rms_px` raises and writes no file. |
 

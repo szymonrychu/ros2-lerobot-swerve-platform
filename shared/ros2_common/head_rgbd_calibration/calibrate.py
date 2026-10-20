@@ -94,7 +94,7 @@ def calibrate_detections(
     both = [(v.rgb, v.tof, v.depth) for v in views if v.rgb is not None and v.tof is not None]
     extrinsic = stereo_calibrate([(r, t) for r, t, _ in both], board, rgb, tof, limits)
     with_depth = [(r, t, depth) for r, t, depth in both if depth is not None]
-    plane = plane_depth_bias(with_depth, board, rgb, tof, extrinsic)
+    plane = plane_depth_bias(with_depth, board, rgb, tof, extrinsic, limits)
     return CalibrationRun(rgb, tof, extrinsic, plane, compare_sdk(tof, tof_info), len(views))
 
 
@@ -135,6 +135,8 @@ def report_markdown(run: CalibrationRun, limits: LimitsConfig, session: str, len
         f"| Stereo RMS | {run.extrinsic.stereo_rms:.3f} px | {limits.stereo_max_rms_px} px |",
         f"| Stereo pairs | {run.extrinsic.pair_count} | >= {limits.min_views} |",
         f"| Board plane depth bias (median) | {run.plane.median_mm:.1f} mm | {limits.plane_max_bias_mm} mm |",
+        f"| Board plane pairs rejected (background) | {run.plane.rejected_pairs} | "
+        f"spread {limits.plane_max_spread_mm} mm |",
         "",
         "ToF intrinsics versus the SDK /tof/camera_info (percent difference):",
         "",

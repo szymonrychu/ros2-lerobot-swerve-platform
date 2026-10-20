@@ -62,5 +62,6 @@ limits:
   tof_max_rms_px: 0.3
   stereo_max_rms_px: 1.0
   tof_zero_distortion_rms_px: 0.3
-  plane_max_bias_mm: 15.0
+  plane_max_bias_mm: 40.0   # |median board plane depth bias|, mm
+  plane_max_spread_mm: 50.0 # a pair with most board pixels farther than this from its median is dropped, mm
   min_views: 12
