@@ -319,7 +319,7 @@ lists `tests/test_tof_obstacle_wiring.py`; nav2-ground-voxel-layer only scopes i
 none
 - Q1: Should points the RGB-D colour model labels as non-floor while geometrically flat (floor_colour_mismatch: rugs, paper, liquid) also mark the Nav2 local costmap in this epic? [answer: replaced by the user's obstacle vs warning rule (D14, D15): above 1/3 wheel diameter or too steep is lethal, otherwise a slow-down warning area; colour-flagged flat objects follow the same rule]
 - Q2: Should floor_guard use the measured ground regions only when a call opts in (use_ground_estimate, default off), refusing the motion when requested but no fresh estimate exists? [answer: yes (D16)]
-- Q3: Should this epic wait (README blockers) until tof-3d-obstacle-detection-fo and head-rgb-d-fusion-of-camera are done? graph --todo flags the three registered contracts (head-rgbd-points, tof-points-filtered, nav2-tof-voxel-bands) because no blocker orders them; both owners have only their robot runbook tasks left and the consumed topics are already on main. [recommended: no - run in parallel, rebase on whatever their runbooks change; the orchestrator records the graph lines as a ruling]
+- Q3: Should this epic wait (README blockers) until tof-3d-obstacle-detection-fo and head-rgb-d-fusion-of-camera are done? graph --todo flags the three registered contracts (head-rgbd-points, tof-points-filtered, nav2-tof-voxel-bands) because no blocker orders them; both owners have only their robot runbook tasks left and the consumed topics are already on main. [answer: yes, run in parallel (D17)]
 
 ## Irreversible operations in scope
 
