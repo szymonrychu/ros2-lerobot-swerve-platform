@@ -99,6 +99,8 @@ Every group namespace (`follower`, and `swerve_drive` / `head` with `extra_group
 
 `success` / `message` come from the result; without an open bus the answer is `success=false`, `message="no servo bus"`. Velocity (wheel) joints are never released: they are stopped and their commands dropped while the group is released, and their torque stays on.
 
+`set_register` cannot move or re-enable a released joint: `torque_enable = 1`, `goal_position`, `goal_speed`, `goal_time` and `acceleration` for a released servo fail with reason `released` and write nothing; `torque_enable = 0` and other RAM registers such as `torque_limit` still pass. `torque_enable` accepts only 0 or 1 (128 is DefineMiddle, an EEPROM calibration command).
+
 `/<ns>/torque_state` (`std_msgs/String`, JSON; QoS reliable, transient_local, depth 1):
 
 ```json
@@ -154,7 +156,7 @@ and `robot_node_start_time_seconds{node}`. Metric objects live in `metrics.py`. 
 | `servo_temperature_celsius` | gauge | `joint` | Servo temperature from the last register dump. |
 | `servo_voltage_volts` | gauge | `joint` | Servo supply voltage from the last register dump (0.1 V units converted). |
 | `servo_torque_enabled` | gauge | `joint` | 1 when `torque_enable` is set (last register dump). |
-| `servo_set_register_failures_total` | counter | `reason` | `set_register` messages that did not write: `no_bus`, `invalid_json`, `missing_field`, `unknown_register`, `unknown_joint`, `bad_value`, `eprom_rejected`, `write_failed`. |
+| `servo_set_register_failures_total` | counter | `reason` | `set_register` messages that did not write: `no_bus`, `invalid_json`, `missing_field`, `unknown_register`, `unknown_joint`, `bad_value` (not an int, outside the register's byte range, or `torque_enable` other than 0 or 1), `released` (move or torque-on write to a released joint), `eprom_rejected`, `write_failed`. |
 | `servo_commands_total` | counter |  | Joint command targets processed by the loop (one per joint per cycle with a pending target). |
 
 Load, temperature, voltage and torque come from the full register dump (`register_publish_interval_s`, one servo per cycle); with the dump disabled (0) they stay unset. Gauges for registers that could not be read are never set to a placeholder.
