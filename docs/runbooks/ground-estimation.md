@@ -89,7 +89,7 @@ Pi 5, 10 min of driving in the scenes' area:
 
 ## Build and CI validation
 
-Validated in CI and on the robot, not by the implementer. Record each result line in Results.
+CI and the robot run validate these checks. Record each result line in Results.
 
 - The cpp-node-test container suite of ground_estimator_cpp in the CI matrix (`.github/workflows/ci.yml`).
 - The frontend suite: `cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build`.
@@ -115,7 +115,7 @@ The values equal `nodes/ground_estimator_cpp/config/ground_estimator.yaml` and t
 ## Switch-over checklist
 
 The criteria of the nav2_bringup README ("Switch-over criteria"), each with its measured result in Results. The switch-over
-itself (disabling `tof_mark` and `tof_cliff_mark` in `tof_voxel_layer`) is a separate change.
+itself (disabling `tof_mark` and `tof_cliff_mark` in `tof_voxel_layer`) is its own change after every result passes.
 
 1. Level-floor check passes: plane height within 1 cm, slope and plane_vs_base below 1 deg.
 2. The 3 cm sill, 5 cm sill, 10 cm drop at 1 m, box and ramp scenes mark as expected with `ground_voxel_layer` enabled and
@@ -125,7 +125,7 @@ itself (disabling `tof_mark` and `tof_cliff_mark` in `tof_voxel_layer`) is a sep
 
 ## Results
 
-Filled by the executor. Status: PASS, FAIL, NOT RUN.
+The robot run fills this table. Status values: PASS, FAIL, NOT RUN.
 
 | Check | Expected | Measured | Pass |
 |---|---|---|---|
