@@ -24,7 +24,7 @@ provides: []
 ## Requirement
 
 - `include/ground_estimator_cpp/segmentation.hpp`, `src/core/segmentation.cpp` (design D4): `enum class Band : uint8_t { floor, obstacle, drop, none }`; `Band classify(double height, double range, const BandsConfig &, double floor_distance_m)` (floor: |h| <= fit.distance_m; obstacle: obstacle_min <= h <= obstacle_max; drop: -drop_max <= h <= -drop_min; none otherwise or range > bands.max_range_m; the gaps between floor and the band minimums are none); `struct Segmented { pcl::PointCloud<pcl::PointXYZ> obstacle, drop, floor; std::vector<float> obstacle_height, drop_height; }` (heights parallel to the clouds, used by the edges); `Segmented segment(const pcl::PointCloud<pcl::PointXYZ> &points_base, const Plane &, const BandsConfig &, double floor_distance_m)`; `sensor_msgs::msg::PointCloud2 to_cloud_msg(const pcl::PointCloud<pcl::PointXYZ> &, const std::string &frame, const builtin_interfaces::msg::Time &stamp)` (XYZ float32, dense, an empty cloud is a valid message with width 0).
-- Non-finite input points are skipped. Range is horizontal distance from the base_link origin.
+- Non-finite input points are skipped. Range is horizontal distance from the base_link origin. The output clouds keep the input points' base_link coordinates (x, y, z unchanged); "plane-relative" means only that points are selected by bands of their signed height above the fitted plane (the heights are returned separately in `obstacle_height` / `drop_height`).
 - Tests first in `test/core/test_segmentation.cpp` (using `synthetic_floor.hpp`), seen failing: level floor with a 10 cm box -> box points in obstacle with heights ~0.10, floor points in floor, nothing in drop; a 10 cm drop-off beyond 1 m -> lower floor points in drop with heights ~-0.10; a 3 cm sill -> none (below obstacle_min 0.04), a 5 cm sill -> obstacle; floor biased 30 mm along the rays with the plane fitted by `fit_plane` on the same cloud -> no floor point lands in drop (the plane absorbs the bias), while the raw base_link z of the same floor points reaches below -0.02 m (the margin the fixed bands lose); points beyond bands.max_range_m -> none; 0.7 m overhang -> none; NaN points skipped; to_cloud_msg round trip (fields x,y,z float32, frame, stamp, width) and the empty cloud.
 
 ## Acceptance conditions
@@ -57,3 +57,5 @@ provides: []
 ## Notes
 
 `pcl_conversions::toROSMsg` builds the PointCloud2; the fixed bands for comparison are in nodes/nav2_bringup/config/nav2_params.yaml (tof_mark 0.06..0.6, tof_cliff_mark -1.0..-0.10).
+
+- 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
