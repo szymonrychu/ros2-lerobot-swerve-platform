@@ -480,6 +480,7 @@ Bridge topics: latched subscription `/map_manager/status` (cached; an invalid pa
 | `webui_broadcaster_slow_total` | counter | | Cycles over `SlowCycleTracker.threshold_ms` (every one, not only the rate-limited warning) |
 | `webui_topic_stale_total` | counter | `topic` | A subscribed topic going stale (once per outage) |
 | `webui_spin_errors_total` | counter | | Exceptions raised by the rclpy `spin_once` (logged, spinning continues) |
+| `webui_frame_pose_drops_total` | counter | `role`, `reason` | 3D obstacle payloads (`cloud`, `scan_points`, `rgbd_cloud`) dropped because the sensor frame pose in the map frame was unknown at the message stamp; `reason` is the tf2 exception class (e.g. `LookupException`, `ExtrapolationException`) |
 | `webui_topics_stale` | gauge | | Number of currently subscribed topics (always-on plus active on-demand) that are stale right now (every topic stale shows as the full topic count), updated every health check (10 s) |
 | `webui_ws_pending_frames_max` | gauge | | Pending frames of the most backed-up WebSocket client, sampled each broadcaster tick |
 | `webui_ws_pending_bytes_max` | gauge | | Pending bytes of the most backed-up WebSocket client, sampled each broadcaster tick |

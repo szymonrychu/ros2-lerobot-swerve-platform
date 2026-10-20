@@ -84,7 +84,15 @@ from .gps_anchor import (
 )
 from .gps_status import parse_status_json
 from .imu_calibration import parse_imu_status
-from .metrics import BATTERY_CUTOFF_ACTIVE, MAP_UPDATES, ROBOT_POSE_OK, TOPIC_STALE, TOPICS_STALE, touch_map
+from .metrics import (
+    BATTERY_CUTOFF_ACTIVE,
+    FRAME_POSE_DROPS,
+    MAP_UPDATES,
+    ROBOT_POSE_OK,
+    TOPIC_STALE,
+    TOPICS_STALE,
+    touch_map,
+)
 from .msg_serializer import (
     msg_to_dict,
     quaternion_to_yaw,
@@ -886,7 +894,9 @@ class BridgeNode(Node):
         """
         try:
             payload = serializer(msg)
-            data = self.attach_frame_pose(payload) if role in POSE_FRAME_ROLES else self.to_map_frame(payload, role)
+            data = (
+                self.attach_frame_pose(payload, role) if role in POSE_FRAME_ROLES else self.to_map_frame(payload, role)
+            )
         except Exception as exc:
             log.warning("serialize_error", topic=topic, error=str(exc))
             return None
@@ -1317,11 +1327,12 @@ class BridgeNode(Node):
             if topic in self._topic_last_rx:  # health-checked topics only (not a late message of a dropped one)
                 self._topic_last_rx[topic] = time.monotonic()
 
-    def attach_frame_pose(self, data: dict[str, Any]) -> dict[str, Any] | None:
+    def attach_frame_pose(self, data: dict[str, Any], role: str | None = None) -> dict[str, Any] | None:
         """Add "frame_pose" (the pose of the payload's sensor frame in map_frame at its stamp) to a 3D obstacle payload.
 
         Args:
             data (dict[str, Any]): Serialized cloud / scan points with "frame" and "stamp".
+            role (str | None): map_nav role of the source topic, the role label of webui_frame_pose_drops_total.
 
         Returns:
             dict[str, Any] | None: Data with frame_pose {x, y, z, qx, qy, qz, qw}, or None when TF tracking is off
@@ -1334,7 +1345,8 @@ class BridgeNode(Node):
             tf = self._tf_buffer.lookup_transform(
                 self._robot_pose_frames[0], data["frame"], Time(nanoseconds=stamp_ns) if stamp_ns > 0 else Time()
             )
-        except TransformException:
+        except TransformException as exc:
+            FRAME_POSE_DROPS.labels(role=role or "", reason=type(exc).__name__).inc()
             return None
         t = tf.transform.translation
         q = tf.transform.rotation

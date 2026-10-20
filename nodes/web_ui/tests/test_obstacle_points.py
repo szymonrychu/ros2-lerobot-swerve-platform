@@ -174,6 +174,24 @@ def test_bridge_sends_nothing_when_map_tf_unknown() -> None:
     assert node._latest == {}
 
 
+def test_bridge_counts_frame_pose_drops_by_role_and_reason() -> None:
+    from web_ui.bridge import TransformException
+    from web_ui.metrics import FRAME_POSE_DROPS
+
+    class ExtrapolationException(TransformException):  # stands in for the tf2 subclass
+        pass
+
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.side_effect = ExtrapolationException("future")
+    node = make_bridge(tf_buffer)
+    counter = FRAME_POSE_DROPS.labels(role="scan_points", reason="ExtrapolationException")
+    before = counter._value.get()
+    cb = node._make_callback("/scan_filtered", serialize_scan_points, "scan_points")
+    cb(make_scan([1.0, 2.0], frame="tof_link"))
+    assert node.flush_dirty() == []
+    assert counter._value.get() == before + 1
+
+
 def test_bridge_attaches_frame_pose_when_tf_known() -> None:
     tf_buffer = MagicMock()
     tf_buffer.lookup_transform.return_value = tf_to_map()

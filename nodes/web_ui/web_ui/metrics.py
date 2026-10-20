@@ -77,6 +77,11 @@ HTTP_REQUESTS = Counter(
     "webui_http_requests_total", "HTTP requests by matched route template and status", ["route", "status"]
 )
 SPIN_ERRORS = Counter("webui_spin_errors_total", "Exceptions raised by the rclpy executor spin_once (spin continues)")
+FRAME_POSE_DROPS = Counter(
+    "webui_frame_pose_drops_total",
+    "3D obstacle payloads dropped because their sensor frame pose in map was unknown at the message stamp",
+    ["role", "reason"],
+)
 MAP_UPDATES = Counter("webui_map_updates_total", "SLAM map messages cached")
 
 _map_updated_at: list[float] = []
