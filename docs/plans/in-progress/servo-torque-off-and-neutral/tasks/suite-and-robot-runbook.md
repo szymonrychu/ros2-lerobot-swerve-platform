@@ -1,6 +1,6 @@
 ---
 title: Suite and robot runbook
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Everything is green together and the feature goes live on the robot in safe stages, head_pan first."
 files: [docs/runbooks/servo-torque-neutral.md, MEMORY.md, nodes/bridges/feetech_servos/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--suite-and-robot-runbook
 branch: servo-torque-off-and-neutral--suite-and-robot-runbook
-verified_head: ""
+verified_head: 8816f19257213e14454373eccbd9e931f7f27312
 run: servo-torque-off-and-neutral
 provides: []
 acs_for_audit: []

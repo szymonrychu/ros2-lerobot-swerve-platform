@@ -1,6 +1,6 @@
 ---
 title: Ansible servo neutral config
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "One client deploy turns the feature on with consistent names everywhere, pinned by a root test."
 files: [ansible/group_vars/client.yml, tests/test_servo_neutral_config.py, tests/README.md, ansible/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--ansible-servo-neutral-config
 branch: servo-torque-off-and-neutral--ansible-servo-neutral-config
-verified_head: ""
+verified_head: 79e0927f3e1d33e00979e8531512c76e4afd8106
 run: servo-torque-off-and-neutral
 provides: []
 acs_for_audit: []
