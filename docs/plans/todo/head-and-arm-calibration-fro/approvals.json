@@ -142,5 +142,16 @@
       "arm-calibrate-ui-section"
     ],
     "status": "approved"
+  },
+  {
+    "id": "G5",
+    "text": "Gate Q1: after the reprint the head tilt range is -30..+60 deg (+ is down) everywhere it is pinned.",
+    "decisions": [
+      "D17"
+    ],
+    "tasks": [
+      "head-tilt-range-widened"
+    ],
+    "status": "approved"
   }
 ]

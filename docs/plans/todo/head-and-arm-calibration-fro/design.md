@@ -196,6 +196,9 @@ Gate: the calibration is a guided process (UI step cards: place or move the boar
 ### D16: Tiers 0 and 1 without confirm, tier 2 confirmed
 Gate Q4: tiers 0 (wrist roll) and 1 (wrist flex and elbow, small amplitude) run without a confirm; tier 2 (shoulder joints) keeps allow_big_joints behind a confirm dialog. (user decision)
 
+### D17: Tilt range -30..+60 deg after the reprint
+Gate Q1: after the reprint the head tilt range is -30..+60 deg (+ is down) everywhere it is pinned. (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -252,6 +255,7 @@ Gate Q4: tiers 0 (wrist roll) and 1 (wrist flex and elbow, small amplitude) run 
 | D14 wrist_roll zero from the recorded neutral, CAD rotation optional | calib-config-and-view-types, arm-offsets-plate-solver |
 | D15 Guided step-by-step calibration | head-calibrate-ui-section, arm-calibrate-ui-section, head-grid-capture-sequence |
 | D16 Tiers 0 and 1 without confirm, tier 2 confirmed | arm-pose-capture-sequence, sequence-http-api, calib-frontend-api, arm-calibrate-ui-section |
+| D17 Tilt range -30..+60 deg after the reprint | head-tilt-range-widened |
 
 ## Contracts
 
