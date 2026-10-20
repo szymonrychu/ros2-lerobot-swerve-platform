@@ -150,6 +150,9 @@ operation runs at a time per bridge. (my call) Serves A2.
 The runbook (robot-only steps executed post-merge by the orchestrator with the user) starts with a single-joint save on head_pan alone (head_tilt temporarily in `neutral_exclude_joints`), stopping on any mismatch, before any group save; then head_pan and head_tilt as a group, then the steering group (robot on
 blocks or wheels braked), the arm only after the user confirms they support it. Serves A6.
 
+### D11: Gripper excluded from the arm re-zero
+2026-10-20 gate: the gripper is excluded from the arm re-zero (neutral_exclude_joints: [gripper]); arm torque off still releases it (user decision)
+
 ## Research
 
 | Lens | Ran | Adopted | Rejected |
@@ -190,6 +193,7 @@ blocks or wheels braked), the arm only after the user confirms they support it. 
 | D8 Web UI section and banners | calibrate-page-servo-section, released-group-banners |
 | D9 Bus time during save | bridge-runtime-neutral-save |
 | D10 Bench order | suite-and-robot-runbook |
+| D11 Gripper excluded from the arm re-zero | bridge-runtime-neutral-save, ansible-servo-neutral-config, calibrate-page-servo-section |
 
 ## Contracts
 
