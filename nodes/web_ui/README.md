@@ -73,6 +73,16 @@ with no browser. So the bridge creates a topic's rclpy subscription only while a
   disconnect, and on every broadcaster tick (also with no client). A client that has not sent `subscribe` yet counts
   only after `UNSUBSCRIBED_GRACE_S` (1 s), and then wants every topic; the dashboard subscribes right after connecting,
   so a page load never subscribes every topic.
+- **Applied on the ROS thread.** `update_demand` only records the wanted set (it runs on the FastAPI/broadcast thread).
+  A bridge timer (`DEMAND_APPLY_PERIOD_S`, 0.1 s) runs `apply_demand` on the executor thread, which creates and
+  destroys the on-demand subscriptions, the pose timer and the TF listener and applies the linger. Doing that from
+  another thread raced the executor's wait-set build and killed the spin thread (`InvalidHandle: cannot use
+  Destroyable because destruction was requested`). Publishers requested by a WS `publish` message
+  (`create_publisher_for`) are also created by that timer, and the publish is queued behind the creation. Tests:
+  `tests/test_ros_thread_affinity.py`.
+- **Spin errors.** `spin_loop` in `web_ui/spin.py` logs an exception from `spin_once` (`spin_once_failed`, error
+  level), counts it in `webui_spin_errors_total`, backs off 0.5 s and keeps spinning, so one failure no longer leaves
+  the page serving a stale cache.
 - **Create once, destroy after a linger.** A wanted topic gets one subscription however many clients want it. When
   the last client stops wanting it, the subscription lives on for `DEMAND_LINGER_S` (5 s) so a page reload or tab
   switch does not churn; wanted again within that time it is kept. On destroy the topic's cached sample and its
@@ -469,6 +479,7 @@ Bridge topics: latched subscription `/map_manager/status` (cached; an invalid pa
 | `webui_broadcast_duration_seconds` | histogram | | Work time of each broadcaster cycle that had data |
 | `webui_broadcaster_slow_total` | counter | | Cycles over `SlowCycleTracker.threshold_ms` (every one, not only the rate-limited warning) |
 | `webui_topic_stale_total` | counter | `topic` | A subscribed topic going stale (once per outage) |
+| `webui_spin_errors_total` | counter | | Exceptions raised by the rclpy `spin_once` (logged, spinning continues) |
 | `webui_topics_stale` | gauge | | Number of currently subscribed topics (always-on plus active on-demand) that are stale right now (every topic stale shows as the full topic count), updated every health check (10 s) |
 | `webui_ws_pending_frames_max` | gauge | | Pending frames of the most backed-up WebSocket client, sampled each broadcaster tick |
 | `webui_ws_pending_bytes_max` | gauge | | Pending bytes of the most backed-up WebSocket client, sampled each broadcaster tick |

@@ -15,6 +15,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from tests.test_bridge_on_demand import demand
 from web_ui.bridge import ROLE_SPECS, SENSOR_SUB_QOS, BridgeNode, PointCloud2, ReliabilityPolicy
 from web_ui.cloud_serializer import serialize_map3d_cloud
 from web_ui.config import MAP_NAV_DEFAULTS, MAP_NAV_TOPIC_ROLES, AppConfig, TabConfig
@@ -272,9 +273,9 @@ def test_cloud_is_on_demand_status_and_result_too(subs: list[SimpleNamespace]) -
     node = make_node()
     topics = {"/map3d/cloud", "/map3d/status", "/map3d/result"}
     assert not topics & {s.topic for s in subs}
-    node.update_demand(set(), now=0.0)
+    demand(node, set(), now=0.0)
     assert not topics & {s.topic for s in subs}
-    node.update_demand({"/map3d/cloud"}, now=0.0)
+    demand(node, {"/map3d/cloud"}, now=0.0)
     assert topics & {s.topic for s in subs} == {"/map3d/cloud"}
     assert sub_of(subs, "/map3d/cloud").qos is SENSOR_SUB_QOS
 
@@ -286,7 +287,7 @@ def sub_of(subs: list[SimpleNamespace], topic: str) -> SimpleNamespace:
 
 def test_cloud_serializer_uses_tab_limits_and_is_lazy(subs: list[SimpleNamespace]) -> None:
     node = make_node(map3d_limits={"/map3d/cloud": (1000, 0.5)})
-    node.update_demand({"/map3d/cloud"}, now=0.0)
+    demand(node, {"/map3d/cloud"}, now=0.0)
     msg = make_cloud([(float(i) * 0.1, 0.0, 0.0) for i in range(100)])
     sub_of(subs, "/map3d/cloud").callback(msg)
     assert "/map3d/cloud" in node._pending
@@ -299,7 +300,7 @@ def test_cloud_serializer_uses_tab_limits_and_is_lazy(subs: list[SimpleNamespace
 
 def test_status_json_passed_through(subs: list[SimpleNamespace]) -> None:
     node = make_node()
-    node.update_demand({"/map3d/status"}, now=0.0)
+    demand(node, {"/map3d/status"}, now=0.0)
     sub_of(subs, "/map3d/status").callback(SimpleNamespace(data='{"state": "mapping", "nodes": 3}'))
     node.serialize_pending(["/map3d/status"])
     assert node._latest["/map3d/status"]["data"] == {"state": "mapping", "nodes": 3}
@@ -307,7 +308,7 @@ def test_status_json_passed_through(subs: list[SimpleNamespace]) -> None:
 
 def test_result_burst_delivers_every_message_and_is_not_replayed(subs: list[SimpleNamespace]) -> None:
     node = make_node()
-    node.update_demand({"/map3d/result"}, now=0.0)
+    demand(node, {"/map3d/result"}, now=0.0)
     callback = sub_of(subs, "/map3d/result").callback
     callback(SimpleNamespace(data='{"request_id": "a", "ok": true}'))
     callback(SimpleNamespace(data='{"request_id": "b", "ok": false}'))

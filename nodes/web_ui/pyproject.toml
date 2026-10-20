@@ -48,7 +48,7 @@ ignore = ["E501"]
 [tool.vulture]
 exclude = ["**/__pycache__"]
 min_confidence = 80
-ignore_names = ["cls"]
+ignore_names = ["cls", "timeout_sec"]
 
 [tool.poe.tasks]
 lint = { shell = """

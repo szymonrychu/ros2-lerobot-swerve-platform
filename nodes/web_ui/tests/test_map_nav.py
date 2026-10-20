@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from tests.test_bridge_on_demand import demand
 from web_ui.config import AppConfig, TabConfig, load_config
 
 MAP_NAV_YAML = """
@@ -89,6 +90,7 @@ def make_bridge(**attrs: Any) -> Any:
     node._pending = {}
     node._lock = threading.Lock()
     node.publishers_ = {}
+    node._publishers_pending = set()
     node._allowed_publish_topics = set()
     node._topic_last_rx = {}
     node._tf_buffer = None
@@ -418,7 +420,7 @@ def test_bridge_init_subscribes_map_nav_topics_by_role() -> None:
             STATUS_TOPIC,
             RESULT_TOPIC,
         }  # always on
-        node.update_demand(None)
+        demand(node, None)
     topics = {t for _, t in created}
     assert topics == {
         "/map",

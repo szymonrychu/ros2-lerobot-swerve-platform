@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from tests.test_bridge_on_demand import demand
 from web_ui.config import AppConfig, TabConfig, load_config
 from web_ui.tiles import tile_cache_fingerprint
 
@@ -709,7 +710,7 @@ def test_bridge_init_wires_costmap_gps_and_trigger_clients() -> None:
             gps_anchor=MagicMock(),
         )
         assert (NavSatFix, "/client/gps/fix") in created  # always on: feeds the anchor fit
-        node.update_demand({"/local_costmap/costmap"})
+        demand(node, {"/local_costmap/costmap"})
     assert (OccupancyGrid, "/local_costmap/costmap") in created
     assert (NavSatFix, "/client/gps/fix") in created
     assert (Trigger, "/arm/home") in clients

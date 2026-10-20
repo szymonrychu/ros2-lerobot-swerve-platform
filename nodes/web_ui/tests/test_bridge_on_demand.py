@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Callable, Iterator
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -116,6 +117,12 @@ def ros() -> Iterator[FakeRos]:
         yield fake
 
 
+def demand(node: BridgeNode, wanted: Any, now: float | None = None) -> None:
+    """Record the wanted topics and run the ROS-thread apply step (what the bridge timer does)."""
+    node.update_demand(wanted)
+    node.apply_demand(now)
+
+
 def make_node(**kwargs: Any) -> BridgeNode:
     """BridgeNode over every role kind; extra kwargs override the defaults."""
     args: dict[str, Any] = {
@@ -138,8 +145,8 @@ def make_node(**kwargs: Any) -> BridgeNode:
 def test_zero_clients_means_zero_on_demand_subscriptions(ros: FakeRos) -> None:
     node = make_node()
     assert set(ros.live_topics()) == ALWAYS_ON
-    node.update_demand(set(), now=0.0)
-    node.update_demand(set(), now=DEMAND_LINGER_S * 10)
+    demand(node, set(), now=0.0)
+    demand(node, set(), now=DEMAND_LINGER_S * 10)
     assert set(ros.live_topics()) == ALWAYS_ON
     assert [t for t in ros.timers if t.callback == node.update_robot_pose] == []
     assert node.always_on_topics() == ALWAYS_ON
@@ -147,21 +154,21 @@ def test_zero_clients_means_zero_on_demand_subscriptions(ros: FakeRos) -> None:
 
 def test_client_subscribe_creates_the_subscription_once(ros: FakeRos) -> None:
     node = make_node()
-    node.update_demand({"/odom"}, now=0.0)
-    node.update_demand({"/odom"}, now=1.0)
-    node.update_demand({"/odom", "/not/configured"}, now=2.0)
+    demand(node, {"/odom"}, now=0.0)
+    demand(node, {"/odom"}, now=1.0)
+    demand(node, {"/odom", "/not/configured"}, now=2.0)
     assert ros.created_topics().count("/odom") == 1
     assert set(ros.live_topics()) == ALWAYS_ON | {"/odom"}
 
 
 def test_last_client_leaving_destroys_after_linger(ros: FakeRos) -> None:
     node = make_node()
-    node.update_demand({"/odom"}, now=0.0)
+    demand(node, {"/odom"}, now=0.0)
     node._make_callback("/odom", lambda msg: {"v": msg}, None)(1)
-    node.update_demand(set(), now=10.0)
-    node.update_demand(set(), now=10.0 + DEMAND_LINGER_S - 0.1)
+    demand(node, set(), now=10.0)
+    demand(node, set(), now=10.0 + DEMAND_LINGER_S - 0.1)
     assert "/odom" in ros.live_topics()
-    node.update_demand(set(), now=10.0 + DEMAND_LINGER_S + 0.1)
+    demand(node, set(), now=10.0 + DEMAND_LINGER_S + 0.1)
     assert "/odom" not in ros.live_topics()
     assert [s.topic for s in ros.destroyed] == ["/odom"]
     assert node.latest_envelopes({"/odom"}) == []
@@ -170,50 +177,50 @@ def test_last_client_leaving_destroys_after_linger(ros: FakeRos) -> None:
 
 def test_topic_wanted_again_within_linger_keeps_its_subscription(ros: FakeRos) -> None:
     node = make_node()
-    node.update_demand({"/odom"}, now=0.0)
-    node.update_demand(set(), now=1.0)
-    node.update_demand({"/odom"}, now=1.0 + DEMAND_LINGER_S - 1.0)
-    node.update_demand({"/odom"}, now=1.0 + DEMAND_LINGER_S + 1.0)
+    demand(node, {"/odom"}, now=0.0)
+    demand(node, set(), now=1.0)
+    demand(node, {"/odom"}, now=1.0 + DEMAND_LINGER_S - 1.0)
+    demand(node, {"/odom"}, now=1.0 + DEMAND_LINGER_S + 1.0)
     assert ros.created_topics().count("/odom") == 1
     assert ros.destroyed == []
 
 
 def test_unwanted_again_after_rewant_restarts_the_linger(ros: FakeRos) -> None:
     node = make_node()
-    node.update_demand({"/odom"}, now=0.0)
-    node.update_demand(set(), now=1.0)
-    node.update_demand({"/odom"}, now=2.0)
-    node.update_demand(set(), now=3.0)
-    node.update_demand(set(), now=1.0 + DEMAND_LINGER_S + 0.5)
+    demand(node, {"/odom"}, now=0.0)
+    demand(node, set(), now=1.0)
+    demand(node, {"/odom"}, now=2.0)
+    demand(node, set(), now=3.0)
+    demand(node, set(), now=1.0 + DEMAND_LINGER_S + 0.5)
     assert "/odom" in ros.live_topics()
-    node.update_demand(set(), now=3.0 + DEMAND_LINGER_S + 0.1)
+    demand(node, set(), now=3.0 + DEMAND_LINGER_S + 0.1)
     assert "/odom" not in ros.live_topics()
 
 
 def test_resubscribe_after_destroy_creates_a_new_subscription(ros: FakeRos) -> None:
     node = make_node()
-    node.update_demand({"/odom"}, now=0.0)
-    node.update_demand(set(), now=1.0)
-    node.update_demand(set(), now=2.0 + DEMAND_LINGER_S)
-    node.update_demand({"/odom"}, now=10.0)
+    demand(node, {"/odom"}, now=0.0)
+    demand(node, set(), now=1.0)
+    demand(node, set(), now=2.0 + DEMAND_LINGER_S)
+    demand(node, {"/odom"}, now=10.0)
     assert ros.created_topics().count("/odom") == 2
     assert ros.live_topics().count("/odom") == 1
 
 
 def test_wanted_none_subscribes_every_configured_topic(ros: FakeRos) -> None:
     node = make_node()
-    node.update_demand(None, now=0.0)
+    demand(node, None, now=0.0)
     assert set(ros.live_topics()) == ALWAYS_ON | ON_DEMAND
 
 
 def test_always_on_subscriptions_are_never_destroyed(ros: FakeRos) -> None:
     node = make_node()
     always = ros.live()
-    node.update_demand(None, now=0.0)
-    node.update_demand(set(), now=1.0)
-    node.update_demand(set(), now=100.0)
-    node.update_demand(set(ALWAYS_ON), now=200.0)
-    node.update_demand(set(), now=300.0)
+    demand(node, None, now=0.0)
+    demand(node, set(), now=1.0)
+    demand(node, set(), now=100.0)
+    demand(node, set(ALWAYS_ON), now=200.0)
+    demand(node, set(), now=300.0)
     assert all(any(s is a for s in ros.live()) for a in always)
     assert not any(any(d is a for a in always) for d in ros.destroyed)
     assert set(ros.live_topics()) == ALWAYS_ON
@@ -222,8 +229,8 @@ def test_always_on_subscriptions_are_never_destroyed(ros: FakeRos) -> None:
 def test_latched_topic_is_resubscribed_transient_local(ros: FakeRos) -> None:
     node = make_node()
     for now in (0.0, 1.0, 2.0 + DEMAND_LINGER_S):
-        node.update_demand({"/poi/list"} if now == 0.0 else set(), now=now)
-    node.update_demand({"/poi/list"}, now=20.0)
+        demand(node, {"/poi/list"} if now == 0.0 else set(), now=now)
+    demand(node, {"/poi/list"}, now=20.0)
     created = [s for s in ros.subs if s.topic == "/poi/list"]
     assert len(created) == 2
     assert all(s.qos is MAP_SUB_QOS for s in created)
@@ -236,7 +243,7 @@ def test_gps_fix_is_on_demand_without_an_anchor_fit(ros: FakeRos) -> None:
 
 def test_battery_without_guard_is_not_subscribed(ros: FakeRos) -> None:
     node = make_node(battery_guard=None)
-    node.update_demand(None, now=0.0)
+    demand(node, None, now=0.0)
     assert "/battery" not in ros.created_topics()
 
 
@@ -246,7 +253,7 @@ def test_battery_without_guard_is_not_subscribed(ros: FakeRos) -> None:
 def test_topic_without_subscription_has_no_sample(ros: FakeRos) -> None:
     node = make_node()
     assert node.latest_envelopes({"/odom"}) == []
-    node.update_demand({"/odom"}, now=0.0)
+    demand(node, {"/odom"}, now=0.0)
     assert node.latest_envelopes({"/odom"}) == []
     assert node.flush_dirty({"/odom"}) == []
 
@@ -254,19 +261,19 @@ def test_topic_without_subscription_has_no_sample(ros: FakeRos) -> None:
 def test_inactive_on_demand_topics_are_not_reported_stale(ros: FakeRos) -> None:
     node = make_node()
     assert ON_DEMAND.isdisjoint(node._topic_last_rx)
-    node.update_demand({"/odom"}, now=0.0)
+    demand(node, {"/odom"}, now=0.0)
     assert "/odom" in node._topic_last_rx
-    node.update_demand(set(), now=1.0)
-    node.update_demand(set(), now=2.0 + DEMAND_LINGER_S)
+    demand(node, set(), now=1.0)
+    demand(node, set(), now=2.0 + DEMAND_LINGER_S)
     assert "/odom" not in node._topic_last_rx
 
 
 def test_late_callback_after_destroy_does_not_resume_health_tracking(ros: FakeRos) -> None:
     node = make_node()
-    node.update_demand({"/odom"}, now=0.0)
+    demand(node, {"/odom"}, now=0.0)
     callback = ros.callback("/odom")
-    node.update_demand(set(), now=1.0)
-    node.update_demand(set(), now=2.0 + DEMAND_LINGER_S)
+    demand(node, set(), now=1.0)
+    demand(node, set(), now=2.0 + DEMAND_LINGER_S)
     callback(SimpleNamespace())
     assert "/odom" not in node._topic_last_rx
 
@@ -277,12 +284,12 @@ def test_late_callback_after_destroy_does_not_resume_health_tracking(ros: FakeRo
 def test_robot_pose_timer_runs_only_while_the_pose_is_wanted(ros: FakeRos) -> None:
     node = make_node()
     assert [t for t in ros.timers if t.callback == node.update_robot_pose] == []
-    node.update_demand({ROBOT_POSE_TOPIC}, now=0.0)
+    demand(node, {ROBOT_POSE_TOPIC}, now=0.0)
     pose_timers = [t for t in ros.timers if t.callback == node.update_robot_pose]
     assert len(pose_timers) == 1
     node._latest[ROBOT_POSE_TOPIC] = {"topic": ROBOT_POSE_TOPIC, "data": {"x": 1.0}}
-    node.update_demand(set(), now=1.0)
-    node.update_demand(set(), now=2.0 + DEMAND_LINGER_S)
+    demand(node, set(), now=1.0)
+    demand(node, set(), now=2.0 + DEMAND_LINGER_S)
     assert ros.destroyed_timers == pose_timers
     assert node.latest_envelopes({ROBOT_POSE_TOPIC}) == []
 
@@ -290,7 +297,7 @@ def test_robot_pose_timer_runs_only_while_the_pose_is_wanted(ros: FakeRos) -> No
 def test_compass_imu_is_subscribed_only_while_the_gps_anchor_is_wanted(ros: FakeRos) -> None:
     node = make_node(gps_compass=CompassSettings(imu_topic="/imu/data", calibration_topic="/imu/calibration"))
     assert {"/imu/data", "/imu/calibration"}.isdisjoint(ros.live_topics())
-    node.update_demand({GPS_ANCHOR_TOPIC}, now=0.0)
+    demand(node, {GPS_ANCHOR_TOPIC}, now=0.0)
     assert {"/imu/data", "/imu/calibration"} <= set(ros.live_topics())
     node.on_anchor_imu(
         SimpleNamespace(
@@ -299,8 +306,8 @@ def test_compass_imu_is_subscribed_only_while_the_gps_anchor_is_wanted(ros: Fake
             header=SimpleNamespace(stamp=SimpleNamespace(sec=1, nanosec=0), frame_id="imu"),
         )
     )
-    node.update_demand(set(), now=1.0)
-    node.update_demand(set(), now=2.0 + DEMAND_LINGER_S)
+    demand(node, set(), now=1.0)
+    demand(node, set(), now=2.0 + DEMAND_LINGER_S)
     assert {"/imu/data", "/imu/calibration"}.isdisjoint(ros.live_topics())
     assert node._imu_heading is None
 
@@ -308,26 +315,26 @@ def test_compass_imu_is_subscribed_only_while_the_gps_anchor_is_wanted(ros: Fake
 def test_tf_stays_on_while_the_gps_anchor_fit_needs_it(ros: FakeRos) -> None:
     node = make_node()
     assert len(ros.listeners) == 1
-    node.update_demand(set(), now=0.0)
-    node.update_demand(set(), now=100.0)
+    demand(node, set(), now=0.0)
+    demand(node, set(), now=100.0)
     ros.listeners[0].unregister.assert_not_called()
 
 
 def test_tf_listener_follows_demand_without_an_anchor_fit(ros: FakeRos) -> None:
     node = make_node(gps_anchor=None)
     assert ros.listeners == []
-    node.update_demand({"/odom"}, now=0.0)
+    demand(node, {"/odom"}, now=0.0)
     assert ros.listeners == []
-    node.update_demand({"/odom", ROBOT_POSE_TOPIC}, now=1.0)
+    demand(node, {"/odom", ROBOT_POSE_TOPIC}, now=1.0)
     assert len(ros.listeners) == 1
-    node.update_demand({"/odom", "/plan"}, now=2.0)
-    node.update_demand({"/odom", "/plan"}, now=3.0 + DEMAND_LINGER_S)
+    demand(node, {"/odom", "/plan"}, now=2.0)
+    demand(node, {"/odom", "/plan"}, now=3.0 + DEMAND_LINGER_S)
     ros.listeners[0].unregister.assert_not_called()  # /plan (map-frame role) still needs TF
-    node.update_demand({"/odom"}, now=10.0)
-    node.update_demand({"/odom"}, now=11.0 + DEMAND_LINGER_S)
+    demand(node, {"/odom"}, now=10.0)
+    demand(node, {"/odom"}, now=11.0 + DEMAND_LINGER_S)
     ros.listeners[0].unregister.assert_called_once()
     node._tf_buffer.clear.assert_called()
-    node.update_demand({ROBOT_POSE_TOPIC}, now=30.0)
+    demand(node, {ROBOT_POSE_TOPIC}, now=30.0)
     assert len(ros.listeners) == 2
 
 
@@ -340,6 +347,24 @@ def wait_for(condition: Callable[[], bool], timeout_s: float = 2.0) -> None:
     while not condition():
         assert time.monotonic() < deadline, "condition not met in time"
         time.sleep(0.01)
+
+
+@contextmanager
+def spinning(node: BridgeNode) -> Iterator[None]:
+    """Run the bridge's apply step repeatedly on a thread, like the executor thread does with its timer."""
+    stop = threading.Event()
+
+    def spin() -> None:
+        while not stop.wait(0.005):
+            node.apply_demand()
+
+    thread = threading.Thread(target=spin, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
 
 
 def make_app(tmp_path: Path, urdf_dir: Path, node: BridgeNode) -> Any:
@@ -368,7 +393,7 @@ def test_two_clients_share_one_subscription_destroyed_after_the_last_leaves(
 ) -> None:
     node = make_node()
     client = TestClient(make_app(tmp_path, urdf_dir, node))
-    with patch("web_ui.server.WS_RECONNECT_MIN_INTERVAL_S", 0.0):
+    with patch("web_ui.server.WS_RECONNECT_MIN_INTERVAL_S", 0.0), spinning(node):
         with client.websocket_connect("/ws") as first:
             first.send_json({"type": "subscribe", "topics": ["/odom"]})
             wait_for(lambda: "/odom" in ros.live_topics())
@@ -380,7 +405,7 @@ def test_two_clients_share_one_subscription_destroyed_after_the_last_leaves(
             assert ros.live_topics().count("/odom") == 1
         wait_for(lambda: node.lingering_topics() == {"/odom", "/plan"})
         assert {"/odom", "/plan"} <= set(ros.live_topics())  # lingering, not destroyed yet
-    node.update_demand(set(), now=time.monotonic() + DEMAND_LINGER_S + 1.0)
+    demand(node, set(), now=time.monotonic() + DEMAND_LINGER_S + 1.0)
     assert set(ros.live_topics()) == ALWAYS_ON
     assert ros.created_topics().count("/odom") == 1
 

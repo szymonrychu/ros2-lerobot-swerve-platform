@@ -76,6 +76,7 @@ TOPIC_STALE = Counter("webui_topic_stale_total", "Times a subscribed topic went 
 HTTP_REQUESTS = Counter(
     "webui_http_requests_total", "HTTP requests by matched route template and status", ["route", "status"]
 )
+SPIN_ERRORS = Counter("webui_spin_errors_total", "Exceptions raised by the rclpy executor spin_once (spin continues)")
 MAP_UPDATES = Counter("webui_map_updates_total", "SLAM map messages cached")
 
 _map_updated_at: list[float] = []

@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock, patch
 
+from tests.test_bridge_on_demand import demand
+
 
 def _make_bridge_node(topics=None, publish_topics=None):
     """Construct a BridgeNode with rclpy mocked out."""
@@ -143,7 +145,7 @@ def test_bridge_subscribes_head_topics() -> None:
             tof_ranges={"/h/depth": 2.5},
         )
         assert not {"/h/rgb", "/h/depth", "/h/amp"} & {t for _, t in created}  # on demand only
-        node.update_demand(None)
+        demand(node, None)
     assert (CompressedImage, "/h/rgb") in created
     assert (Image, "/h/depth") in created
     assert (Image, "/h/amp") in created

@@ -17,6 +17,7 @@ import collections
 import functools
 import json
 import math
+import queue
 import threading
 import time
 import uuid
@@ -198,6 +199,8 @@ CANCEL_ALL_GOAL_UUID: tuple[int, ...] = (0,) * 16
 TOPIC_STALE_S = 10.0
 # Seconds an on-demand subscription outlives the last client that wanted it (a page reload reconnects within this).
 DEMAND_LINGER_S = 5.0
+# Period of the ROS timer that applies the recorded demand (all create/destroy happens on the executor thread).
+DEMAND_APPLY_PERIOD_S = 0.1
 # A robot pose whose TF stamp is older than this (vs the node clock) is dropped, never replayed to late joiners.
 ROBOT_POSE_STALE_S = 2.0
 # map_nav roles whose messages are re-expressed in map_frame (plans, goals, robot footprint, costmap origin);
@@ -452,6 +455,9 @@ class BridgeNode(Node):
         self._always_on: set[str] = set()
         self._demand_linger_s = demand_linger_s
         self._demand_lock = threading.Lock()
+        self._wanted: frozenset[str] | None = frozenset()
+        self._publisher_tasks: queue.SimpleQueue[Callable[[], None]] = queue.SimpleQueue()
+        self._publishers_pending: set[str] = set()
         self._tf_listener: Any = None
         # The GPS anchor fit pairs every fix with the TF robot pose, so with a fit TF is always on.
         self._tf_always = gps_anchor is not None
@@ -562,6 +568,7 @@ class BridgeNode(Node):
             "ros2_node_ready", node_name="web_ui_bridge", always_on=len(self._always_on), on_demand=len(self._demand)
         )
         self.create_timer(TOPIC_STALE_S, self.on_health_tick)
+        self.create_timer(DEMAND_APPLY_PERIOD_S, self.apply_demand)
 
     @staticmethod
     def make_topic_callback(handler: Callable[[str, Any], None], topic: str) -> Callable[[Any], None]:
@@ -623,19 +630,32 @@ class BridgeNode(Node):
 
         self._demand[topic] = DemandEntry(start, stop, needs_tf)
 
-    def update_demand(self, wanted: Collection[str] | None, now: float | None = None) -> None:
-        """Subscribe the on-demand topics clients want and unsubscribe those unwanted for longer than the linger.
+    def update_demand(self, wanted: Collection[str] | None) -> None:
+        """Record the on-demand topics clients want; the ROS thread applies it (apply_demand).
 
-        Called by the server on every client change and on every broadcast tick (also with no client, so the
-        linger expires). A topic wanted again within the linger keeps its subscription. Always-on topics are
-        never touched.
+        Called by the server on every client change and on every broadcast tick. It only stores the wanted set, so
+        it is safe from any thread: creating or destroying subscriptions, timers or the TF listener outside the
+        executor thread races its wait-set build (InvalidHandle in the spin thread).
 
         Args:
             wanted (Collection[str] | None): WS topics connected clients want, None for every topic.
+        """
+        with self._demand_lock:
+            self._wanted = None if wanted is None else frozenset(wanted)
+
+    def apply_demand(self, now: float | None = None) -> None:
+        """Subscribe the wanted on-demand topics and unsubscribe those unwanted for longer than the linger.
+
+        Runs on the executor thread (bridge timer, every DEMAND_APPLY_PERIOD_S) and also runs the queued publisher
+        creations. A topic wanted again within the linger keeps its subscription. Always-on topics are never touched.
+
+        Args:
             now (float | None): Monotonic time in seconds, None for time.monotonic().
         """
         now = time.monotonic() if now is None else now
+        self.run_publisher_tasks()
         with self._demand_lock:
+            wanted = self._wanted
             for topic, entry in self._demand.items():
                 if wanted is None or topic in wanted:
                     self._linger_until.pop(topic, None)
@@ -651,6 +671,15 @@ class BridgeNode(Node):
                     entry.stop(self._active.pop(topic))
                     log.info("ros_demand_stopped", topic=topic)
             self.reconcile_tf()
+
+    def run_publisher_tasks(self) -> None:
+        """Run the queued publisher creations and the publishes behind them (executor thread)."""
+        while True:
+            try:
+                task = self._publisher_tasks.get_nowait()
+            except queue.Empty:
+                return
+            task()
 
     def reconcile_tf(self) -> None:
         """Run the TF listener while the anchor fit or an active topic needs it; drop old transforms when off."""
@@ -1734,7 +1763,7 @@ class BridgeNode(Node):
             return [e for t, e in self._latest.items() if topics is None or t in topics]
 
     def create_publisher_for(self, topic: str, msg_type_str: str) -> None:
-        """Create a ROS2 publisher for an allowlisted topic.
+        """Request a ROS2 publisher for an allowlisted topic; the executor thread creates it (apply_demand).
 
         Args:
             topic: ROS2 topic name.
@@ -1749,8 +1778,16 @@ class BridgeNode(Node):
         if msg_cls is None:
             log.warning("publish_unknown_msg_type", topic=topic, msg_type=msg_type_str)
             return
-        self.publishers_[topic] = (self.create_publisher(msg_cls, topic, 10), msg_cls)
-        log.info("publisher_created", topic=topic, msg_type=msg_type_str)
+        if topic in self._publishers_pending:
+            return
+        self._publishers_pending.add(topic)
+
+        def create() -> None:
+            self.publishers_[topic] = (self.create_publisher(msg_cls, topic, 10), msg_cls)
+            self._publishers_pending.discard(topic)
+            log.info("publisher_created", topic=topic, msg_type=msg_type_str)
+
+        self._publisher_tasks.put(create)
 
     def publish_dict(self, topic: str, data: dict[str, Any]) -> None:
         """Publish a message to an allowlisted ROS2 topic from a JSON dict.
@@ -1761,6 +1798,10 @@ class BridgeNode(Node):
         """
         if topic not in self._allowed_publish_topics:
             self._log_warning(f"publish_dict: topic {topic!r} not in allowlist")
+            return
+        if topic in self._publishers_pending:
+            # Created on the executor thread first; the queue keeps creation before this publish.
+            self._publisher_tasks.put(lambda: self.publish_dict(topic, data))
             return
         if topic not in self.publishers_:
             log.warning("publish_no_publisher", topic=topic)

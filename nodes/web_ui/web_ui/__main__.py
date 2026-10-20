@@ -17,6 +17,7 @@ from .config import load_config
 from .gps_status import GPS_BASE_STATUS_KEY, BasePoller
 from .logging_setup import configure_logging
 from .server import build_app, build_uvicorn_kwargs
+from .spin import spin_loop
 
 configure_logging()
 log = structlog.get_logger(__name__)
@@ -69,11 +70,9 @@ def main() -> None:
 
     stop_event = threading.Event()
 
-    def spin_ros() -> None:
-        while rclpy.ok() and not stop_event.is_set():
-            executor.spin_once(timeout_sec=0.05)
-
-    ros_thread = threading.Thread(target=spin_ros, daemon=True, name="rclpy-spin")
+    ros_thread = threading.Thread(
+        target=spin_loop, args=(executor, stop_event, rclpy.ok), daemon=True, name="rclpy-spin"
+    )
     ros_thread.start()
 
     gps = config.gps_status
