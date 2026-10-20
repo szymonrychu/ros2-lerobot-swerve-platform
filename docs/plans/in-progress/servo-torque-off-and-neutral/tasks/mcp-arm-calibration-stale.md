@@ -1,6 +1,6 @@
 ---
 title: MCP arm calibration stale
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: After an arm re-zero the agent knows offsets and home are stale and cannot drive to a home from the old zero.
 files: [nodes/mcp_server/mcp_server/calibration_marker.py, nodes/mcp_server/mcp_server/arm.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/tests/test_calibration_marker.py, nodes/mcp_server/README.md]
@@ -63,6 +63,10 @@ After an arm re-zero the agent sees that offsets and home are stale, cannot driv
 
 - Write `tests/test_calibration_marker.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_calibration_marker.py -q`; expect failures.
 - Implement; run `uv run --frozen pytest tests/test_calibration_marker.py tests/test_arm_home_tracking.py tests/test_home_store.py -q`; then the verify command; commit `feat(mcp_server): stale arm calibration marker after a re-zero`.
+
+## Ruling
+
+- 2026-10-20 accepted: neutral-save a7: NeutralControl exists (neutral.py:176), symbol checker false negative; mcp stale README names the head-and-arm-calibration-fro epic as the clearer of joint_offsets (cross-epic contract, not deferral); calibrate-page: verifier crashed (--prev-head unknown), manual verify at 5a9b208a clean tree, tsc clean, vitest src/calibrate 105 passed, eslint clean
 
 ## Notes
 

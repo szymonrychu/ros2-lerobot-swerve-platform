@@ -10,5 +10,23 @@
     "accept": true,
     "reason": "False positives: README/test comment describe the retry-after-fault behaviour (no deferral); SourceArbiter.on_follower_released exists at arbitration.py:137 (nested-method symbol not resolved by the checker). Both verified green.",
     "at": "2026-10-20T11:36:59Z"
+  },
+  {
+    "task": "bridge-runtime-neutral-save",
+    "accept": true,
+    "reason": "neutral-save a7: NeutralControl exists (neutral.py:176), symbol checker false negative; mcp stale README names the head-and-arm-calibration-fro epic as the clearer of joint_offsets (cross-epic contract, not deferral); calibrate-page: verifier crashed (--prev-head unknown), manual verify at 5a9b208a clean tree, tsc clean, vitest src/calibrate 105 passed, eslint clean",
+    "at": "2026-10-20T12:12:01Z"
+  },
+  {
+    "task": "mcp-arm-calibration-stale",
+    "accept": true,
+    "reason": "neutral-save a7: NeutralControl exists (neutral.py:176), symbol checker false negative; mcp stale README names the head-and-arm-calibration-fro epic as the clearer of joint_offsets (cross-epic contract, not deferral); calibrate-page: verifier crashed (--prev-head unknown), manual verify at 5a9b208a clean tree, tsc clean, vitest src/calibrate 105 passed, eslint clean",
+    "at": "2026-10-20T12:12:01Z"
+  },
+  {
+    "task": "calibrate-page-servo-section",
+    "accept": true,
+    "reason": "neutral-save a7: NeutralControl exists (neutral.py:176), symbol checker false negative; mcp stale README names the head-and-arm-calibration-fro epic as the clearer of joint_offsets (cross-epic contract, not deferral); calibrate-page: verifier crashed (--prev-head unknown), manual verify at 5a9b208a clean tree, tsc clean, vitest src/calibrate 105 passed, eslint clean",
+    "at": "2026-10-20T12:12:01Z"
   }
 ]

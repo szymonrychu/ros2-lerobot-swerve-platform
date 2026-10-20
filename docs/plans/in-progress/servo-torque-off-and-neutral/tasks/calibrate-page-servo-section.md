@@ -1,6 +1,6 @@
 ---
 title: Calibrate page servo section
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The user releases each group, records a neutral and re-enables with or without saving from the Calibrate page."
 files: [nodes/web_ui/frontend/src/calibrate/servoApi.ts, nodes/web_ui/frontend/src/calibrate/servoApi.test.ts, nodes/web_ui/frontend/src/calibrate/ServoNeutral.tsx, nodes/web_ui/frontend/src/calibrate/ServoNeutral.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx]
@@ -64,6 +64,10 @@ On the Calibrate page the user can release each group, record a neutral, and re-
 
 - Write the three test files; run `cd nodes/web_ui/frontend && npx vitest run src/calibrate`; expect failures.
 - Implement; run the verify command; commit `feat(web_ui): servo torque and neutral section on the Calibrate page`.
+
+## Ruling
+
+- 2026-10-20 accepted: neutral-save a7: NeutralControl exists (neutral.py:176), symbol checker false negative; mcp stale README names the head-and-arm-calibration-fro epic as the clearer of joint_offsets (cross-epic contract, not deferral); calibrate-page: verifier crashed (--prev-head unknown), manual verify at 5a9b208a clean tree, tsc clean, vitest src/calibrate 105 passed, eslint clean
 
 ## Notes
 
