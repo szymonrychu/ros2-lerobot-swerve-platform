@@ -1,6 +1,6 @@
 ---
 title: Swerve released steering
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The swerve controller never drives limp steering servos and re-enable does not swing the wheels.
 files: [nodes/swerve_drive_controller/swerve_drive_controller/control.py, nodes/swerve_drive_controller/swerve_drive_controller/node.py, nodes/swerve_drive_controller/swerve_drive_controller/config.py, nodes/swerve_drive_controller/tests/test_control_step.py, nodes/swerve_drive_controller/tests/test_config.py, nodes/swerve_drive_controller/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--swerve-released-steering
 branch: servo-torque-off-and-neutral--swerve-released-steering
-verified_head: ""
-run: ""
+verified_head: 81021b93915940c55cf1454a2c452a665b845e14
+run: servo-torque-off-and-neutral
 provides: []
+acs_for_audit: [a1, a2, a4]
+process_gaps: []
 ---
 
 # Swerve released steering

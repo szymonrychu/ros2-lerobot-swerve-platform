@@ -1,6 +1,6 @@
 ---
 title: Ansible servo neutral config
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "One client deploy turns the feature on with consistent names everywhere, pinned by a root test."
 files: [ansible/group_vars/client.yml, tests/test_servo_neutral_config.py, tests/README.md, ansible/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--ansible-servo-neutral-config
 branch: servo-torque-off-and-neutral--ansible-servo-neutral-config
 verified_head: ""
-run: ""
+run: servo-torque-off-and-neutral
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ansible servo neutral config
@@ -65,3 +67,5 @@ One deploy of the client nodes turns the feature on with consistent names everyw
 - The head command steps stay as they are: they are relative to the servo centre and pinned by tests/test_head_servo_config.py.
 
 - 2026-10-20 amended: builder check: full calibrate_servos.py path
+
+- 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on bridge-runtime-neutral-save, filter-node-released-arm, mcp-arm-calibration-stale, web-ui-quiet-released-groups

@@ -1,6 +1,6 @@
 ---
 title: Bridge torque services topic
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Release and re-enable are callable over ROS and the live torque state of every group is visible.
 files: [nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/torque_control.py, nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/tests/test_torque_services.py, nodes/bridges/feetech_servos/tests/test_config.py, nodes/bridges/feetech_servos/tests/ros_stubs.py, nodes/bridges/feetech_servos/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--bridge-torque-services-topic
 branch: servo-torque-off-and-neutral--bridge-torque-services-topic
-verified_head: ""
-run: ""
-provides: []
+verified_head: fe5a56c6614b244e1bad055b1d8d0382f8c0d4ca
+run: servo-torque-off-and-neutral
+provides: [torque-state-topic]
+acs_for_audit: [a3]
+process_gaps: []
 ---
 
 # Bridge torque services topic

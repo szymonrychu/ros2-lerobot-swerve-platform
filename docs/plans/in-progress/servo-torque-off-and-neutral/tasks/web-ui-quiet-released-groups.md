@@ -1,6 +1,6 @@
 ---
 title: Web UI quiet released groups
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The web UI cannot itself command a released group: no slider, jog, home, grasp or nav goal reaches it."
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/servo_calibration.py, nodes/web_ui/tests/test_servo_quiet.py, nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--web-ui-quiet-released-groups
 branch: servo-torque-off-and-neutral--web-ui-quiet-released-groups
 verified_head: ""
-run: ""
+run: servo-torque-off-and-neutral
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI quiet released groups
@@ -63,3 +65,5 @@ The web UI itself cannot command a released group: no head slider, arm jog, home
 
 - The WS publish chain is in `server.py` around lines 1300-1320 (battery cut-off and head range checks); add the check there, same shape.
 - `call_arm_trigger` (server.py:1055) is the arm route helper.
+
+- 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on web-ui-servo-routes

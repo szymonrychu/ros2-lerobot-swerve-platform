@@ -1,6 +1,6 @@
 ---
 title: Suite and robot runbook
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Everything is green together and the feature goes live on the robot in safe stages, head_pan first."
 files: [docs/runbooks/servo-torque-neutral.md, MEMORY.md, nodes/bridges/feetech_servos/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--suite-and-robot-runbook
 branch: servo-torque-off-and-neutral--suite-and-robot-runbook
 verified_head: ""
-run: ""
+run: servo-torque-off-and-neutral
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Suite and robot runbook
@@ -72,3 +74,5 @@ Everything is green together, and the orchestrator can bring the feature up on t
 - A failing suite owned by pre-existing work is cleared per the boy-scout rule, not reported as this task's failure.
 
 - 2026-10-20 amended: builder check: head_pan single-joint bench first, observable checks, robot steps post-merge by orchestrator with user
+
+- 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on released-group-banners, ansible-servo-neutral-config

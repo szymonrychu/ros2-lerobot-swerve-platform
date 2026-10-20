@@ -1,6 +1,6 @@
 ---
 title: Web UI servo routes
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The browser can read each group's torque and neutral state and run release, record, save and enable."
 files: [nodes/web_ui/web_ui/servo_calibration.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/imu_calibration.py, nodes/web_ui/tests/test_servo_calibration.py, nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--web-ui-servo-routes
 branch: servo-torque-off-and-neutral--web-ui-servo-routes
 verified_head: ""
-run: ""
+run: servo-torque-off-and-neutral
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI servo routes
@@ -69,3 +71,5 @@ The browser can read every group's torque/neutral state and run release, record,
 - Copy the IMU pattern: `imu_calibration.py` (trigger helper, error bodies), bridge `subscribe_always_on` (bridge.py:551) and `imu_calibration_sample`.
 - web_ui ROS-thread affinity (2026-10-20): every subscription create/destroy on the bridge timer, never from a request handler.
 - The save can take about 4 s on the arm (D9): keep `service_timeout_s` above it.
+
+- 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on bridge-runtime-neutral-save

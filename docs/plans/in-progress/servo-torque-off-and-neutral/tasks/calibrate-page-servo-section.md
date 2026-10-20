@@ -1,6 +1,6 @@
 ---
 title: Calibrate page servo section
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The user releases each group, records a neutral and re-enables with or without saving from the Calibrate page."
 files: [nodes/web_ui/frontend/src/calibrate/servoApi.ts, nodes/web_ui/frontend/src/calibrate/servoApi.test.ts, nodes/web_ui/frontend/src/calibrate/ServoNeutral.tsx, nodes/web_ui/frontend/src/calibrate/ServoNeutral.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--calibrate-page-servo-section
 branch: servo-torque-off-and-neutral--calibrate-page-servo-section
 verified_head: ""
-run: ""
+run: servo-torque-off-and-neutral
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calibrate page servo section
@@ -67,3 +69,5 @@ On the Calibrate page the user can release each group, record a neutral, and re-
 
 - Follow `ImuCalibration.tsx` / `imuApi.ts` for structure and `TOUCH_TARGET_PX` from `../theme` for touch targets.
 - The page still shows "Arm calibration - deferred"; leave it (epic head-and-arm-calibration-fro replaces it).
+
+- 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on web-ui-servo-routes

@@ -1,6 +1,6 @@
 ---
 title: MCP torque off gate
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The agent cannot move a released group and stops republishing a held arm setpoint into a limp arm.
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/arm.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/tests/test_torque_gate.py, nodes/mcp_server/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--mcp-torque-off-gate
 branch: servo-torque-off-and-neutral--mcp-torque-off-gate
 verified_head: ""
-run: ""
+run: servo-torque-off-and-neutral
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP torque off gate
@@ -69,3 +71,5 @@ The agent cannot move a released group, does not keep republishing a held arm se
 - Pattern to copy: the battery cut-off gate (`MOTION_TOOLS`, `ALWAYS_ALLOWED_TOOLS` in tools.py, `call_tool_with_digest` tools.py:490) and the tilt gate.
 - The arm keepalive republishes the held setpoint at 5 Hz (arm.py `keepalive_tick`, brief fact 14); the publish-level suppression plus the lease drop stop it.
 - `tests/conftest.py` already stubs std_srvs; follow `tests/test_battery_gate.py` for the fake backend.
+
+- 2026-10-20 run servo-torque-off-and-neutral: dependency-failed on filter-node-released-arm

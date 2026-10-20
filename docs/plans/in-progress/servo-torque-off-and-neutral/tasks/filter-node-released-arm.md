@@ -1,6 +1,6 @@
 ---
 title: Filter node released arm
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Teleop, web UI and autonomy cannot drive a limp follower arm and re-enable never snaps it to the leader."
 files: [nodes/filter_node/filter_node/arbitration.py, nodes/filter_node/filter_node/node.py, nodes/filter_node/filter_node/config.py, nodes/filter_node/tests/test_arbitration.py, nodes/filter_node/tests/test_config.py, nodes/filter_node/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--filter-node-released-arm
 branch: servo-torque-off-and-neutral--filter-node-released-arm
-verified_head: ""
-run: ""
+verified_head: 01d055260b536c89a1cdef50d6cdb9e8eb26a7a0
+run: servo-torque-off-and-neutral
 provides: []
+acs_for_audit: [a1, a2]
+process_gaps: []
 ---
 
 # Filter node released arm

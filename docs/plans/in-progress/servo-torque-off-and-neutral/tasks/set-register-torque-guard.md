@@ -1,6 +1,6 @@
 ---
 title: Set register torque guard
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: set_register can no longer run a DefineMiddle by accident or move or re-enable a released servo.
 files: [nodes/bridges/feetech_servos/set_register.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/tests/test_set_register.py, nodes/bridges/feetech_servos/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/servo-torque-off-and-neutral--set-register-torque-guard
 branch: servo-torque-off-and-neutral--set-register-torque-guard
-verified_head: ""
-run: ""
+verified_head: 89e281085c4383b4dcbb7977d336e3161d48b9a1
+run: servo-torque-off-and-neutral
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Set register torque guard
