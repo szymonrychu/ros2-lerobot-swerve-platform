@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .config import ArmBaseOffset, FloorGuardSettings
 from .ik import ArmKinematics
 from .jaw_profile import MOVING_JAW_INNER_PROFILE
+from .models import GroundState, ground_regions_to_surfaces
 from .surfaces import MAX_REGIONS, Clearance, SurfaceRegion, Terrain
 
 LOGGER = logging.getLogger("mcp_server.floor_guard")
@@ -67,6 +68,8 @@ class FloorOverride(BaseModel):
         tilt_override_deg: Robot tilt replacing the IMU tilt; None = use the IMU.
         surfaces: Surface regions (stair, table, hole) with heights relative to the robot floor; outside them
             surface_z_m (default the robot floor) applies. None = one flat surface (surface_z_m).
+        use_ground_estimate: Add the measured floor regions (steps, drop-offs) of /ground/state to the surfaces (the
+            explicit surfaces win where they overlap); refused when no fresh estimate exists.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -74,6 +77,11 @@ class FloorOverride(BaseModel):
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
     surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
+    use_ground_estimate: bool = False
+
+
+class GroundEstimateError(RuntimeError):
+    """use_ground_estimate was asked but /ground/state is stale, absent or has no ground plane."""
 
 
 @dataclass(frozen=True)
@@ -547,7 +555,45 @@ class FloorGuard:
         self.gripper = gripper_joint
         self.imu_missing_logged = False
 
-    def surface(self, override: FloorOverride | None, imu: TiltSample | None, now: float) -> SurfaceModel:
+    def ground_surfaces(
+        self, explicit: list[SurfaceRegion], ground: tuple[GroundState, float] | None
+    ) -> list[SurfaceRegion]:
+        """Measured regions followed by the explicit ones (which win), at most MAX_REGIONS (explicit kept first).
+
+        Args:
+            explicit (list[SurfaceRegion]): The call's own surfaces.
+            ground (tuple[GroundState, float] | None): Latest /ground/state and its receive age (s).
+
+        Returns:
+            list[SurfaceRegion]: Regions for the Terrain, ground ones first.
+
+        Raises:
+            GroundEstimateError: When the state is absent, older than settings.ground_max_age_s or has no plane.
+        """
+        if ground is None:
+            raise GroundEstimateError(
+                "use_ground_estimate refused: no fresh /ground/state (ground estimate unavailable)"
+            )
+        state, age = ground
+        if age > self.settings.ground_max_age_s:
+            raise GroundEstimateError(
+                f"use_ground_estimate refused: /ground/state is {age:.2f} s old, older than "
+                f"floor_guard.ground_max_age_s ({self.settings.ground_max_age_s:g} s)"
+            )
+        if state.plane is None:
+            raise GroundEstimateError(
+                f"use_ground_estimate refused: /ground/state has no ground plane ({state.reason or 'no reason given'})"
+            )
+        measured = ground_regions_to_surfaces(state)[: max(0, MAX_REGIONS - len(explicit))]
+        return [*measured, *explicit]
+
+    def surface(
+        self,
+        override: FloorOverride | None,
+        imu: TiltSample | None,
+        now: float,
+        ground: tuple[GroundState, float] | None = None,
+    ) -> SurfaceModel:
         """Resolve the surface of a motion from the config, the per-call override and the IMU.
 
         A missing or stale IMU (older than imu_max_age_s) leaves only the robot plane; that is logged once per outage.
@@ -557,16 +603,22 @@ class FloorGuard:
             override (FloorOverride | None): Per-call overrides.
             imu (TiltSample | None): Latest IMU tilt.
             now (float): Current time on the IMU sample clock (s).
+            ground (tuple[GroundState, float] | None): Latest /ground/state with its age (s); used only when the
+                override sets use_ground_estimate.
 
         Returns:
             SurfaceModel: The surface.
+
+        Raises:
+            GroundEstimateError: When use_ground_estimate is set and the estimate is stale, absent or planeless.
         """
         surface_z = self.settings.surface_z_m
         if override is not None and override.surface_z_m is not None:
             surface_z = override.surface_z_m
-        terrain = None
-        if override is not None and override.surfaces:
-            terrain = Terrain(override.surfaces, surface_z, self.mount)
+        regions = list(override.surfaces or []) if override is not None else []
+        if override is not None and override.use_ground_estimate:
+            regions = self.ground_surfaces(regions, ground)
+        terrain = Terrain(regions, surface_z, self.mount) if regions else None
         if override is not None and override.tilt_override_deg is not None:
             deg = override.tilt_override_deg
             tilt = Tilt(roll_rad=math.radians(deg.roll), pitch_rad=math.radians(deg.pitch))

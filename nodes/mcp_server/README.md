@@ -1012,7 +1012,16 @@ closed that stays above 5 mm, or does not descend, runs at full speed; `margin_m
 Per-call overrides (arm motion tools, grasp tools and queue steps; nothing else changes the zone, there is no off
 switch for agents): `surface_z_m` = expected surface height relative to the robot plane (e.g. -0.18 for an object on a
 stair below or in a hole: normal speed down to that surface, slow below it), `tilt_override_deg` replacing the IMU tilt
-and `surfaces` (below). All of them travel in `floor_guard.FloorOverride`.
+`surfaces` (below) and `use_ground_estimate` (default false). All of them travel in `floor_guard.FloorOverride`.
+
+`use_ground_estimate: true` (arm motion tools, grasp tools, queue steps and the web grasp request) adds the measured
+floor regions (steps, drop-offs) of the head ToF ground estimate (`/ground/state`, `RosInterface.ground_state()`) to
+the Terrain: `models.ground_regions_to_surfaces(state)` first, then the call's explicit `surfaces` (listed later, so
+they win where they overlap); at most 16 regions, the explicit ones kept first when trimming. Freshness rule: the
+state must be at most `floor_guard.ground_max_age_s` (default 1.0 s, > 0) old and carry a ground `plane`. Otherwise
+the motion is refused before anything moves (tool error / `ArmError`) with a reason naming `/ground/state` and the
+cause (no fresh state, older than the maximum, or no ground plane and its reason). With the flag false nothing
+changes and `/ground/state` is not read.
 
 ### Surface regions (`surfaces.py`, pure)
 

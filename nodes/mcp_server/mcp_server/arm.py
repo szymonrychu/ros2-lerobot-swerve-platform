@@ -20,7 +20,17 @@ from typing import Literal, Protocol
 from .calibration_marker import CalibrationMarker, clear_stale, load_marker
 from .carry import CarryRecord, CarryStore, GraspKind, carry_path
 from .config import ArmBaseOffset, LimitSettings, McpServerConfig
-from .floor_guard import FloorGuard, FloorOverride, GuardReport, JawModel, TiltSample, retime, step_scales
+from .floor_guard import (
+    FloorGuard,
+    FloorOverride,
+    GroundEstimateError,
+    GuardReport,
+    JawModel,
+    SurfaceModel,
+    TiltSample,
+    retime,
+    step_scales,
+)
 from .grasp import jaw_clearance
 from .grasp_check import (
     BaselineSource,
@@ -45,7 +55,15 @@ from .metrics import (
     SELF_COLLISION_REJECTIONS,
     SELF_COLLISION_SLOWDOWNS,
 )
-from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy, torque_off_message
+from .models import (
+    ArmMotionResult,
+    ArmMotionStatus,
+    ArmState,
+    ControlResult,
+    GroundState,
+    SettlePolicy,
+    torque_off_message,
+)
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .sag import SETTLE_LOG_MARKER, GravityModel, SagCompensator, compensate
 from .self_collision import GRIPPER_MOVING_PARTS, BodyReport, SelfCollisionChecker, combine_scales, joint_line
@@ -485,6 +503,7 @@ class ArmController:
         config: McpServerConfig,
         monitor: RobotMonitor | None = None,
         tilt_source: Callable[[], TiltSample | None] | None = None,
+        ground_source: Callable[[], tuple[GroundState, float] | None] | None = None,
     ) -> None:
         """Create the controller.
 
@@ -496,6 +515,8 @@ class ArmController:
             monitor (RobotMonitor | None): Body monitor: critical events end a motion early ('interrupted').
             tilt_source (Callable[[], TiltSample | None] | None): Latest IMU tilt (stamped on the backend clock) for
                 the below-surface slow zone; None = no IMU (robot plane only).
+            ground_source (Callable[[], tuple[GroundState, float] | None] | None): Latest /ground/state with its age
+                (s) for use_ground_estimate; None = never available (such a motion is refused).
         """
         self.monitor = monitor
         self._watch: MotionWatch | None = None
@@ -512,6 +533,7 @@ class ArmController:
         self.floor_guard = FloorGuard(kinematics, config.floor_guard, mount, self.jaw, self.gripper)
         self.body_check = SelfCollisionChecker.from_config(kinematics, config, self.jaw)
         self.tilt_source = tilt_source or (lambda: None)
+        self.ground_source = ground_source or (lambda: None)
         # Guard rule arm phase (tools.register_tools wires GuardEngine.check_arm): called with (start, full target
         # pose) once per motion leg before the first setpoint; raises ArmError to refuse. None = no rule engine.
         self.motion_guard: Callable[[dict[str, float], dict[str, float]], None] | None = None
@@ -2635,7 +2657,7 @@ class ArmController:
         body = self.check_body(
             [start, *points], execute=True, moving_parts=GRIPPER_MOVING_PARTS if gripper_only else None
         )
-        surface = self.floor_guard.surface(floor, self.tilt_source(), self.backend.now())
+        surface = self.floor_surface(floor)
         report = self.floor_guard.evaluate([start, *points], surface, gripper_only)
         self._sag_plan = None
         if self.sag is not None:
@@ -2666,6 +2688,24 @@ class ArmController:
             ends.append(ticks - 1)
         self._via_ticks = [ends[m] for m in marks]
         return retime(start, points, scales)
+
+    def floor_surface(self, floor: FloorOverride | None) -> SurfaceModel:
+        """Surface of a motion from the call's overrides, the IMU and (use_ground_estimate) the ground estimate.
+
+        Args:
+            floor (FloorOverride | None): Per-call slow-zone overrides.
+
+        Returns:
+            SurfaceModel: The surface.
+
+        Raises:
+            ArmError: When use_ground_estimate is set and /ground/state is stale, absent or has no ground plane.
+        """
+        ground = self.ground_source() if floor is not None and floor.use_ground_estimate else None
+        try:
+            return self.floor_guard.surface(floor, self.tilt_source(), self.backend.now(), ground)
+        except GroundEstimateError as exc:
+            raise ArmError(str(exc)) from exc
 
     def plan_points(
         self,

@@ -53,6 +53,10 @@ FUSE_NOTE = (
     "'grasped' counts as success."
 )
 
+USE_GROUND_DESC = (
+    "use the measured floor regions (steps, drop-offs) from the head ToF ground estimate; refused when no fresh "
+    "estimate exists"
+)
 # How the agent describes stairs, tables and holes (shared by the grasp and arm motion tools).
 SURFACES_DESC = (
     "Surface regions when the robot floor and the object's surface differ (stair down, table top, hole), instead of "
@@ -174,6 +178,7 @@ def floor_override(
     surface_z_m: float | None,
     tilt_override_deg: TiltOverrideDeg | None,
     surfaces: list[SurfaceRegion] | None = None,
+    use_ground_estimate: bool = False,
 ) -> FloorOverride | None:
     """Slow-zone override of a call, or None when the call overrides nothing.
 
@@ -181,13 +186,19 @@ def floor_override(
         surface_z_m (float | None): Expected surface height relative to the robot plane (m).
         tilt_override_deg (TiltOverrideDeg | None): Tilt replacing the IMU.
         surfaces (list[SurfaceRegion] | None): Surface regions (stairs, tables, holes); empty = none.
+        use_ground_estimate (bool): Add the measured ground regions of /ground/state.
 
     Returns:
         FloorOverride | None: The override.
     """
-    if surface_z_m is None and tilt_override_deg is None and not surfaces:
+    if surface_z_m is None and tilt_override_deg is None and not surfaces and not use_ground_estimate:
         return None
-    return FloorOverride(surface_z_m=surface_z_m, tilt_override_deg=tilt_override_deg, surfaces=surfaces or None)
+    return FloorOverride(
+        surface_z_m=surface_z_m,
+        tilt_override_deg=tilt_override_deg,
+        surfaces=surfaces or None,
+        use_ground_estimate=use_ground_estimate,
+    )
 
 
 def with_object_surfaces(floor: FloorOverride | None, obj: ObjectSpec) -> FloorOverride | None:
@@ -306,7 +317,7 @@ class GraspExecutor:
             notes.append("no fresh joint states: planned from a default folded seed pose")
         else:
             seed = self.arm.command_base(sample)
-        surface = self.arm.floor_guard.surface(floor, self.arm.tilt_source(), self.arm.backend.now())
+        surface = self.arm.floor_surface(floor)
         return self.planner.plan(obj, strategy, params, surface, seed, approach_pitch_deg), notes
 
     def grasp(
@@ -741,6 +752,7 @@ class GraspServiceRequest(BaseModel):
     tilt_override_deg: TiltOverrideDeg | None = None
     grip_profile: str | GripProfileOverride | None = None
     surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
+    use_ground_estimate: bool = False
 
 
 class GraspService:
@@ -796,7 +808,7 @@ class GraspService:
 
         Args:
             request (dict[str, Any]): {action, request_id?, object?, strategy?, params?, approach_pitch_deg?,
-                surface_z_m?, tilt_override_deg?, grip_profile?, surfaces?, jog?}.
+                surface_z_m?, tilt_override_deg?, grip_profile?, surfaces?, use_ground_estimate?, jog?}.
 
         Returns:
             dict[str, Any] | None: {ok, request_id, action, result} or {ok: false, request_id, action, error}; None
@@ -821,7 +833,7 @@ class GraspService:
             grip = self.executor.resolve_grip(params)
         except ValueError as exc:
             return head | {"ok": False, "error": str(exc)}
-        floor = floor_override(req.surface_z_m, req.tilt_override_deg, req.surfaces)
+        floor = floor_override(req.surface_z_m, req.tilt_override_deg, req.surfaces, req.use_ground_estimate)
         if req.action in ("plan", "execute") and req.object is None:
             return head | {"ok": False, "error": f"'object' is required for {req.action}"}
         if req.action == "plan":
@@ -1190,6 +1202,7 @@ def register(ctx: ToolContext) -> None:
         approach_pitch_deg: Annotated[float | None, Field(ge=0.0, le=90.0, description=pitch_desc)] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
         grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
@@ -1198,7 +1211,7 @@ def register(ctx: ToolContext) -> None:
         """Plan a grasp; the tool description is passed to the decorator so it can state the slow zone."""
 
         def body() -> GraspResult:
-            floor = floor_override(surface_z_m, tilt_override_deg, surfaces)
+            floor = floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate)
             grasp_call = grasp_params(grasp, params, grip_profile)
             grip = executor.resolve_grip(grasp_call)
             plan, notes = executor.plan(object, strategy, grasp_call, approach_pitch_deg, floor)
@@ -1237,6 +1250,7 @@ def register(ctx: ToolContext) -> None:
         approach_pitch_deg: Annotated[float | None, Field(ge=0.0, le=90.0, description=pitch_desc)] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
         grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
@@ -1248,7 +1262,7 @@ def register(ctx: ToolContext) -> None:
         baseline = robot.stop_count()
 
         def body() -> GraspResult:
-            floor = floor_override(surface_z_m, tilt_override_deg, surfaces)
+            floor = floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate)
             return executor.grasp(
                 object,
                 strategy,
@@ -1282,6 +1296,7 @@ def register(ctx: ToolContext) -> None:
         params: Annotated[dict[str, Any] | None, Field(description=params_desc)] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
         ] = None,
@@ -1291,7 +1306,7 @@ def register(ctx: ToolContext) -> None:
         baseline = robot.stop_count()
 
         def body() -> GraspResult:
-            floor = floor_override(surface_z_m, tilt_override_deg, surfaces)
+            floor = floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate)
             return executor.release(grasp_params(grasp, params), floor, lambda: robot.stop_count() != baseline)
 
         return run(body)

@@ -171,6 +171,7 @@ class ArmMotionFields(StepBase):
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
     surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
+    use_ground_estimate: bool = False
 
 
 class ArmJointsStep(ArmMotionFields):
@@ -203,6 +204,7 @@ class GripperStep(StepBase):
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
     surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
+    use_ground_estimate: bool = False
 
     @model_validator(mode="after")
     def exactly_one(self) -> "GripperStep":
@@ -259,6 +261,7 @@ class GraspMotionStep(StepBase):
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
     surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
+    use_ground_estimate: bool = False
 
 
 ArmStep = ArmJointsStep | ArmCartesianStep
@@ -571,7 +574,7 @@ def step_floor(step: Any) -> FloorOverride | None:
     Returns:
         FloorOverride | None: The override.
     """
-    return floor_override(step.surface_z_m, step.tilt_override_deg, step.surfaces)
+    return floor_override(step.surface_z_m, step.tilt_override_deg, step.surfaces, step.use_ground_estimate)
 
 
 def can_blend(prev: QueuedStep, nxt: QueuedStep, config: McpServerConfig) -> bool:

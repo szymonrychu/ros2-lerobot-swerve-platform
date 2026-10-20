@@ -833,6 +833,7 @@ class RosRobot:
             config,
             self.monitor,
             tilt_source=lambda: monitor_tilt_sample(self.monitor.imu),
+            ground_source=self.ground_state,
         )
         self.monitor.lease_held = lambda: self.arm.control_held
         # Web-UI grasp actions (JSON in on grasp_command, JSON out on grasp_result); 'stop' answers at once, the

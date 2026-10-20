@@ -989,6 +989,8 @@ class FloorGuardSettings(StrictModel):
     The effective surface at a point is the higher of the robot plane (base_link z = surface_z_m) and the gravity-level
     plane through base_link (0, 0, surface_z_m) derived from the IMU roll/pitch minus imu_level_reference (or a
     per-call tilt override, taken as is).
+
+    ground_max_age_s: oldest /ground/state (s) a motion with use_ground_estimate accepts; older or absent refuses it.
     """
 
     enabled: bool = True
@@ -996,6 +998,7 @@ class FloorGuardSettings(StrictModel):
     slow_speed_scale: float = Field(default=0.2, gt=0.0, le=1.0)
     surface_z_m: float = Field(default=0.0, ge=-1.0, le=1.0)
     imu_max_age_s: float = Field(default=1.0, gt=0.0)
+    ground_max_age_s: float = Field(default=1.0, gt=0.0)
     imu_level_reference: ImuLevelReference = ImuLevelReference()
 
 

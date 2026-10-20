@@ -45,7 +45,7 @@ from .control import MAX_CARRIED_RADIUS_M, ControlManager, LeaseNeed, ReleaseTar
 from .floor_guard import TiltOverrideDeg
 from .footprint import NavFootprint
 from .frontiers import FrontierTracker
-from .grasp_tools import SURFACES_DESC, GraspService, floor_override, grip_profile_description
+from .grasp_tools import SURFACES_DESC, USE_GROUND_DESC, GraspService, floor_override, grip_profile_description
 from .guard_rules import GUARD_ORIGIN, GuardEngine, GuardRejection
 from .guard_state import GuardState
 from .metrics import TOOL_CALLS, TOOL_DURATION
@@ -817,7 +817,9 @@ def register_core_tools(ctx: ToolContext) -> None:
         f"{slow.slow_speed_scale:g} of its speed (never blocked; reported as slow_zone). Pass surface_z_m (e.g. -0.18 "
         "for a stair or hole below) to allow normal speed down to that surface, tilt_override_deg to replace the IMU, "
         "or surfaces (stair / table / hole regions with their step edges) when the floor under the arm is not one "
-        "plane: the local region height is used and the arm also slows near a step edge."
+        "plane: the local region height is used and the arm also slows near a step edge. Pass "
+        "use_ground_estimate=true to add the measured floor regions (steps, drop-offs) from the head ToF ground "
+        f"estimate; it is refused when /ground/state is older than {slow.ground_max_age_s:g} s or has no ground plane."
     )
     settle_desc = (
         "'trajectory_end': return when the streamed trajectory finished (status 'converged', settling=true while "
@@ -1155,6 +1157,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         ] = HARD_MAX_SPEED_SCALE,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
         ] = None,
@@ -1165,7 +1168,10 @@ def register_core_tools(ctx: ToolContext) -> None:
         policy = resolve_settle(settle, config.arm.gripper_joint in targets)
         with tool_errors():
             return robot.arm.move_joints(
-                targets, speed_scale, floor_override(surface_z_m, tilt_override_deg, surfaces), policy
+                targets,
+                speed_scale,
+                floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate),
+                policy,
             )
 
     @tool(
@@ -1213,6 +1219,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         ] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
         ] = None,
@@ -1230,7 +1237,7 @@ def register_core_tools(ctx: ToolContext) -> None:
                 speed_scale,
                 wrist_roll,
                 object_width_m,
-                floor_override(surface_z_m, tilt_override_deg, surfaces),
+                floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate),
                 resolve_settle(settle),
             )
 
@@ -1245,6 +1252,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         ] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
         grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
@@ -1280,7 +1288,7 @@ def register_core_tools(ctx: ToolContext) -> None:
                 open_fraction,
                 close_until_effort,
                 effort_threshold,
-                floor_override(surface_z_m, tilt_override_deg, surfaces),
+                floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate),
                 grip_profile,
             )
         image: ImageContent | None = None
@@ -1307,6 +1315,7 @@ def register_core_tools(ctx: ToolContext) -> None:
     def arm_home(
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
         ] = None,
@@ -1315,7 +1324,8 @@ def register_core_tools(ctx: ToolContext) -> None:
         battery_gate("arm_home")
         with tool_errors():
             return robot.arm.home(
-                keep_prior_control=True, floor=floor_override(surface_z_m, tilt_override_deg, surfaces)
+                keep_prior_control=True,
+                floor=floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate),
             )
 
     @tool()
