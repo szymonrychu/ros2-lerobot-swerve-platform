@@ -22,5 +22,11 @@
     "accept": true,
     "reason": "nav2: flagged text documents the user-approved switch-over criteria (D8), not deferral; floor-guard: orchestrator verify-task.py at fcc0cbc6 passed, clean, a1-a4 met",
     "at": "2026-10-20T15:06:58Z"
+  },
+  {
+    "task": "ground-final-suite-runbook",
+    "accept": true,
+    "reason": "parking findings are false positives: the runbook documents robot steps executed after merge by design (A6); repo suites 1033 passed, lint green",
+    "at": "2026-10-20T16:35:12Z"
   }
 ]

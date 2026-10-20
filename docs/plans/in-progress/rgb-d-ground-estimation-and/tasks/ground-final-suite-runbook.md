@@ -63,6 +63,10 @@ the full verify command is green; the runbook is ready for the robot run.
 - run the full verify
 - commit `docs(ground): runbook, memory and diagram`.
 
+## Ruling
+
+- 2026-10-20 accepted: parking findings are false positives: the runbook documents robot steps executed after merge by design (A6); repo suites 1033 passed, lint green
+
 ## Notes
 
 runbook pattern: docs/runbooks/head-rgbd-fusion.md, docs/runbooks/map3d-mapping.md. MEMORY.md and tests/README.md are also edited by other epics: rebase.
