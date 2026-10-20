@@ -32,7 +32,7 @@ from starlette.responses import Response
 from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig, TileSourceConfig
-from .imu_calibration import register_imu_calibration_routes
+from .imu_calibration import HTTP_CONFLICT, register_imu_calibration_routes
 from .metrics import (
     BROADCAST_SECONDS,
     BROADCASTER_SLOW,
@@ -45,7 +45,7 @@ from .metrics import (
 from .models import register_model_routes
 from .photos import register_photo_routes
 from .rgbd_calibration import register_rgbd_calibration_routes
-from .servo_calibration import register_servo_calibration_routes
+from .servo_calibration import register_servo_calibration_routes, released_command_error, released_group_error
 from .throttle import SlowCycleTracker
 from .tiles import (
     API_KEY_PLACEHOLDER,
@@ -1054,8 +1054,25 @@ def build_app(
     def find_arm_tab(tab: str) -> TabConfig | None:
         return next((t for t in config.arm_tabs() if t.id == tab), None)
 
-    async def call_arm_trigger(action: str, tab: str, service_attr: str) -> JSONResponse:
+    def arm_released_block(action: str) -> JSONResponse | None:
+        """Reject an arm command (409) while the arm servo group is released.
+
+        Args:
+            action (str): Action name for the response and the log.
+
+        Returns:
+            JSONResponse | None: 409 {"ok": false, "message"} while the arm is released, otherwise None.
+        """
+        message = released_group_error(config, bridge_node, "arm")
+        if message is None:
+            return None
+        log.warning("command_rejected_servo_released", action=action, message=message)
+        return action_response(action, False, message, HTTP_CONFLICT)
+
+    async def call_arm_trigger(action: str, tab: str, service_attr: str, quiet: bool = True) -> JSONResponse:
         if (blocked := battery_block(action)) is not None:
+            return blocked
+        if quiet and (blocked := arm_released_block(action)) is not None:
             return blocked
         tab_cfg = find_map_nav_tab(tab) or find_arm_tab(tab)
         service = getattr(tab_cfg, service_attr) if tab_cfg is not None else None
@@ -1086,11 +1103,13 @@ def build_app(
 
     @app.post("/api/arm/release")
     async def arm_release(tab: str) -> JSONResponse:
-        return await call_arm_trigger("arm_release", tab, "arm_release_control_service")
+        return await call_arm_trigger("arm_release", tab, "arm_release_control_service", quiet=False)
 
     @app.post("/api/arm/jog")
     async def arm_jog(tab: str, request: Request) -> JSONResponse:
         if (blocked := battery_block("arm_jog")) is not None:
+            return blocked
+        if (blocked := arm_released_block("arm_jog")) is not None:
             return blocked
         if find_arm_tab(tab) is None:
             return action_response("arm_jog", False, f"no arm tab {tab!r}", 404)
@@ -1195,6 +1214,8 @@ def build_app(
         tab_cfg = find_map_nav_tab(tab)
         if tab_cfg is None:
             return action_response("grasp", False, f"no map_nav tab {tab!r}", 404)
+        if (blocked := arm_released_block("grasp")) is not None:
+            return blocked
         try:
             body = await request.json()
         except ValueError:
@@ -1308,6 +1329,13 @@ def build_app(
                                 "ws_publish_rejected_battery_cutoff", client_id=client_id, topic=msg.get("topic", "")
                             )
                             conn.enqueue(json.dumps({"type": "error", "source": "battery", "message": error}))
+                        elif (
+                            msg.get("type") == "publish"
+                            and (released_error := released_command_error(config, bridge_node, msg.get("topic", "")))
+                            is not None
+                        ):
+                            log.warning("ws_servo_released_rejected", client_id=client_id, topic=msg.get("topic", ""))
+                            conn.enqueue(json.dumps({"type": "error", "source": "head", "message": released_error}))
                         elif (head_error := head_range_rejection(msg)) is not None:
                             log.warning("ws_head_command_rejected", client_id=client_id, message=head_error)
                             conn.enqueue(json.dumps({"type": "error", "source": "head", "message": head_error}))

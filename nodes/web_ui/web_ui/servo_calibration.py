@@ -66,6 +66,45 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
     }
 
 
+def released_group_error(config: AppConfig, bridge_node: Any, group_id: str) -> str | None:
+    """Explain why a group may not be commanded: its cached torque state is fresh and released.
+
+    Args:
+        config (AppConfig): Application config.
+        bridge_node (Any): BridgeNode or None.
+        group_id (str): Servo group id (arm, base, head).
+
+    Returns:
+        str | None: "<label> servo torque is off (Calibrate page)", or None for an unknown, stale or enabled group.
+    """
+    groups = config.calibration.servo_groups if config.calibration is not None else []
+    return next((released_error_of(g, bridge_node) for g in groups if g.id == group_id), None)
+
+
+def released_error_of(group: ServoGroupConfig, bridge_node: Any) -> str | None:
+    """Return the released-group error for one group (None unless its fresh cached state is released)."""
+    status = group_status(group, bridge_node)
+    state = status["state"]
+    if status["stale"] or not isinstance(state, dict) or state.get("released") is not True:
+        return None
+    return f"{group.label} servo torque is off (Calibrate page)"
+
+
+def released_command_error(config: AppConfig, bridge_node: Any, topic: str) -> str | None:
+    """Explain why a publish to a topic is refused because the group it commands is released.
+
+    Args:
+        config (AppConfig): Application config.
+        bridge_node (Any): BridgeNode or None.
+        topic (str): The topic a client wants to publish on.
+
+    Returns:
+        str | None: "<label> servo torque is off (Calibrate page)", or None (unknown topic or stale state refuse nothing).
+    """
+    groups = config.calibration.servo_groups if config.calibration is not None else []
+    return next((released_error_of(g, bridge_node) for g in groups if topic in g.command_topics), None)
+
+
 def register_servo_calibration_routes(
     app: FastAPI, config: AppConfig, bridge_node: Any, battery_block: Callable[[str], JSONResponse | None]
 ) -> None:

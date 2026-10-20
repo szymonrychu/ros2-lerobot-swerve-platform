@@ -552,6 +552,8 @@ class ServoGroupConfig(BaseModel):
         stale_marker: Arm only: path of the calibration-stale marker file the bridge writes on a re-zero.
         state_stale_s: A torque_state sample older than this is reported stale.
         service_timeout_s: Wait for one Trigger response (a save takes about 4 s on the arm).
+        command_topics: web_ui topics that command the group (arm: arm_command_topic, head: head_command_topic,
+            base: the map_nav goal_topic); publishes to them are refused while the group is released.
     """
 
     id: Literal["arm", "base", "head"]
@@ -561,6 +563,7 @@ class ServoGroupConfig(BaseModel):
     stale_marker: str | None = None
     state_stale_s: float = Field(3.0, gt=0)
     service_timeout_s: float = Field(15.0, gt=0)
+    command_topics: list[str] = Field(default_factory=list)
 
     @property
     def state_topic(self) -> str:

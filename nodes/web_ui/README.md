@@ -570,6 +570,7 @@ calibration:
       stale_marker: /var/lib/ros2/arm/calibration_stale.json  # arm only, optional
       state_stale_s: 3.0       # > 0
       service_timeout_s: 15.0  # > 0, keep above the ~4 s arm save
+      command_topics: [/filter/web_ui_joint_commands]  # topics that command the group (arm: arm_command_topic, head: head_command_topic, base: map_nav goal_topic)
 ```
 
 The bridge keeps an always-on subscription (reliable, transient_local, depth 1) per group's state topic and caches the
@@ -582,6 +583,15 @@ latest parsed payload; unparsable payloads are logged and dropped.
   answers `{ok, message}`: 200 on success, 409 when the service refuses, 404 for an unknown group or action or
   record / save on a group without `neutral`, 503 without a bridge or service. `save` is refused under battery
   cut-off; release and enable never are.
+
+While a group's cached state is fresh and `released`, web_ui stops commanding it (stale or unknown state refuses
+nothing):
+
+- A WebSocket `publish` to one of the group's `command_topics` is dropped, logged (`ws_servo_released_rejected`) and the
+  client gets `{type: "error", source: "head", message: "<label> servo torque is off (Calibrate page)"}`.
+- `POST /api/arm/home`, `/api/arm/take_control`, `/api/arm/jog` and `/api/grasp` answer 409
+  `{ok: false, message: "Arm servo torque is off (Calibrate page)"}` while the arm group is released.
+  `/api/arm/release` and `/api/grasp/stop` stay allowed.
 
 ## Debug Logging
 
