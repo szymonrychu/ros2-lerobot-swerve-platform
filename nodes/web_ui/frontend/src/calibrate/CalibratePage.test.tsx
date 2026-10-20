@@ -89,4 +89,18 @@ describe('CalibratePage', () => {
     await waitFor(() => expect(onBack).toHaveBeenCalled())
     expect(window.location.hash).toBe('')
   })
+
+  it('renders the servo section only with servos true', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.startsWith('/api/calibration/servos')) return new Response(JSON.stringify({ groups: [] }))
+      return new Response(JSON.stringify({ imu: false, servos: true }))
+    }))
+    render(<CalibratePage onBack={() => {}} />)
+    await screen.findByText('Servo torque and neutral')
+    cleanup()
+    respond(200, { imu: false, servos: false })
+    render(<CalibratePage onBack={() => {}} />)
+    await screen.findByText('Arm calibration - deferred')
+    expect(screen.queryByText('Servo torque and neutral')).toBeNull()
+  })
 })
