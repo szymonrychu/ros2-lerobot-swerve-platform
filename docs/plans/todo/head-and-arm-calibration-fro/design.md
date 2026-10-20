@@ -6,7 +6,7 @@ Two buttons on the web UI Calibrate page measure the head kinematic chain and th
 head RGB camera. "Head calibrate" drives the pan/tilt head over a grid while a ChArUco board lies on the floor at 3-4
 spots; one least-squares fit gives the pan-axis height, mount roll/pitch, tilt zero and the camera lever, applied as a
 `head_chain.json` override that head_state_publisher, mcp_server (HeadKinematics and the front camera) and the web_ui
-URDF view all read. "Arm calibrate" then moves the arm (small joints first, shoulder joints only after the user's OK)
+URDF view all read. "Arm calibrate" then moves the arm in three confirmed tiers (wrist roll, then wrist and elbow, then shoulder joints)
 with a small ChArUco plate on the fixed jaw in view of the head; a joint fit gives the shoulder_lift, elbow_flex,
 wrist_flex and wrist_roll offsets plus the head yaw and x/y relative to the arm. The arm offsets are a
 `joint_offsets_rad` snippet for review and commit; the head part is applied. Everything extends the existing Python
@@ -30,7 +30,8 @@ ground, not with SSH and scripts.
   head_state_publisher (TF), mcp_server HeadKinematics and front camera, and the web_ui head URDF use it with no
   redeploy.
 - G3: "Arm calibrate" (enabled once a head result is applied) moves the arm through a scripted pose set with the
-  plate in view, small joints first, shoulder joints only after an explicit OK, tool point >= 10 cm above the floor;
+  plate in view in three tiers (wrist roll; wrist flex and elbow after a confirm; shoulder joints after a second
+  confirm), tool point >= 10 cm above the floor;
   it fits shoulder_lift, elbow_flex, wrist_flex and wrist_roll offsets and head x/y/yaw, with sigma and a held-out
   tool-point error.
 - G4: The arm result gives a `joint_offsets_rad` snippet (shoulder_pan unchanged) to copy or download for review and
@@ -108,8 +109,8 @@ A constant wrist_roll offset is exactly absorbed by a free plate rotation in `gr
 roll joint's child), the same reason the 2026-10-10 solve could not identify wrist_roll. So the plate sits on a keyed
 clip whose plate rotation in `gripper_link` is a configured CAD value (`plate_mount.rpy`), and only the plate
 translation is free. wrist_flex, elbow_flex and shoulder_lift are identifiable because wrist_roll varies across the
-pose set. When no CAD rotation is configured, wrist_roll is not fitted and keeps its configured value, and the report
-says so. (my call) Serves A2.
+pose set. Until the user supplies the clip's CAD rotation (Q3), wrist_roll is not fitted and keeps its configured value, and
+the report and the UI say so; the user will supply it. (my call) Serves A2.
 
 ### D5: Output forms
 
@@ -126,18 +127,25 @@ request). Serves A1, A2.
 The node moves the head (`set_head_angles`, `head_look_at`, `head_home`) and the arm (`take_control`,
 `move_arm_joints`, `release_control`) as an MCP client of mcp_server (`http://127.0.0.1:18200/mcp`, bearer token
 `/etc/ros2/mcp_server/token`), modelled on `nodes/claude_agent/claude_agent/robot_stop.py::call_robot_tool`. Leases,
-self-collision, floor guard, battery gate and the web UI Home override all apply. Alternatives: publishing joint
+self-collision, floor guard, battery gate and the web UI Home override all apply. The head tools need the arm or
+the base lease and releasing the controlling lease homes the head (mcp_server `head_tools.py` LEASE_NOTE): the Head
+sequence takes the arm lease per spot (it never moves the arm) and releases it with `keep_position=true` on every
+exit (spot done, stop, error, exception); the Arm sequence releases with the park. Neither calls `head_home`
+separately. Board spots are moved by hand; the base never drives during a calibration. Alternatives: publishing joint
 commands directly (bypasses every guard), or driving the sequence from the browser (dies with the tab). (my call)
 Serves A1, A2.
 
 ### D7: Arm safety tiers
 
-The pose set has a small tier (only wrist_flex, wrist_roll and elbow_flex differ from a base pose, each within
-`max_small_delta_rad`) and a big tier (shoulder_lift and shoulder_pan move). An arm run starts with the small tier;
-the big tier runs only when the request carries `allow_big_joints: true`, which the UI sends only after a confirm
-dialog naming the joints. Every pose's nominal tool point is checked >= 0.10 m above the floor before it is
-commanded; speed_scale <= 0.3; the lease is always released (park home) at the end, on stop and on error. User
-decision D-B1. Serves A2.
+The base pose closes the gripper on the plate clip once (`gripper_rad` from config); no later pose changes it. Three
+tiers: tier 0 moves only wrist_roll; tier 1 adds wrist_flex and elbow_flex at small amplitude
+(`max_tier1_delta_rad`); tier 2 adds shoulder_lift and shoulder_pan. Tier 0 runs after a confirm dialog; tier 1 only
+with `allow_wrist_elbow: true`, which the UI sends only with its confirm checkbox ticked (safer default; the gate asks
+whether that confirm is wanted, Q4); tier 2 only with `allow_big_joints: true`, sent only after a second confirm
+dialog naming the shoulder joints. Every pose's nominal tool point is checked >= 0.10 m above the floor before it is
+commanded; speed_scale <= 0.3; the lease is always released (park home, which also homes the head) at the end, on
+stop and on error. The pose-set test solves the head aim with the limits read from the URDF it is given (a fixture
+with the reprint's -30..+60 deg), so it does not depend on the tilt-range task. User decision D-B1. Serves A2.
 
 ### D8: One robust least-squares fit with sigma, held-out views and limits
 
@@ -150,7 +158,7 @@ used (gravity sag drops out). Serves A1, A2, A5.
 ### D9: Two buttons on the Calibrate page
 
 "Head calibrate" (with Next spot, Stop, Compute, result, Apply) and then "Arm calibrate" (enabled once a head_chain
-result is applied; small tier, then a confirmed "Allow shoulder moves" run; result, snippet Copy and Download, Apply
+result is applied; wrist-roll tier after a confirm, wrist and elbow tier with a confirm checkbox, then a confirmed "Allow shoulder moves" run; result, snippet Copy and Download, Apply
 head part). They replace the "Arm calibration - deferred" line. User decision. Serves A3.
 
 ### D10: Hardware first, then the tilt range
@@ -219,7 +227,7 @@ noise) that must recover the parameters within stated tolerances; the epic ends 
 | D4 Plate rotation fixed to the clip's CAD pose | calib-config-and-view-types, arm-offsets-plate-solver |
 | D5 Output forms | head-chain-override-format, head-chain-compute-apply, arm-offsets-compute-apply, head-state-publisher-chain, mcp-head-kinematics-applied, mcp-front-camera-applied, web-ui-applied-head-urdf |
 | D6 Robot motion through mcp_server tools | robot-mcp-client, head-grid-capture-sequence, arm-pose-capture-sequence, calib-ansible-deploy-config |
-| D7 Arm safety tiers | arm-pose-capture-sequence, arm-calibrate-ui-section |
+| D7 Arm safety tiers | arm-pose-capture-sequence, arm-calibrate-ui-section, sequence-http-api |
 | D8 One robust least-squares fit with sigma, held-out views and limits | calib-config-and-view-types, head-chain-board-solver, arm-offsets-plate-solver |
 | D9 Two buttons on the Calibrate page | calib-frontend-api, head-calibrate-ui-section, arm-calibrate-ui-section |
 | D10 Hardware first, then the tilt range | gripper-plate-marker, hardware-reprint-and-plate, head-tilt-range-widened |
@@ -253,8 +261,9 @@ Cross-epic: `head-chain-override` is registered in `docs/plans/contracts.json`; 
 - Frame conventions: URDF rpy is fixed-axis xyz (`urdf_handoff.RPY_SEQUENCE`), head_tilt + is down, optical frames
   z forward; arm `base_link` (arm URDF root) vs robot `base_link`, joined by `base_in_base_link`; `urdf = measured +
   offset`.
-- Arm safety: the small-tier validation, the 0.10 m floor check before each command, lease release on every exit,
-  `allow_big_joints` only from the confirm dialog.
+- Arm and head safety: the tier validation, the gripper set once, the 0.10 m floor check before each command, lease
+  release on every exit path (head and arm sequences), `allow_wrist_elbow` only from the checkbox and
+  `allow_big_joints` only from the shoulder confirm.
 - Every consumer actually reading `head_chain.json`, and an unusable override falling back to the URDF with a warning.
 - No placeholder data: a missing joint sample or detection means no pose, never zeros.
 
@@ -285,6 +294,7 @@ Cross-epic: `head-chain-override` is registered in `docs/plans/contracts.json`; 
 - Q1: After the reprint, set the head tilt range to -30..+60 deg (+ is down) everywhere it is pinned? [recommended: yes]
 - Q2: Gripper plate 5x3 squares of 18 mm (14 mm markers, ids 15-21, about 98 x 62 mm with margins) on a keyed clip on the fixed jaw? [recommended: yes]
 - Q3: Will you give the plate's CAD rotation in gripper_link from the clip design, so wrist_roll can be fitted (without it wrist_roll keeps its current value)? [recommended: yes]
+- Q4: Arm tier 1 (wrist flex and elbow, small amplitude, tool >= 10 cm above the floor) needs its own confirm checkbox in the UI? [recommended: yes]
 
 ## Irreversible operations in scope
 
