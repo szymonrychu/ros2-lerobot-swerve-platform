@@ -238,3 +238,7 @@
 ## Head RGB-D calibration on the robot (2026-10-19)
 
 - **Decision**: head RGB-D calibration is captured, computed and applied on the robot from the web UI Calibrate page (`/var/lib/ros2/head_rgbd_calibration/applied`); Apply restarts the head nodes (head_camera_cpp, head_rgbd_cpp, head_state_publisher). Repo files under `nodes/*/config` and `nodes/web_ui/urdf/head.urdf` only seed an empty applied dir. The CLI stays for bags, validation captures and offline calibration.
+
+## Servo torque off and neutral (2026-10-20)
+
+- **Decision**: servo neutral lives in the servo EEPROM and is re-zeroed from the web UI Calibrate page inside the running bridge (torque off, record neutral, re-enable torque + save); follower arm only; an arm re-zero leaves `/var/lib/ros2/arm/calibration_stale.json` (joint_offsets and home stale). Robot runbook: `docs/runbooks/servo-torque-neutral.md`.

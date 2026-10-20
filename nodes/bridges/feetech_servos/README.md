@@ -176,6 +176,22 @@ An existing marker is merged: its joints are kept and the saved ones updated, `s
 calibration removes `joint_offsets`, and an empty list deletes the file. A marker write failure answers
 `success=false` with `neutral saved, stale marker not written: <error>` (torque stays enabled) and logs an error.
 
+## Bench findings
+
+Answered by the head_pan single-joint bench in `docs/runbooks/servo-torque-neutral.md`.
+
+1. Does a goal write with torque off take effect or move the servo once torque returns?
+
+   pending: filled by the runbook
+
+2. Does DefineMiddle (`torque_enable = 128`) need UnLockEprom first, and does the lock state matter afterwards?
+
+   pending: filled by the runbook
+
+3. Do `min/max_angle_limit` stay unchanged after the centre offset is applied?
+
+   pending: filled by the runbook
+
 ## Bus budget
 
 `tests/test_bus_budget.py` proves, before any hardware is touched, that the arm-only bus keeps headroom at 100 Hz and that base plus head fit the base bus. It loads the `lerobot_follower` and `base_servos` config blocks of `ansible/group_vars/client.yml` through `load_config`, puts exactly those servos on the emulated bus of `tests/sts_bus.py` (real st3215 packet handler, bytes at 1 Mbaud, 1 ms per transaction) and runs the worst-case cycle: every position goal due for refresh, every velocity joint's target changed, then one state sync read of all servos.
