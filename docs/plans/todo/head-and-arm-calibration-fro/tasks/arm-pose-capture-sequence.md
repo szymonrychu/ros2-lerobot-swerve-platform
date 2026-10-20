@@ -64,7 +64,7 @@ Choose the base pose so the plate is 0.3-0.45 m in front of the head camera; che
 
 ## Interfaces
 
-- `sequencer.py::Sequencer.start_arm(session_id, allow_big_joints)`; config `arm_sequence` (pose set, `joint_offsets_rad`, `arm_urdf_file`).
+- `sequencer.py::Sequencer.start_arm(session_id, allow_wrist_elbow, allow_big_joints)`; config `arm_sequence` (`base_pose`, `gripper_rad`, `tier0_poses`, `tier1_poses`, `tier2_poses`, `joint_offsets_rad`, `arm_urdf_file`).
 
 ## Expected outcome
 
@@ -77,7 +77,7 @@ Arm calibrate moves the arm through safe poses with the plate in view, small joi
 
 ## Notes
 
-- least dramatic first (CLAUDE.md): only wrist and elbow in the small tier; the UI asks before the big tier.
+- Least dramatic first (CLAUDE.md): tier 0 wrist roll only; tier 1 wrist flex and elbow behind a confirm checkbox; tier 2 shoulder joints behind a confirm dialog.
 - Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
 
 - 2026-10-20 amended: builder check: head tools need a lease, three arm tiers with confirms, gripper set once, mcp-token via supplementary_groups, optional drive check
