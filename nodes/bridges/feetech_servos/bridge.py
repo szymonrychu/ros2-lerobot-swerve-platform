@@ -442,11 +442,17 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                         if changing:
                             line = ",".join(f"{name}:{val}" for name, val in changing)
                             print(line, flush=True)
+
                 # Full register dump, one servo per cycle (0 interval = disabled) so the loop never stalls.
-                dump = register_dump.step(time.monotonic(), lambda sid: read_all_registers(servo, sid))
+                def read_and_note_registers(sid: int) -> dict[str, int]:
+                    # Noted when read, not when the round completes: a release landing mid-round keeps its readings.
+                    registers = read_all_registers(servo, sid)
+                    torque_control.note_register_dump(sid, registers)
+                    return registers
+
+                dump = register_dump.step(time.monotonic(), read_and_note_registers)
                 if dump is not None:
                     record_register_dump(dump, joint_inverted)
-                    torque_control.note_dump(dump)
                     pub_registers.publish(String(data=json.dumps(dump, separators=(",", ":"))))
 
                 torque_state.step(time.monotonic(), clock_ns())

@@ -155,17 +155,6 @@ class TorqueControl:
         if TORQUE_REGISTER in registers:
             self.joint_torque[servo_id] = registers[TORQUE_REGISTER]
 
-    def note_dump(self, dump: dict[str, dict[str, int]]) -> None:
-        """Feed a complete register dump (joint name -> registers) to note_register_dump.
-
-        Args:
-            dump (dict[str, dict[str, int]]): RegisterDumpScheduler payload; unknown joint names are ignored.
-        """
-        for name, registers in dump.items():
-            servo_id = self.joint_ids.get(name)
-            if servo_id is not None:
-                self.note_register_dump(servo_id, registers)
-
     def release(self, namespace: str) -> TorqueResult:
         """Release torque of a group's position joints; stop and gate its wheels (their torque stays on).
 

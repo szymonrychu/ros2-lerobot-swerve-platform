@@ -229,8 +229,8 @@ def test_register_dump_showing_torque_zero_changes_the_state(bridge_module: Modu
     assert wiring.states("follower")[-1]["joints"]["gripper"] == 1
 
     wiring.rig.port.servos[6][STS_TORQUE_ENABLE] = 0  # the servo dropped torque by itself
-    dump = {j.name: read_all_registers(wiring.control.servo, j.id) for j in ARM.joints}
-    wiring.control.note_dump(dump)
+    for joint in ARM.joints:
+        wiring.control.note_register_dump(joint.id, read_all_registers(wiring.control.servo, joint.id))
     wiring.reporter.step(0.1, 2)  # well inside the interval: published because it changed
     states = wiring.states("follower")
     assert len(states) == 2
