@@ -1,13 +1,20 @@
 """Pydantic result models returned by the robot interface and exposed as MCP structured tool outputs."""
 
+import logging
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from .config import SettlePolicy
 from .grasp_check import GraspCheck
+from .surfaces import MAX_REGIONS, HalfPlaneEdge, SurfaceRegion
+
+LOGGER = logging.getLogger(__name__)
+GROUND_FRAME = "base_link"
 
 ArmMotionStatus = Literal[
     "converged",
@@ -49,10 +56,6 @@ def released_groups(servo_released: Callable[[str], bool | None]) -> list[str]:
         list[str]: The released groups, in SERVO_GROUPS order.
     """
     return [group for group in SERVO_GROUPS if servo_released(group) is True]
-
-
-# final: wait for convergence after the streamed trajectory; trajectory_end: return when the trajectory finished.
-SettlePolicy = Literal["final", "trajectory_end"]
 
 
 class RobotError(RuntimeError):
@@ -182,6 +185,253 @@ class CollisionMonitorInfo(BaseModel):
     age_s: float
 
 
+class GroundEdge(BaseModel):
+    """Edge line of a ground region (/ground/state regions[].edge), x, y in base_link."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    point: tuple[float, float]
+    direction: tuple[float, float]
+    side: Literal["left", "right"]
+
+
+class GroundRegion(BaseModel):
+    """One step or drop region of /ground/state (contract ground-state, nodes/ground_estimator_cpp state.hpp)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    name: str
+    kind: str
+    cls: str = Field(alias="class")
+    height_m: float
+    frame: str
+    edge: GroundEdge
+    distance_m: float
+    points: int
+
+
+class GroundWarning(BaseModel):
+    """One warning area of /ground/state (a flat or ramp cluster that is passable at reduced speed)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    polygon: list[tuple[float, float]]
+    height_m: float
+    slope_deg: float
+    source: str
+
+
+class GroundPlane(BaseModel):
+    """The tracked floor plane of /ground/state: unit normal and height in base_link."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    normal: tuple[float, float, float]
+    height_m: float
+    inliers: int
+    inlier_ratio: float
+    source: str
+    age_s: float
+
+
+class GroundTraversability(BaseModel):
+    """Obstacle rule of /ground/state: a step above max_step_m or a slope above max_slope_deg is an obstacle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_step_m: float
+    max_slope_deg: float
+
+
+class GroundColour(BaseModel):
+    """RGB-D floor colour model status of /ground/state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_ok: bool
+    floor_samples: int
+    mismatch_ratio: float
+    stamp_ns: int
+
+
+class GroundState(BaseModel):
+    """/ground/state JSON (std_msgs/String); fields are the STATE_KEYS of ground_estimator_cpp state.hpp."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stamp_ns: int
+    frame: str
+    prior: str
+    imu_ok: bool
+    plane: GroundPlane | None
+    reason: str | None
+    slope_deg: float | None
+    slope_roll_deg: float | None
+    slope_pitch_deg: float | None
+    slope_level: str | None
+    base_tilt_deg: float
+    plane_vs_base_deg: float | None
+    traversability: GroundTraversability
+    obstacle_points: int
+    drop_points: int
+    regions: list[GroundRegion]
+    warnings: list[GroundWarning]
+    colour: GroundColour | None
+
+
+def ground_regions_to_surfaces(state: GroundState) -> list[SurfaceRegion]:
+    """Surface regions (base_link) of the ground regions, for the floor guard terrain.
+
+    kind, class, distance_m and points are dropped. At most MAX_REGIONS are kept, the nearest, in state order. A
+    region SurfaceRegion rejects is skipped and logged, never altered.
+
+    Args:
+        state (GroundState): Parsed /ground/state.
+
+    Returns:
+        list[SurfaceRegion]: One region per kept ground region, in state order.
+    """
+    nearest = sorted(range(len(state.regions)), key=lambda i: state.regions[i].distance_m)[:MAX_REGIONS]
+    surfaces: list[SurfaceRegion] = []
+    for index in sorted(nearest):
+        item = state.regions[index]
+        try:
+            surfaces.append(
+                SurfaceRegion(
+                    name=item.name,
+                    height_m=item.height_m,
+                    frame=GROUND_FRAME,
+                    edge=HalfPlaneEdge(point=item.edge.point, direction=item.edge.direction, side=item.edge.side),
+                )
+            )
+        except ValidationError as exc:
+            LOGGER.warning("ground region %s skipped (not a valid surface region): %s", item.name, exc.errors()[:1])
+    return surfaces
+
+
+class GroundSummaryRegion(BaseModel):
+    """A step or drop region in the ground summary."""
+
+    name: str
+    kind: str = Field(description="step (floor rises) or drop (floor falls) at the edge")
+    classification: Literal["obstacle", "warning"] = Field(
+        description="obstacle: do not drive over it; warning: passable, slow down"
+    )
+    height_m: float = Field(description="Surface height (m) relative to the floor plane, base_link z")
+    distance_m: float = Field(description="Distance from base_link to the edge (m)")
+    edge: HalfPlaneEdge = Field(description="Edge line in base_link; the region lies on `side` of it")
+
+
+class GroundSummaryWarning(BaseModel):
+    """A warning area in the ground summary."""
+
+    kind: str = Field(description="ramp, flat step/threshold or colour (flat object of another colour than the floor)")
+    height_m: float = Field(description="Height (m) relative to the floor plane")
+    slope_deg: float = Field(description="Surface slope (deg)")
+    nearest_distance_m: float = Field(description="Distance from base_link to the nearest point of the area (m)")
+
+
+class GroundObstacleRule(BaseModel):
+    """What counts as an obstacle rather than a warning area."""
+
+    max_step_m: float = Field(description="A step, threshold or drop higher than this (m) is an obstacle")
+    max_slope_deg: float = Field(description="A surface steeper than this (deg) is an obstacle")
+
+
+class GroundSummary(BaseModel):
+    """Floor plane, slope, steps and drop-offs estimated from the head ToF/RGB-D; covers only what the head sees."""
+
+    floor_height_m: float = Field(description="Floor height relative to base_link (m, negative: below it)")
+    plane_source: str = Field(description="fit: from the current cloud; held: last good plane kept while the fit fails")
+    slope_deg: float | None = Field(description="Floor slope (deg) in the direction of steepest descent, null unknown")
+    slope_level: str | None = Field(description="Slope level versus the tilt guard limits (ok, warning, error)")
+    plane_vs_base_deg: float | None = Field(
+        description="Angle between the floor plane and base_link (deg); large means a head calibration error"
+    )
+    regions: list[GroundSummaryRegion] = Field(description="Steps and drop-offs with edge, height and distance")
+    warnings: list[GroundSummaryWarning] = Field(description="Warning areas: slow down, passable")
+    obstacle_rule: GroundObstacleRule
+    colour_mismatch_ratio: float | None = Field(
+        description="Share of RGB-D floor pixels whose colour differs from the floor model; null without colour data"
+    )
+    state_age_s: float = Field(description="Age of the /ground/state message (s)")
+
+
+def polygon_distance(polygon: list[tuple[float, float]]) -> float:
+    """Distance from the origin to a polygon (0 when it contains the origin).
+
+    Args:
+        polygon (list[tuple[float, float]]): Vertices (x, y).
+
+    Returns:
+        float: Distance (m).
+    """
+    inside = False
+    best = math.inf
+    for (ax, ay), (bx, by) in zip(polygon, [*polygon[1:], polygon[0]], strict=True):
+        if (ay > 0.0) != (by > 0.0) and ax + (0.0 - ay) / (by - ay) * (bx - ax) > 0.0:
+            inside = not inside
+        dx, dy = bx - ax, by - ay
+        length_sq = dx * dx + dy * dy
+        t = 0.0 if length_sq == 0.0 else min(1.0, max(0.0, -(ax * dx + ay * dy) / length_sq))
+        best = min(best, math.hypot(ax + t * dx, ay + t * dy))
+    return 0.0 if inside else best
+
+
+def summarize_ground(state: GroundState, age_s: float) -> GroundSummary:
+    """Agent-facing ground summary of a state that has a floor plane.
+
+    Args:
+        state (GroundState): Parsed /ground/state with `plane` set.
+        age_s (float): Receive age of the state (s).
+
+    Returns:
+        GroundSummary: The mapped, rounded summary.
+
+    Raises:
+        ValueError: When the state has no plane.
+    """
+    if state.plane is None:
+        raise ValueError("state has no floor plane")
+
+    def opt(value: float | None, digits: int) -> float | None:
+        return None if value is None else round(value, digits)
+
+    return GroundSummary(
+        floor_height_m=round(state.plane.height_m, 3),
+        plane_source=state.plane.source,
+        slope_deg=opt(state.slope_deg, 1),
+        slope_level=state.slope_level,
+        plane_vs_base_deg=opt(state.plane_vs_base_deg, 1),
+        regions=[
+            GroundSummaryRegion(
+                name=r.name,
+                kind=r.kind,
+                classification=r.cls,
+                height_m=round(r.height_m, 3),
+                distance_m=round(r.distance_m, 3),
+                edge=HalfPlaneEdge(point=r.edge.point, direction=r.edge.direction, side=r.edge.side),
+            )
+            for r in state.regions
+        ],
+        warnings=[
+            GroundSummaryWarning(
+                kind=w.kind,
+                height_m=round(w.height_m, 3),
+                slope_deg=round(w.slope_deg, 1),
+                nearest_distance_m=round(polygon_distance(w.polygon), 3),
+            )
+            for w in state.warnings
+        ],
+        obstacle_rule=GroundObstacleRule(
+            max_step_m=state.traversability.max_step_m, max_slope_deg=state.traversability.max_slope_deg
+        ),
+        colour_mismatch_ratio=None if state.colour is None else round(state.colour.mismatch_ratio, 3),
+        state_age_s=round(age_s, 3),
+    )
+
+
 class MapSummary(BaseModel):
     """Obstacle sectors from /scan_filtered plus map size; stale or missing parts are omitted."""
 
@@ -192,6 +442,11 @@ class MapSummary(BaseModel):
     robot_pose: BasePose | None = None
     obstacles_3d: Obstacles3d | None = Field(
         default=None, description="Head ToF obstacles and cliffs per sector; null when no fresh cloud (see notes)"
+    )
+    ground: GroundSummary | None = Field(
+        default=None,
+        description="Floor height, slope, steps and drop-offs from the head ToF/RGB-D (/ground/state); null when "
+        "there is no fresh estimate or no floor plane (see notes)",
     )
     notes: list[str] = Field(default_factory=list)
 

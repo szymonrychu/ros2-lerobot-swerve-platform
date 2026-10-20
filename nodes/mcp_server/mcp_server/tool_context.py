@@ -22,6 +22,7 @@ from .models import (
     BasePose,
     CameraFrame,
     CameraZoomFrame,
+    GroundState,
     Map3dCloud,
     MapSummary,
     NavigationResult,
@@ -121,6 +122,10 @@ class RobotApi(Protocol):
 
     def map_summary(self, include_png: bool, radius_m: float, png_max_px: int) -> tuple[MapSummary, bytes | None]:
         """Obstacle sectors, map stats and optional PNG crop."""
+        ...
+
+    def ground_state(self) -> tuple[GroundState, float] | None:
+        """Latest /ground/state with its receive age (s); None when absent or stale."""
         ...
 
     def tof_points(self) -> TofPoints | None:

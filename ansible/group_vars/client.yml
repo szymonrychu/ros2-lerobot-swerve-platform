@@ -2360,6 +2360,8 @@ ros2_nodes:
         # get_map_summary obstacles_3d: head ToF cloud (filtered /tof/points), subscribed lazily, latest
         # message only.
         tof_points: /tof/points_filtered
+        # get_map_summary ground: ground_estimator_cpp state JSON (its output_namespace + /state), subscribed at start.
+        ground_state: /ground/state
         plan: /plan
         # POI tools talk to poi_store (same topics as its entry below).
         poi_list: /poi/list

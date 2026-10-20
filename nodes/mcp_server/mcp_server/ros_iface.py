@@ -79,6 +79,7 @@ from .models import (
     CameraFrame,
     CameraZoomFrame,
     CollisionMonitorInfo,
+    GroundState,
     Map3dCloud,
     MapSummary,
     NavGoalStatus,
@@ -191,6 +192,7 @@ MOTION_CRITICAL_TOPICS = (
     "servo_registers",
     "base_servo_registers",
     "tilt_guard_state",
+    "ground_state",
     "collision_monitor_state",
     "leader_joint_updates",
     "grasp_command",
@@ -813,6 +815,8 @@ class RosRobot:
                 functools.partial(self.on_torque_state, group),
                 TORQUE_STATE_QOS,
             )
+        self.ground_state_error: str | None = None
+        self.subscribe(String, t.ground_state, lambda msg: self.on_ground_state(msg.data), TILT_GUARD_QOS)
 
         self.set_register_pub = self.node.create_publisher(String, t.follower_set_register, COMMAND_QOS)
         urdf = config.arm.urdf_path
@@ -1912,6 +1916,36 @@ class RosRobot:
         world = rotation.apply(local) + np.array([t.x, t.y, t.z])
         rows = [(float(x), float(y), float(z), float(r)) for (x, y, z), r in zip(world, ranges[valid], strict=True)]
         return ScanPoints(frame=self.cfg.topics.base_frame, age_s=round(scan.age(time.monotonic()), 3), points=rows)
+
+    def on_ground_state(self, payload: str) -> None:
+        """Parse one /ground/state message and cache it; an invalid one is logged once per distinct error, not stored.
+
+        Args:
+            payload (str): JSON per the ground-state contract.
+        """
+        try:
+            state = GroundState.model_validate_json(payload)
+        except ValidationError as exc:
+            error = str(exc.errors()[:1])
+            if error != self.ground_state_error:
+                self.ground_state_error = error
+                self.log.warning(f"ground state dropped (not the /ground/state contract): {error}")
+            return
+        self.ground_state_error = None
+        with self.lock:
+            self.latest["ground_state"] = Stamped(value=state, stamp=time.monotonic())
+
+    def ground_state(self) -> tuple[GroundState, float] | None:
+        """Latest /ground/state with its receive age.
+
+        Returns:
+            tuple[GroundState, float] | None: State and age (s), or None when absent or older than
+                timeouts.ground_state_stale_s.
+        """
+        item = self.get("ground_state", self.cfg.timeouts.ground_state_stale_s)
+        if item is None:
+            return None
+        return item.value, item.age(time.monotonic())
 
     def tof_points(self) -> TofPoints | None:
         """Latest head ToF cloud in base_link, lazily subscribed (latest message only).

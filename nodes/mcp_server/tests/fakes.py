@@ -18,7 +18,7 @@ from mcp_server.arm import JointSample
 from mcp_server.base_dock import DockGoal, DockResult
 from mcp_server.frontiers import MapGrid
 from mcp_server.map_client import MapRequests
-from mcp_server.models import BasePose, CameraZoomFrame, Map3dCloud, PathPlan, RobotError, TofPoints
+from mcp_server.models import BasePose, CameraZoomFrame, GroundState, Map3dCloud, PathPlan, RobotError, TofPoints
 from mcp_server.poi_client import PoiStoreDown
 from mcp_server.staleness import Stamped
 from mcp_server.topdown import TopdownInputs
@@ -259,6 +259,7 @@ class PerceptionFakeMixin:
         self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=0.5, age_s=0.05)
         self.stops = 0
         self.tof_cloud: TofPoints | None = None
+        self.ground: tuple[GroundState, float] | None = None
         self.map3d_cloud_msg: Map3dCloud | None = None  # latest /map3d/cloud (None = none received)
         self.map3d_status_msg: dict | None = None  # latest /map3d/status JSON (None = none received)
         self.poi_store_up = True
@@ -438,6 +439,9 @@ class PerceptionFakeMixin:
 
     def tof_points(self) -> TofPoints | None:
         return self.tof_cloud
+
+    def ground_state(self) -> tuple[GroundState, float] | None:
+        return self.ground
 
     def map3d_cloud(self) -> Map3dCloud | None:
         return self.map3d_cloud_msg

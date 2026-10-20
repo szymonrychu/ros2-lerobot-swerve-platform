@@ -61,6 +61,7 @@ from .models import (
     RobotState,
     SettlePolicy,
     StopResult,
+    summarize_ground,
     torque_off_message,
 )
 from .monitor import DIGEST_DEFAULT_SESSION, RobotMonitor
@@ -940,14 +941,28 @@ def register_core_tools(ctx: ToolContext) -> None:
         what the head ToF depth camera sees per sector: the nearest obstacle between 0.06 and 0.6 m above the floor
         (with its height range) and the nearest cliff (floor more than 0.10 m lower), within 2 m; it covers only
         what the head currently looks at (null when there is no fresh cloud). Optionally a PNG of the occupancy map
-        around the robot (white free, black occupied, grey unknown, red arrow = robot, map +y up)."""
+        around the robot (white free, black occupied, grey unknown, red arrow = robot, map +y up).
+
+        `ground` is the floor estimate from the head ToF/RGB-D (/ground/state): floor height relative to base_link,
+        plane source (fit/held), slope and slope level, plane_vs_base_deg (large: head calibration error), the
+        step/drop regions (obstacle or warning, height, distance, edge), the warning areas (passable, slow down), the
+        obstacle rule (max step, max slope), the colour mismatch ratio and the state age. It covers only what the head
+        currently sees and is null with a note when there is no fresh estimate or no floor plane. `obstacles_3d` stays
+        the fixed-band summary (obstacles 0.06-0.6 m above the assumed floor, cliffs), independent of `ground`."""
         with tool_errors():
             summary, png = robot.map_summary(include_png, radius_m, config.limits.map_png_max_px)
             cloud = robot.tof_points()
+            ground = robot.ground_state()
         if cloud is None:
             summary.notes.append("ToF obstacles_3d unavailable: no fresh /tof/points_filtered cloud or no TF")
         else:
             summary.obstacles_3d = summarize_tof(cloud)
+        if ground is None:
+            summary.notes.append("ground estimate unavailable: no fresh /ground/state")
+        elif ground[0].plane is None:
+            summary.notes.append(f"no floor plane: {ground[0].reason}")
+        else:
+            summary.ground = summarize_ground(*ground)
         content: list[TextContent | ImageContent] = [TextContent(type="text", text=summary.model_dump_json())]
         if png is not None:
             content.append(image_content(png, "image/png"))

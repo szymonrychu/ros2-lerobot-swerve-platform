@@ -13,7 +13,6 @@ from ros2_common.maps import COMMAND_TOPIC, RESULT_TOPIC, STATUS_TOPIC
 
 from .guard_rules import GuardRuleSettings
 from .head_kinematics import DEFAULT_HEAD_URDF, HeadKinematics
-from .models import SettlePolicy
 from .sag import SAG_JOINTS
 
 CONFIG_ENV = "MCP_SERVER_CONFIG"
@@ -82,6 +81,10 @@ class MissingTokenError(RuntimeError):
     """Raised when MCP_SERVER_TOKEN is unset, blank or too short to be a real secret."""
 
 
+# final: wait for convergence after the streamed trajectory; trajectory_end: return when the trajectory finished.
+SettlePolicy = Literal["final", "trajectory_end"]
+
+
 class StrictModel(BaseModel):
     """Base model rejecting unknown keys so config typos fail loudly."""
 
@@ -141,6 +144,8 @@ class TopicSettings(StrictModel):
     head_camera: str = "/head_camera/image_raw/compressed"  # head RGB camera (Camera Module 3), tool camera `front`
     local_costmap: str = "/local_costmap/costmap"  # subscribed lazily by get_topdown_view, latest message only
     tof_points: str = "/tof/points_filtered"  # subscribed lazily by get_map_summary, latest message only
+    # ground_estimator_cpp state JSON (std_msgs/String, latched), subscribed at start: get_map_summary ground
+    ground_state: str = "/ground/state"
     plan: str = "/plan"  # Nav2 global plan (nav_msgs/Path)
     poi_list: str = "/poi/list"  # poi_store, latched JSON {pois, revision}
     poi_command: str = "/poi/command"
@@ -327,6 +332,7 @@ class TimeoutSettings(StrictModel):
     state_stale_s: float = Field(default=1.0, gt=0.0)
     map_stale_s: float = Field(default=30.0, gt=0.0)
     tof_points_stale_s: float = Field(default=1.0, gt=0.0)  # ToF cloud older than this is not reported
+    ground_state_stale_s: float = Field(default=1.0, gt=0.0)  # /ground/state older than this is not reported
     tf_timeout_s: float = Field(default=0.5, gt=0.0)
     nav_default_timeout_s: float = Field(default=120.0, gt=0.0)
     nav_max_timeout_s: float = Field(default=600.0, gt=0.0)
