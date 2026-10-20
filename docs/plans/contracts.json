@@ -38,5 +38,15 @@
       "head-rgb-d-fusion-of-camera"
     ],
     "note": "head_camera_cpp camera_info_file and head_rgbd_cpp tof_calibration_file point at /var/lib/ros2/head_rgbd_calibration/applied/*; committed repo calibration files only seed an empty applied/ (force: false); head_rgbd_cpp config_files entry removed; owner task head-nodes-use-applied-calib"
+  },
+  {
+    "name": "head-rgbd-points",
+    "kind": "topic",
+    "owner": "head-rgb-d-fusion-of-camera",
+    "file": "nodes/head_rgbd_cpp/include/head_rgbd_cpp/config.hpp",
+    "consumers": [
+      "rgb-d-ground-estimation-and"
+    ],
+    "note": "/head_rgbd/points: PointCloud2 XYZRGB (packed float32 rgb) in the RGB optical frame, RGB stamp, <= cloud.rate_hz (1 Hz), published while subscribed; consumed by ground_estimator_cpp colour labels (task ground-node-wiring)"
   }
 ]
