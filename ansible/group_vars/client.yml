@@ -668,8 +668,8 @@ ros2_node_type_defaults:
   # Ground estimator (nodes/ground_estimator_cpp/README.md): fits the floor plane from the filtered head ToF cloud with
   # the IMU prior, publishes /ground/* (obstacle and drop points, state, warning areas) for the Nav2 local costmap, the
   # mcp_server map summary and floor_guard. Normal tier: it feeds the local costmap, so it is protected above the
-  # background work. The memory figures are placeholders; the runbook replaces them with the measured p50 (MemoryLow)
-  # and 2x the peak (MemoryMax). No ROS_STATIC_PEERS.
+  # background work. The memory figures are initial estimates; sizing rule: MemoryLow is the measured p50 working set
+  # and MemoryMax is 2x the measured peak. No ROS_STATIC_PEERS.
   ground_estimator_cpp:
     deploy_mode: native
     node_launch_command: "ros2 run ground_estimator_cpp ground_estimator_node"
