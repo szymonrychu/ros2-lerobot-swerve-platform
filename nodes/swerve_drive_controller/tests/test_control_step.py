@@ -333,3 +333,75 @@ def test_speed_scale_gauge_is_one_when_stopped_or_inhibited(tmp_path: Path) -> N
     assert speed_scale_after(tmp_path, (0.0, 0.0, 0.0)) == 1.0
     speed_scale_after(tmp_path, (0.25, 0.25, 0.0))
     assert speed_scale_after(tmp_path, (0.25, 0.25, 0.0), inhibited=True) == 1.0
+
+
+def test_released_publishes_no_steering_zero_drive_and_ignores_cmd(tmp_path: Path) -> None:
+    """Released steering: cmd_vel ignored, drives 0 rad/s, no finite steering position, no idle recentring."""
+    cfg = make_config(tmp_path)
+    state = ControlState()
+    for t in (10.0, 14.0, 30.0):
+        out, state = control_step(
+            cfg, state, CmdVelSample((0.2, 0.1, 0.3), t), make_joints(t, steer=1.2), t, released=True
+        )
+        assert out is not None
+        assert all(math.isnan(out.positions[i]) for i in range(8))
+        assert [out.velocities[i] for i in (0, 2, 4, 6)] == [0.0] * 4
+        assert out.moving is False
+
+
+def test_released_still_reports_odometry_from_measured_joints(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    out, _ = control_step(cfg, ControlState(), CmdVelSample(), make_joints(10.0, 0.0, 2.0), 10.0, released=True)
+    assert out is not None
+    assert out.odom_twist[0] == pytest.approx(2.0 * cfg.wheel_radius_m)
+
+
+def test_reenable_seeds_steering_from_measured(tmp_path: Path) -> None:
+    """First cycle after release ends: steering targets equal the measured positions, not the old targets."""
+    cfg = make_config(tmp_path)
+    state = ControlState()
+    _, state = control_step(cfg, state, CmdVelSample((0.0, 0.1, 0.0), 10.0), make_joints(10.0), 10.0)
+    _, state = control_step(cfg, state, CmdVelSample(), make_joints(11.0, steer=0.3), 11.0, released=True)
+    out, state = control_step(cfg, state, CmdVelSample(), make_joints(11.02, steer=0.3), 11.02)
+    assert out is not None
+    assert [out.positions[i] for i in (1, 3, 5, 7)] == pytest.approx([0.3] * 4)
+
+
+def test_reenable_recentres_only_after_idle_recenter_s(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    state = ControlState()
+    _, state = control_step(cfg, state, CmdVelSample(), make_joints(10.0, steer=0.3), 10.0)
+    _, state = control_step(cfg, state, CmdVelSample(), make_joints(20.0, steer=0.3), 20.0, released=True)
+    out, state = control_step(cfg, state, CmdVelSample(), make_joints(100.0, steer=0.3), 100.0)
+    assert out is not None and [out.positions[i] for i in (1, 3, 5, 7)] == pytest.approx([0.3] * 4)
+    out, state = control_step(cfg, state, CmdVelSample(), make_joints(102.9, steer=0.3), 102.9)
+    assert out is not None and [out.positions[i] for i in (1, 3, 5, 7)] == pytest.approx([0.3] * 4)
+    out, state = control_step(cfg, state, CmdVelSample(), make_joints(103.1, steer=0.3), 103.1)
+    assert out is not None and [out.positions[i] for i in (1, 3, 5, 7)] == [0.0] * 4
+
+
+def test_released_false_default_and_inhibit_unchanged(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    out, _ = control_step(
+        cfg, ControlState(), CmdVelSample((0.2, 0.0, 0.0), 10.0), make_joints(10.0, steer=0.4), 10.0, inhibited=True
+    )
+    assert out is not None
+    assert [out.positions[i] for i in (1, 3, 5, 7)] == pytest.approx([0.4] * 4)
+    assert [out.velocities[i] for i in (0, 2, 4, 6)] == [0.0] * 4
+
+
+def test_run_cycle_passes_released(tmp_path: Path) -> None:
+    from swerve_drive_controller.control import run_cycle
+
+    cfg = make_config(tmp_path)
+    seen: list[ControlOutput] = []
+    run_cycle(
+        cfg,
+        ControlState(),
+        CmdVelSample((0.1, 0, 0), 10.0),
+        make_joints(10.0),
+        10.0,
+        lambda o, s: seen.append(o),
+        released=True,
+    )
+    assert seen and all(math.isnan(p) for p in seen[0].positions)

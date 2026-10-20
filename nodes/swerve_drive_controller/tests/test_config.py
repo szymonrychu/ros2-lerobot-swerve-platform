@@ -206,3 +206,16 @@ def test_shipped_ansible_tilt_guard_block_validates() -> None:
     assert cfg is not None
     assert "tilt_guard" in yaml.safe_load(block)
     assert cfg.tilt_guard.error_action == "brake"
+
+
+def test_torque_state_topic_default_override_and_disable(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("{}\n")
+    cfg = load_config(path)
+    assert cfg is not None and cfg.torque_state_topic == "/swerve_drive/torque_state"
+    path.write_text("torque_state_topic: /x/torque_state\n")
+    cfg = load_config(path)
+    assert cfg is not None and cfg.torque_state_topic == "/x/torque_state"
+    path.write_text("torque_state_topic: ''\n")
+    cfg = load_config(path)
+    assert cfg is not None and cfg.torque_state_topic == ""

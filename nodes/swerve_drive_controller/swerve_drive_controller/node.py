@@ -36,6 +36,8 @@ TILT_STATE_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
 )
+# Bridge torque_state is latched; match its QoS so a restarted controller learns the current state at once.
+TORQUE_STATE_QOS = TILT_STATE_QOS
 # REP 145: orientation_covariance[0] == -1 means the IMU provides no orientation estimate.
 IMU_NO_ORIENTATION_COVARIANCE = -1.0
 # After a torque-on restore the payloads are repeated on this many further heartbeats: the publish is volatile
@@ -55,6 +57,24 @@ def joint_maps(msg: JointState) -> tuple[dict[str, float], dict[str, float]]:
     positions = {name: float(msg.position[i]) for i, name in enumerate(msg.name) if i < len(msg.position)}
     velocities = {name: float(msg.velocity[i]) for i, name in enumerate(msg.name) if i < len(msg.velocity)}
     return positions, velocities
+
+
+def parse_released(data: str) -> bool | None:
+    """Parse the "released" field of a bridge torque_state payload.
+
+    Args:
+        data: JSON text of the std_msgs/String.
+
+    Returns:
+        bool | None: The released flag, or None when the payload is not a JSON object with a boolean "released".
+    """
+    try:
+        payload = json.loads(data)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("released"), bool):
+        return None
+    return payload["released"]
 
 
 def build_odometry(
@@ -180,11 +200,27 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
     last_joint_states_time = 0.0
     state = ControlState()
     last_wait_log = 0.0
+    released = False
 
     def on_cmd_vel(msg: Twist) -> None:
         nonlocal latest_cmd
+        if released:
+            return
         sample = CmdVelSample((msg.linear.x, msg.linear.y, msg.angular.z), time.monotonic())
         latest_cmd = gate_cmd_vel(sample, guard.base_drive_inhibited)
+
+    def on_torque_state(msg: String) -> None:
+        nonlocal released, latest_cmd
+        parsed = parse_released(msg.data)
+        if parsed is None:
+            logger.warn(f"ignoring unparsable torque_state payload on {config.torque_state_topic}: {msg.data[:200]!r}")
+            return
+        if parsed and not released:
+            latest_cmd = CmdVelSample()  # never resume a command received before the release
+            logger.warn("steering released (torque off): no steering is commanded until it is re-enabled")
+        elif released and not parsed:
+            logger.info("steering torque re-enabled: steering targets seeded from the measured positions")
+        released = parsed
 
     def publish_tilt_state(now: float) -> None:
         nonlocal last_tilt_state_time
@@ -296,7 +332,14 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
         joints = JointSample(latest_positions, latest_velocities, last_joint_states_time)
         # Nothing is published without fresh, complete wheel state (the bridge watchdog stops the wheels).
         state, published = run_cycle(
-            config, state, latest_cmd, joints, now, publish_cycle, inhibited=guard.base_drive_inhibited
+            config,
+            state,
+            latest_cmd,
+            joints,
+            now,
+            publish_cycle,
+            inhibited=guard.base_drive_inhibited,
+            released=released,
         )
         if not published and now - last_wait_log > WAIT_LOG_INTERVAL_S:
             last_wait_log = now
@@ -304,6 +347,8 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
 
     node.create_subscription(Twist, config.cmd_vel_topic, on_cmd_vel, CONTROL_QOS)
     node.create_subscription(JointState, config.joint_states_topic, on_joint_states, CONTROL_QOS)
+    if config.torque_state_topic:
+        node.create_subscription(String, config.torque_state_topic, on_torque_state, TORQUE_STATE_QOS)
     node.create_subscription(Imu, tilt_cfg.imu_topic, on_imu, qos_profile_sensor_data)
     node.create_timer(1.0 / config.control_loop_hz, on_timer)
 

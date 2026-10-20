@@ -66,7 +66,8 @@ class ControlState:
         last_odom_time: Monotonic time of the previous odometry step, or None after a gap.
         steer_flip: Common steering side of the last cycle (False all unflipped, True all flipped), or None when
             the per-wheel fold was used or before the first cycle.
-        stopped_since: Monotonic time the commanded twist became zero, or None while moving.
+        stopped_since: Monotonic time the commanded twist became zero, or None while moving (and while released,
+            so the idle timer restarts when the release ends).
     """
 
     steer_targets: list[float] | None = None
@@ -146,6 +147,7 @@ def control_step(
     joints: JointSample,
     now: float,
     inhibited: bool = False,
+    released: bool = False,
 ) -> tuple[ControlOutput | None, ControlState]:
     """Run one control cycle.
 
@@ -157,6 +159,9 @@ def control_step(
         now: Current monotonic time, s.
         inhibited: Tilt guard ERROR: the command is ignored, every drive is commanded to 0 rad/s (brake, torque
             stays on) and the steering is held at its last targets (no idle recentering).
+        released: The steering servos are torque-released: the command is ignored, every drive is commanded 0 rad/s,
+            no finite steering position is published (NaN) and there is no idle recentering. The first cycle after
+            the release seeds the steering targets from the measured positions and restarts the idle timer.
 
     Returns:
         tuple[ControlOutput | None, ControlState]: Output (None when joint states are stale or incomplete, so
@@ -173,7 +178,7 @@ def control_step(
         return None, replace(state, last_odom_time=None)
     steer_angles, drive_velocities = measured
 
-    fresh = now - cmd.time_s <= config.cmd_vel_timeout_s and not inhibited
+    fresh = now - cmd.time_s <= config.cmd_vel_timeout_s and not inhibited and not released
     vx, vy, omega = cmd.twist if fresh else (0.0, 0.0, 0.0)
     if abs(vx) < CMD_VEL_DEADBAND and abs(vy) < CMD_VEL_DEADBAND and abs(omega) < CMD_VEL_DEADBAND:
         vx, vy, omega = 0.0, 0.0, 0.0
@@ -181,6 +186,7 @@ def control_step(
     _, ik_drive = inverse_kinematics(vx, vy, omega, config.half_length_m, config.half_width_m, config.wheel_radius_m)
     CMD_SPEED_SCALE.set(wheel_speed_scale(ik_drive, config.max_wheel_angular_velocity_rad_s))
 
+    # steer_targets is None before the first cycle and after a release: seed from the measured steering.
     steer_targets = state.steer_targets if state.steer_targets is not None else list(steer_angles)
     desired_steer, desired_drive, steer_flip = compute_wheel_commands(
         vx,
@@ -196,7 +202,9 @@ def control_step(
     )
     stopped = vx == 0.0 and vy == 0.0 and omega == 0.0
     stopped_since = (state.stopped_since if state.stopped_since is not None else now) if stopped else None
-    if inhibited:
+    if released:
+        desired_steer, desired_drive, steer_flip = [NAN] * 4, [0.0] * 4, None
+    elif inhibited:
         desired_steer, desired_drive, steer_flip = list(steer_targets), [0.0] * 4, state.steer_flip
     elif stopped and config.idle_recenter_s > 0 and now - stopped_since >= config.idle_recenter_s:
         # Idle long enough: steer straight ahead (drive is already zero while stopped).
@@ -204,7 +212,7 @@ def control_step(
         steer_flip = None
     # No-propulsion safeguard: zero drive for a wheel until its steering has caught up.
     for i in range(4):
-        if should_zero_drive(steer_angles[i], desired_steer[i], config.steer_error_threshold_rad):
+        if not released and should_zero_drive(steer_angles[i], desired_steer[i], config.steer_error_threshold_rad):
             desired_drive[i] = 0.0
 
     twist, residual = robust_forward_kinematics(
@@ -232,11 +240,11 @@ def control_step(
         parked=not moving and wheels_parked(drive_velocities, config.wheel_radius_m),
     )
     return output, ControlState(
-        steer_targets=list(desired_steer),
+        steer_targets=None if released else list(desired_steer),
         pose=pose,
         last_odom_time=now,
         steer_flip=steer_flip,
-        stopped_since=stopped_since,
+        stopped_since=None if released else stopped_since,
     )
 
 
@@ -248,6 +256,7 @@ def run_cycle(
     now: float,
     publish: Callable[[ControlOutput, ControlState], None],
     inhibited: bool = False,
+    released: bool = False,
 ) -> tuple[ControlState, bool]:
     """Run one timed control cycle: control_step, then publish when there is an output.
 
@@ -260,12 +269,13 @@ def run_cycle(
         publish: Called with (output, new state) when joint states are fresh and complete; publishes the
             joint command, odometry and TF. Odometry is counted after it returns.
         inhibited: Tilt guard ERROR (see control_step).
+        released: Steering servos torque-released (see control_step).
 
     Returns:
         tuple[ControlState, bool]: State for the next cycle and whether anything was published.
     """
     with LOOP_DURATION.time():
-        output, new_state = control_step(config, state, cmd, joints, now, inhibited)
+        output, new_state = control_step(config, state, cmd, joints, now, inhibited, released)
         if output is None:
             return new_state, False
         publish(output, new_state)

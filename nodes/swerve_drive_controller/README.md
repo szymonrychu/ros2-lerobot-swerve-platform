@@ -96,6 +96,7 @@ YAML config (path via `SWERVE_DRIVE_CONTROLLER_CONFIG` or `/etc/ros2/swerve_driv
 - `half_length_m`, `half_width_m`, `wheel_radius_m`: Geometry (defaults 0.1525, 0.1333, 0.06).
 - `max_steer_angle_rad` (default pi/2), `max_wheel_angular_velocity_rad_s` (default 4.71, which is about 0.28 m/s).
 - `slip_residual_threshold_mps` (default 0.05): forward-kinematics residual above which one slipping wheel is dropped (see Kinematics).
+- `torque_state_topic` (default `/swerve_drive/torque_state`; empty disables): bridge torque state JSON; see Steering calibration for the released behaviour.
 - `idle_recenter_s` (default 3.0): steer back to straight ahead after this long without motion (0 disables).
 - `cmd_vel_timeout_s` (default 0.5): the twist is zeroed when `/cmd_vel` goes quiet. `joint_states_timeout_s` (default 0.5).
 - `joint_names`: 8 names in order fl_drive, fl_steer, fr_drive, fr_steer, rl_drive, rl_steer, rr_drive, rr_steer.
@@ -143,6 +144,17 @@ cd nodes/bridges/feetech_servos
 uv run python scripts/calibrate_servos.py center --device /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00 --id 33
 # repeat for --id 34, 37, 38
 ```
+
+Or from the web UI (Calibrate page, base servo group): release the group's torque, turn the four steering wheels by hand to straight ahead, then "record neutral and re-enable". The bridge stores the neutral and saves it, and 0 rad is the new straight ahead.
+
+While the steering is released (`released` true on `torque_state_topic`, a latched std_msgs/String JSON from the bridge) the controller:
+
+- ignores `/cmd_vel` and clears the latest sample, so no old command resumes on re-enable;
+- commands every drive wheel 0 rad/s (the drives stay torqued and braked);
+- publishes no finite steering position (NaN, which the bridge ignores) and does not recentre while idle;
+- keeps publishing `/odom` and the TF from the measured joint states.
+
+On the first cycle after the release ends the steering targets are seeded from the measured steering positions, so re-enable does not swing the wheels, and the idle timer restarts: steering recentres to 0 rad no earlier than `idle_recenter_s` later. An unparsable torque_state payload is logged and ignored.
 
 ## Metrics
 

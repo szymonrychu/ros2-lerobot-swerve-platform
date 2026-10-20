@@ -23,6 +23,7 @@ DEFAULT_WHEEL_RADIUS_M = 0.06
 DEFAULT_MAX_STEER_ANGLE_RAD = math.pi / 2
 # In-wheel ST3215 no-load speed ~4.71 rad/s -> ~0.28 m/s with 60 mm wheels.
 DEFAULT_MAX_WHEEL_ANGULAR_VELOCITY_RAD_S = 4.71
+DEFAULT_TORQUE_STATE_TOPIC = "/swerve_drive/torque_state"
 DEFAULT_CMD_VEL_TIMEOUT_S = 0.5
 DEFAULT_JOINT_STATES_TIMEOUT_S = 0.5
 # Steering returns to straight ahead after the commanded twist has been zero this long (0 disables).
@@ -53,6 +54,8 @@ class SwerveControllerConfig:
         joint_states_topic: Topic for current joint states (from feetech bridge).
         joint_commands_topic: Topic to publish joint commands (to feetech bridge).
         odom_topic: Topic to publish nav_msgs/Odometry.
+        torque_state_topic: Bridge torque_state JSON topic; while its "released" is true the steering is limp and
+            the controller publishes no steering. Empty disables the subscription.
         odom_frame_id: Frame ID for odometry (e.g. 'odom').
         base_frame_id: Child frame ID for odometry (e.g. 'base_link').
         control_loop_hz: Main loop frequency.
@@ -80,6 +83,7 @@ class SwerveControllerConfig:
     joint_states_topic: str
     joint_commands_topic: str
     odom_topic: str
+    torque_state_topic: str
     odom_frame_id: str
     base_frame_id: str
     control_loop_hz: float
@@ -181,6 +185,8 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
     joint_states_topic = (data.get("joint_states_topic") or "/swerve_drive/joint_states").strip()
     joint_commands_topic = (data.get("joint_commands_topic") or "/swerve_drive/joint_commands").strip()
     odom_topic = (data.get("odom_topic") or "/odom").strip()
+    raw_torque_topic = data.get("torque_state_topic")
+    torque_state_topic = DEFAULT_TORQUE_STATE_TOPIC if raw_torque_topic is None else str(raw_torque_topic).strip()
     odom_frame_id = (data.get("odom_frame_id") or "odom").strip()
     base_frame_id = (data.get("base_frame_id") or "base_link").strip()
     control_loop_hz = max(1.0, flt("control_loop_hz", 50.0))
@@ -215,6 +221,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
         joint_states_topic=joint_states_topic,
         joint_commands_topic=joint_commands_topic,
         odom_topic=odom_topic,
+        torque_state_topic=torque_state_topic,
         odom_frame_id=odom_frame_id,
         base_frame_id=base_frame_id,
         control_loop_hz=control_loop_hz,
