@@ -23,10 +23,12 @@ namespace ground_estimator_cpp
 {
 
 // Keys of the state document, in output order.
+// clang-format off
 inline constexpr std::array<std::string_view, 18> STATE_KEYS = {
   "stamp_ns",       "frame",          "prior",          "imu_ok",      "plane",    "reason",
   "slope_deg",      "slope_roll_deg", "slope_pitch_deg", "slope_level", "base_tilt_deg", "plane_vs_base_deg",
   "traversability", "obstacle_points", "drop_points",    "regions",     "warnings", "colour"};
+// clang-format on
 
 // Decimals of every float in the documents.
 inline constexpr int JSON_DECIMALS = 4;
@@ -57,8 +59,8 @@ struct StateInputs
   std::optional<double> plane_vs_base_deg;
   std::size_t obstacle_points = 0;
   std::size_t drop_points = 0;
-  std::vector<Region> regions;         // with cls set, in base_link
-  std::vector<WarningArea> warnings;   // in base_link
+  std::vector<Region> regions;        // with cls set, in base_link
+  std::vector<WarningArea> warnings;  // in base_link
   TraversabilityConfig traversability;
   std::optional<ColourInputs> colour;  // nullopt: colour disabled or no RGB-D cloud labelled yet
 };
