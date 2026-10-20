@@ -91,21 +91,24 @@ values as `tilt_guard` in client.yml, pinned by a consistency test), `base_tilt_
 tilt_guard cross-check: tilt_guard measures the tilt the robot has, the ground node the tilt it would get ahead.
 (my call.) Serves A3.
 
-### D4: Plane-relative bands
+### D4: Plane-relative candidate bands
 
-Signed height above the plane `h`: obstacles `bands.obstacle_min_m` 0.04 <= h <= `bands.obstacle_max_m` 0.6, drop-off
-`-bands.drop_max_m` (-1.0) <= h <= `-bands.drop_min_m` (-0.05), within `bands.max_range_m` 2.0 m horizontal, as the
-fixed bands' 2 m obstacle_range. Both min margins must exceed `fit.distance_m`. "Plane-relative" means the selection only: the published points keep their base_link x, y, z. The tighter margins than the fixed
-bands (0.06 / -0.10) are possible because the plane is fitted to the same biased points, so the ToF long bias shifts
-the plane with the floor. Clouds are `sensor_msgs/PointCloud2` XYZ float32 in base_link with the input stamp; with a
-valid plane an empty cloud is published (it is a real "nothing in the band" observation), with no valid plane none
-is. (my call: values; to be confirmed by the runbook.) Serves A1, A2.
+Signed height above the plane `h`: above-floor candidates `fit.distance_m` < h <= `bands.obstacle_max_m` 0.6, below-floor
+candidates `-bands.drop_max_m` (-1.0) <= h < `-fit.distance_m`, within `bands.max_range_m` 2.0 m horizontal (the fixed
+bands' 2 m obstacle_range). Which candidates are lethal is decided per cluster by the traversability rule (D14), not by
+a band. "Plane-relative" means the selection only: the published points keep their base_link x, y, z. Margins below
+the fixed bands (0.06 / -0.10) are possible because the plane is fitted to the same biased points, so the ToF long
+bias shifts the plane with the floor. Clouds are `sensor_msgs/PointCloud2` XYZ float32 in base_link with the input
+stamp; with a valid plane an empty cloud is published (a real "nothing lethal" observation), with no valid plane none
+is. (my call: values; confirmed by the runbook.) Serves A1, A2.
 
 ### D5: Steps and drop-offs as surface regions
 
-`pcl::EuclideanClusterExtraction` (`edges.cluster_tolerance_m` 0.1, `edges.min_cluster_points` 10) on the drop cloud
-and on low obstacle points (h <= `edges.step_max_height_m` 0.2 with a height spread <= `edges.step_flatness_m` 0.03).
-Each cluster gives one half-plane region in the mcp `SurfaceRegion` shape: `{name: "drop_<i>"|"step_<i>", kind:
+`pcl::EuclideanClusterExtraction` (`edges.cluster_tolerance_m` 0.1, `edges.min_cluster_points` 10) on the above and
+below candidates. Each cluster gets the features the rule (D14) needs: `edge_step_m` (p90 |h| within
+`traversability.edge_band_m` 0.05 m of its robot-facing edge line: ~H for a box or a drop, ~0 at the foot of a ramp),
+`slope_deg` (its PCA plane vs the floor normal), and a 2D hull. Drop clusters and flat low step clusters
+(|median h| <= `edges.step_max_height_m` 0.2, spread <= `edges.step_flatness_m` 0.03) give one half-plane region in the mcp `SurfaceRegion` shape: `{name: "drop_<i>"|"step_<i>", kind:
 "drop"|"step", height_m: <median h>, frame: "base_link", edge: {point, direction, side}}`, the edge line through the
 cluster's boundary nearest the robot along its principal axis, the region side away from the robot; at most
 `edges.max_regions` (8, mcp MAX_REGIONS is 16), nearest first. Alternative: a height-map grid (more CPU, the mcp model
@@ -116,11 +119,11 @@ is half-planes already). (my call.) Serves A3.
 On each `/head_rgbd/points` cloud (transformed to base_link at its stamp, plane held at that stamp within
 `fit.hold_s`): geometric floor points (|h| <= `fit.distance_m`) update a CIELAB Gaussian floor colour model (OpenCV
 `cvtColor`, forgetting `colour.forgetting` 0.1, valid after `colour.min_floor_samples` 200). Each point gets a label:
-0 floor, 1 obstacle (in the obstacle band), 2 drop (in the drop band), 3 floor_colour_mismatch (geometric floor,
+0 floor, 1 above_floor, 2 below_floor (the candidate bands of D4), 3 floor_colour_mismatch (geometric floor,
 Mahalanobis > `colour.max_mahalanobis` 3.0: flat objects, rugs, paper, liquid), 4 unlabelled (outside the bands or
 range). Output `/ground/labelled_points` XYZRGB + uint8 `label` field, RGB-D stamp and frame base_link; the state
-carries `colour {model_ok, floor_samples, mismatch_ratio, stamp_ns}`. Labels feed the web UI and mcp; they do not mark
-Nav2 in this epic (Q1). Alternative: per-pixel 2D segmentation on the image (needs the registered depth anyway, more
+carries `colour {model_ok, floor_samples, mismatch_ratio, stamp_ns}`. Labels feed the web UI and mcp; floor_colour_mismatch points are clustered and classified by the same
+obstacle/warning rule as the ToF clusters (D14), so a flat flagged object becomes a slow-down warning area. Alternative: per-pixel 2D segmentation on the image (needs the registered depth anyway, more
 CPU). User decision D-A1 (colour labels floor vs obstacle), (my call: model). Serves A4.
 
 ### D7: Outputs: JSON state on std_msgs/String, clouds on PointCloud2
@@ -128,19 +131,21 @@ CPU). User decision D-A1 (colour labels floor vs obstacle), (my call: model). Se
 `/ground/state` is `std_msgs/String` JSON (reliable, transient_local depth 1, like `/tilt_guard/state`) at
 `state.rate_hz` 2 Hz and on every validity change, keys fixed in `state.hpp` `STATE_KEYS` (contract `ground-state`):
 `stamp_ns, frame, prior, imu_ok, plane {normal, height_m, inliers, inlier_ratio, source, age_s} | null, reason,
-slope_deg, slope_roll_deg, slope_pitch_deg, slope_level, base_tilt_deg, plane_vs_base_deg, obstacle_points,
-drop_points, regions, colour`. `/ground/obstacle_points`, `/ground/drop_points` (reliable depth 1, matching the laser_filter output STVL
+slope_deg, slope_roll_deg, slope_pitch_deg, slope_level, base_tilt_deg, plane_vs_base_deg, traversability, obstacle_points,
+drop_points, regions (with class), warnings, colour`; `/ground/warning_areas` (std_msgs/String JSON in the map frame, contract
+`ground-warning-areas`) carries the warning polygons for costmap_zones (D15). `/ground/obstacle_points`, `/ground/drop_points` (reliable depth 1, matching the laser_filter output STVL
 already consumes) and `/ground/labelled_points` (best_effort depth 1).
 nlohmann-json as in map_guard_cpp. Alternative: a custom msg package (none exists in the repo; one more build for one
 topic). (my call.) Serves A1, A3, A4.
 
 ### D8: Nav2: a second STVL layer alongside the fixed bands
 
-Local costmap plugins `[obstacle_layer, tof_voxel_layer, ground_voxel_layer, keepout_filter, inflation_layer]`.
+Local costmap plugins `[obstacle_layer, tof_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter,
+inflation_layer]` (`ground_cost_filter`: D15).
 `ground_voxel_layer` has the tof_voxel_layer settings (5 cm voxels, decay 15 s linear, combination_method 1, no
 footprint clearing, transform_tolerance 0.3, expected_update_rate 0, publish_voxel_map false) and sources
 `ground_obstacle_mark` (`/ground/obstacle_points`), `ground_drop_mark` (`/ground/drop_points`), both pass-through
-height limits -1.5..1.5 m (the node already applied the plane-relative bands), obstacle_range 2.0, and `ground_clear`
+height limits -1.5..1.5 m (the node already selected the obstacle-class points), obstacle_range 2.0, and `ground_clear`
 (`/tof/points_filtered` frustum, same as tof_clear). A separate layer makes the switch-over a runtime `enabled` toggle
 and keeps the fixed-band tests intact. `tof_voxel_layer`, the collision monitor sources (scan, tof_obstacles,
 tof_cliff), CliffStop (fed by tof_cliff only) and the global costmap stay exactly as they are: the collision monitor
@@ -156,7 +161,7 @@ layer.) Serves A2.
 or a note when absent or older than `ground_state_stale_s` 1.0 s. floor_guard: `FloorOverride.use_ground_estimate`
 (default false, per call) builds the Terrain from the fresh state's regions (explicit `surfaces` listed after them,
 so they win); requested but not fresh (> `floor_guard.ground_max_age_s` 1.0 s) or `plane: null` refuses the motion
-with a reason naming /ground/state (fail-safe). (my call; Q2.) `ground_regions_to_surfaces` (mcp-ground-summary) converts GroundRegion to SurfaceRegion dropping `kind`, `distance_m`, `points` (SurfaceRegion is extra="forbid"), at most MAX_REGIONS 16. Serves A3.
+with a reason naming /ground/state (fail-safe). User answer Q2: yes (D16). `ground_regions_to_surfaces` (mcp-ground-summary) converts GroundRegion to SurfaceRegion dropping `kind`, `distance_m`, `points` (SurfaceRegion is extra="forbid"), at most MAX_REGIONS 16. Serves A3.
 
 ### D10: Web UI ground layer
 
@@ -192,6 +197,9 @@ decision entry, topic flow diagram. The orchestrator executes the runbook on the
 Global costmap keeps `[static_layer, obstacle_layer, keepout_filter, inflation_layer]` (ruling Q3), pinned by the
 existing test and the new layer test. No ToF depth-bias correction here (after the head mount reprint). User
 decision. Serves A2.
+
+### D14: Obstacle vs warning rule: 1/3 wheel diameter, max slope
+Obstacle vs warning rule (replaces Q1): a step, threshold, drop or ramp cluster is an OBSTACLE (lethal: its points go to /ground/obstacle_points or /ground/drop_points and the ground_voxel_layer) when its edge step exceeds one third of the wheel diameter (traversability.wheel_radius_m 0.06 from swerve_drive_controller wheel_radius_m, max_step_fraction 1/3 -> 0.04 m, configurable, pinned equal by a consistency test) or its surface slope exceeds traversability.max_slope_deg (default 8 deg, my call: the lower of the tilt_guard warn limits, roll 8 / pitch 12, because a swerve base can meet a ramp at any heading, so driving onto a steeper ramp would at once raise a tilt_guard warning); otherwise it is a WARNING area, clear to ride through at reduced speed. Colour-flagged flat objects (floor_colour_mismatch clusters) are classified by the same rule. Tests cover both sides of each threshold (0.035/0.045 m sills and drops, 6/10 deg ramps, exactly 0.04 m and 8 deg are warnings). (user decision)
 
 ## Research
 
@@ -239,23 +247,27 @@ decision. Serves A2.
 | D11 Ansible, tier, metrics, dashboard, CPU | ground-node-type, ground-dashboard-panels, ground-final-suite-runbook |
 | D12 Runbook, docs, robot verification | ground-final-suite-runbook, ground-node-readme |
 | D13 Global costmap and bias out of scope | nav2-ground-voxel-layer |
+| D14 Obstacle vs warning rule: 1/3 wheel diameter, max slope | ground-traversability-rule, ground-step-edges, ground-colour-labels, ground-node-wiring, ground-package-config, ground-node-type, ground-final-suite-runbook |
 
 ## Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
-| `ground-config` | ground-package-config | ground-plane-fit, ground-plane-tracker, ground-band-segmentation, ground-step-edges, ground-colour-labels, ground-node-wiring, ground-node-type, ground-node-readme | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp` |
+| `ground-config` | ground-package-config | ground-plane-fit, ground-plane-tracker, ground-band-segmentation, ground-step-edges, ground-colour-labels, ground-node-wiring, ground-node-type, ground-node-readme, ground-traversability-rule | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp` |
 | `ground-plane-fit` | ground-plane-fit | ground-plane-tracker, ground-band-segmentation | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/plane_fit.hpp` |
-| `ground-synthetic-scene` | ground-plane-fit | ground-plane-tracker, ground-band-segmentation, ground-step-edges, ground-colour-labels, ground-node-wiring | `nodes/ground_estimator_cpp/test/core/synthetic_floor.hpp` |
+| `ground-synthetic-scene` | ground-plane-fit | ground-plane-tracker, ground-band-segmentation, ground-step-edges, ground-colour-labels, ground-node-wiring, ground-traversability-rule | `nodes/ground_estimator_cpp/test/core/synthetic_floor.hpp` |
 | `ground-tracker` | ground-plane-tracker | ground-state-json, ground-node-wiring | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/tracker.hpp` |
-| `ground-segmentation` | ground-band-segmentation | ground-step-edges, ground-colour-labels, ground-node-wiring | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/segmentation.hpp` |
-| `ground-edges` | ground-step-edges | ground-state-json | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/edges.hpp` |
+| `ground-segmentation` | ground-band-segmentation | ground-step-edges, ground-colour-labels, ground-node-wiring, ground-traversability-rule | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/segmentation.hpp` |
+| `ground-edges` | ground-step-edges | ground-state-json, ground-traversability-rule, ground-node-wiring | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/edges.hpp` |
 | `ground-colour-labels` | ground-colour-labels | ground-state-json, ground-node-wiring, web-ui-ground-backend | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/colour.hpp` |
 | `ground-state` | ground-state-json | ground-node-wiring, mcp-ground-summary, mcp-floor-guard-ground, web-ui-ground-backend, web-ui-ground-frontend, ground-node-readme | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/state.hpp` |
-| `ground-topics` | ground-node-wiring | ground-node-type, nav2-ground-voxel-layer, mcp-ground-summary, web-ui-ground-backend, ground-node-readme | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp` (topic accessors, documented in the node README) |
+| `ground-topics` | ground-node-wiring | ground-node-type, nav2-ground-voxel-layer, mcp-ground-summary, web-ui-ground-backend, ground-node-readme, costmap-ground-warnings | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp` (topic accessors, documented in the node README) |
 | `ground-metrics` | ground-node-wiring | ground-dashboard-panels, ground-node-readme | `nodes/ground_estimator_cpp/src/ground_node.cpp` |
-| `ground-node-unit` | ground-node-type | nav2-ground-voxel-layer, mcp-ground-summary, ground-dashboard-panels, ground-final-suite-runbook | `ansible/group_vars/client.yml` |
+| `ground-node-unit` | ground-node-type | nav2-ground-voxel-layer, mcp-ground-summary, ground-dashboard-panels, ground-final-suite-runbook, costmap-ground-warnings | `ansible/group_vars/client.yml` |
 | `mcp-ground-state-client` | mcp-ground-summary | mcp-floor-guard-ground | `nodes/mcp_server/mcp_server/ros_iface.py` |
+| `ground-traversability` | ground-traversability-rule | ground-state-json, ground-node-wiring | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/traversability.hpp` |
+| `ground-warning-areas` | ground-state-json | costmap-ground-warnings | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/state.hpp` (`to_warning_areas_string`) |
+| `ground-cost-mask` | costmap-ground-warnings | nav2-ground-voxel-layer | `nodes/costmap_zones/costmap_zones/config.py` |
 | `web-ground-roles` | web-ui-ground-backend | web-ui-ground-frontend | `nodes/web_ui/web_ui/config.py` |
 
 Cross-epic (registered in `docs/plans/contracts.json`): `head-rgbd-points` (owner head-rgb-d-fusion-of-camera,
