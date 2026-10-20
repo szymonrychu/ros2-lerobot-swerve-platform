@@ -24,10 +24,10 @@ provides: []
 ## Requirement
 
 - web_ui frontend (design D10): a "Ground" map layer, off by default, subscribed on demand (only while enabled) to the `ground_cloud` and `ground_state` roles.
-- `src/map3d/groundLayer.ts` (pure, unit-tested): decode the ground cloud payload (reuse `cloudDecode.ts` for points/colours, decode `labels_b64`); `labelColour(label)` palette: floor green, obstacle red, drop blue, floor_colour_mismatch orange, unlabelled grey; `planePatch(state)` -> the corners of a 2 m x 2 m square around base_link on the state plane (from `plane.normal` and `plane.height_m`, in base_link) or null when `plane` is null; `regionEdges(state)` -> line segments (2 m long, centred on the edge point along the direction) per region with kind for colour.
-- `src/map3d/sceneLayers.tsx`: render the labelled points (PointSet, coloured per label, placed by the cloud frame pose like the Head RGB-D layer), the translucent plane patch and the edge lines placed by the base_link pose; nothing drawn from a stale or absent state (state older than 2 s by its `stamp_ns` vs the client clock offset the map already uses, or plane null).
+- `src/map3d/groundLayer.ts` (pure, unit-tested): decode the ground cloud payload (reuse `cloudDecode.ts` for points/colours, decode `labels_b64`); `labelColour(label)` palette: floor green, obstacle red, drop blue, floor_colour_mismatch orange, unlabelled grey; `planePatch(state)` -> the corners of a 2 m x 2 m square around base_link on the state plane (from `plane.normal` and `plane.height_m`, in base_link) or null when `plane` is null; `groundVisible(state)` -> false for an absent, stale (`stale: true`) or plane-null state; `regionEdges(state)` -> line segments (2 m long, centred on the edge point along the direction) per region with kind for colour.
+- `src/map3d/sceneLayers.tsx`: render the labelled points (PointSet, coloured per label, placed by the cloud frame pose like the Head RGB-D layer), the translucent plane patch and the edge lines placed by the base_link pose; nothing drawn from the plane, edges or read-out when the state is absent, carries `"stale": true` (set by the backend from its receive age, web-ui-ground-backend) or has `plane: null`; the labelled points are hidden with the state when it is stale.
 - `src/map/LayersPanel.tsx`: the "Ground" toggle with a legend of the five label colours and the slope / slope_level / plane height read-out from the state; `src/map3d/layers.ts` registers the layer id; `src/tabs/MapNavTab.tsx` wires the roles; the payload and state types live in `groundLayer.ts` (state keys equal STATE_KEYS of the ground-state contract).
-- Tests first, seen failing: `src/map3d/groundLayer.test.ts` (label decode, palette, plane patch for a level and a 5 deg tilted plane, null plane, region edge segments, stale state); LayersPanel test for the toggle and legend (extend `src/map/LayersPanel.test.tsx`).
+- Tests first, seen failing: `src/map3d/groundLayer.test.ts` (label decode, palette, plane patch for a level and a 5 deg tilted plane, null plane, region edge segments, `groundVisible(state)` false for absent, `stale: true` and plane-null states); LayersPanel test for the toggle and legend (extend `src/map/LayersPanel.test.tsx`).
 - `nodes/web_ui/README.md`: the Ground layer (what the colours mean, on demand, data source).
 
 ## Acceptance conditions
@@ -35,7 +35,7 @@ provides: []
 - a1: ground cloud labels decode and map to the five legend colours; plane patch and region edges are computed from the state [evidence: test: nodes/web_ui/frontend/src/map3d/groundLayer.test.ts]
 - a2: the Ground toggle, legend and slope read-out are in the layers panel [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map/LayersPanel.test.tsx]
 - a3: the frontend type-checks, lints and builds [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm run lint && npm run build]
-- a4: the layer draws nothing from a stale or plane-less state [evidence: judgement]
+- a4: groundVisible is false for absent, backend-stale and plane-null states, so nothing is drawn [evidence: test: nodes/web_ui/frontend/src/map3d/groundLayer.test.ts]
 
 ## Files
 
@@ -68,3 +68,5 @@ provides: []
 ## Notes
 
 pattern: commit 044c6aae (Head RGB-D cloud layer: layers.ts, sceneLayers.tsx, LayersPanel.tsx, MapNavTab.tsx, obstaclePoints.ts, cloudDecode.ts).
+
+- 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
