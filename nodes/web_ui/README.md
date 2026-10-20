@@ -567,7 +567,7 @@ calibration:
       label: Arm
       namespace: follower      # state topic /follower/torque_state, services /follower/servo/{release_torque,enable_torque,record_neutral,save_neutral}
       neutral: true            # offer record / save (default false)
-      stale_marker: /var/lib/ros2/arm_calibration_stale.json  # arm only, optional
+      stale_marker: /var/lib/ros2/arm/calibration_stale.json  # arm only, optional
       state_stale_s: 3.0       # > 0
       service_timeout_s: 15.0  # > 0, keep above the ~4 s arm save
 ```
