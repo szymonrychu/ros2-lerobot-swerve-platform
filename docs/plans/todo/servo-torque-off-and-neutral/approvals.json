@@ -107,5 +107,18 @@
       "calibrate-page-servo-section"
     ],
     "status": "approved"
+  },
+  {
+    "id": "U2",
+    "text": "2026-10-20 gate: base release = the 4 steering servos; the drive wheels stay torqued and braked",
+    "decisions": [
+      "D12"
+    ],
+    "tasks": [
+      "bridge-torque-release-enable",
+      "swerve-released-steering",
+      "ansible-servo-neutral-config"
+    ],
+    "status": "approved"
   }
 ]
