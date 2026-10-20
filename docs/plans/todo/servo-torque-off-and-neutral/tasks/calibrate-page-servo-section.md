@@ -1,0 +1,67 @@
+---
+title: Calibrate page servo section
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "The user releases each group, records a neutral and re-enables with or without saving from the Calibrate page."
+files: [nodes/web_ui/frontend/src/calibrate/servoApi.ts, nodes/web_ui/frontend/src/calibrate/servoApi.test.ts, nodes/web_ui/frontend/src/calibrate/ServoNeutral.tsx, nodes/web_ui/frontend/src/calibrate/ServoNeutral.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx]
+verify: "cd nodes/web_ui/frontend && npx tsc --noEmit && npx vitest run src/calibrate && npm run lint"
+depends_on: [web-ui-servo-routes]
+owns: [servo-torque-hook]
+uses: [servo-calibration-api]
+model: sonnet
+estimate: 75
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# Calibrate page servo section
+
+## Requirement
+
+- New `frontend/src/calibrate/servoApi.ts`: types for the `GET /api/calibration/servos` body (from web-ui-servo-routes), `fetchServoGroups()`, `servoAction(groupId, action)` (`release`, `enable`, `record`, `save`; returns `{ok, message}`), and the hook `useServoGroups(pollMs = 1000)` (404 = not configured, no error; network errors surfaced).
+- New `frontend/src/calibrate/ServoNeutral.tsx`: a "Servo torque and neutral" section, one card per group (arm, base, head): a torque chip (`Torque on`, `Torque off`, `Partly off`, `Unknown` when state is null or stale), per-joint torque, and buttons (D8):
+  - `Torque off` -> confirm dialog. Arm: "Support the arm: it goes limp and will drop." Head: "Support the head: it goes limp." Base: "The steering servos go limp; the wheels stay braked."
+  - `Record neutral` (only for `neutral` groups, enabled while released) -> shows each joint's shift in degrees from the capture.
+  - `Re-enable torque + save` (enabled when a capture exists) -> confirm dialog "Writes the new neutral into the servo EEPROM." The arm adds "Arm joint offsets and the stored home become stale until re-calibrated. Teleop needs the leader arm re-zeroed in the same pose."
+  - `Re-enable torque` (enabled while released) -> no save.
+  - The arm card shows a warning when `calibration_stale` is non-empty; backend messages are shown in an Alert; buttons are disabled while a call is in flight.
+- `CalibratePage.tsx` reads `servos` from `/api/calibration/config` and renders the section when true.
+- Tests first, seen failing (vitest + testing-library): `servoApi.test.ts` (fetch shapes, action URLs, 404 handling); `ServoNeutral.test.tsx` (chip states, confirm dialogs with the exact texts, record shows degrees, save confirm with the arm warnings, buttons enabled/disabled by state, error Alert); `CalibratePage.test.tsx` (section shown only with `servos: true`).
+
+## Acceptance conditions
+
+- a1: servoApi fetches state, posts actions and treats 404 as not configured [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/calibrate/servoApi.test.ts]
+- a2: the section shows per-group chips, confirm dialogs with the documented texts and enables buttons by state [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/calibrate/ServoNeutral.test.tsx]
+- a3: the Calibrate page renders the section only when servos is configured [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/calibrate/CalibratePage.test.tsx]
+- a4: frontend typecheck, tests and lint pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npx vitest run src/calibrate && npm run lint]
+
+## Files
+
+- `nodes/web_ui/frontend/src/calibrate/servoApi.ts`
+- `nodes/web_ui/frontend/src/calibrate/servoApi.test.ts`
+- `nodes/web_ui/frontend/src/calibrate/ServoNeutral.tsx`
+- `nodes/web_ui/frontend/src/calibrate/ServoNeutral.test.tsx`
+- `nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx`
+- `nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
