@@ -10,6 +10,8 @@ import Stack from '@mui/material/Stack'
 import Switch from '@mui/material/Switch'
 import Typography from '@mui/material/Typography'
 import { requestZoom, ZoomFactor } from '../camera/zoomApi'
+import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
+import { useServoGroups } from '../calibrate/servoApi'
 import { CameraStream } from '../components/CameraStream'
 import { RgbdView } from '../head/RgbdView'
 import { useLayout } from '../layout/useLayout'
@@ -90,6 +92,8 @@ interface PanTiltProps {
   tab: TabConfig
   sample: unknown
   publish: Props['publish']
+  /** The head servo group's torque is off: nothing may be commanded. */
+  released: boolean
 }
 
 /**
@@ -99,8 +103,9 @@ interface PanTiltProps {
  * @param tab - tab config (head_command_topic, ranges, head_home_deg, head_joint_states_topic)
  * @param sample - latest head joint states payload
  * @param publish - publishes a message on a topic
+ * @param released - head torque is off, disables sliders and Home
  */
-function PanTiltControls({ tab, sample, publish }: PanTiltProps) {
+function PanTiltControls({ tab, sample, publish, released }: PanTiltProps) {
   const topic = tab.head_command_topic as string
   const panRange = tab.head_pan_range_deg ?? DEFAULT_PAN_RANGE_DEG
   const tiltRange = tab.head_tilt_range_deg ?? DEFAULT_TILT_RANGE_DEG
@@ -178,7 +183,7 @@ function PanTiltControls({ tab, sample, publish }: PanTiltProps) {
         <Typography variant="body2" color="text.secondary">{label}</Typography>
         <Slider
           aria-label={label}
-          disabled={!shown}
+          disabled={!shown || released}
           value={shown ? shown[index] : 0}
           min={range[0]}
           max={range[1]}
@@ -198,7 +203,7 @@ function PanTiltControls({ tab, sample, publish }: PanTiltProps) {
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
         {slider(0, 'pan', panRange)}
         {slider(1, 'tilt', tiltRange)}
-        <Button variant="outlined" size="small" sx={{ minHeight: TOUCH_TARGET_PX }} onClick={() => onRelease(home, [0, 1])}>Home</Button>
+        <Button variant="outlined" size="small" disabled={released} sx={{ minHeight: TOUCH_TARGET_PX }} onClick={() => onRelease(home, [0, 1])}>Home</Button>
       </Stack>
       {measured && (
         <Typography data-testid="head-measured" variant="body2">
@@ -245,6 +250,8 @@ function Preview({ topic, jpeg, alt }: PreviewProps) {
  */
 export default function HeadTab({ tab, topicData, publish, onRgbdWanted }: Props) {
   const layout = useLayout()
+  const servo = useServoGroups()
+  const released = releasedLabel(servo, 'head') !== null
   const zoomEnabled = Boolean(tab.zoom_command_topic)
   const [factor, setFactor] = useState<ZoomFactor>(DEFAULT_ZOOM_FACTOR)
   const [pending, setPending] = useState(false)
@@ -365,7 +372,8 @@ export default function HeadTab({ tab, topicData, publish, onRgbdWanted }: Props
           </>
         )}
       </Stack>
-      {tab.head_command_topic && <PanTiltControls tab={tab} sample={topicData[tab.head_joint_states_topic ?? '']} publish={publish} />}
+      <ReleasedBannerView groupId="head" servo={servo} />
+      {tab.head_command_topic && <PanTiltControls tab={tab} sample={topicData[tab.head_joint_states_topic ?? '']} publish={publish} released={released} />}
     </Box>
   )
 }

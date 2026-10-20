@@ -8,6 +8,22 @@ import { TabConfig } from '../types'
 import ArmTab from './ArmTab'
 import { designViolations, SOURCES } from '../layout/designRules'
 
+const servoMock = vi.hoisted(() => ({ groups: [] as unknown[], notConfigured: false }))
+vi.mock('../calibrate/servoApi', async (orig) => ({
+  ...(await orig<typeof import('../calibrate/servoApi')>()),
+  useServoGroups: () => ({ groups: servoMock.groups, notConfigured: servoMock.notConfigured, error: null, loading: false }),
+}))
+
+/** Mock servo state: 'released' | 'enabled' | 'unknown' (no state) | 'none' (not configured). */
+function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none'): void {
+  servoMock.notConfigured = kind === 'none'
+  servoMock.groups = kind === 'none' ? [] : [{
+    id, label: id[0].toUpperCase() + id.slice(1), neutral: true, age_s: 0.1, stale: false, calibration_stale: null,
+    state: kind === 'unknown' ? null : { namespace: 'x', released: kind === 'released', joints: { a: kind === 'released' ? 0 : 1 }, stamp_ns: 1, neutral_enabled: true, neutral_capture: null, last_save: null },
+  }]
+}
+
+
 const GRIPPER = '/gripper/image_raw'
 const FRONT = '/head_camera/image_raw/compressed'
 
@@ -80,5 +96,32 @@ describe('ArmTab', () => {
     const channels = (n: number): number[] => [(n >> 16) & 255, (n >> 8) & 255, n & 255]
     const all = [...Object.values(ARM_COLORS.handle), ...Object.values(ARM_COLORS.endEffector), ...Object.values(ARM_COLORS.axis), ARM_COLORS.ghost, ARM_COLORS.mesh]
     for (const c of all) expect(new Set(channels(c)).size).toBe(1)
+  })
+})
+
+describe('ArmTab released group', () => {
+  const BANNER = 'Arm torque is off - controls disabled (Calibrate page)'
+  const HELD = { '/filter/active_source': { data: 'autonomy' } }
+  const JOGS = ['Up', 'Pan left', 'Gripper open']
+
+  it('shows the banner, disables jog, Home and Take control, keeps Release enabled', () => {
+    setViewport(1400)
+    setServo('arm', 'released')
+    renderTab(HELD)
+    expect(screen.getByText(BANNER)).toBeTruthy()
+    for (const name of [...JOGS, 'Home', 'Take control']) {
+      expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled, name).toBe(true)
+    }
+    expect((screen.getByRole('button', { name: 'Release' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it.each(['enabled', 'unknown', 'none'] as const)('no banner and controls enabled when %s', (kind) => {
+    setViewport(1400)
+    setServo('arm', kind)
+    renderTab(HELD)
+    expect(screen.queryByText(BANNER)).toBeNull()
+    for (const name of [...JOGS, 'Home', 'Take control', 'Release']) {
+      expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled, name).toBe(false)
+    }
   })
 })

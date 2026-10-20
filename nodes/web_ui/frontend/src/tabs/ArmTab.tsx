@@ -1,5 +1,7 @@
 import Box from '@mui/material/Box'
 import { lazy, Suspense } from 'react'
+import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
+import { useServoGroups } from '../calibrate/servoApi'
 import ArmJogPanel from '../arm/ArmJogPanel'
 import { CameraStream } from '../components/CameraStream'
 import { useLayout } from '../layout/useLayout'
@@ -25,11 +27,18 @@ const CELL_SX = { flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', 
  */
 export default function ArmTab({ tab, topicData, publish }: Props) {
   const layout = useLayout()
+  const servo = useServoGroups()
+  const released = releasedLabel(servo, 'arm') !== null
+  // The draggable arm in the 3D view is a command source too: drop its goals while the arm is limp.
+  const guardedPublish: Props['publish'] = (topic, msgType, data) => {
+    if (!released) publish(topic, msgType, data)
+  }
   const direction = layout === 'phone' ? 'column' : 'row'
   const streamMinHeight = layout === 'phone' ? 'clamp(10dvh, 28dvh, 40dvh)' : 0
 
   return (
     <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', gap: 1, overflowY: layout === 'phone' ? 'auto' : 'hidden' }}>
+      <ReleasedBannerView groupId="arm" servo={servo} />
       <Box
         data-testid="arm-layout"
         data-direction={direction}
@@ -43,12 +52,12 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
         </Box>
         <Box data-testid="arm-view-slot" sx={{ ...CELL_SX, minHeight: streamMinHeight }}>
           <Suspense fallback={null}>
-            <ArmView tab={tab} topicData={topicData} publish={publish} />
+            <ArmView tab={tab} topicData={topicData} publish={guardedPublish} />
           </Suspense>
         </Box>
       </Box>
       <Box data-testid="arm-jog-slot" sx={{ flex: '0 0 auto' }}>
-        <ArmJogPanel tab={tab} topicData={topicData} />
+        <ArmJogPanel tab={tab} topicData={topicData} released={released} />
       </Box>
     </Box>
   )

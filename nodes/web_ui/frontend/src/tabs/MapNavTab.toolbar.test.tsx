@@ -9,6 +9,22 @@ import { theme } from '../theme'
 import type { TabConfig } from '../types'
 import { designViolations, SOURCES } from '../layout/designRules'
 
+const servoMock = vi.hoisted(() => ({ groups: [] as unknown[], notConfigured: false }))
+vi.mock('../calibrate/servoApi', async (orig) => ({
+  ...(await orig<typeof import('../calibrate/servoApi')>()),
+  useServoGroups: () => ({ groups: servoMock.groups, notConfigured: servoMock.notConfigured, error: null, loading: false }),
+}))
+
+/** Mock servo state: 'released' | 'enabled' | 'unknown' (no state) | 'none' (not configured). */
+function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none'): void {
+  servoMock.notConfigured = kind === 'none'
+  servoMock.groups = kind === 'none' ? [] : [{
+    id, label: id[0].toUpperCase() + id.slice(1), neutral: true, age_s: 0.1, stale: false, calibration_stale: null,
+    state: kind === 'unknown' ? null : { namespace: 'x', released: kind === 'released', joints: { a: kind === 'released' ? 0 : 1 }, stamp_ns: 1, neutral_enabled: true, neutral_capture: null, last_save: null },
+  }]
+}
+
+
 let viewportWidth = 1000
 
 /** Minimal matchMedia: evaluates min-width / max-width px conditions against viewportWidth; fine pointer. */
@@ -289,5 +305,42 @@ describe('map save and reset show the 3D result', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save map' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/3D map: timeout - no reply in 15 s/))
     expect(screen.getByRole('alert').className).toMatch(/standardWarning/)
+  })
+})
+
+describe('released groups', () => {
+  const BASE = 'Base torque is off - controls disabled (Calibrate page)'
+  const ARM = 'Arm torque is off - controls disabled (Calibrate page)'
+  const disabled = (name: string) => (screen.getByRole('button', { name }) as HTMLButtonElement).disabled
+
+  it('base released: banner, Set goal disabled, STOP stays enabled', async () => {
+    setServo('base', 'released')
+    await renderTab()
+    expect(screen.getByText(BASE)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Top view' }))
+    expect(disabled('Set goal')).toBe(true)
+    expect(disabled('STOP')).toBe(false)
+  })
+
+  it.each(['enabled', 'unknown', 'none'] as const)('base %s: no banner, Set goal enabled', async (kind) => {
+    setServo('base', kind)
+    await renderTab()
+    expect(screen.queryByText(BASE)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Top view' }))
+    expect(disabled('Set goal')).toBe(false)
+  })
+
+  it('arm released: banner, Arm home, Set home and Grasp disabled', async () => {
+    setServo('arm', 'released')
+    await renderTab()
+    expect(screen.getByText(ARM)).toBeTruthy()
+    for (const name of ['Arm home', 'Set home', 'Grasp']) expect(disabled(name), name).toBe(true)
+  })
+
+  it('arm enabled: no banner, Arm home, Set home and Grasp enabled', async () => {
+    setServo('arm', 'enabled')
+    await renderTab()
+    expect(screen.queryByText(ARM)).toBeNull()
+    for (const name of ['Arm home', 'Set home', 'Grasp']) expect(disabled(name), name).toBe(false)
   })
 })

@@ -7,6 +7,22 @@ import { TabConfig } from '../types'
 import HeadTab from './HeadTab'
 import { requestZoom } from '../camera/zoomApi'
 
+const servoMock = vi.hoisted(() => ({ groups: [] as unknown[], notConfigured: false }))
+vi.mock('../calibrate/servoApi', async (orig) => ({
+  ...(await orig<typeof import('../calibrate/servoApi')>()),
+  useServoGroups: () => ({ groups: servoMock.groups, notConfigured: servoMock.notConfigured, error: null, loading: false }),
+}))
+
+/** Mock servo state: 'released' | 'enabled' | 'unknown' (no state) | 'none' (not configured). */
+function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none'): void {
+  servoMock.notConfigured = kind === 'none'
+  servoMock.groups = kind === 'none' ? [] : [{
+    id, label: id[0].toUpperCase() + id.slice(1), neutral: true, age_s: 0.1, stale: false, calibration_stale: null,
+    state: kind === 'unknown' ? null : { namespace: 'x', released: kind === 'released', joints: { a: kind === 'released' ? 0 : 1 }, stamp_ns: 1, neutral_enabled: true, neutral_capture: null, last_save: null },
+  }]
+}
+
+
 vi.mock('../camera/zoomApi', async (orig) => ({
   ...(await orig<typeof import('../camera/zoomApi')>()),
   requestZoom: vi.fn(),
@@ -509,5 +525,35 @@ describe('RGB-D view', () => {
     expect(legend.textContent).toContain('0.0 m')
     expect(legend.textContent).toContain('4.0 m')
     expect(within(legend).getByTestId('rgbd-legend-strip')).toBeTruthy()
+  })
+})
+
+describe('HeadTab released group', () => {
+  const CMD2 = '/head/cmd'
+  const STATES2 = '/head/states'
+  const HEAD = { ...TAB, head_command_topic: CMD2, head_joint_states_topic: STATES2 } as TabConfig
+  const SAMPLE2 = { [STATES2]: { name: ['head_pan', 'head_tilt'], position: [0.1, 0.1] } }
+  const BANNER = 'Head torque is off - controls disabled (Calibrate page)'
+
+  it('shows the banner and disables sliders and Home while released', () => {
+    setViewport(1400)
+    setServo('head', 'released')
+    const publish = vi.fn()
+    renderTab({ ...FRAMES, ...SAMPLE2 }, publish, HEAD)
+    expect(screen.getByText(BANNER)).toBeTruthy()
+    for (const s of screen.getAllByRole('slider')) expect((s as HTMLInputElement).disabled).toBe(true)
+    const home = screen.getByRole('button', { name: 'Home' }) as HTMLButtonElement
+    expect(home.disabled).toBe(true)
+    fireEvent.click(home)
+    expect(publish).not.toHaveBeenCalled()
+  })
+
+  it.each(['enabled', 'unknown', 'none'] as const)('no banner and controls enabled when %s', (kind) => {
+    setViewport(1400)
+    setServo('head', kind)
+    renderTab({ ...FRAMES, ...SAMPLE2 }, vi.fn(), HEAD)
+    expect(screen.queryByText(BANNER)).toBeNull()
+    for (const s of screen.getAllByRole('slider')) expect((s as HTMLInputElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: 'Home' }) as HTMLButtonElement).disabled).toBe(false)
   })
 })

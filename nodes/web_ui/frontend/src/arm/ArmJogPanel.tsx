@@ -74,6 +74,8 @@ const JOG_GROUPS: { title: string; buttons: JogButton[] }[] = [
 interface Props {
   tab: TabConfig
   topicData: Record<string, unknown>
+  /** Arm torque is off: every command but Release is disabled. */
+  released?: boolean
 }
 
 /**
@@ -82,8 +84,9 @@ interface Props {
  *
  * @param tab - arm tab config (id, active_source_topic)
  * @param topicData - latest payload per topic
+ * @param released - arm torque is off, disables everything but Release
  */
-export default function ArmJogPanel({ tab, topicData }: Props) {
+export default function ArmJogPanel({ tab, topicData, released = false }: Props) {
   const layout = useLayout()
   const [result, setResult] = useState<ArmResult | null>(null)
   const [armed, setArmed] = useState<{ action: LeaseAction; at: number } | null>(null)
@@ -111,7 +114,7 @@ export default function ArmJogPanel({ tab, topicData }: Props) {
     if (next.fire) void run(action)
   }
 
-  const leaseDisabled: Record<LeaseAction, boolean> = { take_control: busy, release: !held || busy, home: busy }
+  const leaseDisabled: Record<LeaseAction, boolean> = { take_control: busy || released, release: !held || busy, home: busy || released }
 
   return (
     <OverlayPanel title="Arm control" open anchor="bottom" docked={layout !== 'phone'}>
@@ -146,7 +149,7 @@ export default function ArmJogPanel({ tab, topicData }: Props) {
             </Typography>
             <ToolGroup label={group.title}>
               {group.buttons.map((b) => (
-                <ToolButton key={b.label} label={b.label} icon={b.icon} disabled={!held || busy} onClick={() => void run('jog', b.jog)} />
+                <ToolButton key={b.label} label={b.label} icon={b.icon} disabled={!held || busy || released} onClick={() => void run('jog', b.jog)} />
               ))}
             </ToolGroup>
           </Stack>

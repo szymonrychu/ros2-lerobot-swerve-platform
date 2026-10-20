@@ -41,6 +41,8 @@ import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM
 import { baseMarkerLabel, basePlacement } from '../gps/basePlacement'
 import { BaseGpsPayload, GPS_BASE_STATUS_KEY, isBaseSample } from '../gps/gpsStatus'
 import { anchorSummary, validAnchor } from '../map3d/geo'
+import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
+import { useServoGroups } from '../calibrate/servoApi'
 import { goalButtonState } from '../map/goalControl'
 import { anyInRow, splitToolbar, stopGroupIds, TOOLBAR_GROUPS } from '../map/toolbarGroups'
 import { StatusItem } from '../components/StatusItem'
@@ -382,24 +384,39 @@ export default function MapNavTab({
     if (!graspOpen) setGraspPick()
   }, [graspOpen, setGraspPick])
 
+  const servo = useServoGroups()
+  const baseReleased = releasedLabel(servo, 'base') !== null
+  const armReleased = releasedLabel(servo, 'arm') !== null
   const goalButton = goalButtonState({ hasGoalTopic: Boolean(tab.goal_topic), topView, tilt })
+  const goalBlocked = tilt.navBlocked || baseReleased
   useEffect(() => {
-    if (tilt.navBlocked) setGoalMode(false)
-  }, [tilt.navBlocked])
+    if (goalBlocked) setGoalMode(false)
+  }, [goalBlocked])
+  // A limp arm takes no grasp: close the grasp flow so nothing can be executed against it.
+  useEffect(() => {
+    if (armReleased) {
+      setGraspOpen(false)
+      setGraspMenuAnchor(null)
+    }
+  }, [armReleased])
+  // The draggable arm in the 3D scene is a command source too.
+  const scenePublish: Props['publish'] = (topic, msgType, data) => {
+    if (!(armReleased && topic === tab.arm_command_topic)) publish(topic, msgType, data)
+  }
 
   const robotPoseRef = useRef(robotPose)
   robotPoseRef.current = robotPose
 
   const sendGoal = useCallback(
     (g: Pose2D) => {
-      if (!tab.goal_topic || tilt.navBlocked) return
+      if (!tab.goal_topic || goalBlocked) return
       log.info('[map] goal', g.x.toFixed(2), g.y.toFixed(2), 'yaw', g.yaw.toFixed(2), 'in', mapFrame)
       publish(tab.goal_topic, 'geometry_msgs/PoseStamped', {
         header: { frame_id: mapFrame, stamp: { sec: 0, nanosec: 0 } }, // backend stamps with the node clock
         pose: { position: { x: g.x, y: g.y, z: 0 }, orientation: yawToQuaternion(g.yaw) },
       })
     },
-    [tab.goal_topic, mapFrame, publish, tilt.navBlocked],
+    [tab.goal_topic, mapFrame, publish, goalBlocked],
   )
 
   // Goal gesture: listeners on the container (bubble phase). Arm handles stop propagation on the canvas in the
@@ -662,6 +679,8 @@ export default function MapNavTab({
         elevation={0}
         sx={{ flexShrink: 0, px: { xs: 1, sm: 2 }, py: 1, borderBottom: 1, borderColor: 'divider' }}
       >
+        <ReleasedBannerView groupId="base" servo={servo} />
+        <ReleasedBannerView groupId="arm" servo={servo} />
         <Stack
           direction="row"
           useFlexGap
@@ -717,7 +736,7 @@ export default function MapNavTab({
               label={goalButton.disabled && goalButton.tooltip ? goalButton.tooltip : 'Set goal'}
               icon={<PlaceIcon />}
               pressed={goalMode}
-              disabled={goalButton.disabled}
+              disabled={goalButton.disabled || baseReleased}
               onClick={() => {
                 poi.setMode('none')
                 setGoalMode((m) => !m)
@@ -760,6 +779,7 @@ export default function MapNavTab({
                 label="Grasp"
                 icon={<BackHandIcon />}
                 pressed={graspOpen || graspPicking}
+                disabled={armReleased}
                 expanded={graspMenuAnchor !== null}
                 onClick={(e) => setGraspMenuAnchor(e.currentTarget)}
               />
@@ -780,12 +800,12 @@ export default function MapNavTab({
           )}
           {hasArm && (
             <ToolGroup label="Arm home">
-              <ToolButton label="Arm home" icon={<HomeIcon />} disabled={busy} onClick={() => void runAction('/api/arm/home', 'Moving arm home...')} />
+              <ToolButton label="Arm home" icon={<HomeIcon />} disabled={busy || armReleased} onClick={() => void runAction('/api/arm/home', 'Moving arm home...')} />
               <ToolButton
                 label={setHomeArmed ? 'Confirm set home' : 'Set home'}
                 icon={<BookmarkAddIcon />}
                 pressed={setHomeArmed}
-                disabled={busy}
+                disabled={busy || armReleased}
                 onClick={onSetHomeClick}
               />
             </ToolGroup>
@@ -987,7 +1007,7 @@ export default function MapNavTab({
               headUrdf={tab.head_urdf}
               armOffset={tab.arm_offset}
               armCommandTopic={tab.arm_command_topic}
-              publish={publish}
+              publish={scenePublish}
               onArmReady={onArmReady}
               map={map}
               costmap={isCleared(costmapMsg) ? null : costmapMsg}

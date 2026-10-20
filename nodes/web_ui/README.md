@@ -592,6 +592,15 @@ nothing):
 - `POST /api/arm/home`, `/api/arm/take_control`, `/api/arm/jog` and `/api/grasp` answer 409
   `{ok: false, message: "Arm servo torque is off (Calibrate page)"}` while the arm group is released.
   `/api/arm/release` and `/api/grasp/stop` stay allowed.
+**Released-group banners.** While a group's fresh `torque_state` says `released` (configured, not stale), the Head, Arm
+and Map tabs show a warning `<Label> torque is off - controls disabled (Calibrate page)` and disable what could command
+that group (the backend refuses the same commands, this is the visible half). Not configured, unknown, stale or enabled
+shows no banner and changes nothing. One `useServoGroups` poll (1 s) per tab.
+
+- Head tab (`head`): pan / tilt sliders and Home.
+- Arm tab (`arm`): jog, Home and Take control; Release stays enabled. The draggable arm in the 3D view sends nothing.
+- Map tab (`base`, `arm`): Set goal and goal clicks while the base is released, STOP stays enabled; Arm home, Set home
+  and Grasp (the grasp flow closes) while the arm is released.
 
 ## Debug Logging
 
