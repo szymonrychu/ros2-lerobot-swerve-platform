@@ -295,6 +295,7 @@ lists `tests/test_tof_obstacle_wiring.py`; nav2-ground-voxel-layer only scopes i
 
 none
 - Q1: Should points the RGB-D colour model labels as non-floor while geometrically flat (floor_colour_mismatch: rugs, paper, liquid) also mark the Nav2 local costmap in this epic? [recommended: no - labels go to the web UI and mcp only; geometry alone marks Nav2 until the runbook shows the colour model's false-positive rate]
+- Q2: Should floor_guard use the measured ground regions only when a call opts in (use_ground_estimate, default off), refusing the motion when requested but no fresh estimate exists? [recommended: yes - opt-in per call, fail-safe refusal]
 
 ## Irreversible operations in scope
 
