@@ -1,0 +1,68 @@
+---
+title: MCP torque off gate
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: The agent cannot move a released group and stops republishing a held arm setpoint into a limp arm.
+files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/arm.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/tests/test_torque_gate.py, nodes/mcp_server/README.md]
+verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_torque_gate.py tests/test_lease_safety.py tests/test_battery_gate.py tests/test_head_lease.py -q && uv run --frozen poe lint"
+depends_on: [bridge-torque-services-topic, filter-node-released-arm]
+owns: []
+uses: [torque-state-topic]
+model: sonnet
+estimate: 75
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# MCP torque off gate
+
+## Requirement
+
+- Config (`config.py`, the topics section next to `follower_set_register`): `follower_torque_state` (`/follower/torque_state`), `base_torque_state` (`/swerve_drive/torque_state`), `head_torque_state` (`/head/torque_state`); `timeouts.servo_torque_stale_s` (default 3.0, > 0).
+- `ros_iface.RosRobot` subscribes to the three (reliable + transient_local, depth 1), caches `released` with its receipt time, and exposes `servo_released(group: str) -> bool | None` for `arm`, `base`, `head` (None when no sample or older than `servo_torque_stale_s`). At the publish level, an arm command (`publish_command`) is not published while `arm` is released and a head command (`publish_head_command`) is not published while `head` is released (one debug log line, no exception), so keepalive republish and the head home-on-lease-release cannot reach a limp group.
+- `tools.py`: `TOOL_SERVO_GROUPS` (next to `MOTION_TOOLS`) maps every motion tool to the servo groups it drives (arm tools -> arm; base motion tools -> base; head tools -> head; grasp and approach macros -> every group they move); a test checks every `MOTION_TOOLS` entry is mapped. `call_tool_with_digest` (after the lease check, before the battery and tilt gates) refuses a tool whose group is released with a tool error `<group> servo torque is off (released on the web UI Calibrate page); motion refused`, publishing nothing. Unknown or stale state refuses nothing (the bridge gate is the backstop).
+- Arm lease: when `arm` becomes released while mcp_server holds the arm lease, the lease is dropped without publishing (`drop_lease`), `lost_note` reads `arm torque off`; `take_control` for the arm is refused with the same torque message while released. filter_node reports the active source `released` in that state (filter-node-released-arm); `lease_lost_to` treats it as the torque-off case, not a takeover.
+- `models.py`: `get_robot_state` and `get_control_state` carry `servos_released: list[str]` (only groups with a fresh released state).
+- Tests first, seen failing, in new `tests/test_torque_gate.py` with the fake backend: tool refused per group and nothing published; unknown/stale allows; publish suppressed at ros_iface level; lease dropped on release with the note; take_control refused; mapping covers MOTION_TOOLS.
+- `README.md` gets `## Servo torque-off gate` (topics, mapping, messages).
+
+## Acceptance conditions
+
+- a1: motion tools of a released group are refused before anything is published; unknown state allows [evidence: test: nodes/mcp_server/tests/test_torque_gate.py]
+- a2: arm and head commands are not published while their group is released [evidence: test: nodes/mcp_server/tests/test_torque_gate.py]
+- a3: an arm release drops the held lease with the torque-off note and take_control is refused [evidence: test: nodes/mcp_server/tests/test_torque_gate.py]
+- a4: TOOL_SERVO_GROUPS covers every MOTION_TOOLS entry [evidence: test: nodes/mcp_server/tests/test_torque_gate.py]
+- a5: README documents the gate [evidence: doc-section: nodes/mcp_server/README.md#Servo torque-off gate]
+- a6: mcp_server suite and lint pass [evidence: command: cd nodes/mcp_server && uv run --frozen pytest tests -q -x && uv run --frozen poe lint]
+
+## Files
+
+- `nodes/mcp_server/mcp_server/ros_iface.py`
+- `nodes/mcp_server/mcp_server/tools.py`
+- `nodes/mcp_server/mcp_server/arm.py`
+- `nodes/mcp_server/mcp_server/config.py`
+- `nodes/mcp_server/mcp_server/models.py`
+- `nodes/mcp_server/tests/test_torque_gate.py`
+- `nodes/mcp_server/README.md`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
