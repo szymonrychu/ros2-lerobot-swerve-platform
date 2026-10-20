@@ -55,6 +55,10 @@ The four decoders exist once, in the core frames module; the CLI and the node im
 - Write tests/test_head_rgbd_calib_core.py::test_core_decoders against the core module; run it and see the import fail.
 - Move the decoders, switch scripts/frames.py and capture.py to them, delete the node copies; run the verify command (all pass) and commit `refactor: one copy of the head RGB-D sensor_msgs decoders in the core`.
 
+## Ruling
+
+- 2026-10-20 accepted: Merged to main (e892b6d7, 2a94085f, ce334203) and verified live on the robot 2026-10-20: capture, compute, apply, head_rgbd pairs published
+
 ## Notes
 
 Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.

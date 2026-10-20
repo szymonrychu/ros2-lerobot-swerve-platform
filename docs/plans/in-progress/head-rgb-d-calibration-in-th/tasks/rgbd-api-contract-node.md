@@ -61,6 +61,10 @@ Start, Stop, Apply and applied responses of the node match the documented contra
 - Write the fixtures and the failing tests (start/stop nested state, apply/applied fixtures, result limits, plane bias limit); run the verify command and see them fail.
 - Change app.py/apply.py/compute.py/config.py to the contract; update the node README; run the verify command (all pass) and commit `fix(head_rgbd_calibration): one API contract pinned by JSON fixtures`.
 
+## Ruling
+
+- 2026-10-20 accepted: Merged to main (e892b6d7, 2a94085f, ce334203) and verified live on the robot 2026-10-20: capture, compute, apply, head_rgbd pairs published
+
 ## Notes
 
 Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.

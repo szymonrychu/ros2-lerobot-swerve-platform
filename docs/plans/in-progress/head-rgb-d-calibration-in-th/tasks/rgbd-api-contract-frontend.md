@@ -61,6 +61,10 @@ The Calibrate page shows no false errors on Start, Stop or Apply and shows each 
 - Import the node fixtures in rgbdApi/RgbdCapture/RgbdResults tests; run `npm test` and see them fail.
 - Fix the validators, AppliedState names, results limits and Start/Stop state handling; run the verify command (all pass) and commit `fix(web_ui): Calibrate RGB-D section follows the node API contract`.
 
+## Ruling
+
+- 2026-10-20 accepted: Merged to main (e892b6d7, 2a94085f, ce334203) and verified live on the robot 2026-10-20: capture, compute, apply, head_rgbd pairs published
+
 ## Notes
 
 Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.

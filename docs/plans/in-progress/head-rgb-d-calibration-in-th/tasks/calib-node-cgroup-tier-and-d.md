@@ -55,6 +55,10 @@ tests/test_unit_cgroups.py passes in full with head_rgbd_calibration in the back
 - Run `uv run --frozen pytest tests/test_unit_cgroups.py -q` and see test_every_client_type_is_tiered fail.
 - Add the type to the background tier (test and client.yml weights), add the README entry and the docstring; run the verify command (all pass) and commit `fix: background cgroup tier for head_rgbd_calibration, test docs`.
 
+## Ruling
+
+- 2026-10-20 accepted: Merged to main (e892b6d7, 2a94085f, ce334203) and verified live on the robot 2026-10-20: capture, compute, apply, head_rgbd pairs published
+
 ## Notes
 
 Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
