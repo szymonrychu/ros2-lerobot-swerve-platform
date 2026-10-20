@@ -939,6 +939,21 @@ this uv environment). The outline / circle / offset / inflation code (`footprint
 generator imports: the static footprint and inflation mcp_server publishes equal the static Nav2 / laser_filter
 configs (a test checks it). Without the block nothing is published.
 
+## Arm calibration after a re-zero
+
+When the follower bridge saves a runtime neutral (web UI Calibrate page, `neutral_save`), servo centres move, so the
+fitted `arm.joint_offsets_rad` and the stored home pose (`home.yaml`, measured radians in the old zero) no longer
+match the arm. The bridge writes a marker, `arm.calibration_stale_marker` (default
+`/var/lib/ros2/arm/calibration_stale.json`; `null` disables the check), as JSON `{version, group, saved_at, joints,
+stale}`, where `stale` lists `joint_offsets` and/or `home`.
+
+- `get_arm_state` (and `get_robot_state.arm`) reports `calibration_stale` (the items) and `calibration_stale_since`
+  (`saved_at`). A missing marker means `[]` / `null`; an unreadable or invalid marker counts as both items stale.
+- `arm_home` (and the `/arm/home` service) is refused while `home` is stale, publishing nothing: "arm home was
+  recorded before the arm re-zero at <saved_at>; record a new home with arm_set_home".
+- `arm_set_home` clears `home` from the marker. `joint_offsets` is only reported here; it is cleared when the
+  offsets are re-fitted (epic head-and-arm-calibration-fro). The marker file is deleted once nothing is stale.
+
 ## Arm mount and floor slow zone
 
 ### Arm mount (measured)

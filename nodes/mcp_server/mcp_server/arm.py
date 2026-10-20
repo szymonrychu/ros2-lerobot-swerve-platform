@@ -17,6 +17,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
+from .calibration_marker import CalibrationMarker, clear_stale, load_marker
 from .carry import CarryRecord, CarryStore, GraspKind, carry_path
 from .config import ArmBaseOffset, LimitSettings, McpServerConfig
 from .floor_guard import FloorGuard, FloorOverride, GuardReport, JawModel, TiltSample, retime, step_scales
@@ -2214,6 +2215,12 @@ class ArmController:
         raise shoulder_lift and elbow_flex first, fold the elbow, lift the tool straight up, ...); it raises
         SelfCollisionError only when no route clears the body.
         """
+        marker = self.stale_marker()
+        if marker is not None and "home" in marker.stale:
+            when = marker.saved_at or "an unknown time"
+            raise ArmError(
+                f"arm home was recorded before the arm re-zero at {when}; record a new home with arm_set_home"
+            )
         try:
             pose = self.stored_home()
         except HomeStoreError as exc:
@@ -2282,7 +2289,22 @@ class ArmController:
             save_home(self.cfg.arm.home_file, pose)
         except (OSError, HomeStoreError) as exc:
             raise ArmError(f"cannot store home pose at {self.cfg.arm.home_file}: {exc}") from exc
+        marker_path = self.cfg.arm.calibration_stale_marker
+        if marker_path is not None:
+            try:
+                clear_stale(marker_path, ["home"])
+            except OSError as exc:
+                raise ArmError(f"home stored, but cannot clear the stale marker {marker_path}: {exc}") from exc
         return pose
+
+    def stale_marker(self) -> CalibrationMarker | None:
+        """The arm re-zero stale marker.
+
+        Returns:
+            CalibrationMarker | None: None when the check is disabled (null path) or no marker file exists.
+        """
+        path = self.cfg.arm.calibration_stale_marker
+        return None if path is None else load_marker(path)
 
     def stored_home(self) -> dict[str, float] | None:
         """The stored home pose, re-read only when the file changed (vitals and control state ask on every call).
@@ -2353,7 +2375,10 @@ class ArmController:
         raw = self.backend.joint_sample()
         sample = self.fresh_sample()
         src = self.backend.active_source()
+        marker = self.stale_marker()
         state = ArmState(
+            calibration_stale=[] if marker is None else list(marker.stale),
+            calibration_stale_since=None if marker is None else marker.saved_at,
             joint_states_age_s=None if raw is None else now - raw.stamp,
             active_source=None if src is None else src.value,
             active_source_age_s=None if src is None else src.age(now),

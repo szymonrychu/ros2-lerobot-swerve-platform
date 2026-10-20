@@ -207,6 +207,13 @@ class ArmState(BaseModel):
     active_source_age_s: float | None = None
     control_held: bool = Field(description="Whether this server holds the autonomy lease")
     home_stored: bool
+    calibration_stale: list[str] = Field(
+        default_factory=list,
+        description="Calibrations taken before the last arm re-zero: joint_offsets, home (see the README)",
+    )
+    calibration_stale_since: str | None = Field(
+        default=None, description="UTC time of the arm re-zero that made them stale"
+    )
     tool_pose: dict[str, float] | None = Field(
         default=None, description="Gripper tool point x, y, z (m) and pitch (rad, + down) in the arm base_link"
     )

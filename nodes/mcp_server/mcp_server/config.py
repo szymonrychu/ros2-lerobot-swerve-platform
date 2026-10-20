@@ -23,6 +23,7 @@ DEFAULT_CONFIG_PATH = Path("/etc/ros2/mcp_server/config.yaml")
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
+DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
 FRONT_CAMERA_PARENT = "head_link"  # default head URDF link (head.urdf_path) the front (head RGB) camera hangs on
@@ -435,6 +436,9 @@ class ArmSettings(StrictModel):
 
     urdf_path: Path = Field(default=DEFAULT_URDF, validate_default=True)
     home_file: Path = DEFAULT_HOME_FILE
+    # Stale marker the follower bridge writes after a runtime neutral save (arm re-zero); while it lists "home",
+    # arm_home is refused. null disables the check.
+    calibration_stale_marker: Path | None = DEFAULT_CALIBRATION_STALE_MARKER
     joint_names: tuple[str, ...] = ARM_JOINTS
     gripper_joint: str = "gripper"
     # Follower-vs-URDF zero offsets: urdf_angle = measured_angle (/follower/joint_states) + offset. Used by all
