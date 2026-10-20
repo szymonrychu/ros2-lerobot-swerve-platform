@@ -157,7 +157,7 @@ def test_client_playbook_step_order() -> None:
     assert include["file"] == "tasks/resolve_and_deploy.yml"
     assert include["apply"]["tags"] == [NAME]
     assert step["vars"] == {"_deploy_node_name": NAME}
-    assert step["tags"] == [NAME, "apt", "build", "config"]
+    assert step["tags"] == [NAME, "apt", "python", "build", "config"]
 
 
 def test_topics_match_their_producers() -> None:

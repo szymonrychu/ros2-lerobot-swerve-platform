@@ -1011,6 +1011,10 @@ def test_web_ui_has_map_nav_tab() -> None:
         "map3d_voxel_m": 0.05,
         # "Head RGB-D" layer: head_rgbd_cpp XYZRGB cloud (on demand).
         "rgbd_cloud_topic": "/head_rgbd/points",
+        # "Ground" layer: ground_estimator_cpp labelled cloud and JSON state.
+        "ground_cloud_topic": "/ground/labelled_points",
+        "ground_state_topic": "/ground/state",
+        "ground_state_stale_s": 2.0,
         "lidar_wall_height_m": 1.0,
         "base_urdf": "robot.urdf",
         "base_joint_states_topic": "/swerve_drive/joint_states",

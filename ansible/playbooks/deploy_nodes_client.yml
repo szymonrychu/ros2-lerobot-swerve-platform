@@ -480,7 +480,7 @@
               tags: [ground_estimator_cpp]
           vars:
             _deploy_node_name: ground_estimator_cpp
-          tags: [ground_estimator_cpp, apt, build, config]
+          tags: [ground_estimator_cpp, apt, python, build, config]
 
         - name: SLAM maps directory
           ansible.builtin.include_tasks:
