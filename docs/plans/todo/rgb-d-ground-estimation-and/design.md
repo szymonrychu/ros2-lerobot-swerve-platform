@@ -204,6 +204,9 @@ Obstacle vs warning rule (replaces Q1): a step, threshold, drop or ramp cluster 
 ### D15: Slow-down via costmap_zones speed mask and local cost band
 Slow-down mechanism for warning areas: ground_estimator_cpp publishes the warning polygons on /ground/warning_areas (JSON, map frame); costmap_zones, already the single writer of the Nav2 speed mask, keeps them for ground_warning_ttl_s 3 s and rasterises them into (1) the speed mask at ground_warning_speed_pct 40 (lowest wins with POI slow zones), which the existing local SpeedFilter turns into /speed_limit and controller_server (MPPI) honours, and (2) a new local-only ground cost mask (value 40 -> cost ~101, below INSCRIBED 253, so passable) read by a ground_cost_filter KeepoutFilter layer below inflation in the local costmap only. No second /speed_limit writer, the keepout mask and the global costmap stay untouched (ruling Q3). Alternatives rejected: a second SpeedFilter (two writers of /speed_limit), a custom costmap plugin (new C++ Nav2 plugin for one band), STVL (lethal only). (my call) (user decision)
 
+### D16: floor_guard opt-in, refuse when stale
+Q2 answered yes: floor_guard uses the measured ground regions only when a call sets use_ground_estimate (default off) and refuses the motion when requested but no fresh /ground/state with a plane exists. (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -252,6 +255,7 @@ Slow-down mechanism for warning areas: ground_estimator_cpp publishes the warnin
 | D13 Global costmap and bias out of scope | nav2-ground-voxel-layer |
 | D14 Obstacle vs warning rule: 1/3 wheel diameter, max slope | ground-traversability-rule, ground-step-edges, ground-colour-labels, ground-node-wiring, ground-package-config, ground-node-type, ground-final-suite-runbook |
 | D15 Slow-down via costmap_zones speed mask and local cost band | costmap-ground-warnings, nav2-ground-voxel-layer, ground-state-json, ground-node-wiring, mcp-ground-summary, web-ui-ground-frontend |
+| D16 floor_guard opt-in, refuse when stale | mcp-floor-guard-ground |
 
 ## Contracts
 

@@ -36,15 +36,16 @@
     "decisions": [
       "D3",
       "D5",
-      "D9"
+      "D9",
+      "D16"
     ],
     "tasks": [
-      "ground-plane-tracker",
-      "ground-step-edges",
-      "ground-state-json",
       "ground-node-type",
-      "mcp-ground-summary",
-      "mcp-floor-guard-ground"
+      "ground-plane-tracker",
+      "ground-state-json",
+      "ground-step-edges",
+      "mcp-floor-guard-ground",
+      "mcp-ground-summary"
     ],
     "status": "approved"
   },
