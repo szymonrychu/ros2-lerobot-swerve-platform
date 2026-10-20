@@ -122,7 +122,7 @@ def test_clear_unreadable_marker_deletes_it_when_everything_is_cleared(tmp_path:
 def test_arm_home_refused_while_home_stale_and_allowed_after_set_home(tmp_path: Path) -> None:
     path = tmp_path / "marker.json"
     arm, be = make(tmp_path, path, marker_doc())
-    sent = len(be.published) if hasattr(be, "published") else None
+    sent = len(be.commands)
     with pytest.raises(
         ArmError,
         match=re.escape(
@@ -130,8 +130,7 @@ def test_arm_home_refused_while_home_stale_and_allowed_after_set_home(tmp_path: 
         ),
     ):
         arm.home()
-    if sent is not None:
-        assert len(be.published) == sent
+    assert len(be.commands) == sent
     arm.set_home()
     marker = load_marker(path)
     assert marker is not None

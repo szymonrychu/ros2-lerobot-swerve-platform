@@ -951,8 +951,8 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
   (`saved_at`). A missing marker means `[]` / `null`; an unreadable or invalid marker counts as both items stale.
 - `arm_home` (and the `/arm/home` service) is refused while `home` is stale, publishing nothing: "arm home was
   recorded before the arm re-zero at <saved_at>; record a new home with arm_set_home".
-- `arm_set_home` clears `home` from the marker. `joint_offsets` is only reported here; it is cleared when the
-  offsets are re-fitted (epic head-and-arm-calibration-fro). The marker file is deleted once nothing is stale.
+- `arm_set_home` clears `home` from the marker. `joint_offsets` is only reported here; the offsets re-fit in the
+  head-and-arm-calibration-fro epic clears it. The marker file is deleted once nothing is stale.
 
 ## Arm mount and floor slow zone
 
