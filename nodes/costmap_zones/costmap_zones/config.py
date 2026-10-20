@@ -14,6 +14,12 @@ MAX_PORT = 65535
 DEFAULT_SLOW_ZONE_MASK_VALUE = 60
 MIN_SLOW_ZONE_MASK_VALUE = 1
 MAX_SLOW_ZONE_MASK_VALUE = 99
+DEFAULT_GROUND_WARNING_TTL_S = 3.0
+DEFAULT_GROUND_WARNING_SPEED_PCT = 40
+MIN_GROUND_WARNING_SPEED_PCT = 10
+MAX_GROUND_WARNING_SPEED_PCT = 100
+DEFAULT_GROUND_WARNING_MASK_VALUE = 40
+DEFAULT_GROUND_MASK_MAX_RATE_HZ = 2.0
 
 
 class CostmapZonesConfig(BaseModel):
@@ -33,6 +39,13 @@ class CostmapZonesConfig(BaseModel):
             round(v * 254 / 100) (60 -> 152); 1..99 stay below MAX_NON_OBSTACLE 252 (passable), 100 is lethal (a
             keep-out). 0 is refused: the filter writes any value other than -1 into unknown cells, so 0 would turn
             unknown space inside a slow zone into FREE.
+        ground_warnings_topic: std_msgs/String JSON from ground_estimator_cpp (contract ground-warning-areas).
+        ground_warning_ttl_s: Seconds a received message's areas stay active (> 0).
+        ground_warning_speed_pct: Speed mask percent inside ground warning areas (10..100).
+        ground_warning_mask_value: Ground cost mask value inside warning areas (1..99; 40 -> cost ~101, passable).
+        ground_cost_mask_topic: nav_msgs/OccupancyGrid local-only ground cost mask.
+        ground_cost_info_topic: nav2_msgs/CostmapFilterInfo for the ground cost KeepoutFilter.
+        ground_mask_max_rate_hz: Upper bound of mask republishes caused by ground area changes (> 0).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -47,6 +60,17 @@ class CostmapZonesConfig(BaseModel):
     slow_zone_mask_value: int = Field(
         default=DEFAULT_SLOW_ZONE_MASK_VALUE, ge=MIN_SLOW_ZONE_MASK_VALUE, le=MAX_SLOW_ZONE_MASK_VALUE
     )
+    ground_warnings_topic: str = Field(default="/ground/warning_areas", min_length=1)
+    ground_warning_ttl_s: float = Field(default=DEFAULT_GROUND_WARNING_TTL_S, gt=0.0)
+    ground_warning_speed_pct: int = Field(
+        default=DEFAULT_GROUND_WARNING_SPEED_PCT, ge=MIN_GROUND_WARNING_SPEED_PCT, le=MAX_GROUND_WARNING_SPEED_PCT
+    )
+    ground_warning_mask_value: int = Field(
+        default=DEFAULT_GROUND_WARNING_MASK_VALUE, ge=MIN_SLOW_ZONE_MASK_VALUE, le=MAX_SLOW_ZONE_MASK_VALUE
+    )
+    ground_cost_mask_topic: str = Field(default="/costmap_zones/ground_cost_mask", min_length=1)
+    ground_cost_info_topic: str = Field(default="/costmap_filter_info/ground_cost", min_length=1)
+    ground_mask_max_rate_hz: float = Field(default=DEFAULT_GROUND_MASK_MAX_RATE_HZ, gt=0.0)
 
 
 def load_config(path: Path | None = None) -> CostmapZonesConfig | None:

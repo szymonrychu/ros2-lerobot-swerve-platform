@@ -2991,6 +2991,20 @@ ros2_nodes:
       speed_info_topic: /costmap_filter_info/speed
       # Keepout-mask value in slow zones (1..99, cost round(v * 254 / 100) = 152): Nav2 detours around them.
       slow_zone_mask_value: 60
+      # Ground warning areas from ground_estimator_cpp (<output_namespace>/warning_areas): slow-down, clear to ride through.
+      ground_warnings_topic: /ground/warning_areas
+      # Seconds a received message's areas stay active.
+      ground_warning_ttl_s: 3.0
+      # Speed mask percent inside warning areas (lowest percent wins with POI slow zones).
+      ground_warning_speed_pct: 40
+      # Ground cost mask value in warning areas (KeepoutFilter maps 40 to cost ~101, far below INSCRIBED 253: passable).
+      ground_warning_mask_value: 40
+      # Local-costmap only mask; the global costmap stays static + lidar. Info topic must equal the ground_cost filter's
+      # filter_info_topic in nav2_params.yaml.
+      ground_cost_mask_topic: /costmap_zones/ground_cost_mask
+      ground_cost_info_topic: /costmap_filter_info/ground_cost
+      # Upper bound of mask republishes when the active area set changes.
+      ground_mask_max_rate_hz: 2.0
   - name: claude_agent
     node_type: claude_agent
     present: true

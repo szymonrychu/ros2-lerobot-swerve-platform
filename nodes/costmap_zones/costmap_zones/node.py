@@ -18,8 +18,23 @@ from ros2_metrics import resolve_metrics_port, start_metrics_server
 from std_msgs.msg import String
 
 from .config import CostmapZonesConfig
-from .metrics import ZONE_PUBLISHES, ZONES_ACTIVE, ZONES_LAST_PUBLISH, ZONES_REJECTED
-from .raster import MapGeometry, RotatedMapError, geometry_key, rasterise_keepout, rasterise_speed
+from .ground_warnings import GroundWarningStore, active_key
+from .metrics import (
+    GROUND_AREAS,
+    GROUND_IGNORED,
+    ZONE_PUBLISHES,
+    ZONES_ACTIVE,
+    ZONES_LAST_PUBLISH,
+    ZONES_REJECTED,
+)
+from .raster import (
+    MapGeometry,
+    RotatedMapError,
+    geometry_key,
+    rasterise_ground_cost,
+    rasterise_keepout,
+    rasterise_speed,
+)
 from .zones import ZONE_KEEPOUT, ZONE_SLOW, PoiListError, Zone, parse_poi_list, zones_digest
 
 LATCHED_QOS = QoSProfile(
@@ -28,6 +43,7 @@ LATCHED_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
 )
+GROUND_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=5)
 # nav2_msgs/CostmapFilterInfo.type: KEEPOUT_FILTER = 0, SPEED_FILTER_PERCENT = 1 (SPEED_FILTER_ABSOLUTE = 2).
 FILTER_TYPE_KEEPOUT = 0
 FILTER_TYPE_SPEED_PERCENT = 1
@@ -37,7 +53,8 @@ REASON_INVALID_ENTRY = "invalid_entry"
 REASON_BAD_LIST = "bad_list"
 REASON_ROTATED_MAP = "rotated_map"
 
-PublishKey = tuple[tuple[str, float, float, float, int, int], str]
+PublishKey = tuple[tuple[str, float, float, float, int, int], str, frozenset]
+TICK_PERIOD_S = 0.25
 
 
 class ZoneMaskPublisher:
@@ -45,7 +62,9 @@ class ZoneMaskPublisher:
 
     Nothing is published until a valid /map and a valid /poi/list have both arrived (No Placeholder Data).
     The filter infos go out once, right after the first masks, and never again: a re-sent info makes the Nav2
-    filter re-subscribe to its mask.
+    filter re-subscribe to its mask. Ground warning areas (TTL store) lower the speed mask and fill the local-only
+    ground cost mask; a change of the active area set republishes at most ground_mask_max_rate_hz (tick() flushes
+    a deferred change and expiry). The keepout mask never carries ground areas.
     """
 
     def __init__(
@@ -55,8 +74,11 @@ class ZoneMaskPublisher:
         speed_pub: Any,
         keepout_info_pub: Any,
         speed_info_pub: Any,
+        ground_cost_pub: Any,
+        ground_cost_info_pub: Any,
         now: Callable[[], Any],
         logger: Any,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         """Create the publisher logic.
 
@@ -66,16 +88,24 @@ class ZoneMaskPublisher:
             speed_pub (Any): Publisher of the speed mask (OccupancyGrid).
             keepout_info_pub (Any): Publisher of the keepout CostmapFilterInfo.
             speed_info_pub (Any): Publisher of the speed CostmapFilterInfo.
+            ground_cost_pub (Any): Publisher of the local-only ground cost mask (OccupancyGrid).
+            ground_cost_info_pub (Any): Publisher of the ground cost CostmapFilterInfo.
             now (Callable[[], Any]): Returns the current builtin_interfaces/Time message.
             logger (Any): Object with info, warning and error methods.
+            monotonic (Callable[[], float]): Monotonic clock, seconds (TTL and rate limit).
         """
         self.config = config
         self.keepout_pub = keepout_pub
         self.speed_pub = speed_pub
         self.keepout_info_pub = keepout_info_pub
         self.speed_info_pub = speed_info_pub
+        self.ground_cost_pub = ground_cost_pub
+        self.ground_cost_info_pub = ground_cost_info_pub
         self.now = now
         self.logger = logger
+        self.monotonic = monotonic
+        self.ground = GroundWarningStore(config.ground_warning_ttl_s, logger, monotonic)
+        self.last_publish_monotonic: float | None = None
         self.map_msg: OccupancyGrid | None = None
         self.geometry: MapGeometry | None = None
         self.zones: list[Zone] | None = None
@@ -117,16 +147,45 @@ class ZoneMaskPublisher:
             ZONES_ACTIVE.labels(zone).set(sum(1 for z in parsed.zones if z.zone == zone))
         self.update()
 
+    def on_ground(self, msg: String) -> None:
+        """Store /ground/warning_areas and republish when the active area set changed.
+
+        Args:
+            msg (String): JSON of contract ground-warning-areas.
+        """
+        frame = self.map_msg.header.frame_id if self.map_msg is not None else None
+        reason = self.ground.receive(msg.data, frame)
+        if reason is not None:
+            GROUND_IGNORED.labels(reason).inc()
+            return
+        self.update()
+
+    def tick(self) -> None:
+        """Expire ground areas and flush a rate-limited change; call a few times per second."""
+        self.update()
+
     def update(self) -> None:
-        """Publish both masks (and, the first time, both infos) when the publish key changed."""
+        """Publish the masks (and, the first time, the infos) when the publish key changed."""
         if self.map_msg is None or self.geometry is None or self.zones is None:
             return
-        key = (geometry_key(self.geometry), zones_digest(self.zones))
+        areas = self.ground.active()
+        GROUND_AREAS.set(len(areas))
+        key = (geometry_key(self.geometry), zones_digest(self.zones), active_key(areas))
         if key == self.published_key:
             return
+        now = self.monotonic()
+        if (
+            self.published_key is not None
+            and key[:2] == self.published_key[:2]
+            and self.last_publish_monotonic is not None
+            and now - self.last_publish_monotonic < 1.0 / self.config.ground_mask_max_rate_hz
+        ):
+            return
+        polygons = [tuple(area.polygon) for area in areas]
         try:
             keepout = rasterise_keepout(self.geometry, self.zones, self.config.slow_zone_mask_value)
-            speed = rasterise_speed(self.geometry, self.zones)
+            speed = rasterise_speed(self.geometry, self.zones, polygons, self.config.ground_warning_speed_pct)
+            ground_cost = rasterise_ground_cost(self.geometry, polygons, self.config.ground_warning_mask_value)
         except RotatedMapError as exc:
             if key[0] != self.rejected_geometry:
                 self.rejected_geometry = key[0]
@@ -135,15 +194,20 @@ class ZoneMaskPublisher:
             return
         self.keepout_pub.publish(self.mask_message(keepout))
         self.speed_pub.publish(self.mask_message(speed))
+        self.ground_cost_pub.publish(self.mask_message(ground_cost))
         self.published_key = key
+        self.last_publish_monotonic = now
         ZONE_PUBLISHES.inc()
         ZONES_LAST_PUBLISH.set(time.time())
         self.logger.info(
-            f"published masks: {len(self.zones)} active zones, map {self.geometry.width}x{self.geometry.height}"
+            f"published masks: {len(self.zones)} active zones, {len(areas)} ground areas, map {self.geometry.width}x{self.geometry.height}"
         )
         if not self.infos_sent:
             self.keepout_info_pub.publish(self.info_message(FILTER_TYPE_KEEPOUT, self.config.keepout_mask_topic))
             self.speed_info_pub.publish(self.info_message(FILTER_TYPE_SPEED_PERCENT, self.config.speed_mask_topic))
+            self.ground_cost_info_pub.publish(
+                self.info_message(FILTER_TYPE_KEEPOUT, self.config.ground_cost_mask_topic)
+            )
             self.infos_sent = True
 
     def mask_message(self, mask: np.ndarray) -> OccupancyGrid:
@@ -197,12 +261,18 @@ def run_node(config: CostmapZonesConfig) -> None:
         speed_pub=node.create_publisher(OccupancyGrid, config.speed_mask_topic, LATCHED_QOS),
         keepout_info_pub=node.create_publisher(CostmapFilterInfo, config.keepout_info_topic, LATCHED_QOS),
         speed_info_pub=node.create_publisher(CostmapFilterInfo, config.speed_info_topic, LATCHED_QOS),
+        ground_cost_pub=node.create_publisher(OccupancyGrid, config.ground_cost_mask_topic, LATCHED_QOS),
+        ground_cost_info_pub=node.create_publisher(CostmapFilterInfo, config.ground_cost_info_topic, LATCHED_QOS),
         now=lambda: node.get_clock().now().to_msg(),
         logger=node.get_logger(),
     )
     node.create_subscription(OccupancyGrid, config.map_topic, publisher.on_map, LATCHED_QOS)
     node.create_subscription(String, config.poi_list_topic, publisher.on_list, LATCHED_QOS)
-    node.get_logger().info(f"costmap_zones: {config.map_topic} + {config.poi_list_topic} -> masks")
+    node.create_subscription(String, config.ground_warnings_topic, publisher.on_ground, GROUND_QOS)
+    node.create_timer(TICK_PERIOD_S, publisher.tick)
+    node.get_logger().info(
+        f"costmap_zones: {config.map_topic} + {config.poi_list_topic} + {config.ground_warnings_topic} -> masks"
+    )
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):

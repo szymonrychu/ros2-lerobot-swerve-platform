@@ -77,6 +77,8 @@ def node(log: list[tuple[str, Any]]) -> ZoneMaskPublisher:
         speed_pub=FakePublisher("speed", log),
         keepout_info_pub=FakePublisher("keepout_info", log),
         speed_info_pub=FakePublisher("speed_info", log),
+        ground_cost_pub=FakePublisher("ground_cost", []),
+        ground_cost_info_pub=FakePublisher("ground_cost_info", []),
         now=lambda: STAMP,
         logger=logging.getLogger("test_node"),
     )
@@ -154,6 +156,8 @@ def test_configured_slow_zone_mask_value_is_published(log: list) -> None:
         speed_pub=FakePublisher("speed", log),
         keepout_info_pub=FakePublisher("keepout_info", log),
         speed_info_pub=FakePublisher("speed_info", log),
+        ground_cost_pub=FakePublisher("ground_cost", []),
+        ground_cost_info_pub=FakePublisher("ground_cost_info", []),
         now=lambda: STAMP,
         logger=logging.getLogger("test_node"),
     )

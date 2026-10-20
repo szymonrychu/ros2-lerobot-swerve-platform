@@ -225,12 +225,42 @@ def rasterise_keepout(geometry: MapGeometry, zones: list[Zone], slow_value: int)
     return mask
 
 
-def rasterise_speed(geometry: MapGeometry, zones: list[Zone]) -> np.ndarray:
-    """Speed mask: the lowest speed_limit_pct of the slow zones covering a cell, SPEED_BACKGROUND (0) elsewhere.
+def rasterise_ground_cost(
+    geometry: MapGeometry, polygons: list[tuple[tuple[float, float], ...]], value: int
+) -> np.ndarray:
+    """Ground cost mask: value inside the warning polygons, KEEPOUT_BACKGROUND (-1) elsewhere.
+
+    Args:
+        geometry (MapGeometry): Map grid the mask copies.
+        polygons (list[tuple[tuple[float, float], ...]]): Warning polygons (x, y), m.
+        value (int): Mask value inside (1..99, validated by CostmapZonesConfig).
+
+    Returns:
+        np.ndarray: int8 array (height, width), row = y index.
+
+    Raises:
+        RotatedMapError: The map origin is rotated.
+    """
+    require_axis_aligned(geometry)
+    mask = np.full((geometry.height, geometry.width), KEEPOUT_BACKGROUND, dtype=np.int8)
+    for polygon in polygons:
+        mask[fill_zone(geometry, polygon)] = value
+    return mask
+
+
+def rasterise_speed(
+    geometry: MapGeometry,
+    zones: list[Zone],
+    ground_polygons: list[tuple[tuple[float, float], ...]] | None = None,
+    ground_pct: int | None = None,
+) -> np.ndarray:
+    """Speed mask: the lowest speed percent of the slow zones and ground warnings covering a cell, 0 elsewhere.
 
     Args:
         geometry (MapGeometry): Map grid the mask copies.
         zones (list[Zone]): Active zones; keepout zones are ignored.
+        ground_polygons (list[tuple[tuple[float, float], ...]] | None): Ground warning polygons.
+        ground_pct (int | None): Speed percent inside the ground warning polygons.
 
     Returns:
         np.ndarray: int8 array (height, width), row = y index.
@@ -244,6 +274,10 @@ def rasterise_speed(geometry: MapGeometry, zones: list[Zone]) -> np.ndarray:
         if zone.zone == ZONE_SLOW and zone.speed_limit_pct is not None:
             covered = fill_zone(geometry, zone.polygon)
             lowest[covered] = np.minimum(lowest[covered], zone.speed_limit_pct)
+    if ground_pct is not None:
+        for polygon in ground_polygons or []:
+            covered = fill_zone(geometry, polygon)
+            lowest[covered] = np.minimum(lowest[covered], ground_pct)
     mask = np.full((geometry.height, geometry.width), SPEED_BACKGROUND, dtype=np.int8)
     limited = lowest != NO_SPEED_LIMIT_SENTINEL
     mask[limited] = lowest[limited].astype(np.int8)

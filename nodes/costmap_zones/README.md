@@ -14,6 +14,33 @@ or `map_server` is needed. Client only. Nav2 filter wiring lives in `nodes/nav2_
 | out | `/costmap_zones/speed_mask` (`speed_mask_topic`) | nav_msgs/OccupancyGrid | reliable, transient_local, depth 1 |
 | out | `/costmap_filter_info/keepout` (`keepout_info_topic`) | nav2_msgs/CostmapFilterInfo, type 0, base 0.0, multiplier 1.0, `filter_mask_topic` = keepout mask | reliable, transient_local, depth 1 |
 | out | `/costmap_filter_info/speed` (`speed_info_topic`) | nav2_msgs/CostmapFilterInfo, type 1 (SPEED_FILTER_PERCENT), base 0.0, multiplier 1.0, `filter_mask_topic` = speed mask | reliable, transient_local, depth 1 |
+| in | `/ground/warning_areas` (`ground_warnings_topic`) | std_msgs/String (JSON contract `ground-warning-areas` from ground_estimator_cpp) | reliable, volatile, depth 5 |
+| out | `/costmap_zones/ground_cost_mask` (`ground_cost_mask_topic`) | nav_msgs/OccupancyGrid | reliable, transient_local, depth 1 |
+| out | `/costmap_filter_info/ground_cost` (`ground_cost_info_topic`) | nav2_msgs/CostmapFilterInfo, type 0, base 0.0, multiplier 1.0 | reliable, transient_local, depth 1 |
+
+## Ground warning areas
+
+ground_estimator_cpp publishes `{stamp_ns, frame, areas: [{kind, polygon, height_m, slope_deg, source}]}` on
+`/ground/warning_areas`: steps, ramps and colour-flagged flat objects that are NOT obstacles (edge step at most a third of
+the wheel diameter, slope at most `max_slope_deg`), so the robot may ride through them at reduced speed. costmap_zones
+stays the single writer of the Nav2 speed mask and adds these areas next to the POI slow zones:
+
+- Every received message keeps its areas active for `ground_warning_ttl_s` (3 s, monotonic clock) after receipt; a
+  message whose `frame` is not the `/map` header frame (or that arrives before `/map`) is ignored, logged once per frame
+  and counted in `costmap_zones_ground_ignored_total{reason}`.
+- Speed mask: `ground_warning_speed_pct` (40) inside active areas; the lowest percent wins with POI slow zones (a 30 %
+  slow zone stays 30). Keep-out zones are untouched. The SpeedFilter turns it into `/speed_limit`, which the MPPI
+  controller honours.
+- Ground cost mask (`/costmap_zones/ground_cost_mask`, local costmap only): `ground_warning_mask_value` (40) inside the
+  areas, `-1` elsewhere, with its own CostmapFilterInfo (published once with the first masks). KeepoutFilter maps 40 to
+  cost round(40 * 254 / 100) = 102 (about 101), far below INSCRIBED 253, so the area stays passable but the planner
+  prefers to go around.
+- Why not the keepout mask: it is shared with the global costmap (static map + lidar only, which must stay untouched by
+  a short-lived local estimate) and its filter would mix ground cost with POI zones. The keepout mask never carries
+  ground areas.
+- Masks are republished when the active area set changes (receipt of a new set or expiry), at most
+  `ground_mask_max_rate_hz` (2 Hz; a timer flushes a deferred change and expiry). An empty set after expiry republishes
+  the cleared masks (real state). Nothing is published before `/map` and `/poi/list` (no placeholder masks).
 
 ## Mask encoding
 
@@ -94,6 +121,13 @@ map (a POI-wide limitation).
 | `keepout_info_topic` | `/costmap_filter_info/keepout` |
 | `speed_info_topic` | `/costmap_filter_info/speed` |
 | `slow_zone_mask_value` | `60` (keepout-mask value in slow zones, `1..99`; 0 and 100 are refused, see "Slow-zone path cost") |
+| `ground_warnings_topic` | `/ground/warning_areas` (ground_estimator_cpp `output_namespace` + `/warning_areas`) |
+| `ground_warning_ttl_s` | `3.0` (> 0) |
+| `ground_warning_speed_pct` | `40` (`10..100`) |
+| `ground_warning_mask_value` | `40` (`1..99`) |
+| `ground_cost_mask_topic` | `/costmap_zones/ground_cost_mask` |
+| `ground_cost_info_topic` | `/costmap_filter_info/ground_cost` |
+| `ground_mask_max_rate_hz` | `2.0` (> 0) |
 
 ## Metrics (`127.0.0.1:19111/metrics`)
 
@@ -102,6 +136,8 @@ map (a POI-wide limitation).
 | `costmap_zones_publishes_total` | mask publications (a keepout plus a speed mask each) |
 | `costmap_zones_active{zone}` | active zones (`keepout`, `slow`) in the latest valid list |
 | `costmap_zones_rejected_total{reason}` | `invalid_entry`, `bad_list`, `rotated_map` |
+| `costmap_zones_ground_areas` | active (not expired) ground warning areas |
+| `costmap_zones_ground_ignored_total{reason}` | ignored ground messages: `bad_message`, `frame_mismatch`, `no_map` |
 | `costmap_zones_last_publish_timestamp_seconds` | unix time of the latest mask publication |
 
 ## Edge cases
@@ -176,7 +212,8 @@ Safety and output:
 ## Tests
 
 `uv run pytest tests -v` in this directory: `test_config.py`, `test_zones.py`, `test_raster.py` (pure modules),
-`test_node.py` (publish rule, mask content, infos, metrics with fake publishers and messages from `ros_stubs.py`),
+`test_ground_warnings.py` (ground warning JSON, TTL store, speed and ground cost masks, rate limit, config defaults
+against ground_estimator_cpp and client.yml), `test_node.py` (publish rule, mask content, infos, metrics with fake publishers and messages from `ros_stubs.py`),
 `test_shutdown.py` (clean exit on SIGTERM, missing config exits 1), `test_verify.py` (verification pure parts: the
 rectangle and goal placement ahead of a pose, the path/polygon intersection, cell lookup, mask and costmap checks,
 the speed-limit expectation, navigate_to_pose activity, POI command payloads, the PASS/FAIL summary and exit code,
