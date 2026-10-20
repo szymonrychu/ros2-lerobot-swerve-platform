@@ -72,7 +72,7 @@ def msg_to_dict(msg: Any, topic: str = "", tof_range_m: float | None = None) -> 
     if msg_type == "CameraInfo":
         return _serialize_camera_info(msg)
     if msg_type in ("Image", "CompressedImage"):
-        return _serialize_image(msg, tof_range_m)
+        return {**_serialize_image(msg, tof_range_m), "stamp": stamp_to_seconds(msg.header.stamp)}
     return _serialize_msg(msg)
 
 
@@ -285,6 +285,34 @@ def _serialize_depth_image(msg: Any, tof_range_m: float | None = None) -> dict[s
         }
     except Exception as exc:  # pylint: disable=broad-except
         return {"depth_preview_b64": None, "depth_b64": None, "error": str(exc)}
+
+
+def serialize_registered_depth(msg: Any) -> dict[str, Any]:
+    """Serialize a 16UC1 depth Image at full size, for readouts of the exact depth under a pixel.
+
+    Args:
+        msg (Any): sensor_msgs/Image, encoding 16UC1 (millimetres, 0 = invalid).
+
+    Returns:
+        dict[str, Any]: depth_raw_b64 (little-endian uint16, row-major, no row padding), width, height, frame_id and
+        stamp (s) of the header.
+
+    Raises:
+        ValueError: If the encoding is not 16UC1 or the data is truncated.
+    """
+    if msg.encoding.lower() != "16uc1":
+        raise ValueError(f"registered depth must be 16UC1, got {msg.encoding!r}")
+    row_values = msg.step // 2
+    if row_values < msg.width or len(msg.data) < msg.height * msg.step:
+        raise ValueError(f"truncated depth image: {len(msg.data)} bytes for {msg.width}x{msg.height}, step {msg.step}")
+    rows = np.frombuffer(bytes(msg.data), dtype="<u2", count=msg.height * row_values).reshape((msg.height, row_values))
+    return {
+        "depth_raw_b64": base64.b64encode(np.ascontiguousarray(rows[:, : msg.width]).tobytes()).decode("ascii"),
+        "width": msg.width,
+        "height": msg.height,
+        "frame_id": msg.header.frame_id,
+        "stamp": stamp_to_seconds(msg.header.stamp),
+    }
 
 
 def stamp_to_seconds(stamp: Any) -> float:

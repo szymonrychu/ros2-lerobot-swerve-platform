@@ -32,6 +32,9 @@ STEP_CENTER = 2048
 HOME_TOLERANCE_RAD = 1e-3
 STEP_TOLERANCE = 1
 EXPECTED_HOME_RAD = (0.0, math.radians(30.0))
+RGBD_RGB_TOPIC = "/head_rgbd/rgb/image_raw/compressed"
+RGBD_DEPTH_TOPIC = "/head_rgbd/depth/image_raw"
+RGBD_CLOUD_TOPIC = "/head_rgbd/points"
 
 sys.path[:0] = [str(REPO_ROOT / "nodes" / "mcp_server"), str(REPO_ROOT / "nodes" / "web_ui"), str(REPO_ROOT / "shared")]
 try:
@@ -182,3 +185,14 @@ def test_topics_agree_across_bridge_mcp_server_web_ui_and_launch() -> None:
         if map_tab.type == "map_nav":
             assert map_tab.head_joint_states_topic == STATES_TOPIC
     assert launch_remaps()["joint_states"] == STATES_TOPIC
+
+
+def test_rgbd_topics_agree_between_client_yml_and_default_yaml() -> None:
+    """The web_ui RGB-D keys (head tab view, map tab layer) are the head_rgbd_cpp output topics in both configs."""
+    for raw in (client_node_config("web_ui"), yaml.safe_load(WEB_UI_DEFAULT_YAML.read_text())):
+        tabs = AppConfig.model_validate(raw).tabs
+        head = next(t for t in tabs if t.type == "head")
+        nav = next(t for t in tabs if t.type == "map_nav")
+        assert head.rgbd_rgb_topic == RGBD_RGB_TOPIC
+        assert head.rgbd_depth_topic == RGBD_DEPTH_TOPIC
+        assert nav.rgbd_cloud_topic == RGBD_CLOUD_TOPIC

@@ -62,7 +62,9 @@ from .config import (
     HEAD_AMPLITUDE_ROLE,
     HEAD_DEPTH_ROLE,
     HEAD_RGB_ROLE,
+    HEAD_RGBD_DEPTH_ROLE,
     POI_RESULT_ROLE,
+    RGBD_CLOUD_ROLE,
 )
 from .gps_anchor import (
     CALIBRATION_MAX_AGE_S,
@@ -96,6 +98,7 @@ from .msg_serializer import (
     serialize_poi_photos,
     serialize_point_cloud,
     serialize_polygon,
+    serialize_registered_depth,
     serialize_scan_points,
     stamp_to_seconds,
     transform_points_2d,
@@ -140,7 +143,10 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
 # Minimum seconds between two serialised previews of one head topic (ToF drivers publish at 30 Hz; the browser
 # gets at most this rate, and the Pi skips the JPEG encode of the frames in between).
 HEAD_PREVIEW_MIN_INTERVAL_S = 0.1
-HEAD_ROLES: frozenset[str] = frozenset({HEAD_RGB_ROLE, HEAD_DEPTH_ROLE, HEAD_AMPLITUDE_ROLE})
+# Head RGB-D cloud sent to a browser: at most this many points, voxel edge (m) it starts from.
+RGBD_CLOUD_MAX_POINTS = 20000
+RGBD_CLOUD_VOXEL_M = 0.02
+HEAD_ROLES: frozenset[str] = frozenset({HEAD_RGB_ROLE, HEAD_DEPTH_ROLE, HEAD_AMPLITUDE_ROLE, HEAD_RGBD_DEPTH_ROLE})
 
 SENSOR_SUB_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -194,7 +200,7 @@ ROBOT_POSE_STALE_S = 2.0
 MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint", "costmap"})
 # 3D obstacle roles: points stay in the sensor frame and gain "frame_pose", the pose of that frame in map_frame at the
 # message stamp; without that TF the message is not sent.
-POSE_FRAME_ROLES: frozenset[str] = frozenset({"cloud", "scan_points"})
+POSE_FRAME_ROLES: frozenset[str] = frozenset({"cloud", "scan_points", RGBD_CLOUD_ROLE})
 
 # Serializers take the message and return a JSON-serializable dict.
 Serializer = Callable[[Any], dict[str, Any]]
@@ -236,6 +242,19 @@ def serialize_map3d_cloud_default(msg: Any) -> dict[str, Any]:
     return serialize_map3d_cloud(msg, DEFAULT_MAX_POINTS, DEFAULT_VOXEL_M)
 
 
+def serialize_rgbd_cloud(msg: Any) -> dict[str, Any]:
+    """Serialize the head RGB-D cloud (coloured, sensor frame) with its own point cap and voxel.
+
+    Args:
+        msg (Any): sensor_msgs/PointCloud2 XYZRGB.
+
+    Returns:
+        dict[str, Any]: See serialize_map3d_cloud, plus "frame" (the header frame, which attach_frame_pose looks up).
+    """
+    payload = serialize_map3d_cloud(msg, RGBD_CLOUD_MAX_POINTS, RGBD_CLOUD_VOXEL_M)
+    return {**payload, "frame": payload["frame_id"]}
+
+
 # map_nav subscription role -> (message class, QoS, serializer). Roles come from the tab config.
 ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "map": (OccupancyGrid, MAP_SUB_QOS, serialize_occupancy_grid),
@@ -250,6 +269,8 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "scan_points": (LaserScan, SENSOR_SUB_QOS, serialize_scan_points),
     # RTAB-Map 3D map: on demand, latest wins; serialized lazily at flush so an unchanged cloud is encoded once.
     "map3d_cloud": (PointCloud2, SENSOR_SUB_QOS, serialize_map3d_cloud_default),
+    # head_rgbd_cpp coloured cloud (best effort, <= 1 Hz): points stay in the sensor frame, frame_pose places them.
+    RGBD_CLOUD_ROLE: (PointCloud2, SENSOR_SUB_QOS, serialize_rgbd_cloud),
     # map3d manager status (latest wins) and per-command results (a burst must not lose one).
     "map3d_status": (String, MAP3D_STATUS_QOS, serialize_json_object),
     "map3d_result": (String, MAP3D_RESULT_QOS, serialize_json_object),
@@ -266,6 +287,7 @@ HEAD_ROLE_MSG_TYPES: dict[str, type] = {
     HEAD_RGB_ROLE: CompressedImage,
     HEAD_DEPTH_ROLE: Image,
     HEAD_AMPLITUDE_ROLE: Image,
+    HEAD_RGBD_DEPTH_ROLE: Image,
 }
 
 
@@ -284,6 +306,8 @@ def head_spec(topic: str, role: str, tof_range_m: float | None) -> tuple[type, A
         tuple[type, Any, Serializer]: (msg class, QoS profile, serializer).
     """
     depth_range = tof_range_m if role == HEAD_DEPTH_ROLE else None
+    if role == HEAD_RGBD_DEPTH_ROLE:
+        return (HEAD_ROLE_MSG_TYPES[role], SENSOR_SUB_QOS, serialize_registered_depth)
 
     def serializer(msg: Any) -> dict[str, Any]:
         data = msg_to_dict(msg, topic=topic, tof_range_m=depth_range)

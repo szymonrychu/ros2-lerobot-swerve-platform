@@ -149,6 +149,8 @@ GPS_STATUS_ROLE = "gps_status"
 HEAD_RGB_ROLE = "head_rgb"
 HEAD_DEPTH_ROLE = "head_depth"
 HEAD_AMPLITUDE_ROLE = "head_amplitude"
+HEAD_RGBD_DEPTH_ROLE = "head_rgbd_depth"  # registered depth of head_rgbd_cpp: raw full-size uint16 mm, stamped
+RGBD_CLOUD_ROLE = "rgbd_cloud"  # coloured point cloud of head_rgbd_cpp, drawn in the map frame
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
 GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
@@ -167,6 +169,8 @@ GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "rgb_camera_topic",
     "tof_depth_topic",
     "tof_amplitude_topic",
+    "rgbd_rgb_topic",
+    "rgbd_depth_topic",
 )
 
 # map_nav tab attribute -> bridge subscription role (decides message type, QoS and serializer).
@@ -182,6 +186,7 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("map3d_cloud_topic", "map3d_cloud"),
     ("map3d_status_topic", "map3d_status"),
     ("map3d_result_topic", "map3d_result"),
+    ("rgbd_cloud_topic", RGBD_CLOUD_ROLE),
     ("gps_fix_topic", "gps"),
     ("poi_list_topic", "poi_list"),
     ("poi_result_topic", "poi_result"),
@@ -312,6 +317,8 @@ class TabConfig(BaseModel):
     zoom_timeout_s: float = Field(default=DEFAULT_ZOOM_TIMEOUT_S, gt=0)  # head: seconds to wait for a zoom crop
     tof_depth_topic: str | None = None  # head: sensor_msgs/Image 16UC1 (mm, 0 = invalid) ToF depth
     tof_amplitude_topic: str | None = None  # head: sensor_msgs/Image mono8 or mono16 ToF amplitude
+    rgbd_rgb_topic: str | None = None  # head: sensor_msgs/CompressedImage RGB of head_rgbd_cpp (RGB-D view)
+    rgbd_depth_topic: str | None = None  # head: sensor_msgs/Image 16UC1 mm depth registered into rgbd_rgb_topic
     tof_range_m: float = Field(
         default=DEFAULT_TOF_RANGE_M, gt=0
     )  # head: depth shown in the greyscale preview (m); near is bright, this far or beyond is black
@@ -338,6 +345,7 @@ class TabConfig(BaseModel):
     map3d_frame_id: str | None = None  # map_nav: the only frame the 3D map layer accepts
     map3d_max_points: int = Field(default=60000, ge=1000, le=300000)  # map_nav: cap of points sent to a browser
     map3d_voxel_m: float = Field(default=0.05, ge=0.02, le=0.5)  # map_nav: starting voxel edge (m) of the cloud
+    rgbd_cloud_topic: str | None = None  # map_nav: sensor_msgs/PointCloud2 XYZRGB of head_rgbd_cpp (on demand)
     lidar_wall_height_m: float = Field(default=1.0, ge=0.1, le=3.0)  # map_nav: height lidar points are extruded to
     gps_fix_topic: str | None = None  # map_nav: sensor_msgs/NavSatFix of the rover
     poi_list_topic: str | None = None  # map_nav: std_msgs/String JSON POI list (latched, from poi_store)
@@ -625,7 +633,12 @@ class AppConfig(BaseModel):
         Returns:
             dict[str, float]: Depth topic -> tof_range_m in metres.
         """
-        return {topic: tab.tof_range_m for tab in self.head_tabs() for topic in (tab.tof_depth_topic,) if topic}
+        return {
+            topic: tab.tof_range_m
+            for tab in self.head_tabs()
+            for topic in (tab.tof_depth_topic, tab.rgbd_depth_topic)
+            if topic
+        }
 
     def map3d_limits(self) -> dict[str, tuple[int, float]]:
         """Map each map_nav tab's 3D map cloud topic to its (max_points, voxel_m) limits.
@@ -719,7 +732,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "cloud" and "map3d_cloud" (PointCloud2) and "scan_points" (LaserScan), "map3d_status" and "map3d_result" (std_msgs/String JSON), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" (CompressedImage), "head_depth" and "head_amplitude" (Image) of head tabs and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" (CompressedImage), "head_depth", "head_rgbd_depth" and "head_amplitude" (Image) of head tabs, "rgbd_cloud" (PointCloud2) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -738,6 +751,8 @@ class AppConfig(BaseModel):
                 (tab.rgb_camera_topic, HEAD_RGB_ROLE),
                 (tab.tof_depth_topic, HEAD_DEPTH_ROLE),
                 (tab.tof_amplitude_topic, HEAD_AMPLITUDE_ROLE),
+                (tab.rgbd_rgb_topic, HEAD_RGB_ROLE),
+                (tab.rgbd_depth_topic, HEAD_RGBD_DEPTH_ROLE),
             ):
                 if topic:
                     roles[topic] = role

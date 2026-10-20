@@ -40,6 +40,8 @@ tabs:
     map3d_frame_id: rtabmap_map
     map3d_max_points: 60000
     map3d_voxel_m: 0.05
+    # "Head RGB-D" layer (on demand): head_rgbd_cpp XYZRGB cloud, placed in the map frame by the TF of its sensor frame.
+    rgbd_cloud_topic: /head_rgbd/points
     lidar_wall_height_m: 1.0
     goal_topic: /goal_pose
     map_frame: map
@@ -99,6 +101,10 @@ tabs:
     zoom_image_topic: /head_camera/zoom/image
     tof_depth_topic: /tof/depth/image_raw
     tof_amplitude_topic: /tof/amplitude/image_raw
+    # RGB-D view (on demand, only while selected): head_rgbd_cpp RGB with the ToF depth registered into it, paired by header
+    # stamp and shown as a colormap overlay with a hover depth readout (nodes/head_rgbd_cpp/README.md "Topics").
+    rgbd_rgb_topic: /head_rgbd/rgb/image_raw/compressed
+    rgbd_depth_topic: /head_rgbd/depth/image_raw
     tof_range_m: 4.0
     # Pan/tilt control: commands (sensor_msgs/JointState head_pan, head_tilt rad) are refused outside the ranges.
     # Same limits as the head servo group (client.yml) and nodes/web_ui/urdf/head.urdf; home is inside both.

@@ -421,14 +421,18 @@ def test_calibration_rejections(bad: dict) -> None:
 
 
 def test_default_head_tab_subscribes_the_tof_topics() -> None:
-    """The shipped default head tab subscribes exactly the two ToF topics, with the head_depth and head_amplitude roles."""
+    """The shipped default head tab subscribes exactly the two ToF topics (head_depth, head_amplitude) and the RGB-D pair."""
     cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
     head = next(t for t in cfg.tabs if t.type == "head")
     roles = cfg.topic_roles()
     head_roles = {topic: role for topic, role in roles.items() if role in {"head_depth", "head_amplitude"}}
     assert head_roles == {"/tof/depth/image_raw": "head_depth", "/tof/amplitude/image_raw": "head_amplitude"}
     assert head.rgb_camera_topic == "/head_camera/image_raw/compressed"
-    assert set(cfg.tof_ranges()) == {"/tof/depth/image_raw"}
+    assert set(cfg.tof_ranges()) == {"/tof/depth/image_raw", "/head_rgbd/depth/image_raw"}
+    assert head.rgbd_rgb_topic == "/head_rgbd/rgb/image_raw/compressed"
+    assert head.rgbd_depth_topic == "/head_rgbd/depth/image_raw"
+    assert roles["/head_rgbd/depth/image_raw"] == "head_rgbd_depth"
+    assert roles["/head_rgbd/rgb/image_raw/compressed"] == "head_rgb"
 
 
 AGENT_CHAT_TAB = {"id": "agent", "type": "agent_chat", "label": "Agent", "agent_url": "http://127.0.0.1:18300"}

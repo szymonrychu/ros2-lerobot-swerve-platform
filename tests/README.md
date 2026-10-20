@@ -496,6 +496,7 @@ Cross-component pin of the pan/tilt head: the same values are copied into the `b
 | `test_ranges_agree_across_urdf_bridge_web_ui_and_mcp_server` | URDF limits equal the bridge `command_min/max_steps` (4096 steps/turn around 2048, honouring `inverted`), the web_ui `head_*_range_deg` and the mcp_server limits read from its configured URDF path. |
 | `test_joint_names_agree_across_urdf_bridge_and_mcp_server` | `head_pan`, `head_tilt` in the URDF, the bridge group and mcp_server `head.joint_names`. |
 | `test_topics_agree_across_bridge_mcp_server_web_ui_and_launch` | `/head/joint_states` and `/head/joint_commands` in the bridge namespace, mcp_server, web_ui (head and map_nav tabs) and the head_state_publisher launch remap. |
+| `test_rgbd_topics_agree_between_client_yml_and_default_yaml` | The web_ui head tab `rgbd_rgb_topic` / `rgbd_depth_topic` and the map tab `rgbd_cloud_topic` are `/head_rgbd/rgb/image_raw/compressed`, `/head_rgbd/depth/image_raw` and `/head_rgbd/points` in client.yml and default.yaml (an unknown key would be dropped silently by the tab model). |
 
 ### `test_head_servo_config.py`
 

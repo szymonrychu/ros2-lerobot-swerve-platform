@@ -199,4 +199,4 @@ def test_bridge_without_tf_tracking_sends_nothing() -> None:
 def test_cloud_roles_are_on_demand_and_need_tf() -> None:
     from web_ui.bridge import POSE_FRAME_ROLES
 
-    assert POSE_FRAME_ROLES == frozenset({"cloud", "scan_points"})
+    assert POSE_FRAME_ROLES == frozenset({"cloud", "scan_points", "rgbd_cloud"})
