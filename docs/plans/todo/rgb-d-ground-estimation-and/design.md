@@ -201,6 +201,9 @@ decision. Serves A2.
 ### D14: Obstacle vs warning rule: 1/3 wheel diameter, max slope
 Obstacle vs warning rule (replaces Q1): a step, threshold, drop or ramp cluster is an OBSTACLE (lethal: its points go to /ground/obstacle_points or /ground/drop_points and the ground_voxel_layer) when its edge step exceeds one third of the wheel diameter (traversability.wheel_radius_m 0.06 from swerve_drive_controller wheel_radius_m, max_step_fraction 1/3 -> 0.04 m, configurable, pinned equal by a consistency test) or its surface slope exceeds traversability.max_slope_deg (default 8 deg, my call: the lower of the tilt_guard warn limits, roll 8 / pitch 12, because a swerve base can meet a ramp at any heading, so driving onto a steeper ramp would at once raise a tilt_guard warning); otherwise it is a WARNING area, clear to ride through at reduced speed. Colour-flagged flat objects (floor_colour_mismatch clusters) are classified by the same rule. Tests cover both sides of each threshold (0.035/0.045 m sills and drops, 6/10 deg ramps, exactly 0.04 m and 8 deg are warnings). (user decision)
 
+### D15: Slow-down via costmap_zones speed mask and local cost band
+Slow-down mechanism for warning areas: ground_estimator_cpp publishes the warning polygons on /ground/warning_areas (JSON, map frame); costmap_zones, already the single writer of the Nav2 speed mask, keeps them for ground_warning_ttl_s 3 s and rasterises them into (1) the speed mask at ground_warning_speed_pct 40 (lowest wins with POI slow zones), which the existing local SpeedFilter turns into /speed_limit and controller_server (MPPI) honours, and (2) a new local-only ground cost mask (value 40 -> cost ~101, below INSCRIBED 253, so passable) read by a ground_cost_filter KeepoutFilter layer below inflation in the local costmap only. No second /speed_limit writer, the keepout mask and the global costmap stay untouched (ruling Q3). Alternatives rejected: a second SpeedFilter (two writers of /speed_limit), a custom costmap plugin (new C++ Nav2 plugin for one band), STVL (lethal only). (my call) (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -248,6 +251,7 @@ Obstacle vs warning rule (replaces Q1): a step, threshold, drop or ramp cluster 
 | D12 Runbook, docs, robot verification | ground-final-suite-runbook, ground-node-readme |
 | D13 Global costmap and bias out of scope | nav2-ground-voxel-layer |
 | D14 Obstacle vs warning rule: 1/3 wheel diameter, max slope | ground-traversability-rule, ground-step-edges, ground-colour-labels, ground-node-wiring, ground-package-config, ground-node-type, ground-final-suite-runbook |
+| D15 Slow-down via costmap_zones speed mask and local cost band | costmap-ground-warnings, nav2-ground-voxel-layer, ground-state-json, ground-node-wiring, mcp-ground-summary, web-ui-ground-frontend |
 
 ## Contracts
 
