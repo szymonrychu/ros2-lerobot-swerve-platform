@@ -199,6 +199,9 @@ Gate Q4: tiers 0 (wrist roll) and 1 (wrist flex and elbow, small amplitude) run 
 ### D17: Tilt range -30..+60 deg after the reprint
 Gate Q1: after the reprint the head tilt range is -30..+60 deg (+ is down) everywhere it is pinned. (user decision)
 
+### D18: Drive-straight yaw check optional with user OK
+Gate Q5: the 0.5 m drive-straight yaw check is optional, only with the user's explicit OK, slow, base lease, mcp move_relative; board-spot moves are manual. (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -256,6 +259,7 @@ Gate Q1: after the reprint the head tilt range is -30..+60 deg (+ is down) every
 | D15 Guided step-by-step calibration | head-calibrate-ui-section, arm-calibrate-ui-section, head-grid-capture-sequence |
 | D16 Tiers 0 and 1 without confirm, tier 2 confirmed | arm-pose-capture-sequence, sequence-http-api, calib-frontend-api, arm-calibrate-ui-section |
 | D17 Tilt range -30..+60 deg after the reprint | head-tilt-range-widened |
+| D18 Drive-straight yaw check optional with user OK | calib-robot-runbook |
 
 ## Contracts
 

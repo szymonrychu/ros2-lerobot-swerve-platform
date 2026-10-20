@@ -153,5 +153,16 @@
       "head-tilt-range-widened"
     ],
     "status": "approved"
+  },
+  {
+    "id": "G6",
+    "text": "Gate Q5: the 0.5 m drive-straight yaw check is optional, only with the user's explicit OK, slow, base lease, mcp move_relative; board-spot moves are manual.",
+    "decisions": [
+      "D18"
+    ],
+    "tasks": [
+      "calib-robot-runbook"
+    ],
+    "status": "approved"
   }
 ]
