@@ -23,8 +23,8 @@ provides: []
 
 ## Requirement
 
-- Grafana (design D11): `ansible/roles/monitoring/files/robot-slam.json` gains a "Ground estimate" row: fit rate by result (`rate(ground_fits_total[1m])` by result), fit duration p50/p95 (`ground_fit_seconds_bucket`), inlier ratio, slope and plane_vs_base (deg), regions, obstacle/drop point counts, colour mismatch ratio, cloud drops by reason, and the unit CPU `rate(container_cpu_usage_seconds_total{host="$host",id="/system.slice/ros2-ground_estimator_cpp.service"}[1m])` with the 0.10 core budget as a threshold line; every selector host-scoped as the dashboard's other panels.
-- `tests/test_monitoring_dashboards.py`: the ground metric names (part `ground-metrics`: `ground_fits_total`, `ground_inlier_ratio`, `ground_slope_deg`, `ground_plane_vs_base_deg`, `ground_regions`, `ground_obstacle_points`, `ground_drop_points`, `ground_colour_mismatch_ratio`, `ground_clouds_dropped_total`, `ground_labelled_clouds_total`; histogram `ground_fit_seconds`) in the node metric contract; the slam dashboard test asserts the ground row's queries; test-first, seen failing before the dashboard edit.
+- Grafana (design D11): `ansible/roles/monitoring/files/robot-slam.json` gains a "Ground estimate" row: fit rate by result (`rate(ground_fits_total[1m])` by result), fit duration p50/p95 (`ground_fit_seconds_bucket`), inlier ratio, slope and plane_vs_base (deg), regions, warning areas, obstacle/drop point counts, colour mismatch ratio, cloud drops by reason, and the unit CPU `rate(container_cpu_usage_seconds_total{host="$host",id="/system.slice/ros2-ground_estimator_cpp.service"}[1m])` with the 0.10 core budget as a threshold line; every selector host-scoped as the dashboard's other panels.
+- `tests/test_monitoring_dashboards.py`: the ground metric names (part `ground-metrics`: `ground_fits_total`, `ground_inlier_ratio`, `ground_slope_deg`, `ground_plane_vs_base_deg`, `ground_regions`, `ground_warning_areas`, `ground_obstacle_points`, `ground_drop_points`, `ground_colour_mismatch_ratio`, `ground_clouds_dropped_total`, `ground_labelled_clouds_total`; histogram `ground_fit_seconds`) in the node metric contract; the slam dashboard test asserts the ground row's queries; test-first, seen failing before the dashboard edit.
 - `scripts/node_cpu_compare.yaml`: entry `{name: nav2_bringup_ground_layer, before_unit: ros2-nav2_bringup.service, after_unit: ros2-nav2_bringup.service, switch_time: 1}` with a comment that ros2-ground_estimator_cpp.service is new and measured "after" only by the runbook query (the file's convention); `tests/test_node_cpu_compare.py` stays green (extend it if it pins the entry list).
 - `tests/README.md`: the changed tests described.
 
@@ -61,3 +61,5 @@ dashboard row "Ground estimate" in robot-slam.json; consumes parts `ground-metri
 ## Notes
 
 robot-slam.json already has head_rgbd and tof panels (pattern). The tof epic's escalated final task also lists scripts/node_cpu_compare.yaml: rebase, keep its entries.
+
+- 2026-10-20 amended: gate 2026-10-20: user obstacle/warning rule (1/3 wheel diameter, max slope), slow-down via costmap_zones
