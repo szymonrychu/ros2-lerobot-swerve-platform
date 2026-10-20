@@ -39,6 +39,7 @@ import {
   GridImageMsg,
   LIFT,
   ObstaclePointsLayer,
+  HeadRgbdLayer,
   Map3dCloudLayer,
   LidarWallsLayer,
   useMap3dCloud,
@@ -82,6 +83,8 @@ export interface MapSceneProps {
   scanPoints?: unknown
   /** Raw map3d_cloud payload, the tab's map3d_frame_id and the lidar wall height. */
   map3dCloud?: unknown
+  /** Raw rgbd_cloud payload of the Head RGB-D layer (sensor-frame points with frame_pose). */
+  headRgbdCloud?: unknown
   map3dFrameId?: string
   lidarWallHeightM?: number
   globalPath: PathMsg | null | undefined
@@ -357,6 +360,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
       <Map3dCloudLayer cloud={map3dCloud} visible={layers.map3dCloud} />
       <LidarWallsLayer map={props.map} cloud={map3dCloud} heightM={props.lidarWallHeightM ?? DEFAULT_LIDAR_WALL_HEIGHT_M} visible={layers.lidarWalls} />
       <ObstaclePointsLayer cloud={props.obstacleCloud} scan={props.scanPoints} visible={layers.obstacles3d} />
+      <HeadRgbdLayer payload={props.headRgbdCloud} visible={layers.headRgbd} />
       <GridImageLayer msg={props.map} lift={LIFT.map} opacity={1} visible={layers.slamMap} />
       <GridImageLayer
         msg={inMapFrame(props.costmap, props.mapFrame) ? props.costmap : null}

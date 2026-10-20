@@ -28,9 +28,17 @@ export function tabTopics(t: TabConfig): string[] {
  * Topics the backend should serialize for this client: everything the app reads (fixed topics, battery, GPS,
  * overlays and tab topics), except the topics only an inactive image tab (camera, RGBD, head) shows.
  * The 3D obstacle topics of the active map tab are added only while obstacles3d (its layer) is on, the map3d cloud
- * topic only while map3dCloud is on.
+ * topic only while map3dCloud is on, the head RGB-D topics only while the open head tab shows its RGB-D view
+ * (headRgbd) and the head cloud topic only while the Head RGB-D layer of the open map tab is on (headRgbdCloud).
  */
-export function subscribedTopics(config: AppConfig, active: TabConfig | undefined, obstacles3d = false, map3dCloud = false): string[] {
+export function subscribedTopics(
+  config: AppConfig,
+  active: TabConfig | undefined,
+  obstacles3d = false,
+  map3dCloud = false,
+  headRgbd = false,
+  headRgbdCloud = false,
+): string[] {
   const topics = new Set<string>(ALWAYS_TOPICS)
   config.overlays.forEach((o) => topics.add(o.topic))
   if (config.battery?.topic) topics.add(config.battery.topic)
@@ -48,6 +56,17 @@ export function subscribedTopics(config: AppConfig, active: TabConfig | undefine
     for (const f of LAYER_TOPIC_FIELDS.map3dCloud ?? []) {
       const topic = active[f]
       if (typeof topic === 'string' && topic) topics.add(topic)
+    }
+  }
+  if (headRgbdCloud && active?.type === 'map_nav') {
+    for (const f of LAYER_TOPIC_FIELDS.headRgbd ?? []) {
+      const topic = active[f]
+      if (typeof topic === 'string' && topic) topics.add(topic)
+    }
+  }
+  if (headRgbd && active?.type === 'head') {
+    for (const topic of [active.rgbd_rgb_topic, active.rgbd_depth_topic]) {
+      if (topic) topics.add(topic)
     }
   }
   return [...topics].sort()

@@ -994,6 +994,8 @@ def test_web_ui_has_map_nav_tab() -> None:
         "map3d_frame_id": "rtabmap_map",
         "map3d_max_points": 60000,
         "map3d_voxel_m": 0.05,
+        # "Head RGB-D" layer: head_rgbd_cpp XYZRGB cloud (on demand).
+        "rgbd_cloud_topic": "/head_rgbd/points",
         "lidar_wall_height_m": 1.0,
         "base_urdf": "robot.urdf",
         "base_joint_states_topic": "/swerve_drive/joint_states",

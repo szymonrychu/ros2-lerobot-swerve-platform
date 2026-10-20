@@ -64,3 +64,25 @@ describe('3D obstacles on demand', () => {
     expect(subscribedTopics(cfg([m3]), m3, false, true)).toContain('/map3d/cloud')
   })
 })
+
+describe('head RGB-D on demand', () => {
+  const h = { ...head, rgbd_rgb_topic: '/head_rgbd/rgb/image_raw/compressed', rgbd_depth_topic: '/head_rgbd/depth/image_raw' } as TabConfig
+  const RGBD = ['/head_rgbd/rgb/image_raw/compressed', '/head_rgbd/depth/image_raw']
+
+  it('adds the two topics only for the open head tab while the RGB-D view is selected', () => {
+    expect(subscribedTopics(cfg([h]), h)).not.toEqual(expect.arrayContaining(RGBD))
+    expect(subscribedTopics(cfg([h]), h, false, false, false)).not.toContain(RGBD[0])
+    expect(subscribedTopics(cfg([h]), h, false, false, true)).toEqual(expect.arrayContaining(RGBD))
+  })
+
+  it('never subscribes them for an inactive head tab, whatever the flag says', () => {
+    expect(subscribedTopics(cfg([map, h]), map, false, false, true)).not.toEqual(expect.arrayContaining(RGBD))
+  })
+
+  it('adds the head cloud topic only for the open map tab while the Head RGB-D layer is on', () => {
+    const m = { ...map, rgbd_cloud_topic: '/head_rgbd/points' } as TabConfig
+    expect(subscribedTopics(cfg([m]), m)).not.toContain('/head_rgbd/points')
+    expect(subscribedTopics(cfg([m]), m, false, false, false, true)).toContain('/head_rgbd/points')
+    expect(subscribedTopics(cfg([h]), h, false, false, false, true)).not.toContain('/head_rgbd/points')
+  })
+})

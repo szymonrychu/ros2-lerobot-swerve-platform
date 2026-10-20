@@ -6,12 +6,20 @@ const CM_PER_M = 100
 const POINT_BYTES = 6
 const COLOR_BYTES = 3
 
-/** A decoded cloud: positions in metres in three.js order (x, z, -y), colours 0..1 when the payload had them. */
+/** A decoded cloud: positions in metres in three.js order (x, z, -y) unless decoded with rosAxes, colours 0..1 when the payload had them. */
 export interface DecodedMap3dCloud {
   positions: Float32Array
   colors?: Float32Array
   count: number
   voxel: number
+}
+
+/** How decodeMap3dCloud treats frames and axes. */
+export interface DecodeOptions {
+  /** Accept a cloud in any frame (a sensor-frame cloud that a frame_pose places later), not only the expected one. */
+  anyFrame?: boolean
+  /** Return positions in ROS axes (x, y, z) instead of three.js order, to apply a ROS-frame transform before drawing. */
+  rosAxes?: boolean
 }
 
 const warned = new Set<string>()
@@ -36,16 +44,17 @@ function bytesOf(b64: string): Uint8Array {
  * Decode a map3d_cloud payload.
  *
  * @param payload - raw topic value
- * @param expectedFrame - the tab's map3d_frame_id; a cloud in any other frame is rejected
+ * @param expectedFrame - the tab's map3d_frame_id; a cloud in any other frame is rejected unless options.anyFrame
+ * @param options - frame check and axis order, see DecodeOptions
  * @returns the decoded cloud, or null (logged once per reason) for a malformed payload, a foreign frame or byte lengths that do not match count
  */
-export function decodeMap3dCloud(payload: unknown, expectedFrame?: string): DecodedMap3dCloud | null {
+export function decodeMap3dCloud(payload: unknown, expectedFrame?: string, options: DecodeOptions = {}): DecodedMap3dCloud | null {
   if (!payload || typeof payload !== 'object') return null
   const p = payload as Partial<Map3dCloudPayload>
   if (typeof p.points_b64 !== 'string' || !Number.isInteger(p.count) || (p.count as number) < 0) {
     return rejectOnce('malformed payload')
   }
-  if (p.frame_id !== expectedFrame) return rejectOnce(`frame ${String(p.frame_id)} is not ${String(expectedFrame)}`)
+  if (!options.anyFrame && p.frame_id !== expectedFrame) return rejectOnce(`frame ${String(p.frame_id)} is not ${String(expectedFrame)}`)
   const count = p.count as number
   let pts: Uint8Array
   let rgb: Uint8Array | null = null
@@ -65,8 +74,8 @@ export function decodeMap3dCloud(payload: unknown, expectedFrame?: string): Deco
     const y = cm.getInt16(i * POINT_BYTES + 2, true) / CM_PER_M
     const z = cm.getInt16(i * POINT_BYTES + 4, true) / CM_PER_M
     positions[i * 3] = x
-    positions[i * 3 + 1] = z
-    positions[i * 3 + 2] = 0 - y
+    positions[i * 3 + 1] = options.rosAxes ? y : z
+    positions[i * 3 + 2] = options.rosAxes ? z : 0 - y
   }
   const out: DecodedMap3dCloud = { positions, count, voxel: Number(p.voxel_m) }
   if (rgb) out.colors = Float32Array.from(rgb, (v) => v / 255)

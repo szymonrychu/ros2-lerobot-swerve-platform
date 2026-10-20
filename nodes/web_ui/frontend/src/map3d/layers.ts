@@ -21,15 +21,19 @@ export const LAYER_KEYS = [
   'photos',
   'obstacles3d',
   'map3dCloud',
+  'headRgbd',
   'lidarWalls',
 ] as const
 
 export type LayerKey = (typeof LAYER_KEYS)[number]
 export type LayerState = Record<LayerKey, boolean>
 
-/** Everything visible except the GPS map (it needs an anchor and fetches tiles) and the 3D obstacles (on-demand topics). */
+/** Layers that start hidden: the GPS map (it needs an anchor and fetches tiles) and the on-demand 3D obstacles and head RGB-D cloud. */
+const DEFAULT_OFF: readonly LayerKey[] = ['gpsMap', 'obstacles3d', 'headRgbd']
+
+/** Everything visible except the DEFAULT_OFF layers. */
 export const DEFAULT_LAYERS: Readonly<LayerState> = Object.freeze(
-  Object.fromEntries(LAYER_KEYS.map((k) => [k, k !== 'gpsMap' && k !== 'obstacles3d'])) as LayerState,
+  Object.fromEntries(LAYER_KEYS.map((k) => [k, !DEFAULT_OFF.includes(k)])) as LayerState,
 )
 
 /** Human labels, in panel order. */
@@ -50,6 +54,7 @@ export const LAYER_LABELS: Record<LayerKey, string> = {
   photos: 'Photos',
   obstacles3d: '3D obstacles (ToF + lidar)',
   map3dCloud: '3D map (measured)',
+  headRgbd: 'Head RGB-D',
   lidarWalls: 'Lidar walls (2D only)',
 }
 
@@ -57,6 +62,7 @@ export const LAYER_LABELS: Record<LayerKey, string> = {
 export const LAYER_TOPIC_FIELDS: Partial<Record<LayerKey, readonly (keyof TabConfig)[]>> = {
   obstacles3d: ['obstacle_cloud_topic', 'scan_points_topic'],
   map3dCloud: ['map3d_cloud_topic'],
+  headRgbd: ['rgbd_cloud_topic'],
 }
 
 /**

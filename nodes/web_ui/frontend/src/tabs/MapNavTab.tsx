@@ -107,6 +107,8 @@ interface Props {
   /** Reports whether the 3D obstacles layer needs its topics; false again when it is switched off or the tab unmounts. */
   onObstaclesWanted?: (wanted: boolean) => void
   onMap3dCloudWanted?: (wanted: boolean) => void
+  /** Reports whether the Head RGB-D layer needs its cloud topic; false again when it is switched off or the tab unmounts. */
+  onHeadRgbdCloudWanted?: (wanted: boolean) => void
 }
 
 interface FramedPose extends Pose2D {
@@ -138,6 +140,7 @@ export default function MapNavTab({
   onFocusConsumed,
   onObstaclesWanted,
   onMap3dCloudWanted,
+  onHeadRgbdCloudWanted,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<SceneController | null>(null)
@@ -186,6 +189,9 @@ export default function MapNavTab({
   const map3dCloudWanted = layers.map3dCloud && Boolean(tab.map3d_cloud_topic)
   const map3dCloud = topicData[tab.map3d_cloud_topic ?? '']
   const map3dStatus = topicData[tab.map3d_status_topic ?? '']
+  const rgbdCloudConfigured = Boolean(tab.rgbd_cloud_topic)
+  const headRgbdCloudWanted = layers.headRgbd && rgbdCloudConfigured
+  const headRgbdCloud = topicData[tab.rgbd_cloud_topic ?? '']
   const globalPath = topicData[tab.global_plan_topic ?? ''] as PathMsg | null | undefined
   const localPath = topicData[tab.local_plan_topic ?? ''] as PathMsg | null | undefined
   const goalMsg = topicData[tab.goal_topic ?? ''] as FramedPose | null | undefined
@@ -215,6 +221,10 @@ export default function MapNavTab({
     onMap3dCloudWanted?.(map3dCloudWanted)
     return () => onMap3dCloudWanted?.(false)
   }, [map3dCloudWanted, onMap3dCloudWanted])
+  useEffect(() => {
+    onHeadRgbdCloudWanted?.(headRgbdCloudWanted)
+    return () => onHeadRgbdCloudWanted?.(false)
+  }, [headRgbdCloudWanted, onHeadRgbdCloudWanted])
 
   // Map reset: fit the next map that arrives.
   useEffect(() => {
@@ -621,6 +631,7 @@ export default function MapNavTab({
         rtkAvailable={basePosition !== null}
         costmapConfigured={Boolean(tab.local_costmap_topic)}
         obstaclesConfigured={obstaclesConfigured}
+        rgbdCloudConfigured={rgbdCloudConfigured}
         tileSources={tileSources}
         tileSource={tileSource}
         onTileSource={(id) => {
@@ -983,6 +994,7 @@ export default function MapNavTab({
               obstacleCloud={obstacleCloud}
               scanPoints={scanPoints}
               map3dCloud={map3dCloud}
+              headRgbdCloud={headRgbdCloud}
               map3dFrameId={tab.map3d_frame_id}
               lidarWallHeightM={tab.lidar_wall_height_m}
               globalPath={globalPath}

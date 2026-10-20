@@ -50,13 +50,14 @@ describe('layer defaults', () => {
         'photos',
         'obstacles3d',
         'map3dCloud',
+        'headRgbd',
         'lidarWalls',
       ].sort(),
     )
   })
 
-  it('shows everything except the GPS map and the 3D obstacles by default', () => {
-    for (const k of LAYER_KEYS) expect(DEFAULT_LAYERS[k]).toBe(k !== 'gpsMap' && k !== 'obstacles3d')
+  it('shows everything except the GPS map, the 3D obstacles and the head RGB-D cloud by default', () => {
+    for (const k of LAYER_KEYS) expect(DEFAULT_LAYERS[k]).toBe(k !== 'gpsMap' && k !== 'obstacles3d' && k !== 'headRgbd')
   })
 
   it('shows both 3D map layers by default', () => {
@@ -134,5 +135,19 @@ describe('map3d layers', () => {
     expect(s.map3dCloud).toBe(true)
     expect(s.lidarWalls).toBe(true)
     expect(parseLayerState(JSON.stringify({ lidarWalls: false })).lidarWalls).toBe(false)
+  })
+})
+
+describe('headRgbd layer', () => {
+  it('is labelled, off by default and depends on the rgbd cloud topic', () => {
+    expect(LAYER_LABELS.headRgbd).toBe('Head RGB-D')
+    expect(DEFAULT_LAYERS.headRgbd).toBe(false)
+    expect(parseLayerState(null).headRgbd).toBe(false)
+    expect(LAYER_TOPIC_FIELDS.headRgbd).toEqual(['rgbd_cloud_topic'])
+  })
+
+  it('stored state that predates it keeps it off, and a stored true switches it on', () => {
+    expect(parseLayerState(JSON.stringify({ slamMap: false })).headRgbd).toBe(false)
+    expect(parseLayerState(JSON.stringify({ headRgbd: true })).headRgbd).toBe(true)
   })
 })

@@ -14,7 +14,7 @@ import { GpsAnchor, tilesAround } from './geo'
 import { mapPlacement } from './groundMath'
 import { buildLidarWalls, measuredColumnsFromCloud, type WallGrid } from './lidarWalls'
 import { MapLabel } from './MapLabel'
-import { cloudToMapPoints, LIDAR_COLOR, scanToMapPoints, tofColors } from './obstaclePoints'
+import { cloudToMapPoints, LIDAR_COLOR, rgbdCloudToMap, scanToMapPoints, tofColors } from './obstaclePoints'
 import { SCENE_COLORS } from './palette'
 import { cropUvs, type TileCrop } from './tileSources'
 import { recordTileResult, tileFailureCaption, type TileResult, type TileResults } from './tileStatus'
@@ -508,6 +508,22 @@ export const Map3dCloudLayer = memo(function Map3dCloudLayer({
 }) {
   if (!visible || !cloud || cloud.count === 0) return null
   return <PointSet positions={cloud.positions} colors={cloud.colors} color={SCENE_COLORS.map3dPoints} size={cloud.voxel} />
+})
+
+/** Point size (m) of the head RGB-D cloud: the voxel edge the backend downsamples to (web_ui.bridge.RGBD_CLOUD_VOXEL_M). */
+const RGBD_POINT_SIZE_M = 0.02
+
+/**
+ * Head RGB-D layer: the coloured head_rgbd cloud placed in the map frame by the pose its sensor frame had at the
+ * message stamp. A payload without a pose or a malformed one draws nothing.
+ */
+export const HeadRgbdLayer = memo(function HeadRgbdLayer({ payload, visible }: { payload: unknown; visible: boolean }) {
+  const cloud = useMemo(() => {
+    const placed = visible ? rgbdCloudToMap(payload) : null
+    return placed && placed.count > 0 ? { positions: rosXyzToThree(placed.positions), colors: placed.colors } : null
+  }, [payload, visible])
+  if (!visible || !cloud) return null
+  return <PointSet positions={cloud.positions} colors={cloud.colors} color={SCENE_COLORS.map3dPoints} size={RGBD_POINT_SIZE_M} />
 })
 
 const WALL_MIN_INTERVAL_MS = 1000

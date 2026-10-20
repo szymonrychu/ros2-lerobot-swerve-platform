@@ -1,15 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   CLIFF_MAX_Z,
   LIDAR_COLOR,
   OBSTACLE_MAX_Z,
   OBSTACLE_MIN_Z,
   cloudToMapPoints,
+  rgbdCloudToMap,
   parsePointsPayload,
   scanToMapPoints,
   tofColors,
   type PointsPayload,
 } from './obstaclePoints'
+
+vi.mock('../logging', () => ({ default: { warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
 
 const IDENTITY = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
 const YAW90 = { x: 1, y: 2, z: 0.5, qx: 0, qy: 0, qz: Math.SQRT1_2, qw: Math.SQRT1_2 }
@@ -74,5 +77,52 @@ describe('tofColors', () => {
   })
   it('lidar uses one colour', () => {
     expect(LIDAR_COLOR).toMatch(/^#[0-9a-f]{6}$/i)
+  })
+})
+
+describe('rgbdCloudToMap', () => {
+  function b64(bytes: Uint8Array): string {
+    let s = ''
+    bytes.forEach((b) => (s += String.fromCharCode(b)))
+    return btoa(s)
+  }
+  function rgbd(cm: number[], rgb: number[] | null, pose: unknown = YAW90) {
+    return {
+      frame: 'head_camera_optical_frame',
+      frame_id: 'head_camera_optical_frame',
+      stamp: 3,
+      count: cm.length / 3,
+      voxel_m: 0.02,
+      source_count: cm.length / 3,
+      dropped_out_of_range: 0,
+      points_b64: b64(new Uint8Array(new Int16Array(cm).buffer)),
+      ...(rgb ? { colors_b64: b64(new Uint8Array(rgb)) } : {}),
+      frame_pose: pose,
+    }
+  }
+
+  it('places the decoded sensor-frame points in the map frame with their colours', () => {
+    const out = rgbdCloudToMap(rgbd([100, 0, 0, 0, 100, 0], [255, 0, 0, 0, 255, 0]))
+    expect(out).not.toBeNull()
+    expect(out!.count).toBe(2)
+    // yaw +90 deg: sensor x -> map y, sensor y -> map -x; then the pose translation (1, 2, 0.5).
+    const xyz = Array.from(out!.positions)
+    expect(xyz[0]).toBeCloseTo(1)
+    expect(xyz[1]).toBeCloseTo(3)
+    expect(xyz[2]).toBeCloseTo(0.5)
+    expect(xyz[3]).toBeCloseTo(0)
+    expect(xyz[4]).toBeCloseTo(2)
+    expect(Array.from(out!.colors!)).toEqual([1, 0, 0, 0, 1, 0])
+  })
+
+  it('draws nothing without a finite frame_pose or with a malformed payload', () => {
+    expect(rgbdCloudToMap(rgbd([1, 2, 3], null, null))).toBeNull()
+    expect(rgbdCloudToMap(rgbd([1, 2, 3], null, { ...YAW90, qw: NaN }))).toBeNull()
+    expect(rgbdCloudToMap({ frame_pose: YAW90 })).toBeNull()
+    expect(rgbdCloudToMap(null)).toBeNull()
+  })
+
+  it('has no colours when the payload carries none', () => {
+    expect(rgbdCloudToMap(rgbd([1, 2, 3], null))!.colors).toBeUndefined()
   })
 })

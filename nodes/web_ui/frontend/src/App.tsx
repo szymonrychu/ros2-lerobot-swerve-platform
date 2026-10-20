@@ -109,6 +109,8 @@ function renderTab(
   onFocusConsumed: () => void,
   onObstaclesWanted: (wanted: boolean) => void,
   onMap3dCloudWanted: (wanted: boolean) => void,
+  onHeadRgbdWanted: (wanted: boolean) => void,
+  onHeadRgbdCloudWanted: (wanted: boolean) => void,
 ) {
   const props = { tab, topicData, publish }
   switch (tab.type) {
@@ -116,10 +118,10 @@ function renderTab(
     case 'camera': return <CameraTab {...props} />
     case 'sensor_graph': return <SensorGraphTab {...props} />
     case 'poi': return <PoiTab items={poi.items} onShowOnMap={poi.onShowOnMap} />
-    case 'head': return <HeadTab {...props} />
+    case 'head': return <HeadTab {...props} onRgbdWanted={onHeadRgbdWanted} />
     case 'rgbd_camera': return <RgbdCameraTab {...props} />
     case 'map_nav':
-      return <MapNavTab {...props} tilt={tilt} photos={poi.photos} pendingFocus={pendingFocus} onFocusConsumed={onFocusConsumed} onObstaclesWanted={onObstaclesWanted} onMap3dCloudWanted={onMap3dCloudWanted} />
+      return <MapNavTab {...props} tilt={tilt} photos={poi.photos} pendingFocus={pendingFocus} onFocusConsumed={onFocusConsumed} onObstaclesWanted={onObstaclesWanted} onMap3dCloudWanted={onMap3dCloudWanted} onHeadRgbdCloudWanted={onHeadRgbdCloudWanted} />
     case 'agent_chat': return <AgentChatTab {...props} battery={battery} />
     case 'agent_retros': return <RetrosTab {...props} />
     default:
@@ -169,7 +171,11 @@ export default function App() {
   const activeTabConfig = tabs[Math.min(activeTab, tabs.length - 1)]
   const [obstaclesWanted, setObstaclesWanted] = useState(false) // 3D obstacles layer of the open map tab
   const [map3dCloudWanted, setMap3dCloudWanted] = useState(false) // 3D map layer of the open map tab
-  const subscription = config ? subscribedTopics(config, activeTabConfig, obstaclesWanted, map3dCloudWanted) : []
+  const [headRgbdWanted, setHeadRgbdWanted] = useState(false) // RGB-D view of the open head tab
+  const [headRgbdCloudWanted, setHeadRgbdCloudWanted] = useState(false) // Head RGB-D layer of the open map tab
+  const subscription = config
+    ? subscribedTopics(config, activeTabConfig, obstaclesWanted, map3dCloudWanted, headRgbdWanted, headRgbdCloudWanted)
+    : []
   const { topicData, connected, publish } = useRosBridge(subscription, (e) =>
     setErrorToast(e.message)
   )
@@ -325,7 +331,7 @@ export default function App() {
           }
         >
           {calibrating && <CalibratePage onBack={() => setCalibrating(false)} />}
-          {!calibrating && tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap, photos: poiPhotos }, pendingFocus, clearPendingFocus, setObstaclesWanted, setMap3dCloudWanted)}
+          {!calibrating && tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap, photos: poiPhotos }, pendingFocus, clearPendingFocus, setObstaclesWanted, setMap3dCloudWanted, setHeadRgbdWanted, setHeadRgbdCloudWanted)}
         </Suspense>
       </Box>
 

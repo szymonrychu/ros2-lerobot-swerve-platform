@@ -4,6 +4,7 @@
  * the pose of that frame in the map frame.
  */
 import * as THREE from 'three'
+import { decodeMap3dCloud } from './cloudDecode'
 import { SCENE_COLORS } from './palette'
 
 /** Map-frame height bands (metres above the floor), matching the Nav2 ToF layers (design D2/D5). */
@@ -39,6 +40,23 @@ export interface PointsPayload {
 
 const POSE_KEYS: (keyof FramePose)[] = ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw']
 
+/** A coloured cloud placed in the map frame: positions in ROS axes (x, y, z metres), colours 0..1 per point when known. */
+export interface MapCloud {
+  positions: Float32Array
+  colors?: Float32Array
+  count: number
+}
+
+/**
+ * Whether a value is a pose with seven finite numbers.
+ *
+ * @param pose - candidate frame_pose
+ * @returns true for a complete finite pose
+ */
+export function isFramePose(pose: unknown): pose is FramePose {
+  return Boolean(pose) && typeof pose === 'object' && POSE_KEYS.every((k) => Number.isFinite((pose as Record<string, unknown>)[k]))
+}
+
 /**
  * Validate a payload.
  *
@@ -51,8 +69,7 @@ export function parsePointsPayload(data: unknown, stride: number): PointsPayload
   const d = data as Partial<PointsPayload>
   if (!Array.isArray(d.points) || d.points.length % stride !== 0) return null
   if (!d.points.every((v) => Number.isFinite(v))) return null
-  const pose = d.frame_pose
-  if (!pose || typeof pose !== 'object' || !POSE_KEYS.every((k) => Number.isFinite(pose[k]))) return null
+  if (!isFramePose(d.frame_pose)) return null
   return d as PointsPayload
 }
 
@@ -123,4 +140,19 @@ export function tofColors(xyz: ArrayLike<number>): Float32Array {
     out[i + 2] = c.b
   }
   return out
+}
+
+/**
+ * The head RGB-D cloud (role rgbd_cloud: map3d_cloud payload in the sensor frame plus frame_pose) in the map frame.
+ *
+ * @param data - raw "rgbd_cloud" topic value
+ * @returns the decoded points placed by the sensor frame pose with their colours, or null for a malformed payload or a missing / non-finite frame_pose
+ */
+export function rgbdCloudToMap(data: unknown): MapCloud | null {
+  if (!data || typeof data !== 'object') return null
+  const pose = (data as { frame_pose?: unknown }).frame_pose
+  if (!isFramePose(pose)) return null
+  const cloud = decodeMap3dCloud(data, undefined, { anyFrame: true, rosAxes: true })
+  if (!cloud) return null
+  return { positions: transformPoints(cloud.positions, pose), colors: cloud.colors, count: cloud.count }
 }

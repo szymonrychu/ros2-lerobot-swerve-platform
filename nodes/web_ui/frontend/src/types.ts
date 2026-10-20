@@ -51,6 +51,7 @@ export interface TabConfig {
   obstacle_cloud_topic?: string // ToF obstacle cloud (PointCloud2 payload + frame_pose), subscribed only while the 3D obstacles layer is on
   scan_points_topic?: string // lidar scan points (LaserScan payload + frame_pose), subscribed with the obstacle cloud
   map3d_cloud_topic?: string // RTAB-Map 3D map payload (map3d_cloud), subscribed only while the 3D map layer is on
+  rgbd_cloud_topic?: string // head_rgbd_cpp XYZRGB cloud (map3d_cloud-style payload + frame_pose), subscribed only while the Head RGB-D layer is on
   map3d_status_topic?: string // map3d manager status (JSON String)
   map3d_result_topic?: string // map3d command results (JSON String)
   map3d_command_topic?: string // map3d commands (save, reset, ...)
@@ -77,7 +78,9 @@ export interface TabConfig {
   rgb_camera_topic?: string // head tab: sensor_msgs/CompressedImage of the head RGB camera
   tof_depth_topic?: string // head tab: 16UC1 mm depth topic, ToF camera (payload carries depth_preview_b64)
   tof_amplitude_topic?: string // head tab: ToF amplitude topic, unset when the camera has none (payload carries jpeg_b64)
-  tof_range_m?: number // head tab: depth preview range in metres
+  rgbd_rgb_topic?: string // head tab: head_rgbd RGB (JPEG payload with stamp), subscribed only while the RGB-D view is open
+  rgbd_depth_topic?: string // head tab: head_rgbd registered depth (raw uint16 mm payload with stamp), subscribed with rgbd_rgb_topic
+  tof_range_m?: number // head tab: depth preview range in metres (also the far end of the RGB-D colormap)
   zoom_command_topic?: string // head tab: zoom request topic (click-to-zoom goes through POST /api/camera/zoom)
   zoom_result_topic?: string // head tab: zoom result topic
   zoom_image_topic?: string // head tab: zoom crop image topic
@@ -163,7 +166,6 @@ export interface Map3dCloudPayload {
   points_b64: string
   colors_b64?: string
 }
-
 /** map3d_status payload: the map3d manager status JSON. */
 export interface Map3dStatusPayload {
   [key: string]: unknown

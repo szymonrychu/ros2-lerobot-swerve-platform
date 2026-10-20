@@ -86,3 +86,21 @@ describe('decodeMap3dCloud', () => {
     })
   })
 })
+
+describe('decodeMap3dCloud options', () => {
+  const rgbdPayload = build([100, 200, 50], [10, 20, 30], { frame_id: 'head_camera_optical_frame' })
+
+  it('rejects a foreign frame unless anyFrame is set', () => {
+    expect(decodeMap3dCloud(rgbdPayload, 'rtabmap_map')).toBeNull()
+    expect(decodeMap3dCloud(rgbdPayload)).toBeNull()
+    const out = decodeMap3dCloud(rgbdPayload, undefined, { anyFrame: true })
+    expect(out!.count).toBe(1)
+    expect(Array.from(out!.colors!)).toEqual([10, 20, 30].map((v) => Math.fround(v / 255)))
+  })
+
+  it('keeps ROS axes (x, y, z) with rosAxes so a sensor-to-map pose can be applied', () => {
+    const out = decodeMap3dCloud(rgbdPayload, undefined, { anyFrame: true, rosAxes: true })
+    expect(Array.from(out!.positions)).toEqual([1, 2, 0.5])
+  })
+})
+

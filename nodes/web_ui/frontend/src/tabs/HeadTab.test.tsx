@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
 import { TabConfig } from '../types'
@@ -359,5 +359,155 @@ describe('HeadTab', () => {
       expect(screen.queryByAltText('head camera zoom')).toBeNull()
       expect(screen.getByAltText('head camera').getAttribute('src')).toBe('data:image/jpeg;base64,RRR')
     })
+  })
+})
+
+describe('RGB-D view', () => {
+  const RGBD_RGB = '/head_rgbd/rgb/image_raw/compressed'
+  const RGBD_DEPTH = '/head_rgbd/depth/image_raw'
+  const RGBD_TAB = { ...TAB, rgbd_rgb_topic: RGBD_RGB, rgbd_depth_topic: RGBD_DEPTH, tof_range_m: 4 } as TabConfig
+
+  function u16b64(values: number[]): string {
+    const bytes = new Uint8Array(values.length * 2)
+    const view = new DataView(bytes.buffer)
+    values.forEach((v, i) => view.setUint16(i * 2, v, true))
+    let s = ''
+    bytes.forEach((b) => (s += String.fromCharCode(b)))
+    return btoa(s)
+  }
+
+  // 2x2 registered depth: [no depth, 1.50 m / 4.00 m, 0.25 m]
+  const depthAt = (stamp: number) => ({ depth_raw_b64: u16b64([0, 1500, 4000, 250]), width: 2, height: 2, stamp, frame_id: 'f' })
+  const rgbAt = (stamp: number) => ({ jpeg_b64: `RGB${stamp}`, stamp })
+  const frames = (rgbStamp: number, depthStamp: number) => ({ ...FRAMES, [RGBD_RGB]: rgbAt(rgbStamp), [RGBD_DEPTH]: depthAt(depthStamp) })
+
+  const putImageData = vi.fn()
+  beforeEach(() => {
+    putImageData.mockClear()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => ({
+      createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+      putImageData,
+    })) as unknown as typeof HTMLCanvasElement.prototype.getContext)
+    // a 100x100 box over the 2x2 depth: one pixel per 50x50 quadrant
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0 } as DOMRect)
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function wrapped(data: Record<string, unknown>, onRgbdWanted?: (wanted: boolean) => void) {
+    return (
+      <ThemeProvider theme={theme}>
+        <HeadTab tab={RGBD_TAB} topicData={data} publish={vi.fn()} onRgbdWanted={onRgbdWanted} />
+      </ThemeProvider>
+    )
+  }
+
+  function openRgbd(data: Record<string, unknown>, onRgbdWanted = vi.fn()) {
+    setViewport(1400)
+    const utils = render(wrapped(data, onRgbdWanted))
+    fireEvent.click(screen.getByRole('radio', { name: 'RGB-D' }))
+    return { ...utils, onRgbdWanted }
+  }
+
+  it('has no view switch without both RGB-D topics, and the existing views are unchanged', () => {
+    setViewport(1400)
+    renderTab(FRAMES)
+    expect(screen.queryByRole('radio', { name: 'RGB-D' })).toBeNull()
+    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
+  })
+
+  it('keeps the preview view by default and asks for the RGB-D topics only once the view is selected', () => {
+    setViewport(1400)
+    const onRgbdWanted = vi.fn()
+    render(wrapped(frames(5, 5), onRgbdWanted))
+    expect(screen.getByAltText('head camera')).toBeTruthy()
+    expect(onRgbdWanted).toHaveBeenLastCalledWith(false)
+    expect(onRgbdWanted).not.toHaveBeenCalledWith(true)
+    fireEvent.click(screen.getByRole('radio', { name: 'RGB-D' }))
+    expect(onRgbdWanted).toHaveBeenLastCalledWith(true)
+    fireEvent.click(screen.getByRole('radio', { name: 'Preview' }))
+    expect(onRgbdWanted).toHaveBeenLastCalledWith(false)
+    expect(screen.getByAltText('head camera')).toBeTruthy()
+  })
+
+  it('stops asking for the topics when the tab unmounts', () => {
+    const { unmount, onRgbdWanted } = openRgbd(frames(5, 5))
+    expect(onRgbdWanted).toHaveBeenLastCalledWith(true)
+    unmount()
+    expect(onRgbdWanted).toHaveBeenLastCalledWith(false)
+  })
+
+  it('shows the RGB image under the depth overlay when the stamps are equal', () => {
+    openRgbd(frames(5, 5))
+    expect(screen.getByAltText('head RGB-D').getAttribute('src')).toBe('data:image/jpeg;base64,RGB5')
+    const overlay = screen.getByTestId('rgbd-overlay') as HTMLCanvasElement
+    expect([overlay.width, overlay.height]).toEqual([2, 2])
+    const image = putImageData.mock.calls.map((c) => c[0] as { data: Uint8ClampedArray; width: number }).find((i) => i.width === 2)!
+    expect(image.data[3]).toBe(0) // depth 0 is transparent
+    expect(image.data[7]).toBe(255)
+  })
+
+  it('shows the waiting message, no image and no overlay when the stamps differ', () => {
+    openRgbd(frames(5, 6))
+    expect(screen.getByText(new RegExp(`Waiting for ${RGBD_RGB} and ${RGBD_DEPTH}`))).toBeTruthy()
+    expect(screen.queryByAltText('head RGB-D')).toBeNull()
+    expect(screen.queryByTestId('rgbd-overlay')).toBeNull()
+  })
+
+  it('shows the waiting message before any message arrives', () => {
+    openRgbd({})
+    expect(screen.getByText(/Waiting for/)).toBeTruthy()
+    expect(screen.queryByAltText('head RGB-D')).toBeNull()
+  })
+
+  it('keeps the last matching pair while the next RGB frame is still waiting for its depth, then moves on', () => {
+    const { rerender } = openRgbd(frames(5, 5))
+    rerender(wrapped({ ...FRAMES, [RGBD_RGB]: rgbAt(6), [RGBD_DEPTH]: depthAt(5) }))
+    expect(screen.getByAltText('head RGB-D').getAttribute('src')).toBe('data:image/jpeg;base64,RGB5')
+    rerender(wrapped({ ...FRAMES, [RGBD_RGB]: rgbAt(6), [RGBD_DEPTH]: depthAt(6) }))
+    expect(screen.getByAltText('head RGB-D').getAttribute('src')).toBe('data:image/jpeg;base64,RGB6')
+  })
+
+  it('drops the pair when a topic is cleared (no stale image)', () => {
+    const { rerender } = openRgbd(frames(5, 5))
+    rerender(wrapped({ ...FRAMES, [RGBD_RGB]: null, [RGBD_DEPTH]: depthAt(5) }))
+    expect(screen.queryByAltText('head RGB-D')).toBeNull()
+    expect(screen.getByText(/Waiting for/)).toBeTruthy()
+  })
+
+  it('reads the raw depth under the cursor and says "no depth" for invalid pixels', () => {
+    openRgbd(frames(5, 5))
+    const view = screen.getByTestId('rgbd-view')
+    expect(screen.getByTestId('rgbd-readout').textContent).not.toMatch(/depth \d/)
+    fireEvent.mouseMove(view, { clientX: 75, clientY: 25 }) // pixel (1, 0)
+    expect(screen.getByTestId('rgbd-readout').textContent).toBe('depth 1.50 m')
+    fireEvent.mouseMove(view, { clientX: 25, clientY: 75 }) // pixel (0, 1)
+    expect(screen.getByTestId('rgbd-readout').textContent).toBe('depth 4.00 m')
+    fireEvent.mouseMove(view, { clientX: 25, clientY: 25 }) // pixel (0, 0) is invalid
+    expect(screen.getByTestId('rgbd-readout').textContent).toBe('no depth')
+    fireEvent.mouseLeave(view)
+    expect(screen.getByTestId('rgbd-readout').textContent).not.toMatch(/depth \d|no depth/)
+  })
+
+  it('has an opacity slider from 0 to 100 percent, default 50, applied to the overlay', () => {
+    openRgbd(frames(5, 5))
+    const slider = screen.getByLabelText('overlay opacity') as HTMLInputElement
+    expect([slider.min, slider.max, slider.value]).toEqual(['0', '100', '50'])
+    const overlay = screen.getByTestId('rgbd-overlay') as HTMLCanvasElement
+    expect(overlay.style.opacity).toBe('0.5')
+    fireEvent.change(slider, { target: { value: '80' } })
+    expect(overlay.style.opacity).toBe('0.8')
+    expect(screen.getByText('80 %')).toBeTruthy()
+    fireEvent.change(slider, { target: { value: '0' } })
+    expect(overlay.style.opacity).toBe('0')
+  })
+
+  it('shows a legend with the range in metres from tof_range_m', () => {
+    openRgbd(frames(5, 5))
+    const legend = screen.getByTestId('rgbd-legend')
+    expect(legend.textContent).toContain('0.0 m')
+    expect(legend.textContent).toContain('4.0 m')
+    expect(within(legend).getByTestId('rgbd-legend-strip')).toBeTruthy()
   })
 })

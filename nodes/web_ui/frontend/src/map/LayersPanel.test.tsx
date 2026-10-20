@@ -118,3 +118,25 @@ describe('LayersPanel', () => {
     expect(SOURCES['poi/PoiLegend.tsx']).not.toMatch(/ml:\s*4\b/)
   })
 })
+
+describe('LayersPanel head RGB-D layer', () => {
+  it('is a toggle that reports clicks when the cloud topic is configured', () => {
+    const p = props({ rgbdCloudConfigured: true })
+    wrap(<LayersPanel {...p} />)
+    const box = screen.getByLabelText('Head RGB-D') as HTMLInputElement
+    expect(box.disabled).toBe(false)
+    expect(box.checked).toBe(false)
+    fireEvent.click(box)
+    expect(p.onToggle).toHaveBeenCalledWith('headRgbd')
+  })
+
+  it('is disabled with the reason in its tooltip when the tab names no rgbd_cloud_topic', async () => {
+    wrap(<LayersPanel {...props({ rgbdCloudConfigured: false, layers: { ...DEFAULT_LAYERS, headRgbd: true } })} />)
+    const box = screen.getByLabelText('Head RGB-D') as HTMLInputElement
+    expect(box.disabled).toBe(true)
+    expect(box.checked).toBe(false)
+    fireEvent.mouseOver(screen.getByTestId('layer-row-headRgbd'))
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/No head RGB-D cloud topic/)
+  })
+})
+
