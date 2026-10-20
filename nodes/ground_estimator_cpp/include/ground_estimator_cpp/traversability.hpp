@@ -51,11 +51,6 @@ struct Traversability
 
 constexpr double RAMP_MIN_SLOPE_DEG = 2.0;
 
-// Largest rideable step: max_step_fraction of the wheel diameter.
-// @param cfg the rule settings.
-// @return metres (0.04 for the 0.06 m wheel radius).
-double max_step_m(const TraversabilityConfig & cfg);
-
 // Classify one cluster.
 // @param edge_step_m height of the cluster at its edge line in metres.
 // @param slope_deg angle of the cluster surface to the floor in degrees.

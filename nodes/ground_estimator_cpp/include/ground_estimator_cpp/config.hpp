@@ -60,6 +60,11 @@ struct TraversabilityConfig
   double edge_band_m = 0.05;          // > 0
 };
 
+// Largest rideable step: max_step_fraction of the wheel diameter. The single definition of the threshold.
+// @param cfg the rule settings.
+// @return metres (0.04 for the 0.06 m wheel radius).
+inline double max_step_m(const TraversabilityConfig & cfg) { return 2.0 * cfg.wheel_radius_m * cfg.max_step_fraction; }
+
 // Published warning areas.
 struct WarningsConfig
 {
@@ -122,7 +127,7 @@ struct Config
   std::optional<long> metrics_port = DEFAULT_METRICS_PORT;  // NOLINT(runtime/int); nullopt disables metrics
 
   // Largest step the base rides over: a third of the wheel diameter.
-  double max_step_m() const { return 2.0 * traversability.wheel_radius_m * traversability.max_step_fraction; }
+  double max_step_m() const { return ground_estimator_cpp::max_step_m(traversability); }
 
   // Output topics derived from output_namespace.
   std::string obstacle_points() const { return output_namespace + "/obstacle_points"; }

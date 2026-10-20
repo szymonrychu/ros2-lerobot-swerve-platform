@@ -12,8 +12,6 @@ constexpr double STEP_TOLERANCE_M = 1e-5;  // absorbs the rounding of max_step_f
 constexpr double SAME_EDGE_M = 1e-9;
 }  // namespace
 
-double max_step_m(const TraversabilityConfig & cfg) { return 2.0 * cfg.wheel_radius_m * cfg.max_step_fraction; }
-
 Verdict classify_cluster(double edge_step_m, double slope_deg, const TraversabilityConfig & cfg)
 {
   if (edge_step_m > max_step_m(cfg) + STEP_TOLERANCE_M) {
