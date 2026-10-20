@@ -30,6 +30,7 @@ NEW_NODE_TESTS = (
     "test_nav_tof_voxel_layer.py",
     "test_nav_tof_collision.py",
     "test_tof_obstacle_wiring.py",
+    "test_nav_ground_voxel_layer.py",
 )
 NEW_NODE_NAMES = ("tof_obstacle_cloud",)
 
@@ -155,6 +156,14 @@ def test_laser_filter_output_feeds_every_consumer() -> None:
     default = re.search(r'tof_points:\s*str\s*=\s*"([^"]+)"', MCP_CONFIG_PY.read_text())
     assert default is not None
     assert default.group(1) == out
+
+
+def test_ground_estimator_input_is_the_laser_filter_output_and_the_ground_clear_topic() -> None:
+    out = laser_filter_config()["cloud_filtered_topic"]
+    ground = node_config("ground_estimator_cpp")
+    assert ground["cloud_topic"] == out
+    ground_layer = nav2_params()["local_costmap"]["local_costmap"]["ros__parameters"]["ground_voxel_layer"]
+    assert ground_layer["ground_clear"]["topic"] == out
 
 
 def test_stvl_observation_sources_are_exactly_the_three_tof_sources() -> None:

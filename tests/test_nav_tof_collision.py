@@ -132,6 +132,13 @@ def test_tof_source_band_equals_the_stvl_mark_band(source: str) -> None:
     assert actual["topic"] == mark["topic"] == TOF_TOPIC
 
 
+def test_no_collision_monitor_source_reads_a_ground_topic() -> None:
+    """User decision D-A1: the ground clouds do not feed the monitor; the 10 Hz ToF bands keep it."""
+    monitor = collision_monitor()
+    for name in monitor["observation_sources"]:
+        assert not monitor[name]["topic"].startswith("/ground/"), name
+
+
 def test_scan_source_is_unchanged() -> None:
     """U5: the lidar keeps guarding all around next to the ToF sources."""
     scan = collision_monitor()["scan"]

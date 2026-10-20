@@ -397,6 +397,63 @@ noise out of both bands, and 0.6 m is the robot height. Post-deploy check: on an
 down, the local costmap shows no `tof_voxel_layer` cells; a box at least 10 cm tall placed 1 m ahead shows up as
 lethal cells within one ToF frame and clears within 15 s once the box is removed.
 
+## Ground layer (plane-relative ToF marks)
+
+The fixed bands of the ToF obstacle layer assume a flat floor at odom z = 0. `nodes/ground_estimator_cpp` fits the real
+floor plane from `/tof/points_filtered` (IMU prior) and publishes plane-relative clouds. The local costmap marks them in
+a second spatio-temporal voxel layer, `ground_voxel_layer`, alongside the fixed bands. Layer order: `obstacle_layer,
+tof_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter, inflation_layer`. The global costmap is
+unchanged (`static_layer, obstacle_layer, keepout_filter, inflation_layer`, no STVL, no ground topic).
+
+What it marks: `/ground/obstacle_points` (steps up, thresholds, ramps steeper than the limit, objects) and
+`/ground/drop_points` (floor beyond a drop edge), both PointCloud2 in the layer `ground_obstacle_mark` /
+`ground_drop_mark`. `ground_clear` is the `tof_clear` frustum on `/tof/points_filtered`, so a removed obstacle clears
+while in view. The layer settings equal `tof_voxel_layer` (decay 15 s, 5 cm voxels, `combination_method` 1, no
+footprint clearing).
+
+Why a separate layer: it is a separate grid, so it can be switched off at runtime without touching the fixed bands, and
+the fixed bands stay as the reference during validation.
+
+Pass-through limits: the marking sources use `min_obstacle_height` -1.5 and `max_obstacle_height` 1.5. The estimator has
+already applied the plane-relative bands, so the costmap does not cut heights a second time (a pass-through, not a
+filter); `obstacle_range` is 2.0 m as for the fixed bands.
+
+What stays on the fixed bands: the collision monitor sources `scan`, `tof_obstacles` and `tof_cliff` and CliffStop
+(`tof_cliff` only). The ground clouds do not feed the collision monitor (user decision D-A1): the 10 Hz ToF bands with
+the fail-safe stale-source stop stay.
+
+Obstacle vs warning rule: a step, threshold, drop or ramp cluster is an obstacle (lethal, marked in the ground layer)
+when its edge step exceeds one third of the wheel diameter (0.04 m with wheel radius 0.06 m) or its surface slope
+exceeds the max slope (8 deg); otherwise it is a warning area, clear to ride through at reduced speed. Exactly 0.04 m
+and 8 deg are warnings.
+
+Slow-down mechanism: warning areas are not marked in the voxel layer. costmap_zones turns `/ground/warning_areas` into
+two masks. `ground_cost_filter` (a `KeepoutFilter` layer below inflation, local costmap only, `override_lethal_cost`
+false, info topic `/costmap_filter_info/ground_cost`) applies the ground cost mask: mask 40 gives a non-lethal cost of
+about 101 (below INSCRIBED 253), so MPPI and the planner avoid the area when it is cheap to but may drive through. The
+unchanged `speed_filter` applies the warning speed percent from the shared speed mask to `/speed_limit`, which
+controller_server honours: a slow-down, not a stop.
+
+Runtime switch (no restart):
+
+```bash
+ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false   # fixed bands only
+ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled true
+ros2 param set /local_costmap/local_costmap tof_voxel_layer.enabled false       # ground layer only (validation)
+```
+
+### Switch-over criteria
+
+The fixed bands stay until all four hold:
+
+1. The runbook level-floor check passes: plane height within 1 cm, slope and plane_vs_base below 1 deg.
+2. The 3 cm sill, 5 cm sill, 10 cm drop at 1 m, box and ramp scenes mark as expected with the ground layer enabled and
+   the fixed-band layer (`tof_voxel_layer`) disabled at runtime.
+3. No false marks on the floor over a 5 min drive.
+4. CPU stays within the budget of the ground estimator and Nav2 on the Pi 5.
+
+Then a separate change disables `tof_mark` and `tof_cliff_mark` in `tof_voxel_layer`; until it lands both layers run.
+
 ## Collision monitor
 
 collision_monitor always runs and sits in the velocity chain (`cmd_vel_smoothed -> cmd_vel`). Its body polygon,

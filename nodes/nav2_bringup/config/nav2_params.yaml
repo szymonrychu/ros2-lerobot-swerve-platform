@@ -190,8 +190,12 @@ local_costmap:
       footprint_padding: 0.0
       # <<< gen_nav_footprint: footprint
       # The ToF voxel layer sits right after the lidar layer (both raw obstacles, combined by max) and below the
-      # keepout filter and inflation, so ToF obstacles are inflated like lidar ones.
-      plugins: ["obstacle_layer", "tof_voxel_layer", "keepout_filter", "inflation_layer"]
+      # keepout filter and inflation, so ToF obstacles are inflated like lidar ones. The plane-relative
+      # ground_voxel_layer runs alongside the fixed-band tof_voxel_layer (design D8: both stay until the switch-over
+      # criteria in nodes/nav2_bringup/README.md, "Ground layer (plane-relative ToF marks)", pass; runtime switch:
+      # `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false`). ground_cost_filter is a layer
+      # right below inflation like keepout_filter, so the ground warning cost is inflated and seen by Smac / MPPI.
+      plugins: ["obstacle_layer", "tof_voxel_layer", "ground_voxel_layer", "keepout_filter", "ground_cost_filter", "inflation_layer"]
       # Keepout zones (nodes/costmap_zones) are a plugin, not a `filters` entry: filters run after every layer
       # including inflation, so a filter would not be inflated. As a layer right below inflation the lethal zone cost
       # spreads like a real obstacle, which Smac's centre-cost shortcut relies on. The info topic is absolute
@@ -207,6 +211,23 @@ local_costmap:
         # while the robot is inside a zone, so the planner and controller can still plan a way out.
         override_lethal_cost: true
         lethal_override_cost: 252
+      # Ground warning areas (design D13, D15; nodes/costmap_zones ground cost mask): clear-to-ride-through areas the
+      # ground estimator found (edge step up to one third of the wheel diameter, slope up to max_slope_deg). Same
+      # KeepoutFilter mechanism as keepout_filter, but with override_lethal_cost false: the mask carries only the
+      # non-lethal ground_warning_mask_value (40 -> cost ~101, below INSCRIBED 253), so MPPI and the planner avoid the
+      # area when a cheap way around exists and may still drive through it. The slow-down is not made here: the
+      # unchanged speed_filter below applies the warning speed percent from the shared speed mask to /speed_limit,
+      # which controller_server honours (slow-down, not a stop). Local costmap only (the global planner has no notion).
+      ground_cost_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        # On: warning areas cost something; runtime off with `ros2 param set /local_costmap/local_costmap ground_cost_filter.enabled false`.
+        enabled: true
+        # Absolute topic (costmap_zones publishes it latched): a relative name would resolve under the costmap namespace.
+        filter_info_topic: /costmap_filter_info/ground_cost
+        # Same TF tolerance as keepout_filter.
+        transform_tolerance: 0.2
+        # Never lethal: a warning area must stay drivable, so no lethal override cost is needed either.
+        override_lethal_cost: false
       # Speed zones: a real costmap filter (applied after all layers, publishes /speed_limit, absolute topic shared
       # with controller_server.speed_limit_topic). Local costmap only; the global planner has no speed notion.
       filters: ["speed_filter"]
@@ -326,6 +347,99 @@ local_costmap:
           # 0.78 rad (44.7 deg), under the ToF's 45.6 deg vertical FOV (70 deg diagonal at 4:3).
           vertical_fov_angle: 0.78
           # 1.0: voxels inside the frustum decay faster, so a moved obstacle clears quickly while in view.
+          decay_acceleration: 1.0
+      # Plane-relative ground marks (design D8, D13; nodes/ground_estimator_cpp), alongside the fixed bands (those of
+      # tof_voxel_layer above): the estimator fits the floor plane and already applied the plane-relative bands, so the
+      # layer only marks what it publishes: obstacles above the plane and drop-offs below it. A separate STVL grid, so
+      # disabling it at runtime (`ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false`) leaves
+      # the fixed bands untouched. Switch-over criteria: nodes/nav2_bringup/README.md. The collision monitor and
+      # CliffStop keep the 10 Hz ToF bands (user decision D-A1); the global costmap has no ground layer.
+      ground_voxel_layer:
+        plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
+        # On next to the fixed bands: both mark, combined by max, so the ground layer can only add cost.
+        enabled: true
+        # Same decay as tof_voxel_layer: a voxel the estimator no longer publishes clears 15 s after its last mark.
+        voxel_decay: 15.0
+        # 0 = linear decay over voxel_decay seconds.
+        decay_model: 0
+        # 5 cm voxels: the cloud voxel size of the ToF pipeline.
+        voxel_size: 0.05
+        # Unknown space is not tracked: the lidar layer and the global costmap own unknown/free.
+        track_unknown_space: false
+        # 0: one point marks a voxel (the estimator already filtered by plane distance and clusters).
+        mark_threshold: 0
+        # STVL footprint clearing is a convex fill and would erase obstacles in the H notches (as tof_voxel_layer).
+        update_footprint_enabled: false
+        # 1 = max with the layers below: ground cells never lower a lidar or keepout cost.
+        combination_method: 1
+        # The 3D voxel grid is not published (CPU and DDS bandwidth on the Pi 5).
+        publish_voxel_map: false
+        # TF lookup tolerance at the cloud stamp, same as tof_voxel_layer.
+        transform_tolerance: 0.3
+        # Navigation mode: voxels decay.
+        mapping_mode: false
+        observation_sources: ground_obstacle_mark ground_drop_mark ground_clear
+        # Obstacle clusters (steps up, thresholds, ramps steeper than max_slope_deg) from the ground estimator.
+        ground_obstacle_mark:
+          data_type: PointCloud2
+          topic: /ground/obstacle_points
+          marking: true
+          clearing: false
+          # Pass-through limit: ground_estimator_cpp already applied the plane-relative bands, so no height is cut here.
+          min_obstacle_height: -1.5
+          # Pass-through limit, symmetric to the minimum (the estimator keeps points up to its own band top).
+          max_obstacle_height: 1.5
+          # 2 m, inside the tof_obstacle_cloud max_depth (3 m) where ToF depth error is still small.
+          obstacle_range: 2.0
+          # Voxel filter: one point per voxel into the grid (bounded CPU per update).
+          filter: voxel
+          # 0: a voxel needs no minimum point count.
+          voxel_min_points: 0
+          # 0.0: use only the latest cloud per costmap update; persistence comes from voxel_decay.
+          observation_persistence: 0.0
+          # Drop the buffered cloud after it is applied so a stale cloud is never re-marked.
+          clear_after_reading: true
+          # 0.0: an estimator dropout (no valid plane) does not mark the costmap "not current".
+          expected_update_rate: 0.0
+          # Point clouds carry no inf returns.
+          inf_is_valid: false
+        # Drop-off clusters (floor beyond an edge lower than one third of the wheel diameter) from the estimator.
+        ground_drop_mark:
+          data_type: PointCloud2
+          topic: /ground/drop_points
+          marking: true
+          clearing: false
+          # Pass-through limit: the estimator already decided what is a drop (plane-relative), no height cut here.
+          min_obstacle_height: -1.5
+          # Pass-through limit, symmetric to the minimum.
+          max_obstacle_height: 1.5
+          # Same 2 m range as the obstacle source.
+          obstacle_range: 2.0
+          filter: voxel
+          voxel_min_points: 0
+          observation_persistence: 0.0
+          # Drop the buffered cloud after it is applied, as for the obstacle source.
+          clear_after_reading: true
+          expected_update_rate: 0.0
+          inf_is_valid: false
+        # Frustum clearing on the filtered ToF cloud (the estimator input): decays ground voxels inside the ToF view
+        # that the estimator no longer marks, same frustum as tof_clear.
+        ground_clear:
+          data_type: PointCloud2
+          topic: /tof/points_filtered
+          marking: false
+          clearing: true
+          # 0 = depth camera frustum model.
+          model_type: 0
+          # Frustum from the cloud min_depth (0.2 m) ...
+          min_z: 0.2
+          # ... to the cloud max_depth (3 m).
+          max_z: 3.0
+          # 1.0 rad, under the ToF's 58.5 deg horizontal FOV: clearing never reaches outside the real view.
+          horizontal_fov_angle: 1.0
+          # 0.78 rad, under the ToF's 45.6 deg vertical FOV.
+          vertical_fov_angle: 0.78
+          # 1.0: voxels inside the frustum decay faster, so a removed obstacle clears quickly while in view.
           decay_acceleration: 1.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -729,6 +843,9 @@ collision_monitor:
     # (collision_monitor_node.cpp 1.3.13), so a ToF or head-TF outage stops motion (fail-safe, user decision
     # 2026-10-18). Runtime switch per source, `false` takes it out of the monitor and `true` puts it back:
     # `ros2 param set /collision_monitor tof_cliff.enabled false` (same for tof_obstacles.enabled).
+    # The ground clouds (/ground/obstacle_points, /ground/drop_points) do not feed the monitor (user decision D-A1): the
+    # 10 Hz ToF bands with the fail-safe stale-source stop stay, and CliffStop keeps tof_cliff only. The estimator
+    # output is a Nav2 costmap input alongside the fixed bands (nodes/nav2_bringup/README.md, ground layer).
     observation_sources: ["scan", "tof_obstacles", "tof_cliff"]
     scan:
       type: "scan"

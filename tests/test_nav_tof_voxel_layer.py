@@ -23,9 +23,17 @@ LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footpri
 STVL_PLUGIN = "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
 STVL_APT_PACKAGE = "ros-jazzy-spatio-temporal-voxel-layer"
 LAYER = "tof_voxel_layer"
+GROUND_LAYER = "ground_voxel_layer"
 TOF_TOPIC = "/tof/points_filtered"
 FILTERED_SCAN = "/scan_filtered"
-LOCAL_PLUGINS = ["obstacle_layer", "tof_voxel_layer", "keepout_filter", "inflation_layer"]
+LOCAL_PLUGINS = [
+    "obstacle_layer",
+    "tof_voxel_layer",
+    "ground_voxel_layer",
+    "keepout_filter",
+    "ground_cost_filter",
+    "inflation_layer",
+]
 GLOBAL_PLUGINS = ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
 MARK_SOURCES = ("tof_mark", "tof_cliff_mark")
 CLEAR_SOURCE = "tof_clear"
@@ -298,7 +306,7 @@ def test_global_costmap_has_no_tof_voxels() -> None:
 def test_only_one_stvl_layer_in_the_local_costmap() -> None:
     params = costmap_params("local_costmap")
     stvl = [key for key, value in params.items() if isinstance(value, dict) and value.get("plugin") == STVL_PLUGIN]
-    assert stvl == [LAYER]
+    assert stvl == [LAYER, GROUND_LAYER]
 
 
 @pytest.mark.parametrize(

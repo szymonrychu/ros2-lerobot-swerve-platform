@@ -705,7 +705,17 @@ def costmap_zones_defaults() -> dict[str, str]:
     ("costmap", "plugins"),
     [
         ("global_costmap", ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]),
-        ("local_costmap", ["obstacle_layer", "tof_voxel_layer", "keepout_filter", "inflation_layer"]),
+        (
+            "local_costmap",
+            [
+                "obstacle_layer",
+                "tof_voxel_layer",
+                "ground_voxel_layer",
+                "keepout_filter",
+                "ground_cost_filter",
+                "inflation_layer",
+            ],
+        ),
     ],
 )
 def test_nav2_keepout_filter_sits_right_before_inflation(costmap: str, plugins: list[str]) -> None:
@@ -713,7 +723,12 @@ def test_nav2_keepout_filter_sits_right_before_inflation(costmap: str, plugins: 
     lethal zone cost like a real obstacle, which Smac's centre-cost shortcut needs."""
     p = ros_params(nav2(), costmap)
     assert p["plugins"] == plugins
-    assert p["plugins"].index("keepout_filter") == p["plugins"].index("inflation_layer") - 1
+    # The local costmap puts ground_cost_filter (a second KeepoutFilter, non-lethal) between keepout and inflation.
+    below_inflation = "ground_cost_filter" if "ground_cost_filter" in p["plugins"] else "keepout_filter"
+    assert p["plugins"].index(below_inflation) == p["plugins"].index("inflation_layer") - 1
+    assert p["plugins"].index("keepout_filter") == p["plugins"].index(below_inflation) - (
+        below_inflation == "ground_cost_filter"
+    )
     assert "keepout_filter" not in p.get("filters", [])
 
 
