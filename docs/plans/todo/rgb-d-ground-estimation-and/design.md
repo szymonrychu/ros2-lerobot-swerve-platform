@@ -207,6 +207,9 @@ Slow-down mechanism for warning areas: ground_estimator_cpp publishes the warnin
 ### D16: floor_guard opt-in, refuse when stale
 Q2 answered yes: floor_guard uses the measured ground regions only when a call sets use_ground_estimate (default off) and refuses the motion when requested but no fresh /ground/state with a plane exists. (user decision)
 
+### D17: Run in parallel with the related epics
+Q3 answered yes: this epic runs in parallel with tof-3d-obstacle-detection-fo and head-rgb-d-fusion-of-camera (no README blockers); the orchestrator queues their final tasks; tasks touching shared files (tests/test_tof_obstacle_wiring.py, client.yml) rebase on whatever lands first. The three graph --todo contract-order lines are an accepted ruling. (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -256,6 +259,7 @@ Q2 answered yes: floor_guard uses the measured ground regions only when a call s
 | D14 Obstacle vs warning rule: 1/3 wheel diameter, max slope | ground-traversability-rule, ground-step-edges, ground-colour-labels, ground-node-wiring, ground-package-config, ground-node-type, ground-final-suite-runbook |
 | D15 Slow-down via costmap_zones speed mask and local cost band | costmap-ground-warnings, nav2-ground-voxel-layer, ground-state-json, ground-node-wiring, mcp-ground-summary, web-ui-ground-frontend |
 | D16 floor_guard opt-in, refuse when stale | mcp-floor-guard-ground |
+| D17 Run in parallel with the related epics | nav2-ground-voxel-layer, ground-node-wiring |
 
 ## Contracts
 

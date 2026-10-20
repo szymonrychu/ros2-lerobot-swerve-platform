@@ -111,5 +111,17 @@
       "web-ui-ground-frontend"
     ],
     "status": "approved"
+  },
+  {
+    "id": "A8",
+    "text": "Q3 answered yes: this epic runs in parallel with tof-3d-obstacle-detection-fo and head-rgb-d-fusion-of-camera (no README blockers); the orchestrator queues their final tasks; tasks touching shared files (tests/test_tof_obstacle_wiring.py, client.yml) rebase on whatever lands first. The three graph --todo contract-order lines are an accepted ruling.",
+    "decisions": [
+      "D17"
+    ],
+    "tasks": [
+      "nav2-ground-voxel-layer",
+      "ground-node-wiring"
+    ],
+    "status": "approved"
   }
 ]
