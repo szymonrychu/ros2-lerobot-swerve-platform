@@ -444,7 +444,7 @@ ros2 param set /local_costmap/local_costmap tof_voxel_layer.enabled false       
 
 ### Switch-over criteria
 
-The fixed bands stay until all four hold:
+The fixed bands stay in force; they are retired only when all four hold:
 
 1. The runbook level-floor check passes: plane height within 1 cm, slope and plane_vs_base below 1 deg.
 2. The 3 cm sill, 5 cm sill, 10 cm drop at 1 m, box and ramp scenes mark as expected with the ground layer enabled and
@@ -452,7 +452,7 @@ The fixed bands stay until all four hold:
 3. No false marks on the floor over a 5 min drive.
 4. CPU stays within the budget of the ground estimator and Nav2 on the Pi 5.
 
-Then a separate change disables `tof_mark` and `tof_cliff_mark` in `tof_voxel_layer`; until it lands both layers run.
+When all four hold, a separate change disables `tof_mark` and `tof_cliff_mark` in `tof_voxel_layer`; before that change both layers run.
 
 ## Collision monitor
 

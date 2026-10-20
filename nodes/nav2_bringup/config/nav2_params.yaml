@@ -191,8 +191,8 @@ local_costmap:
       # <<< gen_nav_footprint: footprint
       # The ToF voxel layer sits right after the lidar layer (both raw obstacles, combined by max) and below the
       # keepout filter and inflation, so ToF obstacles are inflated like lidar ones. The plane-relative
-      # ground_voxel_layer runs alongside the fixed-band tof_voxel_layer (design D8: both stay until the switch-over
-      # criteria in nodes/nav2_bringup/README.md, "Ground layer (plane-relative ToF marks)", pass; runtime switch:
+      # ground_voxel_layer runs alongside the fixed-band tof_voxel_layer (design D8: both stay in force; the fixed bands are retired only
+      # when the switch-over criteria in nodes/nav2_bringup/README.md, "Ground layer (plane-relative ToF marks)", pass; runtime switch:
       # `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false`). ground_cost_filter is a layer
       # right below inflation like keepout_filter, so the ground warning cost is inflated and seen by Smac / MPPI.
       plugins: ["obstacle_layer", "tof_voxel_layer", "ground_voxel_layer", "keepout_filter", "ground_cost_filter", "inflation_layer"]
