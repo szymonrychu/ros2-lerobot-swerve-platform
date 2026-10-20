@@ -68,5 +68,15 @@
       "rgb-d-ground-estimation-and"
     ],
     "note": "tof_voxel_layer sources/bands and collision_monitor tof_obstacles/tof_cliff stay unchanged; ground_voxel_layer is added alongside; tests/test_nav_tof_voxel_layer.py and tests/test_tof_obstacle_wiring.py checks scoped to tof_voxel_layer (task nav2-ground-voxel-layer)"
+  },
+  {
+    "name": "arm-calibration-stale-marker",
+    "kind": "schema",
+    "owner": "servo-torque-off-and-neutral",
+    "file": "nodes/bridges/feetech_servos/neutral.py",
+    "consumers": [
+      "head-and-arm-calibration-fro"
+    ],
+    "note": "/var/lib/ros2/arm/calibration_stale.json {version:1, group, saved_at, joints:{name:{before_steps,after_steps}}, stale:[joint_offsets, home]}; writer feetech bridge after an arm neutral save; mcp_server removes home on arm_set_home; the arm calibration apply removes joint_offsets; empty list deletes the file; owner task bridge-runtime-neutral-save"
   }
 ]
