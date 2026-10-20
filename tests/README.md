@@ -2381,7 +2381,7 @@ The Grafana dashboards in `ansible/roles/monitoring/files/` (JSON structure, met
 | `test_robot_only_dashboards_have_no_host_picker` | Agent, SLAM and grasping have no host variable. |
 | `test_resources_dashboard_still_covers_units_and_throttling` | Robot resources still queries unit CPU, CPUQuota and throttling; the per-unit regex names mimir, loki, grafana-server and alloy, not prometheus. |
 | `test_agent_dashboard_queries` | Robot agent: p50/p95 from `agent_instruction_duration_seconds_bucket` and per-tool `mcp_tool_duration_seconds_bucket`, MCP errors by `outcome="error"`, tokens, cost, claude_agent/mcp_server cgroup CPU and memory. |
-| `test_slam_dashboard_queries` | Robot SLAM: cgroup CPU/memory of the six upstream SLAM units, lidar gap, relay rejections, odom rate, pose TF, nav goal duration, IMU and GPS panels. |
+| `test_slam_dashboard_queries` | Robot SLAM: cgroup CPU/memory of the six upstream SLAM units, lidar gap, relay rejections, odom rate, pose TF, nav goal duration, IMU and GPS panels, the 3D mapping row, and the Ground estimate row (`assert_ground_estimate_row`: fit rate by `result`, fit duration p50/p95, inlier ratio, slope, plane vs base, regions, warning areas, obstacle/drop points, colour mismatch, drops by `reason`, every query `host="client"`, and the `ros2-ground_estimator_cpp` unit CPU with a 0.10 core threshold line). The `ground_*` metrics and the `ground_fit_seconds` histogram are in the node metric contract. |
 | `test_grasping_dashboard_queries` | Robot grasping: servo load/temperature/torque per arm joint, success ratio, bus failures, grasp tool latencies, tracking error buckets. |
 | `test_health_dashboard_queries` | Robot health: `node_systemd_unit_state` for ros2-*, alloy, mimir, loki, grafana-server and nginx, restarts, `up{job="ros2_nodes"}`, node start time, every per-node error counter, throttling, disk and memory pressure. |
 | `test_health_dashboard_loki_panels` | Robot health: `Error log lines per unit` = `sum by (unit) (rate({host="$host", level=~"emerg\|alert\|crit\|err"}[$__auto]))` (timeseries) and `Recent error log lines` = the same selector (logs panel); exactly two LogQL queries. |
@@ -2496,7 +2496,7 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_main_exits_2_on_an_empty_series` / `test_main_prints_and_exits_0` | Exit 2 on no data, exit 0 and a table otherwise. |
 | `test_queries_use_the_configured_host_and_both_windows` | Two queries per entry, at the before and after window starts, with the configured host. |
 | `test_entry_requires_all_fields_and_a_positive_switch_time` | pydantic rejects a missing field and a non-positive switch_time. |
-| `test_shipped_config_lists_the_nodes` | `node_cpu_compare.yaml` lists map_guard, web_ui, gripper_uvc_camera, mcp_server, nav2_bringup, laser_filter, arducam_tof with the right units (same unit before and after for the ToF entries). |
+| `test_shipped_config_lists_the_nodes` | `node_cpu_compare.yaml` lists map_guard, web_ui, gripper_uvc_camera, mcp_server, nav2_bringup, laser_filter, arducam_tof, nav2_bringup_ground_layer with the right units (same unit before and after for the ToF and ground-layer entries; ground_estimator_cpp is new, so measured after only by the runbook query). |
 
 ### test_shared_photos.py / test_shared_lookups.py (photo contract)
 

@@ -72,6 +72,10 @@ NODE_CONTRACT_METRICS = {
     "webui_ws_clients", "webui_ws_disconnects_total", "webui_broadcaster_slow_total", "webui_topic_stale_total",
     "webui_http_requests_total", "webui_map_updates_total", "webui_map_age_seconds", "webui_robot_pose_ok",
     "webui_battery_cutoff_active",
+    # ground_estimator_cpp
+    "ground_fits_total", "ground_inlier_ratio", "ground_slope_deg", "ground_plane_vs_base_deg", "ground_regions",
+    "ground_warning_areas", "ground_obstacle_points", "ground_drop_points", "ground_colour_mismatch_ratio",
+    "ground_clouds_dropped_total", "ground_labelled_clouds_total",
     # test_joint_api, topic_scraper_api
     "jointapi_requests_total", "scraper_messages_total", "scraper_subscriptions",
 }  # fmt: skip
@@ -79,6 +83,7 @@ NODE_CONTRACT_HISTOGRAMS = {
     "servo_cycle_duration_seconds", "swerve_loop_duration_seconds", "camera_encode_seconds",
     "mcp_tool_duration_seconds", "mcp_motion_tracking_error_rad", "mcp_nav_goal_duration_seconds",
     "agent_instruction_duration_seconds", "webui_broadcast_duration_seconds", "scraper_callback_seconds",
+    "ground_fit_seconds",
 }  # fmt: skip
 ALLOWED_METRICS = (
     CONTRACT_METRICS
@@ -545,6 +550,43 @@ def test_slam_dashboard_queries() -> None:
     assert "imu_published_total" in panel_exprs(dashboard, "IMU publish health")
     assert "gps_fix_quality" in panel_exprs(dashboard, "GPS fix quality")
     assert_3d_mapping_row()
+    assert_ground_estimate_row()
+
+
+GROUND_UNIT_ID = "/system.slice/ros2-ground_estimator_cpp.service"
+GROUND_CPU_BUDGET_CORES = 0.10
+
+
+def assert_ground_estimate_row() -> None:
+    """Ground estimate row: fit health panels, host-scoped, and the unit CPU against the 0.10 core budget."""
+    dashboard = load_dashboard("robot-slam.json")
+    panels = {p["title"]: p for p in panel_list(dashboard)}
+    assert panels["Ground estimate"]["type"] == "row"
+    expected = {
+        "Ground fit rate by result": ["rate(ground_fits_total{", "by (result)"],
+        "Ground fit duration p50/p95": [
+            "histogram_quantile(0.5",
+            "histogram_quantile(0.95",
+            "ground_fit_seconds_bucket",
+        ],
+        "Ground inlier ratio": ["ground_inlier_ratio{"],
+        "Ground slope and plane vs base": ["ground_slope_deg{", "ground_plane_vs_base_deg{"],
+        "Ground regions and warning areas": ["ground_regions{", "ground_warning_areas{"],
+        "Ground obstacle and drop points": ["ground_obstacle_points{", "ground_drop_points{"],
+        "Ground colour mismatch ratio": ["ground_colour_mismatch_ratio{"],
+        "Ground clouds dropped by reason": ["rate(ground_clouds_dropped_total{", "by (reason)"],
+        "Ground estimator CPU vs budget": ["rate(container_cpu_usage_seconds_total{", "ros2-ground_estimator_cpp"],
+    }
+    for title, needles in expected.items():
+        expr = panel_exprs(dashboard, title)
+        for needle in needles:
+            assert needle in expr, (title, needle)
+        for target in panels[title]["targets"]:
+            assert 'host="client"' in target["expr"], (title, target["expr"])
+    assert "ground_labelled_clouds_total" in panel_exprs(dashboard, "Ground clouds dropped by reason")
+    cpu = panels["Ground estimator CPU vs budget"]["fieldConfig"]["defaults"]
+    assert any(step["value"] == GROUND_CPU_BUDGET_CORES for step in cpu["thresholds"]["steps"])
+    assert cpu["custom"]["thresholdsStyle"]["mode"] == "line"
 
 
 def assert_3d_mapping_row() -> None:

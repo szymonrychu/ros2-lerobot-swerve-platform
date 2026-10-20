@@ -23,3 +23,7 @@ entries:
   - {name: nav2_bringup, before_unit: ros2-nav2_bringup.service, after_unit: ros2-nav2_bringup.service, switch_time: 1}
   - {name: laser_filter, before_unit: ros2-laser_filter.service, after_unit: ros2-laser_filter.service, switch_time: 1}
   - {name: arducam_tof, before_unit: ros2-arducam_tof.service, after_unit: ros2-arducam_tof.service, switch_time: 1}
+  # Ground estimation (design D11): nav2_bringup gains the ground costmap layer, so the same unit is compared before and
+  # after. ros2-ground_estimator_cpp.service is new, so it has no "before" series: it is measured "after" only, by the
+  # runbook query rate(container_cpu_usage_seconds_total{host="client",id="/system.slice/ros2-ground_estimator_cpp.service"}[1m]).
+  - {name: nav2_bringup_ground_layer, before_unit: ros2-nav2_bringup.service, after_unit: ros2-nav2_bringup.service, switch_time: 1}

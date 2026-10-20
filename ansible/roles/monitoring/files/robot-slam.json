@@ -1363,6 +1363,478 @@
           "legendFormat": "server rx"
         }
       ]
+    },
+    {
+      "type": "row",
+      "title": "Ground estimate",
+      "id": 31,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 85
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Ground fit rate by result",
+      "id": 32,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Plane fits per second by result.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 86
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (result) (rate(ground_fits_total{host=\"client\"}[1m]))",
+          "legendFormat": "{{result}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ground fit duration p50/p95",
+      "id": 33,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Plane fit duration.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 86
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(ground_fit_seconds_bucket{host=\"client\"}[$__rate_interval])))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ground_fit_seconds_bucket{host=\"client\"}[$__rate_interval])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ground inlier ratio",
+      "id": 34,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Share of floor points inside the fitted plane.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 86
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "ground_inlier_ratio{host=\"client\"}",
+          "legendFormat": "inlier_ratio"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ground slope and plane vs base",
+      "id": 35,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Floor slope and the plane angle against the base frame (deg).",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 94
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "degree"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "ground_slope_deg{host=\"client\"}",
+          "legendFormat": "slope"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "ground_plane_vs_base_deg{host=\"client\"}",
+          "legendFormat": "plane vs base"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ground regions and warning areas",
+      "id": 36,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Ground regions and published warning areas.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 94
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "ground_regions{host=\"client\"}",
+          "legendFormat": "regions"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "ground_warning_areas{host=\"client\"}",
+          "legendFormat": "warning areas"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ground obstacle and drop points",
+      "id": 37,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Points classified as obstacle and drop-off per cloud.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 94
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "ground_obstacle_points{host=\"client\"}",
+          "legendFormat": "obstacle"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "ground_drop_points{host=\"client\"}",
+          "legendFormat": "drop"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ground colour mismatch ratio",
+      "id": 38,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Share of points whose colour label disagrees with the geometry.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 102
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "ground_colour_mismatch_ratio{host=\"client\"}",
+          "legendFormat": "colour_mismatch_ratio"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ground clouds dropped by reason",
+      "id": 39,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Dropped clouds per second by reason, next to labelled clouds.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 102
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (reason) (rate(ground_clouds_dropped_total{host=\"client\"}[1m]))",
+          "legendFormat": "dropped {{reason}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "rate(ground_labelled_clouds_total{host=\"client\"}[1m])",
+          "legendFormat": "labelled"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ground estimator CPU vs budget",
+      "id": 40,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "CPU cores used by ros2-ground_estimator_cpp.service; the line is the 0.10 core budget.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 102
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.1
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "rate(container_cpu_usage_seconds_total{host=\"client\",id=\"/system.slice/ros2-ground_estimator_cpp.service\"}[1m])",
+          "legendFormat": "ground_estimator_cpp"
+        }
+      ]
     }
   ]
 }
