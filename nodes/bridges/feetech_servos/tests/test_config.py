@@ -546,3 +546,78 @@ def test_torque_state_interval_default_value_and_negative_rejected(tmp_path: Pat
     p.write_text(base + "torque_state_interval_s: x\n")
     cfg = load_config(p)
     assert cfg is not None and cfg.torque_state_interval_s == 1.0
+
+
+NEUTRAL_BASE = "namespace: follower\njoint_names:\n  - name: shoulder_pan\n    id: 1\n  - name: gripper\n    id: 6\n"
+NEUTRAL_EXTRA = (
+    "extra_groups:\n"
+    "  - namespace: swerve_drive\n"
+    "    joint_names:\n"
+    "      - name: fl_steer\n        id: 33\n"
+    "      - name: fl_drive\n        id: 32\n        mode: velocity\n"
+)
+
+
+def test_neutral_config_defaults(tmp_path: Path) -> None:
+    """Without neutral keys every group has neutral off, no exclusions and no stale marker."""
+    p = tmp_path / "c.yaml"
+    p.write_text(NEUTRAL_BASE + NEUTRAL_EXTRA)
+    cfg = load_config(p)
+    assert cfg is not None
+    for group in cfg.groups:
+        assert group.neutral_enabled is False
+        assert group.neutral_exclude_joints == []
+        assert group.neutral_stale_marker is None
+    assert [j.name for j in cfg.groups[0].neutral_joints] == ["shoulder_pan", "gripper"]
+
+
+def test_neutral_config_values_top_level_and_extra_group(tmp_path: Path) -> None:
+    """Top-level keys configure the primary group; extra_groups entries carry their own."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        NEUTRAL_BASE
+        + "neutral_enabled: true\n"
+        + "neutral_exclude_joints: [gripper]\n"
+        + "neutral_stale_marker: /var/lib/ros2/arm/calibration_stale.json\n"
+        + NEUTRAL_EXTRA
+        + "    neutral_enabled: true\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    arm, base = cfg.groups
+    assert arm.neutral_enabled is True
+    assert arm.neutral_exclude_joints == ["gripper"]
+    assert arm.neutral_stale_marker == "/var/lib/ros2/arm/calibration_stale.json"
+    assert [j.name for j in arm.neutral_joints] == ["shoulder_pan"]
+    assert base.neutral_enabled is True
+    assert base.neutral_exclude_joints == []
+    assert base.neutral_stale_marker is None
+    assert [j.name for j in base.neutral_joints] == ["fl_steer"]  # velocity joints never
+
+
+def test_neutral_exclude_unknown_joint_rejected(tmp_path: Path) -> None:
+    """An exclude entry that is not a joint of the group makes the config invalid."""
+    p = tmp_path / "c.yaml"
+    p.write_text(NEUTRAL_BASE + "neutral_exclude_joints: [elbow_flex]\n")
+    assert load_config(p) is None
+    p.write_text(NEUTRAL_BASE + "neutral_exclude_joints: [fl_steer]\n" + NEUTRAL_EXTRA)
+    assert load_config(p) is None  # a joint of another group is unknown too
+
+
+def test_neutral_exclude_velocity_joint_rejected(tmp_path: Path) -> None:
+    """A velocity joint in an exclude list makes the config invalid (velocity joints have no neutral)."""
+    p = tmp_path / "c.yaml"
+    p.write_text(NEUTRAL_BASE + NEUTRAL_EXTRA + "    neutral_exclude_joints: [fl_drive]\n")
+    assert load_config(p) is None
+
+
+def test_neutral_config_bad_types_rejected(tmp_path: Path) -> None:
+    """neutral_enabled must be a bool, neutral_exclude_joints a list, neutral_stale_marker a string."""
+    p = tmp_path / "c.yaml"
+    for extra in (
+        "neutral_enabled: 'yes'\n",
+        "neutral_exclude_joints: gripper\n",
+        "neutral_stale_marker: 3\n",
+    ):
+        p.write_text(NEUTRAL_BASE + extra)
+        assert load_config(p) is None, extra

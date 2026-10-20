@@ -38,6 +38,7 @@ from .command_mapping import speed_register_to_velocity, steps_to_radians
 from .config import BridgeConfig, JointGroup, load_config_from_env
 from .joint_updates import get_position_updates
 from .metrics import BUS_UP, init_joints, record_read_cycle, record_register_dump
+from .neutral import NeutralControl
 from .register_dump import RegisterDumpScheduler
 from .registers import (
     get_register_entry_by_name,
@@ -107,10 +108,14 @@ def setup_torque_interfaces(
     control: TorqueControl,
     callbacks_run: list[int],
     interval_s: float,
+    neutral: NeutralControl | None = None,
 ) -> TorqueStatePublisher:
-    """Create /<ns>/servo/release_torque, /<ns>/servo/enable_torque and /<ns>/torque_state for every group.
+    """Create the torque and neutral services and /<ns>/torque_state of every group.
 
-    The service callbacks run inline on the loop thread (the executor is drained there), the sole bus owner.
+    Every group gets /<ns>/servo/release_torque and /<ns>/servo/enable_torque; a group with neutral_enabled also gets
+    /<ns>/servo/record_neutral and /<ns>/servo/save_neutral (when neutral is given). Every record/save publishes the
+    group's torque_state at the next step. The service callbacks run inline on the loop thread (the executor is
+    drained there), the sole bus owner.
 
     Args:
         node (Node): The rclpy node.
@@ -118,6 +123,7 @@ def setup_torque_interfaces(
         control (TorqueControl): Torque control of the bus.
         callbacks_run (list[int]): One-element counter incremented by every callback (see drain_callbacks).
         interval_s (float): torque_state_interval_s.
+        neutral (NeutralControl | None): Neutral control of the bus; None creates no neutral services.
 
     Returns:
         TorqueStatePublisher: Call step(now, stamp_ns) once per loop iteration with an open bus.
@@ -125,10 +131,17 @@ def setup_torque_interfaces(
     qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
     publishers = {g.namespace: node.create_publisher(String, f"/{g.namespace}/torque_state", qos) for g in groups}
 
-    def make_service(namespace: str, action: Any) -> Any:
+    def publish(namespace: str, payload: dict[str, Any]) -> None:
+        publishers[namespace].publish(String(data=json.dumps(payload, separators=(",", ":"))))
+
+    reporter = TorqueStatePublisher(control, interval_s, publish, neutral.status if neutral is not None else None)
+
+    def make_service(namespace: str, action: Any, publish_state: bool = False) -> Any:
         def on_request(_request: Any, response: Any) -> Any:
             callbacks_run[0] += 1
             result = action(namespace)
+            if publish_state:
+                reporter.request(namespace)
             response.success = result.success
             response.message = result.message
             return response
@@ -139,11 +152,11 @@ def setup_torque_interfaces(
         ns = group.namespace
         node.create_service(Trigger, f"/{ns}/servo/release_torque", make_service(ns, control.release))
         node.create_service(Trigger, f"/{ns}/servo/enable_torque", make_service(ns, control.enable))
+        if neutral is not None and group.neutral_enabled:
+            node.create_service(Trigger, f"/{ns}/servo/record_neutral", make_service(ns, neutral.record, True))
+            node.create_service(Trigger, f"/{ns}/servo/save_neutral", make_service(ns, neutral.save, True))
 
-    def publish(namespace: str, payload: dict[str, Any]) -> None:
-        publishers[namespace].publish(String(data=json.dumps(payload, separators=(",", ":"))))
-
-    return TorqueStatePublisher(control, interval_s, publish)
+    return reporter
 
 
 def run_bridge(config: BridgeConfig) -> None:
@@ -350,7 +363,11 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
         apply_set_register(servo, config, last_written, msg.data, node.get_logger().warn, torque_control.released_ids)
 
     torque_control.joint_torque.update(startup_torque)
-    torque_state = setup_torque_interfaces(node, groups, torque_control, callbacks_run, config.torque_state_interval_s)
+    logger = node.get_logger()
+    neutral = NeutralControl(torque_control, command_limits, log_info=logger.info, log_error=logger.error)
+    torque_state = setup_torque_interfaces(
+        node, groups, torque_control, callbacks_run, config.torque_state_interval_s, neutral
+    )
 
     for group in groups:
         node.create_subscription(

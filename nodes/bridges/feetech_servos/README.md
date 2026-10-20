@@ -104,10 +104,77 @@ Every group namespace (`follower`, and `swerve_drive` / `head` with `extra_group
 `/<ns>/torque_state` (`std_msgs/String`, JSON; QoS reliable, transient_local, depth 1):
 
 ```json
-{"namespace": "follower", "released": false, "joints": {"shoulder_pan": 1, "gripper": 0}, "stamp_ns": 1700000000000000000}
+{"namespace": "follower", "released": false, "joints": {"shoulder_pan": 1, "gripper": 0}, "stamp_ns": 1700000000000000000,
+ "neutral_enabled": true, "neutral_capture": {"shoulder_pan": {"steps": 1500, "delta_steps": -548}},
+ "last_save": {"saved_at": "2026-10-20T12:00:00+00:00", "saved": ["elbow_flex"], "failed": []}}
 ```
 
 `released` is true when any position joint of the group is gated; `joints` maps position joint names to the last known `torque_enable` (0 or 1) from a verified readback or a register dump. A joint with no reading is omitted, never defaulted. Published on every change (release, enable, a register dump showing a different `torque_enable`, so a servo that dropped torque by itself shows 0 within one `register_publish_interval_s` round) and every `torque_state_interval_s` (float >= 0, default `1.0`, `0` = on change only; a negative value falls back to the default). Nothing is published before the startup torque sequence finished or while no bus is open.
+
+`neutral_enabled` is the group's config flag; `neutral_capture` is the recorded neutral not saved yet (per joint the
+recorded `steps` and `delta_steps = steps - 2048`), `null` when nothing is recorded; `last_save` is the last save that
+reached the EEPROM step (`saved` and `failed` joint names), `null` before the first one. Every record and save
+request publishes the group's state at the next loop iteration, even when it did not change.
+
+### Neutral record and save (`neutral.py`)
+
+A group with `neutral_enabled: true` also gets two `std_srvs/srv/Trigger` services (none otherwise):
+
+- `/<ns>/servo/record_neutral`: refused (`success=false`, "release torque first") unless every neutral joint of the
+  group is released with a verified `torque_enable = 0`. Reads `present_position` of each neutral joint (3 attempts, a
+  failed read is retried, never used as a position) and keeps it as the capture. `message` lists per joint the shift
+  `present - 2048` in steps and degrees, e.g. `elbow_flex +552 steps (+48.5 deg)`. Nothing is written to the bus.
+- `/<ns>/servo/save_neutral`: writes the capture into each servo's EEPROM centre, then re-enables torque holding the
+  present position (no jump).
+
+The neutral joints are the group's position joints minus `neutral_exclude_joints` (velocity joints never). Save
+sequence, all on the loop thread:
+
+1. Refused without a capture ("record neutral first") or when the group is not released. Every captured joint is read;
+   any joint more than `NEUTRAL_MOVE_TOLERANCE_STEPS = 20` from its capture refuses with
+   `moved since record: <joints>; record again`, and nothing is written.
+2. Every velocity joint of this bridge's bus is stopped (zero `goal_speed`, cache bypassed, acknowledged; a wheel that
+   does not acknowledge refuses the save with nothing written). The save stalls this bridge's loop for about 0.6 s per
+   joint and its velocity watchdog cannot run meanwhile; wheels on another bus keep their own bridge and watchdog.
+3. Per joint, in config order (the sequence of `scripts/calibrate_servos.py center`): read `min/max_angle_limit`
+   (retried), `UnLockEprom`, `DefineMiddle` (`torque_enable = 128`), sleep `CENTER_SETTLE_S = 0.5`, `LockEprom` in a
+   `finally` (also when DefineMiddle fails or raises); verify `present_position` within `2048 +- 3` with up to 10
+   reads 0.1 s apart (a failed read is retried); only on a verified servo re-read the limits and, if DefineMiddle moved
+   them, write the pre-centre numbers back (EEPROM write, cache entry dropped) and read them back; refresh the bridge
+   command range of joints without `command_min_steps` / `command_max_steps` from the final limit readback (joints with
+   config steps keep them).
+4. When every joint saved: torque enable as `enable_torque` (goal = present, then torque 1), the capture is cleared,
+   `last_save` recorded, `success=true`.
+
+Fail-safe: if DefineMiddle fails, the verify fails, or the limit restore or its readback fails, the remaining joints of
+that save are not attempted, no limit is ever written on a servo whose centre was not verified, and torque stays OFF
+on the whole group (it stays released and gated; torque 0 is re-asserted and verified). The answer is `success=false`
+naming the joints saved, the joint that failed and why, and the joints not attempted; the capture of the joints not
+saved is kept, so a later save with the pose unchanged continues with them (a joint whose centre changed reads
+~2048 now and needs a new record). The stale marker is still
+written for the joints whose centre changed.
+
+Config keys (top level for the primary namespace, inside each `extra_groups` entry for that group):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `neutral_enabled` | `false` | Create the record/save services for the group (must be a bool). |
+| `neutral_exclude_joints` | `[]` | Position joints of the group left out of record/save (e.g. `[gripper]`); torque off still releases them. An unknown or velocity joint makes the config invalid. |
+| `neutral_stale_marker` | none | Path of the stale marker JSON written after a save (e.g. `/var/lib/ros2/arm/calibration_stale.json` for the arm). |
+
+Stale marker: after a save with at least one joint whose centre changed, a group with `neutral_stale_marker` writes the
+marker atomically (temp file in the same directory, then `os.replace`; missing parents are created):
+
+```json
+{"version": 1, "group": "follower", "saved_at": "2026-10-20T12:00:00+00:00",
+ "joints": {"shoulder_pan": {"before_steps": 1500, "after_steps": 2048}},
+ "stale": ["joint_offsets", "home"]}
+```
+
+An existing marker is merged: its joints are kept and the saved ones updated, `stale` is reset to both items and
+`saved_at` updated (a marker that is not valid JSON is replaced). mcp_server removes `home` on `arm_set_home`, the arm
+calibration removes `joint_offsets`, and an empty list deletes the file. A marker write failure answers
+`success=false` with `neutral saved, stale marker not written: <error>` (torque stays enabled) and logs an error.
 
 ## Bus budget
 

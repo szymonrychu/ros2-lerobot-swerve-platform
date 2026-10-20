@@ -47,7 +47,12 @@ class TorqueResult:
 
 
 def torque_state_payload(
-    group: JointGroup, joint_torque: dict[int, int], released_ids: set[int], stamp_ns: int
+    group: JointGroup,
+    joint_torque: dict[int, int],
+    released_ids: set[int],
+    stamp_ns: int,
+    neutral_capture: dict[str, dict[str, int]] | None = None,
+    last_save: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the /<ns>/torque_state payload of one group (position joints only).
 
@@ -58,9 +63,13 @@ def torque_state_payload(
         joint_torque (dict[int, int]): servo_id -> latest torque_enable reading.
         released_ids (set[int]): Position-mode servo IDs that are gated (TorqueControl.released_ids).
         stamp_ns (int): Payload time, nanoseconds.
+        neutral_capture (dict[str, dict[str, int]] | None): Recorded neutral not saved yet, joint name ->
+            {"steps", "delta_steps"} (NeutralControl.status); None = nothing recorded.
+        last_save (dict[str, Any] | None): Last neutral save {"saved_at", "saved", "failed"}; None = none yet.
 
     Returns:
-        dict[str, Any]: {"namespace", "released" (any joint gated), "joints" (name -> 0|1), "stamp_ns"}.
+        dict[str, Any]: {"namespace", "released" (any joint gated), "joints" (name -> 0|1), "stamp_ns",
+            "neutral_enabled", "neutral_capture", "last_save"}.
     """
     position_joints = [j for j in group.joints if j.mode == "position"]
     return {
@@ -68,6 +77,9 @@ def torque_state_payload(
         "released": any(j.id in released_ids for j in position_joints),
         "joints": {j.name: joint_torque[j.id] for j in position_joints if j.id in joint_torque},
         "stamp_ns": stamp_ns,
+        "neutral_enabled": group.neutral_enabled,
+        "neutral_capture": neutral_capture,
+        "last_save": last_save,
     }
 
 
@@ -294,12 +306,15 @@ class TorqueControl:
 
 
 class TorqueStatePublisher:
-    """Decides when each group's torque_state is published: on change and every interval, never without a reading.
+    """Decides when each group's torque_state is published: on change, on request and every interval, never without
+    a reading.
 
     Attributes:
         control: Torque control holding the readings and the gate.
         interval_s: Seconds between repeats of an unchanged state; 0 = on change only.
         publish: Called with (namespace, payload).
+        neutral_status: namespace -> {"neutral_capture", "last_save"} (NeutralControl.status); None = no neutral.
+        requested: Namespaces published at the next step even when unchanged (request()).
     """
 
     def __init__(
@@ -307,6 +322,7 @@ class TorqueStatePublisher:
         control: TorqueControl,
         interval_s: float,
         publish: Callable[[str, dict[str, Any]], None],
+        neutral_status: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         """Create the publisher.
 
@@ -314,15 +330,26 @@ class TorqueStatePublisher:
             control (TorqueControl): Torque control of the bus.
             interval_s (float): Seconds between repeats of an unchanged state; 0 = on change only.
             publish (Callable[[str, dict[str, Any]], None]): Sends one payload of a namespace.
+            neutral_status (Callable[[str], dict[str, Any]] | None): Neutral fields of a namespace's payload.
         """
         self.control = control
         self.interval_s = interval_s
         self.publish = publish
-        self.last: dict[str, tuple[bool, dict[str, int]]] = {}
+        self.neutral_status = neutral_status
+        self.last: dict[str, tuple[Any, ...]] = {}
         self.last_time: dict[str, float] = {}
+        self.requested: set[str] = set()
+
+    def request(self, namespace: str) -> None:
+        """Publish a namespace's state at the next step even if it did not change (after a record or save).
+
+        Args:
+            namespace (str): Group namespace.
+        """
+        self.requested.add(namespace)
 
     def step(self, now: float, stamp_ns: int) -> list[str]:
-        """Publish the groups whose state changed or whose interval elapsed.
+        """Publish the groups whose state changed, was requested or whose interval elapsed.
 
         Nothing is published when no bus is open or a group has no torque reading at all.
 
@@ -338,14 +365,16 @@ class TorqueStatePublisher:
         published = []
         released_ids = self.control.released_ids
         for namespace, group in self.control.groups.items():
-            payload = torque_state_payload(group, self.control.joint_torque, released_ids, stamp_ns)
+            neutral = self.neutral_status(namespace) if self.neutral_status is not None else {}
+            payload = torque_state_payload(group, self.control.joint_torque, released_ids, stamp_ns, **neutral)
             if not payload["joints"]:
                 continue
-            state = (payload["released"], payload["joints"])
+            state = (payload["released"], payload["joints"], payload["neutral_capture"], payload["last_save"])
             due = namespace not in self.last_time or (
                 self.interval_s > 0 and now - self.last_time[namespace] >= self.interval_s
             )
-            if state != self.last.get(namespace) or due:
+            if state != self.last.get(namespace) or due or namespace in self.requested:
+                self.requested.discard(namespace)
                 self.last[namespace] = state
                 self.last_time[namespace] = now
                 self.publish(namespace, payload)

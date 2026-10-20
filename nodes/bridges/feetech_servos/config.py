@@ -98,10 +98,22 @@ class JointGroup:
     Attributes:
         namespace: Topic prefix (e.g. "swerve_drive" -> /swerve_drive/joint_states).
         joints: Ordered joints of this group.
+        neutral_enabled: True creates /<namespace>/servo/record_neutral and save_neutral for this group.
+        neutral_exclude_joints: Position joints of this group left out of the neutral record/save (e.g. gripper).
+        neutral_stale_marker: Path of the stale marker JSON written after a neutral save; None = no marker.
     """
 
     namespace: str
     joints: list[JointEntry]
+    neutral_enabled: bool = False
+    neutral_exclude_joints: list[str] = field(default_factory=list)
+    neutral_stale_marker: str | None = None
+
+    @property
+    def neutral_joints(self) -> list[JointEntry]:
+        """Joints a neutral record/save covers: position joints minus neutral_exclude_joints, in config order."""
+        excluded = set(self.neutral_exclude_joints)
+        return [j for j in self.joints if j.mode == "position" and j.name not in excluded]
 
     @property
     def joint_names(self) -> list[str]:
@@ -159,6 +171,9 @@ class BridgeConfig:
         read_failure_limit: Consecutive failed state reads before a servo is left out of the sync read.
         read_retry_interval_s: Seconds between single-read probes of a servo left out of the sync read.
         torque_state_interval_s: Seconds between repeats of each group's torque_state; 0 = publish on change only.
+        neutral_enabled: Neutral record/save services for the primary group (extra groups carry their own).
+        neutral_exclude_joints: Primary-group position joints left out of the neutral record/save.
+        neutral_stale_marker: Stale marker path written after a primary-group neutral save; None = no marker.
     """
 
     namespace: str
@@ -188,11 +203,21 @@ class BridgeConfig:
     read_failure_limit: int = DEFAULT_READ_FAILURE_LIMIT
     read_retry_interval_s: float = DEFAULT_READ_RETRY_INTERVAL_S
     torque_state_interval_s: float = DEFAULT_TORQUE_STATE_INTERVAL_S
+    neutral_enabled: bool = False
+    neutral_exclude_joints: list[str] = field(default_factory=list)
+    neutral_stale_marker: str | None = None
 
     @property
     def groups(self) -> list[JointGroup]:
         """All joint groups: the primary namespace first, then extra_groups."""
-        return [JointGroup(namespace=self.namespace, joints=self.joints), *self.extra_groups]
+        primary = JointGroup(
+            namespace=self.namespace,
+            joints=self.joints,
+            neutral_enabled=self.neutral_enabled,
+            neutral_exclude_joints=list(self.neutral_exclude_joints),
+            neutral_stale_marker=self.neutral_stale_marker,
+        )
+        return [primary, *self.extra_groups]
 
     @property
     def all_joints(self) -> list[JointEntry]:
@@ -371,6 +396,39 @@ def parse_joints(raw_joints: object, seen_ids: set[int]) -> list[JointEntry] | N
     return joints
 
 
+def parse_neutral(item: dict, namespace: str, joints: list[JointEntry]) -> tuple[bool, list[str], str | None] | None:
+    """Parse and validate the neutral keys of a group (top level for the primary group, or an extra_groups entry).
+
+    Args:
+        item (dict): Raw mapping holding neutral_enabled / neutral_exclude_joints / neutral_stale_marker.
+        namespace (str): Group namespace, for the log message.
+        joints (list[JointEntry]): The group's joints.
+
+    Returns:
+        tuple[bool, list[str], str | None] | None: (neutral_enabled, neutral_exclude_joints, neutral_stale_marker), or
+            None when a value has the wrong type or an excluded name is not a position joint of the group.
+    """
+    enabled = item.get("neutral_enabled", False)
+    if not isinstance(enabled, bool):
+        LOGGER.warning("/%s: neutral_enabled must be true or false, got %r", namespace, enabled)
+        return None
+    raw_exclude = item.get("neutral_exclude_joints") or []
+    if not isinstance(raw_exclude, list) or not all(isinstance(n, str) for n in raw_exclude):
+        LOGGER.warning("/%s: neutral_exclude_joints must be a list of joint names, got %r", namespace, raw_exclude)
+        return None
+    position_names = {j.name for j in joints if j.mode == "position"}
+    exclude = [n.strip() for n in raw_exclude]
+    unknown = [n for n in exclude if n not in position_names]
+    if unknown:
+        LOGGER.warning("/%s: neutral_exclude_joints %s are not position joints of the group", namespace, unknown)
+        return None
+    marker = item.get("neutral_stale_marker")
+    if marker is not None and not isinstance(marker, str):
+        LOGGER.warning("/%s: neutral_stale_marker must be a path string, got %r", namespace, marker)
+        return None
+    return enabled, exclude, (marker.strip() or None) if marker is not None else None
+
+
 def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set[int]) -> list[JointGroup] | None:
     """Parse extra_groups: list of { namespace, joint_names } sharing the bus with the primary group.
 
@@ -398,7 +456,19 @@ def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set
         joints = parse_joints(item.get("joint_names"), seen_ids)
         if joints is None:
             return None
-        groups.append(JointGroup(namespace=namespace, joints=joints))
+        neutral = parse_neutral(item, namespace, joints)
+        if neutral is None:
+            return None
+        enabled, exclude, marker = neutral
+        groups.append(
+            JointGroup(
+                namespace=namespace,
+                joints=joints,
+                neutral_enabled=enabled,
+                neutral_exclude_joints=exclude,
+                neutral_stale_marker=marker,
+            )
+        )
     return groups
 
 
@@ -436,6 +506,10 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         return None
     if not joints:
         return None
+    neutral = parse_neutral(data, namespace, joints)
+    if neutral is None:
+        return None
+    neutral_enabled, neutral_exclude_joints, neutral_stale_marker = neutral
     device = data.get("device")
     device = str(device).strip() if device else None
     baudrate = data.get("baudrate")
@@ -572,6 +646,9 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         read_failure_limit=read_failure_limit,
         read_retry_interval_s=read_retry_interval_s,
         torque_state_interval_s=torque_state_interval_s,
+        neutral_enabled=neutral_enabled,
+        neutral_exclude_joints=neutral_exclude_joints,
+        neutral_stale_marker=neutral_stale_marker,
     )
 
 

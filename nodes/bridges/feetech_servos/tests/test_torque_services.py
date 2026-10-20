@@ -152,6 +152,9 @@ def test_enable_answers_success_and_state_returns_to_held(bridge_module: ModuleT
         "released": False,
         "joints": {"head_pan": 1, "head_tilt": 1},
         "stamp_ns": 2,
+        "neutral_enabled": False,
+        "neutral_capture": None,
+        "last_save": None,
     }
 
 
@@ -185,6 +188,9 @@ def test_payload_omits_a_joint_without_a_reading() -> None:
         "released": False,
         "joints": {"shoulder_pan": 1, "gripper": 0},
         "stamp_ns": 5,
+        "neutral_enabled": False,
+        "neutral_capture": None,
+        "last_save": None,
     }
 
 
