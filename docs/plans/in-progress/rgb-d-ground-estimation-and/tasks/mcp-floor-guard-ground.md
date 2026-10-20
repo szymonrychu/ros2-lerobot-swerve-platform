@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--mcp-floor-guard-ground
 branch: rgb-d-ground-estimation-and--mcp-floor-guard-ground
-verified_head: fcc0cbc6
+verified_head: ""
 run: rgb-d-ground-estimation-and
 provides: []
 acs_for_audit: []
