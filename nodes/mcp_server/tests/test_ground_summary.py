@@ -165,6 +165,8 @@ def test_ros_robot_stale_state_is_none(ros_iface: ModuleType) -> None:
     stamped = robot.latest["ground_state"]
     robot.latest["ground_state"] = Stamped(value=stamped.value, stamp=time.monotonic() - 5.0)
     assert robot.ground_state() is None
+    state, age = robot.ground_state(max_age_s=None)
+    assert age >= 5.0 and state is stamped.value  # floor_guard applies its own ground_max_age_s
 
 
 # --- tool ---------------------------------------------------------------------------------------------------------

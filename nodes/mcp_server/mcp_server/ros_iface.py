@@ -123,6 +123,7 @@ from .topdown import TopdownInputs, grid_layer, transform_points
 from .zoom_client import ZoomRequests
 
 NODE_NAME = "mcp_server"
+GROUND_DEFAULT_AGE: Any = object()  # sentinel: use timeouts.ground_state_stale_s
 # Best effort subscribers match both reliable and best-effort publishers.
 SENSOR_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
 # slam_toolbox publishes /map reliable + transient_local (latched).
@@ -833,7 +834,7 @@ class RosRobot:
             config,
             self.monitor,
             tilt_source=lambda: monitor_tilt_sample(self.monitor.imu),
-            ground_source=self.ground_state,
+            ground_source=lambda: self.ground_state(max_age_s=None),
         )
         self.monitor.lease_held = lambda: self.arm.control_held
         # Web-UI grasp actions (JSON in on grasp_command, JSON out on grasp_result); 'stop' answers at once, the
@@ -1936,14 +1937,19 @@ class RosRobot:
         with self.lock:
             self.latest["ground_state"] = Stamped(value=state, stamp=time.monotonic())
 
-    def ground_state(self) -> tuple[GroundState, float] | None:
+    def ground_state(self, max_age_s: float | None = GROUND_DEFAULT_AGE) -> tuple[GroundState, float] | None:
         """Latest /ground/state with its receive age.
 
+        Args:
+            max_age_s (float | None): Freshness bound; the default is timeouts.ground_state_stale_s, None returns
+                the state at any age (floor_guard applies its own floor_guard.ground_max_age_s).
+
         Returns:
-            tuple[GroundState, float] | None: State and age (s), or None when absent or older than
-                timeouts.ground_state_stale_s.
+            tuple[GroundState, float] | None: State and age (s), or None when absent or older than the bound.
         """
-        item = self.get("ground_state", self.cfg.timeouts.ground_state_stale_s)
+        if max_age_s is GROUND_DEFAULT_AGE:
+            max_age_s = self.cfg.timeouts.ground_state_stale_s
+        item = self.get("ground_state", max_age_s)
         if item is None:
             return None
         return item.value, item.age(time.monotonic())
