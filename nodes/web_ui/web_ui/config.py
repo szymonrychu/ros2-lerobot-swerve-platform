@@ -57,7 +57,7 @@ DEFAULT_AGENT_URL = "http://127.0.0.1:18300"
 HEAD_TAB_DEFAULT_COMMAND_TOPIC = "/head/joint_commands"
 HEAD_TAB_DEFAULT_JOINT_STATES_TOPIC = "/head/joint_states"
 HEAD_TAB_DEFAULT_PAN_RANGE_DEG: tuple[float, float] = (-90.0, 90.0)
-HEAD_TAB_DEFAULT_TILT_RANGE_DEG: tuple[float, float] = (-30.0, 45.0)
+HEAD_TAB_DEFAULT_TILT_RANGE_DEG: tuple[float, float] = (-30.0, 30.0)
 HEAD_TAB_DEFAULT_HOME_DEG: tuple[float, float] = (0.0, 30.0)
 # Joint names of the head command (sensor_msgs/JointState name[]); positions are radians.
 HEAD_PAN_JOINT = "head_pan"

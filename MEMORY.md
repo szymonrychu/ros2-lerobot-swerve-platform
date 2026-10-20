@@ -204,9 +204,9 @@
 ## Pan/tilt head (2026-10-18)
 
 - **Decision**: the head is the `head` group (`head_pan` ID 20, `head_tilt` ID 21) on the base bus node `base_servos` (never the arm bridge), with `/head/joint_states` and `/head/joint_commands`. `head_state_publisher` runs robot_state_publisher on `nodes/web_ui/urdf/head.urdf`. Speed/acceleration caps (1.0 rad/s, 3.0 rad/s^2) are written with every goal.
-- **Home pose**: pan 0, tilt +30 deg (looking down), not the servo centre 2048. It lives in four places (bridge `startup_position_rad`, mcp_server `head.home_*`, web_ui `head_home_deg`, URDF limits it must sit inside), pinned by `tests/test_head_config_consistency.py` together with ranges (pan +-90, tilt -30/+45 deg), joint names and topics.
+- **Home pose**: pan 0, tilt +30 deg (looking down), not the servo centre 2048. It lives in four places (bridge `startup_position_rad`, mcp_server `head.home_*`, web_ui `head_home_deg`, URDF limits it must sit inside), pinned by `tests/test_head_config_consistency.py` together with ranges (pan +-90, tilt -30/+30 deg), joint names and topics.
 - **Lease**: the head is under lease "any" (arm or base); home is commanded on the last release.
-- **Signs (R3, confirmed 2026-10-18)**: pan positive = looking left (CCW from above); tilt positive = looking down. Flip only via `inverted` plus the URDF axis.
+- **Signs (R3, confirmed 2026-10-18)**: pan positive = looking left (CCW from above); tilt positive = looking down. The tilt servo is mounted reversed (`inverted: true` on `head_tilt`, found 2026-10-20 after re-centring at 2048 = level), so the convention and URDF axis stay; tilt range is -30..+30 deg (steps 1707..2389).
 
 ## Head RGB-D fusion (2026-10-19)
 

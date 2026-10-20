@@ -111,7 +111,7 @@ tabs:
     head_command_topic: /head/joint_commands
     head_joint_states_topic: /head/joint_states
     head_pan_range_deg: [-90, 90]
-    head_tilt_range_deg: [-30, 45]
+    head_tilt_range_deg: [-30, 30]
     head_home_deg: [0, 30]
 
   - id: poi

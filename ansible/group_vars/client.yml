@@ -1621,11 +1621,12 @@ ros2_nodes:
       # Precondition for deploying this node: both servos are installed on the bus and their IDs are set with
       # scripts/set_servo_id.py. The node blocks at startup until every configured servo answers.
       # Sign conventions: head_pan positive = looking left (CCW from above); head_tilt positive = looking down
-      # (ruling R3, confirmed by the user on 2026-10-18). Flip only via `inverted` (and swap the command steps)
-      # together with the URDF axis in nodes/web_ui/urdf/head.urdf.
+      # (ruling R3, confirmed by the user on 2026-10-18). The tilt servo is mounted reversed (`inverted: true`,
+      # found 2026-10-20 after re-centring: a positive command looked up), so the bridge maps rad -> 2048 - rad*k and
+      # reports joint_states with the same sign; the URDF axis stays. Flip only via `inverted` together with the URDF.
       # Servo centre 2048 = straight ahead and level. The command steps here, the URDF limits (head.urdf) and the
       # web UI slider ranges are kept equal by tests/test_head_servo_config.py.
-      # Pan 1024..3072 = +-90 deg; tilt 1707..2560 = -30..+45 deg. Caps (D3): 1.0 rad/s, 3.0 rad/s^2.
+      # Pan 1024..3072 = +-90 deg; tilt 1707..2389 = -30..+30 deg (inverted servo, so 1707 = +30 deg). Caps (D3): 1.0 rad/s, 3.0 rad/s^2.
       # startup_position_rad is the home pose (D4): pan straight, tilt 30 deg down.
       extra_groups:
         - namespace: head
@@ -1640,7 +1641,8 @@ ros2_nodes:
             - name: head_tilt
               id: 21
               command_min_steps: 1707
-              command_max_steps: 2560
+              command_max_steps: 2389
+              inverted: true
               max_speed_rad_s: 1.0
               max_acceleration_rad_s2: 3.0
               startup_position_rad: 0.5236
@@ -2128,7 +2130,7 @@ ros2_nodes:
           head_command_topic: /head/joint_commands
           head_joint_states_topic: /head/joint_states
           head_pan_range_deg: [-90, 90]
-          head_tilt_range_deg: [-30, 45]
+          head_tilt_range_deg: [-30, 30]
           head_home_deg: [0, 30]
         - id: poi
           type: poi

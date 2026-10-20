@@ -95,7 +95,7 @@ describe('HeadTab', () => {
       head_command_topic: CMD,
       head_joint_states_topic: STATES,
       head_pan_range_deg: [-90, 90],
-      head_tilt_range_deg: [-30, 45],
+      head_tilt_range_deg: [-30, 30],
       head_home_deg: [0, 30],
     } as TabConfig
     const SAMPLE = { [STATES]: { name: ['head_pan', 'head_tilt'], position: [Math.PI / 6, -Math.PI / 12] } }

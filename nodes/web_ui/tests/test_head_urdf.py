@@ -83,7 +83,7 @@ def test_joint_types_axes_limits(joints: dict[str, ET.Element]) -> None:
     pl, tl = pan.find("limit"), tilt.find("limit")
     assert pl is not None and tl is not None
     assert (float(pl.get("lower", "")), float(pl.get("upper", ""))) == (-1.5708, 1.5708)
-    assert (float(tl.get("lower", "")), float(tl.get("upper", ""))) == (-0.5236, 0.7854)
+    assert (float(tl.get("lower", "")), float(tl.get("upper", ""))) == (-0.5236, 0.5236)
     for lim in (pl, tl):
         assert float(lim.get("velocity", "")) == 1.0
         assert float(lim.get("effort", "0")) > 0
