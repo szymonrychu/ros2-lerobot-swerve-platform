@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--web-ui-ground-backend
+branch: rgb-d-ground-estimation-and--web-ui-ground-backend
 verified_head: ""
 run: ""
 provides: []

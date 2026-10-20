@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-step-edges
+branch: rgb-d-ground-estimation-and--ground-step-edges
 verified_head: ""
 run: ""
 provides: []

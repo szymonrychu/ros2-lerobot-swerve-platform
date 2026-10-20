@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-band-segmentation
+branch: rgb-d-ground-estimation-and--ground-band-segmentation
 verified_head: ""
 run: ""
 provides: []

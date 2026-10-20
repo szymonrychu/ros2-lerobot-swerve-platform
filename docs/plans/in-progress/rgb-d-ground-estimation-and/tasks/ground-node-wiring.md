@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-node-wiring
+branch: rgb-d-ground-estimation-and--ground-node-wiring
 verified_head: ""
 run: ""
 provides: []
