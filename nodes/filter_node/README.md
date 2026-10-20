@@ -55,7 +55,7 @@ and `robot_node_start_time_seconds{node}`. Metric objects live in `metrics.py`.
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
 | `filter_input_age_seconds` | gauge | `source` (leader, web_ui, autonomy) | Seconds since the last message of that source; absent until the source sent its first message. Refreshed every 0.1 s. |
-| `filter_active_source` | gauge | `source` (leader, web_ui, autonomy, none) | 1 for the arbiter's active source, 0 for the others. |
+| `filter_active_source` | gauge | `source` (leader, web_ui, autonomy, none, released) | 1 for the arbiter's active source, 0 for the others. |
 | `filter_source_switches_total` | counter |  | Changes of the active source. |
 | `filter_loop_overruns_total` | counter |  | Control-loop iterations that started more than 1.5 control periods after the previous one. |
 

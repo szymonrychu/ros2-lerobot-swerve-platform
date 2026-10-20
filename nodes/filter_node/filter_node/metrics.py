@@ -2,12 +2,12 @@
 
 from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge
 
-from .arbitration import SOURCE_AUTONOMY, SOURCE_LEADER, SOURCE_NONE, SOURCE_WEB_UI
+from .arbitration import SOURCE_AUTONOMY, SOURCE_LEADER, SOURCE_NONE, SOURCE_RELEASED, SOURCE_WEB_UI
 
 # Sources that send input to the node (and so have an input age).
 INPUT_SOURCES = (SOURCE_LEADER, SOURCE_WEB_UI, SOURCE_AUTONOMY)
 # Every value the arbiter's active source can take.
-ACTIVE_SOURCES = (*INPUT_SOURCES, SOURCE_NONE)
+ACTIVE_SOURCES = (*INPUT_SOURCES, SOURCE_NONE, SOURCE_RELEASED)
 # A loop iteration starting later than this many periods after the previous one counts as an overrun.
 OVERRUN_PERIOD_FACTOR = 1.5
 
