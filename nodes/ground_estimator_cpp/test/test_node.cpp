@@ -30,7 +30,6 @@
 #include "core/synthetic_floor.hpp"
 #include "ground_estimator_cpp/config.hpp"
 #include "ground_estimator_cpp/ground_node.hpp"
-#include "ground_estimator_cpp/plane_fit.hpp"
 
 namespace
 {
@@ -578,7 +577,7 @@ TEST_F(NodeTest, LevelFloorWithABoxGivesObstaclePointsAndAPlaneState)
   EXPECT_TRUE(metric("ground_regions").has_value());
   EXPECT_TRUE(metric("ground_warning_areas").has_value());
   EXPECT_TRUE(metric("ground_labelled_clouds_total").has_value());
-  for (const char * reason : {"tf", "no_plane_rgbd", "no_map_tf"}) {
+  for (const char * reason : {"tf", "no_plane_rgbd", "no_map_tf", "bad_input"}) {
     EXPECT_EQ(dropped(reason), 0.0) << reason;
     EXPECT_TRUE(metric(std::string("ground_clouds_dropped_total{reason=\"") + reason + "\"}").has_value());
   }
@@ -677,20 +676,14 @@ TEST_F(NodeTest, WallOnlyGivesNoCloudAndAPlaneNullState)
 {
   fill_tf();
   start(base_config());
-  const auto cloud = scene_cloud(wall_scene());
-  const auto stamp = publish_cloud(cloud);
+  const auto stamp = publish_cloud(scene_cloud(wall_scene()));
   const auto state = state_after(ns_of(stamp), [](const json &) { return true; });
   ASSERT_TRUE(state.has_value());
   EXPECT_TRUE((*state)["plane"].is_null());
-  // The reason is the fit's own reject of this cloud in base_link (same seed as the node).
-  pcl::PointCloud<pcl::PointXYZ> base;
-  for (const auto & p : cloud) {
-    base.push_back(p);
-  }
-  const auto fit =
-    ground_estimator_cpp::fit_plane(base, Eigen::Vector3d::UnitZ(), config_.fit, ground_estimator_cpp::FIT_SEED);
-  ASSERT_TRUE(fit.reject.has_value());
-  EXPECT_EQ((*state)["reason"], ground_estimator_cpp::to_string(*fit.reject));
+  // The spec literals: a wall is either a plane whose normal is off the prior or no plane at all.
+  ASSERT_TRUE((*state)["reason"].is_string()) << state->dump();
+  const auto reason = (*state)["reason"].get<std::string>();
+  EXPECT_TRUE(reason == "normal_off_prior" || reason == "no_plane") << reason;
   std::this_thread::sleep_for(SETTLE);
   EXPECT_EQ(obstacle_.size(), 0u);
   EXPECT_EQ(drop_.size(), 0u);
@@ -861,6 +854,69 @@ TEST_F(NodeTest, RgbdCloudWithoutAPlaneIsNotLabelled)
   std::this_thread::sleep_for(SETTLE);
   EXPECT_EQ(labelled_.size(), 0u);
   EXPECT_EQ(state_.size(), 0u);
+}
+
+namespace
+{
+// A cloud of zeroed points with the given fields, all of one datatype (FLOAT32 or FLOAT64).
+sensor_msgs::msg::PointCloud2 cloud_with_fields(
+  const std::string & frame, const builtin_interfaces::msg::Time & stamp, const std::vector<std::string> & names,
+  uint8_t datatype)
+{
+  constexpr uint32_t POINTS = 10;
+  sensor_msgs::msg::PointCloud2 msg;
+  msg.header.frame_id = frame;
+  msg.header.stamp = stamp;
+  msg.height = 1;
+  msg.width = POINTS;
+  const uint32_t size = datatype == sensor_msgs::msg::PointField::FLOAT64 ? 8u : 4u;
+  for (const auto & name : names) {
+    sensor_msgs::msg::PointField f;
+    f.name = name;
+    f.offset = static_cast<uint32_t>(msg.fields.size()) * size;
+    f.datatype = datatype;
+    f.count = 1;
+    msg.fields.push_back(f);
+  }
+  msg.point_step = static_cast<uint32_t>(names.size()) * size;
+  msg.row_step = msg.point_step * POINTS;
+  msg.is_dense = true;
+  msg.data.assign(msg.row_step, 0);
+  return msg;
+}
+}  // namespace
+
+TEST_F(NodeTest, TofCloudWithoutFloat32XyzIsDroppedAsBadInput)
+{
+  fill_tf();
+  start(base_config());
+  cloud_pub_->publish(
+    cloud_with_fields(TOF_FRAME, next_stamp(), {"x", "y", "z"}, sensor_msgs::msg::PointField::FLOAT64));
+  ASSERT_TRUE(wait_for([&] { return dropped("bad_input") >= 1.0; }));
+  std::this_thread::sleep_for(SETTLE);
+  EXPECT_EQ(obstacle_.size(), 0u);
+  EXPECT_EQ(drop_.size(), 0u);
+  EXPECT_EQ(warnings_.size(), 0u);
+  // Unreadable input is no data: no state and no fit.
+  EXPECT_EQ(state_.size(), 0u);
+  EXPECT_EQ(metric("ground_fits_total{result=\"ok\"}").value_or(0.0), 0.0);
+  EXPECT_EQ(dropped("tf"), 0.0);
+}
+
+TEST_F(NodeTest, RgbdCloudWithoutRgbIsDroppedAsBadInput)
+{
+  fill_tf();
+  start(base_config());
+  ASSERT_TRUE(wait_for([this] { return rgbd_pub_->get_subscription_count() > 0; }));
+  cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  rgbd_pub_->publish(
+    cloud_with_fields(CAM_FRAME, next_stamp(), {"x", "y", "z"}, sensor_msgs::msg::PointField::FLOAT32));
+  ASSERT_TRUE(wait_for([&] { return dropped("bad_input") >= 1.0; }));
+  std::this_thread::sleep_for(SETTLE);
+  EXPECT_EQ(labelled_.size(), 0u);
+  EXPECT_EQ(metric("ground_labelled_clouds_total").value_or(0.0), 0.0);
+  EXPECT_EQ(dropped("no_plane_rgbd"), 0.0);
+  EXPECT_EQ(dropped("tf"), 0.0);
 }
 
 TEST_F(NodeTest, RgbdIsNotSubscribedWhenColourIsDisabled)
