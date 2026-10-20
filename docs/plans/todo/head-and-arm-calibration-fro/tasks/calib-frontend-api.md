@@ -26,8 +26,8 @@ provides: []
 Typed frontend client for the head and arm calibration routes (uses the `head-arm-calib-api` contract; design D9).
 
 - New `nodes/web_ui/frontend/src/calibrate/headArmApi.ts`, all under `/api/calibration/rgbd/` (the existing proxy forwards any path), reusing the request and error helpers of `rgbdApi.ts`:
-  - types `SequenceState` (`running, kind, session_id, spot, step, total, captured, skipped, status, error, tier, allow_big_joints`), `AppliedRecord` (adds `kind`, `head_session`), `HeadChainResult` (`params: Record<string, {value, sigma, urdf}>`, `rms_px`, `holdout_rms_px`, `views`, `spots`, `passed`, `failed_limits`, `report`), `ArmResult` (`offsets: Record<string, {value, sigma, current}>`, `head`, `holdout_tool_mm`, `wrist_roll_fitted`, `snippet`, ...);
-  - `startHeadSequence(sessionId?)`, `nextSpot()`, `startArmSequence({sessionId, allowBigJoints})`, `stopSequence()`, `computeSession(sid, floorSession?)`, `getHeadResult(sid, rid)`, `getArmResult(sid, rid)`, `applyResult(sid, rid)`, `resultDownloadUrl(sid, rid)`.
+  - types `SequenceState` (`running, kind, session_id, spot, step, total, captured, skipped, status, error, tier, allow_wrist_elbow, allow_big_joints`), `AppliedRecord` (adds `kind`, `head_session`), `HeadChainResult` (`params: Record<string, {value, sigma, urdf}>`, `rms_px`, `holdout_rms_px`, `views`, `spots`, `passed`, `failed_limits`, `report`), `ArmResult` (`offsets: Record<string, {value, sigma, current}>`, `head`, `holdout_tool_mm`, `wrist_roll_fitted`, `snippet`, ...);
+  - `startHeadSequence(sessionId?)`, `nextSpot()`, `startArmSequence({sessionId, allowWristElbow, allowBigJoints})` (both default false), `stopSequence()`, `computeSession(sid, floorSession?)`, `getHeadResult(sid, rid)`, `getArmResult(sid, rid)`, `applyResult(sid, rid)`, `resultDownloadUrl(sid, rid)`.
   - Parsing rejects a body missing a key with an error naming it (as `rgbdApi.ts` does).
 - `rgbdApi.ts`: the state type gains `sequence` and the applied record `kind`/`head_session`.
 - New `headArmApi.test.ts`: each function's method, path and body; parsing of the node fixtures `nodes/head_rgbd_calibration/tests/fixtures/api/state.json`, `result_head_chain.json`, `result_arm.json` (imported as JSON); a missing key rejected; error bodies surface `message`. `rgbdApi.test.ts` passes.
@@ -62,3 +62,4 @@ The Calibrate page talks to the calibration node through typed, contract-checked
 
 - Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
 
+- 2026-10-20 amended: builder check: head tools need a lease, three arm tiers with confirms, gripper set once, mcp-token via supplementary_groups, optional drive check
