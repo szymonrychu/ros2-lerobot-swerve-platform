@@ -3,13 +3,13 @@ title: Ground node wiring
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The ground estimator runs as a ROS node: real plane-relative clouds, labelled RGB-D points and the state, with metrics."
-files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/src/main.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/README.md]
+files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/src/main.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/CMakeLists.txt]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [ground-state-json]
 owns: [ground-topics, ground-metrics]
 uses: [ground-config, ground-tracker, ground-segmentation, ground-colour-labels, ground-state, ground-synthetic-scene]
 model: opus
-estimate: 90
+estimate: 75
 actual: ""
 review: ""
 worktree: ""
@@ -45,7 +45,6 @@ provides: []
 - `nodes/ground_estimator_cpp/src/main.cpp`
 - `nodes/ground_estimator_cpp/test/test_node.cpp`
 - `nodes/ground_estimator_cpp/CMakeLists.txt`
-- `nodes/ground_estimator_cpp/README.md`
 
 ## Interfaces
 
@@ -53,14 +52,13 @@ provides: []
 
 ## Expected outcome
 
-`scripts/cpp-node-test.sh ground_estimator_cpp` PASS including test_node; README documents every topic, key and metric.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS including test_node.
 
 ## Steps
 
 - write test/test_node.cpp and the CMake test target
 - run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
 - implement the node and main until PASS
-- write the README
 - commit `feat(ground_estimator_cpp): ground estimator node wiring`.
 
 ## Notes

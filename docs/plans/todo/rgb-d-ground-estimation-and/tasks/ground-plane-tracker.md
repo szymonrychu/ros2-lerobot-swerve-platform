@@ -45,7 +45,7 @@ provides: []
 
 ## Interfaces
 
-`tracker.hpp` (part `ground-tracker`): `gravity_up_in_base`, `choose_prior`, `PlaneTracker`, `TrackedPlane {Plane plane; std::string source; double age_s;}`, `slope_vs_gravity`, `plane_vs_base_deg`, `base_tilt_deg`, `Level`, `to_string(Level)`.
+`tracker.hpp` (part `ground-tracker`): `gravity_up_in_base`, `choose_prior`, `PlaneTracker` (`update`, `mark_failed`, `current`), `TrackedPlane {Plane plane; std::string source; double age_s;}`, `slope_vs_gravity`, `plane_vs_base_deg`, `base_tilt_deg`, `Level`, `to_string(Level)`.
 
 ## Expected outcome
 

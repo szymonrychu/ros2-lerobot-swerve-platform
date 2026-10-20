@@ -47,7 +47,7 @@ provides: []
 
 ## Interfaces
 
-`FloorOverride.use_ground_estimate`; `floor_guard.ground_max_age_s`; `ground_regions_to_surfaces(state) -> list[SurfaceRegion]` (floor_guard.py).
+`FloorOverride.use_ground_estimate`; `floor_guard.ground_max_age_s`; uses `ground_regions_to_surfaces` (models.py, from mcp-ground-summary).
 
 ## Expected outcome
 

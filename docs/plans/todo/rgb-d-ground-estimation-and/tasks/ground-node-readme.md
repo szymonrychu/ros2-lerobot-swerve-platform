@@ -41,17 +41,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`nodes/ground_estimator_cpp/README.md` sections Topics, State, Labels, Configuration, Metrics, Plane tracking, No placeholder data; consumes parts `ground-topics`, `ground-state`, `ground-metrics`, `ground-config`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_estimator_readme.py -q` passes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write tests/test_ground_estimator_readme.py
+- run `uv run pytest tests/test_ground_estimator_readme.py -q`, see FAIL
+- write the README until green, add the tests/README entry
+- commit `docs(ground_estimator_cpp): node README`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Pattern: nodes/head_rgbd_cpp/README.md. Parse STATE_KEYS and metric names from the C++ sources with regexes in the test; the shipped yaml with yaml.safe_load.

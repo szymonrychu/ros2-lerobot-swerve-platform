@@ -17,11 +17,11 @@ Why: Obstacle bands assume a flat floor at odom z=0; no ground estimate exists
 
 ## Description
 
-The head ToF/RGB-D stream (head_rgbd_cpp, calibrated 2026-10-20) is integrated into obstacle estimation, Nav2 path planning and ground level/shape estimation. A new C++ ground node fits the floor plane from the 10 Hz ToF cloud with an IMU prior and derives plane-relative obstacle, step and drop-off marks; the RGB-D colour labels floor versus obstacle. The marks feed the local costmap alongside the existing fixed odom-z bands until validated; the collision monitor keeps the 10 Hz ToF.
+The head ToF/RGB-D stream (head_rgbd_cpp, calibrated 2026-10-20) is integrated into obstacle estimation, Nav2 path planning and ground level/shape estimation. A new C++ ground node fits the floor plane from the 10 Hz ToF cloud with an IMU prior and selects obstacle, step and drop-off points by their height above the fitted plane (the clouds keep base_link coordinates); the RGB-D colour labels floor versus obstacle. The marks feed the local costmap alongside the existing fixed odom-z bands until validated; the collision monitor keeps the 10 Hz ToF.
 
 ## Goals
 
-- C++ ground node: floor plane (with IMU prior) from /tof/points_filtered, plane-relative obstacle cloud, step and drop-off cloud, RGB-D colour floor label; real data only.
+- C++ ground node: floor plane (with IMU prior) from /tof/points_filtered, obstacle and drop-off clouds selected by plane-relative bands (base_link coordinates kept), step and drop-off regions, RGB-D colour floor label; real data only.
 - Nav2: new observation sources in the local costmap alongside the current tof bands; switch-over criteria documented.
 - Ground estimate available to consumers (mcp_server surfaces/Terrain, tilt_guard cross-check) and visible in the web UI map.
 - Ansible node type, cgroup tier, metrics + Grafana panel, CPU budget measured on the Pi 5; README, runbook, tests.
@@ -34,7 +34,7 @@ The head ToF/RGB-D stream (head_rgbd_cpp, calibrated 2026-10-20) is integrated i
 
 ## Time
 
-Estimate: 975 min | Actual: 0 min | Remaining estimate: 975 min
+Estimate: 1005 min | Actual: 0 min | Remaining estimate: 1005 min
 
 ## Review
 

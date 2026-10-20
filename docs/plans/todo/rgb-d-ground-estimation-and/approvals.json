@@ -38,7 +38,7 @@
     "id": "A6",
     "text": "READMEs, tests/README.md, MEMORY entry, runbook and a final robot verification executed after merge.",
     "decisions": ["D12"],
-    "tasks": ["ground-node-wiring", "ground-final-suite-runbook"],
+    "tasks": ["ground-node-readme", "ground-final-suite-runbook"],
     "status": "approved"
   }
 ]

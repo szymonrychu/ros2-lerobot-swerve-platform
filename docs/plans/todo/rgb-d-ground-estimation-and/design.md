@@ -3,10 +3,10 @@
 ## Summary
 
 A new C++ node `ground_estimator_cpp` on the client fits the floor plane from the 10 Hz self-filtered head ToF cloud
-(`/tof/points_filtered`) with an IMU gravity prior, and publishes plane-relative obstacle and drop-off clouds, a JSON
+(`/tof/points_filtered`) with an IMU gravity prior, and publishes obstacle and drop-off clouds (base_link coordinates, points selected by plane-relative height bands), a JSON
 ground state (plane, slope, tilt_guard-limit cross-check, step and drop-off edges as surface regions) and an RGB-D
 colour-labelled cloud (floor vs obstacle, from `/head_rgbd/points`). Nav2 gets a second STVL layer in the local
-costmap fed by the plane-relative clouds, alongside the existing fixed odom-z bands; the collision monitor keeps the
+costmap fed by those clouds, alongside the existing fixed odom-z bands; the collision monitor keeps the
 10 Hz ToF bands and the global costmap stays static + lidar. mcp_server and the web UI consume the estimate. Ansible
 node type (normal tier), metrics, a Grafana panel, a CPU budget measured on the Pi 5 and a robot runbook close it.
 
@@ -22,10 +22,10 @@ and gives the arm floor_guard and the agent real terrain instead of per-call gue
 ## Goals
 
 - `ground_estimator_cpp` publishes, only from real synchronised data with valid TF, at the ToF rate: the floor plane
-  (normal, height at base_link, inlier ratio, fit or held), plane-relative obstacle and drop-off clouds, step and
+  (normal, height at base_link, inlier ratio, fit or held), obstacle and drop-off clouds selected by plane-relative bands, step and
   drop-off edges as `SurfaceRegion`-compatible half-planes, slope vs gravity with a tilt_guard-limit level, the plane vs
   base tilt cross-check, and (at the RGB-D cloud rate) a floor/obstacle colour-labelled cloud.
-- Nav2 local costmap: a `ground_voxel_layer` marks from the plane-relative clouds alongside `tof_voxel_layer`;
+- Nav2 local costmap: a `ground_voxel_layer` marks from the band-selected ground clouds alongside `tof_voxel_layer`;
   switch-over criteria written in the nav2_bringup README; collision monitor, CliffStop and global costmap unchanged.
 - mcp_server `get_map_summary` reports the ground estimate; floor_guard can build its Terrain from the measured regions.
 - web UI map shows the labelled ground points, the fitted plane patch and the edges.
@@ -82,7 +82,7 @@ the numeric defaults.) Serves A1.
 
 ### D3: Tracking, hold and the tilt_guard cross-check
 
-The valid plane is smoothed (EMA `fit.smoothing` 0.5) and stored in `odom`. When a cloud yields no valid plane, the
+The valid plane is smoothed (EMA `fit.smoothing` 0.5) and stored in `odom`. Stamp rule (PlaneTracker::current): for any query stamp (ToF cloud, an older RGB-D cloud, the 2 Hz state at now) the newest fit at or before the stamp is used, moved into base_link at that stamp through odom; source `fit` when no failed cloud came after it, `held` when one did; age = stamp - fit stamp; nothing beyond `fit.hold_s` and never a later fit. When a cloud yields no valid plane, the
 last one is held for `fit.hold_s` (1.0 s) transformed to the current base_link (`source: held`); after that nothing is
 published but the state with `plane: null` and the reason. Derived: `slope_deg` and its roll/pitch components (plane
 normal vs gravity), `slope_level` ok/warning/error against the tilt_guard limits (roll 8/15, pitch 12/20 deg, same
@@ -95,7 +95,7 @@ tilt_guard cross-check: tilt_guard measures the tilt the robot has, the ground n
 
 Signed height above the plane `h`: obstacles `bands.obstacle_min_m` 0.04 <= h <= `bands.obstacle_max_m` 0.6, drop-off
 `-bands.drop_max_m` (-1.0) <= h <= `-bands.drop_min_m` (-0.05), within `bands.max_range_m` 2.0 m horizontal, as the
-fixed bands' 2 m obstacle_range. Both min margins must exceed `fit.distance_m`. The tighter margins than the fixed
+fixed bands' 2 m obstacle_range. Both min margins must exceed `fit.distance_m`. "Plane-relative" means the selection only: the published points keep their base_link x, y, z. The tighter margins than the fixed
 bands (0.06 / -0.10) are possible because the plane is fitted to the same biased points, so the ToF long bias shifts
 the plane with the floor. Clouds are `sensor_msgs/PointCloud2` XYZ float32 in base_link with the input stamp; with a
 valid plane an empty cloud is published (it is a real "nothing in the band" observation), with no valid plane none
@@ -156,7 +156,7 @@ layer.) Serves A2.
 or a note when absent or older than `ground_state_stale_s` 1.0 s. floor_guard: `FloorOverride.use_ground_estimate`
 (default false, per call) builds the Terrain from the fresh state's regions (explicit `surfaces` listed after them,
 so they win); requested but not fresh (> `floor_guard.ground_max_age_s` 1.0 s) or `plane: null` refuses the motion
-with a reason naming /ground/state (fail-safe). (my call; Q2.) Serves A3.
+with a reason naming /ground/state (fail-safe). (my call; Q2.) `ground_regions_to_surfaces` (mcp-ground-summary) converts GroundRegion to SurfaceRegion dropping `kind`, `distance_m`, `points` (SurfaceRegion is extra="forbid"), at most MAX_REGIONS 16. Serves A3.
 
 ### D10: Web UI ground layer
 
@@ -164,7 +164,7 @@ Backend: map_nav roles `ground_cloud` (PointCloud2 with the label field, voxel/p
 `ground_state` (JSON), tab keys `ground_cloud_topic` and `ground_state_topic` in default.yaml and client.yml. Frontend:
 a "Ground" layer (off by default, on demand) drawing labelled points coloured per label, a translucent plane patch
 (2 m around base_link from the state plane) and the region edges as lines, placed by the TF of base_link; legend in
-the LayersPanel. Serves A4.
+the LayersPanel. Staleness is the backend receive age (`ground_state_stale_s` 2 s, like `tilt_guard_stale_s`): the bridge marks the cached state `stale: true`; the frontend draws nothing from a stale or plane-null state (no client clock). Serves A4.
 
 ### D11: Ansible node type, tier, metrics, dashboard, CPU budget
 
@@ -172,7 +172,7 @@ Node type `ground_estimator_cpp` (native colcon_source of `shared/ros2_common_cp
 Release, `-j2`, apt: PCL `libpcl-dev`, `ros-jazzy-pcl-conversions`, OpenCV, Eigen, yaml-cpp, nlohmann-json,
 prometheus-cpp, tf2), normal tier (cpu/io_weight 500, oom_score_adjust -500: it feeds the local costmap), memory_low
 48M / memory_max 256M until the runbook measures p50 and peak, config `/etc/ros2/ground_estimator_cpp/config.yaml`
-via `GROUND_ESTIMATOR_CONFIG`, a free metrics port, a scrape entry. Metrics `ground_fits_total{result}`,
+via `GROUND_ESTIMATOR_CONFIG`, metrics port 19119, a scrape entry. Metrics `ground_fits_total{result}`,
 `ground_fit_seconds` (histogram), `ground_inlier_ratio`, `ground_slope_deg`, `ground_plane_vs_base_deg`,
 `ground_regions`, `ground_colour_mismatch_ratio`, `ground_clouds_dropped_total{reason}` plus process metrics. Grafana
 panels in robot-slam.json. CPU budget (my call): node <= 0.10 core p95, nav2_bringup increase <= 0.05 core, measured
@@ -237,23 +237,23 @@ decision. Serves A2.
 | D9 mcp consumers | mcp-ground-summary, mcp-floor-guard-ground |
 | D10 Web UI ground layer | web-ui-ground-backend, web-ui-ground-frontend |
 | D11 Ansible, tier, metrics, dashboard, CPU | ground-node-type, ground-dashboard-panels, ground-final-suite-runbook |
-| D12 Runbook, docs, robot verification | ground-final-suite-runbook, ground-node-wiring |
+| D12 Runbook, docs, robot verification | ground-final-suite-runbook, ground-node-readme |
 | D13 Global costmap and bias out of scope | nav2-ground-voxel-layer |
 
 ## Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
-| `ground-config` | ground-package-config | ground-plane-fit, ground-plane-tracker, ground-band-segmentation, ground-step-edges, ground-colour-labels, ground-node-wiring, ground-node-type | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp` |
+| `ground-config` | ground-package-config | ground-plane-fit, ground-plane-tracker, ground-band-segmentation, ground-step-edges, ground-colour-labels, ground-node-wiring, ground-node-type, ground-node-readme | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp` |
 | `ground-plane-fit` | ground-plane-fit | ground-plane-tracker, ground-band-segmentation | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/plane_fit.hpp` |
 | `ground-synthetic-scene` | ground-plane-fit | ground-plane-tracker, ground-band-segmentation, ground-step-edges, ground-colour-labels, ground-node-wiring | `nodes/ground_estimator_cpp/test/core/synthetic_floor.hpp` |
 | `ground-tracker` | ground-plane-tracker | ground-state-json, ground-node-wiring | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/tracker.hpp` |
 | `ground-segmentation` | ground-band-segmentation | ground-step-edges, ground-colour-labels, ground-node-wiring | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/segmentation.hpp` |
 | `ground-edges` | ground-step-edges | ground-state-json | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/edges.hpp` |
 | `ground-colour-labels` | ground-colour-labels | ground-state-json, ground-node-wiring, web-ui-ground-backend | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/colour.hpp` |
-| `ground-state` | ground-state-json | ground-node-wiring, mcp-ground-summary, mcp-floor-guard-ground, web-ui-ground-backend, web-ui-ground-frontend | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/state.hpp` |
-| `ground-topics` | ground-node-wiring | ground-node-type, nav2-ground-voxel-layer, mcp-ground-summary, web-ui-ground-backend | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp` (topic accessors, documented in the node README) |
-| `ground-metrics` | ground-node-wiring | ground-dashboard-panels | `nodes/ground_estimator_cpp/src/ground_node.cpp` |
+| `ground-state` | ground-state-json | ground-node-wiring, mcp-ground-summary, mcp-floor-guard-ground, web-ui-ground-backend, web-ui-ground-frontend, ground-node-readme | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/state.hpp` |
+| `ground-topics` | ground-node-wiring | ground-node-type, nav2-ground-voxel-layer, mcp-ground-summary, web-ui-ground-backend, ground-node-readme | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp` (topic accessors, documented in the node README) |
+| `ground-metrics` | ground-node-wiring | ground-dashboard-panels, ground-node-readme | `nodes/ground_estimator_cpp/src/ground_node.cpp` |
 | `ground-node-unit` | ground-node-type | nav2-ground-voxel-layer, mcp-ground-summary, ground-dashboard-panels, ground-final-suite-runbook | `ansible/group_vars/client.yml` |
 | `mcp-ground-state-client` | mcp-ground-summary | mcp-floor-guard-ground | `nodes/mcp_server/mcp_server/ros_iface.py` |
 | `web-ground-roles` | web-ui-ground-backend | web-ui-ground-frontend | `nodes/web_ui/web_ui/config.py` |
@@ -279,7 +279,6 @@ lists `tests/test_tof_obstacle_wiring.py`; nav2-ground-voxel-layer only scopes i
 - Internal structure of the core library functions, as long as the headers named in the Contracts exist.
 - The exact edge-line construction of D5 within: through the cluster boundary nearest the robot, region away from it.
 - Grafana panel layout within robot-slam.json.
-- Metrics port: the next free port per `tests/test_node_metrics_wiring.py`.
 
 ## Assumptions and unknowns
 
@@ -289,7 +288,7 @@ lists `tests/test_tof_obstacle_wiring.py`; nav2-ground-voxel-layer only scopes i
   timeout); the runbook records the TF drop counter.
 - `/head_rgbd/points` stays published continuously (map3d_uplink subscribes); the ground node subscribing is enough
   anyway (lazy publishing serves any subscriber).
-- The numeric defaults (D2, D4, D5, D6, D11) are confirmed or corrected by the runbook scenes.
+- The numeric defaults (D2, D4, D5, D6, D11) are confirmed or corrected by the runbook scenes (runbook "Threshold validation"); the CPU budget, the container C++ suite, the frontend suite and the PCL -j2 build on the Pi are validated in CI and on the robot (runbook "Build and CI validation"), not by build-time ACs.
 
 ## Open questions
 

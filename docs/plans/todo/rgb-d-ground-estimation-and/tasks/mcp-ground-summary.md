@@ -53,7 +53,7 @@ provides: []
 
 ## Interfaces
 
-`GroundState`, `GroundRegion`, `GroundSummary` (models.py); `RosInterface.ground_state()` (part `mcp-ground-state-client`); consumes part `ground-state`.
+`GroundState`, `GroundRegion`, `GroundSummary`, `ground_regions_to_surfaces` (models.py); `RosInterface.ground_state()` (part `mcp-ground-state-client`); consumes part `ground-state`.
 
 ## Expected outcome
 
