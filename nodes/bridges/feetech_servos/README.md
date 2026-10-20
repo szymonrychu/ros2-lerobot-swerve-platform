@@ -150,7 +150,7 @@ Fail-safe: if DefineMiddle fails, the verify fails, or the limit restore or its 
 that save are not attempted, no limit is ever written on a servo whose centre was not verified, and torque stays OFF
 on the whole group (it stays released and gated; torque 0 is re-asserted and verified). The answer is `success=false`
 naming the joints saved, the joint that failed and why, and the joints not attempted; the capture of the joints not
-saved is kept, so a later save with the pose unchanged continues with them (a joint whose centre changed reads
+saved is kept, so repeating the save with the pose unchanged continues with them (a joint whose centre changed reads
 ~2048 now and needs a new record). The stale marker is still
 written for the joints whose centre changed.
 
