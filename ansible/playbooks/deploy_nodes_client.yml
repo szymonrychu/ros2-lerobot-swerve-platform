@@ -473,6 +473,15 @@
             _deploy_node_name: laser_filter
           tags: [laser_filter, apt, python, build, config]
 
+        - name: Deploy ground_estimator_cpp
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [ground_estimator_cpp]
+          vars:
+            _deploy_node_name: ground_estimator_cpp
+          tags: [ground_estimator_cpp, apt, build, config]
+
         - name: SLAM maps directory
           ansible.builtin.include_tasks:
             file: tasks/slam_maps_dir.yml

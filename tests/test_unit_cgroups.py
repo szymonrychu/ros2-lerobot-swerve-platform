@@ -40,7 +40,7 @@ NORMAL = {
         "rplidar_a1", "rf2o_laser_odometry", "rf2o_odom_relay", "robot_localization_ekf", "nav2_bringup",
         "head_state_publisher", "slam_toolbox", "laser_filter", "gps_rtk", "poi_store", "uvc_camera", "realsense_d435i",
         "test_joint_api", "map_guard", "map_guard_cpp", "map_manager", "costmap_zones", "arducam_tof",
-        "tof_obstacle_cloud", "marker_detector",
+        "tof_obstacle_cloud", "marker_detector", "ground_estimator_cpp",
     ],
 }  # fmt: skip
 AGENT = {

@@ -2095,6 +2095,10 @@ Keeps `nodes/ground_estimator_cpp/README.md` in sync with the node. Parses `STAT
 | `test_readme_names_every_metric` | Every `ground_*` metric name of the node sources appears in the README. |
 | `test_readme_documents_labels_and_the_obstacle_rule` | Label values 0..4 are tabled and the obstacle-or-warning rule names one third of the wheel diameter, `max_slope_deg`, costmap_zones and the slow-down. |
 
+### `test_ground_estimator_deploy.py`
+
+Static invariants of the `ground_estimator_cpp` deploy: node type keys, apt list, normal tier values, env, colcon source order, `ros2_nodes` entry (equal to the shipped yaml plus `metrics_port` 19119), metrics scrape target and playbook step order. Consistency (design D3): topics equal the laser_filter, bno055_imu and head_rgbd_cpp outputs; the IMU level reference and slope limits equal tilt_guard; `wheel_radius_m` equals swerve_controller and the max step is one third of the wheel diameter; `max_slope_deg` is at most the smaller tilt_guard warn limit.
+
 ### `test_head_rgbd_deploy.py`
 
 Static invariants of the head RGB-D fusion deploy (`head_rgbd_cpp` in `ansible/group_vars/client.yml`, the `config_files` task of the `ros2_node_deploy` role, `deploy_nodes_client.yml`).

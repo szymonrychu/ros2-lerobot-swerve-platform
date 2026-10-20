@@ -37,6 +37,8 @@ CONFIG_METRICS_PORTS = {
     "head_camera_cpp": 19116,
     # Standalone C++ node: the head RGB-D fusion.
     "head_rgbd_cpp": 19117,
+    # Standalone C++ node: the ground estimator.
+    "ground_estimator_cpp": 19119,
 }
 CPP_SUFFIX = "_cpp"
 ENV_METRICS_PORTS = {"gripper_uvc_camera": 19105, "rplidar_a1": 19106}

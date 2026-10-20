@@ -665,6 +665,71 @@ ros2_node_type_defaults:
       - libeigen3-dev
       - libyaml-cpp-dev
       - prometheus-cpp-dev
+  # Ground estimator (nodes/ground_estimator_cpp/README.md): fits the floor plane from the filtered head ToF cloud with
+  # the IMU prior, publishes /ground/* (obstacle and drop points, state, warning areas) for the Nav2 local costmap, the
+  # mcp_server map summary and floor_guard. Normal tier: it feeds the local costmap, so it is protected above the
+  # background work. The memory figures are placeholders; the runbook replaces them with the measured p50 (MemoryLow)
+  # and 2x the peak (MemoryMax). No ROS_STATIC_PEERS.
+  ground_estimator_cpp:
+    deploy_mode: native
+    node_launch_command: "ros2 run ground_estimator_cpp ground_estimator_node"
+    node_src_dir: ""
+    # Runs no repo file (the binary is in /opt/ros2-ws/install): the build stamp restarts it when its source changes.
+    src_paths: []
+    colcon_source:
+      - local: shared/ros2_common_cpp
+        package: ros2_common_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        # colcon discovers only this tree; make -j2 keeps the running robot's cores free.
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages: [libyaml-cpp-dev, prometheus-cpp-dev]
+      - local: nodes/ground_estimator_cpp
+        package: ground_estimator_cpp
+        workspace: /opt/ros2-ws
+        cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DBUILD_TESTING=OFF]
+        base_paths: [.]
+        jobs: 2
+        stamp_apt_packages:
+          - ros-jazzy-rclcpp
+          - ros-jazzy-sensor-msgs
+          - ros-jazzy-std-msgs
+          - ros-jazzy-tf2
+          - ros-jazzy-tf2-ros
+          - ros-jazzy-tf2-eigen
+          - ros-jazzy-pcl-conversions
+          - libpcl-dev
+          - libopencv-dev
+          - libeigen3-dev
+          - nlohmann-json3-dev
+    memory_low: "48M"
+    memory_max: "256M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
+    config_path: /etc/ros2/ground_estimator_cpp
+    env:
+      - GROUND_ESTIMATOR_CONFIG=/etc/ros2/ground_estimator_cpp/config.yaml
+    apt_packages:
+      - build-essential
+      - cmake
+      - rsync
+      - python3-colcon-common-extensions
+      - ros-jazzy-ament-cmake
+      - ros-jazzy-rclcpp
+      - ros-jazzy-sensor-msgs
+      - ros-jazzy-std-msgs
+      - ros-jazzy-tf2
+      - ros-jazzy-tf2-ros
+      - ros-jazzy-tf2-eigen
+      - ros-jazzy-pcl-conversions
+      - libpcl-dev
+      - libopencv-dev
+      - libeigen3-dev
+      - libyaml-cpp-dev
+      - nlohmann-json3-dev
+      - prometheus-cpp-dev
   # C++ (rclcpp) port of map_guard (nodes/map_guard_cpp/README.md), side by side: same topics, services, config keys
   # and metrics port (19110, config metrics_port). Cut-over enables this entry and disables map_guard; the Python node
   # stays installed as the rollback. Built from the repo tree as a colcon local source. Same tier and memory as map_guard.
@@ -1827,6 +1892,76 @@ ros2_nodes:
     node_type: laser_filter
     present: true
     enabled: true
+  # Ground estimator: /tof/points_filtered + /imu/data (+ /head_rgbd/points colour) -> /ground/* for the Nav2 local
+  # costmap and the consumers. Defaults of nodes/ground_estimator_cpp/config/ground_estimator.yaml; the imu level
+  # reference and slope limits mirror tilt_guard, wheel_radius_m mirrors swerve_controller (tests pin them equal).
+  - name: ground_estimator_cpp
+    node_type: ground_estimator_cpp
+    present: true
+    enabled: true
+    config: |
+      cloud_topic: /tof/points_filtered  # PointCloud2 of the head ToF, 10 Hz, used for the plane fit
+      imu_topic: /imu/data  # sensor_msgs/Imu, prior of the floor normal
+      rgbd_cloud_topic: /head_rgbd/points  # coloured PointCloud2, used for the floor colour model
+      output_namespace: /ground  # prefix of obstacle_points, drop_points, labelled_points, state, warning_areas
+      base_frame: base_link  # robot frame the plane is expressed in
+      fixed_frame: odom  # world-fixed frame for stamping and warning areas
+      tf_timeout_s: 0.1  # seconds to wait for a transform, 0..0.5
+
+      imu:  # imu settings
+        timeout_s: 0.5  # seconds after which an IMU sample is too old to use, > 0
+        level_reference_roll_deg: 0.7  # IMU roll reading on level ground, degrees, |v| <= 30
+        level_reference_pitch_deg: 1.3  # IMU pitch reading on level ground, degrees, |v| <= 30
+
+      fit:  # fit settings
+        distance_m: 0.02  # RANSAC inlier distance to the plane, metres, 0 < v <= 0.1
+        max_normal_angle_deg: 10.0  # max angle between fitted and IMU normal, degrees, 0 < v <= 30
+        max_offset_m: 0.08  # max plane offset from the nominal floor, metres, 0 < v <= 0.3
+        min_inliers: 150  # fewest inlier points for a valid plane, >= 10
+        min_inlier_ratio: 0.2  # fewest inliers as a fraction of candidates, 0 < v <= 1
+        max_iterations: 100  # RANSAC iterations, >= 10
+        candidate_band_m: 0.15  # half-width of the band around the IMU plane that feeds the fit, metres, > distance_m
+        max_range_m: 2.5  # farthest point used for the fit, metres, > 0
+        hold_s: 1.0  # seconds the last plane is kept when a fit fails, >= 0
+        smoothing: 0.5  # weight of the new plane in the running estimate, 0 < v <= 1 (1 = no smoothing)
+
+      bands:  # bands settings
+        obstacle_max_m: 0.6  # obstacle band top above the plane, metres, > traversability max step
+        drop_max_m: 1.0  # drop band depth below the plane, metres, > traversability max step
+        max_range_m: 2.0  # farthest point published in the bands, metres, > 0
+
+      traversability:  # traversability settings
+        wheel_radius_m: 0.06  # wheel radius, metres, same as swerve_drive_controller wheel_radius_m
+        max_step_fraction: 0.3333  # max rideable step as a fraction of the wheel diameter (0.04 m), 0 < v < 1
+        max_slope_deg: 8.0  # steepest rideable surface, degrees, <= slope.roll_warn_deg and slope.pitch_warn_deg
+        edge_band_m: 0.05  # width of the strip on each side of an edge that sets its step height, metres, > 0
+
+      warnings:  # warnings settings
+        frame: map  # frame of the published warning areas
+
+      edges:  # edges settings
+        cluster_tolerance_m: 0.1  # max gap inside one cluster, metres, > 0
+        min_cluster_points: 10  # fewest points in a cluster, >= 3
+        max_regions: 8  # most regions reported, 1..16
+        step_max_height_m: 0.2  # tallest step still treated as a step, metres, > max step, <= bands.obstacle_max_m
+        step_flatness_m: 0.03  # max height spread for a flat top, metres, > 0
+
+      slope:  # slope settings
+        roll_warn_deg: 8  # tilt_guard roll warning limit, degrees
+        roll_error_deg: 15  # tilt_guard roll error limit, degrees, > roll_warn_deg
+        pitch_warn_deg: 12  # tilt_guard pitch warning limit, degrees
+        pitch_error_deg: 20  # tilt_guard pitch error limit, degrees, > pitch_warn_deg
+
+      colour:  # colour settings
+        enabled: true  # use the floor colour model
+        max_mahalanobis: 3.0  # distance from the floor colour above which a point is flagged, > 0
+        forgetting: 0.1  # weight of new samples in the colour model, 0 < v <= 1
+        min_floor_samples: 200  # floor samples needed before flagging, >= 10
+
+      state:  # state settings
+        rate_hz: 2.0  # state topic rate, hertz, 0 < v <= 10
+
+      metrics_port: 19119 # Prometheus /metrics on 127.0.0.1
   - name: slam_toolbox
     node_type: slam_toolbox
     present: true
@@ -3151,6 +3286,7 @@ monitoring_agent_node_targets:
   - {node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}
   - {node: head_camera_cpp, address: "127.0.0.1:19116", path: /metrics}
   - {node: head_rgbd_cpp, address: "127.0.0.1:19117", path: /metrics}
+  - {node: ground_estimator_cpp, address: "127.0.0.1:19119", path: /metrics}
   - {node: base_servos, address: "127.0.0.1:19115", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}

@@ -44,7 +44,7 @@ CPP_TYPES = {
 }
 METRICS_PORTS = {"map_guard_cpp": 19110}
 # _cpp types without a Python counterpart: head_camera_cpp builds the pinned libcamera first, then the two local trees.
-STANDALONE_CPP_TYPES = ("head_camera_cpp", "head_rgbd_cpp")
+STANDALONE_CPP_TYPES = ("head_camera_cpp", "head_rgbd_cpp", "ground_estimator_cpp")
 ALL_CPP_TYPES = tuple(sorted([*CPP_TYPES, *STANDALONE_CPP_TYPES]))
 # In-repo C++ node types of the server (ansible/group_vars/server.yml), same two local sources.
 SERVER_VARS = ANSIBLE_DIR / "group_vars" / "server.yml"
@@ -57,6 +57,7 @@ ROSDEP_APT = {
     "nlohmann-json-dev": "nlohmann-json3-dev",
     "cpp-httplib": "libcpp-httplib-dev",
     "eigen": "libeigen3-dev",
+    "libpcl-all-dev": "libpcl-dev",
 }
 # package.xml dependency tags that must be installed on the Pi to build and run (test_depend is not built there).
 BUILD_DEPEND_TAGS = ("buildtool_depend", "depend", "build_depend", "build_export_depend", "exec_depend")
