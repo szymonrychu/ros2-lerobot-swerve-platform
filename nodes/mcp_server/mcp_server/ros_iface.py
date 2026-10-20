@@ -6,6 +6,7 @@ perception, trajectory, ik, home_store, staleness, geometry).
 
 import functools
 import json
+import logging
 import math
 import threading
 import time
@@ -90,6 +91,8 @@ from .models import (
     StopResult,
     TofPoints,
     Twist2D,
+    released_groups,
+    torque_off_message,
 )
 from .monitor import BASE_INTERRUPTS, RobotMonitor
 from .perception import (
@@ -136,6 +139,11 @@ TILT_GUARD_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
 )
+# The bridges latch their torque_state (reliable + transient_local, depth 1): the current state arrives at subscription.
+TORQUE_STATE_QOS = TILT_GUARD_QOS
+# Servo group -> RosRobot.torque_released key and the TopicSettings field of its bridge torque_state.
+TORQUE_STATE_TOPIC_FIELDS = {"arm": "follower_torque_state", "base": "base_torque_state", "head": "head_torque_state"}
+LOGGER = logging.getLogger(__name__)
 # filter_node subscribes reliable, depth 10.
 COMMAND_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
 ZOOM_IMAGE_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=2)
@@ -796,6 +804,15 @@ class RosRobot:
         )
         # After the cancel client: a latched warning/error cancels Nav2 goals as soon as it arrives.
         self.subscribe(String, t.tilt_guard_state, lambda msg: self.monitor.on_tilt_guard(msg.data), TILT_GUARD_QOS)
+        # Servo torque-off gate: the released flag of each bridge group with its receipt time.
+        self.torque_released: dict[str, Stamped[bool]] = {}
+        for group, field_name in TORQUE_STATE_TOPIC_FIELDS.items():
+            self.subscribe(
+                String,
+                getattr(t, field_name),
+                functools.partial(self.on_torque_state, group),
+                TORQUE_STATE_QOS,
+            )
 
         self.set_register_pub = self.node.create_publisher(String, t.follower_set_register, COMMAND_QOS)
         urdf = config.arm.urdf_path
@@ -1483,12 +1500,47 @@ class RosRobot:
             currents = finite_by_name(cur.value.name, cur.value.effort)
         return JointSample(positions=positions, efforts=efforts, stamp=item.stamp, currents=currents)
 
+    def on_torque_state(self, group: str, msg: Any) -> None:
+        """Cache the released flag of a bridge torque_state message (malformed payloads are logged and ignored).
+
+        Args:
+            group (str): arm, base or head.
+            msg (Any): std_msgs/String with the bridge JSON payload ({"released": bool, ...}).
+        """
+        try:
+            released = json.loads(msg.data)["released"]
+        except (ValueError, KeyError, TypeError):
+            released = None
+        if not isinstance(released, bool):
+            LOGGER.warning("ignoring malformed %s torque_state payload", group)
+            return
+        with self.lock:
+            self.torque_released[group] = Stamped(value=released, stamp=time.monotonic())
+
+    def servo_released(self, group: str) -> bool | None:
+        """Whether a servo group's torque is released (limp), from the bridge torque_state.
+
+        Args:
+            group (str): arm, base or head.
+
+        Returns:
+            bool | None: The flag; None without a sample or when it is older than timeouts.servo_torque_stale_s.
+        """
+        with self.lock:
+            item = self.torque_released.get(group)
+        if item is None or not item.fresh(time.monotonic(), self.cfg.timeouts.servo_torque_stale_s):
+            return None
+        return item.value
+
     def publish_command(self, positions: dict[str, float]) -> None:
-        """Publish an autonomy setpoint.
+        """Publish an autonomy setpoint; nothing while the arm is released (a keepalive must not reach a limp arm).
 
         Args:
             positions (dict[str, float]): Joint name -> rad.
         """
+        if self.servo_released("arm"):
+            LOGGER.debug("arm command not published: %s", torque_off_message("arm"))
+            return
         msg = JointState()
         msg.header.stamp = self.node.get_clock().now().to_msg()
         msg.name = list(positions)
@@ -1511,11 +1563,15 @@ class RosRobot:
         return JointSample(positions=positions, efforts={}, stamp=item.stamp)
 
     def publish_head_command(self, positions: dict[str, float]) -> None:
-        """Publish a head setpoint (frame_id autonomy, JointState name and position only).
+        """Publish a head setpoint (frame_id autonomy, JointState name and position only); nothing while the head is
+        released.
 
         Args:
             positions (dict[str, float]): Joint name -> rad.
         """
+        if self.servo_released("head"):
+            LOGGER.debug("head command not published: %s", torque_off_message("head"))
+            return
         msg = JointState()
         msg.header.stamp = self.node.get_clock().now().to_msg()
         msg.header.frame_id = HEAD_FRAME_ID
@@ -1751,6 +1807,7 @@ class RosRobot:
         if state.arm.positions is None:
             state.notes.append("arm joint states missing or stale")
         state.head = self.head.angles_deg()
+        state.servos_released = released_groups(self.servo_released)
         return state
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:

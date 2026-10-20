@@ -103,6 +103,10 @@ class RobotApi(Protocol):
         """Robot snapshot."""
         ...
 
+    def servo_released(self, group: str) -> bool | None:
+        """Whether a servo group (arm, base, head) is released (limp) per the bridge torque_state; None unknown/stale."""
+        ...
+
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:
         """One fresh camera frame."""
         ...

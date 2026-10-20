@@ -164,6 +164,10 @@ class TopicSettings(StrictModel):
     grasp_result: str = "/grasp/result"
     # feetech bridge RAM register writes (JSON {joint_name, register, value}): the gripper torque_limit of grip profiles.
     follower_set_register: str = "/follower/set_register"
+    # Bridge torque states (std_msgs/String JSON with "released", reliable + transient_local): the servo torque-off gate.
+    follower_torque_state: str = "/follower/torque_state"
+    base_torque_state: str = "/swerve_drive/torque_state"
+    head_torque_state: str = "/head/torque_state"
     # map3d_manager downlinks (server): PointCloud2 of the RTAB-Map cloud (best_effort, frame map3d.frame_id) and the
     # JSON status; both are subscribed on demand by the 3D map tools.
     map3d_cloud: str = "/map3d/cloud"
@@ -313,6 +317,7 @@ class TimeoutSettings(StrictModel):
     """Staleness thresholds and blocking-call timeouts (seconds)."""
 
     follower_stale_s: float = Field(default=0.3, gt=0.0)
+    servo_torque_stale_s: float = Field(default=3.0, gt=0.0)  # a torque_state older than this reads as unknown
     arm_converge_timeout_s: float = Field(default=3.0, gt=0.0)
     image_timeout_s: float = Field(default=2.0, gt=0.0)
     image_max_age_s: float = Field(default=1.0, gt=0.0)

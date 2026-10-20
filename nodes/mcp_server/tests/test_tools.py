@@ -26,6 +26,7 @@ from mcp_server.models import (
     RobotState,
     SectorObstacle,
     StopResult,
+    released_groups,
 )
 from mcp_server.poi_client import PoiRequests, PoiTimeout
 from mcp_server.tool_context import TILT_NAV_TOOLS
@@ -79,7 +80,11 @@ class FakeRobot(PerceptionFakeMixin):
         self.head = HeadController(self.head_backend, HeadKinematics(cfg.head.urdf_path), cfg.head)
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.camera_error: str | None = None
+        self.base_released: bool | None = None  # bridge torque state of the base group (None unknown or stale)
         self.init_perception()
+
+    def servo_released(self, group: str) -> bool | None:
+        return {"arm": self.arm_backend.released, "head": self.head_backend.released}.get(group, self.base_released)
 
     def robot_state(self) -> RobotState:
         self.calls.append(("robot_state", ()))
@@ -88,6 +93,7 @@ class FakeRobot(PerceptionFakeMixin):
             arm=self.arm.state(),
             head=self.head.angles_deg(),
             data_age_s={"tf_map_base_link": 0.05},
+            servos_released=released_groups(self.servo_released),
         )
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:

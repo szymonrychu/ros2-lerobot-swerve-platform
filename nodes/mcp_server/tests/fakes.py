@@ -59,6 +59,11 @@ class FakeArmBackend:
         self.timeline: list[tuple[str, dict[str, float]]] = []
         # Backend time of each entry of commands (DelayedFollower replays them after a per-joint delay).
         self.command_times: list[float] = []
+        # Bridge torque state of the arm group: True released (limp), False enabled, None unknown or stale.
+        self.released: bool | None = None
+
+    def servo_released(self, group: str) -> bool | None:
+        return self.released
 
     def joint_sample(self) -> JointSample | None:
         if self.no_samples:
@@ -536,6 +541,10 @@ class FakeHeadBackend:
         self.commands: list[dict[str, float]] = []
         self.no_samples = False
         self.stale_after: float | None = None
+        self.released: bool | None = None  # bridge torque state of the head group (None unknown or stale)
+
+    def servo_released(self, group: str) -> bool | None:
+        return self.released
 
     def publish_head_command(self, positions: dict[str, float]) -> None:
         self.commands.append(dict(positions))

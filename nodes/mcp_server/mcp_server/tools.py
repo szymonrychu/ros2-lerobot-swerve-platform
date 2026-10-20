@@ -61,6 +61,7 @@ from .models import (
     RobotState,
     SettlePolicy,
     StopResult,
+    torque_off_message,
 )
 from .monitor import DIGEST_DEFAULT_SESSION, RobotMonitor
 from .motion_queue import MotionQueue
@@ -147,6 +148,30 @@ MOTION_TOOLS = frozenset(
         "head_home",
     }
 )
+# Servo groups each motion tool drives, for the torque-off gate (call_tool_with_digest refuses a tool whose group is
+# released on the web UI Calibrate page). Base tools that also steer count as base; the grasp and approach macros list
+# every group they move. enqueue_motions narrows to the groups of its step kinds at call time.
+TOOL_SERVO_GROUPS: dict[str, tuple[str, ...]] = {
+    "navigate_to_pose": ("base",),
+    "move_relative": ("base",),
+    "drive": ("base",),
+    "move_arm_joints": ("arm",),
+    "move_arm_cartesian": ("arm",),
+    "set_gripper": ("arm",),
+    "arm_home": ("arm",),
+    "arm_set_home": ("arm",),  # records the measured pose: meaningless while the arm is limp
+    "look_around": ("base",),
+    "grasp_object": ("arm",),
+    "release_object": ("arm",),
+    "enqueue_motions": ("arm", "base"),
+    "resume_motions": ("arm", "base"),
+    "go_to_frontier": ("base",),
+    "look_toward_frontier": ("base",),
+    "approach_for_grasp": ("base",),
+    "set_head_angles": ("head",),
+    "head_look_at": ("head",),
+    "head_home": ("head",),
+}
 ALWAYS_ALLOWED_TOOLS = frozenset(
     {
         "get_robot_state",
@@ -431,6 +456,8 @@ class RobotMCPServer(MCPServer):
         # dual-rate joint states (register_tools binds them when the robot has them).
         self.begin_motion: Callable[[tuple[Subsystem, ...]], None] | None = None
         self.end_motion: Callable[[tuple[Subsystem, ...]], None] | None = None
+        # The robot's servo_released (bridge torque_state per group); None: no torque-off gate.
+        self.servo_released: Callable[[str], bool | None] | None = None
 
     def blocking_tool(self) -> str | None:
         """Name of a blocking motion tool running now (the motion queue refuses to start meanwhile).
@@ -487,6 +514,28 @@ class RobotMCPServer(MCPServer):
         """
         return nullcontext() if self.control is None else self.control.lease_scope(need)
 
+    def torque_gate(self, name: str, arguments: dict[str, Any]) -> None:
+        """Refuse a motion tool whose servo group is released (unknown or stale state refuses nothing).
+
+        Args:
+            name (str): Tool name.
+            arguments (dict[str, Any]): Tool arguments (enqueue_motions: the step kinds narrow the groups).
+
+        Raises:
+            ToolError: A group the tool drives is released.
+        """
+        groups = TOOL_SERVO_GROUPS.get(name)
+        if groups is None or self.servo_released is None:
+            return
+        if name == "enqueue_motions":
+            kinds = [step.get("kind") for step in arguments.get("steps") or [] if isinstance(step, dict)]
+            groups = tuple(g for g in groups if g in ControlManager.step_needs(k for k in kinds if isinstance(k, str)))
+        for group in groups:
+            if self.servo_released(group):
+                message = torque_off_message(group)
+                logging.getLogger("mcp_server.tools").warning("%s refused: %s", name, message)
+                raise ToolError(message)
+
     async def call_tool_with_digest(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
         """Run a tool, then attach the digest to its result (or to its error message).
 
@@ -505,6 +554,7 @@ class RobotMCPServer(MCPServer):
             if refusal is not None:
                 logging.getLogger("mcp_server.tools").warning("%s", refusal)
                 raise ToolError(refusal)
+            self.torque_gate(name, arguments)
             if exclusive and self.motion_queue is not None and self.motion_queue.busy():
                 raise ToolError(
                     f"{name} refused: the motion queue is running (it owns the robot's motion). Use enqueue_motions, "
@@ -661,6 +711,7 @@ def register_tools(
         server.control = control
         server.guard_engine = engine
         server.poi_hint_after = config.auto_poi.hint_after_images
+        server.servo_released = robot.servo_released
         server.begin_motion = getattr(robot, "begin_motion", None)  # RosRobot; tool test doubles have none
         server.end_motion = getattr(robot, "end_motion", None)
     ctx = ToolContext(

@@ -1,5 +1,6 @@
 """Pydantic result models returned by the robot interface and exposed as MCP structured tool outputs."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -20,6 +21,35 @@ ArmMotionStatus = Literal[
     "closed_no_contact",
     "interrupted",
 ]
+
+# Servo groups whose bridge torque_state the gate reads (arm: /follower, base: /swerve_drive, head: /head).
+SERVO_GROUPS: tuple[str, ...] = ("arm", "base", "head")
+TORQUE_OFF_MESSAGE = "{group} servo torque is off (released on the web UI Calibrate page); motion refused"
+
+
+def torque_off_message(group: str) -> str:
+    """Refusal text for a motion on a released servo group.
+
+    Args:
+        group (str): arm, base or head.
+
+    Returns:
+        str: The tool error text.
+    """
+    return TORQUE_OFF_MESSAGE.format(group=group)
+
+
+def released_groups(servo_released: Callable[[str], bool | None]) -> list[str]:
+    """Groups with a fresh released state.
+
+    Args:
+        servo_released (Callable[[str], bool | None]): Group -> released flag, None when unknown or stale.
+
+    Returns:
+        list[str]: The released groups, in SERVO_GROUPS order.
+    """
+    return [group for group in SERVO_GROUPS if servo_released(group) is True]
+
 
 # final: wait for convergence after the streamed trajectory; trajectory_end: return when the trajectory finished.
 SettlePolicy = Literal["final", "trajectory_end"]
@@ -203,6 +233,9 @@ class RobotState(BaseModel):
     head: HeadAngles | None = Field(default=None, description="Measured head pan/tilt; absent without a fresh sample")
     data_age_s: dict[str, float] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
+    # Servo groups (arm, base, head) whose torque is released (limp) on the web UI Calibrate page; their motion tools
+    # are refused. Only groups with a fresh released state are listed.
+    servos_released: list[str] = Field(default_factory=list)
 
 
 class ArmMotionResult(BaseModel):
@@ -396,6 +429,7 @@ class ControlState(BaseModel):
     arm: ArmControlState
     base: BaseControlState
     footprint: FootprintState | None = None  # None when nav_footprint is not configured
+    servos_released: list[str] = Field(default_factory=list)  # servo groups with a fresh released (limp) state
 
 
 class ReleaseResult(BaseModel):

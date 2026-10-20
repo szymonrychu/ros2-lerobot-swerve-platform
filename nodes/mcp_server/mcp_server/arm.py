@@ -44,7 +44,7 @@ from .metrics import (
     SELF_COLLISION_REJECTIONS,
     SELF_COLLISION_SLOWDOWNS,
 )
-from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy
+from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy, torque_off_message
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .sag import SETTLE_LOG_MARKER, GravityModel, SagCompensator, compensate
 from .self_collision import GRIPPER_MOVING_PARTS, BodyReport, SelfCollisionChecker, combine_scales, joint_line
@@ -72,6 +72,10 @@ RESTART_RELEASE_NOTE = "mcp_server restarted (the orphaned autonomy lease was re
 # filter_node's active source while no input is active (filter_node.arbitration.SOURCE_NONE), e.g. right after it
 # restarted: the lease is gone but nobody took it over.
 SOURCE_NONE = "none"
+# filter_node's active source while the follower bridge reports its torque released (filter_node.arbitration
+# SOURCE_RELEASED): the torque-off case, not a takeover by another source.
+SOURCE_RELEASED = "released"
+TORQUE_OFF_NOTE = "arm torque off"  # lost_note after the arm was released on the web UI Calibrate page
 SOURCE_NONE_NOTE = "filter_node reports no active source (restarted?)"
 # Lease generation the running tool or queued step checked (control.ControlManager.lease_scope); None = no check (the
 # web UI grasp service, the /arm/home service, release_control's park): those take the arm implicitly as before.
@@ -406,6 +410,10 @@ class ArmBackend(Protocol):
 
     def servo_register(self, joint: str, register: str) -> Stamped[int] | None:
         """Latest value of a servo register from the bridge's register dump (receive time), or None."""
+        ...
+
+    def servo_released(self, group: str) -> bool | None:
+        """Whether a servo group's torque is released (bridge torque_state), None when unknown or stale."""
         ...
 
     def now(self) -> float:
@@ -975,16 +983,52 @@ class ArmController:
         with self._lock:
             self._held = False
             self.lease_generation += 1
-            self.lost_note = SOURCE_NONE_NOTE if source == SOURCE_NONE else f"taken over by {source}"
+            if source == SOURCE_NONE:
+                self.lost_note = SOURCE_NONE_NOTE
+            elif source == SOURCE_RELEASED:
+                self.lost_note = TORQUE_OFF_NOTE
+            else:
+                self.lost_note = f"taken over by {source}"
             self.forget_locked()
         self.restore_default_torque_limit()
+
+    def torque_off(self) -> bool:
+        """Whether the arm servos are released (limp): the bridge says so, or filter_node reports the source released.
+
+        Returns:
+            bool: True while the arm must not be commanded.
+        """
+        if self.backend.servo_released("arm"):
+            return True
+        src = self.backend.active_source()
+        return (
+            src is not None
+            and src.value == SOURCE_RELEASED
+            and src.fresh(self.backend.now(), self.cfg.timeouts.state_stale_s)
+        )
+
+    def drop_if_torque_off(self) -> bool:
+        """Drop the held lease without publishing when the arm is released.
+
+        Returns:
+            bool: True when the lease was dropped.
+        """
+        if not (self._held and self.torque_off()):
+            return False
+        self.drop_lease(SOURCE_RELEASED)
+        return True
 
     def acquire(self) -> ControlResult:
         """Start the autonomy lease by commanding the measured pose (the arm does not move).
 
         Returns:
             ControlResult: Lease state and the pose it holds.
+
+        Raises:
+            ArmError: When the arm servo torque is released.
         """
+        if self.torque_off():
+            raise ArmError(torque_off_message("arm"))
         positions = self.measured(self.require_sample())
         self.take_lease(positions)
         return ControlResult(
@@ -1050,8 +1094,10 @@ class ArmController:
         """Freeze the arm at its measured pose (takes the lease). Publishes nothing without fresh joint states.
 
         Returns:
-            bool: True when a hold setpoint was published.
+            bool: True when a hold setpoint was published (never while the arm is released).
         """
+        if self.torque_off():
+            return False
         sample = self.fresh_sample()
         if sample is None:
             return False
@@ -1071,6 +1117,8 @@ class ArmController:
             return False, "arm not touched: mcp_server does not hold arm control"
         if self.hold():
             return True, ""
+        if self.torque_off():
+            return False, f"arm not held: {torque_off_message('arm')}"
         return False, "arm not held: no fresh joint states"
 
     def lease_lost_to(self) -> str | None:
@@ -1085,7 +1133,7 @@ class ArmController:
             src is None
             or not src.fresh(now, self.cfg.timeouts.state_stale_s)
             or now - self._acquired_at < LEASE_GRACE_S
-            or src.value == self.cfg.arm.autonomy_source_name
+            or src.value in (self.cfg.arm.autonomy_source_name, SOURCE_RELEASED)
         ):
             return None
         return src.value
@@ -1094,6 +1142,8 @@ class ArmController:
         """Periodic (ROS timer) hook: republish the last setpoint while holding the lease and idle; drop a lost lease."""
         self.relax_unverified_hold()
         if not self._held:
+            return
+        if self.drop_if_torque_off():
             return
         other = self.lease_lost_to()
         if other is not None:
@@ -2422,6 +2472,8 @@ class ArmController:
                 src = self.backend.active_source()
                 self.drop_lease("another source" if src is None else src.value)  # never hold against the human
             return "interrupted", f"stopped early: critical event {event}; holding the measured pose"
+        if self.drop_if_torque_off():
+            return "stopped", f"{torque_off_message('arm')}; the lease was dropped"
         other = self.lease_lost_to()
         if other is not None:
             self.drop_lease(other)

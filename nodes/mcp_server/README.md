@@ -740,6 +740,36 @@ partition every tool):
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
 
+## Servo torque-off gate
+
+The web UI Calibrate page can release (torque off) the arm, base steering or head servo group. The feetech bridges
+publish each group's state as JSON (`released`, reliable + transient_local, repeated periodically) and mcp_server
+reads it so the agent never commands a limp group.
+
+Topics (`topics.*`): `follower_torque_state` (`/follower/torque_state`, arm), `base_torque_state`
+(`/swerve_drive/torque_state`, base), `head_torque_state` (`/head/torque_state`, head). `timeouts.servo_torque_stale_s`
+(default 3.0, > 0): a state with no sample or older than this is unknown, and unknown refuses nothing (the bridge gate
+is the backstop). `RosRobot.servo_released(group)` returns `True`, `False` or `None`.
+
+Tool mapping (`tools.TOOL_SERVO_GROUPS`, one entry per `MOTION_TOOLS` tool): arm tools (`move_arm_joints`,
+`move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `grasp_object`, `release_object`) -> arm; base
+tools (`navigate_to_pose`, `move_relative`, `drive`, `look_around`, `go_to_frontier`, `look_toward_frontier`,
+`approach_for_grasp`) -> base; head tools -> head; `enqueue_motions` -> the groups of its step kinds;
+`resume_motions` -> arm and base.
+
+Behaviour while a group is released:
+
+- `call_tool_with_digest` (after the lease check, before the battery and tilt gates) refuses a tool of that group with
+  `<group> servo torque is off (released on the web UI Calibrate page); motion refused`; nothing is published.
+- `publish_command` (arm) and `publish_head_command` (head) publish nothing and log one debug line, so the 5 Hz
+  keepalive and the head home-on-lease-release never reach a limp group.
+- A held arm lease is dropped without publishing (`lost_note` "arm torque off", seen in `get_control_state`
+  `arm.lost`); filter_node's active source `released` is treated as this case, not a takeover. `take_control('arm')`
+  (and the web UI take) is refused with the same message; `stop` does not take the lease.
+- `get_robot_state` and `get_control_state` carry `servos_released` (groups with a fresh released state).
+
+Tests: `tests/test_torque_gate.py`.
+
 ## Head
 
 `head_tools.py` (`set_head_angles`, `head_look_at`, `head_home`) drives the pan/tilt head through `head.HeadController`

@@ -50,7 +50,15 @@ from .carry import CarryRecord
 from .config import McpServerConfig
 from .footprint import NavFootprint
 from .head import HeadController
-from .models import ArmControlState, BaseControlState, CarryingState, ControlState, ReleaseResult
+from .models import (
+    ArmControlState,
+    BaseControlState,
+    CarryingState,
+    ControlState,
+    ReleaseResult,
+    released_groups,
+    torque_off_message,
+)
 from .motion_queue import ARM_KINDS, BASE_KINDS, LiveState, Precondition, evaluate_precondition
 
 Subsystem = Literal["arm", "base"]
@@ -179,6 +187,10 @@ class BaseOps(Protocol):
 
     def steer_positions(self) -> dict[str, float] | None:
         """Fresh steer joint positions (rad) from the swerve joint states, None when missing or stale."""
+        ...
+
+    def servo_released(self, group: str) -> bool | None:
+        """Whether a servo group's torque is released (bridge torque_state), None when unknown or stale."""
         ...
 
 
@@ -454,6 +466,8 @@ class ControlManager:
         """
         if subsystem == "arm":
             if not self.arm_held:
+                if self.arm.torque_off():
+                    raise ArmError(torque_off_message("arm"))
                 if not self.arm.control_held:
                     self.arm.acquire()
                 with self.lock:
@@ -787,7 +801,9 @@ class ControlManager:
             ),
         )
         footprint = None if self.footprint is None else self.footprint.state()
-        return ControlState(arm=arm, base=base, footprint=footprint)
+        return ControlState(
+            arm=arm, base=base, footprint=footprint, servos_released=released_groups(self.base.servo_released)
+        )
 
     def refusal(self, tool_name: str, need: LeaseNeed) -> str | None:
         """Refusal text for a tool whose lease is not held.
