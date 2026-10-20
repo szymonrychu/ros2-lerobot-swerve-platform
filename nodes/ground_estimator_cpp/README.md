@@ -43,7 +43,7 @@ below the tracked floor plane), so they stay correct on a slope or a tilted base
 |---|---|---|
 | `stamp_ns` | stamp of the ToF cloud the state describes | nanoseconds |
 | `frame` | frame of the plane, regions and warnings (`base_link`) | - |
-| `prior` | source of the floor-normal prior, `imu` or `nominal` (no fresh IMU) | - |
+| `prior` | source of the floor-normal prior, `imu`, or `base_link` (no fresh IMU: +z of base_link) | - |
 | `imu_ok` | a fresh IMU sample was used | bool |
 | `plane` | `{normal [x,y,z], height_m, inliers, inlier_ratio, source, age_s}`; `source` is `fit` or `held`; null without a plane | m, s |
 | `reason` | why there is no plane: a fit reject (`too_few_points`, `no_plane`, `normal_off_prior`, `offset_off_prior`, `too_few_inliers`, `low_inlier_ratio`), `no_tf` or `no_cloud`; null with a plane | - |
@@ -146,15 +146,15 @@ Prometheus on `metrics_port`.
 | `ground_obstacle_points` | gauge | points of the last obstacle cloud |
 | `ground_drop_points` | gauge | points of the last drop cloud |
 | `ground_colour_mismatch_ratio` | gauge | floor-colour mismatch share of the floor band of the last labelled RGB-D cloud |
-| `ground_clouds_dropped_total` | counter, label `reason` | ToF clouds dropped without output |
+| `ground_clouds_dropped_total` | counter, label `reason` | clouds or warning-area messages dropped, `reason` is `tf`, `no_plane_rgbd`, `no_map_tf` or `bad_input` |
 | `ground_labelled_clouds_total` | counter | labelled RGB-D clouds published |
 
 ## Plane tracking
 
 - IMU prior: the gravity direction from `/imu/data`, rotated into base_link, is the expected floor normal. The level
   reference (`imu.level_reference_roll_deg`, `imu.level_reference_pitch_deg`) is the IMU reading on level ground and
-  is removed so a level base gives +z. Without a fresh IMU (`imu.timeout_s`) the prior is nominal (+z) and `prior`
-  says so.
+  is removed so a level base gives +z. Without a fresh IMU (`imu.timeout_s`) the prior is +z of base_link and `prior`
+  is `base_link`.
 - A fit must stay within `fit.max_normal_angle_deg` of the prior and `fit.max_offset_m` of the nominal floor.
 - `PlaneTracker` keeps the recent fits and answers by stamp: the newest fit at or before the queried stamp, with
   `source` `fit` when it is that cloud's own fit and `held` when an older one is reused. A fit older than `fit.hold_s`
