@@ -88,5 +88,15 @@
       "head-and-arm-calibration-fro"
     ],
     "note": "/{ns}/torque_state std_msgs/String JSON, reliable transient_local depth 1: {namespace, released, joints:{name:0|1}, stamp_ns, neutral_enabled, neutral_capture, last_save}; ns follower|swerve_drive|head; arm calibration must refuse while follower released; owner tasks bridge-torque-services-topic, bridge-runtime-neutral-save"
+  },
+  {
+    "name": "calibration-config-servos-flag",
+    "kind": "api",
+    "owner": "servo-torque-off-and-neutral",
+    "file": "nodes/web_ui/web_ui/imu_calibration.py",
+    "consumers": [
+      "head-and-arm-calibration-fro"
+    ],
+    "note": "GET /api/calibration/config gains servos: bool; CalibratePage.tsx renders the Servo torque and neutral section (calibrate/ServoNeutral.tsx) before the arm placeholder; owner tasks web-ui-servo-routes, calibrate-page-servo-section"
   }
 ]
