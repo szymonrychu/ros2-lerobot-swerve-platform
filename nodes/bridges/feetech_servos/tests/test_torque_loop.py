@@ -97,7 +97,7 @@ class Harness:
             publisher.publish.side_effect = lambda msg: self.states.append(json.loads(msg.data))
         return publisher
 
-    def spin_once(self, timeout_sec: float = 0.0) -> None:
+    def spin_once(self, **_kwargs: Any) -> None:
         """Run one scheduled callback of the current loop cycle, like the executor."""
         todo = self.scheduled.get(self.rclpy.cycle, [])
         if todo:
