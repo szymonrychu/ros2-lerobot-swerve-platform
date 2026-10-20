@@ -319,7 +319,7 @@ Cross-epic: `head-chain-override` is registered in `docs/plans/contracts.json`; 
 
 ## Open questions
 
-- Q1: After the reprint, set the head tilt range to -30..+60 deg (+ is down) everywhere it is pinned? [recommended: yes]
+- Q1: After the reprint, set the head tilt range to -30..+60 deg (+ is down) everywhere it is pinned? [answer: yes: -30..+60 deg]
 - Q2: Gripper plate 5x3 squares of 18 mm (14 mm markers, ids 15-21, about 98 x 62 mm with margins) on a keyed clip on the fixed jaw? [recommended: yes]
 - Q3: Will you give the plate's CAD rotation in gripper_link from the clip design, so wrist_roll can be fitted (without it wrist_roll keeps its current value)? [recommended: yes]
 - Q4: Arm tier 1 (wrist flex and elbow, small amplitude, tool >= 10 cm above the floor) needs its own confirm checkbox in the UI? [recommended: yes]
