@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-core-shared-decoders
 branch: head-rgb-d-calibration-in-th--calib-core-shared-decoders
-verified_head: ""
+verified_head: "022b04e7"
 run: ""
 provides: []
 ---

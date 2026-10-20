@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--calib-node-cgroup-tier-and-d
 branch: head-rgb-d-calibration-in-th--calib-node-cgroup-tier-and-d
-verified_head: ""
+verified_head: "46271e5d"
 run: ""
 provides: []
 ---

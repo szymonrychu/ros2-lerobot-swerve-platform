@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-rgb-d-calibration-in-th--rgbd-api-contract-frontend
 branch: head-rgb-d-calibration-in-th--rgbd-api-contract-frontend
-verified_head: ""
+verified_head: "c4ef29de"
 run: ""
 provides: []
 ---
