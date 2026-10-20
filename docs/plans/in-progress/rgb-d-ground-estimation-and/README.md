@@ -34,7 +34,7 @@ The head ToF/RGB-D stream (head_rgbd_cpp, calibrated 2026-10-20) is integrated i
 
 ## Time
 
-Estimate: 1140 min | Actual: 0 min | Remaining estimate: 180 min
+Estimate: 1140 min | Actual: 0 min | Remaining estimate: 60 min
 
 ## Review
 
