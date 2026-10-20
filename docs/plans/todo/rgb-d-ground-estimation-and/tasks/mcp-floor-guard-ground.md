@@ -24,7 +24,7 @@ provides: []
 ## Requirement
 
 - floor_guard (design D9, Q2): `FloorOverride.use_ground_estimate: bool = False`; the arm tools that take `surface_z_m` / `tilt_override_deg` / `surfaces` (tools.py via `grasp_tools.floor_override`) gain a `use_ground_estimate` parameter (default false) documented for the agent: "use the measured floor regions (steps, drop-offs) from the head ToF ground estimate; refused when no fresh estimate exists".
-- `FloorGuard.surface(...)` receives the latest ground state (from `RosInterface.ground_state()`, part `mcp-ground-state-client`) and, when `use_ground_estimate` is true: state fresh (age <= `floor_guard.ground_max_age_s`, default 1.0, > 0, in the floor_guard settings) and `plane` not null -> the Terrain is built from the state's regions converted to `SurfaceRegion` (frame base_link, edge, height_m relative to the robot floor) followed by the call's explicit `surfaces` (listed later, so they win), at most MAX_REGIONS (explicit ones kept first when trimming); stale, absent or plane-null -> the motion is refused with a `GuardReport`/error whose reason names `/ground/state` and the cause. With `use_ground_estimate` false nothing changes (byte-identical behaviour; existing floor_guard tests unchanged).
+- `FloorGuard.surface(...)` receives the latest ground state (from `RosInterface.ground_state()`, part `mcp-ground-state-client`) and, when `use_ground_estimate` is true: state fresh (age <= `floor_guard.ground_max_age_s`, default 1.0, > 0, in the floor_guard settings) and `plane` not null -> the Terrain is built from `ground_regions_to_surfaces(state)` (models.py, delivered by mcp-ground-summary) followed by the call's explicit `surfaces` (listed later, so they win), at most MAX_REGIONS (explicit ones kept first when trimming); stale, absent or plane-null -> the motion is refused with a `GuardReport`/error whose reason names `/ground/state` and the cause. With `use_ground_estimate` false nothing changes (byte-identical behaviour; existing floor_guard tests unchanged).
 - Tests first in `nodes/mcp_server/tests/test_floor_guard_ground.py`, seen failing: a state with a drop region 0.3 m ahead gives a Terrain whose lookup beyond the edge returns the drop height; explicit surfaces override an overlapping ground region; region count trimmed to MAX_REGIONS keeping explicit ones; stale/absent/plane-null refusals with the reason; default false leaves the surface model equal to the current one; the tool parameter is passed through.
 - `nodes/mcp_server/README.md`: the floor_guard `use_ground_estimate` option, freshness rule and refusal.
 
@@ -65,3 +65,5 @@ provides: []
 ## Notes
 
 surfaces.py `SurfaceRegion`/`Terrain` (46-330), floor_guard.py `surface()` (550-580); arm.py passes `FloorOverride` to the guard (arm.py:1155-1190).
+
+- 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
