@@ -58,5 +58,15 @@
       "rgb-d-ground-estimation-and"
     ],
     "note": "/tof/points_filtered: laser_filter self-filtered ToF cloud, tof_optical_frame, ~10 Hz, reliable; ground_estimator_cpp input and ground_clear frustum source (tasks ground-node-wiring, nav2-ground-voxel-layer)"
+  },
+  {
+    "name": "nav2-tof-voxel-bands",
+    "kind": "config",
+    "owner": "tof-3d-obstacle-detection-fo",
+    "file": "nodes/nav2_bringup/config/nav2_params.yaml",
+    "consumers": [
+      "rgb-d-ground-estimation-and"
+    ],
+    "note": "tof_voxel_layer sources/bands and collision_monitor tof_obstacles/tof_cliff stay unchanged; ground_voxel_layer is added alongside; tests/test_nav_tof_voxel_layer.py and tests/test_tof_obstacle_wiring.py checks scoped to tof_voxel_layer (task nav2-ground-voxel-layer)"
   }
 ]
