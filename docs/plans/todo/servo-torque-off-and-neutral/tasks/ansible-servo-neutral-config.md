@@ -48,17 +48,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Uses parts `neutral-services` and `arm-stale-marker`; sets the config keys introduced by bridge-runtime-neutral-save, filter-node-released-arm, swerve-released-steering, mcp-torque-off-gate, mcp-arm-calibration-stale, web-ui-servo-routes and web-ui-quiet-released-groups.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One deploy of the client nodes turns the feature on with consistent names everywhere, pinned by a root test.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_servo_neutral_config.py`; run `uv run pytest tests/test_servo_neutral_config.py -q`; expect failures.
+- Edit client.yml; run the verify command (also `tests/test_head_servo_config.py` and `tests/test_servo_bus_split_config.py` must stay green); commit `feat(ansible): servo torque and neutral config`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Do not deploy here; the runbook task deploys after merge.
+- The head command steps stay as they are: they are relative to the servo centre and pinned by tests/test_head_servo_config.py.

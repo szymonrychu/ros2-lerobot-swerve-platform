@@ -51,17 +51,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Owns part `servo-calibration-api`: `GET /api/calibration/servos`, `POST /api/calibration/servos/{group_id}/{release|enable|record|save}`, `ServoGroupConfig`, `BridgeNode.servo_torque_sample(namespace)`.
+- Uses `torque-state-topic`, `neutral-services`, `arm-stale-marker`.
+- `/api/calibration/config` field `servos` (cross-epic contract `calibration-config-servos-flag`, consumed by head-and-arm-calibration-fro, which also edits that endpoint).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The browser can read every group's torque/neutral state and run release, record, save and enable through the web_ui backend.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_servo_calibration.py`; run `cd nodes/web_ui && uv run --frozen pytest tests/test_servo_calibration.py -q`; expect failures.
+- Implement; run `uv run --frozen pytest tests/test_servo_calibration.py tests/test_imu_calibration.py tests/test_ros_thread_affinity.py -q`; then the verify command; commit `feat(web_ui): servo torque and neutral routes`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Copy the IMU pattern: `imu_calibration.py` (trigger helper, error bodies), bridge `subscribe_always_on` (bridge.py:551) and `imu_calibration_sample`.
+- web_ui ROS-thread affinity (2026-10-20): every subscription create/destroy on the bridge timer, never from a request handler.
+- The save can take about 4 s on the arm (D9): keep `service_timeout_s` above it.

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "A1",
+    "text": "Torque off buttons in the web UI for arm, base (the 4 steering servos) and head, 3 in total, each behind a confirm dialog; the group goes limp and its live torque state is shown.",
+    "decisions": ["D1", "D2", "D4", "D8"],
+    "tasks": ["bridge-torque-release-enable", "bridge-torque-services-topic", "web-ui-servo-routes", "calibrate-page-servo-section", "ansible-servo-neutral-config"],
+    "status": "approved"
+  },
+  {
+    "id": "A2",
+    "text": "\"Record neutral\" and \"Re-enable torque + save\" per group (arm, base steering, head): the new neutral is stored in the servo EEPROM (DefineMiddle), executed inside the running bridge.",
+    "decisions": ["D3", "D4", "D9"],
+    "tasks": ["bridge-runtime-neutral-save", "web-ui-servo-routes", "calibrate-page-servo-section", "ansible-servo-neutral-config"],
+    "status": "approved"
+  },
+  {
+    "id": "A3",
+    "text": "Re-enable holds the present position (no jump); an arm re-zero marks the fitted arm offsets and home stale until re-calibrated.",
+    "decisions": ["D1", "D3", "D7"],
+    "tasks": ["bridge-torque-release-enable", "bridge-runtime-neutral-save", "mcp-arm-calibration-stale", "web-ui-servo-routes", "calibrate-page-servo-section"],
+    "status": "approved"
+  },
+  {
+    "id": "A4",
+    "text": "Follower arm only; the UI warns that teleop needs the leader re-zeroed in the same pose (the leader re-zero is not part of this epic).",
+    "decisions": ["D4", "D8"],
+    "tasks": ["calibrate-page-servo-section", "ansible-servo-neutral-config"],
+    "status": "approved"
+  },
+  {
+    "id": "A5",
+    "text": "While a group is released its command sources are quieted (bridge, set_register, filter_node, swerve_controller, mcp_server, web_ui) so no goal reaches a limp servo and re-enable cannot jump; the set_register torque_enable=128 hole is closed.",
+    "decisions": ["D2", "D5", "D6", "D8"],
+    "tasks": ["bridge-torque-release-enable", "set-register-torque-guard", "filter-node-released-arm", "swerve-released-steering", "mcp-torque-off-gate", "web-ui-quiet-released-groups", "released-group-banners"],
+    "status": "approved"
+  },
+  {
+    "id": "A6",
+    "text": "Tests, READMEs and Ansible in sync, and a staged robot runbook that bench-tests head_pan first.",
+    "decisions": ["D10"],
+    "tasks": ["ansible-servo-neutral-config", "suite-and-robot-runbook"],
+    "status": "approved"
+  }
+]

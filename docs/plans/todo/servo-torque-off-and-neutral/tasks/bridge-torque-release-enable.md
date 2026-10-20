@@ -47,17 +47,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `torque_control.TorqueControl.release(namespace: str) -> TorqueResult`, `.enable(namespace: str) -> TorqueResult`, `.released_ids: set[int]`, `.joint_torque: dict[int, int]`, `.note_register_dump(servo_id: int, registers: dict[str, int]) -> None` (part `torque-gate`).
+- `bridge_cycle.BridgeCycle.release(ids: Iterable[int]) -> None`, `.unrelease(ids: Iterable[int]) -> None`, `.released_ids: set[int]`.
+- Kept: `startup_torque.set_startup_torque_state`, `registers.write_register` signatures unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The bridge can release and re-enable a group without any goal reaching a limp servo and without a jump on re-enable; nothing is wired to ROS yet (bridge-torque-services-topic does that).
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_torque_control.py` and the new gate tests in `tests/test_bridge_cycle.py`; run `cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_torque_control.py tests/test_bridge_cycle.py -q`; expect failures (module missing, gate absent).
+- Implement `torque_control.py` and the `BridgeCycle` gate; rerun; expect pass.
+- Run the verify command; commit `feat(feetech): torque release and hold-present enable per group`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Brief facts: write_register skips equal values (registers.py:272), so torque 1 after a self-dropped torque is a no-op without the bypass; hold-before-torque-on exists only at startup (bridge.py:213-222, startup_torque.py:44).
+- Whether an STS3215 re-enables torque on a goal write while torque is off is unknown: the gate makes it moot, so test that no goal is written, not what the servo would do.
+- Keep the module rclpy-free; bridge.py wiring is the next task.

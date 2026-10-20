@@ -34,7 +34,7 @@ Web UI controls to release servo torque per group (arm, base steering, head), re
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+Estimate: 865 min | Actual: 0 min | Remaining estimate: 865 min
 
 ## Review
 

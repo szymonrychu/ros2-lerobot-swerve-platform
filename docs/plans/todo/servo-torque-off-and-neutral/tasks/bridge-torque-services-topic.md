@@ -51,17 +51,22 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Services (std_srvs/Trigger): `/{ns}/servo/release_torque`, `/{ns}/servo/enable_torque` for every group namespace (`follower`; `swerve_drive`, `head`).
+- Topic (part `torque-state-topic`): `/{ns}/torque_state`, std_msgs/String, reliable + transient_local, depth 1. JSON `{"namespace": "head", "released": false, "joints": {"head_pan": 1, "head_tilt": 1}, "stamp_ns": 1760950000000000000}`; bridge-runtime-neutral-save adds `neutral_enabled`, `neutral_capture`, `last_save`.
+- `torque_control.torque_state_payload(...) -> dict` builds it (one place).
+- Config key `torque_state_interval_s` (config.py).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+From any ROS client on the robot a group can be released and re-enabled, and its live torque state is visible on a latched topic.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the stubs and write `tests/test_torque_services.py` plus the config tests; run `cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_torque_services.py tests/test_config.py -q`; expect failures.
+- Wire bridge.py, add the payload builder and the config key; rerun; then the verify command; commit `feat(feetech): torque services and live torque state topic`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- std_srvs comes from the ROS install like std_msgs (no pyproject change); stub it in tests.
+- web_ui ROS-thread affinity is a web_ui rule; here the rule is: no bus access off the loop thread, which the inline callbacks satisfy.
+- No placeholder data: an unknown torque value is omitted from `joints`.

@@ -46,17 +46,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `set_register.apply_set_register(servo, config, last_written, payload, warn, released_ids: Collection[int] = ()) -> bool`; new failure reason label `released`.
+- Uses part `torque-gate` (`TorqueControl.released_ids`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`/follower/set_register` and `/swerve_drive/set_register` can no longer run DefineMiddle, re-enable a released servo or move it; the tilt guard drive-torque payloads (velocity joints, never released) still work.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_set_register.py`; run `cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_set_register.py -q`; expect failures.
+- Implement; run the verify command; commit `fix(feetech): set_register rejects torque_enable 128 and released-joint goals`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Brief fact 11: values were never range-checked; `runtime_writable_entry` (registers.py:299) already rejects EEPROM registers, keep it.
+- swerve_controller tilt guard writes torque_enable 0/1 to the drive joints via set_register (tilt_guard.py `drive_torque_payloads`); those must keep passing.

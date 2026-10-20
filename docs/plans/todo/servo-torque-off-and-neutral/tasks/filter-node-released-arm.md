@@ -48,17 +48,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Uses part `torque-state-topic` (`/follower/torque_state`, field `released`).
+- `SourceArbiter.on_follower_released(released: bool) -> bool`; `SOURCE_RELEASED = "released"` on the active-source topic (mcp_server reads that topic for its lease, see mcp-torque-off-gate).
+- Config key `follower_torque_state_topic`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Teleop, web UI and autonomy cannot drive a limp follower arm, and re-enabling it never snaps the arm to the leader pose.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the arbitration and config tests; run `cd nodes/filter_node && uv run --frozen pytest tests/test_arbitration.py tests/test_config.py -q`; expect failures.
+- Implement arbiter state, node subscription and filter reset; run the verify command; commit `feat(filter_node): quiet the follower while its torque is released`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Existing proximity rule (arbitration.py `proximity_required`, default threshold 0.15 rad) is the re-enable guard; reuse it.
+- After an arm re-zero the leader and follower zeros differ: the proximity rule then keeps the leader out until the user re-zeroes the leader (D-C2: the leader re-zero is outside this epic). Document that in the README.

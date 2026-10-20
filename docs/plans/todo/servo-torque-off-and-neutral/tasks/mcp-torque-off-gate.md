@@ -52,17 +52,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Uses part `torque-state-topic` (`/follower/torque_state`, `/swerve_drive/torque_state`, `/head/torque_state`, field `released`) and the filter_node active source `released`.
+- `RosRobot.servo_released(group: str) -> bool | None`; `tools.TOOL_SERVO_GROUPS: dict[str, frozenset[str]]`; `servos_released` on the state models.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The agent cannot move a released group, does not keep republishing a held arm setpoint into a limp arm, and sees which groups are released.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_torque_gate.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_torque_gate.py -q`; expect failures.
+- Implement config, subscriptions, the gate, the publish suppression and the lease drop; run `uv run --frozen pytest tests/test_torque_gate.py tests/test_lease_safety.py tests/test_battery_gate.py tests/test_head_lease.py -q`; then the verify command; commit `feat(mcp_server): refuse motion of released servo groups`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Pattern to copy: the battery cut-off gate (`MOTION_TOOLS`, `ALWAYS_ALLOWED_TOOLS` in tools.py, `call_tool_with_digest` tools.py:490) and the tilt gate.
+- The arm keepalive republishes the held setpoint at 5 Hz (arm.py `keepalive_tick`, brief fact 14); the publish-level suppression plus the lease drop stop it.
+- `tests/conftest.py` already stubs std_srvs; follow `tests/test_battery_gate.py` for the fake backend.

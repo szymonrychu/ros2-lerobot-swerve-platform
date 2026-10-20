@@ -51,17 +51,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Uses part `servo-calibration-api`.
+- Owns part `servo-torque-hook`: `useServoGroups(pollMs?: number)` and the `ServoGroup` type in `servoApi.ts` (used by released-group-banners).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+On the Calibrate page the user can release each group, record a neutral, and re-enable with or without saving, with the confirm dialogs and warnings the user asked for.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the three test files; run `cd nodes/web_ui/frontend && npx vitest run src/calibrate`; expect failures.
+- Implement; run the verify command; commit `feat(web_ui): servo torque and neutral section on the Calibrate page`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Follow `ImuCalibration.tsx` / `imuApi.ts` for structure and `TOUCH_TARGET_PX` from `../theme` for touch targets.
+- The page still shows "Arm calibration - deferred"; leave it (epic head-and-arm-calibration-fro replaces it).

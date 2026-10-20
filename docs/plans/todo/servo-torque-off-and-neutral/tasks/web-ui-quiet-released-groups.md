@@ -47,17 +47,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Uses part `servo-calibration-api` (`ServoGroupConfig`, `BridgeNode.servo_torque_sample`).
+- `ServoGroupConfig.command_topics: list[str]`; `released_command_error(config, bridge_node, topic) -> str | None`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The web UI itself cannot command a released group: no head slider, arm jog, home, grasp or nav goal reaches it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_servo_quiet.py`; run `cd nodes/web_ui && uv run --frozen pytest tests/test_servo_quiet.py -q`; expect failures.
+- Implement; run `uv run --frozen pytest tests/test_servo_quiet.py tests/test_head_control.py tests/test_arm_api.py -q`; then the verify command; commit `feat(web_ui): quiet commands to released servo groups`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The WS publish chain is in `server.py` around lines 1300-1320 (battery cut-off and head range checks); add the check there, same shape.
+- `call_arm_trigger` (server.py:1055) is the arm route helper.

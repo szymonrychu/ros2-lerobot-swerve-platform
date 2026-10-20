@@ -48,17 +48,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Uses part `torque-state-topic` (`/swerve_drive/torque_state`, field `released`).
+- `control_step(config, state, cmd, joints, now, inhibited=False, released=False)`; `run_cycle(..., released=False)`.
+- Config key `torque_state_topic`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The base steering can be released and re-zeroed without the controller driving limp servos, and re-enabling it does not swing the wheels.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the control-step and config tests; run `cd nodes/swerve_drive_controller && uv run --frozen pytest tests/test_control_step.py tests/test_config.py -q`; expect failures.
+- Implement; run the verify command; commit `feat(swerve): no steering commands while the steering torque is released`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Brief fact 14/20: the controller writes steering every 50 Hz cycle and recentres to 0 rad after 3 s idle; after a re-zero 0 rad is the new neutral.
+- Odometry uses measured velocity only (node.py:56); keep it publishing from real joint states.

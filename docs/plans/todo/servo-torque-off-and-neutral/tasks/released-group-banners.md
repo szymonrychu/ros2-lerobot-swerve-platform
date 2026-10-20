@@ -50,17 +50,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Uses part `servo-torque-hook` (`useServoGroups`).
+- `ReleasedBanner({ groupId })`, `useGroupReleased(groupId: string): boolean` in `calibrate/ReleasedBanner.tsx`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Wherever a released group could be commanded in the UI, the control is disabled and the user sees why.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Extend the three tab tests; run `cd nodes/web_ui/frontend && npx vitest run src/tabs`; expect failures.
+- Implement; run the verify command; commit `feat(web_ui): released servo banners on the head, arm and map tabs`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- One shared hook instance per tab; poll interval from `useServoGroups` (1 s). The backend refuses the same commands (web-ui-quiet-released-groups); this is the visible half.

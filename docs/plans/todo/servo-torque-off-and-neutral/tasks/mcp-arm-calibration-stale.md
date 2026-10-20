@@ -49,17 +49,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- Uses part `arm-stale-marker` (schema in `nodes/bridges/feetech_servos/neutral.py`).
+- `calibration_marker.load_marker(path: Path) -> CalibrationMarker | None`, `calibration_marker.clear_stale(path: Path, items: Iterable[str]) -> None`.
+- `ArmState.calibration_stale: list[str]`, `ArmState.calibration_stale_since: str | None`; config `arm.calibration_stale_marker`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+After an arm re-zero the agent sees that offsets and home are stale, cannot drive to a home recorded in the old zero, and clears the home flag by recording a new home.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_calibration_marker.py`; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_calibration_marker.py -q`; expect failures.
+- Implement; run `uv run --frozen pytest tests/test_calibration_marker.py tests/test_arm_home_tracking.py tests/test_home_store.py -q`; then the verify command; commit `feat(mcp_server): stale arm calibration marker after a re-zero`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- home.yaml stores measured radians in the old zero (brief fact 19, `home_store.py`); arm.joint_offsets_rad (client.yml:2229) was fitted on 2026-10-10.
+- Write with tempfile + os.replace like `home_store.save_home`.

@@ -53,17 +53,19 @@ Runbook (every deploy via the ansible-deploy skill and `scripts/deploy-nodes.sh`
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/servo-torque-neutral.md` (sections listed in the requirement).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Everything is green together, and the orchestrator can bring the feature up on the robot in safe stages, recording the bench answers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the runbook, the README section and the MEMORY.md line.
+- Run the full verify command and quote each summary line; commit `docs: servo torque and neutral runbook`.
+- The runbook is executed by the orchestrator after merge.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Doc-only task plus the full suite: TDD exception "comment or doc edit".
+- A failing suite owned by pre-existing work is cleared per the boy-scout rule, not reported as this task's failure.
