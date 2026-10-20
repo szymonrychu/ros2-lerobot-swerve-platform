@@ -1,0 +1,874 @@
+// GroundNode in-process: probe publishers and subscribers, a tf2_ros::Buffer fed with static and timed transforms
+// (map -> odom -> base_link -> tof_optical_frame / head_camera_optical_frame / imu_link) and synthetic_floor.hpp
+// scenes rendered in base_link and expressed in the sensor frames.
+#include <gtest/gtest.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <tf2_ros/buffer.h>
+
+#include <Eigen/Geometry>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <functional>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <memory>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <optional>
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <std_msgs/msg/string.hpp>
+#include <string>
+#include <tf2_eigen/tf2_eigen.hpp>
+#include <thread>
+#include <vector>
+
+#include "core/synthetic_floor.hpp"
+#include "ground_estimator_cpp/config.hpp"
+#include "ground_estimator_cpp/ground_node.hpp"
+#include "ground_estimator_cpp/plane_fit.hpp"
+
+namespace
+{
+
+using ground_estimator_cpp::Config;
+using ground_estimator_cpp::GroundNode;
+using ground_test::DEG;
+using ground_test::Scene;
+using nlohmann::json;
+using std::chrono::milliseconds;
+using std::chrono::seconds;
+
+constexpr const char * MAP = "map";
+constexpr const char * ODOM = "odom";
+constexpr const char * BASE = "base_link";
+constexpr const char * TOF_FRAME = "tof_optical_frame";
+constexpr const char * CAM_FRAME = "head_camera_optical_frame";
+constexpr const char * IMU_FRAME = "imu_link";
+constexpr double SIGMA_M = 0.001;
+constexpr int DECIMATION = 2;
+constexpr double TF_BEFORE_S = 5.0;
+constexpr double TF_SPAN_S = 120.0;
+constexpr double TF_STEP_S = 0.05;
+constexpr double CLOUD_PERIOD_S = 0.1;
+constexpr seconds WAIT{15};
+constexpr milliseconds POLL{20};
+constexpr milliseconds SETTLE{400};
+constexpr double HEIGHT_TOL_M = 0.01;
+constexpr double CENTROID_TOL_M = 0.1;
+constexpr uint8_t GREY = 120;
+constexpr int GREY_NOISE = 3;
+constexpr int TRAIN_CLOUDS = 3;
+constexpr uint8_t LABEL_MISMATCH = 3;
+// A4 sheet flat on the floor in front of the robot.
+constexpr double SHEET_X0 = 0.6, SHEET_X1 = 0.897, SHEET_Y0 = -0.105, SHEET_Y1 = 0.105;
+
+std::atomic<int> g_test_index{0};
+
+builtin_interfaces::msg::Time stamp_of(double t_s)
+{
+  builtin_interfaces::msg::Time t;
+  t.sec = static_cast<int32_t>(std::floor(t_s));
+  t.nanosec = static_cast<uint32_t>(std::llround((t_s - std::floor(t_s)) * 1e9) % 1000000000LL);
+  return t;
+}
+
+double seconds_of(const builtin_interfaces::msg::Time & t) { return t.sec + t.nanosec * 1e-9; }
+
+int64_t ns_of(const builtin_interfaces::msg::Time & t)
+{
+  return static_cast<int64_t>(t.sec) * 1000000000LL + t.nanosec;
+}
+
+double wall_now_s()
+{
+  return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+bool wait_for(const std::function<bool()> & done, std::chrono::milliseconds timeout = WAIT)
+{
+  const auto end = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < end) {
+    if (done()) {
+      return true;
+    }
+    std::this_thread::sleep_for(POLL);
+  }
+  return done();
+}
+
+// The value of one series of a Prometheus text rendering, nullopt when absent.
+std::optional<double> series_value(const std::string & text, const std::string & series)
+{
+  const std::string key = "\n" + series + " ";
+  const size_t at = ("\n" + text).find(key);
+  if (at == std::string::npos) {
+    return std::nullopt;
+  }
+  return std::stod(text.substr(at + key.size() - 1));
+}
+
+template <typename Msg>
+struct Inbox
+{
+  std::mutex mutex;
+  std::vector<Msg> messages;
+  void add(const Msg & m)
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    messages.push_back(m);
+  }
+  size_t size()
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    return messages.size();
+  }
+  std::vector<Msg> all()
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    return messages;
+  }
+};
+
+// The cloud of an inbox with the given header stamp.
+std::optional<sensor_msgs::msg::PointCloud2> find_stamp(
+  Inbox<sensor_msgs::msg::PointCloud2> & inbox, const builtin_interfaces::msg::Time & stamp)
+{
+  for (const auto & m : inbox.all()) {
+    if (m.header.stamp == stamp) {
+      return m;
+    }
+  }
+  return std::nullopt;
+}
+
+// The parsed JSON documents of a String inbox.
+std::vector<json> documents(Inbox<std_msgs::msg::String> & inbox)
+{
+  std::vector<json> out;
+  for (const auto & m : inbox.all()) {
+    out.push_back(json::parse(m.data));
+  }
+  return out;
+}
+
+// The first document matching pred, if any.
+std::optional<json> find_doc(Inbox<std_msgs::msg::String> & inbox, const std::function<bool(const json &)> & pred)
+{
+  for (const auto & d : documents(inbox)) {
+    if (pred(d)) {
+      return d;
+    }
+  }
+  return std::nullopt;
+}
+
+std::vector<Eigen::Vector3f> xyz_of(const sensor_msgs::msg::PointCloud2 & msg)
+{
+  std::vector<Eigen::Vector3f> out;
+  if (msg.width * msg.height == 0) {
+    return out;
+  }
+  sensor_msgs::PointCloud2ConstIterator<float> x(msg, "x"), y(msg, "y"), z(msg, "z");
+  for (; x != x.end(); ++x, ++y, ++z) {
+    out.emplace_back(*x, *y, *z);
+  }
+  return out;
+}
+
+std::vector<uint8_t> labels_of(const sensor_msgs::msg::PointCloud2 & msg)
+{
+  std::vector<uint8_t> out;
+  for (const auto & f : msg.fields) {
+    if (f.name == "label") {
+      for (size_t i = 0; i < static_cast<size_t>(msg.width) * msg.height; ++i) {
+        out.push_back(msg.data[i * msg.point_step + f.offset]);
+      }
+    }
+  }
+  return out;
+}
+
+// Optical frame pitched down by pitch_deg: optical z forward, x right, y down.
+Eigen::Isometry3d optical_mount(const Eigen::Vector3d & origin, double pitch_deg)
+{
+  Eigen::Matrix3d optical;
+  optical.col(0) = -Eigen::Vector3d::UnitY();
+  optical.col(1) = -Eigen::Vector3d::UnitZ();
+  optical.col(2) = Eigen::Vector3d::UnitX();
+  Eigen::Isometry3d t = Eigen::Isometry3d::Identity();
+  t.translation() = origin;
+  t.linear() = Eigen::AngleAxisd(pitch_deg * DEG, Eigen::Vector3d::UnitY()).toRotationMatrix() * optical;
+  return t;
+}
+
+Eigen::Isometry3d planar_pose(double x, double y, double yaw_deg)
+{
+  Eigen::Isometry3d t = Eigen::Isometry3d::Identity();
+  t.translation() = Eigen::Vector3d(x, y, 0.0);
+  t.linear() = Eigen::AngleAxisd(yaw_deg * DEG, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+  return t;
+}
+
+const Eigen::Isometry3d BASE_T_TOF = optical_mount(Eigen::Vector3d(0.15, 0.0, 0.45), 30.0);
+const Eigen::Isometry3d BASE_T_CAM = optical_mount(Eigen::Vector3d(0.17, -0.03, 0.47), 30.0);
+const Eigen::Isometry3d BASE_T_IMU = planar_pose(0.0, 0.0, 90.0);
+const Eigen::Isometry3d ODOM_T_BASE = planar_pose(1.0, 2.0, 30.0);
+const Eigen::Isometry3d MAP_T_ODOM = planar_pose(5.0, -3.0, 90.0);
+
+geometry_msgs::msg::TransformStamped transform_of(
+  const Eigen::Isometry3d & parent_T_child, const std::string & parent, const std::string & child, double t_s)
+{
+  geometry_msgs::msg::TransformStamped tf = tf2::eigenToTransform(parent_T_child);
+  tf.header.frame_id = parent;
+  tf.child_frame_id = child;
+  tf.header.stamp = stamp_of(t_s);
+  return tf;
+}
+
+// --- scenes, rendered in base_link -------------------------------------------------------------------------------
+
+pcl::PointCloud<pcl::PointXYZ> scene_cloud(const Scene & scene, unsigned seed = 1)
+{
+  return ground_test::render(scene, SIGMA_M, 0.0, seed, DECIMATION);
+}
+
+Scene box_scene()
+{
+  auto scene = ground_test::floor_scene();
+  ground_test::add_box(scene, Eigen::Vector3d(1.0, 0.0, 0.05), Eigen::Vector3d(0.3, 0.4, 0.10));
+  return scene;
+}
+
+Scene drop_scene(double depth_m)
+{
+  auto scene = ground_test::floor_until(1.0);
+  ground_test::add_drop_off(scene, 1.0, depth_m);
+  return scene;
+}
+
+// A door sill: a 15 cm deep strip of the given height across the view at x 1.0 .. 1.15.
+Scene sill_scene(double height_m)
+{
+  auto scene = ground_test::floor_scene();
+  ground_test::add_box(scene, Eigen::Vector3d(1.075, 0.0, height_m / 2.0), Eigen::Vector3d(0.15, 0.8, height_m));
+  return scene;
+}
+
+Scene ramp_scene(double deg)
+{
+  auto scene = ground_test::floor_until(1.0);
+  scene.surfaces.push_back(ground_test::plane_surface(
+    Eigen::Vector3d(1.0, 0.0, 0.0), Eigen::Vector3d(-std::sin(deg * DEG), 0.0, std::cos(deg * DEG)),
+    [](const Eigen::Vector3d & p) { return p.x() >= 1.0; }));
+  return scene;
+}
+
+Scene wall_scene()
+{
+  Scene scene;
+  ground_test::add_wall(scene, 1.0);
+  return scene;
+}
+
+bool on_sheet(const Eigen::Vector3d & p)
+{
+  return p.x() >= SHEET_X0 && p.x() <= SHEET_X1 && p.y() >= SHEET_Y0 && p.y() <= SHEET_Y1;
+}
+
+// The centroid of a polygon's vertices.
+Eigen::Vector2d centroid(const json & polygon)
+{
+  Eigen::Vector2d sum = Eigen::Vector2d::Zero();
+  for (const auto & v : polygon) {
+    sum += Eigen::Vector2d(v[0].get<double>(), v[1].get<double>());
+  }
+  return polygon.empty() ? sum : sum / static_cast<double>(polygon.size());
+}
+
+// Which optional transforms the buffer gets.
+struct TfOptions
+{
+  bool tof = true;  // base_link -> tof_optical_frame
+  bool map = true;  // map -> odom
+};
+
+class NodeTest : public ::testing::Test
+{
+public:
+  static void SetUpTestSuite() { rclcpp::init(0, nullptr); }
+  static void TearDownTestSuite() { rclcpp::shutdown(); }
+
+protected:
+  // Unique topics per test so no discovery or latched message crosses tests.
+  Config base_config()
+  {
+    const std::string prefix = "/gt" + std::to_string(g_test_index++);
+    Config c;
+    c.metrics_port = std::nullopt;
+    c.cloud_topic = prefix + "/tof/points_filtered";
+    c.imu_topic = prefix + "/imu/data";
+    c.rgbd_cloud_topic = prefix + "/head_rgbd/points";
+    c.output_namespace = prefix + "/ground";
+    c.imu.level_reference_roll_deg = 0.0;
+    c.imu.level_reference_pitch_deg = 0.0;
+    return c;
+  }
+
+  void fill_tf(const TfOptions & opt = TfOptions())
+  {
+    t0_ = wall_now_s();
+    buffer_ = std::make_shared<tf2_ros::Buffer>(
+      std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME), tf2::Duration(std::chrono::seconds(300)));
+    if (opt.tof) {
+      buffer_->setTransform(transform_of(BASE_T_TOF, BASE, TOF_FRAME, 0.0), "test", true);
+    }
+    buffer_->setTransform(transform_of(BASE_T_CAM, BASE, CAM_FRAME, 0.0), "test", true);
+    buffer_->setTransform(transform_of(BASE_T_IMU, BASE, IMU_FRAME, 0.0), "test", true);
+    if (opt.map) {
+      buffer_->setTransform(transform_of(MAP_T_ODOM, MAP, ODOM, 0.0), "test", true);
+    }
+    for (double t = t0_ - TF_BEFORE_S; t <= t0_ + TF_SPAN_S; t += TF_STEP_S) {
+      buffer_->setTransform(transform_of(ODOM_T_BASE, ODOM, BASE, t), "test", false);
+    }
+  }
+
+  void start(const Config & config)
+  {
+    config_ = config;
+    node_ = std::make_shared<GroundNode>(config, buffer_);
+    probe_ = std::make_shared<rclcpp::Node>("ground_probe_" + std::to_string(g_test_index.load()));
+    cloud_pub_ =
+      probe_->create_publisher<sensor_msgs::msg::PointCloud2>(config.cloud_topic, rclcpp::QoS(10).reliable());
+    rgbd_pub_ =
+      probe_->create_publisher<sensor_msgs::msg::PointCloud2>(config.rgbd_cloud_topic, rclcpp::QoS(10).best_effort());
+    imu_pub_ = probe_->create_publisher<sensor_msgs::msg::Imu>(config.imu_topic, rclcpp::SensorDataQoS());
+    const auto reliable = rclcpp::QoS(50).reliable();
+    obstacle_sub_ = probe_->create_subscription<sensor_msgs::msg::PointCloud2>(
+      config.obstacle_points(), reliable,
+      [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr m) { obstacle_.add(*m); });
+    drop_sub_ = probe_->create_subscription<sensor_msgs::msg::PointCloud2>(
+      config.drop_points(), reliable, [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr m) { drop_.add(*m); });
+    labelled_sub_ = probe_->create_subscription<sensor_msgs::msg::PointCloud2>(
+      config.labelled_points(), rclcpp::QoS(50).best_effort(),
+      [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr m) { labelled_.add(*m); });
+    warnings_sub_ = probe_->create_subscription<std_msgs::msg::String>(
+      config.warning_areas(), reliable, [this](std_msgs::msg::String::ConstSharedPtr m) { warnings_.add(*m); });
+    state_sub_ = probe_->create_subscription<std_msgs::msg::String>(
+      config.state_topic(), rclcpp::QoS(50).reliable().transient_local(),
+      [this](std_msgs::msg::String::ConstSharedPtr m) { state_.add(*m); });
+    executor_.add_node(node_);
+    executor_.add_node(probe_);
+    spinner_ = std::thread([this] { executor_.spin(); });
+    ASSERT_TRUE(wait_for([this] {
+      return cloud_pub_->get_subscription_count() > 0 && imu_pub_->get_subscription_count() > 0 &&
+             obstacle_sub_->get_publisher_count() > 0 && state_sub_->get_publisher_count() > 0;
+    }));
+  }
+
+  void TearDown() override
+  {
+    executor_.cancel();
+    if (spinner_.joinable()) {
+      spinner_.join();
+    }
+  }
+
+  // A scene cloud in the ToF frame, stamped now; returns the stamp.
+  builtin_interfaces::msg::Time publish_cloud(const pcl::PointCloud<pcl::PointXYZ> & base_cloud)
+  {
+    const Eigen::Isometry3f tof_T_base = BASE_T_TOF.inverse().cast<float>();
+    pcl::PointCloud<pcl::PointXYZ> tof;
+    for (const auto & p : base_cloud) {
+      const Eigen::Vector3f q = tof_T_base * Eigen::Vector3f(p.x, p.y, p.z);
+      tof.push_back(pcl::PointXYZ(q.x(), q.y(), q.z()));
+    }
+    sensor_msgs::msg::PointCloud2 msg;
+    pcl::toROSMsg(tof, msg);
+    msg.header.frame_id = TOF_FRAME;
+    msg.header.stamp = next_stamp();
+    cloud_pub_->publish(msg);
+    return msg.header.stamp;
+  }
+
+  // Publish and wait until the node answered on obstacle_points (a cloud with a plane) or the timeout.
+  builtin_interfaces::msg::Time cloud_and_wait(const pcl::PointCloud<pcl::PointXYZ> & base_cloud)
+  {
+    const auto stamp = publish_cloud(base_cloud);
+    EXPECT_TRUE(wait_for([&] { return find_stamp(obstacle_, stamp).has_value(); }));
+    return stamp;
+  }
+
+  // An RGB-D cloud (x, y, z, rgb as head_rgbd_cpp publishes it) of the floor scene in the camera frame: grey floor
+  // with a little texture, a red sheet when with_sheet.
+  builtin_interfaces::msg::Time publish_rgbd(bool with_sheet)
+  {
+    const auto base = scene_cloud(ground_test::floor_scene(), 5);
+    const Eigen::Isometry3d cam_T_base = BASE_T_CAM.inverse();
+    sensor_msgs::msg::PointCloud2 msg;
+    msg.header.frame_id = CAM_FRAME;
+    msg.header.stamp = next_stamp();
+    msg.height = 1;
+    msg.width = static_cast<uint32_t>(base.size());
+    sensor_msgs::PointCloud2Modifier modifier(msg);
+    modifier.setPointCloud2FieldsByString(2, "xyz", "rgb");
+    modifier.resize(base.size());
+    sensor_msgs::PointCloud2Iterator<float> x(msg, "x"), y(msg, "y"), z(msg, "z");
+    sensor_msgs::PointCloud2Iterator<uint8_t> r(msg, "r"), g(msg, "g"), b(msg, "b");
+    size_t i = 0;
+    for (const auto & p : base) {
+      const Eigen::Vector3d pb(p.x, p.y, p.z);
+      const Eigen::Vector3d pc = cam_T_base * pb;
+      *x = static_cast<float>(pc.x());
+      *y = static_cast<float>(pc.y());
+      *z = static_cast<float>(pc.z());
+      if (with_sheet && on_sheet(pb)) {
+        *r = 200;
+        *g = 30;
+        *b = 30;
+      } else {
+        const auto jitter = static_cast<uint8_t>(GREY + static_cast<int>(i % (2 * GREY_NOISE + 1)) - GREY_NOISE);
+        *r = *g = *b = jitter;
+      }
+      ++x, ++y, ++z, ++r, ++g, ++b, ++i;
+    }
+    rgbd_pub_->publish(msg);
+    return msg.header.stamp;
+  }
+
+  void publish_imu(double stamp_s, double cov0 = 0.01, double w = 1.0)
+  {
+    sensor_msgs::msg::Imu m;
+    m.header.frame_id = IMU_FRAME;
+    m.header.stamp = stamp_of(stamp_s);
+    m.orientation.w = w;
+    m.orientation_covariance[0] = cov0;
+    imu_pub_->publish(m);
+  }
+
+  // Stamps strictly increase and follow the wall clock (the state timer works on now).
+  builtin_interfaces::msg::Time next_stamp()
+  {
+    last_stamp_s_ = std::max(wall_now_s(), last_stamp_s_ + 0.001);
+    return stamp_of(last_stamp_s_);
+  }
+
+  std::optional<double> metric(const std::string & series) { return series_value(node_->metrics().render(), series); }
+  double dropped(const std::string & reason)
+  {
+    return metric("ground_clouds_dropped_total{reason=\"" + reason + "\"}").value_or(0.0);
+  }
+
+  // The newest state document, if any.
+  std::optional<json> last_state()
+  {
+    const auto docs = documents(state_);
+    if (docs.empty()) {
+      return std::nullopt;
+    }
+    return docs.back();
+  }
+
+  // Waits for a state document with stamp >= stamp_ns matching pred; returns it.
+  std::optional<json> state_after(int64_t stamp_ns, const std::function<bool(const json &)> & pred)
+  {
+    std::optional<json> found;
+    wait_for([&] {
+      found = find_doc(state_, [&](const json & d) { return d["stamp_ns"].get<int64_t>() >= stamp_ns && pred(d); });
+      return found.has_value();
+    });
+    return found;
+  }
+
+  std::optional<json> warnings_at(const builtin_interfaces::msg::Time & stamp)
+  {
+    std::optional<json> found;
+    wait_for([&] {
+      found = find_doc(warnings_, [&](const json & d) { return d["stamp_ns"].get<int64_t>() == ns_of(stamp); });
+      return found.has_value();
+    });
+    return found;
+  }
+
+  double t0_ = 0.0;
+  double last_stamp_s_ = 0.0;
+  Config config_;
+  std::shared_ptr<tf2_ros::Buffer> buffer_;
+  std::shared_ptr<GroundNode> node_;
+  std::shared_ptr<rclcpp::Node> probe_;
+  rclcpp::executors::SingleThreadedExecutor executor_;
+  std::thread spinner_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr rgbd_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_sub_, drop_sub_, labelled_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr warnings_sub_, state_sub_;
+  Inbox<sensor_msgs::msg::PointCloud2> obstacle_, drop_, labelled_;
+  Inbox<std_msgs::msg::String> warnings_, state_;
+};
+
+bool has_area(const json & doc, const std::string & kind)
+{
+  for (const auto & a : doc["areas"]) {
+    if (a["kind"] == kind) {
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
+TEST_F(NodeTest, NoStateBeforeTheFirstCloud)
+{
+  fill_tf();
+  start(base_config());
+  // Several state periods (2 Hz) without any ToF cloud: no state from no data.
+  std::this_thread::sleep_for(milliseconds(1500));
+  EXPECT_EQ(state_.size(), 0u);
+  const auto stamp = cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  EXPECT_TRUE(state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); }).has_value());
+}
+
+TEST_F(NodeTest, LevelFloorWithABoxGivesObstaclePointsAndAPlaneState)
+{
+  fill_tf();
+  start(base_config());
+  const auto stamp = cloud_and_wait(scene_cloud(box_scene()));
+
+  const auto obstacle = find_stamp(obstacle_, stamp);
+  ASSERT_TRUE(obstacle.has_value());
+  EXPECT_EQ(obstacle->header.frame_id, BASE);
+  const auto points = xyz_of(*obstacle);
+  ASSERT_GT(points.size(), 50u);
+  for (const auto & p : points) {
+    // The box spans x 0.85 .. 1.15, y -0.2 .. 0.2, z 0 .. 0.1 in base_link: the cloud keeps base_link coordinates.
+    EXPECT_NEAR(p.x(), 1.0, 0.2);
+    EXPECT_NEAR(p.y(), 0.0, 0.25);
+    EXPECT_GT(p.z(), 0.02);
+    EXPECT_LT(p.z(), 0.12);
+  }
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  const auto drop = find_stamp(drop_, stamp);
+  EXPECT_EQ(drop->width * drop->height, 0u);
+  EXPECT_EQ(drop->header.frame_id, BASE);
+
+  const auto state = state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_EQ((*state)["frame"], BASE);
+  EXPECT_NEAR((*state)["plane"]["height_m"].get<double>(), 0.0, HEIGHT_TOL_M);
+  EXPECT_TRUE((*state)["reason"].is_null());
+  EXPECT_GT((*state)["obstacle_points"].get<int>(), 50);
+  EXPECT_EQ((*state)["drop_points"].get<int>(), 0);
+  EXPECT_FALSE((*state)["plane_vs_base_deg"].is_null());
+  EXPECT_LT((*state)["plane_vs_base_deg"].get<double>(), 1.0);
+
+  // ground-metrics: counters and histogram registered, gauges set from the real values.
+  EXPECT_GE(metric("ground_fits_total{result=\"ok\"}").value_or(0.0), 1.0);
+  EXPECT_TRUE(metric("ground_fits_total{result=\"no_plane\"}").has_value());
+  EXPECT_GE(metric("ground_fit_seconds_count").value_or(0.0), 1.0);
+  EXPECT_GT(metric("ground_inlier_ratio").value_or(0.0), 0.2);
+  EXPECT_GT(metric("ground_obstacle_points").value_or(0.0), 50.0);
+  EXPECT_EQ(metric("ground_drop_points").value_or(-1.0), 0.0);
+  EXPECT_TRUE(metric("ground_plane_vs_base_deg").has_value());
+  EXPECT_TRUE(metric("ground_regions").has_value());
+  EXPECT_TRUE(metric("ground_warning_areas").has_value());
+  EXPECT_TRUE(metric("ground_labelled_clouds_total").has_value());
+  for (const char * reason : {"tf", "no_plane_rgbd", "no_map_tf"}) {
+    EXPECT_EQ(dropped(reason), 0.0) << reason;
+    EXPECT_TRUE(metric(std::string("ground_clouds_dropped_total{reason=\"") + reason + "\"}").has_value());
+  }
+  EXPECT_EQ(metric("robot_node_info{node=\"ground_estimator\"}").value_or(0.0), 1.0);
+  EXPECT_NE(node_->metrics().render().find("process_cpu_seconds_total"), std::string::npos);
+  // No slope without a fresh IMU and no colour ratio without an RGB-D cloud: those gauges have no sample.
+  EXPECT_FALSE(metric("ground_slope_deg").has_value());
+  EXPECT_FALSE(metric("ground_colour_mismatch_ratio").has_value());
+}
+
+TEST_F(NodeTest, TenCentimetreDropOffIsALethalDropRegion)
+{
+  fill_tf();
+  start(base_config());
+  const auto stamp = cloud_and_wait(scene_cloud(drop_scene(0.10)));
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  const auto drop = find_stamp(drop_, stamp);
+  const auto points = xyz_of(*drop);
+  ASSERT_GT(points.size(), 50u);
+  for (const auto & p : points) {
+    EXPECT_GT(p.x(), 1.0);
+    EXPECT_NEAR(p.z(), -0.10, 0.02);
+  }
+  const auto state = state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  bool lethal_drop = false;
+  for (const auto & r : (*state)["regions"]) {
+    lethal_drop = lethal_drop || (r["kind"] == "drop" && r["class"] == "obstacle");
+  }
+  EXPECT_TRUE(lethal_drop) << state->dump();
+  EXPECT_GT((*state)["drop_points"].get<int>(), 50);
+}
+
+TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningInTheMapFrame)
+{
+  fill_tf();
+  start(base_config());
+  const auto stamp = cloud_and_wait(scene_cloud(sill_scene(0.03)));
+  EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  EXPECT_EQ(xyz_of(*find_stamp(drop_, stamp)).size(), 0u);
+
+  const auto doc = warnings_at(stamp);
+  ASSERT_TRUE(doc.has_value());
+  EXPECT_EQ((*doc)["frame"], MAP);
+  ASSERT_EQ((*doc)["areas"].size(), 1u) << doc->dump();
+  const auto & area = (*doc)["areas"][0];
+  EXPECT_EQ(area["kind"], "step");
+  EXPECT_EQ(area["source"], "tof");
+  EXPECT_NEAR(area["height_m"].get<double>(), 0.03, 0.01);
+  // The sill centre (1.075, 0) in base_link, through map <- odom <- base_link.
+  const Eigen::Vector3d expected = MAP_T_ODOM * ODOM_T_BASE * Eigen::Vector3d(1.075, 0.0, 0.0);
+  const Eigen::Vector2d c = centroid(area["polygon"]);
+  EXPECT_NEAR(c.x(), expected.x(), CENTROID_TOL_M);
+  EXPECT_NEAR(c.y(), expected.y(), CENTROID_TOL_M);
+
+  const auto state = state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  ASSERT_EQ((*state)["warnings"].size(), 1u);
+  EXPECT_EQ((*state)["warnings"][0]["kind"], "step");
+  bool step_warning = false;
+  for (const auto & r : (*state)["regions"]) {
+    step_warning = step_warning || (r["kind"] == "step" && r["class"] == "warning");
+  }
+  EXPECT_TRUE(step_warning) << state->dump();
+  EXPECT_EQ((*state)["obstacle_points"].get<int>(), 0);
+  EXPECT_EQ(metric("ground_warning_areas").value_or(0.0), 1.0);
+}
+
+TEST_F(NodeTest, SixDegreeRampIsARampWarningWithoutLethalPoints)
+{
+  fill_tf();
+  start(base_config());
+  const auto stamp = cloud_and_wait(scene_cloud(ramp_scene(6.0)));
+  EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  EXPECT_EQ(xyz_of(*find_stamp(drop_, stamp)).size(), 0u);
+  const auto doc = warnings_at(stamp);
+  ASSERT_TRUE(doc.has_value());
+  EXPECT_TRUE(has_area(*doc, "ramp")) << doc->dump();
+}
+
+TEST_F(NodeTest, NoMapTransformGivesNoWarningAreasAndCountsIt)
+{
+  fill_tf({true, false});
+  start(base_config());
+  const auto stamp = cloud_and_wait(scene_cloud(sill_scene(0.03)));
+  ASSERT_TRUE(wait_for([&] { return dropped("no_map_tf") >= 1.0; }));
+  std::this_thread::sleep_for(SETTLE);
+  EXPECT_EQ(warnings_.size(), 0u);
+  // The plane-relative clouds do not need the map.
+  EXPECT_TRUE(find_stamp(obstacle_, stamp).has_value());
+}
+
+TEST_F(NodeTest, WallOnlyGivesNoCloudAndAPlaneNullState)
+{
+  fill_tf();
+  start(base_config());
+  const auto cloud = scene_cloud(wall_scene());
+  const auto stamp = publish_cloud(cloud);
+  const auto state = state_after(ns_of(stamp), [](const json &) { return true; });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_TRUE((*state)["plane"].is_null());
+  // The reason is the fit's own reject of this cloud in base_link (same seed as the node).
+  pcl::PointCloud<pcl::PointXYZ> base;
+  for (const auto & p : cloud) {
+    base.push_back(p);
+  }
+  const auto fit =
+    ground_estimator_cpp::fit_plane(base, Eigen::Vector3d::UnitZ(), config_.fit, ground_estimator_cpp::FIT_SEED);
+  ASSERT_TRUE(fit.reject.has_value());
+  EXPECT_EQ((*state)["reason"], ground_estimator_cpp::to_string(*fit.reject));
+  std::this_thread::sleep_for(SETTLE);
+  EXPECT_EQ(obstacle_.size(), 0u);
+  EXPECT_EQ(drop_.size(), 0u);
+  EXPECT_EQ(warnings_.size(), 0u);
+  EXPECT_GE(metric("ground_fits_total{result=\"" + (*state)["reason"].get<std::string>() + "\"}").value_or(0.0), 1.0);
+}
+
+TEST_F(NodeTest, PlaneIsHeldForHoldSecondsThenNull)
+{
+  fill_tf();
+  Config config = base_config();
+  config.fit.hold_s = 0.5;
+  start(config);
+  const auto floor_stamp = cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  ASSERT_TRUE(state_after(ns_of(floor_stamp), [](const json & d) { return !d["plane"].is_null(); }).has_value());
+
+  const auto wall = scene_cloud(wall_scene());
+  std::vector<builtin_interfaces::msg::Time> wall_stamps;
+  for (int i = 0; i < 12; ++i) {
+    wall_stamps.push_back(publish_cloud(wall));
+    std::this_thread::sleep_for(milliseconds(static_cast<int>(CLOUD_PERIOD_S * 1000)));
+  }
+  const auto state = state_after(ns_of(wall_stamps.back()), [](const json & d) { return d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_FALSE((*state)["reason"].is_null());
+  std::this_thread::sleep_for(SETTLE);
+  // Wall clouds within hold_s of the floor fit are segmented against the held plane; later ones publish nothing.
+  const double limit_s = seconds_of(floor_stamp) + config.fit.hold_s;
+  size_t held = 0;
+  for (const auto & m : obstacle_.all()) {
+    EXPECT_LE(seconds_of(m.header.stamp), limit_s + 1e-6);
+    held += m.header.stamp == floor_stamp ? 0 : 1;
+  }
+  EXPECT_GE(held, 1u);
+  for (const auto & m : drop_.all()) {
+    EXPECT_LE(seconds_of(m.header.stamp), limit_s + 1e-6);
+  }
+}
+
+TEST_F(NodeTest, MissingTransformDropsTheCloud)
+{
+  fill_tf({false, true});
+  start(base_config());
+  const auto stamp = publish_cloud(scene_cloud(box_scene()));
+  ASSERT_TRUE(wait_for([&] { return dropped("tf") >= 1.0; }));
+  const auto state = state_after(ns_of(stamp), [](const json &) { return true; });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_TRUE((*state)["plane"].is_null());
+  EXPECT_EQ((*state)["reason"], "no_tf");
+  std::this_thread::sleep_for(SETTLE);
+  EXPECT_EQ(obstacle_.size(), 0u);
+  EXPECT_EQ(drop_.size(), 0u);
+  EXPECT_EQ(warnings_.size(), 0u);
+  EXPECT_EQ(metric("ground_fits_total{result=\"ok\"}").value_or(0.0), 0.0);
+}
+
+TEST_F(NodeTest, FreshImuIsThePrior)
+{
+  fill_tf();
+  start(base_config());
+  publish_imu(wall_now_s());
+  std::this_thread::sleep_for(SETTLE);
+  const auto stamp = cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  const auto state = state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_EQ((*state)["prior"], "imu");
+  EXPECT_TRUE((*state)["imu_ok"].get<bool>());
+  ASSERT_FALSE((*state)["slope_deg"].is_null());
+  EXPECT_LT((*state)["slope_deg"].get<double>(), 1.0);
+  EXPECT_EQ((*state)["slope_level"], "ok");
+  EXPECT_TRUE(metric("ground_slope_deg").has_value());
+}
+
+TEST_F(NodeTest, StaleImuFallsBackToBaseLink)
+{
+  fill_tf();
+  start(base_config());
+  publish_imu(wall_now_s() - 2.0);
+  std::this_thread::sleep_for(SETTLE);
+  const auto stamp = cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  const auto state = state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_EQ((*state)["prior"], "base_link");
+  EXPECT_FALSE((*state)["imu_ok"].get<bool>());
+  EXPECT_TRUE((*state)["slope_deg"].is_null());
+}
+
+TEST_F(NodeTest, ImuWithoutOrientationIsNotUsed)
+{
+  fill_tf();
+  start(base_config());
+  publish_imu(wall_now_s() + 0.2, -1.0);
+  std::this_thread::sleep_for(SETTLE);
+  auto stamp = cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  auto state = state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_EQ((*state)["prior"], "base_link");
+
+  // A quaternion that is not normalised is not used either.
+  publish_imu(wall_now_s() + 0.2, 0.01, 2.0);
+  std::this_thread::sleep_for(SETTLE);
+  stamp = cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  state = state_after(ns_of(stamp), [](const json &) { return true; });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_EQ((*state)["prior"], "base_link");
+}
+
+TEST_F(NodeTest, RgbdCloudWithARedSheetIsLabelledAndGivesAColourWarningArea)
+{
+  fill_tf();
+  start(base_config());
+  ASSERT_TRUE(wait_for([this] { return rgbd_pub_->get_subscription_count() > 0; }));
+  cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+
+  // Train the floor colour model on grey floor clouds, then show the sheet.
+  for (int i = 0; i < TRAIN_CLOUDS; ++i) {
+    const auto stamp = publish_rgbd(false);
+    ASSERT_TRUE(wait_for([&] { return find_stamp(labelled_, stamp).has_value(); }));
+  }
+  const auto sheet_stamp = publish_rgbd(true);
+  ASSERT_TRUE(wait_for([&] { return find_stamp(labelled_, sheet_stamp).has_value(); }));
+  const auto labelled = *find_stamp(labelled_, sheet_stamp);
+  EXPECT_EQ(labelled.header.frame_id, BASE);
+  const auto labels = labels_of(labelled);
+  const auto xyz = xyz_of(labelled);
+  ASSERT_EQ(labels.size(), xyz.size());
+  size_t mismatch = 0;
+  for (size_t i = 0; i < labels.size(); ++i) {
+    if (labels[i] == LABEL_MISMATCH) {
+      ++mismatch;
+      // The labelled cloud is in base_link: every flagged point lies on the sheet.
+      EXPECT_TRUE(on_sheet(xyz[i].cast<double>()));
+    }
+  }
+  EXPECT_GT(mismatch, 20u);
+  EXPECT_GE(metric("ground_labelled_clouds_total").value_or(0.0), TRAIN_CLOUDS + 1.0);
+  EXPECT_TRUE(metric("ground_colour_mismatch_ratio").has_value());
+
+  const auto stamp = cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  const auto doc = warnings_at(stamp);
+  ASSERT_TRUE(doc.has_value());
+  bool colour = false;
+  for (const auto & a : (*doc)["areas"]) {
+    if (a["kind"] == "colour" && a["source"] == "colour") {
+      colour = true;
+      const Eigen::Vector3d expected =
+        MAP_T_ODOM * ODOM_T_BASE * Eigen::Vector3d((SHEET_X0 + SHEET_X1) / 2.0, (SHEET_Y0 + SHEET_Y1) / 2.0, 0.0);
+      const Eigen::Vector2d c = centroid(a["polygon"]);
+      EXPECT_NEAR(c.x(), expected.x(), CENTROID_TOL_M);
+      EXPECT_NEAR(c.y(), expected.y(), CENTROID_TOL_M);
+    }
+  }
+  EXPECT_TRUE(colour) << doc->dump();
+  // The flat sheet is a warning, never lethal.
+  EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
+  const auto state = state_after(ns_of(stamp), [](const json & d) { return !d["colour"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_TRUE((*state)["colour"]["model_ok"].get<bool>());
+}
+
+TEST_F(NodeTest, RgbdCloudWithoutAPlaneIsNotLabelled)
+{
+  fill_tf();
+  start(base_config());
+  ASSERT_TRUE(wait_for([this] { return rgbd_pub_->get_subscription_count() > 0; }));
+  publish_rgbd(false);
+  ASSERT_TRUE(wait_for([&] { return dropped("no_plane_rgbd") >= 1.0; }));
+  std::this_thread::sleep_for(SETTLE);
+  EXPECT_EQ(labelled_.size(), 0u);
+  EXPECT_EQ(state_.size(), 0u);
+}
+
+TEST_F(NodeTest, RgbdIsNotSubscribedWhenColourIsDisabled)
+{
+  fill_tf();
+  Config config = base_config();
+  config.colour.enabled = false;
+  start(config);
+  std::this_thread::sleep_for(SETTLE);
+  EXPECT_EQ(rgbd_pub_->get_subscription_count(), 0u);
+}

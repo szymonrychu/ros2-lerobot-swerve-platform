@@ -49,6 +49,17 @@ target_compile_definitions(ground_estimator_core PUBLIC ${PCL_DEFINITIONS})
 ament_target_dependencies(ground_estimator_core PUBLIC sensor_msgs std_msgs pcl_conversions)
 set_target_properties(ground_estimator_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# The ROS wiring: GroundNode and the ground_estimator_node executable (single-threaded executor: the cloud, IMU and
+# RGB-D callbacks and the state timer never run concurrently).
+add_library(ground_estimator_node_lib STATIC src/ground_node.cpp)
+target_link_libraries(ground_estimator_node_lib PUBLIC ground_estimator_core)
+ament_target_dependencies(ground_estimator_node_lib PUBLIC rclcpp sensor_msgs std_msgs tf2 tf2_ros tf2_eigen)
+set_target_properties(ground_estimator_node_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+add_executable(ground_estimator_node src/main.cpp)
+target_link_libraries(ground_estimator_node ground_estimator_node_lib)
+
+install(TARGETS ground_estimator_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
@@ -68,6 +79,11 @@ if(BUILD_TESTING)
       GROUND_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data"
       GROUND_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
   endforeach()
+
+  ament_add_gtest(test_node test/test_node.cpp TIMEOUT 300)
+  target_link_libraries(test_node ground_estimator_node_lib)
+  # synthetic_floor.hpp as "core/synthetic_floor.hpp".
+  target_include_directories(test_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
 endif()
 
 ament_package()
