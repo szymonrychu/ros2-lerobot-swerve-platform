@@ -25,8 +25,8 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(pcl_conversions REQUIRED)
 
-# The pure logic, without ROS node code: every src/core/*.cpp. Globbed so adding a source file under src/core or
-# test/core needs no edit to this file. The node library and executable are added by the node wiring.
+# The pure logic, without ROS node code: every src/core/*.cpp. Globbed, so adding a source file under src/core needs no
+# edit to this file.
 file(GLOB GROUND_CORE_SOURCES CONFIGURE_DEPENDS src/core/*.cpp)
 add_library(ground_estimator_core STATIC ${GROUND_CORE_SOURCES})
 target_include_directories(ground_estimator_core PUBLIC
