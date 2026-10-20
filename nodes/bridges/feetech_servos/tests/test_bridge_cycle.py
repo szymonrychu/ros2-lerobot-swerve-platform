@@ -512,3 +512,61 @@ def test_direct_source_does_not_change_joints_without_mapping() -> None:
 def test_split_stamp_ns_gives_header_sec_and_nanosec() -> None:
     assert split_stamp_ns(1_700_000_000_123_456_789) == (1_700_000_000, 123_456_789)
     assert split_stamp_ns(999) == (0, 999)
+
+
+# --- torque gate: released joints get no command and no goal on any path ---
+
+
+def test_released_joints_ignore_position_and_velocity_commands() -> None:
+    cycle, servo, _ = make_cycle(STEER + DRIVE)
+    cycle.release([33, 32])
+    cycle.handle_command(SWERVE, *steer_msg(0.2))
+    cycle.handle_command(SWERVE, *drive_msg(1.0))
+    assert 33 not in cycle.pending_positions and 34 in cycle.pending_positions
+    assert 32 not in cycle.pending_velocities and 35 in cycle.pending_velocities
+    cycle.write_pending_commands()
+    assert servo.position_writes(33) == [] and servo.speed_writes(32) == []
+    assert servo.position_writes(34) != [] and servo.speed_writes(35) != []
+
+
+def test_release_drops_pending_targets_and_unrelease_accepts_commands_again() -> None:
+    cycle, servo, _ = make_cycle(STEER + DRIVE)
+    cycle.handle_command(SWERVE, *steer_msg(0.2))
+    cycle.handle_command(SWERVE, *drive_msg(1.0))
+    cycle.release([33, 32])
+    assert cycle.released_ids == {33, 32}
+    cycle.write_pending_commands()
+    assert servo.position_writes(33) == [] and servo.speed_writes(32) == []
+    cycle.unrelease([33, 32])
+    assert cycle.released_ids == set()
+    cycle.handle_command(SWERVE, *steer_msg(0.2))
+    cycle.handle_command(SWERVE, *drive_msg(1.0))
+    cycle.write_pending_commands()
+    assert len(servo.position_writes(33)) == 1 and len(servo.speed_writes(32)) == 1
+
+
+def test_write_goal_positions_skips_released_id_even_when_refresh_is_due() -> None:
+    cycle, servo, clock = make_cycle()
+    cycle.goal_refresh_interval_s = 1.0
+    cycle.handle_command(ARM, ["gripper", "wrist_roll"], [0.1, 0.2], [])
+    targets = list(cycle.pending_positions.values())
+    cycle.write_pending_commands()
+    assert servo.position_writes(6) != [] and servo.position_writes(5) != []
+    cycle.release([6])
+    servo.writes.clear()
+    for _ in range(3):
+        clock.now += 5.0  # refresh due for both
+        cycle.write_goal_positions(targets)
+    assert servo.position_writes(6) == []
+    assert len(servo.position_writes(5)) == 3
+
+
+def test_queue_startup_goals_skips_released_ids() -> None:
+    cycle, servo, _ = make_cycle()
+    joints = [JointEntry("gripper", 6, startup_position_rad=0.1), JointEntry("wrist_roll", 5, startup_position_rad=0.1)]
+    cycle.release([6])
+    logged: list[str] = []
+    assert cycle.queue_startup_goals(joints, {5, 6}, logged.append) == [5]
+    assert any("gripper" in line and "released" in line for line in logged)
+    cycle.write_pending_commands()
+    assert servo.position_writes(6) == [] and len(servo.position_writes(5)) == 1

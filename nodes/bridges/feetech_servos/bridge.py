@@ -57,11 +57,10 @@ from .sync_read import (
     read_servo_states,
     sync_read_length,
 )
+from .torque_control import TORQUE_VERIFY_SLEEP_S, TORQUE_WRITE_ATTEMPTS
 
 DEFAULT_QOS_DEPTH = 10
 SERVO_WAIT_INTERVAL_S = 1.0
-TORQUE_WRITE_ATTEMPTS = 8
-TORQUE_VERIFY_SLEEP_S = 0.02
 WHEEL_MODE = 1  # STS mode register: 0 = position servo, 1 = continuous rotation (wheel)
 MISSING_READ_LOG_INTERVAL_S = 5.0
 DEFAULT_METRICS_NODE_NAME = (

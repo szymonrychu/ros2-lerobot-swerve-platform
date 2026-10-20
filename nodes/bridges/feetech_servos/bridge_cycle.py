@@ -140,6 +140,8 @@ class BridgeCycle:
         goal_refresh_interval_s: An unchanged position target is rewritten when its last goal_position sync write
             is this old (0 = never: the register cache alone decides).
         goal_written_at: servo_id -> clock time of the last goal_position sync write that carried the servo.
+        released_ids: Gated servo IDs (torque released, or a wheel of a released group): their commands are ignored
+            and no goal_position is ever written for them (pending, goal refresh or startup goal).
     """
 
     def __init__(
@@ -187,6 +189,28 @@ class BridgeCycle:
         self.pending_velocities: dict[int, PendingTarget] = {}
         self.goal_refresh_interval_s = goal_refresh_interval_s
         self.goal_written_at: dict[int, float] = {}
+        self.released_ids: set[int] = set()
+
+    def release(self, ids: Iterable[int]) -> None:
+        """Gate servos: drop their pending targets and ignore their commands until unrelease.
+
+        A wheel can still be stopped (stop / stop_expired) while gated.
+
+        Args:
+            ids (Iterable[int]): Servo IDs to gate.
+        """
+        for sid in ids:
+            self.released_ids.add(sid)
+            self.pending_positions.pop(sid, None)
+            self.pending_velocities.pop(sid, None)
+
+    def unrelease(self, ids: Iterable[int]) -> None:
+        """Lift the gate: commands for these servos are accepted again.
+
+        Args:
+            ids (Iterable[int]): Servo IDs to un-gate (IDs not gated are ignored).
+        """
+        self.released_ids.difference_update(ids)
 
     def write_velocity(self, joint: JointEntry, velocity: float, received_at: float | None = None) -> bool:
         """Write goal_speed for a wheel joint and record it for the watchdog.
@@ -252,6 +276,7 @@ class BridgeCycle:
         (all joints in one message, position NaN for velocity-mode joints, velocity NaN for position-mode
         joints). Non-finite entries are ignored and never replace a pending target. A newer finite target for a
         joint replaces the pending one, so superseded targets are never written. write_pending_commands writes them.
+        Entries for released (gated) joints are ignored.
 
         Args:
             group: Joint group the message was received for.
@@ -266,7 +291,7 @@ class BridgeCycle:
         direct = source in self.direct_command_sources
         for i, name in enumerate(names):
             joint = group.joint_entry_by_name(name)
-            if joint is None:
+            if joint is None or joint.id in self.released_ids:
                 continue
             if joint.mode == "velocity":
                 if joint.id in self.velocity_ids and i < len(velocities) and is_finite_command(velocities[i]):
@@ -284,7 +309,7 @@ class BridgeCycle:
 
         The target goes out in the first write_pending_commands, with the joint's caps. Joints without
         startup_position_rad are untouched; a joint whose servo has no torque (left unheld or torque-on failed) gets
-        no goal and a log line.
+        no goal and a log line, and so does a released (gated) joint.
 
         Args:
             joints (Iterable[JointEntry]): All configured joints.
@@ -301,6 +326,9 @@ class BridgeCycle:
                 continue
             if joint.id not in torque_ids:
                 log(f"No startup goal for {joint.name} (id={joint.id}): torque is not on.")
+                continue
+            if joint.id in self.released_ids:
+                log(f"No startup goal for {joint.name} (id={joint.id}): released.")
                 continue
             steps = self.position_target_steps(joint, joint.startup_position_rad, direct=True)
             self.pending_positions[joint.id] = PendingTarget(joint, steps, now)
@@ -338,7 +366,8 @@ class BridgeCycle:
         A sync write is a broadcast without status replies, so a servo that missed the packet (corrupted on the
         wire) or reset since (brownout) cannot be detected here. The register cache therefore only rate-limits:
         a target equal to the last written value is left out unless that write is goal_refresh_interval_s old,
-        then it is sent again. The cache and write times are updated when the packet was sent.
+        then it is sent again. The cache and write times are updated when the packet was sent. A released (gated)
+        servo is never included, refresh due or not.
 
         Args:
             targets (Iterable[PendingTarget]): Position targets (value in goal_position steps).
@@ -354,6 +383,8 @@ class BridgeCycle:
         for target in targets:
             sid = target.joint.id
             steps = int(target.value)
+            if sid in self.released_ids:
+                continue
             if self.last_written.setdefault(sid, {}).get(name) == steps and not self.goal_refresh_due(sid, now):
                 continue
             if has_position_caps(target.joint):
