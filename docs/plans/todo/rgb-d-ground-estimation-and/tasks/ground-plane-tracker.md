@@ -1,0 +1,69 @@
+---
+title: Ground plane tracker
+status: todo
+repo: ros2-lerobot-sverve-platform
+value: "The plane survives short occlusions, follows the robot in odom and reports the slope ahead against the tilt_guard limits."
+files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/tracker.hpp, nodes/ground_estimator_cpp/src/core/tracker.cpp, nodes/ground_estimator_cpp/test/core/test_tracker.cpp]
+verify: scripts/cpp-node-test.sh ground_estimator_cpp
+depends_on: [ground-plane-fit]
+owns: [ground-tracker]
+uses: [ground-config, ground-plane-fit, ground-synthetic-scene]
+model: sonnet
+estimate: 60
+actual: ""
+review: ""
+worktree: ""
+branch: ""
+verified_head: ""
+run: ""
+provides: []
+---
+
+# Ground plane tracker
+
+## Requirement
+
+- `include/ground_estimator_cpp/tracker.hpp`, `src/core/tracker.cpp` (design D2 prior, D3):
+  - `Eigen::Vector3d gravity_up_in_base(const Eigen::Quaterniond &imu_orientation, const Eigen::Quaterniond &imu_to_base, double level_roll_deg, double level_pitch_deg)`: the world up vector expressed in base_link from the IMU orientation (REP-103), with the level reference removed so a base standing level yields +z exactly.
+  - `struct Prior { Eigen::Vector3d up; bool from_imu; }`, `Prior choose_prior(std::optional<ImuSample> latest, double now_s, const ImuConfig &)`: the IMU up when the last sample is younger than `imu.timeout_s`, else base_link +z with `from_imu = false`.
+  - `class PlaneTracker`: `update(const Plane &plane_base, const Eigen::Isometry3d &base_to_fixed, double stamp_s)` stores the plane in the fixed frame with EMA smoothing `fit.smoothing` (normal renormalised, d blended); `std::optional<TrackedPlane> current(const Eigen::Isometry3d &base_to_fixed, double stamp_s) const` returns the plane in the current base_link with `source` `fit` (updated at this stamp) or `held` (age <= `fit.hold_s`), else nullopt; `age_s`. A plane older than hold_s is never returned.
+  - `struct Slope { double total_deg, roll_deg, pitch_deg; Level level; }`, `enum class Level { ok, warning, error }`, `Slope slope_vs_gravity(const Plane &plane_base, const Eigen::Vector3d &gravity_up_base, const SlopeConfig &)`: the floor tilt ahead as base roll/pitch would be on that plane (REP-103 signs as tilt_guard: roll > 0 left side up, pitch > 0 nose down), level = the worse axis vs the warn/error limits (tilt_guard semantics, no hysteresis here: the ground estimate is a report).
+  - `double plane_vs_base_deg(const Plane &plane_base)`: angle between the plane normal and base_link +z; `double base_tilt_deg(const Eigen::Vector3d &gravity_up_base)`: angle between gravity up and base_link +z.
+- Tests first in `test/core/test_tracker.cpp`, seen failing: identity orientation with zero level reference -> +z; the 0.7/1.3 deg level reference applied to an IMU reading exactly that -> +z within 1e-9; IMU pitched 10 deg -> up vector pitched by 10 deg with the REP-103 sign; stale IMU -> base_link +z and from_imu false; tracker holds a plane up to hold_s then returns nullopt; a plane stored while the base moved 0.5 m forward and yawed 30 deg in odom comes back with the same height in the new base_link; EMA blends two planes as configured (smoothing 1 = latest only); slope of a 5 deg pitched plane on a level robot = 5 deg pitch with the right sign; level ok/warning/error at the limits for roll and pitch; plane_vs_base for a 3 deg tilted plane = 3 deg.
+
+**Interfaces**: `tracker.hpp` (part `ground-tracker`): `gravity_up_in_base`, `choose_prior`, `PlaneTracker`, `TrackedPlane {Plane plane; std::string source; double age_s;}`, `slope_vs_gravity`, `plane_vs_base_deg`, `base_tilt_deg`, `Level`, `to_string(Level)`.
+
+**Expected outcome**: `scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_tracker.
+
+**Steps**: write test_tracker.cpp; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL; implement until PASS; commit `feat(ground_estimator_cpp): plane tracker, IMU prior and slope level`.
+
+**Notes**: tilt_guard (nodes/swerve_drive_controller/swerve_drive_controller/tilt_guard.py) defines the roll/pitch convention and the level reference handling; mirror its signs. The limits default to the tilt_guard defaults (8/15 roll, 12/20 pitch).
+
+## Acceptance conditions
+
+- a1: the IMU prior removes the level reference, follows REP-103 signs and falls back to base_link +z when stale [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
+- a2: the tracker smooths, holds for hold_s in the fixed frame and never returns an older plane [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
+- a3: slope, slope level against the tilt_guard limits, plane_vs_base and base tilt are computed as specified [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
+
+## Files
+
+- `nodes/ground_estimator_cpp/include/ground_estimator_cpp/tracker.hpp`
+- `nodes/ground_estimator_cpp/src/core/tracker.cpp`
+- `nodes/ground_estimator_cpp/test/core/test_tracker.cpp`
+
+## Interfaces
+
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+
+## Expected outcome
+
+What is true and observable when the task is done.
+
+## Steps
+
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+
+## Notes
+
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
