@@ -167,4 +167,5 @@ def test_release_and_stop_allowed_while_released(tmp_path: Path) -> None:
     bridge = bridge_with(follower=RELEASED)
     client = make_client(tmp_path, bridge)
     assert client.post("/api/arm/release?tab=arm").status_code == 200
+    assert client.post("/api/arm/set_home?tab=arm").status_code == 200
     assert client.post("/api/grasp/stop?tab=map").status_code == 200

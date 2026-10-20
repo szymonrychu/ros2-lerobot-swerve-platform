@@ -1095,7 +1095,7 @@ def build_app(
 
     @app.post("/api/arm/set_home")
     async def arm_set_home(tab: str) -> JSONResponse:
-        return await call_arm_trigger("arm_set_home", tab, "arm_set_home_service")
+        return await call_arm_trigger("arm_set_home", tab, "arm_set_home_service", quiet=False)
 
     @app.post("/api/arm/take_control")
     async def arm_take_control(tab: str) -> JSONResponse:
