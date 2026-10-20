@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+
 from feetech_servos.metrics import SET_REGISTER_FAILURES
 from feetech_servos.set_register import apply_set_register
 
@@ -59,7 +60,13 @@ def test_torque_enable_0_and_1_accepted(value: int) -> None:
 
 @pytest.mark.parametrize(
     ("register", "value"),
-    [("torque_limit", 65536), ("torque_limit", -1), ("goal_position", 70000), ("acceleration", 256), ("acceleration", -1)],
+    [
+        ("torque_limit", 65536),
+        ("torque_limit", -1),
+        ("goal_position", 70000),
+        ("acceleration", 256),
+        ("acceleration", -1),
+    ],
 )
 def test_out_of_range_rejected(register: str, value: int) -> None:
     before = failures("bad_value")

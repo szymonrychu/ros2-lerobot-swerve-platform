@@ -150,7 +150,7 @@ def test_set_register_failure_reasons(payload: str, reason: str) -> None:
     labels = {"reason": reason}
     before = value("servo_set_register_failures_total", labels) or 0.0
     warnings: list[str] = []
-    assert apply_set_register(RecordingServo(), make_config(), {}, payload, warnings.append) is False
+    assert apply_set_register(RecordingServo(), make_config(), {}, payload, warnings.append, set()) is False
     assert value("servo_set_register_failures_total", labels) == before + 1
     assert len(warnings) == 1
 
@@ -159,10 +159,10 @@ def test_set_register_write_failed_and_success() -> None:
     payload = json.dumps({"joint_name": "gripper", "register": "torque_enable", "value": 1})
     labels = {"reason": "write_failed"}
     before = value("servo_set_register_failures_total", labels) or 0.0
-    assert apply_set_register(RecordingServo(fail=True), make_config(), {}, payload, lambda _m: None) is False
+    assert apply_set_register(RecordingServo(fail=True), make_config(), {}, payload, lambda _m: None, set()) is False
     assert value("servo_set_register_failures_total", labels) == before + 1
     ok_servo = RecordingServo()
-    assert apply_set_register(ok_servo, make_config(), {}, payload, lambda _m: None) is True
+    assert apply_set_register(ok_servo, make_config(), {}, payload, lambda _m: None, set()) is True
     assert ok_servo.writes
     assert value("servo_set_register_failures_total", labels) == before + 1
 
@@ -170,7 +170,7 @@ def test_set_register_write_failed_and_success() -> None:
 def test_set_register_without_bus_counts_no_bus() -> None:
     labels = {"reason": "no_bus"}
     before = value("servo_set_register_failures_total", labels) or 0.0
-    assert apply_set_register(None, make_config(), {}, "{}", lambda _m: None) is False
+    assert apply_set_register(None, make_config(), {}, "{}", lambda _m: None, set()) is False
     assert value("servo_set_register_failures_total", labels) == before + 1
 
 

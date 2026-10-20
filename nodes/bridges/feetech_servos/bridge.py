@@ -347,9 +347,7 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
 
     def on_set_register(msg: String) -> None:
         callbacks_run[0] += 1
-        apply_set_register(
-            servo, config, last_written, msg.data, node.get_logger().warn, torque_control.released_ids
-        )
+        apply_set_register(servo, config, last_written, msg.data, node.get_logger().warn, torque_control.released_ids)
 
     torque_control.joint_torque.update(startup_torque)
     torque_state = setup_torque_interfaces(node, groups, torque_control, callbacks_run, config.torque_state_interval_s)
