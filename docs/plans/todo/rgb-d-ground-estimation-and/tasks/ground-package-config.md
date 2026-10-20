@@ -30,14 +30,6 @@ provides: []
 - `.github/workflows/ci.yml`: `ground_estimator_cpp` in the C++ package matrix (tests/test_ci_workflow.py and tests/test_node_lint_coverage.py keep it in sync).
 - Tests first in `test/core/test_config.cpp`, seen failing: defaults; the shipped yaml loads; every range and cross-key rule above rejected with the key named; unknown nested key rejected; derived topics.
 
-**Interfaces**: `ground_estimator_cpp::Config` and nested `ImuConfig`, `FitConfig`, `BandsConfig`, `EdgesConfig`, `SlopeConfig`, `ColourConfig`, `StateConfig`; `validate`, `from_yaml`, `load_config_or_exit`; topic accessors `obstacle_points()`, `drop_points()`, `labelled_points()`, `state()` (part `ground-config`).
-
-**Expected outcome**: `scripts/cpp-node-test.sh ground_estimator_cpp` ends `cpp-node-test: ground_estimator_cpp PASS`.
-
-**Steps**: write CMakeLists/package.xml/test_config.cpp, run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL; implement config.cpp and the yaml until PASS; update ci.yml, run `uv run pytest tests/test_ci_workflow.py tests/test_node_lint_coverage.py tests/test_cpp_scaffolding.py -q`; commit `feat(ground_estimator_cpp): package skeleton and config`.
-
-**Notes**: shared/ros2_common_cpp provides `load_config_or_exit`, `Metrics`, process CPU collector (see nodes/head_rgbd_cpp, nodes/map_guard_cpp). nlohmann-json is already a dependency of map_guard_cpp. PCL on noble is 1.14; PCL headers are heavy, keep `-j2` in mind for the Pi build (deploy is the node type task).
-
 ## Acceptance conditions
 
 - a1: the config loads with the documented defaults and rejects every invalid value and cross-key rule naming the key [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
@@ -58,17 +50,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`ground_estimator_cpp::Config` and nested `ImuConfig`, `FitConfig`, `BandsConfig`, `EdgesConfig`, `SlopeConfig`, `ColourConfig`, `StateConfig`; `validate`, `from_yaml`, `load_config_or_exit`; topic accessors `obstacle_points()`, `drop_points()`, `labelled_points()`, `state()` (part `ground-config`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` ends `cpp-node-test: ground_estimator_cpp PASS`.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write CMakeLists/package.xml/test_config.cpp, run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement config.cpp and the yaml until PASS
+- update ci.yml, run `uv run pytest tests/test_ci_workflow.py tests/test_node_lint_coverage.py tests/test_cpp_scaffolding.py -q`
+- commit `feat(ground_estimator_cpp): package skeleton and config`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+shared/ros2_common_cpp provides `load_config_or_exit`, `Metrics`, process CPU collector (see nodes/head_rgbd_cpp, nodes/map_guard_cpp). nlohmann-json is already a dependency of map_guard_cpp. PCL on noble is 1.14; PCL headers are heavy, keep `-j2` in mind for the Pi build (deploy is the node type task).

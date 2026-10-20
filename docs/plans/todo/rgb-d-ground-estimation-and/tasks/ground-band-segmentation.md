@@ -27,14 +27,6 @@ provides: []
 - Non-finite input points are skipped. Range is horizontal distance from the base_link origin.
 - Tests first in `test/core/test_segmentation.cpp` (using `synthetic_floor.hpp`), seen failing: level floor with a 10 cm box -> box points in obstacle with heights ~0.10, floor points in floor, nothing in drop; a 10 cm drop-off beyond 1 m -> lower floor points in drop with heights ~-0.10; a 3 cm sill -> none (below obstacle_min 0.04), a 5 cm sill -> obstacle; floor biased 30 mm along the rays with the plane fitted by `fit_plane` on the same cloud -> no floor point lands in drop (the plane absorbs the bias), while the raw base_link z of the same floor points reaches below -0.02 m (the margin the fixed bands lose); points beyond bands.max_range_m -> none; 0.7 m overhang -> none; NaN points skipped; to_cloud_msg round trip (fields x,y,z float32, frame, stamp, width) and the empty cloud.
 
-**Interfaces**: `segmentation.hpp` (part `ground-segmentation`): `Band`, `classify`, `Segmented`, `segment`, `to_cloud_msg`.
-
-**Expected outcome**: `scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_segmentation.
-
-**Steps**: write test_segmentation.cpp; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL; implement until PASS; commit `feat(ground_estimator_cpp): plane-relative obstacle and drop bands`.
-
-**Notes**: `pcl_conversions::toROSMsg` builds the PointCloud2; the fixed bands for comparison are in nodes/nav2_bringup/config/nav2_params.yaml (tof_mark 0.06..0.6, tof_cliff_mark -1.0..-0.10).
-
 ## Acceptance conditions
 
 - a1: obstacle, drop and floor points are split by signed plane height with the configured bands and range [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
@@ -49,17 +41,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`segmentation.hpp` (part `ground-segmentation`): `Band`, `classify`, `Segmented`, `segment`, `to_cloud_msg`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_segmentation.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write test_segmentation.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement until PASS
+- commit `feat(ground_estimator_cpp): plane-relative obstacle and drop bands`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+`pcl_conversions::toROSMsg` builds the PointCloud2; the fixed bands for comparison are in nodes/nav2_bringup/config/nav2_params.yaml (tof_mark 0.06..0.6, tof_cliff_mark -1.0..-0.10).

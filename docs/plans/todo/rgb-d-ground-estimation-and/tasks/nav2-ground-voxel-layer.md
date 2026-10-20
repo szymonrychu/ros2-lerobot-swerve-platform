@@ -29,14 +29,6 @@ provides: []
 - `nodes/nav2_bringup/README.md`: section "Ground layer (plane-relative ToF marks)": what it marks, why a separate layer, the pass-through limits, what stays on the fixed bands (collision monitor, CliffStop), the runtime switch, and the switch-over criteria: (1) runbook level-floor check passes (plane height within 1 cm, slope and plane_vs_base below 1 deg); (2) the 3 cm sill, 5 cm sill, 10 cm drop at 1 m, box and ramp scenes mark as expected with the ground layer and the fixed-band layer disabled at runtime; (3) no false marks on the floor over a 5 min drive; (4) CPU within the budget; then a separate change disables `tof_mark` and `tof_cliff_mark`.
 - `tests/README.md`: the new file and the changed tests described.
 
-**Interfaces**: nav2_params.yaml `local_costmap.local_costmap.ros__parameters.ground_voxel_layer`; consumes part `ground-topics`.
-
-**Expected outcome**: `uv run pytest tests/test_nav_ground_voxel_layer.py tests/test_nav_tof_voxel_layer.py tests/test_tof_obstacle_wiring.py tests/test_nav_tof_collision.py tests/test_nav_stack_config.py tests/test_nav_footprint.py -q` passes.
-
-**Steps**: write tests/test_nav_ground_voxel_layer.py and the test changes; run the expected-outcome command, see the new tests fail; edit nav2_params.yaml until green; write the README section and tests/README entries; commit `feat(nav2): ground voxel layer alongside the ToF bands`.
-
-**Notes**: nav2_params.yaml:242-329 (tof_voxel_layer), 579/686 (CliffStop), 732-750 (collision monitor sources). The tof epic's escalated `final-suite-and-runbook` also edits tests/test_tof_obstacle_wiring.py: rebase onto whatever landed, keep both sets of checks.
-
 ## Acceptance conditions
 
 - a1: the local costmap has ground_voxel_layer after tof_voxel_layer with the specified sources, topics and settings [evidence: test: tests/test_nav_ground_voxel_layer.py]
@@ -56,17 +48,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+nav2_params.yaml `local_costmap.local_costmap.ros__parameters.ground_voxel_layer`; consumes part `ground-topics`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_nav_ground_voxel_layer.py tests/test_nav_tof_voxel_layer.py tests/test_tof_obstacle_wiring.py tests/test_nav_tof_collision.py tests/test_nav_stack_config.py tests/test_nav_footprint.py -q` passes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write tests/test_nav_ground_voxel_layer.py and the test changes
+- run the expected-outcome command, see the new tests fail
+- edit nav2_params.yaml until green
+- write the README section and tests/README entries
+- commit `feat(nav2): ground voxel layer alongside the ToF bands`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+nav2_params.yaml:242-329 (tof_voxel_layer), 579/686 (CliffStop), 732-750 (collision monitor sources). The tof epic's escalated `final-suite-and-runbook` also edits tests/test_tof_obstacle_wiring.py: rebase onto whatever landed, keep both sets of checks.

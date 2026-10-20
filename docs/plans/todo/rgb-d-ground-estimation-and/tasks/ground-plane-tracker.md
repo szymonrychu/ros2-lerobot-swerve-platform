@@ -31,14 +31,6 @@ provides: []
   - `double plane_vs_base_deg(const Plane &plane_base)`: angle between the plane normal and base_link +z; `double base_tilt_deg(const Eigen::Vector3d &gravity_up_base)`: angle between gravity up and base_link +z.
 - Tests first in `test/core/test_tracker.cpp`, seen failing: identity orientation with zero level reference -> +z; the 0.7/1.3 deg level reference applied to an IMU reading exactly that -> +z within 1e-9; IMU pitched 10 deg -> up vector pitched by 10 deg with the REP-103 sign; stale IMU -> base_link +z and from_imu false; tracker holds a plane up to hold_s then returns nullopt; a plane stored while the base moved 0.5 m forward and yawed 30 deg in odom comes back with the same height in the new base_link; EMA blends two planes as configured (smoothing 1 = latest only); slope of a 5 deg pitched plane on a level robot = 5 deg pitch with the right sign; level ok/warning/error at the limits for roll and pitch; plane_vs_base for a 3 deg tilted plane = 3 deg.
 
-**Interfaces**: `tracker.hpp` (part `ground-tracker`): `gravity_up_in_base`, `choose_prior`, `PlaneTracker`, `TrackedPlane {Plane plane; std::string source; double age_s;}`, `slope_vs_gravity`, `plane_vs_base_deg`, `base_tilt_deg`, `Level`, `to_string(Level)`.
-
-**Expected outcome**: `scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_tracker.
-
-**Steps**: write test_tracker.cpp; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL; implement until PASS; commit `feat(ground_estimator_cpp): plane tracker, IMU prior and slope level`.
-
-**Notes**: tilt_guard (nodes/swerve_drive_controller/swerve_drive_controller/tilt_guard.py) defines the roll/pitch convention and the level reference handling; mirror its signs. The limits default to the tilt_guard defaults (8/15 roll, 12/20 pitch).
-
 ## Acceptance conditions
 
 - a1: the IMU prior removes the level reference, follows REP-103 signs and falls back to base_link +z when stale [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
@@ -53,17 +45,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`tracker.hpp` (part `ground-tracker`): `gravity_up_in_base`, `choose_prior`, `PlaneTracker`, `TrackedPlane {Plane plane; std::string source; double age_s;}`, `slope_vs_gravity`, `plane_vs_base_deg`, `base_tilt_deg`, `Level`, `to_string(Level)`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_tracker.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write test_tracker.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement until PASS
+- commit `feat(ground_estimator_cpp): plane tracker, IMU prior and slope level`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+tilt_guard (nodes/swerve_drive_controller/swerve_drive_controller/tilt_guard.py) defines the roll/pitch convention and the level reference handling; mirror its signs. The limits default to the tilt_guard defaults (8/15 roll, 12/20 pitch).

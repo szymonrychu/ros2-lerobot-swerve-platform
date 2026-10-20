@@ -28,14 +28,6 @@ provides: []
 - Tests first in `nodes/mcp_server/tests/test_floor_guard_ground.py`, seen failing: a state with a drop region 0.3 m ahead gives a Terrain whose lookup beyond the edge returns the drop height; explicit surfaces override an overlapping ground region; region count trimmed to MAX_REGIONS keeping explicit ones; stale/absent/plane-null refusals with the reason; default false leaves the surface model equal to the current one; the tool parameter is passed through.
 - `nodes/mcp_server/README.md`: the floor_guard `use_ground_estimate` option, freshness rule and refusal.
 
-**Interfaces**: `FloorOverride.use_ground_estimate`; `floor_guard.ground_max_age_s`; `ground_regions_to_surfaces(state) -> list[SurfaceRegion]` (floor_guard.py).
-
-**Expected outcome**: `cd nodes/mcp_server && uv run --frozen pytest tests/test_floor_guard_ground.py -q` passes and the full mcp suite stays green.
-
-**Steps**: write tests/test_floor_guard_ground.py; run it, see FAIL; implement floor_guard, grasp_tools, tools, arm wiring; run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`; update the README; commit `feat(mcp_server): floor_guard terrain from the ground estimate`.
-
-**Notes**: surfaces.py `SurfaceRegion`/`Terrain` (46-330), floor_guard.py `surface()` (550-580); arm.py passes `FloorOverride` to the guard (arm.py:1155-1190).
-
 ## Acceptance conditions
 
 - a1: use_ground_estimate builds the floor_guard Terrain from fresh ground regions with explicit surfaces winning [evidence: test: nodes/mcp_server/tests/test_floor_guard_ground.py]
@@ -55,17 +47,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`FloorOverride.use_ground_estimate`; `floor_guard.ground_max_age_s`; `ground_regions_to_surfaces(state) -> list[SurfaceRegion]` (floor_guard.py).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/mcp_server && uv run --frozen pytest tests/test_floor_guard_ground.py -q` passes and the full mcp suite stays green.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write tests/test_floor_guard_ground.py
+- run it, see FAIL
+- implement floor_guard, grasp_tools, tools, arm wiring
+- run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`
+- update the README
+- commit `feat(mcp_server): floor_guard terrain from the ground estimate`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+surfaces.py `SurfaceRegion`/`Terrain` (46-330), floor_guard.py `surface()` (550-580); arm.py passes `FloorOverride` to the guard (arm.py:1155-1190).

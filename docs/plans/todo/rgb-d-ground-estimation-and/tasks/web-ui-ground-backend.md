@@ -29,14 +29,6 @@ provides: []
 - Tests first in `nodes/web_ui/tests/test_ground_layer.py`, seen failing: config keys optional and in default.yaml and client.yml with the ground_estimator_cpp topics (consistency with `nodes/ground_estimator_cpp/config/ground_estimator.yaml` output_namespace); roles derive the message types; a synthetic labelled PointCloud2 (x, y, z, rgb, label uint8) serializes with labels aligned to the kept points after voxel downsampling; missing label field; the state fixture `nodes/ground_estimator_cpp/test/data/state_example.json` passes through serialize_json_object unchanged.
 - `nodes/web_ui/README.md`: the two keys and roles.
 
-**Interfaces**: roles `ground_cloud`, `ground_state` (part `web-ground-roles`); payload `{points_b64, colors_b64, labels_b64, frame, frame_id, ...}`; consumes parts `ground-state`, `ground-topics`, `ground-colour-labels` (label values 0..4).
-
-**Expected outcome**: `cd nodes/web_ui && uv run --frozen pytest tests/test_ground_layer.py -q` passes and the full web_ui suite stays green.
-
-**Steps**: write tests/test_ground_layer.py; run it, see FAIL; implement config, bridge, cloud_serializer, default.yaml, client.yml; run `cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint`; update the README; commit `feat(web_ui): ground cloud and state roles`.
-
-**Notes**: pattern: commit ba48647a (rgbd_cloud role: config.py:154/349, bridge.py:277-305, cloud_serializer.py:43-110). Other epics may edit client.yml concurrently: rebase.
-
 ## Acceptance conditions
 
 - a1: ground_cloud and ground_state roles and their tab keys exist in config, default.yaml and client.yml with the ground_estimator_cpp topics [evidence: test: nodes/web_ui/tests/test_ground_layer.py]
@@ -55,17 +47,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+roles `ground_cloud`, `ground_state` (part `web-ground-roles`); payload `{points_b64, colors_b64, labels_b64, frame, frame_id, ...}`; consumes parts `ground-state`, `ground-topics`, `ground-colour-labels` (label values 0..4).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/web_ui && uv run --frozen pytest tests/test_ground_layer.py -q` passes and the full web_ui suite stays green.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write tests/test_ground_layer.py
+- run it, see FAIL
+- implement config, bridge, cloud_serializer, default.yaml, client.yml
+- run `cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint`
+- update the README
+- commit `feat(web_ui): ground cloud and state roles`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+pattern: commit ba48647a (rgbd_cloud role: config.py:154/349, bridge.py:277-305, cloud_serializer.py:43-110). Other epics may edit client.yml concurrently: rebase.

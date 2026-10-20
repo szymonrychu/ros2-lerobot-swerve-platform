@@ -28,14 +28,6 @@ provides: []
 - `scripts/node_cpu_compare.yaml`: entry `{name: nav2_bringup_ground_layer, before_unit: ros2-nav2_bringup.service, after_unit: ros2-nav2_bringup.service, switch_time: 1}` with a comment that ros2-ground_estimator_cpp.service is new and measured "after" only by the runbook query (the file's convention); `tests/test_node_cpu_compare.py` stays green (extend it if it pins the entry list).
 - `tests/README.md`: the changed tests described.
 
-**Interfaces**: dashboard row "Ground estimate" in robot-slam.json; consumes parts `ground-metrics`, `ground-node-unit`.
-
-**Expected outcome**: `uv run pytest tests/test_monitoring_dashboards.py tests/test_node_cpu_compare.py -q && uv run poe lint` passes.
-
-**Steps**: extend tests/test_monitoring_dashboards.py; run it, see FAIL; edit robot-slam.json and node_cpu_compare.yaml until green; update tests/README.md; commit `feat(monitoring): ground estimate dashboard row`.
-
-**Notes**: robot-slam.json already has head_rgbd and tof panels (pattern). The tof epic's escalated final task also lists scripts/node_cpu_compare.yaml: rebase, keep its entries.
-
 ## Acceptance conditions
 
 - a1: robot-slam.json has the Ground estimate row with host-scoped queries on contract metrics only, including the unit CPU against the 0.10 core budget [evidence: test: tests/test_monitoring_dashboards.py]
@@ -52,17 +44,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+dashboard row "Ground estimate" in robot-slam.json; consumes parts `ground-metrics`, `ground-node-unit`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_monitoring_dashboards.py tests/test_node_cpu_compare.py -q && uv run poe lint` passes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- extend tests/test_monitoring_dashboards.py
+- run it, see FAIL
+- edit robot-slam.json and node_cpu_compare.yaml until green
+- update tests/README.md
+- commit `feat(monitoring): ground estimate dashboard row`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+robot-slam.json already has head_rgbd and tof panels (pattern). The tof epic's escalated final task also lists scripts/node_cpu_compare.yaml: rebase, keep its entries.

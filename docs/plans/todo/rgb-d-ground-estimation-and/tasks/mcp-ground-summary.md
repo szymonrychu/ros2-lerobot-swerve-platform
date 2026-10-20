@@ -30,14 +30,6 @@ provides: []
 - Tests first in `nodes/mcp_server/tests/test_ground_summary.py`, seen failing: the contract fixture `nodes/ground_estimator_cpp/test/data/state_example.json` parses into GroundState (path read from the repo); unknown or missing keys rejected; stale and absent states give the note; a plane-null state gives the reason note; summary fields mapped and rounded; config defaults and the client.yml value equal `/ground/state` and equal the ground_estimator_cpp `output_namespace` + `/state`.
 - `nodes/mcp_server/README.md`: the ground field of get_map_summary, the topic and the stale timeout.
 
-**Interfaces**: `GroundState`, `GroundRegion`, `GroundSummary` (models.py); `RosInterface.ground_state()` (part `mcp-ground-state-client`); consumes part `ground-state`.
-
-**Expected outcome**: `cd nodes/mcp_server && uv run --frozen pytest tests/test_ground_summary.py -q` passes and the full mcp suite stays green.
-
-**Steps**: write tests/test_ground_summary.py; run it, see FAIL; implement config, models, ros_iface, tools; run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`; update the README; commit `feat(mcp_server): ground estimate in get_map_summary`.
-
-**Notes**: pattern: `tilt_guard_state` subscription (ros_iface.py:131, 798) and `tof_points` (ros_iface.py:1859). Deploying mcp_server kills a running agent session; do not deploy here.
-
 ## Acceptance conditions
 
 - a1: the ground state contract fixture parses into GroundState and malformed states are rejected [evidence: test: nodes/mcp_server/tests/test_ground_summary.py]
@@ -58,17 +50,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`GroundState`, `GroundRegion`, `GroundSummary` (models.py); `RosInterface.ground_state()` (part `mcp-ground-state-client`); consumes part `ground-state`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/mcp_server && uv run --frozen pytest tests/test_ground_summary.py -q` passes and the full mcp suite stays green.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write tests/test_ground_summary.py
+- run it, see FAIL
+- implement config, models, ros_iface, tools
+- run `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`
+- update the README
+- commit `feat(mcp_server): ground estimate in get_map_summary`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+pattern: `tilt_guard_state` subscription (ros_iface.py:131, 798) and `tof_points` (ros_iface.py:1859). Deploying mcp_server kills a running agent session; do not deploy here.

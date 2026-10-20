@@ -32,14 +32,6 @@ provides: []
 - `test/test_node.cpp` (in-process like nodes/head_rgbd_cpp/test/test_node.cpp: probe publishers, a tf2 buffer fed with static and timed transforms, synthetic_floor.hpp clouds): a level floor with a box -> obstacle_points has the box, drop_points empty, state plane height ~0 and reason null; a drop-off scene -> drop_points and a drop region in the state; a wall-only cloud -> no obstacle/drop message, state plane null with reason normal_off_prior or no_plane (after hold_s); missing TF -> no output and the tf drop counter; IMU stale -> state prior base_link; an RGB-D cloud with a red sheet -> labelled_points with label 3 points; no state before the first cloud.
 - `nodes/ground_estimator_cpp/README.md`: purpose, layout, topics table (direction, topic, type, QoS, frame, notes), the state JSON keys with meaning and units (contract `ground-state`), label values 0..4, configuration table (every key, default, meaning), metrics, the no-placeholder rules, how the IMU prior and hold work, CPU notes.
 
-**Interfaces**: `ground_node.hpp` `GroundNode`; topics `/ground/obstacle_points`, `/ground/drop_points`, `/ground/labelled_points`, `/ground/state` (part `ground-topics`); metric names (part `ground-metrics`).
-
-**Expected outcome**: `scripts/cpp-node-test.sh ground_estimator_cpp` PASS including test_node; README documents every topic, key and metric.
-
-**Steps**: write test/test_node.cpp and the CMake test target; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL; implement the node and main until PASS; write the README; commit `feat(ground_estimator_cpp): ground estimator node wiring`.
-
-**Notes**: copy the TF/metrics/QoS patterns of nodes/head_rgbd_cpp/src/head_rgbd_node.cpp. Keep the 10 Hz path allocation-light (reuse clouds). `/imu/data` frame is `imu_link` (client.yml bno055_imu config).
-
 ## Acceptance conditions
 
 - a1: with a valid plane the node publishes plane-relative obstacle and drop clouds and the state with regions and slope [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
@@ -59,17 +51,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`ground_node.hpp` `GroundNode`; topics `/ground/obstacle_points`, `/ground/drop_points`, `/ground/labelled_points`, `/ground/state` (part `ground-topics`); metric names (part `ground-metrics`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS including test_node; README documents every topic, key and metric.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write test/test_node.cpp and the CMake test target
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement the node and main until PASS
+- write the README
+- commit `feat(ground_estimator_cpp): ground estimator node wiring`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+copy the TF/metrics/QoS patterns of nodes/head_rgbd_cpp/src/head_rgbd_node.cpp. Keep the 10 Hz path allocation-light (reuse clouds). `/imu/data` frame is `imu_link` (client.yml bno055_imu config).

@@ -34,7 +34,7 @@ The head ToF/RGB-D stream (head_rgbd_cpp, calibrated 2026-10-20) is integrated i
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+Estimate: 975 min | Actual: 0 min | Remaining estimate: 975 min
 
 ## Review
 

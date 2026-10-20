@@ -28,14 +28,6 @@ provides: []
 - Edge line: direction = the cluster's principal axis in xy (PCA), the line placed through the cluster points nearest the base_link origin along the axis normal (the boundary facing the robot, e.g. the 10th percentile of the signed normal offset); `side` chosen so the region (the cluster) lies on that side and the robot origin on the other; `distance_m` = distance from the origin to the line. Names `drop_<i>` / `step_<i>` numbered by distance; at most `edges.max_regions`, nearest first.
 - Tests first in `test/core/test_edges.cpp` (synthetic_floor.hpp + segment + fit_plane), seen failing: a straight 15 cm drop-off 1.0 m ahead across the robot -> one drop region, height ~-0.15 (+-1 cm), line ~x = 1.0 (+-5 cm), direction parallel to y, side such that a point at x = 1.5 is inside and the origin outside (asserted with the same left/right rule as mcp surfaces.py: left = cross(direction, p - point) > 0); a drop-off rotated 30 deg -> direction rotated 30 deg (+-3 deg); a flat plate 60 cm wide, 30 cm deep and 8 cm high -> step region height ~0.08; a 30 cm box -> no region; noise below min_cluster_points -> no region; three drops -> nearest first and capped at max_regions.
 
-**Interfaces**: `edges.hpp` (part `ground-edges`): `Region`, `extract_regions`. The Region fields map 1:1 to mcp `SurfaceRegion` (`name`, `height_m`, `frame: base_link`, `edge {point, direction, side}`) plus `kind`, `distance_m`, `points`.
-
-**Expected outcome**: `scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_edges.
-
-**Steps**: write test_edges.cpp; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL; implement until PASS; commit `feat(ground_estimator_cpp): step and drop-off edge regions`.
-
-**Notes**: mcp SurfaceRegion/HalfPlaneEdge: nodes/mcp_server/mcp_server/surfaces.py:46-118 (side semantics in the HalfPlaneEdge docstring).
-
 ## Acceptance conditions
 
 - a1: drop-offs and flat low steps become half-plane regions with the stated height, line and side tolerances [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
@@ -50,17 +42,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`edges.hpp` (part `ground-edges`): `Region`, `extract_regions`. The Region fields map 1:1 to mcp `SurfaceRegion` (`name`, `height_m`, `frame: base_link`, `edge {point, direction, side}`) plus `kind`, `distance_m`, `points`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_edges.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write test_edges.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement until PASS
+- commit `feat(ground_estimator_cpp): step and drop-off edge regions`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+mcp SurfaceRegion/HalfPlaneEdge: nodes/mcp_server/mcp_server/surfaces.py:46-118 (side semantics in the HalfPlaneEdge docstring).

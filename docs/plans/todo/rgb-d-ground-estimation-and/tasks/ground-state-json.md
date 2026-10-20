@@ -28,14 +28,6 @@ provides: []
 - Tests first in `test/core/test_state.cpp`, seen failing: key order equals STATE_KEYS for a full and a plane-less state; plane-less state has null plane, slope and plane_vs_base and the reason; region and colour shapes; rounding; the JSON parses back with nlohmann.
 - `nodes/ground_estimator_cpp/test/data/state_example.json`: one full example produced by the test inputs (checked by the test to equal `to_state_string`), used by mcp_server and web_ui tests as the contract fixture.
 
-**Interfaces**: `state.hpp` (part `ground-state`): `STATE_KEYS`, `StateInputs`, `build_state`, `to_state_string`; fixture `test/data/state_example.json`.
-
-**Expected outcome**: `scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_state.
-
-**Steps**: write test_state.cpp and the fixture; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL; implement until PASS; commit `feat(ground_estimator_cpp): ground state JSON contract`.
-
-**Notes**: `/tilt_guard/state` (tilt_guard.py STATE_KEYS) is the pattern of a JSON state topic with a fixed key order.
-
 ## Acceptance conditions
 
 - a1: the state JSON has exactly the STATE_KEYS in order with the specified shapes for full and plane-less states [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
@@ -51,17 +43,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`state.hpp` (part `ground-state`): `STATE_KEYS`, `StateInputs`, `build_state`, `to_state_string`; fixture `test/data/state_example.json`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_state.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write test_state.cpp and the fixture
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement until PASS
+- commit `feat(ground_estimator_cpp): ground state JSON contract`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+`/tilt_guard/state` (tilt_guard.py STATE_KEYS) is the pattern of a JSON state topic with a fixed key order.

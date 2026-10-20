@@ -27,14 +27,6 @@ provides: []
 - `colour.enabled: false` makes label_cloud return geometric labels only (no mismatch, model untouched).
 - Tests first in `test/core/test_colour.cpp`, seen failing: a grey floor with a red A4 sheet lying flat -> sheet points floor_colour_mismatch, the rest floor, ratio ~ sheet share; a grey box -> obstacle (geometry wins); before min_floor_samples nothing is mismatch; forgetting: the model follows a floor colour change within 1/forgetting updates; Lab conversion of pure white/black/grey gives L 100/0/~53; labelled message fields, offsets and label values; colour.enabled false.
 
-**Interfaces**: `colour.hpp` (part `ground-colour-labels`): `Label`, `FloorColourModel`, `LabelStats`, `label_cloud`, `to_labelled_msg`. The label values 0..4 are a contract read by web_ui (design D6).
-
-**Expected outcome**: `scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_colour.
-
-**Steps**: write test_colour.cpp; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL; implement until PASS; commit `feat(ground_estimator_cpp): RGB-D floor colour labels`.
-
-**Notes**: head_rgbd_cpp packs rgb as float32 (`nodes/head_rgbd_cpp/src/core/cloud.cpp`); pcl::PointXYZRGB matches that layout via pcl_conversions::fromROSMsg.
-
 ## Acceptance conditions
 
 - a1: geometric floor points with a non-floor colour are labelled floor_colour_mismatch once the model is ready; geometry decides obstacle and drop [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
@@ -49,17 +41,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`colour.hpp` (part `ground-colour-labels`): `Label`, `FloorColourModel`, `LabelStats`, `label_cloud`, `to_labelled_msg`. The label values 0..4 are a contract read by web_ui (design D6).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_colour.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write test_colour.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement until PASS
+- commit `feat(ground_estimator_cpp): RGB-D floor colour labels`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+head_rgbd_cpp packs rgb as float32 (`nodes/head_rgbd_cpp/src/core/cloud.cpp`); pcl::PointXYZRGB matches that layout via pcl_conversions::fromROSMsg.

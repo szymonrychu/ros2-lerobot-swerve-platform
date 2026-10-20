@@ -28,14 +28,6 @@ provides: []
 - `test/core/synthetic_floor.hpp` (part `ground-synthetic-scene`, header-only, used by later tests): deterministic generators in base_link: a floor plane with given tilt (roll, pitch) and height, Gaussian noise, a uniform depth-like bias along the ray from a sensor origin (the ToF long bias), a box (obstacle) at a position and size, a step-up region (flat top at a height over a half-plane), a drop-off (lower floor beyond an edge line), a wall, a table top; points on an image-like grid of a 240x180 sensor footprint subsampled like decimation 4.
 - Tests first in `test/core/test_plane_fit.cpp`, seen failing: level floor -> height ~0, normal ~+z (within 0.5 deg, 5 mm); 5 deg pitched floor with a matching prior -> found, angle within 0.5 deg; same floor with a level prior -> found (inside 10 deg); a wall-only cloud -> normal_off_prior or no_plane; a table top at +0.3 m only -> offset_off_prior or too_few_points (outside the band); floor with a box covering half the view -> still found; floor biased by 30 mm along the rays -> plane found and the reported height reflects the bias (within the gate); empty and 10-point clouds -> too_few_points; same input and seed -> identical output.
 
-**Interfaces**: `plane_fit.hpp` (part `ground-plane-fit`), `synthetic_floor.hpp` (part `ground-synthetic-scene`).
-
-**Expected outcome**: `scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_plane_fit.
-
-**Steps**: write synthetic_floor.hpp and test_plane_fit.cpp; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL; implement plane_fit.cpp until PASS; commit `feat(ground_estimator_cpp): plane fit with gravity prior`.
-
-**Notes**: PCL `SACSegmentation::setAxis` takes `Eigen::Vector3f`; `setEpsAngle` is radians. `pcl::console::setVerbosityLevel(L_ERROR)` keeps PCL quiet in tests and the node.
-
 ## Acceptance conditions
 
 - a1: fit_plane finds level, tilted, partially occluded and biased floors within the stated tolerances [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
@@ -51,17 +43,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`plane_fit.hpp` (part `ground-plane-fit`), `synthetic_floor.hpp` (part `ground-synthetic-scene`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with test_plane_fit.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write synthetic_floor.hpp and test_plane_fit.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement plane_fit.cpp until PASS
+- commit `feat(ground_estimator_cpp): plane fit with gravity prior`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+PCL `SACSegmentation::setAxis` takes `Eigen::Vector3f`; `setEpsAngle` is radians. `pcl::console::setVerbosityLevel(L_ERROR)` keeps PCL quiet in tests and the node.

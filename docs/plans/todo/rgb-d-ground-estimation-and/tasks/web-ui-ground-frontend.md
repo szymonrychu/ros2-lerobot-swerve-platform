@@ -30,18 +30,10 @@ provides: []
 - Tests first, seen failing: `src/map3d/groundLayer.test.ts` (label decode, palette, plane patch for a level and a 5 deg tilted plane, null plane, region edge segments, stale state); LayersPanel test for the toggle and legend (extend `src/map/LayersPanel.test.tsx`).
 - `nodes/web_ui/README.md`: the Ground layer (what the colours mean, on demand, data source).
 
-**Interfaces**: `groundLayer.ts` `decodeGroundCloud`, `labelColour`, `planePatch`, `regionEdges`; layer id `ground`; consumes part `web-ground-roles`, `ground-state`.
-
-**Expected outcome**: `cd nodes/web_ui/frontend && npx vitest run src/map3d/groundLayer.test.ts src/map/LayersPanel.test.tsx && npx tsc --noEmit && npm run lint && npm run build` passes.
-
-**Steps**: write groundLayer.test.ts and the LayersPanel test; run vitest, see FAIL; implement groundLayer.ts and the wiring until green; run the full frontend checks; update the README; commit `feat(web_ui): ground layer on the map`.
-
-**Notes**: pattern: commit 044c6aae (Head RGB-D cloud layer: layers.ts, sceneLayers.tsx, LayersPanel.tsx, MapNavTab.tsx, obstaclePoints.ts, cloudDecode.ts).
-
 ## Acceptance conditions
 
 - a1: ground cloud labels decode and map to the five legend colours; plane patch and region edges are computed from the state [evidence: test: nodes/web_ui/frontend/src/map3d/groundLayer.test.ts]
-- a2: the Ground toggle, legend and slope read-out are in the layers panel [evidence: test: nodes/web_ui/frontend/src/map/LayersPanel.test.tsx]
+- a2: the Ground toggle, legend and slope read-out are in the layers panel [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/map/LayersPanel.test.tsx]
 - a3: the frontend type-checks, lints and builds [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npm run lint && npm run build]
 - a4: the layer draws nothing from a stale or plane-less state [evidence: judgement]
 
@@ -58,17 +50,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`groundLayer.ts` `decodeGroundCloud`, `labelColour`, `planePatch`, `regionEdges`; layer id `ground`; consumes part `web-ground-roles`, `ground-state`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/web_ui/frontend && npx vitest run src/map3d/groundLayer.test.ts src/map/LayersPanel.test.tsx && npx tsc --noEmit && npm run lint && npm run build` passes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write groundLayer.test.ts and the LayersPanel test
+- run vitest, see FAIL
+- implement groundLayer.ts and the wiring until green
+- run the full frontend checks
+- update the README
+- commit `feat(web_ui): ground layer on the map`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+pattern: commit 044c6aae (Head RGB-D cloud layer: layers.ts, sceneLayers.tsx, LayersPanel.tsx, MapNavTab.tsx, obstaclePoints.ts, cloudDecode.ts).

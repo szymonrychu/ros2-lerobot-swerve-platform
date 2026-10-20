@@ -30,14 +30,6 @@ provides: []
 - Test first: new `tests/test_ground_docs.py`, seen failing: the runbook has the sections above; the runbook's thresholds equal the design values (0.10 core, 1 cm, 1 deg); MEMORY.md has the entry; topic_flow.puml names ground_estimator_cpp and the four /ground topics; tests/README.md lists every `tests/test_*ground*.py` file and test_ground_docs.py.
 - The full verify command passes; the report quotes every summary line.
 
-**Interfaces**: runbook `docs/runbooks/ground-estimation.md`; consumes part `ground-node-unit`.
-
-**Expected outcome**: the full verify command is green; the runbook is ready for the robot run.
-
-**Steps**: write tests/test_ground_docs.py; run `uv run pytest tests/test_ground_docs.py -q`, see FAIL; write the runbook, MEMORY entry, diagram and tests/README entries; run the full verify; commit `docs(ground): runbook, memory and diagram`.
-
-**Notes**: runbook pattern: docs/runbooks/head-rgbd-fusion.md, docs/runbooks/map3d-mapping.md. MEMORY.md and tests/README.md are also edited by other epics: rebase.
-
 ## Acceptance conditions
 
 - a1: the runbook has every section with the design thresholds, and the docs test passes [evidence: test: tests/test_ground_docs.py]
@@ -55,17 +47,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+runbook `docs/runbooks/ground-estimation.md`; consumes part `ground-node-unit`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+the full verify command is green; the runbook is ready for the robot run.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write tests/test_ground_docs.py
+- run `uv run pytest tests/test_ground_docs.py -q`, see FAIL
+- write the runbook, MEMORY entry, diagram and tests/README entries
+- run the full verify
+- commit `docs(ground): runbook, memory and diagram`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+runbook pattern: docs/runbooks/head-rgbd-fusion.md, docs/runbooks/map3d-mapping.md. MEMORY.md and tests/README.md are also edited by other epics: rebase.

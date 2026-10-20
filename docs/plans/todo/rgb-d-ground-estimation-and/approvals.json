@@ -1,0 +1,44 @@
+[
+  {
+    "id": "A1",
+    "text": "A new C++ ground node fits the floor plane from the 10 Hz ToF cloud with an IMU prior and gives plane-relative obstacle, step and drop-off marks; only real data is published.",
+    "decisions": ["D1", "D2", "D4", "D7"],
+    "tasks": ["ground-package-config", "ground-plane-fit", "ground-band-segmentation", "ground-state-json", "ground-node-wiring"],
+    "status": "approved"
+  },
+  {
+    "id": "A2",
+    "text": "The plane-relative marks feed Nav2 alongside the current fixed bands (switch-over only after validation, criteria documented); the collision monitor keeps the 10 Hz ToF; the global costmap stays static + lidar; no depth-bias correction in this epic.",
+    "decisions": ["D8", "D13"],
+    "tasks": ["nav2-ground-voxel-layer", "ground-final-suite-runbook"],
+    "status": "approved"
+  },
+  {
+    "id": "A3",
+    "text": "The ground estimate (floor height, slope with the tilt_guard cross-check, steps and drop-offs as surface regions) is available to consumers: mcp_server map summary and floor_guard Terrain.",
+    "decisions": ["D3", "D5", "D9"],
+    "tasks": ["ground-plane-tracker", "ground-step-edges", "ground-state-json", "ground-node-type", "mcp-ground-summary", "mcp-floor-guard-ground"],
+    "status": "approved"
+  },
+  {
+    "id": "A4",
+    "text": "RGB-D colour labels floor vs obstacle, and the ground estimate is visible in the web UI map.",
+    "decisions": ["D6", "D10"],
+    "tasks": ["ground-colour-labels", "ground-node-wiring", "web-ui-ground-backend", "web-ui-ground-frontend"],
+    "status": "approved"
+  },
+  {
+    "id": "A5",
+    "text": "Ansible node type with the ros2_nodes schema and a cgroup tier, metrics with a Grafana panel, and the CPU budget measured on the Pi 5.",
+    "decisions": ["D11"],
+    "tasks": ["ground-node-type", "ground-dashboard-panels", "ground-final-suite-runbook"],
+    "status": "approved"
+  },
+  {
+    "id": "A6",
+    "text": "READMEs, tests/README.md, MEMORY entry, runbook and a final robot verification executed after merge.",
+    "decisions": ["D12"],
+    "tasks": ["ground-node-wiring", "ground-final-suite-runbook"],
+    "status": "approved"
+  }
+]
