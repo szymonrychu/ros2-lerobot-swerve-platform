@@ -2,36 +2,106 @@
   {
     "id": "A1",
     "text": "Head calibrate: floor ChArUco board at 3-4 spots over a pan/tilt grid driven by the node, one fit of head height, mount roll/pitch, tilt zero and camera lever, applied as a head_chain override read by head_state_publisher, mcp_server HeadKinematics and front camera, and the web UI.",
-    "decisions": ["D1", "D2", "D3", "D5", "D6", "D8", "D11"],
-    "tasks": ["calib-config-and-view-types", "urdf-chain-fk-core", "head-chain-override-format", "head-chain-board-solver", "session-kinds-joint-poses", "joint-state-still-capture", "robot-mcp-client", "head-grid-capture-sequence", "head-chain-compute-apply", "sequence-http-api", "head-state-publisher-chain", "mcp-head-kinematics-applied", "mcp-front-camera-applied", "web-ui-applied-head-urdf", "calib-ansible-deploy-config"],
+    "decisions": [
+      "D1",
+      "D2",
+      "D3",
+      "D5",
+      "D6",
+      "D8",
+      "D11"
+    ],
+    "tasks": [
+      "calib-config-and-view-types",
+      "urdf-chain-fk-core",
+      "head-chain-override-format",
+      "head-chain-board-solver",
+      "session-kinds-joint-poses",
+      "joint-state-still-capture",
+      "robot-mcp-client",
+      "head-grid-capture-sequence",
+      "head-chain-compute-apply",
+      "sequence-http-api",
+      "head-state-publisher-chain",
+      "mcp-head-kinematics-applied",
+      "mcp-front-camera-applied",
+      "web-ui-applied-head-urdf",
+      "calib-ansible-deploy-config"
+    ],
     "status": "approved"
   },
   {
     "id": "A2",
     "text": "Arm calibrate: small ChArUco plate on the gripper seen by the head; arm moves start small (wrist/elbow), bigger joints only with the user's OK; fits shoulder_lift, elbow, wrist_flex, wrist_roll offsets and head yaw/x/y with the arm as yaw reference; output is a joint_offsets_rad snippet for review and commit, the head part applied.",
-    "decisions": ["D1", "D2", "D4", "D5", "D6", "D7", "D8"],
-    "tasks": ["arm-offsets-plate-solver", "arm-pose-capture-sequence", "arm-offsets-compute-apply", "sequence-http-api"],
+    "decisions": [
+      "D1",
+      "D2",
+      "D4",
+      "D5",
+      "D6",
+      "D7",
+      "D8"
+    ],
+    "tasks": [
+      "arm-offsets-plate-solver",
+      "arm-pose-capture-sequence",
+      "arm-offsets-compute-apply",
+      "sequence-http-api"
+    ],
     "status": "approved"
   },
   {
     "id": "A3",
     "text": "Two buttons on the web UI Calibrate page: Head calibrate, then Arm calibrate.",
-    "decisions": ["D9"],
-    "tasks": ["calib-frontend-api", "head-calibrate-ui-section", "arm-calibrate-ui-section"],
+    "decisions": [
+      "D9"
+    ],
+    "tasks": [
+      "calib-frontend-api",
+      "head-calibrate-ui-section",
+      "arm-calibrate-ui-section"
+    ],
     "status": "approved"
   },
   {
     "id": "A4",
-    "text": "Runs after the head mount reprint allowing >= 60 deg tilt-down; the gripper plate comes from the marker generator; the tilt range is widened once the reprint is mounted.",
-    "decisions": ["D10"],
-    "tasks": ["gripper-plate-marker", "hardware-reprint-and-plate", "head-tilt-range-widened"],
+    "text": "Runs after the head mount reprint allowing >= 60 deg tilt-down; the existing 6x5 ChArUco board doubles as the gripper plate; the tilt range is widened once the reprint is mounted.",
+    "decisions": [
+      "D10"
+    ],
+    "tasks": [
+      "hardware-reprint-and-plate",
+      "head-tilt-range-widened"
+    ],
     "status": "approved"
   },
   {
     "id": "A5",
     "text": "Synthetic-scene tests for both fits, READMEs and tests/README.md, and a runbook executed on the robot with real numbers.",
-    "decisions": ["D8", "D12"],
-    "tasks": ["head-chain-board-solver", "arm-offsets-plate-solver", "calib-docs-and-test-index", "calib-robot-runbook"],
+    "decisions": [
+      "D8",
+      "D12"
+    ],
+    "tasks": [
+      "head-chain-board-solver",
+      "arm-offsets-plate-solver",
+      "calib-docs-and-test-index",
+      "calib-robot-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G1",
+    "text": "Gate Q2: reuse the existing 6x5 ChArUco board (models/charuco-6x5-40mm, scripts/markers_generate.yaml charuco:, ids 0-14) as the gripper plate; no new plate is generated. Floor and gripper captures are separate sessions (head_chain, arm) with the one physical board, so ids never clash.",
+    "decisions": [
+      "D13"
+    ],
+    "tasks": [
+      "calib-config-and-view-types",
+      "joint-state-still-capture",
+      "arm-pose-capture-sequence",
+      "hardware-reprint-and-plate"
+    ],
     "status": "approved"
   }
 ]

@@ -6,8 +6,8 @@ Two buttons on the web UI Calibrate page measure the head kinematic chain and th
 head RGB camera. "Head calibrate" drives the pan/tilt head over a grid while a ChArUco board lies on the floor at 3-4
 spots; one least-squares fit gives the pan-axis height, mount roll/pitch, tilt zero and the camera lever, applied as a
 `head_chain.json` override that head_state_publisher, mcp_server (HeadKinematics and the front camera) and the web_ui
-URDF view all read. "Arm calibrate" then moves the arm in three confirmed tiers (wrist roll, then wrist and elbow, then shoulder joints)
-with a small ChArUco plate on the fixed jaw in view of the head; a joint fit gives the shoulder_lift, elbow_flex,
+URDF view all read. "Arm calibrate" then moves the arm in three tiers (wrist roll, then wrist and elbow, then shoulder joints only after a confirm)
+with the same 6x5 ChArUco board clipped to the fixed jaw in view of the head; both are guided step by step; a joint fit gives the shoulder_lift, elbow_flex,
 wrist_flex and wrist_roll offsets plus the head yaw and x/y relative to the arm. The arm offsets are a
 `joint_offsets_rad` snippet for review and commit; the head part is applied. Everything extends the existing Python
 `head_rgbd_calibration` node and `shared/ros2_common/head_rgbd_calibration` core, and runs after the head mount
@@ -30,14 +30,14 @@ ground, not with SSH and scripts.
   head_state_publisher (TF), mcp_server HeadKinematics and front camera, and the web_ui head URDF use it with no
   redeploy.
 - G3: "Arm calibrate" (enabled once a head result is applied) moves the arm through a scripted pose set with the
-  plate in view in three tiers (wrist roll; wrist flex and elbow after a confirm; shoulder joints after a second
-  confirm), tool point >= 10 cm above the floor;
+  board in view in three tiers (wrist roll; wrist flex and elbow; shoulder joints only after a confirm), tool
+  point >= 10 cm above the floor;
   it fits shoulder_lift, elbow_flex, wrist_flex and wrist_roll offsets and head x/y/yaw, with sigma and a held-out
   tool-point error.
 - G4: The arm result gives a `joint_offsets_rad` snippet (shoulder_pan unchanged) to copy or download for review and
   commit; applying it applies only its head chain (with x/y/yaw).
 - G5: Results over any limit (RMS, sigma, held-out error, view counts) are refused for apply.
-- G6: A second ChArUco plate with marker ids distinct from the 6x5 board comes out of the marker generator.
+- G6: The existing 6x5 ChArUco board (`models/charuco-6x5-40mm`) serves as the floor board and the gripper plate.
 - G7: The head tilt range is widened to the reprinted mount's range in every place that pins it.
 - G8: Synthetic-scene tests recover known parameters; READMEs, tests/README.md and a robot runbook with results.
 
@@ -82,7 +82,7 @@ ground, not with SSH and scripts.
 ### D1: Floor board for the head, gripper plate for the arm, the arm as yaw reference
 
 The head chain is fitted from a 6x5 ChArUco board flat on the floor; the arm offsets and the head x/y/yaw from a
-small ChArUco plate on the fixed jaw seen by the head. The arm defines yaw and x/y: `base_in_base_link` and the
+ChArUco plate on the fixed jaw seen by the head (the same 6x5 board, D13). The arm defines yaw and x/y: `base_in_base_link` and the
 shoulder_pan offset are fixed (the gauge). Alternatives: tip touches (3 DOF per touch, coplanar, wrist_roll
 unidentifiable, big joints near the floor, the head cannot see them: used only as held-out validation in the
 runbook); the gripper camera (tried twice, degenerate, rejected); drive-straight or turn-in-place for yaw (only as
@@ -103,14 +103,17 @@ mount x, y, yaw (URDF values until an arm result; pan zero is the mount yaw and 
 yaw), the 0.04 m tilt offset (degenerate with mount z), camera pitch in head_link (degenerate with tilt zero), camera
 y (degenerate with tilt-axis y), intrinsics (applied RGB-D calibration). Serves A1.
 
-### D4: Plate rotation fixed to the clip's CAD pose
+### D4: wrist_roll zero from the recorded neutral, plate rotation fitted
 
 A constant wrist_roll offset is exactly absorbed by a free plate rotation in `gripper_link` (the plate rides on the
-roll joint's child), the same reason the 2026-10-10 solve could not identify wrist_roll. So the plate sits on a keyed
-clip whose plate rotation in `gripper_link` is a configured CAD value (`plate_mount.rpy`), and only the plate
-translation is free. wrist_flex, elbow_flex and shoulder_lift are identifiable because wrist_roll varies across the
-pose set. Until the user supplies the clip's CAD rotation (Q3), wrist_roll is not fitted and keeps its configured value, and
-the report and the UI say so; the user will supply it. (my call) Serves A2.
+roll joint's child), the same reason the 2026-10-10 solve could not identify wrist_roll. Default: the wrist_roll zero
+is fixed (`fit.wrist_roll_offset_rad`, 0 = the servo neutral the user records with the jaws aligned by eye through
+the servo-torque-off-and-neutral epic) and the plate pose in `gripper_link` is fitted in full (6 DOF). Optional: a CAD
+rotation of the plate in `gripper_link` (`plate_mount.rpy`) fixes the plate rotation and frees wrist_roll instead.
+Accuracy consequence: in the default mode the wrist_roll zero is only as good as the eye alignment (about 1-2 deg);
+this does not move the fitted tool point (the plate rotation absorbs it; < 1 mm, pinned by a test) but turns the
+jaw orientation that IK and grasp planning assume by the same 1-2 deg. wrist_flex, elbow_flex and shoulder_lift are
+identifiable because wrist_roll varies across the pose set. User decision (gate Q3, D14). Serves A2.
 
 ### D5: Output forms
 
@@ -139,13 +142,13 @@ Serves A1, A2.
 
 The base pose closes the gripper on the plate clip once (`gripper_rad` from config); no later pose changes it. Three
 tiers: tier 0 moves only wrist_roll; tier 1 adds wrist_flex and elbow_flex at small amplitude
-(`max_tier1_delta_rad`); tier 2 adds shoulder_lift and shoulder_pan. Tier 0 runs after a confirm dialog; tier 1 only
-with `allow_wrist_elbow: true`, which the UI sends only with its confirm checkbox ticked (safer default; the gate asks
-whether that confirm is wanted, Q4); tier 2 only with `allow_big_joints: true`, sent only after a second confirm
-dialog naming the shoulder joints. Every pose's nominal tool point is checked >= 0.10 m above the floor before it is
-commanded; speed_scale <= 0.3; the lease is always released (park home, which also homes the head) at the end, on
-stop and on error. The pose-set test solves the head aim with the limits read from the URDF it is given (a fixture
-with the reprint's -30..+60 deg), so it does not depend on the tilt-range task. User decision D-B1. Serves A2.
+(`max_tier1_delta_rad`); tier 2 adds shoulder_lift and shoulder_pan. Tiers 0 and 1 run from Start without a confirm
+(gate Q4, D16); tier 2 only with `allow_big_joints: true`, sent only after a confirm dialog naming the shoulder
+joints. Every pose's nominal tool point is checked >= 0.10 m above the floor and every board corner >= 0.05 m above
+the floor and outside the base footprint before it is commanded (the board is about 250 x 210 mm); speed_scale <= 0.3;
+the lease is always released (park home, which also homes the head) at the end, on stop and on error. The pose-set
+test solves the head aim with the limits read from the URDF it is given (a fixture with the reprint's -30..+60 deg),
+so it does not depend on the tilt-range task. User decision D-B1. Serves A2.
 
 ### D8: One robust least-squares fit with sigma, held-out views and limits
 
@@ -158,15 +161,15 @@ used (gravity sag drops out). Serves A1, A2, A5.
 ### D9: Two buttons on the Calibrate page
 
 "Head calibrate" (with Next spot, Stop, Compute, result, Apply) and then "Arm calibrate" (enabled once a head_chain
-result is applied; wrist-roll tier after a confirm, wrist and elbow tier with a confirm checkbox, then a confirmed "Allow shoulder moves" run; result, snippet Copy and Download, Apply
+result is applied; Start runs the wrist-roll and the wrist/elbow tiers, then a confirmed "Allow shoulder moves" run; result, snippet Copy and Download, Apply
 head part). They replace the "Arm calibration - deferred" line. User decision. Serves A3.
 
 ### D10: Hardware first, then the tilt range
 
 The calibration runs after the head mount reprint, which must allow >= 60 deg tilt-down; the tilt range is widened
 in the URDF, the servo steps, the web_ui head tab and the tests once the reprint is mounted (widening before it could
-drive the old mount into the body). The plate is printed from the generator with marker ids starting at 15 (the 6x5
-board uses 0-14). The reprint and the print are a user task. User decision D-B1. Serves A4.
+drive the old mount into the body). No new plate is printed: the existing 6x5 board is clipped to the fixed jaw
+(D13). The reprint and the clip are a user task. User decision D-B1. Serves A4.
 
 ### D11: mcp_server reloads the applied head chain without a restart
 
@@ -180,6 +183,9 @@ Serves A1.
 Each fit is written test-first against synthetic scenes (corners projected through a known perturbed chain, 0.3 px
 noise) that must recover the parameters within stated tolerances; the epic ends with a runbook executed on the robot
 (held-out tip touches, a 0.5 m drive-straight yaw check) with real numbers. Serves A5.
+
+### D13: Reuse the existing 6x5 board as the gripper plate
+Gate Q2: reuse the existing 6x5 ChArUco board (models/charuco-6x5-40mm, scripts/markers_generate.yaml charuco:, ids 0-14) as the gripper plate; no new plate is generated. Floor and gripper captures are separate sessions (head_chain, arm) with the one physical board, so ids never clash. (user decision)
 
 ## Research
 
@@ -198,7 +204,7 @@ noise) that must recover the parameters within stated tolerances; the epic ends 
 | brief 1 | floor views identify mount z/roll/pitch, tilt zero, camera lever; fix the listed degeneracies | head-chain-board-solver |
 | brief 1 | arm as reference; base_in_base_link and shoulder_pan fixed | arm-offsets-plate-solver |
 | brief 2c | plate on the fixed jaw, 6 DOF per view, 30-40 poses in the air | arm-offsets-plate-solver, arm-pose-capture-sequence |
-| brief 2 | wrist_roll identifiable "marker off the roll axis" | rejected: a constant roll offset is absorbed by a free plate rotation; D4 fixes the rotation to the clip CAD pose instead |
+| brief 2 | wrist_roll identifiable "marker off the roll axis" | rejected: a constant roll offset is absorbed by a free plate rotation; D4 fixes the wrist_roll zero from the recorded neutral (or frees it with an optional CAD rotation) |
 | brief 2a | tip touches | rejected as fit input (validation only): calib-robot-runbook |
 | brief 2b | gripper camera | rejected: degenerate (2026-10-10 README) |
 | brief 3 | head grid per spot, angles from /head/joint_states | head-grid-capture-sequence, joint-state-still-capture |
@@ -208,7 +214,7 @@ noise) that must recover the parameters within stated tolerances; the epic ends 
 | brief 3 | arm output joint_offsets_rad snippet, not runtime | arm-offsets-compute-apply |
 | brief 4 | consumers ignore overrides (head_state_publisher launch, mcp head_kinematics.py:29, front mount client.yml, web_ui raw URDF) | head-state-publisher-chain, mcp-head-kinematics-applied, mcp-front-camera-applied, web-ui-applied-head-urdf |
 | brief 4 | focus lock: hold the mapping subscription | joint-state-still-capture |
-| brief 4 | second charuco entry with distinct ids | gripper-plate-marker |
+| brief 4 | second charuco entry with distinct ids | rejected at the gate: the existing 6x5 board is reused (D13); floor and gripper captures are separate sessions |
 | brief 4 | reprint >= 60 deg, then widen tilt range | hardware-reprint-and-plate, head-tilt-range-widened |
 | brief risk | head yaw only as good as shoulder_pan zero; drive-straight check | calib-robot-runbook |
 | brief | gripper-camera mount needs a re-solve after offsets change | calib-docs-and-test-index (documented), non-goal |
@@ -224,15 +230,16 @@ noise) that must recover the parameters within stated tolerances; the epic ends 
 | D1 Floor board for the head, gripper plate for the arm, the arm as yaw reference | head-chain-board-solver, arm-offsets-plate-solver |
 | D2 Extend the head_rgbd_calibration node and the shared core, in Python | session-kinds-joint-poses, joint-state-still-capture, head-chain-compute-apply, arm-offsets-compute-apply, sequence-http-api |
 | D3 Head parameter set and the degeneracies fixed | head-chain-board-solver |
-| D4 Plate rotation fixed to the clip's CAD pose | calib-config-and-view-types, arm-offsets-plate-solver |
+| D4 wrist_roll zero from the recorded neutral, plate rotation fitted | calib-config-and-view-types, arm-offsets-plate-solver |
 | D5 Output forms | head-chain-override-format, head-chain-compute-apply, arm-offsets-compute-apply, head-state-publisher-chain, mcp-head-kinematics-applied, mcp-front-camera-applied, web-ui-applied-head-urdf |
 | D6 Robot motion through mcp_server tools | robot-mcp-client, head-grid-capture-sequence, arm-pose-capture-sequence, calib-ansible-deploy-config |
 | D7 Arm safety tiers | arm-pose-capture-sequence, arm-calibrate-ui-section, sequence-http-api |
 | D8 One robust least-squares fit with sigma, held-out views and limits | calib-config-and-view-types, head-chain-board-solver, arm-offsets-plate-solver |
 | D9 Two buttons on the Calibrate page | calib-frontend-api, head-calibrate-ui-section, arm-calibrate-ui-section |
-| D10 Hardware first, then the tilt range | gripper-plate-marker, hardware-reprint-and-plate, head-tilt-range-widened |
+| D10 Hardware first, then the tilt range | hardware-reprint-and-plate, head-tilt-range-widened |
 | D11 mcp_server reloads the applied head chain without a restart | mcp-head-kinematics-applied |
 | D12 Synthetic scenes first, robot runbook last | head-chain-board-solver, arm-offsets-plate-solver, calib-docs-and-test-index, calib-robot-runbook |
+| D13 Reuse the existing 6x5 board as the gripper plate | calib-config-and-view-types, joint-state-still-capture, arm-pose-capture-sequence, hardware-reprint-and-plate |
 
 ## Contracts
 
@@ -240,7 +247,7 @@ noise) that must recover the parameters within stated tolerances; the epic ends 
 |---|---|---|---|
 | `head-chain-override` | head-chain-override-format | head-chain-board-solver, head-chain-compute-apply, head-state-publisher-chain, mcp-head-kinematics-applied, web-ui-applied-head-urdf | `shared/ros2_common/head_rgbd_calibration/urdf_text.py` |
 | `head-arm-view-types` | calib-config-and-view-types | head-chain-board-solver, arm-offsets-plate-solver, session-kinds-joint-poses | `shared/ros2_common/head_rgbd_calibration/views.py` |
-| `head-arm-calib-config` | calib-config-and-view-types | gripper-plate-marker, head-chain-board-solver, arm-offsets-plate-solver, joint-state-still-capture | `shared/ros2_common/head_rgbd_calibration/config.py` |
+| `head-arm-calib-config` | calib-config-and-view-types | head-chain-board-solver, arm-offsets-plate-solver, joint-state-still-capture | `shared/ros2_common/head_rgbd_calibration/config.py` |
 | `urdf-chain-fk` | urdf-chain-fk-core | head-chain-board-solver, arm-offsets-plate-solver, arm-pose-capture-sequence | `shared/ros2_common/head_rgbd_calibration/chain.py` |
 | `head-chain-fit` | head-chain-board-solver | arm-offsets-plate-solver, head-chain-compute-apply | `shared/ros2_common/head_rgbd_calibration/head_chain_fit.py` |
 | `arm-offsets-fit` | arm-offsets-plate-solver | arm-offsets-compute-apply | `shared/ros2_common/head_rgbd_calibration/arm_offsets_fit.py` |
@@ -284,8 +291,9 @@ Cross-epic: `head-chain-override` is registered in `docs/plans/contracts.json`; 
 - The front camera stream (`/head_camera/image_raw/compressed`) has the same aspect ratio as the mapping stream, so
   the applied intrinsics scale to it: probed in mcp-front-camera-applied from the head_camera_cpp config; a different
   aspect ratio keeps the front camera uncalibrated.
-- The plate (5x3 squares of 18 mm) decodes at 0.3-0.5 m on the 576 px mapping stream: probed in the runbook;
-  if not, the arm poses bring it closer.
+- The 6x5 board on the jaw (about 250 x 210 mm, mass recorded in hardware-reprint-and-plate) is carried safely at
+  speed_scale <= 0.3 and decodes at 0.4-0.65 m on the 576 px mapping stream: probed in the runbook (tier 0 first);
+  measured joint angles make gravity sag drop out of the fit.
 - Arm re-zero from the servo-torque-off-and-neutral epic (blocker) marks the old offsets stale; the new offsets
   committed from this epic's snippet are what replaces them.
 
