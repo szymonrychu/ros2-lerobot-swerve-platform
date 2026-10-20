@@ -458,6 +458,8 @@ class BridgeNode(Node):
         self._wanted: frozenset[str] | None = frozenset()
         self._publisher_tasks: queue.SimpleQueue[Callable[[], None]] = queue.SimpleQueue()
         self._publishers_pending: set[str] = set()
+        self._publishes_queued: dict[str, int] = {}
+        self._publish_lock = threading.Lock()
         self._tf_listener: Any = None
         # The GPS anchor fit pairs every fix with the TF robot pose, so with a fit TF is always on.
         self._tf_always = gps_anchor is not None
@@ -679,7 +681,10 @@ class BridgeNode(Node):
                 task = self._publisher_tasks.get_nowait()
             except queue.Empty:
                 return
-            task()
+            try:
+                task()
+            except Exception:
+                log.error("ros_thread_task_failed", exc_info=True)
 
     def reconcile_tf(self) -> None:
         """Run the TF listener while the anchor fit or an active topic needs it; drop old transforms when off."""
@@ -1783,9 +1788,13 @@ class BridgeNode(Node):
         self._publishers_pending.add(topic)
 
         def create() -> None:
-            self.publishers_[topic] = (self.create_publisher(msg_cls, topic, 10), msg_cls)
-            self._publishers_pending.discard(topic)
-            log.info("publisher_created", topic=topic, msg_type=msg_type_str)
+            try:
+                self.publishers_[topic] = (self.create_publisher(msg_cls, topic, 10), msg_cls)
+                log.info("publisher_created", topic=topic, msg_type=msg_type_str)
+            except Exception:
+                log.error("publisher_create_failed", topic=topic, msg_type=msg_type_str, exc_info=True)
+            finally:
+                self._publishers_pending.discard(topic)
 
         self._publisher_tasks.put(create)
 
@@ -1799,10 +1808,29 @@ class BridgeNode(Node):
         if topic not in self._allowed_publish_topics:
             self._log_warning(f"publish_dict: topic {topic!r} not in allowlist")
             return
-        if topic in self._publishers_pending:
-            # Created on the executor thread first; the queue keeps creation before this publish.
-            self._publisher_tasks.put(lambda: self.publish_dict(topic, data))
-            return
+        with self._publish_lock:
+            if topic in self._publishers_pending or self._publishes_queued.get(topic, 0) > 0:
+                # Creation and earlier publishes of this topic run first on the executor thread (strict FIFO).
+                self._publishes_queued[topic] = self._publishes_queued.get(topic, 0) + 1
+
+                def queued() -> None:
+                    try:
+                        self.publish_now(topic, data)
+                    finally:
+                        with self._publish_lock:
+                            self._publishes_queued[topic] -= 1
+
+                self._publisher_tasks.put(queued)
+                return
+        self.publish_now(topic, data)
+
+    def publish_now(self, topic: str, data: dict[str, Any]) -> None:
+        """Publish on an existing publisher; a topic without one (creation failed) is dropped with a warning.
+
+        Args:
+            topic: ROS2 topic name.
+            data: Deserialized message data.
+        """
         if topic not in self.publishers_:
             log.warning("publish_no_publisher", topic=topic)
             return
