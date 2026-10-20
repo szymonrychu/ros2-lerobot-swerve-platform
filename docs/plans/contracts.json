@@ -48,5 +48,15 @@
       "rgb-d-ground-estimation-and"
     ],
     "note": "/head_rgbd/points: PointCloud2 XYZRGB (packed float32 rgb) in the RGB optical frame, RGB stamp, <= cloud.rate_hz (1 Hz), published while subscribed; consumed by ground_estimator_cpp colour labels (task ground-node-wiring)"
+  },
+  {
+    "name": "tof-points-filtered",
+    "kind": "topic",
+    "owner": "tof-3d-obstacle-detection-fo",
+    "file": "ansible/group_vars/client.yml",
+    "consumers": [
+      "rgb-d-ground-estimation-and"
+    ],
+    "note": "/tof/points_filtered: laser_filter self-filtered ToF cloud, tof_optical_frame, ~10 Hz, reliable; ground_estimator_cpp input and ground_clear frustum source (tasks ground-node-wiring, nav2-ground-voxel-layer)"
   }
 ]
