@@ -23,11 +23,11 @@ provides: []
 
 ## Requirement
 
-The "Head calibrate" button and section on the Calibrate page (design D9; approval A3).
+The "Head calibrate" button and section on the Calibrate page, a guided step-by-step process (design D9, D15; approval A3).
 
 - New `nodes/web_ui/frontend/src/calibrate/HeadCalibration.tsx`, built like the RGB-D section (MUI, `TOUCH_TARGET_PX` buttons):
   - "Head calibrate" starts `startHeadSequence()` (disabled while a capture, compute or sequence runs); while running: spot N of `max_spots`, step/total, captured, skipped, the status line; polling `GET /api/state` at the RGB-D section's interval.
-  - After a spot: the status hint ("place the board at ...") and a "Next spot" button; "Stop" whenever running.
+  - Guided steps: before the first spot a prompt card "Lay the ChArUco board flat on the floor at <hint 1>, then press Start"; after each spot the card "Move the board by hand to <next hint>, then press Next spot" (the base never drives); "Stop" whenever running.
   - "Compute" (enabled once 3 spots are done) -> waits for the compute in the state -> result card: pass/fail, RMS, held-out RMS, views and spots, a parameter table (value +- sigma, change against the URDF in mm or deg), failed limits, the report (collapsed).
   - "Apply" only for a passed result -> shows the applied record and the unit restart states; node error messages shown in an Alert.
 - `CalibratePage.tsx` renders `HeadCalibration` when `config.rgbd` is true (after the RGB-D section).
@@ -65,3 +65,4 @@ The user calibrates the head from a browser with one button, moving only the boa
 
 - Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
 
+- 2026-10-20 amended: gate: guided process, reuse the existing 6x5 board, wrist_roll zero from the recorded neutral with the plate rotation fitted, tiers 0-1 without confirm
