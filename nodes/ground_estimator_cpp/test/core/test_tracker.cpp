@@ -3,6 +3,7 @@
 #include <Eigen/Geometry>
 #include <cmath>
 #include <optional>
+#include <vector>
 
 #include "ground_estimator_cpp/tracker.hpp"
 
@@ -176,6 +177,25 @@ TEST(Tracker, PlaneFollowsRobotMotionInOdom)
   const double expected_z = -(p.d + p.normal.x() * new_origin_in_old.x()) / p.normal.z();
   EXPECT_NEAR(ground_estimator_cpp::height_at_origin(got->plane), expected_z, 1e-9);
   EXPECT_NEAR(got->plane.normal.norm(), 1.0, TOL);
+}
+
+TEST(Tracker, PlaneStoredFromMovedPoseMapsPointsConsistently)
+{
+  PlaneTracker t(fit_cfg(2.0, 1.0));
+  const Plane p = floor_at(-0.3, 4.0);
+  const Eigen::Isometry3d pose_a = pose(1.0, -0.4, 40.0);
+  const Eigen::Isometry3d pose_b = pose(1.8, 0.3, -20.0);
+  t.update(p, pose_a, 10.0);
+  const auto got = t.current(pose_b, 10.2);
+  ASSERT_TRUE(got.has_value());
+  // Points on the plane in base A, taken through odom into base B, must lie on the returned plane.
+  const std::vector<Eigen::Vector2d> samples{{0.0, 0.0}, {1.0, 0.5}, {-0.7, 1.2}};
+  for (const Eigen::Vector2d & xy : samples) {
+    const double z = -(p.d + p.normal.x() * xy.x() + p.normal.y() * xy.y()) / p.normal.z();
+    const Eigen::Vector3d in_a(xy.x(), xy.y(), z);
+    const Eigen::Vector3d in_b = pose_b.inverse() * (pose_a * in_a);
+    EXPECT_NEAR(got->plane.normal.dot(in_b) + got->plane.d, 0.0, 1e-9);
+  }
 }
 
 TEST(Tracker, FlatFloorKeepsHeightAfterMotion)
