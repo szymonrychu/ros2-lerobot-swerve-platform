@@ -10,6 +10,7 @@ from filter_node.arbitration import (
     SOURCE_WEB_UI,
     ActiveSourceReporter,
     SourceArbiter,
+    parse_released,
 )
 
 FOLLOWER = {"shoulder_pan": 0.5, "shoulder_lift": 0.3}
@@ -358,3 +359,25 @@ def test_released_transitions_reported_once() -> None:
     assert arb.on_follower_released(False)
     assert not arb.on_follower_released(False)
     assert arb.active_source == SOURCE_NONE
+
+
+def test_parse_released_reads_json_flag() -> None:
+    assert parse_released('{"released": true, "joints": {}}') is True
+    assert parse_released('{"released": false}') is False
+
+
+def test_parse_released_rejects_unparsable_payloads() -> None:
+    for payload in ("not json", "{}", "[1]", "null", '{"released": null}'):
+        try:
+            parse_released(payload)
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted {payload!r}")
+
+
+def test_autonomy_command_refused_while_released_does_not_take_lease() -> None:
+    arb = make_arbiter()
+    arb.on_follower_released(True)
+    assert not arb.on_autonomy_command()
+    assert not arb.autonomy_held
+    assert arb.active_source == SOURCE_RELEASED

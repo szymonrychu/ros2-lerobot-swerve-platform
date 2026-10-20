@@ -16,6 +16,7 @@ Priority is autonomy > web_ui > leader:
   proximity requirement set, so the leader resumes only near the follower and the arm never snaps to it.
 """
 
+import json
 from typing import NamedTuple
 
 SOURCE_LEADER = "leader"
@@ -24,6 +25,24 @@ SOURCE_AUTONOMY = "autonomy"
 SOURCE_NONE = "none"
 SOURCE_RELEASED = "released"
 ACTIVE_SOURCE_PERIOD_S = 1.0
+
+
+def parse_released(payload: str) -> bool:
+    """Read the ``released`` flag from the bridge torque-state JSON payload.
+
+    Args:
+        payload (str): JSON text published on the follower torque state topic.
+
+    Returns:
+        bool: The ``released`` flag.
+
+    Raises:
+        ValueError: If the payload is not a JSON object with a boolean ``released`` field.
+    """
+    data = json.loads(payload)
+    if not isinstance(data, dict) or not isinstance(data.get("released"), bool):
+        raise ValueError("payload has no boolean 'released' field")
+    return data["released"]
 
 
 class LeaderDecision(NamedTuple):

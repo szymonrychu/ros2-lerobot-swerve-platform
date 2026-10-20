@@ -1,6 +1,5 @@
 """ROS2 filter node: subscribe input JointState, run algorithm, publish filtered JointState."""
 
-import json
 import time
 from typing import Any
 
@@ -14,7 +13,14 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 
 from .algorithms import get_algorithm
-from .arbitration import SOURCE_AUTONOMY, SOURCE_LEADER, SOURCE_WEB_UI, ActiveSourceReporter, SourceArbiter
+from .arbitration import (
+    SOURCE_AUTONOMY,
+    SOURCE_LEADER,
+    SOURCE_WEB_UI,
+    ActiveSourceReporter,
+    SourceArbiter,
+    parse_released,
+)
 from .command import fill_command
 from .config import FilterConfig
 from .metrics import FilterMetrics
@@ -155,9 +161,11 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
     def on_autonomy_input(msg: JointState) -> None:
         # The MCP server already streams smooth, rate-limited setpoints: republish directly
         metrics.record_input(SOURCE_AUTONOMY, time.monotonic())
-        if not arbiter.autonomy_held:
+        was_held = arbiter.autonomy_held
+        if not arbiter.on_autonomy_command():
+            return
+        if not was_held:
             log.info("Autonomy lease taken: web UI and leader input ignored until release")
-        arbiter.on_autonomy_command()
         publish_direct(msg, SOURCE_AUTONOMY)
         report_source()
 
@@ -168,8 +176,8 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
 
     def on_torque_state(msg: String) -> None:
         try:
-            released = bool(json.loads(msg.data)["released"])
-        except (ValueError, KeyError, TypeError) as exc:
+            released = parse_released(msg.data)
+        except ValueError as exc:
             log.warning(f"Ignoring unparsable torque_state payload: {exc}")
             return
         if not arbiter.on_follower_released(released):
