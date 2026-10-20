@@ -51,6 +51,10 @@ The verifier diffs task branches against main, but this task's commits (563b14f9
 2. Fix it at workbench plan-execute verifier / scope audit diff base.
 3. Run the task verify command and confirm it passes.
 
+## Ruling
+
+- 2026-10-20 rejected: Workbench tooling (verifier diff base), outside this repo; caused by merging task branches to main mid-run - not repeated
+
 ## Notes
 
 Discovered in task `bridge-runtime-neutral-save` during run `servo-torque-off-and-neutral`.
