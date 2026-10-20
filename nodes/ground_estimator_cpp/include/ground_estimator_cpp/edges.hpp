@@ -1,0 +1,72 @@
+// Steps, thresholds, ramps and drop-offs from the above and below candidates: Euclidean clusters with the features the
+// obstacle versus warning rule needs, and the flat ones as half-plane regions in the mcp SurfaceRegion shape.
+#ifndef GROUND_ESTIMATOR_CPP__EDGES_HPP_
+#define GROUND_ESTIMATOR_CPP__EDGES_HPP_
+
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+
+#include <Eigen/Core>
+#include <cstddef>
+#include <string>
+#include <vector>
+
+#include "ground_estimator_cpp/config.hpp"
+#include "ground_estimator_cpp/plane_fit.hpp"
+
+namespace ground_estimator_cpp
+{
+
+// One connected group of above-floor ("step") or below-floor ("drop") points, in base_link.
+struct Cluster
+{
+  std::string kind;                       // "step" (above the floor) or "drop" (below it)
+  pcl::PointCloud<pcl::PointXYZ> points;  // the member points
+  std::vector<float> heights;             // signed height above the floor plane, parallel to points
+  double median_height_m = 0.0;           // median of heights
+  double edge_step_m = 0.0;               // 90th percentile of |height| within edge_band_m of the edge line
+  double slope_deg = 0.0;                 // angle between the cluster's best-fit plane normal and the floor normal
+  std::vector<Eigen::Vector2d> hull;      // convex hull in base_link xy, counter-clockwise
+  Eigen::Vector2d edge_point = Eigen::Vector2d::Zero();       // a point of the robot-facing edge line
+  Eigen::Vector2d edge_direction = Eigen::Vector2d::UnitY();  // unit direction, canonical sign (y > 0, or x > 0)
+  std::string side;         // "left" or "right": the cluster's side of the line (mcp HalfPlaneEdge)
+  double distance_m = 0.0;  // base_link origin to the edge line
+};
+
+// A region in the mcp SurfaceRegion shape (frame base_link, half-plane edge).
+struct Region
+{
+  std::string name;  // "drop_<i>" or "step_<i>", i by distance within the kind
+  std::string kind;  // "drop" or "step"
+  std::string cls;   // "obstacle" or "warning"; empty here, set by the traversability rule
+  double height_m = 0.0;
+  Eigen::Vector2d point = Eigen::Vector2d::Zero();
+  Eigen::Vector2d direction = Eigen::Vector2d::UnitY();
+  std::string side;
+  double distance_m = 0.0;
+  std::size_t points = 0;
+};
+
+// Cluster candidate points and compute the features of each cluster.
+// @param points candidate points in base_link (Segmented::above or ::below).
+// @param heights signed heights above the plane, parallel to points.
+// @param kind "step" or "drop".
+// @param plane the floor plane (its normal is the reference of slope_deg).
+// @param cfg cluster_tolerance_m and min_cluster_points.
+// @param edge_band_m width of the band at the edge line used for edge_step_m (traversability.edge_band_m).
+// @param unclustered if not null, receives the indices into points of the points in no cluster (too small groups).
+// @return the clusters, nearest edge line first.
+std::vector<Cluster> extract_clusters(
+  const pcl::PointCloud<pcl::PointXYZ> & points, const std::vector<float> & heights, const std::string & kind,
+  const Plane & plane, const EdgesConfig & cfg, double edge_band_m, std::vector<int> * unclustered = nullptr);
+
+// Regions of the clusters: every drop, and every step with |median| <= step_max_height_m and a height spread
+// (p90 - p10) <= step_flatness_m.
+// @param clusters clusters of one or both kinds.
+// @param cfg step_max_height_m, step_flatness_m and max_regions.
+// @return at most max_regions regions, nearest first, named per kind by distance.
+std::vector<Region> regions_from_clusters(const std::vector<Cluster> & clusters, const EdgesConfig & cfg);
+
+}  // namespace ground_estimator_cpp
+
+#endif  // GROUND_ESTIMATOR_CPP__EDGES_HPP_
