@@ -73,7 +73,7 @@ A released group's present pose can be recorded and stored as the servo EEPROM n
 
 ## Notes
 
-- Copy the sequence from `scripts/calibrate_servos.py:297-350` (`cmd_center`); the script stays for offline use.
+- Copy the sequence from `nodes/bridges/feetech_servos/scripts/calibrate_servos.py:297-350` (`cmd_center`); the script stays for offline use.
 - `read_register` returns None on truncated replies (6ebabd69): retry, never treat None as a position.
 - command_limits for arm joints 1-5 and the steering servos come from EEPROM (bridge.py:240-258); head and gripper use config steps (client.yml) and keep them.
 - A save stalls the loop about 0.6 s per joint (D9); the wheels must be stopped first because the watchdog cannot run meanwhile.

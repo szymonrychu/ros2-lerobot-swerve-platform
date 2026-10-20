@@ -13,7 +13,7 @@ re-calibrated.
 
 ## Intent and why
 
-Re-zeroing a servo today needs SSH, a stopped node and `sudo calibrate_servos.py center`. After the head mount
+Re-zeroing a servo today needs SSH, a stopped node and `sudo nodes/bridges/feetech_servos/scripts/calibrate_servos.py center`. After the head mount
 inversion (2026-10-20) and before the ChArUco arm calibration (epic head-and-arm-calibration-fro, blocked by this one)
 the user needs to put joints at a physical zero by hand and store it, from the browser, without stopping nodes.
 
@@ -84,16 +84,20 @@ publishes the capture (delta to 2048) - no write. "Re-enable torque + save" (`/{
 joint is still within 20 steps of its capture, stops the bus's wheels, then per joint: read min/max_angle_limit,
 UnLockEprom, DefineMiddle, LockEprom (finally), verify present within 2048 +- 3 (10 attempts, None retried), rewrite the
 pre-centre limit numbers if they changed, refresh `command_limits` for joints whose limits come from EEPROM, then runs
-D1 enable. A joint failure stops the sequence: saved joints are reported, the group stays released, success is false.
-User D-C1 (EEPROM, inside the bridge); the two-step split and the limit policy are (my call), see Q2.
+D1 enable. Fail-safe for the hardware unknowns (DefineMiddle unlock need, limits vs offset, goal writes re-enabling
+torque): a failed DefineMiddle, post-DefineMiddle verify (2048 +- 3) or limit restore aborts the remaining joints of that
+save, no limit is written on an unverified servo, torque stays OFF on the whole group (released, gated), and the
+response names the joints whose centre changed, the failed joint and the unattempted ones; success is false.
+User D-C1 (EEPROM, inside the bridge); the two-step split and the limit policy are (my call), decided as Q2 (the user
+may override at the gate).
 Serves A2, A3.
 
 ### D4: Groups
 
 arm = `/follower` group of lerobot_follower (torque: all 6 joints; neutral: the 5 arm joints, gripper excluded by
-`neutral_exclude_joints`, (my call), see Q1); base = `/swerve_drive` group of base_servos (torque and neutral: the 4
-steering servos 33/34/37/38, velocity joints are never released; while base is released the bridge stops the wheels and
-drops drive commands, (my call), see Q3); head = `/head` group of base_servos. Neutral services exist only for groups
+`neutral_exclude_joints`, (my call), decided as Q1); base = `/swerve_drive` group of base_servos (torque and neutral: the
+4 steering servos 33/34/37/38, velocity joints are never released; while base is released the bridge stops the wheels
+and drops drive commands, (my call), decided as Q3); the user may override both at the gate; head = `/head` group of base_servos. Neutral services exist only for groups
 with `neutral_enabled: true`; the leader bridge (server.yml) has none (D-C2). Serves A1, A2, A4.
 
 ### D5: set_register closed for torque and goals
@@ -133,20 +137,24 @@ User D-C2 for the leader warning. Serves A1, A2, A4.
 
 ### D9: Bus time during save
 
-Service callbacks run inline on the loop thread; a save takes about 0.6 s per joint during which the bus loop stalls,
-so the save first stops every velocity joint on the bus and the bridge accepts one torque/neutral operation at a time
-(`busy`). (my call) Serves A2.
+Service callbacks run inline on the loop thread; a save takes about 0.6 s per joint (about 3 s for the 5 arm joints)
+during which that bridge's loop stalls. Wheel stop is per bus: before the first EEPROM write the save commands 0 to
+every velocity joint of the bus being saved, so those wheels are stopped before the stall even though that bridge's
+velocity watchdog cannot run during it; a save stalls only its own bus, and wheels on another bus keep their own
+bridge and watchdog. The stall is acceptable because the save runs while the group is still released (torque off,
+supported by the user), before the re-enable; joint_states of that bus pause for the stall. One torque/neutral
+operation runs at a time per bridge. (my call) Serves A2.
 
 ### D10: Bench order and safety
 
-The runbook releases and re-zeros head_pan first with small offsets, then head_tilt, then the steering group (robot on
+The runbook (robot-only steps executed post-merge by the orchestrator with the user) starts with a single-joint save on head_pan alone (head_tilt temporarily in `neutral_exclude_joints`), stopping on any mismatch, before any group save; then head_pan and head_tilt as a group, then the steering group (robot on
 blocks or wheels braked), the arm only after the user confirms they support it. Serves A6.
 
 ## Research
 
 | Lens | Ran | Adopted | Rejected |
 |---|---|---|---|
-| code-internal (brief torque-neutral.md) | ran | bridge-side sequence (brief facts 12-17), cmd_center copy (`scripts/calibrate_servos.py:297-350`), Trigger route pattern (`web_ui/server.py:1055-1087`), Calibrate page modules (`web_ui/imu_calibration.py`), filter proximity rule (`filter_node/arbitration.py`) | set_register-based torque from web_ui (brief fact 11-13), software offsets (`command_mapping.py:12,49`) |
+| code-internal (brief torque-neutral.md) | ran | bridge-side sequence (brief facts 12-17), cmd_center copy (`nodes/bridges/feetech_servos/scripts/calibrate_servos.py:297-350`), Trigger route pattern (`web_ui/server.py:1055-1087`), Calibrate page modules (`web_ui/imu_calibration.py`), filter proximity rule (`filter_node/arbitration.py`) | set_register-based torque from web_ui (brief fact 11-13), software offsets (`command_mapping.py:12,49`) |
 | external | skipped: STS3215 behaviour is bench-tested, not documented reliably | - | - |
 
 ## Research inputs
@@ -216,7 +224,7 @@ Cross-epic (docs/plans/contracts.json): `arm-calibration-stale-marker`, `servo-t
 
 - Whether a goal_position write with torque off re-enables torque on the STS3215: moot by design (no goal reaches a
   released servo); the runbook observes it if seen.
-- Whether DefineMiddle needs the EEPROM unlock: the bridge always unlocks (as `cmd_center`); bench confirms.
+- Whether DefineMiddle needs the EEPROM unlock: the bridge always unlocks (as `cmd_center`); the D3 fail-safe keeps torque off on any unverified result; the runbook confirms it on head_pan alone first.
 - Whether the angle limits move with the offset: the bridge restores the pre-centre numbers if they changed; bench
   records which happened in the feetech README.
 - `/var/lib/ros2/arm` exists on the client (`ansible/playbooks/tasks/mcp_server_setup.yml:44`, owner ansible_user); the
