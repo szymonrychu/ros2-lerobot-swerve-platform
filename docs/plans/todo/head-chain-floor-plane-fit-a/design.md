@@ -152,6 +152,9 @@ Pan -60, -30, 0, 30, 60 deg by tilt 12, 20, 28 deg down (15 poses, serpentine), 
 1 deg, still 0.2 deg over 0.5 s, 0.5 s settle: about a minute. Only floor-seeing tilts, inside -30..30. (my call)
 Serves A3.
 
+### D12: Gate Q1 (recommended answer, 2026-10-21): the sweep drives t
+Gate Q1 (recommended answer, 2026-10-21): the sweep drives the head directly on /head/joint_commands like the web UI head tab; start refused while an RGB-D capture or compute runs; head restored on every exit (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -195,6 +198,7 @@ Serves A3.
 | D9 A Head floor fit step card on the Calibrate page | head-floor-fit-ui-step |
 | D10 Runbook with the acceptance numbers, run after merge | head-floor-fit-ui-step |
 | D11 Sweep grid within the current range | floor-sweep-capture |
+| D12 Gate Q1 (recommended answer, 2026-10-21): the sweep drives t | floor-sweep-capture |
 
 ## Contracts
 
