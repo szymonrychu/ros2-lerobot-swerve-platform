@@ -1,6 +1,6 @@
 ---
 title: Head floor fit UI shows tilt roll and pose-mean RMS
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The user sees every fitted head parameter and the RMS the limits check before Apply
 files: [nodes/web_ui/frontend/src/calibrate/HeadFloorFit.tsx, nodes/web_ui/frontend/src/calibrate/HeadFloorFit.test.tsx, nodes/web_ui/frontend/src/calibrate/headFloorApi.ts, nodes/web_ui/frontend/src/calibrate/headFloorApi.test.ts, nodes/web_ui/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--head-floor-fit-ui-shows-tilt
+branch: head-chain-floor-plane-fit-a--head-floor-fit-ui-shows-tilt
 verified_head: ""
 run: ""
 provides: []
