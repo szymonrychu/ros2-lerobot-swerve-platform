@@ -51,16 +51,13 @@ def test_executor_key_is_loaded(tmp_path: Path, kind: str) -> None:
     assert config.executor == kind
 
 
-def test_unknown_executor_is_a_config_error(tmp_path: Path) -> None:
+def test_unknown_executor_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="executor"):
         load_config(write_config(tmp_path, "executor: threaded\n"))
 
 
-def test_make_executor_events(node_module: ModuleType) -> None:
+def test_make_executor_builds_the_configured_kind(node_module: ModuleType) -> None:
     assert node_module.make_executor("events") is node_module.EventsExecutor.return_value
-
-
-def test_make_executor_single_threaded(node_module: ModuleType) -> None:
     assert node_module.make_executor("single_threaded") is node_module.SingleThreadedExecutor.return_value
 
 
@@ -70,9 +67,14 @@ def test_make_executor_rejects_unknown_kind(node_module: ModuleType) -> None:
 
 
 @pytest.mark.parametrize("kind", ["events", "single_threaded"])
-def test_loop_spins_the_configured_executor_at_the_control_period(
+def run_loop(
     node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, kind: str
-) -> None:
+) -> tuple[list[str], MagicMock, list[float]]:
+    """Run serve_filter_node against a stub executor for LOOP_ITERATIONS spins.
+
+    Returns:
+        tuple[list[str], MagicMock, list[float]]: Executor kinds requested, the stub executor, spin_once timeouts.
+    """
     fake = FakeRclpy()
     executor = MagicMock()
     timeouts: list[float] = []
@@ -97,7 +99,20 @@ def test_loop_spins_the_configured_executor_at_the_control_period(
     )
 
     node_module.serve_filter_node(config, MagicMock())
+    return made, executor, timeouts
 
+
+@pytest.mark.parametrize("kind", ["events", "single_threaded"])
+def test_run_spins_the_configured_executor(node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
+    made, executor, timeouts = run_loop(node_module, monkeypatch, kind)
     assert made == [kind]
     executor.add_node.assert_called_once()
+    assert len(timeouts) == LOOP_ITERATIONS
+
+
+@pytest.mark.parametrize("kind", ["events", "single_threaded"])
+def test_control_loop_spins_once_per_period(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    _, _, timeouts = run_loop(node_module, monkeypatch, kind)
     assert timeouts == [pytest.approx(0.01)] * LOOP_ITERATIONS
