@@ -1,6 +1,6 @@
 ---
 title: "Floor fit pose-mean limits, partial pose skip and tilt roll"
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Lets the head floor fit pass on real ToF noise so the floor sits at 0 in the robot frame
 files: [shared/ros2_common/head_rgbd_calibration/floor_fit.py, shared/ros2_common/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/head_rgbd_calibration/floor_sweep.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, tests/test_head_floor_fit.py, nodes/head_rgbd_calibration/tests/test_floor_sweep.py, docs/runbooks/head-floor-fit.md, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--floor-fit-pose-mean-limits-p
 branch: head-chain-floor-plane-fit-a--floor-fit-pose-mean-limits-p
-verified_head: ""
-run: ""
-provides: []
+verified_head: 60246c9e
+run: head-chain-floor-plane-fit-a
+provides: [floor-pose-mean-errors]
+acs_for_audit: []
+process_gaps: ["Orchestrator-owned edit still pending: ansible/group_vars/client.yml head_rgbd_calibration floor block (line 1575, clouds_per_pose: 5) needs clouds_per_pose: 10 and min_clouds_per_pose: 5. Until then tests/test_head_rgbd_calibration_deploy.py::test_ros2_nodes_entry_matches_defaults fails (1 failed, 259 passed). The task scope forbids this task from editing client.yml, so the failure is caused by that constraint, not by a defect in the diff.", "Web UI follow-ups the implementer listed: show params.tilt_roll_deg in the Head floor fit parameter table, show observation_* RMS next to the pose-mean RMS, and add the new keys to the FloorResult type. These belong in the epic as a new task."]
 ---
 
 # Floor fit pose-mean limits, partial pose skip and tilt roll
