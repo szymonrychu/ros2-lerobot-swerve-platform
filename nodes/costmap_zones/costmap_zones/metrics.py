@@ -2,7 +2,11 @@
 
 from prometheus_client import Counter, Gauge
 
-ZONE_PUBLISHES = Counter("costmap_zones_publishes_total", "Mask publications (one keepout plus one speed mask each)")
+ZONE_PUBLISHES = Counter(
+    "costmap_zones_publishes_total",
+    "Mask publications, one per published mask (only masks whose cells changed)",
+    ["mask"],
+)
 ZONES_ACTIVE = Gauge("costmap_zones_active", "Active zones in the latest valid /poi/list", ["zone"])
 ZONES_REJECTED = Counter(
     "costmap_zones_rejected_total",
