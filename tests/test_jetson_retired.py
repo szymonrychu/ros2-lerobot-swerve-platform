@@ -772,7 +772,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "nodes/head_rgbd_calibration/README.md",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*|_error_px| fit|`|, flag)",
         "rgbd-calibration",
     ),
     (
@@ -782,7 +782,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py",
-        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*|_error_px| fit|`|, flag)",
         "rgbd-calibration",
     ),
     (
@@ -792,7 +792,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "nodes/web_ui/README.md",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*|_error_px| \$\{f| - px| z px)",
         "rgbd-calibration",
     ),
     (
@@ -802,12 +802,52 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "nodes/head_rgbd_calibration/tests/fixtures/api/result.json",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*|_error_px| \$\{f| - px| z px)",
         "rgbd-calibration",
     ),
     (
         "nodes/web_ui/frontend/src/calibrate/RgbdResults.test.tsx",
         r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx",
+        r"(?i)stereo(_error_px| \$\{f| - px| z px)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/web_ui/frontend/src/calibrate/RgbdCapture.tsx",
+        r"(?i)stereo(_error_px| \$\{f| - px| z px)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts",
+        r"(?i)stereo(_error_px| \$\{f| - px| z px)",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/web_ui/frontend/src/calibrate/rgbdApi.ts",
+        r"(?i)stereo",  # RGB-D calibration: the ToF-to-RGB stereo fit and its per-pose errors
+        "rgbd-calibration",
+    ),
+    (
+        "shared/ros2_common/head_rgbd_calibration/calibrate.py",
+        r"(?i)stereo",  # RGB-D calibration: the ToF-to-RGB stereo fit and its per-pose errors
+        "rgbd-calibration",
+    ),
+    (
+        "shared/ros2_common/head_rgbd_calibration/hints.py",
+        r"(?i)stereo",  # RGB-D calibration: the ToF-to-RGB stereo fit and its per-pose errors
+        "rgbd-calibration",
+    ),
+    (
+        "tests/test_head_rgbd_calib_hints.py",
+        r"(?i)stereo",  # RGB-D calibration: the ToF-to-RGB stereo fit and its per-pose errors
+        "rgbd-calibration",
+    ),
+    (
+        "tests/test_head_rgbd_calib_quality.py",
+        r"(?i)stereo",  # RGB-D calibration: the ToF-to-RGB stereo fit and its per-pose errors
         "rgbd-calibration",
     ),
     (
