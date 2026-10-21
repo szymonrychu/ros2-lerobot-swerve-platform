@@ -140,7 +140,7 @@ def failing_state(state: Path) -> None:
     write_observations(state, SID, per_pose=0)
 
 
-def test_passing_compute_writes_result_and_head_chain_keeping_applied_joints(cfg: NodeConfig, state: Path) -> None:
+def test_compute_writes_result_and_head_chain(cfg: NodeConfig, state: Path) -> None:
     write_observations(state, SID)
     applied = state / "applied"
     applied.mkdir()
@@ -172,7 +172,7 @@ def test_passing_compute_writes_result_and_head_chain_keeping_applied_joints(cfg
     assert read_result(cfg, SID, result["id"]) == result
 
 
-def test_failing_compute_writes_no_head_chain(cfg: NodeConfig, state: Path) -> None:
+def test_failed_compute_writes_no_head_chain(cfg: NodeConfig, state: Path) -> None:
     failing_state(state)
     result = compute_floor(cfg, SID, NOW)
     assert result["passed"] is False
@@ -222,7 +222,7 @@ def test_base_urdf_applies_tof_joint_and_head_chain(cfg: NodeConfig, state: Path
     assert chain.origin("tof_joint")[0] == pytest.approx((0.01, 0.02, 0.03))
 
 
-def test_apply_copies_head_chain_and_keeps_applied_keys(cfg: NodeConfig, state: Path) -> None:
+def test_apply_keeps_applied_keys_and_adds_record(cfg: NodeConfig, state: Path) -> None:
     write_observations(state, SID)
     put_applied(state)
     result = compute_floor(cfg, SID, NOW)
@@ -242,7 +242,7 @@ def test_apply_copies_head_chain_and_keeps_applied_keys(cfg: NodeConfig, state: 
     assert not list(applied.glob(".tmp-*"))
 
 
-def test_apply_refused_for_failed_result_and_without_applied_json(cfg: NodeConfig, state: Path) -> None:
+def test_apply_refusals(cfg: NodeConfig, state: Path) -> None:
     failing_state(state)
     put_applied(state)
     failed = compute_floor(cfg, SID, NOW)

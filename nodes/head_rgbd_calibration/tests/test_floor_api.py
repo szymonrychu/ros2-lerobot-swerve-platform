@@ -144,7 +144,7 @@ def test_sessions_list_matches_fixture(parts: SimpleNamespace) -> None:
     assert body[0]["id"] == SID and body[0]["skipped"] == 1
 
 
-def test_compute_result_and_apply_match_fixtures(parts: SimpleNamespace) -> None:
+def test_routes_match_fixtures_and_conflicts(parts: SimpleNamespace) -> None:
     seed_applied(parts.state)
     result = compute(parts)
     assert_matches_fixture(result, "floor_result")
@@ -154,6 +154,9 @@ def test_compute_result_and_apply_match_fixtures(parts: SimpleNamespace) -> None
     assert applied.status_code == 200
     assert_matches_fixture(applied.json(), "floor_apply")
     assert applied.json()["head_chain"]["result"] == result["id"]
+    parts.sweep.running = True
+    assert parts.client.post(f"/api/floor/sessions/{SID}/compute").status_code == 409
+    assert parts.client.post("/api/floor/sweep/start").status_code == 409
 
 
 def test_compute_conflicts_while_sweep_runs(parts: SimpleNamespace) -> None:

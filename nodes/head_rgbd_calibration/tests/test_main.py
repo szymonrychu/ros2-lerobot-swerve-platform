@@ -115,7 +115,7 @@ def test_default_bind_is_loopback(monkeypatch: pytest.MonkeyPatch, rec: Recorder
     assert rec.uvicorn_config == {"host": "127.0.0.1", "port": 18110}
 
 
-def test_shutdown_stops_capture_job_and_node(rec: Recorder) -> None:
+def test_shutdown_stops_floor_sweep_first(rec: Recorder) -> None:
     rec.fail_serve = True
     with pytest.raises(RuntimeError):
         entry.main()
