@@ -1,0 +1,8 @@
+[
+  {
+    "task": "cell-class-hysteresis",
+    "accept": true,
+    "reason": "verifier died; orchestrator reran verify-task.py on e23de062: PASS, 236 tests, no debt or parking",
+    "at": "2026-10-21T23:30:18Z"
+  }
+]

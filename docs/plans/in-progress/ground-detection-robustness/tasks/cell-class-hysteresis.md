@@ -68,6 +68,10 @@ CellClass, CellClassFilter, StableArea in cell_class.hpp (part cell-class-filter
 - implement cell_class.hpp / cell_class.cpp
 - run `scripts/cpp-node-test.sh ground_estimator_cpp`, see PASS; commit `feat(ground_estimator_cpp): per-cell class hysteresis`
 
+## Ruling
+
+- 2026-10-21 accepted: verifier died; orchestrator reran verify-task.py on e23de062: PASS, 236 tests, no debt or parking
+
 ## Notes
 
 See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.
