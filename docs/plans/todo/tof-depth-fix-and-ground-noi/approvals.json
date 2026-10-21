@@ -70,5 +70,16 @@
       "tof-calibrated-k-deploy"
     ],
     "status": "approved"
+  },
+  {
+    "id": "G2",
+    "text": "Gate Q2 (user 2026-10-21, yes): mcp_server obstacles_3d fixed-band summary moves to 0.10 m with tof_mark",
+    "decisions": [
+      "D10"
+    ],
+    "tasks": [
+      "tof-mark-band-ten-cm"
+    ],
+    "status": "approved"
   }
 ]

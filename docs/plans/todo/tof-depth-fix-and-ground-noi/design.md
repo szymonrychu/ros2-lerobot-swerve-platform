@@ -67,6 +67,9 @@ A new `docs/runbooks/head-remount-floor-check.md` (own file, so the open ground-
 ### D9: Gate Q1 (user 2026-10-21, yes): when applied/tof_calibration
 Gate Q1 (user 2026-10-21, yes): when applied/tof_calibration.yaml is missing, arducam_tof converts with the SDK factory K and logs a warning (user decision)
 
+### D10: Gate Q2 (user 2026-10-21, yes): mcp_server obstacles_3d fixe
+Gate Q2 (user 2026-10-21, yes): mcp_server obstacles_3d fixed-band summary moves to 0.10 m with tof_mark (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -104,6 +107,7 @@ Gate Q1 (user 2026-10-21, yes): when applied/tof_calibration.yaml is missing, ar
 | D7 Robot runbook | head-remount-floor-runbook |
 | D8 Calibration plane check unchanged | tof-radial-to-z-depth, head-remount-floor-runbook |
 | D9 Gate Q1 (user 2026-10-21, yes): when applied/tof_calibration | tof-calibrated-k-deploy |
+| D10 Gate Q2 (user 2026-10-21, yes): mcp_server obstacles_3d fixe | tof-mark-band-ten-cm |
 
 ## Contracts
 
