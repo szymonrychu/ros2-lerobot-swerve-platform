@@ -185,5 +185,15 @@
       "head-and-arm-calibration-fro"
     ],
     "note": "rgbd result.json gains poses: [{id, rgb_error_px, tof_error_px, stereo_error_px, outlier}] and outlier_poses: [id], empty on input errors; fixture tests/fixtures/api/result.json; frontend guards treat them as optional; owner task compute-result-pose-errors"
+  },
+  {
+    "name": "urdf-chain-fk",
+    "kind": "api",
+    "owner": "head-chain-floor-plane-fit-a",
+    "file": "shared/ros2_common/head_rgbd_calibration/chain.py",
+    "consumers": [
+      "head-and-arm-calibration-fro"
+    ],
+    "note": "UrdfChain FK core; moved from head-and-arm-calibration-fro 2026-10-21"
   }
 ]
