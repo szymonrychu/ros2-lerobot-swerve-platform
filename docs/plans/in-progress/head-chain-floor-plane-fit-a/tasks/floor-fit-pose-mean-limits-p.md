@@ -1,6 +1,6 @@
 ---
 title: "Floor fit pose-mean limits, partial pose skip and tilt roll"
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Lets the head floor fit pass on real ToF noise so the floor sits at 0 in the robot frame
 files: [shared/ros2_common/head_rgbd_calibration/floor_fit.py, shared/ros2_common/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/head_rgbd_calibration/floor_sweep.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, tests/test_head_floor_fit.py, nodes/head_rgbd_calibration/tests/test_floor_sweep.py, docs/runbooks/head-floor-fit.md, tests/README.md]
@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--floor-fit-pose-mean-limits-p
+branch: head-chain-floor-plane-fit-a--floor-fit-pose-mean-limits-p
 verified_head: ""
 run: ""
 provides: []
