@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--head-remount-floor-runbook
+branch: tof-depth-fix-and-ground-noi--head-remount-floor-runbook
 verified_head: ""
 run: ""
 provides: []

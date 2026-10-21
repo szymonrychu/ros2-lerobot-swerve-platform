@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--ground-cell-temporal-median
+branch: tof-depth-fix-and-ground-noi--ground-cell-temporal-median
 verified_head: ""
 run: ""
 provides: []

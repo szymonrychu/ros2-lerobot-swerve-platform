@@ -12,8 +12,8 @@ model: sonnet
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--tof-radial-to-z-depth
+branch: tof-depth-fix-and-ground-noi--tof-radial-to-z-depth
 verified_head: ""
 run: ""
 provides: []

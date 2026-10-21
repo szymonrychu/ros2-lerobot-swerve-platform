@@ -12,8 +12,8 @@ model: sonnet
 estimate: 30
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--head-pan-inverted
+branch: tof-depth-fix-and-ground-noi--head-pan-inverted
 verified_head: ""
 run: ""
 provides: []

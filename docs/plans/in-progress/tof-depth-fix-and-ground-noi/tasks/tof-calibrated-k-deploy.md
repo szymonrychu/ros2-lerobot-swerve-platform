@@ -12,8 +12,8 @@ model: sonnet
 estimate: 40
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--tof-calibrated-k-deploy
+branch: tof-depth-fix-and-ground-noi--tof-calibrated-k-deploy
 verified_head: ""
 run: ""
 provides: []
