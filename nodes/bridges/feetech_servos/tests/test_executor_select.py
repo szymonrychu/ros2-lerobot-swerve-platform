@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from .ros_stubs import FakeRclpy, external_shutdown, install_ros_stubs
+from .ros_stubs import FakeRclpy, external_shutdown, install_service_stubs
 from .test_shutdown import make_config, signal_during_spin
 
-install_ros_stubs("sensor_msgs", "sensor_msgs.msg", "std_msgs", "std_msgs.msg")
+install_service_stubs()
 
 BASE_YAML = "namespace: base\njoint_names:\n  - {name: wheel, id: 2}\n"
 
