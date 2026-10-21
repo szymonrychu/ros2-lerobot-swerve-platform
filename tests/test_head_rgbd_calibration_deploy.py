@@ -108,7 +108,7 @@ def test_apply_units_content() -> None:
     assert "Type=oneshot" in service_unit
     assert (
         "ExecStart=/usr/bin/systemctl try-restart ros2-head_camera_cpp.service ros2-head_rgbd_cpp.service "
-        "ros2-head_state_publisher.service"
+        "ros2-head_state_publisher.service ros2-arducam_tof.service"
     ) in service_unit
     tasks = {t["name"]: t for t in setup_tasks()}
     reload_task = tasks["Reload systemd after head_rgbd_calibration apply unit changes"]
@@ -117,6 +117,15 @@ def test_apply_units_content() -> None:
     assert enable["name"] == "ros2-head-rgbd-calibration-apply.path"
     assert enable["enabled"] is True
     assert enable["state"] == "started"
+
+
+def test_arducam_tof_reads_the_applied_tof_calibration() -> None:
+    wanted = ("head_rgbd_cpp", "arducam_tof")
+    nodes = {n["name"]: yaml.safe_load(n["config"]) for n in client_vars()["ros2_nodes"] if n["name"] in wanted}
+    applied = nodes["head_rgbd_cpp"]["tof_calibration_file"]
+    assert applied == f"{STATE_DIR}/applied/tof_calibration.yaml"
+    assert nodes["arducam_tof"]["tof_calibration_file"] == applied
+    assert nodes["arducam_tof"]["depth_is_radial"] is True
 
 
 def test_playbook_setup_before_deploy() -> None:

@@ -1,8 +1,8 @@
 # {{ ansible_managed }}
-# Restarts the head nodes that read the applied calibration (try-restart: units that are stopped stay stopped).
+# Restarts the head nodes (incl. arducam_tof, whose radial-to-z conversion uses the applied ToF K) that read the applied calibration (try-restart: units that are stopped stay stopped).
 [Unit]
 Description=Restart head nodes after a head RGB-D calibration was applied
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl try-restart ros2-head_camera_cpp.service ros2-head_rgbd_cpp.service ros2-head_state_publisher.service
+ExecStart=/usr/bin/systemctl try-restart ros2-head_camera_cpp.service ros2-head_rgbd_cpp.service ros2-head_state_publisher.service ros2-arducam_tof.service

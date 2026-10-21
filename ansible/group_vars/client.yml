@@ -1352,6 +1352,11 @@ ros2_nodes:
       # Capture-to-return latency of the SDK frame, ms: the frame is stamped with its return time minus this. 0.0 means
       # unset; the pan-sweep procedure in nodes/head_rgbd_cpp/README.md yields the measured value for this key.
       stamp_latency_ms: 0.0
+      # ToF intrinsics for the radial-to-z conversion and camera_info: the applied file Apply on the Calibrate page
+      # writes (ros2-head-rgbd-calibration-apply restarts this node); a missing file falls back to the SDK factory K.
+      tof_calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml
+      # The SDK depth is the distance along each pixel ray; true converts it to z-depth with that K.
+      depth_is_radial: true
       # Topics are fixed in the driver (the web_ui head tab subscribes to them):
       # /tof/depth/image_raw
       # /tof/amplitude/image_raw

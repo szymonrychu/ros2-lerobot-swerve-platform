@@ -2989,8 +2989,9 @@ Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nod
 | `test_state_dirs_owned_by_node_user_mode_0755` | The state, `sessions` and `applied` directories are created owned by the node user, mode 0755. |
 | `test_seed_copies_never_overwrite_and_need_existing_source` | Seeding the applied calibration files copies only when the source exists and never overwrites (`force: false`). |
 | `test_no_task_clears_state_dir` | No setup task removes, forces over or rewrites state dir content. |
-| `test_apply_units_content` | The apply path unit watches `applied.json` and the oneshot service try-restarts the head camera, RGB-D and state publisher units; both units are reloaded, enabled and started. |
+| `test_apply_units_content` | The apply path unit watches `applied.json` and the oneshot service try-restarts the head camera, RGB-D, state publisher and arducam_tof units; both units are reloaded, enabled and started. |
 | `test_playbook_setup_before_deploy` | The setup include precedes `Deploy head_rgbd_calibration` in the client playbook, with the right tags and node name. |
+| `test_arducam_tof_reads_the_applied_tof_calibration` | arducam_tof's `tof_calibration_file` is the same applied `tof_calibration.yaml` as head_rgbd_cpp's, and `depth_is_radial` is true. |
 | `test_http_port_unique_in_client_vars` | The node's HTTP port appears exactly once in `client.yml`. |
 
 ### `rgbd_synthetic.py`
