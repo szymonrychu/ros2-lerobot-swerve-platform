@@ -1,6 +1,6 @@
 ---
 title: Filter node idle feedback
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "filter_node stops handling 89 Hz arm feedback while nobody drives the arm (about 0.08 core) without weakening the takeover rule."
 files: [nodes/filter_node/filter_node/config.py, nodes/filter_node/filter_node/feedback_rate.py, nodes/filter_node/filter_node/node.py, nodes/filter_node/tests/test_feedback_rate.py, nodes/filter_node/README.md, ansible/group_vars/client.yml, tests/test_client_cpu_load.py, tests/README.md]

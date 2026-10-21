@@ -1,6 +1,6 @@
 ---
 title: Filter node events executor
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "filter_node's 100 Hz loop and feedback callbacks run on the cheaper EventsExecutor, switchable back by config."
 files: [nodes/filter_node/filter_node/config.py, nodes/filter_node/filter_node/node.py, nodes/filter_node/tests/test_executor_select.py, nodes/filter_node/tests/ros_stubs.py, nodes/filter_node/README.md]

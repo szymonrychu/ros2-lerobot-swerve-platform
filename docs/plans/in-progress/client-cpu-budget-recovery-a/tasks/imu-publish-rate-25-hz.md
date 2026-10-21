@@ -1,6 +1,6 @@
 ---
 title: IMU publish rate 25 Hz
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Frees about 0.18 core of busy-waiting I2C on the saturated client while every IMU consumer keeps working.
 files: [ansible/group_vars/client.yml, tests/test_client_cpu_load.py, tests/README.md, nodes/bridges/bno055_imu/README.md, ansible/README.md]

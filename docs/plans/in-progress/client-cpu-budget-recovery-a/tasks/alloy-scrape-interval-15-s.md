@@ -1,6 +1,6 @@
 ---
 title: Alloy scrape interval 15 s
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The client's Alloy and the ~18 Python /metrics handlers it scrapes cost a third (about 0.06 core) while dashboards stay correct."
 files: [ansible/group_vars/client.yml, ansible/roles/monitoring/defaults/main.yml, tests/test_monitoring_agent_role.py, tests/test_monitoring_role.py, tests/test_monitoring_dashboards.py, ansible/README.md, shared/ros2_metrics/ros2_metrics/__init__.py, tests/README.md]

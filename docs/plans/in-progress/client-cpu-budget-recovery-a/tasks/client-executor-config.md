@@ -1,6 +1,6 @@
 ---
 title: Client executor config
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The client actually runs the five nodes on the EventsExecutor (about 0.3 core), with a one-line rollback per node."
 files: [ansible/group_vars/client.yml, tests/test_client_cpu_load.py, tests/README.md, ansible/README.md]

@@ -1,6 +1,6 @@
 ---
 title: Feetech events executor
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Both client servo bridges (arm and base) drain callbacks on the cheaper EventsExecutor, switchable back by config."
 files: [nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/tests/test_executor_select.py, nodes/bridges/feetech_servos/README.md]

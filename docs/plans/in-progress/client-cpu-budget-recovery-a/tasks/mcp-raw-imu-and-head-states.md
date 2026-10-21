@@ -1,6 +1,6 @@
 ---
 title: MCP raw IMU and head states
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "mcp_server's dispatch thread stops decoding ~70 messages/s it reads at 4 Hz (about 0.08 core) with bump detection unchanged."
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/staleness.py, nodes/mcp_server/tests/test_raw_monitor_feeds.py, nodes/mcp_server/README.md]

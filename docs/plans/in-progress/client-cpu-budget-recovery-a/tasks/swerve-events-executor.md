@@ -1,6 +1,6 @@
 ---
 title: Swerve events executor
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The swerve controller's ~200 callbacks/s run on the cheaper EventsExecutor, switchable back by config."
 files: [nodes/swerve_drive_controller/swerve_drive_controller/config.py, nodes/swerve_drive_controller/swerve_drive_controller/node.py, nodes/swerve_drive_controller/tests/test_executor_select.py, nodes/swerve_drive_controller/tests/ros_stubs.py, nodes/swerve_drive_controller/README.md]

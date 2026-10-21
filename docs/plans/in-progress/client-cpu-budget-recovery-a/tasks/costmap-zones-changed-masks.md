@@ -1,6 +1,6 @@
 ---
 title: Costmap zones changed masks
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 stops reloading three 38 KiB masks at 1.7 Hz, and the local keepout is applied again."
 files: [nodes/costmap_zones/costmap_zones/node.py, nodes/costmap_zones/costmap_zones/metrics.py, nodes/costmap_zones/tests/test_node.py, nodes/costmap_zones/README.md]

@@ -1,6 +1,6 @@
 ---
 title: Marker detector raw image
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "marker_detector stops decoding every camera frame to process two per second (about 0.07 core)."
 files: [nodes/marker_detector/marker_detector/node.py, nodes/marker_detector/tests/test_node_raw.py, nodes/marker_detector/tests/ros_stubs.py, nodes/marker_detector/README.md]
