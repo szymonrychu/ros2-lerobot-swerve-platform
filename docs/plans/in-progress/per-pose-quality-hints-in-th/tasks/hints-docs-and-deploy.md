@@ -1,6 +1,6 @@
 ---
 title: Hints docs and deploy
-status: in-progress
+status: blocked
 repo: ros2-lerobot-sverve-platform
 value: The hints are documented and live on the robot for the next calibration session.
 files: [nodes/head_rgbd_calibration/README.md, shared/README.md, nodes/web_ui/README.md, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/per-pose-quality-hints-in-th--hints-docs-and-deploy
 branch: per-pose-quality-hints-in-th--hints-docs-and-deploy
-verified_head: ""
-run: ""
+verified_head: 8c540d68cad318c488ed9e663a6d2383bd5adfd1
+run: per-pose-quality-hints-in-th
 provides: []
+acs_for_audit: [a7]
+process_gaps: [The deploy-then-verify step must run after the integrated branch is pushed to origin main. A deploy from an unmerged task branch ships old code. deploy-nodes.sh from a worktree also needs the gitignored ansible/inventory.]
 ---
 
 # Hints docs and deploy

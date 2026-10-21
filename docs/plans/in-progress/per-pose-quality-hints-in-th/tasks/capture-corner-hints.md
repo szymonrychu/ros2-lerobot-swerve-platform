@@ -1,6 +1,6 @@
 ---
 title: Capture corner hints
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The operator sees at capture time that a pose has too few corners and how to fix it.
 files: [shared/ros2_common/head_rgbd_calibration/hints.py, tests/test_head_rgbd_calib_hints.py, nodes/head_rgbd_calibration/head_rgbd_calibration/store.py, nodes/head_rgbd_calibration/head_rgbd_calibration/app.py, nodes/head_rgbd_calibration/tests/test_store.py, nodes/head_rgbd_calibration/tests/test_app.py, nodes/head_rgbd_calibration/tests/fixtures/api/session.json]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/per-pose-quality-hints-in-th--capture-corner-hints
 branch: per-pose-quality-hints-in-th--capture-corner-hints
-verified_head: ""
-run: ""
-provides: []
+verified_head: 9258c6ea32655f850a1092d127eafd109d3c0429
+run: per-pose-quality-hints-in-th
+provides: [pose-capture-hints]
+acs_for_audit: []
+process_gaps: ["tests/README.md has no entry for the new tests/test_head_rgbd_calib_hints.py (CLAUDE.md requires each test file be listed)", "tests/README.md has no entry for test_head_rgbd_calib_hints.py, and the node README does not mention capture hints (CLAUDE.md documentation expectation)"]
 ---
 
 # Capture corner hints

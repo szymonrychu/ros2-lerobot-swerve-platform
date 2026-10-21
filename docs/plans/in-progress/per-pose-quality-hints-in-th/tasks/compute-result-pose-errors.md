@@ -1,6 +1,6 @@
 ---
 title: Compute result pose errors
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: result.json and report.md tell which pose to delete before computing again.
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py, nodes/head_rgbd_calibration/tests/test_compute.py, nodes/head_rgbd_calibration/tests/fixtures/api/result.json]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/per-pose-quality-hints-in-th--compute-result-pose-errors
 branch: per-pose-quality-hints-in-th--compute-result-pose-errors
-verified_head: ""
-run: ""
+verified_head: e45812cd3010afd92e236a048565e771b79b46b6
+run: per-pose-quality-hints-in-th
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Compute result pose errors

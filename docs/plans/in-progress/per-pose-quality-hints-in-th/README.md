@@ -34,7 +34,7 @@ Hints only: the operator keeps deciding, and the existing delete-pose action is 
 
 ## Time
 
-Estimate: 255 min | Actual: 0 min | Remaining estimate: 255 min
+Estimate: 255 min | Actual: 0 min | Remaining estimate: 45 min
 
 ## Review
 
