@@ -120,5 +120,16 @@
       "head-and-arm-calibration-fro"
     ],
     "note": "/tof/depth/image_raw 16UC1 mm is z-depth (SDK radial distance / ray norm of the calibrated ToF K, no distortion); /tof/camera_info K = tof_calibration_file K (SDK K fallback), D zero; owner task tof-radial-to-z-depth"
+  },
+  {
+    "name": "head-pan-sign",
+    "kind": "config",
+    "owner": "tof-depth-fix-and-ground-noi",
+    "file": "ansible/group_vars/client.yml",
+    "consumers": [
+      "head-and-arm-calibration-fro",
+      "servo-torque-off-and-neutral"
+    ],
+    "note": "base_servos head group: head_pan inverted true (servo mounted reversed, found 2026-10-21); +pan = left CCW from above, URDF unchanged, steps 1024..3072; owner task head-pan-inverted"
   }
 ]
