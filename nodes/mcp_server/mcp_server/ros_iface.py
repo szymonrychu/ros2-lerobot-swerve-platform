@@ -118,7 +118,7 @@ from .ros_dock import (
     wait_future,
 )
 from .spin import FrameCache
-from .staleness import LazyStamped, MonitorFeed, Stamped, sample_ages
+from .staleness import LazyStamped, MonitorFeed, QueuedMonitorFeed, Stamped, sample_ages
 from .topdown import TopdownInputs, grid_layer, transform_points
 from .zoom_client import ZoomRequests
 
@@ -152,6 +152,7 @@ ZOOM_IMAGE_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=Hist
 # /robot_events: reliable so a consumer never misses an event.
 EVENT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=50)
 MONITOR_TICK_S = 0.25
+IMU_FEED_MAX_SAMPLES = 100  # queued /imu/data samples between two monitor ticks (25 Hz x 0.25 s = about 7)
 STATUS_SUFFIX = "/_action/status"
 PLAN_TIMEOUT_S = 5.0  # wait for one ComputePathToPose plan
 NAV_POLL_S = 0.05
@@ -660,7 +661,7 @@ class RosRobot:
         )
         self.follower_rate.start()
         self.cache(JointState, t.follower_joint_currents, "joint_currents", SENSOR_QOS)
-        self.cache(JointState, config.head.state_topic, "head_joint_states", SENSOR_QOS)
+        self.cache_raw(JointState, config.head.state_topic, "head_joint_states", SENSOR_QOS)
         self.cache(
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
         )
@@ -702,9 +703,11 @@ class RosRobot:
             Odometry, t.swerve_odom, None, SENSOR_QOS, lambda msg: self.monitor.on_swerve_odom(msg.twist.covariance[0])
         )
         self.cache_raw(Odometry, t.rf2o_twist, None, SENSOR_QOS, lambda msg: self.monitor.on_rf2o(*twist_xyw(msg)))
-        self.subscribe(
+        self.cache_raw(
             Imu,
             t.imu,
+            None,
+            SENSOR_QOS,
             lambda m: self.monitor.on_imu(
                 m.linear_acceleration.x,
                 m.linear_acceleration.y,
@@ -714,6 +717,7 @@ class RosRobot:
                 m.orientation.z,
                 m.orientation.w,
             ),
+            keep_all=True,
         )
         self.subscribe(Twist, t.cmd_vel, lambda m: self.monitor.on_cmd_vel(m.linear.x, m.linear.y, m.angular.z))
         self.subscribe(String, t.servo_registers, self.on_servo_registers)
@@ -1128,7 +1132,13 @@ class RosRobot:
         return self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group)
 
     def cache_raw(
-        self, msg_type: type, topic: str, key: str | None, qos: QoSProfile, hook: Callable[[Any], None] | None = None
+        self,
+        msg_type: type,
+        topic: str,
+        key: str | None,
+        qos: QoSProfile,
+        hook: Callable[[Any], None] | None = None,
+        keep_all: bool = False,
     ) -> Any:
         """Raw (serialized) subscription keeping only the latest bytes; deserialized lazily, at most once per message.
 
@@ -1141,11 +1151,15 @@ class RosRobot:
             key (str | None): Cache key, or None for a monitor feed that is not cached (no feed_ages entry).
             qos (QoSProfile): Subscription QoS.
             hook (Callable[[Any], None] | None): Monitor feed called with the decoded latest message.
+            keep_all (bool): Feed the hook every message received since the previous tick, in arrival order (bounded
+                by IMU_FEED_MAX_SAMPLES, oldest dropped and logged), instead of only the latest.
 
         Returns:
             Any: The rclpy subscription.
         """
-        feed = MonitorFeed(hook) if hook is not None else None
+        feed: MonitorFeed | None = None
+        if hook is not None:
+            feed = QueuedMonitorFeed(hook, IMU_FEED_MAX_SAMPLES, topic) if keep_all else MonitorFeed(hook)
         if feed is not None:
             self.feeds.append(feed)
         store = self.raw_store(msg_type, key, feed)

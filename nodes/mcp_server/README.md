@@ -246,11 +246,11 @@ and `/swerve_drive/servo_registers` (JSON dumps of the arm servos and the swerve
 temperature (`/sys/class/thermal/thermal_zone0/temp`, throttling from the firmware sysfs `get_throttled`, null if
 missing). A 4 Hz timer runs the stall, latched-collision and CPU checks.
 
-State cache (raw, latest-only): the 95 Hz `/follower/joint_states` and the odometry topics (`/odometry/filtered`, swerve `/odom`,
+State cache (raw, latest-only): the 95 Hz `/follower/joint_states`, the ~47 Hz `/head/joint_states` and the odometry topics (`/odometry/filtered`, swerve `/odom`,
 `/odom_rf2o_twist`) are raw (serialized) subscriptions that keep only the latest bytes and the receive time. A message is deserialized
 only when a reader asks for it (`RosRobot.get`, the tools), at most once per received message. The monitor hooks of these topics are fed
 from the existing 4 Hz monitor tick (no timer of their own) with the latest message only; a topic with no new message since the
-previous tick feeds nothing. Messages are never logged individually. `mcp_sample_age_seconds` is unchanged (it reads the receive time, never the message). Thresholds are the `monitor` config section
+previous tick feeds nothing. `/imu/data` (25 Hz) is raw too but is not latest-only: its feed keeps every serialized sample received since the previous tick (bounded by `IMU_FEED_MAX_SAMPLES`, oldest dropped and counted in a warning log line) and the tick decodes and replays each one to `monitor.on_imu` in arrival order, so bump detection (`bump_min_samples` consecutive samples) and the tilt fallback see the same samples as with a per-message callback. Messages are never logged individually. `mcp_sample_age_seconds` is unchanged (it reads the receive time, never the message). Thresholds are the `monitor` config section
 (`MonitorSettings`, also in `ansible/group_vars/client.yml`).
 
 On-demand subscriptions (`on_demand` config section, `ros_iface.OnDemandSubscription`): profiling showed most of the
