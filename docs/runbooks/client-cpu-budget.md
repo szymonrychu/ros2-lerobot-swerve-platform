@@ -1,6 +1,6 @@
 # Client CPU budget runbook
 
-Proves the saving of the client CPU budget epic on the robot (Pi 5, 4 cores) and shows how to roll back any item by config. The orchestrator runs it after the epic merges. Every deploy goes through `scripts/deploy-nodes.sh` (never run `ansible-playbook` directly), with logs in `.logs/`. The before/after numbers go into the epic record, not into this file.
+Proves the saving of the client CPU budget epic on the robot (Pi 5, 4 cores) and shows how to roll back any item by config. The orchestrator runs it once the epic is merged. Every deploy goes through `scripts/deploy-nodes.sh` (never run `ansible-playbook` directly), with logs in `.logs/`. Record the before/after numbers in the epic record, not in this file.
 
 Mimir keeps 1 d: read the before window first, before it ages out. `scripts/node_cpu_compare.yaml` uses 6 h windows, so set its `switch_time` values within a day of the deploy.
 
@@ -43,7 +43,7 @@ Over the 30 min after the settle:
 - `/imu/data` is about 25 Hz: `ros2 topic hz /imu/data`.
 - EKF `/odometry/filtered` is about 30 Hz: `ros2 topic hz /odometry/filtered`.
 - nav2 "New filter mask arrived" rate is down against the before count (Loki, `{unit="ros2-nav2_bringup.service"} |= "New filter mask arrived"`).
-- No local-costmap "failed to get costmap frame": `{unit="ros2-nav2_bringup.service"} |= "failed to get costmap frame"`. If these (for example `(odom)`) persist after the CPU fixes, raise the local filters' `transform_tolerance` from 0.2 to 0.5 in `nodes/nav2_bringup/config/nav2_params.yaml` and redeploy `nav2_bringup`.
+- No local-costmap "failed to get costmap frame": `{unit="ros2-nav2_bringup.service"} |= "failed to get costmap frame"`. If these (for example `(odom)`) keep appearing once the CPU fixes are deployed, raise the local filters' `transform_tolerance` from 0.2 to 0.5 in `nodes/nav2_bringup/config/nav2_params.yaml` and redeploy `nav2_bringup`.
 - The per-node `executor` is logged at start-up: check the journal of ros2-swerve_controller, ros2-laser_filter, ros2-marker_detector, ros2-filter_node, ros2-lerobot_follower and ros2-base_servos for the executor line (`events`).
 - The rplidar driver does not restart: `systemctl show ros2-rplidar*.service -p NRestarts` is unchanged and Loki shows no new start lines.
 

@@ -28,7 +28,7 @@ entries:
   # runbook query rate(container_cpu_usage_seconds_total{host="client",id="/system.slice/ros2-ground_estimator_cpp.service"}[1m]).
   - {name: nav2_bringup_ground_layer, before_unit: ros2-nav2_bringup.service, after_unit: ros2-nav2_bringup.service, switch_time: 1}
   # Client CPU budget (docs/runbooks/client-cpu-budget.md): the same unit before and after the budget deploy. laser_filter,
-  # mcp_server and nav2_bringup are compared by the entries above. Set switch_time to the runbook's `date +%s` (1 is a placeholder).
+  # mcp_server and nav2_bringup are compared by the entries above. The runbook's step sets switch_time to its `date +%s` (the committed 1 is the unset default).
   - {name: bno055_imu, before_unit: ros2-bno055_imu.service, after_unit: ros2-bno055_imu.service, switch_time: 1}
   - {name: swerve_controller, before_unit: ros2-swerve_controller.service, after_unit: ros2-swerve_controller.service, switch_time: 1}
   - {name: marker_detector, before_unit: ros2-marker_detector.service, after_unit: ros2-marker_detector.service, switch_time: 1}
