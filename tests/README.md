@@ -3095,3 +3095,23 @@ Deploy wiring of the server `map3d_manager_cpp` node type (G3).
 - `test_cpp_node_deploy.py`: `test_server_cpp_node_builds_two_local_sources_and_covers_their_package_xml` for `map3d_manager_cpp`.
 - `test_mcp_server_config.py`: `test_mcp_server_map3d_topics_match_the_topic_contract` (see above) and `test_mcp_server_readme_documents_map3d_tools`.
 - `test_monitoring_dashboards.py`: `assert_3d_mapping_row` on `robot-slam.json`: a "3D mapping" row with server unit CPU and memory (`rtabmap_mapping`, `map3d_manager`, `host="server"`), client CPU for `map3d_uplink`, `head_rgbd_cpp`, `head_camera_cpp`, server memory available, and WiFi throughput in bit/s with an 8 Mbit/s uplink budget threshold line; server-only panels are exempt from the `host="client"` selector rule.
+
+### `test_head_remount_runbook.py`
+
+Static pins for `docs/runbooks/head-remount-floor-check.md`, the robot runbook after the head remount (z-depth, pan sign, per-cell temporal median, 10 cm ToF band). Reads docs and YAML only.
+
+| Test | Covers |
+|---|---|
+| `test_runbook_has_every_section_in_order` | The eight sections Preconditions to Results, in order. |
+| `test_deploy_uses_the_script_never_ansible_playbook` | Deploys name `scripts/deploy-nodes.sh`, tee to `.logs/`, the ansible-deploy skill and all six nodes; no `ansible-playbook`. |
+| `test_preconditions_name_the_setup_and_the_agent_session_check` | Not on blocks, flat floor, ChArUco board, agent session check before mcp_server. |
+| `test_pan_direction_check` | +0.3 rad turns the head left (CCW), user confirms. |
+| `test_rezero_and_recalibration_reference_their_runbooks` | Links to servo-torque-neutral and head-rgbd-fusion; plane bias +-10 mm and the 40 mm limit. |
+| `test_floor_thresholds_and_scraper_workflow` | +-1 cm, 0.6 deg, 60 s, topic_scraper_collect.py, ground_temporal_cells. |
+| `test_costmap_band_equals_nav2_tof_mark` | The 0.10 band equals nav2_params.yaml tof_mark; 30 s clear check. |
+| `test_temporal_defaults_match_ground_estimator_config` | Quoted cell size, window and min frames equal config/ground_estimator.yaml. |
+| `test_every_scripts_path_exists` | Every `scripts/` path (and `docs/` path) named exists. |
+| `test_results_section_has_a_check_table` | The Results table rows. |
+| `test_other_docs_link_and_state_z_depth` | ground-estimation links the runbook; fusion runbook and methodology state z-depth and the plane bias effect. |
+| `test_memory_records_the_decision` | The MEMORY.md entry. |
+| `test_tests_readme_lists_this_file` | This section exists. |

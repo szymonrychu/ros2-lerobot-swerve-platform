@@ -6,6 +6,14 @@ Run from the dev machine against the client (Pi 5, `client.ros2.lan`). Deploys o
 about 20 deg/s, inside the pan/tilt epic's verified range). CPU is read in Grafana, never with `top` over SSH.
 Limits and metric definitions: `docs/head-rgbd-fusion-methodology.md` (`### Results` is filled from steps 2-7).
 
+## ToF depth is z-depth
+
+`/tof/depth/image_raw` is z-depth: arducam_tof divides the radial SDK distance by the ray norm of the calibrated ToF K
+(`radial_to_z`) and publishes that K in camera_info. This removes the radial-to-z factor (about 4 % at the image edge)
+that used to sit in the plane bias, so after a recalibration `plane_bias_mm_median` should be near 0, within +-10 mm
+instead of the earlier ~18 mm; `plane_max_bias_mm` 40 is unchanged. After a head remount follow
+`docs/runbooks/head-remount-floor-check.md`.
+
 ## Steps
 
 1. Deploy `./scripts/deploy-nodes.sh client arducam_tof head_camera_cpp head_rgbd_cpp`. head_rgbd_cpp has no ToF
