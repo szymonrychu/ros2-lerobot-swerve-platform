@@ -1,6 +1,6 @@
 ---
 title: Marker events executor
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "marker_detector's callbacks run on the cheaper EventsExecutor, switchable back by config."
 files: [nodes/marker_detector/marker_detector/config.py, nodes/marker_detector/marker_detector/node.py, nodes/marker_detector/tests/test_executor_select.py, nodes/marker_detector/tests/ros_stubs.py, nodes/marker_detector/README.md]
@@ -13,10 +13,12 @@ estimate: 40
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--marker-events-executor
-branch: client-cpu-budget-recovery-a--marker-events-executor
-verified_head: ""
-run: ""
+branch: worktree branch of client-cpu-budget-recovery-a--marker-events-executor
+verified_head: f54ef8b782bc9b446abd2695670dac96d6c7a671
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: [a5]
+process_gaps: []
 ---
 
 # Marker events executor

@@ -1,6 +1,6 @@
 ---
 title: Costmap zones changed masks
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 stops reloading three 38 KiB masks at 1.7 Hz, and the local keepout is applied again."
 files: [nodes/costmap_zones/costmap_zones/node.py, nodes/costmap_zones/costmap_zones/metrics.py, nodes/costmap_zones/tests/test_node.py, nodes/costmap_zones/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--costmap-zones-changed-masks
 branch: client-cpu-budget-recovery-a--costmap-zones-changed-masks
-verified_head: ""
-run: ""
+verified_head: 929e877baf7ea07fd94975122b17c9576d1984ff
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: [a6]
+process_gaps: []
 ---
 
 # Costmap zones changed masks

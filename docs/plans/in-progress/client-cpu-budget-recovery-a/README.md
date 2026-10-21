@@ -39,7 +39,7 @@ Research on 2026-10-21 measured the client per service (Mimir 30 min rate sums, 
 
 ## Time
 
-Estimate: 770 min | Actual: 0 min | Remaining estimate: 770 min
+Estimate: 770 min | Actual: 0 min | Remaining estimate: 135 min
 
 ## Review
 

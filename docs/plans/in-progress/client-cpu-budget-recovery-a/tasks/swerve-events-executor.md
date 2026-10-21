@@ -1,6 +1,6 @@
 ---
 title: Swerve events executor
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The swerve controller's ~200 callbacks/s run on the cheaper EventsExecutor, switchable back by config."
 files: [nodes/swerve_drive_controller/swerve_drive_controller/config.py, nodes/swerve_drive_controller/swerve_drive_controller/node.py, nodes/swerve_drive_controller/tests/test_executor_select.py, nodes/swerve_drive_controller/tests/ros_stubs.py, nodes/swerve_drive_controller/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--swerve-events-executor
 branch: client-cpu-budget-recovery-a--swerve-events-executor
-verified_head: ""
-run: ""
+verified_head: c97cbcb48ff65825672cc8f1b9805fcde009fd8a
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Swerve events executor

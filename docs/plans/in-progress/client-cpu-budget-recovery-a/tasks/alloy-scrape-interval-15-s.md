@@ -1,6 +1,6 @@
 ---
 title: Alloy scrape interval 15 s
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The client's Alloy and the ~18 Python /metrics handlers it scrapes cost a third (about 0.06 core) while dashboards stay correct."
 files: [ansible/group_vars/client.yml, ansible/roles/monitoring/defaults/main.yml, tests/test_monitoring_agent_role.py, tests/test_monitoring_role.py, tests/test_monitoring_dashboards.py, ansible/README.md, shared/ros2_metrics/ros2_metrics/__init__.py, tests/README.md]
@@ -13,10 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--alloy-scrape-interval-15-s
-branch: client-cpu-budget-recovery-a--alloy-scrape-interval-15-s
-verified_head: ""
-run: ""
+branch: "current worktree branch (HEAD c8e4973a)"
+verified_head: c8e4973abdfca78a66f745ed9275884b7269242a
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Alloy scrape interval 15 s

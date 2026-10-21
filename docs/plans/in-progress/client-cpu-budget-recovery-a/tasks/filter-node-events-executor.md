@@ -1,6 +1,6 @@
 ---
 title: Filter node events executor
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "filter_node's 100 Hz loop and feedback callbacks run on the cheaper EventsExecutor, switchable back by config."
 files: [nodes/filter_node/filter_node/config.py, nodes/filter_node/filter_node/node.py, nodes/filter_node/tests/test_executor_select.py, nodes/filter_node/tests/ros_stubs.py, nodes/filter_node/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: full
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--filter-node-events-executor
 branch: client-cpu-budget-recovery-a--filter-node-events-executor
-verified_head: ""
-run: ""
+verified_head: 2d6520350407698e99c2ca797363760483818a5b
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: []
+process_gaps: ["The implementer said the rclpy source was unavailable; the jazzy source is fetchable. Result: EventsExecutor.spin_once calls spin(timeout_sec, stop_after_user_callback=true), which runs events_queue_.Run(end) with end = now + timeout. So it honours the timeout. Like SingleThreadedExecutor.spin_once, it can return earlier after one user callback, so loop pacing is unchanged. This belongs in the task's evidence record.", "TDD red evidence: I ran the new test file against the merge-base node.py and config.py (copied into the scratchpad, worktree untouched). Result: 4 failed, 6 errors. With HEAD: 74 passed, lint clean. The implementer should paste these into tests.red and verification.evidence."]
 ---
 
 # Filter node events executor

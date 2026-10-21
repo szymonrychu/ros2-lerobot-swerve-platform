@@ -1,6 +1,6 @@
 ---
 title: Client executor config
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The client actually runs the five nodes on the EventsExecutor (about 0.3 core), with a one-line rollback per node."
 files: [ansible/group_vars/client.yml, tests/test_client_cpu_load.py, tests/README.md, ansible/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--client-executor-config
 branch: client-cpu-budget-recovery-a--client-executor-config
-verified_head: ""
-run: ""
+verified_head: d12cc3f5c4139e6731ad56cc82af0dc76ed02060
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Client executor config

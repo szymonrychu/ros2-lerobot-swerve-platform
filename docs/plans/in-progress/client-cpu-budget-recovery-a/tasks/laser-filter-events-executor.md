@@ -1,6 +1,6 @@
 ---
 title: Laser filter events executor
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "laser_filter's scan and ToF callbacks run on the cheaper EventsExecutor, switchable back by config."
 files: [nodes/laser_filter/laser_filter/config.py, nodes/laser_filter/laser_filter/node.py, nodes/laser_filter/tests/test_executor_select.py, nodes/laser_filter/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--laser-filter-events-executor
 branch: client-cpu-budget-recovery-a--laser-filter-events-executor
-verified_head: ""
-run: ""
+verified_head: 14060dffebeec35f72cf16e0cc8d35bc35b29638
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: [a5]
+process_gaps: []
 ---
 
 # Laser filter events executor

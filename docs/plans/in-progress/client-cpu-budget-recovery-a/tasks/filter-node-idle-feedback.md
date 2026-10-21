@@ -1,6 +1,6 @@
 ---
 title: Filter node idle feedback
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "filter_node stops handling 89 Hz arm feedback while nobody drives the arm (about 0.08 core) without weakening the takeover rule."
 files: [nodes/filter_node/filter_node/config.py, nodes/filter_node/filter_node/feedback_rate.py, nodes/filter_node/filter_node/node.py, nodes/filter_node/tests/test_feedback_rate.py, nodes/filter_node/README.md, ansible/group_vars/client.yml, tests/test_client_cpu_load.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: full
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--filter-node-idle-feedback
 branch: client-cpu-budget-recovery-a--filter-node-idle-feedback
-verified_head: ""
-run: ""
+verified_head: b3cebea689d5e4864e029155663f1da8ca53d5e7
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: [a7]
+process_gaps: ["No red run recorded for test_filter_node_idle_feedback_is_throttled (client.yml was edited before the test)", tests/README.md does not list the new node-level test file nodes/filter_node/tests/test_feedback_takeover.py]
 ---
 
 # Filter node idle feedback

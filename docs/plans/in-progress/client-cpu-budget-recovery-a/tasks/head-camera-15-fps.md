@@ -1,6 +1,6 @@
 ---
 title: Head camera 15 fps
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Halves the head camera's encode load (about 0.12 core) so its subscribers stop dropping frames."
 files: [ansible/group_vars/client.yml, tests/test_client_cpu_load.py, tests/README.md, nodes/head_camera_cpp/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--head-camera-15-fps
 branch: client-cpu-budget-recovery-a--head-camera-15-fps
-verified_head: ""
-run: ""
-provides: []
+verified_head: 7fb71adaf7209f288c6561f5e2fdd2e5e685d52c
+run: client-cpu-budget-recovery-a
+provides: [head-camera-stream-rate]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head camera 15 fps

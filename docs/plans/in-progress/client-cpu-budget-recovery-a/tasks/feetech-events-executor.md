@@ -1,6 +1,6 @@
 ---
 title: Feetech events executor
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Both client servo bridges (arm and base) drain callbacks on the cheaper EventsExecutor, switchable back by config."
 files: [nodes/bridges/feetech_servos/config.py, nodes/bridges/feetech_servos/bridge.py, nodes/bridges/feetech_servos/tests/test_executor_select.py, nodes/bridges/feetech_servos/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: full
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--feetech-events-executor
 branch: client-cpu-budget-recovery-a--feetech-events-executor
-verified_head: ""
-run: ""
+verified_head: b8759ed3c675d46e2eae54a7e956b1efafdd3603
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: [a5]
+process_gaps: []
 ---
 
 # Feetech events executor

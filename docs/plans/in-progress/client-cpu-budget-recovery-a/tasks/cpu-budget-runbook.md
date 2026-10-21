@@ -1,6 +1,6 @@
 ---
 title: CPU budget runbook
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The orchestrator can prove the saving on the robot (CPU before/after, nav2 stays up) and roll back any item by config."
 files: [docs/runbooks/client-cpu-budget.md, scripts/node_cpu_compare.yaml, tests/test_cpu_budget_runbook.py, tests/README.md, MEMORY.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--cpu-budget-runbook
 branch: client-cpu-budget-recovery-a--cpu-budget-runbook
 verified_head: ""
-run: ""
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # CPU budget runbook
@@ -64,3 +66,5 @@ Uses parts `imu-data-rate` and `head-camera-stream-rate` (rates checked in the r
 ## Notes
 
 The orchestrator runs the runbook after merge (user decision); this task does not deploy. Deploy rules: only `scripts/deploy-nodes.sh`, logs to `.logs/`; deploying mcp_server or claude_agent kills a running agent session (the playbook's agent idle guard waits for idle). Mimir keeps 1 d, so the before window must be read before it ages out. tof-3d-obstacle-detection-fo's escalated final-suite-and-runbook task also lists scripts/node_cpu_compare.yaml: append entries, do not rewrite existing ones. The before/after numbers go into the epic record, not into the runbook.
+
+- 2026-10-21 run client-cpu-budget-recovery-a: dependency-failed on costmap-zones-changed-masks

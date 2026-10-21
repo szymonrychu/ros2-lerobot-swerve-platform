@@ -1,6 +1,6 @@
 ---
 title: Marker detector raw image
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "marker_detector stops decoding every camera frame to process two per second (about 0.07 core)."
 files: [nodes/marker_detector/marker_detector/node.py, nodes/marker_detector/tests/test_node_raw.py, nodes/marker_detector/tests/ros_stubs.py, nodes/marker_detector/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--marker-detector-raw-image
 branch: client-cpu-budget-recovery-a--marker-detector-raw-image
-verified_head: ""
-run: ""
+verified_head: 42ba340f9ee9c7c8a15603e56cc922eca4819a0c
+run: client-cpu-budget-recovery-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Marker detector raw image
