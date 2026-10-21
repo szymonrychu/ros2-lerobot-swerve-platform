@@ -192,7 +192,7 @@ def test_result_carries_the_limits(store: SessionStore, cfg: NodeConfig) -> None
     assert result["limits"]["plane_max_bias_mm"] == 40.0
 
 
-def test_corrupted_pose_is_flagged_as_outlier(store: SessionStore, cfg: NodeConfig) -> None:
+def test_outlier_pose_named_in_result_and_report(store: SessionStore, cfg: NodeConfig) -> None:
     sid = make_session(store, POSES)
     bad = store.pose_ids(sid)[3]
     path = store.pose_dir(sid, bad) / "pose.json"
@@ -213,7 +213,7 @@ def test_corrupted_pose_is_flagged_as_outlier(store: SessionStore, cfg: NodeConf
     assert "## Per-pose reprojection errors" in report and bad in report
 
 
-def test_clean_session_has_no_outliers(store: SessionStore, cfg: NodeConfig) -> None:
+def test_clean_session_has_pose_errors_without_outliers(store: SessionStore, cfg: NodeConfig) -> None:
     sid = make_session(store, POSES)
     result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
     assert result["outlier_poses"] == []
@@ -221,6 +221,6 @@ def test_clean_session_has_no_outliers(store: SessionStore, cfg: NodeConfig) -> 
     assert all(isinstance(p["rgb_error_px"], float) and p["outlier"] == [] for p in result["poses"])
 
 
-def test_input_error_result_has_empty_pose_lists(store: SessionStore, cfg: NodeConfig) -> None:
+def test_error_result_has_empty_pose_lists(store: SessionStore, cfg: NodeConfig) -> None:
     result = compute_result(store, make_session(store, 3), store.new_result_id(NOW), cfg, NOW)
     assert result["error"] and result["poses"] == [] and result["outlier_poses"] == []
