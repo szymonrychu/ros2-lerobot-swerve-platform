@@ -224,6 +224,10 @@ line changed.
 
 The **bno055_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO055 over I2C; the node reads `/dev/i2c-1` directly. The client publishes at `publish_hz: 25` (was 50; the software i2c-gpio bus busy-waits, about 0.18 core saved, all IMU consumers checked in the node README section "Publish rate and consumers"; `covariance_window` 50 keeps ~2 s and mcp_server `monitor.imu_baseline_alpha` 0.04 keeps the baseline time constant). Config: topic, frame_id, publish_hz, i2c_bus, i2c_address (default 0x28), and covariance values (see `nodes/bridges/bno055_imu/README.md`).
 
+### EventsExecutor (client)
+
+On the client, `swerve_controller`, `laser_filter`, `marker_detector`, `filter_node` and the feetech bridges `lerobot_follower` and `base_servos` run the rclpy `EventsExecutor` (`executor: events`, far less Python executor overhead than the SingleThreadedExecutor). The key is at the top level of each node's `config: |` block in `group_vars/client.yml`; `laser_filter` reads the repo file `nodes/laser_filter/config/footprint_filter.yaml` (`LASER_FILTER_CONFIG`), so its key is there. `mcp_server` and `web_ui` get no `executor` key (the EventsExecutor is experimental and ignores callback groups) and the server's feetech leader bridge keeps the default. Rollback per node: set `executor: single_threaded` and run `./scripts/deploy-nodes.sh client <node>`. Tests: `tests/test_client_cpu_load.py`.
+
 ### Raspberry Pi GPIO/I2C tooling (all users)
 
 The `common` role installs:

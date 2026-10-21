@@ -1140,6 +1140,8 @@ ros2_nodes:
     present: true
     enabled: true
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client filter_node.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19102
       input_topic: /filter/input_joint_updates
@@ -1578,6 +1580,8 @@ ros2_nodes:
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/lerobot_follower/config.yaml
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client lerobot_follower.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19101
       # ROS node name and metrics `node` label of this instance (base_servos is the second bridge on this host).
@@ -1649,6 +1653,8 @@ ros2_nodes:
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/base_servos/config.yaml
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client base_servos.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19115
       # ROS node name and metrics `node` label of this instance (lerobot_follower is the arm bridge on this host).
@@ -1751,6 +1757,8 @@ ros2_nodes:
     env:
       - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_controller/config.yaml
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client swerve_controller.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19107
       # Platform dimensions.md: steering yaw axes 305 x 266.6 mm, wheel radius 60 mm, steer +-90 deg.
@@ -1899,6 +1907,8 @@ ros2_nodes:
           use_control: false
           print_diagnostics: false
   # Removes lidar returns on the robot body: /scan -> /scan_filtered (consumed by SLAM, costmaps, collision monitor).
+  # Runs the EventsExecutor: `executor: events` is in the repo config nodes/laser_filter/config/footprint_filter.yaml
+  # (LASER_FILTER_CONFIG); rollback is `executor: single_threaded` there.
   - name: laser_filter
     node_type: laser_filter
     present: true
@@ -3201,6 +3211,8 @@ ros2_nodes:
     present: true
     enabled: true
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client marker_detector.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19118
       topics:

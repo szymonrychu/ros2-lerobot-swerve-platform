@@ -11,6 +11,9 @@ IMU_BASELINE_TIME_CONSTANT_S = 1.0  # mcp_server monitor: 1 / (alpha * rate) as 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
+LASER_FILTER_CONFIG = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
+EVENTS_EXECUTOR_NODES = ("swerve_controller", "marker_detector", "filter_node", "lerobot_follower", "base_servos")
+EXECUTOR_KEEPERS = ("mcp_server", "web_ui")
 
 
 def client_node(name: str, text: str | None = None) -> dict:
@@ -102,3 +105,20 @@ def test_head_camera_mapping_rate_fits_15_fps() -> None:
     """Mapping stream and marker detector subsample the stream: neither may ask for more than it has."""
     assert node_config("head_camera_cpp")["mapping"]["rate_hz"] <= HEAD_CAMERA_FPS
     assert node_config("marker_detector")["process_hz"] <= HEAD_CAMERA_FPS
+
+
+def test_high_rate_python_nodes_use_events_executor() -> None:
+    """The six high-rate single-threaded Python nodes run the EventsExecutor (rollback: `single_threaded`).
+
+    laser_filter reads the repo file nodes/laser_filter/config/footprint_filter.yaml (LASER_FILTER_CONFIG), not a
+    group_vars block, so its key is checked there.
+    """
+    for name in EVENTS_EXECUTOR_NODES:
+        assert node_config(name).get("executor") == "events", name
+    assert yaml.safe_load(LASER_FILTER_CONFIG.read_text())["executor"] == "events"
+
+
+def test_mcp_server_and_web_ui_keep_their_executor() -> None:
+    """mcp_server and web_ui keep their MultiThreadedExecutor / own threads (EventsExecutor ignores callback groups)."""
+    for name in EXECUTOR_KEEPERS:
+        assert "executor" not in node_config(name), name

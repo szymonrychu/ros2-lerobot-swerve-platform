@@ -7,6 +7,8 @@
 # This is the startup polygon: mcp_server replaces it at runtime through the node's 'polygon' parameter (parameter
 # service) with its footprint + 1 cm while the arm is released out of the static outline, re-sends it every
 # republish tick and the moment this node's parameter service comes up after a restart, and restores it.
+# EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client laser_filter.
+executor: events
 scan_topic: /scan
 scan_filtered_topic: /scan_filtered
 polygon_frame: base_link

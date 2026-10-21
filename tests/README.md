@@ -1610,6 +1610,8 @@ Client CPU load trims (load about 13 on 4 cores made the EKF miss its rate and t
 | `test_mcp_server_imu_baseline_keeps_its_time_constant` | `monitor.imu_baseline_alpha` x 25 Hz = 1 / 1 s (0.04), the time constant tuned at 50 Hz. |
 | `test_head_camera_runs_at_15_fps` | `head_camera_cpp` config has `frame_duration_us: 66666` (15 fps; encode load halved, subscribers stop dropping frames). |
 | `test_head_camera_mapping_rate_fits_15_fps` | `mapping.rate_hz` and marker_detector `process_hz` are both <= 15. |
+| `test_high_rate_python_nodes_use_events_executor` | `swerve_controller`, `marker_detector`, `filter_node`, `lerobot_follower` and `base_servos` configs in client.yml, and the repo `laser_filter` config, have `executor: events` (rollback `single_threaded`). |
+| `test_mcp_server_and_web_ui_keep_their_executor` | `mcp_server` and `web_ui` configs have no `executor` key. |
 
 ### test_dds_discovery_config.py
 
