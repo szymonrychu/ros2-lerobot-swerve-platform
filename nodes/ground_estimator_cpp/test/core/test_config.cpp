@@ -98,6 +98,14 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_EQ(c.temporal.window_frames, 8);
   EXPECT_EQ(c.temporal.min_frames, 4);
   EXPECT_DOUBLE_EQ(c.temporal.max_age_s, 1.5);
+  EXPECT_DOUBLE_EQ(c.temporal.max_spread_m, 0.025);
+  EXPECT_TRUE(c.hysteresis.enabled);
+  EXPECT_EQ(c.hysteresis.window_frames, 5);
+  EXPECT_EQ(c.hysteresis.enter_frames, 3);
+  EXPECT_EQ(c.hysteresis.exit_frames, 1);
+  EXPECT_EQ(c.traversability.lethal_min_points, 2);
+  EXPECT_DOUBLE_EQ(c.edges.slope_bin_m, 0.10);
+  EXPECT_EQ(c.edges.slope_min_cells, 3);
   ASSERT_TRUE(c.metrics_port.has_value());
   EXPECT_EQ(*c.metrics_port, 19119);
 }
@@ -233,16 +241,45 @@ TEST(Config, RejectsTraversabilityRules)
   expect_rejected("traversability: {wheel_radius_m: 1.0}", "bands.obstacle_max_m");
 }
 
-TEST(Config, MaxSlopeAboveTheTiltGuardWarnLimitsIsRejected)
+TEST(Config, MaxSlopeAboveTheTiltGuardErrorLimitsIsRejected)
 {
-  expect_accepted("traversability: {max_slope_deg: 8}");
-  expect_rejected("traversability: {max_slope_deg: 8.5}", "traversability.max_slope_deg");
+  expect_accepted("traversability: {max_slope_deg: 15}");
+  expect_rejected("traversability: {max_slope_deg: 15.5}", "traversability.max_slope_deg");
   expect_rejected(
-    "traversability: {max_slope_deg: 7}\nslope: {roll_warn_deg: 6, roll_error_deg: 15}",
+    "traversability: {max_slope_deg: 12}\nslope: {roll_error_deg: 11, roll_warn_deg: 8}",
     "traversability.max_slope_deg");
   expect_rejected(
-    "traversability: {max_slope_deg: 8}\nslope: {pitch_warn_deg: 7, pitch_error_deg: 20}",
+    "traversability: {max_slope_deg: 16}\nslope: {pitch_error_deg: 15.5, pitch_warn_deg: 12}",
     "traversability.max_slope_deg");
+}
+
+TEST(Config, RejectsRobustnessKeys)
+{
+  expect_accepted("temporal: {max_spread_m: 0.2}");
+  expect_rejected("temporal: {max_spread_m: 0}", "temporal.max_spread_m");
+  expect_rejected("temporal: {max_spread_m: 0.21}", "temporal.max_spread_m");
+  expect_accepted("hysteresis: {window_frames: 5, enter_frames: 3}");
+  expect_accepted("hysteresis: {enabled: false}");
+  expect_accepted("hysteresis: {window_frames: 30, enter_frames: 16, exit_frames: 16}");
+  expect_rejected("hysteresis: {window_frames: 6, enter_frames: 3}", "hysteresis.enter_frames");
+  expect_rejected("hysteresis: {exit_frames: 4}", "hysteresis.exit_frames");
+  expect_rejected("hysteresis: {exit_frames: 0}", "hysteresis.exit_frames");
+  expect_rejected("hysteresis: {window_frames: 31}", "hysteresis.window_frames");
+  expect_rejected("hysteresis: {window_frames: 2, enter_frames: 3}", "hysteresis.enter_frames");
+  expect_rejected("hysteresis: {enabled: maybe}", "hysteresis.enabled");
+  expect_rejected("hysteresis: {foo: 1}", "hysteresis.foo");
+  expect_accepted("traversability: {lethal_min_points: 1}");
+  expect_accepted("traversability: {lethal_min_points: 50}");
+  expect_rejected("traversability: {lethal_min_points: 0}", "traversability.lethal_min_points");
+  expect_rejected("traversability: {lethal_min_points: 51}", "traversability.lethal_min_points");
+  expect_accepted("edges: {slope_bin_m: 0.02}");
+  expect_accepted("edges: {slope_bin_m: 0.5}");
+  expect_rejected("edges: {slope_bin_m: 0.01}", "edges.slope_bin_m");
+  expect_rejected("edges: {slope_bin_m: 0.51}", "edges.slope_bin_m");
+  expect_accepted("edges: {slope_min_cells: 2}");
+  expect_accepted("edges: {slope_min_cells: 50}");
+  expect_rejected("edges: {slope_min_cells: 1}", "edges.slope_min_cells");
+  expect_rejected("edges: {slope_min_cells: 51}", "edges.slope_min_cells");
 }
 
 TEST(Config, RejectsEdgeRules)

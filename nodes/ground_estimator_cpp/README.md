@@ -125,14 +125,17 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `bands.max_range_m` | `2.0` | farthest point published in the bands, metres, > 0 |
 | `traversability.wheel_radius_m` | `0.06` | wheel radius, metres, same as swerve_drive_controller wheel_radius_m |
 | `traversability.max_step_fraction` | `0.3333` | max rideable step as a fraction of the wheel diameter (0.04 m), 0 < v < 1 |
-| `traversability.max_slope_deg` | `8.0` | steepest rideable surface, degrees, <= slope.roll_warn_deg and slope.pitch_warn_deg |
+| `traversability.max_slope_deg` | `8.0` | steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg |
 | `traversability.edge_band_m` | `0.05` | width of the strip on each side of an edge that sets its step height, metres, > 0 |
+| `traversability.lethal_min_points` | `2` | fewest unclustered lethal points within edges.cluster_tolerance_m of each other for any to be lethal, 1..50 |
 | `warnings.frame` | `map` | frame of the published warning areas |
 | `edges.cluster_tolerance_m` | `0.1` | max gap inside one cluster, metres, > 0 |
 | `edges.min_cluster_points` | `10` | fewest points in a cluster, >= 3 |
 | `edges.max_regions` | `8` | most regions reported, 1..16 |
 | `edges.step_max_height_m` | `0.2` | tallest step still treated as a step, metres, > max step, <= bands.obstacle_max_m |
 | `edges.step_flatness_m` | `0.03` | max height spread for a flat top, metres, > 0 |
+| `edges.slope_bin_m` | `0.1` | edge of the xy bins a cluster is sampled in for its slope fit, metres, 0.02 <= v <= 0.5 |
+| `edges.slope_min_cells` | `3` | fewest slope bins a cluster must cover for a slope estimate (below it the slope is unknown), 2..50 |
 | `slope.roll_warn_deg` | `8` | tilt_guard roll warning limit, degrees |
 | `slope.roll_error_deg` | `15` | tilt_guard roll error limit, degrees, > roll_warn_deg |
 | `slope.pitch_warn_deg` | `12` | tilt_guard pitch warning limit, degrees |
@@ -147,6 +150,11 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `temporal.window_frames` | `8` | per-frame values a cell keeps, 1..30 |
 | `temporal.min_frames` | `4` | per-frame values a cell needs before its points are output, 1..window_frames |
 | `temporal.max_age_s` | `1.5` | per-frame values older than this are dropped, seconds, 0 < v <= 5 |
+| `temporal.max_spread_m` | `0.025` | largest robust spread of a cell's per-frame medians before the cell is unknown, metres, 0 < v <= 0.2 |
+| `hysteresis.enabled` | `true` | keep a cell's class until a different class holds enough of the recent frames |
+| `hysteresis.window_frames` | `5` | recent frames a cell's class is judged over, 1..30 |
+| `hysteresis.enter_frames` | `3` | frames of a class (within the window) needed to enter it, exit_frames..window_frames, a strict majority of the window |
+| `hysteresis.exit_frames` | `1` | frames of the new class needed to leave the current one, 1..enter_frames |
 | `metrics_port` | `19119` | Prometheus port, 1..65535, or null to disable |
 
 ## Metrics

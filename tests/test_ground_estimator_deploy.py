@@ -180,4 +180,13 @@ def test_limits_match_tilt_guard_and_swerve() -> None:
     assert trav["wheel_radius_m"] == swerve["wheel_radius_m"] == 0.06
     max_step = trav["wheel_radius_m"] * 2 * trav["max_step_fraction"]
     assert math.isclose(max_step, 2 * trav["wheel_radius_m"] / 3, abs_tol=1e-4)
-    assert trav["max_slope_deg"] <= min(tilt["roll_warn_deg"], tilt["pitch_warn_deg"])
+    assert trav["max_slope_deg"] <= min(tilt["roll_error_deg"], tilt["pitch_error_deg"])
+
+
+def test_robustness_keys_present() -> None:
+    config = entry_config(NAME)
+    assert config["temporal"]["max_spread_m"] == 0.025
+    assert config["hysteresis"] == {"enabled": True, "window_frames": 5, "enter_frames": 3, "exit_frames": 1}
+    assert config["traversability"]["lethal_min_points"] == 2
+    assert config["edges"]["slope_bin_m"] == 0.10
+    assert config["edges"]["slope_min_cells"] == 3
