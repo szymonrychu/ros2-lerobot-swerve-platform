@@ -1,6 +1,6 @@
 ---
 title: "Nav2 bonds off, unused servers removed, local costmap 3 Hz"
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Stops the bond-reset segfault that kills nav2 under load and trims nav2 CPU
 files: [nodes/nav2_bringup/launch/nav2_launch.py, nodes/nav2_bringup/launch/navigation_launch.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/nav2_bringup/README.md, tests/test_nav_stack_config.py, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--nav2-bonds-off-unused-server
+branch: client-cpu-budget-recovery-a--nav2-bonds-off-unused-server
 verified_head: ""
 run: ""
 provides: []
