@@ -173,5 +173,15 @@
       "head-and-arm-calibration-fro"
     ],
     "note": "rgbd pose.json gains hints: [str] (capture_hints, shared hints.py); GET /api/sessions/{sid} poses[].hints computed for older poses; fixture tests/fixtures/api/session.json; rgbd sessions only; owner task capture-corner-hints"
+  },
+  {
+    "name": "rgbd-result-pose-errors",
+    "kind": "schema",
+    "owner": "per-pose-quality-hints-in-th",
+    "file": "nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py",
+    "consumers": [
+      "head-and-arm-calibration-fro"
+    ],
+    "note": "rgbd result.json gains poses: [{id, rgb_error_px, tof_error_px, stereo_error_px, outlier}] and outlier_poses: [id], empty on input errors; fixture tests/fixtures/api/result.json; frontend guards treat them as optional; owner task compute-result-pose-errors"
   }
 ]
