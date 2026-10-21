@@ -20,15 +20,18 @@ Ansible node type `head_state_publisher` (native launch file, apt `ros-jazzy-rob
 `./scripts/deploy-nodes.sh client head_state_publisher`. The launch file reads `head.urdf` relative to itself, so a URDF
 change restarts the node.
 
-## Applied tof_joint override
+## Applied head overrides
 
-At launch, `launch/head_description.py` (standard library only) builds the `robot_description`. If
-`/var/lib/ros2/head_rgbd_calibration/applied/tof_joint.json` exists and holds `{"xyz": [x, y, z], "rpy": [r, p, y],
-"note": "..."}`, the `tof_joint` origin in `head.urdf` is rewritten with those values (via
-`shared/ros2_common/head_rgbd_calibration/urdf_text.py`, loaded by path); every other line stays as in the repo. A missing
-file leaves the repo URDF; unreadable JSON or a wrong shape also leaves it and logs a warning naming the file and the
-reason. The Calibrate page Apply button writes that file and restarts the node, so the repo URDF is never edited on the
-robot. A change to `urdf_text.py` restarts the node on deploy.
+At launch, `launch/head_description.py` (standard library only) builds the `robot_description` from the repo
+`head.urdf` plus the files in `/var/lib/ros2/head_rgbd_calibration/applied/`, using `apply_overrides` from
+`shared/ros2_common/head_rgbd_calibration/urdf_text.py` (loaded by path):
+
+- `head_chain.json` rewrites the `head_mount_joint`, `head_tilt` and `head_camera_joint` origins (floor-plane fit and head calibration).
+- `tof_joint.json` (`{"xyz": [...], "rpy": [...], "note": "..."}`) rewrites the `tof_joint` origin.
+
+Every other line stays as in the repo. A missing file is skipped; an unreadable or invalid file is skipped whole and
+logs a warning naming the file and reason, the other file still applies. The apply path unit restarts the node when
+`applied.json` changes, so the repo URDF is never edited on the robot. A change to `urdf_text.py` restarts the node on deploy.
 
 ## Check
 
@@ -37,4 +40,4 @@ ros2 run tf2_ros tf2_echo base_link head_camera_optical_frame
 ros2 run tf2_ros tf2_echo base_link tof_optical_frame
 ```
 
-Tests: `tests/test_head_state_publisher_config.py`, `tests/test_head_tof_joint_override.py`.
+Tests: `tests/test_head_state_publisher_config.py`, `tests/test_head_tof_joint_override.py`, `tests/test_head_chain_launch.py`.

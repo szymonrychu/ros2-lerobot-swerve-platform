@@ -17,7 +17,7 @@ HEAD_DESCRIPTION = LAUNCH_DIR / "head_description.py"
 LAUNCH_FILE = LAUNCH_DIR / "head_state_publisher.launch.py"
 URDF = REPO_ROOT / "nodes" / "web_ui" / "urdf" / "head.urdf"
 URDF_TEXT = REPO_ROOT / "shared" / "ros2_common" / "head_rgbd_calibration" / "urdf_text.py"
-APPLIED_PATH = "/var/lib/ros2/head_rgbd_calibration/applied/tof_joint.json"
+APPLIED_PATH = "/var/lib/ros2/head_rgbd_calibration/applied"
 
 
 def load_head_description() -> ModuleType:
@@ -34,7 +34,8 @@ def description() -> ModuleType:
 
 
 def build(description: ModuleType, override: Path) -> str:
-    return description.robot_description(URDF, override, URDF_TEXT)
+    """Build the description with the override file's directory as the applied dir."""
+    return description.robot_description(URDF, override.parent, URDF_TEXT)
 
 
 def test_override_rewrites_only_tof_joint(description: ModuleType, tmp_path: Path) -> None:
@@ -56,7 +57,7 @@ def test_override_rewrites_only_tof_joint(description: ModuleType, tmp_path: Pat
 
 
 def test_missing_override_keeps_repo_urdf(description: ModuleType, tmp_path: Path) -> None:
-    assert build(description, tmp_path / "absent.json") == URDF.read_text()
+    assert build(description, tmp_path / "tof_joint.json") == URDF.read_text()
 
 
 @pytest.mark.parametrize(
