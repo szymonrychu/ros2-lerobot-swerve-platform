@@ -52,17 +52,21 @@ Shared rules for the five events-executor tasks (design D2; approval A2):
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+New config key `executor: events | single_threaded` (default `single_threaded`) and public `make_executor(kind: str) -> rclpy.executors.Executor` in the node module named in the requirement. Consumed by task client-executor-config, which sets `executor: events` in `ansible/group_vars/client.yml`. Keep every topic, QoS, timer and shutdown path unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/bridges/feetech_servos && uv run --frozen pytest tests -q` passes, including `tests/test_executor_select.py`; with no `executor` key the node behaves exactly as today.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write nodes/bridges/feetech_servos/tests/test_executor_select.py (stub `rclpy.experimental.EventsExecutor` and `SingleThreadedExecutor`); `cd nodes/bridges/feetech_servos && uv run --frozen pytest tests/test_executor_select.py -q` FAILS (no key, no make_executor).
+- Add the config key with validation, `make_executor`, and spin the configured executor; rerun, PASS; run the whole package suite.
+- `uv run poe lint`; update the README config table and rollback note.
+- Commit `perf(feetech_servos): configurable EventsExecutor`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Design D2: rclpy.experimental.EventsExecutor (installed rclpy 7.1.12 on the client) runs the same callbacks with far less Python executor overhead; it is experimental and ignores callback groups, so it is used only in single-threaded nodes with one default callback group, and every node keeps a config rollback. The helper lives in each node (no shared package: laser_filter has no shared/ dependency, and shared/ros2_common would pull opencv and scipy into every venv). Expected saving across the five nodes about 0.3 core (estimate; the runbook measures it). Deployment is task client-executor-config, not this task.
+
+servo-torque-off-and-neutral changed bridge.py recently (torque services, neutral save); its open tasks list no files, but rebase on main first. The cycle loop polls with spin_once(timeout_sec=0.0); confirm from the rclpy jazzy source (rclpy/src/rclpy/events_executor/, the 7.1.x tag) that EventsExecutor.spin_once(0.0) returns without blocking when nothing is ready, and state it in the README, because a blocking call would stall the servo read cycle. Servo safety: no servo motion in this task.

@@ -47,17 +47,19 @@ Item 4 of the brief (design D4; approval A4): marker_detector deserializes the h
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`MarkerDetectorRos.on_image(raw: bytes)`, `on_camera_info(raw: bytes)` and `on_timer()` in nodes/marker_detector/marker_detector/node.py. Keep `MarkerPipeline.on_camera_info(K, D, size, frame_id)` and the pipeline's frame input exactly as today, and every published topic and QoS.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+marker_detector decodes at most process_hz frames per second; `cd nodes/marker_detector && uv run --frozen pytest tests -q` passes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Extend tests/ros_stubs.py (raw subscriptions, `deserialize_message`) and write tests/test_node_raw.py; `uv run --frozen pytest tests/test_node_raw.py -q` FAILS (callbacks decode messages).
+- Switch the two subscriptions to raw and move the decode into on_timer; rerun, PASS; run the whole suite.
+- `uv run poe lint`; update the README.
+- Commit `perf(marker_detector): decode the head image only in the process timer`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Evidence (brief item 4): the node deserialized every ~19 fps frame to process 2.2 Hz at 25 ms each; expected -0.07 core. Prior art for raw subscriptions with lazy decode: nodes/mcp_server/mcp_server/ros_iface.py `cache_raw`/`raw_store` (rclpy `create_subscription(..., raw=True)` and `rclpy.serialization.deserialize_message`). Depends on marker-events-executor (same node.py).

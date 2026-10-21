@@ -48,17 +48,20 @@ Item 3 of the brief (design D3; approval A3): head_camera_cpp captures and encod
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Part `head-camera-stream-rate` (contract of the same name): `ansible/group_vars/client.yml` head_camera_cpp `frame_duration_us: 66666`. Keep the code default `HeadCameraConfig::frame_duration_us = 33333` (nodes/head_camera_cpp/include/head_camera_cpp/config.hpp:63), the mapping stream config (rate_hz 2.0, 576x324) and every topic name. No C++ change.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The deployed head camera runs at 15 fps; `uv run pytest tests/test_client_cpu_load.py tests/test_head_camera_live_refs.py -q` passes and the README documents the consumer check.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the two tests; `uv run pytest tests/test_client_cpu_load.py -q` FAILS (no frame_duration_us key).
+- Set frame_duration_us 66666 with its comment, fix the 30 fps comments; rerun, PASS.
+- Check the consumers (nodes/head_camera_cpp/src/libcamera_controls.cpp:45 for FrameDurationLimits and the zoom path; marker_detector process_hz; web_ui bridge.py TOPIC_STALE_S and preview interval; mcp_server image_timeout_s; head_rgbd_cpp and rtabmap_mapping on the mapping stream) and write the README section.
+- `uv run poe lint && uv run poe test-ansible`; update tests/README.md.
+- Commit `perf(head_camera_cpp): deploy the head camera at 15 fps`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Evidence (brief item 3): 18.8 fps encoded at ~30 ms each (nice 10), subscribers received 8.5 of ~19 fps and web_ui marked the topic stale. Expected -0.12 core. `tests/test_head_camera_live_refs.py` forbids "10 fps" or 640x480 near head-camera words in live docs. Cross-epic order: ToF depth fix and ground noise robustness (tof-depth-fix-and-ground-noi) edits `ansible/group_vars/client.yml` (head-pan-inverted, tof-calibrated-k-deploy, ground-temporal-wiring) and is this epic's blocker, so it merges first; rebase on main before editing client.yml and touch only the keys named here.

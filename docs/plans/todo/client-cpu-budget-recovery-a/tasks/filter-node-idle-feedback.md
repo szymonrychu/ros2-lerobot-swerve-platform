@@ -56,17 +56,20 @@ Item 5 of the brief (design D5; approval A5): filter_node reads the 10 Hz `/foll
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`filter_node/feedback_rate.py::FeedbackRateSwitch` (new, public): constructed from the config (full topic, idle topic, idle_timeout_s, web_ui_timeout_s, fallback_s); a method returning the topic that should be subscribed now from the last input times, the autonomy lease flag and the last idle-feedback time. Config keys `follower_feedback_idle_topic` and `follower_feedback_idle_fallback_s`. Keep `Arbiter.update_follower_positions`, the takeover threshold, the released-arm handling and every published topic.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+With the client config, filter_node subscribes `/follower/joint_states/throttled` while nobody commands the arm and `/follower/joint_states` within one control period of the first command; all tests pass.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write tests/test_feedback_rate.py and the root pin; `cd nodes/filter_node && uv run --frozen pytest tests/test_feedback_rate.py -q` FAILS (no module).
+- Add the config keys, FeedbackRateSwitch, and the swap in node.py's main loop; rerun, PASS; run the package suite.
+- Set the idle topic in client.yml; `uv run pytest tests/test_client_cpu_load.py -q` PASS; `uv run poe lint` in the node and at the root; `uv run poe test-ansible`.
+- Update nodes/filter_node/README.md and tests/README.md.
+- Commit `perf(filter_node): throttled arm feedback while idle`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Evidence (brief item 5): the follower feedback runs at 89 Hz although it is only used for the takeover proximity rule; expected -0.08 core. The throttled copy comes from joint_state_throttle_follower (topic_tools throttle, 10 Hz, background tier). Prior art: mcp_server's dual-rate joint states (nodes/mcp_server/mcp_server/config.py ~1591: throttled copy while idle, fallback to full rate when the copy is silent, logged once). Swapping a subscription inside a callback raced the executor wait set in mcp_server (InvalidHandle, 2026-10-08): swap only from the main loop between spin_once calls. Depends on filter-node-events-executor (same files) and client-executor-config (client.yml order). Servo safety: no arm motion in this task. Cross-epic order: ToF depth fix and ground noise robustness (tof-depth-fix-and-ground-noi) edits `ansible/group_vars/client.yml` (head-pan-inverted, tof-calibrated-k-deploy, ground-temporal-wiring) and is this epic's blocker, so it merges first; rebase on main before editing client.yml and touch only the keys named here.

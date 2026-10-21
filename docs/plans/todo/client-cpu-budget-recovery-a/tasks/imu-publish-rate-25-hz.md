@@ -49,17 +49,20 @@ Item 1 of the brief (design D1; approval A1): the BNO055 publishes `/imu/data` a
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Part `imu-data-rate` (contract, owner of the cross-epic contract of the same name): `ansible/group_vars/client.yml` bno055_imu `publish_hz: 25`. Keep: topic `/imu/data`, frame `imu_link`, the covariances, NDOF mode, the EKF `imu0_config` (gyro yaw rate only). Root test helper `tests/test_client_cpu_load.py::client_node` is reused for every new pin.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_client_cpu_load.py -q` passes with the new pins; the bno055_imu README lists every consumer and why 25 Hz is enough for it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the three tests to tests/test_client_cpu_load.py; `uv run pytest tests/test_client_cpu_load.py -q` FAILS on publish_hz 50.
+- Set publish_hz 25 and covariance_window 50, fix the comments; rerun, PASS.
+- Read each consumer (client.yml blocks for swerve_controller tilt_guard, robot_localization_ekf, ground_estimator_cpp, map_guard, map_guard_cpp, mcp_server, web_ui; grep `imu` in nodes/head_rgbd_cpp) and write the README section; rescale any sample-count window and pin it.
+- `uv run poe lint && uv run poe test-ansible`; update ansible/README.md and tests/README.md.
+- Commit `perf(bno055_imu): publish /imu/data at 25 Hz`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Evidence (brief item 1): 0.37-0.40 core, two thirds kernel time on the software i2c-gpio bus (i2c_gpio_delay_us=2 busy-waits); mean cycle 12.9 ms, 18k of 120k cycles overran at 50 Hz; the EKF fuses only the gyro yaw rate and runs at 30 Hz. Known limits today: tilt_guard imu_timeout_s 0.5, ground_estimator imu timeout_s 0.5 (client.yml ~1912), mcp_server floor guard imu_max_age_s 1.0 (~2800), web_ui imu_stale_s 3.0 (code default), mcp_server bump_min_samples 2. No code change in bno055_imu (publish_hz is already configurable). Cross-epic order: ToF depth fix and ground noise robustness (tof-depth-fix-and-ground-noi) edits `ansible/group_vars/client.yml` (head-pan-inverted, tof-calibrated-k-deploy, ground-temporal-wiring) and is this epic's blocker, so it merges first; rebase on main before editing client.yml and touch only the keys named here.

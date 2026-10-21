@@ -51,17 +51,19 @@ Item 8 of the brief (design D8; approval A8): the client's Alloy scrapes every 1
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`monitoring_agent_interval` (client group_vars override; role default `ansible/roles/monitoring_agent/defaults/main.yml` stays 5s), `monitoring_interval` (`ansible/roles/monitoring/defaults/main.yml`, rendered as the Mimir datasource `timeInterval` in templates/grafana-datasources.yaml.j2). Keep `monitoring_agent_scrape_timeout: 4s` and the server's 5 s.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The rendered client Alloy config scrapes every 15 s; Grafana's `$__rate_interval` is at least 60 s; no dashboard panel goes empty; the listed tests pass.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the three tests (and replace the 5s datasource pin); `uv run pytest tests/test_monitoring_agent_role.py tests/test_monitoring_role.py tests/test_monitoring_dashboards.py -q` FAILS.
+- Set the client interval and monitoring_interval; widen any window below 60 s; rerun, PASS.
+- Fix the 5 s statements in ansible/README.md and the ros2_metrics docstring; `uv run poe lint && uv run poe test-ansible`; update tests/README.md.
+- Commit `perf(monitoring): client Alloy scrapes every 15 s`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Evidence (brief item 8): alloy 0.12 core on the client, 40% of it sys time from cAdvisor; expected -0.06 core. Today's dashboard scan: [1m] is the shortest literal window (robot-slam.json), the rest are $__rate_interval/$__auto or 5m and longer. Editing shared/ros2_metrics changes the shared/ hash, so every src_shared node restarts at the next deploy; the runbook deploys the whole client anyway. Deploy is `./scripts/deploy-nodes.sh client monitoring` and `./scripts/deploy-nodes.sh server monitoring` (in the runbook). Cross-epic order: ToF depth fix and ground noise robustness (tof-depth-fix-and-ground-noi) edits `ansible/group_vars/client.yml` (head-pan-inverted, tof-calibrated-k-deploy, ground-temporal-wiring) and is this epic's blocker, so it merges first; rebase on main before editing client.yml and touch only the keys named here.

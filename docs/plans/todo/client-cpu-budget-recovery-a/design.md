@@ -159,7 +159,6 @@ The `executor` config key is per node (each executor task builds its own; client
 
 ## Open questions
 
-none
 - Q1: Keep mcp_server bump detection exact by decoding every queued raw IMU sample at the monitor tick (the IMU part of item 6 then saves less; the head joint states carry most of the saving), rather than decoding only the newest sample per 0.25 s tick? [recommended: yes]
 
 ## Irreversible operations in scope

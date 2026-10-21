@@ -46,17 +46,20 @@ Item 2 of the brief, deployment half (design D2; approval A2): the client runs t
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses the `executor` key built by swerve-events-executor, laser-filter-events-executor, marker-events-executor, filter-node-events-executor and feetech-events-executor (all dependencies). Values only `events` or `single_threaded`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The six client node configs select `executor: events`; mcp_server and web_ui do not; `uv run pytest tests/test_client_cpu_load.py -q` passes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the two tests; `uv run pytest tests/test_client_cpu_load.py -q` FAILS.
+- Add `executor: events` with the rollback comment to the six config blocks; rerun, PASS.
+- Load each rendered config block with its node's own loader in a quick check through the existing config tests (`uv run pytest tests -q -k "config or cpu_load"`).
+- `uv run poe lint && uv run poe test-ansible`; update ansible/README.md and tests/README.md.
+- Commit `perf(ansible): run the high-rate Python nodes on the EventsExecutor`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The feetech bridge config is read from the `config: |` block via FEETECH_SERVOS_CONFIG (lerobot_follower, base_servos); server.yml's feetech leader keeps the default. Rollback per node: `executor: single_threaded` and `./scripts/deploy-nodes.sh client <node>`. Cross-epic order: ToF depth fix and ground noise robustness (tof-depth-fix-and-ground-noi) edits `ansible/group_vars/client.yml` (head-pan-inverted, tof-calibrated-k-deploy, ground-temporal-wiring) and is this epic's blocker, so it merges first; rebase on main before editing client.yml and touch only the keys named here.

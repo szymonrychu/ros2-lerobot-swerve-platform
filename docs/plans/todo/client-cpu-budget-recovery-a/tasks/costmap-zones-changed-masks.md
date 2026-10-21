@@ -49,17 +49,19 @@ Item 7 of the brief (design D7; approval A7): costmap_zones publishes only the f
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`ZoneMaskPublisher.update()`, `mask_message()`, `info_message()` in nodes/costmap_zones/costmap_zones/node.py; `ZONE_PUBLISHES` in costmap_zones/metrics.py gains a `mask` label. Keep the mask and info topics, LATCHED_QOS, the OccupancyGrid content (frame, info, cells) and `ground_mask_max_rate_hz`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A flapping `/ground/warning_areas` republishes only the ground-dependent masks whose cells changed and never the keepout mask; the README names the cause of the local-costmap frame errors; tests pass.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the four tests to tests/test_node.py (existing ros_stubs and publisher fakes); `cd nodes/costmap_zones && uv run --frozen pytest tests/test_node.py -q` FAILS (all three masks republished).
+- Add per-mask digests and the metric label; rerun, PASS.
+- Read the Nav2 Jazzy costmap filter source for the TF lookup and the mask stamp it uses; query Loki for the "failed to get costmap frame" lines (grafana MCP, last 24 h) for frame and timing; write the README section; fix and test in mask_message/info_message when the cause is ours.
+- `uv run poe lint`; commit `perf(costmap_zones): publish only the masks that changed`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Evidence (brief item 7): all three 38 KiB masks republished at 1.7 Hz because /ground/warning_areas flaps; nav2 logged 11k "New filter mask arrived" in 45 min and 5k local-costmap "failed to get costmap frame (odom)" (local keepout not applied). Hypothesis to confirm, not assume: the filter looks up map->odom at the latched mask's header stamp, which ages out of the TF buffer. `nodes/nav2_bringup/config/nav2_params.yaml` belongs to tof-depth-fix-and-ground-noi right now (tof-mark-band-ten-cm); if the cause is there, report it, do not edit it in this task.

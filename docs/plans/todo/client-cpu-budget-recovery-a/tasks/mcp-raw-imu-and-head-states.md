@@ -49,17 +49,19 @@ Item 6 of the brief (design D6; approval A6): mcp_server takes `/imu/data` and `
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Reuse `RosInterface.cache_raw` / `raw_store` (nodes/mcp_server/mcp_server/ros_iface.py:1130-1180), `LazyStamped` and `MonitorFeed` (nodes/mcp_server/mcp_server/staleness.py:118); `monitor_tick` (ros_iface.py:1265) already flushes every feed before `monitor.tick()`. New: a keep-all feed (class or `MonitorFeed` option) and the matching `cache_raw` parameter. Keep `Monitor.on_imu(ax, ay, az, qx, qy, qz, qw)`, the `get("head_joint_states")` return shape, `MONITOR_TICK_S` (0.25 s) and the 4-thread MultiThreadedExecutor.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+No `/imu/data` or `/head/joint_states` message is deserialized on the executor's dispatch path; head reads and bump/tilt events behave as before; the listed tests pass.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write tests/test_raw_monitor_feeds.py against the existing fakes (tests/fakes.py, conftest.py); `cd nodes/mcp_server && uv run --frozen pytest tests/test_raw_monitor_feeds.py -q` FAILS.
+- Add the keep-all feed, switch the two subscriptions; rerun, PASS; run test_monitor.py, test_head_tools.py, test_head_controller.py, test_ros_iface_state_cache.py.
+- `uv run poe lint`; update the README.
+- Commit `perf(mcp_server): raw IMU and head joint state subscriptions`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Evidence (brief item 6): the MultiThreadedExecutor's dispatch thread holds 95% of mcp_server's CPU, IMU ~40 Hz (25 Hz after imu-publish-rate-25-hz) and /head/joint_states 47 Hz; expected -0.08 core. Design D6 and open question Q1: bump detection needs `bump_min_samples` (2) consecutive samples, so the IMU feed replays every queued sample at the tick instead of only the newest; if the user answers Q1 no, the orchestrator amends this task to the latest-only feed. web_ui and mcp_server stay Python and keep their executors (user decision). Deploying mcp_server kills a running claude_agent session: the runbook's agent idle guard covers it.

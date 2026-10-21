@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Item 2 of the brief for filter_node: config key in `filter_node/config.py` (FilterConfig dataclass and its loader), `make_executor` in `filter_node/node.py`; the main loop keeps calling `executor.spin_once(timeout_sec=control_period_s)` on the configured executor (node.py:226). Confirm EventsExecutor.spin_once honours the timeout so the 100 Hz control loop keeps its period, and pin that with a test on the loop using a stub executor.
+Item 2 of the brief for filter_node: config key in `filter_node/config.py` (FilterConfig dataclass and its loader), `make_executor` in `filter_node/node.py`; the main loop keeps calling `executor.spin_once(timeout_sec=control_period_s)` on the configured executor (node.py:226). Confirm from the rclpy jazzy source (rclpy/src/rclpy/events_executor/, the 7.1.x tag) that EventsExecutor.spin_once honours the timeout so the 100 Hz control loop keeps its period, and pin that with a test on the loop using a stub executor.
 
 Shared rules for the five events-executor tasks (design D2; approval A2):
 
@@ -54,17 +54,21 @@ Shared rules for the five events-executor tasks (design D2; approval A2):
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+New config key `executor: events | single_threaded` (default `single_threaded`) and public `make_executor(kind: str) -> rclpy.executors.Executor` in the node module named in the requirement. Consumed by task client-executor-config, which sets `executor: events` in `ansible/group_vars/client.yml`. Keep every topic, QoS, timer and shutdown path unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/filter_node && uv run --frozen pytest tests -q` passes, including `tests/test_executor_select.py`; with no `executor` key the node behaves exactly as today.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write nodes/filter_node/tests/test_executor_select.py (stub `rclpy.experimental.EventsExecutor` and `SingleThreadedExecutor`); `cd nodes/filter_node && uv run --frozen pytest tests/test_executor_select.py -q` FAILS (no key, no make_executor).
+- Add the config key with validation, `make_executor`, and spin the configured executor; rerun, PASS; run the whole package suite.
+- `uv run poe lint`; update the README config table and rollback note.
+- Commit `perf(filter_node): configurable EventsExecutor`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Design D2: rclpy.experimental.EventsExecutor (installed rclpy 7.1.12 on the client) runs the same callbacks with far less Python executor overhead; it is experimental and ignores callback groups, so it is used only in single-threaded nodes with one default callback group, and every node keeps a config rollback. The helper lives in each node (no shared package: laser_filter has no shared/ dependency, and shared/ros2_common would pull opencv and scipy into every venv). Expected saving across the five nodes about 0.3 core (estimate; the runbook measures it). Deployment is task client-executor-config, not this task.
+
+Task filter-node-idle-feedback changes the same node.py and config.py afterwards (it depends on this task). servo-torque-off-and-neutral last changed filter_node (filter-node-released-arm, done); keep its torque-state handling intact.

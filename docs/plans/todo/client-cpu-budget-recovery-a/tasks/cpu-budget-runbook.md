@@ -48,17 +48,19 @@ Final runbook of the epic (design D9; approval A9). This task writes the runbook
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses parts `imu-data-rate` and `head-camera-stream-rate` (rates checked in the runbook). `scripts/node_cpu_compare.yaml` is validated by the pydantic Settings model in scripts/node_cpu_compare.py: keep its schema (`entries: [{name, before_unit, after_unit, switch_time}]`, `window_h`, `settle_min`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`docs/runbooks/client-cpu-budget.md` is executable step by step by the orchestrator after merge; `uv run pytest tests/test_cpu_budget_runbook.py -q` passes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write tests/test_cpu_budget_runbook.py; `uv run pytest tests/test_cpu_budget_runbook.py -q` FAILS (no runbook).
+- Write the runbook and the compare entries; rerun, PASS; `uv run poe lint`.
+- Add the MEMORY.md line and the tests/README.md entry.
+- Commit `docs(runbooks): client CPU budget before/after runbook`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The orchestrator runs the runbook after merge (user decision); this task does not deploy. Deploy rules: only `scripts/deploy-nodes.sh`, logs to `.logs/`; deploying mcp_server or claude_agent kills a running agent session (the playbook's agent idle guard waits for idle). Mimir keeps 1 d, so the before window must be read before it ages out. tof-3d-obstacle-detection-fo's escalated final-suite-and-runbook task also lists scripts/node_cpu_compare.yaml: append entries, do not rewrite existing ones. The before/after numbers go into the epic record, not into the runbook.
