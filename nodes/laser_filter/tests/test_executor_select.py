@@ -76,7 +76,10 @@ def test_executor_unknown_value_rejected() -> None:
 
 def test_make_executor_picks_class(node_module: ModuleType) -> None:
     assert node_module.make_executor("events") is sys.modules["rclpy.experimental"].EventsExecutor.return_value
-    assert node_module.make_executor("single_threaded") is sys.modules["rclpy.executors"].SingleThreadedExecutor.return_value
+    assert (
+        node_module.make_executor("single_threaded")
+        is sys.modules["rclpy.executors"].SingleThreadedExecutor.return_value
+    )
     with pytest.raises(ValueError):
         node_module.make_executor("bogus")
 
