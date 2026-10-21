@@ -3270,3 +3270,18 @@ Static pins for `docs/runbooks/client-cpu-budget.md` (client CPU budget measurem
 | `test_runbook_has_every_section` | Before, Deploy, After, Checks, Expected savings, Rollback in order; the eight savings and the measurement queries. |
 | `test_runbook_deploys_only_through_deploy_nodes` | Deploy lines use `scripts/deploy-nodes.sh` with a tee to `.logs/`; no `ansible-playbook`. |
 | `test_cpu_compare_lists_every_changed_unit` | node_cpu_compare.yaml has an entry for each of the eleven changed units and keeps the existing ones. |
+
+### `test_ground_noise_report.py`
+
+Unit tests for `scripts/ground_noise_report.py` (runbook pass/fail numbers from `/ground/state` captures); NDJSON fixtures are written to `tmp_path`.
+
+| Test | Description |
+|------|-------------|
+| `test_box_scene_pass_and_fail` | `box_obstacle_share`: obstacle region at the box, or obstacle points with no warning region or area centroid there; exit code follows the 0.95 limit. |
+| `test_ramp_scene_share_and_slope_error` | `ramp_warning_share` (ramp area in the ROI, no obstacle region there) and slope error p50/p90 against 14 deg. |
+| `test_board_scene_lethal_states` | `board_lethal_states` counts states with an obstacle-class region in the board ROI. |
+| `test_empty_scene_lethal_p95` | p95 of obstacle plus drop points; states without a plane are left out. |
+| `test_warning_churn_share` | Share of consecutive pairs with a differing warning set (kind plus polygon rounded to 1 cm). |
+| `test_reads_scraper_and_ws_lines` | topic_scraper records and web_ui `/ws` lines, object or JSON-string payloads; other topics skipped and counted. |
+| `test_malformed_lines_counted` | Bad JSON, non-objects and unparseable payloads are counted, never fatal. |
+| `test_exit_code_reflects_thresholds` | Exit 0/1 from the configured thresholds; an empty capture fails; unknown scene rejected. |
