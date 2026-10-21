@@ -112,17 +112,16 @@ minutes and reload the mask each time; publish-on-change removes that. The same 
 "failed to get costmap frame (odom)" errors, after which the local keepout is not applied.
 
 Root cause: not in what costmap_zones publishes. `odom` in that message is the local costmap's own `global_frame`
-(`nodes/nav2_bringup/config/nav2_params.yaml`, `local_costmap.local_costmap.ros__parameters.global_frame: odom`), and
-the filter fails when it cannot transform its robot pose between that frame and the mask frame (`map`) within
-`transform_tolerance`, which is `0.2` for `keepout_filter`, `ground_cost_filter` and `speed_filter`. The lookup is done on
-the robot pose at the current time, so the mask message's header stamp (set to publish time, latched) is not what
-ages out of the TF buffer, and `mask_message`/`info_message` need no change. The failing link is the TF chain
-`map -> odom` (slam_toolbox) and `odom -> base_link` (robot_localization_ekf) arriving later than 0.2 s on the saturated
-client (run queue 42-47), which the CPU budget changes in this epic relieve. The installed Nav2 Jazzy source is not
-readable from the development tree (no ROS install on the Mac), so this was derived from the parameters and the
-message text, not by reading `KeepoutFilter::process()` on the robot: verify with the runbook by checking that the
-errors vanish once the load drops; if they persist, raise `transform_tolerance` of the three local filters in
-`nav2_params.yaml` (file owned by tof-depth-fix-and-ground-noi, not changed here).
+(`nodes/nav2_bringup/config/nav2_params.yaml`, `local_costmap.local_costmap.ros__parameters.global_frame: odom`).
+Nav2 Jazzy `CostmapFilter::transformPose()` (`nav2_costmap_2d/plugins/costmap_filters/costmap_filter.cpp`) builds the
+robot pose with `in.header.stamp = clock_->now()` and calls `tf_->transform(in, out, mask_frame, transform_tolerance_)`.
+It never uses the mask header stamp, so the latched mask's stamp cannot age out of the TF buffer, and
+`mask_message`/`info_message` need no change. The filter fails when the current-time transform between `odom` and the
+mask frame (`map`) is not available within `transform_tolerance`, which is `0.2` for `keepout_filter`,
+`ground_cost_filter` and `speed_filter`. The failing link is the TF chain `map -> odom` (slam_toolbox) and
+`odom -> base_link` (robot_localization_ekf) arriving later than 0.2 s on the saturated client (run queue 42-47); the
+CPU budget changes in this epic remove that load. The setting involved is `transform_tolerance` of the three local
+filters in `nodes/nav2_bringup/config/nav2_params.yaml`; it lies outside costmap_zones.
 
 ## Map growth and resets
 
