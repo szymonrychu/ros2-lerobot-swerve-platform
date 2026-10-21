@@ -40,6 +40,7 @@ class FakeNodeBase:
     """rclpy.node.Node double that accepts anything the node constructor does."""
 
     def __init__(self, *args: object, **kwargs: object) -> None:
+        self.init_args = (args, kwargs)
         self.destroyed = False
 
     def __getattr__(self, name: str) -> MagicMock:
