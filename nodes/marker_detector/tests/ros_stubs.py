@@ -12,6 +12,7 @@ STUBBED_MODULES = (
     "rclpy.time",
     "rclpy.duration",
     "rclpy.executors",
+    "rclpy.experimental",
     "tf2_ros",
     "sensor_msgs",
     "sensor_msgs.msg",

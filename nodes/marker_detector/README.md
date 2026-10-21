@@ -53,6 +53,9 @@ File: `$MARKER_DETECTOR_CONFIG`, default `/etc/ros2/marker_detector/config.yaml`
 | `tof.min_valid_px` | 30 | min valid depth pixels |
 | `tof.max_residual_mm` | 10 | max plane fit residual |
 | `metrics_port` | null | falls back to env `METRICS_PORT` |
+| `executor` | `single_threaded` | `events` runs the node on rclpy's `EventsExecutor` (less Python executor overhead); `single_threaded` is the stock `SingleThreadedExecutor` |
+
+The node uses one default callback group and no `MultiThreadedExecutor`, so the `EventsExecutor` (which ignores callback groups) is safe here; the tf2 listener keeps its own spin thread. Rollback: set `executor: single_threaded` for this node in `ansible/group_vars/client.yml` and redeploy the node.
 
 Zoom thresholds must satisfy `target_module_px > min_module_px >= pose.min_module_px`.
 
