@@ -164,5 +164,18 @@
       "calib-robot-runbook"
     ],
     "status": "approved"
+  },
+  {
+    "id": "A6",
+    "text": "User D1 2026-10-21 'Both, quick fit first': the blocker epic head-chain-floor-plane-fit-a delivers head-chain-override-format, head-state-publisher-chain and urdf-chain-fk-core (contracts head-chain-override and urdf-chain-fk move there) and applies a ToF floor-plane head chain fit as head_chain.json; here those three tasks only confirm the delivered parts, and the board head fit refines the applied chain (head-chain-compute-apply starts from the applied head_chain.json)",
+    "decisions": [
+      "D19"
+    ],
+    "tasks": [
+      "head-chain-override-format",
+      "head-state-publisher-chain",
+      "urdf-chain-fk-core"
+    ],
+    "status": "approved"
   }
 ]

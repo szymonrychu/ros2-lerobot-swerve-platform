@@ -202,6 +202,9 @@ Gate Q1: after the reprint the head tilt range is -30..+60 deg (+ is down) every
 ### D18: Drive-straight yaw check optional with user OK
 Gate Q5: the 0.5 m drive-straight yaw check is optional, only with the user's explicit OK, slow, base lease, mcp move_relative; board-spot moves are manual. (user decision)
 
+### D19: Quick floor fit first moves the override, publisher chain and FK core
+User D1 2026-10-21 'Both, quick fit first': the blocker epic head-chain-floor-plane-fit-a delivers head-chain-override-format, head-state-publisher-chain and urdf-chain-fk-core (contracts head-chain-override and urdf-chain-fk move there) and applies a ToF floor-plane head chain fit as head_chain.json; here those three tasks only confirm the delivered parts, and the board head fit refines the applied chain (head-chain-compute-apply starts from the applied head_chain.json) (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -260,15 +263,14 @@ Gate Q5: the 0.5 m drive-straight yaw check is optional, only with the user's ex
 | D16 Tiers 0 and 1 without confirm, tier 2 confirmed | arm-pose-capture-sequence, sequence-http-api, calib-frontend-api, arm-calibrate-ui-section |
 | D17 Tilt range -30..+60 deg after the reprint | head-tilt-range-widened |
 | D18 Drive-straight yaw check optional with user OK | calib-robot-runbook |
+| D19 Quick floor fit first moves the override, publisher chain and FK core | head-chain-override-format, head-state-publisher-chain, urdf-chain-fk-core |
 
 ## Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
-| `head-chain-override` | head-chain-override-format | head-chain-board-solver, head-chain-compute-apply, head-state-publisher-chain, mcp-head-kinematics-applied, web-ui-applied-head-urdf | `shared/ros2_common/head_rgbd_calibration/urdf_text.py` |
 | `head-arm-view-types` | calib-config-and-view-types | head-chain-board-solver, arm-offsets-plate-solver, session-kinds-joint-poses | `shared/ros2_common/head_rgbd_calibration/views.py` |
 | `head-arm-calib-config` | calib-config-and-view-types | head-chain-board-solver, arm-offsets-plate-solver, joint-state-still-capture | `shared/ros2_common/head_rgbd_calibration/config.py` |
-| `urdf-chain-fk` | urdf-chain-fk-core | head-chain-board-solver, arm-offsets-plate-solver, arm-pose-capture-sequence | `shared/ros2_common/head_rgbd_calibration/chain.py` |
 | `head-chain-fit` | head-chain-board-solver | arm-offsets-plate-solver, head-chain-compute-apply | `shared/ros2_common/head_rgbd_calibration/head_chain_fit.py` |
 | `arm-offsets-fit` | arm-offsets-plate-solver | arm-offsets-compute-apply | `shared/ros2_common/head_rgbd_calibration/arm_offsets_fit.py` |
 | `head-arm-synthetic-scenes` | head-chain-board-solver | arm-offsets-plate-solver, head-chain-compute-apply, arm-offsets-compute-apply | `tests/head_arm_synthetic.py` |
@@ -278,7 +280,13 @@ Gate Q5: the 0.5 m drive-straight yaw check is optional, only with the user's ex
 | `calib-sequencer` | head-grid-capture-sequence | arm-pose-capture-sequence, sequence-http-api | `nodes/head_rgbd_calibration/head_rgbd_calibration/sequencer.py` |
 | `head-arm-calib-api` | sequence-http-api | calib-frontend-api, head-calibrate-ui-section, arm-calibrate-ui-section | `nodes/head_rgbd_calibration/tests/fixtures/api/` |
 
-Cross-epic: `head-chain-override` is registered in `docs/plans/contracts.json`; this epic uses
+Cross-epic: `head-chain-override` (`shared/ros2_common/head_rgbd_calibration/urdf_text.py`) and `urdf-chain-fk`
+(`shared/ros2_common/head_rgbd_calibration/chain.py`) moved on 2026-10-21 to the blocker epic
+head-chain-floor-plane-fit-a (user decision "Both, quick fit first"), which owns them in `docs/plans/contracts.json`;
+the consumers here (head-chain-board-solver, head-chain-compute-apply, head-state-publisher-chain,
+mcp-head-kinematics-applied, web-ui-applied-head-urdf, arm-offsets-plate-solver, arm-pose-capture-sequence) keep
+them in `uses`, and head-chain-override-format, head-state-publisher-chain and urdf-chain-fk-core only confirm the
+delivered parts on main. This epic uses
 `head-rgbd-applied-calibration` (owner head-rgb-d-calibration-in-th, `applied/` directory and its seed).
 
 ## Review focus
