@@ -114,7 +114,7 @@ def test_floor_fit_config_defaults_and_ranges() -> None:
         FloorFitConfig(limits={"bogus": 1})
 
 
-def test_predicted_floor_at_zero_is_035_m_below_along_optical_minus_y(chain: UrdfChain) -> None:
+def test_predicted_floor_at_zero_matches_urdf(chain: UrdfChain) -> None:
     normal, height = predicted_floor(chain, 0.0, 0.0, None)
     assert height == pytest.approx(0.35, abs=1e-9)
     np.testing.assert_allclose(normal, [0.0, -1.0, 0.0], atol=1e-4)
@@ -132,7 +132,7 @@ def test_predicted_floor_tilt_down_turns_floor_toward_view(chain: UrdfChain) -> 
     assert raised_tuple == pytest.approx(0.45, abs=1e-9)
 
 
-def test_fit_plane_recovers_known_plane_with_noise_and_outliers(
+def test_fit_plane_recovers_plane_and_refuses_sparse_cloud(
     urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]
 ) -> None:
     cfg = FloorPlaneConfig()
@@ -150,9 +150,7 @@ def test_fit_plane_recovers_known_plane_with_noise_and_outliers(
         assert cfg.min_inliers <= fit.inliers < fit.candidates <= len(cloud.points)
         assert fit.rms_m == pytest.approx(NOISE_M, rel=0.3)
 
-
-def test_fit_plane_none_for_too_few_floor_points(urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]) -> None:
-    cfg = FloorPlaneConfig()
+    # Too few floor points: refuse rather than make up a plane.
     rng = np.random.default_rng(2)
     pan, tilt = 0.0, np.radians(20.0)
     (cloud,) = synthetic_clouds(urdf_text, truth, [(pan, tilt)], NOISE_M, 0.0, rng)
@@ -170,9 +168,7 @@ def test_fit_plane_none_for_too_few_floor_points(urdf_text: str, chain: UrdfChai
     assert fit_plane(mixed, prior, cfg, rng) is None
 
 
-def test_fit_recovers_mount_and_tilt_zero_from_15_pose_grid(
-    urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]
-) -> None:
+def test_fit_recovers_perturbed_chain(urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]) -> None:
     cfg = FloorFitConfig()
     rng = np.random.default_rng(cfg.plane.seed)
     clouds = synthetic_clouds(urdf_text, truth, GRID, NOISE_M, OUTLIER_RATIO, rng, clouds_per_pose=5)
@@ -223,7 +219,7 @@ def test_fit_recovers_mount_and_tilt_zero_from_15_pose_grid(
     assert set(data) >= {"passed", "failed_limits", "params", "height_rms_mm", "normal_rms_deg", "poses", "origins"}
 
 
-def test_pan_zero_only_grid_fails_pan_span(urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]) -> None:
+def test_pan_span_limit_guards_degenerate_grid(urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]) -> None:
     rng = np.random.default_rng(3)
     grid = [(0.0, np.radians(t)) for t in range(10, 30, 2)]
     observations = exact_observations(chain, truth, grid, 4, rng, height_noise_m=0.0005)
@@ -236,12 +232,13 @@ def test_pan_zero_only_grid_fails_pan_span(urdf_text: str, chain: UrdfChain, tru
     json.dumps(result.to_json(), allow_nan=False)
 
 
-def test_too_few_observations_fails_without_solver(
+def test_limits_refuse_bad_results(
     urdf_text: str, chain: UrdfChain, truth: dict[str, Origin], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def no_solver(*args: object, **kwargs: object) -> None:
         raise AssertionError("solver called")
 
+    # Too few observations: named, and the solver is never called.
     monkeypatch.setattr(floor_fit, "least_squares", no_solver)
     observations = exact_observations(chain, truth, GRID, 1, np.random.default_rng(4))
     result = fit_head_chain_floor(observations, urdf_text, FloorFitConfig())
@@ -257,17 +254,16 @@ def test_too_few_observations_fails_without_solver(
     assert {"min_observations", "min_poses", "min_pan_span_deg"} <= set(empty.failed_limits)
     assert empty.poses == []
     json.dumps(empty.to_json(), allow_nan=False)
+    monkeypatch.undo()
 
-
-def test_height_bias_fails_delta_limit(urdf_text: str, chain: UrdfChain) -> None:
+    # A 0.2 m height bias exceeds the delta-from-URDF limit.
     observations = exact_observations(chain, {}, GRID, 3, np.random.default_rng(5), height_bias_m=0.2)
     result = fit_head_chain_floor(observations, urdf_text, FloorFitConfig())
     assert not result.passed
     assert "max_delta_z_m" in result.failed_limits
     assert result.params["mount_z_m"]["value"] - result.params["mount_z_m"]["urdf"] == pytest.approx(0.2, abs=0.005)
 
-
-def test_30mm_noise_fails_rms_limit(urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]) -> None:
+    # 30 mm height noise exceeds the height RMS limit.
     observations = exact_observations(chain, truth, GRID, 3, np.random.default_rng(6), height_noise_m=0.03)
     result = fit_head_chain_floor(observations, urdf_text, FloorFitConfig())
     assert not result.passed
