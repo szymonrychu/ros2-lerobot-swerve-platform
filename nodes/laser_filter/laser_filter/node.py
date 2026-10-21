@@ -26,6 +26,8 @@ import rclpy
 from geometry_msgs.msg import TransformStamped
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType, SetParametersResult
 from rclpy.duration import Duration
+from rclpy.executors import Executor, SingleThreadedExecutor
+from rclpy.experimental import EventsExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
@@ -236,6 +238,25 @@ class LaserFilterNode(Node):
         )
 
 
+def make_executor(kind: str) -> Executor:
+    """Build the rclpy executor named by the `executor` config key.
+
+    Args:
+        kind (str): "events" or "single_threaded".
+
+    Returns:
+        Executor: EventsExecutor for "events", SingleThreadedExecutor for "single_threaded".
+
+    Raises:
+        ValueError: For any other kind.
+    """
+    if kind == "events":
+        return EventsExecutor()
+    if kind == "single_threaded":
+        return SingleThreadedExecutor()
+    raise ValueError(f"unknown executor {kind!r}")
+
+
 def run(config: LaserFilterConfig) -> None:
     """Spin the node until shutdown.
 
@@ -244,8 +265,10 @@ def run(config: LaserFilterConfig) -> None:
     """
     rclpy.init()
     node = LaserFilterNode(config)
+    executor = make_executor(config.executor)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:

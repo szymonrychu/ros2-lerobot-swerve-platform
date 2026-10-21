@@ -594,6 +594,8 @@ The **filter_node** node has tests under `nodes/filter_node/tests/`. Run from `n
 
 Released state (`test_arbitration.py`): `release` is ignored when false and a no-op without a lease; a release ends the lease so nobody publishes filtered, web_ui works immediately afterwards and the leader only after proximity (also after a web_ui timeout and without follower feedback); autonomy can retake the lease after a release; released refuses every source (leader, web_ui, autonomy), ends an autonomy lease, works from web_ui and leader states, re-enable requires proximity for the leader but not for web_ui, transitions are reported once, `parse_released` reads the JSON flag and rejects unparsable payloads, and an autonomy command refused while released does not take the lease.
 
+Idle feedback rate (`nodes/filter_node/tests/test_feedback_rate.py`, `test_config.py`): `FeedbackRateSwitch` selects the throttled topic while idle, the full-rate topic for any active source (leader, web UI, autonomy lease), returns to throttled after idle, falls back to full rate (logged once per outage, retried later) when the idle topic is silent, keeps full rate with an empty idle topic; config keys `follower_feedback_idle_topic` / `follower_feedback_idle_fallback_s` (> 0) load with defaults.
+
 ### Per-node tests (test_joint_api)
 
 The **test_joint_api** node has tests under `nodes/test_joint_api/tests/`. Run from `nodes/test_joint_api`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config (`test_config.py`); GET/POST `/joint-updates` (`test_app.py`: empty GET, single/multiple POST, validation errors, gripper-only POST). Async tests require **pytest-asyncio** (included in the node's uv dev dependency group; if running with system pytest, install it: `pip install pytest-asyncio`). Endpoint use in tests is limited to gripper joints (joint_5, joint_6) for safety. The utility script `scripts/joint_api_client.py` can GET or POST joint updates (see script docstring for examples).
@@ -1603,6 +1605,16 @@ Client CPU load trims (load about 13 on 4 cores made the EKF miss its rate and t
 |------|-------------|
 | `test_master2master_is_disabled` | `master2master` stays `present: true` but `enabled: false` (its `/controller/*` relays, the gripper camera included, served only the legacy Steam Deck UI). |
 | `test_gripper_camera_publish_rate_is_capped` | `gripper_uvc_camera` env has `UVC_MAX_FPS=10`. |
+| `test_imu_publishes_at_25_hz` | `bno055_imu` config has `publish_hz: 25` (software i2c-gpio busy-waits; about 0.18 core). |
+| `test_imu_covariance_window_spans_two_seconds` | `covariance_window / publish_hz == 2.0` and `covariance_min_samples` stays 20. |
+| `test_imu_consumer_timeouts_cover_25_hz` | Every IMU staleness limit in client.yml (tilt guard `imu_timeout_s`, ground estimator `imu.timeout_s`, floor guard `imu_max_age_s`, map_guard and map_guard_cpp `input_timeout_s`) is at least 3 IMU periods (0.12 s). |
+| `test_mcp_server_bump_window_still_spans_80_ms` | mcp_server `monitor.bump_min_samples` (default 2 = 80 ms) is at most 3 samples. |
+| `test_mcp_server_imu_baseline_keeps_its_time_constant` | `monitor.imu_baseline_alpha` x 25 Hz = 1 / 1 s (0.04), the time constant tuned at 50 Hz. |
+| `test_filter_node_idle_feedback_is_throttled` | filter_node config reads `/follower/joint_states/throttled` as `follower_feedback_idle_topic` (full-rate feedback only while a source commands). |
+| `test_head_camera_runs_at_15_fps` | `head_camera_cpp` config has `frame_duration_us: 66666` (15 fps; encode load halved, subscribers stop dropping frames). |
+| `test_head_camera_mapping_rate_fits_15_fps` | `mapping.rate_hz` and marker_detector `process_hz` are both <= 15. |
+| `test_high_rate_python_nodes_use_events_executor` | `swerve_controller`, `marker_detector`, `filter_node`, `lerobot_follower` and `base_servos` configs in client.yml, and the repo `laser_filter` config, have `executor: events` (rollback `single_threaded`). |
+| `test_mcp_server_and_web_ui_keep_their_executor` | `mcp_server` and `web_ui` configs have no `executor` key. |
 
 ### test_dds_discovery_config.py
 
@@ -2303,7 +2315,7 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_role_files_exist` | tasks, defaults, handlers, meta, the Mimir, Loki and Grafana templates, the drop-in and the dashboards exist. |
 | `test_robot_only_pieces_left_the_stack_role` | The Prometheus, Alloy, slice, nginx templates and the throttling script are no longer in the stack role. |
 | `test_every_template_and_file_the_tasks_name_exists` | Every `src:` of a template/copy task (loops and `with_fileglob` resolved) is shipped with the role. |
-| `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9009/3100, 24h Mimir and Loki retention, 5s interval, per-unit caps mimir 700M, loki 400M, grafana-server 768M. |
+| `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9009/3100, 24h Mimir and Loki retention, per-unit caps mimir 700M, loki 400M, grafana-server 768M. |
 | `test_packages_from_the_grafana_apt_repo` | The role includes `monitoring_agent`'s `grafana_repo.yml` before one apt task installing mimir, loki and grafana without recommends. |
 | `test_data_directories_belong_to_the_service_users` | `/var/lib/mimir` belongs to mimir, `/var/lib/loki` to loki. |
 | `test_dropin_moves_unit_into_the_slice` | (mimir, loki, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, the unit's MemoryMax, OOMScoreAdjust=500. |
@@ -2324,7 +2336,8 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_grafana_admin_password_from_host_file` | The drop-in loads `/etc/grafana/admin-password` via LoadCredential into `GF_SECURITY_ADMIN_PASSWORD__FILE`; grafana.ini holds no password. |
 | `test_grafana_admin_password_generated_on_the_host` | No Ansible password lookup; one `openssl rand` task with `creates:`; the file is 0600 root:grafana. |
 | `test_grafana_admin_password_command_runs` | The password task's real command, run locally, writes a 48-hex-character file with mode 0600. |
-| `test_grafana_datasources_mimir_and_loki` | `/etc/grafana/provisioning/datasources/robot.yaml`: `prometheus-robot` (prometheus type, `http://127.0.0.1:9009/prometheus`, default, `prometheusType: Mimir`, 5s) and `loki-robot` (`http://127.0.0.1:3100`). |
+| `test_grafana_datasources_mimir_and_loki` | `/etc/grafana/provisioning/datasources/robot.yaml`: `prometheus-robot` (prometheus type, `http://127.0.0.1:9009/prometheus`, default, `prometheusType: Mimir`) and `loki-robot` (`http://127.0.0.1:3100`). |
+| `test_datasource_time_interval_is_the_slowest_scrape` | The Mimir datasource `timeInterval` and `monitoring_interval` equal the slowest Alloy scrape interval (the client's 15s), so `$__rate_interval` is at least 60 s. |
 | `test_grafana_dashboard_provider` | Folder Robot; one copy task installs every `files/*.json` (`with_fileglob`) into the provider path under its own name. |
 | `test_services_restart_when_a_config_is_newer_than_their_start` | After starting, a shell task restarts mimir / loki / grafana-server when their config, drop-in or `monitoring.slice` is newer than the start; it runs between the start and the readiness wait. |
 | `test_readiness_checks` | Waits for Mimir `/ready`, Loki `/ready`, Grafana `/api/health` and `/grafana/api/health` through nginx, at least 2 min. |
@@ -2354,11 +2367,12 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_grafana_apt_repo_signed_by_keyring` | `grafana_repo.yml`: deb822 repo `https://apt.grafana.com stable main` signed by the key downloaded to `/etc/apt/keyrings/`; main.yml includes it. |
 | `test_alloy_remote_writes_to_mimir_with_the_host_label` | (client, server) `prometheus.remote_write "mimir"` url: robot `http://server.ros2.lan:9009/api/v1/push`, server `http://127.0.0.1:9009/api/v1/push`; `external_labels = {host = "<host>"}`. |
 | `test_alloy_pushes_logs_to_loki_with_the_host_label` | (client, server) `loki.write "server"` url: robot `http://server.ros2.lan:3100/loki/api/v1/push`, server 127.0.0.1; `external_labels` host. |
-| `test_alloy_scrapes_every_5s_and_writes_to_mimir` | (client, server) every scrape 5s / 4s, every metrics `forward_to` ends in the Mimir remote write (directly or via the cadvisor relabel). |
+| `test_client_scrapes_every_15_s` | Client group_vars `monitoring_agent_interval` is 15s with a timeout below it; the role default (5s) and the server stay at 5s. |
+| `test_alloy_scrapes_every_5s_and_writes_to_mimir` | (client, server) every scrape at the host interval (client 15s, server 5s) / 4s timeout, every metrics `forward_to` ends in the Mimir remote write (directly or via the cadvisor relabel). |
 | `test_alloy_collects_host_cgroup_and_self_metrics` | (client, server) unix (textfile dir), cadvisor (`docker_only = false`) and self exporters. |
 | `test_alloy_drops_high_cardinality_cgroups_and_veth` | (client, server) the `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
 | `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
-| `test_robot_alloy_scrapes_every_node_target` | The robot's `prometheus.scrape "nodes"` renders every `monitoring_agent_node_targets` entry as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, `honor_labels`, 5s/4s; target nodes are unique and each is a present, enabled client `ros2_nodes` entry (no hardcoded count). |
+| `test_robot_alloy_scrapes_every_node_target` | The robot's `prometheus.scrape "nodes"` renders every `monitoring_agent_node_targets` entry as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, `honor_labels`, 15s/4s; target nodes are unique and each is a present, enabled client `ros2_nodes` entry (no hardcoded count). |
 | `test_robot_alloy_scrapes_no_stack` | The robot scrapes no Prometheus or Grafana any more. |
 | `test_server_alloy_scrapes_the_stack_and_no_nodes` | The server's `prometheus.scrape "stack"` targets mimir 9009, loki 3100, grafana 3000; no node scrape. |
 | `test_alloy_systemd_collector_limited_to_ros_and_stack_units` | (client, server) systemd collector with restarts and start time; `unit_include` matches ros2-*, alloy, mimir, loki, grafana-server, nginx and not prometheus, ssh, sockets. |
@@ -2397,6 +2411,7 @@ The Grafana dashboards in `ansible/roles/monitoring/files/` (JSON structure, met
 
 | Test | Description |
 |------|-------------|
+| `test_no_rate_window_below_four_client_scrapes` | Every range selector in every dashboard is `$__rate_interval`, `$__auto`, `$__range` or a literal of at least 60 s (4 client scrapes). |
 | `test_selector_helper` | Guard against vacuous passes: the scanner finds selectors with their matchers and skips functions, labels, ranges, numbers and variables. |
 | `test_dashboard_set_is_exactly_the_five_files` | `files/` holds robot-resources, robot-agent, robot-slam, robot-grasping and robot-health. |
 | `test_dashboard_is_valid_json_with_required_panels` | (each dashboard) parses, has its title and uid, every required panel by title and unique panel ids. |

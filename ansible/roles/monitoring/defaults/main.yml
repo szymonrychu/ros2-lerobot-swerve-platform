@@ -15,8 +15,9 @@ monitoring_loki_grpc_port: 9096
 monitoring_grafana_port: 3000
 monitoring_grafana_subpath: /grafana/
 
-# Alloy's scrape interval (Grafana's datasource timeInterval: the shortest step a query uses).
-monitoring_interval: "5s"
+# Grafana's datasource timeInterval: the slowest Alloy scrape interval of any host (the client's 15 s, group_vars/client.yml),
+# so $__rate_interval is at least 4 scrapes (60 s) for every series. The server scrapes every 5 s.
+monitoring_interval: "15s"
 
 # Data on the SD card (wear accepted for 1 d of retention): Mimir blocks + TSDB/WAL, Loki chunks + index + WAL.
 monitoring_mimir_data_dir: /var/lib/mimir

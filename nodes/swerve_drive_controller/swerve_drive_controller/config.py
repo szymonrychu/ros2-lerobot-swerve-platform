@@ -38,6 +38,10 @@ DEFAULT_SLIP_RESIDUAL_THRESHOLD_MPS = 0.05
 BOOL_TRUE_STRINGS = frozenset({"true", "yes", "on", "1"})
 BOOL_FALSE_STRINGS = frozenset({"false", "no", "off", "0"})
 
+# Allowed values of the `executor` key; the default keeps today's behaviour.
+EXECUTOR_KINDS = ("events", "single_threaded")
+DEFAULT_EXECUTOR = "single_threaded"
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -73,6 +77,7 @@ class SwerveControllerConfig:
         rplidar_offset_xyyaw: Optional [x, y, yaw] offset of lidar from base_link (default 0,0,0).
         metrics_port: Prometheus /metrics port, or None for the ros2_metrics default.
         tilt_guard: Tilt guard limits, timing and error action (validated by pydantic).
+        executor: rclpy executor the node spins on: "events" (EventsExecutor) or "single_threaded".
     """
 
     half_length_m: float
@@ -100,6 +105,7 @@ class SwerveControllerConfig:
     rplidar_offset_xyyaw: tuple[float, float, float]
     metrics_port: int | None = None
     tilt_guard: TiltGuardConfig = field(default_factory=TiltGuardConfig)
+    executor: str = DEFAULT_EXECUTOR
 
 
 def parse_bool(value: Any, default: bool) -> bool:
@@ -212,6 +218,10 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
     except ValidationError as exc:
         LOGGER.error("Invalid tilt_guard config in %s: %s", path, exc)
         return None
+    executor = data.get("executor", DEFAULT_EXECUTOR)
+    if executor not in EXECUTOR_KINDS:
+        LOGGER.error("Invalid executor %r in %s: expected one of %s", executor, path, EXECUTOR_KINDS)
+        return None
     return SwerveControllerConfig(
         half_length_m=half_length_m,
         half_width_m=half_width_m,
@@ -238,6 +248,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
         rplidar_offset_xyyaw=rplidar_offset_xyyaw,
         metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
         tilt_guard=tilt_guard,
+        executor=executor,
     )
 
 

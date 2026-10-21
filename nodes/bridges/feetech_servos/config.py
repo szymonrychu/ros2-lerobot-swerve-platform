@@ -38,6 +38,8 @@ DEFAULT_TORQUE_STATE_INTERVAL_S = 1.0
 DEFAULT_GOAL_REFRESH_INTERVAL_S = 1.0
 DEFAULT_READ_FAILURE_LIMIT = 3
 DEFAULT_READ_RETRY_INTERVAL_S = 5.0
+EXECUTOR_KINDS = ("events", "single_threaded")
+DEFAULT_EXECUTOR = "single_threaded"
 
 
 def _parse_optional_steps(value: object) -> int | None:
@@ -170,6 +172,7 @@ class BridgeConfig:
             old (a broadcast has no reply, so a lost packet or a servo reset is otherwise never corrected); 0 = off.
         read_failure_limit: Consecutive failed state reads before a servo is left out of the sync read.
         read_retry_interval_s: Seconds between single-read probes of a servo left out of the sync read.
+        executor: rclpy executor draining the callbacks, "events" (EventsExecutor) or "single_threaded".
         torque_state_interval_s: Seconds between repeats of each group's torque_state; 0 = publish on change only.
         neutral_enabled: Neutral record/save services for the primary group (extra groups carry their own).
         neutral_exclude_joints: Primary-group position joints left out of the neutral record/save.
@@ -202,6 +205,7 @@ class BridgeConfig:
     goal_refresh_interval_s: float = DEFAULT_GOAL_REFRESH_INTERVAL_S
     read_failure_limit: int = DEFAULT_READ_FAILURE_LIMIT
     read_retry_interval_s: float = DEFAULT_READ_RETRY_INTERVAL_S
+    executor: str = DEFAULT_EXECUTOR
     torque_state_interval_s: float = DEFAULT_TORQUE_STATE_INTERVAL_S
     neutral_enabled: bool = False
     neutral_exclude_joints: list[str] = field(default_factory=list)
@@ -618,6 +622,9 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         torque_state_interval_s = DEFAULT_TORQUE_STATE_INTERVAL_S
     if not torque_state_interval_s >= 0:  # negative or NaN
         torque_state_interval_s = DEFAULT_TORQUE_STATE_INTERVAL_S
+    executor = data.get("executor", DEFAULT_EXECUTOR)
+    if executor not in EXECUTOR_KINDS:
+        return None
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -645,6 +652,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         goal_refresh_interval_s=goal_refresh_interval_s,
         read_failure_limit=read_failure_limit,
         read_retry_interval_s=read_retry_interval_s,
+        executor=executor,
         torque_state_interval_s=torque_state_interval_s,
         neutral_enabled=neutral_enabled,
         neutral_exclude_joints=neutral_exclude_joints,

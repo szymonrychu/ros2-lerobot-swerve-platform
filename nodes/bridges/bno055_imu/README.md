@@ -97,6 +97,26 @@ Served on `127.0.0.1:<metrics_port>` (`19103` on the robot) via `ros2-metrics`, 
   other work yields first; fewer transactions per cycle is still what lets the node reach `publish_hz`. Watch
   `imu_cycle_seconds` and `imu_cycle_overruns_total` when tuning `publish_hz`.
 
+## Publish rate and consumers
+
+The client config (`ansible/group_vars/client.yml`) publishes `/imu/data` at `publish_hz: 25` (was 50): the software
+`i2c-gpio` bus busy-waits, so the 50 Hz loop cost 0.37-0.40 core (two thirds kernel time, 18k of 120k cycles overran);
+25 Hz frees about 0.18 core. The period is 40 ms, so a staleness limit must be at least 3 periods (0.12 s). The
+`covariance_window` is 50 samples (still ~2 s; `compute_covariance` is off anyway). `tests/test_client_cpu_load.py`
+pins the rate, the window span, every IMU staleness limit below and the rescaled `imu_baseline_alpha`.
+
+| Consumer | Uses | At 25 Hz |
+|----------|------|----------|
+| robot_localization_ekf (`imu0`) | gyro yaw rate only (`imu0_config` index 11), EKF at 30 Hz, `imu0_queue_size` 10 | Fine: the EKF already interpolates between inputs slower than its 30 Hz tick; no staleness limit. |
+| swerve_controller tilt guard | roll/pitch, `persistence_s` 0.5, `imu_timeout_s` 0.5 | Fine: time-based debounce (12 samples at 25 Hz), timeout is 12 periods. |
+| ground_estimator_cpp IMU prior | latest orientation, `imu.timeout_s` 0.5 | Fine: 12 periods, and it uses the newest sample, not a window. |
+| map_guard and map_guard_cpp | tilt, yaw rate, `input_timeout_s` 0.5, `level_window_s` 3, `lift_accel_s` 0.4 | Fine: all windows are in seconds (10 samples in the shortest, `lift_accel_s`); timeout is 12 periods. |
+| mcp_server monitor | bump: `bump_min_samples` 2 (= 80 ms at 25 Hz, a glitch filter), `imu_baseline_alpha` EMA per sample | `imu_baseline_alpha` is per sample, so halving the rate would double the baseline time constant (1 s to 2 s); rescaled to 0.04 in client.yml. `bump_min_samples` stays 2 (80 ms still rejects a single glitchy sample, a real bump lasts longer). |
+| mcp_server floor guard | tilt for the slow zone, `imu_max_age_s` 1.0 | Fine: 25 periods. |
+| web_ui | GPS compass anchor (`COMPASS_IMU_MAX_AGE_S` 1.0 between IMU stamp and fix), IMU calibration status (`imu_stale_s` 3.0, status is 1 Hz) | Fine: both far above 40 ms. |
+| head_rgbd_cpp | Does not subscribe to `/imu/data` (no IMU code or config) | Not affected. |
+| master2master | Relays `/imu/data` to `/controller/imu/data` | Disabled on the client; not affected. |
+
 ## Recovery
 
 `bno055_imu/recovery.py` (`RecoveryPolicy`, pure Python, injectable clock) decides between continue, soft mode restore

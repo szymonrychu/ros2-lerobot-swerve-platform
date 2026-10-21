@@ -335,7 +335,7 @@ ros2_node_type_defaults:
     colcon_purge:
       - package: camera_ros
         workspace: /opt/ros2-ws
-  # Head RGB camera (Camera Module 3 on CSI cam0): 30 fps /head_camera/* plus autofocused full-resolution zoom crops
+  # Head RGB camera (Camera Module 3 on CSI cam0): 15 fps /head_camera/* plus autofocused full-resolution zoom crops
   # (nodes/head_camera_cpp/README.md). It replaces pi_cameras and builds against the same pinned libcamera: the first
   # colcon_source dict is identical to pi_cameras' (repo, commit, meson_args, patch contents; the patch path is not part
   # of the stamp key), so the existing stamp matches and nothing rebuilds. The apt ros-jazzy-libcamera and
@@ -1140,6 +1140,8 @@ ros2_nodes:
     present: true
     enabled: true
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client filter_node.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19102
       input_topic: /filter/input_joint_updates
@@ -1150,6 +1152,8 @@ ros2_nodes:
       web_ui_input_topic: /filter/web_ui_joint_commands
       web_ui_timeout_s: 0.5
       follower_feedback_topic: /follower/joint_states
+      # While no source commands, read the 10 Hz copy (joint_state_throttle_follower) instead of the ~89 Hz feedback.
+      follower_feedback_idle_topic: /follower/joint_states/throttled
       takeover_threshold_rad: 0.15
       # Autonomy lease (mcp_server): setpoints, release (std_msgs/Bool) and the published active source.
       autonomy_input_topic: /filter/autonomy_joint_commands
@@ -1221,7 +1225,8 @@ ros2_nodes:
           sign_change_min_hz: 2.0
   - name: bno055_imu
     node_type: bno055_imu
-    # 50 Hz reduces I2C load; BNO055 can return None on transient read failures
+    # 25 Hz (was 50): the software i2c-gpio bus busy-waits, so each read cycle costs CPU; the EKF (30 Hz) fuses only the
+    # gyro yaw rate and every IMU consumer tolerates 25 Hz (see nodes/bridges/bno055_imu/README.md). BNO055 can return None on transient read failures
     present: true
     enabled: true
     config: |
@@ -1233,7 +1238,7 @@ ros2_nodes:
       # the gyro yaw rate (imu0_config index 11), so this does not change odometry. Calibrate the magnetometer by moving
       # the robot; see /imu/calibration.
       operation_mode: NDOF
-      publish_hz: 50
+      publish_hz: 25
       i2c_bus: 8  # software i2c-gpio bus, must match rpi_bno055_i2c_gpio_bus
       i2c_address: 0x28
       # Sensor offsets survive node restarts here (directory created by tasks/bno055_state_dir.yml).
@@ -1249,7 +1254,7 @@ ros2_nodes:
       angular_velocity_covariance: 0.0004
       linear_acceleration_covariance: 0.04
       compute_covariance: false
-      covariance_window: 100      # rolling window size (samples, ~2 s at 50 Hz)
+      covariance_window: 50       # rolling window size (samples, ~2 s at 25 Hz)
       covariance_min_samples: 20  # samples before estimated covariance replaces config values
       # Zero-rate gyro bias learned only while the swerve wheel odometry reports the robot stopped (parked heading drift).
       odom_topic: /odom
@@ -1401,6 +1406,8 @@ ros2_nodes:
     config: |
       camera_id: /base/axi/pcie@120000/rp1/i2c@88000/imx708@1a
       jpeg_quality: 70
+      # 15 fps: encoding ~30 ms per frame at nice 10 saturated the client and subscribers got 8.5 of ~19 fps. Code default 33333.
+      frame_duration_us: 66666
       metrics_port: 19116
       # Written by Apply on the Calibrate page, seeded from the committed file when absent; a missing file: no camera_info.
       camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml
@@ -1575,6 +1582,8 @@ ros2_nodes:
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/lerobot_follower/config.yaml
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client lerobot_follower.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19101
       # ROS node name and metrics `node` label of this instance (base_servos is the second bridge on this host).
@@ -1646,6 +1655,8 @@ ros2_nodes:
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/base_servos/config.yaml
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client base_servos.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19115
       # ROS node name and metrics `node` label of this instance (lerobot_follower is the arm bridge on this host).
@@ -1748,6 +1759,8 @@ ros2_nodes:
     env:
       - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_controller/config.yaml
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client swerve_controller.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19107
       # Platform dimensions.md: steering yaw axes 305 x 266.6 mm, wheel radius 60 mm, steer +-90 deg.
@@ -1896,6 +1909,8 @@ ros2_nodes:
           use_control: false
           print_diagnostics: false
   # Removes lidar returns on the robot body: /scan -> /scan_filtered (consumed by SLAM, costmaps, collision monitor).
+  # Runs the EventsExecutor: `executor: events` is in the repo config nodes/laser_filter/config/footprint_filter.yaml
+  # (LASER_FILTER_CONFIG); rollback is `executor: single_threaded` there.
   - name: laser_filter
     node_type: laser_filter
     present: true
@@ -2362,7 +2377,7 @@ ros2_nodes:
         path: /mcp
       topics:
         # Head RGB camera (tool camera `front`): Camera Module 3 on the pan/tilt head with the ToF, head_camera_cpp,
-        # 1152x648 at 30 fps, 16:9.
+        # 1152x648 at 15 fps, 16:9.
         head_camera: /head_camera/image_raw/compressed
         # Body monitor feeds (get_body_state, /robot_events): servo register dumps, swerve odom (twist covariance = slip
         # residual), rf2o twist, BNO055 IMU.
@@ -2593,6 +2608,8 @@ ros2_nodes:
         slip_residual_warn_mps: 0.1
         bump_warn_mps2: 4.0
         bump_critical_mps2: 9.0
+        # EMA weight per IMU sample of the acceleration baseline: 0.04 at 25 Hz keeps the 1 s time constant (0.02 at 50 Hz).
+        imu_baseline_alpha: 0.04
         tilt_warn_deg: 10
         # /tilt_guard/state (1 Hz) older than this is stale: its last level stays enforced and, at level ok,
         # navigation is refused (as with imu_ok false) until the guard reports again; manual drive still works.
@@ -3196,6 +3213,8 @@ ros2_nodes:
     present: true
     enabled: true
     config: |
+      # EventsExecutor (less Python executor overhead). Rollback: `executor: single_threaded`, then deploy-nodes.sh client marker_detector.
+      executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19118
       topics:
@@ -3302,6 +3321,11 @@ ros2_nodes:
 monitoring_host: client
 # The robot ran Prometheus + Grafana until 2026-10-10: stop, disable and purge them (roles/monitoring_agent).
 monitoring_agent_remove_local_stack: true
+# Alloy scrapes every 15 s (was 5 s): alloy cost 0.12 core, 40% of it sys time from cAdvisor, and the ~18 Python
+# /metrics handlers it scrapes are hit 3x less. The scrape timeout must stay below the interval. Grafana's datasource
+# timeInterval follows (roles/monitoring monitoring_interval) so $__rate_interval stays at least 60 s.
+monitoring_agent_interval: "15s"
+monitoring_agent_scrape_timeout: "4s"
 # Our ROS2 nodes' Prometheus endpoints (ros2_metrics helper or the node's own HTTP server), scraped by Alloy job
 # ros2_nodes with a `node` label. Ports follow the ros2_nodes entries above (metrics_port, METRICS_PORT or the node's
 # HTTP port); tests/test_node_metrics_wiring.py keeps both in sync.

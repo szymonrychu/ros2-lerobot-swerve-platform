@@ -21,7 +21,7 @@ Then `uv lock`, and set `src_shared: true` on the node type in `ansible/group_va
 - Nodes with an HTTP server: `register_node_info("<node>")` and a `GET /metrics` route returning `render_latest()`.
 
 The port comes from `metrics_port` in the node's config file, else the `METRICS_PORT` environment variable (for
-env-configured nodes); neither set means metrics are off. Grafana Alloy on the robot scrapes every node every 5 s.
+env-configured nodes); neither set means metrics are off. Grafana Alloy on the robot scrapes every node every 15 s (the server scrapes every 5 s).
 
 ## API
 

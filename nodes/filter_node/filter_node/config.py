@@ -13,6 +13,9 @@ DEFAULT_AUTONOMY_INPUT_TOPIC = "/filter/autonomy_joint_commands"
 DEFAULT_AUTONOMY_RELEASE_TOPIC = "/filter/autonomy_release"
 DEFAULT_ACTIVE_SOURCE_TOPIC = "/filter/active_source"
 DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC = "/follower/torque_state"
+EXECUTOR_KINDS = ("events", "single_threaded")
+DEFAULT_EXECUTOR = "single_threaded"
+DEFAULT_IDLE_FALLBACK_S = 2.0
 
 
 @dataclass
@@ -38,6 +41,10 @@ class FilterConfig:
         follower_feedback_topic: Topic providing current follower joint positions
             (sensor_msgs/JointState). Used to verify proximity before allowing leader
             takeover while web UI is active.
+        follower_feedback_idle_topic: Throttled copy of the follower feedback (e.g. 10 Hz) read while no source is
+            commanding; empty = always the full-rate topic.
+        follower_feedback_idle_fallback_s: Seconds without an idle-topic message after subscribing before falling
+            back to the full-rate topic (> 0).
         takeover_threshold_rad: Maximum allowed joint position difference (radians) between
             leader and follower for a leader takeover to be accepted while web UI is active.
             Defaults to 0.15. Also gates the leader resuming after an autonomy lease is released.
@@ -49,6 +56,8 @@ class FilterConfig:
             none) is published on change and at 1 Hz. Empty string disables it.
         follower_torque_state_topic: std_msgs/String JSON topic latched by the follower bridge; its
             ``released`` field quiets all command sources while the arm is limp. Empty string disables it.
+        executor: rclpy executor spinning the node: "events" (rclpy.experimental.EventsExecutor, lower CPU) or
+            "single_threaded" (default, rollback).
         metrics_port: Prometheus /metrics port on 127.0.0.1; None disables the exporter.
     """
 
@@ -63,11 +72,14 @@ class FilterConfig:
     web_ui_timeout_s: float = 0.5
     follower_feedback_topic: str = ""
     takeover_threshold_rad: float = 0.15
+    follower_feedback_idle_topic: str = ""
+    follower_feedback_idle_fallback_s: float = DEFAULT_IDLE_FALLBACK_S
     autonomy_input_topic: str = DEFAULT_AUTONOMY_INPUT_TOPIC
     autonomy_release_topic: str = DEFAULT_AUTONOMY_RELEASE_TOPIC
     active_source_topic: str = DEFAULT_ACTIVE_SOURCE_TOPIC
     follower_torque_state_topic: str = DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC
     metrics_port: int | None = None
+    executor: str = DEFAULT_EXECUTOR
 
 
 def read_topic(data: dict[str, Any], key: str, default: str) -> str:
@@ -133,7 +145,17 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         takeover_threshold_rad = max(0.0, float(raw_threshold))
     except (TypeError, ValueError):
         takeover_threshold_rad = 0.15
+    follower_feedback_idle_topic = read_topic(data, "follower_feedback_idle_topic", "")
+    try:
+        idle_fallback_s = float(data.get("follower_feedback_idle_fallback_s", DEFAULT_IDLE_FALLBACK_S))
+    except (TypeError, ValueError):
+        idle_fallback_s = 0.0
+    if idle_fallback_s <= 0:
+        raise ValueError("follower_feedback_idle_fallback_s must be > 0")
     raw_metrics_port = data.get("metrics_port")
+    executor = str(data.get("executor", DEFAULT_EXECUTOR)).strip().lower()
+    if executor not in EXECUTOR_KINDS:
+        raise ValueError(f"executor must be one of {EXECUTOR_KINDS}, got {executor!r}")
     return FilterConfig(
         input_topic=input_topic,
         output_topic=output_topic,
@@ -146,6 +168,8 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         web_ui_timeout_s=web_ui_timeout_s,
         follower_feedback_topic=follower_feedback_topic,
         takeover_threshold_rad=takeover_threshold_rad,
+        follower_feedback_idle_topic=follower_feedback_idle_topic,
+        follower_feedback_idle_fallback_s=idle_fallback_s,
         autonomy_input_topic=read_topic(data, "autonomy_input_topic", DEFAULT_AUTONOMY_INPUT_TOPIC),
         autonomy_release_topic=read_topic(data, "autonomy_release_topic", DEFAULT_AUTONOMY_RELEASE_TOPIC),
         active_source_topic=read_topic(data, "active_source_topic", DEFAULT_ACTIVE_SOURCE_TOPIC),
@@ -153,6 +177,7 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
             data, "follower_torque_state_topic", DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC
         ),
         metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
+        executor=executor,
     )
 
 

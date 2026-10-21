@@ -8,7 +8,8 @@ import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy._rclpy_pybind11 import RCLError
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import Executor, ExternalShutdownException, SingleThreadedExecutor
+from rclpy.experimental import EventsExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from ros2_metrics import resolve_metrics_port, start_metrics_server
@@ -147,6 +148,25 @@ def build_transform(
     t.transform.rotation.z = q[2]
     t.transform.rotation.w = q[3]
     return t
+
+
+def make_executor(kind: str) -> Executor:
+    """Build the rclpy executor the node spins on.
+
+    Args:
+        kind (str): "events" for rclpy.experimental.EventsExecutor, "single_threaded" for SingleThreadedExecutor.
+
+    Returns:
+        Executor: A new executor instance.
+
+    Raises:
+        ValueError: If kind is neither "events" nor "single_threaded".
+    """
+    if kind == "events":
+        return EventsExecutor()
+    if kind == "single_threaded":
+        return SingleThreadedExecutor()
+    raise ValueError(f"unknown executor {kind!r}, expected 'events' or 'single_threaded'")
 
 
 def run_swerve_controller(config: SwerveControllerConfig) -> None:
@@ -364,8 +384,10 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
         f"error_action {tilt_cfg.error_action}"
     )
 
+    executor = make_executor(config.executor)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     except RCLError:

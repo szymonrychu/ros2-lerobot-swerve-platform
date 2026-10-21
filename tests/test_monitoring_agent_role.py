@@ -245,13 +245,23 @@ def test_alloy_pushes_logs_to_loki_with_the_host_label(host: str) -> None:
     assert re.search(r'external_labels\s*=\s*\{\s*host\s*=\s*"' + host + r'"\s*\}', body)
 
 
+def test_client_scrapes_every_15_s() -> None:
+    """The client's Alloy scrapes every 15 s (timeout below it); the role default and the server stay at 5 s."""
+    client = group_monitoring_vars("client")
+    assert client["monitoring_agent_interval"] == "15s"
+    assert int(client["monitoring_agent_scrape_timeout"].rstrip("s")) < 15
+    assert role_defaults(AGENT_DIR)["monitoring_agent_interval"] == "5s"
+    assert "monitoring_agent_interval" not in group_monitoring_vars("server")
+
+
 @pytest.mark.parametrize("host", HOSTS)
 def test_alloy_scrapes_every_5s_and_writes_to_mimir(host: str) -> None:
-    """Every scrape runs at 5 s with a 4 s timeout and ends in the Mimir remote write (directly or via relabel)."""
+    """Every scrape runs at the host interval (client 15 s, server 5 s), 4 s timeout, and ends in the Mimir write."""
+    interval = "15s" if host == "client" else "5s"
     config = agent("config.alloy.j2", host)
     scrapes = re.findall(r'prometheus\.scrape "[^"]+"', config)
     assert len(scrapes) >= (3 if host == "client" else 4)
-    assert config.count('scrape_interval = "5s"') == len(scrapes)
+    assert config.count(f'scrape_interval = "{interval}"') == len(scrapes)
     # Alloy rejects a scrape whose timeout (default 10 s) exceeds its interval.
     assert config.count('scrape_timeout  = "4s"') == len(scrapes)
     assert "prometheus.remote_write.local" not in config
@@ -316,7 +326,7 @@ def test_robot_alloy_scrapes_every_node_target() -> None:
     assert re.search(r'metrics_path\s*=\s*"/metrics"', body)
     # The helper's robot_node_info{node} keeps its own node label instead of becoming exported_node.
     assert re.search(r"honor_labels\s*=\s*true", body)
-    assert 'scrape_interval = "5s"' in body and 'scrape_timeout  = "4s"' in body
+    assert 'scrape_interval = "15s"' in body and 'scrape_timeout  = "4s"' in body
     assert "forward_to      = [prometheus.remote_write.mimir.receiver]" in body
 
 

@@ -5,7 +5,8 @@ from typing import Any
 
 import rclpy
 from rclpy._rclpy_pybind11 import RCLError
-from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
+from rclpy.executors import Executor, ExternalShutdownException, SingleThreadedExecutor
+from rclpy.experimental import EventsExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from ros2_metrics import resolve_metrics_port, start_metrics_server
@@ -22,7 +23,8 @@ from .arbitration import (
     parse_released,
 )
 from .command import fill_command
-from .config import FilterConfig
+from .config import EXECUTOR_KINDS, FilterConfig
+from .feedback_rate import FeedbackRateSwitch
 from .metrics import FilterMetrics
 
 NODE_NAME = "filter_node"
@@ -55,6 +57,25 @@ def joint_positions(msg: JointState) -> dict[str, float]:
         dict[str, float]: Joint name -> position (rad).
     """
     return {name: float(msg.position[i]) for i, name in enumerate(msg.name) if i < len(msg.position)}
+
+
+def make_executor(kind: str) -> Executor:
+    """Build the executor that spins the node.
+
+    Args:
+        kind (str): "events" for rclpy.experimental.EventsExecutor, "single_threaded" for SingleThreadedExecutor.
+
+    Returns:
+        Executor: A new executor of the requested kind.
+
+    Raises:
+        ValueError: If kind is not one of EXECUTOR_KINDS.
+    """
+    if kind == "events":
+        return EventsExecutor()
+    if kind == "single_threaded":
+        return SingleThreadedExecutor()
+    raise ValueError(f"executor must be one of {EXECUTOR_KINDS}, got {kind!r}")
 
 
 def run_filter_node(config: FilterConfig) -> None:
@@ -95,6 +116,10 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
     clock = node.get_clock()
     control_period_s = 1.0 / max(1.0, config.control_loop_hz)
     last_input_time: list[float] = [time.monotonic()]
+    last_leader_msg_time: list[float] = [time.monotonic()]  # any leader message, accepted or not
+    last_idle_feedback_time: list[float | None] = [None]
+    full_rate_seen: list[bool] = [True]  # False from a swap off the idle topic until the first full-rate sample
+    feedback_topic: list[str] = [""]  # topic the follower feedback subscription is currently on
     arbiter = SourceArbiter(
         web_ui_timeout_s=config.web_ui_timeout_s,
         takeover_threshold_rad=config.takeover_threshold_rad,
@@ -119,6 +144,12 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
             source_pub.publish(source_msg)
 
     def on_input(msg: JointState) -> None:
+        last_leader_msg_time[0] = time.monotonic()
+        if arbiter.active_source != SOURCE_LEADER and not feedback_is_full_rate():
+            # A takeover decision needs full-rate positions. The main loop swaps the subscription (never here);
+            # until the first full-rate sample arrives this message is dropped, so the proximity rule never
+            # sees throttled data on the first active cycle.
+            return
         previous = arbiter.active_source
         metrics.record_input(SOURCE_LEADER, time.monotonic())
         decision = arbiter.on_leader_input(joint_positions(msg), time.monotonic())
@@ -192,6 +223,11 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
         report_source()
 
     def on_follower_feedback(msg: JointState) -> None:
+        full_rate_seen[0] = True
+        arbiter.update_follower_positions(joint_positions(msg))
+
+    def on_idle_feedback(msg: JointState) -> None:
+        last_idle_feedback_time[0] = time.monotonic()
         arbiter.update_follower_positions(joint_positions(msg))
 
     node.create_subscription(JointState, config.input_topic, on_input, FILTER_QOS)
@@ -201,12 +237,50 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
         node.get_logger().info(
             f"Web UI arbitration enabled: {config.web_ui_input_topic} (timeout {config.web_ui_timeout_s}s)"
         )
-    if config.follower_feedback_topic:
-        node.create_subscription(JointState, config.follower_feedback_topic, on_follower_feedback, FILTER_QOS)
-        node.get_logger().info(
-            f"Follower feedback for takeover: {config.follower_feedback_topic}"
-            f" (threshold {config.takeover_threshold_rad} rad)"
+    feedback_switch = FeedbackRateSwitch(
+        config.follower_feedback_topic,
+        config.follower_feedback_idle_topic,
+        config.idle_timeout_s,
+        config.web_ui_timeout_s,
+        config.follower_feedback_idle_fallback_s,
+        warn=log.warning,
+    )
+    feedback_sub: list[Any] = [None]  # current follower feedback subscription
+
+    def feedback_is_full_rate() -> bool:
+        """Tell whether the proximity rule may trust the feedback positions now.
+
+        Returns:
+            bool: True without idle switching; otherwise only when the subscription already is the selected
+                full-rate topic and it has delivered a sample since the swap.
+        """
+        idle_topic = config.follower_feedback_idle_topic
+        if not config.follower_feedback_topic or not idle_topic:
+            return True
+        selected = select_feedback_topic(time.monotonic())
+        return selected == feedback_topic[0] and selected != idle_topic and full_rate_seen[0]
+
+    def select_feedback_topic(now: float) -> str:
+        return feedback_switch.select(
+            now, last_leader_msg_time[0], arbiter.last_web_ui_time, arbiter.autonomy_held, last_idle_feedback_time[0]
         )
+
+    def swap_feedback_subscription(now: float) -> None:
+        """Move the follower feedback subscription to the selected topic. Main loop only, never in a callback."""
+        topic = select_feedback_topic(now)
+        if topic == feedback_topic[0]:
+            return
+        if feedback_sub[0] is not None:
+            node.destroy_subscription(feedback_sub[0])
+        on_idle = topic == config.follower_feedback_idle_topic
+        callback = on_idle_feedback if on_idle else on_follower_feedback
+        full_rate_seen[0] = not on_idle and feedback_topic[0] != config.follower_feedback_idle_topic
+        feedback_sub[0] = node.create_subscription(JointState, topic, callback, FILTER_QOS)
+        feedback_topic[0] = topic
+        log.info(f"Follower feedback for takeover: {topic} (threshold {config.takeover_threshold_rad} rad)")
+
+    if config.follower_feedback_topic:
+        swap_feedback_subscription(time.monotonic())
     if config.follower_torque_state_topic:
         node.create_subscription(String, config.follower_torque_state_topic, on_torque_state, LATCHED_QOS)
         log.info(f"Follower torque state: {config.follower_torque_state_topic}")
@@ -223,7 +297,7 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
     node.create_timer(ACTIVE_SOURCE_POLL_S, report_source)
     node.get_logger().info(f"Filter node: {config.input_topic} -> {config.output_topic} [{config.algorithm}]")
 
-    executor = SingleThreadedExecutor()
+    executor = make_executor(config.executor)
     executor.add_node(node)
 
     idle_timeout = config.idle_timeout_s
@@ -231,6 +305,8 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
 
     while rclpy.ok():
         metrics.observe_loop(time.monotonic(), control_period_s)
+        if config.follower_feedback_topic:
+            swap_feedback_subscription(time.monotonic())
         if state_by_joint and joint_order:
             now = time.monotonic()
             input_age = now - last_input_time[0]

@@ -163,3 +163,21 @@ def test_load_config_follower_torque_state_topic(tmp_path: Path) -> None:
     cfg = load_config(p)
     assert cfg is not None
     assert cfg.follower_torque_state_topic == ""
+
+
+def test_idle_feedback_keys_default_and_load(tmp_path) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text("algorithm: kalman\n")
+    config = load_config(path)
+    assert config.follower_feedback_idle_topic == ""
+    assert config.follower_feedback_idle_fallback_s == 2.0
+    path.write_text("follower_feedback_idle_topic: /t\nfollower_feedback_idle_fallback_s: 3\n")
+    config = load_config(path)
+    assert (config.follower_feedback_idle_topic, config.follower_feedback_idle_fallback_s) == ("/t", 3.0)
+
+
+def test_idle_feedback_fallback_must_be_positive(tmp_path) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text("follower_feedback_idle_fallback_s: 0\n")
+    with pytest.raises(ValueError, match="fallback"):
+        load_config(path)

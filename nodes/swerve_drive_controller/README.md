@@ -102,6 +102,7 @@ YAML config (path via `SWERVE_DRIVE_CONTROLLER_CONFIG` or `/etc/ros2/swerve_driv
 - `joint_names`: 8 names in order fl_drive, fl_steer, fr_drive, fr_steer, rl_drive, rl_steer, rr_drive, rr_steer.
 - `cmd_vel_topic`, `joint_states_topic`, `joint_commands_topic`, `odom_topic`, `odom_frame_id`, `base_frame_id`.
 - `publish_tf` (default true): set false to publish only `/odom` and leave the `odom` -> `base_link` TF to another node (e.g. a localization stack). Parsed strictly: YAML booleans, integers 0/1, and strings (case-insensitive) `true/yes/on/1` and `false/no/off/0` are accepted; any other value falls back to the default (true) rather than being coerced.
+- `executor` (default `single_threaded`; `events` or `single_threaded`, anything else makes the config invalid): the rclpy executor the node spins on. `events` is `rclpy.experimental.EventsExecutor`, which runs the same callbacks (about 200/s here) with less Python executor overhead. It ignores callback groups; this node creates no callback group and never uses a MultiThreadedExecutor, so nothing changes semantically. Rollback: set `executor: single_threaded` in `ansible/group_vars/client.yml` and redeploy the node.
 - `control_loop_hz` (default 50), `steer_error_threshold_rad`, `max_steer_angular_velocity_rad_s` (ST3215 is about 4.71 rad/s, for tuning).
 - `tilt_guard` (nested block, validated with pydantic; unknown keys or inconsistent limits make the whole config invalid and the node exits instead of running with default safety limits):
 
