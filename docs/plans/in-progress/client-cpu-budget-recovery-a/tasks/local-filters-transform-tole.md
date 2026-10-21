@@ -1,11 +1,11 @@
 ---
 title: "Local filters' transform_tolerance (0.2) in nav2_params.yaml may need raising if odom frame errors persist"
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Root cause of 'failed to get costmap frame (odom)' lies in TF timeliness under load, outside costmap_zones"
-files: [nodes/nav2_bringup/config/nav2_params.yaml]
+files: [docs/runbooks/client-cpu-budget.md]
 verify: ""
-depends_on: []
+depends_on: [cpu-budget-runbook]
 owns: []
 uses: []
 model: ""
