@@ -222,7 +222,7 @@ line changed.
 
 ### IMU (client)
 
-The **bno055_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO055 over I2C; the node reads `/dev/i2c-1` directly. Config: topic, frame_id, publish_hz, i2c_bus, i2c_address (default 0x28), and covariance values (see `nodes/bridges/bno055_imu/README.md`).
+The **bno055_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO055 over I2C; the node reads `/dev/i2c-1` directly. The client publishes at `publish_hz: 25` (was 50; the software i2c-gpio bus busy-waits, about 0.18 core saved, all IMU consumers checked in the node README section "Publish rate and consumers"; `covariance_window` 50 keeps ~2 s and mcp_server `monitor.imu_baseline_alpha` 0.04 keeps the baseline time constant). Config: topic, frame_id, publish_hz, i2c_bus, i2c_address (default 0x28), and covariance values (see `nodes/bridges/bno055_imu/README.md`).
 
 ### Raspberry Pi GPIO/I2C tooling (all users)
 

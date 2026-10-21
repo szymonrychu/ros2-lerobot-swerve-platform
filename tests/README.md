@@ -1603,6 +1603,11 @@ Client CPU load trims (load about 13 on 4 cores made the EKF miss its rate and t
 |------|-------------|
 | `test_master2master_is_disabled` | `master2master` stays `present: true` but `enabled: false` (its `/controller/*` relays, the gripper camera included, served only the legacy Steam Deck UI). |
 | `test_gripper_camera_publish_rate_is_capped` | `gripper_uvc_camera` env has `UVC_MAX_FPS=10`. |
+| `test_imu_publishes_at_25_hz` | `bno055_imu` config has `publish_hz: 25` (software i2c-gpio busy-waits; about 0.18 core). |
+| `test_imu_covariance_window_spans_two_seconds` | `covariance_window / publish_hz == 2.0` and `covariance_min_samples` stays 20. |
+| `test_imu_consumer_timeouts_cover_25_hz` | Every IMU staleness limit in client.yml (tilt guard `imu_timeout_s`, ground estimator `imu.timeout_s`, floor guard `imu_max_age_s`, map_guard and map_guard_cpp `input_timeout_s`) is at least 3 IMU periods (0.12 s). |
+| `test_mcp_server_bump_window_still_spans_80_ms` | mcp_server `monitor.bump_min_samples` (default 2 = 80 ms) is at most 3 samples. |
+| `test_mcp_server_imu_baseline_keeps_its_time_constant` | `monitor.imu_baseline_alpha` x 25 Hz = 1 / 1 s (0.04), the time constant tuned at 50 Hz. |
 
 ### test_dds_discovery_config.py
 

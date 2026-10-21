@@ -4,6 +4,11 @@ from pathlib import Path
 
 import yaml
 
+IMU_HZ = 25
+IMU_PERIOD_S = 1 / IMU_HZ
+IMU_TIMEOUT_MIN_PERIODS = 3
+IMU_BASELINE_TIME_CONSTANT_S = 1.0  # mcp_server monitor: 1 / (alpha * rate) as tuned at 50 Hz (0.02)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 
@@ -32,3 +37,53 @@ def test_gripper_camera_publish_rate_is_capped() -> None:
     """The UVC camera delivered about 18 fps; 10 fps is enough for the agent and the web UI."""
     env = client_node("gripper_uvc_camera")["env"]
     assert "UVC_MAX_FPS=10" in env
+
+
+def node_config(name: str) -> dict:
+    """Return the parsed `config: |` YAML of one client node.
+
+    Args:
+        name (str): Node name.
+
+    Returns:
+        dict: The node's config.
+    """
+    return yaml.safe_load(client_node(name)["config"])
+
+
+def test_imu_publishes_at_25_hz() -> None:
+    """The software i2c-gpio bus busy-waits; 25 Hz frees about 0.18 core and the EKF (30 Hz) fuses only the gyro."""
+    assert node_config("bno055_imu")["publish_hz"] == IMU_HZ
+
+
+def test_imu_covariance_window_spans_two_seconds() -> None:
+    """The rolling covariance window keeps its ~2 s span when the rate halves."""
+    cfg = node_config("bno055_imu")
+    assert cfg["covariance_window"] / cfg["publish_hz"] == 2.0
+    assert cfg["covariance_min_samples"] == 20
+
+
+def test_imu_consumer_timeouts_cover_25_hz() -> None:
+    """Every IMU staleness limit configured in client.yml is at least 3 IMU periods (0.12 s)."""
+    floor = IMU_TIMEOUT_MIN_PERIODS * IMU_PERIOD_S
+    limits = {
+        "swerve_controller tilt_guard.imu_timeout_s": node_config("swerve_controller")["tilt_guard"]["imu_timeout_s"],
+        "ground_estimator_cpp imu.timeout_s": node_config("ground_estimator_cpp")["imu"]["timeout_s"],
+        "mcp_server floor_guard.imu_max_age_s": node_config("mcp_server")["floor_guard"]["imu_max_age_s"],
+        "map_guard input_timeout_s": node_config("map_guard")["input_timeout_s"],
+        "map_guard_cpp input_timeout_s": node_config("map_guard_cpp")["input_timeout_s"],
+    }
+    too_short = {name: v for name, v in limits.items() if v < floor}
+    assert not too_short, too_short
+
+
+def test_mcp_server_bump_window_still_spans_80_ms() -> None:
+    """bump_min_samples (code default 2) is 80 ms at 25 Hz; a client override must not exceed 3 samples (120 ms)."""
+    monitor = node_config("mcp_server")["monitor"]
+    assert monitor.get("bump_min_samples", 2) <= IMU_TIMEOUT_MIN_PERIODS
+
+
+def test_mcp_server_imu_baseline_keeps_its_time_constant() -> None:
+    """The acceleration baseline EMA weight is per sample: alpha * rate stays 1/s (0.02 at 50 Hz -> 0.04 at 25 Hz)."""
+    alpha = node_config("mcp_server")["monitor"]["imu_baseline_alpha"]
+    assert 1 / (alpha * IMU_HZ) == IMU_BASELINE_TIME_CONSTANT_S

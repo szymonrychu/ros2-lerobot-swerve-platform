@@ -1221,7 +1221,8 @@ ros2_nodes:
           sign_change_min_hz: 2.0
   - name: bno055_imu
     node_type: bno055_imu
-    # 50 Hz reduces I2C load; BNO055 can return None on transient read failures
+    # 25 Hz (was 50): the software i2c-gpio bus busy-waits, so each read cycle costs CPU; the EKF (30 Hz) fuses only the
+    # gyro yaw rate and every IMU consumer tolerates 25 Hz (see nodes/bridges/bno055_imu/README.md). BNO055 can return None on transient read failures
     present: true
     enabled: true
     config: |
@@ -1233,7 +1234,7 @@ ros2_nodes:
       # the gyro yaw rate (imu0_config index 11), so this does not change odometry. Calibrate the magnetometer by moving
       # the robot; see /imu/calibration.
       operation_mode: NDOF
-      publish_hz: 50
+      publish_hz: 25
       i2c_bus: 8  # software i2c-gpio bus, must match rpi_bno055_i2c_gpio_bus
       i2c_address: 0x28
       # Sensor offsets survive node restarts here (directory created by tasks/bno055_state_dir.yml).
@@ -1249,7 +1250,7 @@ ros2_nodes:
       angular_velocity_covariance: 0.0004
       linear_acceleration_covariance: 0.04
       compute_covariance: false
-      covariance_window: 100      # rolling window size (samples, ~2 s at 50 Hz)
+      covariance_window: 50       # rolling window size (samples, ~2 s at 25 Hz)
       covariance_min_samples: 20  # samples before estimated covariance replaces config values
       # Zero-rate gyro bias learned only while the swerve wheel odometry reports the robot stopped (parked heading drift).
       odom_topic: /odom
@@ -2593,6 +2594,8 @@ ros2_nodes:
         slip_residual_warn_mps: 0.1
         bump_warn_mps2: 4.0
         bump_critical_mps2: 9.0
+        # EMA weight per IMU sample of the acceleration baseline: 0.04 at 25 Hz keeps the 1 s time constant (0.02 at 50 Hz).
+        imu_baseline_alpha: 0.04
         tilt_warn_deg: 10
         # /tilt_guard/state (1 Hz) older than this is stale: its last level stays enforced and, at level ok,
         # navigation is refused (as with imu_ok false) until the guard reports again; manual drive still works.
