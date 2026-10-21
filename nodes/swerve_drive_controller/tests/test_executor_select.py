@@ -62,26 +62,20 @@ def test_executor_value_is_loaded(tmp_path: Path, kind: str) -> None:
     assert config.executor == kind
 
 
-@pytest.mark.parametrize("raw", ["multi", "''", "3", "Events"])
-def test_unknown_executor_is_a_config_error(tmp_path: Path, raw: str) -> None:
-    assert load_config(write_config(tmp_path, f"executor: {raw}\n")) is None
+def test_unknown_executor_is_rejected(tmp_path: Path) -> None:
+    for raw in ["multi", "''", "3", "Events"]:
+        assert load_config(write_config(tmp_path, f"executor: {raw}\n")) is None
 
 
-def test_make_executor_events(node_module: ModuleType) -> None:
+def test_make_executor_builds_the_configured_kind(node_module: ModuleType) -> None:
     assert node_module.make_executor("events") is node_module.EventsExecutor.return_value
-
-
-def test_make_executor_single_threaded(node_module: ModuleType) -> None:
     assert node_module.make_executor("single_threaded") is node_module.SingleThreadedExecutor.return_value
-
-
-def test_make_executor_rejects_unknown(node_module: ModuleType) -> None:
     with pytest.raises(ValueError):
         node_module.make_executor("multi")
 
 
 @pytest.mark.parametrize(("kind", "cls"), [("events", "EventsExecutor"), ("single_threaded", "SingleThreadedExecutor")])
-def test_run_spins_the_selected_executor(node_module: ModuleType, tmp_path: Path, kind: str, cls: str) -> None:
+def test_run_spins_the_configured_executor(node_module: ModuleType, tmp_path: Path, kind: str, cls: str) -> None:
     config = load_config(write_config(tmp_path, f"executor: {kind}\nmetrics_port: 9\n"))
     assert config is not None
 
