@@ -199,6 +199,37 @@ inline pcl::PointCloud<pcl::PointXYZ> render(
   return cloud;
 }
 
+// Regular grid of points at height z_m over [x0, x1] x [y0, y1] (offset by a quarter step so no point sits on a
+// round-number edge).
+inline pcl::PointCloud<pcl::PointXYZ> grid_cloud(
+  double x0, double x1, double y0, double y1, double step_m, double z_m = 0.0)
+{
+  pcl::PointCloud<pcl::PointXYZ> cloud;
+  for (double x = x0 + 0.25 * step_m; x < x1; x += step_m) {
+    for (double y = y0 + 0.25 * step_m; y < y1; y += step_m) {
+      cloud.push_back(pcl::PointXYZ(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z_m)));
+    }
+  }
+  return cloud;
+}
+
+// Seeded noise on z: Gaussian sigma per point, plus a fraction of points replaced by a uniform offset in
+// [-outlier_range_m, +outlier_range_m] (instead of the Gaussian one).
+inline pcl::PointCloud<pcl::PointXYZ> add_z_noise(
+  const pcl::PointCloud<pcl::PointXYZ> & in, double sigma_m, double outlier_fraction, double outlier_range_m,
+  unsigned seed)
+{
+  std::mt19937 rng(seed);
+  std::normal_distribution<double> gauss(0.0, sigma_m);
+  std::uniform_real_distribution<double> uniform(-outlier_range_m, outlier_range_m);
+  std::uniform_real_distribution<double> pick(0.0, 1.0);
+  pcl::PointCloud<pcl::PointXYZ> out = in;
+  for (auto & p : out) {
+    p.z += static_cast<float>(pick(rng) < outlier_fraction ? uniform(rng) : gauss(rng));
+  }
+  return out;
+}
+
 }  // namespace ground_test
 
 #endif  // GROUND_ESTIMATOR_CPP__TEST__SYNTHETIC_FLOOR_HPP_
