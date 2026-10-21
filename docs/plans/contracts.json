@@ -103,10 +103,12 @@
   {
     "name": "head-chain-override",
     "kind": "config",
-    "owner": "head-and-arm-calibration-fro",
+    "owner": "head-chain-floor-plane-fit-a",
     "file": "shared/ros2_common/head_rgbd_calibration/urdf_text.py",
-    "consumers": [],
-    "note": "applied/head_chain.json format and apply_overrides(); read by head_state_publisher, mcp_server HeadKinematics, web_ui head URDF; changes head TF"
+    "consumers": [
+      "head-and-arm-calibration-fro"
+    ],
+    "note": "head_chain.json format and apply_overrides; moved from head-and-arm-calibration-fro 2026-10-21 (user D1 quick fit first)"
   },
   {
     "name": "tof-depth-z",
