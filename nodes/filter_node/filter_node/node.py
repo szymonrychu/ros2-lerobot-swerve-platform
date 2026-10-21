@@ -118,6 +118,8 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
     last_input_time: list[float] = [time.monotonic()]
     last_leader_msg_time: list[float] = [time.monotonic()]  # any leader message, accepted or not
     last_idle_feedback_time: list[float | None] = [None]
+    full_rate_seen: list[bool] = [True]  # False from a swap off the idle topic until the first full-rate sample
+    feedback_topic: list[str] = [""]  # topic the follower feedback subscription is currently on
     arbiter = SourceArbiter(
         web_ui_timeout_s=config.web_ui_timeout_s,
         takeover_threshold_rad=config.takeover_threshold_rad,
@@ -143,6 +145,11 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
 
     def on_input(msg: JointState) -> None:
         last_leader_msg_time[0] = time.monotonic()
+        if arbiter.active_source != SOURCE_LEADER and not feedback_is_full_rate():
+            # A takeover decision needs full-rate positions. The main loop swaps the subscription (never here);
+            # until the first full-rate sample arrives this message is dropped, so the proximity rule never
+            # sees throttled data on the first active cycle.
+            return
         previous = arbiter.active_source
         metrics.record_input(SOURCE_LEADER, time.monotonic())
         decision = arbiter.on_leader_input(joint_positions(msg), time.monotonic())
@@ -216,11 +223,12 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
         report_source()
 
     def on_follower_feedback(msg: JointState) -> None:
+        full_rate_seen[0] = True
         arbiter.update_follower_positions(joint_positions(msg))
 
     def on_idle_feedback(msg: JointState) -> None:
         last_idle_feedback_time[0] = time.monotonic()
-        on_follower_feedback(msg)
+        arbiter.update_follower_positions(joint_positions(msg))
 
     node.create_subscription(JointState, config.input_topic, on_input, FILTER_QOS)
     node.create_timer(HEALTH_TIMER_PERIOD_S, health_check)
@@ -238,7 +246,19 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
         warn=log.warning,
     )
     feedback_sub: list[Any] = [None]  # current follower feedback subscription
-    feedback_topic: list[str] = [""]
+
+    def feedback_is_full_rate() -> bool:
+        """Tell whether the proximity rule may trust the feedback positions now.
+
+        Returns:
+            bool: True without idle switching; otherwise only when the subscription already is the selected
+                full-rate topic and it has delivered a sample since the swap.
+        """
+        idle_topic = config.follower_feedback_idle_topic
+        if not config.follower_feedback_topic or not idle_topic:
+            return True
+        selected = select_feedback_topic(time.monotonic())
+        return selected == feedback_topic[0] and selected != idle_topic and full_rate_seen[0]
 
     def select_feedback_topic(now: float) -> str:
         return feedback_switch.select(
@@ -252,7 +272,9 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
             return
         if feedback_sub[0] is not None:
             node.destroy_subscription(feedback_sub[0])
-        callback = on_idle_feedback if topic == config.follower_feedback_idle_topic else on_follower_feedback
+        on_idle = topic == config.follower_feedback_idle_topic
+        callback = on_idle_feedback if on_idle else on_follower_feedback
+        full_rate_seen[0] = not on_idle and feedback_topic[0] != config.follower_feedback_idle_topic
         feedback_sub[0] = node.create_subscription(JointState, topic, callback, FILTER_QOS)
         feedback_topic[0] = topic
         log.info(f"Follower feedback for takeover: {topic} (threshold {config.takeover_threshold_rad} rad)")
