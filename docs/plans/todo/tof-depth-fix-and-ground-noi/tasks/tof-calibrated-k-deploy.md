@@ -47,17 +47,19 @@ Deploy the calibrated ToF K to arducam_tof (design D2; approval A1).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses `tof-depth-z` (config keys `tof_calibration_file`, `depth_is_radial` of arducam_tof). Keep the apply path unit, the seed tasks (force: false) and the head_rgbd_cpp `tof_calibration_file`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_head_rgbd_calibration_deploy.py -q` passes; `uv run poe test-ansible` clean.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Edit tests/test_head_rgbd_calibration_deploy.py; run it, see FAIL.
+- Add the two keys to the arducam_tof config block in client.yml and arducam_tof to the try-restart line of the apply service template; rerun, see PASS.
+- `uv run poe lint && uv run poe test-ansible`; update ansible/README.md and tests/README.md.
+- Commit `feat(ansible): arducam_tof reads the applied ToF calibration`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The unit name pattern is `ros2-<node name>.service` (see the existing try-restart line).

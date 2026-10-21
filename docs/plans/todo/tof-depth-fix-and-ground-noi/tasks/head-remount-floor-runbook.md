@@ -51,17 +51,19 @@ Robot runbook and docs for the head remount fix (design D7, D8; approval A5).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses `tof-depth-z`, `head-pan-sign`, `tof-mark-band`, `ground-cell-median` (names, values and keys in the docs). Keep docs/runbooks/ground-estimation.md sections (owned by rgb-d-ground-estimation-and/ground-final-suite-runbook): only a link line is added.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_head_remount_runbook.py -q` passes; after merge and deploy the Results section holds the robot numbers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write tests/test_head_remount_runbook.py; run it, see FAIL (no runbook).
+- Write docs/runbooks/head-remount-floor-check.md, the link and z-depth notes, the MEMORY.md entry and the tests/README.md row; rerun, see PASS; `uv run pytest tests -q && uv run poe lint`.
+- Commit `docs: head remount floor check runbook`.
+- After merge: deploy through scripts/deploy-nodes.sh, run the runbook with the user, fill Results, commit `docs: head remount floor check results`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Pan check amplitude 0.3 rad, head only (servo safety). topic_scraper_api must be enabled in group_vars and deployed before the scraper workflow (CLAUDE.md). Ask before deploying mcp_server if an agent session runs.

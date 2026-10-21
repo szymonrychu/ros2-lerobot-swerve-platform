@@ -45,17 +45,19 @@ Head pan direction fix (design D3; approval A2).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Part `head-pan-sign` (contract): `ansible/group_vars/client.yml` base_servos `extra_groups[head].joint_names[head_pan].inverted: true`. Keep: +pan = left (CCW from above), head.urdf axis, steps 1024..3072, the feetech bridge `inverted` mapping (rad -> 2048 - rad*k) used by head_tilt.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_head_servo_config.py -q` passes with the pan and tilt both inverted; a positive pan command on the robot turns the head left.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Edit tests/test_head_servo_config.py (rename the reversed-mount test, add the symmetry test); run `uv run pytest tests/test_head_servo_config.py -q`, see FAIL on head_pan not inverted.
+- Add `inverted: true` to head_pan and update the sign-convention comment in client.yml; rerun, see PASS.
+- `uv run poe lint && uv run poe test-ansible`; update tests/README.md.
+- Commit `fix(ansible): head_pan servo is mounted reversed`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Evidence: /private/tmp/claude-501/-Users-szymonri-Documents-ros2-lerobot-sverve-platform/5751a2d7-e308-446f-9481-6ac5ce26e7d3/scratchpad/headsweep/ (2026-10-21, 3_p-30_t15.jpg vs 4_p30_t15.jpg). Do not touch the `neutral_exclude_joints: [head_tilt]  # TEMP bench` line. Servo safety: no motion in this task.

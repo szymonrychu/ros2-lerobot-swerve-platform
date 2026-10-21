@@ -50,17 +50,18 @@ Notes: noise figures from the brief (per-10 cm-cell temporal std 2.6 cm after th
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Part `ground-cell-median`: `include/ground_estimator_cpp/cell_median.hpp::CellMedianFilter` (`apply`, `reset`, `cell_count`); `config.hpp::TemporalConfig` and `Config::temporal`. Uses existing `plane_fit.hpp::Plane`, `segmentation.hpp::segment` (unchanged), `test/core/synthetic_floor.hpp` (render, floor_scene, add_box, add_drop_off).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` ends with `cpp-node-test: ground_estimator_cpp PASS` including test_cell_median.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the noise helper to synthetic_floor.hpp and write test/core/test_cell_median.cpp; add TemporalConfig to config.hpp and an empty-bodied header so it compiles; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL.
+- Implement cell_median.cpp; rerun, see PASS.
+- Commit `feat(ground_estimator_cpp): per-cell temporal median filter`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The rule (traversability.cpp) and its tests are not edited. Keep the filter O(points + cells) per frame; ~2700 points at 10 Hz on the Pi 5.

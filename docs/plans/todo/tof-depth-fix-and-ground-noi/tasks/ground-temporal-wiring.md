@@ -52,17 +52,19 @@ Wire the temporal median into ground_estimator_cpp (design D4, D6; approval A3).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses `ground-cell-median` (`CellMedianFilter`, `TemporalConfig`). Adds the `temporal:` YAML section and the gauge `ground_temporal_cells`. Keep every topic, the state JSON, the rule config and `segment()`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the new config and node tests; the root ground tests and ansible checks pass.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the test_config.cpp cases and the two test_node.cpp tests; run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL.
+- Parse `temporal:` in config.cpp, wire the filter into GroundNode::process_plane, reset it when no plane is tracked, add the gauge; adapt the existing node tests (feed min_frames times or disable temporal) without weakening assertions; rerun, see PASS.
+- Add the section to config/ground_estimator.yaml and the client.yml block; update README.md; run the root ground tests, `uv run poe lint`, `uv run poe test-ansible`.
+- Commit `feat(ground_estimator_cpp): classify on per-cell temporal medians`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+tests/test_ground_estimator_readme.py may pin that the README names every config key; tests/test_ground_estimator_deploy.py may compare the client.yml block with the defaults file.

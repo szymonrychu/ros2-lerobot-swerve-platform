@@ -52,17 +52,19 @@ Notes: this supersedes the 0.06 of contract nav2-tof-voxel-bands (owner epic tof
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Part `tof-mark-band` (contract): `nav2_params.yaml` local_costmap `tof_voxel_layer.tof_mark.min_obstacle_height: 0.10`, collision_monitor `tof_obstacles.min_height: 0.10`; `nodes/mcp_server/mcp_server/perception.py::TOF_OBSTACLE_BAND_M = (0.10, 0.6)`. Keep max heights, the cliff band, voxel_decay, mark_threshold and the generated footprint blocks (scripts/gen_nav_footprint.py owns them).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The four root nav test files pass with 0.10, mcp_server tests and lint pass.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the expected values in tests/test_nav_tof_voxel_layer.py, tests/test_nav_tof_collision.py, tests/test_nav_ground_voxel_layer.py and add test_mcp_tof_obstacle_band_equals_tof_mark; run the verify pytest, see FAIL.
+- Change nav2_params.yaml (values and reason comments), perception.py and the tools.py docstrings; rerun, see PASS.
+- `uv run poe lint`; mcp_server tests and lint; update nodes/nav2_bringup/README.md and tests/README.md.
+- Commit `fix(nav2): ToF obstacle band starts at 10 cm`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+`test_layer_values_are_commented_with_their_reason` requires the floor reason comment on min_obstacle_height. Brief numbers: ~7 % of floor points above 6 cm per frame; 10-frame union 24 % -> 1.3 % with the depth and pan fixes and 0.10.
