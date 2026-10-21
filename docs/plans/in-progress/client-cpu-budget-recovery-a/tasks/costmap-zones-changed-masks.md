@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--costmap-zones-changed-masks
+branch: client-cpu-budget-recovery-a--costmap-zones-changed-masks
 verified_head: ""
 run: ""
 provides: []

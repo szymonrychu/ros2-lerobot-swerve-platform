@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: full
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--mcp-raw-imu-and-head-states
+branch: client-cpu-budget-recovery-a--mcp-raw-imu-and-head-states
 verified_head: ""
 run: ""
 provides: []

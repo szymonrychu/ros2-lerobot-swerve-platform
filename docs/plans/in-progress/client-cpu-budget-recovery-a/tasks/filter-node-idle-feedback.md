@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: full
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--filter-node-idle-feedback
+branch: client-cpu-budget-recovery-a--filter-node-idle-feedback
 verified_head: ""
 run: ""
 provides: []

@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--imu-publish-rate-25-hz
+branch: client-cpu-budget-recovery-a--imu-publish-rate-25-hz
 verified_head: ""
 run: ""
 provides: []

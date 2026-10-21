@@ -12,8 +12,8 @@ model: ""
 estimate: 45
 actual: ""
 review: full
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--filter-node-events-executor
+branch: client-cpu-budget-recovery-a--filter-node-events-executor
 verified_head: ""
 run: ""
 provides: []

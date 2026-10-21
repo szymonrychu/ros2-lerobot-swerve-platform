@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--cpu-budget-runbook
+branch: client-cpu-budget-recovery-a--cpu-budget-runbook
 verified_head: ""
 run: ""
 provides: []

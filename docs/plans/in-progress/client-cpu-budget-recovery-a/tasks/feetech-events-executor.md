@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: full
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--feetech-events-executor
+branch: client-cpu-budget-recovery-a--feetech-events-executor
 verified_head: ""
 run: ""
 provides: []
