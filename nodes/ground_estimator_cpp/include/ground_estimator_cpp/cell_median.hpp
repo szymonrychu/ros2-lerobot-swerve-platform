@@ -43,16 +43,15 @@ public:
   // @return cells that currently hold at least one per-frame value.
   std::size_t cell_count() const { return cells_.size(); }
 
-  // @return cells that were unknown in the last apply because the robust spread (1.4826 * MAD) of their per-frame
-  //   medians exceeded temporal.max_spread_m.
+  // @return cells that were unknown in the last apply because the robust spread of their per-frame medians
+  //   exceeded temporal.max_spread_m (1.4826 * MAD below 5 values, scaled trimmed standard deviation from 5 on; see
+  //   the README).
   std::size_t gated_cell_count() const { return gated_cell_count_; }
 
 private:
   struct Cell
   {
     std::deque<std::pair<double, double>> history;  // (stamp, per-frame median)
-    // unknown until the spread falls well under the limit again
-    bool gated = false;
   };
 
   TemporalConfig cfg_;

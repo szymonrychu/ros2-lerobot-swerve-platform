@@ -109,6 +109,7 @@ struct StateConfig
 };
 
 // Per-cell temporal median of the plane-relative heights, taken in the fixed frame before segmentation.
+// max_spread_m is a robust spread: 1.4826 * MAD below 5 values, a scaled trimmed standard deviation from 5 on (README).
 struct TemporalConfig
 {
   bool enabled = true;
