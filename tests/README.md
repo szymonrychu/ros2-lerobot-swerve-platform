@@ -2315,7 +2315,7 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_role_files_exist` | tasks, defaults, handlers, meta, the Mimir, Loki and Grafana templates, the drop-in and the dashboards exist. |
 | `test_robot_only_pieces_left_the_stack_role` | The Prometheus, Alloy, slice, nginx templates and the throttling script are no longer in the stack role. |
 | `test_every_template_and_file_the_tasks_name_exists` | Every `src:` of a template/copy task (loops and `with_fileglob` resolved) is shipped with the role. |
-| `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9009/3100, 24h Mimir and Loki retention, 5s interval, per-unit caps mimir 700M, loki 400M, grafana-server 768M. |
+| `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9009/3100, 24h Mimir and Loki retention, per-unit caps mimir 700M, loki 400M, grafana-server 768M. |
 | `test_packages_from_the_grafana_apt_repo` | The role includes `monitoring_agent`'s `grafana_repo.yml` before one apt task installing mimir, loki and grafana without recommends. |
 | `test_data_directories_belong_to_the_service_users` | `/var/lib/mimir` belongs to mimir, `/var/lib/loki` to loki. |
 | `test_dropin_moves_unit_into_the_slice` | (mimir, loki, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, the unit's MemoryMax, OOMScoreAdjust=500. |
@@ -2336,7 +2336,7 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_grafana_admin_password_from_host_file` | The drop-in loads `/etc/grafana/admin-password` via LoadCredential into `GF_SECURITY_ADMIN_PASSWORD__FILE`; grafana.ini holds no password. |
 | `test_grafana_admin_password_generated_on_the_host` | No Ansible password lookup; one `openssl rand` task with `creates:`; the file is 0600 root:grafana. |
 | `test_grafana_admin_password_command_runs` | The password task's real command, run locally, writes a 48-hex-character file with mode 0600. |
-| `test_grafana_datasources_mimir_and_loki` | `/etc/grafana/provisioning/datasources/robot.yaml`: `prometheus-robot` (prometheus type, `http://127.0.0.1:9009/prometheus`, default, `prometheusType: Mimir`, 5s) and `loki-robot` (`http://127.0.0.1:3100`). |
+| `test_grafana_datasources_mimir_and_loki` | `/etc/grafana/provisioning/datasources/robot.yaml`: `prometheus-robot` (prometheus type, `http://127.0.0.1:9009/prometheus`, default, `prometheusType: Mimir`) and `loki-robot` (`http://127.0.0.1:3100`). |
 | `test_datasource_time_interval_is_the_slowest_scrape` | The Mimir datasource `timeInterval` and `monitoring_interval` equal the slowest Alloy scrape interval (the client's 15s), so `$__rate_interval` is at least 60 s. |
 | `test_grafana_dashboard_provider` | Folder Robot; one copy task installs every `files/*.json` (`with_fileglob`) into the provider path under its own name. |
 | `test_services_restart_when_a_config_is_newer_than_their_start` | After starting, a shell task restarts mimir / loki / grafana-server when their config, drop-in or `monitoring.slice` is newer than the start; it runs between the start and the readiness wait. |
