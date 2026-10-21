@@ -72,3 +72,23 @@ Each item is reverted by config in `ansible/group_vars/client.yml` (unless noted
 - filter_node idle feedback: set `follower_feedback_idle_topic` to the full-rate `/follower/joint_states` (or remove it); deploy `filter_node`.
 - marker_detector and mcp_server raw subscriptions, costmap_zones publish-on-change: code changes with no config key; revert the merge commit of that task and deploy `marker_detector`, `mcp_server` or `costmap_zones`.
 - Alloy: `monitoring_agent_interval: "15s"` back to `"5s"`; deploy `client monitoring` and `server monitoring` (datasource `timeInterval`).
+
+## Results
+
+Run 2026-10-21/22 by the orchestrator (robot static, charging; Mimir `rate(container_cpu_usage_seconds_total[...])` summed
+over `ros2-*` and `alloy`).
+
+| Point | Window | Total cores | Top services | Host |
+|---|---|---|---|---|
+| Before (22:48, nav2 had crashed, so it is missing from the sum) | 15 min | 3.74 | nav2 0.48 (before the crash), bno055 0.38, mcp_server 0.34, arducam_tof 0.32, web_ui 0.29, swerve 0.23 | run queue 42-47, idle 0-1 %, load 25-42 |
+| After the 8 items (23:36, nav2 running) | 5 min | 3.31 | mcp_server 0.59, nav2 0.58, arducam_tof 0.30, bno055 0.24 | run queue 18-33, idle 9-17 % |
+| After the second pass (00:57, nav2 bonds off and 3 servers removed, mcp_server feeds node) | 10 min | 2.29 | arducam_tof 0.29, bno055 0.24, map3d_uplink 0.18, nav2 0.15, head_camera 0.14, web_ui 0.14, mcp_server 0.14 | run queue 0-1, idle 41-42 %, load 5.0 |
+
+Checks:
+- nav2: two bond-miss resets ended in a container segfault (22:58, 23:36) under CPU load; with bond_timeout 0 the stack
+  has been active since 00:46 with the 7 kept servers.
+- head camera: no `webui_topic_stale_total` increment for `/head_camera/image_raw/compressed` since the web_ui restart;
+  the WebSocket delivers it at the throttled rate (7.4 Hz).
+- `failed to get costmap frame (odom)`: re-check after a drive; the transform_tolerance raise is only applied if it persists.
+- EKF `/odometry/filtered` rate: not measured here (web_ui does not forward it); topic_scraper_api stays disabled to keep the
+  saving.
