@@ -1,6 +1,6 @@
 ---
 title: Hints docs and deploy
-status: blocked
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The hints are documented and live on the robot for the next calibration session.
 files: [nodes/head_rgbd_calibration/README.md, shared/README.md, nodes/web_ui/README.md, tests/README.md]
