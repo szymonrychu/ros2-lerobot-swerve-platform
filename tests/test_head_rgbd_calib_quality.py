@@ -182,3 +182,13 @@ def test_report_with_no_flagged_poses_and_missing_errors() -> None:
 
 def test_report_without_poses_has_no_section() -> None:
     assert "Per-pose" not in report_markdown(run_with_poses(()), LIMITS, "s", 1.0, "d")
+
+
+def test_outlier_threshold_is_max_of_median_factor_and_limit() -> None:
+    test_flag_outliers_uses_limit_when_higher_than_median_rule()
+    test_flag_outliers_uses_median_rule_when_higher_than_limit()
+
+
+def test_pose_ids_default_and_length_mismatch() -> None:
+    test_pose_ids_default_and_custom()
+    test_pose_ids_length_mismatch_raises()
