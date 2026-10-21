@@ -39,6 +39,7 @@ CONFIG = SimpleNamespace(
     max_wheel_angular_velocity_rad_s=10.0,
     joint_names=["fl_drive", "fl_steer", "fr_drive", "fr_steer", "rl_drive", "rl_steer", "rr_drive", "rr_steer"],
     tilt_guard=TiltGuardConfig(),
+    executor="single_threaded",
 )
 
 
@@ -55,6 +56,7 @@ def node_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     module = importlib.import_module("swerve_drive_controller.node")
     monkeypatch.setattr(module, "start_metrics_server", MagicMock())
     monkeypatch.setattr(module, "Node", MagicMock())
+    monkeypatch.setattr(module, "SingleThreadedExecutor", MagicMock())
     return module
 
 
@@ -64,6 +66,7 @@ def test_run_returns_after_external_shutdown(
 ) -> None:
     fake = FakeRclpy(make_error())
     monkeypatch.setattr(node_module, "rclpy", fake)
+    node_module.SingleThreadedExecutor.return_value.spin.side_effect = fake.spin
 
     node_module.run_swerve_controller(CONFIG)
 
@@ -78,6 +81,7 @@ def test_context_invalid_error_while_ros_is_up_is_not_swallowed(
     fake = FakeRclpy(context_invalid())
     fake.alive_after_spin = True
     monkeypatch.setattr(node_module, "rclpy", fake)
+    node_module.SingleThreadedExecutor.return_value.spin.side_effect = fake.spin
 
     with pytest.raises(type(fake.spin_error)):
         node_module.run_swerve_controller(CONFIG)

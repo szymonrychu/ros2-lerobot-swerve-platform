@@ -8,6 +8,7 @@ STUBBED_MODULES = (
     "rclpy",
     "rclpy.node",
     "rclpy.executors",
+    "rclpy.experimental",
     "rclpy.qos",
     "rclpy.callback_groups",
     "rclpy._rclpy_pybind11",
