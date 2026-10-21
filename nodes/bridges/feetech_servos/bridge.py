@@ -23,7 +23,8 @@ from typing import Any
 
 import rclpy
 from rclpy._rclpy_pybind11 import RCLError
-from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
+from rclpy.executors import Executor, ExternalShutdownException, SingleThreadedExecutor
+from rclpy.experimental import EventsExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from ros2_metrics import resolve_metrics_port, start_metrics_server
@@ -157,6 +158,25 @@ def setup_torque_interfaces(
             node.create_service(Trigger, f"/{ns}/servo/save_neutral", make_service(ns, neutral.save, True))
 
     return reporter
+
+
+def make_executor(kind: str) -> Executor:
+    """Build the executor that drains the bridge callbacks.
+
+    Args:
+        kind (str): "events" for rclpy.experimental.EventsExecutor, "single_threaded" for SingleThreadedExecutor.
+
+    Returns:
+        Executor: A new executor of that kind.
+
+    Raises:
+        ValueError: kind is neither "events" nor "single_threaded".
+    """
+    if kind == "events":
+        return EventsExecutor()
+    if kind == "single_threaded":
+        return SingleThreadedExecutor()
+    raise ValueError(f"unknown executor kind: {kind!r}")
 
 
 def run_bridge(config: BridgeConfig) -> None:
@@ -388,7 +408,7 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
     if servo is None:
         node.get_logger().error("No servo bus available: not publishing joint_states (no placeholder data).")
 
-    executor = SingleThreadedExecutor()
+    executor = make_executor(config.executor)
     executor.add_node(node)
 
     def spin_ready() -> bool:
