@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -17,6 +18,8 @@ class LaserFilterConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # rclpy executor: events = rclpy.experimental.EventsExecutor (less Python overhead), single_threaded = rollback.
+    executor: Literal["events", "single_threaded"] = "single_threaded"
     scan_topic: str = "/scan"
     scan_filtered_topic: str = "/scan_filtered"
     polygon_frame: str = "base_link"

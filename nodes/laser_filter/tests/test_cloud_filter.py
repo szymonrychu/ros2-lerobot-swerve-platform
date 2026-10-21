@@ -216,6 +216,8 @@ ROS_MODULES = (
     "rclpy",
     "rclpy.node",
     "rclpy.duration",
+    "rclpy.executors",
+    "rclpy.experimental",
     "rclpy.parameter",
     "rclpy.qos",
     "rclpy.task",
