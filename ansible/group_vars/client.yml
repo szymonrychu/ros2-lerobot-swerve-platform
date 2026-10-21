@@ -1152,6 +1152,8 @@ ros2_nodes:
       web_ui_input_topic: /filter/web_ui_joint_commands
       web_ui_timeout_s: 0.5
       follower_feedback_topic: /follower/joint_states
+      # While no source commands, read the 10 Hz copy (joint_state_throttle_follower) instead of the ~89 Hz feedback.
+      follower_feedback_idle_topic: /follower/joint_states/throttled
       takeover_threshold_rad: 0.15
       # Autonomy lease (mcp_server): setpoints, release (std_msgs/Bool) and the published active source.
       autonomy_input_topic: /filter/autonomy_joint_commands

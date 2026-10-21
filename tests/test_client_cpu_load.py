@@ -122,3 +122,10 @@ def test_mcp_server_and_web_ui_keep_their_executor() -> None:
     """mcp_server and web_ui keep their MultiThreadedExecutor / own threads (EventsExecutor ignores callback groups)."""
     for name in EXECUTOR_KEEPERS:
         assert "executor" not in node_config(name), name
+
+
+def test_filter_node_idle_feedback_is_throttled() -> None:
+    """filter_node reads the 10 Hz throttled follower feedback while idle (full-rate ~89 Hz only while commanded)."""
+    config = node_config("filter_node")
+    assert config["follower_feedback_topic"] == "/follower/joint_states"
+    assert config["follower_feedback_idle_topic"] == "/follower/joint_states/throttled"

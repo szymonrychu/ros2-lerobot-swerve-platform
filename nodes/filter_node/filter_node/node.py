@@ -24,6 +24,7 @@ from .arbitration import (
 )
 from .command import fill_command
 from .config import EXECUTOR_KINDS, FilterConfig
+from .feedback_rate import FeedbackRateSwitch
 from .metrics import FilterMetrics
 
 NODE_NAME = "filter_node"
@@ -115,6 +116,8 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
     clock = node.get_clock()
     control_period_s = 1.0 / max(1.0, config.control_loop_hz)
     last_input_time: list[float] = [time.monotonic()]
+    last_leader_msg_time: list[float] = [time.monotonic()]  # any leader message, accepted or not
+    last_idle_feedback_time: list[float | None] = [None]
     arbiter = SourceArbiter(
         web_ui_timeout_s=config.web_ui_timeout_s,
         takeover_threshold_rad=config.takeover_threshold_rad,
@@ -139,6 +142,7 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
             source_pub.publish(source_msg)
 
     def on_input(msg: JointState) -> None:
+        last_leader_msg_time[0] = time.monotonic()
         previous = arbiter.active_source
         metrics.record_input(SOURCE_LEADER, time.monotonic())
         decision = arbiter.on_leader_input(joint_positions(msg), time.monotonic())
@@ -214,6 +218,10 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
     def on_follower_feedback(msg: JointState) -> None:
         arbiter.update_follower_positions(joint_positions(msg))
 
+    def on_idle_feedback(msg: JointState) -> None:
+        last_idle_feedback_time[0] = time.monotonic()
+        on_follower_feedback(msg)
+
     node.create_subscription(JointState, config.input_topic, on_input, FILTER_QOS)
     node.create_timer(HEALTH_TIMER_PERIOD_S, health_check)
     if config.web_ui_input_topic:
@@ -221,12 +229,36 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
         node.get_logger().info(
             f"Web UI arbitration enabled: {config.web_ui_input_topic} (timeout {config.web_ui_timeout_s}s)"
         )
-    if config.follower_feedback_topic:
-        node.create_subscription(JointState, config.follower_feedback_topic, on_follower_feedback, FILTER_QOS)
-        node.get_logger().info(
-            f"Follower feedback for takeover: {config.follower_feedback_topic}"
-            f" (threshold {config.takeover_threshold_rad} rad)"
+    feedback_switch = FeedbackRateSwitch(
+        config.follower_feedback_topic,
+        config.follower_feedback_idle_topic,
+        config.idle_timeout_s,
+        config.web_ui_timeout_s,
+        config.follower_feedback_idle_fallback_s,
+        warn=log.warning,
+    )
+    feedback_sub: list[Any] = [None]  # current follower feedback subscription
+    feedback_topic: list[str] = [""]
+
+    def select_feedback_topic(now: float) -> str:
+        return feedback_switch.select(
+            now, last_leader_msg_time[0], arbiter.last_web_ui_time, arbiter.autonomy_held, last_idle_feedback_time[0]
         )
+
+    def swap_feedback_subscription(now: float) -> None:
+        """Move the follower feedback subscription to the selected topic. Main loop only, never in a callback."""
+        topic = select_feedback_topic(now)
+        if topic == feedback_topic[0]:
+            return
+        if feedback_sub[0] is not None:
+            node.destroy_subscription(feedback_sub[0])
+        callback = on_idle_feedback if topic == config.follower_feedback_idle_topic else on_follower_feedback
+        feedback_sub[0] = node.create_subscription(JointState, topic, callback, FILTER_QOS)
+        feedback_topic[0] = topic
+        log.info(f"Follower feedback for takeover: {topic} (threshold {config.takeover_threshold_rad} rad)")
+
+    if config.follower_feedback_topic:
+        swap_feedback_subscription(time.monotonic())
     if config.follower_torque_state_topic:
         node.create_subscription(String, config.follower_torque_state_topic, on_torque_state, LATCHED_QOS)
         log.info(f"Follower torque state: {config.follower_torque_state_topic}")
@@ -251,6 +283,8 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
 
     while rclpy.ok():
         metrics.observe_loop(time.monotonic(), control_period_s)
+        if config.follower_feedback_topic:
+            swap_feedback_subscription(time.monotonic())
         if state_by_joint and joint_order:
             now = time.monotonic()
             input_age = now - last_input_time[0]
