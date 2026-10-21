@@ -2890,6 +2890,46 @@ Tests for `shared/ros2_common/head_rgbd_calibration/extrinsics.py` on synthetic 
 | `test_yaml_round_trips` | Written extrinsics YAML has the documented keys and loads back. |
 | `test_rms_over_limit_writes_nothing` | Stereo RMS over `stereo_max_rms_px` raises and writes no file. |
 
+### `test_head_rgbd_calib_quality.py`
+
+Per-pose reprojection errors and outlier flags of `calibrate.py` / `extrinsics.py`, on the synthetic scene of `test_head_rgbd_calib_extrinsics.py` (view 3 gets 6 RGB corners moved by 25 px) and on hand-built `CalibrationRun`s.
+
+| Test | What it checks |
+|---|---|
+| `test_clean_session_flags_nothing` | A clean synthetic session has an error in each fit for every pose and no outlier. |
+| `test_corrupted_view_is_the_only_outlier` | The corrupted view (pose 004) is the only flagged pose, flagged in `rgb` and not in `tof`, with an RGB error above 5 px. |
+| `test_pose_ids_default_and_custom` | Pose ids default to `001`, `002`, ... and follow `pose_ids` when given. |
+| `test_pose_ids_length_mismatch_raises` | A `pose_ids` list of the wrong length raises `ValueError` naming both counts. |
+| `test_flag_outliers_uses_limit_when_higher_than_median_rule` | Errors under the fit limit are not flagged even above 3 x median. |
+| `test_flag_outliers_uses_median_rule_when_higher_than_limit` | `OUTLIER_MEDIAN_FACTOR` is 3 and the threshold is 3 x median when that exceeds the limit. |
+| `test_flag_outliers_skips_none` | A pose absent from a fit (`None`) is never flagged and does not count in the median. |
+| `test_stereo_per_pair_errors_match_rms` | `pair_indices` skip a pair with 3 common corners; the corner-count weighted RMS of `per_pair_errors` equals `stereo_rms`. |
+| `test_extrinsic_result_defaults_keep_old_constructor` | `ExtrinsicResult` still builds without the new fields. |
+| `test_failed_limits_names_outlier_poses` | A failed RGB limit is suffixed `outlier pose 007 (66.600 px): delete pose 007 and Compute again`. |
+| `test_failed_limits_names_several_outlier_poses` | Several flagged poses are listed, with `delete poses 007, 012 and Compute again`. |
+| `test_failed_limits_without_flagged_poses_is_unchanged` | No flagged pose (or no per-pose data) leaves the message as before. |
+| `test_report_lists_flagged_poses` | `report.md` has the per-pose table row and a `delete pose 007 and Compute again` line. |
+| `test_report_with_no_flagged_poses_and_missing_errors` | `-` for a missing fit and `Flagged poses: none`. |
+| `test_report_without_poses_has_no_section` | A run without per-pose data has no per-pose section. |
+| `test_outlier_threshold_is_max_of_median_factor_and_limit` | Both threshold branches of `flag_outliers` (named for the design's rule). |
+| `test_pose_ids_default_and_length_mismatch` | Default ids and the length mismatch error (named for the design's rule). |
+
+### `test_head_rgbd_calib_hints.py`
+
+`capture_hints` of `ros2_common.head_rgbd_calibration.hints` on hand-built detections (default 6x5 board, 20 inner corners).
+
+| Test | What it checks |
+|---|---|
+| `test_fraction_is_half` | `FEW_CORNERS_FRACTION` is 0.5. |
+| `test_full_board_pose_has_no_hints` | A pose with the whole board in both cameras has no hint. |
+| `test_hints_at_threshold_edges` | The three edge tests below together. |
+| `test_rgb_threshold_edge` | 9 RGB corners give `few corners: 9 RGB - ...`, 10 give none. |
+| `test_tof_threshold_edge` | 9 ToF corners give `few corners: 9 ToF - ...`, 10 give none. |
+| `test_common_corner_edge` | 5 shared corner ids give the `only 5 corners seen by both cameras` hint, 6 (`MIN_COMMON_CORNERS`) give none. |
+| `test_order_rgb_tof_common` | Hint order is RGB, ToF, shared corners. |
+| `test_threshold_follows_board_size` | The half-the-board threshold follows `squares_x` / `squares_y`. |
+| `test_board_size_changes_threshold` | Parametrised: 5x5 (16 inner, edge 8) and 8x6 (35 inner, edge 18). |
+
 ### `test_head_rgbd_calib_poses.py`
 
 Tests for `ros2_common.head_rgbd_calibration.poses` (`PoseCounter`), on a synthetic 15 s stream (ToF 10 Hz, RGB 2 Hz
@@ -2996,6 +3036,16 @@ Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nod
 | `test_playbook_setup_before_deploy` | The setup include precedes `Deploy head_rgbd_calibration` in the client playbook, with the right tags and node name. |
 | `test_arducam_tof_reads_the_applied_tof_calibration` | arducam_tof's `tof_calibration_file` is the same applied `tof_calibration.yaml` as head_rgbd_cpp's, and `depth_is_radial` is true. |
 | `test_http_port_unique_in_client_vars` | The node's HTTP port appears exactly once in `client.yml`. |
+
+### Per-pose hints in the node and web_ui tests
+
+Run in their own projects, not from `tests/`.
+
+- `nodes/head_rgbd_calibration/tests/test_store.py`: `test_add_pose_stores_hints` (hints written to `pose.json`), `test_add_pose_of_a_good_pose_has_empty_hints`, `test_pose_hints_fallback_for_legacy_pose` (a pose without `hints` gets them from its stored detections, nothing written back).
+- `nodes/head_rgbd_calibration/tests/test_app.py`: `test_session_poses_carry_hints` (every pose in `GET /api/sessions/{sid}` has `hints`), `test_session_matches_contract_fixture` (keys and types equal `fixtures/api/session.json`); the result contract fixture `result.json` gained `poses` and `outlier_poses`.
+- `nodes/head_rgbd_calibration/tests/test_compute.py`: `test_outlier_pose_named_in_result_and_report` (result.json `poses` / `outlier_poses`, report section, `failed_limits` suffix), `test_clean_session_has_pose_errors_without_outliers`, `test_error_result_has_empty_pose_lists`.
+- `nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts`: `getSession` accepts `hints`, `getResult` accepts `poses` / `outlier_poses`, old bodies without them still validate, wrong types are rejected, `poseErrors` keys the newest result's poses by id.
+- `nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx`: each hint is its own line, the error caption (`-` for a missing fit), the flagged-pose highlight and `high error - delete and Compute again`, a poses-absent pose shows no caption, and the session is fetched again when a compute finishes.
 
 ### `rgbd_synthetic.py`
 

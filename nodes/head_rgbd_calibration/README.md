@@ -62,6 +62,14 @@ a capture runs (design D4) and publishes nothing.
   dropped, never fed. Header stamps order the frames. Each pose the counter captures goes to `SessionStore.add_pose`
   with the detections of its judgement (no re-detection); the first `/tof/camera_info` of a capture is recorded with
   `set_tof_info`. A pose the store refuses (for example another image size) is logged and shown in the status.
+- Hints: `SessionStore.add_pose` writes `hints` into `pose.json`, a list of operator texts from
+  `ros2_common.head_rgbd_calibration.hints.capture_hints` (no re-detection, no extra image work). A camera that sees
+  fewer than half the board's inner corners gets `few corners: N RGB - move the board closer / fill the frame` or
+  `few corners: N ToF - move the board closer to the ToF camera / fill its frame`; fewer than 6 corners seen by both
+  cameras (`MIN_COMMON_CORNERS`) gives `only N corners seen by both cameras - not used for the stereo fit; keep the
+  board in both views`. A good pose has `hints: []`. A pose stored before this field existed has no `hints` key:
+  `SessionStore.pose_hints` computes them from the stored detections when the session is read (nothing is written
+  back).
 - `state()` returns `{running, session_id, status, pose_count, started_at, stops_at}`. `status` is the counter status
   (`waiting for frames` until both the RGB and the amplitude stream delivered a frame, then `moving`, `still - no board
   in the RGB image`, `still - board not found by the ToF: move closer`, `pose N captured - move to the next pose`), or
@@ -114,6 +122,26 @@ Output goes to `sessions/<sid>/results/<rid>/`, written under `.tmp-<rid>` and r
 | `result.json` | `id, session, created, passed, failed_limits, rgb_rms_px, tof_rms_px, stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids, limits` (plus `error` on failure) |
 | `limits` | every acceptance limit that judged the result: `rgb_max_rms_px, tof_max_rms_px, stereo_max_rms_px, tof_zero_distortion_rms_px, plane_max_bias_mm, plane_max_spread_mm, min_views`; a result fails when the absolute median plane depth bias exceeds `plane_max_bias_mm` (40 mm); pairs where more than half the board pixels lie farther than `plane_max_spread_mm` (50 mm) from the pair median (background inside the board outline) are left out of the median and counted in the report |
 
+`result.json` also carries `poses` (one `{id, rgb_error_px, tof_error_px, stereo_error_px, outlier}` per pose; an error
+is `null` where the pose is not in that fit, `outlier` lists the fits `rgb`, `tof`, `stereo` in which it is flagged) and
+`outlier_poses` (ids flagged in any fit). Both are `[]` when the run failed with an `error`.
+
+### Per-pose errors and outliers
+
+Compute records each pose's reprojection error (px) in the three fits: OpenCV's per-view errors of the RGB and the ToF
+intrinsic fit, and the per-pair error of the stereo fit (only poses seen by both cameras). A pose is flagged in a fit
+when its error is greater than `max(3 x median of the poses' errors in that fit, that fit's limit)`
+(`OUTLIER_MEDIAN_FACTOR`, limit = `rgb_max_rms_px`, `tof_max_rms_px` or `stereo_max_rms_px`), so a good session flags
+nothing.
+
+- `result.json`: `poses` and `outlier_poses` as above.
+- `report.md`: a `## Per-pose reprojection errors` table (RGB, ToF, stereo, flag; `-` where not in the fit) and a
+  `Flagged poses` list, each line ending `delete pose NNN and Compute again` (`Flagged poses: none` otherwise).
+- `failed_limits`: a failed RGB, ToF or stereo RMS limit whose fit has flagged poses is suffixed, for example
+  `limits.rgb_max_rms_px: RGB RMS 8.280 px exceeds 0.5 px - outlier pose 007 (66.600 px): delete pose 007 and Compute again`.
+- Nothing is pruned automatically: the fit always uses every pose. The operator deletes the pose
+  (`DELETE /api/sessions/{sid}/poses/{pid}`, or the Calibrate page) and runs Compute again.
+
 A run over the limits has `passed: false`, `failed_limits`, and only `report.md` + `result.json`. A core `ValueError`
 (too few views, no ToF camera_info) or an unreadable URDF writes only `result.json` with `passed: false` and `error`,
 so there is no report.
@@ -145,7 +173,7 @@ malformed ids give 404, busy or not-applicable give 409.
 | `POST /api/capture/start` | start capture (body optional `session_id`); answers the `GET /api/state` body; 409 while compute runs |
 | `POST /api/capture/stop` | stop capture; answers the `GET /api/state` body |
 | `GET /api/sessions` | list sessions |
-| `GET /api/sessions/{sid}` | session detail with poses, results and `coverage` |
+| `GET /api/sessions/{sid}` | session detail with poses (each with `hints`), results and `coverage` |
 | `DELETE /api/sessions/{sid}/poses/{pid}` | delete one pose |
 | `GET /api/sessions/{sid}/poses/{pid}/{rgb\|tof}.jpg` | thumbnail, `image/jpeg` |
 | `POST /api/sessions/{sid}/compute` | start compute (202 `{result_id}`); 409 while capture runs or fewer than `limits.min_views` poses |
@@ -157,7 +185,7 @@ malformed ids give 404, busy or not-applicable give 409.
 ### Response contract
 
 One body shape per route, pinned by the literal JSON examples in `tests/fixtures/api/` (`state.json`,
-`capture_start.json`, `capture_stop.json`, `apply.json`, `applied.json`, `result.json`); `tests/contract.py` checks
+`capture_start.json`, `capture_stop.json`, `apply.json`, `applied.json`, `result.json`, `session.json`); `tests/contract.py` checks
 that real responses have exactly the fixture's keys and value types.
 
 - State (`GET /api/state`, `POST /api/capture/start`, `POST /api/capture/stop`): `{capture, compute, applied}`.
@@ -166,7 +194,8 @@ that real responses have exactly the fixture's keys and value types.
 - Applied record (`applied.json`, embedded in every response): `{session, result, applied_at, files}`. The keys are
   `session` and `result` everywhere, not `session_id`/`result_id`.
 - Apply and `GET /api/applied`: the applied record plus `units`, a list of `{name, active_state, restarted}`.
-- Result: the `result.json` fields plus `report` (markdown or null).
+- Session (`GET /api/sessions/{sid}`): every pose in `poses` has `hints`, a list of strings (empty for a good pose).
+- Result: the `result.json` fields (including `poses` and `outlier_poses`) plus `report` (markdown or null).
 
 ## Process
 
@@ -182,6 +211,11 @@ stops capture, kills a running compute child and destroys the node.
 - `tests/test_store.py` - ids and same-second suffix, layout of a stored pose, depth optional, raw JPEG kept, pose ids
   never reused, size mismatch and empty-amplitude refusal, `load_views`, coverage counts, results listing, path safety
   (traversal ids, symlink escape), concurrent adds.
+- Hints and per-pose errors: `tests/test_store.py` (`test_add_pose_stores_hints`, `test_add_pose_of_a_good_pose_has_empty_hints`,
+  `test_pose_hints_fallback_for_legacy_pose`), `tests/test_app.py` (`test_session_poses_carry_hints`,
+  `test_session_matches_contract_fixture` against `fixtures/api/session.json`), `tests/test_compute.py`
+  (`test_outlier_pose_named_in_result_and_report`, `test_clean_session_has_pose_errors_without_outliers`,
+  `test_error_result_has_empty_pose_lists`).
 - `tests/test_images.py` - RGB thumbnail width, corners drawn, input untouched; ToF thumbnail 2x with corners, `None`
   for an empty frame.
 - `tests/test_capture.py` - ToF subscriptions RELIABLE, mapping BEST_EFFORT, stop / timeout / failed start leave
