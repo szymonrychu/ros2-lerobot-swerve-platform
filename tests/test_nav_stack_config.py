@@ -534,7 +534,7 @@ def test_nothing_in_the_repo_calls_the_dropped_servers() -> None:
 def test_lifecycle_bond_timeout_is_zero() -> None:
     """bond_timeout 0.0 makes the lifecycle manager skip bond creation (no ~95 Hz bond traffic, no bond-miss reset)."""
     source = NAV2_NAVIGATION_LAUNCH.read_text()
-    assert source.count('"bond_timeout": 0.0') == 2  # composable + standalone lifecycle manager
+    assert len(re.findall(r"[\"']bond_timeout[\"']: 0\.0", source)) == 2  # composable + standalone lifecycle manager
     grasp = next(c for c in launch_calls("Node") if call_kwarg(c, "name") == "lifecycle_manager_grasp")
     assert call_kwarg(grasp, "parameters")[0]["bond_timeout"] == 0.0
 
