@@ -36,7 +36,8 @@
     "file": "ansible/group_vars/client.yml",
     "consumers": [
       "head-rgb-d-fusion-of-camera",
-      "head-and-arm-calibration-fro"
+      "head-and-arm-calibration-fro",
+      "head-chain-floor-plane-fit-a"
     ],
     "note": "head_camera_cpp camera_info_file and head_rgbd_cpp tof_calibration_file point at /var/lib/ros2/head_rgbd_calibration/applied/*; committed repo calibration files only seed an empty applied/ (force: false); head_rgbd_cpp config_files entry removed; owner task head-nodes-use-applied-calib"
   },
