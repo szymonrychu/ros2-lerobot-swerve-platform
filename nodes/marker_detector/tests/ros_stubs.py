@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 STUBBED_MODULES = (
     "rclpy",
     "rclpy.node",
+    "rclpy.serialization",
     "rclpy.qos",
     "rclpy.time",
     "rclpy.duration",
@@ -44,6 +45,11 @@ class QoSProfile:
     depth: int
 
 
+def deserialize_message(raw: bytes, msg_type: type) -> object:
+    """Stand-in for rclpy.serialization.deserialize_message: the stub "bytes" are the message object itself."""
+    return raw
+
+
 def install_ros_stubs() -> None:
     """Register a MagicMock for every ROS module the node imports, keeping any module already present."""
     for name in STUBBED_MODULES:
@@ -51,6 +57,9 @@ def install_ros_stubs() -> None:
     qos = sys.modules["rclpy.qos"]
     if isinstance(qos, MagicMock):
         qos.QoSProfile, qos.ReliabilityPolicy, qos.HistoryPolicy = QoSProfile, ReliabilityPolicy, HistoryPolicy
+    serialization = sys.modules["rclpy.serialization"]
+    if isinstance(serialization, MagicMock):
+        serialization.deserialize_message = deserialize_message
     executors = sys.modules["rclpy.executors"]
     if not (isinstance(executors.ExternalShutdownException, type)):
         executors.ExternalShutdownException = type("ExternalShutdownException", (Exception,), {})
