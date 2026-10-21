@@ -940,7 +940,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         """Describe the surroundings: the nearest lidar obstacle (/scan_filtered) in each of 8 sectors around the
         robot (front, front_left, left, rear_left, rear, rear_right, right, front_right; distances from base_link in
         metres), SLAM map size and how many cells are known/occupied/free, and the robot pose. `obstacles_3d` adds
-        what the head ToF depth camera sees per sector: the nearest obstacle between 0.06 and 0.6 m above the floor
+        what the head ToF depth camera sees per sector: the nearest obstacle between 0.10 and 0.6 m above the floor
         (with its height range) and the nearest cliff (floor more than 0.10 m lower), within 2 m; it covers only
         what the head currently looks at (null when there is no fresh cloud). Optionally a PNG of the occupancy map
         around the robot (white free, black occupied, grey unknown, red arrow = robot, map +y up).
@@ -950,7 +950,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         step/drop regions (obstacle or warning, height, distance, edge), the warning areas (passable, slow down), the
         obstacle rule (max step, max slope), the colour mismatch ratio and the state age. It covers only what the head
         currently sees and is null with a note when there is no fresh estimate or no floor plane. `obstacles_3d` stays
-        the fixed-band summary (obstacles 0.06-0.6 m above the assumed floor, cliffs), independent of `ground`."""
+        the fixed-band summary (obstacles 0.10-0.6 m above the assumed floor, cliffs), independent of `ground`."""
         with tool_errors():
             summary, png = robot.map_summary(include_png, radius_m, config.limits.map_png_max_px)
             cloud = robot.tof_points()

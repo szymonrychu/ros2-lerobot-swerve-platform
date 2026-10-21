@@ -251,7 +251,7 @@ def test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics() -> 
 def test_tof_voxel_layer_is_pinned() -> None:
     layer = costmap_params("local_costmap")[TOF_LAYER]
     assert layer["observation_sources"] == "tof_mark tof_cliff_mark tof_clear"
-    assert (layer["tof_mark"]["min_obstacle_height"], layer["tof_mark"]["max_obstacle_height"]) == (0.06, 0.6)
+    assert (layer["tof_mark"]["min_obstacle_height"], layer["tof_mark"]["max_obstacle_height"]) == (0.10, 0.6)
     assert (layer["tof_cliff_mark"]["min_obstacle_height"], layer["tof_cliff_mark"]["max_obstacle_height"]) == (
         -1.0,
         -0.10,

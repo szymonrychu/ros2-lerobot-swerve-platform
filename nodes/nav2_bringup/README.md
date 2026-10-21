@@ -375,7 +375,7 @@ inflation_layer`, so ToF cells are inflated like lidar cells.
 | `combination_method` | 1 (max) | ToF cells never lower a lidar or keepout cost. |
 | `publish_voxel_map` / `mapping_mode` | false / false | No 3D grid on DDS (Pi 5 CPU); voxels decay (navigation mode). |
 | `transform_tolerance` | 0.3 s | Same as the costmap; head TF from joint states. |
-| `tof_mark` | marking, `min_obstacle_height` 0.06, `max_obstacle_height` 0.6, `obstacle_range` 2.0 | 6 cm clears ToF floor noise; 0.6 m is the robot height with the head (higher overhangs are passed under); 2 m is inside the cloud `max_depth` 3 m. |
+| `tof_mark` | marking, `min_obstacle_height` 0.10, `max_obstacle_height` 0.6, `obstacle_range` 2.0 | 10 cm clears ToF floor noise after the head remount (6 cm left ~7 % of floor points per frame, unioned by the 15 s decay; 10 cm with the depth fix leaves ~1.3 % of floor cells over 10 frames); 0.6 m is the robot height with the head (higher overhangs are passed under); 2 m is inside the cloud `max_depth` 3 m. |
 | `tof_cliff_mark` | marking, `min_obstacle_height` -1.0, `max_obstacle_height` -0.10, `obstacle_range` 2.0 | Below-floor points (the lower floor behind a step) mark the edge; -0.10 m stays outside floor noise, a 15 cm step still marks. |
 | mark buffers | `filter voxel`, `voxel_min_points 0`, `observation_persistence 0.0`, `clear_after_reading true`, `expected_update_rate 0.0`, `inf_is_valid false` | Latest cloud only, never re-marked; a ToF dropout does not make the costmap "not current" (the collision monitor handles outages). |
 | `tof_clear` | clearing, `model_type 0`, `min_z` 0.2, `max_z` 3.0, `horizontal_fov_angle` 1.0, `vertical_fov_angle` 0.78, `decay_acceleration` 1.0 | Depth camera frustum over the cloud's 0.2-3.0 m, just under the ToF's 70 deg diagonal FOV (58.5 x 45.6 deg at 4:3), so clearing never reaches outside the real view. |
@@ -392,7 +392,7 @@ decaying voxels do not belong in the planner's long-lived map.
 
 Limitations: a cliff into a void with no returns (a deep stairwell, a very dark or absorbing lower floor) gives no
 below-floor points and is not seen; the ToF sees a cliff only while the head looks at it (the costmap keeps the voxels
-for 15 s). The height bands follow from the table above: 6 cm over the floor and 10 cm under it keep the ToF floor
+for 15 s). The height bands follow from the table above: 10 cm over the floor and 10 cm under it keep the ToF floor
 noise out of both bands, and 0.6 m is the robot height. Post-deploy check: on an empty flat floor with the head tilted
 down, the local costmap shows no `tof_voxel_layer` cells; a box at least 10 cm tall placed 1 m ahead shows up as
 lethal cells within one ToF frame and clears within 15 s once the box is removed.
@@ -485,7 +485,7 @@ a cliff are.
 | Source | Type | Topic | Band (base_link z) | Feeds |
 |---|---|---|---|---|
 | `scan` | `scan` | `/scan_filtered` | lidar plane | StopBox, ArmStop |
-| `tof_obstacles` | `pointcloud` | `/tof/points_filtered` | 0.06 to 0.6 m (`min_range` 0.0) | StopBox |
+| `tof_obstacles` | `pointcloud` | `/tof/points_filtered` | 0.10 to 0.6 m (`min_range` 0.0) | StopBox |
 | `tof_cliff` | `pointcloud` | `/tof/points_filtered` | -1.0 to -0.10 m (`min_range` 0.0) | CliffStop |
 
 | Polygon | Type / action | `scan` | `tof_obstacles` | `tof_cliff` | Why |

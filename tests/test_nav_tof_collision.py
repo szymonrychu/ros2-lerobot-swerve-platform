@@ -38,7 +38,7 @@ EXPECTED_TOF_SOURCES = {
     "tof_obstacles": {
         "type": "pointcloud",
         "topic": TOF_TOPIC,
-        "min_height": 0.06,
+        "min_height": 0.10,
         "max_height": 0.6,
         "min_range": 0.0,
         "enabled": True,
