@@ -5,7 +5,8 @@ from typing import Any
 
 import rclpy
 from rclpy._rclpy_pybind11 import RCLError
-from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
+from rclpy.executors import Executor, ExternalShutdownException, SingleThreadedExecutor
+from rclpy.experimental import EventsExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from ros2_metrics import resolve_metrics_port, start_metrics_server
@@ -22,7 +23,7 @@ from .arbitration import (
     parse_released,
 )
 from .command import fill_command
-from .config import FilterConfig
+from .config import EXECUTOR_KINDS, FilterConfig
 from .metrics import FilterMetrics
 
 NODE_NAME = "filter_node"
@@ -55,6 +56,25 @@ def joint_positions(msg: JointState) -> dict[str, float]:
         dict[str, float]: Joint name -> position (rad).
     """
     return {name: float(msg.position[i]) for i, name in enumerate(msg.name) if i < len(msg.position)}
+
+
+def make_executor(kind: str) -> Executor:
+    """Build the executor that spins the node.
+
+    Args:
+        kind (str): "events" for rclpy.experimental.EventsExecutor, "single_threaded" for SingleThreadedExecutor.
+
+    Returns:
+        Executor: A new executor of the requested kind.
+
+    Raises:
+        ValueError: If kind is not one of EXECUTOR_KINDS.
+    """
+    if kind == "events":
+        return EventsExecutor()
+    if kind == "single_threaded":
+        return SingleThreadedExecutor()
+    raise ValueError(f"executor must be one of {EXECUTOR_KINDS}, got {kind!r}")
 
 
 def run_filter_node(config: FilterConfig) -> None:
@@ -223,7 +243,7 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
     node.create_timer(ACTIVE_SOURCE_POLL_S, report_source)
     node.get_logger().info(f"Filter node: {config.input_topic} -> {config.output_topic} [{config.algorithm}]")
 
-    executor = SingleThreadedExecutor()
+    executor = make_executor(config.executor)
     executor.add_node(node)
 
     idle_timeout = config.idle_timeout_s

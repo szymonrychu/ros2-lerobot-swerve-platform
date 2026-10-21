@@ -13,6 +13,8 @@ DEFAULT_AUTONOMY_INPUT_TOPIC = "/filter/autonomy_joint_commands"
 DEFAULT_AUTONOMY_RELEASE_TOPIC = "/filter/autonomy_release"
 DEFAULT_ACTIVE_SOURCE_TOPIC = "/filter/active_source"
 DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC = "/follower/torque_state"
+EXECUTOR_KINDS = ("events", "single_threaded")
+DEFAULT_EXECUTOR = "single_threaded"
 
 
 @dataclass
@@ -49,6 +51,8 @@ class FilterConfig:
             none) is published on change and at 1 Hz. Empty string disables it.
         follower_torque_state_topic: std_msgs/String JSON topic latched by the follower bridge; its
             ``released`` field quiets all command sources while the arm is limp. Empty string disables it.
+        executor: rclpy executor spinning the node: "events" (rclpy.experimental.EventsExecutor, lower CPU) or
+            "single_threaded" (default, rollback).
         metrics_port: Prometheus /metrics port on 127.0.0.1; None disables the exporter.
     """
 
@@ -68,6 +72,7 @@ class FilterConfig:
     active_source_topic: str = DEFAULT_ACTIVE_SOURCE_TOPIC
     follower_torque_state_topic: str = DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC
     metrics_port: int | None = None
+    executor: str = DEFAULT_EXECUTOR
 
 
 def read_topic(data: dict[str, Any], key: str, default: str) -> str:
@@ -134,6 +139,9 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
     except (TypeError, ValueError):
         takeover_threshold_rad = 0.15
     raw_metrics_port = data.get("metrics_port")
+    executor = str(data.get("executor", DEFAULT_EXECUTOR)).strip().lower()
+    if executor not in EXECUTOR_KINDS:
+        raise ValueError(f"executor must be one of {EXECUTOR_KINDS}, got {executor!r}")
     return FilterConfig(
         input_topic=input_topic,
         output_topic=output_topic,
@@ -153,6 +161,7 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
             data, "follower_torque_state_topic", DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC
         ),
         metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
+        executor=executor,
     )
 
 
