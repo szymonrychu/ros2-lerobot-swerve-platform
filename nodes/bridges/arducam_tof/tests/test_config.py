@@ -40,6 +40,8 @@ def test_empty_file_gives_the_defaults(tmp_path: Path) -> None:
     assert config.publish_rate_hz == 10.0
     assert config.metrics_port is None
     assert config.stamp_latency_ms == 0.0
+    assert config.tof_calibration_file is None
+    assert config.depth_is_radial is True
 
 
 def test_every_key_is_read(tmp_path: Path) -> None:
@@ -47,7 +49,8 @@ def test_every_key_is_read(tmp_path: Path) -> None:
         write(
             tmp_path,
             "camera_index: 1\nrange_mode: near\nconfidence_threshold: 12.5\nframe_id: head_tof\n"
-            "publish_rate_hz: 5\nmetrics_port: 19120\nstamp_latency_ms: 42.5\n",
+            "publish_rate_hz: 5\nmetrics_port: 19120\nstamp_latency_ms: 42.5\n"
+            "tof_calibration_file: /etc/ros2/tof.yaml\ndepth_is_radial: false\n",
         )
     )
     assert config.camera_index == 1
@@ -57,6 +60,8 @@ def test_every_key_is_read(tmp_path: Path) -> None:
     assert config.publish_rate_hz == 5.0
     assert config.metrics_port == 19120
     assert config.stamp_latency_ms == 42.5
+    assert config.tof_calibration_file == Path("/etc/ros2/tof.yaml")
+    assert config.depth_is_radial is False
 
 
 def test_unknown_key_is_rejected(tmp_path: Path) -> None:
@@ -157,3 +162,8 @@ def test_csi_device_without_a_capture_node_raises(tmp_path: Path) -> None:
 def test_csi_device_is_loaded_from_yaml(tmp_path: Path) -> None:
     config = load_config(write(tmp_path, "csi_device: 1f00128000.csi\n"))
     assert config.csi_device == "1f00128000.csi"
+
+
+def test_depth_is_radial_must_be_a_bool(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError):
+        load_config(write(tmp_path, "depth_is_radial: [1]\n"))
