@@ -1,4 +1,4 @@
-"""Static invariants of the client CPU budget runbook (docs/runbooks/client-cpu-budget.md) and its measurement config."""
+"""Static invariants of the client CPU budget runbook (docs/runbooks/client-cpu-budget.md) and its config."""
 
 import re
 from pathlib import Path
