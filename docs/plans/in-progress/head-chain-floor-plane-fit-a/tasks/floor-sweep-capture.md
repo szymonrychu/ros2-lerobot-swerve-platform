@@ -81,6 +81,10 @@ Start moves only the head through the grid, records one plane per matched cloud,
 - Run the task verify command; expect every test passed, node lint and ansible lint clean.
 - Write the README section.
 
+## Ruling
+
+- 2026-10-21 accepted: workflow verifier was invoked with --prev-head placeholder (harness bug); orchestrator reran verify-task.py on e3bc611a: passed, 42 tests, lint, deploy tests, lint-ansible, no debt/parking; remaining reviewer findings at round cap were declined as false positives (self.skip method, conftest stub)
+
 ## Notes
 
 - Design D5, D6, D11. Head commands as the web UI head tab (`nodes/web_ui/web_ui/config.py` HEAD_TAB_DEFAULT_COMMAND_TOPIC, joint names head_pan/head_tilt, radians).
