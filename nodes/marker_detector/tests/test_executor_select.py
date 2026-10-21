@@ -10,7 +10,7 @@ from marker_detector.config import MarkerDetectorConfig, load_config
 from tests.ros_stubs import install_ros_stubs
 
 
-def test_executor_default_is_single_threaded(tmp_path: Path) -> None:
+def test_executor_defaults_to_single_threaded(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text("")
     assert load_config(path).executor == "single_threaded"
@@ -21,12 +21,12 @@ def test_executor_accepts_events() -> None:
     assert MarkerDetectorConfig(executor="events").executor == "events"
 
 
-def test_executor_unknown_value_rejected() -> None:
+def test_unknown_executor_is_rejected() -> None:
     with pytest.raises(ValidationError):
         MarkerDetectorConfig(executor="multi")
 
 
-def test_make_executor_selects_class(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_make_executor_builds_the_configured_kind(monkeypatch: pytest.MonkeyPatch) -> None:
     install_ros_stubs()
     import marker_detector.node as node_module
 
@@ -39,7 +39,7 @@ def test_make_executor_selects_class(monkeypatch: pytest.MonkeyPatch) -> None:
         node_module.make_executor("bogus")
 
 
-def test_run_node_spins_selected_executor(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_spins_the_configured_executor(monkeypatch: pytest.MonkeyPatch) -> None:
     install_ros_stubs()
     import marker_detector.node as node_module
 
