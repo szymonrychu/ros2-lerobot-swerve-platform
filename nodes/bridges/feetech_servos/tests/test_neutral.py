@@ -18,6 +18,8 @@ from feetech_servos.config import JointEntry, JointGroup
 from feetech_servos.neutral import (
     CENTER_READ_ATTEMPTS,
     CENTER_SETTLE_S,
+    LIMIT_READ_ATTEMPTS,
+    LIMIT_SETTLE_S,
     NEUTRAL_MOVE_TOLERANCE_STEPS,
     STALE_ITEMS,
     NeutralControl,
@@ -74,6 +76,9 @@ class NeutralPort(FakeStsPort):
         no_shift: Servos acknowledging DefineMiddle without centring (the verify fails).
         limit_shift: servo_id -> steps the angle limits move by on DefineMiddle.
         stuck_limits: Servos acknowledging angle limit writes without storing them (the restore readback fails).
+        limit_none_after_centre: servo_id -> limit register reads dropped right after its DefineMiddle.
+        limit_misread_after_centre: servo_id -> min_angle_limit reads answering a wrong value after its DefineMiddle.
+        limit_none_after_restore: Servos whose limit reads are dropped for good once a limit write arrived.
         unacked_speed: Servos that never answer a goal_speed write.
         failing_present_after_center: servo_id -> present_position reads dropped after its DefineMiddle.
         failing_present: servo_id -> present_position reads dropped from now on.
@@ -84,6 +89,11 @@ class NeutralPort(FakeStsPort):
     no_shift: set[int] = field(default_factory=set)
     limit_shift: dict[int, int] = field(default_factory=dict)
     stuck_limits: set[int] = field(default_factory=set)
+    limit_none_after_centre: dict[int, int] = field(default_factory=dict)
+    limit_misread_after_centre: dict[int, int] = field(default_factory=dict)
+    limit_misreads: dict[int, int] = field(default_factory=dict)
+    limit_none_after_restore: set[int] = field(default_factory=set)
+    limit_reads_dropped: dict[int, int] = field(default_factory=dict)
     unacked_speed: set[int] = field(default_factory=set)
     failing_present_after_center: dict[int, int] = field(default_factory=dict)
     failing_present: dict[int, int] = field(default_factory=dict)
@@ -94,6 +104,18 @@ class NeutralPort(FakeStsPort):
         if packet.instruction == INST_READ and params[0] == STS_PRESENT_POSITION_L and self.failing_present.get(sid):
             self.failing_present[sid] -= 1
             return
+        if packet.instruction == INST_READ and params[0] in (STS_MIN_ANGLE_LIMIT_L, STS_MAX_ANGLE_LIMIT_L):
+            if self.limit_reads_dropped.get(sid):
+                self.limit_reads_dropped[sid] -= 1
+                return
+            if params[0] == STS_MIN_ANGLE_LIMIT_L and self.limit_misreads.get(sid):
+                self.limit_misreads[sid] -= 1
+                table = self.servos[sid]
+                true_value = word(table, STS_MIN_ANGLE_LIMIT_L)
+                put_word(table, STS_MIN_ANGLE_LIMIT_L, true_value + 7)
+                super().apply(packet)
+                put_word(table, STS_MIN_ANGLE_LIMIT_L, true_value)
+                return
         if packet.instruction != INST_WRITE:
             super().apply(packet)
             return
@@ -109,6 +131,8 @@ class NeutralPort(FakeStsPort):
             if sid not in self.no_shift:
                 put_word(table, STS_PRESENT_POSITION_L, CENTER)
                 self.failing_present.update({sid: self.failing_present_after_center.get(sid, 0)})
+            self.limit_reads_dropped[sid] = self.limit_none_after_centre.get(sid, 0)
+            self.limit_misreads[sid] = self.limit_misread_after_centre.get(sid, 0)
             shift = self.limit_shift.get(sid, 0)
             for address_l in (STS_MIN_ANGLE_LIMIT_L, STS_MAX_ANGLE_LIMIT_L):
                 put_word(table, address_l, word(table, address_l) + shift)
@@ -125,6 +149,8 @@ class NeutralPort(FakeStsPort):
         event = names.get(address, f"write_{address}")
         value = data[0] if len(data) == 1 else to_word(data)
         self.events.append((sid, event, value))
+        if event in ("min_limit", "max_limit") and sid in self.limit_none_after_restore:
+            self.limit_reads_dropped[sid] = 10**6
         if event in ("min_limit", "max_limit") and sid in self.stuck_limits:
             self.reply(sid, [])
             return
@@ -427,6 +453,65 @@ def test_limits_rewritten_when_changed_by_define_middle(tmp_path: Path) -> None:
         LIMITS[3]
     )
     assert not any(e.endswith("limit") for e in rig.events(1, events_before))
+
+
+def test_transient_none_limit_read_after_centre_is_not_a_failure(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path)
+    rig.port.limit_none_after_centre[1] = 2 * LIMIT_READ_ATTEMPTS  # two whole limit reads fail
+    events_before = len(rig.port.events)
+    result = rig.neutral.save("follower")
+    assert result.success is True, result.message
+    assert not any(e.endswith("limit") for e in rig.events(1, events_before))
+    assert LIMIT_SETTLE_S in rig.sleeps
+
+
+def test_transient_mismatching_limit_read_after_centre_writes_nothing(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path)
+    rig.port.limit_misread_after_centre[1] = 1
+    events_before = len(rig.port.events)
+    result = rig.neutral.save("follower")
+    assert result.success is True, result.message
+    assert not any(e.endswith("limit") for e in rig.events(1, events_before))
+    assert LIMIT_SETTLE_S in rig.sleeps
+
+
+def test_stable_limit_mismatch_is_restored_inside_unlock_and_lock(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path)
+    rig.port.limit_shift[3] = 100
+    events_before = len(rig.port.events)
+    assert rig.neutral.save("follower").success
+    events = rig.events(3, events_before)
+    restore = events[events.index("lock") + 1 :]  # after DefineMiddle's own lock
+    assert restore[0] == "unlock"
+    assert restore.index("unlock") < restore.index("min_limit") < restore.index("max_limit")
+    assert restore.index("max_limit") < len(restore) - 1 - restore[::-1].index("lock")
+    assert (word(rig.port.servos[3], STS_MIN_ANGLE_LIMIT_L), word(rig.port.servos[3], STS_MAX_ANGLE_LIMIT_L)) == (
+        LIMITS[3]
+    )
+
+
+def test_restore_lock_written_when_a_limit_write_fails(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path)
+    rig.port.limit_shift[1] = 100
+    rig.port.stuck_limits.add(1)
+    events_before = len(rig.port.events)
+    assert rig.neutral.save("follower").success is False
+    events = rig.events(1, events_before)
+    assert events.index("lock", events.index("define_middle")) < events.index("min_limit")
+    last_lock = len(events) - 1 - events[::-1].index("lock")
+    assert last_lock > events.index("min_limit")
+
+
+def test_limit_readback_never_succeeding_after_restore_reports_the_first_observed_limits(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path)
+    rig.port.limit_shift[1] = 100
+    rig.port.limit_none_after_restore.add(1)
+    result = rig.neutral.save("follower")
+    assert result.success is False
+    shifted = (LIMITS[1][0] + 100, LIMITS[1][1] + 100)
+    assert "angle limits not restored: read back None, wanted" in result.message
+    assert f"first read after centre {shifted}" in result.message
+    assert_group_left_released(rig)
 
 
 def test_command_limits_refreshed_for_eeprom_limited_joints_only(tmp_path: Path) -> None:

@@ -139,8 +139,11 @@ sequence, all on the loop thread:
 3. Per joint, in config order (the sequence of `scripts/calibrate_servos.py center`): read `min/max_angle_limit`
    (retried), `UnLockEprom`, `DefineMiddle` (`torque_enable = 128`), sleep `CENTER_SETTLE_S = 0.5`, `LockEprom` in a
    `finally` (also when DefineMiddle fails or raises); verify `present_position` within `2048 +- 3` with up to 10
-   reads 0.1 s apart (a failed read is retried); only on a verified servo re-read the limits and, if DefineMiddle moved
-   them, write the pre-centre numbers back (EEPROM write, cache entry dropped) and read them back; refresh the bridge
+   reads 0.1 s apart (a failed read is retried); only on a verified servo settle and re-read the limits (up to
+   `LIMIT_VERIFY_ATTEMPTS = 3` reads, `LIMIT_SETTLE_S = 0.2` before each; one `None` or mismatching read does not
+   count, the first read equal to the pre-centre limits ends it) and, only if they still differ, write the pre-centre
+   numbers back (EEPROM write inside `UnLockEprom` / `LockEprom`, cache entry dropped) and read them back with the same
+   settle/retry; a failed restore reports the first limits read after the centre; refresh the bridge
    command range of joints without `command_min_steps` / `command_max_steps` from the final limit readback (joints with
    config steps keep them).
 4. When every joint saved: torque enable as `enable_torque` (goal = present, then torque 1), the capture is cleared,
@@ -187,6 +190,9 @@ Answered by the head_pan single-joint bench in `docs/runbooks/servo-torque-neutr
 2. Does DefineMiddle (`torque_enable = 128`) need UnLockEprom first, and does the lock state matter afterwards?
 
    pending: filled by the runbook
+
+   2026-10-21 head_pan: DefineMiddle with UnLockEprom works, EEPROM relocked (lock 1); angle limits 0/4095 unchanged
+   after the offset change; post-centre limit reads can be transient.
 
 3. Do `min/max_angle_limit` stay unchanged after the centre offset is applied?
 

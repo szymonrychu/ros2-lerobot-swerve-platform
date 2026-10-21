@@ -39,6 +39,8 @@ CENTER_SETTLE_S = 0.5
 CENTER_READ_ATTEMPTS = 10
 CENTER_RETRY_SLEEP_S = 0.1
 LIMIT_READ_ATTEMPTS = 3
+LIMIT_VERIFY_ATTEMPTS = 3
+LIMIT_SETTLE_S = 0.2
 STEPS_PER_TURN = 4096
 DEGREES_PER_TURN = 360.0
 MIN_LIMIT_REGISTER = "min_angle_limit"
@@ -413,6 +415,33 @@ class NeutralControl:
             return None
         return low, high
 
+    def read_limits_settled(
+        self, servo_id: int, wanted: tuple[int, int]
+    ) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
+        """Read the limits up to LIMIT_VERIFY_ATTEMPTS times, LIMIT_SETTLE_S apart, until they equal wanted.
+
+        A single None or mismatching read does not count: only the last attempt's result is reported.
+
+        Args:
+            servo_id (int): Servo ID.
+            wanted (tuple[int, int]): Limits that end the loop when read.
+
+        Returns:
+            tuple[tuple[int, int] | None, tuple[int, int] | None]: The last non-None limits read (None when every
+                attempt failed) and the first non-None limits read (None when none).
+        """
+        last: tuple[int, int] | None = None
+        first: tuple[int, int] | None = None
+        for attempt in range(LIMIT_VERIFY_ATTEMPTS):
+            self.sleep(LIMIT_SETTLE_S)
+            reading = self.read_limits(servo_id)
+            if reading is not None:
+                first = first or reading
+                last = reading
+                if reading == wanted:
+                    break
+        return last, first
+
     def centre_joint(self, joint: JointEntry) -> CentreOutcome:
         """Store one servo's present position as its EEPROM centre (2048), keeping its angle limits.
 
@@ -447,19 +476,26 @@ class NeutralControl:
             reason = f"centre not verified: {reading}, expected {STEP_CENTER} +- {CENTER_TOLERANCE_STEPS}"
             return CentreOutcome(None, None, reason)
 
-        after_limits = self.read_limits(sid)
+        after_limits, first_observed = self.read_limits_settled(sid, before_limits)
         if after_limits is None:
             return CentreOutcome(after, None, "centre changed, angle limits not restored: limit readback failed")
         if after_limits != before_limits:
-            for entry, value in ((self.min_entry, before_limits[0]), (self.max_entry, before_limits[1])):
-                cache.pop(entry.name, None)
-                if not write_register(servo, sid, entry, value, cache):
-                    return CentreOutcome(
-                        after, None, f"centre changed, angle limits not restored: {entry.name} write failed"
-                    )
-            after_limits = self.read_limits(sid)
+            servo.UnLockEprom(sid)
+            try:
+                for entry, value in ((self.min_entry, before_limits[0]), (self.max_entry, before_limits[1])):
+                    cache.pop(entry.name, None)
+                    if not write_register(servo, sid, entry, value, cache):
+                        return CentreOutcome(
+                            after, None, f"centre changed, angle limits not restored: {entry.name} write failed"
+                        )
+            finally:
+                servo.LockEprom(sid)
+            after_limits, _ = self.read_limits_settled(sid, before_limits)
             if after_limits != before_limits:
-                reason = f"centre changed, angle limits not restored: read back {after_limits}, wanted {before_limits}"
+                reason = (
+                    f"centre changed, angle limits not restored: read back {after_limits}, wanted {before_limits}"
+                    f" (first read after centre {first_observed})"
+                )
                 return CentreOutcome(after, None, reason)
         return CentreOutcome(after, after_limits, None)
 
