@@ -63,6 +63,10 @@ Uses parts `imu-data-rate` and `head-camera-stream-rate` (rates checked in the r
 - Add the MEMORY.md line and the tests/README.md entry.
 - Commit `docs(runbooks): client CPU budget before/after runbook`.
 
+## Ruling
+
+- 2026-10-21 accepted: parking findings are false positives: runbook steps executed by the orchestrator after merge by design (A9); conditional transform_tolerance check folded in on purpose; switch_time placeholder per file convention; tests 3 passed, lint green
+
 ## Notes
 
 The orchestrator runs the runbook after merge (user decision); this task does not deploy. Deploy rules: only `scripts/deploy-nodes.sh`, logs to `.logs/`; deploying mcp_server or claude_agent kills a running agent session (the playbook's agent idle guard waits for idle). Mimir keeps 1 d, so the before window must be read before it ages out. tof-3d-obstacle-detection-fo's escalated final-suite-and-runbook task also lists scripts/node_cpu_compare.yaml: append entries, do not rewrite existing ones. The before/after numbers go into the epic record, not into the runbook.

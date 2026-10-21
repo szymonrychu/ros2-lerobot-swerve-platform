@@ -10,5 +10,11 @@
     "accept": false,
     "reason": "conditional on errors persisting after the CPU fixes; folded into cpu-budget-runbook as a check (raise local filter transform_tolerance 0.2 -> 0.5 only if 'failed to get costmap frame (odom)' persists)",
     "at": "2026-10-21T20:41:15Z"
+  },
+  {
+    "task": "cpu-budget-runbook",
+    "accept": true,
+    "reason": "parking findings are false positives: runbook steps executed by the orchestrator after merge by design (A9); conditional transform_tolerance check folded in on purpose; switch_time placeholder per file convention; tests 3 passed, lint green",
+    "at": "2026-10-21T21:28:56Z"
   }
 ]
