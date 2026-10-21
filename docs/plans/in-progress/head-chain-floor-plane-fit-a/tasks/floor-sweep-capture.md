@@ -1,6 +1,6 @@
 ---
 title: Floor sweep capture
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The node sweeps the head over the floor grid and records one measured floor plane per ToF cloud, head only, restoring the head after."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/floor_sweep.py, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, nodes/head_rgbd_calibration/tests/conftest.py, nodes/head_rgbd_calibration/tests/test_floor_sweep.py, nodes/head_rgbd_calibration/tests/test_config.py, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/README.md]
