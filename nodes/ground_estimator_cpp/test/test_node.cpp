@@ -315,6 +315,7 @@ protected:
     c.output_namespace = prefix + "/ground";
     c.imu.level_reference_roll_deg = 0.0;
     c.imu.level_reference_pitch_deg = 0.0;
+    c.temporal.enabled = false;  // the static scenes below are single clouds; the temporal tests switch it on
     return c;
   }
 
@@ -518,6 +519,31 @@ bool has_area(const json & doc, const std::string & kind)
     }
   }
   return false;
+}
+
+// Noisy grid floor of the core cell-median test (sigma 2.6 cm, 20 % outliers of +-6 cm) with an optional box.
+constexpr double NOISY_SIGMA_M = 0.026;
+constexpr double NOISY_OUTLIER_FRACTION = 0.2;
+constexpr double NOISY_OUTLIER_RANGE_M = 0.06;
+constexpr double NOISY_GRID_STEP_M = 0.04;
+constexpr int NOISY_FRAMES = 20;
+constexpr double BOX_HEIGHT_M = 0.30;
+
+pcl::PointCloud<pcl::PointXYZ> noisy_floor(unsigned seed, bool with_box)
+{
+  pcl::PointCloud<pcl::PointXYZ> truth;
+  for (const auto & p : ground_test::grid_cloud(-1.0, 1.0, -1.0, 1.0, NOISY_GRID_STEP_M)) {
+    const bool in_box = p.x >= 0.85 && p.x <= 1.15 && p.y >= -0.2 && p.y <= 0.2;
+    if (!with_box || !in_box) {
+      truth.push_back(p);
+    }
+  }
+  if (with_box) {
+    for (const auto & p : ground_test::grid_cloud(0.85, 1.15, -0.2, 0.2, NOISY_GRID_STEP_M, BOX_HEIGHT_M)) {
+      truth.push_back(p);
+    }
+  }
+  return ground_test::add_z_noise(truth, NOISY_SIGMA_M, NOISY_OUTLIER_FRACTION, NOISY_OUTLIER_RANGE_M, seed);
 }
 
 }  // namespace
@@ -927,4 +953,43 @@ TEST_F(NodeTest, RgbdIsNotSubscribedWhenColourIsDisabled)
   start(config);
   std::this_thread::sleep_for(SETTLE);
   EXPECT_EQ(rgbd_pub_->get_subscription_count(), 0u);
+}
+
+TEST_F(NodeTest, NoisyFlatFloorGivesNoObstacleOrDropPoints)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  builtin_interfaces::msg::Time stamp;
+  for (int i = 0; i < NOISY_FRAMES; ++i) {
+    stamp = cloud_and_wait(noisy_floor(100 + i, false));
+    ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+    if (i >= config.temporal.min_frames) {
+      EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u) << "obstacle points at cloud " << i;
+      EXPECT_EQ(xyz_of(*find_stamp(drop_, stamp)).size(), 0u) << "drop points at cloud " << i;
+    }
+  }
+  EXPECT_TRUE(state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); }).has_value());
+  EXPECT_GT(metric("ground_temporal_cells").value_or(0.0), 0.0);
+}
+
+TEST_F(NodeTest, BoxOnNoisyFloorIsStillAnObstacle)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  builtin_interfaces::msg::Time stamp;
+  for (int i = 0; i < config.temporal.min_frames; ++i) {
+    stamp = cloud_and_wait(noisy_floor(200 + i, true));
+  }
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  const auto points = xyz_of(*find_stamp(obstacle_, stamp));
+  ASSERT_GT(points.size(), 10u);
+  for (const auto & p : points) {
+    EXPECT_NEAR(p.x(), 1.0, 0.25);
+    EXPECT_NEAR(p.y(), 0.0, 0.3);
+    EXPECT_GT(p.z(), 0.1);
+  }
 }

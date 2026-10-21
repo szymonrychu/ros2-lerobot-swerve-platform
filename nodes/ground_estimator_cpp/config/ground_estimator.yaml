@@ -62,4 +62,11 @@ colour:  # colour settings
 state:  # state settings
   rate_hz: 2.0  # state topic rate, hertz, 0 < v <= 10
 
+temporal:  # temporal settings
+  enabled: true  # take a per-cell temporal median of the plane-relative heights before segmentation
+  cell_size_m: 0.10  # edge of a fixed-frame cell, metres, 0.02 <= v <= 0.5
+  window_frames: 8  # per-frame values a cell keeps, 1..30
+  min_frames: 4  # per-frame values a cell needs before its points are output, 1..window_frames
+  max_age_s: 1.5  # per-frame values older than this are dropped, seconds, 0 < v <= 5
+
 metrics_port: 19119  # Prometheus port, 1..65535, or null to disable

@@ -31,6 +31,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "ground_estimator_cpp/cell_median.hpp"
 #include "ground_estimator_cpp/colour.hpp"
 #include "ground_estimator_cpp/config.hpp"
 #include "ground_estimator_cpp/edges.hpp"
@@ -59,6 +60,7 @@ constexpr const char * METRIC_REGIONS = "ground_regions";
 constexpr const char * METRIC_WARNING_AREAS = "ground_warning_areas";
 constexpr const char * METRIC_OBSTACLE_POINTS = "ground_obstacle_points";
 constexpr const char * METRIC_DROP_POINTS = "ground_drop_points";
+constexpr const char * METRIC_TEMPORAL_CELLS = "ground_temporal_cells";
 constexpr const char * METRIC_MISMATCH_RATIO = "ground_colour_mismatch_ratio";
 constexpr const char * METRIC_DROPPED = "ground_clouds_dropped_total";
 constexpr const char * METRIC_LABELLED = "ground_labelled_clouds_total";
@@ -131,6 +133,7 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
   PlaneTracker tracker_;
+  CellMedianFilter cell_filter_;
   FloorColourModel colour_model_;
   std::optional<ImuSample> latest_imu_;
   std::optional<Eigen::Quaterniond> imu_to_base_;  // static rotation of IMU-frame vectors into base_frame
@@ -148,6 +151,7 @@ private:
 
   // Reused between clouds (the 10 Hz path keeps its capacity).
   pcl::PointCloud<pcl::PointXYZ> base_cloud_;
+  pcl::PointCloud<pcl::PointXYZ> filtered_cloud_;  // base_cloud_ after the temporal median
   pcl::PointCloud<pcl::PointXYZ> unclustered_above_, unclustered_below_;
   std::vector<float> unclustered_above_h_, unclustered_below_h_;
   std::vector<int> unclustered_index_;

@@ -80,6 +80,20 @@ Otherwise it is a warning area: the node publishes it on `/ground/warning_areas`
 slow-down instead of a lethal cell. Colour-flagged flat objects (label 3) follow the same rule: a flat patch of a
 different colour is a warning area with `source` `colour`, unless its height or slope crosses the limits above.
 
+## Temporal median
+
+The ToF cloud is noisy (a few centimetres per point, more at long range), more than the 4 cm step rule. Before step,
+drop and obstacle classification `CellMedianFilter` (`cell_median.hpp`) bins the points by their xy in the fixed frame
+into `temporal.cell_size_m` cells (so the cells stay put while the robot moves), takes each frame's median plane-relative
+height per cell and keeps the median of the last `temporal.window_frames` of those values, dropping values older than
+`temporal.max_age_s`. The points of a cell with at least `temporal.min_frames` values are moved along the plane normal
+to that height and segmentation, clusters, regions and the traversability rule run on them. The plane fit itself keeps
+the raw cloud. The rule (0.04 m step, 8 degrees slope) is unchanged.
+
+Warm-up: a cell outputs nothing until it has `min_frames` values, so after start, after the plane is lost (the filter
+is reset then) or when the robot looks at new floor, obstacles and drops appear after `min_frames` / 10 Hz = 0.4 s with
+the defaults. Set `temporal.enabled: false` for the raw per-frame behaviour.
+
 ## Configuration
 
 Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys are rejected at every level.
@@ -128,6 +142,11 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `colour.forgetting` | `0.1` | weight of new samples in the colour model, 0 < v <= 1 |
 | `colour.min_floor_samples` | `200` | floor samples needed before flagging, >= 10 |
 | `state.rate_hz` | `2.0` | state topic rate, hertz, 0 < v <= 10 |
+| `temporal.enabled` | `true` | take a per-cell temporal median of the plane-relative heights before segmentation |
+| `temporal.cell_size_m` | `0.10` | edge of a fixed-frame cell, metres, 0.02 <= v <= 0.5 |
+| `temporal.window_frames` | `8` | per-frame values a cell keeps, 1..30 |
+| `temporal.min_frames` | `4` | per-frame values a cell needs before its points are output, 1..window_frames |
+| `temporal.max_age_s` | `1.5` | per-frame values older than this are dropped, seconds, 0 < v <= 5 |
 | `metrics_port` | `19119` | Prometheus port, 1..65535, or null to disable |
 
 ## Metrics
@@ -145,6 +164,7 @@ Prometheus on `metrics_port`.
 | `ground_warning_areas` | gauge | warning areas (ToF and colour) of the last cloud with a plane |
 | `ground_obstacle_points` | gauge | points of the last obstacle cloud |
 | `ground_drop_points` | gauge | points of the last drop cloud |
+| `ground_temporal_cells` | gauge | cells the temporal median currently holds (0 when the plane is lost or temporal is disabled) |
 | `ground_colour_mismatch_ratio` | gauge | floor-colour mismatch share of the floor band of the last labelled RGB-D cloud |
 | `ground_clouds_dropped_total` | counter, label `reason` | clouds or warning-area messages dropped, `reason` is `tf`, `no_plane_rgbd`, `no_map_tf` or `bad_input` |
 | `ground_labelled_clouds_total` | counter | labelled RGB-D clouds published |

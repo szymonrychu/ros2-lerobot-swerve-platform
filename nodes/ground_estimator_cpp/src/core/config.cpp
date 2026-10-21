@@ -25,6 +25,10 @@ constexpr int MIN_CLUSTER_POINTS = 3;
 constexpr int MAX_REGIONS = 16;
 constexpr double MAX_STATE_RATE_HZ = 10.0;
 constexpr int MIN_FLOOR_SAMPLES = 10;
+constexpr double MIN_CELL_SIZE_M = 0.02;
+constexpr double MAX_CELL_SIZE_M = 0.5;
+constexpr int MAX_WINDOW_FRAMES = 30;
+constexpr double MAX_AGE_S = 5.0;
 
 // The value under node[key] as T (fallback when missing or invalid) with the lax pydantic-style coercions; errors
 // name prefix + key.
@@ -226,9 +230,36 @@ void parse_colour_and_state(const YAML::Node & root, Config & c, Errors & errors
   }
 }
 
+void parse_temporal(const YAML::Node & root, Config & c, Errors & errors)
+{
+  const YAML::Node s =
+    section(root, "temporal", {"enabled", "cell_size_m", "window_frames", "min_frames", "max_age_s"}, errors);
+  if (!s.IsDefined()) {
+    return;
+  }
+  const std::string p = "temporal.";
+  TemporalConfig & t = c.temporal;
+  t.enabled = read<bool>(s, p, "enabled", t.enabled, errors);
+  t.cell_size_m = read<double>(s, p, "cell_size_m", t.cell_size_m, errors);
+  rc::ge(p + "cell_size_m", t.cell_size_m, MIN_CELL_SIZE_M, errors);
+  rc::le(p + "cell_size_m", t.cell_size_m, MAX_CELL_SIZE_M, errors);
+  t.window_frames = read<int>(s, p, "window_frames", t.window_frames, errors);
+  rc::ge<int>(p + "window_frames", t.window_frames, 1, errors);
+  rc::le<int>(p + "window_frames", t.window_frames, MAX_WINDOW_FRAMES, errors);
+  t.min_frames = read<int>(s, p, "min_frames", t.min_frames, errors);
+  rc::ge<int>(p + "min_frames", t.min_frames, 1, errors);
+  t.max_age_s = read<double>(s, p, "max_age_s", t.max_age_s, errors);
+  in_open_closed(p + "max_age_s", t.max_age_s, MAX_AGE_S, errors);
+}
+
 // Rules that span sections, checked on the parsed values (defaults included).
 void check_cross_rules(const Config & c, Errors & errors)
 {
+  require_that(
+    c.temporal.min_frames <= c.temporal.window_frames, "temporal.min_frames",
+    "must be at most temporal.window_frames (" + std::to_string(c.temporal.window_frames) + ", got " +
+      std::to_string(c.temporal.min_frames) + ")",
+    errors);
   const double step = c.max_step_m();
   require_that(
     step > c.fit.distance_m, "traversability.max_step_fraction",
@@ -262,7 +293,8 @@ Config parse(const YAML::Node & node, Errors & errors)
   rc::forbid_unknown(
     node,
     {"cloud_topic", "imu_topic", "rgbd_cloud_topic", "output_namespace", "base_frame", "fixed_frame", "tf_timeout_s",
-     "imu", "fit", "bands", "traversability", "warnings", "edges", "slope", "colour", "state", "metrics_port"},
+     "imu", "fit", "bands", "traversability", "warnings", "edges", "slope", "colour", "state", "temporal",
+     "metrics_port"},
     errors);
   if (!node.IsMap()) {
     return c;
@@ -288,6 +320,7 @@ Config parse(const YAML::Node & node, Errors & errors)
   parse_edges(node, c, errors);
   parse_slope(node, c, errors);
   parse_colour_and_state(node, c, errors);
+  parse_temporal(node, c, errors);
   check_cross_rules(c, errors);
 
   if (const YAML::Node port = node["metrics_port"]; port.IsDefined()) {
