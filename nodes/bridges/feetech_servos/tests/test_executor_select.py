@@ -58,16 +58,13 @@ def test_executor_value_parsed(tmp_path: Path, kind: str) -> None:
 
 
 @pytest.mark.parametrize("value", ["multi", "''", "3", "Events"])
-def test_unknown_executor_rejects_config(tmp_path: Path, value: str) -> None:
+def test_unknown_executor_is_rejected(tmp_path: Path, value: str) -> None:
     assert load(tmp_path, f"executor: {value}\n") is None
 
 
-def test_make_executor_events(bridge_module: ModuleType) -> None:
-    assert bridge_module.make_executor("events") is bridge_module.EventsExecutor.return_value
-
-
-def test_make_executor_single_threaded(bridge_module: ModuleType) -> None:
-    assert bridge_module.make_executor("single_threaded") is bridge_module.SingleThreadedExecutor.return_value
+@pytest.mark.parametrize(("kind", "cls"), [("events", "EventsExecutor"), ("single_threaded", "SingleThreadedExecutor")])
+def test_make_executor_builds_the_configured_kind(bridge_module: ModuleType, kind: str, cls: str) -> None:
+    assert bridge_module.make_executor(kind) is getattr(bridge_module, cls).return_value
 
 
 def test_make_executor_unknown_raises(bridge_module: ModuleType) -> None:
@@ -82,7 +79,7 @@ def test_make_executor_unknown_raises(bridge_module: ModuleType) -> None:
         ("single_threaded", "SingleThreadedExecutor", "EventsExecutor"),
     ],
 )
-def test_run_bridge_spins_the_selected_executor(
+def test_run_spins_the_configured_executor(
     bridge_module: ModuleType, monkeypatch: pytest.MonkeyPatch, kind: str, used: str, unused: str
 ) -> None:
     fake = FakeRclpy()
