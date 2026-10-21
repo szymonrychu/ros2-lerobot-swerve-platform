@@ -89,7 +89,7 @@ Nothing is sent without a real detection: no camera_info (or an all-zero K) -> n
 | `/markers/detections` (out, String JSON) | reliable, keep last 10 |
 | zoom_command (out) | reliable, keep last 10 |
 
-A timer at `process_hz` processes only the newest unprocessed stream frame. TF is looked up at the image stamp, waiting up to `tf_timeout_s`.
+`image` and `camera_info` are raw subscriptions (`raw=True`): the callbacks only keep the newest serialized bytes, and the `process_hz` timer deserializes (`rclpy.serialization.deserialize_message`) them, camera_info only when a new one arrived and before the image. A frame is decoded at most once and a tick without a new frame decodes nothing. Depth, depth_info and zoom subscriptions are normal. A timer at `process_hz` processes only the newest unprocessed stream frame. TF is looked up at the image stamp, waiting up to `tf_timeout_s`.
 
 ## Report format
 
