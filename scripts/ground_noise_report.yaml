@@ -1,0 +1,18 @@
+# Scene and pass/fail thresholds for scripts/ground_noise_report.py.
+# ROIs are in base_link metres (x forward, y left). Static runbook, no driving.
+scene:
+  box:
+    roi: {x_min: 0.62, x_max: 0.93, y_min: 0.10, y_max: 0.35}
+    height_m: 0.05
+  ramp:
+    roi: {x_min: 1.00, x_max: 1.25, y_min: -0.45, y_max: -0.20}
+    slope_deg: 14.0
+  board:
+    roi: {x_min: 0.40, x_max: 0.55, y_min: -0.20, y_max: 0.20}
+thresholds:
+  box_obstacle_share_min: 0.95
+  ramp_warning_share_min: 0.90
+  ramp_slope_abs_error_p50_max: 3.0
+  board_lethal_states_max: 0
+  empty_lethal_points_p95_max: 0
+  warning_churn_share_max: 0.10  # strict: share must be < this
