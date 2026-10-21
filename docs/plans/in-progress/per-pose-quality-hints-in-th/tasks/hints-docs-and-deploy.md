@@ -66,6 +66,10 @@ The READMEs and tests/README.md describe the hints and per-pose errors; head_rgb
 - `curl -s http://client.ros2.lan:18110/api/sessions` to find the session holding pose 007, then save `GET /api/sessions/<sid>` to `.logs/calib-hints-session.json` and check pose 007's `hints`.
 - `curl -s -X POST http://client.ros2.lan:18110/api/sessions/<sid>/compute`, poll `GET /api/state` until compute stops, save the result to `.logs/calib-hints-result.json` and check `outlier_poses` contains `007`.
 
+## Ruling
+
+- 2026-10-21 accepted: merged 90e642da, deployed 2026-10-21 23:2x; live check 2026-10-22 01:03: GET session returns per-pose hints (few corners on 9/8/6-corner poses), compute r-20261022-010256 passed with per-pose rgb/tof/stereo errors for 29 poses, no outliers (pose 007 already deleted by the user); bodies in .logs/hints-live-*.json
+
 ## Notes
 
 - Docs-only file changes plus a deploy: the TDD exception for documentation applies; say so in `tests.note`.

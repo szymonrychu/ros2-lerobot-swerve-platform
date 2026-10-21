@@ -1,0 +1,8 @@
+[
+  {
+    "task": "hints-docs-and-deploy",
+    "accept": true,
+    "reason": "merged 90e642da, deployed 2026-10-21 23:2x; live check 2026-10-22 01:03: GET session returns per-pose hints (few corners on 9/8/6-corner poses), compute r-20261022-010256 passed with per-pose rgb/tof/stereo errors for 29 poses, no outliers (pose 007 already deleted by the user); bodies in .logs/hints-live-*.json",
+    "at": "2026-10-21T23:06:43Z"
+  }
+]
