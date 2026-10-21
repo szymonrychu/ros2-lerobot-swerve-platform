@@ -27,9 +27,9 @@ The floor-fit result now carries params.tilt_roll_deg (value, sigma, urdf) and b
 
 ## Acceptance conditions
 
-- a1: the parameter table shows the head_tilt roll row with current, fitted, delta and sigma [evidence: test:nodes/web_ui/frontend/src/calibrate/HeadFloorFit.test.tsx]
-- a2: the pose-mean RMS checked by the limits and the per-observation RMS are both shown and labelled [evidence: test:nodes/web_ui/frontend/src/calibrate/HeadFloorFit.test.tsx]
-- a3: results without the new keys still render [evidence: test:nodes/web_ui/frontend/src/calibrate/headFloorApi.test.ts]
+- a1: the parameter table shows the head_tilt roll row with current, fitted, delta and sigma [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/calibrate/HeadFloorFit.test.tsx -t "shows the tilt roll row"]
+- a2: the pose-mean RMS checked by the limits and the per-observation RMS are both shown and labelled [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/calibrate/HeadFloorFit.test.tsx -t "labels pose-mean and per-observation RMS"]
+- a3: results without the new keys still render [evidence: command: cd nodes/web_ui/frontend && npx vitest run src/calibrate/headFloorApi.test.ts -t "accepts results without the new keys"]
 - a4: frontend type check, tests and lint pass [evidence: command: cd nodes/web_ui/frontend && npx tsc --noEmit && npx vitest run src/calibrate && npm run lint]
 
 ## Files
@@ -46,9 +46,15 @@ Signatures, schemas and contracts this task builds or must keep, with file:symbo
 
 ## Expected outcome
 
+The Head floor fit step lists tilt roll with the other parameters and shows which RMS the limits check.
+
 What is true and observable when the task is done.
 
 ## Steps
+
+1. Write the failing tests.
+2. Extend the FloorResult type, guard and the table.
+3. Run the verify command, update the README, commit.
 
 Test first. One step per bullet, with the exact command and the output to expect.
 A retirement test asserts on `git ls-files <path>`, never on the filesystem.
