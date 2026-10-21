@@ -979,6 +979,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   re-raises others; `run_or_exit` exits the process when the executor thread dies or stops while ROS runs (systemd
   restarts the node) and stays quiet on shutdown; `FrameCache.wait_newer` returns the first frame newer than the
   request or None on timeout.
+- raw feeds on a second node (`nodes/mcp_server/tests/test_feeds_executor.py`): `feeds_executor` defaults to `events` and rejects other values; the feeds node owns exactly the five `cache_raw` subscriptions and the main node none of them; `monitor_tick` still feeds the monitor from samples stored via the feeds node; `feeds_executor: main` restores the single-node wiring; `FeedsSpinner` spins and destroys the node on its own thread, exits the process when the executor dies; `RosRobot.shutdown` stops the spinner before destroying the main node.
 - arm controller (`test_arm.py`): lease acquire/release, streamed motion with implicit acquire and velocity cap, speed
   scale, clamping, argument validation, abort + hold on stale feedback / tracking error / stop (tracking limit grows
   with the motion's velocity: `tracking_limit`; a follower 0.35 s behind passes at full speed through the delay window, a 0.4 rad offset aborts at 0.2 rad/s), no hold after filter_node

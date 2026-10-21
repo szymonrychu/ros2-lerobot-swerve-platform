@@ -10,6 +10,7 @@ import uvicorn
 from pydantic import ValidationError
 from rclpy._rclpy_pybind11 import InvalidHandle
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.experimental import EventsExecutor
 from ros2_common.battery import BatteryGuard
 from ros2_metrics import register_node_info
 
@@ -54,6 +55,8 @@ def main() -> int:
     def spin() -> None:
         spin_forever(lambda: executor.spin_once(timeout_sec=SPIN_TIMEOUT_S), rclpy.ok, (InvalidHandle,))
 
+    if config.feeds_executor == "events":
+        robot.start_feeds(EventsExecutor(), rclpy.ok, os._exit)
     spinner = threading.Thread(target=run_or_exit, args=(spin, rclpy.ok, os._exit), name="ros-executor", daemon=True)
     spinner.start()
     server = build_mcp_server(robot, config, token, guard, monitor)

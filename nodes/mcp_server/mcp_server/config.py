@@ -1601,6 +1601,9 @@ class JointStateRateSettings(StrictModel):
 class McpServerConfig(StrictModel):
     """Top-level mcp_server configuration."""
 
+    # Where the raw high-rate feed subscriptions (head / odom / imu ...) run: "events" = a second node spun by the
+    # rclpy EventsExecutor on its own thread (less executor overhead per wake), "main" = the main node (rollback).
+    feeds_executor: Literal["events", "main"] = "events"
     server: ServerSettings = ServerSettings()
     topics: TopicSettings = TopicSettings()
     limits: LimitSettings = LimitSettings()

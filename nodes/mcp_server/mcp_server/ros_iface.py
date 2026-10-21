@@ -61,6 +61,7 @@ from .base_motion import (
 )
 from .config import McpServerConfig
 from .control import ControlManager, LeaderActivity, NavGoalRegistry
+from .feeds import FeedsSpinner
 from .floor_guard import monitor_tilt_sample
 from .footprint import costmap_node, published_footprint_topic
 from .footprint_geometry import Point2
@@ -123,6 +124,7 @@ from .topdown import TopdownInputs, grid_layer, transform_points
 from .zoom_client import ZoomRequests
 
 NODE_NAME = "mcp_server"
+FEEDS_NODE_NAME = "mcp_server_feeds"
 GROUND_DEFAULT_AGE: Any = object()  # sentinel: use timeouts.ground_state_stale_s
 # Best effort subscribers match both reliable and best-effort publishers.
 SENSOR_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
@@ -626,6 +628,10 @@ class RosRobot:
         self.node = Node(NODE_NAME)
         self.log = self.node.get_logger()
         self.group = ReentrantCallbackGroup()
+        # Raw feed subscriptions (cache_raw) live on their own node when feeds_executor is "events"; see start_feeds.
+        self.feeds_node = Node(FEEDS_NODE_NAME) if config.feeds_executor == "events" else self.node
+        self.feeds_group = ReentrantCallbackGroup() if self.feeds_node is not self.node else self.group
+        self.feeds_spinner: FeedsSpinner | None = None
         self.lock = threading.Lock()
         self.latest: dict[str, Stamped[Any] | LazyStamped] = {}
         set_sample_age_source(self.feed_ages)
@@ -1163,7 +1169,9 @@ class RosRobot:
         if feed is not None:
             self.feeds.append(feed)
         store = self.raw_store(msg_type, key, feed)
-        return self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group, raw=True)
+        return self.feeds_node.create_subscription(
+            msg_type, topic, store, qos, callback_group=self.feeds_group, raw=True
+        )
 
     def raw_store(self, msg_type: type, key: str | None, feed: MonitorFeed | None = None) -> Callable[[bytes], None]:
         """Callback keeping the latest serialized message as a LazyStamped (decoded on first read) and offering it to
@@ -2798,7 +2806,24 @@ class RosRobot:
         """Hand the arm back (release the lease if held) and destroy the node."""
         if self.arm.control_held:
             self.arm.release()
+        if self.feeds_spinner is not None:
+            self.feeds_spinner.stop()  # the feeds node is destroyed on its own thread
+        elif self.feeds_node is not self.node:
+            self.feeds_node.destroy_node()
         self.node.destroy_node()
+
+    def start_feeds(self, executor: Any, ok: Callable[[], bool], exit_fn: Callable[[int], Any]) -> None:
+        """Spin the feeds node on its own thread with the given executor (nothing to do when feeds_executor is main).
+
+        Args:
+            executor (Any): An EventsExecutor (or any executor with add_node, remove_node, spin, shutdown).
+            ok (Callable[[], bool]): True while ROS runs (rclpy.ok).
+            exit_fn (Callable[[int], Any]): Process exit used when the feeds executor dies (os._exit).
+        """
+        if self.feeds_node is self.node:
+            return
+        self.feeds_spinner = FeedsSpinner(self.feeds_node, executor, ok, exit_fn)
+        self.feeds_spinner.start()
 
 
 def init_ros() -> None:
