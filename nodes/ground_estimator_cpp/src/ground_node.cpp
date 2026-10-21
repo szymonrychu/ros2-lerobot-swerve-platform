@@ -45,7 +45,7 @@ struct GaugeSpec
   const char * help;
 };
 
-constexpr std::array<GaugeSpec, 8> GAUGES = {{
+constexpr std::array<GaugeSpec, 9> GAUGES = {{
   {METRIC_INLIER_RATIO, "Inlier ratio of the last valid plane fit"},
   {METRIC_SLOPE, "Floor slope against gravity of the last cloud with a plane and a fresh IMU, degrees"},
   {METRIC_PLANE_VS_BASE, "Angle between the floor normal and base_link +z of the last cloud with a plane, degrees"},
@@ -53,6 +53,7 @@ constexpr std::array<GaugeSpec, 8> GAUGES = {{
   {METRIC_WARNING_AREAS, "Warning areas (ToF and colour) of the last cloud with a plane"},
   {METRIC_OBSTACLE_POINTS, "Points of the last obstacle_points cloud"},
   {METRIC_DROP_POINTS, "Points of the last drop_points cloud"},
+  {METRIC_TEMPORAL_CELLS, "Cells the temporal median currently holds"},
   {METRIC_MISMATCH_RATIO, "Floor colour mismatch share of the floor band of the last labelled RGB-D cloud"},
 }};
 
@@ -199,6 +200,7 @@ GroundNode::GroundNode(
   config_(config),
   tf_buffer_(std::move(tf_buffer)),
   tracker_(config.fit),
+  cell_filter_(config.temporal),
   colour_model_(config.colour),
   metrics_(NODE_NAME)
 {
@@ -360,7 +362,9 @@ void GroundNode::on_cloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & 
   if (tracked) {
     process_plane(*msg, *tracked, fixed_T_base, stamp_s, started);
   } else {
-    // No valid or held plane: no cloud, no warning areas (no placeholder data).
+    // No valid or held plane: no cloud, no warning areas (no placeholder data); the cell history is stale.
+    cell_filter_.reset();
+    set_gauge(METRIC_TEMPORAL_CELLS, 0.0);
     fit_seconds_->Observe(seconds_since(started));
     cycle_ = Cycle{};
   }
@@ -373,7 +377,9 @@ void GroundNode::process_plane(
 {
   const Plane & plane = tracked.plane;
   const double edge_band_m = config_.traversability.edge_band_m;
-  const Segmented seg = segment(base_cloud_, plane, config_.bands, config_.fit.distance_m);
+  filtered_cloud_ = cell_filter_.apply(base_cloud_, plane, fixed_T_base, stamp_s);
+  set_gauge(METRIC_TEMPORAL_CELLS, static_cast<double>(cell_filter_.cell_count()));
+  const Segmented seg = segment(filtered_cloud_, plane, config_.bands, config_.fit.distance_m);
   const auto above =
     extract_clusters(seg.above, seg.above_height, "step", plane, config_.edges, edge_band_m, &unclustered_index_);
   gather(seg.above, seg.above_height, unclustered_index_, unclustered_above_, unclustered_above_h_);
