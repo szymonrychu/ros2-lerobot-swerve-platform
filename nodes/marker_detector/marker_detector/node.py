@@ -8,7 +8,8 @@ import numpy as np
 import rclpy
 import tf2_ros
 from rclpy.duration import Duration
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import Executor, ExternalShutdownException, SingleThreadedExecutor
+from rclpy.experimental import EventsExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
@@ -162,6 +163,25 @@ class MarkerDetectorRos:
             metrics.ZOOM_REQUESTS.labels(SENT_STATUS).inc()
 
 
+def make_executor(kind: str) -> Executor:
+    """Build the rclpy executor selected by the ``executor`` config key.
+
+    Args:
+        kind: ``events`` (rclpy EventsExecutor) or ``single_threaded`` (SingleThreadedExecutor).
+
+    Returns:
+        A new executor instance.
+
+    Raises:
+        ValueError: If ``kind`` is neither value.
+    """
+    if kind == "events":
+        return EventsExecutor()
+    if kind == "single_threaded":
+        return SingleThreadedExecutor()
+    raise ValueError(f"unknown executor {kind!r}")
+
+
 def run_node(cfg: MarkerDetectorConfig) -> None:
     """Run the detector until interrupted.
 
@@ -174,8 +194,10 @@ def run_node(cfg: MarkerDetectorConfig) -> None:
     buffer = tf2_ros.Buffer()
     tf2_ros.TransformListener(buffer, node, spin_thread=True)
     MarkerDetectorRos(cfg, node, MarkerPipeline(cfg), buffer)
+    executor = make_executor(cfg.executor)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:

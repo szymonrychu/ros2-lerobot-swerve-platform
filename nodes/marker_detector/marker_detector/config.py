@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -65,6 +65,7 @@ class MarkerDetectorConfig(StrictModel):
     zoom: ZoomConfig = ZoomConfig()
     tof: TofConfig = TofConfig()
     metrics_port: int | None = None
+    executor: Literal["events", "single_threaded"] = "single_threaded"
 
     @model_validator(mode="after")
     def check_zoom_thresholds(self) -> Self:
