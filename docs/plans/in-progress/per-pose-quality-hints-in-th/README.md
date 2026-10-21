@@ -39,3 +39,7 @@ Estimate: 255 min | Actual: 0 min | Remaining estimate: 45 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-22)
+
+Every task verified by verify-task.py on its committed head (reviewed per plan-execute tiers); merged 90e642da, root suite 1982 passed, head_rgbd_calibration 141 passed, frontend 1225 passed. Deployed head_rgbd_calibration and web_ui. Live 2026-10-22 01:03: capture hints on few-corner poses, compute r-20261022-010256 passed with per-pose rgb/tof/stereo errors (29 poses, no outliers). Evidence .logs/hints-live-*.json.
