@@ -16,6 +16,20 @@
     "001",
     "002"
   ],
+  "poses": [
+    {
+      "id": "001",
+      "rgb_error_px": 0.21,
+      "tof_error_px": 0.12,
+      "stereo_error_px": 0.55,
+      "outlier": [
+        "rgb"
+      ]
+    }
+  ],
+  "outlier_poses": [
+    "007"
+  ],
   "limits": {
     "rgb_max_rms_px": 0.5,
     "tof_max_rms_px": 0.3,
