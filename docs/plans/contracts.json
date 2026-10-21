@@ -195,5 +195,15 @@
       "head-and-arm-calibration-fro"
     ],
     "note": "UrdfChain FK core; moved from head-and-arm-calibration-fro 2026-10-21"
+  },
+  {
+    "name": "head-chain-applied-record",
+    "kind": "schema",
+    "owner": "head-chain-floor-plane-fit-a",
+    "file": "nodes/head_rgbd_calibration/head_rgbd_calibration/floor_results.py",
+    "consumers": [
+      "head-and-arm-calibration-fro"
+    ],
+    "note": "applied/head_chain.json is the source of truth for the applied chain; applied.json gains head_chain {session, result, applied_at}; head-and-arm head-chain-compute-apply must keep both"
   }
 ]
