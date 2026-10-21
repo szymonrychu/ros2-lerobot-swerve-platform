@@ -292,9 +292,10 @@ local_costmap:
           topic: /tof/points_filtered
           marking: true
           clearing: false
-          # 6 cm above the floor (z = 0 in odom): clears ToF depth noise and small floor tilt, still sees low
-          # obstacles (cables, door sills) the lidar plane passes over.
-          min_obstacle_height: 0.06
+          # 10 cm above the floor (z = 0 in odom): floor noise after the head remount put ~7 % of floor points
+          # above 6 cm per frame and the 15 s voxel decay unions them; with the z-depth fix 10 cm leaves ~1.3 % of
+          # floor cells over 10 frames. Still sees obstacles of 10 cm and taller that the lidar plane passes over.
+          min_obstacle_height: 0.10
           # Robot height with the head: overhangs higher than the robot are not obstacles.
           max_obstacle_height: 0.6
           # 2 m, inside the tof_obstacle_cloud max_depth (3 m) where ToF depth error is still small.
@@ -837,7 +838,7 @@ collision_monitor:
     # scan: the lidar keeps guarding 360 deg / ~12 m (U5); the ToF adds 3D detail inside its narrow head view.
     # tof_obstacles / tof_cliff: the head ToF cloud (laser_filter output). Heights compare in base_link after the TF
     # lookup (nav2_collision_monitor pointcloud.cpp), so the negative cliff band works; both bands equal the local
-    # costmap STVL bands (tof_mark, tof_cliff_mark): 6 cm over the floor to the 0.6 m robot height, and 10 cm to 1 m
+    # costmap STVL bands (tof_mark, tof_cliff_mark): 10 cm over the floor to the 0.6 m robot height, and 10 cm to 1 m
     # below the floor. Both ToF sources keep the node source_timeout (1.0 s, no per-source override): an enabled source
     # with no cloud for 1 s, or no head TF at the cloud stamp, is an "invalid source" and the monitor publishes a STOP
     # (collision_monitor_node.cpp 1.3.13), so a ToF or head-TF outage stops motion (fail-safe, user decision
@@ -854,7 +855,7 @@ collision_monitor:
     tof_obstacles:
       type: "pointcloud"
       topic: "/tof/points_filtered"
-      min_height: 0.06
+      min_height: 0.10
       max_height: 0.6
       min_range: 0.0
       enabled: true

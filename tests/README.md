@@ -2769,6 +2769,7 @@ Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, ST
 | `test_tof_sources_settings` | `tof_mark`, `tof_cliff_mark` and `tof_clear` values and types (PointCloud2 on `/tof/points_filtered`, height bands, range, buffer settings, frustum). |
 | `test_mark_and_clear_sources_are_split` | The two mark sources mark and never clear, `tof_clear` clears and never marks, frustum model 0. |
 | `test_obstacle_band_is_above_the_floor_and_below_the_robot` | 0 < `min_obstacle_height` < `max_obstacle_height` <= 0.6 m robot height. |
+| `test_mcp_tof_obstacle_band_equals_tof_mark` | `TOF_OBSTACLE_BAND_M` in mcp_server `perception.py` (read with ast, no import) equals the `tof_mark` (`min_obstacle_height`, `max_obstacle_height`) band, so the agent fixed-band summary matches the costmap. |
 | `test_cliff_band_is_strictly_below_the_floor_noise` | Cliff band ends strictly below -0.05 m. |
 | `test_bands_do_not_overlap` | The cliff band ends below the obstacle band start. |
 | `test_ranges_stay_inside_the_cloud_max_depth` | `max_z` and both `obstacle_range` <= tof_obstacle_cloud `max_depth`; `min_z` >= its `min_depth`. |
@@ -2792,7 +2793,7 @@ Static checks of the collision_monitor ToF sources `tof_obstacles` / `tof_cliff`
 | Test | Covers |
 |---|---|
 | `test_observation_sources_are_scan_and_the_two_tof_sources` | `observation_sources` is exactly `scan, tof_obstacles, tof_cliff`. |
-| `test_tof_source_settings` | Both ToF sources: `pointcloud` on `/tof/points_filtered`, bands 0.06-0.6 m and -1.0 to -0.10 m, `min_range` 0.0, enabled (values and types). |
+| `test_tof_source_settings` | Both ToF sources: `pointcloud` on `/tof/points_filtered`, bands 0.10-0.6 m and -1.0 to -0.10 m, `min_range` 0.0, enabled (values and types). |
 | `test_tof_source_band_equals_the_stvl_mark_band` | `tof_obstacles` band equals the STVL `tof_mark` band, `tof_cliff` equals `tof_cliff_mark`, same topic. |
 | `test_no_collision_monitor_source_reads_a_ground_topic` | No collision_monitor source topic starts with `/ground/` (D-A1). |
 | `test_scan_source_is_unchanged` | U5: `scan` stays `type: scan` on `/scan_filtered`, enabled. |
