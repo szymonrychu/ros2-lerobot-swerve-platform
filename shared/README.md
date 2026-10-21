@@ -192,7 +192,7 @@ The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subproc
 - `intrinsics`: `calibrate`, `calibrate_tof`, `compare_sdk`, `IntrinsicsResult` and `write_camera_calibration_yaml` (camera intrinsics from ChArUco detections).
 - `extrinsics`: `stereo_calibrate`, `plane_depth_bias`, `ExtrinsicResult`, `PlaneCheck` and the extrinsics YAML read/write (ToF to RGB stereo extrinsic and board-plane depth check).
 - `urdf_handoff`: `read_chain`, `tof_joint_origin`, `check_drift` and the matrix helpers; re-exports `rewrite_tof_joint`.
-- `urdf_text`: `rewrite_tof_joint`, `Origin`, `format_vec`. It must stay standard-library only (no numpy, scipy or package-relative imports): the head_state_publisher launch loads it by file path on the system Python.
+- `urdf_text`: `rewrite_joint_origin`, `rewrite_tof_joint`, `Origin`, `format_vec`, and the override pieces: the `head_chain.json` format `{"joints": {head_mount_joint|head_tilt|head_camera_joint: {"xyz": [3], "rpy": [3]}}, "note", "session", "result"}` (`parse_head_chain`, `head_chain_json`) and `apply_overrides(urdf_text, applied_dir)`, the one applier that applies `head_chain.json` then `tof_joint.json` and returns the text plus one warning per unreadable or invalid file. It must stay standard-library only (no numpy, scipy or package-relative imports): the head_state_publisher launch loads it by file path on the system Python.
 
 Imported by the calibration CLI under `scripts/head_rgbd_calibration/` and by the head_rgbd_calibration node.
 
