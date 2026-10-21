@@ -387,7 +387,7 @@ def test_apply_and_applied_match_the_fixtures(client: TestClient, store: Session
     assert applied["session"] == sid and applied["result"] == RID
 
 
-def test_session_endpoint_returns_pose_hints(client: TestClient, store: SessionStore) -> None:
+def test_session_poses_carry_hints(client: TestClient, store: SessionStore) -> None:
     sid = new_session(store)
     store.add_pose(sid, few_rgb_corner_pose())
     store.add_pose(sid, make_pose())

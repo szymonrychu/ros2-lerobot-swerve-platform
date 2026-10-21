@@ -291,7 +291,7 @@ def read_pose_json(store: SessionStore, sid: str, pid: str) -> dict:
     return json.loads((store.state_dir / "sessions" / sid / "poses" / pid / "pose.json").read_text())
 
 
-def test_add_pose_writes_hints_of_a_few_corner_pose(store: SessionStore) -> None:
+def test_add_pose_stores_hints(store: SessionStore) -> None:
     sid = store.create_session(NOW, LENS)
     pid = store.add_pose(sid, few_rgb_corner_pose())
     hints = read_pose_json(store, sid, pid)["hints"]
@@ -306,7 +306,7 @@ def test_add_pose_of_a_good_pose_has_empty_hints(store: SessionStore) -> None:
     assert store.pose_hints(sid, pid) == []
 
 
-def test_pose_hints_legacy_pose_json_without_key_is_computed(store: SessionStore) -> None:
+def test_pose_hints_fallback_for_legacy_pose(store: SessionStore) -> None:
     sid = store.create_session(NOW, LENS)
     pid = store.add_pose(sid, few_rgb_corner_pose())
     path = store.state_dir / "sessions" / sid / "poses" / pid / "pose.json"

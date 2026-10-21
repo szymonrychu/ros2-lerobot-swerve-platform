@@ -27,6 +27,12 @@ def test_full_board_pose_has_no_hints() -> None:
     assert capture_hints(full(), full(), BOARD) == []
 
 
+def test_hints_at_threshold_edges() -> None:
+    test_rgb_threshold_edge()
+    test_tof_threshold_edge()
+    test_common_corner_edge()
+
+
 def test_rgb_threshold_edge() -> None:
     assert capture_hints(det(list(range(9))), full(), BOARD) == [
         "few corners: 9 RGB - move the board closer / fill the frame"
@@ -55,6 +61,11 @@ def test_order_rgb_tof_common() -> None:
     hints = capture_hints(det([0, 1, 2, 3, 4, 5]), det([10, 11, 12, 13, 14, 15]), BOARD)
     assert [h.split(":")[0].split(" ")[0] for h in hints] == ["few", "few", "only"]
     assert "RGB" in hints[0] and "ToF" in hints[1] and "0 corners seen by both" in hints[2]
+
+
+def test_threshold_follows_board_size() -> None:
+    test_board_size_changes_threshold(5, 5, 16, 8)
+    test_board_size_changes_threshold(8, 6, 35, 18)
 
 
 @pytest.mark.parametrize(("sx", "sy", "inner", "edge"), [(5, 5, 16, 8), (8, 6, 35, 18)])
