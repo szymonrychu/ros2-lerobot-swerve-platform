@@ -4,9 +4,11 @@ The SDK (ArducamDepthCamera) has aarch64 Linux wheels only and rclpy is not inst
 replaced by small doubles registered in sys.modules before arducam_tof.bridge is imported.
 """
 
+import json
 import sys
 import types
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -391,8 +393,13 @@ def test_good_frame_publishes_depth_amplitude_and_camera_info_with_one_header(ha
 
     assert (depth.encoding, depth.height, depth.width, depth.step, depth.is_bigendian) == ("16UC1", 3, 4, 8, 0)
     pixels = np.frombuffer(bytes(depth.data), dtype="<u2").reshape(HEIGHT, WIDTH)
-    expected = np.rint(np.arange(1, 13, dtype=np.float32).reshape(HEIGHT, WIDTH) * 100.4).astype(np.uint16)
+    radial = np.arange(1, 13, dtype=np.float32).reshape(HEIGHT, WIDTH) * 100.4
+    fx, fy, cx, cy = (v / 100 for v in (INTRINSIC_FX, INTRINSIC_FY, INTRINSIC_CX, INTRINSIC_CY))
+    rows, cols = np.mgrid[0:HEIGHT, 0:WIDTH]
+    ray = np.sqrt(((cols - cx) / fx) ** 2 + ((rows - cy) / fy) ** 2 + 1)
+    expected = np.rint(np.rint(radial) / ray).astype(np.uint16)
     expected[1, 2] = 0
+    assert expected.max() < np.rint(radial).max()  # off-centre pixels really are scaled down
     assert pixels.tolist() == expected.tolist()
 
     assert (amplitude.encoding, amplitude.height, amplitude.width, amplitude.step) == ("mono16", 3, 4, 8)
@@ -748,3 +755,218 @@ def test_startup_log_names_stamp_latency(monkeypatch: pytest.MonkeyPatch) -> Non
     config = TofConfig.model_construct(**{**TofConfig().model_dump(), "stamp_latency_ms": 12.5})
     harness = Harness(monkeypatch, config)
     assert "stamp_latency_ms=12.5" in harness.logger.info.call_args_list[0].args[0]
+
+
+FIXTURE = Path(__file__).parent / "data" / "floor_capture.json"
+SDK_FRAME_W = 240
+SDK_FRAME_H = 180
+
+
+def write_calibration(tmp_path: Path, k: list[float], width: int = WIDTH, height: int = HEIGHT) -> Path:
+    """Write a camera_calibration YAML (with distortion coefficients that must be ignored).
+
+    Args:
+        tmp_path (Path): Test directory.
+        k (list[float]): fx, fy, cx, cy.
+        width (int): image_width.
+        height (int): image_height.
+
+    Returns:
+        Path: The written file.
+    """
+    fx, fy, cx, cy = k
+    path = tmp_path / "tof.yaml"
+    path.write_text(
+        f"image_width: {width}\nimage_height: {height}\ncamera_name: tof\n"
+        f"camera_matrix: {{rows: 3, cols: 3, data: [{fx}, 0.0, {cx}, 0.0, {fy}, {cy}, 0.0, 0.0, 1.0]}}\n"
+        "distortion_model: plumb_bob\ndistortion_coefficients: {rows: 1, cols: 5, data: [0.5, 0.5, 0.1, 0.1, 0.0]}\n"
+    )
+    return path
+
+
+def run_one_frame(monkeypatch: pytest.MonkeyPatch, config: TofConfig) -> Harness:
+    """Run one bridge step with good_frame().
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): Patches the SDK camera factory.
+        config (TofConfig): Bridge config.
+
+    Returns:
+        Harness: The harness after the step.
+    """
+    h = Harness(monkeypatch, config)
+    h.prepare = lambda camera: camera.frames.append(good_frame())
+    h.bridge.step()
+    return h
+
+
+def test_radial_depth_becomes_z_depth() -> None:
+    k = bridge.Intrinsics(207.787, 208.171, 114.743, 95.996)
+    rows, cols = np.mgrid[0:SDK_FRAME_H, 0:SDK_FRAME_W]
+    rx, ry = (cols - k.cx) / k.fx, (rows - k.cy) / k.fy
+    z_true = 1000.0
+    radial = np.rint(z_true * np.sqrt(rx**2 + ry**2 + 1)).astype(np.uint16)
+    radial[0, 0] = 0
+    out = bridge.radial_to_z(radial, k)
+    assert out.dtype == np.uint16 and out.shape == radial.shape
+    assert out[0, 0] == 0
+    valid = radial > 0
+    assert np.abs(out[valid].astype(float) - z_true).max() <= 1.0
+    centre = np.full((3, 3), 1234, dtype=np.uint16)
+    assert bridge.radial_to_z(centre, bridge.Intrinsics(100.0, 100.0, 1.0, 1.0))[1, 1] == 1234
+    assert bridge.ray_norm(np.array([k.cx]), np.array([k.cy]), k)[0] == pytest.approx(1.0)
+
+
+def test_radial_to_z_factor_is_cached_per_shape_and_intrinsics(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    real = bridge.ray_norm
+    monkeypatch.setattr(bridge, "ray_norm", lambda u, v, i: calls.append(i) or real(u, v, i))
+    bridge.ray_norm_image.cache_clear()
+    depth = np.full((5, 6), 500, dtype=np.uint16)
+    k = bridge.Intrinsics(50.0, 50.0, 3.0, 2.0)
+    bridge.radial_to_z(depth, k)
+    bridge.radial_to_z(depth, k)
+    assert len(calls) == 1
+    bridge.radial_to_z(depth, bridge.Intrinsics(60.0, 50.0, 3.0, 2.0))
+    assert len(calls) == 2
+
+
+def floor_residual_dome_cm(points_cam: np.ndarray, pose: dict[str, float]) -> float:
+    """Fit a plane to the floor 0.3-0.9 m ahead in map and return median residual centre columns minus edges, in cm.
+
+    Args:
+        points_cam (np.ndarray): (n, 3) xyz in tof_optical_frame.
+        pose (dict[str, float]): frame_pose of the frame in map (x, y, z, qx, qy, qz, qw).
+
+    Returns:
+        float: Dome height in centimetres.
+    """
+    sdk = np.array(CAPTURE["sdk_k"])
+    x, y, z = points_cam.T
+    u = sdk[0] * x / z + sdk[2]
+    qx, qy, qz, qw = (pose[k] for k in ("qx", "qy", "qz", "qw"))
+    rot = np.array(
+        [
+            [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+            [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+            [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+        ]
+    )
+    origin = np.array([pose["x"], pose["y"], pose["z"]])
+    world = points_cam @ rot.T + origin
+    forward = rot[:, 2].copy()
+    forward[2] = 0
+    forward /= np.linalg.norm(forward)
+    ahead = (world[:, :2] - origin[:2]) @ forward[:2]
+    sel = (ahead > 0.3) & (ahead < 0.9) & (world[:, 2] < 0.15)
+    pts, cols = world[sel], u[sel]
+    design = np.c_[pts[:, 0], pts[:, 1], np.ones(len(pts))]
+    keep = np.ones(len(pts), bool)
+    for _ in range(3):
+        coef, *_ = np.linalg.lstsq(design[keep], pts[keep, 2], rcond=None)
+        res = pts[:, 2] - design @ coef
+        keep = np.abs(res) < 3 * max(np.std(res[keep]), 0.005)
+    res = pts[:, 2] - design @ coef
+    centre = np.abs(cols - 120) < 30
+    edge = np.abs(cols - 120) > 70
+    assert centre.sum() > 10 and edge.sum() > 10
+    return float((np.median(res[centre]) - np.median(res[edge])) * 100)
+
+
+CAPTURE = json.loads(FIXTURE.read_text())
+
+
+def test_floor_capture_dome_is_flat_after_radial_to_z() -> None:
+    pts = np.array(CAPTURE["points"], dtype=float).reshape(-1, 3)
+    pose = CAPTURE["frame_pose"]
+    assert floor_residual_dome_cm(pts, pose) > 2.0  # as captured: SDK radial value taken as z
+
+    sdk = np.array(CAPTURE["sdk_k"])
+    cal = bridge.Intrinsics(*CAPTURE["calibrated_k"])
+    x, y, z = pts.T
+    u = np.rint(sdk[0] * x / z + sdk[2]).astype(int)
+    v = np.rint(sdk[1] * y / z + sdk[3]).astype(int)
+    image = np.zeros((SDK_FRAME_H, SDK_FRAME_W), dtype=np.uint16)
+    image[v, u] = np.rint(z * 1000).astype(np.uint16)
+    zmm = bridge.radial_to_z(image, cal)[v, u].astype(float) / 1000
+    xn, yn = (u - cal.cx) / cal.fx, (v - cal.cy) / cal.fy
+    fixed = np.c_[xn * zmm, yn * zmm, zmm]
+    assert floor_residual_dome_cm(fixed, pose) < 1.0
+
+
+def test_camera_info_uses_the_calibration_file_k(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    k = [207.787, 208.171, 1.9, 1.4]
+    h = run_one_frame(monkeypatch, TofConfig(tof_calibration_file=write_calibration(tmp_path, k)))
+    [info] = h.published(bridge.CAMERA_INFO_TOPIC)
+    assert info.k == pytest.approx([k[0], 0.0, k[2], 0.0, k[1], k[3], 0.0, 0.0, 1.0])
+    assert info.p == pytest.approx([k[0], 0.0, k[2], 0.0, 0.0, k[1], k[3], 0.0, 0.0, 0.0, 1.0, 0.0])
+    assert info.d == [0.0] * 5  # the file's distortion coefficients are not used
+    [depth] = h.published(bridge.DEPTH_TOPIC)
+    pixels = np.frombuffer(bytes(depth.data), dtype="<u2").reshape(HEIGHT, WIDTH)
+    radial = np.rint(np.arange(1, 13, dtype=np.float32).reshape(HEIGHT, WIDTH) * 100.4)
+    rows, cols = np.mgrid[0:HEIGHT, 0:WIDTH]
+    ray = np.sqrt(((cols - k[2]) / k[0]) ** 2 + ((rows - k[3]) / k[1]) ** 2 + 1)
+    expected = np.rint(radial / ray).astype(np.uint16)
+    expected[1, 2] = 0
+    assert pixels.tolist() == expected.tolist()
+
+
+def test_missing_calibration_file_falls_back_to_sdk_k(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    h = run_one_frame(monkeypatch, TofConfig(tof_calibration_file=tmp_path / "absent.yaml"))
+    [info] = h.published(bridge.CAMERA_INFO_TOPIC)
+    assert info.k[0] == pytest.approx(INTRINSIC_FX / 100)
+    assert info.k[2] == pytest.approx(INTRINSIC_CX / 100)
+    h.logger.warning.assert_called()
+
+
+def test_invalid_calibration_file_falls_back_to_sdk_k(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    path = tmp_path / "bad.yaml"
+    path.write_text("camera_matrix: {data: [1, 2]}\n")
+    h = run_one_frame(monkeypatch, TofConfig(tof_calibration_file=path))
+    [info] = h.published(bridge.CAMERA_INFO_TOPIC)
+    assert info.k[0] == pytest.approx(INTRINSIC_FX / 100)
+    h.logger.warning.assert_called()
+
+
+def test_calibration_file_of_another_size_falls_back_to_sdk_k(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    path = write_calibration(tmp_path, [207.787, 208.171, 114.7, 96.0], width=240, height=180)
+    h = run_one_frame(monkeypatch, TofConfig(tof_calibration_file=path))
+    [info] = h.published(bridge.CAMERA_INFO_TOPIC)
+    assert info.k[0] == pytest.approx(INTRINSIC_FX / 100)
+    h.logger.error.assert_called()
+
+
+def test_calibration_file_gives_k_without_sdk_focal_length(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    k = [207.787, 208.171, 1.9, 1.4]
+    h = Harness(monkeypatch, TofConfig(tof_calibration_file=write_calibration(tmp_path, k)))
+
+    def no_intrinsics(camera: FakeCamera) -> None:
+        camera.controls["INTRINSIC_FX"] = 0
+        camera.frames.append(good_frame())
+
+    h.prepare = no_intrinsics
+    h.bridge.step()
+    [info] = h.published(bridge.CAMERA_INFO_TOPIC)
+    assert info.k[0] == pytest.approx(k[0])
+
+
+def test_depth_is_radial_false_publishes_depth_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    h = run_one_frame(monkeypatch, TofConfig(depth_is_radial=False))
+    [depth] = h.published(bridge.DEPTH_TOPIC)
+    pixels = np.frombuffer(bytes(depth.data), dtype="<u2").reshape(HEIGHT, WIDTH)
+    expected = np.rint(np.arange(1, 13, dtype=np.float32).reshape(HEIGHT, WIDTH) * 100.4).astype(np.uint16)
+    expected[1, 2] = 0
+    assert pixels.tolist() == expected.tolist()
+    assert len(h.published(bridge.CAMERA_INFO_TOPIC)) == 1
+
+
+def test_depth_is_unconverted_when_there_are_no_intrinsics(harness: Harness) -> None:
+    def no_intrinsics(camera: FakeCamera) -> None:
+        camera.controls["INTRINSIC_FX"] = 0
+        camera.frames.append(good_frame())
+
+    harness.prepare = no_intrinsics
+    harness.bridge.step()
+    [depth] = harness.published(bridge.DEPTH_TOPIC)
+    pixels = np.frombuffer(bytes(depth.data), dtype="<u2").reshape(HEIGHT, WIDTH)
+    assert pixels[0, 0] == 100 and pixels[2, 3] == 1205
