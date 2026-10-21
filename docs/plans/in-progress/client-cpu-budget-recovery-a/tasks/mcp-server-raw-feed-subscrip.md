@@ -1,6 +1,6 @@
 ---
 title: mcp_server raw feed subscriptions on a second node
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Cuts mcp_server idle CPU by about 0.3 core
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/__main__.py, nodes/mcp_server/tests/test_feeds_executor.py, nodes/mcp_server/README.md, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--mcp-server-raw-feed-subscrip
 branch: client-cpu-budget-recovery-a--mcp-server-raw-feed-subscrip
-verified_head: ""
-run: ""
-provides: []
+verified_head: f78c5b90b338c75a36bd0d4a62170331c5416454
+run: client-cpu-budget-recovery-a
+provides: [feeds-spinner]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # mcp_server raw feed subscriptions on a second node
