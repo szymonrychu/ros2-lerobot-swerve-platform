@@ -56,8 +56,9 @@ struct TraversabilityConfig
 {
   double wheel_radius_m = 0.06;       // > 0
   double max_step_fraction = 0.3333;  // 0 < v < 1 of the wheel diameter
-  double max_slope_deg = 8.0;         // 0 < v <= min(slope.roll_warn_deg, slope.pitch_warn_deg)
+  double max_slope_deg = 8.0;         // 0 < v <= min(slope.roll_error_deg, slope.pitch_error_deg)
   double edge_band_m = 0.05;          // > 0
+  int lethal_min_points = 2;          // 1..50; fewest unclustered lethal points within edges.cluster_tolerance_m
 };
 
 // Largest rideable step: max_step_fraction of the wheel diameter. The single definition of the threshold.
@@ -79,6 +80,8 @@ struct EdgesConfig
   int max_regions = 8;               // 1..16
   double step_max_height_m = 0.2;    // > max_step_m, <= bands.obstacle_max_m
   double step_flatness_m = 0.03;     // > 0
+  double slope_bin_m = 0.10;         // 0.02..0.5; xy bin edge a cluster is sampled in for its slope fit
+  int slope_min_cells = 3;           // 2..50; fewest slope bins for a slope estimate, below it the slope is unknown
 };
 
 // Tilt limits of the tilt_guard.
@@ -109,10 +112,20 @@ struct StateConfig
 struct TemporalConfig
 {
   bool enabled = true;
-  double cell_size_m = 0.10;  // > 0; edge of a fixed-frame cell
-  int window_frames = 8;      // >= 1; per-frame values a cell keeps
-  int min_frames = 4;         // 1..window_frames; values a cell needs before its points are output
-  double max_age_s = 1.5;     // > 0; older per-frame values are dropped
+  double cell_size_m = 0.10;    // > 0; edge of a fixed-frame cell
+  int window_frames = 8;        // >= 1; per-frame values a cell keeps
+  int min_frames = 4;           // 1..window_frames; values a cell needs before its points are output
+  double max_age_s = 1.5;       // > 0; older per-frame values are dropped
+  double max_spread_m = 0.025;  // 0 < v <= 0.2; largest robust spread of a cell's per-frame medians, above it unknown
+};
+
+// Per-cell class hysteresis: a class needs a strict majority of the window to enter and few frames to leave.
+struct HysteresisConfig
+{
+  bool enabled = true;
+  int window_frames = 5;  // 1..30
+  int enter_frames = 3;   // exit_frames..window_frames, enter_frames * 2 > window_frames
+  int exit_frames = 1;    // 1..enter_frames
 };
 
 // Every setting of the node.
@@ -135,6 +148,7 @@ struct Config
   ColourConfig colour;
   StateConfig state;
   TemporalConfig temporal;
+  HysteresisConfig hysteresis;
   std::optional<long> metrics_port = DEFAULT_METRICS_PORT;  // NOLINT(runtime/int); nullopt disables metrics
 
   // Largest step the base rides over: a third of the wheel diameter.

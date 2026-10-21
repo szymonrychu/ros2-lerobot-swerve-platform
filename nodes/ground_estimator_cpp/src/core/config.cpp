@@ -29,6 +29,10 @@ constexpr double MIN_CELL_SIZE_M = 0.02;
 constexpr double MAX_CELL_SIZE_M = 0.5;
 constexpr int MAX_WINDOW_FRAMES = 30;
 constexpr double MAX_AGE_S = 5.0;
+constexpr double MAX_SPREAD_M = 0.2;
+constexpr int MAX_LETHAL_MIN_POINTS = 50;
+constexpr int MIN_SLOPE_MIN_CELLS = 2;
+constexpr int MAX_SLOPE_MIN_CELLS = 50;
 
 // The value under node[key] as T (fallback when missing or invalid) with the lax pydantic-style coercions; errors
 // name prefix + key.
@@ -142,8 +146,9 @@ void parse_bands(const YAML::Node & root, Config & c, Errors & errors)
 
 void parse_traversability(const YAML::Node & root, Config & c, Errors & errors)
 {
-  const YAML::Node s =
-    section(root, "traversability", {"wheel_radius_m", "max_step_fraction", "max_slope_deg", "edge_band_m"}, errors);
+  const std::vector<std::string> keys = {
+    "wheel_radius_m", "max_step_fraction", "max_slope_deg", "edge_band_m", "lethal_min_points"};
+  const YAML::Node s = section(root, "traversability", keys, errors);
   if (!s.IsDefined()) {
     return;
   }
@@ -160,12 +165,17 @@ void parse_traversability(const YAML::Node & root, Config & c, Errors & errors)
   rc::gt(p + "max_slope_deg", t.max_slope_deg, 0.0, errors);
   t.edge_band_m = read<double>(s, p, "edge_band_m", t.edge_band_m, errors);
   rc::gt(p + "edge_band_m", t.edge_band_m, 0.0, errors);
+  t.lethal_min_points = read<int>(s, p, "lethal_min_points", t.lethal_min_points, errors);
+  rc::ge<int>(p + "lethal_min_points", t.lethal_min_points, 1, errors);
+  rc::le<int>(p + "lethal_min_points", t.lethal_min_points, MAX_LETHAL_MIN_POINTS, errors);
 }
 
 void parse_edges(const YAML::Node & root, Config & c, Errors & errors)
 {
   const YAML::Node s = section(
-    root, "edges", {"cluster_tolerance_m", "min_cluster_points", "max_regions", "step_max_height_m", "step_flatness_m"},
+    root, "edges",
+    {"cluster_tolerance_m", "min_cluster_points", "max_regions", "step_max_height_m", "step_flatness_m", "slope_bin_m",
+     "slope_min_cells"},
     errors);
   if (!s.IsDefined()) {
     return;
@@ -182,6 +192,12 @@ void parse_edges(const YAML::Node & root, Config & c, Errors & errors)
   e.step_max_height_m = read<double>(s, p, "step_max_height_m", e.step_max_height_m, errors);
   e.step_flatness_m = read<double>(s, p, "step_flatness_m", e.step_flatness_m, errors);
   rc::gt(p + "step_flatness_m", e.step_flatness_m, 0.0, errors);
+  e.slope_bin_m = read<double>(s, p, "slope_bin_m", e.slope_bin_m, errors);
+  rc::ge(p + "slope_bin_m", e.slope_bin_m, MIN_CELL_SIZE_M, errors);
+  rc::le(p + "slope_bin_m", e.slope_bin_m, MAX_CELL_SIZE_M, errors);
+  e.slope_min_cells = read<int>(s, p, "slope_min_cells", e.slope_min_cells, errors);
+  rc::ge<int>(p + "slope_min_cells", e.slope_min_cells, MIN_SLOPE_MIN_CELLS, errors);
+  rc::le<int>(p + "slope_min_cells", e.slope_min_cells, MAX_SLOPE_MIN_CELLS, errors);
 }
 
 void parse_slope(const YAML::Node & root, Config & c, Errors & errors)
@@ -232,8 +248,8 @@ void parse_colour_and_state(const YAML::Node & root, Config & c, Errors & errors
 
 void parse_temporal(const YAML::Node & root, Config & c, Errors & errors)
 {
-  const YAML::Node s =
-    section(root, "temporal", {"enabled", "cell_size_m", "window_frames", "min_frames", "max_age_s"}, errors);
+  const YAML::Node s = section(
+    root, "temporal", {"enabled", "cell_size_m", "window_frames", "min_frames", "max_age_s", "max_spread_m"}, errors);
   if (!s.IsDefined()) {
     return;
   }
@@ -250,6 +266,40 @@ void parse_temporal(const YAML::Node & root, Config & c, Errors & errors)
   rc::ge<int>(p + "min_frames", t.min_frames, 1, errors);
   t.max_age_s = read<double>(s, p, "max_age_s", t.max_age_s, errors);
   in_open_closed(p + "max_age_s", t.max_age_s, MAX_AGE_S, errors);
+  t.max_spread_m = read<double>(s, p, "max_spread_m", t.max_spread_m, errors);
+  in_open_closed(p + "max_spread_m", t.max_spread_m, MAX_SPREAD_M, errors);
+}
+
+void parse_hysteresis(const YAML::Node & root, Config & c, Errors & errors)
+{
+  const YAML::Node s = section(root, "hysteresis", {"enabled", "window_frames", "enter_frames", "exit_frames"}, errors);
+  if (s.IsDefined()) {
+    const std::string p = "hysteresis.";
+    HysteresisConfig & h = c.hysteresis;
+    h.enabled = read<bool>(s, p, "enabled", h.enabled, errors);
+    h.window_frames = read<int>(s, p, "window_frames", h.window_frames, errors);
+    rc::ge<int>(p + "window_frames", h.window_frames, 1, errors);
+    rc::le<int>(p + "window_frames", h.window_frames, MAX_WINDOW_FRAMES, errors);
+    h.enter_frames = read<int>(s, p, "enter_frames", h.enter_frames, errors);
+    h.exit_frames = read<int>(s, p, "exit_frames", h.exit_frames, errors);
+    rc::ge<int>(p + "exit_frames", h.exit_frames, 1, errors);
+  }
+  const HysteresisConfig & h = c.hysteresis;
+  require_that(
+    h.enter_frames >= h.exit_frames, "hysteresis.exit_frames",
+    "must be at most hysteresis.enter_frames (" + std::to_string(h.enter_frames) + ", got " +
+      std::to_string(h.exit_frames) + ")",
+    errors);
+  require_that(
+    h.enter_frames <= h.window_frames, "hysteresis.enter_frames",
+    "must be at most hysteresis.window_frames (" + std::to_string(h.window_frames) + ", got " +
+      std::to_string(h.enter_frames) + ")",
+    errors);
+  require_that(
+    h.enter_frames * 2 > h.window_frames, "hysteresis.enter_frames",
+    "must be a strict majority of hysteresis.window_frames (" + std::to_string(h.window_frames) + ", got " +
+      std::to_string(h.enter_frames) + ")",
+    errors);
 }
 
 // Rules that span sections, checked on the parsed values (defaults included).
@@ -279,11 +329,11 @@ void check_cross_rules(const Config & c, Errors & errors)
     "must be above the max step (" + std::to_string(step) + ") and at most bands.obstacle_max_m (" +
       std::to_string(c.bands.obstacle_max_m) + "), got " + std::to_string(c.edges.step_max_height_m),
     errors);
-  const double slope_limit = std::min(c.slope.roll_warn_deg, c.slope.pitch_warn_deg);
+  const double slope_limit = std::min(c.slope.roll_error_deg, c.slope.pitch_error_deg);
   require_that(
     c.traversability.max_slope_deg <= slope_limit, "traversability.max_slope_deg",
-    "must be <= the tilt_guard warn limits slope.roll_warn_deg / slope.pitch_warn_deg (" + std::to_string(slope_limit) +
-      ", got " + std::to_string(c.traversability.max_slope_deg) + ")",
+    "must be <= the tilt_guard error limits slope.roll_error_deg / slope.pitch_error_deg (" +
+      std::to_string(slope_limit) + ", got " + std::to_string(c.traversability.max_slope_deg) + ")",
     errors);
 }
 
@@ -293,7 +343,7 @@ Config parse(const YAML::Node & node, Errors & errors)
   rc::forbid_unknown(
     node,
     {"cloud_topic", "imu_topic", "rgbd_cloud_topic", "output_namespace", "base_frame", "fixed_frame", "tf_timeout_s",
-     "imu", "fit", "bands", "traversability", "warnings", "edges", "slope", "colour", "state", "temporal",
+     "imu", "fit", "bands", "traversability", "warnings", "edges", "slope", "colour", "state", "temporal", "hysteresis",
      "metrics_port"},
     errors);
   if (!node.IsMap()) {
@@ -321,6 +371,7 @@ Config parse(const YAML::Node & node, Errors & errors)
   parse_slope(node, c, errors);
   parse_colour_and_state(node, c, errors);
   parse_temporal(node, c, errors);
+  parse_hysteresis(node, c, errors);
   check_cross_rules(c, errors);
 
   if (const YAML::Node port = node["metrics_port"]; port.IsDefined()) {
