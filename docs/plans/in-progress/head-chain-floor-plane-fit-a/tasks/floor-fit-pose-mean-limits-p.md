@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: Lets the head floor fit pass on real ToF noise so the floor sits at 0 in the robot frame
 files: [shared/ros2_common/head_rgbd_calibration/floor_fit.py, shared/ros2_common/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/head_rgbd_calibration/floor_sweep.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, tests/test_head_floor_fit.py, nodes/head_rgbd_calibration/tests/test_floor_sweep.py, docs/runbooks/head-floor-fit.md, tests/README.md]
 verify: "uv run pytest tests/ -q -k 'floor or head_rgbd or calib' && uv run poe lint && cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv run --frozen poe lint"
-depends_on: []
+depends_on: [floor-plane-chain-fit, floor-sweep-capture, head-floor-fit-ui-step]
 owns: []
 uses: []
 model: opus
@@ -55,9 +55,16 @@ Signatures, schemas and contracts this task builds or must keep, with file:symbo
 
 ## Expected outcome
 
+A re-sweep on a cleared floor passes the limits (pose-mean normal ~0.55 deg, height ~4 mm expected) and Apply puts the home floor at 0 +- 1 cm.
+
 What is true and observable when the task is done.
 
 ## Steps
+
+1. Write the failing tests (pose-mean limits, partly blocked pose, tilt roll recovery, defaults).
+2. Implement in floor_fit.py / config.py / floor_sweep.py and the node yaml.
+3. Update the READMEs and the runbook.
+4. Run the verify command and commit.
 
 Test first. One step per bullet, with the exact command and the output to expect.
 A retirement test asserts on `git ls-files <path>`, never on the filesystem.
