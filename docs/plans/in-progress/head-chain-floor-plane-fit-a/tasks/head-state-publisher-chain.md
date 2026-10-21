@@ -12,8 +12,8 @@ model: ""
 estimate: 40
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--head-state-publisher-chain
+branch: head-chain-floor-plane-fit-a--head-state-publisher-chain
 verified_head: ""
 run: ""
 provides: []

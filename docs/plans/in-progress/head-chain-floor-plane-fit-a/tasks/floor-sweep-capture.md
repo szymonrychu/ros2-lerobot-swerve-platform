@@ -12,8 +12,8 @@ model: ""
 estimate: 80
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--floor-sweep-capture
+branch: head-chain-floor-plane-fit-a--floor-sweep-capture
 verified_head: ""
 run: ""
 provides: []

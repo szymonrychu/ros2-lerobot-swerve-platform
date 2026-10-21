@@ -12,8 +12,8 @@ model: ""
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--head-chain-override-format
+branch: head-chain-floor-plane-fit-a--head-chain-override-format
 verified_head: ""
 run: ""
 provides: []
