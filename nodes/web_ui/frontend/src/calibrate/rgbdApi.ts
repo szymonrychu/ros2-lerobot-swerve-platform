@@ -61,6 +61,8 @@ export interface PoseSummary {
   rgb_corners: number
   tof_corners: number
   has_depth: boolean
+  /** Capture-time quality hints; absent on a node from before the hints. */
+  hints?: string[]
 }
 
 /** Image-area grid; counts[row][col] is the number of stored poses covering the cell. */
@@ -70,11 +72,23 @@ export interface Coverage {
   counts: number[][]
 }
 
+/** Reprojection errors of one pose in a compute result; null where the pose has no such view. */
+export interface PoseError {
+  id: string
+  rgb_error_px: number | null
+  tof_error_px: number | null
+  stereo_error_px: number | null
+  outlier: string[]
+}
+
 /** result.json of one compute run. */
 export interface ResultSummary {
   id: string
   created?: string | number
   passed: boolean
+  /** Per-pose reprojection errors; absent on a result from before the pose errors. */
+  poses?: PoseError[]
+  outlier_poses?: string[]
   [key: string]: unknown
 }
 
@@ -142,12 +156,30 @@ const isSessionSummary = (v: unknown) =>
   isObj(v) && isStr(v.id) && (isStr(v.created) || isNum(v.created)) && isNum(v.pose_count) && isNum(v.result_count)
 
 const isPose = (v: unknown) =>
-  isObj(v) && isStr(v.id) && isNum(v.rgb_corners) && isNum(v.tof_corners) && typeof v.has_depth === 'boolean'
+  isObj(v) &&
+  isStr(v.id) &&
+  isNum(v.rgb_corners) &&
+  isNum(v.tof_corners) &&
+  typeof v.has_depth === 'boolean' &&
+  (v.hints === undefined || isArrayOf(isStr)(v.hints))
 
 const isCoverage = (v: unknown) =>
   isObj(v) && isNum(v.cols) && isNum(v.rows) && isArrayOf(isArrayOf(isNum))(v.counts)
 
-const isResult = (v: unknown) => isObj(v) && isStr(v.id) && typeof v.passed === 'boolean'
+const isPoseError = (v: unknown) =>
+  isObj(v) &&
+  isStr(v.id) &&
+  isNullOr(isNum)(v.rgb_error_px) &&
+  isNullOr(isNum)(v.tof_error_px) &&
+  isNullOr(isNum)(v.stereo_error_px) &&
+  isArrayOf(isStr)(v.outlier)
+
+const isResult = (v: unknown) =>
+  isObj(v) &&
+  isStr(v.id) &&
+  typeof v.passed === 'boolean' &&
+  (v.poses === undefined || isArrayOf(isPoseError)(v.poses)) &&
+  (v.outlier_poses === undefined || isArrayOf(isStr)(v.outlier_poses))
 
 const isSession = (v: unknown) =>
   isObj(v) &&
@@ -166,6 +198,11 @@ const isAnyObject = (v: unknown) => isObj(v)
 /** Number of grid cells no stored pose covers. */
 export function emptyCells(coverage: Coverage): number {
   return coverage.counts.reduce((sum, row) => sum + row.filter((n) => n === 0).length, 0)
+}
+
+/** Pose errors of the newest result (`results[0]`, the node lists newest first) keyed by pose id; empty without one. */
+export function poseErrors(detail: SessionDetail): Map<string, PoseError> {
+  return new Map((detail.results[0]?.poses ?? []).map((p) => [p.id, p]))
 }
 
 /** Alert severity of a capture status line: captured is success, the three `still - ...` messages warn. */
