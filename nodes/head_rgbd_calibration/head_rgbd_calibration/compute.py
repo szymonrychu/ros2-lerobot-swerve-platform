@@ -9,7 +9,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ros2_common.head_rgbd_calibration.calibrate import calibrate_detections, failed_limits, report_markdown
+from ros2_common.head_rgbd_calibration.calibrate import (
+    calibrate_detections,
+    failed_limits,
+    outlier_pose_ids,
+    report_markdown,
+)
 from ros2_common.head_rgbd_calibration.extrinsics import write_extrinsics_yaml
 from ros2_common.head_rgbd_calibration.intrinsics import write_camera_calibration_yaml
 from ros2_common.head_rgbd_calibration.urdf_handoff import read_chain, rewrite_tof_joint, tof_joint_origin
@@ -51,7 +56,8 @@ def compute_result(store: SessionStore, sid: str, rid: str, cfg: NodeConfig, now
 
     Returns:
         The result.json content (id, session, created, passed, failed_limits, rgb_rms_px, tof_rms_px,
-        stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids, limits (every
+        stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids, poses (per-pose
+        errors and outlier fits), outlier_poses, limits (every
         acceptance limit used), plus `error`
         on failure).
     """
@@ -75,12 +81,22 @@ def compute_result(store: SessionStore, sid: str, rid: str, cfg: NodeConfig, now
         "stereo_pairs": None,
         "lens_position": views.lens_position,
         "pose_ids": views.pose_ids,
+        "poses": [],
+        "outlier_poses": [],
         "limits": cfg.limits.model_dump(),
     }
     try:
         if views.rgb_size is None or views.tof_size is None:
             raise ValueError("the session has no poses")
-        run = calibrate_detections(views.views, views.rgb_size, views.tof_size, views.tof_info, cfg.board, cfg.limits)
+        run = calibrate_detections(
+            views.views,
+            views.rgb_size,
+            views.tof_size,
+            views.tof_info,
+            cfg.board,
+            cfg.limits,
+            pose_ids=views.pose_ids,
+        )
         date = base["created"]
         exceeded = failed_limits(run, cfg.limits)
         result = {
@@ -94,6 +110,17 @@ def compute_result(store: SessionStore, sid: str, rid: str, cfg: NodeConfig, now
             "rgb_views": run.rgb.view_count,
             "tof_views": run.tof.view_count,
             "stereo_pairs": run.extrinsic.pair_count,
+            "poses": [
+                {
+                    "id": p.pose_id,
+                    "rgb_error_px": p.rgb_px,
+                    "tof_error_px": p.tof_px,
+                    "stereo_error_px": p.stereo_px,
+                    "outlier": list(p.outlier),
+                }
+                for p in run.poses
+            ],
+            "outlier_poses": outlier_pose_ids(run),
         }
         if not exceeded:
             urdf_text = Path(cfg.head_urdf_file).read_text()

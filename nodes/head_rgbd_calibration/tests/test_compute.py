@@ -190,3 +190,37 @@ def test_result_carries_the_limits(store: SessionStore, cfg: NodeConfig) -> None
     result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
     assert result["limits"] == cfg.limits.model_dump()
     assert result["limits"]["plane_max_bias_mm"] == 40.0
+
+
+def test_outlier_pose_named_in_result_and_report(store: SessionStore, cfg: NodeConfig) -> None:
+    sid = make_session(store, POSES)
+    bad = store.pose_ids(sid)[3]
+    path = store.pose_dir(sid, bad) / "pose.json"
+    meta = json.loads(path.read_text())
+    points = meta["rgb"]["points"]
+    for i in range(0, len(points), 2):
+        points[i][0] += 40.0
+    path.write_text(json.dumps(meta))
+    rid = store.new_result_id(NOW)
+    result = compute_result(store, sid, rid, cfg, NOW)
+    assert result["passed"] is False
+    assert result["outlier_poses"] == [bad]
+    entry = next(p for p in result["poses"] if p["id"] == bad)
+    assert "rgb" in entry["outlier"]
+    line = next(f for f in result["failed_limits"] if "limits.rgb_max_rms_px" in f)
+    assert f"delete pose {bad} and Compute again" in line
+    report = (store.result_dir(sid, rid) / "report.md").read_text()
+    assert "## Per-pose reprojection errors" in report and bad in report
+
+
+def test_clean_session_has_pose_errors_without_outliers(store: SessionStore, cfg: NodeConfig) -> None:
+    sid = make_session(store, POSES)
+    result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
+    assert result["outlier_poses"] == []
+    assert [p["id"] for p in result["poses"]] == store.pose_ids(sid)
+    assert all(isinstance(p["rgb_error_px"], float) and p["outlier"] == [] for p in result["poses"])
+
+
+def test_error_result_has_empty_pose_lists(store: SessionStore, cfg: NodeConfig) -> None:
+    result = compute_result(store, make_session(store, 3), store.new_result_id(NOW), cfg, NOW)
+    assert result["error"] and result["poses"] == [] and result["outlier_poses"] == []
