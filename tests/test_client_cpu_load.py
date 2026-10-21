@@ -87,3 +87,18 @@ def test_mcp_server_imu_baseline_keeps_its_time_constant() -> None:
     """The acceleration baseline EMA weight is per sample: alpha * rate stays 1/s (0.02 at 50 Hz -> 0.04 at 25 Hz)."""
     alpha = node_config("mcp_server")["monitor"]["imu_baseline_alpha"]
     assert 1 / (alpha * IMU_HZ) == IMU_BASELINE_TIME_CONSTANT_S
+
+
+HEAD_CAMERA_FPS = 15
+HEAD_CAMERA_FRAME_DURATION_US = 66666
+
+
+def test_head_camera_runs_at_15_fps() -> None:
+    """Encoding 30 ms frames at ~19 fps (nice 10) saturated the client; 15 fps halves the encode load."""
+    assert node_config("head_camera_cpp")["frame_duration_us"] == HEAD_CAMERA_FRAME_DURATION_US
+
+
+def test_head_camera_mapping_rate_fits_15_fps() -> None:
+    """The mapping stream and the marker detector are subsampled from the stream; neither may ask for more than it has."""
+    assert node_config("head_camera_cpp")["mapping"]["rate_hz"] <= HEAD_CAMERA_FPS
+    assert node_config("marker_detector")["process_hz"] <= HEAD_CAMERA_FPS

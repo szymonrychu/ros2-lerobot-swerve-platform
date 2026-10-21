@@ -335,7 +335,7 @@ ros2_node_type_defaults:
     colcon_purge:
       - package: camera_ros
         workspace: /opt/ros2-ws
-  # Head RGB camera (Camera Module 3 on CSI cam0): 30 fps /head_camera/* plus autofocused full-resolution zoom crops
+  # Head RGB camera (Camera Module 3 on CSI cam0): 15 fps /head_camera/* plus autofocused full-resolution zoom crops
   # (nodes/head_camera_cpp/README.md). It replaces pi_cameras and builds against the same pinned libcamera: the first
   # colcon_source dict is identical to pi_cameras' (repo, commit, meson_args, patch contents; the patch path is not part
   # of the stamp key), so the existing stamp matches and nothing rebuilds. The apt ros-jazzy-libcamera and
@@ -1402,6 +1402,8 @@ ros2_nodes:
     config: |
       camera_id: /base/axi/pcie@120000/rp1/i2c@88000/imx708@1a
       jpeg_quality: 70
+      # 15 fps: encoding ~30 ms per frame at nice 10 saturated the client and subscribers got 8.5 of ~19 fps. Code default 33333.
+      frame_duration_us: 66666
       metrics_port: 19116
       # Written by Apply on the Calibrate page, seeded from the committed file when absent; a missing file: no camera_info.
       camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml
@@ -2363,7 +2365,7 @@ ros2_nodes:
         path: /mcp
       topics:
         # Head RGB camera (tool camera `front`): Camera Module 3 on the pan/tilt head with the ToF, head_camera_cpp,
-        # 1152x648 at 30 fps, 16:9.
+        # 1152x648 at 15 fps, 16:9.
         head_camera: /head_camera/image_raw/compressed
         # Body monitor feeds (get_body_state, /robot_events): servo register dumps, swerve odom (twist covariance = slip
         # residual), rf2o twist, BNO055 IMU.

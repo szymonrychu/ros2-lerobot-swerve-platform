@@ -1,7 +1,7 @@
 # head_camera_cpp
 
 The head RGB camera node: an rclcpp node that owns the head Camera Module 3 (IMX708, CSI cam0) through libcamera. It
-publishes a 30 fps default stream (1152x648) and, on request, autofocused full-resolution zoom crops. The Camera Module 3
+publishes a default stream (30 fps by the code default, 15 fps deployed) (1152x648) and, on request, autofocused full-resolution zoom crops. The Camera Module 3
 and the Arducam ToF (`arducam_tof`, CSI cam1) form the robot head on the pan/tilt stand. The node replaces `camera_ros`
 and the retired `pi_cameras` node: nothing else opens the camera, and `pi_cameras` and `camera_ros` are gone from the
 client.
@@ -13,7 +13,7 @@ frame there is no message, and failed zooms publish no image.
 
 | Topic | Type | Direction | QoS | Content |
 |---|---|---|---|---|
-| `/head_camera/image_raw` | `sensor_msgs/Image` | publish | reliable, keep_last 1 | Default view, `width` x `height`, 30 fps; only encoded while a subscriber exists |
+| `/head_camera/image_raw` | `sensor_msgs/Image` | publish | reliable, keep_last 1 | Default view, `width` x `height`, `frame_duration_us` (30 fps by default, 15 fps deployed); only encoded while a subscriber exists |
 | `/head_camera/image_raw/compressed` | `sensor_msgs/CompressedImage` | publish | reliable, keep_last 1 | The same frame as JPEG (`jpeg_quality`); only encoded while a subscriber exists |
 | `/head_camera/camera_info` | `sensor_msgs/CameraInfo` | publish | reliable, keep_last 1 | With each frame, only with a calibration file (see below) |
 | `/head_camera/zoom/command` | `std_msgs/String` | subscribe | reliable, keep_last 10 | JSON zoom request |
@@ -75,7 +75,7 @@ is 0 where there is no image.
 
 **Timing.** Allow about 1.5-3 s for a request with autofocus (AF up to 2.5 s, mode switch up to 1.5 s, capture, then
 restore); the whole request is bounded by `zoom.watchdog_s` (6 s). The default stream pauses for the duration of the
-switch and restore and resumes at 30 fps afterwards.
+switch and restore and resumes at the configured rate afterwards (15 fps deployed).
 
 ## State machine
 
@@ -93,7 +93,7 @@ One request at a time (a second one gets `busy`). Phases:
    and when that fails too it exits with status 1 so systemd restarts the unit.
 
 A watchdog of `zoom.watchdog_s` over phases 1-3 turns into `timeout`; restore still runs. The result is published only
-after restore, so a consumer that gets it can rely on the 30 fps stream coming back.
+after restore, so a consumer that gets it can rely on the default stream coming back.
 
 ## Mapping stream
 
@@ -105,7 +105,7 @@ With `mapping.enabled: true` the node also publishes a small stream for the RGB-
 | `<ns>/mapping/camera_info` | `sensor_msgs/CameraInfo` | Calibration scaled to the mapping size, same header (stamp = capture stamp, `frame_id`) as the image |
 
 Both are best_effort, depth 1. Frames are resized (INTER_AREA), encoded and published only when due (at most `mapping.rate_hz`) and
-only while the image topic has a subscriber, so 30 fps input costs at most 2 encodes per second. Nothing is published
+only while the image topic has a subscriber, so the input rate (15 fps deployed) costs at most 2 encodes per second. Nothing is published
 while a zoom holds the camera in still mode.
 
 **Calibration requirement.** `camera_info` is published only when `camera_info_file` loads (the calibration is scaled with
@@ -156,7 +156,7 @@ invalid value, stop the node with exit code 78. Every error line names its key (
 | `sensor_mode` | `[2304, 1296]` | Sensor mode (width, height) of the default stream |
 | `width` | `1152` | Published image width; even, > 0 |
 | `height` | `648` | Published image height; even, > 0, same aspect as `sensor_mode` within 1 px |
-| `frame_duration_us` | `33333` | Frame duration in microseconds (33333 = 30 fps); > 0 |
+| `frame_duration_us` | `33333` | Frame duration in microseconds (33333 = 30 fps default; the deployed client sets 66666 = 15 fps); > 0 |
 | `af_mode` | `continuous` | Autofocus: `continuous`, `auto` or `manual` |
 | `lens_position` | `1.0` | Dioptres (>= 0): the focus-lock position while mapping and the position of `af_mode: manual` |
 | `mapping.enabled` | `false` | Enable the 2 Hz mapping stream (`<ns>/mapping/image_raw/compressed`, `<ns>/mapping/camera_info`) |
@@ -189,7 +189,7 @@ Prometheus text on `127.0.0.1:<metrics_port>/metrics` (default 19116; scraped th
 |---|---|---|---|
 | `head_camera_frames_captured_total` | counter | | Video frames delivered by the camera |
 | `head_camera_frames_published_total` | counter | `topic` (`image_raw`, `image_raw_compressed`, `camera_info`) | Messages published |
-| `head_camera_capture_fps` | gauge | | Frames per second delivered by the camera (30 expected) |
+| `head_camera_capture_fps` | gauge | | Frames per second delivered by the camera (the configured rate expected: 15 deployed) |
 | `head_camera_encode_seconds` | histogram | | JPEG encode time of one video frame |
 | `head_camera_zoom_requests_total` | counter | `status` | Zoom results by status |
 | `head_camera_zoom_phase_seconds` | histogram | `phase` (`af`, `switch`, `capture`, `restore`) | Time per zoom phase |
@@ -211,5 +211,20 @@ weights 100, `nice` 10). It is built with colcon into `/opt/ros2-ws` in this ord
 the build stamp is unchanged and nothing rebuilds. The apt `ros-jazzy-libcamera` and `ros-jazzy-camera-ros` packages
 must not be installed; `camera_ros` was purged from `/opt/ros2-ws` when `pi_cameras` was retired.
 
-Verify on the robot: `ros2 topic hz /head_camera/image_raw/compressed` shows about 30 Hz, `head_camera_capture_fps` is
+Verify on the robot: `ros2 topic hz /head_camera/image_raw/compressed` shows about 15 Hz, `head_camera_capture_fps` is
 about 30, and publishing a request on `/head_camera/zoom/command` yields an image and an `ok` result.
+
+## Deployed frame rate
+
+The client sets `frame_duration_us: 66666` (15 fps); the code default stays 33333 (30 fps). Encoding ~30 ms per frame at
+nice 10 saturated the Pi 5 client: 18.8 fps were encoded but subscribers received 8.5 fps and web_ui marked the topic
+stale. 15 fps saves about 0.12 core. Consumers checked for rate assumptions (none needs a config change):
+
+| Consumer | Setting | Result |
+|---|---|---|
+| marker_detector | `process_hz: 2.0` | Subsamples the stream; 2 of 15 frames. `process_hz` must stay <= 15 (`test_head_camera_mapping_rate_fits_15_fps`). |
+| mapping stream (head_rgbd_cpp, RTAB-Map) | `mapping.rate_hz: 2.0` | Encodes at most 2 per second from the stream; unaffected, bound <= 15 pinned by the same test. |
+| web_ui preview | `TOPIC_STALE_S = 10 s` (`web_ui/bridge.py`) | A stale topic needs 10 s without a frame; 15 fps is far inside it. |
+| mcp_server `front` tool | `timeouts.image_timeout_s: 5.0` | Waits for the next frame (about 67 ms at 15 fps) with a 5 s timeout; the frame-age limit is 1 s. Unaffected. |
+| autofocus | continuous AF / zoom windowed AF | AF runs on sensor frames and converges in frames; 15 fps slows each step by 33 ms, inside `zoom.af_timeout_s`. |
+| zoom mode switch | `FrameDurationLimits` | Set only by `video_controls` (stream start). The still capture uses `still_controls` and no frame-duration limit; restore restarts the stream through `video_controls`, so it resumes at 15 fps. |
