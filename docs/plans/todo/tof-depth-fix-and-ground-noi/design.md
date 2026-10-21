@@ -136,6 +136,7 @@ Cross-epic (`docs/plans/contracts.json`): `tof-depth-z` (consumers head-rgb-d-fu
 
 none
 - Q1: When applied/tof_calibration.yaml is missing, arducam_tof converts and publishes with the SDK factory K and logs a warning, rather than publishing no camera_info. OK? [recommended: yes]
+- Q2: Move the mcp_server obstacles_3d fixed-band summary to 0.10 m too, so the agent sees what the costmap sees (planned in tof-mark-band-ten-cm; needs an mcp_server deploy). OK? [recommended: yes]
 
 ## Irreversible operations in scope
 
