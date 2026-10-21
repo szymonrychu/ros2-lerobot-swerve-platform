@@ -1,6 +1,6 @@
 ---
 title: Ground cell temporal median
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Per-cell heights averaged over frames sit well below the 0.04 m step rule, so a flat floor stops producing steps and drops."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_median.hpp, nodes/ground_estimator_cpp/src/core/cell_median.cpp, nodes/ground_estimator_cpp/test/core/test_cell_median.cpp, nodes/ground_estimator_cpp/test/core/synthetic_floor.hpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--ground-cell-temporal-median
 branch: tof-depth-fix-and-ground-noi--ground-cell-temporal-median
-verified_head: ""
-run: ""
-provides: []
+verified_head: 02d79ef4ccac312c281c6a001dcb0e20450b81b2
+run: tof-depth-fix-and-ground-noi
+provides: [ground-cell-median]
+acs_for_audit: []
+process_gaps: ["TDD rule not followed: tests were written after the implementation and no red run was seen (no exception applies)."]
 ---
 
 # Ground cell temporal median

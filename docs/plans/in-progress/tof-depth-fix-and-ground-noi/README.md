@@ -36,7 +36,7 @@ A live capture on a flat wood floor (2026-10-21) showed a dome in the ToF floor 
 
 ## Time
 
-Estimate: 400 min | Actual: 0 min | Remaining estimate: 400 min
+Estimate: 400 min | Actual: 0 min | Remaining estimate: 60 min
 
 ## Review
 

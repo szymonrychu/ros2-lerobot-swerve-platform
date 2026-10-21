@@ -1,6 +1,6 @@
 ---
 title: Ground temporal wiring
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The ground node publishes steps, drops and obstacles from denoised cell heights on the robot."
 files: [nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--ground-temporal-wiring
 branch: tof-depth-fix-and-ground-noi--ground-temporal-wiring
-verified_head: ""
-run: ""
+verified_head: 64b3ebd63af7e0494fd4829a02a5934c23aa1248
+run: tof-depth-fix-and-ground-noi
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground temporal wiring

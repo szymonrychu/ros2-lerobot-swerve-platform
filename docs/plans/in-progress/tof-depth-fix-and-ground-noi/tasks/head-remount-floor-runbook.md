@@ -1,6 +1,6 @@
 ---
 title: Head remount floor runbook
-status: in-progress
+status: blocked
 repo: ros2-lerobot-sverve-platform
 value: "The robot is re-zeroed, recalibrated and shown to see a flat floor and a clear costmap, with the numbers written down."
 files: [docs/runbooks/head-remount-floor-check.md, tests/test_head_remount_runbook.py, docs/runbooks/ground-estimation.md, docs/runbooks/head-rgbd-fusion.md, docs/head-rgbd-fusion-methodology.md, MEMORY.md, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--head-remount-floor-runbook
 branch: tof-depth-fix-and-ground-noi--head-remount-floor-runbook
-verified_head: ""
-run: ""
+verified_head: c3a9ba2435424a46e7799c858b05dad6ef1111c3
+run: tof-depth-fix-and-ground-noi
 provides: []
+acs_for_audit: [a5]
+process_gaps: ["Results section must be filled from the robot run after merge and deploy (date, numbers, pass/fail per check)."]
 ---
 
 # Head remount floor runbook

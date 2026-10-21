@@ -1,6 +1,6 @@
 ---
 title: ToF calibrated K deploy
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The robot converts depth with the applied ToF calibration, and a new calibration reaches the conversion on Apply."
 files: [ansible/group_vars/client.yml, ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.service.j2, tests/test_head_rgbd_calibration_deploy.py, ansible/README.md, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--tof-calibrated-k-deploy
 branch: tof-depth-fix-and-ground-noi--tof-calibrated-k-deploy
-verified_head: ""
-run: ""
+verified_head: f5595e15c23ad54e6477b6e0fd00ed2e6244e732
+run: tof-depth-fix-and-ground-noi
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # ToF calibrated K deploy

@@ -1,6 +1,6 @@
 ---
 title: Head pan inverted
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A positive pan command turns the head left again, so head TF, calibration and the agent's head moves point where they say."
 files: [ansible/group_vars/client.yml, tests/test_head_servo_config.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--head-pan-inverted
 branch: tof-depth-fix-and-ground-noi--head-pan-inverted
-verified_head: ""
-run: ""
+verified_head: 71c9cb0f1f2a38c34cf6c4ff18097b980ce84bc1
+run: tof-depth-fix-and-ground-noi
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head pan inverted

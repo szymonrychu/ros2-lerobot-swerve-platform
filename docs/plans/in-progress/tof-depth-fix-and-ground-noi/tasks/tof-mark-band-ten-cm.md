@@ -1,6 +1,6 @@
 ---
 title: ToF mark band ten cm
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The local costmap and the collision monitor stop collecting floor noise as obstacles in front of the robot.
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_tof_voxel_layer.py, tests/test_nav_tof_collision.py, tests/test_nav_ground_voxel_layer.py, nodes/mcp_server/mcp_server/perception.py, nodes/mcp_server/mcp_server/tools.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--tof-mark-band-ten-cm
 branch: tof-depth-fix-and-ground-noi--tof-mark-band-ten-cm
-verified_head: ""
-run: ""
+verified_head: d612a7e41a79745424b4ba37a64202031cddf88d
+run: tof-depth-fix-and-ground-noi
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # ToF mark band ten cm
