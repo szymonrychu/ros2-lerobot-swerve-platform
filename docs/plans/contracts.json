@@ -163,5 +163,15 @@
       "head-rgb-d-fusion-of-camera"
     ],
     "note": "/head_camera/image_raw(/compressed) at 15 fps (head_camera_cpp frame_duration_us 66666, code default 33333 unchanged); mapping stream rate_hz and marker_detector process_hz stay <= 15; owner task head-camera-15-fps"
+  },
+  {
+    "name": "rgbd-pose-hints",
+    "kind": "schema",
+    "owner": "per-pose-quality-hints-in-th",
+    "file": "nodes/head_rgbd_calibration/head_rgbd_calibration/store.py",
+    "consumers": [
+      "head-and-arm-calibration-fro"
+    ],
+    "note": "rgbd pose.json gains hints: [str] (capture_hints, shared hints.py); GET /api/sessions/{sid} poses[].hints computed for older poses; fixture tests/fixtures/api/session.json; rgbd sessions only; owner task capture-corner-hints"
   }
 ]
