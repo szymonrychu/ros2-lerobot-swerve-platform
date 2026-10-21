@@ -1,6 +1,6 @@
 ---
 title: Head chain floor-plane fit after the mount reprint
-blockers: [Client CPU budget recovery after overload]
+blockers: []
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
