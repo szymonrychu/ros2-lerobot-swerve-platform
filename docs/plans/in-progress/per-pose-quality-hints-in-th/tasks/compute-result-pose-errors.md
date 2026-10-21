@@ -1,6 +1,6 @@
 ---
 title: Compute result pose errors
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: result.json and report.md tell which pose to delete before computing again.
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py, nodes/head_rgbd_calibration/tests/test_compute.py, nodes/head_rgbd_calibration/tests/fixtures/api/result.json]

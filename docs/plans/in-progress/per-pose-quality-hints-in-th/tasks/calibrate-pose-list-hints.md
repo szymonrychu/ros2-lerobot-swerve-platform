@@ -1,6 +1,6 @@
 ---
 title: Calibrate pose list hints
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The Calibrate page shows which pose is weak or an outlier, right next to its delete button."
 files: [nodes/web_ui/frontend/src/calibrate/rgbdApi.ts, nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts, nodes/web_ui/frontend/src/calibrate/RgbdCapture.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx]

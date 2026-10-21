@@ -1,6 +1,6 @@
 ---
 title: Capture corner hints
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The operator sees at capture time that a pose has too few corners and how to fix it.
 files: [shared/ros2_common/head_rgbd_calibration/hints.py, tests/test_head_rgbd_calib_hints.py, nodes/head_rgbd_calibration/head_rgbd_calibration/store.py, nodes/head_rgbd_calibration/head_rgbd_calibration/app.py, nodes/head_rgbd_calibration/tests/test_store.py, nodes/head_rgbd_calibration/tests/test_app.py, nodes/head_rgbd_calibration/tests/fixtures/api/session.json]

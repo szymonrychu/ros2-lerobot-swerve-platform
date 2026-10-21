@@ -1,6 +1,6 @@
 ---
 title: Per-pose errors and outliers
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Compute names the bad pose itself instead of failing with one opaque RMS number.
 files: [shared/ros2_common/head_rgbd_calibration/calibrate.py, shared/ros2_common/head_rgbd_calibration/extrinsics.py, tests/test_head_rgbd_calib_quality.py]

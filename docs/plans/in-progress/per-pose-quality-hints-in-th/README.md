@@ -2,7 +2,7 @@
 title: Per-pose quality hints in the RGB-D calibration capture
 blockers: []
 stage: build
-owner: ""
+owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-21
 ---
