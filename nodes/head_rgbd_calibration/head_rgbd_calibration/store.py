@@ -21,6 +21,7 @@ import numpy as np
 from ros2_common.head_rgbd_calibration.calibrate import PoseView
 from ros2_common.head_rgbd_calibration.charuco import Detection
 from ros2_common.head_rgbd_calibration.frames import CameraInfoData
+from ros2_common.head_rgbd_calibration.hints import capture_hints
 from ros2_common.head_rgbd_calibration.poses import CapturedPose
 
 from head_rgbd_calibration.config import NodeConfig
@@ -335,6 +336,7 @@ class SessionStore:
             "rgb": detection_json(pose.rgb.stamp_ns, pose.rgb_detection),
             "tof": detection_json(pose.amplitude.stamp_ns, pose.tof_detection),
             "depth_stamp_ns": None if pose.depth is None else int(pose.depth.stamp_ns),
+            "hints": capture_hints(pose.rgb_detection, pose.tof_detection, self.cfg.board),
         }
         rgb_h, rgb_w = pose.rgb.image.shape[:2]
         tof_h, tof_w = pose.amplitude.image.shape[:2]
@@ -358,6 +360,22 @@ class SessionStore:
             data["next_pose"] += 1
             write_json_atomic(self.session_dir(sid) / SESSION_FILE, data)
         return pid
+
+    def pose_hints(self, sid: str, pid: str) -> list[str]:
+        """Capture hints of a stored pose.
+
+        Args:
+            sid: Session id.
+            pid: Pose id.
+
+        Returns:
+            The pose.json hints, or hints computed from the stored detections when the pose predates them
+            (nothing is written back).
+        """
+        meta = json.loads((self.pose_dir(sid, pid) / POSE_FILE).read_text())
+        if "hints" in meta:
+            return list(meta["hints"])
+        return capture_hints(detection_from_json(meta["rgb"]), detection_from_json(meta["tof"]), self.cfg.board)
 
     def delete_pose(self, sid: str, pid: str) -> None:
         """Delete one pose directory (its id is not reused); NotFound when it does not exist."""

@@ -20,7 +20,7 @@ from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.jobs import Busy as JobBusy
 from head_rgbd_calibration.store import RESULT_FILE, NotFound, SessionStore
 from tests.contract import assert_matches_fixture, load_fixture
-from tests.pose_factory import make_pose
+from tests.pose_factory import few_rgb_corner_pose, make_pose
 
 RID = "r-20261019-123045"
 UNIT = "ros2-head_camera_cpp.service"
@@ -385,3 +385,18 @@ def test_apply_and_applied_match_the_fixtures(client: TestClient, store: Session
     assert_matches_fixture(applied, "applied")
     assert applied_response == applied
     assert applied["session"] == sid and applied["result"] == RID
+
+
+def test_session_endpoint_returns_pose_hints(client: TestClient, store: SessionStore) -> None:
+    sid = new_session(store)
+    store.add_pose(sid, few_rgb_corner_pose())
+    store.add_pose(sid, make_pose())
+    poses = client.get(f"/api/sessions/{sid}").json()["poses"]
+    assert poses[0]["hints"] == ["few corners: 6 RGB - move the board closer / fill the frame"]
+    assert poses[1]["hints"] == []
+
+
+def test_session_matches_contract_fixture(client: TestClient, store: SessionStore) -> None:
+    sid = new_session(store)
+    store.add_pose(sid, few_rgb_corner_pose())
+    assert_matches_fixture(client.get(f"/api/sessions/{sid}").json(), "session")

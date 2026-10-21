@@ -1,0 +1,37 @@
+{
+  "id": "calib-20261019-120000",
+  "created": "2026-10-19T12:00:00",
+  "lens_position": 1.5,
+  "poses": [
+    {
+      "id": "001",
+      "rgb_corners": 6,
+      "tof_corners": 20,
+      "has_depth": true,
+      "hints": [
+        "few corners: 6 RGB - move the board closer / fill the frame"
+      ]
+    }
+  ],
+  "coverage": {
+    "rgb": {
+      "cols": 1,
+      "rows": 1,
+      "counts": [
+        [
+          6
+        ]
+      ]
+    },
+    "tof": {
+      "cols": 1,
+      "rows": 1,
+      "counts": [
+        [
+          20
+        ]
+      ]
+    }
+  },
+  "results": []
+}
