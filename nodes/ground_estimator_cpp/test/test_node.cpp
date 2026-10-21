@@ -993,3 +993,34 @@ TEST_F(NodeTest, BoxOnNoisyFloorIsStillAnObstacle)
     EXPECT_GT(p.z(), 0.1);
   }
 }
+
+TEST_F(NodeTest, PlaneLossResetsTheCellHistoryAndGauge)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  config.fit.hold_s = 0.3;
+  config.temporal.max_age_s = 5.0;  // only the plane-loss reset can drop the history
+  start(config);
+  builtin_interfaces::msg::Time stamp;
+  for (int i = 0; i < config.temporal.min_frames; ++i) {
+    stamp = cloud_and_wait(noisy_floor(300 + i, true));
+  }
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  ASSERT_GT(xyz_of(*find_stamp(obstacle_, stamp)).size(), 10u);
+  EXPECT_GT(metric("ground_temporal_cells").value_or(0.0), 0.0);
+
+  const auto wall = scene_cloud(wall_scene());
+  builtin_interfaces::msg::Time wall_stamp;
+  for (int i = 0; i < 12; ++i) {
+    wall_stamp = publish_cloud(wall);
+    std::this_thread::sleep_for(milliseconds(static_cast<int>(CLOUD_PERIOD_S * 1000)));
+  }
+  ASSERT_TRUE(state_after(ns_of(wall_stamp), [](const json & d) { return d["plane"].is_null(); }).has_value());
+  EXPECT_EQ(metric("ground_temporal_cells").value_or(-1.0), 0.0);
+
+  // A flat floor cloud after the loss starts a new warm-up: stale box history would still give obstacle points.
+  const auto flat = cloud_and_wait(noisy_floor(400, false));
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, flat).has_value(); }));
+  EXPECT_EQ(xyz_of(*find_stamp(obstacle_, flat)).size(), 0u);
+}
