@@ -159,6 +159,14 @@ def test_shipped_config_lists_the_nodes() -> None:
         "laser_filter",
         "arducam_tof",
         "nav2_bringup_ground_layer",
+        "bno055_imu",
+        "swerve_controller",
+        "marker_detector",
+        "filter_node",
+        "lerobot_follower",
+        "base_servos",
+        "head_camera_cpp",
+        "costmap_zones",
     ]
     assert by_name["map_guard"].after_unit == "ros2-map_guard_cpp.service"
     for name in (
@@ -169,5 +177,13 @@ def test_shipped_config_lists_the_nodes() -> None:
         "laser_filter",
         "arducam_tof",
         "nav2_bringup_ground_layer",
+        "bno055_imu",
+        "swerve_controller",
+        "marker_detector",
+        "filter_node",
+        "lerobot_follower",
+        "base_servos",
+        "head_camera_cpp",
+        "costmap_zones",
     ):
         assert by_name[name].before_unit == by_name[name].after_unit
