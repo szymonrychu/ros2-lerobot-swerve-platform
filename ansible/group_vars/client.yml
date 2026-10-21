@@ -851,8 +851,9 @@ ros2_node_type_defaults:
   nav2_bringup:
     deploy_mode: native
     # SLAM runs as its own node (slam_toolbox, online async), so Nav2 starts without localization/map_server.
-    # Repo wrapper: stock bringup_launch.py (use_localization False, nav2_params.yaml) plus the namespaced grasp
-    # docking server (nodes/nav2_bringup/README.md, "Grasp docking server").
+    # Repo wrapper: its own nav2 component container plus the repo navigation_launch.py (no localization,
+    # bond_timeout 0, no route/waypoint/stock docking servers, exits when the container dies) and the namespaced
+    # grasp docking server (nodes/nav2_bringup/README.md, "Grasp docking server").
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/nav2_bringup/launch/nav2_launch.py"
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.

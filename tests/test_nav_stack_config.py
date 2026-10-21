@@ -512,7 +512,7 @@ def navigation_lifecycle_nodes() -> list[str]:
     raise AssertionError("lifecycle_nodes not assigned in navigation_launch.py")
 
 
-def test_navigation_lifecycle_excludes_unused_servers() -> None:
+def test_lifecycle_nodes_exclude_unused_servers() -> None:
     nodes = navigation_lifecycle_nodes()
     assert set(nodes).isdisjoint(DROPPED_NAV2_SERVERS)
     assert nodes == KEPT_NAV2_SERVERS
@@ -531,7 +531,7 @@ def test_nothing_in_the_repo_calls_the_dropped_servers() -> None:
             assert not pattern.search(line), f"{path}:{number} uses a dropped server"
 
 
-def test_lifecycle_managers_have_bonds_disabled() -> None:
+def test_lifecycle_bond_timeout_is_zero() -> None:
     """bond_timeout 0.0 makes the lifecycle manager skip bond creation (no ~95 Hz bond traffic, no bond-miss reset)."""
     source = NAV2_NAVIGATION_LAUNCH.read_text()
     assert source.count('"bond_timeout": 0.0') == 2  # composable + standalone lifecycle manager
@@ -539,7 +539,7 @@ def test_lifecycle_managers_have_bonds_disabled() -> None:
     assert call_kwarg(grasp, "parameters")[0]["bond_timeout"] == 0.0
 
 
-def test_container_exit_shuts_the_launch_down() -> None:
+def test_container_exit_shuts_down_launch() -> None:
     """A dead component container must end the launch (non-zero service exit) so systemd Restart= restarts nav2."""
     containers = [c for c in launch_calls("Node") if call_kwarg(c, "executable") == "component_container_isolated"]
     assert len(containers) == 1
