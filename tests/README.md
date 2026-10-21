@@ -36,6 +36,27 @@ URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.p
 | `test_xyz_rpy_round_trip` | xyz/rpy to pose and back within 1e-12. |
 | `test_arm_in_robot_base_default_gauge` | The default gauge maps the arm root to (0.0592, -0.05, 0.100); yaw rotates the arm axes. |
 
+### `test_head_floor_fit.py`
+
+Floor-plane head chain fit (`shared/ros2_common/head_rgbd_calibration/floor_fit.py`, design D2-D4) on `nodes/web_ui/urdf/head.urdf`, with clouds from `tests/head_floor_synthetic.py`. Truth chain: mount z +0.03 m, roll +1.5 deg, pitch -3.0 deg, tilt zero +2.0 deg.
+
+| Test | Description |
+|------|-------------|
+| `test_floor_fit_config_defaults_and_ranges` | `FloorPlaneConfig`, `FloorFitLimits`, `FloorFitConfig` defaults; out-of-range values, a candidate band not above the RANSAC distance and unknown keys are rejected. |
+| `test_predicted_floor_at_zero_is_035_m_below_along_optical_minus_y` | Pan 0, tilt 0 on the URDF: height 0.35 m (0.31 + 0.04) and the normal along optical -y. |
+| `test_predicted_floor_tilt_down_turns_floor_toward_view` | Tilt down gives the normal a -z optical component; an origin override (`Origin` or (xyz, rpy)) raises the height. |
+| `test_fit_plane_recovers_known_plane_with_noise_and_outliers` | Three poses, 5 mm noise, 20 % wall outliers: height within 2 mm, normal within 0.1 deg, inlier RMS about the noise. |
+| `test_fit_plane_none_for_too_few_floor_points` | 200 floor points (also padded with NaN), points beyond `max_range_m`, and a cloud whose inlier ratio is below `min_inlier_ratio` give None. |
+| `test_fit_recovers_mount_and_tilt_zero_from_15_pose_grid` | Pan -60..60 step 30 x tilt 12/20/28 deg, 5 clouds per pose, 5 mm noise: each parameter within 2 mm or 0.15 deg, `passed`, fixed components (mount x, y, yaw, tilt xyz, roll, yaw) exactly the URDF values, per-pose residuals, strict-JSON `to_json`. |
+| `test_pan_zero_only_grid_fails_pan_span` | A pan-0-only grid fails `min_pan_span_deg` and does not pass. |
+| `test_too_few_observations_fails_without_solver` | 15 observations fail `min_observations` only, the solver is not called and the URDF values are kept; no observations also fail `min_poses` and `min_pan_span_deg`. |
+| `test_height_bias_fails_delta_limit` | A 0.2 m height bias fails `max_delta_z_m`. |
+| `test_30mm_noise_fails_rms_limit` | 30 mm height noise fails `max_height_rms_mm`. |
+
+### `head_floor_synthetic.py`
+
+Shared helper module (no tests) for `test_head_floor_fit.py`: `synthetic_clouds(urdf_text, truth_origins, grid, noise_m, outlier_ratio, rng, clouds_per_pose, rays)` returns `SyntheticCloud(pose, pan_rad, tilt_rad, points)`: floor points (base_link z = 0) inside the ToF field of view (60 x 45 deg, 0.3-1.8 m) seen through the truth chain, plus points of a vertical wall 1.2 m ahead as outliers, with Gaussian noise, in `tof_optical_frame`.
+
 ### `test_master2master_config.py`
 
 Unit tests for master2master topic proxy config parsing (`nodes/master2master/master2master/config.py`). Imports from `nodes/master2master` via path setup.
