@@ -55,17 +55,19 @@ Notes: `nodes/ground_estimator_cpp/test/data/state_example.json` is a sample doc
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Defaults only: traversability.max_slope_deg 15.0 and fit.smoothing 0.2 in config.hpp, config/ground_estimator.yaml and client.yml (contract ground-traversability-rule).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS and `uv run pytest tests/test_ground_estimator_deploy.py -q` PASS with the new defaults; a 14 deg ramp is a warning, 17 deg an obstacle.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- update the pins in test_config.cpp, test_state.cpp, test_traversability.cpp (15 / 15.01, 14 / 17 deg) and test_node.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL against the old defaults
+- change the defaults in config.hpp, the yaml and client.yml
+- run the verify command, see PASS; commit `feat(ground_estimator_cpp): 15 deg ramp rule and plane smoothing 0.2`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

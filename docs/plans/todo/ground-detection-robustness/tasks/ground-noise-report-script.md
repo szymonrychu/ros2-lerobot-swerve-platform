@@ -51,17 +51,19 @@ Notes: root `poe lint` covers only tests and shared, so the verify command lints
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+CLI: `python scripts/ground_noise_report.py <config.yaml> <capture.ndjson> <scene>`; prints one JSON summary; exit 0 when every metric of the scene passes, 1 otherwise.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_noise_report.py -q` PASS; ruff clean on the script.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write tests/test_ground_noise_report.py with tmp_path NDJSON fixtures
+- run `uv run pytest tests/test_ground_noise_report.py -q`, see FAIL (no script)
+- write scripts/ground_noise_report.py and scripts/ground_noise_report.yaml
+- run the verify command, see PASS; commit `feat(scripts): ground noise report`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

@@ -7,7 +7,7 @@ files: [nodes/ground_estimator_cpp/README.md, tests/test_ground_estimator_readme
 verify: "uv run pytest tests/test_ground_estimator_readme.py tests/test_ground_docs.py -q && uv run poe lint"
 depends_on: [node-stable-classes, costmap-cell-keyed-warnings]
 owns: []
-uses: [ground-warning-areas, ground-traversability-rule]
+uses: [stable-warning-areas, ground-traversability-rule]
 model: ""
 estimate: 45
 actual: ""
@@ -51,17 +51,19 @@ Notes: `tests/test_ground_docs.py` and `docs/runbooks/ground-estimation.md` belo
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Docs only; doc pins in tests/test_ground_estimator_readme.py and tests/test_ground_docs.py.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_estimator_readme.py tests/test_ground_docs.py -q` PASS; README, runbook and MEMORY.md state the 15 deg rule and the robustness settings.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- add test_readme_documents_robustness and move the 6 / 8 deg scene pins to 13 / 15 deg
+- run `uv run pytest tests/test_ground_estimator_readme.py tests/test_ground_docs.py -q`, see FAIL
+- write the README Robustness section, the runbook threshold text, the MEMORY.md section and tests/README.md
+- run the verify command, see PASS; commit `docs(ground_estimator_cpp): robustness settings and the 15 deg rule`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

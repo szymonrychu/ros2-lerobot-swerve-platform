@@ -53,17 +53,19 @@ Notes: measured on the robot: RGB-D labels flip in 30-59% of frames at some cell
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+CellClass, CellClassFilter, StableArea in cell_class.hpp (part cell-class-filter).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the new test_cell_class gtest; single-frame lethal noise never marks a cell, flipping cells settle, stable areas keep identical polygons.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write test/core/test_cell_class.cpp (the CMake glob adds it)
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL (no cell_class.hpp)
+- implement cell_class.hpp / cell_class.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see PASS; commit `feat(ground_estimator_cpp): per-cell class hysteresis`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

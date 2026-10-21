@@ -56,17 +56,20 @@ Notes: measured on the robot: ramp slope p50 5.7 deg, p90 7.2-7.6 deg against a 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Cluster::edge_step_m (p50), Cluster::slope_deg (robust fit), Cluster::slope_known in edges.hpp (part robust-slope); ramp and sparse-sampling helpers in synthetic_floor.hpp (part ramp-synthetic-scene).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS; the sparse 14.1 deg ramp reads 14.1 +- 1.5 deg at p50 through the cell median, aligned and misaligned; the 5 cm box edge reads 0.05 m.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- add the ramp and sparse helpers to synthetic_floor.hpp
+- write the ramp-slope, 25 deg, box-top, small-cluster and edge-step tests in test_edges.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL (PCA slope ~6 deg, p90 edge step)
+- implement the p50 edge step and the per-bin robust slope with slope_known
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see PASS; commit `feat(ground_estimator_cpp): median edge step and robust ramp slope`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

@@ -52,17 +52,19 @@ Notes: deploy only through scripts/deploy-nodes.sh, never ansible-playbook; topi
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Doc only; pinned by tests/test_ground_robustness_runbook.py; thresholds equal scripts/ground_noise_report.yaml.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_robustness_runbook.py -q` PASS; the orchestrator can run every scene from the doc after deploy and fill Results.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write tests/test_ground_robustness_runbook.py
+- run `uv run pytest tests/test_ground_robustness_runbook.py -q`, see FAIL (no runbook)
+- write docs/runbooks/ground-robustness.md and tests/README.md
+- run the verify command, see PASS; commit `docs(runbooks): ground robustness static runbook`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

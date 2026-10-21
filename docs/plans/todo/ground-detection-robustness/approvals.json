@@ -1,0 +1,65 @@
+[
+  {
+    "id": "A1",
+    "text": "Fix 1: per-cell temporal spread gate in cell_median (configurable, replaces a range cap); noisy cells are unknown, never lethal, never a drop or step edge.",
+    "decisions": ["D3", "D13"],
+    "tasks": ["robust-config-keys", "cell-spread-gate", "node-stable-classes"],
+    "status": "approved"
+  },
+  {
+    "id": "A2",
+    "text": "Fix 2: step height from the p50 of the edge band plus per-cell class hysteresis (N of M frames, configurable); the 5 cm box stays an obstacle, a 3 cm sill stays a warning.",
+    "decisions": ["D1", "D4", "D5"],
+    "tasks": ["edge-step-and-ramp-slope", "cell-class-hysteresis", "node-stable-classes"],
+    "status": "approved"
+  },
+  {
+    "id": "A3",
+    "text": "Fix 3: colour-mismatch clusters are warning-only, never lethal.",
+    "decisions": ["D6"],
+    "tasks": ["lethal-point-gates"],
+    "status": "approved"
+  },
+  {
+    "id": "A4",
+    "text": "Fix 4: single-point lethal marks removed: unclustered lethal points need >= 2 points or persistence over frames.",
+    "decisions": ["D7"],
+    "tasks": ["robust-config-keys", "lethal-point-gates", "node-stable-classes"],
+    "status": "approved"
+  },
+  {
+    "id": "A5",
+    "text": "Fix 5: warning areas from per-odom-cell hysteresis; costmap_zones keys areas by cell instead of the 3 s TTL union and publishes only on change.",
+    "decisions": ["D5", "D8", "D9"],
+    "tasks": ["cell-class-hysteresis", "node-stable-classes", "costmap-cell-keyed-warnings"],
+    "status": "approved"
+  },
+  {
+    "id": "A6",
+    "text": "Fix 6: plane smoothing fit.smoothing 0.5 -> 0.2 after the spread gate.",
+    "decisions": ["D10", "D13"],
+    "tasks": ["slope-and-smoothing-defaults"],
+    "status": "approved"
+  },
+  {
+    "id": "A7",
+    "text": "Fix 7: ramp rule max_slope_deg 15 validated against the tilt_guard error limits, and a robust slope estimate for sparse surfaces (robust fit, minimum support, hysteresis) so a 14 deg ramp is a stable warning.",
+    "decisions": ["D2", "D5", "D11", "D13"],
+    "tasks": ["robust-config-keys", "slope-and-smoothing-defaults", "edge-step-and-ramp-slope", "lethal-point-gates", "cell-class-hysteresis"],
+    "status": "approved"
+  },
+  {
+    "id": "A8",
+    "text": "Fix 8: static runbook (no driving, head moves allowed) on the user's scene, 2 min per object: box obstacle >= 95%, ramp warning >= 90% with slope within +-3 deg of 14, board no lethal, empty floor 0 lethal points p95, warning-area churn < 10%; numbers recorded. Executed by the orchestrator after deploy.",
+    "decisions": ["D12"],
+    "tasks": ["ground-noise-report-script", "ground-robustness-runbook", "ground-robustness-docs"],
+    "status": "approved"
+  },
+  {
+    "id": "A9",
+    "text": "User ground truth: the box is exactly 5 cm (an obstacle under the 1/3-wheel rule); the 25 cm / 63 mm ramp is a safe skew (a warning).",
+    "decisions": ["D1", "D2"],
+    "tasks": ["slope-and-smoothing-defaults", "node-stable-classes", "ground-robustness-docs"],
+    "status": "approved"
+  }
+]

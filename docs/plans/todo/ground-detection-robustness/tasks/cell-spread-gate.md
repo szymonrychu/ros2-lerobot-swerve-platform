@@ -55,17 +55,19 @@ Notes: the spread is over per-frame cell medians, not over raw points, so the ex
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+CellMedianFilter::apply unchanged; new CellMedianFilter::gated_cell_count() (part spread-gate).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS; far-band noisy cells output no points, floor and box cells stay visible.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the far-band, floor, box, outlier and recovery tests in test_cell_median.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL on the far-band test
+- implement the MAD spread gate and gated_cell_count
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see PASS; commit `feat(ground_estimator_cpp): per-cell temporal spread gate`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

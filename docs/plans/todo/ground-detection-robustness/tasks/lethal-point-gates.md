@@ -54,17 +54,19 @@ Notes: live capture: colour-warning slopes p50 6.0, max 8.0 deg, so colour clust
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+colour_warning_areas without the obstacle out-param; WarningArea without cls; Traversability::warning_above / warning_below; apply_rule with the cluster tolerance (part lethal-gates).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS; colour clusters are warnings only, isolated unclustered returns are not lethal.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- rewrite ColourPlateIsObstacle as ColourPlateIsWarningOnly and add the lethal_min_points, slope_known and warning-points tests in test_traversability.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- implement the rule changes in traversability.cpp and follow the API in ground_node.hpp / ground_node.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see PASS; commit `fix(ground_estimator_cpp): colour warning-only and multi-point lethal marks`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

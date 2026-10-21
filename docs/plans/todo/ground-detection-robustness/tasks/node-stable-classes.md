@@ -62,17 +62,19 @@ Notes: no placeholder data: a cell held lethal publishes only the points seen in
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+/ground/obstacle_points, /ground/drop_points, /ground/warning_areas and /ground/state keep their schemas; polygons are cell-aligned and stable (part stable-warning-areas); new gauges ground_temporal_gated_cells, ground_stable_lethal_cells, ground_stable_warning_cells.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the new NodeTest scenes: empty floor 0 lethal at p95, box lethal >= 95%, ramp warning >= 90%, warning areas identical in >= 90% of frame pairs.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the far-band, box, sill, ramp, churn, colour and gauge NodeTests in test/test_node.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see FAIL
+- wire CellClassFilter, the stable lethal clouds, the stable warning areas, region classes and gauges in ground_node.hpp / ground_node.cpp
+- run `scripts/cpp-node-test.sh ground_estimator_cpp`, see PASS; commit `feat(ground_estimator_cpp): publish stable cell classes`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

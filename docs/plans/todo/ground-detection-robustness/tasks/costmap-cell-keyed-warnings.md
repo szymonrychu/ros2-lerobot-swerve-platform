@@ -58,17 +58,19 @@ Notes: live: costmap_zones kept each message 3 s, so 30-60 areas were active at 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Input contract ground-warning-areas unchanged (GroundWarningMessage, GroundArea); GroundWarningStore keyed by map cell; new GROUND_CELLS gauge.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/costmap_zones && uv run --frozen pytest tests -q` PASS with the new cell-store tests; masks republish only when the active cell set changes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the new tests in tests/test_ground_warnings.py and adapt the existing ground tests
+- run `cd nodes/costmap_zones && uv run --frozen pytest tests/test_ground_warnings.py -q`, see FAIL
+- implement the cell store, the mask key and the raster helper; update config.py, metrics.py, README and the client.yml comment
+- run the verify command, see PASS; commit `feat(costmap_zones): cell-keyed ground warnings`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.

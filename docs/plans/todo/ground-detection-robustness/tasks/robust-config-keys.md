@@ -63,17 +63,19 @@ Notes: keep the existing comment `0 < v <= min(slope.roll_warn_deg, slope.pitch_
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+HysteresisConfig, TemporalConfig::max_spread_m, TraversabilityConfig::lethal_min_points, EdgesConfig::slope_bin_m and EdgesConfig::slope_min_cells in config.hpp (part robust-config); the client.yml ground config stays equal to config/ground_estimator.yaml.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` prints `cpp-node-test: ground_estimator_cpp PASS` with the new test_config cases; `uv run pytest tests/test_ground_estimator_deploy.py -q` passes with test_robustness_keys_present; the node's behaviour is unchanged.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- rebase onto main after head-chain-floor-plane-fit-a merged (client.yml)
+- write the test_config.cpp cases and the deploy test changes; run `scripts/cpp-node-test.sh ground_estimator_cpp` and `uv run pytest tests/test_ground_estimator_deploy.py -q`, see FAIL on the new keys
+- add the keys and validation in config.hpp / config.cpp, the yaml entries and the client.yml mirror
+- run the verify command, see PASS; commit `feat(ground_estimator_cpp): robustness config keys`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.
