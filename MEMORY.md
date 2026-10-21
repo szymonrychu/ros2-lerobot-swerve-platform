@@ -253,3 +253,5 @@
 ## Head remount: ToF z-depth and ground noise (2026-10-21)
 
 - **Decision**: after the pan/tilt mount reprint the SDK depth is radial (not z); arducam_tof converts it to z in arducam_tof with the calibrated K and publishes that K. The head_pan servo is mounted reversed (`inverted: true`, +pan = left, CCW from above). ground_estimator_cpp takes a per-cell (10 cm) temporal median of plane-relative heights before segmentation. The ToF obstacle band (STVL tof_mark and collision monitor tof_obstacles) is 10 cm. The obstacle vs warning rule unchanged (max step 0.04 m, max slope 8 deg). Robot runbook: `docs/runbooks/head-remount-floor-check.md`.
+
+- CPU budget (2026-10-21): client saturated (~3.7 cores); decisions: rclpy EventsExecutor per node with `executor: single_threaded` config rollback, IMU 25 Hz, head camera 15 fps, client Alloy scrape 15 s; measured by `docs/runbooks/client-cpu-budget.md`.

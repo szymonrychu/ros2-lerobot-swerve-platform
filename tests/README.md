@@ -3182,3 +3182,13 @@ Static pins for `docs/runbooks/head-remount-floor-check.md`, the robot runbook a
 | `test_other_docs_link_and_state_z_depth` | ground-estimation links the runbook; fusion runbook and methodology state z-depth and the plane bias effect. |
 | `test_memory_records_the_decision` | The MEMORY.md entry. |
 | `test_tests_readme_lists_this_file` | This section exists. |
+
+### `test_cpu_budget_runbook.py`
+
+Static pins for `docs/runbooks/client-cpu-budget.md` (client CPU budget measurement runbook) and the new entries of `scripts/node_cpu_compare.yaml`. Reads docs and YAML only.
+
+| Test | Covers |
+|---|---|
+| `test_runbook_has_every_section` | Before, Deploy, After, Checks, Expected savings, Rollback in order; the eight savings and the measurement queries. |
+| `test_runbook_deploys_only_through_deploy_nodes` | Deploy lines use `scripts/deploy-nodes.sh` with a tee to `.logs/`; no `ansible-playbook`. |
+| `test_cpu_compare_lists_every_changed_unit` | node_cpu_compare.yaml has an entry for each of the eleven changed units and keeps the existing ones. |
