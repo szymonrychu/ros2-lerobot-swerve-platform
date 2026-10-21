@@ -68,6 +68,9 @@ result.json gains `poses: [{id, rgb_error_px, tof_error_px, stereo_error_px, out
 
 `./scripts/deploy-nodes.sh client head_rgbd_calibration web_ui`, logged to `.logs/`; then a robot check on the session with pose 007 (hint visible, a fresh Compute flags it). User decision. Serves A4.
 
+### D8: Gate Q1 (recommended answer, 2026-10-21): few-corners hint w
+Gate Q1 (recommended answer, 2026-10-21): few-corners hint when a camera sees fewer than half of the 20 inner corners (10) (user decision)
+
 ## Research
 
 | Lens | Ran | Adopted ideas | Rejected ideas |
@@ -100,6 +103,7 @@ result.json gains `poses: [{id, rgb_error_px, tof_error_px, stereo_error_px, out
 | D5 Capture hints | capture-corner-hints |
 | D6 API shapes and tolerant UI | compute-result-pose-errors, calibrate-pose-list-hints |
 | D7 Deploy | hints-docs-and-deploy |
+| D8 Gate Q1 (recommended answer, 2026-10-21): few-corners hint w | capture-corner-hints |
 
 ## Contracts
 

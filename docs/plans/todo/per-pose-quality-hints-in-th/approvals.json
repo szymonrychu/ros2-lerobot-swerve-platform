@@ -2,29 +2,65 @@
   {
     "id": "A1",
     "text": "Compute records per-pose reprojection errors for the RGB, ToF and stereo fits in the CalibrationRun, result.json and report.md, flags a pose as an outlier when its error > max(3 x median, the matching limit), report.md lists flagged poses with 'delete pose NNN and Compute again', and a failed limit caused by a flagged pose says so; hints only, no automatic pruning.",
-    "decisions": ["D1", "D2", "D3", "D4"],
-    "tasks": ["per-pose-errors-and-outliers", "compute-result-pose-errors"],
+    "decisions": [
+      "D1",
+      "D2",
+      "D3",
+      "D4"
+    ],
+    "tasks": [
+      "per-pose-errors-and-outliers",
+      "compute-result-pose-errors"
+    ],
     "status": "approved"
   },
   {
     "id": "A2",
     "text": "Each captured pose gets a capture-time quality hint from its RGB and ToF corner counts (e.g. 'few corners: 6 RGB - move the board closer / fill the frame'), stored in pose.json and returned by the session API.",
-    "decisions": ["D5"],
-    "tasks": ["capture-corner-hints"],
+    "decisions": [
+      "D5"
+    ],
+    "tasks": [
+      "capture-corner-hints"
+    ],
     "status": "approved"
   },
   {
     "id": "A3",
     "text": "The web_ui Calibrate page RGB-D pose list shows the capture hint and, after a Compute, each pose's RGB/ToF/stereo error with flagged poses highlighted and a one-line hint ('high error - delete and Compute again'); the existing delete-pose action stays the way to act on it.",
-    "decisions": ["D1", "D6"],
-    "tasks": ["calibrate-pose-list-hints"],
+    "decisions": [
+      "D1",
+      "D6"
+    ],
+    "tasks": [
+      "calibrate-pose-list-hints"
+    ],
     "status": "approved"
   },
   {
     "id": "A4",
     "text": "Tests for each part (shared lib unit tests with a synthetic outlier view, node API tests, frontend tests), READMEs and tests/README.md; head_rgbd_calibration and web_ui deployed via scripts/deploy-nodes.sh.",
-    "decisions": ["D7"],
-    "tasks": ["per-pose-errors-and-outliers", "capture-corner-hints", "compute-result-pose-errors", "calibrate-pose-list-hints", "hints-docs-and-deploy"],
+    "decisions": [
+      "D7"
+    ],
+    "tasks": [
+      "per-pose-errors-and-outliers",
+      "capture-corner-hints",
+      "compute-result-pose-errors",
+      "calibrate-pose-list-hints",
+      "hints-docs-and-deploy"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G1",
+    "text": "Gate Q1 (recommended answer, 2026-10-21): few-corners hint when a camera sees fewer than half of the 20 inner corners (10)",
+    "decisions": [
+      "D8"
+    ],
+    "tasks": [
+      "capture-corner-hints"
+    ],
     "status": "approved"
   }
 ]
