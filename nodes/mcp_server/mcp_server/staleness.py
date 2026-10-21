@@ -1,9 +1,13 @@
 """Data age bookkeeping: every cached ROS sample carries the monotonic time it was received."""
 
+import logging
 import threading
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 
 def age_s(stamp: float | None, now: float) -> float | None:
@@ -149,6 +153,52 @@ class MonitorFeed:
             return False
         self.hook(sample.value)
         return True
+
+
+class QueuedMonitorFeed(MonitorFeed):
+    """Keeps every sample received since the last flush (bounded, oldest dropped) and feeds them all, in arrival order."""
+
+    def __init__(self, hook: Callable[[Any], None], max_samples: int, name: str = "monitor") -> None:
+        """Create an empty queue.
+
+        Args:
+            hook (Callable[[Any], None]): Called with each decoded message, oldest first.
+            max_samples (int): Queue bound; when full the oldest sample is dropped undecoded.
+            name (str): Label used in the dropped-samples log line.
+        """
+        super().__init__(hook)
+        self.name = name
+        self.queue: deque[LazyStamped] = deque(maxlen=max_samples)
+        self.dropped = 0  # total samples dropped because the queue was full
+        self.dropped_unreported = 0
+
+    def offer(self, sample: LazyStamped) -> None:
+        """Append a sample, dropping (and counting) the oldest when the queue is full.
+
+        Args:
+            sample (LazyStamped): Newest received sample.
+        """
+        with self.lock:
+            if len(self.queue) == self.queue.maxlen:
+                self.dropped += 1
+                self.dropped_unreported += 1
+            self.queue.append(sample)
+
+    def flush(self) -> bool:
+        """Decode and feed every queued sample in arrival order.
+
+        Returns:
+            bool: True when the hook was called at least once.
+        """
+        with self.lock:
+            samples = list(self.queue)
+            self.queue.clear()
+            dropped, self.dropped_unreported = self.dropped_unreported, 0
+        if dropped:
+            LOGGER.warning("%s feed queue full: dropped %d oldest samples", self.name, dropped)
+        for sample in samples:
+            self.hook(sample.value)
+        return bool(samples)
 
 
 def sample_ages(latest: Mapping[str, "Stamped[Any] | LazyStamped"], now: float) -> dict[str, float]:
