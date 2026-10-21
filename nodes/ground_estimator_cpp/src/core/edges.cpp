@@ -4,9 +4,16 @@
 #include <pcl/segmentation/extract_clusters.h>
 
 #include <Eigen/Eigenvalues>
+#include <Eigen/QR>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
+#include <map>
 #include <memory>
+#include <optional>
+#include <set>
+#include <utility>
 
 namespace ground_estimator_cpp
 {
@@ -16,11 +23,21 @@ namespace
 
 constexpr double RAD_TO_DEG = 180.0 / M_PI;
 constexpr double NEAR_EDGE_PERCENTILE = 0.1;
-constexpr double STEP_PERCENTILE = 0.9;
+constexpr double STEP_PERCENTILE = 0.5;
 constexpr double LOW_PERCENTILE = 0.1;
 constexpr double HIGH_PERCENTILE = 0.9;
 constexpr double MEDIAN = 0.5;
 constexpr double MIN_AXIS_NORM = 1e-9;
+constexpr double LEVEL_STEP_M = 1e-6;          // heights equal to this are one level set (one temporal cell)
+constexpr double MIN_BIN_SPAN_FRACTION = 0.5;  // bin centres this many bin edges apart are distinct bins along an axis
+constexpr double HUBER_K = 1.345;              // Huber tuning constant, in robust standard deviations
+constexpr double MAD_TO_SIGMA = 1.4826;        // MAD to standard deviation for Gaussian residuals
+constexpr double MIN_RESIDUAL_SCALE_M = 1e-3;  // robust residual scale floor, so a noise-free fit keeps unit weights
+constexpr int IRLS_ITERATIONS = 20;
+constexpr double IRLS_TOLERANCE = 1e-9;  // change of the fit coefficients that ends the iterations
+constexpr double RANK_THRESHOLD = 1e-8;  // relative pivot below which a direction of the fit is undetermined
+// Fewest samples of a plane fit.
+constexpr std::size_t MIN_SLOPE_SAMPLES = 3;
 constexpr const char * KIND_DROP = "drop";
 constexpr const char * KIND_STEP = "step";
 
@@ -65,8 +82,128 @@ std::vector<Eigen::Vector2d> convex_hull(std::vector<Eigen::Vector2d> pts)
   return hull;
 }
 
+// One sample of the slope fit: centroid in base_link xy and plane-relative height.
+struct SlopeSample
+{
+  Eigen::Vector2d xy;
+  double height;
+};
+
+// Slope samples: one per level set of equal heights. CellMedianFilter gives every point of a temporal cell the cell's
+// median height, so the level sets are its cells and each sample sits at the centroid of the cell's points; a
+// per-point fit would regress the staircase and flatten the slope by the spread of the points within a cell. For a
+// plane the centroid of points of equal height has that height, so unfiltered points (mostly one per level set) are
+// sampled without bias too.
+// @param c the cluster (points and heights set).
+// @return the samples, by increasing height.
+std::vector<SlopeSample> slope_samples(const Cluster & c)
+{
+  std::map<std::int64_t, std::pair<Eigen::Vector3d, std::size_t>> levels;  // level -> (sum x, y, h), count
+  for (std::size_t i = 0; i < c.points.size(); ++i) {
+    const double h = c.heights[i];
+    // Eigen vectors are not zero-initialised: every new level starts from an explicit zero.
+    auto & level = levels.try_emplace(std::llround(h / LEVEL_STEP_M), Eigen::Vector3d::Zero(), 0).first->second;
+    level.first += Eigen::Vector3d(c.points[i].x, c.points[i].y, h);
+    ++level.second;
+  }
+  std::vector<SlopeSample> samples;
+  samples.reserve(levels.size());
+  for (const auto & [key, level] : levels) {
+    const Eigen::Vector3d mean = level.first / static_cast<double>(level.second);
+    samples.push_back(SlopeSample{mean.head<2>(), mean.z()});
+  }
+  return samples;
+}
+
+// Whether the cluster supports a slope estimate: its points cover at least slope_min_cells bins of slope_bin_m in
+// base_link xy, and the bin centres span at least two distinct bins along the principal axis and along the axis
+// across it (bins in one line leave the tilt across that line unmeasured).
+// @param c the cluster (points set).
+// @param axis unit principal axis of the cluster in xy.
+// @param cfg slope_bin_m and slope_min_cells.
+// @return true when the slope is measurable.
+bool slope_measurable(const Cluster & c, const Eigen::Vector2d & axis, const EdgesConfig & cfg)
+{
+  std::set<std::pair<std::int64_t, std::int64_t>> bins;
+  for (const auto & p : c.points) {
+    bins.emplace(
+      static_cast<std::int64_t>(std::floor(p.x / cfg.slope_bin_m)),
+      static_cast<std::int64_t>(std::floor(p.y / cfg.slope_bin_m)));
+  }
+  if (bins.size() < static_cast<std::size_t>(cfg.slope_min_cells)) {
+    return false;
+  }
+  const Eigen::Vector2d across(-axis.y(), axis.x());
+  Eigen::Vector2d lo = Eigen::Vector2d::Constant(std::numeric_limits<double>::infinity());
+  Eigen::Vector2d hi = -lo;
+  for (const auto & bin : bins) {
+    const Eigen::Vector2d centre =
+      Eigen::Vector2d(static_cast<double>(bin.first) + 0.5, static_cast<double>(bin.second) + 0.5) * cfg.slope_bin_m;
+    const Eigen::Vector2d along(axis.dot(centre), across.dot(centre));
+    lo = lo.cwiseMin(along);
+    hi = hi.cwiseMax(along);
+  }
+  return ((hi - lo).array() >= MIN_BIN_SPAN_FRACTION * cfg.slope_bin_m).all();
+}
+
+// Robust plane fit h = a x + b y + c over the samples: iteratively reweighted least squares with Huber weights on a
+// MAD residual scale, started from ordinary least squares. Each step takes the minimum-norm solution: samples on one
+// line (level sets that are whole contour lines of a noise-free plane, e.g. rows of a grid across a ramp) leave the
+// slope along the line undetermined, and it is zero there.
+// @param samples at least three samples.
+// @return the slope atan(hypot(a, b)) in degrees; nullopt when the solution is not finite.
+std::optional<double> robust_slope_deg(const std::vector<SlopeSample> & samples)
+{
+  Eigen::Vector2d centroid = Eigen::Vector2d::Zero();
+  for (const auto & s : samples) {
+    centroid += s.xy;
+  }
+  centroid /= static_cast<double>(samples.size());
+  std::vector<double> weights(samples.size(), 1.0);
+  std::vector<double> residuals(samples.size(), 0.0);
+  Eigen::Vector3d coef = Eigen::Vector3d::Zero();
+  for (int iteration = 0; iteration < IRLS_ITERATIONS; ++iteration) {
+    Eigen::Matrix3d normal = Eigen::Matrix3d::Zero();
+    Eigen::Vector3d rhs = Eigen::Vector3d::Zero();
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+      const Eigen::Vector2d d = samples[i].xy - centroid;
+      const Eigen::Vector3d row(d.x(), d.y(), 1.0);
+      normal += weights[i] * row * row.transpose();
+      rhs += weights[i] * samples[i].height * row;
+    }
+    Eigen::CompleteOrthogonalDecomposition<Eigen::Matrix3d> solver(normal.rows(), normal.cols());
+    solver.setThreshold(RANK_THRESHOLD);
+    solver.compute(normal);
+    const Eigen::Vector3d next = solver.solve(rhs);
+    if (!next.allFinite()) {
+      return std::nullopt;
+    }
+    const bool converged = iteration > 0 && (next - coef).norm() < IRLS_TOLERANCE;
+    coef = next;
+    if (converged) {
+      break;
+    }
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+      const Eigen::Vector2d d = samples[i].xy - centroid;
+      residuals[i] = samples[i].height - (coef.x() * d.x() + coef.y() * d.y() + coef.z());
+    }
+    const double centre = percentile(residuals, MEDIAN);
+    std::vector<double> deviations;
+    deviations.reserve(residuals.size());
+    for (const double r : residuals) {
+      deviations.push_back(std::fabs(r - centre));
+    }
+    const double k = HUBER_K * std::max(MIN_RESIDUAL_SCALE_M, MAD_TO_SIGMA * percentile(deviations, MEDIAN));
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+      const double r = std::fabs(residuals[i]);
+      weights[i] = r <= k ? 1.0 : k / r;
+    }
+  }
+  return std::atan(std::hypot(coef.x(), coef.y())) * RAD_TO_DEG;
+}
+
 // Fill every feature of a cluster whose kind, points and heights are set.
-void compute_features(Cluster & c, const Plane & plane, double edge_band_m)
+void compute_features(Cluster & c, const EdgesConfig & cfg, double edge_band_m)
 {
   const std::size_t n = c.points.size();
   std::vector<Eigen::Vector2d> xy;
@@ -125,15 +262,15 @@ void compute_features(Cluster & c, const Plane & plane, double edge_band_m)
   }
   c.edge_step_m = percentile(band_heights, STEP_PERCENTILE);
 
-  // Best-fit plane normal: smallest eigenvector of the 3D covariance.
-  Eigen::Matrix3d cov3 = Eigen::Matrix3d::Zero();
-  for (const auto & p : c.points) {
-    const Eigen::Vector3d d = Eigen::Vector3d(p.x, p.y, p.z) - centroid3;
-    cov3 += d * d.transpose();
+  // Robust slope of the plane-relative height over per-level samples; 0 and unknown without enough support.
+  c.slope_known = false;
+  c.slope_deg = 0.0;
+  if (slope_measurable(c, axis, cfg)) {
+    const auto samples = slope_samples(c);
+    const auto slope = samples.size() >= MIN_SLOPE_SAMPLES ? robust_slope_deg(samples) : std::nullopt;
+    c.slope_known = slope.has_value();
+    c.slope_deg = slope.value_or(0.0);
   }
-  Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> plane_solver(cov3 / static_cast<double>(n));
-  const Eigen::Vector3d fit_normal = plane_solver.eigenvectors().col(0);
-  c.slope_deg = std::acos(std::min(1.0, std::fabs(fit_normal.dot(plane.normal.normalized())))) * RAD_TO_DEG;
 
   c.hull = convex_hull(xy);
 }
@@ -142,7 +279,7 @@ void compute_features(Cluster & c, const Plane & plane, double edge_band_m)
 
 std::vector<Cluster> extract_clusters(
   const pcl::PointCloud<pcl::PointXYZ> & points, const std::vector<float> & heights, const std::string & kind,
-  const Plane & plane, const EdgesConfig & cfg, double edge_band_m, std::vector<int> * unclustered)
+  const Plane & /*plane*/, const EdgesConfig & cfg, double edge_band_m, std::vector<int> * unclustered)
 {
   std::vector<Cluster> clusters;
   std::vector<bool> used(points.size(), false);
@@ -165,7 +302,7 @@ std::vector<Cluster> extract_clusters(
         c.heights.push_back(heights[idx]);
         used[idx] = true;
       }
-      compute_features(c, plane, edge_band_m);
+      compute_features(c, cfg, edge_band_m);
       clusters.push_back(std::move(c));
     }
   }

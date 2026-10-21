@@ -159,6 +159,85 @@ inline void add_table_top(Scene & scene, double height_m, double x0, double x1, 
     [=](const Eigen::Vector3d & p) { return p.x() >= x0 && p.x() <= x1 && p.y() >= y0 && p.y() <= y1; }));
 }
 
+// Wedge ramp standing on the z = 0 floor (part ramp-synthetic-scene): an incline rising along +x from the floor at
+// x0 to height_m at x0 + length_m over y in [y0, y1], a vertical back face at x0 + length_m and triangular side
+// faces at y0 and y1. Use alone or on floor_scene() (the ramp hides the floor under it).
+// @param scene the scene to add the surfaces to.
+// @param x0 x of the foot of the incline in metres.
+// @param length_m horizontal length of the incline along x in metres (> 0).
+// @param height_m height of the top edge in metres (> 0); the slope is atan(height_m / length_m).
+// @param y0 lower y of the ramp in metres.
+// @param y1 upper y of the ramp in metres (> y0).
+inline void add_ramp(Scene & scene, double x0, double length_m, double height_m, double y0, double y1)
+{
+  const double x1 = x0 + length_m;
+  const Region under_incline = [=](const Eigen::Vector3d & p) {
+    return p.x() >= x0 && p.x() <= x1 && p.z() >= 0.0 && p.z() <= (p.x() - x0) / length_m * height_m;
+  };
+  scene.surfaces.push_back(plane_surface(
+    Eigen::Vector3d(x0, 0.0, 0.0), Eigen::Vector3d(-height_m, 0.0, length_m),
+    [=](const Eigen::Vector3d & p) { return p.x() >= x0 && p.x() <= x1 && p.y() >= y0 && p.y() <= y1; }));
+  scene.surfaces.push_back(plane_surface(
+    Eigen::Vector3d(x1, 0.0, 0.0), Eigen::Vector3d::UnitX(),
+    [=](const Eigen::Vector3d & p) { return p.y() >= y0 && p.y() <= y1 && p.z() >= 0.0 && p.z() <= height_m; }));
+  for (const double y_side : {y0, y1}) {
+    scene.surfaces.push_back(plane_surface(Eigen::Vector3d(0.0, y_side, 0.0), Eigen::Vector3d::UnitY(), under_incline));
+  }
+}
+
+// Sample the scene on a regular xy grid from straight above: one vertical ray per grid node over [x0, x1] x [y0, y1]
+// (offset by a quarter step like grid_cloud), keeping the highest hit. Nodes over nothing give no point; noise-free.
+// @param scene the surfaces.
+// @param x0 lower x in metres.
+// @param x1 upper x in metres.
+// @param y0 lower y in metres.
+// @param y1 upper y in metres.
+// @param step_m grid step in metres.
+// @return the hits in base_link.
+inline pcl::PointCloud<pcl::PointXYZ> sample_grid(
+  const Scene & scene, double x0, double x1, double y0, double y1, double step_m)
+{
+  constexpr double RAY_START_Z_M = 10.0;
+  const Eigen::Vector3d down = -Eigen::Vector3d::UnitZ();
+  pcl::PointCloud<pcl::PointXYZ> cloud;
+  for (double x = x0 + 0.25 * step_m; x < x1; x += step_m) {
+    for (double y = y0 + 0.25 * step_m; y < y1; y += step_m) {
+      const Eigen::Vector3d origin(x, y, RAY_START_Z_M);
+      double best = std::numeric_limits<double>::infinity();
+      for (const auto & surface : scene.surfaces) {
+        const auto t = surface(origin, down);
+        if (t && *t < best) {
+          best = *t;
+        }
+      }
+      if (std::isfinite(best)) {
+        const Eigen::Vector3d p = origin + best * down;
+        cloud.push_back(pcl::PointXYZ(static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z())));
+      }
+    }
+  }
+  return cloud;
+}
+
+// Seeded sparse sampling: keep each point independently with probability fraction (sparse ToF returns).
+// @param in the cloud.
+// @param fraction probability in 0..1 that a point is kept.
+// @param seed sampling seed; the same seed keeps the same points.
+// @return the kept points, in input order.
+inline pcl::PointCloud<pcl::PointXYZ> keep_fraction(
+  const pcl::PointCloud<pcl::PointXYZ> & in, double fraction, unsigned seed)
+{
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<double> pick(0.0, 1.0);
+  pcl::PointCloud<pcl::PointXYZ> out;
+  for (const auto & p : in) {
+    if (pick(rng) < fraction) {
+      out.push_back(p);
+    }
+  }
+  return out;
+}
+
 // Cast the sensor grid on the scene.
 // @param scene the surfaces.
 // @param sigma_m Gaussian noise (per axis) in metres.
