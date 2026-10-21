@@ -24,9 +24,15 @@ struct Cluster
   pcl::PointCloud<pcl::PointXYZ> points;  // the member points
   std::vector<float> heights;             // signed height above the floor plane, parallel to points
   double median_height_m = 0.0;           // median of heights
-  double edge_step_m = 0.0;               // 90th percentile of |height| within edge_band_m of the edge line
-  double slope_deg = 0.0;                 // angle between the cluster's best-fit plane normal and the floor normal
-  std::vector<Eigen::Vector2d> hull;      // convex hull in base_link xy, counter-clockwise
+  double edge_step_m = 0.0;               // median (50th percentile) of |height| within edge_band_m of the edge line
+  // Slope of the surface to the floor plane in degrees: atan(hypot(a, b)) of a robust (Huber IRLS) fit of
+  // h = a x + b y + c over one sample per level set of equal heights (a CellMedianFilter cell), not a per-point fit.
+  // 0.0 when slope_known is false: not measurable.
+  double slope_deg = 0.0;
+  // True only when the points cover at least edges.slope_min_cells bins of edges.slope_bin_m in base_link xy and the
+  // bins span at least two distinct bins along the principal axis and across it.
+  bool slope_known = false;
+  std::vector<Eigen::Vector2d> hull;                          // convex hull in base_link xy, counter-clockwise
   Eigen::Vector2d edge_point = Eigen::Vector2d::Zero();       // a point of the robot-facing edge line
   Eigen::Vector2d edge_direction = Eigen::Vector2d::UnitY();  // unit direction, canonical sign (y > 0, or x > 0)
   std::string side;         // "left" or "right": the cluster's side of the line (mcp HalfPlaneEdge)
@@ -51,8 +57,8 @@ struct Region
 // @param points candidate points in base_link (Segmented::above or ::below).
 // @param heights signed heights above the plane, parallel to points.
 // @param kind "step" or "drop".
-// @param plane the floor plane (its normal is the reference of slope_deg).
-// @param cfg cluster_tolerance_m and min_cluster_points.
+// @param plane the floor plane; heights are already relative to it, so the features use heights and base_link xy.
+// @param cfg cluster_tolerance_m, min_cluster_points, slope_bin_m and slope_min_cells.
 // @param edge_band_m width of the band at the edge line used for edge_step_m (traversability.edge_band_m).
 // @param unclustered if not null, receives the indices into points of the points in no cluster (too small groups).
 // @return the clusters, nearest edge line first.

@@ -80,6 +80,13 @@ Otherwise it is a warning area: the node publishes it on `/ground/warning_areas`
 slow-down instead of a lethal cell. Colour-flagged flat objects (label 3) follow the same rule: a flat patch of a
 different colour is a warning area with `source` `colour`, unless its height or slope crosses the limits above.
 
+The edge step of a cluster is the median of |height| within `traversability.edge_band_m` of its robot-facing edge
+line, so noise does not lift a 3 cm sill over the rule and a 5 cm box reads 5 cm. Its slope is a robust (Huber IRLS)
+plane fit of the plane-relative height over one sample per level set of equal heights: after the temporal median
+those are the cells, so the per-cell staircase does not flatten a ramp. A cluster covering fewer than
+`edges.slope_min_cells` bins of `edges.slope_bin_m`, or whose bins lie in one line along or across its principal axis,
+has no measurable slope (`slope_known` false, `slope_deg` 0).
+
 ## Temporal median
 
 The ToF cloud is noisy (a few centimetres per point, more at long range), more than the 4 cm step rule. Before step,
