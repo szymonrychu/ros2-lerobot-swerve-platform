@@ -199,26 +199,45 @@ TEST(CellMedian, FarBandNoiseCellsAreGatedAndNeverOutput)
 {
   const TemporalConfig cfg;
   CellMedianFilter filter(cfg);
-  std::mt19937 rng(11);
+  std::mt19937 rng(4);
   std::size_t gated_seen = 0;
-  std::size_t cell_frames = 0;
   std::size_t leaked_cell_frames = 0;
   for (int i = 0; i < 40; ++i) {
-    const Cloud in = cell_cloud(1.2, 1.5, [&](int ix, int iy) {
-      // Floor + U(+0.04, +0.04 + width): width 0.15..0.31 m gives a temporal std of 43..90 mm.
-      const double width = 0.15 + 0.032 * ((ix * 3 + iy + 30) % 6);
+    const Cloud in = cell_cloud(1.15, 1.45, [&](int ix, int iy) {
+      // Floor + U(+0.04, +0.04 + width): width 0.145..0.35 m (the measured U(+0.04, +0.19) and wider) gives a temporal std of 42..100 mm.
+      const double width = 0.145 + 0.0412 * ((ix * 3 + iy + 30) % 6);
       return 0.04 + std::uniform_real_distribution<double>(0.0, width)(rng);
     });
     const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
-    if (i >= cfg.window_frames) {
-      cell_frames += in.size() / 4;
-      leaked_cell_frames += out.size() / 4;
+    if (i >= cfg.min_frames) {
+      leaked_cell_frames += out.size();
       gated_seen += filter.gated_cell_count();
     }
   }
   EXPECT_GT(gated_seen, 0u);
-  // The MAD of a handful of samples is itself noisy, so a rare cell slips under the limit for a frame.
-  EXPECT_LE(static_cast<double>(leaked_cell_frames) / static_cast<double>(cell_frames), 0.05);
+  EXPECT_EQ(leaked_cell_frames, 0u);
+}
+
+// A cell with 30 mm temporal std is only 1.2 times the 25 mm limit, so a window of 8 values cannot rule out every
+// lucky stretch; it must still be unknown most of the time.
+TEST(CellMedian, ThirtyMillimetreFarBandCellsAreMostlyGated)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(12);
+  std::size_t cell_frames = 0;
+  std::size_t visible_cell_frames = 0;
+  for (int i = 0; i < 40; ++i) {
+    const Cloud in = cell_cloud(1.15, 1.45, [&](int, int) {
+      return 0.04 + std::uniform_real_distribution<double>(0.0, 0.104)(rng);  // temporal std 30 mm
+    });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= cfg.min_frames) {
+      cell_frames += in.size() / 4;
+      visible_cell_frames += out.size() / 4;
+    }
+  }
+  EXPECT_LE(static_cast<double>(visible_cell_frames) / static_cast<double>(cell_frames), 0.3);
 }
 
 TEST(CellMedian, MeasuredFloorNoiseStaysVisible)

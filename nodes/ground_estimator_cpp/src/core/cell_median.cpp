@@ -33,7 +33,22 @@ double median(std::vector<double> & v)
 // Consistency factor turning the median absolute deviation into a Gaussian sigma.
 constexpr double MAD_TO_SIGMA = 1.4826;
 
-// Robust spread (1.4826 * MAD) of the per-frame medians in a cell history.
+// A gated cell becomes known again only when its spread is under this fraction of the limit, so a cell whose noise
+// sits near the limit does not flicker in and out.
+constexpr double RELEASE_FRACTION = 0.7;
+
+// Smallest history for which the most deviant value is dropped before taking the standard deviation.
+constexpr std::size_t MIN_TRIMMED_FRAMES = 5;
+
+// Dropping the largest deviation shrinks the estimate to about 0.77 of the true Gaussian sigma (8 values). This factor
+// restores most of it (1/0.77 = 1.3 would be fully consistent): enough that a cell with real temporal noise rarely
+// slips under the limit, little enough that 20 mm floor noise stays under it.
+constexpr double TRIMMED_SPREAD_SCALE = 1.15;
+
+// Robust spread of the per-frame medians in a cell history. With few values it is 1.4826 * MAD. From
+// MIN_TRIMMED_FRAMES values on it is the standard deviation without the most deviant value: robust to one bad frame
+// like the MAD, but it varies far less between windows, so a cell with real temporal noise does not slip under the
+// limit by chance.
 double robust_spread(const std::deque<std::pair<double, double>> & history, double centre)
 {
   std::vector<double> deviations;
@@ -41,7 +56,17 @@ double robust_spread(const std::deque<std::pair<double, double>> & history, doub
   for (const auto & entry : history) {
     deviations.push_back(std::fabs(entry.second - centre));
   }
-  return MAD_TO_SIGMA * median(deviations);
+  if (history.size() < MIN_TRIMMED_FRAMES) {
+    return MAD_TO_SIGMA * median(deviations);
+  }
+  std::sort(deviations.begin(), deviations.end());
+  deviations.pop_back();
+  // Variance about the median of the kept values (the dropped one is the largest deviation from the median).
+  double sum_sq = 0.0;
+  for (const double d : deviations) {
+    sum_sq += d * d;
+  }
+  return TRIMMED_SPREAD_SCALE * std::sqrt(sum_sq / static_cast<double>(deviations.size() - 1));
 }
 
 }  // namespace
@@ -72,7 +97,7 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
 
   // Drop expired values and empty cells.
   for (auto it = cells_.begin(); it != cells_.end();) {
-    auto & history = it->second;
+    auto & history = it->second.history;
     while (!history.empty() && stamp_s - history.front().first > cfg_.max_age_s) {
       history.pop_front();
     }
@@ -107,7 +132,8 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
     for (const std::size_t i : indices) {
       scratch.push_back(heights[i]);
     }
-    auto & history = cells_[key];
+    auto & cell = cells_[key];
+    auto & history = cell.history;
     history.emplace_back(stamp_s, median(scratch));
     while (history.size() > static_cast<std::size_t>(cfg_.window_frames)) {
       history.pop_front();
@@ -118,7 +144,9 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
         scratch.push_back(entry.second);
       }
       const double centre = median(scratch);
-      if (robust_spread(history, centre) > cfg_.max_spread_m) {
+      const double spread = robust_spread(history, centre);
+      cell.gated = spread > cfg_.max_spread_m || (cell.gated && spread > RELEASE_FRACTION * cfg_.max_spread_m);
+      if (cell.gated) {
         ++gated_cell_count_;
       } else {
         cell_height[key] = centre;
