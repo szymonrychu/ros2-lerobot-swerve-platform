@@ -2372,7 +2372,7 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_alloy_collects_host_cgroup_and_self_metrics` | (client, server) unix (textfile dir), cadvisor (`docker_only = false`) and self exporters. |
 | `test_alloy_drops_high_cardinality_cgroups_and_veth` | (client, server) the `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
 | `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
-| `test_robot_alloy_scrapes_every_node_target` | The robot's `prometheus.scrape "nodes"` renders every `monitoring_agent_node_targets` entry as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, `honor_labels`, 5s/4s; target nodes are unique and each is a present, enabled client `ros2_nodes` entry (no hardcoded count). |
+| `test_robot_alloy_scrapes_every_node_target` | The robot's `prometheus.scrape "nodes"` renders every `monitoring_agent_node_targets` entry as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, `honor_labels`, 15s/4s; target nodes are unique and each is a present, enabled client `ros2_nodes` entry (no hardcoded count). |
 | `test_robot_alloy_scrapes_no_stack` | The robot scrapes no Prometheus or Grafana any more. |
 | `test_server_alloy_scrapes_the_stack_and_no_nodes` | The server's `prometheus.scrape "stack"` targets mimir 9009, loki 3100, grafana 3000; no node scrape. |
 | `test_alloy_systemd_collector_limited_to_ros_and_stack_units` | (client, server) systemd collector with restarts and start time; `unit_include` matches ros2-*, alloy, mimir, loki, grafana-server, nginx and not prometheus, ssh, sockets. |

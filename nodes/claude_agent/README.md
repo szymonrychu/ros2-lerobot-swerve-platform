@@ -836,7 +836,7 @@ and re-encoded as JPEG.
 
 ## Metrics
 
-`GET /metrics` on the API port (18300), via `ros2-metrics`; defined in `claude_agent/metrics.py`, updated in `runner.py`. Grafana Alloy scrapes it every 5 s.
+`GET /metrics` on the API port (18300), via `ros2-metrics`; defined in `claude_agent/metrics.py`, updated in `runner.py`. Grafana Alloy scrapes it every 15 s.
 
 | Metric | Type | Labels | Where it moves |
 |---|---|---|---|

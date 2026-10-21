@@ -490,7 +490,7 @@ Bridge topics: latched subscription `/map_manager/status` (cached; an invalid pa
 
 ## Metrics
 
-`GET /metrics` on the web port (8080), via `ros2-metrics`; registered before the SPA catch-all mount so the static fallback never shadows it (`tests/test_metrics.py`). Defined in `web_ui/metrics.py`. Grafana Alloy scrapes it every 5 s (also reachable through nginx on port 80 like every other route).
+`GET /metrics` on the web port (8080), via `ros2-metrics`; registered before the SPA catch-all mount so the static fallback never shadows it (`tests/test_metrics.py`). Defined in `web_ui/metrics.py`. Grafana Alloy scrapes it every 15 s (also reachable through nginx on port 80 like every other route).
 
 | Metric | Type | Labels | Where it moves |
 |---|---|---|---|
