@@ -60,7 +60,7 @@ def test_clean_session_flags_nothing() -> None:
     assert all(p.rgb_px is not None and p.tof_px is not None and p.stereo_px is not None for p in run.poses)
 
 
-def test_corrupted_view_is_flagged_alone() -> None:
+def test_corrupted_view_is_the_only_outlier() -> None:
     run = run_for(BAD_VIEW)
     bad = f"{BAD_VIEW + 1:03d}"
     assert outlier_pose_ids(run) == [bad]
@@ -105,7 +105,7 @@ def test_flag_outliers_skips_none() -> None:
     assert flag_outliers([None, None], limit=0.5) == [False, False]
 
 
-def test_stereo_pair_indices_skip_sparse_pair_and_errors_reproduce_rms() -> None:
+def test_stereo_per_pair_errors_match_rms() -> None:
     pairs = detection_pairs()
     rgb, tof = pairs[0]
     sparse = (Detection(ids=rgb.ids[:3], points=rgb.points[:3]), Detection(ids=tof.ids[:3], points=tof.points[:3]))
@@ -145,7 +145,7 @@ TWO = (
 )
 
 
-def test_failed_limits_names_one_outlier_pose() -> None:
+def test_failed_limits_names_outlier_poses() -> None:
     (message,) = failed_limits(run_with_poses(ONE), LIMITS)
     assert message == (
         "limits.rgb_max_rms_px: RGB RMS 8.280 px exceeds 0.5 px"
@@ -164,7 +164,7 @@ def test_failed_limits_without_flagged_poses_is_unchanged() -> None:
     assert failed_limits(run_with_poses(()), LIMITS) == ["limits.rgb_max_rms_px: RGB RMS 8.280 px exceeds 0.5 px"]
 
 
-def test_report_lists_flagged_pose() -> None:
+def test_report_lists_flagged_poses() -> None:
     text = report_markdown(run_with_poses(ONE), LIMITS, "s", 1.0, "d")
     assert "## Per-pose reprojection errors" in text
     assert "| Pose | RGB px | ToF px | Stereo px | Flag |" in text
