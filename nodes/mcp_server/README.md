@@ -5,11 +5,11 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 `mcp.server.mcpserver.MCPServer`) served by uvicorn. Runs natively on the client RPi 5 (`ros2-mcp_server.service`).
 
 **Raw feeds on a second node.** The high-rate raw subscriptions (`ros_iface.cache_raw`: `/head/joint_states`, `/odometry/filtered`,
-`/odom`, `/odom_rf2o_twist`, `/imu/data`; callbacks only lock and store, the monitor tick flushes them) run on a second rclpy node
+`/odom`, `/odom_rf2o_twist`, `/imu/data`, and the dual-rate `/follower/joint_states`; callbacks only lock and store, the monitor tick flushes them) run on a second rclpy node
 `mcp_server_feeds` spun by `rclpy.experimental.EventsExecutor` in the `ros-feeds` thread (`feeds.FeedsSpinner`), because ~200
 wakes/s cost the main executor about 0.5 core idle. The main node keeps its `MultiThreadedExecutor` (tool callbacks block). The feeds
-node is created, spun and destroyed on that one thread. The dual-rate follower joint states stay on the main node (they are
-created and destroyed at runtime). Config `feeds_executor: events|main` (default `events`); `main` restores the old single-node wiring.
+node is created, spun and destroyed on that one thread. The dual-rate follower joint states are created and destroyed at runtime
+on the feeds node (`dual_rate_topic(node=feeds_node)`). Config `feeds_executor: events|main` (default `events`); `main` restores the old single-node wiring.
 
 - Endpoint: `http://client.ros2.lan:18200/mcp` (host/port/path from config)
 - Auth: static bearer token from the environment variable `MCP_SERVER_TOKEN` (the server refuses to start without a

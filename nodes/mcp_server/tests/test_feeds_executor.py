@@ -37,11 +37,11 @@ def test_config_default_is_events() -> None:
         McpServerConfig(feeds_executor="threads")
 
 
-def test_feeds_node_owns_exactly_the_raw_subscriptions(ros_iface: ModuleType) -> None:
+def test_raw_feeds_on_separate_events_node(ros_iface: ModuleType) -> None:
     robot = make_robot(ros_iface, McpServerConfig(feeds_executor="events"))
     assert robot.feeds_node is not robot.node
-    feed_topics = topics_of(robot.feeds_node)
     cfg = robot.cfg
+    feed_topics = topics_of(robot.feeds_node) - {robot.follower_rate.throttled_topic, robot.follower_rate.topic}
     assert {cfg.head.state_topic, cfg.topics.odom, cfg.topics.swerve_odom, cfg.topics.rf2o_twist, cfg.topics.imu} == (
         feed_topics
     )
@@ -51,7 +51,7 @@ def test_feeds_node_owns_exactly_the_raw_subscriptions(ros_iface: ModuleType) ->
     assert robot.feeds_node.create_timer.call_count == 0
 
 
-def test_monitor_tick_sees_fresh_samples_from_the_feeds_node(ros_iface: ModuleType) -> None:
+def test_monitor_tick_sees_fresh_feed_samples(ros_iface: ModuleType) -> None:
     robot = make_robot(ros_iface, McpServerConfig())
     robot.monitor = MagicMock()
     odom_cb = next(
@@ -63,7 +63,7 @@ def test_monitor_tick_sees_fresh_samples_from_the_feeds_node(ros_iface: ModuleTy
     robot.monitor.on_odom.assert_called_once()
 
 
-def test_main_switch_restores_the_single_node_wiring(ros_iface: ModuleType) -> None:
+def test_main_mode_restores_single_node(ros_iface: ModuleType) -> None:
     robot = make_robot(ros_iface, McpServerConfig(feeds_executor="main"))
     assert robot.feeds_node is robot.node
     assert {robot.cfg.topics.odom, robot.cfg.topics.imu} <= topics_of(robot.node)
@@ -141,3 +141,14 @@ def test_start_feeds_is_a_noop_in_main_mode(ros_iface: ModuleType) -> None:
     executor = FakeExecutor()
     robot.start_feeds(executor, ok=lambda: True, exit_fn=lambda code: None)
     assert executor.added == []
+
+
+def test_follower_joint_states_subscribe_and_destroy_on_the_feeds_node(ros_iface: ModuleType) -> None:
+    robot = make_robot(ros_iface, McpServerConfig(feeds_executor="events"))
+    follower = robot.cfg.topics.follower_joint_states
+    subscribed = topics_of(robot.feeds_node)
+    assert any(t.startswith(follower) for t in subscribed)
+    assert not any(t.startswith(follower) for t in topics_of(robot.node))
+    robot.follower_rate.stop()
+    assert robot.feeds_node.destroy_subscription.called
+    assert not robot.node.destroy_subscription.called

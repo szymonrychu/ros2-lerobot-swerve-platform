@@ -657,13 +657,14 @@ class RosRobot:
         self.feeds: list[MonitorFeed] = []  # raw subscriptions whose monitor hook runs from the monitor tick
         self.follower_rate = self.dual_rate_topic(
             "follower_joint_states",
-            lambda topic, cb: self.node.create_subscription(
-                JointState, topic, cb, SENSOR_QOS, callback_group=self.group, raw=True
+            lambda topic, cb: self.feeds_node.create_subscription(
+                JointState, topic, cb, SENSOR_QOS, callback_group=self.feeds_group, raw=True
             ),
             self.raw_store(JointState, "joint_states"),
             lambda: self.demand_clock(),
             lambda seconds: self.demand_sleep(seconds),
             config.timeouts.follower_stale_s,
+            node=self.feeds_node,
         )
         self.follower_rate.start()
         self.cache(JointState, t.follower_joint_currents, "joint_currents", SENSOR_QOS)
@@ -1207,6 +1208,7 @@ class RosRobot:
         clock: Callable[[], float],
         sleep: Callable[[float], None],
         fresh_s: float,
+        node: Node | None = None,
     ) -> DualRateTopic:
         """A DualRateTopic of a topics field configured from joint_state_rate (full rate only when disabled or the
         field is in FULL_RATE_AT_REST).
@@ -1218,19 +1220,21 @@ class RosRobot:
             clock (Callable[[], float]): Monotonic seconds.
             sleep (Callable[[float], None]): Sleep.
             fresh_s (float): The topic's freshness limit (s).
+            node (Node | None): Node owning the subscriptions (default: the main node).
 
         Returns:
             DualRateTopic: The unsubscribed feed.
         """
         rate = self.cfg.joint_state_rate
         topic = getattr(self.cfg.topics, field)
+        node = node or self.node
         return DualRateTopic(
             topic,
             topic + rate.throttled_suffix,
             subscribe,
-            self.node.destroy_subscription,
+            node.destroy_subscription,
             store,
-            self.node.count_publishers,
+            node.count_publishers,
             clock,
             sleep,
             self.log,
