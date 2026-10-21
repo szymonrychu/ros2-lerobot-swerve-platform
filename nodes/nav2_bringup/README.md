@@ -325,7 +325,7 @@ Zones drawn as POIs become two costmap filters, fed by `nodes/costmap_zones` (ke
 - **SpeedFilter** (`speed_filter`) is in `filters` of the local costmap only and publishes `/speed_limit` (absolute topic); `controller_server.speed_limit_topic` is the same topic.
 - Requirements: Nav2 1.3.8 for the KeepoutFilter lethal override and 1.3.10 for live mask updates (a changed or cleared mask repaints the costmap without a restart); older builds ignore `override_lethal_cost` or keep stale zones.
 - Kill switch: each filter layer serves a `toggle_filter` (`std_srvs/SetBool`) service in its costmap node's namespace; calling it with `data: false` disables that filter at runtime without a redeploy.
-- Limits: the `RotationShimController` in-place rotation is not limited by `/speed_limit` (only MPPI translation and rotation while following the path are). `route_server` `AdjustSpeedLimit` stays idle because no route graph is loaded.
+- Limits: the `RotationShimController` in-place rotation is not limited by `/speed_limit` (only MPPI translation and rotation while following the path are). `route_server` is not started (removed from the navigation lifecycle), so no route-graph speed limits (`AdjustSpeedLimit`) exist; `/speed_limit` comes only from the SpeedFilter.
 
 ## ToF validation in Docker
 
