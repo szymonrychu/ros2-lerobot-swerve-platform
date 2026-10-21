@@ -51,17 +51,22 @@ Document the per-pose hints and errors, index the tests, and deploy both changed
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+No code interfaces; documents `hints`, `poses`, `outlier_poses`, `capture_hints`, `PoseErrors`, `outlier_pose_ids`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The READMEs and tests/README.md describe the hints and per-pose errors; head_rgbd_calibration and web_ui run the new code on the client; on the robot pose 007 shows its few-corners hint and a new Compute flags it.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the four READMEs; run `grep -q test_head_rgbd_calib_quality.py tests/README.md && grep -q hints.py shared/README.md && uv run poe lint`.
+- Invoke the `ansible-deploy` skill, then `mkdir -p .logs && ./scripts/deploy-nodes.sh client head_rgbd_calibration web_ui 2>&1 | tee .logs/deploy-client-calib-hints.log`; expect the play recap with `failed=0 unreachable=0`.
+- `curl -s http://client.ros2.lan:18110/api/sessions` to find the session holding pose 007, then save `GET /api/sessions/<sid>` to `.logs/calib-hints-session.json` and check pose 007's `hints`.
+- `curl -s -X POST http://client.ros2.lan:18110/api/sessions/<sid>/compute`, poll `GET /api/state` until compute stops, save the result to `.logs/calib-hints-result.json` and check `outlier_poses` contains `007`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Docs-only file changes plus a deploy: the TDD exception for documentation applies; say so in `tests.note`.
+- Deploying web_ui and head_rgbd_calibration does not touch claude_agent or mcp_server, so a running agent session survives.
+- client-cpu-budget-recovery-a is editing `ansible/group_vars/client.yml`; this task must not change it.
+- Do not delete pose 007 on the robot: the user decides (hints only, D1).

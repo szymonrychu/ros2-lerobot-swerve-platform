@@ -55,17 +55,24 @@ Record per-pose reprojection errors for the RGB intrinsic fit, the ToF intrinsic
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/head_rgbd_calibration/calibrate.py`: `OUTLIER_MEDIAN_FACTOR`, `PoseErrors(pose_id, rgb_px, tof_px, stereo_px, outlier)`, `CalibrationRun.poses`, `calibrate_detections(views, rgb_size, tof_size, tof_info, board_cfg, limits, pose_ids=None)`, `outlier_pose_ids(run) -> list[str]`, `failed_limits`, `report_markdown` (part `pose-quality-errors`, used by compute-result-pose-errors).
+- `shared/ros2_common/head_rgbd_calibration/extrinsics.py`: `ExtrinsicResult.pair_indices`, `ExtrinsicResult.per_pair_errors` (defaults `()`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`calibrate_detections` on a session with one bad view returns a run whose `poses` flag exactly that view, `failed_limits` says `delete pose NNN and Compute again`, and report.md lists it; the existing golden report and every existing test are unchanged.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_rgbd_calib_quality.py` (the a1-a7 tests); run `uv run --frozen pytest tests/test_head_rgbd_calib_quality.py -q`: red (ImportError on `PoseErrors` / `outlier_pose_ids`).
+- Switch `stereo_calibrate` to `cv2.stereoCalibrateExtended` and record `pair_indices` / `per_pair_errors`.
+- Add `PoseErrors`, the flagging helper, `CalibrationRun.poses`, `pose_ids`, the `failed_limits` suffix and the report section.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `IntrinsicsResult.per_view_errors` already holds the per-view RMS of `cv2.calibrateCameraExtended`; only the mapping back to the view index is new (the RGB and ToF fits use only views whose detection is not None).
+- OpenCV 4.14 signature (probed): `stereoCalibrateExtended(objectPoints, imagePoints1, imagePoints2, cameraMatrix1, distCoeffs1, cameraMatrix2, distCoeffs2, imageSize, R, T[, E[, F[, rvecs[, tvecs[, perViewErrors[, flags[, criteria]]]]]]]) -> retval, K1, D1, K2, D2, R, T, E, F, rvecs, tvecs, perViewErrors`; perViewErrors is (N, 2), camera 1 is the ToF.
+- The real failure this targets: RGB RMS 8.28 px against 0.5 because pose 007 (6 RGB corners) had 66.6 px while every other pose was <= 0.33 px.
+- `OUTLIER_MEDIAN_FACTOR` is a module constant, not a `LimitsConfig` field (design D3): `test_core_config_defaults_match_cli_yaml` pins LimitsConfig to the CLI yaml and every result.json copies the limits.
+- Hints only (D1): never drop or refit a view.

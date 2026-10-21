@@ -47,17 +47,22 @@ Show the capture hints and the per-pose Compute errors in the Calibrate page RGB
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `nodes/web_ui/frontend/src/calibrate/rgbdApi.ts`: `PoseSummary.hints?`, `PoseError`, `ResultSummary.poses?`, `ResultSummary.outlier_poses?`, `poseErrors(detail: SessionDetail): Map<string, PoseError>`.
+- Uses the node fixtures `nodes/head_rgbd_calibration/tests/fixtures/api/session.json` (part `pose-capture-hints`) and `result.json` (part `rgbd-result-pose-errors`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+In the Calibrate page RGB-D section each pose card shows its capture hints; after a Compute it shows `RGB / ToF / stereo` errors, and a flagged pose has an error-coloured border and `high error - delete and Compute again` next to its delete button.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the `rgbdApi.test.ts` and `RgbdCapture.test.tsx` cases; run `cd nodes/web_ui/frontend && npx vitest run src/calibrate/rgbdApi.test.ts src/calibrate/RgbdCapture.test.tsx`: red.
+- Extend the types, guards and `poseErrors`; render the hint, error and flagged lines; refetch the detail when a compute finishes.
+- Run the verify command: all pass, typecheck and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The web_ui backend proxy (`nodes/web_ui/web_ui/rgbd_calibration.py`) forwards bodies unchanged; no backend change.
+- Guards stay tolerant of absent fields because web_ui and head_rgbd_calibration deploy as separate units (design D6).
+- Fixture import path pattern: `import x from '../../../../head_rgbd_calibration/tests/fixtures/api/<name>.json'` (as in `rgbdApi.test.ts`).
+- `RgbdCapture` already receives `compute: ComputeState`; track the previous `compute.running` to detect the finish.

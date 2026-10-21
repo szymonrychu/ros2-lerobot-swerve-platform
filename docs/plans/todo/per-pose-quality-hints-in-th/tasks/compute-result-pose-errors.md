@@ -49,17 +49,21 @@ Carry the per-pose errors and the outlier poses of a Compute into result.json an
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- result.json keys `poses: [{id, rgb_error_px, tof_error_px, stereo_error_px, outlier}]` and `outlier_poses: [id]`, defined by `nodes/head_rgbd_calibration/tests/fixtures/api/result.json` (part `rgbd-result-pose-errors`, used by calibrate-pose-list-hints).
+- Uses `calibrate.py::calibrate_detections(pose_ids=...)`, `PoseErrors`, `outlier_pose_ids` (part `pose-quality-errors`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A Compute on a session with a bad pose writes `passed: false`, `outlier_poses: ["<id>"]`, a `failed_limits` line ending `delete pose <id> and Compute again`, and a report.md naming it; a clean session lists per-pose errors with no outlier.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the `result.json` fixture and write the three new `test_compute.py` tests; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_compute.py -q`: red (missing keys).
+- Pass `pose_ids`, add `poses` / `outlier_poses` to `base` and to the computed result.
+- Run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `store.load_views` already returns `pose_ids` matching `views`; `store.py` is not touched.
+- `test_app.py::new_result` copies the result fixture, so `test_result_matches_contract_fixture` keeps passing with no edit.
+- Corrupt a pose by rewriting its pose.json `rgb.points` (e.g. shift half of them by 40 px) after `add_pose`; keep at least `limits.min_views` poses (the test config may lower it).

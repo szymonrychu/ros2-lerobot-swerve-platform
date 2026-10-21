@@ -131,7 +131,6 @@ Cross-epic (registered with `ticket.py contract add`): `rgbd-pose-hints` and `rg
 
 ## Open questions
 
-none
 - Q1: Capture few-corners hint threshold: hint when a camera sees fewer than half the board's inner corners (10 of 20)? [recommended: yes, half the board (10 of 20)]
 
 ## Irreversible operations in scope

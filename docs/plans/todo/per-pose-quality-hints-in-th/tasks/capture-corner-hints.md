@@ -59,17 +59,24 @@ Give every captured RGB-D pose a capture-time quality hint from its corner count
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `shared/ros2_common/head_rgbd_calibration/hints.py::capture_hints(rgb: Detection, tof: Detection, board: BoardConfig) -> list[str]`, `FEW_CORNERS_FRACTION`.
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/store.py`: pose.json key `hints: list[str]`; `SessionStore.pose_hints(sid, pid) -> list[str]`.
+- `GET /api/sessions/{sid}` `poses[].hints: list[str]`; fixture `nodes/head_rgbd_calibration/tests/fixtures/api/session.json` (part `pose-capture-hints`, used by calibrate-pose-list-hints).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A pose captured with 6 RGB corners has `"hints": ["few corners: 6 RGB - move the board closer / fill the frame"]` in pose.json and in the session API; poses stored before this change get the same hint computed on read.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_rgbd_calib_hints.py`; run `uv run --frozen pytest tests/test_head_rgbd_calib_hints.py -q`: red (no module `hints`).
+- Implement `hints.py`; root tests green.
+- Write the store and app tests and the `session.json` fixture; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_store.py tests/test_app.py -q`: red.
+- Implement `add_pose` hints, `pose_hints` and the session endpoint field; run the verify command: all pass, lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `charuco.MIN_CORNERS` (6) is the detection floor, so a stored pose has at least 6 corners per camera; the few-corner threshold is half the board's inner corners (10 of 20), design D5, open question Q1.
+- `tests/pose_factory.py::make_pose` and `detection_at` build poses with chosen corner points.
+- The `contract.py` list rule: every list element must match the first fixture element, an empty fixture list requires an empty list, so the fixture's `results` is `[]` and the test session has no result.
+- The head-and-arm-calibration-fro epic later adds still sessions without ToF; this task keeps hints to `rgbd` poses (both detections present), cross-epic contract `rgbd-pose-hints`.
