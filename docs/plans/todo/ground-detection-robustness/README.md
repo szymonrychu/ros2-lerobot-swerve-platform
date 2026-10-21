@@ -1,6 +1,6 @@
 ---
 title: "Ground detection robustness: spread gate, hysteresis and ramp rule"
-blockers: [Head chain floor-plane fit after the mount reprint]
+blockers: []
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
