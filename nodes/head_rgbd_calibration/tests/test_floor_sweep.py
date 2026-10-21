@@ -284,6 +284,8 @@ def test_clouds_without_joint_state_dropped_and_counted(tmp_path: Path) -> None:
     per_pose = {p: sum(1 for o in data["observations"] if o["pose"] == p) for p in range(4)}
     assert all(0 < n < 4 for n in per_pose.values())
     assert data["skipped"] == []
+    assert set(data["dropped"]) == {"no joint state within max_stamp_dt_s"}
+    assert data["dropped"]["no joint state within max_stamp_dt_s"] == 4 * 4 - len(data["observations"])
 
 
 def test_pose_with_only_unmatched_clouds_skipped_with_reason(tmp_path: Path) -> None:
