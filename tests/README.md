@@ -526,7 +526,8 @@ The pan/tilt head servo group in `ansible/group_vars/client.yml`: an `extra_grou
 | `test_head_steps_equal_the_urdf_limits` | `command_min_steps`/`command_max_steps` equal the URDF joint limits converted to steps (swapped if `inverted`). |
 | `test_head_caps_are_present_and_positive` | `max_speed_rad_s` and `max_acceleration_rad_s2` set and > 0. |
 | `test_head_startup_positions_are_inside_the_limits` | Home pose is inside the URDF limits and the command steps. |
-| `test_head_tilt_servo_is_mounted_reversed_and_pan_is_not` | `head_tilt` is `inverted: true` (found 2026-10-20), pan is not; tilt steps 1707..2389 and the 0.5236 rad home maps to step 1707. |
+| `test_head_pan_and_tilt_servos_are_mounted_reversed` | Both `head_pan` (found 2026-10-21: +30 deg turned right) and `head_tilt` (found 2026-10-20) are `inverted: true`; tilt steps 1707..2389 and the 0.5236 rad home maps to step 1707. |
+| `test_head_pan_steps_are_symmetric_around_centre` | Pan min + max steps = 2 * 2048, so inverting only flips the sign. |
 | `test_autonomy_and_web_ui_may_command_the_head_directly` | `autonomy` and `web_ui` are in `direct_command_sources`. |
 
 ### Per-node tests (feetech_servos)
