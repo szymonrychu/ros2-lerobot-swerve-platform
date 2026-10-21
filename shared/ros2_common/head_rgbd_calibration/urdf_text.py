@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 TOF_JOINT = "tof_joint"
+NOTE_MARKER = f"{TOF_JOINT} calibrated"
 NUMBER_FORMAT = "{:.9f}"
 HEAD_CHAIN_FILE = "head_chain.json"
 TOF_JOINT_FILE = "tof_joint.json"
@@ -45,7 +46,7 @@ def rewrite_joint_origin(urdf_text: str, joint: str, origin: Origin, note: str) 
     Raises:
         ValueError: The joint or its origin is missing.
     """
-    marker = f"{joint} calibrated"
+    marker = NOTE_MARKER if joint == TOF_JOINT else f"{joint} calibrated"
     joint_re = re.compile(
         rf"(?P<indent>[ \t]*)(?P<comment><!--\s*{re.escape(marker)}[^>]*?-->[ \t]*\n[ \t]*)?"
         rf'(?P<joint><joint\s+name="{re.escape(joint)}".*?</joint>)',

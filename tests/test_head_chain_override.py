@@ -48,7 +48,7 @@ def test_constants(ut: ModuleType) -> None:
     assert ut.HEAD_CHAIN_JOINTS == ("head_mount_joint", "head_tilt", "head_camera_joint")
 
 
-def test_writer_parser_round_trip(ut: ModuleType) -> None:
+def test_head_chain_json_round_trip(ut: ModuleType) -> None:
     origins = {
         "head_tilt": ut.Origin((0.0, 0.0, 0.0412), (0.0, 0.0123, 0.0)),
         "head_mount_joint": ut.Origin((0.15, 0.1, 0.25), (0.01, -0.02, 0.0)),
@@ -94,7 +94,7 @@ def write_chain(tmp_path: Path, joints: dict) -> None:
     (tmp_path / "head_chain.json").write_text(json.dumps({"joints": joints, "note": "chain"}))
 
 
-def test_apply_chain_then_tof(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:
+def test_apply_overrides_chain_then_tof(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:
     write_chain(tmp_path, {"head_tilt": valid_joint(), "head_camera_joint": valid_joint((0.5, 0.6, 0.7))})
     (tmp_path / "tof_joint.json").write_text(json.dumps({"xyz": [9, 8, 7], "rpy": [0, 0, 0], "note": "tof"}))
     out, warnings = ut.apply_overrides(urdf_text, tmp_path)
@@ -121,7 +121,7 @@ BAD_CHAINS = {
 
 
 @pytest.mark.parametrize("case", sorted(BAD_CHAINS))
-def test_invalid_chain_one_warning_and_unchanged(ut: ModuleType, urdf_text: str, tmp_path: Path, case: str) -> None:
+def test_invalid_override_files_warn_and_keep_urdf(ut: ModuleType, urdf_text: str, tmp_path: Path, case: str) -> None:
     (tmp_path / "head_chain.json").write_text(BAD_CHAINS[case])
     out, warnings = ut.apply_overrides(urdf_text, tmp_path)
     assert out == urdf_text
@@ -146,7 +146,7 @@ def test_parse_head_chain_error_names_key(ut: ModuleType) -> None:
         ut.parse_head_chain({"joints": {"head_tilt": {"xyz": [0, 0], "rpy": [0, 0, 0]}}})
 
 
-def test_urdf_text_is_stdlib_only() -> None:
+def test_urdf_text_imports_only_stdlib() -> None:
     tree = ast.parse(URDF_TEXT.read_text())
     modules = set()
     for node in ast.walk(tree):

@@ -509,18 +509,18 @@ The `head_chain.json` format and `apply_overrides` in `urdf_text.py` (design D1,
 | Test | What it covers |
 |---|---|
 | `test_constants` | File name constants and `HEAD_CHAIN_JOINTS`. |
-| `test_writer_parser_round_trip` | `head_chain_json` output has sorted keys and 9 decimals and `parse_head_chain` returns the same origins. |
+| `test_head_chain_json_round_trip` | `head_chain_json` output has sorted keys and 9 decimals and `parse_head_chain` returns the same origins. |
 | `test_each_chain_joint_rewritten_only` | Each chain joint rewrite changes only its origin line and comment; a second rewrite replaces the comment. |
 | `test_head_tilt_keeps_axis_and_limit` | A head_tilt rewrite keeps `<axis>` and `<limit>`. |
 | `test_rewrite_tof_joint_is_rewrite_joint_origin` | `rewrite_tof_joint` equals `rewrite_joint_origin` for tof_joint with the `tof_joint calibrated` marker. |
 | `test_rewrite_unknown_joint_raises` | An unknown joint raises ValueError. |
-| `test_apply_chain_then_tof` | `apply_overrides` applies the chain joints and then the tof override. |
+| `test_apply_overrides_chain_then_tof` | `apply_overrides` applies the chain joints and then the tof override. |
 | `test_empty_dir_gives_identical_text` | No override files give the identical text and no warnings. |
-| `test_invalid_chain_one_warning_and_unchanged` | Bad JSON, unknown joint, 2-vector, NaN, bool and empty joints each give one warning and leave the text unchanged. |
+| `test_invalid_override_files_warn_and_keep_urdf` | Bad JSON, unknown joint, 2-vector, NaN, bool and empty joints each give one warning and leave the text unchanged. |
 | `test_invalid_chain_does_not_block_tof` | An invalid head_chain.json still lets tof_joint.json apply. |
 | `test_invalid_tof_one_warning` | An invalid tof_joint.json gives one warning naming the file. |
 | `test_parse_head_chain_error_names_key` | The ValueError names the offending key. |
-| `test_urdf_text_is_stdlib_only` | `urdf_text.py` imports only standard library modules (checked with `ast`). |
+| `test_urdf_text_imports_only_stdlib` | `urdf_text.py` imports only standard library modules (checked with `ast`). |
 
 ### `test_head_config_consistency.py`
 
