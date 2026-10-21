@@ -1608,6 +1608,8 @@ Client CPU load trims (load about 13 on 4 cores made the EKF miss its rate and t
 | `test_imu_consumer_timeouts_cover_25_hz` | Every IMU staleness limit in client.yml (tilt guard `imu_timeout_s`, ground estimator `imu.timeout_s`, floor guard `imu_max_age_s`, map_guard and map_guard_cpp `input_timeout_s`) is at least 3 IMU periods (0.12 s). |
 | `test_mcp_server_bump_window_still_spans_80_ms` | mcp_server `monitor.bump_min_samples` (default 2 = 80 ms) is at most 3 samples. |
 | `test_mcp_server_imu_baseline_keeps_its_time_constant` | `monitor.imu_baseline_alpha` x 25 Hz = 1 / 1 s (0.04), the time constant tuned at 50 Hz. |
+| `test_head_camera_runs_at_15_fps` | `head_camera_cpp` config has `frame_duration_us: 66666` (15 fps; encode load halved, subscribers stop dropping frames). |
+| `test_head_camera_mapping_rate_fits_15_fps` | `mapping.rate_hz` and marker_detector `process_hz` are both <= 15. |
 
 ### test_dds_discovery_config.py
 

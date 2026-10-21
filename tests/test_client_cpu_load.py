@@ -99,6 +99,6 @@ def test_head_camera_runs_at_15_fps() -> None:
 
 
 def test_head_camera_mapping_rate_fits_15_fps() -> None:
-    """The mapping stream and the marker detector are subsampled from the stream; neither may ask for more than it has."""
+    """Mapping stream and marker detector subsample the stream: neither may ask for more than it has."""
     assert node_config("head_camera_cpp")["mapping"]["rate_hz"] <= HEAD_CAMERA_FPS
     assert node_config("marker_detector")["process_hz"] <= HEAD_CAMERA_FPS
