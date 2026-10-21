@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--floor-sweep-capture
 branch: head-chain-floor-plane-fit-a--floor-sweep-capture
-verified_head: ""
-run: ""
-provides: []
+verified_head: e3bc611a
+run: head-chain-floor-plane-fit-a
+provides: [floor-sweep]
+acs_for_audit: []
+process_gaps: ["TDD red/green evidence is missing. I cannot run the merge-base revert-and-retest procedure because this role is read-only. floor_sweep.py is a new file, so the merge-base run fails trivially with ImportError.", "The independent verification failure is a harness fault, not a defect in the task. verify-task.py was run with the literal `--prev-head placeholder`, which is not a git revision. The worktree is clean and HEAD is e3bc611a. The verify command passes: 42 tests passed (floor_sweep and config), poe lint passed, 9 deploy tests passed, lint-ansible passed. The orchestrator should rerun verify-task.py with a real prev-head."]
 ---
 
 # Floor sweep capture

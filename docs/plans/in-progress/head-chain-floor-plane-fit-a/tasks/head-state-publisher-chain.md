@@ -1,6 +1,6 @@
 ---
 title: Head state publisher chain
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "TF of the head camera and ToF follows the measured head chain after an apply, so the floor, Nav2 and the map use the real geometry."
 files: [nodes/head_state_publisher/launch/head_description.py, nodes/head_state_publisher/launch/head_state_publisher.launch.py, tests/test_head_tof_joint_override.py, tests/test_head_chain_launch.py, tests/README.md, nodes/head_state_publisher/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--head-state-publisher-chain
 branch: head-chain-floor-plane-fit-a--head-state-publisher-chain
-verified_head: ""
-run: ""
+verified_head: 5502ba9a7bd47b1abfde290fde639c73480d7e29
+run: head-chain-floor-plane-fit-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head state publisher chain

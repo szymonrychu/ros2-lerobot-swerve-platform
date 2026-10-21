@@ -1,6 +1,6 @@
 ---
 title: Floor fit HTTP API
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Compute, review and apply a floor fit from the Calibrate page; Apply puts the fitted chain into TF through head_chain.json."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/floor_results.py, nodes/head_rgbd_calibration/head_rgbd_calibration/floor_api.py, nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py, nodes/head_rgbd_calibration/tests/test_floor_results.py, nodes/head_rgbd_calibration/tests/test_floor_api.py, nodes/head_rgbd_calibration/tests/test_main.py, nodes/head_rgbd_calibration/tests/fixtures/api/floor_state.json, nodes/head_rgbd_calibration/tests/fixtures/api/floor_result.json]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--floor-fit-http-api
 branch: head-chain-floor-plane-fit-a--floor-fit-http-api
 verified_head: ""
-run: ""
+run: head-chain-floor-plane-fit-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Floor fit HTTP API
@@ -83,3 +85,5 @@ The Calibrate page can start a sweep, compute a result and apply a passing one; 
 
 - Design D6, D7. Do not edit `app.py`, `store.py` or `compute.py` (in-progress per-pose-quality-hints-in-th); the router is included in `__main__.py`.
 - Reuse `apply.unit_state` and `store.write_json_atomic`; load `tests/head_floor_synthetic.py` by path as `tests/pose_factory.py` loads `tests/rgbd_synthetic.py`.
+
+- 2026-10-21 run head-chain-floor-plane-fit-a: dependency-failed on floor-sweep-capture

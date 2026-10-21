@@ -1,6 +1,6 @@
 ---
 title: Floor plane chain fit
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Measures the head mount height, roll, pitch and tilt zero from the floor the ToF sees, with sigma and limits that refuse a bad fit."
 files: [shared/ros2_common/head_rgbd_calibration/floor_fit.py, shared/ros2_common/head_rgbd_calibration/config.py, tests/head_floor_synthetic.py, tests/test_head_floor_fit.py, tests/README.md, shared/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--floor-plane-chain-fit
 branch: head-chain-floor-plane-fit-a--floor-plane-chain-fit
-verified_head: ""
-run: ""
-provides: []
+verified_head: 1346b4feacad33ba33989b1a6681fa7cd3919990
+run: head-chain-floor-plane-fit-a
+provides: [floor-synthetic-clouds]
+acs_for_audit: [a5]
+process_gaps: ["tests/README.md was edited in round 2 without a finding or tests.added naming it (the independent verification note). The edit only renames and merges the table rows to match the renamed tests, and it is consistent with tests/test_head_floor_fit.py, so I do not count it as a defect."]
 ---
 
 # Floor plane chain fit

@@ -47,7 +47,7 @@ first, the board calibration later refines the same override).
 
 ## Time
 
-Estimate: 445 min | Actual: 0 min | Remaining estimate: 445 min
+Estimate: 445 min | Actual: 0 min | Remaining estimate: 225 min
 
 ## Review
 

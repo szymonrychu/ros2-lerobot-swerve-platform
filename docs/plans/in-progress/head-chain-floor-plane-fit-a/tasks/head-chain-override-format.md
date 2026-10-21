@@ -1,6 +1,6 @@
 ---
 title: Head chain override format
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "One format and one applier for the calibrated head chain, so every consumer reads the same override the same way."
 files: [shared/ros2_common/head_rgbd_calibration/urdf_text.py, tests/test_head_chain_override.py, tests/README.md, shared/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--head-chain-override-format
 branch: head-chain-floor-plane-fit-a--head-chain-override-format
-verified_head: ""
-run: ""
-provides: []
+verified_head: 3d3d7e5768ca1bcc0f6e5d5316bbbccbc66343a1
+run: head-chain-floor-plane-fit-a
+provides: [parse-vec3]
+acs_for_audit: []
+process_gaps: ["Red/green evidence (merge-base file fails, HEAD file passes) is not in tests.red / verification.evidence. I reproduced it in a scratch copy: the merge-base urdf_text.py gives 19 failed, 1 passed; the HEAD file passes. Tail with HEAD: 60 passed in 5.70s across the 4 related test files, and poe lint passes."]
 ---
 
 # Head chain override format

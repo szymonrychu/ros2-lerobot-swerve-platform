@@ -1,6 +1,6 @@
 ---
 title: Head floor fit UI step
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The user runs the floor fit from the Calibrate page and sees fitted vs current values before applying; the runbook proves the floor reads flat."
 files: [nodes/web_ui/frontend/src/calibrate/headFloorApi.ts, nodes/web_ui/frontend/src/calibrate/headFloorApi.test.ts, nodes/web_ui/frontend/src/calibrate/HeadFloorFit.tsx, nodes/web_ui/frontend/src/calibrate/HeadFloorFit.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx, nodes/web_ui/README.md, docs/runbooks/head-floor-fit.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--head-floor-fit-ui-step
 branch: head-chain-floor-plane-fit-a--head-floor-fit-ui-step
 verified_head: ""
-run: ""
+run: head-chain-floor-plane-fit-a
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head floor fit UI step
@@ -73,3 +75,5 @@ The Calibrate page shows a Head floor fit step that runs the sweep, shows the fi
 - Design D9, D10. Do not edit `rgbdApi.ts` or `RgbdCapture.tsx` (in-progress per-pose epic); copy the guard helpers' style.
 - The runbook is executed by the orchestrator with the user after merge; deploy only through `scripts/deploy-nodes.sh` with output in `.logs/`; mcp_server is not deployed by this epic.
 - Telemetry through `scripts/topic_scraper_collect.py` (CLAUDE.md), topic_scraper_api enabled first.
+
+- 2026-10-21 run head-chain-floor-plane-fit-a: dependency-failed on floor-fit-http-api
