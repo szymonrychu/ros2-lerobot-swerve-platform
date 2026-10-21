@@ -1,6 +1,6 @@
 ---
 title: CPU budget runbook
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "The orchestrator can prove the saving on the robot (CPU before/after, nav2 stays up) and roll back any item by config."
 files: [docs/runbooks/client-cpu-budget.md, scripts/node_cpu_compare.yaml, tests/test_cpu_budget_runbook.py, tests/README.md, MEMORY.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/client-cpu-budget-recovery-a--cpu-budget-runbook
 branch: client-cpu-budget-recovery-a--cpu-budget-runbook
-verified_head: ""
+verified_head: de074240820604516bfc102f22b6b05277d9e569
 run: client-cpu-budget-recovery-a
 provides: []
 acs_for_audit: []
