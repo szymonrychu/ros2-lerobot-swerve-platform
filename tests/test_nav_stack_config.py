@@ -1134,6 +1134,7 @@ def test_laser_filter_polygon_matches_the_h_outline() -> None:
     the front notch lies under the parked gripper."""
     params = yaml.safe_load(LASER_FILTER_PARAMS.read_text())
     assert set(params) == {
+        "executor",
         "scan_topic",
         "scan_filtered_topic",
         "polygon_frame",
