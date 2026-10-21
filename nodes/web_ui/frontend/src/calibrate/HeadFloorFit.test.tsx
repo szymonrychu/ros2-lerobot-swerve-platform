@@ -110,12 +110,40 @@ describe('HeadFloorFit', () => {
     expect(row('Mount roll \\(deg\\)').getByText('1.500')).toBeTruthy()
     expect(row('Mount pitch \\(deg\\)').getAllByText('-3.000')).toHaveLength(2)
     expect(row('Tilt zero \\(deg\\)').getByText('+2.000')).toBeTruthy()
-    expect(screen.getByText(/Height RMS 2.1 mm/)).toBeTruthy()
-    expect(screen.getByText(/Normal RMS 0.12 deg/)).toBeTruthy()
+    expect(row('Tilt roll \\(deg\\)').getByText('+1.200')).toBeTruthy()
+    expect(row('Tilt roll \\(deg\\)').getByText('0.030')).toBeTruthy()
+    expect(screen.getByText(/Checked against the limits \(pose mean\): Height RMS 2.1 mm, Normal RMS 0.12 deg/)).toBeTruthy()
+    expect(screen.getByText(/Per observation \(not limited\): Height RMS 4.3 mm, Normal RMS 0.9 deg/)).toBeTruthy()
     expect(screen.getByText('Passed')).toBeTruthy()
     // per-pose residual and skipped reason
     expect(screen.getByRole('row', { name: /-60.0.*12.0.*3.*1.9.*0.10/ })).toBeTruthy()
     expect(screen.getByText(/no valid plane/)).toBeTruthy()
+  })
+
+  it('shows a partly blocked skipped pose with its reason', async () => {
+    const reason = 'partly blocked: 2 of 5 clouds'
+    install(world({ result: { ...resultFx, skipped: [{ pose: 4, pan_deg: 30, tilt_deg: 10, reason }] } }))
+    render(<HeadFloorFit />)
+    const compute = await ready()
+    await act(async () => {
+      fireEvent.click(compute)
+    })
+    expect(screen.getByText(new RegExp(`Skipped pose 4.*${reason}`))).toBeTruthy()
+  })
+
+  it('renders an older result without tilt roll and observation RMS', async () => {
+    const { tilt_roll_deg: _t, ...params } = resultFx.params
+    const { observation_height_rms_mm: _h, observation_normal_rms_deg: _n, ...old } = resultFx
+    install(world({ result: { ...old, params } }))
+    render(<HeadFloorFit />)
+    const compute = await ready()
+    await act(async () => {
+      fireEvent.click(compute)
+    })
+    expect(screen.getByText('Passed')).toBeTruthy()
+    expect(screen.queryByRole('row', { name: /Tilt roll/ })).toBeNull()
+    expect(screen.queryByText(/Per observation/)).toBeNull()
+    expect(screen.getByText(/pose mean\): Height RMS 2.1 mm/)).toBeTruthy()
   })
 
   it('Apply is disabled for a failed result and shows the failed limits', async () => {

@@ -63,9 +63,17 @@ export interface FloorResult {
     mount_roll_deg: FloorParam
     mount_pitch_deg: FloorParam
     tilt_zero_deg: FloorParam
+    /** Absent in results fitted before the tilt roll was added. */
+    tilt_roll_deg?: FloorParam
   }
+  /** RMS over the poses of the pose-mean height residual: the value the max_height_rms_mm limit checks. */
   height_rms_mm: number
+  /** RMS over the poses of the pose-mean normal angle: the value the max_normal_rms_deg limit checks. */
   normal_rms_deg: number
+  /** RMS of every observation's height residual (reported, not limited); absent in older results. */
+  observation_height_rms_mm?: number
+  /** RMS of every observation's normal angle (reported, not limited); absent in older results. */
+  observation_normal_rms_deg?: number
   poses: FloorPose[]
   skipped: SkippedPose[]
 }
@@ -82,6 +90,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const isStr = (v: unknown) => typeof v === 'string'
 const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v)
 const isNullOr = (f: (v: unknown) => boolean) => (v: unknown) => v === null || f(v)
+const isOptional = (f: (v: unknown) => boolean) => (v: unknown) => v === undefined || f(v)
 const isArrayOf = (f: (v: unknown) => boolean) => (v: unknown) => Array.isArray(v) && v.every(f)
 
 const isSweep = (v: unknown) =>
@@ -125,8 +134,11 @@ const isFloorResult = (v: unknown) =>
   isParam(v.params.mount_roll_deg) &&
   isParam(v.params.mount_pitch_deg) &&
   isParam(v.params.tilt_zero_deg) &&
+  isOptional(isParam)(v.params.tilt_roll_deg) &&
   isNum(v.height_rms_mm) &&
   isNum(v.normal_rms_deg) &&
+  isOptional(isNum)(v.observation_height_rms_mm) &&
+  isOptional(isNum)(v.observation_normal_rms_deg) &&
   isArrayOf(isPose)(v.poses) &&
   isArrayOf(isSkipped)(v.skipped)
 

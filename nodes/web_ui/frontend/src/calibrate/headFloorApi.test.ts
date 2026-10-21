@@ -58,6 +58,16 @@ describe('headFloorApi', () => {
     stub(200, { running: true })
     expect((await startSweep()).ok).toBe(false)
   })
+  it('accepts an older result without tilt roll and observation RMS, rejects a malformed new key', async () => {
+    const { tilt_roll_deg: _t, ...params } = resultFx.params
+    const { observation_height_rms_mm: _h, observation_normal_rms_deg: _n, ...old } = resultFx
+    stub(200, { ...old, params })
+    expect((await computeFloor('s')).ok).toBe(true)
+    stub(200, { ...resultFx, params: { ...resultFx.params, tilt_roll_deg: { value: 'x' } } })
+    expect((await computeFloor('s')).ok).toBe(false)
+    stub(200, { ...resultFx, observation_height_rms_mm: 'x' })
+    expect((await computeFloor('s')).ok).toBe(false)
+  })
   it('error bodies give the node message', async () => {
     stub(409, { ok: false, message: 'a floor sweep is running; stop it first' })
     expect(await stopSweep()).toEqual({ ok: false, status: 409, message: 'a floor sweep is running; stop it first' })

@@ -42,6 +42,7 @@ const PARAM_ROWS: ParamRow[] = [
   { label: 'Mount roll (deg)', key: 'mount_roll_deg', scale: 1, digits: 3, sigmaDigits: 3 },
   { label: 'Mount pitch (deg)', key: 'mount_pitch_deg', scale: 1, digits: 3, sigmaDigits: 3 },
   { label: 'Tilt zero (deg)', key: 'tilt_zero_deg', scale: 1, digits: 3, sigmaDigits: 3 },
+  { label: 'Tilt roll (deg)', key: 'tilt_roll_deg', scale: 1, digits: 3, sigmaDigits: 3 },
 ]
 
 const signed = (v: number, digits: number) => `${v >= 0 ? '+' : ''}${v.toFixed(digits)}`
@@ -80,14 +81,20 @@ function ResultView({ result }: { result: FloorResult }) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {PARAM_ROWS.map((row) => (
-            <ParamTableRow key={row.key} row={row} param={result.params[row.key]} />
-          ))}
+          {PARAM_ROWS.map((row) => {
+            const param = result.params[row.key]
+            return param ? <ParamTableRow key={row.key} row={row} param={param} /> : null
+          })}
         </TableBody>
       </Table>
       <Typography variant="body2" sx={{ mt: 1 }}>
-        Height RMS {result.height_rms_mm} mm, Normal RMS {result.normal_rms_deg} deg
+        {`Checked against the limits (pose mean): Height RMS ${result.height_rms_mm} mm, Normal RMS ${result.normal_rms_deg} deg`}
       </Typography>
+      {result.observation_height_rms_mm !== undefined && result.observation_normal_rms_deg !== undefined && (
+        <Typography variant="body2" color="text.secondary">
+          {`Per observation (not limited): Height RMS ${result.observation_height_rms_mm} mm, Normal RMS ${result.observation_normal_rms_deg} deg`}
+        </Typography>
+      )}
       <Table size="small" sx={{ mt: 1 }}>
         <TableHead>
           <TableRow>
@@ -211,7 +218,7 @@ export function HeadFloorFit() {
       </Typography>
       <Typography variant="body2" color="text.secondary">
         Robot on a flat floor, not on blocks; about 2 m in front and 1.5 m to each side clear; only the head moves.
-        The sweep fits the head mount z, roll, pitch and tilt zero from the ToF floor plane.
+        The sweep fits the head mount z, roll, pitch, tilt zero and tilt roll from the ToF floor plane.
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}
       {sweep?.error && <Alert severity="error">{sweep.error}</Alert>}
