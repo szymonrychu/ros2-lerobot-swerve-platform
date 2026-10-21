@@ -3,9 +3,10 @@
 Runs the Nav2 2D navigation stack (Jazzy, navigation2 1.3.x) as a native systemd service on the client RPi 5:
 
 ```bash
-ros2 launch nav2_bringup bringup_launch.py use_localization:=False \
-  params_file:=/opt/ros2-lerobot-swerve-platform/nodes/nav2_bringup/config/nav2_params.yaml
+ros2 launch /opt/ros2-lerobot-swerve-platform/nodes/nav2_bringup/launch/nav2_launch.py
 ```
+
+The wrapper hardcodes `config/nav2_params.yaml` and the equivalent of the stock bringup's `use_localization:=False`.
 
 `use_localization:=False` skips map_server and AMCL: the `map` frame and `/map` come from the separate
 [slam_toolbox](../slam_toolbox/README.md) node (online async). `slam:=True` is not used, because bringup's SLAM
@@ -21,7 +22,7 @@ option requires localization and runs online_sync.
 
 ## Servers configured in `config/nav2_params.yaml`
 
-`navigation_launch.py` starts all of these in one container; each has a section, because a server without its
+The repo `launch/navigation_launch.py` (copy of nav2_bringup 1.3.13) starts all of these in one container; each has a section, because a server without its
 params (notably collision_monitor and docking_server) fails to configure and aborts the lifecycle bringup.
 
 | Server | Configuration |
@@ -36,9 +37,9 @@ params (notably collision_monitor and docking_server) fails to configure and abo
 | smoother_server | SimpleSmoother. |
 | velocity_smoother | open loop, `max_velocity [0.25, 0.25, 0.5]`, `min_velocity [-0.25, -0.25, -0.5]`, accel 1.0 m/s^2, 2.0 rad/s^2. |
 | collision_monitor | `base_link` / `odom`, `cmd_vel_smoothed -> cmd_vel`; a direction-aware `stop` polygon `StopBox` (`velocity_polygon`): the H footprint swept 2 cm toward the commanded direction (generated), sources `/scan_filtered` and the ToF obstacle band of `/tof/points_filtered`. `StopBox` is enabled (validated on the robot, see [Collision monitor](#collision-monitor)). A second polygon `ArmStop` (`approach`, lidar only) takes its shape from mcp_server and is enabled only while the arm is released out of the static footprint (see [Dynamic footprint](#dynamic-footprint-arm-released)). A third, `CliffStop` (direction-aware `velocity_polygon`, `approach`, generated: footprint + 0.25 m unless backing away), reads the below-floor ToF band. |
-| docking_server | (stock, not used for grasping: see [Grasp docking server](#grasp-docking-server)) One `SimpleChargingDock` plugin (a non-empty plugin list is mandatory) and no docks: it configures with an empty dock database and only accepts requests that carry an explicit dock pose. |
-| waypoint_follower | WaitAtWaypoint. |
-| route_server | `graph_filepath: ""`: configures with an empty graph ("No graph file provided to load yet"); a graph can be loaded later through its `set_route_graph` service. |
+| docking_server | (stock; NOT started: removed from the navigation lifecycle, params section kept inert; grasping uses [Grasp docking server](#grasp-docking-server)) One `SimpleChargingDock` plugin (a non-empty plugin list is mandatory) and no docks: it configures with an empty dock database and only accepts requests that carry an explicit dock pose. |
+| waypoint_follower | NOT started (removed from the lifecycle, nothing calls it); params section kept inert. |
+| route_server | NOT started (removed from the lifecycle, nothing calls it); params section kept inert. Was: `graph_filepath: ""`: configures with an empty graph ("No graph file provided to load yet"); a graph can be loaded later through its `set_route_graph` service. |
 
 Velocity chain: controller/behaviors -> `cmd_vel_nav` -> velocity_smoother -> `cmd_vel_smoothed` ->
 collision_monitor -> `/cmd_vel` (unstamped Twist) -> swerve_drive_controller.
@@ -192,7 +193,11 @@ deploy):
 
 ## Grasp docking server
 
-`launch/nav2_launch.py` is the launch command Ansible uses. It includes the stock `bringup_launch.py` (`use_localization:=False`, `config/nav2_params.yaml`) and adds a `GroupAction` with `PushRosNamespace('grasp')` holding a second `opennav_docking` node, `docking_server` (`/grasp/docking_server`, params `config/grasp_docking_params.yaml`), and its own `lifecycle_manager_grasp` (autostart, `node_names: [docking_server]`).
+`launch/nav2_launch.py` is the launch command Ansible uses. It starts the `nav2_container` (`component_container_isolated`, `on_exit=Shutdown`: if the container dies the launch exits non-zero and systemd `Restart=` restarts nav2 instead of leaving a dead container behind an "active" unit), includes the repo `launch/navigation_launch.py` (`config/nav2_params.yaml`) and adds a `GroupAction` with `PushRosNamespace('grasp')` holding a second `opennav_docking` node, `docking_server` (`/grasp/docking_server`, params `config/grasp_docking_params.yaml`), and its own `lifecycle_manager_grasp` (autostart, `node_names: [docking_server]`).
+
+### Bonds off, unused servers removed, 3 Hz local costmap
+
+CPU second pass (2026-10-21): a bond heartbeat miss under CPU load made the lifecycle manager reset all servers and the container segfaulted (exit -11) while reconfiguring route_server. Both lifecycle managers now use `bond_timeout: 0.0` (upstream skips bond creation; ~95 Hz of bond traffic gone). The stock `bringup_launch.py` includes the stock `navigation_launch.py` (hardcoded node list, no params), so `nav2_launch.py` replaces it with the repo copy, which drops route_server, waypoint_follower and the stock docking_server (no caller in the repo). `local_costmap` `update_frequency` is 3 Hz (it only reached ~1.3 Hz at 5).
 
 Why a second docking server: Jazzy's `navigation_launch.py` does not remap the `docking_server` `cmd_vel`, so the stock `/docking_server` publishes straight to `/cmd_vel` and would bypass velocity_smoother and collision_monitor (StopBox, ArmStop). The grasp server remaps `cmd_vel` to `/cmd_vel_nav` (so it joins the normal chain) and `navigate_to_pose` to the absolute `/navigate_to_pose` (its staging navigation uses the stock bt_navigator). The stock `docking_server` section of `nav2_params.yaml` is untouched.
 

@@ -40,6 +40,18 @@ FILTERED_SCAN = "/scan_filtered"
 RF2O_FUSED_TOPIC = "/odom_rf2o_twist"
 RF2O_PARAMS = REPO_ROOT / "nodes" / "rf2o_laser_odometry" / "config" / "rf2o.yaml"
 NAV2_LAUNCH = REPO_ROOT / "nodes" / "nav2_bringup" / "launch" / "nav2_launch.py"
+NAV2_NAVIGATION_LAUNCH = REPO_ROOT / "nodes" / "nav2_bringup" / "launch" / "navigation_launch.py"
+# Servers dropped from the navigation lifecycle: nothing in the repo calls them (the grasp docking server is separate).
+DROPPED_NAV2_SERVERS = {"route_server", "waypoint_follower", "docking_server"}
+KEPT_NAV2_SERVERS = [
+    "controller_server",
+    "smoother_server",
+    "planner_server",
+    "behavior_server",
+    "velocity_smoother",
+    "collision_monitor",
+    "bt_navigator",
+]
 GRASP_DOCKING_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "grasp_docking_params.yaml"
 NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
@@ -474,16 +486,70 @@ def call_kwarg(call: ast.Call, key: str) -> Any:
     return ast.literal_eval(kw.value)
 
 
-def test_nav2_launch_includes_stock_bringup_without_localization() -> None:
+def test_nav2_launch_includes_repo_navigation_launch_without_localization() -> None:
+    """The wrapper includes the repo navigation_launch.py, not bringup_launch.py (which pulls in the stock one)."""
     source = NAV2_LAUNCH.read_text()
-    assert "bringup_launch.py" in source
+    assert "bringup_launch.py" not in source
+    assert "navigation_launch.py" in source
     assert "nav2_params.yaml" in source
     includes = launch_calls("IncludeLaunchDescription")
     assert len(includes) == 1
     args = next(k for k in includes[0].keywords if k.arg == "launch_arguments").value
-    assert "use_localization" in ast.unparse(args)
-    assert "'False'" in ast.unparse(args)
     assert "params_file" in ast.unparse(args)
+    assert "use_composition" in ast.unparse(args)
+
+
+def navigation_lifecycle_nodes() -> list[str]:
+    """The `lifecycle_nodes` list literal of the repo navigation_launch.py.
+
+    Returns:
+        list[str]: Server names the navigation lifecycle manager manages.
+    """
+    tree = ast.parse(NAV2_NAVIGATION_LAUNCH.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "lifecycle_nodes" for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise AssertionError("lifecycle_nodes not assigned in navigation_launch.py")
+
+
+def test_navigation_lifecycle_excludes_unused_servers() -> None:
+    nodes = navigation_lifecycle_nodes()
+    assert set(nodes).isdisjoint(DROPPED_NAV2_SERVERS)
+    assert nodes == KEPT_NAV2_SERVERS
+    source = NAV2_NAVIGATION_LAUNCH.read_text()
+    for server in DROPPED_NAV2_SERVERS:
+        assert f"name='{server}'" not in source and f'name="{server}"' not in source
+
+
+def test_nothing_in_the_repo_calls_the_dropped_servers() -> None:
+    """The stock docking_server, waypoint_follower and route_server have no client (grasp uses /grasp/dock_robot)."""
+    pattern = re.compile(r"FollowWaypoints|NavigateThroughPoses|ComputeRoute|set_route_graph|(?<!grasp)/dock_robot")
+    for path in (REPO_ROOT / "nodes").rglob("*.py"):
+        if ".venv" in path.parts or "tests" in path.parts:
+            continue
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            assert not pattern.search(line), f"{path}:{number} uses a dropped server"
+
+
+def test_lifecycle_managers_have_bonds_disabled() -> None:
+    """bond_timeout 0.0 makes the lifecycle manager skip bond creation (no ~95 Hz bond traffic, no bond-miss reset)."""
+    source = NAV2_NAVIGATION_LAUNCH.read_text()
+    assert source.count('"bond_timeout": 0.0') == 2  # composable + standalone lifecycle manager
+    grasp = next(c for c in launch_calls("Node") if call_kwarg(c, "name") == "lifecycle_manager_grasp")
+    assert call_kwarg(grasp, "parameters")[0]["bond_timeout"] == 0.0
+
+
+def test_container_exit_shuts_the_launch_down() -> None:
+    """A dead component container must end the launch (non-zero service exit) so systemd Restart= restarts nav2."""
+    containers = [c for c in launch_calls("Node") if call_kwarg(c, "executable") == "component_container_isolated"]
+    assert len(containers) == 1
+    on_exit = next(k for k in containers[0].keywords if k.arg == "on_exit")
+    assert ast.unparse(on_exit.value).startswith("Shutdown(")
+
+
+def test_local_costmap_update_frequency_is_3hz() -> None:
+    params = yaml.safe_load(NAV2_PARAMS.read_text())
+    assert params["local_costmap"]["local_costmap"]["ros__parameters"]["update_frequency"] == 3.0
 
 
 def test_nav2_launch_grasp_docking_server_is_namespaced_and_remapped() -> None:
@@ -492,7 +558,7 @@ def test_nav2_launch_grasp_docking_server_is_namespaced_and_remapped() -> None:
     assert len(pushes) == 1
     assert ast.literal_eval(pushes[0].args[0]) == "grasp"
     assert len(launch_calls("GroupAction")) == 1
-    nodes = {call_kwarg(c, "name"): c for c in launch_calls("Node")}
+    nodes = {call_kwarg(c, "name"): c for c in launch_calls("Node") if call_kwarg(c, "name") != "nav2_container"}
     assert set(nodes) == {"docking_server", "lifecycle_manager_grasp"}
     dock = nodes["docking_server"]
     assert call_kwarg(dock, "package") == "opennav_docking"
@@ -503,7 +569,7 @@ def test_nav2_launch_grasp_docking_server_is_namespaced_and_remapped() -> None:
     assert call_kwarg(manager, "package") == "nav2_lifecycle_manager"
     assert call_kwarg(manager, "executable") == "lifecycle_manager"
     manager_params = call_kwarg(manager, "parameters")
-    assert manager_params == [{"autostart": True, "node_names": ["docking_server"]}]
+    assert manager_params == [{"autostart": True, "node_names": ["docking_server"], "bond_timeout": 0.0}]
 
 
 def grasp_docking() -> dict:
