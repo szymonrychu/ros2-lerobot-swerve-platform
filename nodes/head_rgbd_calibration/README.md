@@ -202,7 +202,7 @@ Files:
 
 ```
 floor_fit/<sid>/observations.json   session, created, grid, observations, skipped, dropped (cloud drop counts by reason)
-floor_fit/<sid>/results/<rid>/      result.json and head_chain.json of a compute (floor-fit-http-api)
+floor_fit/<sid>/results/<rid>/      result.json and head_chain.json of a compute
 applied/head_chain.json             the applied head chain override; applied.json gains head_chain {session, result, applied_at}
 ```
 
@@ -224,7 +224,7 @@ HTTP routes (proxied by the web UI under `/api/calibration/rgbd/`):
 | `GET /api/floor/sessions/{sid}/results/{rid}` | result.json |
 | `POST /api/floor/sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at}, units: [{name, active_state, restarted}]}` |
 
-The routes are built by floor-fit-http-api in this epic (the epic merges as one).
+The routes are served by the node HTTP API alongside the capture routes.
 
 ## Process
 

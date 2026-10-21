@@ -74,7 +74,7 @@ def test_core_blocks_equal_calibrate_tool_yaml() -> None:
     assert cfg.limits.model_dump(mode="json") == tool["limits"]
 
 
-def test_floor_defaults() -> None:
+def test_floor_defaults_and_tilt_range() -> None:
     floor = NodeConfig().floor
     assert floor.joint_states_topic == "/head/joint_states"
     assert floor.command_topic == "/head/joint_commands"

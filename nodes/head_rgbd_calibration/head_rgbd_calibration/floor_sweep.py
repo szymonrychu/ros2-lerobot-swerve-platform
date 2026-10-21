@@ -508,7 +508,7 @@ class FloorSweep:
                 self.pose = pose + 1
             still = self.move_to(run, pan_deg, tilt_deg)
             if still is None:
-                self.skip(
+                self.record_skip(
                     run, pose, pan_deg, tilt_deg, f"did not reach pan/tilt within {self.floor.move_timeout_s:g} s"
                 )
                 continue
@@ -520,9 +520,9 @@ class FloorSweep:
                     self.observation_count = len(run.observations)
             else:
                 detail = ", ".join(f"{count} x {reason}" for reason, count in reasons.items())
-                self.skip(run, pose, pan_deg, tilt_deg, f"no valid plane: {detail}")
+                self.record_skip(run, pose, pan_deg, tilt_deg, f"no valid plane: {detail}")
 
-    def skip(self, run: Run, pose: int, pan_deg: float, tilt_deg: float, reason: str) -> None:
+    def record_skip(self, run: Run, pose: int, pan_deg: float, tilt_deg: float, reason: str) -> None:
         run.skipped.append({"pose": pose, "pan_deg": pan_deg, "tilt_deg": tilt_deg, "reason": reason})
         with self.lock:
             self.skipped_count = len(run.skipped)

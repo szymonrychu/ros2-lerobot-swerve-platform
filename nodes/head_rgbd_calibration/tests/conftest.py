@@ -73,7 +73,7 @@ class PointCloud2:
 
 def read_points_numpy(*_args: Any, **_kwargs: Any) -> Any:
     """Stand-in for sensor_msgs_py.point_cloud2.read_points_numpy; tests patch it where they need points."""
-    raise NotImplementedError("sensor_msgs_py is not installed; patch read_points_numpy")
+    raise RuntimeError("sensor_msgs_py is not installed; patch read_points_numpy")
 
 
 def install_ros2_stubs() -> None:

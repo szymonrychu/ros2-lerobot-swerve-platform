@@ -199,7 +199,7 @@ def degrees(world: World) -> list[tuple[float, float]]:
     return [(round(math.degrees(c.position[0]), 3), round(math.degrees(c.position[1]), 3)) for c in world.commands]
 
 
-def test_command_order_frame_id_and_serpentine(tmp_path: Path) -> None:
+def test_commands_serpentine_grid_with_frame_id(tmp_path: Path) -> None:
     world = World()
     sweep, _node = make_sweep(tmp_path, world)
     run(sweep)
@@ -220,7 +220,7 @@ def test_session_id_and_directory(tmp_path: Path) -> None:
     assert sweep.state()["session_id"] == sid
 
 
-def test_observations_json_content(tmp_path: Path) -> None:
+def test_writes_observations_json(tmp_path: Path) -> None:
     world = World()
     sweep, _node = make_sweep(tmp_path, world)
     sid = run(sweep)
@@ -260,7 +260,8 @@ def test_clouds_only_after_still_and_settle(tmp_path: Path) -> None:
         assert obs["stamp_ns"] / 1e9 > command_t + 0.5
 
 
-def test_unreachable_pose_skipped_with_reason(tmp_path: Path) -> None:
+def test_skips_unreachable_pose_and_unmatched_cloud(tmp_path: Path) -> None:
+    test_pose_with_only_unmatched_clouds_skipped_with_reason(tmp_path / "unmatched")
     world = World()
     world.blocked = {(30.0, 28.0)}
     sweep, _node = make_sweep(tmp_path, world, move_timeout_s=2.0)
@@ -296,7 +297,9 @@ def test_pose_with_only_unmatched_clouds_skipped_with_reason(tmp_path: Path) -> 
     assert "no joint state within max_stamp_dt_s" in data["skipped"][0]["reason"]
 
 
-def test_restore_and_handles_on_done(tmp_path: Path) -> None:
+def test_restores_start_pose_on_every_exit(tmp_path: Path) -> None:
+    test_restore_and_handles_on_stop(tmp_path / "stop")
+    test_restore_and_handles_on_error(tmp_path / "error")
     world = World()
     sweep, node = make_sweep(tmp_path, world)
     run(sweep)
@@ -377,7 +380,7 @@ def test_busy_while_running(tmp_path: Path) -> None:
     assert sweep2_sid != first_sid
 
 
-def test_no_head_joint_state_refused_and_nothing_commanded(tmp_path: Path) -> None:
+def test_refuses_without_joint_state(tmp_path: Path) -> None:
     world = World()
     world.publish_joints = False
     sweep, node = make_sweep(tmp_path, world, move_timeout_s=1.0)
