@@ -13,8 +13,8 @@ estimate: ""
 actual: ""
 review: ""
 worktree: ""
-branch: ""
-verified_head: ""
+branch: main
+verified_head: e1fd716b
 run: ""
 provides: []
 ---
