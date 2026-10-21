@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { TOUCH_TARGET_PX } from '../theme'
 import { clearCalibrateHash } from './calibrateRoute'
+import { HeadFloorFit } from './HeadFloorFit'
 import { ImuCalibration } from './ImuCalibration'
 import { RgbdCalibration } from './RgbdCalibration'
 import { ServoNeutral } from './ServoNeutral'
@@ -73,6 +74,7 @@ export function CalibratePage({ onBack }: Props) {
         <>
           {state.config.imu && <ImuCalibration />}
           {state.config.rgbd && <RgbdCalibration />}
+          {state.config.rgbd && <HeadFloorFit />}
           {state.config.servos && <ServoNeutral />}
           <Typography color="text.secondary">Arm calibration - deferred</Typography>
         </>

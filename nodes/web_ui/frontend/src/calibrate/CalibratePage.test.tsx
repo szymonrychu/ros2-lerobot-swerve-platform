@@ -73,6 +73,30 @@ describe('CalibratePage', () => {
     await screen.findByText('RGB-D calibration')
   })
 
+  it('shows the Head floor fit step after the RGB-D section only with rgbd configured', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/floor/state')) {
+        const sweep = { running: false, session_id: null, pose: 0, total: 0, observations: 0, skipped: 0, status: 'idle', error: null }
+        return new Response(JSON.stringify({ sweep, applied: null }))
+      }
+      if (url.endsWith('/state')) {
+        const capture = { running: false, session_id: null, status: 'idle', pose_count: 0, started_at: null, stops_at: null }
+        const compute = { running: false, session_id: null, result_id: null, started_at: null, error: null }
+        return new Response(JSON.stringify({ capture, compute, applied: null }))
+      }
+      return new Response(JSON.stringify({ imu: false, rgbd: true }))
+    }))
+    render(<CalibratePage onBack={() => {}} />)
+    const rgbd = await screen.findByText('RGB-D calibration')
+    const floor = await screen.findByText('Head floor fit')
+    expect(rgbd.compareDocumentPosition(floor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    cleanup()
+    respond(200, { imu: true, rgbd: false })
+    render(<CalibratePage onBack={() => {}} />)
+    await screen.findByText('IMU calibration')
+    expect(screen.queryByText('Head floor fit')).toBeNull()
+  })
+
   it('imu only with rgbd false', async () => {
     respond(200, { imu: true, rgbd: false })
     render(<CalibratePage onBack={() => {}} />)
