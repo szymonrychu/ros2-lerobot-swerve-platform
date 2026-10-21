@@ -1,6 +1,6 @@
 ---
 title: Costmap cell keyed warnings
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Slow-down masks stop being republished at the 2 Hz cap from 30-60 overlapping areas; they change only when the warned cells change."
 files: [nodes/costmap_zones/costmap_zones/ground_warnings.py, nodes/costmap_zones/costmap_zones/node.py, nodes/costmap_zones/costmap_zones/raster.py, nodes/costmap_zones/costmap_zones/metrics.py, nodes/costmap_zones/costmap_zones/config.py, nodes/costmap_zones/tests/test_ground_warnings.py, nodes/costmap_zones/README.md, ansible/group_vars/client.yml]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--costmap-cell-keyed-warnings
 branch: ground-detection-robustness--costmap-cell-keyed-warnings
 verified_head: ""
-run: ""
+run: ground-detection-robustness
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Costmap cell keyed warnings
@@ -74,3 +76,5 @@ Input contract ground-warning-areas unchanged (GroundWarningMessage, GroundArea)
 ## Notes
 
 See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.
+
+- 2026-10-22 run ground-detection-robustness: dependency-failed on slope-and-smoothing-defaults

@@ -1,6 +1,6 @@
 ---
 title: Ground noise report script
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Each runbook scene gives pass/fail numbers from one command instead of ad-hoc scratch analysis.
 files: [scripts/ground_noise_report.py, scripts/ground_noise_report.yaml, tests/test_ground_noise_report.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--ground-noise-report-script
 branch: ground-detection-robustness--ground-noise-report-script
-verified_head: ""
-run: ""
+verified_head: 4ea046fae3f3f17a381cc754524a17335b08eab7
+run: ground-detection-robustness
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground noise report script

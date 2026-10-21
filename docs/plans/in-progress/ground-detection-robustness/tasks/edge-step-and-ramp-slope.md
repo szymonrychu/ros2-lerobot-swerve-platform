@@ -1,6 +1,6 @@
 ---
 title: Edge step and ramp slope
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The 5 cm box reads 5 cm at its edge and the 14 deg ramp reads about 14 deg instead of 6, so both are classified correctly."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/edges.hpp, nodes/ground_estimator_cpp/src/core/edges.cpp, nodes/ground_estimator_cpp/test/core/test_edges.cpp, nodes/ground_estimator_cpp/test/core/synthetic_floor.hpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--edge-step-and-ramp-slope
 branch: ground-detection-robustness--edge-step-and-ramp-slope
-verified_head: ""
-run: ""
-provides: []
+verified_head: 513084284483cfd863a922b4636f4e4c082c984a
+run: ground-detection-robustness
+provides: [ramp-synthetic-scene, grid-scene-sampler, sparse-sampling, robust-slope]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Edge step and ramp slope

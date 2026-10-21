@@ -1,6 +1,6 @@
 ---
 title: Ground robustness runbook
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The fixes are proven on the user's real box, ramp and board scene with the robot parked."
 files: [docs/runbooks/ground-robustness.md, tests/test_ground_robustness_runbook.py, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--ground-robustness-runbook
 branch: ground-detection-robustness--ground-robustness-runbook
 verified_head: ""
-run: ""
+run: ground-detection-robustness
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground robustness runbook
@@ -68,3 +70,5 @@ Doc only; pinned by tests/test_ground_robustness_runbook.py; thresholds equal sc
 ## Notes
 
 See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.
+
+- 2026-10-22 run ground-detection-robustness: dependency-failed on ground-robustness-docs

@@ -1,6 +1,6 @@
 ---
 title: Robust config keys
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Every new robustness setting is validated and deployed in one place, and the ramp limit can rise to the tilt_guard error limits."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, tests/test_ground_estimator_deploy.py, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--robust-config-keys
 branch: ground-detection-robustness--robust-config-keys
-verified_head: ""
-run: ""
+verified_head: 0a82bfeac935ab252018caa623dd0e83398cf9a2
+run: ground-detection-robustness
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Robust config keys

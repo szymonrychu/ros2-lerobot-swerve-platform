@@ -1,6 +1,6 @@
 ---
 title: Slope and smoothing defaults
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The user's 14 deg ramp is rideable (warning, slow-down) and the floor plane stops jittering with single fits."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/test/core/test_state.cpp, nodes/ground_estimator_cpp/test/core/test_traversability.cpp, nodes/ground_estimator_cpp/test/test_node.cpp]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--slope-and-smoothing-defaults
 branch: ground-detection-robustness--slope-and-smoothing-defaults
 verified_head: ""
-run: ""
+run: ground-detection-robustness
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Slope and smoothing defaults
@@ -71,3 +73,5 @@ Defaults only: traversability.max_slope_deg 15.0 and fit.smoothing 0.2 in config
 ## Notes
 
 See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.
+
+- 2026-10-22 run ground-detection-robustness: dependency-failed on cell-spread-gate

@@ -1,6 +1,6 @@
 ---
 title: Ground robustness docs
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The README, the ground runbook and MEMORY.md describe the rule and the noise handling that actually run on the robot."
 files: [nodes/ground_estimator_cpp/README.md, tests/test_ground_estimator_readme.py, docs/runbooks/ground-estimation.md, tests/test_ground_docs.py, MEMORY.md, tests/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--ground-robustness-docs
 branch: ground-detection-robustness--ground-robustness-docs
 verified_head: ""
-run: ""
+run: ground-detection-robustness
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground robustness docs
@@ -67,3 +69,5 @@ Docs only; doc pins in tests/test_ground_estimator_readme.py and tests/test_grou
 ## Notes
 
 See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.
+
+- 2026-10-22 run ground-detection-robustness: dependency-failed on node-stable-classes, costmap-cell-keyed-warnings

@@ -1,6 +1,6 @@
 ---
 title: Cell class hysteresis
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Obstacle, drop and warning classes stop flipping frame to frame, so the box stays an obstacle and warning areas stay put."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_class.hpp, nodes/ground_estimator_cpp/src/core/cell_class.cpp, nodes/ground_estimator_cpp/test/core/test_cell_class.cpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--cell-class-hysteresis
 branch: ground-detection-robustness--cell-class-hysteresis
-verified_head: ""
-run: ""
-provides: []
+verified_head: e23de062
+run: ground-detection-robustness
+provides: [cell-class-filter]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Cell class hysteresis
