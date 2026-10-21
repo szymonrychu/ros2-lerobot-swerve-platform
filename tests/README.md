@@ -24,11 +24,11 @@ URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.p
 
 | Test | Description |
 |------|-------------|
-| `test_head_camera_optical_at_zero_is_the_product_of_origins` | Camera optical frame at pan = tilt = 0 equals the hand-computed product of the URDF origins; `joint_names` lists root to link. |
-| `test_pan_rotates_about_plus_z_and_tilt_pitches_down` | Pan +0.5 turns the camera CCW about +z; tilt + gives the optical z axis a negative z component. |
-| `test_origin_override_changes_exactly_that_joint` | An origin override moves only that joint's translation. |
+| `test_head_camera_pose_at_zero_matches_urdf_origins` | Camera optical frame at pan = tilt = 0 equals the hand-computed product of the URDF origins; `joint_names` lists root to link. |
+| `test_pan_left_and_tilt_down_signs` | Pan +0.5 turns the camera CCW about +z; tilt + gives the optical z axis a negative z component. |
+| `test_origin_override_and_offsets` | An origin override moves only that joint's translation; offsets add to the measured angle. |
 | `test_offsets_add_to_measured` | Angle = measured + offset. |
-| `test_missing_joint_and_unknown_link_raise_key_error` | A missing movable joint or unknown link raises KeyError naming it. |
+| `test_missing_joint_raises` | A missing movable joint or unknown link raises KeyError naming it. |
 | `test_limits` | Revolute limits are read; fixed joints have none. |
 | `test_unsupported_joint_type_names_the_joint` | A prismatic joint raises ValueError naming it. |
 | `test_continuous_joint_has_no_limits` | Continuous joints parse, rotate about their axis, have no limits. |
