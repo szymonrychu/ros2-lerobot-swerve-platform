@@ -2,8 +2,8 @@
 
 After the head mount reprint the URDF head chain is the pre-reprint CAD, so `/ground/state` sees the flat floor about
 6 cm high, 3-4 deg tilted, with 170+ false obstacle points. The Head floor fit step on the Calibrate page sweeps the
-head over a pan/tilt grid on an empty flat floor, fits mount z, mount roll, mount pitch and tilt zero from the ToF floor
-plane in one robust least-squares fit, and applies it as the `head_chain.json` override that `head_state_publisher`
+head over a pan/tilt grid on an empty flat floor, fits mount z, mount roll, mount pitch, tilt zero and tilt roll (the
+`head_tilt` origin roll) from the ToF floor plane in one robust least-squares fit, and applies it as the `head_chain.json` override that `head_state_publisher`
 publishes. Run from the dev machine against the client (Pi 5, `client.ros2.lan`); the agent drives deploy and
 telemetry, the user clears the floor and runs the UI steps. Deploys only through `scripts/deploy-nodes.sh` (never
 `ansible-playbook`). ROS commands on the client need
@@ -15,7 +15,14 @@ Servo safety: only the head moves (pan and tilt, within the sweep grid); no arm 
 ## Preconditions
 
 - The robot is on a flat floor and not on blocks.
-- About 2 m in front and 1.5 m to each side are clear; nothing else is in view of the head.
+- A half-disc of about 1.8 m radius in front of the robot (from straight ahead round to both sides, the ToF range
+  `max_range_m`) is clear: no box, cable, chair leg, wall foot or person in it. An object in view of some clouds of a
+  pose skips that pose (`partly blocked: k of n clouds`); one in view of most clouds can bias the fit.
+- If that floor cannot be cleared, use the fallback grid instead of the default pan -60..60 x tilt 12/20/28: in the
+  `head_rgbd_calibration` `floor` block of `ansible/group_vars/client.yml` set `pan_deg: [-30, 30, 60]` and
+  `tilt_deg: [20, 24, 28]` (9 poses, pan span 90 deg, still over `min_poses` 8 and `min_pan_span_deg` 60; the steeper
+  tilts look at the floor closer to the robot), then redeploy `head_rgbd_calibration` as in Deploy. Restore the default
+  grid afterwards.
 - The RGB-D calibration is applied (the ToF depth and the ToF-to-camera extrinsic are the base of this fit).
 - No agent session is running if mcp_server is deployed (deploying claude_agent/mcp_server kills a running session,
   exit 143): check the claude_agent session state, ask when one runs. This epic does not deploy mcp_server.
@@ -45,10 +52,17 @@ python scripts/topic_scraper_collect.py --source client=http://client.ros2.lan:1
 
 1. Open the web UI, hamburger menu, Calibrate. The Head floor fit step is below the RGB-D section.
 2. Confirm the precondition text with the floor as it is, then **Start sweep**. Watch "Pose i of N, observations,
-   skipped"; the head moves through the grid. **Stop** ends it early (the poses done so far are kept).
+   skipped"; the head moves through the grid, fitting `clouds_per_pose` clouds per pose (10 by default). **Stop** ends
+   it early (the poses done so far are kept). A pose with fewer than `min_clouds_per_pose` fitted clouds (default half
+   of `clouds_per_pose`, rounded up) is skipped as `partly blocked: k of n clouds`: something is in view there; clear
+   it and sweep again rather than computing on a sweep with several such poses.
 3. When the sweep has ended, **Compute**. Read the table: mount z (mm), mount roll, mount pitch, tilt zero (deg) with
-   current, fitted, delta and sigma, the height and normal RMS and the per-pose residuals. A failed result lists the
-   failed limits and Apply stays disabled: fix the cause (floor, clearance, lighting) and sweep again.
+   current, fitted, delta and sigma (the tilt roll is in `params.tilt_roll_deg` of result.json and goes into the
+   applied `head_tilt` origin with the tilt zero), the height and normal RMS and the per-pose residuals. The height and
+   normal RMS and the limits on them (`max_height_rms_mm` 8, `max_normal_rms_deg` 0.6) are over pose means (the mean
+   of a pose's clouds): one pose's clouds scatter about 1 deg cloud to cloud, so the per-observation RMS
+   (`observation_height_rms_mm`, `observation_normal_rms_deg` in result.json) is larger and is not limited. A failed
+   result lists the failed limits and Apply stays disabled: fix the cause (floor, clearance, lighting) and sweep again.
 4. **Apply** a passed result. The step shows the unit restart state (`head_state_publisher` and the head consumers
    restart); wait until every unit shows restarted, and the applied head chain (session, result, note) is listed.
 
@@ -81,7 +95,7 @@ Date:
 |---|---|---|
 | Deploy (failed=0, units active) | | |
 | Sweep (observations, skipped) | | |
-| Fit passed (height RMS mm, normal RMS deg) | | |
+| Fit passed (pose-mean height RMS mm, normal RMS deg; per-observation RMS) | | |
 | Apply (units restarted) | | |
 | Home: plane height (0 +- 0.01 m), before / after | | |
 | Home: plane_vs_base (< 0.6 deg), before / after | | |

@@ -4,8 +4,9 @@ Threads: `start`, `stop` and `state` run on HTTP threads; one worker thread runs
 run on the ROS executor thread. `lock` guards the shared fields and is only held for short updates; the worker
 waits through the injected `sleep`. The only thing published is the head command (JointState on the command topic,
 radians), and every exit of the worker (done, stop, error, exception) commands the head back to the pan/tilt it had at
-start and destroys the two subscriptions and the publisher. A pose without a valid plane is skipped with its reason;
-nothing is filled in.
+start and destroys the two subscriptions and the publisher. A pose without a valid plane, or with fewer than
+min_clouds_per_pose fitted clouds (partly blocked: an object in view), is skipped with its reason and none of its clouds
+are kept; nothing is filled in.
 """
 
 import math
@@ -46,6 +47,7 @@ REASON_NO_JOINT = "no joint state within max_stamp_dt_s"
 REASON_OFF_TARGET = "head not at the target at the cloud stamp"
 REASON_NO_PLANE = "no floor plane in the cloud"
 REASON_NO_CLOUD = "no cloud within cloud_timeout_s"
+REASON_PARTLY_BLOCKED = "partly blocked: {found} of {clouds} clouds"
 POINT_FIELDS = ("x", "y", "z")
 
 
@@ -499,7 +501,8 @@ class FloorSweep:
         self.logger.info(f"floor sweep {run.session_id} {final}")
 
     def sweep(self, run: Run, chain: UrdfChain) -> None:
-        """Visit every pose; a pose that is not reached or has no valid plane is skipped with its reason."""
+        """Visit every pose; a pose that is not reached, has no valid plane or fewer than min_clouds_per_pose fitted
+        clouds is skipped with its reason."""
         rng = np.random.default_rng(self.floor.fit.plane.seed)
         for pose, (pan_deg, tilt_deg) in enumerate(run.grid):
             if self.stop_event.is_set():
@@ -514,10 +517,13 @@ class FloorSweep:
                 continue
             found, reasons = self.capture_pose(chain, rng, pose, still, (pan_deg, tilt_deg))
             run.dropped.update(reasons)
-            if found:
+            if len(found) >= self.floor.min_clouds_per_pose:
                 run.observations.extend(found)
                 with self.lock:
                     self.observation_count = len(run.observations)
+            elif found:
+                reason = REASON_PARTLY_BLOCKED.format(found=len(found), clouds=self.floor.clouds_per_pose)
+                self.record_skip(run, pose, pan_deg, tilt_deg, reason)
             else:
                 detail = ", ".join(f"{count} x {reason}" for reason, count in reasons.items())
                 self.record_skip(run, pose, pan_deg, tilt_deg, f"no valid plane: {detail}")

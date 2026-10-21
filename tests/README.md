@@ -38,7 +38,7 @@ URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.p
 
 ### `test_head_floor_fit.py`
 
-Floor-plane head chain fit (`shared/ros2_common/head_rgbd_calibration/floor_fit.py`, design D2-D4) on `nodes/web_ui/urdf/head.urdf`, with clouds from `tests/head_floor_synthetic.py`. Truth chain: mount z +0.03 m, roll +1.5 deg, pitch -3.0 deg, tilt zero +2.0 deg.
+Floor-plane head chain fit (`shared/ros2_common/head_rgbd_calibration/floor_fit.py`, design D2-D4) on `nodes/web_ui/urdf/head.urdf`, with clouds from `tests/head_floor_synthetic.py`. Truth chain: mount z +0.03 m, roll +1.5 deg, pitch -3.0 deg, tilt zero +2.0 deg (plus a +1.2 deg head_tilt roll in `test_tilt_roll_is_recovered`).
 
 | Test | Description |
 |------|-------------|
@@ -47,9 +47,12 @@ Floor-plane head chain fit (`shared/ros2_common/head_rgbd_calibration/floor_fit.
 | `test_predicted_floor_tilt_down_turns_floor_toward_view` | Tilt down gives the normal a -z optical component; an origin override (`Origin` or (xyz, rpy)) raises the height. |
 | `test_fit_plane_defaults_fit_a_noisy_tof_cloud` | 700 points, 600 on a floor with 2 cm Gaussian noise plus outliers: the default `FloorPlaneConfig` fits and recovers the height within 1 cm; the old 1.5 cm / 300 settings give None. |
 | `test_fit_plane_recovers_plane_and_refuses_sparse_cloud` | Three poses, 5 mm noise, 20 % wall outliers: height within 2 mm, normal within 0.1 deg, inlier RMS about the noise; 100 floor points (also padded with NaN), points beyond `max_range_m`, and a cloud whose inlier ratio is below `min_inlier_ratio` give None. |
-| `test_fit_recovers_perturbed_chain` | Pan -60..60 step 30 x tilt 12/20/28 deg, 5 clouds per pose, 5 mm noise: each parameter within 2 mm or 0.15 deg, `passed`, fixed components (mount x, y, yaw, tilt xyz, roll, yaw) exactly the URDF values, per-pose residuals, strict-JSON `to_json`. |
+| `test_fit_recovers_perturbed_chain` | Pan -60..60 step 30 x tilt 12/20/28 deg, 5 clouds per pose, 5 mm noise: each parameter within 2 mm or 0.15 deg, `passed`, fixed components (mount x, y, yaw, tilt xyz, yaw) exactly the URDF values, the fitted tilt roll within 0.15 deg of the URDF 0, per-pose pose-mean and per-observation residuals, strict-JSON `to_json`. |
+| `test_tilt_roll_is_recovered` | A truth chain with a +1.2 deg head_tilt roll, synthetic clouds: `tilt_roll_deg` recovered within 3 sigma (sigma under `max_sigma_deg`), written into the `head_tilt` origin roll with the tilt zero as pitch, the mount roll and tilt zero still recovered; a `max_sigma_deg` under the tilt roll sigma refuses the result. |
+| `test_limits_use_pose_mean_residuals` | Per-cloud normals 1.2 deg off in symmetric directions and heights scattered 15 mm RMS with zero pose mean: the per-observation RMS exceeds both limits and is reported, the pose-mean RMS is near 0 and the fit passes; pose means 1.5 deg off (random axis per pose) fail `max_normal_rms_deg`, pose means +-24 mm off fail `max_height_rms_mm`. |
+| `test_floor_sweep_defaults` | The node `FloorSweepConfig` (loaded from `nodes/head_rgbd_calibration/head_rgbd_calibration/config.py`) and the shipped node YAML: `clouds_per_pose` 10, `min_clouds_per_pose` 5; the minimum defaults to half of `clouds_per_pose` rounded up (3 for 5, 1 for 1, also for null), an explicit value is kept, 0 or more than `clouds_per_pose` is rejected. |
 | `test_pan_span_limit_guards_degenerate_grid` | A pan-0-only grid fails `min_pan_span_deg` and does not pass. |
-| `test_limits_refuse_bad_results` | 15 observations fail `min_observations` only, the solver is not called and the URDF values are kept; no observations also fail `min_poses` and `min_pan_span_deg`; a 0.2 m height bias fails `max_delta_z_m`; 30 mm height noise fails `max_height_rms_mm`. None of them pass. |
+| `test_limits_refuse_bad_results` | 15 observations fail `min_observations` only, the solver is not called and the URDF values are kept; no observations also fail `min_poses` and `min_pan_span_deg`; a 0.2 m height bias fails `max_delta_z_m`; 30 mm height noise (3 clouds per pose, so about 17 mm pose-mean RMS) fails `max_height_rms_mm`. None of them pass. |
 
 ### `head_floor_synthetic.py`
 

@@ -8,10 +8,13 @@
     "mount_z_m": {"value": 0.38, "sigma": 0.0004, "urdf": 0.35},
     "mount_roll_deg": {"value": 1.5, "sigma": 0.02, "urdf": 0.0},
     "mount_pitch_deg": {"value": -3.0, "sigma": 0.02, "urdf": 0.0},
-    "tilt_zero_deg": {"value": 2.0, "sigma": 0.02, "urdf": 0.0}
+    "tilt_zero_deg": {"value": 2.0, "sigma": 0.02, "urdf": 0.0},
+    "tilt_roll_deg": {"value": 1.2, "sigma": 0.03, "urdf": 0.0}
   },
   "height_rms_mm": 2.1,
   "normal_rms_deg": 0.12,
+  "observation_height_rms_mm": 4.3,
+  "observation_normal_rms_deg": 0.9,
   "poses": [
     {
       "pose": 0,
@@ -19,7 +22,9 @@
       "tilt_deg": 12.0,
       "observations": 3,
       "height_residual_mm": 1.9,
-      "normal_residual_deg": 0.1
+      "normal_residual_deg": 0.1,
+      "observation_height_rms_mm": 4.1,
+      "observation_normal_rms_deg": 0.85
     }
   ],
   "skipped": [

@@ -200,8 +200,9 @@ that real responses have exactly the fixture's keys and value types.
 ## Head floor fit
 
 `head_rgbd_calibration/floor_sweep.py` (`FloorSweep`, design D5, D11) is the capture half of the floor-plane head chain fit
-(mount z, roll, pitch and tilt zero from the ToF floor plane; the maths is `ros2_common.head_rgbd_calibration.floor_fit`).
-Clear a flat floor in front of the robot (robot level, not on blocks), then start the sweep. Only the head moves.
+(mount z, roll, pitch and the head_tilt tilt zero and roll from the ToF floor plane; the maths is
+`ros2_common.head_rgbd_calibration.floor_fit`). Clear a flat floor in front of the robot (a half-disc of about 1.8 m;
+robot level, not on blocks), then start the sweep. Only the head moves.
 
 - `start()` creates the `floor.joint_states_topic` and `floor.cloud_topic` subscriptions and the `floor.command_topic`
   publisher, and refuses (`SweepError`, nothing moved) when no head joint state arrives within `move_timeout_s`. It raises
@@ -215,8 +216,10 @@ Clear a flat floor in front of the robot (robot level, not on blocks), then star
 - After `settle_s` the next `clouds_per_pose` clouds stamped after the still time are fitted. A cloud takes the head
   pan/tilt of the joint state nearest its header stamp within `max_stamp_dt_s` (no such state: the cloud is dropped and
   counted); points are read with `sensor_msgs_py.point_cloud2.read_points_numpy(skip_nans=True)` and fitted with
-  `floor_fit.fit_plane` against the plane the URDF predicts. A pose without a valid plane is skipped with its reason; nothing
-  is filled in. Nothing is published but head commands.
+  `floor_fit.fit_plane` against the plane the URDF predicts. A pose without a valid plane is skipped with its reason; a
+  pose with fewer than `min_clouds_per_pose` fitted clouds (an object in view of some clouds) is skipped with
+  `partly blocked: k of n clouds` and none of its clouds are kept; nothing is filled in. Nothing is published but head
+  commands.
 - Every exit (done, `stop()`, error, exception) commands the head back to the pan/tilt it had at start and destroys the
   subscriptions and the publisher. Joint states that stop arriving for `move_timeout_s` abort the sweep with an error.
 - `state()` returns `{running, session_id, pose, total, observations, skipped, status, error}`; `status` is `idle`,
@@ -224,8 +227,18 @@ Clear a flat floor in front of the robot (robot level, not on blocks), then star
 
 `floor` keys (all in the shipped YAML at their defaults): `joint_states_topic`, `command_topic`, `cloud_topic`,
 `command_frame_id`, `pan_deg` (each -90..90), `tilt_deg` (each -30..30, + is down), `reach_tol_deg`, `still_tol_deg`,
-`still_window_s`, `move_timeout_s`, `settle_s`, `clouds_per_pose` (>= 1), `cloud_timeout_s`, `max_stamp_dt_s` and
-`fit` (the shared `FloorFitConfig`: plane, limits, residual scales).
+`still_window_s`, `move_timeout_s`, `settle_s`, `clouds_per_pose` (>= 1, default 10), `min_clouds_per_pose`
+(1..`clouds_per_pose`; absent or null: half of `clouds_per_pose`, rounded up, so 5 for 10 and 3 for 5),
+`cloud_timeout_s`, `max_stamp_dt_s` and `fit` (the shared `FloorFitConfig`: plane, limits, residual scales).
+
+Compute: `height_rms_mm` and `normal_rms_deg` are the RMS over the poses of the pose-mean residuals (the mean of a
+pose's observations against the chain) and the `max_height_rms_mm` / `max_normal_rms_deg` limits apply to them; the
+same pose gives plane normals about 1 deg apart cloud to cloud (structured ToF noise no chain explains), so a
+per-observation limit could never pass. `observation_height_rms_mm` and `observation_normal_rms_deg` report the
+per-observation RMS; each pose has its signed pose-mean `height_residual_mm`, its pose-mean `normal_residual_deg` and
+the per-observation `observation_height_rms_mm` / `observation_normal_rms_deg`. `params` holds `mount_z_m`,
+`mount_roll_deg`, `mount_pitch_deg`, `tilt_zero_deg` and `tilt_roll_deg` (each value, sigma, urdf); the fitted
+`head_tilt` roll and pitch go into head_chain.json with the mount origin, the RGB-ToF extrinsic stays rigid.
 
 Files:
 
@@ -249,7 +262,7 @@ HTTP routes (proxied by the web UI under `/api/calibration/rgbd/`):
 | `GET /api/floor/state` | `{sweep: {running, session_id, pose, total, observations, skipped, status, error}, applied: {session, result, note, joints} or null}` |
 | `POST /api/floor/sweep/start`, `POST /api/floor/sweep/stop` | the state body; start 409 while a capture, compute or sweep runs |
 | `GET /api/floor/sessions` | `[{id, created, observations, skipped, results}]` |
-| `POST /api/floor/sessions/{sid}/compute` | result.json `{id, session, created, passed, failed_limits, params, height_rms_mm, normal_rms_deg, poses, skipped}` |
+| `POST /api/floor/sessions/{sid}/compute` | result.json `{id, session, created, passed, failed_limits, params, height_rms_mm, normal_rms_deg, observation_height_rms_mm, observation_normal_rms_deg, poses, skipped}` |
 | `GET /api/floor/sessions/{sid}/results/{rid}` | result.json |
 | `POST /api/floor/sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at}, units: [{name, active_state, restarted}]}` |
 
@@ -269,7 +282,8 @@ stops capture, kills a running compute child and destroys the node.
   pan/tilt range checks.
 - `tests/test_floor_sweep.py` - the floor sweep against a fake node, fake clock and sleep and synthetic floor clouds:
   command order, frame_id and serpentine grid, session id and `observations.json`, clouds only after still plus settle,
-  unreachable pose skipped with reason, clouds without a joint state dropped and counted, restore of the start pan/tilt
+  unreachable pose skipped with reason, a pose under `min_clouds_per_pose` skipped as partly blocked
+  (`test_partly_blocked_pose_is_skipped`), clouds without a joint state dropped and counted, restore of the start pan/tilt
   and destroyed handles on done, stop, error and exception, `Busy`, refusal without a head joint state or while blocked.
 - `tests/test_store.py` - ids and same-second suffix, layout of a stored pose, depth optional, raw JPEG kept, pose ids
   never reused, size mismatch and empty-amplitude refusal, `load_views`, coverage counts, results listing, path safety

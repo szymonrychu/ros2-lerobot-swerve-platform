@@ -153,8 +153,9 @@ def test_compute_writes_result_and_head_chain(cfg: NodeConfig, state: Path) -> N
     assert result["session"] == SID
     assert set(result) == {
         "id", "session", "created", "passed", "failed_limits", "params", "height_rms_mm", "normal_rms_deg",
-        "poses", "skipped",
+        "observation_height_rms_mm", "observation_normal_rms_deg", "poses", "skipped",
     }  # fmt: skip
+    assert result["observation_height_rms_mm"] >= result["height_rms_mm"]
     assert len(result["poses"]) == len(GRID_PANS_DEG) * len(GRID_TILTS_DEG)
     assert result["skipped"][0]["pose"] == 99
     params = result["params"]
@@ -167,6 +168,8 @@ def test_compute_writes_result_and_head_chain(cfg: NodeConfig, state: Path) -> N
     assert set(chain["joints"]) == {MOUNT, TILT, CAMERA}
     assert chain["joints"][CAMERA] == {"rpy": CAMERA_RPY, "xyz": CAMERA_XYZ}
     assert chain["joints"][MOUNT]["xyz"][2] == pytest.approx(base_z + TRUTH_DZ_M, abs=0.005)
+    assert chain["joints"][TILT]["rpy"][0] == pytest.approx(math.radians(params["tilt_roll_deg"]["value"]), abs=1e-6)
+    assert chain["joints"][TILT]["rpy"][1] == pytest.approx(math.radians(params["tilt_zero_deg"]["value"]), abs=1e-6)
     assert "height RMS" in chain["note"] and "normal RMS" in chain["note"] and "2026-10-21" in chain["note"]
     assert (chain["session"], chain["result"]) == (SID, result["id"])
     assert read_result(cfg, SID, result["id"]) == result

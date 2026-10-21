@@ -4,6 +4,7 @@ import importlib.util
 import json
 import math
 import re
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -92,6 +93,7 @@ class World:
         self.joints_until: float | None = None
         self.publish_joints = True
         self.cloud_offsets: Callable[[int], float] = lambda _n: 0.0
+        self.cloud_empty: Callable[[int, float, float], bool] = lambda _n, _pan, _tilt: False
         self.on_tick: Callable[[float], None] | None = None
         self.cloud_count = 0
         self.ticks = 0
@@ -136,12 +138,14 @@ class World:
         cloud_cb = self.callbacks.get("/tof/points")
         if cloud_cb is not None and self.ticks % CLOUD_EVERY_TICKS == 0:
             stamp = self.t + self.cloud_offsets(self.cloud_count)
+            empty = self.cloud_empty(self.cloud_count, self.pan, self.tilt)
             self.cloud_count += 1
             cloud_cb(
                 SimpleNamespace(
                     header=SimpleNamespace(stamp=self.stamp(stamp), frame_id="tof_optical_frame"),
                     pan=self.pan,
                     tilt=self.tilt,
+                    empty=empty,
                 )
             )
         if self.on_tick is not None:
@@ -149,7 +153,9 @@ class World:
 
 
 def read_points(msg: Any, **_kwargs: Any) -> np.ndarray:
-    """Floor points of the flat floor seen from the head angles the cloud was taken at."""
+    """Floor points of the flat floor seen from the head angles the cloud was taken at; none for an empty cloud."""
+    if msg.empty:
+        return np.zeros((0, 3))
     pose = synthetic.sensor_pose(CHAIN, math.radians(msg.pan), math.radians(msg.tilt), {})
     return synthetic.floor_points(pose, synthetic.ray_grid(RAYS))
 
@@ -278,7 +284,7 @@ def test_skips_unreachable_pose_and_unmatched_cloud(tmp_path: Path) -> None:
 def test_clouds_without_joint_state_dropped_and_counted(tmp_path: Path) -> None:
     world = World()
     world.cloud_offsets = lambda n: 5.0 if n % 2 else 0.0
-    sweep, _node = make_sweep(tmp_path, world, clouds_per_pose=4)
+    sweep, _node = make_sweep(tmp_path, world, clouds_per_pose=4, min_clouds_per_pose=1)
     sid = run(sweep)
     data = json.loads((sweep_dir(tmp_path, sid) / "observations.json").read_text())
     per_pose = {p: sum(1 for o in data["observations"] if o["pose"] == p) for p in range(4)}
@@ -434,3 +440,36 @@ def test_grid_stays_inside_configured_range(tmp_path: Path) -> None:
     run(sweep)
     pans = [p for p, _t in degrees(world)[:-1]]
     assert pans == [-60, 0, 60]
+
+
+def test_partly_blocked_pose_is_skipped(tmp_path: Path) -> None:
+    world = World()
+
+    def empty(n: int, pan: float, tilt: float) -> bool:
+        """At (30, 20) 3 of every 4 clouds see no floor, at (-30, 28) every other one."""
+        at = (round(pan, 3), round(tilt, 3))
+        return (at == (30.0, 20.0) and n % 4 != 0) or (at == (-30.0, 28.0) and n % 2 == 1)
+
+    world.cloud_empty = empty
+    sweep, _node = make_sweep(tmp_path, world, clouds_per_pose=4)
+    assert sweep.floor.min_clouds_per_pose == 2
+    sid = run(sweep)
+    data = json.loads((sweep_dir(tmp_path, sid) / "observations.json").read_text())
+    assert data["skipped"] == [{"pose": 1, "pan_deg": 30, "tilt_deg": 20, "reason": "partly blocked: 1 of 4 clouds"}]
+    per_pose = Counter(o["pose"] for o in data["observations"])
+    assert per_pose == {0: 4, 2: 4, 3: 2}
+    assert data["dropped"] == {"no floor plane in the cloud": 3 + 2}
+    assert sweep.state()["skipped"] == 1
+    assert sweep.state()["observations"] == 10
+
+    # A higher minimum also skips the half-blocked pose; nothing of a skipped pose is kept.
+    world = World()
+    world.cloud_empty = empty
+    sweep, _node = make_sweep(tmp_path / "strict", world, clouds_per_pose=4, min_clouds_per_pose=3)
+    sid = run(sweep)
+    data = json.loads((sweep_dir(tmp_path / "strict", sid) / "observations.json").read_text())
+    assert [(s["pose"], s["reason"]) for s in data["skipped"]] == [
+        (1, "partly blocked: 1 of 4 clouds"),
+        (3, "partly blocked: 2 of 4 clouds"),
+    ]
+    assert {o["pose"] for o in data["observations"]} == {0, 2}

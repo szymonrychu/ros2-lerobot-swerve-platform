@@ -1,9 +1,11 @@
 """Validated config of the head_rgbd_calibration node (pydantic, unknown keys forbidden)."""
 
+import math
 from pathlib import Path
+from typing import Any, Self
 
 import yaml
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from ros2_common.head_rgbd_calibration.config import (
     BoardConfig,
     FloorFitConfig,
@@ -44,6 +46,9 @@ DEFAULT_FLOOR_CLOUD_TOPIC = "/tof/points"
 DEFAULT_FLOOR_COMMAND_FRAME_ID = "head_rgbd_calibration"
 DEFAULT_FLOOR_PAN_DEG = (-60.0, -30.0, 0.0, 30.0, 60.0)
 DEFAULT_FLOOR_TILT_DEG = (12.0, 20.0, 28.0)
+DEFAULT_FLOOR_CLOUDS_PER_POSE = 10
+MIN_CLOUDS_KEY = "min_clouds_per_pose"
+CLOUDS_KEY = "clouds_per_pose"
 MAX_FLOOR_PAN_DEG = 90.0
 MAX_FLOOR_TILT_DEG = 30.0
 
@@ -71,8 +76,24 @@ class CoverageConfig(StrictModel):
     rows: int = Field(default=DEFAULT_COVERAGE_ROWS, ge=2, le=4)
 
 
+def default_min_clouds(clouds_per_pose: int) -> int:
+    """Default `min_clouds_per_pose`: half of `clouds_per_pose`, rounded up.
+
+    Args:
+        clouds_per_pose: Clouds fitted per pose.
+
+    Returns:
+        int: The fewest fitted clouds a pose needs to be kept.
+    """
+    return math.ceil(clouds_per_pose / 2)
+
+
 class FloorSweepConfig(StrictModel):
-    """Guided head sweep that records the ToF floor plane at a pan/tilt grid (design D5, D11)."""
+    """Guided head sweep that records the ToF floor plane at a pan/tilt grid (design D5, D11).
+
+    A pose with fewer than `min_clouds_per_pose` fitted clouds (of `clouds_per_pose`) is skipped as partly blocked;
+    the key defaults to half of `clouds_per_pose`, rounded up, when absent or null.
+    """
 
     joint_states_topic: str = DEFAULT_FLOOR_JOINT_STATES_TOPIC
     command_topic: str = DEFAULT_FLOOR_COMMAND_TOPIC
@@ -85,10 +106,29 @@ class FloorSweepConfig(StrictModel):
     still_window_s: float = Field(default=0.5, gt=0)
     move_timeout_s: float = Field(default=6.0, gt=0)
     settle_s: float = Field(default=0.5, ge=0)
-    clouds_per_pose: int = Field(default=5, ge=1)
+    clouds_per_pose: int = Field(default=DEFAULT_FLOOR_CLOUDS_PER_POSE, ge=1)
+    min_clouds_per_pose: int = Field(default=default_min_clouds(DEFAULT_FLOOR_CLOUDS_PER_POSE), ge=1)
     cloud_timeout_s: float = Field(default=3.0, gt=0)
     max_stamp_dt_s: float = Field(default=0.1, gt=0)
     fit: FloorFitConfig = Field(default_factory=FloorFitConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def fill_min_clouds(cls, data: Any) -> Any:
+        """Default `min_clouds_per_pose` from the given `clouds_per_pose` when it is absent or null."""
+        if isinstance(data, dict) and data.get(MIN_CLOUDS_KEY) is None:
+            clouds = data.get(CLOUDS_KEY, DEFAULT_FLOOR_CLOUDS_PER_POSE)
+            if isinstance(clouds, int) and not isinstance(clouds, bool):
+                data = {**data, MIN_CLOUDS_KEY: default_min_clouds(clouds)}
+        return data
+
+    @model_validator(mode="after")
+    def check_min_clouds(self) -> Self:
+        if self.min_clouds_per_pose > self.clouds_per_pose:
+            raise ValueError(
+                f"floor.min_clouds_per_pose ({self.min_clouds_per_pose}) exceeds clouds_per_pose ({self.clouds_per_pose})"
+            )
+        return self
 
     @field_validator("pan_deg")
     @classmethod

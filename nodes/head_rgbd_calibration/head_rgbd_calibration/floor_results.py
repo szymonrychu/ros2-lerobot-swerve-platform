@@ -164,7 +164,9 @@ def compute_floor(cfg: NodeConfig, sid: str, now: datetime) -> dict[str, Any]:
 
     Returns:
         The result.json content {id, session, created, passed, failed_limits, params, height_rms_mm, normal_rms_deg,
-        poses, skipped}. head_chain.json is written next to it only when the result passed.
+        observation_height_rms_mm, observation_normal_rms_deg, poses, skipped}: height_rms_mm and normal_rms_deg are
+        the pose-mean RMS the limits apply to, the observation_* keys the per-observation RMS. head_chain.json is
+        written next to it only when the result passed.
 
     Raises:
         InvalidId, NotFound: unknown or malformed session id.
@@ -183,6 +185,8 @@ def compute_floor(cfg: NodeConfig, sid: str, now: datetime) -> dict[str, Any]:
         "params": body["params"],
         "height_rms_mm": body["height_rms_mm"],
         "normal_rms_deg": body["normal_rms_deg"],
+        "observation_height_rms_mm": body["observation_height_rms_mm"],
+        "observation_normal_rms_deg": body["observation_normal_rms_deg"],
         "poses": body["poses"],
         "skipped": doc.get("skipped", []),
     }
@@ -194,7 +198,7 @@ def compute_floor(cfg: NodeConfig, sid: str, now: datetime) -> dict[str, Any]:
         if fit.passed:
             origins = {**applied_chain_origins(Path(cfg.state_dir) / APPLIED_DIR), **fit.origins}
             note = (
-                f"floor fit {now.strftime(NOTE_DATE_FORMAT)}, height RMS {fit.height_rms_mm:.1f} mm, "
+                f"floor fit {now.strftime(NOTE_DATE_FORMAT)}, pose-mean height RMS {fit.height_rms_mm:.1f} mm, "
                 f"normal RMS {fit.normal_rms_deg:.2f} deg"
             )
             tmp = directory / f"{TEMP_PREFIX}{HEAD_CHAIN_FILE}"

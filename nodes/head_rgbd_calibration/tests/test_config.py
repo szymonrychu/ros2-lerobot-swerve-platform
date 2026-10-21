@@ -87,7 +87,8 @@ def test_floor_defaults_and_tilt_range() -> None:
     assert floor.still_window_s == 0.5
     assert floor.move_timeout_s == 6.0
     assert floor.settle_s == 0.5
-    assert floor.clouds_per_pose == 5
+    assert floor.clouds_per_pose == 10
+    assert floor.min_clouds_per_pose == 5
     assert floor.cloud_timeout_s == 3.0
     assert floor.max_stamp_dt_s == 0.1
     assert floor.fit == FloorFitConfig()
@@ -102,6 +103,8 @@ def test_floor_defaults_and_tilt_range() -> None:
         "floor:\n  pan_deg: []\n",
         "floor:\n  pan_deg: [95]\n",
         "floor:\n  clouds_per_pose: 0\n",
+        "floor:\n  min_clouds_per_pose: 0\n",
+        "floor:\n  clouds_per_pose: 4\n  min_clouds_per_pose: 5\n",
         "floor:\n  move_timeout_s: 0\n",
         "floor:\n  bogus: 1\n",
     ],

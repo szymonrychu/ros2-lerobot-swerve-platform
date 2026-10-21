@@ -77,7 +77,13 @@ class FloorPlaneConfig(StrictModel):
 
 
 class FloorFitLimits(StrictModel):
-    """Acceptance limits of the floor-plane head chain fit; a result outside any of them is refused."""
+    """Acceptance limits of the floor-plane head chain fit; a result outside any of them is refused.
+
+    `max_height_rms_mm` and `max_normal_rms_deg` apply to the pose-mean residuals (the mean of a pose's observations),
+    not to each observation: one pose's clouds scatter about 1 deg cloud to cloud (structured ToF noise) that no chain
+    explains. `max_sigma_deg` and `max_delta_deg` apply to every fitted angle (mount roll and pitch, tilt zero and
+    tilt roll).
+    """
 
     min_observations: int = Field(default=30, gt=0)
     min_poses: int = Field(default=8, gt=0)

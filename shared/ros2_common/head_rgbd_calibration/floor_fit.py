@@ -1,5 +1,5 @@
 """Floor-plane head chain fit: the ToF floor plane over a pan/tilt sweep gives the head mount z, roll, pitch and the
-tilt zero (design D2-D4).
+head_tilt origin pitch (tilt zero) and roll (design D2-D4).
 
 Frames: the floor is base_link z = 0 and the robot stands level on it; planes are expressed in `tof_optical_frame`
 (z forward, x right, y down) with the unit normal pointing from the floor toward the sensor, so a plane is
@@ -25,8 +25,10 @@ FLOOR_UP = np.array([0.0, 0.0, 1.0])
 MM_PER_M = 1000.0
 RESIDUALS_PER_OBSERVATION = 3
 MIN_SAMPLE_AREA = 1e-12
-PARAM_NAMES = ("mount_z_m", "mount_roll_deg", "mount_pitch_deg", "tilt_zero_deg")
+PARAM_NAMES = ("mount_z_m", "mount_roll_deg", "mount_pitch_deg", "tilt_zero_deg", "tilt_roll_deg")
 Z_PARAM = "mount_z_m"
+PARAM_SCALE = (1.0, 180.0 / math.pi, 180.0 / math.pi, 180.0 / math.pi, 180.0 / math.pi)
+INT_POSE_KEYS = ("pose", "observations")
 
 
 @dataclass(frozen=True)
@@ -65,12 +67,17 @@ class FloorFitResult:
     Attributes:
         passed: True only when every limit is met.
         failed_limits: Names of the `FloorFitLimits` fields not met, in check order.
-        params: `{mount_z_m, mount_roll_deg, mount_pitch_deg, tilt_zero_deg: {value, sigma, urdf}}` (m or deg);
-            sigma is inf when the fit did not run or the normal matrix is singular.
-        height_rms_mm: RMS of the height residuals (at the URDF values when the fit did not run).
-        normal_rms_deg: RMS angle between observed and predicted normals.
-        poses: Per pose `{pose, pan_deg, tilt_deg, observations, height_residual_mm, normal_residual_deg}`, the
-            residuals being RMS over the pose's observations.
+        params: `{mount_z_m, mount_roll_deg, mount_pitch_deg, tilt_zero_deg, tilt_roll_deg: {value, sigma, urdf}}`
+            (m or deg); sigma is inf when the fit did not run or the normal matrix is singular.
+        height_rms_mm: RMS over the poses of the pose-mean height residual (the mean of a pose's observations); the
+            `max_height_rms_mm` limit applies to it (at the URDF values when the fit did not run).
+        normal_rms_deg: RMS over the poses of the angle between the pose-mean observed and predicted normals; the
+            `max_normal_rms_deg` limit applies to it.
+        observation_height_rms_mm: RMS of the height residuals of every observation (reported, not limited).
+        observation_normal_rms_deg: RMS of the normal angle of every observation (reported, not limited).
+        poses: Per pose `{pose, pan_deg, tilt_deg, observations, height_residual_mm, normal_residual_deg,
+            observation_height_rms_mm, observation_normal_rms_deg}`: the pose-mean height residual (signed) and normal
+            angle, and the RMS over the pose's observations.
         origins: New `head_mount_joint` and `head_tilt` origins; every component that is not fitted is the URDF value.
     """
 
@@ -79,6 +86,8 @@ class FloorFitResult:
     params: dict[str, dict[str, float]]
     height_rms_mm: float
     normal_rms_deg: float
+    observation_height_rms_mm: float = math.nan
+    observation_normal_rms_deg: float = math.nan
     poses: list[dict[str, float | int]] = field(default_factory=list)
     origins: dict[str, Origin] = field(default_factory=dict)
 
@@ -94,9 +103,10 @@ class FloorFitResult:
             "params": {name: {k: json_float(v) for k, v in entry.items()} for name, entry in self.params.items()},
             "height_rms_mm": json_float(self.height_rms_mm),
             "normal_rms_deg": json_float(self.normal_rms_deg),
+            "observation_height_rms_mm": json_float(self.observation_height_rms_mm),
+            "observation_normal_rms_deg": json_float(self.observation_normal_rms_deg),
             "poses": [
-                {k: (int(v) if k in ("pose", "observations") else json_float(v)) for k, v in pose.items()}
-                for pose in self.poses
+                {k: (int(v) if k in INT_POSE_KEYS else json_float(v)) for k, v in pose.items()} for pose in self.poses
             ],
             "origins": {
                 name: {"xyz": [float(v) for v in o.xyz], "rpy": [float(v) for v in o.rpy]}
@@ -246,16 +256,16 @@ def chain_origins(chain: UrdfChain, x: np.ndarray) -> dict[str, Origin]:
 
     Args:
         chain: Head URDF chain.
-        x: [mount z (m), mount roll (rad), mount pitch (rad), tilt origin pitch (rad)].
+        x: [mount z (m), mount roll (rad), mount pitch (rad), tilt origin pitch (rad), tilt origin roll (rad)].
 
     Returns:
         dict[str, Origin]: Origins of head_mount_joint and head_tilt.
     """
     (mx, my, _), (_, _, myaw) = chain.origin(MOUNT_JOINT)
-    txyz, (troll, _, tyaw) = chain.origin(TILT_JOINT)
+    txyz, (_, _, tyaw) = chain.origin(TILT_JOINT)
     return {
         MOUNT_JOINT: Origin((mx, my, float(x[0])), (float(x[1]), float(x[2]), myaw)),
-        TILT_JOINT: Origin(txyz, (troll, float(x[3]), tyaw)),
+        TILT_JOINT: Origin(txyz, (float(x[4]), float(x[3]), tyaw)),
     }
 
 
@@ -284,19 +294,46 @@ def observation_errors(
     return dn, dh, angle
 
 
-def rms(values: np.ndarray) -> float:
+def pose_mean_errors(
+    chain: UrdfChain, observations: list[FloorObservation], origins: dict[str, Origin], idx: list[int], dh: np.ndarray
+) -> tuple[float, float]:
+    """Pose-mean residuals of one pose: the mean height error and the angle between the mean normals.
+
+    Averaging a pose's observations removes the per-cloud plane scatter (structured ToF noise) that no chain explains.
+
+    Args:
+        chain: Head URDF chain.
+        observations: Floor observations.
+        origins: Origins to predict with.
+        idx: Indices of the pose's observations (at least one).
+        dh: (M,) height errors h_obs - h_pred of every observation (m).
+
+    Returns:
+        tuple[float, float]: Mean height error (m) and the angle (deg) between the normalised mean observed and mean
+        predicted normals.
+    """
+    n_obs = np.mean([observations[i].plane.normal / np.linalg.norm(observations[i].plane.normal) for i in idx], axis=0)
+    n_pred = np.mean(
+        [predicted_floor(chain, observations[i].pan_rad, observations[i].tilt_rad, origins)[0] for i in idx], axis=0
+    )
+    cos = float(n_obs @ n_pred) / float(np.linalg.norm(n_obs) * np.linalg.norm(n_pred))
+    return float(np.mean(dh[idx])), math.degrees(math.acos(float(np.clip(cos, -1.0, 1.0))))
+
+
+def rms(values: np.ndarray | list[float]) -> float:
     """Root mean square; nan for no values."""
     return float(np.sqrt(np.mean(np.square(values)))) if len(values) else math.nan
 
 
 def fit_head_chain_floor(observations: list[FloorObservation], urdf_text: str, cfg: FloorFitConfig) -> FloorFitResult:
-    """Fit the head mount z, roll, pitch and the tilt zero from floor observations (design D3, D4).
+    """Fit the head mount z, roll, pitch and the head_tilt origin pitch (tilt zero) and roll (design D3, D4).
 
     Every other origin component of every joint stays at its value in `urdf_text` (the repo URDF with the applied
-    overrides). Residuals per observation are the two tangent components of `n_obs - n_pred` over
-    `sigma_normal_deg` and the height error over `sigma_height_mm`, minimised with a Huber loss from the URDF values;
-    sigma per parameter is `sqrt(diag((J^T J)^-1 * s^2))` with `s^2 = 2 * cost / (m - n)`. With fewer than
-    `min_observations` the solver is not called.
+    overrides); the RGB-ToF extrinsic stays rigid. Residuals per observation are the two tangent components of
+    `n_obs - n_pred` over `sigma_normal_deg` and the height error over `sigma_height_mm`, minimised with a Huber loss
+    from the URDF values; sigma per parameter is `sqrt(diag((J^T J)^-1 * s^2))` with `s^2 = 2 * cost / (m - n)`.
+    The height and normal RMS limits apply to the pose-mean residuals (`pose_mean_errors`); the per-observation RMS
+    is reported next to them. With fewer than `min_observations` the solver is not called.
 
     Args:
         observations: Floor observations of the sweep.
@@ -309,8 +346,8 @@ def fit_head_chain_floor(observations: list[FloorObservation], urdf_text: str, c
     chain = UrdfChain.from_text(urdf_text)
     limits = cfg.limits
     (_, _, mount_z), (mount_roll, mount_pitch, _) = chain.origin(MOUNT_JOINT)
-    tilt_pitch = chain.origin(TILT_JOINT)[1][1]
-    x0 = np.array([mount_z, mount_roll, mount_pitch, tilt_pitch], dtype=float)
+    tilt_roll, tilt_pitch, _ = chain.origin(TILT_JOINT)[1]
+    x0 = np.array([mount_z, mount_roll, mount_pitch, tilt_pitch, tilt_roll], dtype=float)
 
     failed: list[str] = []
     pans = [math.degrees(o.pan_rad) for o in observations]
@@ -344,13 +381,32 @@ def fit_head_chain_floor(observations: list[FloorObservation], urdf_text: str, c
                 sigma = np.full(len(x0), math.inf)
 
     origins = chain_origins(chain, x)
-    dn, dh, angle = observation_errors(chain, observations, origins)
-    height_rms_mm = rms(dh) * MM_PER_M
-    normal_rms_deg = rms(angle)
+    _, dh, angle = observation_errors(chain, observations, origins)
+    poses = []
+    for pose in sorted({o.pose for o in observations}):
+        idx = [i for i, o in enumerate(observations) if o.pose == pose]
+        mean_dh, mean_angle = pose_mean_errors(chain, observations, origins, idx, dh)
+        poses.append(
+            {
+                "pose": pose,
+                "pan_deg": float(np.mean([math.degrees(observations[i].pan_rad) for i in idx])),
+                "tilt_deg": float(np.mean([math.degrees(observations[i].tilt_rad) for i in idx])),
+                "observations": len(idx),
+                "height_residual_mm": mean_dh * MM_PER_M,
+                "normal_residual_deg": mean_angle,
+                "observation_height_rms_mm": rms(dh[idx]) * MM_PER_M,
+                "observation_normal_rms_deg": rms(angle[idx]),
+            }
+        )
+    height_rms_mm = rms([float(p["height_residual_mm"]) for p in poses])
+    normal_rms_deg = rms([float(p["normal_residual_deg"]) for p in poses])
 
-    scale = (1.0, 180.0 / math.pi, 180.0 / math.pi, 180.0 / math.pi)
     params = {
-        name: {"value": float(x[i] * scale[i]), "sigma": float(sigma[i] * scale[i]), "urdf": float(x0[i] * scale[i])}
+        name: {
+            "value": float(x[i] * PARAM_SCALE[i]),
+            "sigma": float(sigma[i] * PARAM_SCALE[i]),
+            "urdf": float(x0[i] * PARAM_SCALE[i]),
+        }
         for i, name in enumerate(PARAM_NAMES)
     }
     if solve:
@@ -366,25 +422,14 @@ def fit_head_chain_floor(observations: list[FloorObservation], urdf_text: str, c
         )
         failed.extend(name for name, bad in checks if bad)
 
-    poses = []
-    for pose in sorted({o.pose for o in observations}):
-        idx = [i for i, o in enumerate(observations) if o.pose == pose]
-        poses.append(
-            {
-                "pose": pose,
-                "pan_deg": float(np.mean([math.degrees(observations[i].pan_rad) for i in idx])),
-                "tilt_deg": float(np.mean([math.degrees(observations[i].tilt_rad) for i in idx])),
-                "observations": len(idx),
-                "height_residual_mm": rms(dh[idx]) * MM_PER_M,
-                "normal_residual_deg": rms(angle[idx]),
-            }
-        )
     return FloorFitResult(
         passed=not failed,
         failed_limits=failed,
         params=params,
         height_rms_mm=height_rms_mm,
         normal_rms_deg=normal_rms_deg,
+        observation_height_rms_mm=rms(dh) * MM_PER_M,
+        observation_normal_rms_deg=rms(angle),
         poses=poses,
         origins=origins,
     )

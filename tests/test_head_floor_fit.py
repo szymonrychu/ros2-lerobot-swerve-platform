@@ -1,10 +1,14 @@
 """Tests for the floor-plane head chain fit in shared/ros2_common/head_rgbd_calibration/floor_fit.py (design D2-D4)."""
 
+import importlib.util
 import json
+import sys
 from pathlib import Path
+from types import ModuleType
 
 import numpy as np
 import pytest
+import yaml
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration import floor_fit
 from ros2_common.head_rgbd_calibration.chain import UrdfChain
@@ -17,10 +21,16 @@ from ros2_common.head_rgbd_calibration.floor_fit import (
     predicted_floor,
 )
 from ros2_common.head_rgbd_calibration.urdf_text import Origin
+from scipy.spatial.transform import Rotation
 
 from tests.head_floor_synthetic import synthetic_clouds
 
-URDF_PATH = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf" / "head.urdf"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+URDF_PATH = REPO_ROOT / "nodes" / "web_ui" / "urdf" / "head.urdf"
+NODE_DIR = REPO_ROOT / "nodes" / "head_rgbd_calibration"
+NODE_CONFIG_PY = NODE_DIR / "head_rgbd_calibration" / "config.py"
+NODE_CONFIG_YAML = NODE_DIR / "config" / "head_rgbd_calibration.yaml"
+NODE_CONFIG_MODULE = "head_rgbd_calibration_node_config"
 MOUNT = "head_mount_joint"
 TILT = "head_tilt"
 TRUTH_DZ_M = 0.03
@@ -32,6 +42,11 @@ GRID_TILTS_DEG = (12, 20, 28)
 GRID = [(np.radians(p), np.radians(t)) for p in GRID_PANS_DEG for t in GRID_TILTS_DEG]
 NOISE_M = 0.005
 OUTLIER_RATIO = 0.2
+TRUTH_TILT_ROLL_DEG = 1.2
+CLOUD_SCATTER_DEG = 1.2
+POSE_BIAS_DEG = 1.5
+CLOUD_HEIGHT_SCATTER_M = 0.015
+POSE_HEIGHT_BIAS_M = 0.012
 
 
 @pytest.fixture(scope="module")
@@ -54,6 +69,22 @@ def truth(chain: UrdfChain) -> dict[str, Origin]:
         ),
         TILT: Origin(txyz, (tr, tp + np.radians(TRUTH_TILT_ZERO_DEG), tyaw)),
     }
+
+
+def node_config() -> ModuleType:
+    """The head_rgbd_calibration node config module, loaded from its file (it needs yaml, pydantic, ros2_common)."""
+    if NODE_CONFIG_MODULE not in sys.modules:
+        spec = importlib.util.spec_from_file_location(NODE_CONFIG_MODULE, NODE_CONFIG_PY)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[NODE_CONFIG_MODULE] = module
+        spec.loader.exec_module(module)
+    return sys.modules[NODE_CONFIG_MODULE]
+
+
+def tilted(normal: np.ndarray, axis: np.ndarray, angle_deg_: float) -> np.ndarray:
+    """`normal` turned by `angle_deg_` about the unit `axis` (orthogonal to it)."""
+    return Rotation.from_rotvec(np.radians(angle_deg_) * axis).apply(normal)
 
 
 def angle_deg(a: np.ndarray, b: np.ndarray) -> float:
@@ -197,7 +228,9 @@ def test_fit_recovers_perturbed_chain(urdf_text: str, chain: UrdfChain, truth: d
     assert set(result.origins) == {MOUNT, TILT}
     assert (mount.xyz[0], mount.xyz[1], mount.rpy[2]) == (mx, my, myaw)
     assert tilt.xyz == txyz
-    assert (tilt.rpy[0], tilt.rpy[2]) == (tr, tyaw)
+    assert tilt.rpy[2] == tyaw
+    assert tilt.rpy[0] == pytest.approx(np.radians(p["tilt_roll_deg"]["value"]))
+    assert abs(p["tilt_roll_deg"]["value"] - np.degrees(tr)) < 0.15
     assert mount.xyz[2] == p["mount_z_m"]["value"]
     assert tilt.rpy[1] == pytest.approx(np.radians(p["tilt_zero_deg"]["value"]))
 
@@ -208,7 +241,10 @@ def test_fit_recovers_perturbed_chain(urdf_text: str, chain: UrdfChain, truth: d
     assert first["pan_deg"] == pytest.approx(GRID_PANS_DEG[0])
     assert first["tilt_deg"] == pytest.approx(GRID_TILTS_DEG[0])
     assert first["observations"] == 5
-    assert first["height_residual_mm"] >= 0.0 and first["normal_residual_deg"] >= 0.0
+    assert abs(first["height_residual_mm"]) < 1.0 and 0.0 <= first["normal_residual_deg"] < 0.1
+    assert first["observation_height_rms_mm"] >= abs(first["height_residual_mm"])
+    assert first["observation_normal_rms_deg"] >= 0.0
+    assert result.observation_height_rms_mm >= result.height_rms_mm
 
     data = result.to_json()
     text = json.dumps(data, allow_nan=False)
@@ -295,3 +331,126 @@ def test_fit_plane_defaults_fit_a_noisy_tof_cloud() -> None:
     assert angle_deg(fit.normal, normal) < 2.0
     old = FloorPlaneConfig(ransac_distance_m=0.015, min_inliers=300)
     assert fit_plane(cloud, prior, old, np.random.default_rng(7)) is None
+
+
+def test_tilt_roll_is_recovered(urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]) -> None:
+    cfg = FloorFitConfig()
+    txyz, (tr, tp, tyaw) = chain.origin(TILT)
+    rolled = {**truth, TILT: Origin(txyz, (tr + np.radians(TRUTH_TILT_ROLL_DEG), truth[TILT].rpy[1], tyaw))}
+    rng = np.random.default_rng(11)
+    clouds = synthetic_clouds(urdf_text, rolled, GRID, NOISE_M, OUTLIER_RATIO, rng, clouds_per_pose=5)
+    observations = []
+    for cloud in clouds:
+        plane = fit_plane(cloud.points, predicted_floor(chain, cloud.pan_rad, cloud.tilt_rad, None), cfg.plane, rng)
+        assert plane is not None
+        observations.append(FloorObservation(cloud.pose, cloud.pan_rad, cloud.tilt_rad, plane))
+
+    result = fit_head_chain_floor(observations, urdf_text, cfg)
+
+    assert result.passed, result.failed_limits
+    roll = result.params["tilt_roll_deg"]
+    assert roll["urdf"] == np.degrees(tr)
+    assert 0.0 < roll["sigma"] <= cfg.limits.max_sigma_deg
+    assert abs(roll["value"] - (np.degrees(tr) + TRUTH_TILT_ROLL_DEG)) <= max(3.0 * roll["sigma"], 0.05)
+    assert result.origins[TILT].rpy[0] == pytest.approx(np.radians(roll["value"]))
+    assert result.origins[TILT].rpy[1] == pytest.approx(np.radians(result.params["tilt_zero_deg"]["value"]))
+    p = result.params
+    assert abs(p["mount_roll_deg"]["value"] - (np.degrees(chain.origin(MOUNT)[1][0]) + TRUTH_ROLL_DEG)) < 0.15
+    assert abs(p["tilt_zero_deg"]["value"] - (np.degrees(tp) + TRUTH_TILT_ZERO_DEG)) < 0.15
+    assert result.to_json()["params"]["tilt_roll_deg"]["value"] == pytest.approx(roll["value"])
+
+    # The sigma limit covers the tilt roll: a grid that cannot separate it from the mount roll is refused.
+    tight = FloorFitConfig(limits={"max_sigma_deg": roll["sigma"] / 2.0})
+    refused = fit_head_chain_floor(observations, urdf_text, tight)
+    assert "max_sigma_deg" in refused.failed_limits
+
+
+def scattered_observations(
+    chain: UrdfChain,
+    origins: dict[str, Origin],
+    per_pose: int,
+    cloud_scatter_deg: float,
+    cloud_height_scatter_m: float,
+    pose_bias_deg: float,
+    pose_height_bias_m: float,
+    rng: np.random.Generator,
+) -> list[FloorObservation]:
+    """Per pose: clouds whose normals are turned by `cloud_scatter_deg` in symmetric tangent directions and whose
+    heights scatter with RMS `cloud_height_scatter_m` and zero mean (Gaussian draws, centred and scaled), so the pose
+    mean is the pose's floor, the pose's floor being the truth turned by `pose_bias_deg` about a random tangent axis
+    and shifted by a random-sign `pose_height_bias_m`."""
+    out = []
+    for pose, (pan, tilt) in enumerate(GRID):
+        normal, height = predicted_floor(chain, pan, tilt, origins)
+        e1, e2 = floor_fit.tangent_basis(normal)
+        phase = rng.uniform(0.0, 2.0 * np.pi)
+        normal = tilted(normal, np.cos(phase) * e1 + np.sin(phase) * e2, pose_bias_deg)
+        height += pose_height_bias_m * rng.choice([-1.0, 1.0])
+        e1, e2 = floor_fit.tangent_basis(normal)
+        scatter = rng.normal(0.0, 1.0, per_pose)
+        scatter -= scatter.mean()
+        scatter *= cloud_height_scatter_m / max(float(np.sqrt(np.mean(scatter**2))), 1e-12)
+        for k in range(per_pose):
+            angle = 2.0 * np.pi * k / per_pose
+            n = tilted(normal, np.cos(angle) * e1 + np.sin(angle) * e2, cloud_scatter_deg)
+            h = height + scatter[k]
+            out.append(FloorObservation(pose, pan, tilt, PlaneFit(n, h, 1000, 1000, 0.0)))
+    return out
+
+
+def test_limits_use_pose_mean_residuals(urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]) -> None:
+    cfg = FloorFitConfig()
+    limits = cfg.limits
+    rng = np.random.default_rng(12)
+    # Per-cloud normals 1.2 deg off and heights 15 mm off, but every pose mean is the truth floor: passes.
+    observations = scattered_observations(chain, truth, 8, CLOUD_SCATTER_DEG, CLOUD_HEIGHT_SCATTER_M, 0.0, 0.0, rng)
+    result = fit_head_chain_floor(observations, urdf_text, cfg)
+    assert result.passed, result.failed_limits
+    assert result.observation_normal_rms_deg == pytest.approx(CLOUD_SCATTER_DEG, abs=0.05)
+    assert result.observation_normal_rms_deg > limits.max_normal_rms_deg
+    assert result.observation_height_rms_mm == pytest.approx(CLOUD_HEIGHT_SCATTER_M * 1000.0, abs=0.5)
+    assert result.observation_height_rms_mm > limits.max_height_rms_mm
+    assert result.normal_rms_deg < 0.05
+    assert result.height_rms_mm < 2.0
+    for pose in result.poses:
+        assert pose["observations"] == 8
+        assert pose["normal_residual_deg"] < 0.05
+        assert abs(pose["height_residual_mm"]) < 2.0
+        assert pose["observation_normal_rms_deg"] == pytest.approx(CLOUD_SCATTER_DEG, abs=0.05)
+        assert pose["observation_height_rms_mm"] == pytest.approx(CLOUD_HEIGHT_SCATTER_M * 1000.0, abs=0.5)
+    data = result.to_json()
+    json.dumps(data, allow_nan=False)
+    assert data["observation_normal_rms_deg"] == pytest.approx(result.observation_normal_rms_deg)
+    assert data["observation_height_rms_mm"] == pytest.approx(result.observation_height_rms_mm)
+    assert set(data["poses"][0]) == {
+        "pose", "pan_deg", "tilt_deg", "observations", "height_residual_mm", "normal_residual_deg",
+        "observation_height_rms_mm", "observation_normal_rms_deg",
+    }  # fmt: skip
+
+    # Pose means that disagree with any chain fail, even with no scatter inside a pose.
+    observations = scattered_observations(chain, truth, 4, 0.0, 0.0, POSE_BIAS_DEG, 0.0, rng)
+    result = fit_head_chain_floor(observations, urdf_text, cfg)
+    assert "max_normal_rms_deg" in result.failed_limits
+    assert result.normal_rms_deg > limits.max_normal_rms_deg
+    observations = scattered_observations(chain, truth, 4, 0.0, 0.0, 0.0, 2.0 * POSE_HEIGHT_BIAS_M, rng)
+    result = fit_head_chain_floor(observations, urdf_text, cfg)
+    assert "max_height_rms_mm" in result.failed_limits
+    assert result.height_rms_mm > limits.max_height_rms_mm
+
+
+def test_floor_sweep_defaults() -> None:
+    config = node_config()
+    sweep = config.FloorSweepConfig()
+    assert sweep.clouds_per_pose == 10
+    assert sweep.min_clouds_per_pose == 5
+    shipped = yaml.safe_load(NODE_CONFIG_YAML.read_text())["floor"]
+    assert shipped["clouds_per_pose"] == 10
+    assert shipped["min_clouds_per_pose"] == 5
+    # The minimum follows clouds_per_pose (half, rounded up) unless it is set, so a client.yml with 5 still works.
+    assert config.FloorSweepConfig(clouds_per_pose=5).min_clouds_per_pose == 3
+    assert config.FloorSweepConfig(clouds_per_pose=1).min_clouds_per_pose == 1
+    assert config.FloorSweepConfig(clouds_per_pose=7, min_clouds_per_pose=None).min_clouds_per_pose == 4
+    assert config.FloorSweepConfig(clouds_per_pose=10, min_clouds_per_pose=8).min_clouds_per_pose == 8
+    for bad in ({"min_clouds_per_pose": 0}, {"clouds_per_pose": 4, "min_clouds_per_pose": 5}):
+        with pytest.raises(ValidationError):
+            config.FloorSweepConfig(**bad)
