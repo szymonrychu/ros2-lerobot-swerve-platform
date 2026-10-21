@@ -812,7 +812,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "shared/README.md",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_px|_recovers\w*| error per pair)",
         "rgbd-calibration",
     ),
     (
