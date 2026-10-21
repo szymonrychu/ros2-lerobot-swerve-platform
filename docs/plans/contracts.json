@@ -131,5 +131,16 @@
       "servo-torque-off-and-neutral"
     ],
     "note": "base_servos head group: head_pan inverted true (servo mounted reversed, found 2026-10-21); +pan = left CCW from above, URDF unchanged, steps 1024..3072; owner task head-pan-inverted"
+  },
+  {
+    "name": "tof-mark-band",
+    "kind": "config",
+    "owner": "tof-depth-fix-and-ground-noi",
+    "file": "nodes/nav2_bringup/config/nav2_params.yaml",
+    "consumers": [
+      "tof-3d-obstacle-detection-fo",
+      "rgb-d-ground-estimation-and"
+    ],
+    "note": "tof_voxel_layer tof_mark min_obstacle_height and collision_monitor tof_obstacles min_height 0.10 m (was 0.06, supersedes that value of nav2-tof-voxel-bands); mcp perception TOF_OBSTACLE_BAND_M (0.10, 0.6); owner task tof-mark-band-ten-cm"
   }
 ]
