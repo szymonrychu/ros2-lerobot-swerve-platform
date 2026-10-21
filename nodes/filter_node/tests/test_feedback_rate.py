@@ -1,4 +1,4 @@
-"""FeedbackRateSwitch picks the throttled follower feedback while idle and the full-rate topic while a source commands."""
+"""FeedbackRateSwitch: throttled follower feedback while idle, full-rate topic while a source commands."""
 
 import logging
 
