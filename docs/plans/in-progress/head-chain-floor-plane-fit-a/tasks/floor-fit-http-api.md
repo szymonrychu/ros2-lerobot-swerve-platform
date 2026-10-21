@@ -1,6 +1,6 @@
 ---
 title: Floor fit HTTP API
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Compute, review and apply a floor fit from the Calibrate page; Apply puts the fitted chain into TF through head_chain.json."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/floor_results.py, nodes/head_rgbd_calibration/head_rgbd_calibration/floor_api.py, nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py, nodes/head_rgbd_calibration/tests/test_floor_results.py, nodes/head_rgbd_calibration/tests/test_floor_api.py, nodes/head_rgbd_calibration/tests/test_main.py, nodes/head_rgbd_calibration/tests/fixtures/api/floor_state.json, nodes/head_rgbd_calibration/tests/fixtures/api/floor_result.json]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/head-chain-floor-plane-fit-a--floor-fit-http-api
 branch: head-chain-floor-plane-fit-a--floor-fit-http-api
-verified_head: ""
+verified_head: 5f48504182c0574e26acf06648da62477864809f
 run: head-chain-floor-plane-fit-a
-provides: []
+provides: [head-floor-fit-api, head-chain-applied-record]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["Implementation written before tests (no red run), per the implementer's own report"]
 ---
 
 # Floor fit HTTP API
