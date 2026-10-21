@@ -12,12 +12,14 @@ import pytest
 import yaml
 
 from tests.monitoring_helpers import (
+    AGENT_DIR,
     DASHBOARDS_DIR,
     DEPLOY_SCRIPT,
     GROUP_VARS_DIR,
     HOSTS,
     SELECT_RUN,
     STACK_DIR,
+    group_monitoring_vars,
     load_yaml,
     playbook_role_includes,
     render,
@@ -162,7 +164,6 @@ def test_defaults_have_enable_flag_ports_retention_and_limits() -> None:
     assert defaults["monitoring_loki_port"] == 3100
     assert defaults["monitoring_mimir_retention"] == "24h"
     assert defaults["monitoring_loki_retention"] == "24h"
-    assert defaults["monitoring_interval"] == "5s"
     assert {u["name"]: u["memory_max"] for u in defaults["monitoring_units"]} == STACK_UNITS
 
 
@@ -421,7 +422,6 @@ def test_grafana_datasources_mimir_and_loki() -> None:
     mimir = datasources["prometheus-robot"]
     assert (mimir["type"], mimir["url"], mimir["isDefault"]) == ("prometheus", "http://127.0.0.1:9009/prometheus", True)
     assert mimir["jsonData"]["prometheusType"] == "Mimir"
-    assert mimir["jsonData"]["timeInterval"] == "5s"
     loki = datasources["loki-robot"]
     assert (loki["type"], loki["url"]) == ("loki", "http://127.0.0.1:3100")
     task = next(
@@ -610,3 +610,19 @@ def test_deploy_script_lists_monitoring_on_unknown_name(tmp_path: Path, host: st
     proc = run_deploy(tmp_path, host, "no_such_node")
     assert proc.returncode == 1
     assert "monitoring" in proc.stderr and node in proc.stderr
+
+
+def test_datasource_time_interval_is_the_slowest_scrape() -> None:
+    """Grafana's timeInterval is the slowest scrape interval (the client's 15 s), so $__rate_interval is >= 60 s."""
+    slowest = max(
+        int(
+            group_monitoring_vars(h)
+            .get("monitoring_agent_interval", role_defaults(AGENT_DIR)["monitoring_agent_interval"])
+            .rstrip("s")
+        )
+        for h in HOSTS
+    )
+    assert slowest == 15
+    assert role_defaults(STACK_DIR)["monitoring_interval"] == f"{slowest}s"
+    datasources = {d["uid"]: d for d in yaml.safe_load(stack("grafana-datasources.yaml.j2"))["datasources"]}
+    assert datasources["prometheus-robot"]["jsonData"]["timeInterval"] == f"{slowest}s"

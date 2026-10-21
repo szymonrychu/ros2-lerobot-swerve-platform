@@ -3321,6 +3321,11 @@ ros2_nodes:
 monitoring_host: client
 # The robot ran Prometheus + Grafana until 2026-10-10: stop, disable and purge them (roles/monitoring_agent).
 monitoring_agent_remove_local_stack: true
+# Alloy scrapes every 15 s (was 5 s): alloy cost 0.12 core, 40% of it sys time from cAdvisor, and the ~18 Python
+# /metrics handlers it scrapes are hit 3x less. The scrape timeout must stay below the interval. Grafana's datasource
+# timeInterval follows (roles/monitoring monitoring_interval) so $__rate_interval stays at least 60 s.
+monitoring_agent_interval: "15s"
+monitoring_agent_scrape_timeout: "4s"
 # Our ROS2 nodes' Prometheus endpoints (ros2_metrics helper or the node's own HTTP server), scraped by Alloy job
 # ros2_nodes with a `node` label. Ports follow the ros2_nodes entries above (metrics_port, METRICS_PORT or the node's
 # HTTP port); tests/test_node_metrics_wiring.py keeps both in sync.

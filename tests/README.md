@@ -2337,6 +2337,7 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_grafana_admin_password_generated_on_the_host` | No Ansible password lookup; one `openssl rand` task with `creates:`; the file is 0600 root:grafana. |
 | `test_grafana_admin_password_command_runs` | The password task's real command, run locally, writes a 48-hex-character file with mode 0600. |
 | `test_grafana_datasources_mimir_and_loki` | `/etc/grafana/provisioning/datasources/robot.yaml`: `prometheus-robot` (prometheus type, `http://127.0.0.1:9009/prometheus`, default, `prometheusType: Mimir`, 5s) and `loki-robot` (`http://127.0.0.1:3100`). |
+| `test_datasource_time_interval_is_the_slowest_scrape` | The Mimir datasource `timeInterval` and `monitoring_interval` equal the slowest Alloy scrape interval (the client's 15s), so `$__rate_interval` is at least 60 s. |
 | `test_grafana_dashboard_provider` | Folder Robot; one copy task installs every `files/*.json` (`with_fileglob`) into the provider path under its own name. |
 | `test_services_restart_when_a_config_is_newer_than_their_start` | After starting, a shell task restarts mimir / loki / grafana-server when their config, drop-in or `monitoring.slice` is newer than the start; it runs between the start and the readiness wait. |
 | `test_readiness_checks` | Waits for Mimir `/ready`, Loki `/ready`, Grafana `/api/health` and `/grafana/api/health` through nginx, at least 2 min. |
@@ -2366,7 +2367,8 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_grafana_apt_repo_signed_by_keyring` | `grafana_repo.yml`: deb822 repo `https://apt.grafana.com stable main` signed by the key downloaded to `/etc/apt/keyrings/`; main.yml includes it. |
 | `test_alloy_remote_writes_to_mimir_with_the_host_label` | (client, server) `prometheus.remote_write "mimir"` url: robot `http://server.ros2.lan:9009/api/v1/push`, server `http://127.0.0.1:9009/api/v1/push`; `external_labels = {host = "<host>"}`. |
 | `test_alloy_pushes_logs_to_loki_with_the_host_label` | (client, server) `loki.write "server"` url: robot `http://server.ros2.lan:3100/loki/api/v1/push`, server 127.0.0.1; `external_labels` host. |
-| `test_alloy_scrapes_every_5s_and_writes_to_mimir` | (client, server) every scrape 5s / 4s, every metrics `forward_to` ends in the Mimir remote write (directly or via the cadvisor relabel). |
+| `test_client_scrapes_every_15_s` | Client group_vars `monitoring_agent_interval` is 15s with a timeout below it; the role default (5s) and the server stay at 5s. |
+| `test_alloy_scrapes_every_5s_and_writes_to_mimir` | (client, server) every scrape at the host interval (client 15s, server 5s) / 4s timeout, every metrics `forward_to` ends in the Mimir remote write (directly or via the cadvisor relabel). |
 | `test_alloy_collects_host_cgroup_and_self_metrics` | (client, server) unix (textfile dir), cadvisor (`docker_only = false`) and self exporters. |
 | `test_alloy_drops_high_cardinality_cgroups_and_veth` | (client, server) the `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
 | `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
@@ -2409,6 +2411,7 @@ The Grafana dashboards in `ansible/roles/monitoring/files/` (JSON structure, met
 
 | Test | Description |
 |------|-------------|
+| `test_no_rate_window_below_four_client_scrapes` | Every range selector in every dashboard is `$__rate_interval`, `$__auto`, `$__range` or a literal of at least 60 s (4 client scrapes). |
 | `test_selector_helper` | Guard against vacuous passes: the scanner finds selectors with their matchers and skips functions, labels, ranges, numbers and variables. |
 | `test_dashboard_set_is_exactly_the_five_files` | `files/` holds robot-resources, robot-agent, robot-slam, robot-grasping and robot-health. |
 | `test_dashboard_is_valid_json_with_required_panels` | (each dashboard) parses, has its title and uid, every required panel by title and unique panel ids. |

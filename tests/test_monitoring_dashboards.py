@@ -676,3 +676,20 @@ def test_health_dashboard_loki_panels() -> None:
         assert 'host="$host"' in selector.group(1) and ERROR_LEVELS in selector.group(1), expr
     assert logs_expr == "{" + selector.group(1) + "}"
     assert len(dashboard_exprs(dashboard, loki=True)) == 2
+
+
+def test_no_rate_window_below_four_client_scrapes() -> None:
+    """Every range selector is a Grafana variable window or a literal of at least 4 client scrapes (60 s)."""
+    min_seconds = 4 * 15
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    checked = 0
+    for path in sorted(DASHBOARDS_DIR.glob("*.json")):
+        for title, expr in dashboard_exprs(load_dashboard(path.name)):
+            for window in re.findall(r"\[([^\]]+)\]", expr):
+                checked += 1
+                if window in ("$__rate_interval", "$__auto", "$__range"):
+                    continue
+                total = sum(int(n) * units[u] for n, u in re.findall(r"(\d+)([smhd])", window))
+                assert re.fullmatch(r"(\d+[smhd])+(:(\d+[smhd])*)?", window), (path.name, title, window)
+                assert total >= min_seconds, (path.name, title, window)
+    assert checked > 20

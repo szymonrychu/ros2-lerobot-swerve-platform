@@ -2,7 +2,7 @@
 
 Nodes without an HTTP server call start_metrics_server(resolve_metrics_port(config.metrics_port), "<node>") once at
 start-up; nodes that already serve HTTP call register_node_info("<node>") and expose render_latest() on GET /metrics.
-Grafana Alloy on the robot scrapes every node every 5 s.
+Grafana Alloy on the robot scrapes every node every 15 s.
 """
 
 import os
