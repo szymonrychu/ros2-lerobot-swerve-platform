@@ -1,0 +1,131 @@
+"""Tests for the URDF forward-kinematics chain in shared/ros2_common/head_rgbd_calibration/chain.py."""
+
+from pathlib import Path
+
+import numpy as np
+import pytest
+from ros2_common.head_rgbd_calibration.chain import (
+    UrdfChain,
+    arm_in_robot_base,
+    pose_from_xyz_rpy,
+    xyz_rpy_from_pose,
+)
+
+URDF_DIR = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf"
+OPTICAL_RPY = (-1.5708, 0.0, -1.5708)
+CAMERA = "head_camera_optical_frame"
+ZERO_HEAD = {"head_pan": 0.0, "head_tilt": 0.0}
+DEFAULT_GAUGE = {"x": 0.0592, "y": -0.05, "z": 0.100, "yaw": 0.0}
+
+
+@pytest.fixture(scope="module")
+def head() -> UrdfChain:
+    return UrdfChain.from_text((URDF_DIR / "head.urdf").read_text())
+
+
+@pytest.fixture(scope="module")
+def arm() -> UrdfChain:
+    return UrdfChain.from_text((URDF_DIR / "so101_arm.urdf").read_text())
+
+
+def translate(x: float, y: float, z: float) -> np.ndarray:
+    return pose_from_xyz_rpy((x, y, z), (0.0, 0.0, 0.0))
+
+
+def test_head_camera_optical_at_zero_is_the_product_of_origins(head: UrdfChain) -> None:
+    expected = (
+        translate(0.15, 0.10, 0.31)
+        @ translate(0, 0, 0.04)
+        @ translate(0.02, -0.025, 0)
+        @ pose_from_xyz_rpy((0, 0, 0), OPTICAL_RPY)
+    )
+    np.testing.assert_allclose(head.transform(CAMERA, ZERO_HEAD), expected, atol=1e-12)
+    assert head.joint_names(CAMERA) == [
+        "head_mount_joint",
+        "head_pan",
+        "head_tilt",
+        "head_camera_joint",
+        "head_camera_optical_joint",
+    ]
+
+
+def test_pan_rotates_about_plus_z_and_tilt_pitches_down(head: UrdfChain) -> None:
+    base = head.transform(CAMERA, ZERO_HEAD)
+    panned = head.transform(CAMERA, {"head_pan": 0.5, "head_tilt": 0.0})
+    forward0, forward1 = base[:3, 2], panned[:3, 2]
+    assert np.arctan2(forward1[1], forward1[0]) - np.arctan2(forward0[1], forward0[0]) == pytest.approx(0.5)
+    tilted = head.transform(CAMERA, {"head_pan": 0.0, "head_tilt": 0.3})
+    assert tilted[2, 2] < -0.2
+    assert base[2, 2] == pytest.approx(0.0, abs=1e-4)
+
+
+def test_origin_override_changes_exactly_that_joint(head: UrdfChain) -> None:
+    override = {"head_mount_joint": ((0.15, 0.10, 0.25), (0.0, 0.0, 0.0))}
+    moved = head.transform(CAMERA, ZERO_HEAD, origins=override)
+    base = head.transform(CAMERA, ZERO_HEAD)
+    np.testing.assert_allclose(moved[:3, :3], base[:3, :3], atol=1e-12)
+    np.testing.assert_allclose(moved[:3, 3] - base[:3, 3], [0, 0, -0.06], atol=1e-12)
+    assert head.origin("head_mount_joint") == ((0.15, 0.10, 0.31), (0.0, 0.0, 0.0))
+
+
+def test_offsets_add_to_measured(head: UrdfChain) -> None:
+    a = head.transform(CAMERA, {"head_pan": 0.2, "head_tilt": 0.1}, offsets={"head_tilt": 0.05})
+    b = head.transform(CAMERA, {"head_pan": 0.2, "head_tilt": 0.15})
+    np.testing.assert_allclose(a, b, atol=1e-12)
+
+
+def test_missing_joint_and_unknown_link_raise_key_error(head: UrdfChain) -> None:
+    with pytest.raises(KeyError, match="head_tilt"):
+        head.transform(CAMERA, {"head_pan": 0.0})
+    with pytest.raises(KeyError, match="nope"):
+        head.transform("nope", ZERO_HEAD)
+
+
+def test_limits(head: UrdfChain) -> None:
+    assert head.limits("head_pan") == pytest.approx((-1.5708, 1.5708))
+    assert head.limits("head_mount_joint") is None
+
+
+def test_unsupported_joint_type_names_the_joint() -> None:
+    text = (
+        '<robot name="r"><link name="a"/><link name="b"/>'
+        '<joint name="slider" type="prismatic"><parent link="a"/><child link="b"/></joint></robot>'
+    )
+    with pytest.raises(ValueError, match="slider"):
+        UrdfChain.from_text(text)
+
+
+def test_continuous_joint_has_no_limits() -> None:
+    text = (
+        '<robot name="r"><link name="a"/><link name="b"/>'
+        '<joint name="spin" type="continuous"><parent link="a"/><child link="b"/><axis xyz="1 0 0"/></joint></robot>'
+    )
+    chain = UrdfChain.from_text(text)
+    assert chain.limits("spin") is None
+    assert chain.transform("b", {"spin": np.pi / 2})[1, 2] == pytest.approx(-1.0)
+
+
+def test_so101_gripper_link_at_zero_is_the_product_of_origins(arm: UrdfChain) -> None:
+    zero = {n: 0.0 for n in ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")}
+    names = arm.joint_names("gripper_link")
+    expected = np.eye(4)
+    for name in names:
+        expected = expected @ pose_from_xyz_rpy(*arm.origin(name))
+    np.testing.assert_allclose(arm.transform("gripper_link", zero), expected, atol=1e-12)
+    assert names[0] == "shoulder_pan"
+    first_xyz, first_rpy = arm.origin(names[0])
+    assert len(first_xyz) == 3 and len(first_rpy) == 3
+
+
+def test_xyz_rpy_round_trip() -> None:
+    xyz, rpy = (0.1, -0.2, 0.3), (0.4, -0.5, 0.6)
+    got_xyz, got_rpy = xyz_rpy_from_pose(pose_from_xyz_rpy(xyz, rpy))
+    np.testing.assert_allclose(got_xyz, xyz, atol=1e-12)
+    np.testing.assert_allclose(got_rpy, rpy, atol=1e-12)
+
+
+def test_arm_in_robot_base_default_gauge() -> None:
+    pose = arm_in_robot_base(DEFAULT_GAUGE)
+    np.testing.assert_allclose(pose @ [0, 0, 0, 1], [0.0592, -0.05, 0.100, 1.0], atol=1e-12)
+    yawed = arm_in_robot_base({**DEFAULT_GAUGE, "yaw": np.pi / 2})
+    np.testing.assert_allclose(yawed[:3, 0], [0, 1, 0], atol=1e-12)
