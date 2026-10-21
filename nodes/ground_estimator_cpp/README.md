@@ -164,6 +164,8 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `hysteresis.exit_frames` | `1` | frames of the new class needed to leave the current one, 1..enter_frames |
 | `metrics_port` | `19119` | Prometheus port, 1..65535, or null to disable |
 
+The spread in `temporal.max_spread_m` is computed over the per-frame cell medians. With fewer than 5 values it is 1.4826 * MAD (1.4826 turns the MAD into a Gaussian sigma). From 5 values on it is the standard deviation after dropping the most deviant value, times 1.15: it is as robust to one outlier frame as the MAD but varies far less between windows, so a cell with real temporal noise does not slip under the limit by chance (8 frames, a plain MAD does). The factor is deliberately below the fully consistent 1.3 so that 20 mm floor noise stays under the 25 mm limit. A gated cell is unknown (no points, so never lethal, a step, a drop or part of a cluster), keeps its history, and is known again once its spread is under 0.7 * the limit. No range cap is used.
+
 ## Metrics
 
 Prometheus on `metrics_port`.
