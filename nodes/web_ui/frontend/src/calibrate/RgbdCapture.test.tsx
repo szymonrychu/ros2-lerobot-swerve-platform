@@ -218,3 +218,65 @@ describe('RgbdCapture with the node contract fixtures', () => {
     expect(document.querySelector('.MuiAlert-colorError')?.textContent ?? null).toBeNull()
   })
 })
+
+describe('RgbdCapture pose hints and errors', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+  const pe = (id: string, outlier: string[]) => ({ id, rgb_error_px: 0.21, tof_error_px: 0.12, stereo_error_px: null, outlier })
+  const detailWith = (results: unknown[]) => ({
+    id: 's1',
+    created: 'c',
+    lens_position: null,
+    poses: [
+      { ...pose('p1'), hints: ['few corners: 6 RGB - move the board closer', 'second hint'] },
+      pose('p2'),
+      pose('p3'),
+    ],
+    coverage: { rgb: cov([[1]]), tof: cov([[1]]) },
+    results,
+  })
+  const serve = (getBody: () => unknown) => {
+    const f = vi.fn(async () => new Response(JSON.stringify(getBody()), { status: 200 }))
+    vi.stubGlobal('fetch', f)
+    return f
+  }
+  const mount = (compute = COMPUTE) =>
+    render(<RgbdCapture capture={IDLE} compute={compute} sessionId="s1" onState={vi.fn()} />)
+
+  it('shows each hint as its own line', async () => {
+    serve(() => detailWith([]))
+    mount()
+    await screen.findByText('few corners: 6 RGB - move the board closer')
+    expect(screen.getByText('second hint')).toBeTruthy()
+    expect(screen.queryByText(/RGB 0\.210/)).toBeNull()
+  })
+
+  it('shows the error caption, flags outliers, and skips poses absent from the result', async () => {
+    serve(() => detailWith([{ id: 'r2', passed: false, poses: [pe('p1', []), pe('p2', ['rgb'])] }]))
+    mount()
+    const captions = await screen.findAllByText('RGB 0.210 / ToF 0.120 / stereo - px')
+    expect(captions.length).toBe(2)
+    expect(screen.getAllByText('high error - delete and Compute again').length).toBe(1)
+    expect(screen.getByTestId('pose-card-p2').getAttribute('data-outlier')).toBe('true')
+    expect(screen.getByTestId('pose-card-p1').getAttribute('data-outlier')).toBe('false')
+    const p3 = screen.getByTestId('pose-card-p3')
+    expect(p3.textContent).not.toMatch(/ToF 0\.120/)
+    expect(p3.textContent).not.toMatch(/high error/)
+    expect(screen.getByRole('button', { name: 'Delete pose p2' })).toBeTruthy()
+  })
+
+  it('fetches the session again when a compute finishes', async () => {
+    let results: unknown[] = []
+    const f = serve(() => detailWith(results))
+    const { rerender } = mount({ ...COMPUTE, running: true })
+    await screen.findByAltText('RGB p2')
+    expect(screen.queryByText(/ToF 0\.120/)).toBeNull()
+    const before = f.mock.calls.length
+    results = [{ id: 'r2', passed: false, poses: [pe('p2', ['rgb'])] }]
+    rerender(<RgbdCapture capture={IDLE} compute={COMPUTE} sessionId="s1" onState={vi.fn()} />)
+    await screen.findByText('RGB 0.210 / ToF 0.120 / stereo - px')
+    expect(f.mock.calls.length).toBeGreaterThan(before)
+  })
+})

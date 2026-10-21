@@ -2,12 +2,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   applyResult, computeSession, deletePose, downloadUrl, emptyCells, getApplied, getResult, getSession, getState,
-  listSessions, startCapture, statusSeverity, stopCapture, thumbnailUrl,
+  listSessions, poseErrors, startCapture, statusSeverity, stopCapture, thumbnailUrl,
 } from './rgbdApi'
 import captureStartFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_start.json'
 import captureStopFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_stop.json'
 import applyFx from '../../../../head_rgbd_calibration/tests/fixtures/api/apply.json'
 import appliedFx from '../../../../head_rgbd_calibration/tests/fixtures/api/applied.json'
+import sessionFx from '../../../../head_rgbd_calibration/tests/fixtures/api/session.json'
+import resultFx from '../../../../head_rgbd_calibration/tests/fixtures/api/result.json'
 import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 
 const B = '/api/calibration/rgbd'
@@ -178,5 +180,50 @@ describe('rgbdApi accepts the node contract fixtures', () => {
     const r = await startCapture()
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.message).toContain('Unexpected calibration response')
+  })
+})
+
+describe('rgbdApi pose hints and errors', () => {
+  it('getSession accepts session.json with hints', async () => {
+    stub(200, sessionFx)
+    expect(await getSession('s')).toEqual({ ok: true, value: sessionFx })
+  })
+  it('getResult accepts result.json with poses and outlier_poses', async () => {
+    stub(200, resultFx)
+    expect(await getResult('s', 'r')).toEqual({ ok: true, value: resultFx })
+  })
+  it('accepts a session and a result without the new fields', async () => {
+    stub(200, detail)
+    expect((await getSession('s')).ok).toBe(true)
+    stub(200, result)
+    expect((await getResult('s', 'r1')).ok).toBe(true)
+  })
+  it('rejects a non-array hints / poses and wrong-typed entries', async () => {
+    stub(200, { ...detail, poses: [{ ...detail.poses[0], hints: 'few' }] })
+    expect((await getSession('s')).ok).toBe(false)
+    stub(200, { ...detail, poses: [{ ...detail.poses[0], hints: [1] }] })
+    expect((await getSession('s')).ok).toBe(false)
+    stub(200, { ...detail, results: [{ id: 'r1', passed: true, poses: 'x' }] })
+    expect((await getSession('s')).ok).toBe(false)
+    stub(200, { ...result, poses: {} })
+    expect((await getResult('s', 'r1')).ok).toBe(false)
+    stub(200, { ...result, poses: [{ id: '1', rgb_error_px: 'a', tof_error_px: null, stereo_error_px: null, outlier: [] }] })
+    expect((await getResult('s', 'r1')).ok).toBe(false)
+    stub(200, { ...result, outlier_poses: 'x' })
+    expect((await getResult('s', 'r1')).ok).toBe(false)
+  })
+})
+
+describe('poseErrors', () => {
+  const pe = { id: '001', rgb_error_px: 0.2, tof_error_px: null, stereo_error_px: 0.4, outlier: [] }
+  it('is empty without results or without poses', () => {
+    expect(poseErrors({ ...detail, results: [] }).size).toBe(0)
+    expect(poseErrors(detail).size).toBe(0)
+  })
+  it('keys the newest result poses by id', () => {
+    const d = { ...detail, results: [{ id: 'new', passed: false, poses: [pe] }, { id: 'old', passed: true, poses: [{ ...pe, id: '002' }] }] }
+    const m = poseErrors(d)
+    expect([...m.keys()]).toEqual(['001'])
+    expect(m.get('001')).toEqual(pe)
   })
 })
