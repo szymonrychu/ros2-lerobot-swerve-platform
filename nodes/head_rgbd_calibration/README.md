@@ -262,3 +262,21 @@ stops capture, kills a running compute child and destroys the node.
   `/api/state` without systemctl, `/api/applied` units.
 - `tests/test_main.py` - bind host and port from the config (loopback by default), shutdown stops capture and job and
   destroys the node, missing config env gives exit 78.
+
+### Floor fit HTTP API
+
+`floor_results.py` computes and applies the fit, `floor_api.py` serves it (`__main__` includes the router; shutdown stops the
+sweep first so the head is restored). Errors use the common `{ok: false, message}` body (404 unknown or malformed ids, 409 busy
+or not applicable).
+
+| Route | Body |
+|---|---|
+| `GET /api/floor/state` | `{sweep, applied}` (applied = `applied/head_chain.json` content, null when absent) |
+| `POST /api/floor/sweep/start`, `/stop` | the sweep state; start gives 409 while a capture, a compute or a sweep runs |
+| `GET /api/floor/sessions` | `[{id, created, observations, skipped, results}]` (result ids) |
+| `POST /api/floor/sessions/{sid}/compute` | the result; synchronous; 409 while a sweep runs |
+| `GET /api/floor/sessions/{sid}/results/{rid}` | result.json |
+| `POST /api/floor/sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at}, units}`; 409 for a failed result or when no RGB-D calibration is applied |
+
+A passing compute also writes `head_chain.json` (the applied joints kept, `head_mount_joint` and `head_tilt` replaced). Apply
+copies it to `applied/` and adds `head_chain` to `applied/applied.json`, which starts the apply path unit.

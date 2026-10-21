@@ -1,0 +1,28 @@
+{
+  "id": "r-20261021-123000",
+  "session": "floor-20261021-120000",
+  "created": "2026-10-21T12:30:00+00:00",
+  "passed": true,
+  "failed_limits": [],
+  "params": {
+    "mount_z_m": {"value": 0.38, "sigma": 0.0004, "urdf": 0.35},
+    "mount_roll_deg": {"value": 1.5, "sigma": 0.02, "urdf": 0.0},
+    "mount_pitch_deg": {"value": -3.0, "sigma": 0.02, "urdf": 0.0},
+    "tilt_zero_deg": {"value": 2.0, "sigma": 0.02, "urdf": 0.0}
+  },
+  "height_rms_mm": 2.1,
+  "normal_rms_deg": 0.12,
+  "poses": [
+    {
+      "pose": 0,
+      "pan_deg": -60.0,
+      "tilt_deg": 12.0,
+      "observations": 3,
+      "height_residual_mm": 1.9,
+      "normal_residual_deg": 0.1
+    }
+  ],
+  "skipped": [
+    {"pose": 99, "pan_deg": 0.0, "tilt_deg": 0.0, "reason": "no valid plane"}
+  ]
+}
