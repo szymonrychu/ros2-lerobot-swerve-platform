@@ -32,7 +32,7 @@ def translate(x: float, y: float, z: float) -> np.ndarray:
     return pose_from_xyz_rpy((x, y, z), (0.0, 0.0, 0.0))
 
 
-def test_head_camera_optical_at_zero_is_the_product_of_origins(head: UrdfChain) -> None:
+def test_head_camera_pose_at_zero_matches_urdf_origins(head: UrdfChain) -> None:
     expected = (
         translate(0.15, 0.10, 0.31)
         @ translate(0, 0, 0.04)
@@ -49,7 +49,7 @@ def test_head_camera_optical_at_zero_is_the_product_of_origins(head: UrdfChain) 
     ]
 
 
-def test_pan_rotates_about_plus_z_and_tilt_pitches_down(head: UrdfChain) -> None:
+def test_pan_left_and_tilt_down_signs(head: UrdfChain) -> None:
     base = head.transform(CAMERA, ZERO_HEAD)
     panned = head.transform(CAMERA, {"head_pan": 0.5, "head_tilt": 0.0})
     forward0, forward1 = base[:3, 2], panned[:3, 2]
@@ -59,13 +59,16 @@ def test_pan_rotates_about_plus_z_and_tilt_pitches_down(head: UrdfChain) -> None
     assert base[2, 2] == pytest.approx(0.0, abs=1e-4)
 
 
-def test_origin_override_changes_exactly_that_joint(head: UrdfChain) -> None:
+def test_origin_override_and_offsets(head: UrdfChain) -> None:
     override = {"head_mount_joint": ((0.15, 0.10, 0.25), (0.0, 0.0, 0.0))}
     moved = head.transform(CAMERA, ZERO_HEAD, origins=override)
     base = head.transform(CAMERA, ZERO_HEAD)
     np.testing.assert_allclose(moved[:3, :3], base[:3, :3], atol=1e-12)
     np.testing.assert_allclose(moved[:3, 3] - base[:3, 3], [0, 0, -0.06], atol=1e-12)
     assert head.origin("head_mount_joint") == ((0.15, 0.10, 0.31), (0.0, 0.0, 0.0))
+    a = head.transform(CAMERA, {"head_pan": 0.2, "head_tilt": 0.1}, offsets={"head_tilt": 0.05})
+    b = head.transform(CAMERA, {"head_pan": 0.2, "head_tilt": 0.15})
+    np.testing.assert_allclose(a, b, atol=1e-12)
 
 
 def test_offsets_add_to_measured(head: UrdfChain) -> None:
@@ -74,7 +77,7 @@ def test_offsets_add_to_measured(head: UrdfChain) -> None:
     np.testing.assert_allclose(a, b, atol=1e-12)
 
 
-def test_missing_joint_and_unknown_link_raise_key_error(head: UrdfChain) -> None:
+def test_missing_joint_raises(head: UrdfChain) -> None:
     with pytest.raises(KeyError, match="head_tilt"):
         head.transform(CAMERA, {"head_pan": 0.0})
     with pytest.raises(KeyError, match="nope"):
@@ -108,13 +111,19 @@ def test_continuous_joint_has_no_limits() -> None:
 def test_so101_gripper_link_at_zero_is_the_product_of_origins(arm: UrdfChain) -> None:
     zero = {n: 0.0 for n in ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")}
     names = arm.joint_names("gripper_link")
+    # Literals copied from so101_arm.urdf, independent of the parser under test.
+    literal_origins = [
+        ((0.0388353, -8.97657e-09, 0.0624), (3.14159, 4.18253e-17, -3.14159)),
+        ((-0.0303992, -0.0182778, -0.0542), (-1.5708, -1.5708, 0.0)),
+        ((-0.11257, -0.028, 1.73763e-16), (-3.63608e-16, 8.74301e-16, 1.5708)),
+        ((-0.1349, 0.0052, 3.62355e-17), (4.02456e-15, 8.67362e-16, -1.5708)),
+        ((5.55112e-17, -0.0611, 0.0181), (1.5708, 0.0486795, 3.14159)),
+    ]
     expected = np.eye(4)
-    for name in names:
-        expected = expected @ pose_from_xyz_rpy(*arm.origin(name))
+    for xyz, rpy in literal_origins:
+        expected = expected @ pose_from_xyz_rpy(xyz, rpy)
     np.testing.assert_allclose(arm.transform("gripper_link", zero), expected, atol=1e-12)
-    assert names[0] == "shoulder_pan"
-    first_xyz, first_rpy = arm.origin(names[0])
-    assert len(first_xyz) == 3 and len(first_rpy) == 3
+    assert names == ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
 
 
 def test_xyz_rpy_round_trip() -> None:
