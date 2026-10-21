@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--cell-class-hysteresis
+branch: ground-detection-robustness--cell-class-hysteresis
 verified_head: ""
 run: ""
 provides: []

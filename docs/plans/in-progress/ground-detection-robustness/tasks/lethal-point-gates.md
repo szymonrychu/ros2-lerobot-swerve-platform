@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--lethal-point-gates
+branch: ground-detection-robustness--lethal-point-gates
 verified_head: ""
 run: ""
 provides: []

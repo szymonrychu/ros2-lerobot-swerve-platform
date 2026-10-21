@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--edge-step-and-ramp-slope
+branch: ground-detection-robustness--edge-step-and-ramp-slope
 verified_head: ""
 run: ""
 provides: []

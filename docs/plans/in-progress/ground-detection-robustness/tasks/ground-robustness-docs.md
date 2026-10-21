@@ -12,8 +12,8 @@ model: ""
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--ground-robustness-docs
+branch: ground-detection-robustness--ground-robustness-docs
 verified_head: ""
 run: ""
 provides: []

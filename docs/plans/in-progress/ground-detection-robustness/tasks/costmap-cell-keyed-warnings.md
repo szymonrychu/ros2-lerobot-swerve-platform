@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--costmap-cell-keyed-warnings
+branch: ground-detection-robustness--costmap-cell-keyed-warnings
 verified_head: ""
 run: ""
 provides: []
