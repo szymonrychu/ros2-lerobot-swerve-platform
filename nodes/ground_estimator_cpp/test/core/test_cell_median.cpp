@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <random>
 
 #include "ground_estimator_cpp/cell_median.hpp"
 #include "synthetic_floor.hpp"
@@ -31,6 +33,28 @@ double max_abs_z(const Cloud & c)
     m = std::max(m, static_cast<double>(std::fabs(p.z)));
   }
   return m;
+}
+
+constexpr double CELL_M = 0.10;
+constexpr double CELL_POINT_OFFSET_M = 0.02;
+
+// One cloud with four points in every 0.1 m cell of [x0, x1) x [-0.3, 0.3); cell (ix, iy) sits at height value(ix, iy).
+Cloud cell_cloud(double x0, double x1, const std::function<double(int, int)> & value)
+{
+  Cloud c;
+  for (int ix = static_cast<int>(std::lround(x0 / CELL_M)); ix < static_cast<int>(std::lround(x1 / CELL_M)); ++ix) {
+    for (int iy = -3; iy < 3; ++iy) {
+      const double z = value(ix, iy);  // one value per cell and frame
+      for (const double dx : {-CELL_POINT_OFFSET_M, CELL_POINT_OFFSET_M}) {
+        for (const double dy : {-CELL_POINT_OFFSET_M, CELL_POINT_OFFSET_M}) {
+          c.push_back(pcl::PointXYZ(
+            static_cast<float>((ix + 0.5) * CELL_M + dx), static_cast<float>((iy + 0.5) * CELL_M + dy),
+            static_cast<float>(z)));
+        }
+      }
+    }
+  }
+  return c;
 }
 
 }  // namespace
@@ -169,4 +193,124 @@ TEST(CellMedian, StampGoingBackResets)
   }
   EXPECT_TRUE(filter.apply(cloud, Plane(), Eigen::Isometry3d::Identity(), 1.0).empty());
   EXPECT_EQ(filter.cell_count(), 1u);
+}
+
+TEST(CellMedian, FarBandNoiseCellsAreGatedAndNeverOutput)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(11);
+  std::size_t gated_seen = 0;
+  std::size_t cell_frames = 0;
+  std::size_t leaked_cell_frames = 0;
+  for (int i = 0; i < 40; ++i) {
+    const Cloud in = cell_cloud(1.2, 1.5, [&](int ix, int iy) {
+      // Floor + U(+0.04, +0.04 + width): width 0.15..0.31 m gives a temporal std of 43..90 mm.
+      const double width = 0.15 + 0.032 * ((ix * 3 + iy + 30) % 6);
+      return 0.04 + std::uniform_real_distribution<double>(0.0, width)(rng);
+    });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= cfg.window_frames) {
+      cell_frames += in.size() / 4;
+      leaked_cell_frames += out.size() / 4;
+      gated_seen += filter.gated_cell_count();
+    }
+  }
+  EXPECT_GT(gated_seen, 0u);
+  // The MAD of a handful of samples is itself noisy, so a rare cell slips under the limit for a frame.
+  EXPECT_LE(static_cast<double>(leaked_cell_frames) / static_cast<double>(cell_frames), 0.05);
+}
+
+TEST(CellMedian, MeasuredFloorNoiseStaysVisible)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(5);
+  std::size_t frames_with_output = 0;
+  std::size_t cell_frames = 0;
+  std::size_t expected_cells = 0;
+  for (int i = 0; i < 40; ++i) {
+    const Cloud in = cell_cloud(0.4, 1.0, [&](int ix, int iy) {
+      const double sigma = 0.004 + 0.016 * (((ix * 7 + iy + 30) % 11) / 10.0);  // 4..20 mm
+      return std::normal_distribution<double>(0.0, sigma)(rng);
+    });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= cfg.min_frames) {
+      expected_cells += in.size() / 4;
+      cell_frames += out.size() / 4;
+      ++frames_with_output;
+    }
+  }
+  ASSERT_GT(frames_with_output, 0u);
+  EXPECT_GE(static_cast<double>(cell_frames) / static_cast<double>(expected_cells), 0.95);
+}
+
+TEST(CellMedian, StaticBoxTopIsOutputEveryFrame)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(21);
+  std::normal_distribution<double> noise(0.0, 0.0045);
+  for (int i = 0; i < 25; ++i) {
+    const Cloud in = cell_cloud(0.6, 0.9, [&](int, int) { return 0.05 + noise(rng); });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= cfg.min_frames) {
+      ASSERT_EQ(out.size(), in.size()) << "frame " << i;
+      for (const auto & p : out) {
+        EXPECT_NEAR(p.z, 0.05, 0.01);
+      }
+    }
+  }
+}
+
+TEST(CellMedian, SingleOutlierFrameDoesNotGateASteadyCell)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(31);
+  std::normal_distribution<double> noise(0.0, 0.003);
+  for (int i = 0; i < 20; ++i) {
+    const double bump = i == 10 ? 0.15 : 0.0;
+    const Cloud in = cell_cloud(0.6, 0.7, [&](int, int) { return bump + noise(rng); });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= cfg.min_frames) {
+      EXPECT_EQ(out.size(), in.size()) << "frame " << i;
+      EXPECT_EQ(filter.gated_cell_count(), 0u) << "frame " << i;
+    }
+  }
+}
+
+TEST(CellMedian, GatedCellRecoversWithinTheWindow)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(41);
+  std::normal_distribution<double> quiet(0.0, 0.003);
+  std::uniform_real_distribution<double> wild(0.0, 0.3);
+  const int noisy_frames = 12;
+  for (int i = 0; i < noisy_frames; ++i) {
+    filter.apply(
+      cell_cloud(0.6, 0.7, [&](int, int) { return wild(rng); }), Plane(), Eigen::Isometry3d::Identity(),
+      i * FRAME_DT_S);
+  }
+  EXPECT_GT(filter.gated_cell_count(), 0u);
+  std::size_t frames_to_recover = 0;
+  bool recovered = false;
+  for (int i = 0; i < 3 * cfg.window_frames && !recovered; ++i) {
+    const Cloud in = cell_cloud(0.6, 0.7, [&](int, int) { return quiet(rng); });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), (noisy_frames + i) * FRAME_DT_S);
+    ++frames_to_recover;
+    recovered = out.size() == in.size() && filter.gated_cell_count() == 0u;
+  }
+  EXPECT_TRUE(recovered);
+  EXPECT_LE(frames_to_recover, static_cast<std::size_t>(cfg.window_frames));
+}
+
+TEST(CellMedian, DisabledReportsNoGatedCells)
+{
+  TemporalConfig cfg;
+  cfg.enabled = false;
+  CellMedianFilter filter(cfg);
+  filter.apply(grid_cloud(0.0, 0.5, 0.0, 0.5, 0.05), Plane(), Eigen::Isometry3d::Identity(), 0.0);
+  EXPECT_EQ(filter.gated_cell_count(), 0u);
 }

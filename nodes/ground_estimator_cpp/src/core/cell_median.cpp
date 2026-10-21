@@ -30,6 +30,20 @@ double median(std::vector<double> & v)
   return 0.5 * (lower + upper);
 }
 
+// Consistency factor turning the median absolute deviation into a Gaussian sigma.
+constexpr double MAD_TO_SIGMA = 1.4826;
+
+// Robust spread (1.4826 * MAD) of the per-frame medians in a cell history.
+double robust_spread(const std::deque<std::pair<double, double>> & history, double centre)
+{
+  std::vector<double> deviations;
+  deviations.reserve(history.size());
+  for (const auto & entry : history) {
+    deviations.push_back(std::fabs(entry.second - centre));
+  }
+  return MAD_TO_SIGMA * median(deviations);
+}
+
 }  // namespace
 
 CellMedianFilter::CellMedianFilter(const TemporalConfig & cfg) : cfg_(cfg) {}
@@ -39,12 +53,14 @@ void CellMedianFilter::reset()
   cells_.clear();
   has_stamp_ = false;
   newest_stamp_s_ = 0.0;
+  gated_cell_count_ = 0;
 }
 
 pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
   const pcl::PointCloud<pcl::PointXYZ> & points_base, const Plane & plane, const Eigen::Isometry3d & fixed_T_base,
   double stamp_s)
 {
+  gated_cell_count_ = 0;
   if (!cfg_.enabled) {
     return points_base;
   }
@@ -101,7 +117,12 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
       for (const auto & entry : history) {
         scratch.push_back(entry.second);
       }
-      cell_height[key] = median(scratch);
+      const double centre = median(scratch);
+      if (robust_spread(history, centre) > cfg_.max_spread_m) {
+        ++gated_cell_count_;
+      } else {
+        cell_height[key] = centre;
+      }
     }
   }
 
