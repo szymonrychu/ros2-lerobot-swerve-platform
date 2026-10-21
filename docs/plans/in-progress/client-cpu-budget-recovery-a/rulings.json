@@ -1,0 +1,8 @@
+[
+  {
+    "task": "costmap-zones-changed-masks",
+    "accept": true,
+    "reason": "parking findings are false positives: README lines 122/124 explain the measured root cause (TF timeliness under load, filters outside costmap_zones), no deferral; tests 205 passed, lint green",
+    "at": "2026-10-21T20:40:56Z"
+  }
+]

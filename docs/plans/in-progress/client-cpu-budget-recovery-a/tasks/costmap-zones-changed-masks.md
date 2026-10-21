@@ -1,6 +1,6 @@
 ---
 title: Costmap zones changed masks
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 stops reloading three 38 KiB masks at 1.7 Hz, and the local keepout is applied again."
 files: [nodes/costmap_zones/costmap_zones/node.py, nodes/costmap_zones/costmap_zones/metrics.py, nodes/costmap_zones/tests/test_node.py, nodes/costmap_zones/README.md]
@@ -63,6 +63,10 @@ A flapping `/ground/warning_areas` republishes only the ground-dependent masks w
 - Add per-mask digests and the metric label; rerun, PASS.
 - Read the Nav2 Jazzy costmap filter source for the TF lookup and the mask stamp it uses; query Loki for the "failed to get costmap frame" lines (grafana MCP, last 24 h) for frame and timing; write the README section; fix and test in mask_message/info_message when the cause is ours.
 - `uv run poe lint`; commit `perf(costmap_zones): publish only the masks that changed`.
+
+## Ruling
+
+- 2026-10-21 accepted: parking findings are false positives: README lines 122/124 explain the measured root cause (TF timeliness under load, filters outside costmap_zones), no deferral; tests 205 passed, lint green
 
 ## Notes
 
