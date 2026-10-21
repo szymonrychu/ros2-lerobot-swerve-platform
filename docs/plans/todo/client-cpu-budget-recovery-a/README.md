@@ -1,6 +1,6 @@
 ---
 title: Client CPU budget recovery after overload
-blockers: [ToF depth fix and ground noise robustness after head remount]
+blockers: []
 stage: build
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
