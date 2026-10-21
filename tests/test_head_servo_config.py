@@ -114,10 +114,16 @@ def test_autonomy_and_web_ui_may_command_the_head_directly() -> None:
     assert REQUIRED_SOURCES <= set(node_config(BASE_NODE)["direct_command_sources"])
 
 
-def test_head_tilt_servo_is_mounted_reversed_and_pan_is_not() -> None:
-    """Found 2026-10-20 after re-centring: a positive tilt command looked up, so the tilt servo is `inverted`."""
+def test_head_pan_and_tilt_servos_are_mounted_reversed() -> None:
+    """Tilt found 2026-10-20 (positive tilt looked up); pan found 2026-10-21 (+30 deg pan turned right)."""
     joints = head_joints()
+    assert joints["head_pan"].get("inverted") is True
     assert joints["head_tilt"].get("inverted") is True
-    assert not joints["head_pan"].get("inverted", False)
     assert (joints["head_tilt"]["command_min_steps"], joints["head_tilt"]["command_max_steps"]) == (1707, 2389)
     assert rad_to_steps(joints["head_tilt"]["startup_position_rad"], True) == 1707
+
+
+def test_head_pan_steps_are_symmetric_around_centre() -> None:
+    """Symmetric pan range, so inverting the servo only flips the sign."""
+    pan = head_joints()["head_pan"]
+    assert pan["command_min_steps"] + pan["command_max_steps"] == 2 * STEP_CENTER

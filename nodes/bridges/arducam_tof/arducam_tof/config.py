@@ -42,6 +42,10 @@ class TofConfig(BaseModel):
         stamp_latency_ms (float): Measured capture-to-return latency of the SDK frame in milliseconds, i.e. the
             ToF-RGB offset found by the pan-sweep procedure; subtracted from the frame-return time to stamp
             the frame. 0 <= v <= 200; 0 stamps with the frame-return time.
+        tof_calibration_file (Path | None): camera_calibration YAML of the ToF (the file head_rgbd_cpp reads); its
+            camera matrix replaces the SDK intrinsics for the z-depth conversion and /tof/camera_info. None or an
+            unusable file falls back to the SDK intrinsics.
+        depth_is_radial (bool): The SDK depth is the distance along each pixel ray; true converts it to z-depth.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -54,6 +58,8 @@ class TofConfig(BaseModel):
     publish_rate_hz: float = Field(default=10.0, gt=0.0, le=MAX_PUBLISH_RATE_HZ)
     metrics_port: int | None = Field(default=None, ge=1, le=MAX_PORT)
     stamp_latency_ms: float = Field(default=0.0, ge=0.0, le=MAX_STAMP_LATENCY_MS)
+    tof_calibration_file: Path | None = None
+    depth_is_radial: bool = True
 
     @field_validator("frame_id")
     @classmethod

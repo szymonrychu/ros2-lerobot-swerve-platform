@@ -526,7 +526,8 @@ The pan/tilt head servo group in `ansible/group_vars/client.yml`: an `extra_grou
 | `test_head_steps_equal_the_urdf_limits` | `command_min_steps`/`command_max_steps` equal the URDF joint limits converted to steps (swapped if `inverted`). |
 | `test_head_caps_are_present_and_positive` | `max_speed_rad_s` and `max_acceleration_rad_s2` set and > 0. |
 | `test_head_startup_positions_are_inside_the_limits` | Home pose is inside the URDF limits and the command steps. |
-| `test_head_tilt_servo_is_mounted_reversed_and_pan_is_not` | `head_tilt` is `inverted: true` (found 2026-10-20), pan is not; tilt steps 1707..2389 and the 0.5236 rad home maps to step 1707. |
+| `test_head_pan_and_tilt_servos_are_mounted_reversed` | Both `head_pan` (found 2026-10-21: +30 deg turned right) and `head_tilt` (found 2026-10-20) are `inverted: true`; tilt steps 1707..2389 and the 0.5236 rad home maps to step 1707. |
+| `test_head_pan_steps_are_symmetric_around_centre` | Pan min + max steps = 2 * 2048, so inverting only flips the sign. |
 | `test_autonomy_and_web_ui_may_command_the_head_directly` | `autonomy` and `web_ui` are in `direct_command_sources`. |
 
 ### Per-node tests (feetech_servos)
@@ -2988,8 +2989,9 @@ Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nod
 | `test_state_dirs_owned_by_node_user_mode_0755` | The state, `sessions` and `applied` directories are created owned by the node user, mode 0755. |
 | `test_seed_copies_never_overwrite_and_need_existing_source` | Seeding the applied calibration files copies only when the source exists and never overwrites (`force: false`). |
 | `test_no_task_clears_state_dir` | No setup task removes, forces over or rewrites state dir content. |
-| `test_apply_units_content` | The apply path unit watches `applied.json` and the oneshot service try-restarts the head camera, RGB-D and state publisher units; both units are reloaded, enabled and started. |
+| `test_apply_units_content` | The apply path unit watches `applied.json` and the oneshot service try-restarts the head camera, RGB-D, state publisher and arducam_tof units; both units are reloaded, enabled and started. |
 | `test_playbook_setup_before_deploy` | The setup include precedes `Deploy head_rgbd_calibration` in the client playbook, with the right tags and node name. |
+| `test_arducam_tof_reads_the_applied_tof_calibration` | arducam_tof's `tof_calibration_file` is the same applied `tof_calibration.yaml` as head_rgbd_cpp's, and `depth_is_radial` is true. |
 | `test_http_port_unique_in_client_vars` | The node's HTTP port appears exactly once in `client.yml`. |
 
 ### `rgbd_synthetic.py`

@@ -1,13 +1,15 @@
 """Arducam ToF bridge: depth, amplitude and camera_info from the ArducamDepthCamera SDK to ROS2.
 
 Topics (one header, one stamp and config.frame_id shared by the three messages of a frame):
-  - DEPTH_TOPIC        sensor_msgs/Image 16UC1, millimetres; 0 = invalid (confidence below
+  - DEPTH_TOPIC        sensor_msgs/Image 16UC1, millimetres of z-depth (the SDK radial distance divided by the
+                       pixel ray norm, config.depth_is_radial); 0 = invalid (confidence below
                        config.confidence_threshold, not finite, <= 0 or beyond 65535 mm).
   - AMPLITUDE_TOPIC    sensor_msgs/Image mono16: the SDK amplitude_data, or confidence_data when the SDK frame
                        carries no amplitude, rounded and clipped to 0..65535. mono16 (not mono8) keeps the SDK's
                        full dynamic range; viewers scale it for display.
-  - CAMERA_INFO_TOPIC  sensor_msgs/CameraInfo from the SDK intrinsics (INTRINSIC_FX/FY/CX/CY, reported x100). Not
-                       published when the SDK reports no focal length, so no made-up calibration ever goes out.
+  - CAMERA_INFO_TOPIC  sensor_msgs/CameraInfo from config.tof_calibration_file when it is usable, else from the SDK
+                       intrinsics (INTRINSIC_FX/FY/CX/CY, reported x100). Not published when neither exists, so no
+                       made-up calibration ever goes out.
 
 Range mode: "far" (4 m, the default, suits a head camera looking across a room) or "near" (2 m, finer depth).
 The SDK takes the range in millimetres; when it rejects that, metres are tried (the vendor samples use both).
@@ -23,12 +25,16 @@ OPEN_RETRY_S; one that yields no valid frame for REOPEN_AFTER_S is closed and re
 
 import time
 from collections.abc import Callable
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, NamedTuple
 
 import ArducamDepthCamera as ac
 import numpy as np
 import rclpy
+import yaml
 from prometheus_client import Counter
+from pydantic import BaseModel, ConfigDict, ValidationError
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -59,12 +65,31 @@ NS_PER_MS = 1_000_000
 MAX_UINT16 = 65535
 DISTORTION_MODEL = "plumb_bob"
 NO_DISTORTION = [0.0] * 5
+MATRIX_ELEMENTS = 9
 IDENTITY_R = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
 
 FRAMES_PUBLISHED = Counter("tof_frames_published_total", "ToF frames published (depth, amplitude, camera_info)")
 FRAMES_DROPPED = Counter("tof_frames_dropped_total", "ToF frame requests that published nothing, by reason", ["reason"])
 OPEN_FAILURES = Counter("tof_camera_open_failures_total", "Failed attempts to open and start the ToF camera")
 REOPENS = Counter("tof_camera_reopens_total", "Times the ToF camera was closed and reopened after yielding no frames")
+
+
+class CameraMatrix(BaseModel):
+    """camera_matrix block of a camera_calibration YAML."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    data: list[float]
+
+
+class CalibrationFile(BaseModel):
+    """The parts of a camera_calibration YAML the bridge reads; distortion coefficients are ignored on purpose."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    image_width: int
+    image_height: int
+    camera_matrix: CameraMatrix
 
 
 class Intrinsics(NamedTuple):
@@ -97,6 +122,74 @@ def depth_to_mm(depth: np.ndarray, confidence: np.ndarray, threshold: float) -> 
     mm = np.rint(np.nan_to_num(depth.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0))
     valid = (confidence >= threshold) & (mm > 0) & (mm <= MAX_UINT16)
     return np.where(valid, mm, 0).astype(np.uint16)
+
+
+def load_calibration(path: Path) -> tuple[Intrinsics, int, int]:
+    """Read the camera matrix of a camera_calibration YAML (distortion coefficients are not used).
+
+    Args:
+        path (Path): Calibration YAML.
+
+    Returns:
+        tuple[Intrinsics, int, int]: (fx, fy, cx, cy), image_width, image_height.
+
+    Raises:
+        ValueError: If the file is missing, is not YAML or lacks a 3x3 camera matrix with positive focal lengths.
+    """
+    try:
+        calibration = CalibrationFile.model_validate(yaml.safe_load(path.read_text()))
+    except (OSError, yaml.YAMLError, ValidationError) as e:
+        raise ValueError(f"{path}: {e}") from e
+    data = calibration.camera_matrix.data
+    if len(data) != MATRIX_ELEMENTS or data[0] <= 0 or data[4] <= 0:
+        raise ValueError(f"{path}: camera_matrix.data must hold 9 values with positive fx and fy")
+    return Intrinsics(data[0], data[4], data[2], data[5]), calibration.image_width, calibration.image_height
+
+
+def ray_norm(u: np.ndarray, v: np.ndarray, intrinsics: Intrinsics) -> np.ndarray:
+    """Return the length of the unit-z ray through each pixel: sqrt(((u-cx)/fx)^2 + ((v-cy)/fy)^2 + 1).
+
+    Args:
+        u (np.ndarray): Pixel columns (pixel centres).
+        v (np.ndarray): Pixel rows, broadcastable with u.
+        intrinsics (Intrinsics): Pinhole intrinsics.
+
+    Returns:
+        np.ndarray: Ray norm per pixel (>= 1).
+    """
+    fx, fy, cx, cy = intrinsics
+    return np.sqrt(((u - cx) / fx) ** 2 + ((v - cy) / fy) ** 2 + 1.0)
+
+
+@lru_cache(maxsize=4)
+def ray_norm_image(shape: tuple[int, int], intrinsics: Intrinsics) -> np.ndarray:
+    """Return ray_norm for every pixel of an image, cached per (shape, intrinsics).
+
+    Args:
+        shape (tuple[int, int]): (height, width).
+        intrinsics (Intrinsics): Pinhole intrinsics.
+
+    Returns:
+        np.ndarray: float64 (height, width) ray norms; read-only because the cache shares it.
+    """
+    rows, cols = np.mgrid[0 : shape[0], 0 : shape[1]]
+    norms = ray_norm(cols, rows, intrinsics)
+    norms.setflags(write=False)
+    return norms
+
+
+def radial_to_z(depth_mm: np.ndarray, intrinsics: Intrinsics) -> np.ndarray:
+    """Convert radial distance (along the pixel ray) to z-depth (along the optical axis).
+
+    Args:
+        depth_mm (np.ndarray): uint16 radial depth in millimetres; 0 = invalid.
+        intrinsics (Intrinsics): Pinhole intrinsics.
+
+    Returns:
+        np.ndarray: uint16 z-depth in millimetres, rounded; 0 stays 0.
+    """
+    z = np.rint(depth_mm / ray_norm_image(depth_mm.shape, intrinsics))
+    return np.where(depth_mm > 0, z, 0).astype(np.uint16)
 
 
 def amplitude_to_mono16(amplitude: np.ndarray) -> np.ndarray:
@@ -134,7 +227,7 @@ def image_msg(header: Any, pixels: np.ndarray, encoding: str) -> Any:
 
 
 def camera_info_msg(header: Any, width: int, height: int, intrinsics: Intrinsics) -> Any:
-    """Build the sensor_msgs/CameraInfo of the SDK's undistorted pinhole model.
+    """Build the sensor_msgs/CameraInfo of the undistorted pinhole model of the published z-depth.
 
     Args:
         header (Any): std_msgs/Header shared by the frame's messages.
@@ -143,7 +236,7 @@ def camera_info_msg(header: Any, width: int, height: int, intrinsics: Intrinsics
         intrinsics (Intrinsics): Focal lengths and principal point.
 
     Returns:
-        Any: The sensor_msgs/CameraInfo (plumb_bob, zero distortion: the SDK depth is already undistorted).
+        Any: The sensor_msgs/CameraInfo (plumb_bob, zero distortion, P equal to K: the depth is undistorted).
     """
     fx, fy, cx, cy = intrinsics
     msg = CameraInfo()
@@ -218,6 +311,7 @@ class TofBridge:
         self.width = 0
         self.height = 0
         self.intrinsics: Intrinsics | None = None
+        self.calibration_warned = False
         self.next_open_s = clock()
         self.last_frame_s = clock()
         node.create_timer(1.0 / config.publish_rate_hz, self.step)
@@ -225,7 +319,8 @@ class TofBridge:
             f"arducam_tof: camera_index={config.camera_index} csi_device={config.csi_device} "
             f"range_mode={config.range_mode} "
             f"confidence_threshold={config.confidence_threshold} frame_id={config.frame_id} "
-            f"publish_rate_hz={config.publish_rate_hz} stamp_latency_ms={config.stamp_latency_ms}"
+            f"publish_rate_hz={config.publish_rate_hz} stamp_latency_ms={config.stamp_latency_ms} "
+            f"depth_is_radial={config.depth_is_radial} tof_calibration_file={config.tof_calibration_file}"
         )
 
     def step(self) -> None:
@@ -292,6 +387,52 @@ class TofBridge:
             )
 
     def read_intrinsics(self, camera: Any) -> Intrinsics | None:
+        """Return the calibration file K when usable, else the SDK intrinsics.
+
+        Args:
+            camera (Any): Opened ac.ArducamCamera.
+
+        Returns:
+            Intrinsics | None: The intrinsics, or None when neither the file nor the SDK provides them.
+        """
+        calibrated = self.read_calibration()
+        return calibrated if calibrated is not None else self.read_sdk_intrinsics(camera)
+
+    def read_calibration(self) -> Intrinsics | None:
+        """Load config.tof_calibration_file; a missing, invalid or other-sized file is logged once and gives None.
+
+        Returns:
+            Intrinsics | None: The file's K, or None when unset or unusable.
+        """
+        path = self.config.tof_calibration_file
+        if path is None:
+            return None
+        try:
+            intrinsics, width, height = load_calibration(path)
+        except ValueError as e:
+            self.warn_calibration(self.logger.warning, f"ToF calibration unusable, using the SDK intrinsics: {e}")
+            return None
+        if (width, height) != (self.width, self.height):
+            self.warn_calibration(
+                self.logger.error,
+                f"ToF calibration {path} is {width}x{height} but the SDK frame is {self.width}x{self.height}; "
+                "using the SDK intrinsics.",
+            )
+            return None
+        return intrinsics
+
+    def warn_calibration(self, log: Callable[[str], Any], message: str) -> None:
+        """Log a calibration-file problem once per process (the camera may reopen many times).
+
+        Args:
+            log (Callable[[str], Any]): Logger method to use.
+            message (str): Log text.
+        """
+        if not self.calibration_warned:
+            self.calibration_warned = True
+            log(message)
+
+    def read_sdk_intrinsics(self, camera: Any) -> Intrinsics | None:
         """Read the SDK intrinsics; the principal point falls back to the image centre when CX/CY are unavailable.
 
         Args:
@@ -350,6 +491,8 @@ class TofBridge:
                 return self.drop("invalid", "Malformed ToF frame (missing or mismatched depth/confidence data).")
             depth, confidence, amplitude = arrays
             depth_mm = depth_to_mm(depth, confidence, self.config.confidence_threshold)
+            if self.config.depth_is_radial and self.intrinsics is not None:
+                depth_mm = radial_to_z(depth_mm, self.intrinsics)
             amplitude16 = amplitude_to_mono16(amplitude)
         finally:
             self.camera.releaseFrame(frame)

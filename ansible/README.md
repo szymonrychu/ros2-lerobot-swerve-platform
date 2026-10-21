@@ -585,7 +585,7 @@ web UI Calibrate page: capture, review, compute and apply the head RGB-D calibra
   `applied/` with `force: false`, so it only fills a missing file and never replaces an applied one. Missing sources are skipped.
 - Installs `ros2-head-rgbd-calibration-apply.path` (watches `applied/applied.json`, enabled and started) and
   `ros2-head-rgbd-calibration-apply.service` (oneshot `systemctl try-restart` of `ros2-head_camera_cpp`,
-  `ros2-head_rgbd_cpp` and `ros2-head_state_publisher`), so Apply picks up the new calibration without a redeploy.
+  `ros2-head_rgbd_cpp`, `ros2-head_state_publisher` and `ros2-arducam_tof`, whose `tof_calibration_file` is the applied ToF file), so Apply picks up the new calibration without a redeploy.
 
 ### web_ui tile cache directory
 
