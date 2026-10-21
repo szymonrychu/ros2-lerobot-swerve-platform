@@ -12,7 +12,7 @@ from ros2_common.head_rgbd_calibration.frames import CameraInfoData
 
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import InvalidId, NotFound, SessionStore
-from tests.pose_factory import make_pose
+from tests.pose_factory import few_rgb_corner_pose, make_pose
 
 NOW = datetime(2026, 10, 19, 12, 30, 45)
 LENS = 1.5
@@ -285,3 +285,33 @@ def test_concurrent_add_pose_gives_unique_ids(store: SessionStore) -> None:
     for t in threads:
         t.join()
     assert sorted(ids) == ["001", "002", "003", "004"]
+
+
+def read_pose_json(store: SessionStore, sid: str, pid: str) -> dict:
+    return json.loads((store.state_dir / "sessions" / sid / "poses" / pid / "pose.json").read_text())
+
+
+def test_add_pose_stores_hints(store: SessionStore) -> None:
+    sid = store.create_session(NOW, LENS)
+    pid = store.add_pose(sid, few_rgb_corner_pose())
+    hints = read_pose_json(store, sid, pid)["hints"]
+    assert hints[0] == "few corners: 6 RGB - move the board closer / fill the frame"
+    assert store.pose_hints(sid, pid) == hints
+
+
+def test_add_pose_of_a_good_pose_has_empty_hints(store: SessionStore) -> None:
+    sid = store.create_session(NOW, LENS)
+    pid = store.add_pose(sid, make_pose())
+    assert read_pose_json(store, sid, pid)["hints"] == []
+    assert store.pose_hints(sid, pid) == []
+
+
+def test_pose_hints_fallback_for_legacy_pose(store: SessionStore) -> None:
+    sid = store.create_session(NOW, LENS)
+    pid = store.add_pose(sid, few_rgb_corner_pose())
+    path = store.state_dir / "sessions" / sid / "poses" / pid / "pose.json"
+    meta = json.loads(path.read_text())
+    del meta["hints"]
+    path.write_text(json.dumps(meta))
+    assert store.pose_hints(sid, pid)[0].startswith("few corners: 6 RGB")
+    assert "hints" not in json.loads(path.read_text())

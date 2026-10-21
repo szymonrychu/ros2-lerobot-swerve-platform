@@ -24,12 +24,18 @@ MIN_COMMON_CORNERS = 6  # cv2.stereoCalibrate runs a DLT pose per view (findExtr
 
 @dataclass(frozen=True)
 class ExtrinsicResult:
-    """Pose of tof_optical_frame in head_camera_optical_frame: p_rgb = r @ p_tof + t (metres)."""
+    """Pose of tof_optical_frame in head_camera_optical_frame: p_rgb = r @ p_tof + t (metres).
+
+    pair_indices: index into the stereo_calibrate input pairs of every pair used, in order.
+    per_pair_errors: per used pair sqrt((e_tof**2 + e_rgb**2) / 2) of its per-camera reprojection RMS (px).
+    """
 
     r: np.ndarray
     t: np.ndarray
     stereo_rms: float
     pair_count: int
+    pair_indices: tuple[int, ...] = ()
+    per_pair_errors: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -84,10 +90,12 @@ def stereo_calibrate(
     """
     limits = limits or LimitsConfig()
     corners = board.getChessboardCorners()
-    used = [c for rgb_det, tof_det in pairs if (c := common_points(rgb_det, tof_det, corners)) is not None]
+    found = [(i, common_points(rgb_det, tof_det, corners)) for i, (rgb_det, tof_det) in enumerate(pairs)]
+    indices = [i for i, c in found if c is not None]
+    used = [c for _, c in found if c is not None]
     if len(used) < limits.min_views:
         raise ValueError(f"extrinsic calibration needs at least {limits.min_views} pairs, got {len(used)} pairs")
-    rms, _, _, _, _, r, t, _, _ = cv2.stereoCalibrate(
+    rms, _, _, _, _, r, t, _, _, _, _, per_view = cv2.stereoCalibrateExtended(
         [u[0] for u in used],
         [u[1].reshape(-1, 1, 2) for u in used],
         [u[2].reshape(-1, 1, 2) for u in used],
@@ -96,9 +104,19 @@ def stereo_calibrate(
         rgb.k,
         rgb.d,
         rgb.image_size,
+        None,
+        None,
         flags=cv2.CALIB_FIX_INTRINSIC,
     )
-    return ExtrinsicResult(r=r, t=t.reshape(3), stereo_rms=float(rms), pair_count=len(used))
+    per_pair = np.sqrt(np.mean(np.square(per_view.reshape(-1, 2)), axis=1))
+    return ExtrinsicResult(
+        r=r,
+        t=t.reshape(3),
+        stereo_rms=float(rms),
+        pair_count=len(used),
+        pair_indices=tuple(indices),
+        per_pair_errors=tuple(float(e) for e in per_pair),
+    )
 
 
 def plane_depth_bias(

@@ -141,6 +141,7 @@ def build_app(capture: CaptureController, job: ComputeJob, store: SessionStore, 
                     "rgb_corners": len(meta["rgb"]["points"]),
                     "tof_corners": len(meta["tof"]["points"]),
                     "has_depth": meta["depth_stamp_ns"] is not None,
+                    "hints": store.pose_hints(sid, pid),
                 }
             )
         return {

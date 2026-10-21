@@ -547,6 +547,13 @@ calibration:
   rgbd_timeout_s: 10.0                # > 0, wait for one forwarded RGB-D call
 ```
 
+RGB-D pose list (`frontend/src/calibrate/RgbdCapture.tsx`): each pose card shows its capture hints (`hints` from the
+session, one warning line each) and, once a result exists, a caption `RGB x / ToF y / stereo z px` taken from the newest
+result's `poses` (`-` where the pose is not in that fit; poses absent from the result show no caption). A pose flagged
+in any fit gets a red border (`data-outlier="true"`) and the line `high error - delete and Compute again`; the existing
+delete-pose button stays the way to act on it. The session is fetched again when a compute finishes so the errors
+appear without a reload. Tests: `RgbdCapture.test.tsx`, `rgbdApi.test.ts`.
+
 Routes (all under `/api/calibration`):
 - `GET /config` returns `{imu: true, rgbd: <rgbd_url is set>, arm: "deferred"}`, plus `servos: true` when `servo_groups` is non-empty.
 - RGB-D (`web_ui/rgbd_calibration.py`, no ROS subscription): `GET|POST|DELETE /rgbd/{path}` forwards method, query and body to
