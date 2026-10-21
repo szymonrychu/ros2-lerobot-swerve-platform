@@ -212,7 +212,7 @@ the build stamp is unchanged and nothing rebuilds. The apt `ros-jazzy-libcamera`
 must not be installed; `camera_ros` was purged from `/opt/ros2-ws` when `pi_cameras` was retired.
 
 Verify on the robot: `ros2 topic hz /head_camera/image_raw/compressed` shows about 15 Hz, `head_camera_capture_fps` is
-about 30, and publishing a request on `/head_camera/zoom/command` yields an image and an `ok` result.
+about 15, and publishing a request on `/head_camera/zoom/command` yields an image and an `ok` result.
 
 ## Deployed frame rate
 
