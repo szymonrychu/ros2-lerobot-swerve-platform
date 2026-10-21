@@ -1,6 +1,7 @@
 """ROS2 node: /map + /poi/list -> latched keepout and speed masks on the /map grid, plus the two filter infos."""
 
 import copy
+import hashlib
 import time
 from array import array
 from collections.abc import Callable
@@ -53,18 +54,35 @@ REASON_INVALID_ENTRY = "invalid_entry"
 REASON_BAD_LIST = "bad_list"
 REASON_ROTATED_MAP = "rotated_map"
 
+MASK_KEEPOUT = "keepout"
+MASK_SPEED = "speed"
+MASK_GROUND_COST = "ground_cost"
 PublishKey = tuple[tuple[str, float, float, float, int, int], str, frozenset]
 TICK_PERIOD_S = 0.25
 
 
+def mask_digest(geometry: tuple, mask: np.ndarray) -> bytes:
+    """Digest of a mask's cells and the geometry it is on, to tell whether a republish would change anything.
+
+    Args:
+        geometry (tuple): geometry_key() of the map the mask is rasterised on.
+        mask (np.ndarray): int8 array (height, width).
+
+    Returns:
+        bytes: blake2b digest over the geometry and the cells.
+    """
+    return hashlib.blake2b(mask.tobytes() + repr(geometry).encode(), digest_size=16).digest()
+
+
 class ZoneMaskPublisher:
-    """Holds the latest map and zones and publishes masks when (map geometry, zones digest) changes.
+    """Holds the latest map and zones and publishes each mask whose cells (or map geometry) changed.
 
     Nothing is published until a valid /map and a valid /poi/list have both arrived (No Placeholder Data).
     The filter infos go out once, right after the first masks, and never again: a re-sent info makes the Nav2
     filter re-subscribe to its mask. Ground warning areas (TTL store) lower the speed mask and fill the local-only
     ground cost mask; a change of the active area set republishes at most ground_mask_max_rate_hz (tick() flushes
-    a deferred change and expiry). The keepout mask never carries ground areas.
+    a deferred change and expiry). The keepout mask never carries ground areas, and a mask whose digest equals the last published one is not
+    republished (a ground flap republishes only the speed and ground cost masks).
     """
 
     def __init__(
@@ -110,6 +128,7 @@ class ZoneMaskPublisher:
         self.geometry: MapGeometry | None = None
         self.zones: list[Zone] | None = None
         self.published_key: PublishKey | None = None
+        self.published_digests: dict[str, bytes] = {}
         self.rejected_geometry: tuple | None = None
         self.infos_sent = False
 
@@ -192,15 +211,27 @@ class ZoneMaskPublisher:
                 ZONES_REJECTED.labels(REASON_ROTATED_MAP).inc()
                 self.logger.error(str(exc))
             return
-        self.keepout_pub.publish(self.mask_message(keepout))
-        self.speed_pub.publish(self.mask_message(speed))
-        self.ground_cost_pub.publish(self.mask_message(ground_cost))
         self.published_key = key
         self.last_publish_monotonic = now
-        ZONE_PUBLISHES.inc()
+        published = []
+        for label, publisher, mask in (
+            (MASK_KEEPOUT, self.keepout_pub, keepout),
+            (MASK_SPEED, self.speed_pub, speed),
+            (MASK_GROUND_COST, self.ground_cost_pub, ground_cost),
+        ):
+            digest = mask_digest(key[0], mask)
+            if digest == self.published_digests.get(label):
+                continue
+            publisher.publish(self.mask_message(mask))
+            self.published_digests[label] = digest
+            ZONE_PUBLISHES.labels(label).inc()
+            published.append(label)
+        if not published:
+            return
         ZONES_LAST_PUBLISH.set(time.time())
         self.logger.info(
-            f"published masks: {len(self.zones)} active zones, {len(areas)} ground areas, map {self.geometry.width}x{self.geometry.height}"
+            f"published masks {published}: {len(self.zones)} active zones, {len(areas)} ground areas, "
+            f"map {self.geometry.width}x{self.geometry.height}"
         )
         if not self.infos_sent:
             self.keepout_info_pub.publish(self.info_message(FILTER_TYPE_KEEPOUT, self.config.keepout_mask_topic))

@@ -159,7 +159,7 @@ def test_overlap_with_slow_zone_keeps_lowest(node: ZoneMaskPublisher, log: list)
     ready(node, poi("a", "slow", AREA_POLYGON, 30))
     node.on_ground(warning(area()))
     assert grid(last(log, "speed"))[INSIDE_CELL] == 30
-    assert count(log, "speed") == 2
+    assert count(log, "speed") == 1  # the slow zone already limits lower: the speed mask did not change
 
 
 def test_keepout_mask_unchanged_by_ground(node: ZoneMaskPublisher, log: list) -> None:

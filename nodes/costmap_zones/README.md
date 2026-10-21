@@ -83,8 +83,13 @@ Row = y index (no flip), parts outside the grid are clipped, a self-intersecting
 ## Publish rule
 
 - Nothing is published until a valid `/map` and a valid `/poi/list` have both arrived.
-- Both masks are republished only when the key (map frame, resolution, origin x/y, width, height; digest of the
-  active zones) differs from the last published one. A `/map` republish every 10 s with the same geometry, and POI
+- Each of the three masks (`keepout`, `speed`, `ground_cost`) is published only when its content differs from the
+  last published one: a blake2b digest of the cells plus the geometry key is kept per mask. A change of the
+  `/ground/warning_areas` set never republishes the keepout mask (it carries no ground areas), and a speed or ground
+  cost mask whose cells did not change (an area nudged inside the same cells, an area under a lower slow limit) stays
+  as published. A map geometry change changes every digest and republishes all three. Before any digest is computed
+  the key (map frame, resolution, origin x/y, width, height; digest of the active zones; active ground areas) must
+  differ from the last one, and ground-only changes stay limited to `ground_mask_max_rate_hz`. A `/map` republish every 10 s with the same geometry, and POI
   revisions that change no zone (object sightings, renames), cost one comparison and publish nothing.
 - The two filter infos are published once, right after the first masks, and never again: a re-sent info makes the Nav2
   filter drop and re-create its mask subscription.
@@ -99,6 +104,24 @@ Row = y index (no flip), parts outside the grid are clipped, a self-intersecting
 There is no zeroed or default mask before real input. Without a map or a list the topics have no sample, and the Nav2
 filters log "Filter mask was not received" while the costmaps stay current. The all `-1` / all `0` mask after an empty
 zone list is a real answer (there are no zones), not a placeholder.
+
+## Masks in the local costmap
+
+Republishing all three 38 KiB masks at about 1.7 Hz made Nav2 log "New filter mask arrived" some 11k times in 45
+minutes and reload the mask each time; publish-on-change removes that. The same window held about 5k local-costmap
+"failed to get costmap frame (odom)" errors, after which the local keepout is not applied.
+
+Root cause: not in what costmap_zones publishes. `odom` in that message is the local costmap's own `global_frame`
+(`nodes/nav2_bringup/config/nav2_params.yaml`, `local_costmap.local_costmap.ros__parameters.global_frame: odom`).
+Nav2 Jazzy `CostmapFilter::transformPose()` (`nav2_costmap_2d/plugins/costmap_filters/costmap_filter.cpp`) builds the
+robot pose with `in.header.stamp = clock_->now()` and calls `tf_->transform(in, out, mask_frame, transform_tolerance_)`.
+It never uses the mask header stamp, so the latched mask's stamp cannot age out of the TF buffer, and
+`mask_message`/`info_message` need no change. The filter fails when the current-time transform between `odom` and the
+mask frame (`map`) is not available within `transform_tolerance`, which is `0.2` for `keepout_filter`,
+`ground_cost_filter` and `speed_filter`. The failing link is the TF chain `map -> odom` (slam_toolbox) and
+`odom -> base_link` (robot_localization_ekf) arriving later than 0.2 s on the saturated client (run queue 42-47); the
+CPU budget changes in this epic remove that load. The setting involved is `transform_tolerance` of the three local
+filters in `nodes/nav2_bringup/config/nav2_params.yaml`; it lies outside costmap_zones.
 
 ## Map growth and resets
 
@@ -133,7 +156,7 @@ map (a POI-wide limitation).
 
 | Metric | Meaning |
 |---|---|
-| `costmap_zones_publishes_total` | mask publications (a keepout plus a speed mask each) |
+| `costmap_zones_publishes_total{mask}` | mask publications per mask (`keepout`, `speed`, `ground_cost`); a flapping ground area shows as `speed`/`ground_cost` only |
 | `costmap_zones_active{zone}` | active zones (`keepout`, `slow`) in the latest valid list |
 | `costmap_zones_rejected_total{reason}` | `invalid_entry`, `bad_list`, `rotated_map` |
 | `costmap_zones_ground_areas` | active (not expired) ground warning areas |

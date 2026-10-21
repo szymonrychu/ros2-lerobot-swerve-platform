@@ -84,6 +84,27 @@ def node(log: list[tuple[str, Any]]) -> ZoneMaskPublisher:
     )
 
 
+CLOCK = [0.0]
+
+
+@pytest.fixture
+def full_node(log: list[tuple[str, Any]]) -> ZoneMaskPublisher:
+    """Like node, but the ground cost mask and info publish into the same log; CLOCK[0] is the monotonic clock."""
+    CLOCK[0] = 0.0
+    return ZoneMaskPublisher(
+        config=CostmapZonesConfig(),
+        keepout_pub=FakePublisher("keepout", log),
+        speed_pub=FakePublisher("speed", log),
+        keepout_info_pub=FakePublisher("keepout_info", log),
+        speed_info_pub=FakePublisher("speed_info", log),
+        ground_cost_pub=FakePublisher("ground_cost", log),
+        ground_cost_info_pub=FakePublisher("ground_cost_info", log),
+        now=lambda: STAMP,
+        logger=logging.getLogger("test_node"),
+        monotonic=lambda: CLOCK[0],
+    )
+
+
 def names(log: list[tuple[str, Any]]) -> list[str]:
     return [name for name, _ in log]
 
@@ -238,7 +259,7 @@ def test_zone_change_republishes_masks_only(node: ZoneMaskPublisher, log: list) 
     node.on_list(poi_list(poi("a", "keepout", SQUARE)))
     log.clear()
     node.on_list(poi_list(poi("a", "keepout", FAR_SQUARE), revision=2))
-    assert names(log) == ["keepout", "speed"]
+    assert names(log) == ["keepout"]  # keepout zones are not in the speed mask
 
 
 def test_zones_emptied_republishes_background_masks(node: ZoneMaskPublisher, log: list) -> None:
@@ -256,7 +277,7 @@ def test_cancelled_zone_is_no_zone(node: ZoneMaskPublisher, log: list) -> None:
     node.on_list(poi_list(poi("a", "keepout", SQUARE)))
     log.clear()
     node.on_list(poi_list(poi("a", "keepout", SQUARE, status="cancelled"), revision=2))
-    assert names(log) == ["keepout", "speed"]
+    assert names(log) == ["keepout"]
     assert set(np.unique(np.frombuffer(bytes(log[0][1].data), dtype=np.int8))) == {-1}
 
 
@@ -309,10 +330,72 @@ def test_rotated_map_is_rejected_without_publishing(node: ZoneMaskPublisher, log
 
 
 def test_metrics_after_publish(node: ZoneMaskPublisher, log: list) -> None:
-    before = sample("costmap_zones_publishes_total")
+    before = sample("costmap_zones_publishes_total", {"mask": "keepout"})
     node.on_map(make_map())
     node.on_list(poi_list(poi("a", "keepout", SQUARE), poi("b", "slow", FAR_SQUARE, 40), poi("c", "slow", SQUARE, 50)))
-    assert sample("costmap_zones_publishes_total") == before + 1
+    assert sample("costmap_zones_publishes_total", {"mask": "keepout"}) == before + 1
     assert sample("costmap_zones_active", {"zone": "keepout"}) == 1
     assert sample("costmap_zones_active", {"zone": "slow"}) == 2
     assert sample("costmap_zones_last_publish_timestamp_seconds") > 0
+
+
+GROUND_POLYGON = [[1.2, 0.2], [1.8, 0.2], [1.8, 0.8], [1.2, 0.8]]
+
+
+def ground_area(polygon: list[list[float]]) -> dict[str, Any]:
+    return {"kind": "ramp", "polygon": polygon, "height_m": 0.02, "slope_deg": 5.0, "source": "tof"}
+
+
+def ground(*areas: dict[str, Any]) -> String:
+    return String(data=json.dumps({"stamp_ns": 1, "frame": "map", "areas": list(areas)}))
+
+
+def masks_of(log: list) -> list[str]:
+    return [n for n in names(log) if n in ("keepout", "speed", "ground_cost")]
+
+
+def test_ground_change_does_not_republish_keepout(full_node: ZoneMaskPublisher, log: list) -> None:
+    full_node.on_map(make_map())
+    full_node.on_list(poi_list(poi("a", "keepout", SQUARE)))
+    log.clear()
+    CLOCK[0] += 1.0
+    full_node.on_ground(ground(ground_area(GROUND_POLYGON)))
+    assert masks_of(log) == ["speed", "ground_cost"]
+    assert sample("costmap_zones_publishes_total", {"mask": "keepout"}) >= 1
+
+
+def test_unchanged_mask_is_not_republished(full_node: ZoneMaskPublisher, log: list) -> None:
+    full_node.on_map(make_map())
+    full_node.on_list(poi_list(poi("a", "keepout", SQUARE)))
+    CLOCK[0] += 1.0
+    full_node.on_ground(ground(ground_area(GROUND_POLYGON)))
+    log.clear()
+    # Same cells, polygon nudged inside them: the active-area key changes, no mask cell does.
+    shifted = [[x + 0.01, y] for x, y in GROUND_POLYGON]
+    CLOCK[0] += 1.0
+    full_node.on_ground(ground(ground_area(shifted)))
+    assert masks_of(log) == []
+    # The ground area expires: speed and ground_cost go back to background, keepout never moves.
+    CLOCK[0] += 10.0
+    full_node.tick()
+    assert masks_of(log) == ["speed", "ground_cost"]
+
+
+def test_zone_change_republishes_changed_masks(full_node: ZoneMaskPublisher, log: list) -> None:
+    full_node.on_map(make_map())
+    full_node.on_list(poi_list(poi("a", "keepout", SQUARE)))
+    log.clear()
+    full_node.on_list(poi_list(poi("a", "keepout", FAR_SQUARE), revision=2))
+    assert masks_of(log) == ["keepout"]
+    log.clear()
+    full_node.on_list(poi_list(poi("a", "slow", FAR_SQUARE, 40), revision=3))
+    assert masks_of(log) == ["keepout", "speed"]
+
+
+def test_map_geometry_change_republishes_all_masks(full_node: ZoneMaskPublisher, log: list) -> None:
+    full_node.on_map(make_map())
+    full_node.on_list(poi_list(poi("a", "keepout", SQUARE)))
+    log.clear()
+    full_node.on_map(make_map(width=WIDTH + 5))
+    assert masks_of(log) == ["keepout", "speed", "ground_cost"]
+    assert names(log).count("keepout_info") == 0
