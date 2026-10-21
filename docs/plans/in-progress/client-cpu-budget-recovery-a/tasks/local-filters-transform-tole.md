@@ -51,6 +51,10 @@ Local filters' transform_tolerance (0.2) in nav2_params.yaml may need raising if
 2. Fix it at nodes/nav2_bringup/config/nav2_params.yaml.
 3. Run the task verify command and confirm it passes.
 
+## Ruling
+
+- 2026-10-21 rejected: conditional on errors persisting after the CPU fixes; folded into cpu-budget-runbook as a check (raise local filter transform_tolerance 0.2 -> 0.5 only if 'failed to get costmap frame (odom)' persists)
+
 ## Notes
 
 Discovered in task `costmap-zones-changed-masks` during run `client-cpu-budget-recovery-a`.
