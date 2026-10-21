@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/per-pose-quality-hints-in-th--per-pose-errors-and-outliers
+branch: per-pose-quality-hints-in-th--per-pose-errors-and-outliers
 verified_head: ""
 run: ""
 provides: []

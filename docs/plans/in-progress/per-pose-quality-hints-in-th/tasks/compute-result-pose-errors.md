@@ -12,8 +12,8 @@ model: ""
 estimate: 40
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/per-pose-quality-hints-in-th--compute-result-pose-errors
+branch: per-pose-quality-hints-in-th--compute-result-pose-errors
 verified_head: ""
 run: ""
 provides: []

@@ -12,8 +12,8 @@ model: ""
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/per-pose-quality-hints-in-th--hints-docs-and-deploy
+branch: per-pose-quality-hints-in-th--hints-docs-and-deploy
 verified_head: ""
 run: ""
 provides: []

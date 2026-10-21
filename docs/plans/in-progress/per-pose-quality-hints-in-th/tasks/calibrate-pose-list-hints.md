@@ -12,8 +12,8 @@ model: ""
 estimate: 55
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/per-pose-quality-hints-in-th--calibrate-pose-list-hints
+branch: per-pose-quality-hints-in-th--calibrate-pose-list-hints
 verified_head: ""
 run: ""
 provides: []
