@@ -152,5 +152,16 @@
       "rgb-d-ground-estimation-and"
     ],
     "note": "/imu/data from bno055_imu at 25 Hz (publish_hz 25, was 50); every consumer's IMU staleness limit stays >= 3 periods (0.12 s), pinned by tests/test_client_cpu_load.py; owner task imu-publish-rate-25-hz"
+  },
+  {
+    "name": "head-camera-stream-rate",
+    "kind": "topic",
+    "owner": "client-cpu-budget-recovery-a",
+    "file": "ansible/group_vars/client.yml",
+    "consumers": [
+      "printable-metadata-markers-t",
+      "head-rgb-d-fusion-of-camera"
+    ],
+    "note": "/head_camera/image_raw(/compressed) at 15 fps (head_camera_cpp frame_duration_us 66666, code default 33333 unchanged); mapping stream rate_hz and marker_detector process_hz stay <= 15; owner task head-camera-15-fps"
   }
 ]
