@@ -58,17 +58,19 @@ A numpy forward-kinematics chain over URDF text, shared by the head fit, the arm
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `chain.py::UrdfChain.from_text`, `UrdfChain.transform`, `UrdfChain.joint_names`, `UrdfChain.origin`, `UrdfChain.limits`, `pose_from_xyz_rpy`, `xyz_rpy_from_pose`, `arm_in_robot_base` (contract `urdf-chain-fk`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+A numpy FK over the repo head and arm URDFs, pinned by tests on the real URDF files.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_arm_calib_chain.py` first; run `uv run --frozen pytest tests/test_head_arm_calib_chain.py -q` and see it fail on the missing module.
+- Implement `chain.py` (numpy and scipy Rotation, fixed-axis xyz rpy as `urdf_handoff.RPY_SEQUENCE`).
+- Run `uv run --frozen pytest tests/test_head_arm_calib_chain.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Moved unchanged from head-and-arm-calibration-fro (design D1); its head and arm fits and the arm pose sequence use it as written.
+- Mimic `nodes/mcp_server/mcp_server/ik.py::ArmKinematics` for urdf_angle = measured + offset.

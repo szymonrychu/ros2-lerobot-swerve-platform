@@ -67,17 +67,23 @@ The floor-plane head chain fit core (owns `head-floor-fit`; design D2, D3, D4). 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `floor_fit.py::PlaneFit`, `FloorObservation`, `FloorFitResult`, `predicted_floor`, `fit_plane`, `fit_head_chain_floor` (contract `head-floor-fit`).
+- `config.py::FloorPlaneConfig`, `FloorFitLimits`, `FloorFitConfig`.
+- Uses `chain.py::UrdfChain` and `urdf_text.py::Origin`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Given ToF floor planes at measured pan/tilt, the core returns the fitted head_mount_joint and head_tilt origins with sigma, residuals and pass/fail; synthetic scenes recover a known chain.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/head_floor_synthetic.py` and `tests/test_head_floor_fit.py` first; run `uv run --frozen pytest tests/test_head_floor_fit.py -q` and see it fail on the missing module.
+- Implement the config models, `fit_plane`, `predicted_floor`, then `fit_head_chain_floor`.
+- Run `uv run --frozen pytest tests/test_head_floor_fit.py tests/test_head_arm_calib_chain.py -q && uv run poe lint`; expect every test passed and lint clean.
+- Update `tests/README.md` and `shared/README.md`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design D2, D3, D4. head_tilt + is down (rotation about +y); the floor normal in tof_optical_frame at pan = tilt = 0 points along optical -y.
+- Mount pitch and tilt zero are the same rotation at pan 0; only pan spread separates them: keep the pan span limit.
+- No ROS imports: the module is used by the node and by root tests.

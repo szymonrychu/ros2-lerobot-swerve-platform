@@ -66,17 +66,20 @@ Compute, apply and the HTTP routes of the head floor fit (owns `head-floor-fit-a
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `floor_results.py::base_urdf`, `compute_floor`, `apply_floor`, `applied_head_chain` (contract `head-chain-applied-record`).
+- `floor_api.py::floor_router(sweep, capture, job, cfg, run) -> APIRouter`; the routes of the design's Floor fit API table; fixtures `floor_state.json`, `floor_result.json` (contract `head-floor-fit-api`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The Calibrate page can start a sweep, compute a result and apply a passing one; after Apply, `applied/head_chain.json` exists and applied.json changed, so head_state_publisher restarts on the fitted chain.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_floor_results.py`, `tests/test_floor_api.py`, the fixtures and the shutdown test first; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_floor_results.py tests/test_floor_api.py tests/test_main.py -q` and see them fail.
+- Implement `floor_results.py`, `floor_api.py`, then the `__main__.py` wiring.
+- Run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design D6, D7. Do not edit `app.py`, `store.py` or `compute.py` (in-progress per-pose-quality-hints-in-th); the router is included in `__main__.py`.
+- Reuse `apply.unit_state` and `store.write_json_atomic`; load `tests/head_floor_synthetic.py` by path as `tests/pose_factory.py` loads `tests/rgbd_synthetic.py`.

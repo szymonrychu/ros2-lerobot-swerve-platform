@@ -54,17 +54,22 @@ The "Head floor fit" step on the web UI Calibrate page and the robot runbook (us
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `headFloorApi.ts::getFloorState`, `startSweep`, `stopSweep`, `computeFloor`, `getFloorResult`, `applyFloor` and their guards; `HeadFloorFit` component.
+- Node bodies: the `head-floor-fit-api` fixtures in `nodes/head_rgbd_calibration/tests/fixtures/api/`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The Calibrate page shows a Head floor fit step that runs the sweep, shows the fit and applies it; the runbook gives the robot acceptance checks.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `headFloorApi.test.ts`, `HeadFloorFit.test.tsx` and the CalibratePage test first; run `cd nodes/web_ui/frontend && npx vitest run src/calibrate/headFloorApi.test.ts src/calibrate/HeadFloorFit.test.tsx src/calibrate/CalibratePage.test.tsx` and see them fail.
+- Implement the API module, the component and the page line.
+- Run the task verify command; expect every test passed and eslint clean.
+- Write `docs/runbooks/head-floor-fit.md` (with an `## Acceptance checks` heading) and the web UI README line.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design D9, D10. Do not edit `rgbdApi.ts` or `RgbdCapture.tsx` (in-progress per-pose epic); copy the guard helpers' style.
+- The runbook is executed by the orchestrator with the user after merge; deploy only through `scripts/deploy-nodes.sh` with output in `.logs/`; mcp_server is not deployed by this epic.
+- Telemetry through `scripts/topic_scraper_collect.py` (CLAUDE.md), topic_scraper_api enabled first.

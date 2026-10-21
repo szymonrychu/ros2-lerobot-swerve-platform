@@ -1,6 +1,6 @@
 ---
 title: Head and arm calibration from ChArUco board and gripper plate
-blockers: [Servo torque off and neutral recording in the web UI]
+blockers: [Servo torque off and neutral recording in the web UI, Per-pose quality hints in the RGB-D calibration capture, Head chain floor-plane fit after the mount reprint]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]

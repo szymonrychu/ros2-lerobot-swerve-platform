@@ -63,17 +63,24 @@ The guided head sweep that captures floor planes (owns `floor-sweep`; design D5,
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `floor_sweep.py::FloorSweep(node, cfg, urdf_text, clock, sleep)` with `start() -> str`, `stop()`, `state() -> dict`, `Busy` (contract `floor-sweep`).
+- `observations.json` in `<state_dir>/floor_fit/<sid>/` as in the requirement.
+- `config.py::FloorSweepConfig`, `NodeConfig.floor`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Start moves only the head through the grid, records one plane per matched cloud, writes observations.json and puts the head back where it was.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Extend `tests/conftest.py` stubs, write `tests/test_floor_sweep.py` and the config test first; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_floor_sweep.py tests/test_config.py -q` and see them fail.
+- Implement `config.py`, the shipped YAML, then `floor_sweep.py` (pattern of `capture.py`: ROS handles created on start and destroyed on every exit, a lock for shared state).
+- Mirror the YAML into the client.yml `head_rgbd_calibration` config block and add the apt package.
+- Run the task verify command; expect every test passed, node lint and ansible lint clean.
+- Write the README section.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Design D5, D6, D11. Head commands as the web UI head tab (`nodes/web_ui/web_ui/config.py` HEAD_TAB_DEFAULT_COMMAND_TOPIC, joint names head_pan/head_tilt, radians).
+- client.yml is also edited by client-cpu-budget-recovery-a (this epic's blocker): rebase on it before editing.
+- Servo safety: head only, the grid stays inside -60..60 pan and 12..28 tilt down.

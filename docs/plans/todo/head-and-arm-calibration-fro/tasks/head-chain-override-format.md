@@ -44,12 +44,11 @@ No code change here: confirm the delivered part is on the base branch and its te
 
 ## Expected outcome
 
-One format and one applier for the calibrated head chain, so every consumer reads the same override the same way.
+The part delivered by head-chain-floor-plane-fit-a is on the base branch and its tests pass; nothing is rebuilt here.
 
 ## Steps
 
-- Tests first (red), implement, verify.
-- Run `uv run --frozen pytest tests/test_head_chain_override.py tests/test_head_rgbd_urdf_handoff.py tests/test_head_tof_joint_override.py -q && uv run poe lint`; expect every test passed and lint clean.
+- Run the acceptance commands; expect the files tracked and every test passed. No code change.
 
 ## Notes
 

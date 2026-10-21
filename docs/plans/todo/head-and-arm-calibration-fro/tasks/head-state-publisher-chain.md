@@ -45,12 +45,11 @@ No code change here: confirm the delivered part is on the base branch and its te
 
 ## Expected outcome
 
-TF of the head camera and ToF follows the measured head chain after an apply, so mapping and obstacles use the real geometry.
+The part delivered by head-chain-floor-plane-fit-a is on the base branch and its tests pass; nothing is rebuilt here.
 
 ## Steps
 
-- Tests first (red), implement, verify.
-- Run `uv run --frozen pytest tests/test_head_tof_joint_override.py tests/test_head_chain_launch.py tests/test_head_state_publisher_config.py -q && uv run poe lint`; expect every test passed and lint clean.
+- Run the acceptance commands; expect the files tracked and every test passed. No code change.
 
 ## Notes
 

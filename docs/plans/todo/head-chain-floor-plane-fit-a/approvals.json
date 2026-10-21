@@ -1,0 +1,44 @@
+[
+  {
+    "id": "A1",
+    "text": "Quick ToF floor-plane head chain fit now, applied through the same head-chain override the head-and-arm-calibration-fro epic writes; the shared parts move here so nothing is built twice, and head-and-arm runs right after.",
+    "decisions": ["D1"],
+    "tasks": ["head-chain-override-format", "head-state-publisher-chain", "urdf-chain-fk-core", "floor-plane-chain-fit"],
+    "status": "approved"
+  },
+  {
+    "id": "A2",
+    "text": "Fit the head mount roll and pitch, the pan-axis height and the tilt zero from the ToF floor plane, robust to noise, with the degenerate parameters fixed, residuals reported and results over sigma limits refused.",
+    "decisions": ["D2", "D3", "D4", "D6"],
+    "tasks": ["floor-plane-chain-fit", "floor-fit-http-api"],
+    "status": "approved"
+  },
+  {
+    "id": "A3",
+    "text": "A guided capture: the node commands a pan/tilt grid within the current range, waits for stillness and collects ToF clouds with the head joint states at the cloud stamp; only the head moves (least dramatic servos), robot not on blocks, flat floor.",
+    "decisions": ["D2", "D5", "D11"],
+    "tasks": ["floor-sweep-capture"],
+    "status": "approved"
+  },
+  {
+    "id": "A4",
+    "text": "Apply writes the head-chain override and head_state_publisher publishes the overridden chain, so ground_estimator, Nav2 and the web UI map see the floor at z 0.",
+    "decisions": ["D7", "D8"],
+    "tasks": ["head-state-publisher-chain", "floor-fit-http-api"],
+    "status": "approved"
+  },
+  {
+    "id": "A5",
+    "text": "A Head floor fit step on the web UI Calibrate page: Start sweep, progress, result with residuals and the fitted values vs current, Apply; a guided process is fine.",
+    "decisions": ["D9"],
+    "tasks": ["head-floor-fit-ui-step"],
+    "status": "approved"
+  },
+  {
+    "id": "A6",
+    "text": "Runbook: every deploy through scripts/deploy-nodes.sh; after merge the orchestrator and the user clear the floor, run the sweep and apply; acceptance /ground/state plane height 0 +- 1 cm, plane_vs_base < 0.6 deg at home and two other pan/tilt poses, fewer than 10 obstacle points on the flat floor.",
+    "decisions": ["D10"],
+    "tasks": ["head-floor-fit-ui-step"],
+    "status": "approved"
+  }
+]

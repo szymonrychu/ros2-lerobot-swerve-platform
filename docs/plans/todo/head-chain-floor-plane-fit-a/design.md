@@ -255,7 +255,6 @@ Node routes, proxied by web_ui under `/api/calibration/rgbd/`; defined by the `h
 
 ## Open questions
 
-none
 - Q1: Let the floor sweep drive the head directly on /head/joint_commands, as the web UI head tab does, instead of through mcp_server tools and a lease (an agent session moving the head at the same time would fight it)? [recommended: yes: direct head commands, start refused while an RGB-D capture or compute runs, head restored on every exit]
 
 ## Irreversible operations in scope

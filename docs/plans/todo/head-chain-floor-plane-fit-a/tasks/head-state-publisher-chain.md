@@ -51,17 +51,19 @@ head_state_publisher publishes TF from the applied head chain as well as the app
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `head_description.py::robot_description(urdf_path: Path, applied_dir: Path, urdf_text_path: Path) -> str`; launch constant `APPLIED_DIR`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+After an apply and the path unit restart, `/tf` from head_state_publisher carries the fitted head_mount_joint and head_tilt origins and the applied tof_joint.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_chain_launch.py` and adapt `tests/test_head_tof_joint_override.py` first; run them and see them fail on the old signature.
+- Change `head_description.py` and the launch file.
+- Run `uv run --frozen pytest tests/test_head_tof_joint_override.py tests/test_head_chain_launch.py tests/test_head_state_publisher_config.py -q && uv run poe lint`; expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Moved from head-and-arm-calibration-fro (design D1, D8). The apply path unit (`ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.path.j2`, PathChanged on applied.json) already restarts head_state_publisher; no Ansible change.
+- `shared/ros2_common/head_rgbd_calibration/urdf_text.py` is already deployed with head_state_publisher (client.yml src list).

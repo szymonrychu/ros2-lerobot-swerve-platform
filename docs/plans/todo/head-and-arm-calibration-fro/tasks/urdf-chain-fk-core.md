@@ -43,12 +43,11 @@ No code change here: confirm the delivered part is on the base branch and its te
 
 ## Expected outcome
 
-One tested forward-kinematics chain for the head and the arm, so both fits and the pose checks agree on the geometry.
+The part delivered by head-chain-floor-plane-fit-a is on the base branch and its tests pass; nothing is rebuilt here.
 
 ## Steps
 
-- Tests first (red), implement, run the verify command.
-- Run `uv run --frozen pytest tests/test_head_arm_calib_chain.py -q && uv run poe lint`; expect every test passed and lint clean.
+- Run the acceptance commands; expect the files tracked and every test passed. No code change.
 
 ## Notes
 

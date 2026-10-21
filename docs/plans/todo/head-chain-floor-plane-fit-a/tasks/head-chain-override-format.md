@@ -53,17 +53,21 @@ The `head_chain.json` override format and one applier used by every consumer (ow
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `urdf_text.py::rewrite_joint_origin`, `parse_head_chain`, `head_chain_json`, `apply_overrides`, `HEAD_CHAIN_FILE`, `TOF_JOINT_FILE`, `APPLIED_MARKER_FILE`, `HEAD_CHAIN_JOINTS` (contract `head-chain-override`).
+- `head_chain.json`: `{joints: {head_mount_joint|head_tilt|head_camera_joint: {xyz: [3], rpy: [3]}}, note, session, result}`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+One format and one applier for the calibrated head chain; the tof_joint rewrite is byte-identical to today.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_head_chain_override.py` first; run `uv run --frozen pytest tests/test_head_chain_override.py -q` and see it fail on the missing functions.
+- Implement in `urdf_text.py` (standard library only), keep `rewrite_tof_joint` as a call of `rewrite_joint_origin`.
+- Run `uv run --frozen pytest tests/test_head_chain_override.py tests/test_head_rgbd_urdf_handoff.py tests/test_head_tof_joint_override.py -q && uv run poe lint`; expect every test passed and lint clean.
+- Update `tests/README.md` and `shared/README.md`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Moved unchanged from head-and-arm-calibration-fro (design D1); its later tasks (head-chain-board-solver, head-chain-compute-apply, mcp-head-kinematics-applied, web-ui-applied-head-urdf) use this API as written, so do not rename anything.
+- Design: `ticket.py path head-chain-floor-plane-fit-a design` (D1, D7).
