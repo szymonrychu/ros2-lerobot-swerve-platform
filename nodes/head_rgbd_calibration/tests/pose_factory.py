@@ -1,5 +1,6 @@
 """Poses for the store and image tests, built from the core synthetic board helpers and the core detector."""
 
+import dataclasses
 import importlib.util
 import sys
 from functools import cache
@@ -72,3 +73,10 @@ def make_pose(
 def detection_at(points: list[tuple[float, float]]) -> Detection:
     """A Detection with the given points and ids 0..n-1."""
     return Detection(ids=np.arange(len(points), dtype=np.int32), points=np.array(points, dtype=np.float32))
+
+
+def few_rgb_corner_pose(count: int = 6) -> CapturedPose:
+    """A make_pose() whose RGB detection is cut down to its first count corners."""
+    pose = make_pose()
+    rgb = Detection(ids=pose.rgb_detection.ids[:count], points=pose.rgb_detection.points[:count])
+    return dataclasses.replace(pose, rgb_detection=rgb)
