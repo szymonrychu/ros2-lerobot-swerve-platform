@@ -91,6 +91,12 @@ robot session (2026-10-20, 0.16-0.38 m) measured the ToF reading 0-7 mm long at 
 the white squares, about twice that on the black ones: a ToF depth error the calibration does not correct, so the
 limit only catches a broken extrinsic.
 
+Since 2026-10-21 `/tof/depth/image_raw` is z-depth: the SDK reports radial distance, and arducam_tof divides it by the
+ray norm of the calibrated K (`radial_to_z`) before publishing, with that K in camera_info. The plane bias therefore no
+longer carries the radial-to-z factor (r/z about 1.044 at xn 0.3, which explained the earlier 18 mm median); the plane
+bias median should be near 0, within +-10 mm, and the 40 mm limit is unchanged. Recalibrate after the change
+(`docs/runbooks/head-remount-floor-check.md`).
+
 ### Depth bias at known distances
 
 ToF depth has a distance-dependent bias (wiggling, doi:10.1016/j.cviu.2009.11.002) that also drifts with temperature and

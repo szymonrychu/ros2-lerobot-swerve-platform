@@ -93,6 +93,11 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.colour.forgetting, 0.1);
   EXPECT_EQ(c.colour.min_floor_samples, 200);
   EXPECT_DOUBLE_EQ(c.state.rate_hz, 2.0);
+  EXPECT_TRUE(c.temporal.enabled);
+  EXPECT_DOUBLE_EQ(c.temporal.cell_size_m, 0.10);
+  EXPECT_EQ(c.temporal.window_frames, 8);
+  EXPECT_EQ(c.temporal.min_frames, 4);
+  EXPECT_DOUBLE_EQ(c.temporal.max_age_s, 1.5);
   ASSERT_TRUE(c.metrics_port.has_value());
   EXPECT_EQ(*c.metrics_port, 19119);
 }
@@ -165,6 +170,7 @@ TEST(Config, RejectsUnknownKeysAtEveryLevel)
   expect_rejected("traversability: {bogus: 1}", "traversability.bogus");
   expect_rejected("colour: {bogus: 1}", "colour.bogus");
   expect_rejected("state: {bogus: 1}", "state.bogus");
+  expect_rejected("temporal: {bogus: 1}", "temporal.bogus");
 }
 
 TEST(Config, RejectsTopLevelRanges)
@@ -266,4 +272,24 @@ TEST(Config, RejectsColourAndStateRanges)
   expect_rejected("colour: {enabled: maybe}", "colour.enabled");
   expect_rejected("state: {rate_hz: 0}", "state.rate_hz");
   expect_rejected("state: {rate_hz: 11}", "state.rate_hz");
+}
+
+TEST(Config, RejectsTemporalRanges)
+{
+  expect_accepted("temporal: {enabled: false}");
+  expect_accepted("temporal: {cell_size_m: 0.02}");
+  expect_accepted("temporal: {cell_size_m: 0.5}");
+  expect_rejected("temporal: {cell_size_m: 0.019}", "temporal.cell_size_m");
+  expect_rejected("temporal: {cell_size_m: 0.51}", "temporal.cell_size_m");
+  expect_accepted("temporal: {window_frames: 1, min_frames: 1}");
+  expect_accepted("temporal: {window_frames: 30}");
+  expect_rejected("temporal: {window_frames: 0, min_frames: 1}", "temporal.window_frames");
+  expect_rejected("temporal: {window_frames: 31}", "temporal.window_frames");
+  expect_rejected("temporal: {min_frames: 0}", "temporal.min_frames");
+  expect_rejected("temporal: {window_frames: 5, min_frames: 6}", "temporal.min_frames");
+  expect_accepted("temporal: {window_frames: 5, min_frames: 5}");
+  expect_accepted("temporal: {max_age_s: 5}");
+  expect_rejected("temporal: {max_age_s: 0}", "temporal.max_age_s");
+  expect_rejected("temporal: {max_age_s: 5.1}", "temporal.max_age_s");
+  expect_rejected("temporal: {enabled: maybe}", "temporal.enabled");
 }

@@ -10,6 +10,9 @@ Obstacle rule under test: a step, threshold, drop or ramp is an obstacle (lethal
 wheel diameter (0.04 m) or its slope exceeds 8 deg; otherwise it is a warning (slow-down, passable). Exactly 0.04 m and
 8 deg are warnings. Servo safety: scenes drive at the lowest speed first; nothing here moves an arm joint.
 
+After a head remount run `docs/runbooks/head-remount-floor-check.md` first (z-depth, head pan sign, re-zero,
+recalibration, floor numbers).
+
 ## Preconditions
 
 - head_rgbd_cpp and laser_filter are running (`systemctl is-active ros2-head_rgbd_cpp ros2-laser_filter` on the client);

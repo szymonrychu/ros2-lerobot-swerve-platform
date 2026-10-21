@@ -76,7 +76,7 @@ MARK_COMMON = {
     "inf_is_valid": False,
 }
 EXPECTED_SOURCES = {
-    "tof_mark": {**MARK_COMMON, "min_obstacle_height": 0.06, "max_obstacle_height": 0.6},
+    "tof_mark": {**MARK_COMMON, "min_obstacle_height": 0.10, "max_obstacle_height": 0.6},
     "tof_cliff_mark": {**MARK_COMMON, "min_obstacle_height": -1.0, "max_obstacle_height": -0.10},
     "tof_clear": {
         "data_type": "PointCloud2",
@@ -227,6 +227,18 @@ def test_mark_and_clear_sources_are_split() -> None:
 def test_obstacle_band_is_above_the_floor_and_below_the_robot() -> None:
     mark = tof_layer()["tof_mark"]
     assert 0.0 < mark["min_obstacle_height"] < mark["max_obstacle_height"] <= ROBOT_HEIGHT_M
+
+
+def test_mcp_tof_obstacle_band_equals_tof_mark() -> None:
+    perception = REPO_ROOT / "nodes" / "mcp_server" / "mcp_server" / "perception.py"
+    band = None
+    for node in ast.parse(perception.read_text()).body:
+        names = [t.id for t in node.targets if isinstance(t, ast.Name)] if isinstance(node, ast.Assign) else []
+        if "TOF_OBSTACLE_BAND_M" in names:
+            band = ast.literal_eval(node.value)
+    assert band is not None, "TOF_OBSTACLE_BAND_M not found in perception.py"
+    mark = tof_layer()["tof_mark"]
+    assert tuple(band) == (mark["min_obstacle_height"], mark["max_obstacle_height"])
 
 
 def test_cliff_band_is_strictly_below_the_floor_noise() -> None:

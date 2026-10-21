@@ -526,7 +526,8 @@ The pan/tilt head servo group in `ansible/group_vars/client.yml`: an `extra_grou
 | `test_head_steps_equal_the_urdf_limits` | `command_min_steps`/`command_max_steps` equal the URDF joint limits converted to steps (swapped if `inverted`). |
 | `test_head_caps_are_present_and_positive` | `max_speed_rad_s` and `max_acceleration_rad_s2` set and > 0. |
 | `test_head_startup_positions_are_inside_the_limits` | Home pose is inside the URDF limits and the command steps. |
-| `test_head_tilt_servo_is_mounted_reversed_and_pan_is_not` | `head_tilt` is `inverted: true` (found 2026-10-20), pan is not; tilt steps 1707..2389 and the 0.5236 rad home maps to step 1707. |
+| `test_head_pan_and_tilt_servos_are_mounted_reversed` | Both `head_pan` (found 2026-10-21: +30 deg turned right) and `head_tilt` (found 2026-10-20) are `inverted: true`; tilt steps 1707..2389 and the 0.5236 rad home maps to step 1707. |
+| `test_head_pan_steps_are_symmetric_around_centre` | Pan min + max steps = 2 * 2048, so inverting only flips the sign. |
 | `test_autonomy_and_web_ui_may_command_the_head_directly` | `autonomy` and `web_ui` are in `direct_command_sources`. |
 
 ### Per-node tests (feetech_servos)
@@ -2769,6 +2770,7 @@ Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, ST
 | `test_tof_sources_settings` | `tof_mark`, `tof_cliff_mark` and `tof_clear` values and types (PointCloud2 on `/tof/points_filtered`, height bands, range, buffer settings, frustum). |
 | `test_mark_and_clear_sources_are_split` | The two mark sources mark and never clear, `tof_clear` clears and never marks, frustum model 0. |
 | `test_obstacle_band_is_above_the_floor_and_below_the_robot` | 0 < `min_obstacle_height` < `max_obstacle_height` <= 0.6 m robot height. |
+| `test_mcp_tof_obstacle_band_equals_tof_mark` | `TOF_OBSTACLE_BAND_M` in mcp_server `perception.py` (read with ast, no import) equals the `tof_mark` (`min_obstacle_height`, `max_obstacle_height`) band, so the agent fixed-band summary matches the costmap. |
 | `test_cliff_band_is_strictly_below_the_floor_noise` | Cliff band ends strictly below -0.05 m. |
 | `test_bands_do_not_overlap` | The cliff band ends below the obstacle band start. |
 | `test_ranges_stay_inside_the_cloud_max_depth` | `max_z` and both `obstacle_range` <= tof_obstacle_cloud `max_depth`; `min_z` >= its `min_depth`. |
@@ -2792,7 +2794,7 @@ Static checks of the collision_monitor ToF sources `tof_obstacles` / `tof_cliff`
 | Test | Covers |
 |---|---|
 | `test_observation_sources_are_scan_and_the_two_tof_sources` | `observation_sources` is exactly `scan, tof_obstacles, tof_cliff`. |
-| `test_tof_source_settings` | Both ToF sources: `pointcloud` on `/tof/points_filtered`, bands 0.06-0.6 m and -1.0 to -0.10 m, `min_range` 0.0, enabled (values and types). |
+| `test_tof_source_settings` | Both ToF sources: `pointcloud` on `/tof/points_filtered`, bands 0.10-0.6 m and -1.0 to -0.10 m, `min_range` 0.0, enabled (values and types). |
 | `test_tof_source_band_equals_the_stvl_mark_band` | `tof_obstacles` band equals the STVL `tof_mark` band, `tof_cliff` equals `tof_cliff_mark`, same topic. |
 | `test_no_collision_monitor_source_reads_a_ground_topic` | No collision_monitor source topic starts with `/ground/` (D-A1). |
 | `test_scan_source_is_unchanged` | U5: `scan` stays `type: scan` on `/scan_filtered`, enabled. |
@@ -2988,8 +2990,9 @@ Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nod
 | `test_state_dirs_owned_by_node_user_mode_0755` | The state, `sessions` and `applied` directories are created owned by the node user, mode 0755. |
 | `test_seed_copies_never_overwrite_and_need_existing_source` | Seeding the applied calibration files copies only when the source exists and never overwrites (`force: false`). |
 | `test_no_task_clears_state_dir` | No setup task removes, forces over or rewrites state dir content. |
-| `test_apply_units_content` | The apply path unit watches `applied.json` and the oneshot service try-restarts the head camera, RGB-D and state publisher units; both units are reloaded, enabled and started. |
+| `test_apply_units_content` | The apply path unit watches `applied.json` and the oneshot service try-restarts the head camera, RGB-D, state publisher and arducam_tof units; both units are reloaded, enabled and started. |
 | `test_playbook_setup_before_deploy` | The setup include precedes `Deploy head_rgbd_calibration` in the client playbook, with the right tags and node name. |
+| `test_arducam_tof_reads_the_applied_tof_calibration` | arducam_tof's `tof_calibration_file` is the same applied `tof_calibration.yaml` as head_rgbd_cpp's, and `depth_is_radial` is true. |
 | `test_http_port_unique_in_client_vars` | The node's HTTP port appears exactly once in `client.yml`. |
 
 ### `rgbd_synthetic.py`
@@ -3092,3 +3095,23 @@ Deploy wiring of the server `map3d_manager_cpp` node type (G3).
 - `test_cpp_node_deploy.py`: `test_server_cpp_node_builds_two_local_sources_and_covers_their_package_xml` for `map3d_manager_cpp`.
 - `test_mcp_server_config.py`: `test_mcp_server_map3d_topics_match_the_topic_contract` (see above) and `test_mcp_server_readme_documents_map3d_tools`.
 - `test_monitoring_dashboards.py`: `assert_3d_mapping_row` on `robot-slam.json`: a "3D mapping" row with server unit CPU and memory (`rtabmap_mapping`, `map3d_manager`, `host="server"`), client CPU for `map3d_uplink`, `head_rgbd_cpp`, `head_camera_cpp`, server memory available, and WiFi throughput in bit/s with an 8 Mbit/s uplink budget threshold line; server-only panels are exempt from the `host="client"` selector rule.
+
+### `test_head_remount_runbook.py`
+
+Static pins for `docs/runbooks/head-remount-floor-check.md`, the robot runbook after the head remount (z-depth, pan sign, per-cell temporal median, 10 cm ToF band). Reads docs and YAML only.
+
+| Test | Covers |
+|---|---|
+| `test_runbook_has_every_section_in_order` | The eight sections Preconditions to Results, in order. |
+| `test_deploy_uses_the_script_never_ansible_playbook` | Deploys name `scripts/deploy-nodes.sh`, tee to `.logs/`, the ansible-deploy skill and all six nodes; no `ansible-playbook`. |
+| `test_preconditions_name_the_setup_and_the_agent_session_check` | Not on blocks, flat floor, ChArUco board, agent session check before mcp_server. |
+| `test_pan_direction_check` | +0.3 rad turns the head left (CCW), user confirms. |
+| `test_rezero_and_recalibration_reference_their_runbooks` | Links to servo-torque-neutral and head-rgbd-fusion; plane bias +-10 mm and the 40 mm limit. |
+| `test_floor_thresholds_and_scraper_workflow` | +-1 cm, 0.6 deg, 60 s, topic_scraper_collect.py, ground_temporal_cells. |
+| `test_costmap_band_equals_nav2_tof_mark` | The 0.10 band equals nav2_params.yaml tof_mark; 30 s clear check. |
+| `test_temporal_defaults_match_ground_estimator_config` | Quoted cell size, window and min frames equal config/ground_estimator.yaml. |
+| `test_every_scripts_path_exists` | Every `scripts/` path (and `docs/` path) named exists. |
+| `test_results_section_has_a_check_table` | The Results table rows. |
+| `test_other_docs_link_and_state_z_depth` | ground-estimation links the runbook; fusion runbook and methodology state z-depth and the plane bias effect. |
+| `test_memory_records_the_decision` | The MEMORY.md entry. |
+| `test_tests_readme_lists_this_file` | This section exists. |

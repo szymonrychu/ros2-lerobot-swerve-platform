@@ -1352,6 +1352,11 @@ ros2_nodes:
       # Capture-to-return latency of the SDK frame, ms: the frame is stamped with its return time minus this. 0.0 means
       # unset; the pan-sweep procedure in nodes/head_rgbd_cpp/README.md yields the measured value for this key.
       stamp_latency_ms: 0.0
+      # ToF intrinsics for the radial-to-z conversion and camera_info: the applied file Apply on the Calibrate page
+      # writes (ros2-head-rgbd-calibration-apply restarts this node); a missing file falls back to the SDK factory K.
+      tof_calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml
+      # The SDK depth is the distance along each pixel ray; true converts it to z-depth with that K.
+      depth_is_radial: true
       # Topics are fixed in the driver (the web_ui head tab subscribes to them):
       # /tof/depth/image_raw
       # /tof/amplitude/image_raw
@@ -1704,8 +1709,10 @@ ros2_nodes:
       # scripts/set_servo_id.py. The node blocks at startup until every configured servo answers.
       # Sign conventions: head_pan positive = looking left (CCW from above); head_tilt positive = looking down
       # (ruling R3, confirmed by the user on 2026-10-18). The tilt servo is mounted reversed (`inverted: true`,
-      # found 2026-10-20 after re-centring: a positive command looked up), so the bridge maps rad -> 2048 - rad*k and
-      # reports joint_states with the same sign; the URDF axis stays. Flip only via `inverted` together with the URDF.
+      # found 2026-10-20 after re-centring: a positive command looked up), and so is the pan servo (`inverted: true`,
+      # head sweep 2026-10-21: a +30 deg pan command turned the head to the robot's right), so the bridge maps
+      # rad -> 2048 - rad*k and reports joint_states with the same sign; +pan stays left, CCW from above, matching
+      # head.urdf axis z+1, and the URDF axis stays. Flip only via `inverted` together with the URDF.
       # Servo centre 2048 = straight ahead and level. The command steps here, the URDF limits (head.urdf) and the
       # web UI slider ranges are kept equal by tests/test_head_servo_config.py.
       # Pan 1024..3072 = +-90 deg; tilt 1707..2389 = -30..+30 deg (inverted servo, so 1707 = +30 deg). Caps (D3): 1.0 rad/s, 3.0 rad/s^2.
@@ -1718,6 +1725,7 @@ ros2_nodes:
               id: 20
               command_min_steps: 1024
               command_max_steps: 3072
+              inverted: true
               max_speed_rad_s: 1.0
               max_acceleration_rad_s2: 3.0
               startup_position_rad: 0.0
@@ -1960,6 +1968,13 @@ ros2_nodes:
 
       state:  # state settings
         rate_hz: 2.0  # state topic rate, hertz, 0 < v <= 10
+
+      temporal:  # temporal settings
+        enabled: true  # take a per-cell temporal median of the plane-relative heights before segmentation
+        cell_size_m: 0.10  # edge of a fixed-frame cell, metres, 0.02 <= v <= 0.5
+        window_frames: 8  # per-frame values a cell keeps, 1..30
+        min_frames: 4  # per-frame values a cell needs before its points are output, 1..window_frames
+        max_age_s: 1.5  # per-frame values older than this are dropped, seconds, 0 < v <= 5
 
       metrics_port: 19119 # Prometheus /metrics on 127.0.0.1
   - name: slam_toolbox

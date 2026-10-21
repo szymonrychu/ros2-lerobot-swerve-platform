@@ -14,7 +14,7 @@ from .models import MapStats, Obstacles3d, SectorObstacle, TofPoints, TofSector
 SECTOR_NAMES = ("front", "front_left", "left", "rear_left", "rear", "rear_right", "right", "front_right")
 TOF_HEIGHT_WINDOW_M = 0.1
 # Same bands as the Nav2 STVL layer (nav2_params): obstacle heights above the floor, cliff below, summary range.
-TOF_OBSTACLE_BAND_M = (0.06, 0.6)
+TOF_OBSTACLE_BAND_M = (0.10, 0.6)
 TOF_CLIFF_MAX_Z_M = -0.10
 TOF_SUMMARY_RANGE_M = 2.0
 OCCUPIED_THRESHOLD = 65

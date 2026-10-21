@@ -10,9 +10,9 @@ All three messages of one frame share one header: the same stamp and `frame_id`.
 
 | Topic | Type | Encoding | Content |
 |-------|------|----------|---------|
-| `/tof/depth/image_raw` | `sensor_msgs/Image` | `16UC1` | Depth in millimetres. `0` means invalid: SDK confidence below `confidence_threshold`, not finite, `<= 0` or beyond 65535 mm. |
+| `/tof/depth/image_raw` | `sensor_msgs/Image` | `16UC1` | Z-depth in millimetres (the SDK radial distance divided by the per-pixel ray norm, see Depth and intrinsics). `0` means invalid: SDK confidence below `confidence_threshold`, not finite, `<= 0` or beyond 65535 mm. |
 | `/tof/amplitude/image_raw` | `sensor_msgs/Image` | `mono16` | The SDK `amplitude_data`, or `confidence_data` when the frame carries no amplitude, rounded and clipped to 0..65535. mono16 keeps the full dynamic range; viewers scale it for display. |
-| `/tof/camera_info` | `sensor_msgs/CameraInfo` | - | Intrinsics from the SDK (`INTRINSIC_FX/FY/CX/CY`, reported x100), `plumb_bob` with zero distortion. Not published when the SDK reports no focal length. |
+| `/tof/camera_info` | `sensor_msgs/CameraInfo` | - | The K of `tof_calibration_file` when usable, else the SDK intrinsics (`INTRINSIC_FX/FY/CX/CY`, reported x100); `P` equals `K`, `plumb_bob` with zero distortion. Not published when neither exists. |
 
 A timer ticks at `publish_rate_hz` and requests one frame per tick, so the publish rate never exceeds it.
 
@@ -35,7 +35,15 @@ YAML file named by `ARDUCAM_TOF_CONFIG` (default `/etc/ros2/arducam_tof/config.y
 | `frame_id` | `tof_optical_frame` | non-empty | TF frame of every header. |
 | `publish_rate_hz` | `10.0` | > 0, <= 30 | Upper bound of the publish rate. |
 | `stamp_latency_ms` | `0.0` | 0..200 | Measured capture-to-return latency of the SDK frame in ms; subtracted from the frame-return time (see Timestamps). |
+| `tof_calibration_file` | unset | path | camera_calibration YAML of the ToF (the file `head_rgbd_cpp` reads). Its `camera_matrix` K is used for the z conversion and published in `/tof/camera_info`; `distortion_coefficients` are not used. |
+| `depth_is_radial` | `true` | bool | The SDK depth is the distance along each pixel ray; `true` converts it to z-depth. `false` publishes it unchanged. |
 | `metrics_port` | unset | 1..65535 | Prometheus `/metrics` on 127.0.0.1; unset falls back to `METRICS_PORT`, then off. |
+
+## Depth and intrinsics
+
+The SDK depth is radial (distance along the pixel ray). Every consumer (`head_rgbd_cpp`, the ground estimator, the calibration plane check) back-projects it as z with `x = (u-cx)/fx * z`, so a radial value makes a flat floor a dome (2.7 cm at the image centre vs the edges on the robot). With `depth_is_radial: true` the bridge divides each pixel by `sqrt(((u-cx)/fx)^2 + ((v-cy)/fy)^2 + 1)` (`ray_norm`, `radial_to_z`; pixel centres u = column, v = row; 0 stays 0; the factor image is cached per shape and K).
+
+K comes from `tof_calibration_file` (yaml + pydantic; `image_width`/`image_height` must equal the SDK frame size, else an error is logged and the SDK K is used). A missing or invalid file logs a warning once and falls back to the SDK intrinsics. With no K at all (no file, SDK without focal length) the depth is published unconverted and no camera_info goes out. The same K is used for the conversion and for `/tof/camera_info`.
 
 ## Timestamps
 
@@ -59,7 +67,7 @@ Node name `arducam_tof`, via `ros2-metrics`.
 ## Code layout
 
 - `arducam_tof/config.py` - pydantic `TofConfig`, `load_config()`, `config_path_from_env()`.
-- `arducam_tof/bridge.py` - `TofBridge` (open, retry, publish), pure helpers `depth_to_mm()`, `amplitude_to_mono16()`, `image_msg()`, `camera_info_msg()`, and `run()`.
+- `arducam_tof/bridge.py` - `TofBridge` (open, retry, publish), pure helpers `depth_to_mm()`, `ray_norm()`, `radial_to_z()`, `load_calibration()`, `amplitude_to_mono16()`, `image_msg()`, `camera_info_msg()`, and `run()`.
 - `arducam_tof/__main__.py` - entry point, `python3 -m arducam_tof`.
 
 ## Dependencies
@@ -71,7 +79,9 @@ Node name `arducam_tof`, via `ros2-metrics`.
 Run in this directory: `uv run pytest tests -q` and `uv run poe lint` (ruff and vulture).
 
 - `tests/test_config.py` - defaults, every key, rejection of unknown keys and out-of-range values, file and YAML errors, `csi_device` resolution against a fake sysfs tree.
-- `tests/test_bridge.py` - the SDK (`ArducamDepthCamera`) and rclpy are mocked: encodings, the confidence mask, one shared header, the rate bound, no publish on a failed, missing or malformed frame, open failure and retry, open with the index resolved from `csi_device` (an unresolvable one retries), release of a camera that fails after start, reopen after a stall, and `main()`.
+- `tests/test_bridge.py` - the SDK (`ArducamDepthCamera`) and rclpy are mocked: encodings, the confidence mask, one shared header, the rate bound, no publish on a failed, missing or malformed frame, open failure and retry, radial to z conversion, calibration file K and its fallbacks, open with the index resolved from `csi_device` (an unresolvable one retries), release of a camera that fails after start, reopen after a stall, and `main()`.
+
+`tests/data/floor_capture.json` is frame 0 of a `/tof/points_filtered` capture (688 points, xyz in `tof_optical_frame`, plus `frame_pose` in map) taken with the robot static, head pan 0 / tilt 30 down, over a flat wood floor on 2026-10-21. The points were made with the SDK K treating the SDK value as z, so `u = fx_sdk*x/z + cx_sdk` and the SDK value is z; `sdk_k` and `calibrated_k` are stored with it. `test_floor_capture_dome_is_flat_after_radial_to_z` fits a floor plane 0.3-0.9 m ahead and requires the centre-minus-edge residual to be > 2 cm as captured and < 1 cm after `radial_to_z` with `calibrated_k`.
 
 ## Pi 5: camera firmware
 

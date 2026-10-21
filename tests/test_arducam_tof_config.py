@@ -31,6 +31,8 @@ DRIVER_KEYS = {
     "publish_rate_hz",
     "metrics_port",
     "stamp_latency_ms",
+    "tof_calibration_file",
+    "depth_is_radial",
 }
 HEAD_TAB_TOPICS = ("/tof/depth/image_raw", "/tof/amplitude/image_raw", "/tof/camera_info")
 NORMAL_TIER = (500, 500, -500)

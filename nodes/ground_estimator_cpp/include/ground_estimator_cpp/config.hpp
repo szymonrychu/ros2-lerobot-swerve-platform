@@ -105,6 +105,16 @@ struct StateConfig
   double rate_hz = 2.0;  // 0 < v <= 10
 };
 
+// Per-cell temporal median of the plane-relative heights, taken in the fixed frame before segmentation.
+struct TemporalConfig
+{
+  bool enabled = true;
+  double cell_size_m = 0.10;  // > 0; edge of a fixed-frame cell
+  int window_frames = 8;      // >= 1; per-frame values a cell keeps
+  int min_frames = 4;         // 1..window_frames; values a cell needs before its points are output
+  double max_age_s = 1.5;     // > 0; older per-frame values are dropped
+};
+
 // Every setting of the node.
 struct Config
 {
@@ -124,6 +134,7 @@ struct Config
   SlopeConfig slope;
   ColourConfig colour;
   StateConfig state;
+  TemporalConfig temporal;
   std::optional<long> metrics_port = DEFAULT_METRICS_PORT;  // NOLINT(runtime/int); nullopt disables metrics
 
   // Largest step the base rides over: a third of the wheel diameter.

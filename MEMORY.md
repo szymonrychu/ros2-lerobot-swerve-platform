@@ -249,3 +249,7 @@
 ## Servo torque off and neutral (2026-10-20)
 
 - **Decision**: servo neutral lives in the servo EEPROM and is re-zeroed from the web UI Calibrate page inside the running bridge (torque off, record neutral, re-enable torque + save); follower arm only; an arm re-zero leaves `/var/lib/ros2/arm/calibration_stale.json` (joint_offsets and home stale). Robot runbook: `docs/runbooks/servo-torque-neutral.md`.
+
+## Head remount: ToF z-depth and ground noise (2026-10-21)
+
+- **Decision**: after the pan/tilt mount reprint the SDK depth is radial (not z); arducam_tof converts it to z in arducam_tof with the calibrated K and publishes that K. The head_pan servo is mounted reversed (`inverted: true`, +pan = left, CCW from above). ground_estimator_cpp takes a per-cell (10 cm) temporal median of plane-relative heights before segmentation. The ToF obstacle band (STVL tof_mark and collision monitor tof_obstacles) is 10 cm. The obstacle vs warning rule unchanged (max step 0.04 m, max slope 8 deg). Robot runbook: `docs/runbooks/head-remount-floor-check.md`.
