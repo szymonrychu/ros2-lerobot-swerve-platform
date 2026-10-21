@@ -528,7 +528,7 @@ The `head_state_publisher` node (robot_state_publisher on `nodes/web_ui/urdf/hea
 
 ### `test_head_tof_joint_override.py`
 
-The applied `tof_joint` override in the head_state_publisher launch (`head_description.py`, stdlib only).
+The applied `tof_joint` override in the head_state_publisher launch (`head_description.py`, stdlib only; called with the applied directory).
 
 | Test | What it covers |
 |---|---|
@@ -537,6 +537,18 @@ The applied `tof_joint` override in the head_state_publisher launch (`head_descr
 | `test_invalid_override_ignored_with_warning` | Invalid JSON and wrong shapes return the repo URDF and log a warning naming the file. |
 | `test_head_description_is_stdlib_only` | `head_description.py` imports only standard library modules. |
 | `test_launch_file_references_override_pieces` | The launch file names `head_description`, the applied path and `urdf_text.py`. |
+
+### `test_head_chain_launch.py`
+
+The applied `head_chain.json` plus `tof_joint.json` in the head_state_publisher launch.
+
+| Test | What it covers |
+|---|---|
+| `test_chain_file_changes_three_joint_origins` | head_chain.json changes the head_mount_joint, head_tilt and head_camera_joint origins. |
+| `test_chain_and_tof_together` | Both override files apply in one description. |
+| `test_invalid_chain_warns_and_tof_still_applies` | An invalid chain file logs a warning, keeps the URDF chain, tof override still applies. |
+| `test_unloadable_urdf_text_returns_urdf` | A urdf_text module that fails to load logs a warning and returns the URDF unchanged. |
+| `test_launch_passes_overridden_text` | `generate_launch_description` with `APPLIED_DIR` monkeypatched passes the overridden text as `robot_description`. |
 
 ### `test_head_chain_override.py`
 
