@@ -2,6 +2,8 @@
 
 #include <Eigen/Geometry>
 #include <cmath>
+#include <utility>
+#include <vector>
 
 #include "ground_estimator_cpp/edges.hpp"
 #include "ground_estimator_cpp/plane_fit.hpp"
@@ -80,7 +82,7 @@ Traversability run(
   auto regions = regions_from_clusters(above, edges);
   const auto drop_regions = regions_from_clusters(below, edges);
   regions.insert(regions.end(), drop_regions.begin(), drop_regions.end());
-  return apply_rule(above, below, pa, ha, pb, hb, regions, cfg);
+  return apply_rule(above, below, pa, ha, pb, hb, regions, edges, cfg);
 }
 
 Scene sill(double height_m)
@@ -125,12 +127,12 @@ bool has_kind(const Traversability & t, const std::string & kind)
 TEST(Traversability, ClassifyThresholdsAreWarnings)
 {
   const TraversabilityConfig cfg;
-  EXPECT_EQ(classify_cluster(0.04, 8.0, cfg).cls, Cls::warning);
-  EXPECT_EQ(classify_cluster(0.04, 8.0, cfg).reason, "traversable");
-  const auto step = classify_cluster(0.0401, 0.0, cfg);
+  EXPECT_EQ(classify_cluster(0.04, 8.0, true, cfg).cls, Cls::warning);
+  EXPECT_EQ(classify_cluster(0.04, 8.0, true, cfg).reason, "traversable");
+  const auto step = classify_cluster(0.0401, 0.0, true, cfg);
   EXPECT_EQ(step.cls, Cls::obstacle);
   EXPECT_EQ(step.reason, "step_height");
-  const auto slope = classify_cluster(0.0, 8.01, cfg);
+  const auto slope = classify_cluster(0.0, 8.01, true, cfg);
   EXPECT_EQ(slope.cls, Cls::obstacle);
   EXPECT_EQ(slope.reason, "slope");
 }
@@ -194,18 +196,50 @@ TEST(Traversability, RegionsCarryCls)
   EXPECT_EQ(high.regions[0].cls, "obstacle");
 }
 
+namespace
+{
+pcl::PointCloud<pcl::PointXYZ> returns(const std::vector<std::pair<float, float>> & xy, float h)
+{
+  pcl::PointCloud<pcl::PointXYZ> cloud;
+  for (const auto & p : xy) {
+    cloud.push_back(pcl::PointXYZ(p.first, p.second, h));
+  }
+  return cloud;
+}
+}  // namespace
+
 TEST(Traversability, IsolatedReturns)
 {
-  pcl::PointCloud<pcl::PointXYZ> tall, none, empty;
-  tall.push_back(pcl::PointXYZ(1.0F, 0.0F, 0.10F));
-  none.push_back(pcl::PointXYZ(1.0F, 0.0F, 0.03F));
-  const auto a = apply_rule({}, {}, tall, {0.10F}, empty, {}, {}, TraversabilityConfig{});
+  const pcl::PointCloud<pcl::PointXYZ> empty;
+  const EdgesConfig edges;
+  const auto tall = returns({{1.0F, 0.0F}}, 0.10F);
+  const auto none = returns({{1.0F, 0.0F}}, 0.03F);
+  const auto lone = apply_rule({}, {}, tall, {0.10F}, empty, {}, {}, edges, TraversabilityConfig{});
+  EXPECT_TRUE(lone.obstacle.empty());
+  TraversabilityConfig single;
+  single.lethal_min_points = 1;
+  const auto a = apply_rule({}, {}, tall, {0.10F}, empty, {}, {}, edges, single);
   EXPECT_EQ(a.obstacle.size(), 1u);
-  const auto b = apply_rule({}, {}, none, {0.03F}, empty, {}, {}, TraversabilityConfig{});
+  const auto b = apply_rule({}, {}, none, {0.03F}, empty, {}, {}, edges, single);
   EXPECT_TRUE(b.obstacle.empty());
   EXPECT_TRUE(b.drop.empty());
-  const auto c = apply_rule({}, {}, empty, {}, tall, {-0.10F}, {}, TraversabilityConfig{});
+  const auto c = apply_rule({}, {}, empty, {}, tall, {-0.10F}, {}, edges, single);
   EXPECT_EQ(c.drop.size(), 1u);
+}
+
+TEST(Traversability, LethalNeedsNeighbour)
+{
+  const pcl::PointCloud<pcl::PointXYZ> empty;
+  const EdgesConfig edges;
+  const TraversabilityConfig cfg;
+  const auto close = returns({{1.0F, 0.0F}, {1.05F, 0.0F}}, 0.10F);
+  const auto far = returns({{1.0F, 0.0F}, {1.5F, 0.0F}}, 0.10F);
+  EXPECT_EQ(apply_rule({}, {}, close, {0.10F, 0.10F}, empty, {}, {}, edges, cfg).obstacle.size(), 2u);
+  EXPECT_TRUE(apply_rule({}, {}, far, {0.10F, 0.10F}, empty, {}, {}, edges, cfg).obstacle.empty());
+  const auto close_below = returns({{1.0F, 0.0F}, {1.05F, 0.0F}}, -0.10F);
+  const auto far_below = returns({{1.0F, 0.0F}, {1.5F, 0.0F}}, -0.10F);
+  EXPECT_EQ(apply_rule({}, {}, empty, {}, close_below, {-0.10F, -0.10F}, {}, edges, cfg).drop.size(), 2u);
+  EXPECT_TRUE(apply_rule({}, {}, empty, {}, far_below, {-0.10F, -0.10F}, {}, edges, cfg).drop.empty());
 }
 
 namespace
@@ -225,26 +259,62 @@ void patch(pcl::PointCloud<pcl::PointXYZ> & cloud, std::vector<float> & heights,
 
 TEST(Traversability, ColourSheetIsWarning)
 {
-  pcl::PointCloud<pcl::PointXYZ> cloud, lethal;
+  pcl::PointCloud<pcl::PointXYZ> cloud;
   std::vector<float> heights;
   patch(cloud, heights, 0.0);
-  const auto areas = colour_warning_areas(cloud, heights, Plane{}, EdgesConfig{}, TraversabilityConfig{}, &lethal);
+  const auto areas = colour_warning_areas(cloud, heights, Plane{}, EdgesConfig{}, TraversabilityConfig{});
   ASSERT_EQ(areas.size(), 1u);
   EXPECT_EQ(areas[0].kind, "colour");
   EXPECT_EQ(areas[0].source, "colour");
-  EXPECT_EQ(areas[0].cls, "warning");
   EXPECT_FALSE(areas[0].polygon.empty());
-  EXPECT_TRUE(lethal.empty());
 }
 
-TEST(Traversability, ColourPlateIsObstacle)
+TEST(Traversability, ColourPlateIsWarningOnly)
 {
-  pcl::PointCloud<pcl::PointXYZ> cloud, lethal;
+  pcl::PointCloud<pcl::PointXYZ> cloud;
   std::vector<float> heights;
   patch(cloud, heights, 0.06);
-  const auto areas = colour_warning_areas(cloud, heights, Plane{}, EdgesConfig{}, TraversabilityConfig{}, &lethal);
+  const auto areas = colour_warning_areas(cloud, heights, Plane{}, EdgesConfig{}, TraversabilityConfig{});
   ASSERT_EQ(areas.size(), 1u);
   EXPECT_EQ(areas[0].kind, "colour");
-  EXPECT_EQ(areas[0].cls, "obstacle");
-  EXPECT_EQ(lethal.size(), cloud.size());
+  EXPECT_EQ(areas[0].source, "colour");
+}
+
+TEST(Traversability, UnknownSlopeUsesEdgeStepOnly)
+{
+  const TraversabilityConfig cfg;
+  EXPECT_EQ(classify_cluster(0.03, 40.0, false, cfg).cls, Cls::warning);
+  EXPECT_EQ(classify_cluster(0.05, 0.0, false, cfg).cls, Cls::obstacle);
+  EXPECT_EQ(classify_cluster(0.03, 40.0, true, cfg).cls, Cls::obstacle);
+
+  Cluster c;
+  c.kind = "step";
+  c.edge_step_m = 0.03;
+  c.median_height_m = 0.03;
+  c.slope_deg = 40.0;
+  c.slope_known = false;
+  c.points = returns({{1.0F, 0.0F}, {1.0F, 0.02F}, {1.02F, 0.0F}}, 0.03F);
+  c.hull = {Eigen::Vector2d(1.0, 0.0), Eigen::Vector2d(1.0, 0.02), Eigen::Vector2d(1.02, 0.0)};
+  const pcl::PointCloud<pcl::PointXYZ> empty;
+  auto t = apply_rule({c}, {}, empty, {}, empty, {}, {}, EdgesConfig{}, cfg);
+  ASSERT_EQ(t.warnings.size(), 1u);
+  EXPECT_EQ(t.warnings[0].kind, "step");
+  EXPECT_TRUE(t.obstacle.empty());
+  c.slope_known = true;
+  c.slope_deg = 6.0;
+  t = apply_rule({c}, {}, empty, {}, empty, {}, {}, EdgesConfig{}, cfg);
+  ASSERT_EQ(t.warnings.size(), 1u);
+  EXPECT_EQ(t.warnings[0].kind, "ramp");
+}
+
+TEST(Traversability, WarningPointsAreKept)
+{
+  const auto up = run(sill(0.03));
+  ASSERT_TRUE(has_kind(up, "step"));
+  EXPECT_FALSE(up.warning_above.empty());
+  EXPECT_TRUE(up.warning_below.empty());
+  const auto down = run(drop(0.03), over_the_lip());
+  ASSERT_TRUE(has_kind(down, "drop"));
+  EXPECT_FALSE(down.warning_below.empty());
+  EXPECT_TRUE(down.warning_above.empty());
 }

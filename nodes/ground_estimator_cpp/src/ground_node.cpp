@@ -29,7 +29,6 @@ constexpr double NS_PER_S = 1e9;
 constexpr double QUATERNION_NORM_TOLERANCE = 1e-3;
 constexpr double UNKNOWN_COVARIANCE = -1.0;  // sensor_msgs/Imu: orientation not provided
 constexpr double MIN_NORMAL_Z = 1e-6;
-constexpr const char * CLS_WARNING = "warning";
 constexpr std::array<double, 9> FIT_SECONDS_BUCKETS = {0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.5, 1.0};
 constexpr std::array<FitReject, 6> ALL_REJECTS = {FitReject::too_few_points,   FitReject::no_plane,
                                                   FitReject::normal_off_prior, FitReject::offset_off_prior,
@@ -388,24 +387,17 @@ void GroundNode::process_plane(
   gather(seg.below, seg.below_height, unclustered_index_, unclustered_below_, unclustered_below_h_);
   Traversability rule = apply_rule(
     above, below, unclustered_above_, unclustered_above_h_, unclustered_below_, unclustered_below_h_,
-    all_regions(above, below, config_.edges), config_.traversability);
+    all_regions(above, below, config_.edges), config_.edges, config_.traversability);
   fit_seconds_->Observe(seconds_since(started));
 
   cycle_ = Cycle{};
   cycle_.warnings = std::move(rule.warnings);
   // The colour areas of the latest labelled RGB-D cloud, moved from its base_link to this cloud's base_link through
-  // the fixed frame. Flat flagged objects are warnings; colour clusters that fail the rule are lethal obstacles.
+  // the fixed frame. Every colour cluster is a warning, never lethal.
   if (colour_ && std::fabs(stamp_s - colour_->stamp_s) <= config_.fit.hold_s) {
     const Eigen::Isometry3d base_T_colour = fixed_T_base.inverse() * colour_->fixed_T_base;
     for (const WarningArea & area : colour_->areas) {
-      if (area.cls == CLS_WARNING) {
-        cycle_.warnings.push_back(moved(area, colour_->plane, base_T_colour));
-      }
-    }
-    const Eigen::Isometry3f t = base_T_colour.cast<float>();
-    for (const auto & p : colour_->lethal) {
-      const Eigen::Vector3f q = t * Eigen::Vector3f(p.x, p.y, p.z);
-      rule.obstacle.push_back(pcl::PointXYZ(q.x(), q.y(), q.z()));
+      cycle_.warnings.push_back(moved(area, colour_->plane, base_T_colour));
     }
   }
   cycle_.regions = std::move(rule.regions);
@@ -477,8 +469,7 @@ void GroundNode::on_rgbd(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & m
     mismatch_h_.push_back(static_cast<float>(m.height));
   }
   ColourFrame frame;
-  frame.areas =
-    colour_warning_areas(mismatch_cloud_, mismatch_h_, plane, config_.edges, config_.traversability, &frame.lethal);
+  frame.areas = colour_warning_areas(mismatch_cloud_, mismatch_h_, plane, config_.edges, config_.traversability);
   frame.plane = plane;
   frame.fixed_T_base = fixed_T_base;
   frame.stamp_s = stamp_s;

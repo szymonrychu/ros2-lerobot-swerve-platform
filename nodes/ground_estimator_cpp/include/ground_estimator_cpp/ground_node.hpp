@@ -95,9 +95,8 @@ private:
   // The latest colour warning areas, in base_link at their RGB-D stamp, with what is needed to move them.
   struct ColourFrame
   {
-    std::vector<WarningArea> areas;         // cls "warning" or "obstacle"
-    pcl::PointCloud<pcl::PointXYZ> lethal;  // points of the clusters that fail the rule
-    Plane plane;                            // the floor plane in base_link at the stamp
+    std::vector<WarningArea> areas;  // all warnings
+    Plane plane;                     // the floor plane in base_link at the stamp
     Eigen::Isometry3d fixed_T_base = Eigen::Isometry3d::Identity();
     double stamp_s = 0.0;
   };
