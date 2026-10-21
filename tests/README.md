@@ -18,6 +18,24 @@ Root lint tasks cover every Python node and every C++ package. Node projects are
 | `test_every_cpp_node_has_a_ci_row_and_is_linted` | Every C++ package has a row in the `cpp` CI matrix and is reached by the `lint-cpp` poe task (by path or the `nodes/*_cpp` glob), so a new `nodes/<x>_cpp` without a CI row fails. |
 | `test_cpp_packages_are_not_python_node_projects` | C++ package discovery is non-empty and disjoint from the Python node discovery (C++ packages carry no `pyproject.toml`). |
 
+### `test_head_arm_calib_chain.py`
+
+URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.py`) on `nodes/web_ui/urdf/head.urdf` and `so101_arm.urdf`.
+
+| Test | Description |
+|------|-------------|
+| `test_head_camera_pose_at_zero_matches_urdf_origins` | Camera optical frame at pan = tilt = 0 equals the hand-computed product of the URDF origins; `joint_names` lists root to link. |
+| `test_pan_left_and_tilt_down_signs` | Pan +0.5 turns the camera CCW about +z; tilt + gives the optical z axis a negative z component. |
+| `test_origin_override_and_offsets` | An origin override moves only that joint's translation; offsets add to the measured angle. |
+| `test_offsets_add_to_measured` | Angle = measured + offset. |
+| `test_missing_joint_raises` | A missing movable joint or unknown link raises KeyError naming it. |
+| `test_limits` | Revolute limits are read; fixed joints have none. |
+| `test_unsupported_joint_type_names_the_joint` | A prismatic joint raises ValueError naming it. |
+| `test_continuous_joint_has_no_limits` | Continuous joints parse, rotate about their axis, have no limits. |
+| `test_so101_gripper_link_at_zero_is_the_product_of_origins` | so101 gripper_link at zero joints equals the product of origins. |
+| `test_xyz_rpy_round_trip` | xyz/rpy to pose and back within 1e-12. |
+| `test_arm_in_robot_base_default_gauge` | The default gauge maps the arm root to (0.0592, -0.05, 0.100); yaw rotates the arm axes. |
+
 ### `test_master2master_config.py`
 
 Unit tests for master2master topic proxy config parsing (`nodes/master2master/master2master/config.py`). Imports from `nodes/master2master` via path setup.
