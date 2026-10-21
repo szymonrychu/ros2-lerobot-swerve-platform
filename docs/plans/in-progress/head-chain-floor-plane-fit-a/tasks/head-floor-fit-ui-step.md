@@ -1,6 +1,6 @@
 ---
 title: Head floor fit UI step
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The user runs the floor fit from the Calibrate page and sees fitted vs current values before applying; the runbook proves the floor reads flat."
 files: [nodes/web_ui/frontend/src/calibrate/headFloorApi.ts, nodes/web_ui/frontend/src/calibrate/headFloorApi.test.ts, nodes/web_ui/frontend/src/calibrate/HeadFloorFit.tsx, nodes/web_ui/frontend/src/calibrate/HeadFloorFit.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx, nodes/web_ui/README.md, docs/runbooks/head-floor-fit.md]

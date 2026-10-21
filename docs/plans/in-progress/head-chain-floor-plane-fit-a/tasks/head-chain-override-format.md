@@ -1,6 +1,6 @@
 ---
 title: Head chain override format
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One format and one applier for the calibrated head chain, so every consumer reads the same override the same way."
 files: [shared/ros2_common/head_rgbd_calibration/urdf_text.py, tests/test_head_chain_override.py, tests/README.md, shared/README.md]

@@ -1,6 +1,6 @@
 ---
 title: Floor plane chain fit
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Measures the head mount height, roll, pitch and tilt zero from the floor the ToF sees, with sigma and limits that refuse a bad fit."
 files: [shared/ros2_common/head_rgbd_calibration/floor_fit.py, shared/ros2_common/head_rgbd_calibration/config.py, tests/head_floor_synthetic.py, tests/test_head_floor_fit.py, tests/README.md, shared/README.md]

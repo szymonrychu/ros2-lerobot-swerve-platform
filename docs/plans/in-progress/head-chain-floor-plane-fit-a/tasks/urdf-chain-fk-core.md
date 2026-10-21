@@ -1,6 +1,6 @@
 ---
 title: URDF chain FK core
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: One tested forward-kinematics chain over the repo URDFs that the floor fit and the later board and arm fits share.
 files: [shared/ros2_common/head_rgbd_calibration/chain.py, tests/test_head_arm_calib_chain.py, tests/README.md, shared/README.md]
