@@ -229,6 +229,9 @@ ros2_node_type_defaults:
     node_src_dir: nodes/head_rgbd_calibration
     # Depends on shared/ (ros2_common.head_rgbd_calibration): shared/ changes restart and re-sync it.
     src_shared: true
+    # point_cloud2 reader of the floor sweep (sensor_msgs_py), as laser_filter.
+    apt_packages:
+      - ros-jazzy-sensor-msgs-py
     memory_low: "64M"
     memory_max: "768M"
     cpu_weight: 100
@@ -1556,6 +1559,44 @@ ros2_nodes:
         plane_max_bias_mm: 40.0
         plane_max_spread_mm: 50.0
         min_views: 12
+      # Guided head floor sweep (Head floor fit): the head only moves, then returns to where it started.
+      floor:
+        joint_states_topic: /head/joint_states # measured head pan/tilt
+        command_topic: /head/joint_commands # JointState (head_pan, head_tilt rad) commands, as the web UI head tab
+        cloud_topic: /tof/points # ToF cloud in tof_optical_frame
+        command_frame_id: head_rgbd_calibration # header.frame_id of the commands
+        pan_deg: [-60, -30, 0, 30, 60] # pan grid, deg (-90..90)
+        tilt_deg: [12, 20, 28] # tilt grid, deg, + is down (each -30..30)
+        reach_tol_deg: 1.0 # a pose counts as reached within this of the target, deg (> 0)
+        still_tol_deg: 0.2 # head still when the joint spread over still_window_s is under this, deg (> 0)
+        still_window_s: 0.5 # window the stillness is judged over, s (> 0)
+        move_timeout_s: 6.0 # a pose not reached and still within this is skipped, s (> 0)
+        settle_s: 0.5 # wait after still before the clouds count, s (>= 0)
+        clouds_per_pose: 5 # clouds fitted per pose (>= 1)
+        cloud_timeout_s: 3.0 # wait for each cloud, s (> 0)
+        max_stamp_dt_s: 0.1 # joint state must be this close to a cloud stamp, s (> 0)
+        fit: # floor plane fit and the chain fit limits (shared core)
+          plane:
+            ransac_distance_m: 0.015
+            ransac_iterations: 200
+            min_inliers: 300
+            min_inlier_ratio: 0.5
+            max_range_m: 1.8
+            candidate_band_m: 0.25
+            seed: 0
+          limits:
+            min_observations: 30
+            min_poses: 8
+            min_pan_span_deg: 60.0
+            max_height_rms_mm: 8.0
+            max_normal_rms_deg: 0.6
+            max_sigma_z_mm: 3.0
+            max_sigma_deg: 0.3
+            max_delta_z_m: 0.1
+            max_delta_deg: 10.0
+          sigma_height_mm: 5.0
+          sigma_normal_deg: 0.5
+          huber_scale: 1.0
   # Carries the head RGB-D, scan, TF and command streams to the server and the 3D map back (lazy, throttled).
   - name: map3d_uplink
     node_type: map3d_uplink

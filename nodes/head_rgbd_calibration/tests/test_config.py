@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 from pydantic import ValidationError
+from ros2_common.head_rgbd_calibration.config import FloorFitConfig
 
 from head_rgbd_calibration.config import CONFIG_ENV, NodeConfig, load_config
 
@@ -71,3 +72,48 @@ def test_core_blocks_equal_calibrate_tool_yaml() -> None:
     assert cfg.board.model_dump(mode="json") == {**tool["board"]}
     assert cfg.selection.model_dump(mode="json") == {**tool["selection"]}
     assert cfg.limits.model_dump(mode="json") == tool["limits"]
+
+
+def test_floor_defaults_and_tilt_range() -> None:
+    floor = NodeConfig().floor
+    assert floor.joint_states_topic == "/head/joint_states"
+    assert floor.command_topic == "/head/joint_commands"
+    assert floor.cloud_topic == "/tof/points"
+    assert floor.command_frame_id == "head_rgbd_calibration"
+    assert floor.pan_deg == [-60, -30, 0, 30, 60]
+    assert floor.tilt_deg == [12, 20, 28]
+    assert floor.reach_tol_deg == 1.0
+    assert floor.still_tol_deg == 0.2
+    assert floor.still_window_s == 0.5
+    assert floor.move_timeout_s == 6.0
+    assert floor.settle_s == 0.5
+    assert floor.clouds_per_pose == 5
+    assert floor.cloud_timeout_s == 3.0
+    assert floor.max_stamp_dt_s == 0.1
+    assert floor.fit == FloorFitConfig()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "floor:\n  tilt_deg: [12, 31]\n",
+        "floor:\n  tilt_deg: [-30.5]\n",
+        "floor:\n  tilt_deg: []\n",
+        "floor:\n  pan_deg: []\n",
+        "floor:\n  pan_deg: [95]\n",
+        "floor:\n  clouds_per_pose: 0\n",
+        "floor:\n  move_timeout_s: 0\n",
+        "floor:\n  bogus: 1\n",
+    ],
+)
+def test_floor_out_of_range_rejected(tmp_path: Path, text: str) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(text)
+    with pytest.raises(ValidationError):
+        load_config(path)
+
+
+def test_floor_tilt_range_edges_accepted(tmp_path: Path) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text("floor:\n  tilt_deg: [-30, 30]\n")
+    assert load_config(path).floor.tilt_deg == [-30, 30]

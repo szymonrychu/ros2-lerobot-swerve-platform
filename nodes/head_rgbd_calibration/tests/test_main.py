@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import APIRouter
 
 from head_rgbd_calibration import __main__ as entry
 from head_rgbd_calibration.config import CONFIG_ENV
@@ -16,6 +17,8 @@ class Recorder:
         self.uvicorn_config: dict[str, Any] = {}
         self.capture: Any = None
         self.job: Any = None
+        self.sweep: Any = None
+        self.routers: list[Any] = []
         self.node: Any = None
         self.fail_serve = False
 
@@ -62,6 +65,18 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
         def stop(self) -> None:
             rec.events.append("job_stop")
 
+    class FakeSweep:
+        def __init__(self, node: Any, cfg: Any, urdf_text: Any, clock: Any, sleep: Any, now: Any, blocked: Any) -> None:
+            rec.sweep = self
+            self.urdf_text = urdf_text
+            self.blocked = blocked
+
+        def stop(self) -> None:
+            rec.events.append("sweep_stop")
+
+        def wait(self, timeout: float | None = None) -> None:
+            rec.events.append("sweep_wait")
+
     class FakeServer:
         def __init__(self, config: Any) -> None:
             rec.uvicorn_config = {"host": config.host, "port": config.port}
@@ -79,6 +94,8 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
     monkeypatch.setattr(entry, "MultiThreadedExecutor", FakeExecutor)
     monkeypatch.setattr(entry, "CaptureController", FakeCapture)
     monkeypatch.setattr(entry, "ComputeJob", FakeJob)
+    monkeypatch.setattr(entry, "FloorSweep", FakeSweep)
+    monkeypatch.setattr(entry, "floor_router", lambda *args: (rec.routers.append(args), APIRouter())[1])
     monkeypatch.setattr(entry.uvicorn, "Server", FakeServer)
     return rec
 
@@ -98,12 +115,40 @@ def test_default_bind_is_loopback(monkeypatch: pytest.MonkeyPatch, rec: Recorder
     assert rec.uvicorn_config == {"host": "127.0.0.1", "port": 18110}
 
 
-def test_shutdown_stops_capture_job_and_node(rec: Recorder) -> None:
+def test_shutdown_stops_floor_sweep_first(rec: Recorder) -> None:
     rec.fail_serve = True
     with pytest.raises(RuntimeError):
         entry.main()
     tail = [e for e in rec.events[rec.events.index("serve") + 1 :] if e != "spin"]
-    assert tail == ["capture_stop", "job_stop", "destroy_node", "executor_shutdown", "shutdown"]
+    assert tail == [
+        "sweep_stop",
+        "sweep_wait",
+        "capture_stop",
+        "job_stop",
+        "destroy_node",
+        "executor_shutdown",
+        "shutdown",
+    ]
+
+
+def test_floor_router_is_built_with_the_sweep_capture_and_job(rec: Recorder) -> None:
+    entry.main()
+    ((sweep, capture, job, cfg, _run),) = rec.routers
+    assert (sweep, capture, job) == (rec.sweep, rec.capture, rec.job)
+    assert cfg.http_port == 18999
+
+
+def test_sweep_is_blocked_while_a_capture_or_compute_runs(rec: Recorder) -> None:
+    entry.main()
+    state = {"running": False}
+    rec.capture.state = lambda: dict(state)
+    rec.job.state = lambda: {"running": False}
+    assert rec.sweep.blocked() is None
+    state["running"] = True
+    assert "capture" in rec.sweep.blocked()
+    state["running"] = False
+    rec.job.state = lambda: {"running": True}
+    assert "compute" in rec.sweep.blocked()
 
 
 def test_missing_env_is_a_config_error(monkeypatch: pytest.MonkeyPatch) -> None:

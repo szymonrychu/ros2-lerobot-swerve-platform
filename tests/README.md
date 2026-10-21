@@ -18,6 +18,42 @@ Root lint tasks cover every Python node and every C++ package. Node projects are
 | `test_every_cpp_node_has_a_ci_row_and_is_linted` | Every C++ package has a row in the `cpp` CI matrix and is reached by the `lint-cpp` poe task (by path or the `nodes/*_cpp` glob), so a new `nodes/<x>_cpp` without a CI row fails. |
 | `test_cpp_packages_are_not_python_node_projects` | C++ package discovery is non-empty and disjoint from the Python node discovery (C++ packages carry no `pyproject.toml`). |
 
+### `test_head_arm_calib_chain.py`
+
+URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.py`) on `nodes/web_ui/urdf/head.urdf` and `so101_arm.urdf`.
+
+| Test | Description |
+|------|-------------|
+| `test_head_camera_pose_at_zero_matches_urdf_origins` | Camera optical frame at pan = tilt = 0 equals the hand-computed product of the URDF origins; `joint_names` lists root to link. |
+| `test_pan_left_and_tilt_down_signs` | Pan +0.5 turns the camera CCW about +z; tilt + gives the optical z axis a negative z component. |
+| `test_origin_override_and_offsets` | An origin override moves only that joint's translation; offsets add to the measured angle. |
+| `test_offsets_add_to_measured` | Angle = measured + offset. |
+| `test_missing_joint_raises` | A missing movable joint or unknown link raises KeyError naming it. |
+| `test_limits` | Revolute limits are read; fixed joints have none. |
+| `test_unsupported_joint_type_names_the_joint` | A prismatic joint raises ValueError naming it. |
+| `test_continuous_joint_has_no_limits` | Continuous joints parse, rotate about their axis, have no limits. |
+| `test_so101_gripper_link_at_zero_is_the_product_of_origins` | so101 gripper_link at zero joints equals the product of origins. |
+| `test_xyz_rpy_round_trip` | xyz/rpy to pose and back within 1e-12. |
+| `test_arm_in_robot_base_default_gauge` | The default gauge maps the arm root to (0.0592, -0.05, 0.100); yaw rotates the arm axes. |
+
+### `test_head_floor_fit.py`
+
+Floor-plane head chain fit (`shared/ros2_common/head_rgbd_calibration/floor_fit.py`, design D2-D4) on `nodes/web_ui/urdf/head.urdf`, with clouds from `tests/head_floor_synthetic.py`. Truth chain: mount z +0.03 m, roll +1.5 deg, pitch -3.0 deg, tilt zero +2.0 deg.
+
+| Test | Description |
+|------|-------------|
+| `test_floor_fit_config_defaults_and_ranges` | `FloorPlaneConfig`, `FloorFitLimits`, `FloorFitConfig` defaults; out-of-range values, a candidate band not above the RANSAC distance and unknown keys are rejected. |
+| `test_predicted_floor_at_zero_matches_urdf` | Pan 0, tilt 0 on the URDF: height 0.35 m (0.31 + 0.04) and the normal along optical -y. |
+| `test_predicted_floor_tilt_down_turns_floor_toward_view` | Tilt down gives the normal a -z optical component; an origin override (`Origin` or (xyz, rpy)) raises the height. |
+| `test_fit_plane_recovers_plane_and_refuses_sparse_cloud` | Three poses, 5 mm noise, 20 % wall outliers: height within 2 mm, normal within 0.1 deg, inlier RMS about the noise; 200 floor points (also padded with NaN), points beyond `max_range_m`, and a cloud whose inlier ratio is below `min_inlier_ratio` give None. |
+| `test_fit_recovers_perturbed_chain` | Pan -60..60 step 30 x tilt 12/20/28 deg, 5 clouds per pose, 5 mm noise: each parameter within 2 mm or 0.15 deg, `passed`, fixed components (mount x, y, yaw, tilt xyz, roll, yaw) exactly the URDF values, per-pose residuals, strict-JSON `to_json`. |
+| `test_pan_span_limit_guards_degenerate_grid` | A pan-0-only grid fails `min_pan_span_deg` and does not pass. |
+| `test_limits_refuse_bad_results` | 15 observations fail `min_observations` only, the solver is not called and the URDF values are kept; no observations also fail `min_poses` and `min_pan_span_deg`; a 0.2 m height bias fails `max_delta_z_m`; 30 mm height noise fails `max_height_rms_mm`. None of them pass. |
+
+### `head_floor_synthetic.py`
+
+Shared helper module (no tests) for `test_head_floor_fit.py`: `synthetic_clouds(urdf_text, truth_origins, grid, noise_m, outlier_ratio, rng, clouds_per_pose, rays)` returns `SyntheticCloud(pose, pan_rad, tilt_rad, points)`: floor points (base_link z = 0) inside the ToF field of view (60 x 45 deg, 0.3-1.8 m) seen through the truth chain, plus points of a vertical wall 1.2 m ahead as outliers, with Gaussian noise, in `tof_optical_frame`.
+
 ### `test_master2master_config.py`
 
 Unit tests for master2master topic proxy config parsing (`nodes/master2master/master2master/config.py`). Imports from `nodes/master2master` via path setup.
@@ -492,7 +528,7 @@ The `head_state_publisher` node (robot_state_publisher on `nodes/web_ui/urdf/hea
 
 ### `test_head_tof_joint_override.py`
 
-The applied `tof_joint` override in the head_state_publisher launch (`head_description.py`, stdlib only).
+The applied `tof_joint` override in the head_state_publisher launch (`head_description.py`, stdlib only; called with the applied directory).
 
 | Test | What it covers |
 |---|---|
@@ -501,6 +537,38 @@ The applied `tof_joint` override in the head_state_publisher launch (`head_descr
 | `test_invalid_override_ignored_with_warning` | Invalid JSON and wrong shapes return the repo URDF and log a warning naming the file. |
 | `test_head_description_is_stdlib_only` | `head_description.py` imports only standard library modules. |
 | `test_launch_file_references_override_pieces` | The launch file names `head_description`, the applied path and `urdf_text.py`. |
+
+### `test_head_chain_launch.py`
+
+The applied `head_chain.json` plus `tof_joint.json` in the head_state_publisher launch.
+
+| Test | What it covers |
+|---|---|
+| `test_chain_file_changes_three_joint_origins` | head_chain.json changes the head_mount_joint, head_tilt and head_camera_joint origins. |
+| `test_chain_and_tof_together` | Both override files apply in one description. |
+| `test_invalid_chain_warns_and_tof_still_applies` | An invalid chain file logs a warning, keeps the URDF chain, tof override still applies. |
+| `test_unloadable_urdf_text_returns_urdf` | A urdf_text module that fails to load logs a warning and returns the URDF unchanged. |
+| `test_launch_passes_overridden_text` | `generate_launch_description` with `APPLIED_DIR` monkeypatched passes the overridden text as `robot_description`. |
+
+### `test_head_chain_override.py`
+
+The `head_chain.json` format and `apply_overrides` in `urdf_text.py` (design D1, D7).
+
+| Test | What it covers |
+|---|---|
+| `test_constants` | File name constants and `HEAD_CHAIN_JOINTS`. |
+| `test_head_chain_json_round_trip` | `head_chain_json` output has sorted keys and 9 decimals and `parse_head_chain` returns the same origins. |
+| `test_each_chain_joint_rewritten_only` | Each chain joint rewrite changes only its origin line and comment; a second rewrite replaces the comment. |
+| `test_head_tilt_keeps_axis_and_limit` | A head_tilt rewrite keeps `<axis>` and `<limit>`. |
+| `test_rewrite_tof_joint_is_rewrite_joint_origin` | `rewrite_tof_joint` equals `rewrite_joint_origin` for tof_joint with the `tof_joint calibrated` marker. |
+| `test_rewrite_unknown_joint_raises` | An unknown joint raises ValueError. |
+| `test_apply_overrides_chain_then_tof` | `apply_overrides` applies the chain joints and then the tof override. |
+| `test_empty_dir_gives_identical_text` | No override files give the identical text and no warnings. |
+| `test_invalid_override_files_warn_and_keep_urdf` | Bad JSON, unknown joint, 2-vector, NaN, bool and empty joints each give one warning and leave the text unchanged. |
+| `test_invalid_chain_does_not_block_tof` | An invalid head_chain.json still lets tof_joint.json apply. |
+| `test_invalid_tof_one_warning` | An invalid tof_joint.json gives one warning naming the file. |
+| `test_parse_head_chain_error_names_key` | The ValueError names the offending key. |
+| `test_urdf_text_imports_only_stdlib` | `urdf_text.py` imports only standard library modules (checked with `ast`). |
 
 ### `test_head_config_consistency.py`
 

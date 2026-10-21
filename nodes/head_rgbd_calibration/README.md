@@ -197,6 +197,64 @@ that real responses have exactly the fixture's keys and value types.
 - Session (`GET /api/sessions/{sid}`): every pose in `poses` has `hints`, a list of strings (empty for a good pose).
 - Result: the `result.json` fields (including `poses` and `outlier_poses`) plus `report` (markdown or null).
 
+## Head floor fit
+
+`head_rgbd_calibration/floor_sweep.py` (`FloorSweep`, design D5, D11) is the capture half of the floor-plane head chain fit
+(mount z, roll, pitch and tilt zero from the ToF floor plane; the maths is `ros2_common.head_rgbd_calibration.floor_fit`).
+Clear a flat floor in front of the robot (robot level, not on blocks), then start the sweep. Only the head moves.
+
+- `start()` creates the `floor.joint_states_topic` and `floor.cloud_topic` subscriptions and the `floor.command_topic`
+  publisher, and refuses (`SweepError`, nothing moved) when no head joint state arrives within `move_timeout_s`. It raises
+  `Busy` while a sweep runs or an RGB-D capture or compute runs (the HTTP layer passes that check as `blocked`).
+  One sweep at a time, on a worker thread; a stop is `stop()`.
+- Grid: `floor.tilt_deg` rows, the `floor.pan_deg` direction alternating per row (serpentine); defaults pan
+  -60..60 by tilt 12/20/28 deg down, 15 poses, about a minute. Each pose is a `sensor_msgs/JointState` (`head_pan`,
+  `head_tilt`, radians, `header.frame_id` = `command_frame_id`), the same command as the web UI head tab. A pose counts
+  once both joints are within `reach_tol_deg` of the target and still (spread under `still_tol_deg` over
+  `still_window_s`); not within `move_timeout_s` it is skipped with `did not reach pan/tilt`.
+- After `settle_s` the next `clouds_per_pose` clouds stamped after the still time are fitted. A cloud takes the head
+  pan/tilt of the joint state nearest its header stamp within `max_stamp_dt_s` (no such state: the cloud is dropped and
+  counted); points are read with `sensor_msgs_py.point_cloud2.read_points_numpy(skip_nans=True)` and fitted with
+  `floor_fit.fit_plane` against the plane the URDF predicts. A pose without a valid plane is skipped with its reason; nothing
+  is filled in. Nothing is published but head commands.
+- Every exit (done, `stop()`, error, exception) commands the head back to the pan/tilt it had at start and destroys the
+  subscriptions and the publisher. Joint states that stop arriving for `move_timeout_s` abort the sweep with an error.
+- `state()` returns `{running, session_id, pose, total, observations, skipped, status, error}`; `status` is `idle`,
+  `starting`, `running`, `done`, `stopped` or `error`.
+
+`floor` keys (all in the shipped YAML at their defaults): `joint_states_topic`, `command_topic`, `cloud_topic`,
+`command_frame_id`, `pan_deg` (each -90..90), `tilt_deg` (each -30..30, + is down), `reach_tol_deg`, `still_tol_deg`,
+`still_window_s`, `move_timeout_s`, `settle_s`, `clouds_per_pose` (>= 1), `cloud_timeout_s`, `max_stamp_dt_s` and
+`fit` (the shared `FloorFitConfig`: plane, limits, residual scales).
+
+Files:
+
+```
+floor_fit/<sid>/observations.json   session, created, grid, observations, skipped, dropped (cloud drop counts by reason)
+floor_fit/<sid>/results/<rid>/      result.json and head_chain.json of a compute
+applied/head_chain.json             the applied head chain override; applied.json gains head_chain {session, result, applied_at}
+```
+
+Session ids are `floor-YYYYMMDD-HHMMSS` (`-N` when that second is taken). `observations.json` is written atomically when the
+sweep ends, also after a stop or an error (the poses done so far); each observation is `{pose, pan_rad, tilt_rad, normal,
+height_m, inliers, candidates, rms_m, stamp_ns}` (plane in `tof_optical_frame`) and each skip `{pose, pan_deg, tilt_deg, reason}`.
+
+Limits: the head must see the floor (tilt 12..28 deg down, flat empty floor within 1.8 m); `/head/joint_states` and the
+`/tof/points` header stamps must share a clock (both are stamped by the robot); the sweep never drives anything but the head.
+
+HTTP routes (proxied by the web UI under `/api/calibration/rgbd/`):
+
+| Route | Body |
+|---|---|
+| `GET /api/floor/state` | `{sweep: {running, session_id, pose, total, observations, skipped, status, error}, applied: {session, result, note, joints} or null}` |
+| `POST /api/floor/sweep/start`, `POST /api/floor/sweep/stop` | the state body; start 409 while a capture, compute or sweep runs |
+| `GET /api/floor/sessions` | `[{id, created, observations, skipped, results}]` |
+| `POST /api/floor/sessions/{sid}/compute` | result.json `{id, session, created, passed, failed_limits, params, height_rms_mm, normal_rms_deg, poses, skipped}` |
+| `GET /api/floor/sessions/{sid}/results/{rid}` | result.json |
+| `POST /api/floor/sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at}, units: [{name, active_state, restarted}]}` |
+
+The routes are served by the node HTTP API alongside the capture routes.
+
 ## Process
 
 `python -m head_rgbd_calibration` loads the config from `HEAD_RGBD_CALIBRATION_CONFIG`, runs one rclpy node
@@ -207,7 +265,12 @@ stops capture, kills a running compute child and destroys the node.
 
 `cd nodes/head_rgbd_calibration && uv run pytest tests/ -v`
 
-- `tests/test_config.py` - config defaults equal the shipped YAML, unknown keys rejected.
+- `tests/test_config.py` - config defaults equal the shipped YAML, unknown keys rejected, the `floor` defaults and the
+  pan/tilt range checks.
+- `tests/test_floor_sweep.py` - the floor sweep against a fake node, fake clock and sleep and synthetic floor clouds:
+  command order, frame_id and serpentine grid, session id and `observations.json`, clouds only after still plus settle,
+  unreachable pose skipped with reason, clouds without a joint state dropped and counted, restore of the start pan/tilt
+  and destroyed handles on done, stop, error and exception, `Busy`, refusal without a head joint state or while blocked.
 - `tests/test_store.py` - ids and same-second suffix, layout of a stored pose, depth optional, raw JPEG kept, pose ids
   never reused, size mismatch and empty-amplitude refusal, `load_views`, coverage counts, results listing, path safety
   (traversal ids, symlink escape), concurrent adds.
@@ -222,7 +285,7 @@ stops capture, kills a running compute child and destroys the node.
   nothing subscribed, lens position source and failures, `Busy`, unknown session, a still board stored as a pose (raw
   JPEG, depth, camera_info), reopened session numbering, undecodable frames dropped, frames after stop ignored, a
   refused pose shown in the status, `decode_mono16` step and endianness, `state` polled while frames arrive.
-- `tests/conftest.py` - stub `rclpy`, `rclpy.qos`, `rclpy.executors`, `sensor_msgs`, `sensor_msgs.msg` modules for the dev environment.
+- `tests/conftest.py` - stub `rclpy`, `rclpy.qos`, `rclpy.executors`, `sensor_msgs`, `sensor_msgs.msg` (incl. `JointState`, `PointCloud2`) and `sensor_msgs_py.point_cloud2` modules for the dev environment.
 - `tests/pose_factory.py` - helper building poses from the core synthetic board renderer (not a test).
 - `tests/test_apply.py` - apply writes every file and applied.json last, failing result refused, os.replace failure keeps the previous marker, restart flags from a fake systemctl, zip members.
 - `tests/test_compute.py` - synthetic session through the store: passing result and files, limits exceeded, too few
@@ -233,3 +296,21 @@ stops capture, kills a running compute child and destroys the node.
   `/api/state` without systemctl, `/api/applied` units.
 - `tests/test_main.py` - bind host and port from the config (loopback by default), shutdown stops capture and job and
   destroys the node, missing config env gives exit 78.
+
+### Floor fit HTTP API
+
+`floor_results.py` computes and applies the fit, `floor_api.py` serves it (`__main__` includes the router; shutdown stops the
+sweep first so the head is restored). Errors use the common `{ok: false, message}` body (404 unknown or malformed ids, 409 busy
+or not applicable).
+
+| Route | Body |
+|---|---|
+| `GET /api/floor/state` | `{sweep, applied}` (applied = `applied/head_chain.json` content, null when absent) |
+| `POST /api/floor/sweep/start`, `/stop` | the sweep state; start gives 409 while a capture, a compute or a sweep runs |
+| `GET /api/floor/sessions` | `[{id, created, observations, skipped, results}]` (result ids) |
+| `POST /api/floor/sessions/{sid}/compute` | the result; synchronous; 409 while a sweep runs |
+| `GET /api/floor/sessions/{sid}/results/{rid}` | result.json |
+| `POST /api/floor/sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at}, units}`; 409 for a failed result or when no RGB-D calibration is applied |
+
+A passing compute also writes `head_chain.json` (the applied joints kept, `head_mount_joint` and `head_tilt` replaced). Apply
+copies it to `applied/` and adds `head_chain` to `applied/applied.json`, which starts the apply path unit.
