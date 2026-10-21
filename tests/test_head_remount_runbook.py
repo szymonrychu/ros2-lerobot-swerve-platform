@@ -58,7 +58,7 @@ def test_runbook_has_every_section_in_order() -> None:
     assert tuple(headings) == SECTIONS
 
 
-def test_deploy_uses_the_script_never_ansible_playbook() -> None:
+def test_runbook_deploys_only_through_deploy_nodes() -> None:
     text = runbook_text()
     assert "ansible-playbook" not in text.replace("never `ansible-playbook`", "")
     deploy = section("Deploy")
@@ -97,6 +97,7 @@ def test_floor_thresholds_and_scraper_workflow() -> None:
 
 
 def test_costmap_band_equals_nav2_tof_mark() -> None:
+    """Part of test_runbook_values_equal_the_shipped_config."""
     params = yaml.safe_load(NAV2_PARAMS.read_text())
     layer = params["local_costmap"]["local_costmap"]["ros__parameters"]["tof_voxel_layer"]
     band = layer["tof_mark"]["min_obstacle_height"]
@@ -107,6 +108,7 @@ def test_costmap_band_equals_nav2_tof_mark() -> None:
 
 
 def test_temporal_defaults_match_ground_estimator_config() -> None:
+    """Part of test_runbook_values_equal_the_shipped_config."""
     temporal = yaml.safe_load(GROUND_CONFIG.read_text())["temporal"]
     floor = section("Floor numbers")
     assert f"window_frames {temporal['window_frames']}" in floor
@@ -163,3 +165,14 @@ def test_memory_records_the_decision() -> None:
 def test_tests_readme_lists_this_file() -> None:
     text = TESTS_README.read_text()
     assert "test_head_remount_runbook.py" in text
+
+
+def test_runbook_values_equal_the_shipped_config() -> None:
+    test_floor_thresholds_and_scraper_workflow()
+    test_costmap_band_equals_nav2_tof_mark()
+    test_temporal_defaults_match_ground_estimator_config()
+
+
+def test_memory_and_tests_readme() -> None:
+    test_memory_records_the_decision()
+    test_tests_readme_lists_this_file()

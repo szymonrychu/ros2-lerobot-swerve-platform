@@ -81,19 +81,19 @@ the collision monitor `tof_obstacles` band is the same).
 
 ## Results
 
-Filled from the robot run.
+Record the robot run here: one row per check, the measured number and pass or fail.
 
-Date: NOT RUN
+Date:
 
 | Check | Number | Result |
 |---|---|---|
-| Deploy (failed=0, units active) | - | NOT RUN |
-| Pan direction (+0.3 rad turns left) | - | NOT RUN |
-| Head re-zero (pan and tilt within 0.005 rad) | - | NOT RUN |
-| Recalibration plane_bias_mm_median (+-10 mm) | - | NOT RUN |
-| Plane height (0 +-1 cm) | - | NOT RUN |
-| plane_vs_base (< 0.6 deg) | - | NOT RUN |
-| Drop and obstacle points over 60 s (0 and 0) | - | NOT RUN |
-| ground_temporal_cells (non-zero) | - | NOT RUN |
-| Costmap clear on empty floor for 30 s | - | NOT RUN |
-| Costmap marks board and basket above 10 cm | - | NOT RUN |
+| Deploy (failed=0, units active) | | |
+| Pan direction (+0.3 rad turns left) | | |
+| Head re-zero (pan and tilt within 0.005 rad) | | |
+| Recalibration plane_bias_mm_median (+-10 mm) | | |
+| Plane height (0 +-1 cm) | | |
+| plane_vs_base (< 0.6 deg) | | |
+| Drop and obstacle points over 60 s (0 and 0) | | |
+| ground_temporal_cells (non-zero) | | |
+| Costmap clear on empty floor for 30 s | | |
+| Costmap marks board and basket above 10 cm | | |
