@@ -80,6 +80,9 @@ Per-mask digests; only masks whose cells changed are republished; a geometry cha
 
 The last task writes `docs/runbooks/client-cpu-budget.md` and the `scripts/node_cpu_compare.yaml` entries; the orchestrator deploys through `scripts/deploy-nodes.sh` and measures 30 min before and after (user decision). Serves A9.
 
+### D10: Gate Q1 (recommended answer, user said go 2026-10-21): mcp_s
+Gate Q1 (recommended answer, user said go 2026-10-21): mcp_server decodes every queued IMU sample at the monitor tick so bump detection stays exact (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -123,6 +126,7 @@ The last task writes `docs/runbooks/client-cpu-budget.md` and the `scripts/node_
 | D7 costmap_zones per-mask publish-on-change | costmap-zones-changed-masks |
 | D8 Client Alloy at 15 s | alloy-scrape-interval-15-s |
 | D9 Runbook after merge | cpu-budget-runbook |
+| D10 Gate Q1 (recommended answer, user said go 2026-10-21): mcp_s | mcp-raw-imu-and-head-states |
 
 ## Contracts
 
