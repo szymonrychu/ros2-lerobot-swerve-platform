@@ -70,12 +70,12 @@ def test_executor_events_accepted_and_deployed_config_valid() -> None:
     assert load_config(DEPLOYED).executor in ("events", "single_threaded")
 
 
-def test_executor_unknown_value_rejected() -> None:
+def test_unknown_executor_is_rejected() -> None:
     with pytest.raises(ValidationError):
         LaserFilterConfig(polygon=POLYGON, executor="multi")
 
 
-def test_make_executor_picks_class(node_module: ModuleType) -> None:
+def test_make_executor_builds_the_configured_kind(node_module: ModuleType) -> None:
     assert node_module.make_executor("events") is sys.modules["rclpy.experimental"].EventsExecutor.return_value
     assert (
         node_module.make_executor("single_threaded")
@@ -86,7 +86,7 @@ def test_make_executor_picks_class(node_module: ModuleType) -> None:
 
 
 @pytest.mark.parametrize("kind", ["events", "single_threaded"])
-def test_run_spins_selected_executor_not_global(node_module: ModuleType, kind: str) -> None:
+def test_run_spins_the_configured_executor(node_module: ModuleType, kind: str) -> None:
     rclpy = sys.modules["rclpy"]
     executor = node_module.make_executor(kind)
     node_module.run(LaserFilterConfig(polygon=POLYGON, executor=kind))
