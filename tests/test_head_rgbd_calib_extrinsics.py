@@ -10,6 +10,7 @@ import yaml
 from ros2_common.head_rgbd_calibration.charuco import Detection, detect, make_board
 from ros2_common.head_rgbd_calibration.extrinsics import (
     ExtrinsicResult,
+    common_points,
     load_extrinsics_yaml,
     plane_depth_bias,
     stereo_calibrate,
@@ -115,7 +116,7 @@ def test_pair_without_common_ids_is_skipped() -> None:
     assert result.pair_count == len(pairs)
 
 
-@pytest.mark.parametrize("shared", [1, 3])
+@pytest.mark.parametrize("shared", [1, 3, 5])
 def test_pair_with_too_few_common_ids_is_skipped(shared: int) -> None:
     pairs = detection_pairs()
     rgb, tof = pairs[0]
@@ -124,6 +125,23 @@ def test_pair_with_too_few_common_ids_is_skipped(shared: int) -> None:
     sparse = (rgb_part, Detection(ids=tof_ids, points=tof.points[:6]))
     result = stereo_calibrate([sparse, *pairs], BOARD, RGB, TOF)
     assert result.pair_count == len(pairs)
+
+
+def test_common_points_needs_six_shared_corners() -> None:
+    rgb, tof = detection_pairs()[0]
+    corners = BOARD.getChessboardCorners()
+
+    def pair(shared: int) -> tuple[Detection, Detection]:
+        tof_ids = np.array([*range(shared), *range(20, 26 - shared)], dtype=np.int32)
+        return (
+            Detection(ids=np.arange(6, dtype=np.int32), points=rgb.points[:6]),
+            Detection(ids=tof_ids, points=tof.points[:6]),
+        )
+
+    assert common_points(*pair(5), corners) is None
+    used = common_points(*pair(6), corners)
+    assert used is not None
+    assert len(used[0]) == 6
 
 
 def test_fewer_than_min_views_raises() -> None:

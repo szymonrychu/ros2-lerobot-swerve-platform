@@ -2881,6 +2881,8 @@ Tests for `shared/ros2_common/head_rgbd_calibration/extrinsics.py` on synthetic 
 | `test_stereo_recovers_true_extrinsic` | 20 pairs recover translation within 2 mm and rotation within 0.2 deg. |
 | `test_result_maps_tof_points_onto_rgb_projection` | Direction: a ToF point mapped with the result lands within 0.5 px of the RGB corner. |
 | `test_pair_without_common_ids_is_skipped` | A pair with no common corner ids is not counted. |
+| `test_pair_with_too_few_common_ids_is_skipped` | Pairs sharing 1, 3 or 5 corner ids (under the 6 the OpenCV DLT pose needs) are not counted. |
+| `test_common_points_needs_six_shared_corners` | `common_points` returns None for 5 shared corners and the points for 6. |
 | `test_fewer_than_min_views_raises` | Fewer than `min_views` pairs raise. |
 | `test_plane_check_reports_depth_bias` | ToF depth biased +20 mm reports 20 +- 3 mm, unbiased 0 +- 3 mm. |
 | `test_plane_check_rejects_pair_with_background_in_outline` | A pair with two thirds of its board pixels 400 and 800 mm farther (background) is rejected and counted, the median stays 0 +- 3 mm; with `plane_max_spread_mm` 1000 it is kept. |

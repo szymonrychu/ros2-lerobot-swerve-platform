@@ -19,7 +19,7 @@ MIN_PLANE_PIXELS = 20
 MAX_OFF_PLANE_FRACTION = 0.5  # a pair with more of its board pixels this far off its own median has background in it
 
 
-MIN_COMMON_CORNERS = 4  # solvePnP inside cv2.stereoCalibrate needs at least 4 points per view
+MIN_COMMON_CORNERS = 6  # cv2.stereoCalibrate runs a DLT pose per view (findExtrinsicCameraParams2): >= 6 points
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,7 @@ class PlaneCheck:
 def common_points(
     rgb: Detection, tof: Detection, corners: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-    """Object points and both image point sets for corner ids seen in both images, or None if under 4 are shared."""
+    """Object points and both image point sets for corner ids seen in both images, or None if under 6 are shared."""
     ids = np.intersect1d(rgb.ids, tof.ids)
     if len(ids) < MIN_COMMON_CORNERS:
         return None
@@ -70,7 +70,7 @@ def stereo_calibrate(
 
     Args:
         pairs: (rgb detection, tof detection) of the same board pose; only corner ids seen in both are used and pairs
-            with fewer than 4 are skipped.
+            with fewer than 6 are skipped.
         board: Board from make_board.
         rgb: RGB intrinsics.
         tof: ToF intrinsics.
