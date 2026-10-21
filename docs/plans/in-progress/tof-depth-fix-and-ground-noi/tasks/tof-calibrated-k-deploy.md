@@ -1,6 +1,6 @@
 ---
 title: ToF calibrated K deploy
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The robot converts depth with the applied ToF calibration, and a new calibration reaches the conversion on Apply."
 files: [ansible/group_vars/client.yml, ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.service.j2, tests/test_head_rgbd_calibration_deploy.py, ansible/README.md, tests/README.md]

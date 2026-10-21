@@ -1,6 +1,6 @@
 ---
 title: Ground cell temporal median
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Per-cell heights averaged over frames sit well below the 0.04 m step rule, so a flat floor stops producing steps and drops."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_median.hpp, nodes/ground_estimator_cpp/src/core/cell_median.cpp, nodes/ground_estimator_cpp/test/core/test_cell_median.cpp, nodes/ground_estimator_cpp/test/core/synthetic_floor.hpp]

@@ -1,6 +1,6 @@
 ---
 title: Head remount floor runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The robot is re-zeroed, recalibrated and shown to see a flat floor and a clear costmap, with the numbers written down."
 files: [docs/runbooks/head-remount-floor-check.md, tests/test_head_remount_runbook.py, docs/runbooks/ground-estimation.md, docs/runbooks/head-rgbd-fusion.md, docs/head-rgbd-fusion-methodology.md, MEMORY.md, tests/README.md]

@@ -1,6 +1,6 @@
 ---
 title: ToF radial to z depth
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The ToF floor is flat again: the 2.7 cm dome from treating radial distance as depth is gone for every depth consumer."
 files: [nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/tests/test_config.py, nodes/bridges/arducam_tof/tests/data/floor_capture.json, nodes/bridges/arducam_tof/README.md]

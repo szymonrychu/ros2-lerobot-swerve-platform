@@ -1,6 +1,6 @@
 ---
 title: Head pan inverted
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A positive pan command turns the head left again, so head TF, calibration and the agent's head moves point where they say."
 files: [ansible/group_vars/client.yml, tests/test_head_servo_config.py, tests/README.md]
