@@ -1,6 +1,6 @@
 ---
 title: Lethal point gates
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The colour board and single stray returns can no longer put lethal marks in the costmap.
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/traversability.hpp, nodes/ground_estimator_cpp/src/core/traversability.cpp, nodes/ground_estimator_cpp/test/core/test_traversability.cpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp]

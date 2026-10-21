@@ -1,6 +1,6 @@
 ---
 title: Node stable classes
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "What Nav2 and costmap_zones receive is stable: no lethal noise on empty floor, the box always lethal, the ramp a steady slow-down area."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/test/test_node.cpp]

@@ -1,6 +1,6 @@
 ---
 title: Ground robustness runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The fixes are proven on the user's real box, ramp and board scene with the robot parked."
 files: [docs/runbooks/ground-robustness.md, tests/test_ground_robustness_runbook.py, tests/README.md]
