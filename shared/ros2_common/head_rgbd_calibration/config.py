@@ -61,9 +61,9 @@ class LimitsConfig(StrictModel):
 class FloorPlaneConfig(StrictModel):
     """Floor plane fit of one ToF cloud: candidate gate around the predicted plane, RANSAC, SVD refit."""
 
-    ransac_distance_m: float = Field(default=0.015, gt=0, le=0.1)
+    ransac_distance_m: float = Field(default=0.03, gt=0, le=0.1)
     ransac_iterations: int = Field(default=200, ge=10)
-    min_inliers: int = Field(default=300, ge=10)
+    min_inliers: int = Field(default=150, ge=10)
     min_inlier_ratio: float = Field(default=0.5, gt=0, le=1)
     max_range_m: float = Field(default=1.8, gt=0)
     candidate_band_m: float = Field(default=0.25, gt=0)

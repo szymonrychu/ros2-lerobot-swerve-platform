@@ -82,7 +82,7 @@ def exact_observations(
 def test_floor_fit_config_defaults_and_ranges() -> None:
     cfg = FloorFitConfig()
     assert cfg.plane == FloorPlaneConfig()
-    assert (cfg.plane.ransac_distance_m, cfg.plane.ransac_iterations, cfg.plane.min_inliers) == (0.015, 200, 300)
+    assert (cfg.plane.ransac_distance_m, cfg.plane.ransac_iterations, cfg.plane.min_inliers) == (0.03, 200, 150)
     assert (cfg.plane.min_inlier_ratio, cfg.plane.max_range_m, cfg.plane.candidate_band_m) == (0.5, 1.8, 0.25)
     assert cfg.plane.seed == 0
     assert cfg.limits == FloorFitLimits()
@@ -155,8 +155,8 @@ def test_fit_plane_recovers_plane_and_refuses_sparse_cloud(
     pan, tilt = 0.0, np.radians(20.0)
     (cloud,) = synthetic_clouds(urdf_text, truth, [(pan, tilt)], NOISE_M, 0.0, rng)
     prior = predicted_floor(chain, pan, tilt, None)
-    assert fit_plane(cloud.points[:200], prior, cfg, rng) is None
-    nan_padded = np.concatenate([cloud.points[:200], np.full((5000, 3), np.nan)])
+    assert fit_plane(cloud.points[:100], prior, cfg, rng) is None
+    nan_padded = np.concatenate([cloud.points[:100], np.full((5000, 3), np.nan)])
     assert fit_plane(nan_padded, prior, cfg, rng) is None
     far = cloud.points * 10.0
     assert fit_plane(far, prior, cfg, rng) is None
@@ -269,3 +269,29 @@ def test_limits_refuse_bad_results(
     assert not result.passed
     assert "max_height_rms_mm" in result.failed_limits
     assert result.height_rms_mm > 8.0
+
+
+def test_fit_plane_defaults_fit_a_noisy_tof_cloud() -> None:
+    """Real ToF clouds (~700 points, 2-3 cm floor noise) fit with the defaults; the old 1.5 cm gate returned None."""
+    rng = np.random.default_rng(7)
+    normal = np.array([0.0, -np.sin(np.radians(25.0)), -np.cos(np.radians(25.0))])
+    normal = normal / np.linalg.norm(normal)
+    height_m = 0.42
+    u = np.cross(normal, [1.0, 0.0, 0.0])
+    u /= np.linalg.norm(u)
+    v = np.cross(normal, u)
+    floor_count, outlier_count = 600, 100
+    plane_xy = rng.uniform([-0.8, 0.3], [0.8, 1.4], (floor_count, 2))
+    floor = plane_xy[:, :1] * u + plane_xy[:, 1:] * v - height_m * normal
+    floor = floor + rng.normal(0.0, 0.02, floor_count)[:, None] * normal
+    outliers = rng.uniform(-1.0, 1.0, (outlier_count, 3))
+    cloud = np.concatenate([floor, outliers])
+    prior = (normal, height_m)
+
+    fit = fit_plane(cloud, prior, FloorPlaneConfig(), rng)
+
+    assert fit is not None
+    assert abs(fit.height_m - height_m) < 0.01
+    assert angle_deg(fit.normal, normal) < 2.0
+    old = FloorPlaneConfig(ransac_distance_m=0.015, min_inliers=300)
+    assert fit_plane(cloud, prior, old, np.random.default_rng(7)) is None
