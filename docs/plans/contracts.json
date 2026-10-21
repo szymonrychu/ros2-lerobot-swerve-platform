@@ -107,5 +107,18 @@
     "file": "shared/ros2_common/head_rgbd_calibration/urdf_text.py",
     "consumers": [],
     "note": "applied/head_chain.json format and apply_overrides(); read by head_state_publisher, mcp_server HeadKinematics, web_ui head URDF; changes head TF"
+  },
+  {
+    "name": "tof-depth-z",
+    "kind": "topic",
+    "owner": "tof-depth-fix-and-ground-noi",
+    "file": "nodes/bridges/arducam_tof/arducam_tof/bridge.py",
+    "consumers": [
+      "head-rgb-d-fusion-of-camera",
+      "rgb-d-ground-estimation-and",
+      "tof-3d-obstacle-detection-fo",
+      "head-and-arm-calibration-fro"
+    ],
+    "note": "/tof/depth/image_raw 16UC1 mm is z-depth (SDK radial distance / ray norm of the calibrated ToF K, no distortion); /tof/camera_info K = tof_calibration_file K (SDK K fallback), D zero; owner task tof-radial-to-z-depth"
   }
 ]
