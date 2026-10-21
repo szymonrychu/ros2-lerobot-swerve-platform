@@ -64,6 +64,9 @@ A new `docs/runbooks/head-remount-floor-check.md` (own file, so the open ground-
 ### D8: Calibration plane check needs no code change
 `plane_depth_bias` predicts z along undistorted rays; with z-depth input the bias of about 18 mm (consistent with r/z ~1.044) falls to near 0, so LimitsConfig `plane_max_bias_mm` 40 stays valid. The runbook expects |plane_bias_mm_median| <= 10 mm (my call). Serves A1, A5.
 
+### D9: Gate Q1 (user 2026-10-21, yes): when applied/tof_calibration
+Gate Q1 (user 2026-10-21, yes): when applied/tof_calibration.yaml is missing, arducam_tof converts with the SDK factory K and logs a warning (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -100,6 +103,7 @@ A new `docs/runbooks/head-remount-floor-check.md` (own file, so the open ground-
 | D6 The rule stays | ground-cell-temporal-median, ground-temporal-wiring |
 | D7 Robot runbook | head-remount-floor-runbook |
 | D8 Calibration plane check unchanged | tof-radial-to-z-depth, head-remount-floor-runbook |
+| D9 Gate Q1 (user 2026-10-21, yes): when applied/tof_calibration | tof-calibrated-k-deploy |
 
 ## Contracts
 
