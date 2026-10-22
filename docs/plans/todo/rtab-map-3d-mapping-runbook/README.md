@@ -1,6 +1,6 @@
 ---
 title: RTAB-Map 3D mapping runbook
-blockers: [Drivable ground, ToF filtering and head-from-arm calibration, Head RGB-D fusion runbook]
+blockers: ["Drivable ground, ToF filtering and head-from-arm calibration", Head RGB-D fusion runbook]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
