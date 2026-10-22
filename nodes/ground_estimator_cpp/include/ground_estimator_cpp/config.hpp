@@ -40,7 +40,7 @@ struct FitConfig
   double candidate_band_m = 0.15;      // > distance_m
   double max_range_m = 2.5;            // > 0
   double hold_s = 1.0;                 // >= 0
-  double smoothing = 0.5;              // 0 < v <= 1, 1 = none
+  double smoothing = 0.2;              // 0 < v <= 1, 1 = none
 };
 
 // Plane-relative height bands.
@@ -56,7 +56,7 @@ struct TraversabilityConfig
 {
   double wheel_radius_m = 0.06;       // > 0
   double max_step_fraction = 0.3333;  // 0 < v < 1 of the wheel diameter
-  double max_slope_deg = 8.0;         // 0 < v <= min(slope.roll_error_deg, slope.pitch_error_deg)
+  double max_slope_deg = 15.0;        // 0 < v <= min(slope.roll_error_deg, slope.pitch_error_deg)
   double edge_band_m = 0.05;          // > 0
   int lethal_min_points = 2;          // 1..50; fewest unclustered lethal points within edges.cluster_tolerance_m
 };

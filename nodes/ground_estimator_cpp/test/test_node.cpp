@@ -673,11 +673,11 @@ TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningInTheMapFrame)
   EXPECT_EQ(metric("ground_warning_areas").value_or(0.0), 1.0);
 }
 
-TEST_F(NodeTest, SixDegreeRampIsARampWarningWithoutLethalPoints)
+TEST_F(NodeTest, FourteenDegreeRampIsARampWarningWithoutLethalPoints)
 {
   fill_tf();
   start(base_config());
-  const auto stamp = cloud_and_wait(scene_cloud(ramp_scene(6.0)));
+  const auto stamp = cloud_and_wait(scene_cloud(ramp_scene(14.0)));
   EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
   ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
   EXPECT_EQ(xyz_of(*find_stamp(drop_, stamp)).size(), 0u);

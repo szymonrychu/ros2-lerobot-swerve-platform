@@ -127,12 +127,12 @@ bool has_kind(const Traversability & t, const std::string & kind)
 TEST(Traversability, ClassifyThresholdsAreWarnings)
 {
   const TraversabilityConfig cfg;
-  EXPECT_EQ(classify_cluster(0.04, 8.0, true, cfg).cls, Cls::warning);
-  EXPECT_EQ(classify_cluster(0.04, 8.0, true, cfg).reason, "traversable");
+  EXPECT_EQ(classify_cluster(0.04, 15.0, true, cfg).cls, Cls::warning);
+  EXPECT_EQ(classify_cluster(0.04, 15.0, true, cfg).reason, "traversable");
   const auto step = classify_cluster(0.0401, 0.0, true, cfg);
   EXPECT_EQ(step.cls, Cls::obstacle);
   EXPECT_EQ(step.reason, "step_height");
-  const auto slope = classify_cluster(0.0, 8.01, true, cfg);
+  const auto slope = classify_cluster(0.0, 15.01, true, cfg);
   EXPECT_EQ(slope.cls, Cls::obstacle);
   EXPECT_EQ(slope.reason, "slope");
 }
@@ -159,10 +159,10 @@ TEST(Traversability, DropBothSides)
 
 TEST(Traversability, RampBothSides)
 {
-  const auto gentle = run(ramp(6.0), overhead(), RAMP_FLOOR_DISTANCE_M);
+  const auto gentle = run(ramp(14.0), overhead(), RAMP_FLOOR_DISTANCE_M);
   EXPECT_TRUE(has_kind(gentle, "ramp"));
   EXPECT_TRUE(gentle.obstacle.empty());
-  const auto steep = run(ramp(10.0), overhead(), RAMP_FLOOR_DISTANCE_M);
+  const auto steep = run(ramp(17.0), overhead(), RAMP_FLOOR_DISTANCE_M);
   EXPECT_FALSE(steep.obstacle.empty());
   EXPECT_FALSE(has_kind(steep, "ramp"));
   ASSERT_EQ(steep.warnings.size(), 0u);
