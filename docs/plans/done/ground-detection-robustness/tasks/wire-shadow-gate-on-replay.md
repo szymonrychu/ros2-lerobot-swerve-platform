@@ -13,7 +13,7 @@ estimate: 90
 actual: ""
 review: ""
 branch: main
-verified_head: "not reported: verify-task.py had not printed its JSON when this relay stopped"
+verified_head: 0dfbd483
 run: ground-detection-robustness
 provides: []
 acs_for_audit: []

@@ -13,7 +13,7 @@ estimate: 90
 actual: ""
 review: ""
 branch: main
-verified_head: ""
+verified_head: 30ed28ec
 run: ground-detection-robustness
 provides: []
 acs_for_audit: []
