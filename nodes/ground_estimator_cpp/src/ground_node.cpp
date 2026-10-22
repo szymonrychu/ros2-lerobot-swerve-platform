@@ -8,6 +8,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <initializer_list>
 #include <sensor_msgs/msg/point_field.hpp>
@@ -196,6 +197,13 @@ std::vector<Region> all_regions(
 
 bool is_lethal(CellClass c) { return c == CellClass::obstacle || c == CellClass::drop; }
 
+std::uint32_t float_bits(float v)
+{
+  std::uint32_t b = 0;
+  std::memcpy(&b, &v, sizeof(b));
+  return b;
+}
+
 // The plane of the source frame expressed in the target frame.
 Plane transformed(const Plane & plane, const Eigen::Isometry3d & target_T_source)
 {
@@ -203,18 +211,6 @@ Plane transformed(const Plane & plane, const Eigen::Isometry3d & target_T_source
   out.normal = target_T_source.linear() * plane.normal;
   out.d = plane.d - out.normal.dot(target_T_source.translation());
   return out;
-}
-
-// The points of `points` (base_link) whose fixed-frame cell is stable obstacle or drop, appended to out.
-void append_stable_lethal(
-  const pcl::PointCloud<pcl::PointXYZ> & points, const CellClassFilter & classes,
-  const Eigen::Isometry3d & fixed_T_base, pcl::PointCloud<pcl::PointXYZ> & out)
-{
-  for (const auto & p : points) {
-    if (is_lethal(classes.stable_at((fixed_T_base * Eigen::Vector3d(p.x, p.y, p.z)).head<2>()))) {
-      out.push_back(p);
-    }
-  }
 }
 
 // Whether any point of `points` (base_link) lies in a stable lethal cell.
@@ -284,6 +280,17 @@ double seconds_since(const std::chrono::steady_clock::time_point & start)
 }
 
 }  // namespace
+
+std::size_t GroundNode::PointBitsHash::operator()(const PointBits & b) const
+{
+  return (static_cast<std::size_t>(b.x) * 73856093U) ^ (static_cast<std::size_t>(b.y) * 19349663U) ^
+         (static_cast<std::size_t>(b.z) * 83492791U);
+}
+
+GroundNode::PointBits GroundNode::bits_of(const pcl::PointXYZ & p)
+{
+  return PointBits{float_bits(p.x), float_bits(p.y), float_bits(p.z)};
+}
 
 GroundNode::GroundNode(
   const Config & config, std::shared_ptr<tf2_ros::Buffer> tf_buffer, const rclcpp::NodeOptions & options)
@@ -508,7 +515,12 @@ void GroundNode::process_plane(
 {
   const Plane & plane = tracked.plane;
   const double edge_band_m = config_.traversability.edge_band_m;
-  filtered_cloud_ = cell_filter_.apply(base_cloud_, plane, fixed_T_base, stamp_s);
+  filtered_cloud_ = cell_filter_.apply(base_cloud_, plane, fixed_T_base, stamp_s, &filtered_raw_h_);
+  raw_height_of_.clear();
+  raw_height_of_.reserve(filtered_cloud_.size());
+  for (std::size_t i = 0; i < filtered_cloud_.size(); ++i) {
+    raw_height_of_.emplace(bits_of(filtered_cloud_[i]), filtered_raw_h_[i]);
+  }
   if (config_.temporal.enabled) {
     raw_heights_.add(base_cloud_, plane, fixed_T_base, stamp_s);
   }
@@ -533,14 +545,10 @@ void GroundNode::process_plane(
   observe_classes(rule, fixed_T_base, stamp_s);
   fit_seconds_->Observe(seconds_since(started));
 
-  // Lethal clouds: only this frame's points, and only those in stable lethal cells (a lethal observation in a cell that
-  // is not yet stable is withheld; warning points in a stable lethal cell are lethal).
-  stable_obstacle_.clear();
-  stable_drop_.clear();
-  append_stable_lethal(rule.obstacle, cell_class_, fixed_T_base, stable_obstacle_);
-  append_stable_lethal(rule.warning_above, cell_class_, fixed_T_base, stable_obstacle_);
-  append_stable_lethal(rule.drop, cell_class_, fixed_T_base, stable_drop_);
-  append_stable_lethal(rule.warning_below, cell_class_, fixed_T_base, stable_drop_);
+  // Lethal clouds: only this frame's points, only those in stable lethal cells (a lethal observation in a cell that is
+  // not yet stable is withheld; warning points in a stable lethal cell are lethal), and of those only the lethal marks.
+  lethal_marks_of(rule.obstacle, rule.warning_above, plane, fixed_T_base, stable_obstacle_);
+  lethal_marks_of(rule.drop, rule.warning_below, plane, fixed_T_base, stable_drop_);
 
   cycle_ = Cycle{};
   cycle_.regions = std::move(rule.regions);
@@ -617,6 +625,30 @@ void GroundNode::observe_classes(const Traversability & rule, const Eigen::Isome
     }
   }
   cell_class_.end_frame();
+}
+
+void GroundNode::lethal_marks_of(
+  const pcl::PointCloud<pcl::PointXYZ> & lethal, const pcl::PointCloud<pcl::PointXYZ> & warning, const Plane & plane,
+  const Eigen::Isometry3d & fixed_T_base, pcl::PointCloud<pcl::PointXYZ> & out)
+{
+  lethal_candidates_.clear();
+  candidate_filtered_h_.clear();
+  candidate_raw_h_.clear();
+  for (const auto * cloud : {&lethal, &warning}) {
+    for (const auto & p : *cloud) {
+      const Eigen::Vector3d pb(p.x, p.y, p.z);
+      const auto raw = raw_height_of_.find(bits_of(p));
+      if (raw == raw_height_of_.end() || !is_lethal(cell_class_.stable_at((fixed_T_base * pb).head<2>()))) {
+        continue;  // every rule point comes from filtered_cloud_; one without its own height is no evidence
+      }
+      lethal_candidates_.push_back(p);
+      candidate_filtered_h_.push_back(static_cast<float>(height_above(plane, pb)));
+      candidate_raw_h_.push_back(raw->second);
+    }
+  }
+  out = lethal_marks(
+    lethal_candidates_, candidate_filtered_h_, candidate_raw_h_, config_.max_step_m(),
+    config_.edges.cluster_tolerance_m, config_.traversability.lethal_min_points);
 }
 
 void GroundNode::observe_steady(

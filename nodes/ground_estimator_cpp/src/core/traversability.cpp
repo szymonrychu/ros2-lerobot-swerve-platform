@@ -85,6 +85,25 @@ void lethal_unclustered(
 
 }  // namespace
 
+pcl::PointCloud<pcl::PointXYZ> lethal_marks(
+  const pcl::PointCloud<pcl::PointXYZ> & points, const std::vector<float> & filtered_heights,
+  const std::vector<float> & raw_heights, double limit, double radius, int min_points)
+{
+  // The height a point clears the floor by on both counts: the smaller magnitude when both lie on one side, else 0.
+  const std::size_t n = std::min({points.size(), filtered_heights.size(), raw_heights.size()});
+  std::vector<float> both(n, 0.0f);
+  for (std::size_t i = 0; i < n; ++i) {
+    const float f = filtered_heights[i];
+    const float r = raw_heights[i];
+    if ((f > 0.0f) == (r > 0.0f)) {
+      both[i] = std::fabs(f) < std::fabs(r) ? f : r;
+    }
+  }
+  pcl::PointCloud<pcl::PointXYZ> out;
+  lethal_unclustered(points, both, limit, radius, min_points, out);
+  return out;
+}
+
 Traversability apply_rule(
   const std::vector<Cluster> & above, const std::vector<Cluster> & below,
   const pcl::PointCloud<pcl::PointXYZ> & unclustered_above, const std::vector<float> & unclustered_above_h,

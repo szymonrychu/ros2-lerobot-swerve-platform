@@ -1,6 +1,7 @@
 // The 2026-10-22 live recordings (test/data/replay/{home,box,ramp}.bin, scripts/ground_replay_export.py) replayed
 // through GroundNode in-process with the shipped config/ground_estimator.yaml (design D14): reader tests, the replay
-// metric functions of replay_fixture.hpp on hand-built frames, and one replay per scene that prints its metrics line.
+// metric functions of replay_fixture.hpp on hand-built frames, and one replay per scene that prints its metrics line
+// and asserts the live-round acceptance.
 #include <gtest/gtest.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <tf2_ros/buffer.h>
@@ -55,7 +56,9 @@ constexpr const char * BASE = "base_link";
 constexpr const char * TOF_FRAME = "tof_optical_frame";
 constexpr const char * IMU_FRAME = "imu_link";  // frame of the recorded IMU samples (brief ground-live.md)
 constexpr const char * SCENES[] = {"home", "box", "ramp"};
-constexpr double MIN_BOX_LETHAL_SHARE = 0.95;  // frames after warm-up with obstacle points on the box
+constexpr double MIN_BOX_LETHAL_SHARE = 0.95;    // frames after warm-up with obstacle points on the box
+constexpr double MAX_STRAY_LETHAL_SHARE = 0.05;  // frames with a lethal point within 1.2 m outside the box (p95)
+constexpr double MAX_CHURN_SHARE = 0.10;         // consecutive frames whose warning set changes
 constexpr int64_t NS_PER_S = 1000000000LL;
 // The fixtures hold 15 s of a 10 Hz ToF stream.
 constexpr std::size_t MIN_CLOUDS = 140, MAX_CLOUDS = 160;
@@ -632,19 +635,35 @@ TEST(ReplayMetrics, MetricsLineNamesEveryMetric)
 
 // --- the scenes through GroundNode -------------------------------------------------------------------------------
 
-TEST_F(ReplayTest, HomeSceneReplaysThroughTheNode)
+// The live-round acceptance (design D14-D19, approved items A10-A14) on the real recordings, over the frames after the
+// warm-up, the gripper zone x < 0.37 excluded: the 5 cm box is lethal in at least 95 % of the frames with no ramp or
+// step warning behind it, the board is never lethal, the black rubber ramp is never lethal (no ToF returns on the
+// rubber, D19), no lethal point lies within 1.2 m outside the box in more than 5 % of the frames (the empty-floor p95
+// goal) and the warning set changes in fewer than 10 % of the consecutive frames.
+TEST_F(ReplayTest, HomeSceneMeetsTheLiveRoundAcceptance)
 {
   const auto frames = replay_scene("home");
   EXPECT_GE(ground_replay::box_lethal_share(frames), MIN_BOX_LETHAL_SHARE);
   EXPECT_EQ(ground_replay::far_side_warning_frames(frames), 0);
   EXPECT_EQ(ground_replay::board_lethal_frames(frames), 0);
+  EXPECT_LE(ground_replay::stray_lethal_share(frames), MAX_STRAY_LETHAL_SHARE);
+  EXPECT_LT(ground_replay::churn_share(frames), MAX_CHURN_SHARE);
 }
 
-TEST_F(ReplayTest, BoxSceneReplaysThroughTheNode)
+TEST_F(ReplayTest, BoxSceneMeetsTheLiveRoundAcceptance)
 {
   const auto frames = replay_scene("box");
   EXPECT_GE(ground_replay::box_lethal_share(frames), MIN_BOX_LETHAL_SHARE);
   EXPECT_EQ(ground_replay::far_side_warning_frames(frames), 0);
+  EXPECT_LE(ground_replay::stray_lethal_share(frames), MAX_STRAY_LETHAL_SHARE);
+  EXPECT_LT(ground_replay::churn_share(frames), MAX_CHURN_SHARE);
 }
 
-TEST_F(ReplayTest, RampSceneReplaysThroughTheNode) { replay_scene("ramp"); }
+TEST_F(ReplayTest, RampSceneMeetsTheLiveRoundAcceptance)
+{
+  const auto frames = replay_scene("ramp");
+  EXPECT_EQ(ground_replay::board_lethal_frames(frames), 0);  // the board edge is in the ramp view
+  EXPECT_EQ(ground_replay::ramp_lethal_frames(frames), 0);
+  EXPECT_LE(ground_replay::stray_lethal_share(frames), MAX_STRAY_LETHAL_SHARE);
+  EXPECT_LT(ground_replay::churn_share(frames), MAX_CHURN_SHARE);
+}

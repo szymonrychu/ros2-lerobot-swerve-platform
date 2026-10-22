@@ -188,6 +188,42 @@ TEST(CellMedian, DisabledPassesThrough)
   EXPECT_EQ(filter.cell_count(), 0u);
 }
 
+// The raw plane-relative height of every output point comes out parallel to the output: a point moved to its cell's
+// median keeps its own height of this frame for the lethal marks.
+TEST(CellMedian, RawHeightsComeOutParallelToTheOutput)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  Plane plane;
+  plane.d = -0.01;  // floor at z = 0.01
+  const auto heights_of = [](int frame) {
+    return [frame](int ix, int) { return 0.01 + 0.05 * (ix % 2) + 0.002 * frame; };
+  };
+  std::vector<float> raw;
+  for (int i = 0; i < cfg.min_frames + 2; ++i) {
+    const Cloud in = cell_cloud(0.6, 0.9, heights_of(i));
+    const Cloud out = filter.apply(in, plane, Eigen::Isometry3d::Identity(), i * FRAME_DT_S, &raw);
+    ASSERT_EQ(raw.size(), out.size()) << "frame " << i;
+    if (i < cfg.min_frames - 1) {
+      continue;
+    }
+    ASSERT_EQ(out.size(), in.size());
+    for (std::size_t k = 0; k < in.size(); ++k) {
+      EXPECT_NEAR(raw[k], in[k].z - 0.01, 1e-6) << "frame " << i << " point " << k;
+    }
+  }
+  // Disabled: the input heights, the input unchanged.
+  TemporalConfig off = cfg;
+  off.enabled = false;
+  CellMedianFilter disabled(off);
+  const Cloud in = cell_cloud(0.6, 0.9, heights_of(0));
+  const Cloud out = disabled.apply(in, plane, Eigen::Isometry3d::Identity(), 0.0, &raw);
+  ASSERT_EQ(raw.size(), in.size());
+  for (std::size_t k = 0; k < in.size(); ++k) {
+    EXPECT_NEAR(raw[k], in[k].z - 0.01, 1e-6);
+  }
+}
+
 TEST(CellMedian, StampGoingBackResets)
 {
   const TemporalConfig cfg;
@@ -447,6 +483,67 @@ TEST(CellMedian, SteadyCellNextToARecentlyGatedCellIsNotSteady)
   run(two_away, 0.8, 12, 0, true);
   EXPECT_GT(two_away.gated_cell_count(), 0u);
   EXPECT_TRUE(two_away.steady_at(steady, 0.6 * cfg.max_spread_m, quiet_frames));
+}
+
+// An object placed on a steady floor cell gates the cell while its history turns over from the floor to the object
+// (old and new values mix). That gate is the new surface arriving, not noise: once the history holds the new level the
+// cell is steady from its first output, so a new real obstacle is lethal without waiting quiet_frames (A13).
+TEST(CellMedian, ObjectPlacedOnASteadyCellIsSteadyOnceItsHistoryTurnsOver)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  const Eigen::Vector2d centre(0.65, 0.05);
+  const int quiet_frames = 2 * cfg.window_frames;
+  int frame = 0;
+  for (; frame < 12; ++frame) {
+    filter.apply(
+      cell_cloud(0.6, 0.7, [](int, int) { return 0.0; }), Plane(), Eigen::Isometry3d::Identity(), frame * FRAME_DT_S);
+  }
+  ASSERT_TRUE(filter.steady_at(centre, 0.6 * cfg.max_spread_m, quiet_frames));
+  bool gated = false;
+  int first_box = -1;
+  for (int i = 0; i < 2 * cfg.window_frames && first_box < 0; ++i, ++frame) {
+    const Cloud out = filter.apply(
+      cell_cloud(0.6, 0.7, [](int, int) { return 0.05; }), Plane(), Eigen::Isometry3d::Identity(), frame * FRAME_DT_S);
+    gated = gated || filter.gated_cell_count() > 0;
+    if (!out.empty() && std::fabs(out.front().z - 0.05) < 1e-3) {
+      first_box = i;
+      EXPECT_TRUE(filter.steady_at(centre, 0.6 * cfg.max_spread_m, quiet_frames)) << "frame " << i;
+    }
+  }
+  EXPECT_TRUE(gated) << "the turnover is expected to gate the cell";
+  ASSERT_GE(first_box, 0);
+  EXPECT_LT(first_box, cfg.window_frames);
+}
+
+// A noisy run between two steady levels is noise, not a turnover: the cell still needs quiet_frames ungated frames.
+TEST(CellMedian, NoisyRunBetweenTwoSteadyLevelsStillNeedsQuietFrames)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  const Eigen::Vector2d centre(0.65, 0.05);
+  const int quiet_frames = 2 * cfg.window_frames;
+  int frame = 0;
+  for (; frame < 12; ++frame) {
+    filter.apply(
+      cell_cloud(0.6, 0.7, [](int, int) { return 0.0; }), Plane(), Eigen::Isometry3d::Identity(), frame * FRAME_DT_S);
+  }
+  for (int i = 0; i < 4; ++i, ++frame) {
+    const double value = (i % 2 == 0 ? 1.0 : -1.0) * 0.1;
+    filter.apply(
+      cell_cloud(0.6, 0.7, [&](int, int) { return value; }), Plane(), Eigen::Isometry3d::Identity(),
+      frame * FRAME_DT_S);
+  }
+  int first_output = -1;
+  for (int i = 0; i < quiet_frames - 1; ++i, ++frame) {
+    const Cloud out = filter.apply(
+      cell_cloud(0.6, 0.7, [](int, int) { return 0.05; }), Plane(), Eigen::Isometry3d::Identity(), frame * FRAME_DT_S);
+    if (!out.empty() && first_output < 0) {
+      first_output = i;
+    }
+    EXPECT_FALSE(filter.steady_at(centre, 0.6 * cfg.max_spread_m, quiet_frames)) << "frame " << i;
+  }
+  EXPECT_GE(first_output, 0);
 }
 
 TEST(CellMedian, DisabledIsAlwaysSteadyAndUnknownCellsAreNot)

@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <tf2_ros/buffer.h>
+#include <yaml-cpp/yaml.h>
 
 #include <Eigen/Geometry>
 #include <algorithm>
@@ -31,6 +32,7 @@
 #include <vector>
 
 #include "core/synthetic_floor.hpp"
+#include "ground_estimator_cpp/cell_median.hpp"
 #include "ground_estimator_cpp/config.hpp"
 #include "ground_estimator_cpp/ground_node.hpp"
 
@@ -1662,4 +1664,110 @@ TEST_F(NodeTest, OccludedPointsGaugeAppearsWithItsFirstRealValue)
   EXPECT_FALSE(metric("ground_occluded_points").has_value());
   cloud_and_wait(scene_cloud(ground_test::floor_scene()));
   EXPECT_EQ(metric("ground_occluded_points").value_or(-1.0), 0.0);
+}
+
+// --- lethal marks and the latency of a new obstacle (design D18, approved item A13) ------------------------------
+
+namespace
+{
+
+constexpr int TRACKED_FLOOR_FRAMES = 20;  // frames of empty floor before the box is placed
+constexpr int PLACED_BOX_FRAMES = 30;     // frames run after the box is placed
+constexpr int MARK_FRAMES = 10;           // frames checked after the warm-up of the clean box
+constexpr double FOOTPRINT_TOLERANCE_M = 0.005;
+
+// The 5 cm box (x 0.62 .. 0.93, y 0.10 .. 0.35) with a clean 5 cm +- 4 mm top on the 8 mm noise floor, 2 cm grid (no
+// noisy edge band); with_box false gives the same floor without it.
+pcl::PointCloud<pcl::PointXYZ> clean_box(int frame, bool with_box = true)
+{
+  std::mt19937 rng(12000U + static_cast<unsigned>(frame));
+  std::normal_distribution<double> floor_noise(0.0, BOX_FLOOR_NOISE_M);
+  std::normal_distribution<double> top_noise(0.0, BOX_TOP_NOISE_M);
+  pcl::PointCloud<pcl::PointXYZ> cloud = ground_test::grid_cloud(0.3, 1.4, -0.4, 0.6, 0.02);
+  for (auto & p : cloud) {
+    const bool on_box = p.x >= STABLE_BOX_X0 && p.x <= STABLE_BOX_X1 && p.y >= STABLE_BOX_Y0 && p.y <= STABLE_BOX_Y1;
+    p.z = static_cast<float>(with_box && on_box ? STABLE_BOX_HEIGHT_M + top_noise(rng) : floor_noise(rng));
+  }
+  return cloud;
+}
+
+bool on_box_footprint(const Eigen::Vector3f & p)
+{
+  const double t = FOOTPRINT_TOLERANCE_M;
+  return p.x() >= STABLE_BOX_X0 - t && p.x() <= STABLE_BOX_X1 + t && p.y() >= STABLE_BOX_Y0 - t &&
+         p.y() <= STABLE_BOX_Y1 + t;
+}
+
+// The shipped config/ground_estimator.yaml with only the topics, the output namespace and the metrics port of the
+// test's base config.
+Config shipped_config(const Config & base)
+{
+  Config c = ground_estimator_cpp::from_yaml(YAML::LoadFile(std::string(GROUND_CONFIG_DIR) + "/ground_estimator.yaml"));
+  c.cloud_topic = base.cloud_topic;
+  c.imu_topic = base.imu_topic;
+  c.rgbd_cloud_topic = base.rgbd_cloud_topic;
+  c.output_namespace = base.output_namespace;
+  c.metrics_port = std::nullopt;
+  return c;
+}
+
+}  // namespace
+
+// The cells are 10 cm in the fixed frame and the temporal filter moves every point of a cell to the cell's median: a
+// cell straddling the box edge with most of its points on the box lifts its floor points to the box height. Only
+// points that clear the step themselves (this frame's height and the cell's median) are lethal marks.
+TEST_F(NodeTest, LethalMarksOfABoxLieOnItsFootprint)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  const auto frames = run_scene([](int i) { return clean_box(i); }, MARK_FRAMES);
+  for (const auto & f : frames) {
+    EXPECT_GT(f.obstacle, 0u);
+    const auto cloud = find_stamp(obstacle_, f.stamp);
+    ASSERT_TRUE(cloud.has_value());
+    for (const auto & p : xyz_of(*cloud)) {
+      EXPECT_TRUE(on_box_footprint(p)) << "lethal mark off the box at " << p.transpose();
+    }
+  }
+}
+
+// Latency pin: a 5 cm box placed on floor the node has tracked for 20 frames is lethal no later than
+// hysteresis.enter_frames frames (0.3 s at 10 Hz) after the first frame in which the temporal filter outputs box
+// heights for its cells, with the shipped config: the warning-area stability does not delay the lethal clouds.
+TEST_F(NodeTest, PlacedBoxIsLethalWithinEnterFramesOfItsFirstFilteredBoxHeights)
+{
+  fill_tf();
+  const Config config = shipped_config(base_config());
+  start(config);
+  // The same temporal filter the node runs, on the same clouds about the true floor z = 0, tells the frame in which
+  // the box cells first come out at box height.
+  ground_estimator_cpp::CellMedianFilter reference(config.temporal);
+  const ground_estimator_cpp::Plane floor;
+  int first_filtered = -1;
+  int first_lethal = -1;
+  for (int i = 0; i < TRACKED_FLOOR_FRAMES + PLACED_BOX_FRAMES; ++i) {
+    const bool with_box = i >= TRACKED_FLOOR_FRAMES;
+    const auto cloud = clean_box(i, with_box);
+    const FrameOutput f = run_frame(cloud);
+    const auto filtered = reference.apply(cloud, floor, ODOM_T_BASE, static_cast<double>(ns_of(f.stamp)) * 1e-9);
+    const bool box_heights = std::any_of(filtered.begin(), filtered.end(), [&](const pcl::PointXYZ & p) {
+      return on_box_footprint(Eigen::Vector3f(p.x, p.y, p.z)) && p.z > config.max_step_m();
+    });
+    if (!with_box) {
+      EXPECT_EQ(f.obstacle, 0u) << "frame " << i;
+      continue;
+    }
+    if (first_filtered < 0 && box_heights) {
+      first_filtered = i;
+    }
+    if (first_lethal < 0 && f.obstacle > 0) {
+      first_lethal = i;
+    }
+  }
+  ASSERT_GE(first_filtered, 0) << "the temporal filter never output the box";
+  ASSERT_GE(first_lethal, 0) << "the box never became lethal";
+  EXPECT_LE(first_lethal - first_filtered, config.hysteresis.enter_frames)
+    << "box cells filtered at frame " << first_filtered << ", first lethal at frame " << first_lethal;
 }

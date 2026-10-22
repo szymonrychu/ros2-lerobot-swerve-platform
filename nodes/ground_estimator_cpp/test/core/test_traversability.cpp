@@ -22,6 +22,7 @@ using ground_estimator_cpp::Cluster;
 using ground_estimator_cpp::colour_warning_areas;
 using ground_estimator_cpp::EdgesConfig;
 using ground_estimator_cpp::extract_clusters;
+using ground_estimator_cpp::lethal_marks;
 using ground_estimator_cpp::Plane;
 using ground_estimator_cpp::regions_from_clusters;
 using ground_estimator_cpp::segment;
@@ -317,4 +318,39 @@ TEST(Traversability, WarningPointsAreKept)
   ASSERT_TRUE(has_kind(down, "drop"));
   EXPECT_FALSE(down.warning_below.empty());
   EXPECT_TRUE(down.warning_above.empty());
+}
+
+// Lethal marks: a point is marked only when its own height in this frame and its cell's temporal height both clear the
+// step on the same side of the floor, and enough such points lie within the radius (design D7 applied to the marks).
+TEST(Traversability, LethalMarksClearTheStepThemselvesAndHaveCompany)
+{
+  constexpr double LIMIT = 0.04, RADIUS = 0.1;
+  pcl::PointCloud<pcl::PointXYZ> points;
+  std::vector<float> filtered, raw;
+  const auto add = [&](float x, float y, float f, float r) {
+    points.push_back(pcl::PointXYZ(x, y, f));
+    filtered.push_back(f);
+    raw.push_back(r);
+  };
+  add(0.70f, 0.20f, 0.050f, 0.052f);   // box top: kept
+  add(0.72f, 0.20f, 0.050f, 0.047f);   // box top: kept
+  add(0.74f, 0.20f, 0.050f, 0.003f);   // floor point lifted into a box cell: not lethal
+  add(0.76f, 0.20f, 0.030f, 0.045f);   // mixed-pixel tail cell at 3 cm: not lethal
+  add(1.00f, -0.30f, 0.055f, 0.050f);  // a lone tall return: no company
+  add(1.30f, -0.30f, 0.055f, 0.050f);  // 0.3 m away, no company either
+  add(0.70f, 0.40f, -0.050f, 0.050f);  // filtered below, raw above: not lethal
+  const auto marks = lethal_marks(points, filtered, raw, LIMIT, RADIUS, 2);
+  ASSERT_EQ(marks.size(), 2u);
+  EXPECT_FLOAT_EQ(marks[0].x, 0.70f);
+  EXPECT_FLOAT_EQ(marks[1].x, 0.72f);
+  // One point is enough with min_points 1; the lone return is then marked.
+  EXPECT_EQ(lethal_marks(points, filtered, raw, LIMIT, RADIUS, 1).size(), 4u);
+  // Drops: both heights below -limit.
+  pcl::PointCloud<pcl::PointXYZ> drop;
+  drop.push_back(pcl::PointXYZ(0.9f, 0.0f, -0.1f));
+  drop.push_back(pcl::PointXYZ(0.92f, 0.0f, -0.1f));
+  drop.push_back(pcl::PointXYZ(0.94f, 0.0f, -0.1f));
+  EXPECT_EQ(lethal_marks(drop, {-0.10f, -0.10f, -0.10f}, {-0.09f, -0.02f, -0.11f}, LIMIT, RADIUS, 2).size(), 2u);
+  // Exactly at the limit is not lethal (the rule is step > limit).
+  EXPECT_TRUE(lethal_marks(drop, {-0.04f, -0.04f, -0.04f}, {-0.1f, -0.1f, -0.1f}, LIMIT, RADIUS, 1).empty());
 }

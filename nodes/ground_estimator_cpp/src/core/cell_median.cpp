@@ -292,10 +292,18 @@ void CellMedianFilter::reset()
 
 pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
   const pcl::PointCloud<pcl::PointXYZ> & points_base, const Plane & plane, const Eigen::Isometry3d & fixed_T_base,
-  double stamp_s)
+  double stamp_s, std::vector<float> * raw_heights)
 {
   gated_cell_count_ = 0;
+  if (raw_heights != nullptr) {
+    raw_heights->clear();
+  }
   if (!cfg_.enabled) {
+    if (raw_heights != nullptr) {
+      for (const auto & p : points_base) {
+        raw_heights->push_back(static_cast<float>(height_above(plane, Eigen::Vector3d(p.x, p.y, p.z))));
+      }
+    }
     return points_base;
   }
   if (has_stamp_ && stamp_s < newest_stamp_s_) {
@@ -448,12 +456,32 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
     }
     const double centre = median(scratch);
     const double spread = robust_spread(history, value, centre);
+    const double newest = history.back().*value;  // this frame's value (the cell is in this frame)
     cell.spread = spread;
     if (spread > cfg_.max_spread_m) {
       ++gated_cell_count_;
+      if (cell.run_frames == 0) {
+        cell.level_before_run = cell.level;
+        cell.frames_since_gated_before_run = cell.frames_since_gated;
+        cell.run_min = cell.run_max = newest;
+      }
+      cell.run_min = std::min(cell.run_min, newest);
+      cell.run_max = std::max(cell.run_max, newest);
+      ++cell.run_frames;
       cell.frames_since_gated = 0;
     } else {
+      if (cell.run_frames > 0) {
+        // A turnover: the history went from one steady level to another, every new value at the new level.
+        const bool turnover = cell.level_before_run && cell.run_frames <= cfg_.window_frames &&
+                              std::fabs(centre - *cell.level_before_run) > cfg_.max_spread_m &&
+                              cell.run_max - centre <= cfg_.max_spread_m && centre - cell.run_min <= cfg_.max_spread_m;
+        if (turnover) {
+          cell.frames_since_gated = cell.frames_since_gated_before_run;
+        }
+        cell.run_frames = 0;
+      }
       cell.output = true;
+      cell.level = centre;
       if (cell.frames_since_gated < std::numeric_limits<int>::max()) {
         ++cell.frames_since_gated;
       }
@@ -480,6 +508,9 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
     const Eigen::Vector3d moved = p + (target - heights[i]) * plane.normal;
     out.push_back(
       pcl::PointXYZ(static_cast<float>(moved.x()), static_cast<float>(moved.y()), static_cast<float>(moved.z())));
+    if (raw_heights != nullptr) {
+      raw_heights->push_back(static_cast<float>(heights[i]));
+    }
   }
   return out;
 }

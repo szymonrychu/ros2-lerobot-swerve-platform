@@ -84,6 +84,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_node ground_estimator_node_lib)
   # synthetic_floor.hpp as "core/synthetic_floor.hpp".
   target_include_directories(test_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+  # The shipped config for the latency pin.
+  target_compile_definitions(test_node PRIVATE GROUND_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
 
   # The live recordings of test/data/replay through GroundNode with the shipped config (replay_fixture.hpp).
   ament_add_gtest(test_replay test/test_replay.cpp TIMEOUT 300)

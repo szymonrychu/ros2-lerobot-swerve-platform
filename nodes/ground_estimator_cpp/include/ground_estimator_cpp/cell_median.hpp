@@ -14,6 +14,7 @@
 #include <limits>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include "ground_estimator_cpp/config.hpp"
 #include "ground_estimator_cpp/plane_fit.hpp"
@@ -52,10 +53,12 @@ public:
   // @param plane the floor plane in base_link.
   // @param fixed_T_base pose of base_link in the fixed frame.
   // @param stamp_s frame time in seconds; a stamp older than the newest seen resets the filter first.
+  // @param raw_heights if not null, receives the plane-relative height of each output point before it was moved (its
+  //   own height in this frame), parallel to the returned cloud.
   // @return the filtered points in base_link; the input unchanged when disabled.
   pcl::PointCloud<pcl::PointXYZ> apply(
     const pcl::PointCloud<pcl::PointXYZ> & points_base, const Plane & plane, const Eigen::Isometry3d & fixed_T_base,
-    double stamp_s);
+    double stamp_s, std::vector<float> * raw_heights = nullptr);
 
   // Forget every cell.
   void reset();
@@ -71,8 +74,10 @@ public:
   // Whether a cell is steady enough to be lethal: output in the last apply with a robust spread of at most
   // max_spread_m, and neither it nor any of its 8 neighbours spread-gated in its last quiet_frames frames with enough
   // history (at the edge of a noisy band a cell mixing floor and band returns has a steady median between the two).
-  // A cell never gated is steady from its first output on, so a new steady obstacle has no extra delay. Always true
-  // when disabled.
+  // A cell never gated is steady from its first output on, so a new steady obstacle has no extra delay. A gated run
+  // that is a turnover (the cell was output before it, the run is at most window_frames long, every value that arrived
+  // during it lies within max_spread_m of the level output after it, and that level differs from the one before by
+  // more than max_spread_m: an object placed or removed) does not count as a gate. Always true when disabled.
   // @param xy_fixed a point in the fixed frame.
   // @param max_spread_m largest spread in metres (at most temporal.max_spread_m to be stricter than the gate).
   // @param quiet_frames frames since the cell was last gated that are needed, >= 0.
@@ -86,6 +91,15 @@ private:
     std::optional<double> spread;    // of the last apply in which the cell was seen with min_frames
     bool output = false;             // the cell's points were output in the last apply
     int frames_since_gated = std::numeric_limits<int>::max();  // frames with min_frames values since the last gate
+    // The current run of gated frames, to tell a turnover (a new surface replacing the old one in the history) from
+    // noise: the level output before the run, frames_since_gated before it, and the range of the values that arrived
+    // during it.
+    std::optional<double> level;             // value output in the last apply in which the cell was output
+    std::optional<double> level_before_run;  // level when the current gated run began
+    int frames_since_gated_before_run = std::numeric_limits<int>::max();
+    int run_frames = 0;
+    double run_min = 0.0;
+    double run_max = 0.0;
   };
 
   std::int64_t key_of(const Eigen::Vector2d & xy_fixed) const;

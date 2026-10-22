@@ -146,6 +146,19 @@ private:
     std::size_t drop_points = 0;
   };
 
+  // The exact bits of a point's x, y, z: the rule's clouds copy the filtered points unchanged, so a lethal candidate
+  // finds its own (raw) height of this frame by them.
+  struct PointBits
+  {
+    std::uint32_t x = 0, y = 0, z = 0;
+    bool operator==(const PointBits & o) const { return x == o.x && y == o.y && z == o.z; }
+  };
+  struct PointBitsHash
+  {
+    std::size_t operator()(const PointBits & b) const;
+  };
+  static PointBits bits_of(const pcl::PointXYZ & p);
+
   // A published stable warning area (fixed frame).
   struct PublishedArea
   {
@@ -165,6 +178,11 @@ private:
   void drop_occluded(const Plane & plane, const Eigen::Vector3d & sensor_base);
   void refine_slopes(std::vector<Cluster> & clusters, double sign, const Eigen::Isometry3d & fixed_T_base) const;
   void observe_classes(const Traversability & rule, const Eigen::Isometry3d & fixed_T_base, double stamp_s);
+  // The lethal marks of one side of the floor (lethal_marks): the points of `lethal` and `warning` (this frame's rule
+  // output) in stable lethal cells that clear the step by their own height and the cell's median, with company.
+  void lethal_marks_of(
+    const pcl::PointCloud<pcl::PointXYZ> & lethal, const pcl::PointCloud<pcl::PointXYZ> & warning, const Plane & plane,
+    const Eigen::Isometry3d & fixed_T_base, pcl::PointCloud<pcl::PointXYZ> & out);
   void observe_steady(
     const pcl::PointCloud<pcl::PointXYZ> & points, CellClass cls, const Eigen::Isometry3d & fixed_T_base);
   void publish_warning_areas(const builtin_interfaces::msg::Time & stamp, const Plane & plane_fixed);
@@ -206,6 +224,10 @@ private:
   pcl::PointCloud<pcl::PointXYZ> base_cloud_;
   FloorReference floor_reference_;                 // filtered_cloud_ with plane-relative heights
   pcl::PointCloud<pcl::PointXYZ> filtered_cloud_;  // base_cloud_ after the temporal median
+  std::vector<float> filtered_raw_h_;              // own height of each filtered_cloud_ point before the median
+  std::unordered_map<PointBits, float, PointBitsHash> raw_height_of_;  // filtered point -> its own height
+  pcl::PointCloud<pcl::PointXYZ> lethal_candidates_;                   // scratch of lethal_marks_of
+  std::vector<float> candidate_filtered_h_, candidate_raw_h_;
   pcl::PointCloud<pcl::PointXYZ> unclustered_above_, unclustered_below_;
   std::vector<float> unclustered_above_h_, unclustered_below_h_;
   std::vector<int> unclustered_index_;
@@ -214,7 +236,7 @@ private:
   pcl::PointCloud<pcl::PointXYZ> mismatch_cloud_;
   std::vector<float> mismatch_h_;
   std::vector<WarningArea> areas_in_frame_;
-  pcl::PointCloud<pcl::PointXYZ> stable_obstacle_, stable_drop_;  // this frame's points of stable lethal cells
+  pcl::PointCloud<pcl::PointXYZ> stable_obstacle_, stable_drop_;  // this frame's lethal marks (lethal_marks_of)
   pcl::PointCloud<pcl::PointXYZ> steady_lethal_;                  // lethal points of steady cells (scratch)
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;

@@ -80,6 +80,23 @@ Traversability apply_rule(
   const pcl::PointCloud<pcl::PointXYZ> & unclustered_below, const std::vector<float> & unclustered_below_h,
   std::vector<Region> regions, const EdgesConfig & edges, const TraversabilityConfig & cfg);
 
+// Lethal marks of one frame (the points published as obstacle or drop): the points whose own height in this frame and
+// whose temporal (cell-median) height both clear the step on the same side of the floor, |h| > limit, and that have
+// at least min_points such points (counting the point itself) within radius. The temporal filter moves every point
+// of a cell to the cell's median, so a cell straddling an obstacle's edge lifts its floor points to the obstacle's
+// height, and a mixed-pixel tail cell reads a few centimetres; neither is a lethal mark, and a lone tall return is not
+// either (design D7 applied to the marks).
+// @param points candidate points (in stable lethal cells) in base_link.
+// @param filtered_heights signed temporal heights above the floor, parallel to points.
+// @param raw_heights signed heights of the points in this frame, parallel to points.
+// @param limit the step limit in metres (max_step_m of the rule).
+// @param radius neighbour radius in metres (edges.cluster_tolerance_m).
+// @param min_points fewest marks within radius (traversability.lethal_min_points), <= 1 keeps every passing point.
+// @return the marks, in input order.
+pcl::PointCloud<pcl::PointXYZ> lethal_marks(
+  const pcl::PointCloud<pcl::PointXYZ> & points, const std::vector<float> & filtered_heights,
+  const std::vector<float> & raw_heights, double limit, double radius, int min_points);
+
 // Warning areas of the floor-colour mismatch points: clustered like the ToF candidates; every cluster is a warning.
 // @param mismatch_points_base mismatch points in base_link.
 // @param heights signed heights above the plane, parallel to the points.
