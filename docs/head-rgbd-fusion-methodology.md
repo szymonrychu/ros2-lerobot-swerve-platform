@@ -176,7 +176,7 @@ compensation), and it has no flying-pixel handling. Its footprint-splat idea is 
 
 ## Upsampling
 
-Optional (`upsampling.enabled`, off by default). The registered depth is upsampled by 2 to 576x324 guided by the decoded
+On by default (`upsampling.enabled: true`, the RGB edge input of ground_estimator_cpp guidance). The registered depth is upsampled by 2 to 576x324 guided by the decoded
 mapping RGB (grey, float [0, 1]) with `cv::ximgproc::guidedFilter` (doi:10.1109/TPAMI.2012.213) in normalised-convolution
 form `D = GF(I, D0 * M) / GF(I, M)`, where `D0` is the nearest-upsampled registered depth and `M` its validity mask, so
 holes never bleed zeros into neighbours.
@@ -208,7 +208,7 @@ Pan-sweep motion stays inside the pan/tilt epic's verified range (+-20 deg at 20
 | Valid-pixel ratio | flat wall at 1.5 m, inside the ToF field of view | >= 0.85 of output pixels filled |
 | ToF-RGB time offset | `sweep` bag, +-20 deg at 20 deg/s, offset from ToF-projected vs RGB corner tracks | abs <= 10 ms |
 | Motion | the same sweep with compensation on | median edge alignment <= 1.5 px; pairs above the rate limit dropped |
-| CPU | Grafana, 10 min, `mapping.rate_hz` 10, upsampling off (see CPU budget) | <= 0.2 core p95; upsampling on reported |
+| CPU | Grafana, 10 min, `mapping.rate_hz` 10, upsampling on and off (see CPU budget) | <= 0.2 core p95; both reported |
 | Placeholder check | ToF stopped, TF missing, no calibration | nothing on `/head_rgbd/*` |
 
 ### Results
@@ -235,7 +235,7 @@ The measured and pass columns are completed by the robot runbook `docs/runbooks/
 
 ## CPU budget
 
-Target: head_rgbd_cpp at most 0.2 core p95 over 10 minutes with `mapping.rate_hz` 10 and upsampling off; the node runs in
+Target: head_rgbd_cpp at most 0.2 core p95 over 10 minutes with `mapping.rate_hz` 10 with upsampling off and on, both reported; the node runs in
 the background tier (cpu_weight 100, memory_max 256M) so robot nodes keep their headroom. Read it in Grafana:
 cAdvisor `container_cpu_usage_seconds_total` of `ros2-head_rgbd_cpp.service`, e.g.
 `rate(container_cpu_usage_seconds_total{id=~".*ros2-head_rgbd_cpp.service"}[1m])` (cores), and the node's own
