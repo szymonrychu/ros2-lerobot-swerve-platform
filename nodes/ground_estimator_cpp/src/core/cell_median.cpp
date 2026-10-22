@@ -86,7 +86,21 @@ bool CellMedianFilter::steady_at(const Eigen::Vector2d & xy_fixed, double max_sp
     return false;
   }
   const Cell & cell = it->second;
-  return cell.output && cell.spread && *cell.spread <= max_spread_m && cell.frames_since_gated >= quiet_frames;
+  if (!(cell.output && cell.spread && *cell.spread <= max_spread_m && cell.frames_since_gated >= quiet_frames)) {
+    return false;
+  }
+  // No neighbour gated in its last quiet_frames frames either.
+  const auto ix = static_cast<std::int32_t>(std::floor(xy_fixed.x() / cfg_.cell_size_m));
+  const auto iy = static_cast<std::int32_t>(std::floor(xy_fixed.y() / cfg_.cell_size_m));
+  for (std::int32_t dx = -1; dx <= 1; ++dx) {
+    for (std::int32_t dy = -1; dy <= 1; ++dy) {
+      const auto neighbour = cells_.find(cell_key(ix + dx, iy + dy));
+      if ((dx != 0 || dy != 0) && neighbour != cells_.end() && neighbour->second.frames_since_gated < quiet_frames) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 void CellMedianFilter::reset()

@@ -413,6 +413,37 @@ TEST(CellMedian, RecentlyGatedOrMildlyNoisyCellIsNotSteady)
   }
 }
 
+// A steady cell next to a cell gated in its last quiet_frames frames is not steady: at the edge of a noisy band the
+// median of a cell mixing floor and band returns sits steadily between the two, so a noisy neighbour withholds it.
+// A gated cell two cells away does not.
+TEST(CellMedian, SteadyCellNextToARecentlyGatedCellIsNotSteady)
+{
+  const TemporalConfig cfg;
+  const int quiet_frames = 2 * cfg.window_frames;
+  const Eigen::Vector2d steady(0.65, 0.05);
+  const auto run = [&](CellMedianFilter & filter, double noisy_x0, int frames, int first_frame, bool noisy) {
+    for (int i = 0; i < frames; ++i) {
+      const double value = noisy ? ((first_frame + i) % 2 == 0 ? 1.0 : -1.0) * 0.1 : 0.0;
+      Cloud in = cell_cloud(0.6, 0.7, [](int, int) { return 0.05; });
+      const Cloud band = cell_cloud(noisy_x0, noisy_x0 + CELL_M, [&](int, int) { return value; });
+      in.insert(in.end(), band.begin(), band.end());
+      filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), (first_frame + i) * FRAME_DT_S);
+    }
+  };
+  CellMedianFilter next_to(cfg);
+  run(next_to, 0.7, 12, 0, true);
+  EXPECT_GT(next_to.gated_cell_count(), 0u);
+  EXPECT_FALSE(next_to.steady_at(steady, 0.6 * cfg.max_spread_m, quiet_frames));
+  // The neighbour turns quiet: steady again once it has been ungated for quiet_frames frames.
+  run(next_to, 0.7, quiet_frames + cfg.window_frames, 12, false);
+  EXPECT_TRUE(next_to.steady_at(steady, 0.6 * cfg.max_spread_m, quiet_frames));
+
+  CellMedianFilter two_away(cfg);
+  run(two_away, 0.8, 12, 0, true);
+  EXPECT_GT(two_away.gated_cell_count(), 0u);
+  EXPECT_TRUE(two_away.steady_at(steady, 0.6 * cfg.max_spread_m, quiet_frames));
+}
+
 TEST(CellMedian, DisabledIsAlwaysSteadyAndUnknownCellsAreNot)
 {
   TemporalConfig cfg;

@@ -51,8 +51,10 @@ public:
   std::size_t gated_cell_count() const { return gated_cell_count_; }
 
   // Whether a cell is steady enough to be lethal: output in the last apply with a robust spread of at most
-  // max_spread_m, and not spread-gated in any of its last quiet_frames frames with enough history. A cell never gated
-  // is steady from its first output on, so a new steady obstacle has no extra delay. Always true when disabled.
+  // max_spread_m, and neither it nor any of its 8 neighbours spread-gated in its last quiet_frames frames with enough
+  // history (at the edge of a noisy band a cell mixing floor and band returns has a steady median between the two).
+  // A cell never gated is steady from its first output on, so a new steady obstacle has no extra delay. Always true
+  // when disabled.
   // @param xy_fixed a point in the fixed frame.
   // @param max_spread_m largest spread in metres (at most temporal.max_spread_m to be stricter than the gate).
   // @param quiet_frames frames since the cell was last gated that are needed, >= 0.

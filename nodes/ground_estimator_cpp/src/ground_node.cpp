@@ -290,6 +290,7 @@ GroundNode::GroundNode(
   tracker_(config.fit),
   cell_filter_(config.temporal),
   cell_class_(config.hysteresis, config.temporal.cell_size_m),
+  raw_heights_(slope_history_config(config.temporal)),
   colour_model_(config.colour),
   metrics_(NODE_NAME)
 {
@@ -463,6 +464,7 @@ void GroundNode::reset_cells()
 {
   cell_filter_.reset();
   cell_class_.reset();
+  raw_heights_.reset();
   areas_fixed_.clear();
   set_gauge(METRIC_TEMPORAL_CELLS, 0.0);
   set_gauge(METRIC_TEMPORAL_GATED, static_cast<double>(cell_filter_.gated_cell_count()));
@@ -477,15 +479,20 @@ void GroundNode::process_plane(
   const Plane & plane = tracked.plane;
   const double edge_band_m = config_.traversability.edge_band_m;
   filtered_cloud_ = cell_filter_.apply(base_cloud_, plane, fixed_T_base, stamp_s);
+  if (config_.temporal.enabled) {
+    raw_heights_.add(base_cloud_, plane, fixed_T_base, stamp_s);
+  }
   set_gauge(METRIC_TEMPORAL_CELLS, static_cast<double>(cell_filter_.cell_count()));
   set_gauge(METRIC_TEMPORAL_GATED, static_cast<double>(cell_filter_.gated_cell_count()));
   const Segmented seg = segment(filtered_cloud_, plane, config_.bands, config_.fit.distance_m);
-  const auto above =
+  auto above =
     extract_clusters(seg.above, seg.above_height, "step", plane, config_.edges, edge_band_m, &unclustered_index_);
   gather(seg.above, seg.above_height, unclustered_index_, unclustered_above_, unclustered_above_h_);
-  const auto below =
+  auto below =
     extract_clusters(seg.below, seg.below_height, "drop", plane, config_.edges, edge_band_m, &unclustered_index_);
   gather(seg.below, seg.below_height, unclustered_index_, unclustered_below_, unclustered_below_h_);
+  refine_slopes(above, 1.0, fixed_T_base);
+  refine_slopes(below, -1.0, fixed_T_base);
   Traversability rule = apply_rule(
     above, below, unclustered_above_, unclustered_above_h_, unclustered_below_, unclustered_below_h_,
     all_regions(above, below, config_.edges), config_.edges, config_.traversability);
@@ -534,6 +541,32 @@ void GroundNode::process_plane(
   }
 
   publish_warning_areas(msg.header.stamp, plane_fixed);
+}
+
+void GroundNode::refine_slopes(
+  std::vector<Cluster> & clusters, double sign, const Eigen::Isometry3d & fixed_T_base) const
+{
+  // With the temporal median a cluster's slope comes from one sample per cell: a small sparse ramp has three or four,
+  // straddling its foot, sides and top edge, and the fit scatters by several degrees from cloud to cloud. For an
+  // inclined cluster its raw points over the slope history, in its cells and their neighbours, give the slope instead
+  // (surface_slope.hpp).
+  if (!config_.temporal.enabled) {
+    return;
+  }
+  for (Cluster & c : clusters) {
+    if (!c.slope_known || c.slope_deg < SLOPE_REFIT_MIN_DEG) {
+      continue;
+    }
+    std::size_t clouds = 0;
+    const auto samples = raw_heights_.around(c.points, fixed_T_base, &clouds);
+    const auto slope = clouds >= static_cast<std::size_t>(config_.temporal.window_frames)
+                         ? surface_slope_deg(samples, sign, config_.fit.distance_m)
+                         : std::nullopt;
+    // Fewer clouds than a temporal window scatter by over a degree: the slope is not known yet (a new inclined
+    // cluster is judged on its step until then, with no cell-median slope standing in).
+    c.slope_known = slope.has_value();
+    c.slope_deg = slope.value_or(0.0);
+  }
 }
 
 void GroundNode::observe_classes(const Traversability & rule, const Eigen::Isometry3d & fixed_T_base, double stamp_s)

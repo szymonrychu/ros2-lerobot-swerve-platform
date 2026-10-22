@@ -300,6 +300,13 @@ int warm_up_frames(const Config & c)
   return temporal + (c.hysteresis.enabled ? c.hysteresis.enter_frames : 1);
 }
 
+// Frames until an inclined cluster's slope is known and its ramp kind published: its cells need temporal.window_frames
+// clouds in the slope history (surface_slope.hpp), then a kind change holds hysteresis.enter_frames frames.
+int slope_warm_up_frames(const Config & c)
+{
+  return std::max(warm_up_frames(c), c.temporal.window_frames + (c.hysteresis.enabled ? c.hysteresis.enter_frames : 1));
+}
+
 // --- multi-frame scenes, base_link grids with noise keyed by the fixed-frame (odom) cell -------------------------
 
 constexpr double CELL_M = 0.10;  // temporal.cell_size_m default: the per-cell noise is drawn per fixed-frame cell
@@ -323,6 +330,9 @@ constexpr double MAT_GRID_M = 0.02;
 constexpr double MAT_KEEP_FRACTION = 0.3;
 constexpr double MAT_SIGMA_M = 0.015;
 constexpr double PLATE_HEIGHT_M = 0.06;
+constexpr double STEEP_MAT_DEG = 20.0;
+// Seed sets of the noisy scenes: a result must hold for other noise draws too, not one lucky seed.
+constexpr unsigned SEED_SET_STRIDE = 100000U;
 
 // The fixed-frame cell of a base_link point (the robot stands still at ODOM_T_BASE).
 std::pair<int, int> odom_cell(const pcl::PointXYZ & p)
@@ -340,9 +350,9 @@ unsigned cell_seed(const std::pair<int, int> & cell, int frame, unsigned salt)
 // Empty floor x 0.3 .. 1.45 m (3 cm grid, 6 mm noise) whose far band x 1.15 .. 1.45 m reads like the measured far edge
 // of the ToF returns: per frame each fixed-frame cell reads one value, uniform from +4 cm up with the cell's temporal
 // std (spread over 30 .. 90 mm by cell; 43 mm spans +4 .. +19 cm), plus 3 mm per-point noise.
-pcl::PointCloud<pcl::PointXYZ> far_band_floor(int frame)
+pcl::PointCloud<pcl::PointXYZ> far_band_floor(int frame, unsigned seed_set)
 {
-  std::mt19937 rng(7000U + static_cast<unsigned>(frame));
+  std::mt19937 rng(7000U + SEED_SET_STRIDE * seed_set + static_cast<unsigned>(frame));
   std::normal_distribution<double> noise(0.0, FLOOR_NOISE_M);
   pcl::PointCloud<pcl::PointXYZ> cloud = ground_test::grid_cloud(0.3, FAR_BAND_X1, -0.5, 0.5, 0.03);
   for (auto & p : cloud) {
@@ -353,7 +363,7 @@ pcl::PointCloud<pcl::PointXYZ> far_band_floor(int frame)
     const auto cell = odom_cell(p);
     const int step = (((cell.first * 7 + cell.second * 3) % FAR_SPREAD_STEPS) + FAR_SPREAD_STEPS) % FAR_SPREAD_STEPS;
     const double sigma = FAR_SPREAD_LO_M + (FAR_SPREAD_HI_M - FAR_SPREAD_LO_M) * step / (FAR_SPREAD_STEPS - 1.0);
-    std::mt19937 cell_rng(cell_seed(cell, frame, 1U));
+    std::mt19937 cell_rng(cell_seed(cell, frame, 1U + SEED_SET_STRIDE * seed_set));
     const double value =
       FAR_BAND_LOW_M + std::uniform_real_distribution<double>(0.0, 2.0 * std::sqrt(3.0) * sigma)(cell_rng);
     p.z = static_cast<float>(value + 0.5 * noise(rng));
@@ -400,13 +410,15 @@ pcl::PointCloud<pcl::PointXYZ> jittered_sill(int frame, double jitter_m)
 
 // The user's black rubber mat (part ramp-synthetic-scene): a 25 cm, 63 mm (14 deg) wedge at x 1.0 .. 1.25,
 // y -0.45 .. -0.20 sampled on a 2 cm grid, 30 % of the returns kept per frame with 15 mm height noise, on a 3 cm,
-// 4 mm noise floor.
-pcl::PointCloud<pcl::PointXYZ> sparse_mat_ramp(int frame)
+// 4 mm noise floor. Seed set s draws other noise and returns (seeds offset by s * SEED_SET_STRIDE).
+// slope_deg other than 0 raises the mat to that slope over the same length.
+pcl::PointCloud<pcl::PointXYZ> sparse_mat_ramp(int frame, unsigned seed_set, double slope_deg = 0.0)
 {
   Scene mat;
-  ground_test::add_ramp(mat, MAT_X0, MAT_LENGTH_M, MAT_HEIGHT_M, MAT_Y0, MAT_Y1);
+  const double height_m = slope_deg > 0.0 ? MAT_LENGTH_M * std::tan(slope_deg * DEG) : MAT_HEIGHT_M;
+  ground_test::add_ramp(mat, MAT_X0, MAT_LENGTH_M, height_m, MAT_Y0, MAT_Y1);
   const auto dense = ground_test::sample_grid(mat, 0.95, 1.3, -0.5, -0.15, MAT_GRID_M);
-  const auto seed = 11000U + static_cast<unsigned>(frame);
+  const auto seed = 11000U + SEED_SET_STRIDE * seed_set + static_cast<unsigned>(frame);
   pcl::PointCloud<pcl::PointXYZ> cloud =
     ground_test::add_z_noise(ground_test::keep_fraction(dense, MAT_KEEP_FRACTION, seed), MAT_SIGMA_M, 0.0, 0.0, seed);
   std::mt19937 rng(seed + 500U);
@@ -583,11 +595,13 @@ protected:
     return out;
   }
 
-  // Run frames 0 .. warm_up + frames - 1 of a scene and return the outputs after the warm-up.
-  std::vector<FrameOutput> run_scene(const std::function<pcl::PointCloud<pcl::PointXYZ>(int)> & scene, int frames)
+  // Run frames 0 .. warm_up + frames - 1 of a scene and return the outputs after the warm-up (warm_up_frames when
+  // negative).
+  std::vector<FrameOutput> run_scene(
+    const std::function<pcl::PointCloud<pcl::PointXYZ>(int)> & scene, int frames, int warm_up = -1)
   {
     std::vector<FrameOutput> out;
-    const int warm_up = warm_up_frames(config_);
+    warm_up = warm_up < 0 ? warm_up_frames(config_) : warm_up;
     for (int i = 0; i < warm_up + frames; ++i) {
       FrameOutput f = run_frame(scene(i));
       if (i >= warm_up) {
@@ -595,6 +609,18 @@ protected:
       }
     }
     return out;
+  }
+
+  // Start a node with the temporal filter on and run a scene through run_scene; inclined scenes warm up until their
+  // slope is known (slope_warm_up_frames).
+  std::vector<FrameOutput> run_temporal_scene(
+    const std::function<pcl::PointCloud<pcl::PointXYZ>(int)> & scene, int frames, bool inclined = false)
+  {
+    fill_tf();
+    Config config = base_config();
+    config.temporal.enabled = true;
+    start(config);
+    return run_scene(scene, frames, inclined ? slope_warm_up_frames(config) : -1);
   }
 
   // Train the floor colour model on grey floor RGB-D clouds, then show the red sheet (lifted by sheet_height_m).
@@ -1263,15 +1289,30 @@ bool lethal_free(const FrameOutput & f) { return f.obstacle == 0 && f.drop == 0;
 
 TEST_F(NodeTest, NoisyFarBandOnEmptyFloorGivesNoLethalPointsAtP95)
 {
-  fill_tf();
-  Config config = base_config();
-  config.temporal.enabled = true;
-  start(config);
-  const auto frames = run_scene(far_band_floor, FAR_BAND_FRAMES);
+  const auto frames = run_temporal_scene([](int i) { return far_band_floor(i, 0U); }, FAR_BAND_FRAMES);
   EXPECT_GE(share(frames, lethal_free), LETHAL_FREE_SHARE);
   // The noisy far-band cells are unknown: the spread gate counts them.
   EXPECT_GT(metric("ground_temporal_gated_cells").value_or(0.0), 0.0);
   EXPECT_TRUE(metric("ground_stable_lethal_cells").has_value());
+}
+
+// The far band with other noise draws.
+TEST_F(NodeTest, NoisyFarBandGivesNoLethalPointsAtP95ForSeedSet1)
+{
+  const auto frames = run_temporal_scene([](int i) { return far_band_floor(i, 1U); }, FAR_BAND_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), LETHAL_FREE_SHARE);
+}
+
+TEST_F(NodeTest, NoisyFarBandGivesNoLethalPointsAtP95ForSeedSet2)
+{
+  const auto frames = run_temporal_scene([](int i) { return far_band_floor(i, 2U); }, FAR_BAND_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), LETHAL_FREE_SHARE);
+}
+
+TEST_F(NodeTest, NoisyFarBandGivesNoLethalPointsAtP95ForSeedSet3)
+{
+  const auto frames = run_temporal_scene([](int i) { return far_band_floor(i, 3U); }, FAR_BAND_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), LETHAL_FREE_SHARE);
 }
 
 TEST_F(NodeTest, FiveCentimetreBoxWithANoisyEdgeBandIsStablyLethal)
@@ -1328,18 +1369,43 @@ TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningEveryFrameAndNeverLethal)
   EXPECT_EQ(metric("ground_stable_lethal_cells").value_or(-1.0), 0.0);
 }
 
+bool has_ramp(const FrameOutput & f) { return !f.warnings.is_null() && has_kind(f.warnings["areas"], "ramp", ""); }
+
 TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarning)
 {
-  fill_tf();
-  Config config = base_config();
-  config.temporal.enabled = true;
-  start(config);
-  const auto frames = run_scene(sparse_mat_ramp, RAMP_FRAMES);
-  EXPECT_GE(
-    share(
-      frames, [](const FrameOutput & f) { return !f.warnings.is_null() && has_kind(f.warnings["areas"], "ramp", ""); }),
-    RAMP_SHARE);
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U); }, RAMP_FRAMES, true);
+  EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
   EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+// The same mat with other noise draws: the ramp verdict is not one lucky seed.
+TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet1)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 1U); }, RAMP_FRAMES, true);
+  EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet2)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 2U); }, RAMP_FRAMES, true);
+  EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet3)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 3U); }, RAMP_FRAMES, true);
+  EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+// The safety side of the ramp rule: the same sparse mat raised to 20 deg is lethal.
+TEST_F(NodeTest, SparseTwentyDegreeMatIsLethal)
+{
+  const auto frames =
+    run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U, STEEP_MAT_DEG); }, RAMP_FRAMES, true);
+  EXPECT_GE(share(frames, [](const FrameOutput & f) { return f.obstacle > 0; }), RAMP_SHARE);
 }
 
 TEST_F(NodeTest, JitteringStaticSillGivesIdenticalWarningAreas)

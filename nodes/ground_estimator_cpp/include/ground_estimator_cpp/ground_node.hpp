@@ -14,6 +14,11 @@
 // AREA_SLOPE_DEADBAND_DEG of them, so a static scene publishes identical areas (the values are earlier measurements
 // of the same area; the polygon is always this frame's cells).
 //
+// Cluster slopes (temporal filter on): the slope of a cluster whose cell-median fit reads at least SLOPE_REFIT_MIN_DEG
+// is refit from the raw heights of the last SLOPE_HISTORY_WINDOWS * temporal.window_frames clouds in its cells and
+// their neighbours (surface_slope.hpp), so a small sparse ramp is judged on its whole surface instead of three or four
+// cell medians. Until its cells hold temporal.window_frames clouds (or when the refit fails) its slope is unknown.
+//
 // Topics (part ground-topics, names from Config): <ns>/obstacle_points, <ns>/drop_points (PointCloud2 XYZ, reliable
 // depth 1), <ns>/warning_areas (std_msgs/String, reliable depth 1), <ns>/labelled_points (PointCloud2 XYZ rgb label,
 // best_effort depth 1), <ns>/state (std_msgs/String, reliable transient_local depth 1).
@@ -49,6 +54,7 @@
 #include "ground_estimator_cpp/edges.hpp"
 #include "ground_estimator_cpp/plane_fit.hpp"
 #include "ground_estimator_cpp/state.hpp"
+#include "ground_estimator_cpp/surface_slope.hpp"
 #include "ground_estimator_cpp/tracker.hpp"
 #include "ground_estimator_cpp/traversability.hpp"
 #include "ros2_common_cpp/metrics.hpp"
@@ -81,10 +87,11 @@ constexpr const char * METRIC_DROPPED = "ground_clouds_dropped_total";
 constexpr const char * METRIC_LABELLED = "ground_labelled_clouds_total";
 
 // A lethal point votes its cell lethal only when the temporal cell is steady (CellMedianFilter::steady_at): a spread of
-// at most LETHAL_SPREAD_FRACTION * temporal.max_spread_m and no spread gate in its last
+// at most LETHAL_SPREAD_FRACTION * temporal.max_spread_m and no spread gate of it or of its 8 neighbours in its last
 // LETHAL_QUIET_WINDOWS * temporal.window_frames frames. Far-band cells of 30..42 mm temporal spread slip under the
-// 25 mm gate for runs of frames by chance (an 8-frame estimate scatters ~25 %), which the N-of-M class hysteresis cannot
-// absorb; a real obstacle's cells read a few millimetres (the 5 cm box top 3-6 mm) and vote at once.
+// 25 mm gate for runs of frames by chance (an 8-frame estimate scatters ~25 %), and a cell mixing floor and far-band
+// returns has a steady median between the two, which the N-of-M class hysteresis cannot absorb; a real obstacle's cells
+// read a few millimetres (the 5 cm box top 3-6 mm) next to a steady floor and vote at once.
 constexpr double LETHAL_SPREAD_FRACTION = 0.6;
 constexpr int LETHAL_QUIET_WINDOWS = 2;
 
@@ -153,6 +160,7 @@ private:
   void process_plane(
     const sensor_msgs::msg::PointCloud2 & msg, const TrackedPlane & tracked, const Eigen::Isometry3d & fixed_T_base,
     double stamp_s, const std::chrono::steady_clock::time_point & started);
+  void refine_slopes(std::vector<Cluster> & clusters, double sign, const Eigen::Isometry3d & fixed_T_base) const;
   void observe_classes(const Traversability & rule, const Eigen::Isometry3d & fixed_T_base, double stamp_s);
   void observe_steady(
     const pcl::PointCloud<pcl::PointXYZ> & points, CellClass cls, const Eigen::Isometry3d & fixed_T_base);
@@ -174,6 +182,7 @@ private:
   PlaneTracker tracker_;
   CellMedianFilter cell_filter_;
   CellClassFilter cell_class_;              // on the cell_filter_ grid; reset with it
+  RawHeightHistory raw_heights_;            // the raw clouds of the slope history, for the cluster slopes
   std::vector<PublishedArea> areas_fixed_;  // the published stable warning areas
   FloorColourModel colour_model_;
   std::optional<ImuSample> latest_imu_;
