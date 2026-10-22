@@ -1,6 +1,6 @@
 ---
 title: Map reset requester event
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "A map reset from the web UI is no longer a mystery: the agent gets an event naming who asked"
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_map_reset_event.py, nodes/web_ui/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--map-reset-requester-event
 branch: drivable-ground-tof-filterin--map-reset-requester-event
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Map reset requester event
@@ -87,3 +89,5 @@ the README names who reset the map at 16:24:29 or why that cannot be known.
 
 - Live step: none (code, run 1 of D29). No live map reset is done (it deletes the live POIs and photos).
 - Ordered after web-ui-ground-recorder-api and web-ui-applied-head-urdf (server.py, bridge.py).
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on web-ui-applied-head-urdf

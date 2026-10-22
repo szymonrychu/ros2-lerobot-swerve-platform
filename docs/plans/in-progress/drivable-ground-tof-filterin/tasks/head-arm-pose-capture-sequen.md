@@ -1,6 +1,6 @@
 ---
 title: Head arm pose capture sequence
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The node captures the board-on-gripper views by itself, moving only checked poses, asking before every big-joint motion and holding the arm on every exit."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/sequencer.py, nodes/head_rgbd_calibration/tests/test_sequencer.py]
@@ -15,8 +15,10 @@ review: full
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-arm-pose-capture-sequen
 branch: drivable-ground-tof-filterin--head-arm-pose-capture-sequen
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head arm pose capture sequence
@@ -107,3 +109,5 @@ and holding the arm on every exit.
 - Follow `floor_sweep.py`'s threading (lock for short updates, `stop_event`, cleanup in `finally`).
 - The base move moves shoulder and elbow joints, hence its own confirm; the UI dialog names them.
 - Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on arm-board-pose-set

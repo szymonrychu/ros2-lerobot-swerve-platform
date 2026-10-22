@@ -1,6 +1,6 @@
 ---
 title: Edge points core
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Obstacle and drop boundaries placed where the camera sees them, within a few cm of what depth found"
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/edge_points.hpp, nodes/ground_estimator_cpp/src/core/edge_points.cpp, nodes/ground_estimator_cpp/test/core/test_edge_points.cpp]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--edge-points-core
 branch: drivable-ground-tof-filterin--edge-points-core
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Edge points core
@@ -71,3 +73,5 @@ Builds part edge-points in `edge_points.hpp`: `GuidancePoints`, `EdgePoints {obs
 ## Notes
 
 pcl KdTreeFLANN on the xy projection (z = 0 copies) of the stable points gives the nearest distance; the stable clouds are small (tens to hundreds of points). Heights come from the guided depth only (D1).
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on guidance-frame-core

@@ -1,6 +1,6 @@
 ---
 title: Map epoch reset event
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: Every map reset the agent runs into is explained by an event with its cause
 files: [nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_map_epoch_event.py, nodes/mcp_server/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--map-epoch-reset-event
 branch: drivable-ground-tof-filterin--map-epoch-reset-event
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Map epoch reset event
@@ -79,3 +81,5 @@ cause}`; `get_exploration_status` and `list_frontiers` gain `epoch_changed_at`, 
 
 - Live step: none (code, run 1 of D29).
 - map_guard's own event type is `map_guard_reset` (`nodes/map_guard_cpp/include/map_guard_cpp/agent.hpp`).
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on map-reset-requester-event

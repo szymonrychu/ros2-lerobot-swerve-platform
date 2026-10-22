@@ -1,6 +1,6 @@
 ---
 title: Calib ansible deploy config
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The deployed node can call mcp_server, and its copies of the arm gauge, offsets, URDF and body obstacles cannot drift from mcp_server's."
 files: [ansible/group_vars/client.yml, ansible/playbooks/tasks/head_rgbd_calibration_setup.yml, tests/test_head_rgbd_calibration_deploy.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--calib-ansible-deploy-config
 branch: drivable-ground-tof-filterin--calib-ansible-deploy-config
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calib ansible deploy config
@@ -78,3 +80,5 @@ from mcp_server's.
   (web_ui `head_applied_calibration_dir` there, the node entry here), and ticket.py requires overlapping files to be
   ordered; no code of that task is used.
 - Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on head-arm-sequence-http-api, web-ui-applied-head-urdf

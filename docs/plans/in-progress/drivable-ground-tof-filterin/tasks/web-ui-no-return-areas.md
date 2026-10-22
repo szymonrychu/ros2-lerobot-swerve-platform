@@ -1,6 +1,6 @@
 ---
 title: Web UI no return areas
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The operator sees where the ToF is blind but the camera sees something
 files: [nodes/web_ui/frontend/src/map3d/groundLayer.ts, nodes/web_ui/frontend/src/map3d/groundLayer.test.ts, nodes/web_ui/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--web-ui-no-return-areas
 branch: drivable-ground-tof-filterin--web-ui-no-return-areas
-verified_head: ""
-run: ""
+verified_head: 52c22f456bf5b43612d59d442bc3d5310a1bf0f1
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI no return areas

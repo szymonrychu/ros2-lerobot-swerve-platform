@@ -1,6 +1,6 @@
 ---
 title: Robot MCP client
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The calibrator moves the head and arm only through mcp_server's guarded tools (leases, floor guard, body check, roll guard, battery gate)."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/robot_client.py, nodes/head_rgbd_calibration/pyproject.toml, nodes/head_rgbd_calibration/uv.lock, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/tests/test_robot_client.py, nodes/head_rgbd_calibration/tests/test_config.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--robot-mcp-client
 branch: drivable-ground-tof-filterin--robot-mcp-client
-verified_head: ""
-run: ""
-provides: []
+verified_head: a2f620bacf5c788cba7d6859a3c18dfe9c147f7b
+run: drivable-ground-tof-filterin
+provides: [robot-mcp-client]
+acs_for_audit: []
+process_gaps: ["nodes/head_rgbd_calibration/README.md has no mention of the robot: config block or robot_client; project CLAUDE.md requires READMEs kept current (implementer said not updated). Also tests/README.md entry for test_robot_client.py not checked/added. Likely belongs to the docs task but should be confirmed.", "The node's service user needs mcp-token group read access to /etc/ros2/mcp_server/token; not part of this task, belongs to calib-ansible-deploy-config (D37)."]
 ---
 
 # Robot MCP client

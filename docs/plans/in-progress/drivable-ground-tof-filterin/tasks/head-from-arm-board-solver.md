@@ -1,6 +1,6 @@
 ---
 title: Head from arm board solver
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Head yaw, mount x/y and the rest of the head chain are measured against the trusted arm, which the floor fit cannot see."
 files: [shared/ros2_common/head_rgbd_calibration/head_arm_fit.py, tests/head_arm_synthetic.py, tests/test_head_arm_fit.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-from-arm-board-solver
 branch: drivable-ground-tof-filterin--head-from-arm-board-solver
-verified_head: ""
-run: ""
-provides: []
+verified_head: 60673bff92ab2357d47c30dcdba36cc384938617
+run: drivable-ground-tof-filterin
+provides: [head-arm-limit-checks, head-camera-pose, synthetic-board-mount]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head from arm board solver

@@ -1,6 +1,6 @@
 ---
 title: Head arm sequence HTTP API
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The web UI can drive the guided head-from-arm calibration, with every confirm and refusal enforced by the node, not only by the browser."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/head_arm_api.py, nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py, nodes/head_rgbd_calibration/tests/test_head_arm_api.py, nodes/head_rgbd_calibration/tests/test_main.py, nodes/head_rgbd_calibration/tests/contract.py, nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_state.json, nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_result.json, nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_sessions.json]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-arm-sequence-http-api
 branch: drivable-ground-tof-filterin--head-arm-sequence-http-api
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Head arm sequence HTTP API
@@ -91,3 +93,5 @@ only by the browser.
 
 - Model it on `floor_api.py`; keep the floor routes unchanged.
 - Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on head-arm-pose-capture-sequen

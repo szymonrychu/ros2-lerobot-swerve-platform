@@ -1,6 +1,6 @@
 ---
 title: Joint state still capture
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Each view pairs a still head image of the board with the head and arm joints measured at that instant, or is not stored at all."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/tests/test_capture.py, nodes/head_rgbd_calibration/tests/test_config.py, nodes/head_rgbd_calibration/tests/conftest.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--joint-state-still-capture
 branch: drivable-ground-tof-filterin--joint-state-still-capture
-verified_head: ""
-run: ""
+verified_head: 60fec3c9a61babf7a5fc5577c660b6a258a42aa1
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: ["tests/README.md and node README test list not updated for the new still tests, as the implementer reported; the project docs rule asks for it"]
 ---
 
 # Joint state still capture

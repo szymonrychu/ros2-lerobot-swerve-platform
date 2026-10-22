@@ -1,6 +1,6 @@
 ---
 title: Guidance replay metrics
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Edge, no-return and board metrics against the truth, printed for every replay"
 files: [nodes/ground_estimator_cpp/test/replay_fixture.hpp, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/test/data/replay/tiny_truth.yaml, nodes/ground_estimator_cpp/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-replay-metrics
 branch: drivable-ground-tof-filterin--guidance-replay-metrics
 verified_head: ""
-run: ""
-provides: []
+run: drivable-ground-tof-filterin
+provides: [guidance-replay-harness, truth-replay-metrics]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Guidance replay metrics

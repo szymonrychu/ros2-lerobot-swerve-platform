@@ -1,6 +1,6 @@
 ---
 title: Tilt event evidence
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: A tilt warning can be judged real or an IMU glitch from the event itself
 files: [nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_tilt_event_evidence.py, nodes/mcp_server/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tilt-event-evidence
 branch: drivable-ground-tof-filterin--tilt-event-evidence
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Tilt event evidence
@@ -85,3 +87,5 @@ before; the README holds the verdict on the 16:21:15 warning.
 
 - Live step: none (code, run 1 of D29); the diagnosis uses history only.
 - Ordered after map-epoch-reset-event (monitor.py).
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on map-epoch-reset-event

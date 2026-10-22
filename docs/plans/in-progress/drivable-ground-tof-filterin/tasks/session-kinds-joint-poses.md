@@ -1,6 +1,6 @@
 ---
 title: Session kinds joint poses
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Board-on-gripper views are stored with all seven measured joints in the existing session store, never with invented values."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/store.py, nodes/head_rgbd_calibration/tests/test_store.py, nodes/head_rgbd_calibration/tests/pose_factory.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--session-kinds-joint-poses
 branch: drivable-ground-tof-filterin--session-kinds-joint-poses
-verified_head: ""
-run: ""
-provides: []
+verified_head: 84493bf9730fa5921a948ed051950aca3005ebab
+run: drivable-ground-tof-filterin
+provides: [write-pose-dir]
+acs_for_audit: []
+process_gaps: ["The red/green evidence is not yet recorded. I reproduced it in a scratch copy, so nothing in the worktree changed. Reverting store.py to the merge-base (bbd9abd0) gives '1 failed, 43 passed, 12 errors in 0.87s'. The failure is test_legacy_session_kind_is_rgbd (KeyError: 'kind'). The errors are TypeErrors from create_session(kind=...) in the head_arm tests. With HEAD store.py it gives '56 passed in 0.95s'. Paste both tails into tests.red and verification.evidence."]
 ---
 
 # Session kinds joint poses

@@ -1,6 +1,6 @@
 ---
 title: RGBD upsampling on
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Depth edges that follow the RGB edges at camera resolution, the source of sharper obstacle boundaries"
 files: [nodes/head_rgbd_cpp/test/core/test_upsample.cpp, nodes/head_rgbd_cpp/src/core/upsample.cpp, nodes/head_rgbd_cpp/config/head_rgbd.yaml, ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, nodes/head_rgbd_cpp/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--rgbd-upsampling-on
 branch: drivable-ground-tof-filterin--rgbd-upsampling-on
-verified_head: ""
-run: ""
+verified_head: aaed89771a80e441b9d38e7fdad0541b275f3d3b
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: [a4]
+process_gaps: []
 ---
 
 # RGBD upsampling on

@@ -1,6 +1,6 @@
 ---
 title: MCP head kinematics applied
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent's head aiming and head-camera geometry use the measured chain, reloaded on apply without killing an agent session."
 files: [nodes/mcp_server/mcp_server/head_kinematics.py, nodes/mcp_server/mcp_server/head.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_head_kinematics.py, nodes/mcp_server/tests/test_head_controller.py, nodes/mcp_server/tests/test_config.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--mcp-head-kinematics-applied
 branch: drivable-ground-tof-filterin--mcp-head-kinematics-applied
-verified_head: ""
-run: ""
+verified_head: 5deb3eacf7d7cb20f16a9030970ec79769d5bf66
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP head kinematics applied

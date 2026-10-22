@@ -1,6 +1,6 @@
 ---
 title: MCP front camera applied
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The agent's front camera tools become calibrated: pixel rays use the applied intrinsics and the measured camera mount."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/camera_scene.py, ansible/group_vars/client.yml, nodes/mcp_server/tests/test_camera_config.py, nodes/mcp_server/tests/test_camera_scene_head.py]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--mcp-front-camera-applied
 branch: drivable-ground-tof-filterin--mcp-front-camera-applied
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # MCP front camera applied
@@ -64,3 +66,5 @@ The agent's front camera tools become calibrated: pixel rays use the applied int
 - Design: the epic design.md (`ticket.py path drivable-ground-tof-filterin design`) (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus). Ordered after arm-board-pose-set only because both edit ansible/group_vars/client.yml.
 
 - 2026-10-22 re-plan: the floor fit epic delivered the override, the FK core and head_state_publisher; dependencies and design references updated to the head-from-arm plan.
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on arm-board-pose-set

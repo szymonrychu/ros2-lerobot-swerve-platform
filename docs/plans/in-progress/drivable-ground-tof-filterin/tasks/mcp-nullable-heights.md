@@ -1,6 +1,6 @@
 ---
 title: MCP nullable heights
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent's ground summary keeps working and names no_return areas"
 files: [nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/tests/test_ground_summary.py, nodes/mcp_server/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--mcp-nullable-heights
 branch: drivable-ground-tof-filterin--mcp-nullable-heights
-verified_head: ""
-run: ""
+verified_head: 391e135d24885b16f96bda83d4fbf795a559475a
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: [a3]
+process_gaps: []
 ---
 
 # MCP nullable heights

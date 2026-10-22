@@ -1,6 +1,6 @@
 ---
 title: Collision source stall fix
-status: in-progress
+status: blocked
 repo: ros2-lerobot-sverve-platform
 value: Nav2 goals finish their final turn instead of being cut by a spurious invalid-source stop
 files: [nodes/laser_filter/laser_filter/node.py, nodes/nav2_bringup/config/nav2_params.yaml, tests/test_collision_source_stall.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--collision-source-stall-fix
 branch: drivable-ground-tof-filterin--collision-source-stall-fix
-verified_head: ""
-run: ""
+verified_head: 4e1bb311090bbd43fd870bda05cced9dad9fbc5b
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: [a5]
+process_gaps: []
 ---
 
 # Collision source stall fix

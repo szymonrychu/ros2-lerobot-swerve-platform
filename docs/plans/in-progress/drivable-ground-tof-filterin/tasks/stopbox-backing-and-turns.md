@@ -1,6 +1,6 @@
 ---
 title: StopBox backing and turns
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The robot can back away from a nearby obstacle, and a turn that would hit one is refused before it moves"
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/look_around.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/mcp_server/tests/test_move_relative_clearance.py, nodes/mcp_server/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--stopbox-backing-and-turns
 branch: drivable-ground-tof-filterin--stopbox-backing-and-turns
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # StopBox backing and turns
@@ -100,3 +102,5 @@ before; the README explains each StopBox stop of the 16:28 job.
 - Live step: none (code, run 1 of D29). Proven live by retro-fixes-live-check at live step 4.
 - Ordered after collision-source-stall-fix (nav2_params.yaml) and mcp-head-kinematics-applied (ros_iface.py).
 - Model opus: Nav2 controller and collision-monitor interplay.
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on collision-source-stall-fix

@@ -1,6 +1,6 @@
 ---
 title: Guidance node wiring
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The running ground estimator publishes sharper lethal edges and no_return areas from the live RGB-D pairs
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/package.xml, nodes/ground_estimator_cpp/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-node-wiring
 branch: drivable-ground-tof-filterin--guidance-node-wiring
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Guidance node wiring
@@ -99,3 +101,5 @@ Topic schemas are unchanged except the nullable area heights and the no_return k
 - The executor is single-threaded (CMakeLists comment): the guidance callback never runs concurrently with the cloud callback, so no locks.
 - The RGB-D cloud path (`on_rgbd`, colour model) stays as is; the colour model it trains is the one the no-return tracker reads.
 - Deploy order (orchestrator): costmap_zones, mcp_server and web_ui before or with ground_estimator_cpp.
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on edge-points-core, no-return-core

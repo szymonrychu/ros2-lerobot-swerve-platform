@@ -1,6 +1,6 @@
 ---
 title: Costmap nullable heights
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The costmap slows down in no_return areas instead of rejecting the whole warning message
 files: [nodes/costmap_zones/costmap_zones/ground_warnings.py, nodes/costmap_zones/tests/test_ground_warnings.py, nodes/costmap_zones/README.md]
@@ -13,10 +13,12 @@ estimate: 30
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--costmap-nullable-heights
-branch: drivable-ground-tof-filterin--costmap-nullable-heights
-verified_head: ""
-run: ""
+branch: "current worktree branch (committed)"
+verified_head: 8becd545693b13e52df19b86887b818fdf58a9f1
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Costmap nullable heights

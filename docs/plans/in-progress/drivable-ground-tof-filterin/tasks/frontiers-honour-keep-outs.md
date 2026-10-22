@@ -1,6 +1,6 @@
 ---
 title: Frontiers honour keep-outs
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: A keep-out drawn over a mirror ends the ghost frontiers the agent keeps chasing
 files: [nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/topdown.py, nodes/mcp_server/mcp_server/poi_client.py, nodes/mcp_server/tests/test_frontier_keepout.py, nodes/mcp_server/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--frontiers-honour-keep-outs
 branch: drivable-ground-tof-filterin--frontiers-honour-keep-outs
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Frontiers honour keep-outs
@@ -83,3 +85,5 @@ the README explains the mirror mitigation.
 - Live step: none (code, run 1 of D29). The user draws the keep-out over the mirror ghost area at live step 4
   (retro-fixes-live-check).
 - Ordered after map-epoch-reset-event (frontiers.py, frontier_tools.py).
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on map-epoch-reset-event

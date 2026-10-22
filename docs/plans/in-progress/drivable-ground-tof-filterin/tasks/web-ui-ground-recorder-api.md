@@ -1,6 +1,6 @@
 ---
 title: Web UI ground recorder API
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Replay recordings captured from the robot without rclpy probes or SSH
 files: [nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/tests/test_ground_recorder_api.py, nodes/web_ui/tests/test_config.py, nodes/web_ui/config/default.yaml, nodes/web_ui/README.md, ansible/group_vars/client.yml]
@@ -13,10 +13,12 @@ estimate: 75
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--web-ui-ground-recorder-api
-branch: drivable-ground-tof-filterin--web-ui-ground-recorder-api
-verified_head: ""
-run: ""
-provides: []
+branch: "HEAD (worktree drivable-ground-tof-filterin--web-ui-ground-recorder-api)"
+verified_head: 35e96134766a06d9a4513c480e95b42d7980c03e
+run: drivable-ground-tof-filterin
+provides: [ground-recorder-api, ground-recorder-bridge-api]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI ground recorder API

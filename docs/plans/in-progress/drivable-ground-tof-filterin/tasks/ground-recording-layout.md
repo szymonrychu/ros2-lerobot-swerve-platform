@@ -1,6 +1,6 @@
 ---
 title: Ground recording layout
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Recordings with RGB, amplitude and depth in one replayable file, so every later step is measured on real data"
 files: [nodes/web_ui/web_ui/ground_recorder.py, nodes/web_ui/tests/test_ground_recorder.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-recording-layout
 branch: drivable-ground-tof-filterin--ground-recording-layout
-verified_head: ""
-run: ""
-provides: []
+verified_head: 846d00a10135026ae65b34fe0c9f1f97f6ae97d0
+run: drivable-ground-tof-filterin
+provides: [ground-recording-layout]
+acs_for_audit: []
+process_gaps: ["README not updated: nodes/web_ui/README.md has no ground_recorder entry, and CLAUDE.md asks for README updates (web_ui README and tests/README). The implementer reported this itself."]
 ---
 
 # Ground recording layout

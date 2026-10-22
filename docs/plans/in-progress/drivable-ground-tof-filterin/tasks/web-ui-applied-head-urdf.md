@@ -1,6 +1,6 @@
 ---
 title: Web UI applied head URDF
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The web UI 3D view and head tab draw the head where it really is after a calibration.
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_head_urdf.py, ansible/group_vars/client.yml]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--web-ui-applied-head-urdf
 branch: drivable-ground-tof-filterin--web-ui-applied-head-urdf
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Web UI applied head URDF
@@ -64,3 +66,5 @@ The web UI 3D view and head tab draw the head where it really is after a calibra
 - Design: the epic design.md (`ticket.py path drivable-ground-tof-filterin design`) (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
 
 - 2026-10-22 re-plan: the floor fit epic delivered the override, the FK core and head_state_publisher; dependencies and design references updated to the head-from-arm plan.
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on mcp-front-camera-applied

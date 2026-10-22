@@ -1,6 +1,6 @@
 ---
 title: Calib config and view types
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "One validated place for the board mount, the fit limits, the trusted arm gauge and the view type, so every later fit, check and store task reads the same values."
 files: [shared/ros2_common/head_rgbd_calibration/config.py, shared/ros2_common/head_rgbd_calibration/charuco.py, shared/ros2_common/head_rgbd_calibration/views.py, tests/test_head_arm_calib_config.py]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--calib-config-and-view-types
 branch: drivable-ground-tof-filterin--calib-config-and-view-types
-verified_head: ""
-run: ""
-provides: []
+verified_head: af62058cdccc0fa7372f33f80729ec238b28ab1f
+run: drivable-ground-tof-filterin
+provides: [head-arm-calib-config, head-arm-view-types]
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Calib config and view types

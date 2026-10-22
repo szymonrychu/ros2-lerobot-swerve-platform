@@ -1,6 +1,6 @@
 ---
 title: Front camera ground points
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: Objects the agent sees with the head camera get real floor positions instead of 0.3-0.5 m guesses
 files: [nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/tests/test_front_ground_points.py, nodes/mcp_server/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--front-camera-ground-points
 branch: drivable-ground-tof-filterin--front-camera-ground-points
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Front camera ground points
@@ -86,3 +88,5 @@ before; `tests/test_camera_config.py` (mcp-front-camera-applied) keeps passing.
 
 - Live step: none (code, run 1 of D29). Proven live by retro-fixes-live-check at live step 4 (tape-measured spots).
 - Ordered after mcp-front-camera-applied (camera_scene.py) and needs its lazy intrinsics load.
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on mcp-front-camera-applied

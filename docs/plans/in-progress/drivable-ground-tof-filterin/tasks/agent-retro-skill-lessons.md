@@ -1,6 +1,6 @@
 ---
 title: Agent retro skill lessons
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The agent stops repeating the retro mistakes: mirror frontiers, guessed object positions, unparked arm, turn budget"
 files: [nodes/claude_agent/claude_agent/agent_plugin/skills/sightseeing/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/survey/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/recover-from-failure/SKILL.md, nodes/claude_agent/claude_agent/workflow_templates/discovery.yaml, nodes/claude_agent/tests/test_skill_retro_lessons.py, nodes/claude_agent/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--agent-retro-skill-lessons
 branch: drivable-ground-tof-filterin--agent-retro-skill-lessons
 verified_head: ""
-run: ""
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Agent retro skill lessons
@@ -91,3 +93,5 @@ passes; the new tests failed before the skill edits.
 
 - Live step: none (code, run 1 of D29). Deploying claude_agent kills a running agent session: the orchestrator checks
   first (MEMORY).
+
+- 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on frontiers-honour-keep-outs, front-camera-ground-points, stopbox-backing-and-turns, map-epoch-reset-event

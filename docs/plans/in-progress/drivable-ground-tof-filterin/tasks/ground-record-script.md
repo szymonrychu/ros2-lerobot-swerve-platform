@@ -1,6 +1,6 @@
 ---
 title: Ground record script
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "One command records every scene from the Mac through web_ui, head moves only"
 files: [scripts/ground_record.py, scripts/ground_record.yaml, tests/test_ground_record.py, tests/README.md, pyproject.toml, uv.lock]
@@ -13,10 +13,12 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-record-script
-branch: drivable-ground-tof-filterin--ground-record-script
-verified_head: ""
-run: ""
+branch: "HEAD (worktree drivable-ground-tof-filterin--ground-record-script)"
+verified_head: unknown
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Ground record script
