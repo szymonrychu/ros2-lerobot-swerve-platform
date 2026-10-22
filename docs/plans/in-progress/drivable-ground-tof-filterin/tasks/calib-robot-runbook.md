@@ -93,3 +93,7 @@ The head chain measured against the arm is applied on the robot and checked with
 
 - Mirror `docs/runbooks/head-floor-fit.md` (preconditions, deploy, UI steps, acceptance checks, results table).
 - Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
+
+- User 2026-10-22: "mount is fragile, so please don't move too fast". The calibration run uses half the planned arm
+  speed (speed_scale <= 0.15 instead of 0.3) and the gentlest acceleration the follower supports; the live step sets
+  this in the arm sequence config before the first move, and the board is checked for slip after the dry run.

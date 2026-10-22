@@ -79,3 +79,7 @@ safety check use real geometry.
 - Mass: 214 g.
 - Still open: which side the printed face points (gripper camera side or the other), the board rotation on the jaw,
   the tilt-down limit of the reprinted mount, and whether the camera/ToF bracket changed since 2026-10-21.
+
+- User 2026-10-22: "mount is fragile, so please don't move too fast". The calibration run uses half the planned arm
+  speed (speed_scale <= 0.15 instead of 0.3) and the gentlest acceleration the follower supports; the live step sets
+  this in the arm sequence config before the first move, and the board is checked for slip after the dry run.
