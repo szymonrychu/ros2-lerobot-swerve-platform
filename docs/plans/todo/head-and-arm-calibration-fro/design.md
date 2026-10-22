@@ -305,6 +305,7 @@ arm-joint-offsets-from-the-g.
 
 none
 - Q1: Fold the pan zero into the head_mount_joint yaw in head_chain.json (TF and head_look_at exact; a raw pan 0 in the Head tab stays off by the fitted yaw, expected under 3 deg) instead of re-zeroing the pan servo? [recommended: yes]
+- Q2: Use the floor-fit values as start values and a pass/fail cross-check (10 mm on mount z, 1.5 deg on roll, pitch, tilt zero, tilt roll) with the weighted prior off by default, since the floor fit carries the garage floor slope? [recommended: yes]
 
 ## Irreversible operations in scope
 
