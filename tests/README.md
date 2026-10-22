@@ -3312,3 +3312,14 @@ Guards for `docs/runbooks/ground-robustness.md` (static ground robustness runboo
 | `test_runbook_documents_ramp_sensor_limit` | Sensor limits section explains the ToF-invisible black rubber ramp and the board albedo bias; Results carry `ramp_lethal_states` and `ramp_warning_share`. |
 | `test_runbook_commands_exist` | Every `scripts/` file the runbook names is tracked (`git ls-files`). |
 | `test_runbook_forbids_driving` | Safety section: parked and charging, no drive commands, only head pan/tilt, no arm motion. |
+
+### `test_wifi_powersave_boot.py`
+
+Parses `ansible/roles/system_optimize/tasks/main.yml`: Wi-Fi power save stays off after a reboot on systemd-networkd hosts.
+
+| Test | Covers |
+|---|---|
+| `test_unit_installed_with_iw_power_save_off` | `wifi-powersave-off.service` is installed (root 0644, oneshot, runs the script, After systemd-networkd, WantedBy multi-user) under `rpi_wifi_power_save_off`. |
+| `test_script_runs_iw_power_save_off_on_each_wlan` | `/usr/local/sbin/wifi-powersave-off.sh` (root 0755) runs `iw dev <if> set power_save off` for each `/sys/class/net/wlan*`. |
+| `test_unit_enabled_and_started_after_daemon_reload` | The unit is enabled and started with `daemon_reload`, guarded by the variable. |
+| `test_not_networkmanager_only` | The immediate `iw` task stays; the NetworkManager file is guarded by the existence of NetworkManager's conf dir. |
