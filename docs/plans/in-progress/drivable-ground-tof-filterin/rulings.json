@@ -1,0 +1,8 @@
+[
+  {
+    "task": "arm-board-pose-set",
+    "accept": true,
+    "reason": "gate-repeat on parking-marker false positives ('goes here as the start value', 'dry run checks them before the first capture' are design D47 wording, not deferred work); verified: 83 passed, lint clean on c474ae22",
+    "at": "2026-10-22T17:02:40Z"
+  }
+]

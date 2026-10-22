@@ -109,6 +109,10 @@ arm ever moves.
   `(cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py tests/test_config.py -q && uv run poe lint) && uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q`;
   expect every test passed and lint clean.
 
+## Ruling
+
+- 2026-10-22 accepted: gate-repeat on parking-marker false positives ('goes here as the start value', 'dry run checks them before the first capture' are design D47 wording, not deferred work); verified: 83 passed, lint clean on c474ae22
+
 ## Notes
 
 - No robot motion in this task; poses are proven by FK only.
