@@ -97,6 +97,21 @@ height per cell and keeps the median of the last `temporal.window_frames` of tho
 to that height and segmentation, clusters, regions and the traversability rule run on them. The plane fit itself keeps
 the raw cloud. The rule (0.04 m step, 8 degrees slope) is unchanged.
 
+In-cell slope: a cell is not collapsed to one height. Per frame a cell with at least 12 points gets a robust plane
+(least squares, refitted without residuals beyond 2.5 robust sigmas): the height at the cell centre and the gradient
+in the fixed frame. The cell keeps the temporal median of both. A gradient component is applied only when it is 3
+standard errors away from zero (the larger of the frame to frame scatter and the fit error of one frame, so 4 to 8
+values cannot agree by chance), and a gradient steeper than tan 22 deg is dropped, because it is a step edge inside the
+cell that a plane would smear into a ramp. The points are moved to height + gradient . (xy - centre). Without it a
+25 cm ramp of 14 deg on 10 cm cells became a staircase and the cluster slope estimator saw 4-9 deg (measured 5.7 on the
+robot); a cell with fewer than 12 points, or with noise too high to see the gradient, behaves as before (flat at its
+median).
+
+Decision (cell size): `temporal.cell_size_m` stays 0.10. Cells of 0.05 m were the alternative, but a Python simulation of
+the scene gave only 8-10 deg with misaligned cells (13.1 deg only when aligned), and 4x fewer points per cell weaken
+the spread gate. Test `CellMedian.RobotRampSlopeSurvivesTheCells`: 25 cm, 63 mm ramp in floor, 0.02 m floor band, noise
+0.02 m, cells at a random offset and yaw over 20 seeds: slope p50 14 +- 3 deg (measured 14.3, range 9.8-16.6).
+
 Warm-up: a cell outputs nothing until it has `min_frames` values, so after start, after the plane is lost (the filter
 is reset then) or when the robot looks at new floor, obstacles and drops appear after `min_frames` / 10 Hz = 0.4 s with
 the defaults. Set `temporal.enabled: false` for the raw per-frame behaviour.

@@ -1,5 +1,6 @@
 // Per-cell temporal median of plane-relative heights. Points are binned by their xy in the fixed frame, so the cells
-// stay put while the robot or the head moves; a cell's height is the median of its last few per-frame medians.
+// stay put while the robot or the head moves; a cell's height at its centre is the median of its last few per-frame
+// values, and so is its in-cell height gradient (a robust plane fit per frame), so a ramp keeps its slope inside a cell.
 #ifndef GROUND_ESTIMATOR_CPP__CELL_MEDIAN_HPP_
 #define GROUND_ESTIMATOR_CPP__CELL_MEDIAN_HPP_
 
@@ -11,13 +12,24 @@
 #include <cstdint>
 #include <deque>
 #include <unordered_map>
-#include <utility>
 
 #include "ground_estimator_cpp/config.hpp"
 #include "ground_estimator_cpp/plane_fit.hpp"
 
 namespace ground_estimator_cpp
 {
+
+// One frame of one cell: the plane h = height + gradient_x * dx + gradient_y * dy about the cell centre (fixed-frame
+// dx, dy), height and gradient from a robust fit of the cell's points.
+struct CellSample
+{
+  double stamp_s = 0.0;
+  double height_m = 0.0;
+  double gradient_x = 0.0;
+  double gradient_y = 0.0;
+  double gradient_se_x = 0.0;  // standard error of gradient_x from the fit residuals
+  double gradient_se_y = 0.0;
+};
 
 class CellMedianFilter
 {
@@ -27,7 +39,8 @@ public:
 
   // Add one frame and return the points of the cells that have enough history and a steady value (a spread over
   // temporal.max_spread_m makes the cell unknown and its history is kept; it is known again once the spread is well
-  // under the limit), moved along the plane normal to the cell's temporal median height. Points of younger cells are not output. O(points + cells).
+  // under the limit), moved along the plane normal to the cell's temporal median plane: the median height at the cell centre plus the median in-cell gradient times the
+  // offset from the centre. Points of younger cells are not output. O(points + cells).
   // @param points_base the cloud in base_link.
   // @param plane the floor plane in base_link.
   // @param fixed_T_base pose of base_link in the fixed frame.
@@ -51,7 +64,7 @@ public:
 private:
   struct Cell
   {
-    std::deque<std::pair<double, double>> history;  // (stamp, per-frame median)
+    std::deque<CellSample> history;
   };
 
   TemporalConfig cfg_;
