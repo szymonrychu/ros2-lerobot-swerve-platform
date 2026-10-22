@@ -303,7 +303,6 @@ arm-joint-offsets-from-the-g.
 
 ## Open questions
 
-none
 - Q1: Fold the pan zero into the head_mount_joint yaw in head_chain.json (TF and head_look_at exact; a raw pan 0 in the Head tab stays off by the fitted yaw, expected under 3 deg) instead of re-zeroing the pan servo? [recommended: yes]
 - Q2: Use the floor-fit values as start values and a pass/fail cross-check (10 mm on mount z, 1.5 deg on roll, pitch, tilt zero, tilt roll) with the weighted prior off by default, since the floor fit carries the garage floor slope? [recommended: yes]
 - Q3: Clip the board only after the arm holds the base pose, hold the arm in place on every stop or error, and park only after you confirm the board is removed (no automatic park with the board on)? [recommended: yes]
