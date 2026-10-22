@@ -20,7 +20,7 @@ Ground truth (base_link metres, x forward, y left):
 | ChArUco board | flat, x 0.37-0.61, y -0.12..+0.14 | warning only, never lethal |
 | Empty floor | nothing placed | nothing lethal |
 
-The robot's own parked gripper at x 0.30-0.36 reads +3..+11 cm until the head floor fit of `head-chain-floor-plane-fit-a` is applied; it lies outside every scene ROI above and is not a scene object.
+The robot's own parked gripper at x 0.30-0.36 reads +3..+11 cm in the head frame (the head floor fit of `head-chain-floor-plane-fit-a` corrects this); it lies outside every scene ROI above and is not a scene object.
 
 ## Prerequisites
 
