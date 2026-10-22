@@ -309,5 +309,15 @@
       "ground-detection-robustness"
     ],
     "note": "/ground/obstacle_points and /ground/drop_points may also hold guidance edge points: guided-depth points with |height| >= guidance.edge.min_height_m within guidance.edge.max_shift_m of this frame's stable lethal points, voxel guidance.edge.voxel_m; never without a stable lethal point; base_link, cloud stamp; owner tasks edge-points-core, guidance-node-wiring"
+  },
+  {
+    "name": "ground-recording-npz",
+    "kind": "schema",
+    "owner": "rgb-and-amplitude-guided-gro",
+    "file": "nodes/web_ui/web_ui/ground_recorder.py",
+    "consumers": [
+      "ground-detection-robustness"
+    ],
+    "note": "web_ui ground recording npz, layout_version 2: superset of the 2026-10-22 keys read by scripts/ground_replay_export.py (stamps_ns, cloud_frame, offsets, points_mm, base_T_cloud, odom_T_base, imu, base_T_imu, head_js) plus tof_* and pair_* streams; owner task ground-recording-layout"
   }
 ]
