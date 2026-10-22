@@ -286,7 +286,15 @@
   when: rpi_i2c_baudrate is defined
   failed_when: false
 
-- name: Disable WiFi power management for low latency
+- name: Check for a NetworkManager config directory
+  ansible.builtin.stat:
+    path: /etc/NetworkManager/conf.d
+  register: wifi_nm_dir
+  when: rpi_wifi_power_save_off
+
+# Only effective on NetworkManager hosts; the Pis run systemd-networkd (netplan), where the
+# wifi-powersave-off.service unit below is what persists the setting.
+- name: Disable WiFi power management for low latency (NetworkManager hosts)
   ansible.builtin.copy:
     dest: /etc/NetworkManager/conf.d/wifi-powersave-off.conf
     owner: root
@@ -295,8 +303,58 @@
     content: |
       [connection]
       wifi.powersave = 2
-  when: rpi_wifi_power_save_off
+  when:
+    - rpi_wifi_power_save_off
+    - wifi_nm_dir.stat.exists | default(false)
   failed_when: false
+
+- name: Install the WiFi power save off script
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/wifi-powersave-off.sh
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # wlan0 can appear a moment after boot: wait up to 30 s for one, then set each interface.
+      for _ in $(seq 30); do
+        ls /sys/class/net/wlan* >/dev/null 2>&1 && break
+        sleep 1
+      done
+      for w in /sys/class/net/wlan*; do
+        [ -e "$w" ] && /usr/sbin/iw dev "$(basename "$w")" set power_save off
+      done
+      exit 0
+  when: rpi_wifi_power_save_off
+
+- name: Install the boot-time WiFi power save off unit (systemd-networkd hosts)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/wifi-powersave-off.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Turn Wi-Fi power save off on every wlan interface
+      After=systemd-networkd.service network-pre.target
+      Wants=systemd-networkd.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/sbin/wifi-powersave-off.sh
+
+      [Install]
+      WantedBy=multi-user.target
+  when: rpi_wifi_power_save_off
+
+- name: Enable and start the WiFi power save off unit
+  ansible.builtin.systemd:
+    name: wifi-powersave-off.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: rpi_wifi_power_save_off
 
 - name: Disable WiFi power management via iw (immediate)
   ansible.builtin.shell: |

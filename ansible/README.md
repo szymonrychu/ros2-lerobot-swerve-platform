@@ -88,7 +88,7 @@ All defaults are in `roles/system_optimize/defaults/main.yml`. Override in `grou
 | `rpi_gpu_mem` | `16` | GPU memory allocation (MB) |
 | `rpi_disable_bluetooth` | `true` | Disable Bluetooth |
 | `rpi_disable_hdmi` | `true` | Blank HDMI output |
-| `rpi_wifi_power_save_off` | `true` | Disable WiFi power saving |
+| `rpi_wifi_power_save_off` | `true` | Disable WiFi power saving: an immediate `iw ... set power_save off`, plus the boot-time oneshot `wifi-powersave-off.service` (the Pis run systemd-networkd via netplan, so the NetworkManager `conf.d` file is written only where `/etc/NetworkManager/conf.d` exists). Apply with `cd ansible && ansible-playbook -i inventory playbooks/optimize.yml -l client` |
 | `rpi_i2c_baudrate` | _(undefined)_ | Hardware I2C clock speed in Hz (unset; the client BNO055 uses i2c-gpio) |
 | `rpi_bno055_i2c_gpio_bus` | `8` (client) | Bus number of the software i2c-gpio bus on GPIO2/3 used by the BNO055 (`/dev/i2c-8`) |
 
