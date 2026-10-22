@@ -3286,3 +3286,14 @@ Unit tests for `scripts/ground_noise_report.py` (runbook pass/fail numbers from 
 | `test_reads_scraper_and_ws_lines` | topic_scraper records and web_ui `/ws` lines, object or JSON-string payloads; other topics skipped and counted. |
 | `test_malformed_lines_counted` | Bad JSON, non-objects and unparseable payloads are counted, never fatal. |
 | `test_exit_code_reflects_thresholds` | Exit 0/1 from the configured thresholds; an empty capture fails; unknown scene rejected. |
+
+### `test_ground_robustness_runbook.py`
+
+Guards for `docs/runbooks/ground-robustness.md` (static ground robustness runbook, robot parked).
+
+| Test | Description |
+|------|-------------|
+| `test_runbook_sections` | Safety, Scene, Prerequisites, Procedure, Acceptance and Results sections, in order. |
+| `test_runbook_thresholds_match_report_config` | The Acceptance numbers equal the thresholds of `scripts/ground_noise_report.yaml`. |
+| `test_runbook_commands_exist` | Every `scripts/` file the runbook names is tracked (`git ls-files`). |
+| `test_runbook_forbids_driving` | Safety section: parked and charging, no drive commands, only head pan/tilt, no arm motion. |
