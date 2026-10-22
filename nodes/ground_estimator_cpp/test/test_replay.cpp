@@ -464,11 +464,76 @@ TEST(ReplayReader, RejectsAWrongMagicAVersionAndATruncatedFile)
   bad_magic[0] = 'X';
   EXPECT_THROW(ground_replay::decode_replay(bad_magic), std::runtime_error);
   std::string bad_version = bytes;
-  bad_version[ground_replay::REPLAY_MAGIC_SIZE] = static_cast<char>(ground_replay::REPLAY_VERSION + 1);
+  bad_version[ground_replay::REPLAY_MAGIC_SIZE] = static_cast<char>(ground_replay::REPLAY_VERSION_PAIRS + 1);
   EXPECT_THROW(ground_replay::decode_replay(bad_version), std::runtime_error);
   EXPECT_THROW(ground_replay::decode_replay(bytes.substr(0, bytes.size() - 1)), std::runtime_error);
   EXPECT_THROW(ground_replay::decode_replay(bytes + "x"), std::runtime_error);
   EXPECT_THROW(ground_replay::read_replay(replay_path("missing")), std::runtime_error);
+}
+
+TEST(ReplayReader, DecodesV2Pairs)
+{
+  const ReplayScene scene = ground_replay::read_replay(replay_path("tiny_v2"));
+  EXPECT_EQ(scene.version, ground_replay::REPLAY_VERSION_PAIRS);
+  EXPECT_EQ(scene.clouds.size(), 3u);
+  ASSERT_TRUE(scene.rgb_model.has_value());
+  ASSERT_TRUE(scene.tof_model.has_value());
+  EXPECT_EQ(scene.rgb_model->width, 16u);
+  EXPECT_EQ(scene.rgb_model->height, 12u);
+  EXPECT_EQ(scene.rgb_model->frame, "rgb_optical_frame");
+  EXPECT_DOUBLE_EQ(scene.rgb_model->K[0], 30.0);
+  EXPECT_DOUBLE_EQ(scene.rgb_model->D[4], 0.03);
+  EXPECT_EQ(scene.tof_model->frame, TOF_FRAME);
+  EXPECT_DOUBLE_EQ(scene.tof_model->K[4], 20.0);
+  ASSERT_EQ(scene.pairs.size(), 2u);
+  EXPECT_GT(scene.pairs[1].stamp_ns, scene.pairs[0].stamp_ns);
+  for (const auto & pair : scene.pairs) {
+    EXPECT_EQ(pair.depth_mm.type(), CV_16UC1);
+    EXPECT_EQ(pair.depth_mm.cols, 16);
+    EXPECT_EQ(pair.depth_mm.rows, 12);
+    EXPECT_GT(cv::countNonZero(pair.depth_mm), 0);
+    ASSERT_GT(pair.jpeg.size(), 2u);
+    EXPECT_EQ(pair.jpeg[0], 0xFF);  // JPEG start of image
+    EXPECT_EQ(pair.jpeg[1], 0xD8);
+    const cv::Mat rgb = cv::imdecode(pair.jpeg, cv::IMREAD_COLOR);
+    EXPECT_EQ(rgb.cols, 16);
+    EXPECT_NEAR(pair.base_T_rgb.linear().determinant(), 1.0, 1e-6);
+  }
+}
+
+TEST(ReplayReader, V1FixturesStillRead)
+{
+  const ReplayScene scene = ground_replay::read_replay(replay_path("home"));
+  EXPECT_EQ(scene.version, ground_replay::REPLAY_VERSION);
+  EXPECT_FALSE(scene.rgb_model.has_value());
+  EXPECT_FALSE(scene.tof_model.has_value());
+  EXPECT_TRUE(scene.pairs.empty());
+  EXPECT_GE(scene.clouds.size(), MIN_CLOUDS);
+}
+
+TEST(ReplayReader, RejectsUnknownVersion)
+{
+  std::string bytes = file_bytes(replay_path("tiny_v2"));
+  for (const char version : {static_cast<char>(0), static_cast<char>(3)}) {
+    bytes[ground_replay::REPLAY_MAGIC_SIZE] = version;
+    EXPECT_THROW(ground_replay::decode_replay(bytes), std::runtime_error) << "version " << static_cast<int>(version);
+  }
+}
+
+TEST(ReplayReader, RejectsATruncatedGuidanceSectionAndANon16BitPng)
+{
+  const std::string bytes = file_bytes(replay_path("tiny_v2"));
+  EXPECT_NO_THROW(ground_replay::decode_replay(bytes));
+  // Every cut inside the guidance section (the last pair's PNG and the models) is a truncation.
+  for (const std::size_t cut : {1u, 8u, 200u, 400u}) {
+    EXPECT_THROW(ground_replay::decode_replay(bytes.substr(0, bytes.size() - cut)), std::runtime_error) << cut;
+  }
+  // Corrupt the last PNG's signature: it no longer decodes.
+  std::string broken = bytes;
+  const std::size_t png = broken.rfind("\x89PNG");
+  ASSERT_NE(png, std::string::npos);
+  broken[png + 1] = 'X';
+  EXPECT_THROW(ground_replay::decode_replay(broken), std::runtime_error);
 }
 
 // --- metric functions on hand-built frames -----------------------------------------------------------------------

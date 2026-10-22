@@ -2,12 +2,15 @@
 // test/data/replay (written by scripts/ground_replay_export.py) and the replay metrics over what GroundNode published
 // per cloud.
 //
-// Binary layout, little-endian, version 1 (scripts/ground_replay_export.py module docstring):
+// Binary layout, little-endian, versions 1 and 2 (scripts/ground_replay_export.py module docstring):
 //   magic "GRNDRPLY" (8 bytes), uint32 version, uint32 frame_len + frame_len bytes of the cloud frame id,
 //   uint32 cloud_count, per cloud: int64 stamp_ns, float64[7] base_T_cloud, float64[7] odom_T_base (x y z qx qy qz qw),
 //   uint32 point_count, int16[point_count * 3] x y z mm in the cloud frame;
 //   uint32 imu_count, per sample: int64 stamp_ns, float64[10] orientation x y z w, linear_acceleration x y z,
 //   angular_velocity x y z (frame imu_link); float64[7] base_T_imu.
+// Version 2 appends the guidance section: the RGB and ToF camera models (float64[9] K, float64[5] D, uint32 width,
+// uint32 height, uint32 frame_len + frame id), uint32 pair_count, per pair int64 stamp_ns, float64[7] base_T_rgb,
+// float64[7] odom_T_base, uint32 jpeg_len + JPEG bytes, uint32 png_len + PNG bytes (16-bit depth, mm).
 //
 // Metrics (D14, base_link, every one ignores points and areas with x < GRIPPER_X_MAX, the robot's parked gripper):
 // the frames counted are those at least WARM_UP_S after the first frame that the node answered with a plane.
@@ -35,6 +38,9 @@
 #include <fstream>
 #include <iterator>
 #include <nlohmann/json.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -46,7 +52,10 @@ namespace ground_replay
 
 constexpr char REPLAY_MAGIC[] = "GRNDRPLY";
 constexpr std::size_t REPLAY_MAGIC_SIZE = 8;
-constexpr uint32_t REPLAY_VERSION = 1;
+constexpr uint32_t REPLAY_VERSION = 1;        // clouds, IMU and base_T_imu
+constexpr uint32_t REPLAY_VERSION_PAIRS = 2;  // plus the guidance section: camera models and RGB-D pairs
+constexpr int CAMERA_K_FIELDS = 9;
+constexpr int CAMERA_D_FIELDS = 5;
 constexpr int POSE_FIELDS = 7;
 constexpr int IMU_VALUES = 10;
 
@@ -84,13 +93,38 @@ struct ReplayImu
   Eigen::Vector3d angular_velocity = Eigen::Vector3d::Zero();
 };
 
+// A camera model of the guidance section.
+struct CameraModel
+{
+  std::array<double, CAMERA_K_FIELDS> K{};
+  std::array<double, CAMERA_D_FIELDS> D{};
+  uint32_t width = 0;
+  uint32_t height = 0;
+  std::string frame;
+};
+
+// One RGB-D pair: the JPEG bytes of the RGB image and the upsampled depth (CV_16UC1, mm).
+struct ReplayPair
+{
+  int64_t stamp_ns = 0;
+  Eigen::Isometry3d base_T_rgb = Eigen::Isometry3d::Identity();  // base_link <- RGB frame
+  Eigen::Isometry3d odom_T_base = Eigen::Isometry3d::Identity();
+  std::vector<uint8_t> jpeg;
+  cv::Mat depth_mm;
+};
+
 struct ReplayScene
 {
   std::string frame_id;  // frame of the clouds
   std::vector<ReplayCloud> clouds;
   std::vector<ReplayImu> imu;
   Eigen::Isometry3d base_T_imu = Eigen::Isometry3d::Identity();  // base_link <- imu_link
+  uint32_t version = REPLAY_VERSION;
+  std::optional<CameraModel> rgb_model;  // empty for version 1
+  std::optional<CameraModel> tof_model;  // empty for version 1
+  std::vector<ReplayPair> pairs;         // empty for version 1
 };
+using Replay = ReplayScene;
 
 // What GroundNode published for one cloud.
 struct ReplayFrame
@@ -164,10 +198,49 @@ private:
   std::size_t at_ = 0;
 };
 
-// Decode a replay binary.
+// @param in reader at a camera model of the guidance section.
+// @return the model.
+inline CameraModel read_camera_model(ByteReader & in)
+{
+  CameraModel m;
+  for (double & v : m.K) {
+    v = in.f64();
+  }
+  for (double & v : m.D) {
+    v = in.f64();
+  }
+  m.width = in.u32();
+  m.height = in.u32();
+  m.frame = in.take(in.u32());
+  return m;
+}
+
+// @param in reader at a pair of the guidance section.
+// @param index the pair's index, for the error message.
+// @return the pair, its depth decoded from the PNG.
+// @throws std::runtime_error on a truncated pair or a PNG that does not decode to CV_16UC1.
+inline ReplayPair read_pair(ByteReader & in, uint32_t index)
+{
+  ReplayPair pair;
+  pair.stamp_ns = in.i64();
+  pair.base_T_rgb = in.pose();
+  pair.odom_T_base = in.pose();
+  const std::string jpeg = in.take(in.u32());
+  pair.jpeg.assign(jpeg.begin(), jpeg.end());
+  const std::string png = in.take(in.u32());
+  pair.depth_mm = cv::imdecode(std::vector<uint8_t>(png.begin(), png.end()), cv::IMREAD_UNCHANGED);
+  if (pair.depth_mm.empty() || pair.depth_mm.type() != CV_16UC1) {
+    throw std::runtime_error(
+      "ground replay pair " + std::to_string(index) + ": depth PNG is not 16-bit single channel");
+  }
+  return pair;
+}
+
+// Decode a replay binary (version 1 or 2).
 // @param bytes the file content.
-// @return the scene.
-// @throws std::runtime_error on a wrong magic or version, a truncated file or trailing bytes.
+// @return the scene; rgb_model, tof_model and pairs are empty for version 1.
+// @throws std::runtime_error on a wrong magic or an unknown version, a truncated section, a PNG that does not decode
+//         to 16-bit, or trailing bytes.
 inline ReplayScene decode_replay(const std::string & bytes)
 {
   ByteReader in(bytes);
@@ -176,11 +249,13 @@ inline ReplayScene decode_replay(const std::string & bytes)
   }
   in.take(REPLAY_MAGIC_SIZE);
   const uint32_t version = in.u32();
-  if (version != REPLAY_VERSION) {
+  if (version != REPLAY_VERSION && version != REPLAY_VERSION_PAIRS) {
     throw std::runtime_error(
-      "unsupported ground replay version " + std::to_string(version) + ", expected " + std::to_string(REPLAY_VERSION));
+      "unsupported ground replay version " + std::to_string(version) + ", expected " + std::to_string(REPLAY_VERSION) +
+      " or " + std::to_string(REPLAY_VERSION_PAIRS));
   }
   ReplayScene scene;
+  scene.version = version;
   scene.frame_id = in.take(in.u32());
   const uint32_t clouds = in.u32();
   for (uint32_t c = 0; c < clouds; ++c) {
@@ -212,6 +287,14 @@ inline ReplayScene decode_replay(const std::string & bytes)
     scene.imu.push_back(imu);
   }
   scene.base_T_imu = in.pose();
+  if (version == REPLAY_VERSION_PAIRS) {
+    scene.rgb_model = read_camera_model(in);
+    scene.tof_model = read_camera_model(in);
+    const uint32_t pairs = in.u32();
+    for (uint32_t p = 0; p < pairs; ++p) {
+      scene.pairs.push_back(read_pair(in, p));
+    }
+  }
   if (in.remaining() != 0) {
     throw std::runtime_error("ground replay file has " + std::to_string(in.remaining()) + " trailing bytes");
   }
