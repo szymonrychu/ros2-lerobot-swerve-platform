@@ -1,6 +1,6 @@
 ---
 title: Ground robustness runbook
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The fixes are proven on the user's real box, ramp and board scene with the robot parked."
 files: [docs/runbooks/ground-robustness.md, tests/test_ground_robustness_runbook.py, tests/README.md]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--ground-robustness-runbook
 branch: ground-detection-robustness--ground-robustness-runbook
-verified_head: ""
+verified_head: 6fa061499d1ac7da8acb3c82077920bf38eb9775
 run: ground-detection-robustness
 provides: []
 acs_for_audit: []
