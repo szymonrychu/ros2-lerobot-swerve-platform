@@ -190,7 +190,7 @@ def test_arm_sequence_defaults() -> None:
     assert seq.confirm_timeout_s == 600.0
     assert seq.head_offsets_deg == [(0, 0), (10, 0), (-10, 0), (0, 6)]
     assert seq.pose_check == PoseCheckConfig()
-    assert seq.estimate_margin_m == 0.05
+    assert seq.provisional_margin_m == 0.05
     assert len(seq.tier0_poses) >= 8 and len(seq.tier1_poses) >= 8 and len(seq.tier2_poses) >= 12
     assert ArmSequenceConfig() == seq
 

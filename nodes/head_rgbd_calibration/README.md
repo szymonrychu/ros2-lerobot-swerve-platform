@@ -114,7 +114,7 @@ keys are rejected.
 | `arm_sequence.tier0_poses` / `tier1_poses` / `tier2_poses` | 10 / 9 / 14 poses | Tier 0 moves only wrist_roll (within `max_roll_delta_rad` 1.2), tier 1 also wrist_flex (`max_flex_delta_rad` 0.4), tier 2 also elbow_flex, shoulder_lift, shoulder_pan (`max_big_delta_rad` 0.35). Load errors name the tier, pose and joint |
 | `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.2 (<= 0.3), 1.0, 600 | Arm speed, wait after a move, unanswered confirm timeout |
 | `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, 6]]` | (pan, tilt) offsets added to the aimed head angles, one view each |
-| `arm_sequence.pose_check`, `estimate_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + estimate_margin_m` for the jaw-geometry mount estimate |
+| `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` for the jaw-geometry mount estimate |
 
 ## Compute
 
@@ -299,7 +299,7 @@ stops capture, kills a running compute child and destroys the node.
   pan/tilt range checks, the `arm_sequence` defaults and its validation errors naming the tier, pose and joint.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
-  the board margin `margin_m + estimate_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
+  the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
   shifted +-1 cm / turned
   +-5 deg (`test_safe_under_board_mount_uncertainty`), both also with a -30..+60 deg tilt URDF, the base pose in front
   of the head, at least 12 board corners in view for 3 of 4 head offsets (`test_board_visible_from_aimed_head`), the

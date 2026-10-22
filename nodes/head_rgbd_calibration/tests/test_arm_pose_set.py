@@ -8,7 +8,7 @@ with `fit.joint_offsets_rad`.
 The home pose the sequence starts from is `HOME_POSE`: `scripts/gen_nav_footprint.yaml` `parked_arm_joints`, the
 repo record of the home that mcp_server's `arm.home_file` (/var/lib/ros2/arm/home.yaml) holds and `arm_home` parks
 at. The board mount is the shipped jaw-geometry estimate (design D47): the safety tests use the board margin
-`margin_m + estimate_margin_m` and the mount shifted by +-1 cm and turned by +-5 deg about each gripper axis.
+`margin_m + provisional_margin_m` and the mount shifted by +-1 cm and turned by +-5 deg about each gripper axis.
 """
 
 import importlib.util
@@ -290,7 +290,7 @@ def sequence_failures(head_urdf: str, mounts: Iterable[tuple[str, BoardMountConf
 
 @pytest.mark.parametrize("head_name", list(SAFETY_HEADS))
 def test_every_pose_and_transit_is_safe(head_name: str) -> None:
-    """The shipped (estimated) mount with margin_m + estimate_margin_m."""
+    """The shipped (estimated) mount with margin_m + provisional_margin_m."""
     failures = sequence_failures(SAFETY_HEADS[head_name], [("nominal", FIT.board_mount)])
     assert failures == [], "\n".join(failures[:20])
 

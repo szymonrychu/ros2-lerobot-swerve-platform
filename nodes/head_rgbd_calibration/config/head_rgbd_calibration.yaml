@@ -220,7 +220,7 @@ arm_sequence:
   settle_s: 1.0 # wait after a move before the still capture, s (>= 0)
   confirm_timeout_s: 600.0 # an unanswered confirm ends the sequence (arm held), s (> 0)
   head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, 6.0]] # (pan, tilt) added to the aimed head, deg
-  estimate_margin_m: 0.05 # extra board margin for the jaw-geometry board_mount estimate, m (>= 0)
+  provisional_margin_m: 0.05 # extra board margin for the jaw-geometry board_mount estimate, m (>= 0)
   # FK pose check before every arm command (shared core arm_pose_check; body equals the mcp_server body block).
   pose_check:
     body: # robot body obstacles in base_link, a copy of the mcp_server body block (m)
@@ -234,7 +234,7 @@ arm_sequence:
         - {name: wheel_rl, x: -0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
         - {name: wheel_rr, x: -0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
         - {name: lidar, x: 0.15, y: 0.04, radius: 0.037, z_min: 0.1, z_max: 0.21}
-    margin_m: 0.03 # clearance of the arm links (and the board, plus estimate_margin_m) from body and head, m
+    margin_m: 0.03 # clearance of the arm links (and the board, plus provisional_margin_m) from body and head, m
     min_tool_height_m: 0.1 # tool point above the floor, m
     min_board_height_m: 0.05 # every board outline point above the floor, m
     link_radius_m: 0.025 # radius of the upper arm, forearm and wrist capsules, m
