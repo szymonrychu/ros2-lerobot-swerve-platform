@@ -37,7 +37,7 @@ The ground estimator (rgb-d-ground-estimation-and) is deployed and correct on cl
 
 ## Time
 
-Estimate: 730 min | Actual: 0 min | Remaining estimate: 60 min
+Estimate: 1300 min | Actual: 0 min | Remaining estimate: 630 min
 
 ## Review
 

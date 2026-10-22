@@ -36,6 +36,7 @@ Remove ToF mixed ("flying") pixels at depth discontinuities in arducam_tof befor
 - Ansible in sync (CLAUDE.md): the arducam_tof `config` block in `ansible/group_vars/client.yml` sets the three keys with comments; `tests/test_arducam_tof_config.py` `DRIVER_KEYS` gains them (the deployed config still loads in the real driver).
 - READMEs: `nodes/bridges/arducam_tof/README.md` (Config and Depth sections: the filter, its keys, the counter, why it exists); `tests/README.md` if a root test description changes.
 - Notes: the replay data is recorded downstream of point_cloud_xyz and keeps its mixed pixels, so the ground estimator's own defences (other tasks) do not depend on this filter. The head floor fit and the RGB-D calibration read this depth too (cross-epic contract tof-depth-flying-pixel-filter): the flat floor and a flat board must survive, which the floor test pins. Deploy with `scripts/deploy-nodes.sh client arducam_tof` after merge (orchestrator).
+- Prior art (reuse the rule, not the code: different language and node): `nodes/head_rgbd_cpp/src/core/tof_filter.cpp:filter_jump_edges` (task head-rgb-d-fusion-of-camera/tof-jump-edge-filter) applies the same 8-neighbour jump rule with `jump_rel` 0.05 and `jump_abs_mm` 30 (`nodes/head_rgbd_cpp/include/head_rgbd_cpp/config.hpp`) to the registered RGB-D image only; /tof/depth/image_raw and so point_cloud_xyz and /tof/points_filtered are unfiltered today. Start from those defaults and keep them unless the floor test needs otherwise; head_rgbd_cpp then filters already-filtered depth, which it tolerates (0 pixels are invalid there too).
 
 ## Acceptance conditions
 
@@ -60,17 +61,21 @@ Remove ToF mixed ("flying") pixels at depth discontinuities in arducam_tof befor
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`arducam_tof/bridge.py:flying_pixel_filter(depth_mm, jump_ratio, min_jump_mm) -> np.ndarray` (uint16, 0 = invalid); `TofConfig.flying_pixel_filter`, `flying_pixel_jump_ratio`, `flying_pixel_min_jump_mm`; counter `tof_flying_pixels_removed_total`. Topics, encodings and the z-depth meaning of /tof/depth/image_raw are unchanged (contract tof-depth-z); new cross-epic contract tof-depth-flying-pixel-filter.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/bridges/arducam_tof && uv run pytest tests -q` PASS with the four new bridge tests and the config test, `uv run poe lint` clean, `uv run pytest tests/test_arducam_tof_config.py -q` PASS; client.yml sets the three keys.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the four bridge tests and the config test; `cd nodes/bridges/arducam_tof && uv run pytest tests -q` FAILS on them
+- implement `flying_pixel_filter`, the config keys, the publish_frame call and the counter; the same command PASSES; `uv run poe lint` PASSES
+- add the keys to client.yml and DRIVER_KEYS; `uv run pytest tests/test_arducam_tof_config.py -q` PASSES
+- update the READMEs; commit `feat(arducam_tof): drop flying pixels at depth edges`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Requirement's notes and prior art. No placeholder data: removed pixels are 0, never interpolated.
+
+- 2026-10-22 amended: planner: add head_rgbd_cpp jump edge filter prior art
