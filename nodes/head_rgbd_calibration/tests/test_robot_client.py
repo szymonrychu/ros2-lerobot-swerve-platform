@@ -41,7 +41,7 @@ def make(token_file: Path, fake: FakeTransport, **kw: float) -> RobotClient:
     return RobotClient(cfg, call=fake)
 
 
-def test_helpers_tool_names_and_args(token_file: Path) -> None:
+def test_helpers_call_tools_with_arguments(token_file: Path) -> None:
     fake = FakeTransport()
     client = make(token_file, fake)
     client.set_head_angles(10.0, 20.0)
@@ -82,7 +82,7 @@ def test_tool_error_text(token_file: Path) -> None:
     assert result.is_error and result.text == "floor guard refused" and not result.unreachable
 
 
-def test_unreachable(token_file: Path) -> None:
+def test_unreachable_is_reported(token_file: Path) -> None:
     result = make(token_file, FakeTransport(raises=ConnectionRefusedError("refused"))).take_arm()
     assert result.is_error and result.unreachable
     assert result.text.startswith(f"mcp_server unreachable at {URL}")
@@ -94,14 +94,14 @@ def test_unreachable_in_exception_group(token_file: Path) -> None:
     assert result.unreachable
 
 
-def test_missing_token_file(tmp_path: Path) -> None:
+def test_missing_token_is_reported(tmp_path: Path) -> None:
     missing = tmp_path / "nope"
     fake = FakeTransport()
     result = make(missing, fake).take_arm()
     assert result.is_error and str(missing) in result.text and not fake.calls
 
 
-def test_other_failure_and_token_never_in_text(token_file: Path) -> None:
+def test_token_never_in_text(token_file: Path) -> None:
     result = make(token_file, FakeTransport(raises=RuntimeError(f"boom {TOKEN}"))).take_arm()
     assert result.is_error and not result.unreachable
     assert TOKEN not in result.text
@@ -111,3 +111,14 @@ def test_token_not_in_other_texts(token_file: Path) -> None:
     for fake in (FakeTransport(), FakeTransport(delay=1.0), FakeTransport(raises=ConnectionError("c"))):
         client = make(token_file, fake, call_timeout_s=0.05)
         assert TOKEN not in client.arm_state().text
+
+
+def test_release_arm_keep_position(token_file: Path) -> None:
+    fake = FakeTransport()
+    client = make(token_file, fake)
+    client.release_arm(True)
+    client.release_arm(False)
+    assert [c[3] for c in fake.calls] == [
+        {"subsystem": "arm", "keep_position": True},
+        {"subsystem": "arm", "keep_position": False},
+    ]
