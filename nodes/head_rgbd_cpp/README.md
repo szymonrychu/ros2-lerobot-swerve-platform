@@ -117,14 +117,14 @@ made up.
 
 On by default (`upsampling.enabled: true`). The registered depth (288x162) is nearest-upsampled by 2 and smoothed along the
 edges of the grey RGB image in masked normalised form, so the depth edges of obstacles and drops follow the RGB edges at
-camera resolution (box edge error from about 5 cm to 2 cm or less) while holes never bleed zeros and a no-return area
+camera resolution (pinned: pixels 2 px or more from the guide edge read the box or floor depth within 5 mm) while holes never bleed zeros and a no-return area
 wider than `radius` stays empty. RGB only moves where an existing depth edge lies; texture on flat floor (board, tile
 seams, shadows) is not copied into depth. Tuning: the shipped `radius` 4, `eps` 0.001, `min_support` 0.5 are validated
 by `test/core/test_upsample.cpp` (`BoxEdgeFollowsTheGuideEdge`, `TexturedFlatFloorStaysFlat`, `LargeHoleStaysEmpty`);
 none needed changing.
 
-Consumer: `ground_estimator_cpp` reads `/head_rgbd/depth_upsampled/image_raw` (16UC1 at the RGB size, with the RGB
-camera_info, one header per pair) as its edge guidance input. Cost: one extra guided-filter pass per set, visible in
+Consumer: `/head_rgbd/depth_upsampled/image_raw` (16UC1 at the RGB size, with the RGB
+camera_info, one header per pair) is published as the edge input for the ground guidance of `ground_estimator_cpp`. Cost: one extra guided-filter pass per set, visible in
 `head_rgbd_process_seconds`.
 
 ## Methodology
