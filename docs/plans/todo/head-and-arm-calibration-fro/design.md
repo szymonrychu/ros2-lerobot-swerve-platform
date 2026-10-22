@@ -304,6 +304,7 @@ arm-joint-offsets-from-the-g.
 ## Open questions
 
 none
+- Q1: Fold the pan zero into the head_mount_joint yaw in head_chain.json (TF and head_look_at exact; a raw pan 0 in the Head tab stays off by the fitted yaw, expected under 3 deg) instead of re-zeroing the pan servo? [recommended: yes]
 
 ## Irreversible operations in scope
 
