@@ -80,3 +80,36 @@ def few_rgb_corner_pose(count: int = 6) -> CapturedPose:
     pose = make_pose()
     rgb = Detection(ids=pose.rgb_detection.ids[:count], points=pose.rgb_detection.points[:count])
     return dataclasses.replace(pose, rgb_detection=rgb)
+
+
+@dataclasses.dataclass(frozen=True)
+class StillArmPose:
+    """Arguments of SessionStore.add_still_pose for one synthetic still view of the board."""
+
+    rgb_jpeg: bytes
+    rgb_image: np.ndarray
+    detection: Detection
+    joints: dict[str, float]
+    stamps: dict[str, int]
+    arm_pose: int
+    tier: int
+    head_offset: int
+
+
+def still_arm_pose(
+    joints: dict[str, float], arm_pose: int = 0, tier: int = 0, head_offset: int = 0, seed: int = 1
+) -> StillArmPose:
+    """A still head-arm pose: the synthetic board image, its real detection and the given joints."""
+    rgb, _ = synthetic_frames(0.33, seed)
+    detection = detect(rgb, make_board(BOARD_CFG))
+    assert detection is not None
+    return StillArmPose(
+        rgb_jpeg=cv2.imencode(".jpg", rgb)[1].tobytes(),
+        rgb_image=rgb,
+        detection=detection,
+        joints=dict(joints),
+        stamps={"rgb": RGB_STAMP_NS, "joints": RGB_STAMP_NS + 1_000_000},
+        arm_pose=arm_pose,
+        tier=tier,
+        head_offset=head_offset,
+    )

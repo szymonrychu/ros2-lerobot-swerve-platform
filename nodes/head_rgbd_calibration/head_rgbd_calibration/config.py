@@ -9,6 +9,7 @@ from pydantic import Field, field_validator, model_validator
 from ros2_common.head_rgbd_calibration.config import (
     BoardConfig,
     FloorFitConfig,
+    HeadArmFitConfig,
     LimitsConfig,
     SelectionConfig,
     StrictModel,
@@ -28,9 +29,12 @@ DEFAULT_QOS_RGB_DEPTH = 5
 DEFAULT_MAX_CAPTURE_S = 900.0
 DEFAULT_COMPUTE_TIMEOUT_S = 600.0
 DEFAULT_COMPUTE_NICE = 10
+DEFAULT_TOPIC_HEAD_JOINT_STATES = "/head/joint_states"
+DEFAULT_TOPIC_ARM_JOINT_STATES = "/follower/joint_states"
 DEFAULT_HEAD_CAMERA_CONFIG_FILE = "/etc/ros2/head_camera_cpp/config.yaml"
 DEFAULT_LENS_POSITION = 1.0
 DEFAULT_HEAD_URDF_FILE = "/opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/head.urdf"
+DEFAULT_ARM_URDF_FILE = "/opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/so101_arm.urdf"
 DEFAULT_RESTART_UNITS = (
     "ros2-head_camera_cpp.service",
     "ros2-head_rgbd_cpp.service",
@@ -60,6 +64,8 @@ class TopicsConfig(StrictModel):
     amplitude: str = DEFAULT_TOPIC_AMPLITUDE
     depth: str = DEFAULT_TOPIC_DEPTH
     tof_info: str = DEFAULT_TOPIC_TOF_INFO
+    head_joint_states: str = DEFAULT_TOPIC_HEAD_JOINT_STATES
+    arm_joint_states: str = DEFAULT_TOPIC_ARM_JOINT_STATES
 
 
 class QosConfig(StrictModel):
@@ -67,6 +73,16 @@ class QosConfig(StrictModel):
 
     tof_depth: int = Field(default=DEFAULT_QOS_TOF_DEPTH, ge=1)
     rgb_depth: int = Field(default=DEFAULT_QOS_RGB_DEPTH, ge=1)
+
+
+class StillConfig(StrictModel):
+    """Still capture of a head_arm view: the frames and the joints must hold still before the frame is stored."""
+
+    window_s: float = Field(default=0.6, gt=0)
+    rgb_mad: float = Field(default=2.0, gt=0)
+    joint_still_rad: float = Field(default=0.002, gt=0)
+    max_joint_dt_s: float = Field(default=0.1, gt=0)
+    timeout_s: float = Field(default=6.0, gt=0)
 
 
 class CoverageConfig(StrictModel):
@@ -161,6 +177,7 @@ class NodeConfig(StrictModel):
     head_camera_config_file: str = DEFAULT_HEAD_CAMERA_CONFIG_FILE
     default_lens_position: float = DEFAULT_LENS_POSITION
     head_urdf_file: str = DEFAULT_HEAD_URDF_FILE
+    arm_urdf_file: str = DEFAULT_ARM_URDF_FILE
     restart_units: list[str] = Field(default_factory=lambda: list(DEFAULT_RESTART_UNITS))
     restart_check_s: float = Field(default=DEFAULT_RESTART_CHECK_S, gt=0)
     thumbnail_width_px: int = Field(default=DEFAULT_THUMBNAIL_WIDTH_PX, ge=1)
@@ -169,6 +186,17 @@ class NodeConfig(StrictModel):
     selection: SelectionConfig = Field(default_factory=SelectionConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     floor: FloorSweepConfig = Field(default_factory=FloorSweepConfig)
+    still: StillConfig = Field(default_factory=StillConfig)
+    fit: HeadArmFitConfig = Field(default_factory=HeadArmFitConfig)
+
+    @model_validator(mode="after")
+    def check_fit_board(self) -> Self:
+        if self.fit.board != self.board:
+            raise ValueError(
+                f"fit.board {self.fit.board.model_dump()} differs from board {self.board.model_dump()}: "
+                "the fit must use the printed board"
+            )
+        return self
 
 
 def load_config(path: str | Path) -> NodeConfig:

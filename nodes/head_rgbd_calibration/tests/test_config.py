@@ -120,3 +120,31 @@ def test_floor_tilt_range_edges_accepted(tmp_path: Path) -> None:
     path = tmp_path / "c.yaml"
     path.write_text("floor:\n  tilt_deg: [-30, 30]\n")
     assert load_config(path).floor.tilt_deg == [-30, 30]
+
+
+def test_still_capture_defaults() -> None:
+    cfg = NodeConfig()
+    assert cfg.topics.head_joint_states == "/head/joint_states"
+    assert cfg.topics.arm_joint_states == "/follower/joint_states"
+    assert cfg.still.model_dump() == {
+        "window_s": 0.6,
+        "rgb_mad": 2.0,
+        "joint_still_rad": 0.002,
+        "max_joint_dt_s": 0.1,
+        "timeout_s": 6.0,
+    }
+    assert cfg.arm_urdf_file == "/opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/so101_arm.urdf"
+    assert cfg.fit.board == cfg.board
+
+
+@pytest.mark.parametrize("key", ["window_s", "rgb_mad", "joint_still_rad", "max_joint_dt_s", "timeout_s"])
+def test_still_values_must_be_positive(key: str) -> None:
+    with pytest.raises(ValidationError, match=key):
+        NodeConfig.model_validate({"still": {key: 0}})
+
+
+def test_fit_board_mismatch_refused_naming_both() -> None:
+    with pytest.raises(ValidationError, match=r"fit\.board.*board"):
+        NodeConfig.model_validate({"fit": {"board": {"squares_x": 7}}})
+    cfg = NodeConfig.model_validate({"board": {"squares_x": 7}, "fit": {"board": {"squares_x": 7}}})
+    assert cfg.fit.board.squares_x == 7

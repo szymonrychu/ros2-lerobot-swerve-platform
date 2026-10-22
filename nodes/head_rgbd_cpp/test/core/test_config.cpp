@@ -57,7 +57,7 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_EQ(c.filter.min_valid_neighbours, 3);
   EXPECT_DOUBLE_EQ(c.depth.min_m, 0.1);
   EXPECT_DOUBLE_EQ(c.depth.max_m, 4.0);
-  EXPECT_FALSE(c.upsampling.enabled);
+  EXPECT_TRUE(c.upsampling.enabled);
   EXPECT_EQ(c.upsampling.radius, 4);
   EXPECT_DOUBLE_EQ(c.upsampling.eps, 0.001);
   EXPECT_DOUBLE_EQ(c.upsampling.min_support, 0.5);

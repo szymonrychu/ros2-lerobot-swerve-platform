@@ -14,6 +14,27 @@ gps_status:
   stale_after_s: 5.0
   base_timeout_s: 2.0
 
+# Ground recorder (operator tool, idle until POST /api/ground/recordings): records ToF, RGB + amplitude, IMU, head and
+# /ground/state with the TF at each message stamp into npz files for ground replay. Off by default; see README.
+ground_recorder:
+  enabled: false
+  dir: /tmp/web_ui_ground_recordings
+  max_duration_s: 30      # longest recording a request may ask for (1..60)
+  max_files: 4            # oldest files beyond this are deleted after each recording (1..20)
+  tf_timeout_s: 0.5       # a message whose TF does not arrive within this is dropped and counted (0..2)
+  cloud_topic: /tof/points_filtered
+  tof_depth_topic: /tof/depth/image_raw
+  tof_amplitude_topic: /tof/amplitude/image_raw
+  tof_info_topic: /tof/camera_info
+  pair_depth_topic: /head_rgbd/depth_upsampled/image_raw
+  pair_info_topic: /head_rgbd/depth_upsampled/camera_info
+  pair_rgb_topic: /head_rgbd/rgb/image_raw/compressed
+  imu_topic: /imu/data
+  head_js_topic: /head/joint_states
+  state_topic: /ground/state
+  base_frame: base_link
+  odom_frame: odom
+
 tabs:
   # Merged 3D map tab: SLAM map, Nav2 plans + local costmap, robot and interactive arm model, GPS fix with
   # an auto-fitted anchor over map tiles proxied through /api/tiles. Every map_nav field below is optional
