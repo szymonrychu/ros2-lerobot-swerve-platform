@@ -52,17 +52,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/printable-markers.md` with a `## Results` section.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The marker system is proven on the robot with numbers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Run the full verify command and read every line.
+- Write the runbook; execute it on the robot step by step; fill Results and the range section; commit `docs: printable markers runbook with results`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Robot motion: only the head (pan/tilt within the verified range) and base moves the user approves; least-dramatic movement first (CLAUDE.md).
+
+- 2026-10-22: moved verbatim from printable-metadata-markers-t/markers-final-runbook (user answer A); the epic printable-metadata-markers-t is done. Its old depends_on (inside that epic) is done; this epic is blocked by drivable-ground-tof-filterin instead.
