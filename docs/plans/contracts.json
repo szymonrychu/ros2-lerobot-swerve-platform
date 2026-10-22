@@ -319,5 +319,15 @@
       "ground-detection-robustness"
     ],
     "note": "web_ui ground recording npz, layout_version 2: superset of the 2026-10-22 keys read by scripts/ground_replay_export.py (stamps_ns, cloud_frame, offsets, points_mm, base_T_cloud, odom_T_base, imu, base_T_imu, head_js) plus tof_* and pair_* streams; owner task ground-recording-layout"
+  },
+  {
+    "name": "head-rgbd-guidance-pair",
+    "kind": "topic",
+    "owner": "rgb-and-amplitude-guided-gro",
+    "file": "ansible/group_vars/client.yml",
+    "consumers": [
+      "head-rgb-d-fusion-of-camera"
+    ],
+    "note": "head_rgbd_cpp upsampling.enabled true on the client: /head_rgbd/depth_upsampled/image_raw (16UC1, RGB size) + /head_rgbd/depth_upsampled/camera_info + /head_rgbd/rgb/image_raw/compressed with one header per pair (2 Hz); consumed by ground_estimator_cpp guidance; owner task rgbd-upsampling-on"
   }
 ]
