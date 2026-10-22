@@ -37,9 +37,8 @@ constexpr double MAD_TO_SIGMA = 1.4826;
 constexpr std::size_t MIN_TRIMMED_FRAMES = 5;
 
 // Dropping the largest deviation shrinks the estimate to about 0.77 of the true Gaussian sigma (8 values), so the
-// consistent factor is 1/0.77 = 1.3. 1.35 is that factor nudged up: with 8 values the estimate scatters ~25%, and
-// this is the value that keeps measured 30..42 mm cells at <= 10% visible while 4..20 mm floor cells stay >= 95%
-// visible (see the README).
+// consistent factor is 1/0.77 = 1.3. With 8 values the estimate scatters ~25%; 1.3 keeps measured 30..42 mm cells
+// at <= 10% visible while 4..20 mm floor cells stay >= 95% visible (1.35 failed the floor bound; see the README).
 constexpr double TRIMMED_SPREAD_SCALE = 1.3;
 
 // Robust spread of the per-frame medians in a cell history. With few values it is 1.4826 * MAD. From
