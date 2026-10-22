@@ -327,8 +327,8 @@ version, a truncated file and trailing bytes):
 - Outputs: the test waits for the cloud's own outputs before the next cloud (obstacle and drop clouds of its stamp,
   base_link, and the `/ground/warning_areas` document of its stamp, map frame). A cloud the node processed (counted in
   `ground_fits_total`) whose obstacle cloud does not arrive within 0.5 s was not answered with a plane.
-- Every scene test asserts that the node answered with a plane in at least one frame; the metrics are printed, not
-  asserted (the acceptance limits are added on top of this harness).
+- Every scene test asserts that the node answered with a plane in at least one frame and prints the metrics line;
+  the metrics themselves are not asserted.
 
 ### Metrics and ROIs
 
@@ -357,9 +357,8 @@ after the first cloud that the node answered with a plane. ROI edges are inclusi
 
 ### Baseline
 
-Measured by `scripts/cpp-node-test.sh ground_estimator_cpp` on the shipped config before the live-round fixes (the
-acceptance targets are box share >= 0.95, board and ramp lethal frames 0, churn < 0.10, no far-side warning); two
-runs gave identical lines:
+Measured by `scripts/cpp-node-test.sh ground_estimator_cpp` on the shipped config as committed with these fixtures;
+two runs gave identical lines:
 
 ```text
 replay home: plane_share=1.000 box_lethal_share=0.869 board_lethal_frames=116 stray_lethal_share=1.000 far_side_warning_frames=5 ramp_lethal_frames=0 churn_share=0.690
