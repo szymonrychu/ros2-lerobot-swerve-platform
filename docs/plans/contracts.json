@@ -327,5 +327,18 @@
       "head-rgb-d-fusion-of-camera"
     ],
     "note": "head_rgbd_cpp upsampling.enabled true on the client: /head_rgbd/depth_upsampled/image_raw (16UC1, RGB size) + /head_rgbd/depth_upsampled/camera_info + /head_rgbd/rgb/image_raw/compressed with one header per pair (2 Hz); consumed by ground_estimator_cpp guidance; owner task rgbd-upsampling-on"
+  },
+  {
+    "name": "tof-flying-pixel-retune",
+    "kind": "config",
+    "owner": "drivable-ground-tof-filterin",
+    "file": "nodes/bridges/arducam_tof/arducam_tof/config.py",
+    "consumers": [
+      "head-rgb-d-fusion-of-camera",
+      "rgb-d-ground-estimation-and",
+      "tof-3d-obstacle-detection-fo",
+      "head-chain-floor-plane-fit-a"
+    ],
+    "note": "flying_pixel_filter back on with keys (and possibly the rule) retuned on recorded raw depth: floor kept >= 95 %, box-edge mixed pixels removed >= 80 %, filter plus amplitude gate keep >= 90 % of the floor; applies to every /tof/depth/image_raw consumer; owner task tof-flying-pixel-retune"
   }
 ]
