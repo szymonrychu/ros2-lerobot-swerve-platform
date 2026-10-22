@@ -37,6 +37,9 @@ YAML file named by `ARDUCAM_TOF_CONFIG` (default `/etc/ros2/arducam_tof/config.y
 | `stamp_latency_ms` | `0.0` | 0..200 | Measured capture-to-return latency of the SDK frame in ms; subtracted from the frame-return time (see Timestamps). |
 | `tof_calibration_file` | unset | path | camera_calibration YAML of the ToF (the file `head_rgbd_cpp` reads). Its `camera_matrix` K is used for the z conversion and published in `/tof/camera_info`; `distortion_coefficients` are not used. |
 | `depth_is_radial` | `true` | bool | The SDK depth is the distance along each pixel ray; `true` converts it to z-depth. `false` publishes it unchanged. |
+| `flying_pixel_filter` | `true` | bool | Zero ToF flying (mixed) pixels at depth discontinuities on the full-resolution z-depth (see Depth and intrinsics). |
+| `flying_pixel_jump_ratio` | `0.05` | 0 < v <= 0.5 | Dimensionless: a pixel is a flying pixel when a valid 3x3 neighbour differs by more than `max(flying_pixel_min_jump_mm, ratio * its depth)`. |
+| `flying_pixel_min_jump_mm` | `30` | 0..1000 | Absolute floor of that jump in millimetres. |
 | `metrics_port` | unset | 1..65535 | Prometheus `/metrics` on 127.0.0.1; unset falls back to `METRICS_PORT`, then off. |
 
 ## Depth and intrinsics
@@ -44,6 +47,10 @@ YAML file named by `ARDUCAM_TOF_CONFIG` (default `/etc/ros2/arducam_tof/config.y
 The SDK depth is radial (distance along the pixel ray). Every consumer (`head_rgbd_cpp`, the ground estimator, the calibration plane check) back-projects it as z with `x = (u-cx)/fx * z`, so a radial value makes a flat floor a dome (2.7 cm at the image centre vs the edges on the robot). With `depth_is_radial: true` the bridge divides each pixel by `sqrt(((u-cx)/fx)^2 + ((v-cy)/fy)^2 + 1)` (`ray_norm`, `radial_to_z`; pixel centres u = column, v = row; 0 stays 0; the factor image is cached per shape and K).
 
 K comes from `tof_calibration_file` (yaml + pydantic; `image_width`/`image_height` must equal the SDK frame size, else an error is logged and the SDK K is used). A missing or invalid file logs a warning once and falls back to the SDK intrinsics. With no K at all (no file, SDK without focal length) the depth is published unconverted and no camera_info goes out. The same K is used for the conversion and for `/tof/camera_info`.
+
+### Flying pixel filter
+
+At a depth discontinuity the sensor integrates light from both surfaces and reports intermediate depths (flying pixels). Left in, every object edge drags a 10-25 cm tail of intermediate heights into `/tof/points_filtered`, i.e. fake ramps and steps behind a 5 cm box. With `flying_pixel_filter: true` (default) `flying_pixel_filter()` runs on the full-resolution z-depth, after `radial_to_z` and before publishing, i.e. before `point_cloud_xyz` decimates the image. A valid pixel becomes 0 (invalid, REP 118; nothing is interpolated) when a valid pixel of its 3x3 neighbourhood differs from it by more than `max(flying_pixel_min_jump_mm, flying_pixel_jump_ratio * its depth)`. Invalid pixels are never compared and do not invalidate their neighbours. The rule is symmetric, so both sides of a real edge lose their innermost pixel. The defaults (0.05, 30 mm) are the `head_rgbd_cpp` jump edge defaults; the synthetic tests show they keep at least 95 % of a flat floor at 0.3-2.0 m seen at 30 deg pitch with 5 mm noise (the floor's own depth step per row at 2 m is about 34 mm against a 5 % threshold of about 96 mm) and remove at least 95 % of a two-row mixed band behind a 5 cm box. The removed pixel count is the counter `tof_flying_pixels_removed_total`.
 
 ## Timestamps
 
@@ -61,6 +68,7 @@ Node name `arducam_tof`, via `ros2-metrics`.
 |--------|------|---------|
 | `tof_frames_published_total` | counter | Frames published (depth, amplitude, camera_info) |
 | `tof_frames_dropped_total{reason}` | counter | `error`, `no_frame`, `wrong_type` or `invalid`: requests that published nothing |
+| `tof_flying_pixels_removed_total` | counter | Pixels zeroed by the flying pixel filter |
 | `tof_camera_open_failures_total` | counter | Failed attempts to open and start the camera |
 | `tof_camera_reopens_total` | counter | Close and reopen after 5 s without a valid frame |
 
@@ -79,7 +87,7 @@ Node name `arducam_tof`, via `ros2-metrics`.
 Run in this directory: `uv run pytest tests -q` and `uv run poe lint` (ruff and vulture).
 
 - `tests/test_config.py` - defaults, every key, rejection of unknown keys and out-of-range values, file and YAML errors, `csi_device` resolution against a fake sysfs tree.
-- `tests/test_bridge.py` - the SDK (`ArducamDepthCamera`) and rclpy are mocked: encodings, the confidence mask, one shared header, the rate bound, no publish on a failed, missing or malformed frame, open failure and retry, radial to z conversion, calibration file K and its fallbacks, open with the index resolved from `csi_device` (an unresolvable one retries), release of a camera that fails after start, reopen after a stall, and `main()`.
+- `tests/test_bridge.py` - the SDK (`ArducamDepthCamera`) and rclpy are mocked: encodings, the confidence mask, one shared header, the rate bound, no publish on a failed, missing or malformed frame, open failure and retry, radial to z conversion, the flying pixel filter (tilted floor kept, mixed band behind a 5 cm box removed, invalid pixels stay invalid, published depth and counter, filter off), calibration file K and its fallbacks, open with the index resolved from `csi_device` (an unresolvable one retries), release of a camera that fails after start, reopen after a stall, and `main()`.
 
 `tests/data/floor_capture.json` is frame 0 of a `/tof/points_filtered` capture (688 points, xyz in `tof_optical_frame`, plus `frame_pose` in map) taken with the robot static, head pan 0 / tilt 30 down, over a flat wood floor on 2026-10-21. The points were made with the SDK K treating the SDK value as z, so `u = fx_sdk*x/z + cx_sdk` and the SDK value is z; `sdk_k` and `calibrated_k` are stored with it. `test_floor_capture_dome_is_flat_after_radial_to_z` fits a floor plane 0.3-0.9 m ahead and requires the centre-minus-edge residual to be > 2 cm as captured and < 1 cm after `radial_to_z` with `calibrated_k`.
 

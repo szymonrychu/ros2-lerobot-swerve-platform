@@ -17,6 +17,8 @@ MAX_CONFIDENCE = 65535.0
 MAX_PUBLISH_RATE_HZ = 30.0
 MAX_PORT = 65535
 MAX_STAMP_LATENCY_MS = 200.0
+MAX_FLYING_PIXEL_JUMP_RATIO = 0.5
+MAX_FLYING_PIXEL_MIN_JUMP_MM = 1000
 VIDEO4LINUX_ROOT = Path("/sys/class/video4linux")
 CAPTURE_NODE_SUFFIX = "csi2_ch0"
 
@@ -46,6 +48,13 @@ class TofConfig(BaseModel):
             camera matrix replaces the SDK intrinsics for the z-depth conversion and /tof/camera_info. None or an
             unusable file falls back to the SDK intrinsics.
         depth_is_radial (bool): The SDK depth is the distance along each pixel ray; true converts it to z-depth.
+        flying_pixel_filter (bool): Zero the ToF "flying" (mixed) pixels at depth discontinuities on the full-resolution
+            z-depth before it is published (default true).
+        flying_pixel_jump_ratio (float): A valid pixel is a flying pixel when a valid pixel of its 3x3 neighbourhood
+            differs from it by more than max(flying_pixel_min_jump_mm, ratio * its depth); dimensionless,
+            0 < v <= 0.5 (default 0.05).
+        flying_pixel_min_jump_mm (int): Absolute floor of that depth jump in millimetres, 0 <= v <= 1000
+            (default 30).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -60,6 +69,9 @@ class TofConfig(BaseModel):
     stamp_latency_ms: float = Field(default=0.0, ge=0.0, le=MAX_STAMP_LATENCY_MS)
     tof_calibration_file: Path | None = None
     depth_is_radial: bool = True
+    flying_pixel_filter: bool = True
+    flying_pixel_jump_ratio: float = Field(default=0.05, gt=0.0, le=MAX_FLYING_PIXEL_JUMP_RATIO)
+    flying_pixel_min_jump_mm: int = Field(default=30, ge=0, le=MAX_FLYING_PIXEL_MIN_JUMP_MM)
 
     @field_validator("frame_id")
     @classmethod
