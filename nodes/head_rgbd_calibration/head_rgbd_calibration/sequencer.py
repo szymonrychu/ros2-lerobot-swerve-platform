@@ -654,12 +654,12 @@ class Sequencer:
         where = f"tier {tier} arm pose {index} head offset {offset}"
         reason = outside_head_limits(plan.head, pan_deg, tilt_deg)
         if reason is not None:
-            self.skip(reason, f"{where}: pan {pan_deg:.2f} deg, tilt {tilt_deg:.2f} deg")
+            self.count_skipped(reason, f"{where}: pan {pan_deg:.2f} deg, tilt {tilt_deg:.2f} deg")
             return
         result = self.call(self.robot.set_head_angles(pan_deg, tilt_deg), f"set_head_angles at {where}")
         status, message = tool_status(result)
         if status != CONVERGED:
-            self.skip(f"head move {status}", f"{where}: {message}")
+            self.count_skipped(f"head move {status}", f"{where}: {message}")
             return
         self.sleep(self.seq.settle_s)
         self.check_alive()
@@ -670,9 +670,9 @@ class Sequencer:
             return
         if outcome.reason == REASON_STOPPED:
             raise StepFailed(f"the still capture session was stopped at {where}")
-        self.skip(outcome.reason, where)
+        self.count_skipped(outcome.reason, where)
 
-    def skip(self, reason: str, detail: str) -> None:
+    def count_skipped(self, reason: str, detail: str) -> None:
         """Count a skipped view by its reason."""
         with self.lock:
             self.skipped[reason] += 1
