@@ -212,6 +212,9 @@ puts arm-board-pose-set back behind board-on-gripper-hardware-st). (my call pend
 Step cards for the physical steps (clip the board, remove it), the confirms and the result; automation only where it
 cuts work without adding risk (scripted arm poses and head offsets). Kept from the old gate. Serves H5.
 
+### D18: User 2026-10-22 approved (yes): fold pan zero into the head_
+User 2026-10-22 approved (yes): fold pan zero into the head_mount_joint yaw (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -263,6 +266,7 @@ cuts work without adding risk (scripted arm poses and head offsets). Kept from t
 | D15 The existing 6x5 board is the gripper board | calib-config-and-view-types, board-on-gripper-hardware-st |
 | D16 Guided step-by-step process | head-arm-calibrate-ui-sectio, head-arm-pose-capture-sequen |
 | D17 The board mount is fitted; the measurement is only a start value | head-from-arm-board-solver, arm-board-pose-set, calib-robot-runbook |
+| D18 User 2026-10-22 approved (yes): fold pan zero into the head_ | head-from-arm-board-solver, head-arm-compute-and-apply |
 
 ## Contracts
 

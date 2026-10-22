@@ -2,7 +2,13 @@
   {
     "id": "H1",
     "text": "User 2026-10-22: calibrate the head position/angles based on the arm position/angles (the arm is trusted as calibrated): the solve fits the head chain (mount x/y/z, yaw/pitch/roll, pan zero, tilt zero, tilt roll as observable) from the 6x5 ChArUco board clipped to the gripper, seen by the head camera over a scripted set of arm poses, with the floor-fit values as prior/cross-check.",
-    "decisions": ["D1", "D2", "D3", "D4", "D6"],
+    "decisions": [
+      "D1",
+      "D2",
+      "D3",
+      "D4",
+      "D6"
+    ],
     "tasks": [
       "calib-config-and-view-types",
       "head-from-arm-board-solver",
@@ -15,7 +21,13 @@
   {
     "id": "H2",
     "text": "Arm safety (project rules): least dramatic joints first; any pose moving shoulder_pan, shoulder_lift or elbow needs the user's explicit OK at run time (UI confirmation); every scripted pose FK-checked against self-collision with the robot body and head; wrist roll only half-open and lifted; negative elbow stretches; the existing 6x5 board is the gripper board; arm motion only through mcp_server's guarded tools; no driving (robot charging).",
-    "decisions": ["D7", "D8", "D9", "D15", "D17"],
+    "decisions": [
+      "D7",
+      "D8",
+      "D9",
+      "D15",
+      "D17"
+    ],
     "tasks": [
       "board-on-gripper-hardware-st",
       "robot-mcp-client",
@@ -31,7 +43,10 @@
   {
     "id": "H3",
     "text": "The result must pass held-out validation limits before Apply (like the floor fit); a result over any limit cannot be applied.",
-    "decisions": ["D4", "D5"],
+    "decisions": [
+      "D4",
+      "D5"
+    ],
     "tasks": [
       "head-from-arm-board-solver",
       "head-arm-compute-and-apply",
@@ -43,7 +58,10 @@
   {
     "id": "H4",
     "text": "The applied result reaches every head-chain consumer through the existing head_chain.json override: head_state_publisher, mcp_server HeadKinematics and front camera (no mcp_server restart), and the web UI head URDF.",
-    "decisions": ["D6", "D10"],
+    "decisions": [
+      "D6",
+      "D10"
+    ],
     "tasks": [
       "head-arm-compute-and-apply",
       "mcp-head-kinematics-applied",
@@ -55,7 +73,10 @@
   {
     "id": "H5",
     "text": "A guided step-by-step Head from arm section on the web UI Calibrate page (step cards for the physical steps, confirms, result, Apply).",
-    "decisions": ["D11", "D16"],
+    "decisions": [
+      "D11",
+      "D16"
+    ],
     "tasks": [
       "calib-frontend-api",
       "head-arm-calibrate-ui-sectio",
@@ -66,7 +87,9 @@
   {
     "id": "H6",
     "text": "Gate Q1 (kept): after the reprint the head tilt range is -30..+60 deg (+ is down) everywhere it is pinned, or the smaller tilt-down limit the user records.",
-    "decisions": ["D12"],
+    "decisions": [
+      "D12"
+    ],
     "tasks": [
       "board-on-gripper-hardware-st",
       "head-tilt-range-widened"
@@ -76,7 +99,9 @@
   {
     "id": "H7",
     "text": "Synthetic-scene tests for the fit and the pose check, READMEs and tests/README.md, and a runbook executed on the robot with real numbers.",
-    "decisions": ["D13"],
+    "decisions": [
+      "D13"
+    ],
     "tasks": [
       "head-from-arm-board-solver",
       "arm-pose-safety-check",
@@ -89,7 +114,9 @@
   {
     "id": "H8",
     "text": "User 2026-10-22: the arm joint offset solve (arm-offsets-plate-solver, arm-offsets-compute-apply, arm-calibrate-ui-section) moves to a separate follow-up epic via ticket.py (arm-joint-offsets-from-the-g, blocked by this one), not deleted, so nothing is lost.",
-    "decisions": ["D14"],
+    "decisions": [
+      "D14"
+    ],
     "tasks": [
       "calib-docs-and-test-index"
     ],
@@ -98,10 +125,24 @@
   {
     "id": "H9",
     "text": "User 2026-10-22: Python stays in web_ui, mcp_server and the existing Python calibration code; no rclpy probes on the client.",
-    "decisions": ["D6"],
+    "decisions": [
+      "D6"
+    ],
     "tasks": [
       "joint-state-still-capture",
       "calib-robot-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "Q1",
+    "text": "User 2026-10-22 approved (yes): fold pan zero into the head_mount_joint yaw",
+    "decisions": [
+      "D18"
+    ],
+    "tasks": [
+      "head-from-arm-board-solver",
+      "head-arm-compute-and-apply"
     ],
     "status": "approved"
   }
