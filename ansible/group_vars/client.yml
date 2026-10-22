@@ -1372,6 +1372,9 @@ ros2_nodes:
       flying_pixel_filter: false  # off 2026-10-22: removed ~70% of live pixels (ground fits starved), retune on real frames first
       flying_pixel_jump_ratio: 0.05
       flying_pixel_min_jump_mm: 30
+      # Pixels nearer than this ray distance (m) are published as 0: the camera sits ~0.27 m above the floor, so nothing
+      # nearer is floor; it is the robot's own arm/gripper and its shadow in the depth map. 0 = off.
+      min_range_m: 0.25
       # Topics are fixed in the driver (the web_ui head tab subscribes to them):
       # /tof/depth/image_raw
       # /tof/amplitude/image_raw

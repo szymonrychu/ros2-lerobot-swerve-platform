@@ -40,6 +40,7 @@ YAML file named by `ARDUCAM_TOF_CONFIG` (default `/etc/ros2/arducam_tof/config.y
 | `flying_pixel_filter` | `true` | bool | Zero ToF flying (mixed) pixels at depth discontinuities on the full-resolution z-depth (see Depth and intrinsics). |
 | `flying_pixel_jump_ratio` | `0.05` | 0 < v <= 0.5 | Dimensionless: a pixel is a flying pixel when a valid 3x3 neighbour differs by more than `max(flying_pixel_min_jump_mm, ratio * its depth)`. |
 | `flying_pixel_min_jump_mm` | `30` | 0..1000 | Absolute floor of that jump in millimetres. |
+| `min_range_m` | `0.0` (off) | 0 <= v < 4.0 | Metres: a pixel whose ray distance from the camera is below this is published as 0 (invalid). The camera is ~0.27 m above the floor, so nearer points are the robot's own arm and its shadow (deployed: 0.25). Applied to the radial distance (z-depth is multiplied by the pixel ray norm first) before the radial-to-z conversion and the flying pixel filter; amplitude is unchanged. |
 | `metrics_port` | unset | 1..65535 | Prometheus `/metrics` on 127.0.0.1; unset falls back to `METRICS_PORT`, then off. |
 
 ## Depth and intrinsics
@@ -69,6 +70,7 @@ Node name `arducam_tof`, via `ros2-metrics`.
 | `tof_frames_published_total` | counter | Frames published (depth, amplitude, camera_info) |
 | `tof_frames_dropped_total{reason}` | counter | `error`, `no_frame`, `wrong_type` or `invalid`: requests that published nothing |
 | `tof_flying_pixels_removed_total` | counter | Pixels zeroed by the flying pixel filter |
+| `tof_near_pixels_removed_total` | counter | Pixels zeroed for being nearer than `min_range_m` |
 | `tof_camera_open_failures_total` | counter | Failed attempts to open and start the camera |
 | `tof_camera_reopens_total` | counter | Close and reopen after 5 s without a valid frame |
 
@@ -87,7 +89,7 @@ Node name `arducam_tof`, via `ros2-metrics`.
 Run in this directory: `uv run pytest tests -q` and `uv run poe lint` (ruff and vulture).
 
 - `tests/test_config.py` - defaults, every key, rejection of unknown keys and out-of-range values, file and YAML errors, `csi_device` resolution against a fake sysfs tree.
-- `tests/test_bridge.py` - the SDK (`ArducamDepthCamera`) and rclpy are mocked: encodings, the confidence mask, one shared header, the rate bound, no publish on a failed, missing or malformed frame, open failure and retry, radial to z conversion, the flying pixel filter (tilted floor kept, mixed band behind a 5 cm box removed, invalid pixels stay invalid, published depth and counter, filter off), calibration file K and its fallbacks, open with the index resolved from `csi_device` (an unresolvable one retries), release of a camera that fails after start, reopen after a stall, and `main()`.
+- `tests/test_bridge.py` - the SDK (`ArducamDepthCamera`) and rclpy are mocked: encodings, the confidence mask, one shared header, the rate bound, no publish on a failed, missing or malformed frame, open failure and retry, radial to z conversion, the minimum range filter (`near_range_filter`: radial and z-depth cases, 0 = off, published depth, counter, amplitude untouched), the flying pixel filter (tilted floor kept, mixed band behind a 5 cm box removed, invalid pixels stay invalid, published depth and counter, filter off), calibration file K and its fallbacks, open with the index resolved from `csi_device` (an unresolvable one retries), release of a camera that fails after start, reopen after a stall, and `main()`.
 
 `tests/data/floor_capture.json` is frame 0 of a `/tof/points_filtered` capture (688 points, xyz in `tof_optical_frame`, plus `frame_pose` in map) taken with the robot static, head pan 0 / tilt 30 down, over a flat wood floor on 2026-10-21. The points were made with the SDK K treating the SDK value as z, so `u = fx_sdk*x/z + cx_sdk` and the SDK value is z; `sdk_k` and `calibrated_k` are stored with it. `test_floor_capture_dome_is_flat_after_radial_to_z` fits a floor plane 0.3-0.9 m ahead and requires the centre-minus-edge residual to be > 2 cm as captured and < 1 cm after `radial_to_z` with `calibrated_k`.
 

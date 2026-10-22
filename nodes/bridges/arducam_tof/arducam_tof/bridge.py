@@ -70,6 +70,9 @@ IDENTITY_R = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
 
 FRAMES_PUBLISHED = Counter("tof_frames_published_total", "ToF frames published (depth, amplitude, camera_info)")
 FRAMES_DROPPED = Counter("tof_frames_dropped_total", "ToF frame requests that published nothing, by reason", ["reason"])
+NEAR_PIXELS_REMOVED = Counter(
+    "tof_near_pixels_removed_total", "ToF pixels zeroed for being nearer than min_range_m (the robot's own arm)"
+)
 FLYING_PIXELS_REMOVED = Counter(
     "tof_flying_pixels_removed_total", "ToF flying (mixed) pixels zeroed at depth discontinuities"
 )
@@ -193,6 +196,29 @@ def radial_to_z(depth_mm: np.ndarray, intrinsics: Intrinsics) -> np.ndarray:
     """
     z = np.rint(depth_mm / ray_norm_image(depth_mm.shape, intrinsics))
     return np.where(depth_mm > 0, z, 0).astype(np.uint16)
+
+
+def near_range_filter(
+    depth_mm: np.ndarray, min_range_m: float, intrinsics: Intrinsics | None, depth_is_radial: bool
+) -> np.ndarray:
+    """Zero the pixels whose distance from the camera is below min_range_m.
+
+    Args:
+        depth_mm (np.ndarray): uint16 depth in millimetres; 0 = invalid.
+        min_range_m (float): Minimum ray distance in metres; 0 or less leaves the depth unchanged.
+        intrinsics (Intrinsics | None): Pinhole intrinsics, used to turn z-depth into ray distance; None compares
+            the depth as is.
+        depth_is_radial (bool): True when depth_mm already is the ray distance.
+
+    Returns:
+        np.ndarray: uint16 depth of the same shape with the too-near pixels set to 0.
+    """
+    if min_range_m <= 0.0:
+        return depth_mm
+    distance = depth_mm.astype(np.float64)
+    if not depth_is_radial and intrinsics is not None:
+        distance = distance * ray_norm_image(depth_mm.shape, intrinsics)
+    return np.where(distance < min_range_m * 1000.0, 0, depth_mm).astype(np.uint16)
 
 
 def flying_pixel_filter(depth_mm: np.ndarray, jump_ratio: float, min_jump_mm: int) -> np.ndarray:
@@ -523,6 +549,11 @@ class TofBridge:
                 return self.drop("invalid", "Malformed ToF frame (missing or mismatched depth/confidence data).")
             depth, confidence, amplitude = arrays
             depth_mm = depth_to_mm(depth, confidence, self.config.confidence_threshold)
+            near_filtered = near_range_filter(
+                depth_mm, self.config.min_range_m, self.intrinsics, self.config.depth_is_radial
+            )
+            NEAR_PIXELS_REMOVED.inc(int(np.count_nonzero(depth_mm)) - int(np.count_nonzero(near_filtered)))
+            depth_mm = near_filtered
             if self.config.depth_is_radial and self.intrinsics is not None:
                 depth_mm = radial_to_z(depth_mm, self.intrinsics)
             if self.config.flying_pixel_filter:
