@@ -35,7 +35,9 @@ Why: CLAUDE.md requires every test file and test to be documented in tests/READM
 
 ## Files
 
-
+- `tests/README.md`
+- `nodes/head_rgbd_calibration/README.md`
+- `shared/README.md`
 
 ## Interfaces
 

@@ -1,6 +1,6 @@
 ---
 title: "Main checkout has an accidental merge commit 560f9a53 on main; needs reset to b73a4f24 by someone allowed to do so"
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Caused by my merge command running outside a worktree after cd failed
 files: []
@@ -12,8 +12,7 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+branch: main
 verified_head: ""
 run: ""
 provides: []
@@ -35,7 +34,7 @@ Why: Caused by my merge command running outside a worktree after cd failed
 
 ## Files
 
-
+- (none: process item)
 
 ## Interfaces
 
@@ -55,3 +54,6 @@ Main checkout has an accidental merge commit 560f9a53 on main; needs reset to b7
 
 Discovered in task `head-arm-sequence-http-api` during run `drivable-ground-tof-filterin`.
 
+## Resolution
+
+Resolved 2026-10-23 by the orchestrator: the stray merge 560f9a53 brought only verified, clean task work (head-arm-compute-and-apply and its merged dependencies, branch head equal to the merged commit); main checks passed with it (root 2094, head_rgbd_calibration 246, web_ui 1071, ground_estimator_cpp 376); kept as an early merge, history not rewritten.

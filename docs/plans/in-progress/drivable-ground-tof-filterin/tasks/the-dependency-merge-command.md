@@ -1,6 +1,6 @@
 ---
 title: "The dependency merge command for costmap-nullable-heights was malformed: 'git merge --no-edit current worktree branch (committed)'. The agent merged branch drivable-ground-tof-filterin--costmap-nullable-heights instead."
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: A literal placeholder ended up in the merge command where the branch name should be.
 files: []
@@ -12,8 +12,7 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+branch: main
 verified_head: ""
 run: ""
 provides: []
@@ -35,7 +34,7 @@ Why: A literal placeholder ended up in the merge command where the branch name s
 
 ## Files
 
-
+- (none: process item)
 
 ## Interfaces
 
@@ -55,3 +54,6 @@ The dependency merge command for costmap-nullable-heights was malformed: 'git me
 
 Discovered in task `guidance-node-wiring` during run `drivable-ground-tof-filterin`.
 
+## Resolution
+
+Resolved 2026-10-23 by the orchestrator: the agent merged the right branch by hand; process issue in the workflow prompt, no code change.
