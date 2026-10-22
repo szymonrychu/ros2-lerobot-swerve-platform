@@ -39,3 +39,9 @@ Estimate: 1290 min | Actual: 0 min | Remaining estimate: 90 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-22)
+
+Closed by user decision 2026-10-22 (answer A): every remaining task is done, verified and merged. The one leftover
+live runbook task rgbd-final-suite-and-runbook moved, requirement and acceptance conditions verbatim, to the follow-up epic head-rgb-d-fusion-runbook (docs/plans/todo/head-rgb-d-fusion-runbook),
+blocked by drivable-ground-tof-filterin. The runbook moved to head-rgb-d-fusion-runbook.
