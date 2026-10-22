@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-The mcp_server front camera (head RGB) uses the applied head_camera_joint and the applied intrinsics (design D10; approval H4; today `cameras.front` duplicates head_camera_joint with null intrinsics, client.yml).
+The mcp_server front camera (head RGB) uses the applied head_camera_joint and the applied intrinsics (design D40; approval H4; today `cameras.front` duplicates head_camera_joint with null intrinsics, client.yml).
 
 - `ansible/group_vars/client.yml` mcp_server `cameras.front`: `parent_frame: head_camera_link`, mount `parent_frame: head_camera_link` with x, y, z, roll, pitch, yaw all 0 (the applied `head_camera_joint` is then the mount, through the reloading HeadKinematics), intrinsics `calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml`; the comment explains both.
 - `nodes/mcp_server/mcp_server/config.py` (and `camera_scene.py` where the intrinsics are used): the front intrinsics file is read lazily at each camera call with an mtime cache, so an apply is picked up without a restart; a missing file means the camera tools answer 'not calibrated' (warning once), never a crash at startup. When the file's image size differs from the front image size with the same aspect ratio (within 0.5 %), fx and cx scale by the width ratio and fy and cy by the height ratio (distortion unchanged); a different aspect ratio keeps the front camera uncalibrated with a warning naming both sizes. Read the front stream size from the head_camera_cpp config in client.yml and pin it in the test.
@@ -61,6 +61,6 @@ The agent's front camera tools become calibrated: pixel rays use the applied int
 
 ## Notes
 
-- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D16, review focus). Ordered after arm-board-pose-set only because both edit ansible/group_vars/client.yml.
+- Design: the epic design.md (`ticket.py path drivable-ground-tof-filterin design`) (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus). Ordered after arm-board-pose-set only because both edit ansible/group_vars/client.yml.
 
 - 2026-10-22 re-plan: the floor fit epic delivered the override, the FK core and head_state_publisher; dependencies and design references updated to the head-from-arm plan.

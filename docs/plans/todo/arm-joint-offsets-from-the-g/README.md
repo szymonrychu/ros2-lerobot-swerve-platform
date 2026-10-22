@@ -1,6 +1,6 @@
 ---
 title: Arm joint offsets from the gripper-held ChArUco board
-blockers: [Head and arm calibration from ChArUco board and gripper plate]
+blockers: ["Drivable ground, ToF filtering and head-from-arm calibration"]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]

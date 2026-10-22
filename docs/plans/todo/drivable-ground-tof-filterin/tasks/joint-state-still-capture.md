@@ -24,7 +24,7 @@ provides: []
 ## Requirement
 
 Still capture on request with measured head and arm joint states for `head_arm` sessions (owns `calib-still-capture`;
-design D6; approvals H1, H9; no placeholder data). The node already subscribes in-process (it is a ROS2 node); nothing
+design D36; approvals H1, H9; no placeholder data). The node already subscribes in-process (it is a ROS2 node); nothing
 here is an ad-hoc probe.
 
 - `nodes/head_rgbd_calibration/head_rgbd_calibration/config.py` and `config/head_rgbd_calibration.yaml` (shipped YAML
@@ -99,4 +99,4 @@ stored at all.
 
 - Reuse `floor_sweep.JointSample`-style stamped samples and `frames.stamp_ns`; do not add a second joint-state cache
   style.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

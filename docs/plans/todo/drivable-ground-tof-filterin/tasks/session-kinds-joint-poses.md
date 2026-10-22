@@ -24,7 +24,7 @@ provides: []
 ## Requirement
 
 A `head_arm` session kind with still RGB poses and measured joints in the node store (owns `calib-session-kinds`;
-design D6; approval H1; no placeholder data).
+design D36; approval H1; no placeholder data).
 
 - `nodes/head_rgbd_calibration/head_rgbd_calibration/store.py`:
   - `create_session(..., kind: Literal["rgbd", "head_arm"] = "rgbd")`; `session.json` records `kind`; a session without
@@ -82,4 +82,4 @@ values.
 ## Notes
 
 - The store does not judge geometry; the fit does.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

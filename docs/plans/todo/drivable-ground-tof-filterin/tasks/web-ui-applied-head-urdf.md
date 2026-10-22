@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-The web UI head URDF (3D view, head tab) shows the applied head chain (design D10; approval H4; the RGB-D epic left `/api/urdf/head.urdf` raw).
+The web UI head URDF (3D view, head tab) shows the applied head chain (design D40; approval H4; the RGB-D epic left `/api/urdf/head.urdf` raw).
 
 - `nodes/web_ui/web_ui/config.py`: top-level `head_applied_calibration_dir: str | None = None` (None: URDFs served as files).
 - `nodes/web_ui/config/default.yaml`: `head_applied_calibration_dir: null`; `ansible/group_vars/client.yml` web_ui config: `/var/lib/ros2/head_rgbd_calibration/applied`.
@@ -61,6 +61,6 @@ The web UI 3D view and head tab draw the head where it really is after a calibra
 
 ## Notes
 
-- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D16, review focus).
+- Design: the epic design.md (`ticket.py path drivable-ground-tof-filterin design`) (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
 
 - 2026-10-22 re-plan: the floor fit epic delivered the override, the FK core and head_state_publisher; dependencies and design references updated to the head-from-arm plan.

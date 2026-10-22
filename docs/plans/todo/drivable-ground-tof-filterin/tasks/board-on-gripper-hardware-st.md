@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Hardware prerequisite only the user can do (design D8, D12, D15; approvals H2, H6). The pose set (arm-board-pose-set)
+Hardware prerequisite only the user can do (design D38, D42, D45; approvals H2, H6). The pose set (arm-board-pose-set)
 and the tilt range (head-tilt-range-widened) wait for it.
 
 - Write `docs/runbooks/head-arm-calibration.md` with a `## Hardware` section listing what the user does and what is
@@ -69,4 +69,4 @@ safety check use real geometry.
 ## Notes
 
 - No robot motion in this task.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Verify the whole feature on the robot with the user and record real numbers (design D13; approvals H7, H9).
+Verify the whole feature on the robot with the user and record real numbers (design D43; approvals H7, H9).
 Prerequisite: the Hardware section of `docs/runbooks/head-arm-calibration.md` is recorded.
 
 - Full suite green first: `uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible`,
@@ -37,7 +37,7 @@ Prerequisite: the Hardware section of `docs/runbooks/head-arm-calibration.md` is
      first); `./scripts/deploy-nodes.sh client head_rgbd_calibration head_state_publisher mcp_server web_ui
      base_servos 2>&1 | tee .logs/deploy-head-arm-calib.log`; services start without `ModuleNotFoundError`.
   2. Tilt range: `set_head_angles` tilt 30, 40, 50 and the recorded limit at pan 0, slowly; nothing touches; record.
-  2a. Board mount (design D17): compare the board pose the Hardware section recorded with the provisional nominal
+  2a. Board mount (design D47): compare the board pose the Hardware section recorded with the provisional nominal
      `fit.board_mount`. Within 1 cm / 5 deg: replace the nominal start value with the measurement in the shipped
      `nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml` and the client.yml block (comment "measured
      <date>"). Outside it: same replacement, then rerun `cd nodes/head_rgbd_calibration && uv run --frozen pytest
@@ -92,4 +92,4 @@ The head chain measured against the arm is applied on the robot and checked with
 ## Notes
 
 - Mirror `docs/runbooks/head-floor-fit.md` (preconditions, deploy, UI steps, acceptance checks, results table).
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-HTTP routes for the guided head-from-arm calibration (owns the `head-arm-calib-api` contract; design D6, D8;
+HTTP routes for the guided head-from-arm calibration (owns the `head-arm-calib-api` contract; design D36, D38;
 approvals H2, H3). Same error body `{ok: false, message}` and status mapping as `floor_api.py` (InvalidId and NotFound
 404, Busy and NotApplicable 409, a refused step 400).
 
@@ -90,4 +90,4 @@ only by the browser.
 ## Notes
 
 - Model it on `floor_api.py`; keep the floor routes unchanged.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

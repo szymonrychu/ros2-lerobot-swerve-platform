@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-An FK check of arm poses and joint paths with the board on the gripper (owns `arm-pose-check`; design D8, D9;
+An FK check of arm poses and joint paths with the board on the gripper (owns `arm-pose-check`; design D38, D39;
 approval H2; CLAUDE.md servo safety; MEMORY feedback_arm_motion_safety). Pure numpy over `UrdfChain`, no ROS.
 
 - New `shared/ros2_common/head_rgbd_calibration/arm_pose_check.py`:
@@ -107,4 +107,4 @@ clear of the floor, the body and the head.
 - mcp_server's checker (`nodes/mcp_server/mcp_server/self_collision.py`, C++ kernel) cannot be imported here; mirror
   its geometry choices (capsules, the crossbar exclusion) without copying the kernel.
 - The pose values themselves are arm-board-pose-set's; this task only builds the check.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

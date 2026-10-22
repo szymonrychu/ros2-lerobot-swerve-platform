@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Foundation config and view type for the head-from-arm fit (design D2, D4, D5, D15; approval H1). Every later fit, pose
+Foundation config and view type for the head-from-arm fit (design D32, D34, D35, D45; approval H1). Every later fit, pose
 check, store and capture task reads these.
 
 - `shared/ros2_common/head_rgbd_calibration/config.py` (pydantic `StrictModel`, unknown keys rejected):
@@ -36,12 +36,12 @@ check, store and capture task reads these.
     `holdout_every` 5 (ge 2), `max_floor_delta_mm` 10.0, `max_floor_delta_deg` 1.5, `max_start_delta_mm` 30.0,
     `max_start_delta_deg` 5.0 (all gt 0).
   - `BaseInBaseLink`: `x` 0.0592, `y` -0.05, `z` 0.100, `yaw` 0.0 (the client.yml mcp_server `arm.base_in_base_link`).
-  - `HeadArmFitConfig`: `board: BoardConfig = BoardConfig()` (the existing 6x5 board, design D15), `board_mount:
+  - `HeadArmFitConfig`: `board: BoardConfig = BoardConfig()` (the existing 6x5 board, design D45), `board_mount:
     BoardMountConfig`, `limits: HeadArmFitLimits`, `huber_f_scale_px: float = 1.0` (gt 0), `base_in_base_link:
     BaseInBaseLink`, `joint_offsets_rad: dict[str, float]` defaulting to the client.yml mcp_server
     `arm.joint_offsets_rad` (shoulder_pan 0.0182, shoulder_lift -0.0345, elbow_flex -0.1070, wrist_flex 0.0988,
     wrist_roll -0.0710) and validated to name exactly those five joints (error names the missing or extra joint),
-    `floor_prior_weight: float = 0.0` (ge 0; 0 means the floor values are only start values and a cross-check, D4).
+    `floor_prior_weight: float = 0.0` (ge 0; 0 means the floor values are only start values and a cross-check, D34).
 - `shared/ros2_common/head_rgbd_calibration/charuco.py`: `board_corners_3d(cfg: BoardConfig) -> np.ndarray` (N, 3)
   ChArUco inner corner positions in the board frame (m, z = 0), row i = corner id i, consistent with `make_board`; and
   `board_outline(cfg: BoardConfig, margin_m: float) -> np.ndarray` (4, 3) outer corners of the board rectangle (outer
@@ -101,4 +101,4 @@ check and store task reads the same values.
 - `BoardConfig` already must equal `scripts/markers_generate.yaml`; reuse it, do not add a second board.
 - `floor_fit.PARAM_NAMES` (mount_z_m, mount_roll_deg, mount_pitch_deg, tilt_zero_deg, tilt_roll_deg) are the names the
   cross-check compares by; do not rename them.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

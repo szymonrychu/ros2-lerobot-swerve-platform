@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Widen the head tilt range to the reprinted mount (design D12; approval H6). Default target: -30..+60 deg (+ is down); when the Hardware section of `docs/runbooks/head-arm-calibration.md` records a smaller tilt-down limit, use that value instead and say so in the commit message. Do not start before board-on-gripper-hardware-st recorded the tilt-down limit (a wider range on the old mount can drive it into the body).
+Widen the head tilt range to the reprinted mount (design D42; approval H6). Default target: -30..+60 deg (+ is down); when the Hardware section of `docs/runbooks/head-arm-calibration.md` records a smaller tilt-down limit, use that value instead and say so in the commit message. Do not start before board-on-gripper-hardware-st recorded the tilt-down limit (a wider range on the old mount can drive it into the body).
 
 - `nodes/web_ui/urdf/head.urdf`: `head_tilt` limit lower -0.5236, upper 1.0472 (60 deg).
 - `ansible/group_vars/client.yml`: base_servos `head` group tilt `command_min_steps`/`command_max_steps` for the inverted tilt servo: +60 deg -> 1365, -30 deg -> 2389 (4096 steps per turn about 2048); the comment updated; the web_ui head tab range `[-30, 60]`; `startup_position_rad` and mcp `home_tilt_rad` stay 0.5236.
@@ -68,6 +68,6 @@ The head can look 60 deg down at the floor board and at grasp scenes next to the
 ## Notes
 
 - the first robot move to the new range is in the runbook (10 deg steps from 30 to 60 deg down, slow), not here.
-- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D16, review focus).
+- Design: the epic design.md (`ticket.py path drivable-ground-tof-filterin design`) (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
 
 - 2026-10-22 re-plan: the floor fit epic delivered the override, the FK core and head_state_publisher; dependencies and design references updated to the head-from-arm plan.

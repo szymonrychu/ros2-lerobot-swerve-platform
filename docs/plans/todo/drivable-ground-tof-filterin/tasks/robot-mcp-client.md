@@ -24,7 +24,7 @@ provides: []
 ## Requirement
 
 An MCP client of mcp_server so the node moves the head and arm only through the guarded tools (owns
-`calib-robot-client`; design D7; approval H2).
+`calib-robot-client`; design D37; approval H2).
 
 - `nodes/head_rgbd_calibration/pyproject.toml`: dependency `mcp==2.3.0` (the pin of `nodes/claude_agent/pyproject.toml`);
   `uv.lock` refreshed with `uv lock`.
@@ -92,5 +92,5 @@ guard, battery gate).
 ## Notes
 
 - The service user must read the token (group `mcp-token`); the Ansible side is in calib-ansible-deploy-config.
-- No `head_look_at` or `head_home` helper: the node aims the head itself (design D7) and the release homes it.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- No `head_look_at` or `head_home` helper: the node aims the head itself (design D37) and the release homes it.
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

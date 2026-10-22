@@ -24,7 +24,7 @@ provides: []
 ## Requirement
 
 The arm sequence config and the shipped pose set, proven safe and sufficient by tests (owns `arm-sequence-config`;
-design D7, D8, D9, D13; approvals H2, H7; CLAUDE.md servo safety: least dramatic joints first).
+design D37, D38, D39, D43; approvals H2, H7; CLAUDE.md servo safety: least dramatic joints first).
 
 - `config.py`, the shipped YAML and the client.yml `head_rgbd_calibration` block: `arm_sequence: ArmSequenceConfig`:
   - `base_pose` (the five arm joints, rad) and `gripper_rad` (validated <= `pose_check.max_roll_gripper_rad`);
@@ -32,8 +32,8 @@ design D7, D8, D9, D13; approvals H2, H7; CLAUDE.md servo safety: least dramatic
   - `max_roll_delta_rad` 1.2, `max_flex_delta_rad` 0.4, `max_big_delta_rad` 0.35; `speed_scale` 0.2 (gt 0, le 0.3);
     `settle_s` 1.0; `confirm_timeout_s` 600.0; `head_offsets_deg: list[tuple[float, float]]` (pan, tilt; default
     `[[0, 0], [10, 0], [-10, 0], [0, 6]]`); `pose_check: PoseCheckConfig`; `provisional_margin_m` 0.05 (added to
-    `pose_check.margin_m` while the board mount is the nominal one, design D17).
-  - Board mount (design D17, open question Q4): this task does not wait for the hardware step. `fit.board_mount`
+    `pose_check.margin_m` while the board mount is the nominal one, design D47).
+  - Board mount (design D47, open question Q8): this task does not wait for the hardware step. `fit.board_mount`
     (xyz_init, rpy_init, outline_margin_m) in the same YAML and block is a nominal pose of the board on the fixed jaw,
     derived from the jaw geometry of `nodes/web_ui/urdf/so101_arm.urdf` (`gripper_link`, `gripper_frame_link`) and the
     board outline, with a comment that it is provisional; the solver fits the real mount anyway and the measurement from
@@ -113,4 +113,4 @@ arm ever moves.
 - The node tests load the root `tests/head_arm_synthetic.py` by path, as `tests/pose_factory.py` loads
   `tests/rgbd_synthetic.py`.
 - Negative elbow_flex stretches the arm; keep shoulder_lift well under 1.85 rad when stretched (MEMORY).
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

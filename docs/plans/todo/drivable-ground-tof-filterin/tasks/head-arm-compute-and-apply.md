@@ -24,7 +24,7 @@ provides: []
 ## Requirement
 
 Compute and apply of a `head_arm` session, reusing the floor fit's result and apply machinery (owns
-`calib-head-arm-results`; design D1, D4, D6; approvals H1, H3, H4).
+`calib-head-arm-results`; design D31, D34, D36; approvals H1, H3, H4).
 
 - New `head_rgbd_calibration/head_arm_results.py`:
   - `compute_head_arm(cfg: NodeConfig, store: SessionStore, sid: str, now: datetime) -> dict`: views from
@@ -103,4 +103,4 @@ apply path, or refused.
 
 - Compute runs inline in the HTTP handler like `compute_floor` (my call); bound `least_squares` with `max_nfev` if a
   synthetic session of the shipped size takes over 10 s.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

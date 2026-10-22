@@ -36,7 +36,7 @@
     "file": "ansible/group_vars/client.yml",
     "consumers": [
       "head-rgb-d-fusion-of-camera",
-      "head-and-arm-calibration-fro",
+      "drivable-ground-tof-filterin",
       "head-chain-floor-plane-fit-a"
     ],
     "note": "head_camera_cpp camera_info_file and head_rgbd_cpp tof_calibration_file point at /var/lib/ros2/head_rgbd_calibration/applied/*; committed repo calibration files only seed an empty applied/ (force: false); head_rgbd_cpp config_files entry removed; owner task head-nodes-use-applied-calib"
@@ -48,7 +48,7 @@
     "file": "nodes/head_rgbd_cpp/include/head_rgbd_cpp/config.hpp",
     "consumers": [
       "rgb-d-ground-estimation-and",
-      "rgb-and-amplitude-guided-gro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "/head_rgbd/points: PointCloud2 XYZRGB (packed float32 rgb) in the RGB optical frame, RGB stamp, <= cloud.rate_hz (1 Hz), published while subscribed; consumed by ground_estimator_cpp colour labels (task ground-node-wiring)"
   },
@@ -59,7 +59,7 @@
     "file": "ansible/group_vars/client.yml",
     "consumers": [
       "rgb-d-ground-estimation-and",
-      "rgb-and-amplitude-guided-gro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "/tof/points_filtered: laser_filter self-filtered ToF cloud, tof_optical_frame, ~10 Hz, reliable; ground_estimator_cpp input and ground_clear frustum source (tasks ground-node-wiring, nav2-ground-voxel-layer)"
   },
@@ -79,7 +79,7 @@
     "owner": "servo-torque-off-and-neutral",
     "file": "nodes/bridges/feetech_servos/neutral.py",
     "consumers": [
-      "head-and-arm-calibration-fro",
+      "drivable-ground-tof-filterin",
       "arm-joint-offsets-from-the-g"
     ],
     "note": "/var/lib/ros2/arm/calibration_stale.json {version:1, group, saved_at, joints:{name:{before_steps,after_steps}}, stale:[joint_offsets, home]}; writer feetech bridge after an arm neutral save; mcp_server removes home on arm_set_home; the arm calibration apply removes joint_offsets; empty list deletes the file; owner task bridge-runtime-neutral-save"
@@ -90,7 +90,7 @@
     "owner": "servo-torque-off-and-neutral",
     "file": "nodes/bridges/feetech_servos/torque_control.py",
     "consumers": [
-      "head-and-arm-calibration-fro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "/{ns}/torque_state std_msgs/String JSON, reliable transient_local depth 1: {namespace, released, joints:{name:0|1}, stamp_ns, neutral_enabled, neutral_capture, last_save}; ns follower|swerve_drive|head; arm calibration must refuse while follower released; owner tasks bridge-torque-services-topic, bridge-runtime-neutral-save"
   },
@@ -100,7 +100,7 @@
     "owner": "servo-torque-off-and-neutral",
     "file": "nodes/web_ui/web_ui/imu_calibration.py",
     "consumers": [
-      "head-and-arm-calibration-fro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "GET /api/calibration/config gains servos: bool; CalibratePage.tsx renders the Servo torque and neutral section (calibrate/ServoNeutral.tsx) before the arm placeholder; owner tasks web-ui-servo-routes, calibrate-page-servo-section"
   },
@@ -110,7 +110,7 @@
     "owner": "head-chain-floor-plane-fit-a",
     "file": "shared/ros2_common/head_rgbd_calibration/urdf_text.py",
     "consumers": [
-      "head-and-arm-calibration-fro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "head_chain.json format and apply_overrides; moved from head-and-arm-calibration-fro 2026-10-21 (user D1 quick fit first)"
   },
@@ -123,9 +123,8 @@
       "head-rgb-d-fusion-of-camera",
       "rgb-d-ground-estimation-and",
       "tof-3d-obstacle-detection-fo",
-      "head-and-arm-calibration-fro",
-      "ground-detection-robustness",
-      "rgb-and-amplitude-guided-gro"
+      "drivable-ground-tof-filterin",
+      "ground-detection-robustness"
     ],
     "note": "/tof/depth/image_raw 16UC1 mm is z-depth (SDK radial distance / ray norm of the calibrated ToF K, no distortion); /tof/camera_info K = tof_calibration_file K (SDK K fallback), D zero; owner task tof-radial-to-z-depth"
   },
@@ -135,7 +134,7 @@
     "owner": "tof-depth-fix-and-ground-noi",
     "file": "ansible/group_vars/client.yml",
     "consumers": [
-      "head-and-arm-calibration-fro",
+      "drivable-ground-tof-filterin",
       "servo-torque-off-and-neutral"
     ],
     "note": "base_servos head group: head_pan inverted true (servo mounted reversed, found 2026-10-21); +pan = left CCW from above, URDF unchanged, steps 1024..3072; owner task head-pan-inverted"
@@ -169,7 +168,7 @@
     "consumers": [
       "printable-metadata-markers-t",
       "head-rgb-d-fusion-of-camera",
-      "rgb-and-amplitude-guided-gro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "/head_camera/image_raw(/compressed) at 15 fps (head_camera_cpp frame_duration_us 66666, code default 33333 unchanged); mapping stream rate_hz and marker_detector process_hz stay <= 15; owner task head-camera-15-fps"
   },
@@ -179,7 +178,7 @@
     "owner": "per-pose-quality-hints-in-th",
     "file": "nodes/head_rgbd_calibration/head_rgbd_calibration/store.py",
     "consumers": [
-      "head-and-arm-calibration-fro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "rgbd pose.json gains hints: [str] (capture_hints, shared hints.py); GET /api/sessions/{sid} poses[].hints computed for older poses; fixture tests/fixtures/api/session.json; rgbd sessions only; owner task capture-corner-hints"
   },
@@ -189,7 +188,7 @@
     "owner": "per-pose-quality-hints-in-th",
     "file": "nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py",
     "consumers": [
-      "head-and-arm-calibration-fro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "rgbd result.json gains poses: [{id, rgb_error_px, tof_error_px, stereo_error_px, outlier}] and outlier_poses: [id], empty on input errors; fixture tests/fixtures/api/result.json; frontend guards treat them as optional; owner task compute-result-pose-errors"
   },
@@ -199,7 +198,7 @@
     "owner": "head-chain-floor-plane-fit-a",
     "file": "shared/ros2_common/head_rgbd_calibration/chain.py",
     "consumers": [
-      "head-and-arm-calibration-fro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "UrdfChain FK core; moved from head-and-arm-calibration-fro 2026-10-21"
   },
@@ -209,7 +208,7 @@
     "owner": "head-chain-floor-plane-fit-a",
     "file": "nodes/head_rgbd_calibration/head_rgbd_calibration/floor_results.py",
     "consumers": [
-      "head-and-arm-calibration-fro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "applied/head_chain.json is the source of truth for the applied chain; applied.json gains head_chain {session, result, applied_at}; head-and-arm head-chain-compute-apply must keep both"
   },
@@ -220,7 +219,7 @@
     "file": "nodes/ground_estimator_cpp/config/ground_estimator.yaml",
     "consumers": [
       "rgb-d-ground-estimation-and",
-      "rgb-and-amplitude-guided-gro"
+      "drivable-ground-tof-filterin"
     ],
     "note": "obstacle when edge step (p50 of the edge band) > 1/3 wheel diameter (0.04 m) or a measurable slope > traversability.max_slope_deg 15 (<= min tilt_guard roll/pitch error limits); colour clusters warning-only; lethal marks need lethal_min_points and hysteresis.enter_frames of hysteresis.window_frames; owner task slope-and-smoothing-defaults"
   },
@@ -233,16 +232,15 @@
       "head-rgb-d-fusion-of-camera",
       "rgb-d-ground-estimation-and",
       "tof-3d-obstacle-detection-fo",
-      "head-and-arm-calibration-fro",
-      "head-chain-floor-plane-fit-a",
-      "rgb-and-amplitude-guided-gro"
+      "drivable-ground-tof-filterin",
+      "head-chain-floor-plane-fit-a"
     ],
     "note": "/tof/depth/image_raw: pixels at depth discontinuities (a valid 3x3 neighbour differing by more than max(flying_pixel_min_jump_mm, flying_pixel_jump_ratio * depth)) are published as 0 (invalid, REP 118) when flying_pixel_filter is true (default); flat floor 0.3-2.0 m keeps >= 95 %; counter tof_flying_pixels_removed_total; owner task tof-flying-pixel-filter"
   },
   {
     "name": "head-arm-fit",
     "kind": "api",
-    "owner": "head-and-arm-calibration-fro",
+    "owner": "drivable-ground-tof-filterin",
     "file": "shared/ros2_common/head_rgbd_calibration/head_arm_fit.py",
     "consumers": [
       "arm-joint-offsets-from-the-g"
@@ -252,7 +250,7 @@
   {
     "name": "head-arm-calib-api",
     "kind": "api",
-    "owner": "head-and-arm-calibration-fro",
+    "owner": "drivable-ground-tof-filterin",
     "file": "nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_state.json",
     "consumers": [
       "arm-joint-offsets-from-the-g"
@@ -262,7 +260,7 @@
   {
     "name": "calib-session-kinds",
     "kind": "schema",
-    "owner": "head-and-arm-calibration-fro",
+    "owner": "drivable-ground-tof-filterin",
     "file": "nodes/head_rgbd_calibration/head_rgbd_calibration/store.py",
     "consumers": [
       "arm-joint-offsets-from-the-g"
@@ -272,7 +270,7 @@
   {
     "name": "arm-pose-check",
     "kind": "api",
-    "owner": "head-and-arm-calibration-fro",
+    "owner": "drivable-ground-tof-filterin",
     "file": "shared/ros2_common/head_rgbd_calibration/arm_pose_check.py",
     "consumers": [
       "arm-joint-offsets-from-the-g"
@@ -282,13 +280,12 @@
   {
     "name": "tof-depth-amplitude-gate",
     "kind": "topic",
-    "owner": "rgb-and-amplitude-guided-gro",
+    "owner": "drivable-ground-tof-filterin",
     "file": "nodes/bridges/arducam_tof/arducam_tof/config.py",
     "consumers": [
       "head-rgb-d-fusion-of-camera",
       "rgb-d-ground-estimation-and",
       "tof-3d-obstacle-detection-fo",
-      "head-and-arm-calibration-fro",
       "head-chain-floor-plane-fit-a"
     ],
     "note": "/tof/depth/image_raw: after the flying-pixel filter, a valid pixel with amplitude*(z/1m)^2 < amplitude_min_normalised becomes 0 (amplitude_gate, default on); encoding and z-depth meaning unchanged; /tof/amplitude/image_raw unchanged; owner task tof-amplitude-gate"
@@ -296,7 +293,7 @@
   {
     "name": "ground-warning-no-return",
     "kind": "schema",
-    "owner": "rgb-and-amplitude-guided-gro",
+    "owner": "drivable-ground-tof-filterin",
     "file": "nodes/ground_estimator_cpp/include/ground_estimator_cpp/traversability.hpp",
     "consumers": [
       "rgb-d-ground-estimation-and"
@@ -306,7 +303,7 @@
   {
     "name": "ground-edge-points",
     "kind": "topic",
-    "owner": "rgb-and-amplitude-guided-gro",
+    "owner": "drivable-ground-tof-filterin",
     "file": "nodes/ground_estimator_cpp/include/ground_estimator_cpp/edge_points.hpp",
     "consumers": [
       "rgb-d-ground-estimation-and"
@@ -316,7 +313,7 @@
   {
     "name": "ground-recording-npz",
     "kind": "schema",
-    "owner": "rgb-and-amplitude-guided-gro",
+    "owner": "drivable-ground-tof-filterin",
     "file": "nodes/web_ui/web_ui/ground_recorder.py",
     "consumers": [],
     "note": "web_ui ground recording npz, layout_version 2: superset of the 2026-10-22 keys read by scripts/ground_replay_export.py (stamps_ns, cloud_frame, offsets, points_mm, base_T_cloud, odom_T_base, imu, base_T_imu, head_js) plus tof_* and pair_* streams; owner task ground-recording-layout"
@@ -324,7 +321,7 @@
   {
     "name": "head-rgbd-guidance-pair",
     "kind": "topic",
-    "owner": "rgb-and-amplitude-guided-gro",
+    "owner": "drivable-ground-tof-filterin",
     "file": "ansible/group_vars/client.yml",
     "consumers": [
       "head-rgb-d-fusion-of-camera"

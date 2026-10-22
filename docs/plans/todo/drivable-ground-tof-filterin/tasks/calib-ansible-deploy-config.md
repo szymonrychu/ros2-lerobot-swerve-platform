@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Ansible keeps the node's permissions and its mirrored values in sync (CLAUDE.md Ansible rule; design D7, D9; approval
+Ansible keeps the node's permissions and its mirrored values in sync (CLAUDE.md Ansible rule; design D37, D39; approval
 H2).
 
 - The node's service gets group `mcp-token` so it can read `/etc/ros2/mcp_server/token`: `supplementary_groups:
@@ -77,4 +77,4 @@ from mcp_server's.
 - The dependency on web-ui-applied-head-urdf is only file ordering: both edit `ansible/group_vars/client.yml`
   (web_ui `head_applied_calibration_dir` there, the node entry here), and ticket.py requires overlapping files to be
   ordered; no code of that task is used.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

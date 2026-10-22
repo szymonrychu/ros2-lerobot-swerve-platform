@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-The guided capture sequence (owns `calib-sequencer`; design D7, D8, D16; approvals H2, H5; CLAUDE.md servo safety).
+The guided capture sequence (owns `calib-sequencer`; design D37, D38, D46; approvals H2, H5; CLAUDE.md servo safety).
 Every motion goes through `RobotClient`; nothing is commanded before its path check passes.
 
 - New `head_rgbd_calibration/sequencer.py`: `Sequencer(capture: CaptureController, robot: RobotClient, cfg:
@@ -106,4 +106,4 @@ and holding the arm on every exit.
 
 - Follow `floor_sweep.py`'s threading (lock for short updates, `stop_event`, cleanup in `finally`).
 - The base move moves shoulder and elbow joints, hence its own confirm; the UI dialog names them.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

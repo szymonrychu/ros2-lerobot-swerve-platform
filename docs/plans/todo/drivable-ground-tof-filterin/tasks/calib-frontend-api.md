@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Typed frontend client for the head-from-arm routes (uses the `head-arm-calib-api` contract; design D11; approval H5).
+Typed frontend client for the head-from-arm routes (uses the `head-arm-calib-api` contract; design D41; approval H5).
 
 - New `nodes/web_ui/frontend/src/calibrate/headArmApi.ts`, base `/api/calibration/rgbd/head-arm` (the existing proxy
   forwards it as it does `/api/calibration/rgbd/floor`), reusing the call and result helpers of `headFloorApi.ts`:
@@ -72,4 +72,4 @@ The Calibrate page talks to the head-from-arm routes through one typed client ch
 
 ## Notes
 
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-mcp_server aims and places the head from the applied head chain, reloaded without a restart (design D10; approval H4; MEMORY: an mcp_server restart kills a running agent session).
+mcp_server aims and places the head from the applied head chain, reloaded without a restart (design D40; approval H4; MEMORY: an mcp_server restart kills a running agent session).
 
 - `nodes/mcp_server/mcp_server/head_kinematics.py`: `HeadKinematics.from_text(urdf_text: str, source: str) -> HeadKinematics` (the path constructor delegates to it; same limits, links and look_at).
 - `nodes/mcp_server/mcp_server/config.py`: new key `head.applied_dir: Path | None = Path("/var/lib/ros2/head_rgbd_calibration/applied")` (None disables the override). The name follows head_state_publisher (`nodes/head_state_publisher/launch/head_description.py::robot_description(urdf_path, applied_dir, ...)`, constant `APPLIED_DIR` in `head_state_publisher.launch.py`) and the default is the same directory; web_ui's key for it (`head_applied_calibration_dir`, web-ui-applied-head-urdf) points at the same path in client.yml. client.yml needs no change (the default is the deployed path).
@@ -66,6 +66,6 @@ The agent's head aiming and head-camera geometry use the measured chain, reloade
 
 ## Notes
 
-- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D16, review focus).
+- Design: the epic design.md (`ticket.py path drivable-ground-tof-filterin design`) (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
 
 - 2026-10-22 re-plan: the floor fit epic delivered the override, the FK core and head_state_publisher; dependencies and design references updated to the head-from-arm plan.

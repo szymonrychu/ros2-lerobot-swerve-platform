@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Documentation for everything this epic adds (CLAUDE.md documentation rule; design D13, D14; approvals H7, H8). Prose
+Documentation for everything this epic adds (CLAUDE.md documentation rule; design D43, D44; approvals H7, H8). Prose
 only; read the merged code and write what it does, not what the plan said.
 
 - `shared/README.md`: `views.py`, `head_arm_fit.py` (free and fixed parameters, the pan zero folded into the mount
@@ -76,4 +76,4 @@ A mid-level ROS2 developer can understand, run and extend the head-from-arm cali
 ## Notes
 
 - Prose task: review skip; the scope audit reads it.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-The "Head from arm" section on the Calibrate page, a guided step-by-step process (design D8, D11, D16; approvals H2,
+The "Head from arm" section on the Calibrate page, a guided step-by-step process (design D38, D41, D46; approvals H2,
 H3, H5; CLAUDE.md servo safety).
 
 - New `nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.tsx`, built like `HeadFloorFit.tsx` (MUI,
@@ -80,4 +80,4 @@ applies only a passing result.
 ## Notes
 
 - The node enforces the confirms too (head-arm-sequence-http-api); the dialogs are the user's OK, not the only guard.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).

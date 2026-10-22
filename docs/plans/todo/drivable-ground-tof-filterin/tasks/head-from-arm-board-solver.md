@@ -24,7 +24,7 @@ provides: []
 ## Requirement
 
 The head chain fit from views of the board on the gripper (owns `head-arm-fit`, `head-aim`,
-`head-arm-synthetic-scenes`; design D1, D2, D3, D4, D5, D13; approvals H1, H3, H7).
+`head-arm-synthetic-scenes`; design D31, D32, D33, D34, D35, D43; approvals H1, H3, H7).
 
 - New `shared/ros2_common/head_rgbd_calibration/head_arm_fit.py`:
   - `PARAM_NAMES = ("mount_x_m", "mount_y_m", "mount_z_m", "mount_roll_deg", "mount_pitch_deg", "mount_yaw_deg",
@@ -38,7 +38,7 @@ The head chain fit from views of the board on the gripper (owns `head-arm-fit`, 
     `UrdfChain.from_text(head_urdf)` at the measured `head_pan`/`head_tilt` with `origins` overrides built from the
     parameters -> `cv2.projectPoints` with the given intrinsics.
   - Free: the eight `PARAM_NAMES` (`head_mount_joint` x, y, z, roll, pitch, yaw; `head_tilt` origin pitch and roll) and
-    the 6-DOF board mount. The pan zero is folded into `mount_yaw_deg` (D3); the `head_pan` origin, `head_tilt` xyz,
+    the 6-DOF board mount. The pan zero is folded into `mount_yaw_deg` (D33); the `head_pan` origin, `head_tilt` xyz,
     `head_camera_joint` and the optical joints keep the values of `head_urdf` (the applied chain); the arm, the offsets,
     the gauge and the intrinsics are fixed.
   - Init: head parameters from `head_urdf` (`start_params`); board mount from `cfg.board_mount` refined by per-view
@@ -87,7 +87,7 @@ The head chain fit from views of the board on the gripper (owns `head-arm-fit`, 
     0.15 deg, `rms_px` < 0.5, `holdout_rms_px` < 0.6, `holdout_board_mm` < 2, `passed`;
   - noiseless: every parameter within 1e-6;
   - a truth with a `head_pan` origin yaw of +1.0 deg and mount yaw 0: `mount_yaw_deg` within 0.05 deg of +1.0 and
-    `rms_px` < 0.5 (pins D3);
+    `rms_px` < 0.5 (pins D33);
   - all views within 10 deg of pan: `min_pan_span_deg` failed;
   - `floor` 2 deg off the truth tilt zero: `floor_delta:tilt_zero_deg` failed; `floor=None`: `floor_cross_check` failed;
   - `floor_prior_weight` 100 with `floor` 2 deg off: the fitted tilt zero moves toward the floor value;
@@ -141,6 +141,6 @@ see; a bad or degenerate result is refused by name.
 
 - Model the floor fit's structure (`floor_fit.py`: `chain_origins`, `json_float`, sigma from the Jacobian) rather than
   inventing a second style; reuse its helpers by import where they fit.
-- Degeneracies to keep fixed are listed in design D2; if a free parameter's sigma explodes in the noiseless test, the
+- Degeneracies to keep fixed are listed in design D32; if a free parameter's sigma explodes in the noiseless test, the
   parameterisation is wrong, not the tolerance.
-- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
+- Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
