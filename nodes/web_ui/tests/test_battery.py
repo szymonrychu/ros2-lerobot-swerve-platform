@@ -308,7 +308,12 @@ def test_post_actions_rejected_with_503_in_cutoff(make_client: Any, path: str) -
     body = resp.json()
     assert body["ok"] is False
     assert body["message"].startswith("battery below cut-off: 8.21 V")
-    assert bridge.method_calls == []
+    if path.startswith("/api/map/reset"):
+        # a refused reset still publishes its map_reset event (ok False) and calls nothing else
+        assert [c[0] for c in bridge.method_calls] == ["publish_robot_event"]
+        assert bridge.publish_robot_event.call_args.kwargs["event_type"] == "map_reset"
+    else:
+        assert bridge.method_calls == []
 
 
 def test_nav_stop_allowed_in_cutoff(make_client: Any) -> None:
