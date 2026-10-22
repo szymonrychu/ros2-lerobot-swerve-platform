@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--mcp-head-kinematics-applied
 branch: drivable-ground-tof-filterin--mcp-head-kinematics-applied
-verified_head: 5deb3eacf7d7cb20f16a9030970ec79769d5bf66
+verified_head: ed83ccc72e222c46b59ddfd9a550574ea2ba42ec
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []

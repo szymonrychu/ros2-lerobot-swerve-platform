@@ -18,7 +18,7 @@ verified_head: 846d00a10135026ae65b34fe0c9f1f97f6ae97d0
 run: drivable-ground-tof-filterin
 provides: [ground-recording-layout]
 acs_for_audit: []
-process_gaps: ["README not updated: nodes/web_ui/README.md has no ground_recorder entry, and CLAUDE.md asks for README updates (web_ui README and tests/README). The implementer reported this itself."]
+process_gaps: ["nodes/web_ui/README.md and tests/README.md not updated, as CLAUDE.md requires for new modules and tests (the implementer reported this)"]
 ---
 
 # Ground recording layout

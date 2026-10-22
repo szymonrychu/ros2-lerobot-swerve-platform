@@ -1,6 +1,6 @@
 ---
 title: Edge points core
-status: todo
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: "Obstacle and drop boundaries placed where the camera sees them, within a few cm of what depth found"
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/edge_points.hpp, nodes/ground_estimator_cpp/src/core/edge_points.cpp, nodes/ground_estimator_cpp/test/core/test_edge_points.cpp]

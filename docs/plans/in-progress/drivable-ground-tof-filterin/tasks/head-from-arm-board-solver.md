@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-from-arm-board-solver
 branch: drivable-ground-tof-filterin--head-from-arm-board-solver
-verified_head: 60673bff92ab2357d47c30dcdba36cc384938617
+verified_head: acc2d08d461f8a377cb695a6aebc29075bc93b25
 run: drivable-ground-tof-filterin
-provides: [head-arm-limit-checks, head-camera-pose, synthetic-board-mount]
+provides: [head-arm-limit-checks, head-camera-pose, synthetic-board-mount, synthetic-start-chain]
 acs_for_audit: []
 process_gaps: []
 ---

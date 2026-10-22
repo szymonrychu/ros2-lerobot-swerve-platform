@@ -1,6 +1,6 @@
 ---
 title: No return core
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Dark obstacles the ToF cannot see (the black ramp) become caution areas instead of free floor"
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/no_return.hpp, nodes/ground_estimator_cpp/src/core/no_return.cpp, nodes/ground_estimator_cpp/test/core/test_no_return.cpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_class.hpp, nodes/ground_estimator_cpp/src/core/cell_class.cpp]
@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--no-return-core
 branch: drivable-ground-tof-filterin--no-return-core
-verified_head: ""
+verified_head: 08e8d2978748f62c946d5ccc3d54195c1ef4e610
 run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
+provides: [no-return-tracker, cell-outline, cell-components, blocking-cells]
+acs_for_audit: [a3]
 process_gaps: []
 ---
 

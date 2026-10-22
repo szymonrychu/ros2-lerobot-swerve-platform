@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-config-keys
 branch: drivable-ground-tof-filterin--guidance-config-keys
-verified_head: 432cb1e569098c2a7ff9d1bc073606bcf6d88f71
+verified_head: 9bb9ba9e9a8e10cc5fcf0bd33522e2c65ebb8256
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["No red (failing-first) run recorded for the guidance config tests"]
 ---
 
 # Guidance config keys

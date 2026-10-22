@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--robot-mcp-client
 branch: drivable-ground-tof-filterin--robot-mcp-client
-verified_head: a2f620bacf5c788cba7d6859a3c18dfe9c147f7b
+verified_head: ca1087c584d5b028342dac70d9a3161354dfb923
 run: drivable-ground-tof-filterin
 provides: [robot-mcp-client]
 acs_for_audit: []
-process_gaps: ["nodes/head_rgbd_calibration/README.md has no mention of the robot: config block or robot_client; project CLAUDE.md requires READMEs kept current (implementer said not updated). Also tests/README.md entry for test_robot_client.py not checked/added. Likely belongs to the docs task but should be confirmed.", "The node's service user needs mcp-token group read access to /etc/ros2/mcp_server/token; not part of this task, belongs to calib-ansible-deploy-config (D37)."]
+process_gaps: []
 ---
 
 # Robot MCP client

@@ -13,12 +13,12 @@ estimate: 75
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--replay-format-v2
-branch: "drivable-ground-tof-filterin--replay-format-v2 (HEAD 90d81b0b)"
+branch: drivable-ground-tof-filterin--replay-format-v2
 verified_head: 90d81b0b82dca36e97a3b8ead5044b73e99af577
 run: drivable-ground-tof-filterin
 provides: []
-acs_for_audit: []
-process_gaps: ["No C++ red run before implementation (TDD), admitted by implementer"]
+acs_for_audit: [a2, a9]
+process_gaps: []
 ---
 
 # Replay format v2

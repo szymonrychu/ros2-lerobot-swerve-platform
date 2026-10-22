@@ -1,6 +1,6 @@
 ---
 title: Guidance frame core
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Each RGB-D pair turned into floor-relative depth samples and no-return floor hits, the input of both guidance features"
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/guidance.hpp, nodes/ground_estimator_cpp/src/core/guidance.cpp, nodes/ground_estimator_cpp/test/core/test_guidance.cpp]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-frame-core
 branch: drivable-ground-tof-filterin--guidance-frame-core
-verified_head: ""
+verified_head: b05ae8b3e6ccc96933efaa3c09a26323c2569c84
 run: drivable-ground-tof-filterin
 provides: [guidance-frame]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["No red-green evidence for the seven Guidance tests (implementer made no edits; code and tests came in one commit)"]
 ---
 
 # Guidance frame core

@@ -13,8 +13,8 @@ estimate: 75
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--web-ui-ground-recorder-api
-branch: "HEAD (worktree drivable-ground-tof-filterin--web-ui-ground-recorder-api)"
-verified_head: 35e96134766a06d9a4513c480e95b42d7980c03e
+branch: drivable-ground-tof-filterin--web-ui-ground-recorder-api
+verified_head: f1d39e36400e89f0f4c95900f2efc7e3dfad0ca8
 run: drivable-ground-tof-filterin
 provides: [ground-recorder-api, ground-recorder-bridge-api]
 acs_for_audit: []

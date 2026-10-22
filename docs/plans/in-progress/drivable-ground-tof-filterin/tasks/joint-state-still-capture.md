@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--joint-state-still-capture
 branch: drivable-ground-tof-filterin--joint-state-still-capture
-verified_head: 60fec3c9a61babf7a5fc5577c660b6a258a42aa1
+verified_head: ec1f3056fbf67b9155744777b92d987d7d69ad16
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []
-process_gaps: ["tests/README.md and node README test list not updated for the new still tests, as the implementer reported; the project docs rule asks for it"]
+process_gaps: []
 ---
 
 # Joint state still capture

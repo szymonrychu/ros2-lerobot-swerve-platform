@@ -14,11 +14,11 @@ actual: ""
 review: full
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--arm-pose-safety-check
 branch: drivable-ground-tof-filterin--arm-pose-safety-check
-verified_head: 730bf71a5fc5fb22c531a836bc4ee92c963a047e
+verified_head: 8efd29ed2722218b63b8129374d765f2266fcc7c
 run: drivable-ground-tof-filterin
-provides: [obstacle-set-distances, head-envelope, board-points-fk]
+provides: [obstacle-set-distances, head-envelope, board-points-fk, arm-pose-check]
 acs_for_audit: []
-process_gaps: ["tests/README.md has no entry for tests/test_arm_pose_check.py and shared/README.md head_rgbd_calibration section does not mention arm_pose_check.py (CLAUDE.md documentation expectations)", "Implementer's discovered note (default pan range [-0.3, 0.2] limit for tier-2 poses) must become an epic task for the pose-set owner"]
+process_gaps: ["tests/README.md has no entry for tests/test_arm_pose_check.py (CLAUDE.md requires one); the implementer listed it as an epic task."]
 ---
 
 # Arm pose safety check
