@@ -148,3 +148,17 @@ def test_fit_board_mismatch_refused_naming_both() -> None:
         NodeConfig.model_validate({"fit": {"board": {"squares_x": 7}}})
     cfg = NodeConfig.model_validate({"board": {"squares_x": 7}, "fit": {"board": {"squares_x": 7}}})
     assert cfg.fit.board.squares_x == 7
+
+
+def test_robot_defaults() -> None:
+    robot = NodeConfig().robot
+    assert robot.mcp_url == "http://127.0.0.1:18200/mcp"
+    assert robot.token_file == "/etc/ros2/mcp_server/token"
+    assert robot.call_timeout_s == 60.0
+    assert robot.move_timeout_s == 120.0
+
+
+@pytest.mark.parametrize("key", ["call_timeout_s", "move_timeout_s"])
+def test_robot_timeouts_must_be_positive(key: str) -> None:
+    with pytest.raises(ValidationError):
+        NodeConfig.model_validate({"robot": {key: 0}})
