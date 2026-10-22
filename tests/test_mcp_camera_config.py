@@ -11,11 +11,17 @@ SETUP_TASKS = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "mcp_server_setup.
 MCP_README = REPO_ROOT / "nodes" / "mcp_server" / "README.md"
 CALIBRATION_DIR = "/var/lib/ros2/camera_calibration"
 HEAD_URDF = "nodes/web_ui/urdf/head.urdf"
-# head.urdf head_camera_joint (head_link -> head_camera_link) origin: the front (head RGB) camera mount.
+APPLIED_FRONT_INTRINSICS = {
+    "calibration_file": "/var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml",
+    "image_width": 1152,
+    "image_height": 648,
+}
+# The front (head RGB) camera mount is the identity on head_camera_link: the applied head_camera_joint of head.urdf
+# (through HeadKinematics) is the real mount.
 HEAD_CAMERA_MOUNT = {
-    "parent_frame": "head_link",
-    "x": 0.02,
-    "y": -0.025,
+    "parent_frame": "head_camera_link",
+    "x": 0.0,
+    "y": 0.0,
     "z": 0.0,
     "roll": 0.0,
     "pitch": 0.0,
@@ -50,13 +56,17 @@ def test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user() -
     assert calib["owner"] == "{{ ansible_user }}" and calib["group"] == "{{ ansible_user }}"
 
 
-def test_cameras_config_front_not_calibrated_gripper_calibrated() -> None:
+def test_cameras_config_front_uses_applied_head_calibration_gripper_calibrated() -> None:
     cameras = mcp_config()["cameras"]
     assert cameras["calibration_dir"] == CALIBRATION_DIR
     assert set(cameras) == {"calibration_dir", "gripper", "front"}
-    # The front camera is the head RGB camera: on head_link with the URDF mount and no calibrated intrinsics, so the
-    # tools say 'not calibrated'.
-    assert cameras["front"] == {"parent_frame": "head_link", "intrinsics": None, "mount": HEAD_CAMERA_MOUNT}
+    # The front camera is the head RGB camera: on head_camera_link with a zero mount and the applied head RGB
+    # calibration scaled to the 1152x648 stream.
+    assert cameras["front"] == {
+        "parent_frame": "head_camera_link",
+        "intrinsics": APPLIED_FRONT_INTRINSICS,
+        "mount": HEAD_CAMERA_MOUNT,
+    }
     assert cameras["gripper"]["parent_frame"] == "gripper_link"
     assert cameras["gripper"]["intrinsics"] is not None and cameras["gripper"]["mount"] is not None
 
@@ -67,20 +77,15 @@ def test_gripper_parent_frame_is_a_link_of_the_arm_urdf() -> None:
     assert f'<link name="{cfg["cameras"]["gripper"]["parent_frame"]}"' in urdf
 
 
-def test_front_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_urdf_camera_origin() -> None:
+def test_front_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_zero_offset_on_it() -> None:
     cfg = mcp_config()
     assert cfg["head"]["urdf_path"] == HEAD_URDF
     robot = ET.parse(REPO_ROOT / cfg["head"]["urdf_path"]).getroot()
     front = cfg["cameras"]["front"]
     assert front["parent_frame"] in {link.attrib["name"] for link in robot.iter("link")}
-    joint = next(j for j in robot.iter("joint") if j.find("child").attrib["link"] == "head_camera_link")
-    assert joint.find("parent").attrib["link"] == front["parent_frame"] == front["mount"]["parent_frame"]
-    origin = joint.find("origin")
-    xyz = [float(v) for v in origin.attrib["xyz"].split()]
-    rpy = [float(v) for v in origin.attrib["rpy"].split()]
+    assert front["parent_frame"] == front["mount"]["parent_frame"] == "head_camera_link"
     mount = front["mount"]
-    assert [mount["x"], mount["y"], mount["z"]] == xyz
-    assert [mount["roll"], mount["pitch"], mount["yaw"]] == rpy
+    assert [mount[k] for k in ("x", "y", "z", "roll", "pitch", "yaw")] == [0.0] * 6
 
 
 def test_arm_reach_keys_are_ordered() -> None:
