@@ -124,7 +124,8 @@
       "rgb-d-ground-estimation-and",
       "tof-3d-obstacle-detection-fo",
       "head-and-arm-calibration-fro",
-      "ground-detection-robustness"
+      "ground-detection-robustness",
+      "rgb-and-amplitude-guided-gro"
     ],
     "note": "/tof/depth/image_raw 16UC1 mm is z-depth (SDK radial distance / ray norm of the calibrated ToF K, no distortion); /tof/camera_info K = tof_calibration_file K (SDK K fallback), D zero; owner task tof-radial-to-z-depth"
   },
