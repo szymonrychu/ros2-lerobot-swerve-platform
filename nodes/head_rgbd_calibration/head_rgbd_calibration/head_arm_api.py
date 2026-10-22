@@ -149,15 +149,22 @@ def head_arm_router(
 
     @router.get("/sessions/{sid}/results/{rid}")
     def result(sid: str, rid: str) -> Any:
-        head_arm_session(sid)
-        path = store.result_dir(sid, rid) / RESULT_FILE
-        if not path.is_file():
-            raise NotFound(f"no such result: {rid}")
-        return json.loads(path.read_text())
+
+        def read() -> Any:
+            head_arm_session(sid)
+            path = store.result_dir(sid, rid) / RESULT_FILE
+            if not path.is_file():
+                raise NotFound(f"no such result: {rid}")
+            return json.loads(path.read_text())
+
+        return step(read)
 
     @router.post("/sessions/{sid}/results/{rid}/apply")
     def apply(sid: str, rid: str) -> Any:
-        head_arm_session(sid)
-        return apply_head_arm(cfg, store, sid, rid, datetime.now().astimezone(), run)
+        def do_apply() -> Any:
+            head_arm_session(sid)
+            return apply_head_arm(cfg, store, sid, rid, datetime.now().astimezone(), run)
+
+        return step(do_apply)
 
     return router

@@ -287,3 +287,46 @@ def test_fixtures_are_valid_json() -> None:
 
     for name in ("head_arm_state", "head_arm_result", "head_arm_sessions"):
         json.loads((FIXTURE_DIR / f"{name}.json").read_text())
+
+
+def test_non_head_arm_session_result_routes_are_400(parts: SimpleNamespace) -> None:
+    sid = parts.store.create_session(NOW, 0.0)
+    for method, path in (
+        ("get", f"/api/head-arm/sessions/{sid}/results/r-20200101-000000"),
+        ("post", f"/api/head-arm/sessions/{sid}/results/r-20200101-000000/apply"),
+    ):
+        response = getattr(parts.client, method)(path)
+        assert response.status_code == 400 and response.json()["ok"] is False
+
+
+def test_bodies_match_fixtures(parts: SimpleNamespace) -> None:
+    sid = ready_session(parts)
+    assert_matches_fixture(parts.client.get("/api/head-arm/state").json(), "head_arm_state")
+    result = parts.client.post(f"/api/head-arm/sessions/{sid}/compute").json()
+    assert_matches_fixture(result, "head_arm_result")
+    assert_matches_fixture(parts.client.get("/api/head-arm/sessions").json(), "head_arm_sessions")
+
+
+def test_confirms_required(parts: SimpleNamespace) -> None:
+    for path, body in (
+        ("/api/head-arm/sequence/base", {}),
+        ("/api/head-arm/sequence/base", {"confirm": False}),
+        ("/api/head-arm/park", {}),
+        ("/api/head-arm/park", {"board_removed": False}),
+    ):
+        assert parts.client.post(path, json=body).status_code == 400
+
+
+def test_busy_and_phase_conflicts(parts: SimpleNamespace) -> None:
+    for blocker in ("sequencer", "capture", "sweep", "job"):
+        target = parts.sequencer if blocker == "sequencer" else getattr(parts, blocker)
+        target.running = True
+        assert parts.client.post("/api/head-arm/sequence/base", json={"confirm": True}).status_code == 409
+        target.running = False
+    sid = ready_session(parts)
+    parts.sequencer.running = True
+    assert parts.client.post(f"/api/head-arm/sessions/{sid}/compute").status_code == 409
+
+
+def test_apply_failed_result_conflict(parts: SimpleNamespace) -> None:
+    test_failed_result_cannot_be_applied(parts)
