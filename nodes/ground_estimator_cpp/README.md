@@ -16,7 +16,8 @@ executable `ground_node` (ROS node name `ground_estimator`) wires the core libra
   `/etc/ros2/ground_estimator_cpp/config.yaml`, override path with `GROUND_ESTIMATOR_CONFIG`). Unknown keys and invalid
   values exit 78.
 - `test/data/state_example.json`, `test/data/warning_areas_example.json`: documents the consumers are tested against.
-- `test/data/replay/{home,box,ramp}.bin`, `test/replay_fixture.hpp`: the replay fixtures and their reader and metrics.
+- `test/data/replay/{home,box,ramp}.bin`, `test/replay_fixture.hpp`: the replay fixtures and their reader and metrics;
+  `test/data/replay/tiny_truth.yaml`: a scene truth for the truth based metric tests.
 
 ## Topics
 
@@ -539,6 +540,52 @@ after the first cloud that the node answered with a plane. ROI edges are inclusi
 | `far_side_warning_frames` | counted frames with a `ramp` or `step` warning area whose polygon centroid (vertex mean, in base_link) lies in `FAR_SIDE_ROI` |
 | `ramp_lethal_frames` | counted frames with an obstacle or drop point in `RAMP_ROI` |
 | `churn_share` | share of consecutive counted frames whose warning set differs: kind plus polygon vertices rounded to 1 cm, as `scripts/ground_noise_report.py:warning_set` |
+
+### Scene truth and the truth based metrics
+
+`replay_fixture.hpp` also scores a replay against the measured scene (`scripts/ground_scene_truth.py` writes the
+truth YAML from the ChArUco board pose; `test/data/replay/tiny_truth.yaml` is a hand-written example).
+`SceneTruth load_truth(path)` reads `board`, `box`, `ramp` (polygons, base_link metres), `box_front_edge` (two end
+points) and `empty` (`x_min x_max y_min y_max`); a missing or malformed key throws `std::runtime_error` naming it.
+The same rules hold as above (counted frames, points with x < 0.37 ignored). Distances are to the polygon outline, so a
+"grown" footprint has rounded corners.
+
+| Metric | Definition |
+|--------|------------|
+| `box_lethal_share(frames, truth)` | as `box_lethal_share`, the ROI is the box footprint grown by 0.03 m |
+| `board_lethal_frames(frames, truth)` | counted frames with an obstacle or drop point inside the board polygon shrunk by 0.02 m |
+| `stray_lethal_share(frames, truth)` | x >= 0.37, hypot(x, y) <= 1.2, outside the grown box footprint |
+| `ramp_lethal_frames(frames, truth)` | the ramp footprint |
+| `box_front_edge_error_m` | per counted frame, the obstacle points within 0.10 m of the box footprint; the front edge is sampled every 0.02 m over its middle 80 %; each sample takes the distance along the edge normal to the nearest such point within 0.02 m of the sample's line (along the edge), a sample without one counts 0.10 m. p95 over all samples of all frames |
+| `box_width_error_m` | per counted frame, the extent of those points along the edge direction minus the true width (a frame without points has extent 0); p95 of the absolute value |
+| `outside_lethal_frames_share` | share of counted frames with an obstacle point more than 0.03 m and at most 0.15 m outside the box footprint |
+| `no_return_cover_share` | share of counted frames in which the `no_return` warning areas cover >= 70 % of the ramp footprint, rasterised on a 0.01 m grid |
+| `no_return_stray_share` | share of counted frames with a `no_return` raster cell centre more than 0.10 m outside the ramp footprint |
+| `empty_lethal_share` | share of counted frames with an obstacle point inside the truth `empty` rectangle |
+
+`truth_metrics_line(label, frames, truth)` renders all of them (the truth overloads of the run 4 names, `churn_share`,
+`plane_share` and the new ones) on one line and `print_metrics(label, frames, truth)` prints it. Percentiles are
+nearest-rank. `ReplayFrame::areas` holds the parsed warning areas (`WarningArea {kind, polygon, height_m, slope_deg,
+source}`, the heights empty when null).
+
+### Replaying a v2 fixture
+
+`ReplayTest::run_scene(path, Guidance::off|on)` replays any fixture and returns the frames; `Guidance` sets
+`guidance.enabled` of the loaded shipped config, the guidance topics get the per-test prefix like the other topics. For a
+version 2 fixture:
+
+- each pair goes out at its restamped time, after the clouds stamped before it: the upsampled depth (`16UC1`) on
+  `guidance.depth_topic`, its camera_info (the RGB model) on `guidance.info_topic` and the JPEG `CompressedImage` on
+  `guidance.rgb_topic`, all with one header (RGB frame, restamped pair stamp);
+- the ToF camera_info (ToF model) goes out once per cloud on `guidance.tof_info_topic`, with the cloud's stamp;
+- TF holds `base_link <- RGB frame` and `odom <- base_link` at every pair stamp;
+- at most once per second an XYZRGB cloud goes out on `rgbd_cloud_topic` (it feeds the floor colour model as
+  `head_rgbd_cpp` does): the depth halved by the minimum valid depth of each 2x2 block (0 when none), the JPEG decoded
+  with `IMREAD_REDUCED_COLOR_2`, deprojected with the halved RGB model, the colour packed as float rgb. Version 1
+  fixtures publish none of this.
+
+`Harness.PublishesPairsOfTinyV2` checks the traffic with a probe subscriber, so it does not depend on the node
+consuming the pairs.
 
 ### Acceptance
 
