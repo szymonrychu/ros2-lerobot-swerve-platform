@@ -42,3 +42,11 @@ Estimate: 1300 min | Actual: 0 min | Remaining estimate: 0 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-22)
+
+All 21 tasks are done and merged; the replay acceptance (fixtures of the 2026-10-21/22 scene layout) passes in `scripts/cpp-node-test.sh ground_estimator_cpp`.
+
+Live acceptance not met and moved: on the live scene (new layout ahead/right of the robot) the ChArUco board was lethal in 36-45 of 80 frames at 2.3 cm, the 5 cm box flipped obstacle/warning at pan -30 (height read 3.4-3.5 cm), drop warnings appeared 2.5 cm behind the box, and the plane read 1.9-2.2 deg off base_link. The runbook Results table (`docs/runbooks/ground-robustness.md`, approval A8) is still empty. The ToF flying-pixel filter (tof-flying-pixel-filter) removed ~70 % of live pixels and is off on the robot; Nav2's ground_voxel_layer is off by default.
+
+User decision 2026-10-22 ("Go for all 3 within one epic"): the unmet live acceptance (A8: box obstacle >= 95 %, board never lethal, empty floor 0 lethal points at p95, warning churn < 10 %), the flying-pixel filter retune and turning ground_voxel_layer back on moved to epic drivable-ground-tof-filterin ("Drivable ground, ToF filtering and head-from-arm calibration"), approvals G1 and G2 there.
