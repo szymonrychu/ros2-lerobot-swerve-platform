@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 from ros2_common.battery import BatteryGuard
+from ros2_common.head_rgbd_calibration.urdf_text import apply_overrides
 from ros2_common.maps import MapCommand
 from ros2_common.photos import PhotoSelector
 from ros2_metrics import render_latest
@@ -153,6 +154,7 @@ HTTP_NOT_FOUND = 404
 # URDF and mesh files (arm meshes are tens of MB) are revalidated on each load (ETag / 304), so model changes show
 # after a reload without re-downloading unchanged meshes.
 URDF_CACHE_CONTROL = "no-cache"
+HEAD_URDF_DEFAULT = "head.urdf"
 # index.html must be revalidated so a deploy is picked up; hashed /assets/* files keep Starlette's default caching.
 INDEX_CACHE_CONTROL = "no-cache"
 NON_SPA_PREFIXES = ("api/", "ws")
@@ -793,13 +795,15 @@ def build_app(
                     ]
         return JSONResponse(body)
 
+    head_urdf_names = {t.head_urdf for t in config.tabs if t.head_urdf} | {HEAD_URDF_DEFAULT}
+
     @app.get("/api/urdf/status")
     async def get_urdf_status() -> JSONResponse:
         results = scan_urdf_directory(urdf_dir)
         return JSONResponse({"files": [r.model_dump() for r in results]})
 
     @app.get("/api/urdf/{path:path}")
-    async def get_urdf_file(path: str) -> FileResponse:
+    async def get_urdf_file(path: str) -> Response:
         requested = (urdf_dir / path).resolve()
         if not str(requested).startswith(str(urdf_dir.resolve()) + "/"):
             log.warning("path_traversal_attempt", path=path)
@@ -807,6 +811,11 @@ def build_app(
         if not requested.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         log.debug("urdf_file_served", path=path, size_bytes=requested.stat().st_size)
+        if config.head_applied_calibration_dir is not None and path in head_urdf_names:
+            text, warnings = apply_overrides(requested.read_text(), Path(config.head_applied_calibration_dir))
+            for warning in warnings:
+                log.warning("head_urdf_override_skipped", warning=warning)
+            return Response(text, media_type="application/xml", headers={"Cache-Control": "no-store"})
         return FileResponse(requested, headers={"Cache-Control": URDF_CACHE_CONTROL})
 
     async def serve_tile(source_id: str | None, z: int, x: int, y: int) -> Response:

@@ -14,6 +14,9 @@ gps_status:
   stale_after_s: 5.0
   base_timeout_s: 2.0
 
+# Applied head calibration (head_chain.json, tof_joint.json) laid over the served head URDF; null serves the file as is.
+head_applied_calibration_dir: null
+
 # Ground recorder (operator tool, idle until POST /api/ground/recordings): records ToF, RGB + amplitude, IMU, head and
 # /ground/state with the TF at each message stamp into npz files for ground replay. Off by default; see README.
 ground_recorder:
