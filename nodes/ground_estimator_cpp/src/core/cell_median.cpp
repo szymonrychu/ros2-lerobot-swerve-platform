@@ -69,6 +69,26 @@ double robust_spread(const std::deque<std::pair<double, double>> & history, doub
 
 CellMedianFilter::CellMedianFilter(const TemporalConfig & cfg) : cfg_(cfg) {}
 
+std::int64_t CellMedianFilter::key_of(const Eigen::Vector2d & xy_fixed) const
+{
+  return cell_key(
+    static_cast<std::int32_t>(std::floor(xy_fixed.x() / cfg_.cell_size_m)),
+    static_cast<std::int32_t>(std::floor(xy_fixed.y() / cfg_.cell_size_m)));
+}
+
+bool CellMedianFilter::steady_at(const Eigen::Vector2d & xy_fixed, double max_spread_m, int quiet_frames) const
+{
+  if (!cfg_.enabled) {
+    return true;
+  }
+  const auto it = cells_.find(key_of(xy_fixed));
+  if (it == cells_.end()) {
+    return false;
+  }
+  const Cell & cell = it->second;
+  return cell.output && cell.spread && *cell.spread <= max_spread_m && cell.frames_since_gated >= quiet_frames;
+}
+
 void CellMedianFilter::reset()
 {
   cells_.clear();
@@ -111,13 +131,14 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
       continue;
     }
     const Eigen::Vector3d pb(p.x, p.y, p.z);
-    const Eigen::Vector3d pf = fixed_T_base * pb;
-    keys[i] = cell_key(
-      static_cast<std::int32_t>(std::floor(pf.x() / cfg_.cell_size_m)),
-      static_cast<std::int32_t>(std::floor(pf.y() / cfg_.cell_size_m)));
+    keys[i] = key_of((fixed_T_base * pb).head<2>());
     heights[i] = height_above(plane, pb);
     valid[i] = true;
     frame_cells[keys[i]].push_back(i);
+  }
+
+  for (auto & [key, cell] : cells_) {
+    cell.output = false;
   }
 
   // Per-frame median of every cell seen, then the temporal median over its history.
@@ -141,10 +162,16 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
       }
       const double centre = median(scratch);
       const double spread = robust_spread(history, centre);
+      cell.spread = spread;
       if (spread > cfg_.max_spread_m) {
         ++gated_cell_count_;
+        cell.frames_since_gated = 0;
       } else {
         cell_height[key] = centre;
+        cell.output = true;
+        if (cell.frames_since_gated < std::numeric_limits<int>::max()) {
+          ++cell.frames_since_gated;
+        }
       }
     }
   }

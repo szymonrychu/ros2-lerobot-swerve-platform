@@ -38,6 +38,9 @@ constexpr double IRLS_TOLERANCE = 1e-9;  // change of the fit coefficients that 
 constexpr double RANK_THRESHOLD = 1e-8;  // relative pivot below which a direction of the fit is undetermined
 // Fewest samples of a plane fit.
 constexpr std::size_t MIN_SLOPE_SAMPLES = 3;
+// Slope from which the edge step is capped by the fitted surface's height at the edge line (a 10 cm cell rises
+// under 9 mm below it, so flat tops never use the fit).
+constexpr double RAMP_EDGE_MIN_SLOPE_DEG = 5.0;
 constexpr const char * KIND_DROP = "drop";
 constexpr const char * KIND_STEP = "step";
 
@@ -146,13 +149,27 @@ bool slope_measurable(const Cluster & c, const Eigen::Vector2d & axis, const Edg
   return ((hi - lo).array() >= MIN_BIN_SPAN_FRACTION * cfg.slope_bin_m).all();
 }
 
+// A robust plane fit of the plane-relative height: h(xy) = a (x - cx) + b (y - cy) + c.
+struct SurfaceFit
+{
+  Eigen::Vector2d centroid = Eigen::Vector2d::Zero();  // (cx, cy)
+  Eigen::Vector3d coef = Eigen::Vector3d::Zero();      // (a, b, c)
+
+  double slope_deg() const { return std::atan(std::hypot(coef.x(), coef.y())) * RAD_TO_DEG; }
+  double height_at(const Eigen::Vector2d & xy) const
+  {
+    const Eigen::Vector2d d = xy - centroid;
+    return coef.x() * d.x() + coef.y() * d.y() + coef.z();
+  }
+};
+
 // Robust plane fit h = a x + b y + c over the samples: iteratively reweighted least squares with Huber weights on a
 // MAD residual scale, started from ordinary least squares. Each step takes the minimum-norm solution: samples on one
 // line (level sets that are whole contour lines of a noise-free plane, e.g. rows of a grid across a ramp) leave the
 // slope along the line undetermined, and it is zero there.
 // @param samples at least three samples.
-// @return the slope atan(hypot(a, b)) in degrees; nullopt when the solution is not finite.
-std::optional<double> robust_slope_deg(const std::vector<SlopeSample> & samples)
+// @return the fit; nullopt when the solution is not finite.
+std::optional<SurfaceFit> robust_surface_fit(const std::vector<SlopeSample> & samples)
 {
   Eigen::Vector2d centroid = Eigen::Vector2d::Zero();
   for (const auto & s : samples) {
@@ -199,7 +216,7 @@ std::optional<double> robust_slope_deg(const std::vector<SlopeSample> & samples)
       weights[i] = r <= k ? 1.0 : k / r;
     }
   }
-  return std::atan(std::hypot(coef.x(), coef.y())) * RAD_TO_DEG;
+  return SurfaceFit{centroid, coef};
 }
 
 // Fill every feature of a cluster whose kind, points and heights are set.
@@ -267,9 +284,15 @@ void compute_features(Cluster & c, const EdgesConfig & cfg, double edge_band_m)
   c.slope_deg = 0.0;
   if (slope_measurable(c, axis, cfg)) {
     const auto samples = slope_samples(c);
-    const auto slope = samples.size() >= MIN_SLOPE_SAMPLES ? robust_slope_deg(samples) : std::nullopt;
-    c.slope_known = slope.has_value();
-    c.slope_deg = slope.value_or(0.0);
+    const auto fit = samples.size() >= MIN_SLOPE_SAMPLES ? robust_surface_fit(samples) : std::nullopt;
+    c.slope_known = fit.has_value();
+    c.slope_deg = fit ? fit->slope_deg() : 0.0;
+    // An inclined surface rising from the floor has no step at its foot, but its cells read a staircase whose first
+    // cell above the floor band sits up to a cell's rise above the surface: the step at the edge is at most the
+    // fitted surface's height there. Flat tops (boxes, sills) keep the band median.
+    if (fit && c.slope_deg >= RAMP_EDGE_MIN_SLOPE_DEG) {
+      c.edge_step_m = std::min(c.edge_step_m, std::fabs(fit->height_at(c.edge_point)));
+    }
   }
 
   c.hull = convex_hull(xy);

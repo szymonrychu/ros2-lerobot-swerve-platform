@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <limits>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
@@ -48,11 +50,25 @@ public:
   //   the README).
   std::size_t gated_cell_count() const { return gated_cell_count_; }
 
+  // Whether a cell is steady enough to be lethal: output in the last apply with a robust spread of at most
+  // max_spread_m, and not spread-gated in any of its last quiet_frames frames with enough history. A cell never gated
+  // is steady from its first output on, so a new steady obstacle has no extra delay. Always true when disabled.
+  // @param xy_fixed a point in the fixed frame.
+  // @param max_spread_m largest spread in metres (at most temporal.max_spread_m to be stricter than the gate).
+  // @param quiet_frames frames since the cell was last gated that are needed, >= 0.
+  // @return true when the cell of xy_fixed is steady.
+  bool steady_at(const Eigen::Vector2d & xy_fixed, double max_spread_m, int quiet_frames) const;
+
 private:
   struct Cell
   {
     std::deque<std::pair<double, double>> history;  // (stamp, per-frame median)
+    std::optional<double> spread;                   // of the last apply in which the cell was seen with min_frames
+    bool output = false;                            // the cell's points were output in the last apply
+    int frames_since_gated = std::numeric_limits<int>::max();  // frames with min_frames values since the last gate
   };
+
+  std::int64_t key_of(const Eigen::Vector2d & xy_fixed) const;
 
   TemporalConfig cfg_;
   std::unordered_map<std::int64_t, Cell> cells_;

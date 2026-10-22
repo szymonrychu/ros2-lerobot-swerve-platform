@@ -351,3 +351,74 @@ TEST(CellMedian, DisabledReportsNoGatedCells)
   filter.apply(grid_cloud(0.0, 0.5, 0.0, 0.5, 0.05), Plane(), Eigen::Isometry3d::Identity(), 0.0);
   EXPECT_EQ(filter.gated_cell_count(), 0u);
 }
+
+// steady_at (the node's lethal vote gate): a steady box top is steady from its first output on.
+TEST(CellMedian, SteadyBoxTopIsSteadyFromItsFirstOutput)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(51);
+  std::normal_distribution<double> noise(0.0, 0.004);
+  const Eigen::Vector2d centre(0.65, 0.05);
+  for (int i = 0; i < 12; ++i) {
+    const Cloud in = cell_cloud(0.6, 0.7, [&](int, int) { return 0.05 + noise(rng); });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    EXPECT_EQ(filter.steady_at(centre, 0.6 * cfg.max_spread_m, 2 * cfg.window_frames), !out.empty()) << "frame " << i;
+    if (i >= cfg.min_frames - 1) {
+      EXPECT_FALSE(out.empty()) << "frame " << i;
+    }
+  }
+}
+
+// A cell gated by its spread is not steady until it has been ungated for quiet_frames frames, and a cell whose spread
+// is under the gate but over the stricter max_spread_m is not steady either.
+TEST(CellMedian, RecentlyGatedOrMildlyNoisyCellIsNotSteady)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  const Eigen::Vector2d centre(0.65, 0.05);
+  const int quiet_frames = 2 * cfg.window_frames;
+  int frame = 0;
+  for (; frame < 12; ++frame) {
+    const double value = (frame % 2 == 0 ? 1.0 : -1.0) * 0.1;
+    filter.apply(
+      cell_cloud(0.6, 0.7, [&](int, int) { return value; }), Plane(), Eigen::Isometry3d::Identity(),
+      frame * FRAME_DT_S);
+  }
+  EXPECT_GT(filter.gated_cell_count(), 0u);
+  EXPECT_FALSE(filter.steady_at(centre, 0.6 * cfg.max_spread_m, quiet_frames));
+  int first_steady = -1;
+  for (int i = 0; i < 4 * cfg.window_frames; ++i, ++frame) {
+    const Cloud out = filter.apply(
+      cell_cloud(0.6, 0.7, [&](int, int) { return 0.05; }), Plane(), Eigen::Isometry3d::Identity(), frame * FRAME_DT_S);
+    if (first_steady < 0 && filter.steady_at(centre, 0.6 * cfg.max_spread_m, quiet_frames)) {
+      first_steady = i;
+      EXPECT_FALSE(out.empty());
+    }
+  }
+  // Visible again within the window, steady only after quiet_frames ungated frames.
+  EXPECT_GE(first_steady, quiet_frames - 1);
+  EXPECT_LE(first_steady, quiet_frames + cfg.window_frames);
+
+  // +-12 mm alternation: a spread of ~17 mm is under the 25 mm gate (visible) but over 15 mm (not steady).
+  CellMedianFilter mild(cfg);
+  for (int i = 0; i < 20; ++i) {
+    const double value = (i % 2 == 0 ? 1.0 : -1.0) * 0.012;
+    const Cloud out = mild.apply(
+      cell_cloud(0.6, 0.7, [&](int, int) { return value; }), Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= cfg.min_frames) {
+      EXPECT_FALSE(out.empty()) << "frame " << i;
+      EXPECT_FALSE(mild.steady_at(centre, 0.6 * cfg.max_spread_m, quiet_frames)) << "frame " << i;
+    }
+  }
+}
+
+TEST(CellMedian, DisabledIsAlwaysSteadyAndUnknownCellsAreNot)
+{
+  TemporalConfig cfg;
+  CellMedianFilter enabled(cfg);
+  EXPECT_FALSE(enabled.steady_at(Eigen::Vector2d(0.65, 0.05), cfg.max_spread_m, 0));
+  cfg.enabled = false;
+  CellMedianFilter disabled(cfg);
+  EXPECT_TRUE(disabled.steady_at(Eigen::Vector2d(0.65, 0.05), cfg.max_spread_m, 100));
+}

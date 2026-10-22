@@ -507,3 +507,45 @@ TEST(Edges, NoisySillEdgeStepStaysBelowTheRule)
   ASSERT_EQ(clusters.size(), 1u);
   EXPECT_LT(clusters[0].edge_step_m, 0.04);
 }
+
+namespace
+{
+constexpr double STEP_RULE_M = 0.04;  // a third of the default 0.12 m wheel
+constexpr double MAT_EDGE_BELOW_RULE_SHARE = 0.95;
+
+// Share of MAT_SEEDS seeds whose sparse mat cluster, through a fresh CellMedianFilter and segmented with the node's
+// 2 cm floor band (so the foot of the ramp is cut off and the cells read a staircase), has an edge step under the rule.
+double mat_edge_below_rule_share(const Eigen::Isometry3d & fixed_T_base)
+{
+  Scene scene;
+  add_ramp(scene, MAT_X0_M, MAT_LENGTH_M, MAT_HEIGHT_M, MAT_Y0_M, MAT_Y1_M);
+  const auto dense = sample_grid(scene, 0.8, 1.45, -0.65, 0.0, MAT_GRID_M);
+  unsigned below = 0;
+  for (unsigned seed = 1; seed <= MAT_SEEDS; ++seed) {
+    CellMedianFilter filter{TemporalConfig{}};
+    pcl::PointCloud<pcl::PointXYZ> filtered;
+    for (int frame = 0; frame < MAT_FRAMES; ++frame) {
+      const unsigned frame_seed = seed * 1000U + static_cast<unsigned>(frame);
+      const auto noisy =
+        add_z_noise(keep_fraction(dense, MAT_KEEP_FRACTION, frame_seed), MAT_SIGMA_M, 0.0, 0.0, frame_seed + 500U);
+      filtered = filter.apply(noisy, Plane{}, fixed_T_base, frame * MAT_FRAME_PERIOD_S);
+    }
+    const auto seg = segment(filtered, Plane{}, BandsConfig{}, FLOOR_DISTANCE_M);
+    const auto clusters = extract_clusters(seg.above, seg.above_height, "step", Plane{}, EdgesConfig{}, EDGE_BAND_M);
+    const Cluster * ramp = largest(clusters);
+    below += ramp != nullptr && ramp->edge_step_m <= STEP_RULE_M ? 1U : 0U;
+  }
+  return static_cast<double>(below) / MAT_SEEDS;
+}
+}  // namespace
+
+// A ramp rising from the floor has no step at its foot: the cluster's edge step is the fitted surface's height at the
+// edge line, not the first cell of the cell-median staircase (which reads up to a cell's rise above the surface).
+TEST(Edges, SparseMatRampEdgeStepStaysBelowTheRule)
+{
+  EXPECT_GE(mat_edge_below_rule_share(Eigen::Isometry3d::Identity()), MAT_EDGE_BELOW_RULE_SHARE);
+  Eigen::Isometry3d misaligned = Eigen::Isometry3d::Identity();
+  misaligned.translate(Eigen::Vector3d(MISALIGNED_OFFSET_M, MISALIGNED_OFFSET_M, 0.0));
+  misaligned.rotate(Eigen::AngleAxisd(MISALIGNED_YAW_DEG * DEG, Eigen::Vector3d::UnitZ()));
+  EXPECT_GE(mat_edge_below_rule_share(misaligned), MAT_EDGE_BELOW_RULE_SHARE);
+}
