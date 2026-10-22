@@ -1,6 +1,6 @@
 ---
 title: Tilt event evidence
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: A tilt warning can be judged real or an IMU glitch from the event itself
 files: [nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_tilt_event_evidence.py, nodes/mcp_server/README.md]

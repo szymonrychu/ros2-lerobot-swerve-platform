@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-replay-metrics
 branch: drivable-ground-tof-filterin--guidance-replay-metrics
-verified_head: 3b55c265daeba45c6eb654ac700e1b2f375bafd2
+verified_head: fbc75e79d464c5e535ebea13e0945c7e553fa45b
 run: drivable-ground-tof-filterin
 provides: [guidance-replay-harness, truth-replay-metrics]
 acs_for_audit: [a4]
-process_gaps: ["TDD evidence missing: no red/green tails (tests.red, verification.evidence) for test_replay.cpp; no listed TDD exception applies"]
+process_gaps: [The implementer states the red-green cycle was not redone for the already-committed harness commit 7a4f9156.]
 ---
 
 # Guidance replay metrics

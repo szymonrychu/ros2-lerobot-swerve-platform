@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-config-keys
 branch: drivable-ground-tof-filterin--guidance-config-keys
-verified_head: 9bb9ba9e9a8e10cc5fcf0bd33522e2c65ebb8256
+verified_head: 8b08182264f4cdfabd69d504d9b3ce4eba9f70e4
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []
-process_gaps: ["No red (failing-first) run recorded for the guidance config tests"]
+process_gaps: ["No red-green evidence recorded: the guidance block was committed in 432cb1e5 before this run and no red cycle was shown. Needs the revert-the-non-test-files run (git show bbd9abd0:<path>) with both tails in tests.red and verification.evidence."]
 ---
 
 # Guidance config keys

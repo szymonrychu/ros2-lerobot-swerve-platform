@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--web-ui-ground-recorder-api
 branch: drivable-ground-tof-filterin--web-ui-ground-recorder-api
-verified_head: f1d39e36400e89f0f4c95900f2efc7e3dfad0ca8
+verified_head: 8ee14ac37fc5642fa298822588c49c5bfc4d2578
 run: drivable-ground-tof-filterin
 provides: [ground-recorder-api, ground-recorder-bridge-api]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["No red (failing-first) run recorded for the recorder tests in this task's run"]
 ---
 
 # Web UI ground recorder API

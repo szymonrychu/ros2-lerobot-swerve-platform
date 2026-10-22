@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--joint-state-still-capture
 branch: drivable-ground-tof-filterin--joint-state-still-capture
-verified_head: ec1f3056fbf67b9155744777b92d987d7d69ad16
+verified_head: 231f004fdbf4ce5134dfd172b47b919a3f4e9a5f
 run: drivable-ground-tof-filterin
 provides: []
-acs_for_audit: []
+acs_for_audit: [a6]
 process_gaps: []
 ---
 

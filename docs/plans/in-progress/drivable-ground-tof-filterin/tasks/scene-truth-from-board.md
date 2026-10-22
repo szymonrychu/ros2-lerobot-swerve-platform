@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--scene-truth-from-board
 branch: drivable-ground-tof-filterin--scene-truth-from-board
-verified_head: 82f2539059306213beff8a2f31d041778e149fec
+verified_head: 3cdfafe401af157d68588f2c8d52452df78ece69
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["New test test_board_frame_off_axis_board_to_the_right has no row in the tests/README.md table for test_ground_scene_truth.py (project rule: document each test).", "No red run recorded for test_board_frame_off_axis_board_to_the_right (implementer says it was not run against the old code)."]
 ---
 
 # Scene truth from board

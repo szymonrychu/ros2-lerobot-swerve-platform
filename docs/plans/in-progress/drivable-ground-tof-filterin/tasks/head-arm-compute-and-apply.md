@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-arm-compute-and-apply
 branch: drivable-ground-tof-filterin--head-arm-compute-and-apply
-verified_head: 093ac10287d6a192426aab9b83f9daab1423dae3
+verified_head: 5f5b4cf2ac8a3e86dc32db3eb5e1173fa441a687
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []
-process_gaps: ["head_rgbd_calibration README has no section for the head_arm compute/apply (head_arm_results.py) or the new source/floor record keys"]
+process_gaps: []
 ---
 
 # Head arm compute and apply

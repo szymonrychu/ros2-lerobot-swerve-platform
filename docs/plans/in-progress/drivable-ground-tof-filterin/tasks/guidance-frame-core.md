@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-frame-core
 branch: drivable-ground-tof-filterin--guidance-frame-core
-verified_head: b05ae8b3e6ccc96933efaa3c09a26323c2569c84
+verified_head: 7363ecfe7e78e916350331fc67fb71836c02b2b7
 run: drivable-ground-tof-filterin
 provides: [guidance-frame]
 acs_for_audit: []
-process_gaps: ["No red-green evidence for the seven Guidance tests (implementer made no edits; code and tests came in one commit)"]
+process_gaps: ["No red-phase output reported for the seven Guidance tests (TDD tests-first evidence)."]
 ---
 
 # Guidance frame core

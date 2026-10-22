@@ -14,7 +14,7 @@ actual: ""
 review: full
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--arm-board-pose-set
 branch: drivable-ground-tof-filterin--arm-board-pose-set
-verified_head: 3f3e05ccd0177932fef784da9aabd2fb3be0ddd4
+verified_head: 3125be849dc861f09746ee23c16452545aed3d1c
 run: drivable-ground-tof-filterin
 provides: [arm-sequence-board-margin, pose-check-board-margin, applied-head-urdf-fixture, arm-sequence-config]
 acs_for_audit: []

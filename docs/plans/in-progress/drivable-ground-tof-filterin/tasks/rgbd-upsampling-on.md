@@ -14,10 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--rgbd-upsampling-on
 branch: drivable-ground-tof-filterin--rgbd-upsampling-on
-verified_head: 64edf6271e72c3a316fe6cee6d1d29e695e313fe
+verified_head: f566789e007839e8f81bc3ba974fc8caf921d495
 run: drivable-ground-tof-filterin
 provides: []
-acs_for_audit: [a4]
+acs_for_audit: []
 process_gaps: []
 ---
 

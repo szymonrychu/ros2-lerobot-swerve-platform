@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--mcp-front-camera-applied
 branch: drivable-ground-tof-filterin--mcp-front-camera-applied
-verified_head: 4b51b677a343467fdf82ecb03fd0b92ee827386b
+verified_head: cabdd10b8914fbd5ecf2e189e77bac6e4142b14e
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: [Fix-round test edits in test_config.py and test_arm_pose_set.py are not named by a finding or tests.added]
 ---
 
 # MCP front camera applied

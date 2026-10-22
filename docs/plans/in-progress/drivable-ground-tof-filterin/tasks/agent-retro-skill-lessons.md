@@ -1,6 +1,6 @@
 ---
 title: Agent retro skill lessons
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The agent stops repeating the retro mistakes: mirror frontiers, guessed object positions, unparked arm, turn budget"
 files: [nodes/claude_agent/claude_agent/agent_plugin/skills/sightseeing/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/survey/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/recover-from-failure/SKILL.md, nodes/claude_agent/claude_agent/workflow_templates/discovery.yaml, nodes/claude_agent/tests/test_skill_retro_lessons.py, nodes/claude_agent/README.md]

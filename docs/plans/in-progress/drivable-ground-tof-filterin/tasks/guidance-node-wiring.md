@@ -1,6 +1,6 @@
 ---
 title: Guidance node wiring
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The running ground estimator publishes sharper lethal edges and no_return areas from the live RGB-D pairs
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/package.xml, nodes/ground_estimator_cpp/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-node-wiring
 branch: drivable-ground-tof-filterin--guidance-node-wiring
-verified_head: ""
+verified_head: 09ea88dbb894abc18e5bef912d1f52b986e70e30
 run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+provides: [guidance-pair-test-render, node-test-twin]
+acs_for_audit: [a4]
+process_gaps: ["Worktree for this task was missing and the costmap-nullable-heights merge command held a literal placeholder; the implementer worked around both."]
 ---
 
 # Guidance node wiring

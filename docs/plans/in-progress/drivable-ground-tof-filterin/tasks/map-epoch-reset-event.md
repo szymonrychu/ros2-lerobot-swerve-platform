@@ -1,6 +1,6 @@
 ---
 title: Map epoch reset event
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: Every map reset the agent runs into is explained by an event with its cause
 files: [nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_map_epoch_event.py, nodes/mcp_server/README.md]

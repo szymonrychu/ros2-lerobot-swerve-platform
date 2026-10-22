@@ -1,6 +1,6 @@
 ---
 title: Calib frontend API
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The Calibrate page talks to the head-from-arm routes through one typed client checked against the node's fixtures."
 files: [nodes/web_ui/frontend/src/calibrate/headArmApi.ts, nodes/web_ui/frontend/src/calibrate/headArmApi.test.ts, nodes/web_ui/frontend/src/calibrate/headFloorApi.ts, nodes/web_ui/frontend/src/calibrate/headFloorApi.test.ts]

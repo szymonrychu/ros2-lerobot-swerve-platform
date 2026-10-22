@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-record-script
 branch: drivable-ground-tof-filterin--ground-record-script
-verified_head: dd9bcc3ed0152b6fe26d3a8ea8cd2dfe88406fc3
+verified_head: 958468d3b036c0fed31e461666c4d362671a940b
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []

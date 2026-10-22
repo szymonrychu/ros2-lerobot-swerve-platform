@@ -18,7 +18,7 @@ verified_head: 8efd29ed2722218b63b8129374d765f2266fcc7c
 run: drivable-ground-tof-filterin
 provides: [obstacle-set-distances, head-envelope, board-points-fk, arm-pose-check]
 acs_for_audit: []
-process_gaps: ["tests/README.md has no entry for tests/test_arm_pose_check.py (CLAUDE.md requires one); the implementer listed it as an epic task."]
+process_gaps: ["tests/README.md has no entry for tests/test_arm_pose_check.py, and no README describes arm_pose_check.py. The implementer recorded this in discovered, so it becomes an epic task and is not a finding."]
 ---
 
 # Arm pose safety check

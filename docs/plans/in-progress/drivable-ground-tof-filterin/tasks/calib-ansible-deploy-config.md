@@ -1,6 +1,6 @@
 ---
 title: Calib ansible deploy config
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The deployed node can call mcp_server, and its copies of the arm gauge, offsets, URDF and body obstacles cannot drift from mcp_server's."
 files: [ansible/group_vars/client.yml, ansible/playbooks/tasks/head_rgbd_calibration_setup.yml, tests/test_head_rgbd_calibration_deploy.py]

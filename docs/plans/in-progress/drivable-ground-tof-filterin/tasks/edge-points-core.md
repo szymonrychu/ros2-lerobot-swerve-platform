@@ -1,6 +1,6 @@
 ---
 title: Edge points core
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Obstacle and drop boundaries placed where the camera sees them, within a few cm of what depth found"
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/edge_points.hpp, nodes/ground_estimator_cpp/src/core/edge_points.cpp, nodes/ground_estimator_cpp/test/core/test_edge_points.cpp]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--edge-points-core
 branch: drivable-ground-tof-filterin--edge-points-core
-verified_head: ""
+verified_head: c10866de7401ab5fd9fbf7bbff801f9fe4b41f5b
 run: drivable-ground-tof-filterin
 provides: []
-acs_for_audit: []
-process_gaps: []
+acs_for_audit: [a3]
+process_gaps: ["The implementer states no red-first test was run, with no stated TDD exception."]
 ---
 
 # Edge points core

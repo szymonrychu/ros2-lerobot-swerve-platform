@@ -1,6 +1,6 @@
 ---
 title: Head arm calibrate UI section
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The user runs the head-from-arm calibration from a browser, step by step, confirming every big-joint motion, and applies only a passing result."
 files: [nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.tsx, nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx]

@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--no-return-core
 branch: drivable-ground-tof-filterin--no-return-core
-verified_head: 08e8d2978748f62c946d5ccc3d54195c1ef4e610
+verified_head: a5286847d6ef16c9f8eac5a957dbc306c931ea7a
 run: drivable-ground-tof-filterin
 provides: [no-return-tracker, cell-outline, cell-components, blocking-cells]
 acs_for_audit: [a3]

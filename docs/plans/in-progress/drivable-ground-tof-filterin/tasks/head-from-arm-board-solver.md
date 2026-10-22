@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-from-arm-board-solver
 branch: drivable-ground-tof-filterin--head-from-arm-board-solver
-verified_head: acc2d08d461f8a377cb695a6aebc29075bc93b25
+verified_head: 308c875d50411ea747d2a2131fb0f604fc6161b2
 run: drivable-ground-tof-filterin
-provides: [head-arm-limit-checks, head-camera-pose, synthetic-board-mount, synthetic-start-chain]
+provides: [head-arm-limit-checks, head-camera-pose, synthetic-board-mount, synthetic-start-chain, head-arm-synthetic-truth, head-arm-synthetic-fit-config, applied-floor-head-urdf]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["tests/README.md does not list test_head_arm_fit.py or test_head_arm_calib_config.py (project rule: list each test file); shared/README.md does not mention head_arm_fit"]
 ---
 
 # Head from arm board solver

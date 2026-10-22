@@ -16,7 +16,7 @@ worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktre
 branch: drivable-ground-tof-filterin--session-kinds-joint-poses
 verified_head: 84493bf9730fa5921a948ed051950aca3005ebab
 run: drivable-ground-tof-filterin
-provides: [write-pose-dir]
+provides: [write-pose-dir, calib-session-kinds]
 acs_for_audit: []
 process_gaps: []
 ---
