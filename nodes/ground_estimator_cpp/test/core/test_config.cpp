@@ -106,6 +106,13 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_EQ(c.traversability.lethal_min_points, 2);
   EXPECT_DOUBLE_EQ(c.edges.slope_bin_m, 0.10);
   EXPECT_EQ(c.edges.slope_min_cells, 3);
+  EXPECT_TRUE(c.occlusion.enabled);
+  EXPECT_DOUBLE_EQ(c.occlusion.azimuth_bin_deg, 1.0);
+  EXPECT_DOUBLE_EQ(c.occlusion.elevation_margin_deg, 0.5);
+  EXPECT_DOUBLE_EQ(c.occlusion.min_occluder_height_m, 0.02);
+  EXPECT_DOUBLE_EQ(c.occlusion.min_height_drop_m, 0.01);
+  EXPECT_DOUBLE_EQ(c.edges.step_segment_m, 0.10);
+  EXPECT_EQ(c.edges.step_segment_min_points, 3);
   ASSERT_TRUE(c.metrics_port.has_value());
   EXPECT_EQ(*c.metrics_port, 19119);
 }
@@ -179,6 +186,8 @@ TEST(Config, RejectsUnknownKeysAtEveryLevel)
   expect_rejected("colour: {bogus: 1}", "colour.bogus");
   expect_rejected("state: {bogus: 1}", "state.bogus");
   expect_rejected("temporal: {bogus: 1}", "temporal.bogus");
+  expect_rejected("occlusion: {bogus: 1}", "occlusion.bogus");
+  expect_rejected("edges: {bogus: 1}", "edges.bogus");
 }
 
 TEST(Config, RejectsTopLevelRanges)
@@ -291,6 +300,41 @@ TEST(Config, RejectsEdgeRules)
   expect_rejected("edges: {step_max_height_m: 0.03}", "edges.step_max_height_m");
   expect_rejected("edges: {step_max_height_m: 0.7}", "edges.step_max_height_m");
   expect_rejected("edges: {step_flatness_m: 0}", "edges.step_flatness_m");
+}
+
+TEST(Config, RejectsOcclusionRanges)
+{
+  expect_accepted("occlusion: {enabled: false}");
+  expect_accepted("occlusion: {azimuth_bin_deg: 0.1}");
+  expect_accepted("occlusion: {azimuth_bin_deg: 10}");
+  expect_rejected("occlusion: {azimuth_bin_deg: 0.09}", "occlusion.azimuth_bin_deg");
+  expect_rejected("occlusion: {azimuth_bin_deg: 10.1}", "occlusion.azimuth_bin_deg");
+  expect_accepted("occlusion: {elevation_margin_deg: 0}");
+  expect_accepted("occlusion: {elevation_margin_deg: 5}");
+  expect_rejected("occlusion: {elevation_margin_deg: -0.1}", "occlusion.elevation_margin_deg");
+  expect_rejected("occlusion: {elevation_margin_deg: 5.1}", "occlusion.elevation_margin_deg");
+  expect_rejected("occlusion: {min_occluder_height_m: 0}", "occlusion.min_occluder_height_m");
+  expect_rejected("occlusion: {min_occluder_height_m: -0.01}", "occlusion.min_occluder_height_m");
+  expect_accepted("occlusion: {min_occluder_height_m: 0.59}");
+  expect_rejected("occlusion: {min_occluder_height_m: 0.6}", "occlusion.min_occluder_height_m");
+  expect_rejected("occlusion: {min_occluder_height_m: 0.7}", "occlusion.min_occluder_height_m");
+  expect_rejected(
+    "bands: {obstacle_max_m: 0.5}\nocclusion: {min_occluder_height_m: 0.5}", "occlusion.min_occluder_height_m");
+  expect_rejected("occlusion: {min_height_drop_m: 0}", "occlusion.min_height_drop_m");
+  expect_rejected("occlusion: {min_height_drop_m: -0.01}", "occlusion.min_height_drop_m");
+  expect_accepted("occlusion: {min_height_drop_m: 0.001}");
+}
+
+TEST(Config, RejectsSegmentStepRanges)
+{
+  expect_accepted("edges: {step_segment_m: 0.02}");
+  expect_accepted("edges: {step_segment_m: 0.5}");
+  expect_rejected("edges: {step_segment_m: 0.01}", "edges.step_segment_m");
+  expect_rejected("edges: {step_segment_m: 0.51}", "edges.step_segment_m");
+  expect_accepted("edges: {step_segment_min_points: 1}");
+  expect_accepted("edges: {step_segment_min_points: 50}");
+  expect_rejected("edges: {step_segment_min_points: 0}", "edges.step_segment_min_points");
+  expect_rejected("edges: {step_segment_min_points: 51}", "edges.step_segment_min_points");
 }
 
 TEST(Config, RejectsSlopeRules)

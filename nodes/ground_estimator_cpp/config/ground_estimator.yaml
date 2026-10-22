@@ -49,6 +49,15 @@ edges:  # edges settings
   step_flatness_m: 0.03  # max height spread for a flat top, metres, > 0
   slope_bin_m: 0.10  # edge of the xy bins a cluster is sampled in for its slope fit, metres, 0.02 <= v <= 0.5
   slope_min_cells: 3  # fewest slope bins a cluster must cover for a slope estimate (below it the slope is unknown), 2..50
+  step_segment_m: 0.1  # length of the boundary segment a step is measured along, metres, 0.02 <= v <= 0.5
+  step_segment_min_points: 3  # fewest boundary points in a segment for it to count, 1..50
+
+occlusion:  # occlusion shadow gate settings
+  enabled: true  # do not read a cell hidden behind a nearer occluder as a drop or ramp
+  azimuth_bin_deg: 1.0  # width of an azimuth bin of the occluder horizon, degrees, 0.1..10
+  elevation_margin_deg: 0.5  # slack on the shadow ray elevation, degrees, 0..5
+  min_occluder_height_m: 0.02  # lowest plane-relative height that occludes, metres, > 0 and < bands.obstacle_max_m
+  min_height_drop_m: 0.01  # smallest height drop behind an occluder that counts as shadowed, metres, > 0
 
 slope:  # slope settings
   roll_warn_deg: 8  # tilt_guard roll warning limit, degrees
