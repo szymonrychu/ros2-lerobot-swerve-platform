@@ -29,14 +29,14 @@ Version 2 of the replay fixture (design D9, part replay-format-v2). It extends r
   - An input with `layout_version` 2 gives a v2 file. The header version field is 2, and the v1 sections (clouds, IMU, base_T_imu) are written exactly as v1. Then comes a guidance section: the RGB model (K 9, D 5, width, height, frame id), the ToF model (same fields), and the pair count. Each pair inside the trim window then carries stamp_ns, base_T_rgb and odom_T_base (x y z qx qy qz qw), the JPEG length and bytes, and the PNG length and bytes. The PNG is the upsampled depth uint16, encoded losslessly with `cv2.imencode(".png")`.
   - A v1 input (2026-10-22 layout) still gives the v1 file byte-identical to run 4's writer.
   - Writing pairs is optional per export (`pairs: false` writes v2 with a pair count of 0).
-  - `export_tof_frames(input_npz, output_npz, every_n, max_frames)` writes a compressed npz subset of `tof_depth_mm`, `tof_amplitude`, `tof_base_T`, `tof_stamps_ns` and the ToF model, for the amplitude gate's real-data test.
-  - `MAX_FIXTURE_BYTES` = 3 000 000: an export above it raises with the size and writes nothing.
+  - `export_tof_frames(input_npzs, output_npz, every_n, max_frames, truth_yaml)` writes a compressed npz for the amplitude gate's real-data test. Keys: `tof_depth_mm` (F x H x W uint16), `tof_amplitude` (F x H x W uint16), `tof_base_T` (F x 7), `tof_stamps_ns` (F), `tof_K` (9), `tof_D` (5), `tof_size` (2), `scene` (F str, the recording name of each frame), `truth_board` (4 x 2), `truth_ramp` (4 x 2) and `truth_empty` (4 x 2), the xy corners in base_link m from the truth YAML, and `floor_plane` (4: nx ny nz d with n.p + d = 0 in base_link). The plane is a least-squares fit, with RANSAC inlier distance 0.01 m, of the depth points whose floor point lies inside `truth_empty`.
+  - `MAX_FIXTURE_BYTES` = 3 000 000 for an export without pairs and `MAX_PAIR_FIXTURE_BYTES` = 6 000 000 with pairs (about 16-20 pairs of a 576x324 16-bit PNG, about 0.2 MB each, plus a JPEG of about 35 kB): an export above its cap raises with the size and writes nothing.
   - With no arguments the script exports every entry of `scripts/ground_replay_scenes.yaml` (pydantic, unknown keys rejected). The entries are `fixtures: [{input, output, start_s, duration_s, pairs}]` and `tof_frames: [{input, output, every_n, max_frames}]`; the file itself is written by capture-baseline-recordings; tests use configs in tmp_path. Run 4's positional `<input.npz> <output.bin>` form keeps working with its constants.
   - `read_replay(path)` decodes v1 and v2, including the pairs (JPEG bytes and the decoded depth array).
 - `nodes/ground_estimator_cpp/test/replay_fixture.hpp`: the reader accepts v1 and v2. It adds `CameraModel {K, D, width, height, frame}`, `ReplayPair {stamp_ns, base_T_rgb, odom_T_base, std::vector<uint8_t> jpeg, cv::Mat depth_mm}`, with the depth decoded by `cv::imdecode(IMREAD_UNCHANGED)` and required to be CV_16UC1. `Replay::rgb_model`, `Replay::tof_model` and `Replay::pairs` are empty for v1. It rejects an unknown version, a truncated section and a PNG that does not decode to 16-bit.
 - `nodes/ground_estimator_cpp/test/data/replay/tiny_v2.bin`: 3 clouds and 2 pairs, generated from a synthetic npz by the export (the Python test regenerates it and compares bytes).
 - Tests first (seen failing):
-  - `tests/test_ground_replay_export.py`: `test_v2_round_trip_pairs`, `test_v1_output_unchanged`, `test_pairs_false_writes_zero_pairs`, `test_fixture_size_cap`, `test_scenes_config_validates`, `test_export_tof_frames_subset`, `test_tiny_v2_fixture_is_current`;
+  - `tests/test_ground_replay_export.py`: `test_v2_round_trip_pairs`, `test_v1_output_unchanged`, `test_pairs_false_writes_zero_pairs`, `test_fixture_size_cap`, `test_scenes_config_validates`, `test_export_tof_frames_subset` (keys, dtypes, truth polygons, a plane fitted to a synthetic floor within 2 mm), `test_tiny_v2_fixture_is_current`;
   - `test/test_replay.cpp`: `ReplayReader.DecodesV2Pairs` (tiny_v2.bin: counts, sizes, stamps increasing, depth type), `ReplayReader.V1FixturesStillRead` (run 4's home.bin), `ReplayReader.RejectsUnknownVersion`.
 - READMEs: the `## Replay tests` section of `nodes/ground_estimator_cpp/README.md` describes v2 and the scenes config; `tests/README.md` entry updated.
 - CMake (`nodes/ground_estimator_cpp/CMakeLists.txt`): `find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d)` and `opencv_imgcodecs` `opencv_calib3d` linked PUBLIC on `ground_estimator_core`, so the tests and guidance-frame-core (which uses them) get them.
@@ -46,9 +46,9 @@ Version 2 of the replay fixture (design D9, part replay-format-v2). It extends r
 - a1: a v2 recording round-trips with its pairs [evidence: test: tests/test_ground_replay_export.py::test_v2_round_trip_pairs]
 - a2: a v1 input still gives the run 4 bytes [evidence: test: tests/test_ground_replay_export.py::test_v1_output_unchanged]
 - a3: pairs false writes zero pairs [evidence: test: tests/test_ground_replay_export.py::test_pairs_false_writes_zero_pairs]
-- a4: an export above 3 MB fails and writes nothing [evidence: test: tests/test_ground_replay_export.py::test_fixture_size_cap]
+- a4: an export above its cap (3 MB without pairs, 6 MB with) fails and writes nothing [evidence: test: tests/test_ground_replay_export.py::test_fixture_size_cap]
 - a5: the scenes config validates [evidence: test: tests/test_ground_replay_export.py::test_scenes_config_validates]
-- a6: the ToF frame subset is exported [evidence: test: tests/test_ground_replay_export.py::test_export_tof_frames_subset]
+- a6: the ToF frame subset is exported with its truth polygons and floor plane [evidence: test: tests/test_ground_replay_export.py::test_export_tof_frames_subset]
 - a7: the committed tiny_v2.bin equals its regeneration [evidence: test: tests/test_ground_replay_export.py::test_tiny_v2_fixture_is_current]
 - a8: the C++ reader decodes v2, still reads v1 and rejects an unknown version [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
 - a9: the README describes fixture v2 [evidence: doc-section: nodes/ground_estimator_cpp/README.md#Replay tests]
@@ -90,3 +90,5 @@ Keeps run 4's part replay-harness (v1 reader, ReplayFrame, metrics) unchanged.
 - Built on run 4's `replay-fixtures-and-test`: read its converter and reader first and extend them; do not fork them.
 - The PNG keeps 16-bit depth losslessly (`cv2.imencode('.png', depth_uint16)`; `cv::imdecode(..., cv::IMREAD_UNCHANGED)` gives CV_16UC1).
 - `opencv-python-headless` is already a root dev dependency.
+
+- 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
