@@ -319,7 +319,7 @@ def good_frame() -> DepthData:
 
 @pytest.fixture
 def harness(monkeypatch: pytest.MonkeyPatch) -> Harness:
-    """Bridge on the default config.
+    """Bridge on the default config with the flying pixel filter off (the fixture frames are steep ramps).
 
     Args:
         monkeypatch (pytest.MonkeyPatch): Patches the SDK camera factory.
@@ -327,7 +327,7 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> Harness:
     Returns:
         Harness: The harness.
     """
-    return Harness(monkeypatch, TofConfig())
+    return Harness(monkeypatch, TofConfig(flying_pixel_filter=False))
 
 
 def test_topics_and_encodings_are_the_shared_contract() -> None:
@@ -896,7 +896,9 @@ def test_floor_capture_dome_is_flat_after_radial_to_z() -> None:
 
 def test_camera_info_uses_the_calibration_file_k(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     k = [207.787, 208.171, 1.9, 1.4]
-    h = run_one_frame(monkeypatch, TofConfig(tof_calibration_file=write_calibration(tmp_path, k)))
+    h = run_one_frame(
+        monkeypatch, TofConfig(flying_pixel_filter=False, tof_calibration_file=write_calibration(tmp_path, k))
+    )
     [info] = h.published(bridge.CAMERA_INFO_TOPIC)
     assert info.k == pytest.approx([k[0], 0.0, k[2], 0.0, k[1], k[3], 0.0, 0.0, 1.0])
     assert info.p == pytest.approx([k[0], 0.0, k[2], 0.0, 0.0, k[1], k[3], 0.0, 0.0, 0.0, 1.0, 0.0])
@@ -912,7 +914,7 @@ def test_camera_info_uses_the_calibration_file_k(monkeypatch: pytest.MonkeyPatch
 
 
 def test_missing_calibration_file_falls_back_to_sdk_k(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    h = run_one_frame(monkeypatch, TofConfig(tof_calibration_file=tmp_path / "absent.yaml"))
+    h = run_one_frame(monkeypatch, TofConfig(flying_pixel_filter=False, tof_calibration_file=tmp_path / "absent.yaml"))
     [info] = h.published(bridge.CAMERA_INFO_TOPIC)
     assert info.k[0] == pytest.approx(INTRINSIC_FX / 100)
     assert info.k[2] == pytest.approx(INTRINSIC_CX / 100)
@@ -922,7 +924,7 @@ def test_missing_calibration_file_falls_back_to_sdk_k(monkeypatch: pytest.Monkey
 def test_invalid_calibration_file_falls_back_to_sdk_k(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     path = tmp_path / "bad.yaml"
     path.write_text("camera_matrix: {data: [1, 2]}\n")
-    h = run_one_frame(monkeypatch, TofConfig(tof_calibration_file=path))
+    h = run_one_frame(monkeypatch, TofConfig(flying_pixel_filter=False, tof_calibration_file=path))
     [info] = h.published(bridge.CAMERA_INFO_TOPIC)
     assert info.k[0] == pytest.approx(INTRINSIC_FX / 100)
     h.logger.warning.assert_called()
@@ -930,7 +932,7 @@ def test_invalid_calibration_file_falls_back_to_sdk_k(monkeypatch: pytest.Monkey
 
 def test_calibration_file_of_another_size_falls_back_to_sdk_k(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     path = write_calibration(tmp_path, [207.787, 208.171, 114.7, 96.0], width=240, height=180)
-    h = run_one_frame(monkeypatch, TofConfig(tof_calibration_file=path))
+    h = run_one_frame(monkeypatch, TofConfig(flying_pixel_filter=False, tof_calibration_file=path))
     [info] = h.published(bridge.CAMERA_INFO_TOPIC)
     assert info.k[0] == pytest.approx(INTRINSIC_FX / 100)
     h.logger.error.assert_called()
@@ -951,7 +953,7 @@ def test_calibration_file_gives_k_without_sdk_focal_length(monkeypatch: pytest.M
 
 
 def test_depth_is_radial_false_publishes_depth_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    h = run_one_frame(monkeypatch, TofConfig(depth_is_radial=False))
+    h = run_one_frame(monkeypatch, TofConfig(flying_pixel_filter=False, depth_is_radial=False))
     [depth] = h.published(bridge.DEPTH_TOPIC)
     pixels = np.frombuffer(bytes(depth.data), dtype="<u2").reshape(HEIGHT, WIDTH)
     expected = np.rint(np.arange(1, 13, dtype=np.float32).reshape(HEIGHT, WIDTH) * 100.4).astype(np.uint16)
@@ -970,3 +972,137 @@ def test_depth_is_unconverted_when_there_are_no_intrinsics(harness: Harness) -> 
     [depth] = harness.published(bridge.DEPTH_TOPIC)
     pixels = np.frombuffer(bytes(depth.data), dtype="<u2").reshape(HEIGHT, WIDTH)
     assert pixels[0, 0] == 100 and pixels[2, 3] == 1205
+
+
+CAMERA_HEIGHT_M = 0.45
+CAMERA_PITCH_RAD = np.radians(30.0)
+BOX_NEAR_M = 0.60
+BOX_FAR_M = 0.78
+BOX_HEIGHT_M = 0.05
+SCENE_K = bridge.Intrinsics(207.787, 208.171, 114.743, 95.996)
+FLOOR_NEAR_M = 0.3
+FLOOR_FAR_M = 2.0
+FILTER_DEFAULTS = TofConfig()
+
+
+def render_scene(box: bool, noise_mm: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+    """Render z-depth of a floor (optionally with a 5 cm box) seen from 0.45 m up, pitched 30 deg down.
+
+    Args:
+        box (bool): Add the box top (x 0.60-0.78 m ahead) and its front face.
+        noise_mm (float): Standard deviation of the depth noise in millimetres.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: uint16 depth (mm, 0 = no surface in 0.3-2.0 m) of 180x240 and the
+        float forward distance of each pixel's hit point.
+    """
+    rows, _cols = np.mgrid[0:SDK_FRAME_H, 0:SDK_FRAME_W]
+    yn = (rows - SCENE_K.cy) / SCENE_K.fy
+    sin_a, cos_a = np.sin(CAMERA_PITCH_RAD), np.cos(CAMERA_PITCH_RAD)
+    fwd_per_t = cos_a - yn * sin_a
+    drop_per_t = sin_a + yn * cos_a  # downward metres per unit z-depth
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = np.where(drop_per_t > 0, CAMERA_HEIGHT_M / drop_per_t, np.inf)
+        x = t * fwd_per_t
+        if box:
+            t_top = (CAMERA_HEIGHT_M - BOX_HEIGHT_M) / drop_per_t
+            x_top = t_top * fwd_per_t
+            on_top = (drop_per_t > 0) & (x_top >= BOX_NEAR_M) & (x_top <= BOX_FAR_M)
+            t_face = BOX_NEAR_M / fwd_per_t
+            on_face = (drop_per_t > 0) & (x_top < BOX_NEAR_M) & (x > BOX_NEAR_M)
+            t = np.where(on_top, t_top, np.where(on_face, t_face, t))
+            x = np.where(on_top, x_top, np.where(on_face, BOX_NEAR_M, x))
+    in_range = np.isfinite(t) & (x >= FLOOR_NEAR_M) & (x <= FLOOR_FAR_M)
+    depth = np.rint(np.where(in_range, t, 0.0) * 1000.0)
+    if noise_mm:
+        depth = depth + np.random.default_rng(0).normal(0.0, noise_mm, depth.shape) * in_range
+    return np.where(in_range, np.maximum(depth, 1.0), 0.0).astype(np.uint16), np.where(in_range, x, 0.0)
+
+
+def box_edge_rows(depth: np.ndarray, x: np.ndarray) -> tuple[int, np.ndarray]:
+    """Find the box's far top edge row and the mask of box-top pixels.
+
+    Args:
+        depth (np.ndarray): Rendered depth.
+        x (np.ndarray): Forward distance of each hit.
+
+    Returns:
+        tuple[int, np.ndarray]: Row of the farthest box-top pixels and the box-top mask.
+    """
+    top = (x >= BOX_NEAR_M) & (x <= BOX_FAR_M) & (depth > 0)
+    return int(np.flatnonzero(top[:, int(SCENE_K.cx)]).min()), top
+
+
+def test_flying_pixel_filter_keeps_tilted_floor() -> None:
+    depth, _x = render_scene(box=False, noise_mm=5.0)
+    valid = depth > 0
+    assert valid.sum() > 5000
+    out = bridge.flying_pixel_filter(
+        depth, FILTER_DEFAULTS.flying_pixel_jump_ratio, FILTER_DEFAULTS.flying_pixel_min_jump_mm
+    )
+    assert out.dtype == np.uint16 and out.shape == depth.shape
+    assert (out[valid] > 0).mean() >= 0.95
+    assert (out[~valid] == 0).all()
+    assert (out[out > 0] == depth[out > 0]).all()
+
+
+def test_flying_pixel_filter_removes_mixed_pixels_behind_box() -> None:
+    depth, x = render_scene(box=True)
+    edge, top = box_edge_rows(depth, x)
+    edge_depth = depth[edge].astype(float)
+    behind = depth[edge - 3].astype(float)  # true floor depth behind the box, clear of the band
+    mixed = depth.copy()
+    band = np.zeros(depth.shape, dtype=bool)
+    for row, weight in ((edge - 1, 0.4), (edge - 2, 0.6)):
+        mixed[row] = np.rint(edge_depth * (1 - weight) + behind * weight)
+        band[row] = depth[row] > 0
+    assert band.sum() > 400
+    out = bridge.flying_pixel_filter(
+        mixed, FILTER_DEFAULTS.flying_pixel_jump_ratio, FILTER_DEFAULTS.flying_pixel_min_jump_mm
+    )
+    assert (out[band] == 0).mean() >= 0.95
+    far_from_edge = np.zeros(depth.shape, dtype=bool)
+    far_from_edge[: edge - 4] = True
+    far_from_edge[edge + 3 :] = True
+    keep = (mixed > 0) & ~band & far_from_edge
+    assert (out[keep] > 0).mean() >= 0.95
+    assert (out[keep & (out > 0)] == mixed[keep & (out > 0)]).all()
+
+
+def test_flying_pixel_filter_keeps_invalid_pixels_invalid() -> None:
+    depth = np.full((5, 5), 1000, dtype=np.uint16)
+    depth[2, 2] = 0
+    out = bridge.flying_pixel_filter(depth, 0.05, 30)
+    assert out[2, 2] == 0
+    assert (out[depth > 0] == 1000).all()
+    lone = np.zeros((4, 4), dtype=np.uint16)
+    lone[0, 0], lone[3, 3] = 500, 3000
+    assert bridge.flying_pixel_filter(lone, 0.05, 30)[0, 0] == 500  # a far valid pixel is not a neighbour
+    adjacent = np.zeros((4, 4), dtype=np.uint16)
+    adjacent[1, 1], adjacent[1, 2] = 500, 3000
+    assert not bridge.flying_pixel_filter(adjacent, 0.05, 30).any()
+
+
+def test_published_depth_has_flying_pixels_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    def frame_with_band() -> DepthData:
+        depth = np.full((HEIGHT, WIDTH), 1000.0, dtype=np.float32)
+        depth[1, 1] = 1400.0
+        return DepthData(
+            depth, np.full((HEIGHT, WIDTH), 80.0, dtype=np.float32), np.full((HEIGHT, WIDTH), 300.0, dtype=np.float32)
+        )
+
+    results = {}
+    for enabled in (True, False):
+        before = counter("tof_flying_pixels_removed_total")
+        h = Harness(monkeypatch, TofConfig(depth_is_radial=False, flying_pixel_filter=enabled))
+        h.prepare = lambda camera: camera.frames.append(frame_with_band())
+        h.bridge.step()
+        [msg] = h.published(bridge.DEPTH_TOPIC)
+        pixels = np.frombuffer(bytes(msg.data), dtype="<u2").reshape(HEIGHT, WIDTH)
+        results[enabled] = (pixels, counter("tof_flying_pixels_removed_total") - before)
+    pixels, removed = results[True]
+    assert removed == 9
+    assert (pixels[:, :3] == 0).all() and (pixels[:, 3] == 1000).all()
+    pixels, removed = results[False]
+    assert removed == 0
+    assert pixels[1, 1] == 1400 and pixels[0, 0] == 1000

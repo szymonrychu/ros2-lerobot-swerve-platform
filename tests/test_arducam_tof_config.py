@@ -33,6 +33,9 @@ DRIVER_KEYS = {
     "stamp_latency_ms",
     "tof_calibration_file",
     "depth_is_radial",
+    "flying_pixel_filter",
+    "flying_pixel_jump_ratio",
+    "flying_pixel_min_jump_mm",
 }
 HEAD_TAB_TOPICS = ("/tof/depth/image_raw", "/tof/amplitude/image_raw", "/tof/camera_info")
 NORMAL_TIER = (500, 500, -500)
