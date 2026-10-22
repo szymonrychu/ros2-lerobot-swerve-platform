@@ -135,6 +135,24 @@ def test_store_frame_mismatch_ignored_and_logged_once(clock: Clock, caplog: pyte
     assert len([r for r in caplog.records if "odom" in r.getMessage()]) == 1
 
 
+def no_return_area() -> dict[str, Any]:
+    return {**area(kind="no_return"), "height_m": None, "slope_deg": None, "source": "colour"}
+
+
+def test_null_heights_area_parses() -> None:
+    msg = parse_warning_areas(warning(no_return_area()).data)
+    assert msg.areas[0].kind == "no_return" and msg.areas[0].height_m is None and msg.areas[0].slope_deg is None
+
+
+def test_no_return_area_is_a_slow_down_area(node: ZoneMaskPublisher, log: list) -> None:
+    ready(node)
+    node.on_ground(warning(no_return_area()))
+    speed, cost = grid(last(log, "speed")), grid(last(log, "ground_cost"))
+    assert speed[INSIDE_CELL] == 40 and speed[OUTSIDE_CELL] == 0
+    assert cost[INSIDE_CELL] == 40 and cost[OUTSIDE_CELL] == -1
+    assert grid(last(log, "keepout"))[INSIDE_CELL] != 100
+
+
 def test_warning_sets_speed_and_ground_cost_masks(node: ZoneMaskPublisher, log: list) -> None:
     ready(node)
     node.on_ground(warning(area()))

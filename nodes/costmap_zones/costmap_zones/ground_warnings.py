@@ -28,8 +28,8 @@ class GroundArea(BaseModel):
     Attributes:
         kind: Area kind from the ground node (step, ramp, colour, ...).
         polygon: Vertices [x, y] in the message frame, m (at least 3).
-        height_m: Edge step height, m.
-        slope_deg: Surface slope, deg.
+        height_m: Edge step height, m; null: not measured (kind no_return).
+        slope_deg: Surface slope, deg; null: not measured (kind no_return).
         source: Sensor that produced it (tof, colour, ...).
     """
 
@@ -37,8 +37,8 @@ class GroundArea(BaseModel):
 
     kind: str
     polygon: list[tuple[float, float]] = Field(min_length=MIN_POLYGON_VERTICES)
-    height_m: float
-    slope_deg: float
+    height_m: float | None
+    slope_deg: float | None
     source: str
 
 
