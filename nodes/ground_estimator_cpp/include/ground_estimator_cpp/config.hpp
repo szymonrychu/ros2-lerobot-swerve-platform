@@ -90,10 +90,10 @@ struct EdgesConfig
 struct OcclusionConfig
 {
   bool enabled = true;                  // false = no shadow gate
-  double azimuth_bin_deg = 1.0;         // 0.1..10; width of an azimuth bin of the occluder horizon
-  double elevation_margin_deg = 0.5;    // 0..5; slack on the shadow ray elevation, degrees
-  double min_occluder_height_m = 0.02;  // > 0, < bands.obstacle_max_m; lowest plane-relative height that occludes
-  double min_height_drop_m = 0.01;      // > 0; smallest height drop behind an occluder that counts as shadowed
+  double azimuth_bin_deg = 2.0;         // 0.1..10; width of an azimuth bin of the occluder horizon
+  double elevation_margin_deg = 1.0;    // 0..5; slack on the shadow ray elevation, degrees
+  double min_occluder_height_m = 0.04;  // > 0, < bands.obstacle_max_m; lowest plane-relative height that occludes
+  double min_height_drop_m = 0.015;     // > 0; smallest height drop behind an occluder that counts as shadowed
 };
 
 // Tilt limits of the tilt_guard.

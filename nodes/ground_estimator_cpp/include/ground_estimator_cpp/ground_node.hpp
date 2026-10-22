@@ -83,6 +83,7 @@ constexpr const char * METRIC_TEMPORAL_CELLS = "ground_temporal_cells";
 constexpr const char * METRIC_TEMPORAL_GATED = "ground_temporal_gated_cells";
 constexpr const char * METRIC_STABLE_LETHAL = "ground_stable_lethal_cells";
 constexpr const char * METRIC_STABLE_WARNING = "ground_stable_warning_cells";
+constexpr const char * METRIC_OCCLUDED_POINTS = "ground_occluded_points";
 constexpr const char * METRIC_MISMATCH_RATIO = "ground_colour_mismatch_ratio";
 constexpr const char * METRIC_DROPPED = "ground_clouds_dropped_total";
 constexpr const char * METRIC_LABELLED = "ground_labelled_clouds_total";
@@ -160,7 +161,9 @@ private:
 
   void process_plane(
     const sensor_msgs::msg::PointCloud2 & msg, const TrackedPlane & tracked, const Eigen::Isometry3d & fixed_T_base,
-    double stamp_s, const std::chrono::steady_clock::time_point & started);
+    const Eigen::Vector3d & sensor_base, double stamp_s, const std::chrono::steady_clock::time_point & started);
+  // Fills visible_cloud_ with the points of base_cloud_ outside the occlusion shadows and sets the gauge.
+  void drop_occluded(const Plane & plane, const Eigen::Vector3d & sensor_base);
   void refine_slopes(std::vector<Cluster> & clusters, double sign, const Eigen::Isometry3d & fixed_T_base) const;
   void observe_classes(const Traversability & rule, const Eigen::Isometry3d & fixed_T_base, double stamp_s);
   void observe_steady(
@@ -202,6 +205,8 @@ private:
 
   // Reused between clouds (the 10 Hz path keeps its capacity).
   pcl::PointCloud<pcl::PointXYZ> base_cloud_;
+  pcl::PointCloud<pcl::PointXYZ> visible_cloud_;   // base_cloud_ without the occluded points
+  std::vector<float> heights_;                     // plane-relative heights of base_cloud_
   pcl::PointCloud<pcl::PointXYZ> filtered_cloud_;  // base_cloud_ after the temporal median
   pcl::PointCloud<pcl::PointXYZ> unclustered_above_, unclustered_below_;
   std::vector<float> unclustered_above_h_, unclustered_below_h_;

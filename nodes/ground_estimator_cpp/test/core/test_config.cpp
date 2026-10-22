@@ -107,10 +107,10 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.edges.slope_bin_m, 0.10);
   EXPECT_EQ(c.edges.slope_min_cells, 3);
   EXPECT_TRUE(c.occlusion.enabled);
-  EXPECT_DOUBLE_EQ(c.occlusion.azimuth_bin_deg, 1.0);
-  EXPECT_DOUBLE_EQ(c.occlusion.elevation_margin_deg, 0.5);
-  EXPECT_DOUBLE_EQ(c.occlusion.min_occluder_height_m, 0.02);
-  EXPECT_DOUBLE_EQ(c.occlusion.min_height_drop_m, 0.01);
+  EXPECT_DOUBLE_EQ(c.occlusion.azimuth_bin_deg, 2.0);
+  EXPECT_DOUBLE_EQ(c.occlusion.elevation_margin_deg, 1.0);
+  EXPECT_DOUBLE_EQ(c.occlusion.min_occluder_height_m, 0.04);
+  EXPECT_DOUBLE_EQ(c.occlusion.min_height_drop_m, 0.015);
   EXPECT_DOUBLE_EQ(c.edges.step_segment_m, 0.10);
   EXPECT_EQ(c.edges.step_segment_min_points, 3);
   ASSERT_TRUE(c.metrics_port.has_value());

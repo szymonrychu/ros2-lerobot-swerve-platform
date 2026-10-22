@@ -1538,3 +1538,105 @@ TEST_F(NodeTest, PlaneLossResetsTheCellClasses)
   const auto stable = warm_cloud_and_wait(box);
   EXPECT_GT(xyz_of(*find_stamp(obstacle_, stable)).size(), 50u);
 }
+
+// --- occlusion shadow gate on the node (design D16) -------------------------------------------------------------------
+
+namespace
+{
+constexpr int SHADOW_FRAMES = 30;
+constexpr int TAIL_POINTS = 150;
+constexpr double SHADOW_FAR_EDGE_X = STABLE_BOX_X1;  // the box's far edge in base_link
+constexpr double SHADOW_DROP_SHARE = 0.01;
+constexpr double SHADOW_BOX_SHARE = 0.95;
+constexpr double SHADOW_TAIL_FLOOR_M = 0.0;
+constexpr unsigned TAIL_SEED = 31000U;
+
+// noisy_box plus the mixed-pixel tail behind its far (x = 0.93) edge, as the ToF at BASE_T_TOF smears it.
+pcl::PointCloud<pcl::PointXYZ> box_with_tail(int frame)
+{
+  pcl::PointCloud<pcl::PointXYZ> cloud = noisy_box(frame);
+  ground_test::add_mixed_pixel_tail(
+    cloud, BASE_T_TOF.translation(), Eigen::Vector3d(SHADOW_FAR_EDGE_X, STABLE_BOX_Y0, STABLE_BOX_HEIGHT_M),
+    Eigen::Vector3d(SHADOW_FAR_EDGE_X, STABLE_BOX_Y1, STABLE_BOX_HEIGHT_M), SHADOW_TAIL_FLOOR_M, TAIL_POINTS,
+    TAIL_SEED + static_cast<unsigned>(frame));
+  return cloud;
+}
+
+// Whether a step or ramp area of the document has its centroid beyond the box's far edge (base_link x).
+bool has_far_side_area(const json & doc)
+{
+  if (doc.is_null()) {
+    return false;
+  }
+  const Eigen::Isometry3d base_T_map = (MAP_T_ODOM * ODOM_T_BASE).inverse();
+  for (const auto & a : doc["areas"]) {
+    if (a["kind"] != "step" && a["kind"] != "ramp") {
+      continue;
+    }
+    const Eigen::Vector2d c = centroid(a["polygon"]);
+    if ((base_T_map * Eigen::Vector3d(c.x(), c.y(), 0.0)).x() > SHADOW_FAR_EDGE_X) {
+      return true;
+    }
+  }
+  return false;
+}
+}  // namespace
+
+TEST_F(NodeTest, BoxWithAMixedPixelTailHasNoFarSideWarningAndAStableObstacle)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  const auto frames = run_scene(box_with_tail, SHADOW_FRAMES);
+  EXPECT_GE(share(frames, [](const FrameOutput & f) { return f.obstacle > 0; }), SHADOW_BOX_SHARE);
+  for (std::size_t i = 0; i < frames.size(); ++i) {
+    EXPECT_FALSE(has_far_side_area(frames[i].warnings)) << "frame " << i << ": " << frames[i].warnings.dump();
+  }
+  EXPECT_GT(metric("ground_occluded_points").value_or(0.0), 0.0);
+}
+
+TEST_F(NodeTest, NoisyEmptyFloorLosesFewerThanOnePercentToTheShadowGate)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  for (int i = 0; i < NOISY_FRAMES; ++i) {
+    const auto cloud = ground_test::add_z_noise(
+      ground_test::grid_cloud(-1.0, 1.0, -1.0, 1.0, NOISY_GRID_STEP_M), BOX_FLOOR_NOISE_M, 0.0, 0.0, 500U + i);
+    const auto f = run_frame(cloud);
+    const auto occluded = metric("ground_occluded_points");
+    ASSERT_TRUE(occluded.has_value()) << "frame " << i;
+    EXPECT_LT(*occluded, SHADOW_DROP_SHARE * static_cast<double>(cloud.size())) << "frame " << i;
+    if (i >= config.temporal.min_frames) {
+      EXPECT_EQ(f.obstacle, 0u) << "frame " << i;
+      EXPECT_EQ(f.drop, 0u) << "frame " << i;
+    }
+  }
+}
+
+TEST_F(NodeTest, TenCentimetreDropOffStaysALethalDropWithTheShadowGate)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  const auto frames = run_scene(
+    [](int i) {
+      return ground_test::render(
+        drop_scene(0.10), ground_test::DEFAULT_SIGMA_M, 0.0, 700U + static_cast<unsigned>(i), DECIMATION);
+    },
+    SHADOW_FRAMES);
+  EXPECT_GE(share(frames, [](const FrameOutput & f) { return f.drop > 0; }), SHADOW_BOX_SHARE);
+  EXPECT_TRUE(metric("ground_occluded_points").has_value());
+}
+
+TEST_F(NodeTest, OccludedPointsGaugeAppearsWithItsFirstRealValue)
+{
+  fill_tf();
+  start(base_config());
+  EXPECT_FALSE(metric("ground_occluded_points").has_value());
+  cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  EXPECT_EQ(metric("ground_occluded_points").value_or(-1.0), 0.0);
+}
