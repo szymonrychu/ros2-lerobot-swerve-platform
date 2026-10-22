@@ -165,7 +165,9 @@ class GroundRecording:
         """
         self.dropped_counts[stream][reason] = self.dropped_counts[stream].get(reason, 0) + n
 
-    def add_cloud(self, stamp_ns: int, frame_id: str, points_m: np.ndarray, base_T_cloud: Pose7, odom_T_base: Pose7) -> None:
+    def add_cloud(
+        self, stamp_ns: int, frame_id: str, points_m: np.ndarray, base_T_cloud: Pose7, odom_T_base: Pose7
+    ) -> None:
         """Add one point cloud; non-finite or int16-mm out-of-range points are dropped and counted.
 
         :param stamp_ns: cloud stamp, ns (int).
@@ -188,7 +190,13 @@ class GroundRecording:
         self.base_T_cloud.append(pose_row(base_T_cloud))
         self.odom_T_base.append(pose_row(odom_T_base))
 
-    def add_imu(self, stamp_ns: int, orientation: tuple[float, ...], linear_acceleration: tuple[float, ...], angular_velocity: tuple[float, ...]) -> None:
+    def add_imu(
+        self,
+        stamp_ns: int,
+        orientation: tuple[float, ...],
+        linear_acceleration: tuple[float, ...],
+        angular_velocity: tuple[float, ...],
+    ) -> None:
         """Add one IMU sample.
 
         :param stamp_ns: stamp, ns (int).
@@ -247,7 +255,9 @@ class GroundRecording:
         """
         self.tof_info = (*intrinsics(k, d), (int(width), int(height)), frame_id)
 
-    def add_pair(self, stamp_ns: int, rgb_jpeg: bytes, depth_mm: np.ndarray, base_T_rgb: Pose7, odom_T_base: Pose7) -> None:
+    def add_pair(
+        self, stamp_ns: int, rgb_jpeg: bytes, depth_mm: np.ndarray, base_T_rgb: Pose7, odom_T_base: Pose7
+    ) -> None:
         """Add one RGB + depth pair; a depth size differing from the first pair is dropped.
 
         :param stamp_ns: stamp, ns (int).

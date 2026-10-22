@@ -70,8 +70,8 @@ def test_round_trip_all_streams(tmp_path: Path) -> None:
     assert a[gr.KEY_TOF_K].shape == (9,)
     assert str(a[gr.KEY_TOF_FRAME]) == "tof_optical"
     assert a[gr.KEY_PAIR_JPEG].dtype == np.uint8
-    assert a[gr.KEY_PAIR_JPEG_OFFSETS].tolist() == [0, 5, 10]
-    assert bytes(a[gr.KEY_PAIR_JPEG][5:10]) == b"\xff\xd8de"
+    assert a[gr.KEY_PAIR_JPEG_OFFSETS].tolist() == [0, 5, 9]
+    assert bytes(a[gr.KEY_PAIR_JPEG][5:9]) == b"\xff\xd8de"
     assert a[gr.KEY_PAIR_DEPTH_MM].shape == (2, 2, 3)
     assert a[gr.KEY_PAIR_BASE_T_RGB].shape == (2, 7)
     assert a[gr.KEY_PAIR_ODOM_T_BASE].shape == (2, 7)
