@@ -72,6 +72,10 @@ CellMedianFilter::apply unchanged; new CellMedianFilter::gated_cell_count() (par
 - implement the MAD spread gate and gated_cell_count
 - run `scripts/cpp-node-test.sh ground_estimator_cpp`, see PASS; commit `feat(ground_estimator_cpp): per-cell temporal spread gate`
 
+## Ruling
+
+- 2026-10-22 accepted: statistical bounds of an 8-frame window: measured 43-90 mm leak <= 5%, 4-20 mm floor visibility >= 95% (single 20 mm cell ~85%); zero leak is unreachable; downstream class hysteresis (N of M) and lethal point gates (>=2 points/persistence) absorb leaks; doc mismatch 1.35 vs 1.3 fixed in a52ce617, re-verified
+
 ## Notes
 
 See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.
