@@ -202,6 +202,13 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `hysteresis.window_frames` | `5` | recent frames a cell's class is judged over, 1..30 |
 | `hysteresis.enter_frames` | `3` | frames of a class (within the window) needed to enter it, exit_frames..window_frames, a strict majority of the window |
 | `hysteresis.exit_frames` | `1` | frames of the new class needed to leave the current one, 1..enter_frames |
+| `hysteresis.area_enter_frames` | `3` | active frames (voted or stable) before a stable warning cell joins a new area, 1..30 |
+| `hysteresis.area_join_frames` | `8` | active frames before a cell joins an area that is already published, area_enter_frames..30 |
+| `hysteresis.area_min_cells` | `3` | smallest new warning area published, in cells (smaller components keep their cells' class only), 1..100 |
+| `hysteresis.area_kind_frames` | `10` | frames another kind must have most of an area's cells before the area's kind changes, 1..30 |
+| `hysteresis.area_history_frames` | `20` | frames of voting history behind the area densities, 1..120 |
+| `hysteresis.area_enter_density` | `0.75` | share of the history frames a cell voted in to join an area, 0 < v <= 1 |
+| `hysteresis.area_exit_density` | `0.25` | share of the history frames a cell must stay at or above to remain in an area, 0 <= v <= area_enter_density |
 | `metrics_port` | `19119` | Prometheus port, 1..65535, or null to disable |
 
 The spread in `temporal.max_spread_m` is computed over the per-frame cell medians. With fewer than 5 values it is 1.4826 * MAD (1.4826 turns the MAD into a Gaussian sigma). From 5 values on it is the standard deviation after dropping the most deviant value, times 1.3: it is as robust to one outlier frame as the MAD but varies far less between windows (8 frames: a plain MAD slips under the limit by chance). Dropping a value shrinks the estimate to ~0.77 of sigma, so 1.3 is the consistent factor (1.35 was tried and failed the >= 95 % floor-visibility bound). Measured bounds (20+ seeds, 8-frame window): far-band cells of 43-90 mm spread leak in at most 5 % of cell-frames, floor cells of 4-20 mm stay visible in at least 95 % of cell-frames (a single 20 mm cell about 85 %); the class hysteresis and lethal point gates downstream absorb the leaks. A gated cell is unknown (no points, so never lethal, a step, a drop or part of a cluster), keeps its history, and is known again as soon as its spread is back under the limit. No range cap is used.
