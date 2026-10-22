@@ -40,3 +40,9 @@ Estimate: 1175 min | Actual: 0 min | Remaining estimate: 90 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-22)
+
+Closed by user decision 2026-10-22 (answer A): every remaining task is done, verified and merged. The one leftover
+live runbook task final-suite-and-runbook moved, requirement and acceptance conditions verbatim, to the follow-up epic rtab-map-3d-mapping-runbook (docs/plans/todo/rtab-map-3d-mapping-runbook),
+blocked by drivable-ground-tof-filterin. The runbook moved to rtab-map-3d-mapping-runbook.
