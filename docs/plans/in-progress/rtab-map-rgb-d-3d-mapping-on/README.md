@@ -1,7 +1,7 @@
 ---
 title: RTAB-Map RGB-D 3D mapping on the server
 blockers: [ToF 3D obstacle detection for Nav2, Remove the Jetson coprocessor, Head RGB-D fusion of camera and ToF]
-stage: build
+stage: review
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
