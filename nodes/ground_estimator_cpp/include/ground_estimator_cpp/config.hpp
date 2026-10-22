@@ -161,6 +161,44 @@ struct HysteresisConfig
   double area_exit_density = 0.25;   // 0..area_enter_density, share of the history frames
 };
 
+// Guidance edge points: depth-detected lethal regions snapped to RGB edges (design D3, D5).
+struct EdgeGuidanceConfig
+{
+  bool enabled = true;
+  double max_shift_m = 0.06;   // 0 < v <= 0.15, metres; largest xy distance of an edge point from a stable lethal point
+  double min_height_m = 0.02;  // 0 < v <= max step (0.04), metres; smallest |height| of an edge point
+  double voxel_m = 0.02;       // 0.005..0.05, metres; voxel of the edge point decimation
+};
+
+// Guidance no-return areas: image areas the ToF should see but returns nothing from (design D12).
+struct NoReturnConfig
+{
+  bool enabled = true;
+  double min_range_m = 0.3;     // 0 <= v < guidance.max_range_m, metres; nearer cells are not judged
+  int cell_min_samples = 6;     // >= 1; samples a cell needs before it is judged
+  double cell_min_share = 0.8;  // 0 < v <= 1; share of a cell's samples without a return for it to count
+  int window_frames = 4;        // 1..20; frames a cell is judged over
+  int enter_frames = 3;         // 1..window_frames; frames of no return that make a cell a no-return cell
+  int min_cells = 2;            // >= 1; smallest area published, in cells
+  int clearance_cells = 1;      // 0..3; cells around an area kept clear of valid returns
+  int tof_margin_px = 4;        // 0..20, pixels; margin inside the ToF image border where nothing is judged
+};
+
+// The guidance frame: upsampled depth plus RGB beside the ToF cloud (design D3).
+struct GuidanceConfig
+{
+  bool enabled = true;
+  std::string depth_topic = "/head_rgbd/depth_upsampled/image_raw";
+  std::string info_topic = "/head_rgbd/depth_upsampled/camera_info";
+  std::string rgb_topic = "/head_rgbd/rgb/image_raw/compressed";
+  std::string tof_info_topic = "/tof/camera_info";
+  double max_age_s = 0.6;    // 0 < v <= 2, seconds; oldest guidance frame used, relative to the cloud stamp
+  int sample_step_px = 2;    // 1..8, pixels; stride of the sampling grid
+  double max_range_m = 2.0;  // 0 < v <= bands.max_range_m, metres; farthest range sampled
+  EdgeGuidanceConfig edge;
+  NoReturnConfig no_return;
+};
+
 // Every setting of the node.
 struct Config
 {
@@ -183,6 +221,7 @@ struct Config
   StateConfig state;
   TemporalConfig temporal;
   HysteresisConfig hysteresis;
+  GuidanceConfig guidance;
   std::optional<long> metrics_port = DEFAULT_METRICS_PORT;  // NOLINT(runtime/int); nullopt disables metrics
 
   // Largest step the base rides over: a third of the wheel diameter.
