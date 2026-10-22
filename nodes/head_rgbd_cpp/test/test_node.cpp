@@ -358,9 +358,10 @@ TEST_F(NodeTest, InputsAreSubscribedOnlyWhileAnOutputHasSubscribers)
   depth_info_sub_.reset();
   rgb_sub_.reset();
   rgb_info_sub_.reset();
-  EXPECT_TRUE(wait_for([this] { return rgb_pub_->get_subscription_count() == 0; }));
-  EXPECT_EQ(tof_pub_->get_subscription_count(), 0u);
-  EXPECT_EQ(info_pub_->get_subscription_count(), 0u);
+  EXPECT_TRUE(wait_for([this] {
+    return rgb_pub_->get_subscription_count() == 0 && tof_pub_->get_subscription_count() == 0 &&
+           info_pub_->get_subscription_count() == 0;
+  }));
 }
 
 TEST_F(NodeTest, PublishesRegisteredPairWithTheRgbStampAndFrame)
