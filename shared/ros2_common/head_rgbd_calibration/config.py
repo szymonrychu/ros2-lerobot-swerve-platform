@@ -104,3 +104,74 @@ class FloorFitConfig(StrictModel):
     sigma_height_mm: float = Field(default=5.0, gt=0)
     sigma_normal_deg: float = Field(default=0.5, gt=0)
     huber_scale: float = Field(default=1.0, gt=0)
+
+
+ARM_JOINT_NAMES = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
+DEFAULT_JOINT_OFFSETS_RAD = {
+    "shoulder_pan": 0.0182,
+    "shoulder_lift": -0.0345,
+    "elbow_flex": -0.1070,
+    "wrist_flex": 0.0988,
+    "wrist_roll": -0.0710,
+}
+
+
+class BoardMountConfig(StrictModel):
+    """Board frame in gripper_link: start values of the mount (the hardware step records the real one) and plate margin.
+
+    `xyz_init` is the board frame origin in gripper_link (m), `rpy_init` the fixed-axis xyz rotation (rad),
+    `outline_margin_m` the plate margin beyond the outer squares used by the pose check.
+    """
+
+    xyz_init: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rpy_init: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    outline_margin_m: float = Field(default=0.01, ge=0)
+
+
+class HeadArmFitLimits(StrictModel):
+    """Acceptance limits of the head-from-arm fit; a result outside any of them is refused."""
+
+    rms_px: float = Field(default=1.0, gt=0)
+    holdout_rms_px: float = Field(default=1.5, gt=0)
+    holdout_board_mm: float = Field(default=5.0, gt=0)
+    max_sigma_mm: float = Field(default=2.0, gt=0)
+    max_sigma_deg: float = Field(default=0.2, gt=0)
+    min_views: int = Field(default=40, gt=0)
+    min_arm_poses: int = Field(default=16, gt=0)
+    min_pan_span_deg: float = Field(default=30.0, gt=0)
+    min_tilt_span_deg: float = Field(default=10.0, gt=0)
+    holdout_every: int = Field(default=5, ge=2)
+    max_floor_delta_mm: float = Field(default=10.0, gt=0)
+    max_floor_delta_deg: float = Field(default=1.5, gt=0)
+    max_start_delta_mm: float = Field(default=30.0, gt=0)
+    max_start_delta_deg: float = Field(default=5.0, gt=0)
+
+
+class BaseInBaseLink(StrictModel):
+    """Arm base pose in base_link (m, rad); the client.yml mcp_server arm.base_in_base_link."""
+
+    x: float = 0.0592
+    y: float = -0.05
+    z: float = 0.100
+    yaw: float = 0.0
+
+
+class HeadArmFitConfig(StrictModel):
+    """Head-from-arm fit: board and its mount on the gripper, limits, the trusted arm gauge and the floor prior."""
+
+    board: BoardConfig = Field(default_factory=BoardConfig)
+    board_mount: BoardMountConfig = Field(default_factory=BoardMountConfig)
+    limits: HeadArmFitLimits = Field(default_factory=HeadArmFitLimits)
+    huber_f_scale_px: float = Field(default=1.0, gt=0)
+    base_in_base_link: BaseInBaseLink = Field(default_factory=BaseInBaseLink)
+    joint_offsets_rad: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_JOINT_OFFSETS_RAD))
+    floor_prior_weight: float = Field(default=0.0, ge=0)
+
+    @model_validator(mode="after")
+    def check_joints(self) -> Self:
+        names = set(self.joint_offsets_rad)
+        missing = [name for name in ARM_JOINT_NAMES if name not in names]
+        extra = sorted(names - set(ARM_JOINT_NAMES))
+        if missing or extra:
+            raise ValueError(f"joint_offsets_rad must name exactly the arm joints: missing {missing}, extra {extra}")
+        return self

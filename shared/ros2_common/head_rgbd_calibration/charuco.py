@@ -56,3 +56,32 @@ def detect(image: np.ndarray, board: cv2.aruco.CharucoBoard, upscale: int = 1) -
         return None
     points = (corners.reshape(-1, 2) + 0.5) / upscale - 0.5
     return Detection(ids=ids.reshape(-1).astype(np.int32), points=points.astype(np.float32))
+
+
+def board_corners_3d(cfg: BoardConfig) -> np.ndarray:
+    """ChArUco inner corner positions in the board frame.
+
+    Args:
+        cfg: Board definition.
+
+    Returns:
+        (N, 3) float64 metres with z = 0; row i is corner id i (same frame as make_board, origin at the board's
+        top-left outer corner, x right, y down).
+    """
+    return np.asarray(make_board(cfg).getChessboardCorners(), dtype=np.float64).reshape(-1, 3)
+
+
+def board_outline(cfg: BoardConfig, margin_m: float) -> np.ndarray:
+    """Outer corners of the board rectangle (outer squares plus margin) in the board frame.
+
+    Args:
+        cfg: Board definition.
+        margin_m: Margin added beyond the outer squares on every side (m).
+
+    Returns:
+        (4, 3) float64 metres with z = 0, ordered top-left, top-right, bottom-right, bottom-left.
+    """
+    width = cfg.squares_x * cfg.square_mm / MM_PER_M
+    height = cfg.squares_y * cfg.square_mm / MM_PER_M
+    x0, y0, x1, y1 = -margin_m, -margin_m, width + margin_m, height + margin_m
+    return np.array([[x0, y0, 0.0], [x1, y0, 0.0], [x1, y1, 0.0], [x0, y1, 0.0]], dtype=np.float64)
