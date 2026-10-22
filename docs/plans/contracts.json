@@ -251,5 +251,15 @@
       "arm-joint-offsets-from-the-g"
     ],
     "note": "/api/head-arm/* routes and fixtures head_arm_state/result/sessions.json; owner task head-arm-sequence-http-api"
+  },
+  {
+    "name": "calib-session-kinds",
+    "kind": "schema",
+    "owner": "head-and-arm-calibration-fro",
+    "file": "nodes/head_rgbd_calibration/head_rgbd_calibration/store.py",
+    "consumers": [
+      "arm-joint-offsets-from-the-g"
+    ],
+    "note": "session kind head_arm, add_still_pose pose.json {stamps, rgb, joints (7), arm_pose, tier, head_offset}; owner task session-kinds-joint-poses"
   }
 ]
