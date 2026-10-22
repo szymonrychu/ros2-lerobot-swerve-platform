@@ -60,7 +60,7 @@ FK pose check of the arm with the board on the gripper (`shared/ros2_common/head
 | `test_body_defaults_equal_mcp_server_body` | `BodyConfig` defaults equal the `body` config of the `mcp_server` node in `client.yml` (frame boxes, wheel and lidar cylinders). |
 | `test_head_envelope_contains_head_visuals` | The head envelope (default and grown radius/height) contains the head URDF visuals. |
 | `test_pose_violations_are_named` | A clear pose gives no entries; a pose with the tool at 50 mm is reported as a named `min_tool_height_m` violation. |
-| `test_roll_rules` | Wrist-roll rules for a level tool at 12 cm and 20 cm: rolling is refused or allowed per height. |
+| `test_roll_rules` | Wrist roll with the tool level at 12 cm and 20 cm: a roll at 20 cm violates `max_roll_gripper_rad`, a roll at 12 cm `roll_min_tool_height_m`; a 0.5 rad margin check at 20 cm passes; any wrist_roll difference counts as a roll; no roll gives no entries. |
 | `test_stretched_arm_and_limits` | A stretched shoulder/elbow pose is refused by `stretched_shoulder_lift_max_rad`, also when offsets keep it inside the URDF limits. |
 | `test_path_check_catches_mid_path_contact` | `check_path` finds contact in the middle of a move whose start and target poses are both clear. |
 | `test_board_margin_applies_to_board_rules_only` | The board margin applies to `board_*` rules only; the base rules keep `margin_m`. |
