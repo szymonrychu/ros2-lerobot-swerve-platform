@@ -23,7 +23,7 @@ provides: []
 
 ## Requirement
 
-Amplitude confidence for the ToF depth in arducam_tof (part amplitude-gate, design D7, cross-epic contract tof-depth-amplitude-gate). It uses part baseline-fixtures (`tests/data/amplitude_frames.npz` with truth polygons and the floor plane).
+Amplitude confidence for the ToF depth in arducam_tof (part amplitude-gate, design D7, cross-epic contract tof-depth-amplitude-gate). It uses part baseline-fixtures: `tests/data/amplitude_frames.npz`, written by capture-baseline-recordings through `export_tof_frames` (replay-format-v2), with keys `tof_depth_mm`, `tof_amplitude`, `tof_base_T`, `tof_K`, `tof_D`, `tof_size`, `scene`, `truth_board`, `truth_ramp`, `truth_empty` (xy corners, base_link m) and `floor_plane` (nx ny nz d, base_link).
 
 - `arducam_tof/amplitude.py`, a ROS-free and SDK-free numpy module, loadable by path from root scripts:
   - `normalised_amplitude(amplitude: np.ndarray, depth_mm: np.ndarray) -> np.ndarray`, which is amplitude * (z / 1000 mm)^2;
@@ -89,3 +89,5 @@ Topics, encodings and the z-depth meaning of /tof/depth/image_raw are unchanged 
 
 - `bridge.py` imports the Arducam SDK at the top. Keep `amplitude.py` free of it and of rclpy, so root scripts can load it with `importlib.util.spec_from_file_location`, as `tests/test_arducam_tof_config.py` does with config.py.
 - The head floor fit and the RGB-D calibration read this depth too (contract consumers): the floor retention test is their guard. Deploy with `scripts/deploy-nodes.sh client arducam_tof` (orchestrator).
+
+- 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
