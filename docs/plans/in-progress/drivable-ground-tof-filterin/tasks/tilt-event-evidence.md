@@ -3,7 +3,7 @@ title: Tilt event evidence
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: A tilt warning can be judged real or an IMU glitch from the event itself
-files: [nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_tilt_event_evidence.py, docs/runbooks/agent-retro-fixes.md, nodes/mcp_server/README.md]
+files: [nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_tilt_event_evidence.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_tilt_event_evidence.py -q && uv run poe lint"
 depends_on: [map-epoch-reset-event]
 owns: []
@@ -36,8 +36,8 @@ logged `tilt_warning` at 16:21:15 CEST (roll 2.1, pitch -19.4 deg, limits 12/20)
 
 - Diagnose first: from those logs and Mimir (IMU, odometry, wheel commands and the ground estimator metrics that exist
   for 16:21:00-16:21:30), decide whether the robot was really pitched (lifted, carried or driven onto the bean bag) or
-  the IMU reading was wrong; write the verdict with the numbers to `docs/runbooks/agent-retro-fixes.md` section
-  `## Tilt warning near the bean bag`.
+  the IMU reading was wrong; write the verdict with the numbers to `nodes/mcp_server/README.md` section
+  `### Tilt warning near the bean bag`.
 - Tilt events carry the evidence: the `tilt_warning`, `tilt_critical` (whatever the monitor names its tilt trips) and
   `tilt_clear` robot events and their log lines gain in `data`: `imu_roll_deg`, `imu_pitch_deg`, `over_limit_s` (time
   above the warning limit so far), `base_speed_mps` (from odometry at the trip), `ground_pitch_deg` and `ground_roll_deg`
@@ -51,7 +51,7 @@ logged `tilt_warning` at 16:21:15 CEST (roll 2.1, pitch -19.4 deg, limits 12/20)
 
 ## Acceptance conditions
 
-- a1: the verdict on the 16:21:15 tilt warning (real or IMU artefact) is in the runbook with the numbers [evidence: doc-section:docs/runbooks/agent-retro-fixes.md#Tilt warning near the bean bag]
+- a1: the verdict on the 16:21:15 tilt warning (real or IMU artefact) is in the mcp_server README with the numbers [evidence: doc-section:nodes/mcp_server/README.md#Tilt warning near the bean bag]
 - a2: a tilt warning event carries the IMU and ground-plane pitch and roll [evidence: test:nodes/mcp_server/tests/test_tilt_event_evidence.py::test_tilt_warning_carries_imu_and_ground_pitch]
 - a3: a stale ground plane gives null with its age, never a guessed value [evidence: test:nodes/mcp_server/tests/test_tilt_event_evidence.py::test_ground_pitch_null_when_stale]
 - a4: tilt clear events carry the time over the limit [evidence: test:nodes/mcp_server/tests/test_tilt_event_evidence.py::test_tilt_clear_carries_over_limit_time]
@@ -61,22 +61,27 @@ logged `tilt_warning` at 16:21:15 CEST (roll 2.1, pitch -19.4 deg, limits 12/20)
 
 - `nodes/mcp_server/mcp_server/monitor.py`
 - `nodes/mcp_server/tests/test_tilt_event_evidence.py`
-- `docs/runbooks/agent-retro-fixes.md`
 - `nodes/mcp_server/README.md`
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Tilt robot events (`nodes/mcp_server/mcp_server/monitor.py`) gain `data` fields `imu_roll_deg`, `imu_pitch_deg`,
+`over_limit_s`, `base_speed_mps`, `ground_pitch_deg`, `ground_roll_deg`, `ground_age_s`, `map_guard_state`; existing fields
+unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/mcp_server && uv run --frozen pytest tests/test_tilt_event_evidence.py -q` passes three tests that failed
+before; the README holds the verdict on the 16:21:15 warning.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Diagnose from the saved logs and Mimir; write the verdict.
+- Write the three tests; they FAIL.
+- Add the fields; tests PASS; run the verify command and the mcp_server suite; commit
+  `feat(mcp_server): tilt events carry IMU and ground-plane evidence`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live step: none (code, run 1 of D29); the diagnosis uses history only.
+- Ordered after map-epoch-reset-event (monitor.py).

@@ -3,7 +3,7 @@ title: StopBox backing and turns
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The robot can back away from a nearby obstacle, and a turn that would hit one is refused before it moves"
-files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/look_around.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/mcp_server/tests/test_move_relative_clearance.py, docs/runbooks/agent-retro-fixes.md, nodes/mcp_server/README.md]
+files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/look_around.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/mcp_server/tests/test_move_relative_clearance.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_move_relative_clearance.py -q && uv run poe lint"
 depends_on: [collision-source-stall-fix, mcp-head-kinematics-applied]
 owns: [move-relative-clearance]
@@ -36,8 +36,8 @@ StopBox stops in the saved logs (`.logs/agent-retro-2026-10-22/nav2_bringup.log`
 16:26:11-16:26:20, 16:27:49-16:29:12 CEST.
 
 - Diagnose first: from the saved logs and Loki, which StopBox sub-polygon tripped at each stop and what Nav2 commanded
-  (in-place rotation or backing); write it to `docs/runbooks/agent-retro-fixes.md` section
-  `## StopBox on backing and turning`.
+  (in-place rotation or backing); write it to `nodes/mcp_server/README.md` section
+  `### StopBox on backing and turning`.
 - Backing and sideways moves: a `move_relative` whose translation is <= 0.5 m with dx < 0 or a sideways component and
   dyaw 0 is executed without an in-place turn first (the holonomic base backs or slides straight, for example through
   Nav2's BackUp / DriveOnHeading behaviours or a timed, odometry-checked twist on cmd_vel_nav like `drive()`; the
@@ -61,7 +61,7 @@ StopBox stops in the saved logs (`.logs/agent-retro-2026-10-22/nav2_bringup.log`
 
 ## Acceptance conditions
 
-- a1: the StopBox stops of the 16:28 job are explained per stop in the runbook [evidence: doc-section:docs/runbooks/agent-retro-fixes.md#StopBox on backing and turning]
+- a1: the StopBox stops of the 16:28 job are explained per stop in the node README [evidence: doc-section:nodes/mcp_server/README.md#StopBox on backing and turning]
 - a2: a short backing move runs without an in-place turn first [evidence: test:nodes/mcp_server/tests/test_move_relative_clearance.py::test_backing_move_does_not_turn_first]
 - a3: a turn with a scan return inside the rotation sweep is refused before moving, naming the return [evidence: test:nodes/mcp_server/tests/test_move_relative_clearance.py::test_turn_refused_when_obstacle_in_sweep]
 - a4: a turn with a clear sweep is still executed [evidence: test:nodes/mcp_server/tests/test_move_relative_clearance.py::test_turn_allowed_when_sweep_clear]
@@ -75,22 +75,28 @@ StopBox stops in the saved logs (`.logs/agent-retro-2026-10-22/nav2_bringup.log`
 - `nodes/mcp_server/mcp_server/look_around.py`
 - `nodes/nav2_bringup/config/nav2_params.yaml`
 - `nodes/mcp_server/tests/test_move_relative_clearance.py`
-- `docs/runbooks/agent-retro-fixes.md`
 - `nodes/mcp_server/README.md`
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part move-relative-clearance: `move_relative` backs and slides without a first in-place turn and refuses turns
+into a scan return inside the rotation sweep (`nodes/mcp_server/mcp_server/ros_iface.py:move_relative`, the
+`look_around` sweep check reused from `look_around.py`). StopBox polygons only through `scripts/gen_nav_footprint.py`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/mcp_server && uv run --frozen pytest tests/test_move_relative_clearance.py -q` passes four tests that failed
+before; the README explains each StopBox stop of the 16:28 job.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Diagnose the StopBox stops from the saved logs and Loki; write the section.
+- Write the four tests; they FAIL.
+- Implement the backing path and the up-front sweep refusal; tests PASS; run the verify command and the full mcp_server
+  suite; commit `fix(mcp_server): move_relative backs without turning and refuses turns into obstacles`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live step: none (code, run 1 of D29). Proven live by retro-fixes-live-check at live step 4.
+- Ordered after collision-source-stall-fix (nav2_params.yaml) and mcp-head-kinematics-applied (ros_iface.py).
+- Model opus: Nav2 controller and collision-monitor interplay.

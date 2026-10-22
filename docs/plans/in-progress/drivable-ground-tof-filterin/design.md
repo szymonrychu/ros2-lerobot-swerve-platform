@@ -499,7 +499,9 @@ Extends D11. The orchestrator runs:
 - Run 1 (code): every task without a live precondition: the RGB and amplitude run 1 tasks and the head-from-arm code
   tasks. File order on `ansible/group_vars/client.yml` and web_ui: rgbd-upsampling-on, guidance-config-keys,
   web-ui-ground-recorder-api, then the head-from-arm chain from joint-state-still-capture (its dependency on
-  web-ui-ground-recorder-api is file order only).
+  web-ui-ground-recorder-api is file order only). Plus the retro code tasks (D62): collision-source-stall-fix, stopbox-backing-and-turns,
+  map-reset-requester-event, map-epoch-reset-event, frontiers-honour-keep-outs, tilt-event-evidence,
+  front-camera-ground-points, agent-retro-skill-lessons.
 - Live step 1 (user: arm moves with confirms, robot docked; then the scene, light on, robot static, head moves): deploy
   head_rgbd_calibration, head_state_publisher, mcp_server, web_ui, base_servos and head_rgbd_cpp; calib-robot-runbook
   (apply the head chain); the user puts the board back into the scene; capture-baseline-recordings.
@@ -510,10 +512,12 @@ Extends D11. The orchestrator runs:
 - Live step 3 (user: scene, light, robot static, head moves): deploy ground_estimator_cpp, costmap_zones, mcp_server,
   web_ui; guidance-live-check-and-cpu; ground-live-acceptance.
 - Run 4 (code): ground-voxel-layer-on.
-- Live step 4 (user present at the robot, undocked; short slow goals): deploy nav2_bringup; nav2-goal-across-the-scene.
+- Live step 4 (user present at the robot, undocked; short slow goals): deploy nav2_bringup, laser_filter (when
+  collision-source-stall-fix changed it), mcp_server, web_ui and claude_agent; nav2-goal-across-the-scene, then
+  retro-fixes-live-check (D62).
 
-Each live task states its deploy precondition; the orchestrator deploys before dispatching it (deploying mcp_server
-kills a running agent session: check first). Serves G1, G2, G3.
+Each live task states its deploy precondition; the orchestrator deploys before dispatching it (deploying mcp_server or
+claude_agent kills a running agent session: check first). Serves G1, G2, G3, R1, R2, R4, R5.
 
 ### D31: Calibrate the head chain against the trusted arm with the board on the gripper
 
@@ -674,6 +678,72 @@ User 2026-10-22 approved (yes, with floor retention kept at 95 %, not 90 %): the
 ### D54: User 2026-10-22 approved (yes): two Nav2 goals of at most 1.5 m, user at the robot
 User 2026-10-22 approved (yes): the Nav2 check drives two goals of at most 1.5 m (across the scene around the box, then back) through the mcp_server navigation tools at Nav2 0.25 m/s cap, with the user at the robot and the robot undocked by the user (D25) (user decision)
 
+### D55: Invalid-source stop: fix the cause, keep the fail-safe
+
+User 2026-10-22 ("see retros from live robot - especially 2nd", item 1): the final turn of a navigate_to_pose goal was
+cut by collision_monitor's 'invalid source' stop. At 16:30:35 TF extrapolation errors and both `/scan_filtered` and
+`/tof/points_filtered` 1.0-1.9 s stale point at a common upstream cause, so collision-source-stall-fix diagnoses it from
+Loki and Mimir and fixes it where it is. The stale-source stop and `source_timeout` 1.0 s stay (user decision
+2026-10-18); a fix that needs them changed escalates with numbers. Alternative: raise the timeout or drop a source;
+rejected, it hides an outage the fail-safe exists for. (my call) Serves R1.
+
+### D56: Backing moves do not turn first; turns into an obstacle are refused up front
+
+User item 4: StopBox fired on `move_relative` dx -0.35 and dyaw -0.6 near the wardrobe while `drive` nudges worked.
+The rotation shim turns in place first, which selects StopBox's `rotate` sub-polygon. stopbox-backing-and-turns makes short
+backing and sideways moves go straight (still through the smoother and the collision monitor) and refuses a turn
+before any command when a scan return is inside the rotation sweep, reusing look_around's check. StopBox polygons change
+only through the generator. Alternative: shrink the rotate polygon; rejected, a real corner sweep would then hit.
+(my call) Serves R4.
+
+### D57: Every map reset is a robot event with its cause
+
+User item 3: the map reset (epoch 1->2) mid go_to_frontier had no event. The saved web_ui log shows it came through
+web_ui's `POST /api/map/reset` at 16:24:29. map-reset-requester-event logs the requester and publishes a `map_reset`
+robot event; map-epoch-reset-event publishes `map_epoch_reset` whenever the frontier tracker starts a new epoch, naming
+the latest reset event as the cause or "unexplained" with the cell counts. No live reset is done (it deletes the live
+POIs and photos). (my call) Serves R3.
+
+### D58: Mirror mitigation: a person-drawn keep-out the frontiers honour
+
+User item 5: a floor-level mirror wardrobe makes the lidar see ghost free space and ghost frontiers; the user offered "a
+filter or person-drawn keep-out the agent honours". A single-plane lidar cannot tell a mirror from an opening, so the
+keep-out is chosen: frontiers-honour-keep-outs excludes frontiers and observation poses inside open keep-out areas, and
+the agent asks the person to draw one over the ghost area (agent-retro-skill-lessons). Alternative: a lidar mirror
+filter; rejected, no reliable signal in a 2D scan. (my call) Serves R5.
+
+### D59: Front camera floor points from the applied head camera intrinsics
+
+User item 2: the agent's `front` camera is the head RGB camera (`cameras.front` in the mcp_server block of client.yml,
+intrinsics null). mcp-front-camera-applied gives it the applied intrinsics and head chain; front-camera-ground-points
+makes `pixel_to_ground` and `mark_candidate_points` work with it end to end, with per-camera default picture sizes (the
+16:9 front stream is not 384x288), and the survey skill takes object positions from it (agent-retro-skill-lessons).
+(my call) Serves R2.
+
+### D60: The tilt warning is diagnosed from history; tilt events carry the evidence
+
+User item 6: the tilt_warning (pitch -19.4 deg) at 16:21:15 coincided with map_guard's "carried, lifted, rotated" at
+16:21:16. tilt-event-evidence records the verdict with numbers and adds IMU and ground-plane pitch/roll, time over the
+limit, base speed and the map_guard state to tilt events, null when missing. (my call) Serves R6.
+
+### D61: Agent behaviour lessons go into the skills and the discovery workflow
+
+User: "Agent behaviour items (arm parking, frontier choice, batching) are prompt/skill work: one task for the agent
+skills if they are not already covered." The job-end parking rule (prompt.py) and keep-out avoidance already exist;
+agent-retro-skill-lessons adds what is missing: mirror-aware frontier choice and a keep-out request, a status re-check
+before reporting, object positions from pixel_to_ground, translate before turning after a StopBox, the visit phase turn
+cap 80 with batched calls, and the summary phase parking the arm first. (my call) Serves R5, R7.
+
+### D62: Retro fixes in run 1, proven at live step 4
+
+Every retro code task has no live precondition and runs in run 1 (D29), ordered on shared files: collision-source-stall-fix
+then stopbox-backing-and-turns (nav2_params.yaml, then ground-voxel-layer-on in run 4); map-reset-requester-event after the
+web_ui tasks; map-epoch-reset-event, then frontiers-honour-keep-outs and tilt-event-evidence (mcp_server monitor and
+frontiers); front-camera-ground-points after mcp-front-camera-applied; agent-retro-skill-lessons last. The live proof,
+retro-fixes-live-check, runs at live step 4 after nav2-goal-across-the-scene with the user at the robot: final turns
+without an invalid-source stop, backing near the box, the mirror keep-out, and front-camera floor points within 0.05 m
+at 1 m and 0.10 m at 2 m (my call). Serves R1, R2, R4, R5.
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -726,6 +796,15 @@ User 2026-10-22 approved (yes): the Nav2 check drives two goals of at most 1.5 m
 | reuse | `shared/ros2_common/head_rgbd_calibration/charuco.py:detect` | joint-state-still-capture |
 | old plan | floor-board head grid, head_chain sessions, tof_joint recompute | rejected: the floor fit replaced the floor board; the camera joint is fixed so tof_joint is unchanged |
 | old plan | drive-straight yaw check | rejected: the robot is charging, no driving (user) |
+| robot agent retrospective 2026-10-22 16:32 (2nd) | collision_stop "invalid source" cut the final turn of navigate_to_pose | collision-source-stall-fix, retro-fixes-live-check |
+| robot agent retrospective 2026-10-22 16:32 (2nd) | front camera has no intrinsics; object positions are 0.3-0.5 m guesses | mcp-front-camera-applied, front-camera-ground-points, agent-retro-skill-lessons, retro-fixes-live-check |
+| robot agent retrospective 2026-10-22 16:32 (2nd) | check the exploration status once more and visit reachable frontiers left | agent-retro-skill-lessons |
+| robot agent retrospective 2026-10-22 16:28 (1st) | map reset (epoch 1->2) mid go_to_frontier with no map_guard event | map-reset-requester-event, map-epoch-reset-event |
+| robot agent retrospective 2026-10-22 16:28 (1st) | StopBox on move_relative dx -0.35 and dyaw -0.6 near the wardrobe | stopbox-backing-and-turns, agent-retro-skill-lessons, retro-fixes-live-check |
+| robot agent retrospective 2026-10-22 16:28 (1st) | mirror wardrobe ghost free space and ghost frontiers; mirror filter or person-drawn keep-out | frontiers-honour-keep-outs, agent-retro-skill-lessons, retro-fixes-live-check |
+| robot agent retrospective 2026-10-22 16:28 (1st) | lidar mirror filter | rejected: a single-plane lidar cannot tell a mirror from an opening (D58) |
+| robot agent retrospective 2026-10-22 16:28 (1st) | tilt_warning pitch -19.4 deg near the bean bag | tilt-event-evidence |
+| robot agent retrospective 2026-10-22 16:28 (1st) | park the arm before the report, skip frontiers behind mirrors, batch calls, visit phase about 80 turns | agent-retro-skill-lessons |
 
 ## Decision coverage
 
@@ -784,6 +863,14 @@ User 2026-10-22 approved (yes): the Nav2 check drives two goals of at most 1.5 m
 | D52 User 2026-10-22 approved (yes): head-from-arm calibration before the scene recording | calib-robot-runbook, capture-baseline-recordings |
 | D53 User 2026-10-22 approved (yes): filter thresholds, floor kept >= 95 % with the gate | tof-flying-pixel-retune, tof-filter-live-check, ground-estimator-live-scene |
 | D54 User 2026-10-22 approved (yes): two Nav2 goals of at most 1.5 m, user at the robot | nav2-goal-across-the-scene |
+| D55 Invalid-source stop: fix the cause, keep the fail-safe | collision-source-stall-fix, retro-fixes-live-check |
+| D56 Backing moves do not turn first; turns into an obstacle refused | stopbox-backing-and-turns, retro-fixes-live-check |
+| D57 Every map reset is a robot event with its cause | map-reset-requester-event, map-epoch-reset-event |
+| D58 Mirror mitigation: person-drawn keep-out | frontiers-honour-keep-outs, agent-retro-skill-lessons |
+| D59 Front camera floor points from the applied intrinsics | mcp-front-camera-applied, front-camera-ground-points |
+| D60 Tilt warning diagnosed; tilt events carry evidence | tilt-event-evidence |
+| D61 Agent behaviour lessons in the skills | agent-retro-skill-lessons |
+| D62 Retro fixes in run 1, proven at live step 4 | retro-fixes-live-check |
 
 ## Contracts
 
@@ -823,11 +910,18 @@ User 2026-10-22 approved (yes): the Nav2 check drives two goals of at most 1.5 m
 | `calib-sequencer` | head-arm-pose-capture-sequen | head-arm-sequence-http-api | `nodes/head_rgbd_calibration/head_rgbd_calibration/sequencer.py` |
 | `calib-head-arm-results` | head-arm-compute-and-apply | head-arm-sequence-http-api | `nodes/head_rgbd_calibration/head_rgbd_calibration/head_arm_results.py` |
 | `head-arm-calib-api` | head-arm-sequence-http-api | calib-frontend-api, head-arm-calibrate-ui-sectio | `nodes/head_rgbd_calibration/tests/fixtures/api/` |
+| `collision-source-fix` | collision-source-stall-fix | retro-fixes-live-check | `tests/test_collision_source_stall.py` |
+| `move-relative-clearance` | stopbox-backing-and-turns | agent-retro-skill-lessons, retro-fixes-live-check | `nodes/mcp_server/mcp_server/ros_iface.py` |
+| `map-reset-event` | map-reset-requester-event | map-epoch-reset-event | `nodes/web_ui/web_ui/bridge.py` |
+| `map-epoch-event` | map-epoch-reset-event | agent-retro-skill-lessons | `nodes/mcp_server/mcp_server/monitor.py` |
+| `frontier-keepout` | frontiers-honour-keep-outs | agent-retro-skill-lessons, retro-fixes-live-check | `nodes/mcp_server/mcp_server/frontiers.py` |
+| `front-ground-points` | front-camera-ground-points | agent-retro-skill-lessons, retro-fixes-live-check | `nodes/mcp_server/mcp_server/camera_tools.py` |
 
 Cross-epic contracts (`docs/plans/contracts.json`): owned here are `tof-depth-amplitude-gate`,
 `ground-warning-no-return`, `ground-edge-points`, `ground-recording-npz` and `head-rgbd-guidance-pair`. Used here are
 `tof-depth-flying-pixel-filter`, `ground-traversability-rule`, `head-rgbd-points`, `tof-points-filtered`,
-`head-camera-stream-rate` and `tof-depth-z`. Owned here since the umbrella re-plan: `tof-flying-pixel-retune`. Used here since then: `nav2-tof-voxel-bands`.
+`head-camera-stream-rate` and `tof-depth-z`. Owned here since the umbrella re-plan: `tof-flying-pixel-retune`. Used here since then: `nav2-tof-voxel-bands`. Owned
+here since the retro tasks (D57): `robot-event-map-reset` (the `map_reset` robot event of web_ui).
 
 Cross-epic (`docs/plans/contracts.json`): this epic uses `head-chain-override` (`urdf_text.py`), `urdf-chain-fk`
 (`chain.py`) and `head-chain-applied-record` (`floor_results.py`; the record gains `source` and `floor`, compatible)
@@ -837,6 +931,14 @@ arm-joint-offsets-from-the-g.
 
 ## Review focus
 
+- collision-source-stall-fix: the cause is named with numbers before any change; the stale-source stop and
+  `source_timeout` 1.0 s stay (user decision 2026-10-18).
+- stopbox-backing-and-turns: every command still passes velocity_smoother and collision_monitor; a turn is refused
+  before any command, never cut halfway; the look_around sweep check is reused, not copied.
+- map-reset-requester-event / map-epoch-reset-event: the event contract of `robot_events.py`; nothing published for a
+  request that never reached the route; "unexplained" is said, never guessed.
+- frontiers-honour-keep-outs: only open keep-out areas exclude; stale POI lists keep the last zones and say so.
+- tilt-event-evidence: missing data is null with its age, never a placeholder value.
 - edge-points-core / guidance-node-wiring: no path where a guidance point becomes lethal without a stable depth
   lethal point within max_shift_m in the same frame, and the existing lethal points and their latency are untouched.
 - no-return-core: never lethal, null heights, clearance next to depth regions, hysteresis that keeps churn < 10 %.
@@ -882,6 +984,11 @@ arm-joint-offsets-from-the-g.
 
 ## Assumptions and unknowns
 
+- The Loki and Mimir history of 2026-10-22 16:20-16:35 CEST is still retained when run 1 runs; the key unit logs are
+  saved under `/Users/szymonri/Documents/ros2-lerobot-sverve-platform/.logs/agent-retro-2026-10-22/` with the
+  retrospectives JSON. A window Loki no longer holds is reported, not guessed.
+- The mirror wardrobe stays in the hallway and the live map still holds it at live step 4; checked in
+  retro-fixes-live-check.
 - The board bias is amplitude-related (dark ink). Checked by tof-amplitude-gate's first step on the recorded frames;
   if not, the D7 correction path applies.
 - The guided upsampling does not copy texture into depth on the board. Pinned synthetically by rgbd-upsampling-on and

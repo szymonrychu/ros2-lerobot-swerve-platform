@@ -61,17 +61,21 @@ map-reset-requester-event).
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses part map-reset-event; builds part map-epoch-event: `/robot_events` `type: "map_epoch_reset"`, `source:
+"mcp_server"`, data `{epoch_before, epoch_after, known_before, known_after, resolution_before, resolution_after,
+cause}`; `get_exploration_status` and `list_frontiers` gain `epoch_changed_at`, `epoch_cause`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/mcp_server && uv run --frozen pytest tests/test_map_epoch_event.py -q` passes four tests that failed before.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the four tests; they FAIL.
+- Implement the event in the monitor and the epoch fields; tests PASS; run the verify command and the mcp_server suite;
+  commit `feat(mcp_server): map epoch resets are robot events with their cause`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live step: none (code, run 1 of D29).
+- map_guard's own event type is `map_guard_reset` (`nodes/map_guard_cpp/include/map_guard_cpp/agent.hpp`).

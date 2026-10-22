@@ -3,7 +3,7 @@ title: Front camera ground points
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: Objects the agent sees with the head camera get real floor positions instead of 0.3-0.5 m guesses
-files: [nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/tests/test_front_ground_points.py, docs/runbooks/agent-retro-fixes.md, nodes/mcp_server/README.md]
+files: [nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/tests/test_front_ground_points.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_front_ground_points.py tests/test_camera_config.py -q && uv run poe lint"
 depends_on: [mcp-front-camera-applied]
 owns: [front-ground-points]
@@ -47,8 +47,7 @@ the tools that need intrinsics work end to end with it:
   (`test_front_pixel_to_ground_uses_applied_intrinsics`: a synthetic floor point projected through fixture intrinsics
   and the head chain at a known pan/tilt comes back within 1 cm; `test_front_default_picture_size_accepted`;
   `test_front_wrong_aspect_names_default_size`; `test_mark_candidate_points_front`).
-- `nodes/mcp_server/README.md` (camera tools part) and `docs/runbooks/agent-retro-fixes.md` section
-  `## Front camera object positions` (which camera is front, where its intrinsics come from).
+- `nodes/mcp_server/README.md` (camera tools part) and its section `### Front camera object positions` (which camera is front, where its intrinsics come from).
 - Type hints, docstrings with types, constants on top (CLAUDE.md).
 
 ## Acceptance conditions
@@ -57,7 +56,7 @@ the tools that need intrinsics work end to end with it:
 - a2: the default front picture size is accepted [evidence: test:nodes/mcp_server/tests/test_front_ground_points.py::test_front_default_picture_size_accepted]
 - a3: a wrong aspect for the front camera names the right default size [evidence: test:nodes/mcp_server/tests/test_front_ground_points.py::test_front_wrong_aspect_names_default_size]
 - a4: mark_candidate_points works with the front camera [evidence: test:nodes/mcp_server/tests/test_front_ground_points.py::test_mark_candidate_points_front]
-- a5: the runbook names the front camera and its intrinsics source [evidence: doc-section:docs/runbooks/agent-retro-fixes.md#Front camera object positions]
+- a5: the README names the front camera and its intrinsics source [evidence: doc-section:nodes/mcp_server/README.md#Front camera object positions]
 - a6: mcp_server suite and lint pass [evidence: command:cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run poe lint]
 
 ## Files
@@ -65,22 +64,25 @@ the tools that need intrinsics work end to end with it:
 - `nodes/mcp_server/mcp_server/camera_tools.py`
 - `nodes/mcp_server/mcp_server/camera_scene.py`
 - `nodes/mcp_server/tests/test_front_ground_points.py`
-- `docs/runbooks/agent-retro-fixes.md`
 - `nodes/mcp_server/README.md`
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part front-ground-points: `pixel_to_ground` and `mark_candidate_points` with camera `front` on the applied
+intrinsics; per-camera default picture sizes in the tool descriptions and `pixel_scale` errors.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/mcp_server && uv run --frozen pytest tests/test_front_ground_points.py -q` passes four tests that failed
+before; `tests/test_camera_config.py` (mcp-front-camera-applied) keeps passing.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the four tests; they FAIL.
+- Implement the sizes and the front path; tests PASS; run the verify command and the mcp_server suite; commit
+  `feat(mcp_server): front camera floor points from the applied intrinsics`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live step: none (code, run 1 of D29). Proven live by retro-fixes-live-check at live step 4 (tape-measured spots).
+- Ordered after mcp-front-camera-applied (camera_scene.py) and needs its lazy intrinsics load.

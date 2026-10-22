@@ -3,7 +3,7 @@ title: Collision source stall fix
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: Nav2 goals finish their final turn instead of being cut by a spurious invalid-source stop
-files: [nodes/laser_filter/laser_filter/node.py, nodes/nav2_bringup/config/nav2_params.yaml, tests/test_collision_source_stall.py, docs/runbooks/agent-retro-fixes.md, nodes/nav2_bringup/README.md, tests/README.md]
+files: [nodes/laser_filter/laser_filter/node.py, nodes/nav2_bringup/config/nav2_params.yaml, tests/test_collision_source_stall.py, nodes/nav2_bringup/README.md, tests/README.md]
 verify: "uv run pytest tests/test_collision_source_stall.py -q && uv run poe lint && (cd nodes/laser_filter && uv run --frozen pytest tests -q && uv run poe lint)"
 depends_on: []
 owns: [collision-source-fix]
@@ -41,9 +41,8 @@ sensor.
   (`http://server.ros2.lan:9009/prometheus`, the API `scripts/node_cpu_compare.py` uses) for 16:30:25-16:30:40 CEST,
   read the client CPU per service, the publish rates or ages of `/scan_filtered`, `/tof/points_filtered`,
   `/odometry/filtered` and TF that exist as metrics, and the logs of robot_localization_ekf, rf2o, slam_toolbox,
-  laser_filter and nav2. Write the named cause with the numbers into `docs/runbooks/agent-retro-fixes.md` section
-  `## Invalid source stop during the final turn` (create the runbook file if it does not exist: title, one line per
-  section purpose).
+  laser_filter and nav2. Write the named cause with the numbers into `nodes/nav2_bringup/README.md` section
+  `### Invalid source stop during the final turn` (under its collision monitor part).
 - Reproduce the cause in a test first (seen failing): `tests/test_collision_source_stall.py` (it may import the node
   module or read the shipped config, whichever layer holds the cause).
 - Fix the cause where it is. Keep the fail-safe (user decision 2026-10-18, comment in nav2_params.yaml): an enabled
@@ -60,7 +59,7 @@ sensor.
 
 ## Acceptance conditions
 
-- a1: the cause of the 16:30:35 invalid-source stop is named in the runbook with Loki and Mimir numbers [evidence: doc-section:docs/runbooks/agent-retro-fixes.md#Invalid source stop during the final turn]
+- a1: the cause of the 16:30:35 invalid-source stop is named in the nav2_bringup README with Loki and Mimir numbers [evidence: doc-section:nodes/nav2_bringup/README.md#Invalid source stop during the final turn]
 - a2: a regression test reproduces the cause and passes with the fix [evidence: command:uv run pytest tests/test_collision_source_stall.py -q]
 - a3: the stale-source fail-safe is kept: every source enabled and source_timeout 1.0 s [evidence: test:tests/test_collision_source_stall.py::test_fail_safe_stale_source_stop_kept]
 - a4: root lint and the laser_filter suite pass [evidence: command:uv run poe lint && cd nodes/laser_filter && uv run --frozen pytest tests -q && uv run poe lint]
@@ -71,23 +70,30 @@ sensor.
 - `nodes/laser_filter/laser_filter/node.py`
 - `nodes/nav2_bringup/config/nav2_params.yaml`
 - `tests/test_collision_source_stall.py`
-- `docs/runbooks/agent-retro-fixes.md`
 - `nodes/nav2_bringup/README.md`
 - `tests/README.md`
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part collision-source-fix (the named cause fixed at its layer). Keeps contract nav2-tof-voxel-bands
+(collision_monitor sources and bands) and the stale-source fail-safe (user decision 2026-10-18).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+the README section names the cause of the 16:30:35 stop with numbers; `uv run pytest tests/test_collision_source_stall.py -q`
+passes with a test that failed before the fix; the fail-safe pin passes; no timeout raised.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Read the saved logs and query Loki/Mimir for 16:30:25-16:30:40 CEST; write the cause and numbers to the README section.
+- Write the reproducing test and the fail-safe pin; run `uv run pytest tests/test_collision_source_stall.py -q`: the
+  reproducing test FAILS.
+- Fix the cause; the tests PASS; run the verify command; commit `fix: <layer> stall behind the invalid-source stop`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live step: none (code, run 1 of D29). Proven live by retro-fixes-live-check at live step 4.
+- Model opus: diagnosis across TF, executors and CPU; review full.
+- Saved evidence: `/Users/szymonri/Documents/ros2-lerobot-sverve-platform/.logs/agent-retro-2026-10-22/` (nav2_bringup,
+  mcp_server, web_ui, slam_toolbox, map_guard_cpp, bno055_imu, claude_agent logs 16:20-16:34 CEST and the
+  retrospectives JSON); Loki keeps more units (robot_localization_ekf and laser_filter had no lines in the window).

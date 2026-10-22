@@ -63,17 +63,21 @@ the client.
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses parts collision-source-fix, move-relative-clearance, frontier-keepout and front-ground-points.
+`docs/runbooks/agent-retro-fixes.md` `## Procedure` and `## Results`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The Results table has four dated rows with numbers and PASS or FAIL; `uv run pytest tests/test_agent_retro_runbook.py -q`
+passes.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Check every precondition; stop `blocked` (whoCanClear: user) when one is missing.
+- Write the Procedure; run rows 1-4 with the user; fill Results with numbers; logs in `.logs/`.
+- Write `tests/test_agent_retro_runbook.py`; run the verify command; commit `docs: agent retro fixes live check results`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- LIVE step 4 of D29 (user at the robot, undocked by the user; short slow goals only), after nav2-goal-across-the-scene.
+- Driving only through mcp_server's guarded tools under the base lease; no rclpy, `ros2` CLI or SSH on the client.

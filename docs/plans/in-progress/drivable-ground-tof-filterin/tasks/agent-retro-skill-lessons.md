@@ -73,17 +73,21 @@ keep-outs never entered (sightseeing), mirrors as problem POIs (survey, poi-cate
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses parts frontier-keepout, front-ground-points, move-relative-clearance and map-epoch-event (the tool behaviour the
+skills describe). Skill files keep the frontmatter `check_skill` validates.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/claude_agent && uv run --frozen pytest tests/test_skill_retro_lessons.py tests/test_workflows.py tests/test_skill_survey.py -q`
+passes; the new tests failed before the skill edits.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the four tests; they FAIL.
+- Edit the three skills and discovery.yaml; tests PASS; run the verify command and the claude_agent suite; commit
+  `feat(claude_agent): skills learn the 2026-10-22 retrospective lessons`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live step: none (code, run 1 of D29). Deploying claude_agent kills a running agent session: the orchestrator checks
+  first (MEMORY).

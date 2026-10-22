@@ -34,6 +34,10 @@ they build on:
    turned back on.
 3. Head-from-arm calibration: the approved plan of epic head-and-arm-calibration-fro (20 tasks, approvals H1-H9,
    gate answers HQ1-HQ4) moved here verbatim. The arm joint offset solve stays in arm-joint-offsets-from-the-g.
+4. Robot agent retrospective fixes (user 2026-10-22, answer C: "see retros from live robot - especially 2nd"): the
+   spurious invalid-source collision stop on the final turn, front-camera floor points for object positions, every map
+   reset explained by an event, StopBox on backing and turning, a person-drawn keep-out against mirror ghost frontiers,
+   the tilt warning diagnosed and tilt events with evidence, and the agent skill lessons (approvals R1-R7, D55-D62).
 
 Items 1 and 2 reuse the approved RGB and amplitude guidance plan of this epic (formerly
 rgb-and-amplitude-guided-gro: recorder, record script, scene truth, replay v2, amplitude gate, guidance; gate answers
@@ -59,6 +63,9 @@ live steps) is in design.md, decision D29.
 - A guided "Head from arm" calibration on the Calibrate page: FK-checked arm poses with the board on the gripper, a
   held-out-checked head chain fit (mount x/y/z, roll/pitch/yaw with the pan zero, tilt zero, tilt roll), applied to
   every head-chain consumer, the tilt range widened, and a runbook executed with real numbers (approvals H1-H9).
+- The retrospective fixes land in run 1 and pass the live check at live step 4: final turns without an invalid-source
+  stop, backing near an obstacle, no frontier inside a drawn keep-out, front-camera floor points within 0.05 m at 1 m
+  (approvals R1-R7).
 - Ansible in sync, READMEs, tests/README.md and runbooks updated.
 
 ## Non-goals
@@ -74,7 +81,7 @@ live steps) is in design.md, decision D29.
 
 ## Time
 
-Estimate: 2955 min | Actual: 0 min | Remaining estimate: 2955 min
+Estimate: 3490 min | Actual: 0 min | Remaining estimate: 3490 min
 
 ## Review
 

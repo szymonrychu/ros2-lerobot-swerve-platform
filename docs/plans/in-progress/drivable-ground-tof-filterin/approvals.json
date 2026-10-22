@@ -459,5 +459,95 @@
       "nav2-goal-across-the-scene"
     ],
     "status": "approved"
+  },
+  {
+    "id": "R1",
+    "text": "User 2026-10-22 (answer C, \"see retros from live robot - especially 2nd\", item 1): collision_monitor raised collision_stop with polygon 'invalid source' during navigate_to_pose's final rotation (spurious; nearest lidar 0.7 m): a source (scan / tof_obstacles / tof_cliff, source_timeout 1.0 s) went stale; diagnose from Mimir/Loki and fix (source rates/QoS/timeout, or stale-source handling) so the final turn is not cut.",
+    "decisions": [
+      "D55",
+      "D62"
+    ],
+    "tasks": [
+      "collision-source-stall-fix",
+      "retro-fixes-live-check"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "R2",
+    "text": "User 2026-10-22 (answer C, item 2): \"Front camera has no intrinsics, so pixel_to_ground / mark_candidate_points can't use it\" (mcp_server): find which camera mcp calls front and where intrinsics should come from (head_rgbd_calibration RGB intrinsics / camera_info), wire them; object positions must stop being 0.3-0.5 m guesses.",
+    "decisions": [
+      "D59",
+      "D62"
+    ],
+    "tasks": [
+      "mcp-front-camera-applied",
+      "front-camera-ground-points",
+      "agent-retro-skill-lessons",
+      "retro-fixes-live-check"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "R3",
+    "text": "User 2026-10-22 (answer C, item 3, 1st retro): map reset (epoch 1->2) mid go_to_frontier right after a StopBox collision_stop with no map_guard event: investigate cause and make every map reset logged/explained.",
+    "decisions": [
+      "D57"
+    ],
+    "tasks": [
+      "map-reset-requester-event",
+      "map-epoch-reset-event"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "R4",
+    "text": "User 2026-10-22 (answer C, item 4): StopBox fired on move_relative dx -0.35 and dyaw -0.6 near a wardrobe (front_left obstacle 0.34 m) while drive vy/vx nudges worked: diagnose velocity-polygon selection for those motions and fix.",
+    "decisions": [
+      "D56",
+      "D62"
+    ],
+    "tasks": [
+      "stopbox-backing-and-turns",
+      "retro-fixes-live-check"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "R5",
+    "text": "User 2026-10-22 (answer C, item 5): floor-level mirror wardrobe makes lidar ghost free space and ghost frontiers: a mirror mitigation (filter or person-drawn keep-out the agent honours) as a task.",
+    "decisions": [
+      "D58",
+      "D61",
+      "D62"
+    ],
+    "tasks": [
+      "frontiers-honour-keep-outs",
+      "agent-retro-skill-lessons",
+      "retro-fixes-live-check"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "R6",
+    "text": "User 2026-10-22 (answer C, item 6): tilt_warning pitch -19.4 deg near a bean bag before a job: check whether it was real (IMU vs ground) and log.",
+    "decisions": [
+      "D60"
+    ],
+    "tasks": [
+      "tilt-event-evidence"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "R7",
+    "text": "User 2026-10-22 (answer C): agent behaviour items (arm parking, frontier choice, batching) are prompt/skill work: one task for the agent skills if they are not already covered.",
+    "decisions": [
+      "D61"
+    ],
+    "tasks": [
+      "agent-retro-skill-lessons"
+    ],
+    "status": "approved"
   }
 ]

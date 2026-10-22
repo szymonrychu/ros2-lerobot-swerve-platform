@@ -3,7 +3,7 @@ title: Frontiers honour keep-outs
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: A keep-out drawn over a mirror ends the ghost frontiers the agent keeps chasing
-files: [nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/topdown.py, nodes/mcp_server/mcp_server/poi_client.py, nodes/mcp_server/tests/test_frontier_keepout.py, docs/runbooks/agent-retro-fixes.md, nodes/mcp_server/README.md]
+files: [nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/topdown.py, nodes/mcp_server/mcp_server/poi_client.py, nodes/mcp_server/tests/test_frontier_keepout.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_frontier_keepout.py -q && uv run poe lint"
 depends_on: [map-epoch-reset-event]
 owns: [frontier-keepout]
@@ -40,8 +40,7 @@ my call); approval R5.
 - Tests first (seen failing): `nodes/mcp_server/tests/test_frontier_keepout.py` (`test_frontier_inside_keepout_excluded`,
   `test_observation_pose_inside_keepout_skipped`, `test_go_to_frontier_refused_in_keepout`,
   `test_complete_ignores_keepout_frontiers`).
-- `nodes/mcp_server/README.md` (frontiers part) and `docs/runbooks/agent-retro-fixes.md` section
-  `## Mirror ghost frontiers` (why a keep-out and not a lidar mirror filter: a single-plane lidar cannot tell a mirror
+- `nodes/mcp_server/README.md` (frontiers part) and its section `### Mirror ghost frontiers` (why a keep-out and not a lidar mirror filter: a single-plane lidar cannot tell a mirror
   from an opening; the person draws the keep-out over the ghost area once).
 - Type hints, docstrings with types, constants on top (CLAUDE.md).
 
@@ -51,7 +50,7 @@ my call); approval R5.
 - a2: observation poses inside a keep-out are not used [evidence: test:nodes/mcp_server/tests/test_frontier_keepout.py::test_observation_pose_inside_keepout_skipped]
 - a3: go_to_frontier refuses an excluded frontier naming the keep-out [evidence: test:nodes/mcp_server/tests/test_frontier_keepout.py::test_go_to_frontier_refused_in_keepout]
 - a4: completeness ignores keep-out frontiers [evidence: test:nodes/mcp_server/tests/test_frontier_keepout.py::test_complete_ignores_keepout_frontiers]
-- a5: the runbook explains the mirror mitigation [evidence: doc-section:docs/runbooks/agent-retro-fixes.md#Mirror ghost frontiers]
+- a5: the README explains the mirror mitigation [evidence: doc-section:nodes/mcp_server/README.md#Mirror ghost frontiers]
 - a6: mcp_server suite and lint pass [evidence: command:cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run poe lint]
 
 ## Files
@@ -61,22 +60,26 @@ my call); approval R5.
 - `nodes/mcp_server/mcp_server/topdown.py`
 - `nodes/mcp_server/mcp_server/poi_client.py`
 - `nodes/mcp_server/tests/test_frontier_keepout.py`
-- `docs/runbooks/agent-retro-fixes.md`
 - `nodes/mcp_server/README.md`
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part frontier-keepout: frontiers and observation poses inside open keep-out area POIs are excluded;
+`get_exploration_status.excluded_keepout: [{id, zone_poi_id}]`; `go_to_frontier` refusal naming the zone.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/mcp_server && uv run --frozen pytest tests/test_frontier_keepout.py -q` passes four tests that failed before;
+the README explains the mirror mitigation.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the four tests; they FAIL.
+- Implement the exclusion, the refusal and the grey topdown marks; tests PASS; run the verify command and the
+  mcp_server suite; commit `feat(mcp_server): frontiers honour keep-out areas`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live step: none (code, run 1 of D29). The user draws the keep-out over the mirror ghost area at live step 4
+  (retro-fixes-live-check).
+- Ordered after map-epoch-reset-event (frontiers.py, frontier_tools.py).

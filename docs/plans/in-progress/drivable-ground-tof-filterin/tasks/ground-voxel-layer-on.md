@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "Nav2 avoids what the ground estimator sees (steps, drops) again, now that its output is stable"
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_ground_voxel_layer.py, nodes/nav2_bringup/README.md, tests/README.md]
 verify: "uv run pytest tests/test_nav_ground_voxel_layer.py tests/test_ground_docs.py -q && uv run poe lint"
-depends_on: [ground-live-acceptance]
+depends_on: [ground-live-acceptance, stopbox-backing-and-turns]
 owns: [ground-layer-on]
 uses: [live-acceptance]
 model: ""
@@ -72,3 +72,5 @@ other Nav2 key unchanged; README switch-over section updated.
 - Code task of run 4 (design D29); the orchestrator deploys nav2_bringup at live step 4 before
   nav2-goal-across-the-scene.
 - Do not start before every Results row of the ground-robustness runbook is PASS.
+
+- 2026-10-22: also ordered after stopbox-backing-and-turns (and through it collision-source-stall-fix): both may edit nodes/nav2_bringup/config/nav2_params.yaml in run 1.

@@ -3,7 +3,7 @@ title: Map reset requester event
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: "A map reset from the web UI is no longer a mystery: the agent gets an event naming who asked"
-files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_map_reset_event.py, docs/runbooks/agent-retro-fixes.md, nodes/web_ui/README.md]
+files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_map_reset_event.py, nodes/web_ui/README.md]
 verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_map_reset_event.py -q && uv run poe lint"
 depends_on: [web-ui-ground-recorder-api, web-ui-applied-head-urdf]
 owns: [map-reset-event]
@@ -35,8 +35,8 @@ in dry run and logged only a lifted/carried episode at 16:21). Nothing records t
 
 - Investigate first: from Loki (web_ui, claude_agent, mcp_server and the web proxy, if its access log is shipped) find
   which client called `POST /api/map/reset` at 16:24:29 (browser tab, a script, or a tool path); write the finding, or
-  that the requester cannot be known from the existing logs, to `docs/runbooks/agent-retro-fixes.md` section
-  `## Map reset during go_to_frontier`.
+  that the requester cannot be known from the existing logs, to `nodes/web_ui/README.md` section
+  `### Map reset during go_to_frontier`.
 - `POST /api/map/reset` logs the requester (client address, user agent, tab) with the request and the result.
 - Every reset request publishes one `/robot_events` event (std_msgs/String JSON, the contract in
   `nodes/claude_agent/claude_agent/robot_events.py`: `{seq, ts, type, severity, source, message, data}`) with
@@ -52,7 +52,7 @@ in dry run and logged only a lifted/carried episode at 16:21). Nothing records t
 
 ## Acceptance conditions
 
-- a1: the requester of the 16:24:29 reset (or why it cannot be known) is in the runbook [evidence: doc-section:docs/runbooks/agent-retro-fixes.md#Map reset during go_to_frontier]
+- a1: the requester of the 16:24:29 reset (or why it cannot be known) is in the node README [evidence: doc-section:nodes/web_ui/README.md#Map reset during go_to_frontier]
 - a2: a web UI map reset publishes a map_reset robot event with tab, requester and outcome [evidence: test:nodes/web_ui/tests/test_map_reset_event.py::test_reset_publishes_map_reset_event]
 - a3: a failed or refused reset still publishes the event with the failure [evidence: test:nodes/web_ui/tests/test_map_reset_event.py::test_failed_reset_publishes_event_with_failure]
 - a4: the reset route logs the requester [evidence: test:nodes/web_ui/tests/test_map_reset_event.py::test_reset_logs_requester]
@@ -63,22 +63,27 @@ in dry run and logged only a lifted/carried episode at 16:21). Nothing records t
 - `nodes/web_ui/web_ui/server.py`
 - `nodes/web_ui/web_ui/bridge.py`
 - `nodes/web_ui/tests/test_map_reset_event.py`
-- `docs/runbooks/agent-retro-fixes.md`
 - `nodes/web_ui/README.md`
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part map-reset-event: `/robot_events` `type: "map_reset"`, `source: "web_ui"`, data `{tab, requester,
+user_agent, ok, pois_removed, photos_removed}` (cross-epic contract robot-event-map-reset), published by web_ui's bridge
+from `POST /api/map/reset`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/web_ui && uv run --frozen pytest tests/test_map_reset_event.py -q` passes three tests that failed before;
+the README names who reset the map at 16:24:29 or why that cannot be known.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Investigate the 16:24:29 request in Loki; write the section.
+- Write the three tests; they FAIL.
+- Add the requester log and the event publish; tests PASS; run the verify command and the web_ui suite; commit
+  `feat(web_ui): map reset publishes a robot event naming the requester`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live step: none (code, run 1 of D29). No live map reset is done (it deletes the live POIs and photos).
+- Ordered after web-ui-ground-recorder-api and web-ui-applied-head-urdf (server.py, bridge.py).
