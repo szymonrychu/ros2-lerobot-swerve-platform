@@ -107,11 +107,21 @@ cell that a plane would smear into a ramp. The points are moved to height + grad
 robot); a cell with fewer than 12 points, or with noise too high to see the gradient, behaves as before (flat at its
 median).
 
+Step edges: a cell straddling a step (the foot of a sill or a box, a corner) fits a gradient as steady as a ramp
+cell's, but its points lie on two levels. Such a cell keeps the median of its per-frame median heights, and its spread
+gate uses those medians, as without in-cell slope. A cell gets its plane only when (1) the RMS of its points about the
+plane is at most 1.5 times the smallest one among its 8 neighbours (on an inclined surface the plane leaves the sensor
+noise, like the floor beside it; across a step it leaves about a quarter of the step height, measured 9 mm against
+3 mm noise for a rendered 3 cm sill) and (2) a neighbour passing (1) has a gradient within 45 deg of its own (a ramp
+spans cells, a lone edge or corner cell does not); its spread gate then uses the plane's centre heights. Without this
+rule a 3 cm sill read as a 3.4 deg ramp and the 5 cm box's foot lost its step under the 4 cm rule
+(`CellMedian.SillEdgeCellsKeepTheirMedianHeight`, `CellMedian.BoxEdgeCellsKeepTheStep`).
+
 Decision (cell size): `temporal.cell_size_m` stays 0.10 because each cell keeps its in-cell slope. This task re-ran the
 ramp test of `CellMedian.RobotRampSlopeSurvivesTheCells` (C++, 20 seeds, random cell offset and yaw) with both sizes:
-0.10 m gives slope p50 14.3 deg (range 9.8-16.6), 0.05 m gives p50 13.0 deg (range 10.3-15.5). Both are inside
-14 +- 3 deg, so the smaller cell buys nothing, while it has 4x fewer points per cell, which weakens the spread gate
-and the gradient fit. The earlier "8-10 deg with misaligned cells" figure came from the finding's Python simulation of
+0.10 m gives slope p50 14.3 deg (range 9.8-16.6; 13.7 deg with the step edge rule above), 0.05 m gives p50 13.0 deg
+(range 10.3-15.5). Both are inside 14 +- 3 deg, so the smaller cell buys nothing, while it has 4x fewer points per
+cell, which weakens the spread gate and the gradient fit. The earlier "8-10 deg with misaligned cells" figure came from the finding's Python simulation of
 cells that collapse to one height; it was not measured by this task. Test `CellMedian.SlopeInsideACellIsKept` pins the
 in-cell gradient on a noise-free 14 deg incline (points stay within 4 mm of the surface; a collapsed cell is 12 mm off).
 

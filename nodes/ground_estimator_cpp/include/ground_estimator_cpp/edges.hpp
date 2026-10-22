@@ -24,7 +24,9 @@ struct Cluster
   pcl::PointCloud<pcl::PointXYZ> points;  // the member points
   std::vector<float> heights;             // signed height above the floor plane, parallel to points
   double median_height_m = 0.0;           // median of heights
-  double edge_step_m = 0.0;               // median (50th percentile) of |height| within edge_band_m of the edge line
+  // Median (50th percentile) of |height| within edge_band_m of the edge line; for a known slope of 5 deg or more at
+  // most |height| of the robust surface fit at edge_point (a ramp's cell-median staircase reads high at its foot).
+  double edge_step_m = 0.0;
   // Slope of the surface to the floor plane in degrees: atan(hypot(a, b)) of a robust (Huber IRLS) fit of
   // h = a x + b y + c over one sample per level set of equal heights (a CellMedianFilter cell), not a per-point fit.
   // 0.0 when slope_known is false: not measurable.

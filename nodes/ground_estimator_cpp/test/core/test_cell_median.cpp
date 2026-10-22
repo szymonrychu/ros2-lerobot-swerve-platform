@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <optional>
 #include <random>
 
 #include "ground_estimator_cpp/cell_median.hpp"
 #include "ground_estimator_cpp/edges.hpp"
 #include "ground_estimator_cpp/segmentation.hpp"
+#include "ground_estimator_cpp/traversability.hpp"
 #include "synthetic_floor.hpp"
 
 namespace
@@ -355,6 +357,108 @@ TEST(CellMedian, DisabledReportsNoGatedCells)
   EXPECT_EQ(filter.gated_cell_count(), 0u);
 }
 
+// steady_at (the node's lethal vote gate): a steady box top is steady from its first output on.
+TEST(CellMedian, SteadyBoxTopIsSteadyFromItsFirstOutput)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(51);
+  std::normal_distribution<double> noise(0.0, 0.004);
+  const Eigen::Vector2d centre(0.65, 0.05);
+  for (int i = 0; i < 12; ++i) {
+    const Cloud in = cell_cloud(0.6, 0.7, [&](int, int) { return 0.05 + noise(rng); });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    EXPECT_EQ(filter.steady_at(centre, 0.6 * cfg.max_spread_m, 2 * cfg.window_frames), !out.empty()) << "frame " << i;
+    if (i >= cfg.min_frames - 1) {
+      EXPECT_FALSE(out.empty()) << "frame " << i;
+    }
+  }
+}
+
+// A cell gated by its spread is not steady until it has been ungated for quiet_frames frames, and a cell whose spread
+// is under the gate but over the stricter max_spread_m is not steady either.
+TEST(CellMedian, RecentlyGatedOrMildlyNoisyCellIsNotSteady)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  const Eigen::Vector2d centre(0.65, 0.05);
+  const int quiet_frames = 2 * cfg.window_frames;
+  int frame = 0;
+  for (; frame < 12; ++frame) {
+    const double value = (frame % 2 == 0 ? 1.0 : -1.0) * 0.1;
+    filter.apply(
+      cell_cloud(0.6, 0.7, [&](int, int) { return value; }), Plane(), Eigen::Isometry3d::Identity(),
+      frame * FRAME_DT_S);
+  }
+  EXPECT_GT(filter.gated_cell_count(), 0u);
+  EXPECT_FALSE(filter.steady_at(centre, 0.6 * cfg.max_spread_m, quiet_frames));
+  int first_steady = -1;
+  for (int i = 0; i < 4 * cfg.window_frames; ++i, ++frame) {
+    const Cloud out = filter.apply(
+      cell_cloud(0.6, 0.7, [&](int, int) { return 0.05; }), Plane(), Eigen::Isometry3d::Identity(), frame * FRAME_DT_S);
+    if (first_steady < 0 && filter.steady_at(centre, 0.6 * cfg.max_spread_m, quiet_frames)) {
+      first_steady = i;
+      EXPECT_FALSE(out.empty());
+    }
+  }
+  // Visible again within the window, steady only after quiet_frames ungated frames.
+  EXPECT_GE(first_steady, quiet_frames - 1);
+  EXPECT_LE(first_steady, quiet_frames + cfg.window_frames);
+
+  // +-12 mm alternation: a spread of ~17 mm is under the 25 mm gate (visible) but over 15 mm (not steady).
+  CellMedianFilter mild(cfg);
+  for (int i = 0; i < 20; ++i) {
+    const double value = (i % 2 == 0 ? 1.0 : -1.0) * 0.012;
+    const Cloud out = mild.apply(
+      cell_cloud(0.6, 0.7, [&](int, int) { return value; }), Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= cfg.min_frames) {
+      EXPECT_FALSE(out.empty()) << "frame " << i;
+      EXPECT_FALSE(mild.steady_at(centre, 0.6 * cfg.max_spread_m, quiet_frames)) << "frame " << i;
+    }
+  }
+}
+
+// A steady cell next to a cell gated in its last quiet_frames frames is not steady: at the edge of a noisy band the
+// median of a cell mixing floor and band returns sits steadily between the two, so a noisy neighbour withholds it.
+// A gated cell two cells away does not.
+TEST(CellMedian, SteadyCellNextToARecentlyGatedCellIsNotSteady)
+{
+  const TemporalConfig cfg;
+  const int quiet_frames = 2 * cfg.window_frames;
+  const Eigen::Vector2d steady(0.65, 0.05);
+  const auto run = [&](CellMedianFilter & filter, double noisy_x0, int frames, int first_frame, bool noisy) {
+    for (int i = 0; i < frames; ++i) {
+      const double value = noisy ? ((first_frame + i) % 2 == 0 ? 1.0 : -1.0) * 0.1 : 0.0;
+      Cloud in = cell_cloud(0.6, 0.7, [](int, int) { return 0.05; });
+      const Cloud band = cell_cloud(noisy_x0, noisy_x0 + CELL_M, [&](int, int) { return value; });
+      in.insert(in.end(), band.begin(), band.end());
+      filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), (first_frame + i) * FRAME_DT_S);
+    }
+  };
+  CellMedianFilter next_to(cfg);
+  run(next_to, 0.7, 12, 0, true);
+  EXPECT_GT(next_to.gated_cell_count(), 0u);
+  EXPECT_FALSE(next_to.steady_at(steady, 0.6 * cfg.max_spread_m, quiet_frames));
+  // The neighbour turns quiet: steady again once it has been ungated for quiet_frames frames.
+  run(next_to, 0.7, quiet_frames + cfg.window_frames, 12, false);
+  EXPECT_TRUE(next_to.steady_at(steady, 0.6 * cfg.max_spread_m, quiet_frames));
+
+  CellMedianFilter two_away(cfg);
+  run(two_away, 0.8, 12, 0, true);
+  EXPECT_GT(two_away.gated_cell_count(), 0u);
+  EXPECT_TRUE(two_away.steady_at(steady, 0.6 * cfg.max_spread_m, quiet_frames));
+}
+
+TEST(CellMedian, DisabledIsAlwaysSteadyAndUnknownCellsAreNot)
+{
+  TemporalConfig cfg;
+  CellMedianFilter enabled(cfg);
+  EXPECT_FALSE(enabled.steady_at(Eigen::Vector2d(0.65, 0.05), cfg.max_spread_m, 0));
+  cfg.enabled = false;
+  CellMedianFilter disabled(cfg);
+  EXPECT_TRUE(disabled.steady_at(Eigen::Vector2d(0.65, 0.05), cfg.max_spread_m, 100));
+}
+
 namespace
 {
 
@@ -451,4 +555,114 @@ TEST(CellMedian, SlopeInsideACellIsKept)
     worst = std::max(worst, static_cast<double>(std::fabs(p.z - SLOPE * p.x)));
   }
   EXPECT_LT(worst, MAX_ERR_M);
+}
+
+namespace
+{
+
+// A 3 cm door sill (x 1.0 .. 1.15, |y| <= 0.4, 2 cm grid, 3 mm noise) and the user's 5 cm box with its noisy edge band
+// (x 0.62 .. 0.93, y 0.10 .. 0.35; the robot-facing 5 cm reads uniform 3.5 .. 6.5 cm) on a 2 cm grid floor.
+constexpr double SILL_X0_M = 1.0;
+constexpr double SILL_X1_M = 1.15;
+constexpr double SILL_HALF_WIDTH_M = 0.4;
+constexpr double SILL_HEIGHT_M = 0.03;
+constexpr double SILL_NOISE_M = 0.003;
+constexpr double BOX_X0_M = 0.62, BOX_X1_M = 0.93, BOX_Y0_M = 0.10, BOX_Y1_M = 0.35;
+constexpr double BOX_HEIGHT_M = 0.05;
+constexpr double BOX_EDGE_BAND_M = 0.05;
+constexpr double BOX_EDGE_LO_M = 0.035, BOX_EDGE_HI_M = 0.065;
+constexpr double BOX_TOP_NOISE_M = 0.004;
+constexpr double BOX_FLOOR_NOISE_M = 0.008;
+constexpr double SCENE_GRID_M = 0.02;
+constexpr int STEP_FRAMES = 12;
+constexpr unsigned STEP_SEEDS = 8;
+
+// Largest cluster above the floor of a filtered cloud, or nullopt.
+std::optional<ground_estimator_cpp::Cluster> largest_step_cluster(const Cloud & filtered)
+{
+  const auto seg =
+    ground_estimator_cpp::segment(filtered, Plane(), ground_estimator_cpp::BandsConfig{}, ROBOT_FLOOR_BAND_M);
+  const auto clusters = ground_estimator_cpp::extract_clusters(
+    seg.above, seg.above_height, "step", Plane(), ground_estimator_cpp::EdgesConfig{}, EDGE_BAND_M);
+  std::optional<ground_estimator_cpp::Cluster> best;
+  for (const auto & c : clusters) {
+    if (!best || c.points.size() > best->points.size()) {
+      best = c;
+    }
+  }
+  return best;
+}
+
+// A pose of base_link in the fixed frame that puts the cell boundaries at a random place on the scene.
+Eigen::Isometry3d random_cell_alignment(unsigned seed)
+{
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<double> offset(0.0, MAX_ALIGNMENT_OFFSET_M);
+  Eigen::Isometry3d fixed_T_base = Eigen::Isometry3d::Identity();
+  fixed_T_base.translate(Eigen::Vector3d(offset(rng), offset(rng), 0.0));
+  return fixed_T_base;
+}
+
+}  // namespace
+
+// A cell straddling a step edge fits an in-cell gradient as steady as a ramp's, but its points lie on two levels: it
+// keeps its median height, so the sill stays a flat step (under the 2 deg ramp limit), not a 3 deg ramp.
+TEST(CellMedian, SillEdgeCellsKeepTheirMedianHeight)
+{
+  for (unsigned seed = 1; seed <= STEP_SEEDS; ++seed) {
+    const Eigen::Isometry3d fixed_T_base = random_cell_alignment(seed);
+    CellMedianFilter filter{TemporalConfig{}};
+    Cloud filtered;
+    for (int frame = 0; frame < STEP_FRAMES; ++frame) {
+      std::mt19937 rng(seed * 1000U + static_cast<unsigned>(frame));
+      std::normal_distribution<double> noise(0.0, SILL_NOISE_M);
+      Cloud cloud = grid_cloud(0.3, 1.4, -0.5, 0.5, SCENE_GRID_M);
+      for (auto & p : cloud) {
+        const bool on_sill = p.x >= SILL_X0_M && p.x <= SILL_X1_M && std::fabs(p.y) <= SILL_HALF_WIDTH_M;
+        p.z = static_cast<float>((on_sill ? SILL_HEIGHT_M : 0.0) + noise(rng));
+      }
+      filtered = filter.apply(cloud, Plane(), fixed_T_base, frame * FRAME_DT_S);
+    }
+    const auto sill = largest_step_cluster(filtered);
+    ASSERT_TRUE(sill.has_value()) << "seed " << seed;
+    if (sill->slope_known) {
+      EXPECT_LT(sill->slope_deg, ground_estimator_cpp::RAMP_MIN_SLOPE_DEG) << "seed " << seed;
+    }
+  }
+}
+
+// The box's edge cells mix floor, the noisy edge band and the top: they keep their median height, so the box keeps
+// an edge step over the step rule in every frame instead of a smeared plane at its foot.
+TEST(CellMedian, BoxEdgeCellsKeepTheStep)
+{
+  const double limit = ground_estimator_cpp::max_step_m(ground_estimator_cpp::TraversabilityConfig{});
+  for (unsigned seed = 1; seed <= STEP_SEEDS; ++seed) {
+    const Eigen::Isometry3d fixed_T_base = random_cell_alignment(seed);
+    CellMedianFilter filter{TemporalConfig{}};
+    const TemporalConfig cfg;
+    for (int frame = 0; frame < STEP_FRAMES; ++frame) {
+      std::mt19937 rng(seed * 1000U + static_cast<unsigned>(frame));
+      std::normal_distribution<double> floor_noise(0.0, BOX_FLOOR_NOISE_M);
+      std::normal_distribution<double> top_noise(0.0, BOX_TOP_NOISE_M);
+      std::uniform_real_distribution<double> edge(BOX_EDGE_LO_M, BOX_EDGE_HI_M);
+      Cloud cloud = grid_cloud(0.3, 1.4, -0.4, 0.6, SCENE_GRID_M);
+      for (auto & p : cloud) {
+        const bool on_box = p.x >= BOX_X0_M && p.x <= BOX_X1_M && p.y >= BOX_Y0_M && p.y <= BOX_Y1_M;
+        if (!on_box) {
+          p.z = static_cast<float>(floor_noise(rng));
+        } else if (p.x < BOX_X0_M + BOX_EDGE_BAND_M) {
+          p.z = static_cast<float>(edge(rng));
+        } else {
+          p.z = static_cast<float>(BOX_HEIGHT_M + top_noise(rng));
+        }
+      }
+      const Cloud filtered = filter.apply(cloud, Plane(), fixed_T_base, frame * FRAME_DT_S);
+      if (frame < cfg.window_frames) {
+        continue;
+      }
+      const auto box = largest_step_cluster(filtered);
+      ASSERT_TRUE(box.has_value()) << "seed " << seed << " frame " << frame;
+      EXPECT_GT(box->edge_step_m, limit) << "seed " << seed << " frame " << frame;
+    }
+  }
 }

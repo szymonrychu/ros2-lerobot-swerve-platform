@@ -6,6 +6,7 @@
 #include <tf2_ros/buffer.h>
 
 #include <Eigen/Geometry>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -17,6 +18,7 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <random>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -25,6 +27,7 @@
 #include <string>
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "core/synthetic_floor.hpp"
@@ -289,6 +292,162 @@ Eigen::Vector2d centroid(const json & polygon)
   return polygon.empty() ? sum : sum / static_cast<double>(polygon.size());
 }
 
+// Frames until a static scene's cells hold a stable class: the temporal median outputs a cell from its min_frames-th
+// value on, the class hysteresis then needs enter_frames votes.
+int warm_up_frames(const Config & c)
+{
+  const int temporal = c.temporal.enabled ? c.temporal.min_frames - 1 : 0;
+  return temporal + (c.hysteresis.enabled ? c.hysteresis.enter_frames : 1);
+}
+
+// --- multi-frame scenes, base_link grids with noise keyed by the fixed-frame (odom) cell -------------------------
+
+constexpr double CELL_M = 0.10;  // temporal.cell_size_m default: the per-cell noise is drawn per fixed-frame cell
+constexpr double FLOOR_NOISE_M = 0.006;
+constexpr double FAR_BAND_X0 = 1.15, FAR_BAND_X1 = 1.45;
+constexpr double FAR_BAND_LOW_M = 0.04;
+constexpr double FAR_SPREAD_LO_M = 0.030, FAR_SPREAD_HI_M = 0.090;
+constexpr int FAR_SPREAD_STEPS = 13;
+constexpr double STABLE_BOX_X0 = 0.62, STABLE_BOX_X1 = 0.93, STABLE_BOX_Y0 = 0.10, STABLE_BOX_Y1 = 0.35;
+constexpr double STABLE_BOX_HEIGHT_M = 0.05;
+constexpr double STABLE_BOX_EDGE_BAND_M = 0.05;
+constexpr double STABLE_BOX_EDGE_LO_M = 0.035, STABLE_BOX_EDGE_HI_M = 0.065;
+constexpr double BOX_TOP_NOISE_M = 0.004;
+constexpr double BOX_FLOOR_NOISE_M = 0.008;
+constexpr double SILL_X0 = 1.0, SILL_X1 = 1.15, SILL_HALF_WIDTH_M = 0.4;
+constexpr double SILL_HEIGHT_M = 0.03;
+constexpr double SILL_JITTER_M = 0.01;
+constexpr double SILL_NOISE_M = 0.003;
+constexpr double MAT_X0 = 1.0, MAT_LENGTH_M = 0.25, MAT_HEIGHT_M = 0.063, MAT_Y0 = -0.45, MAT_Y1 = -0.20;
+constexpr double MAT_GRID_M = 0.02;
+constexpr double MAT_KEEP_FRACTION = 0.3;
+constexpr double MAT_SIGMA_M = 0.015;
+constexpr double PLATE_HEIGHT_M = 0.06;
+constexpr double STEEP_MAT_DEG = 20.0;
+// Seed sets of the noisy scenes: a result must hold for other noise draws too, not one lucky seed.
+constexpr unsigned SEED_SET_STRIDE = 100000U;
+
+// The fixed-frame cell of a base_link point (the robot stands still at ODOM_T_BASE).
+std::pair<int, int> odom_cell(const pcl::PointXYZ & p)
+{
+  const Eigen::Vector3d o = ODOM_T_BASE * Eigen::Vector3d(p.x, p.y, 0.0);
+  return {static_cast<int>(std::floor(o.x() / CELL_M)), static_cast<int>(std::floor(o.y() / CELL_M))};
+}
+
+// A seed per (cell, frame, salt), so every point of a cell shares the cell's per-frame value.
+unsigned cell_seed(const std::pair<int, int> & cell, int frame, unsigned salt)
+{
+  return salt + static_cast<unsigned>(cell.first * 7919 + cell.second * 104729 + frame * 15485863);
+}
+
+// Empty floor x 0.3 .. 1.45 m (3 cm grid, 6 mm noise) whose far band x 1.15 .. 1.45 m reads like the measured far edge
+// of the ToF returns: per frame each fixed-frame cell reads one value, uniform from +4 cm up with the cell's temporal
+// std (spread over 30 .. 90 mm by cell; 43 mm spans +4 .. +19 cm), plus 3 mm per-point noise.
+pcl::PointCloud<pcl::PointXYZ> far_band_floor(int frame, unsigned seed_set)
+{
+  std::mt19937 rng(7000U + SEED_SET_STRIDE * seed_set + static_cast<unsigned>(frame));
+  std::normal_distribution<double> noise(0.0, FLOOR_NOISE_M);
+  pcl::PointCloud<pcl::PointXYZ> cloud = ground_test::grid_cloud(0.3, FAR_BAND_X1, -0.5, 0.5, 0.03);
+  for (auto & p : cloud) {
+    if (p.x < FAR_BAND_X0) {
+      p.z = static_cast<float>(noise(rng));
+      continue;
+    }
+    const auto cell = odom_cell(p);
+    const int step = (((cell.first * 7 + cell.second * 3) % FAR_SPREAD_STEPS) + FAR_SPREAD_STEPS) % FAR_SPREAD_STEPS;
+    const double sigma = FAR_SPREAD_LO_M + (FAR_SPREAD_HI_M - FAR_SPREAD_LO_M) * step / (FAR_SPREAD_STEPS - 1.0);
+    std::mt19937 cell_rng(cell_seed(cell, frame, 1U + SEED_SET_STRIDE * seed_set));
+    const double value =
+      FAR_BAND_LOW_M + std::uniform_real_distribution<double>(0.0, 2.0 * std::sqrt(3.0) * sigma)(cell_rng);
+    p.z = static_cast<float>(value + 0.5 * noise(rng));
+  }
+  return cloud;
+}
+
+// The user's 5 cm box (x 0.62 .. 0.93, y 0.10 .. 0.35) on an 8 mm noise floor, 2 cm grid: the top reads 5 cm +- 4 mm,
+// the robot-facing 5 cm edge band reads uniform 3.5 .. 6.5 cm per point.
+pcl::PointCloud<pcl::PointXYZ> noisy_box(int frame)
+{
+  std::mt19937 rng(8000U + static_cast<unsigned>(frame));
+  std::normal_distribution<double> floor_noise(0.0, BOX_FLOOR_NOISE_M);
+  std::normal_distribution<double> top_noise(0.0, BOX_TOP_NOISE_M);
+  std::uniform_real_distribution<double> edge(STABLE_BOX_EDGE_LO_M, STABLE_BOX_EDGE_HI_M);
+  pcl::PointCloud<pcl::PointXYZ> cloud = ground_test::grid_cloud(0.3, 1.4, -0.4, 0.6, 0.02);
+  for (auto & p : cloud) {
+    const bool on_box = p.x >= STABLE_BOX_X0 && p.x <= STABLE_BOX_X1 && p.y >= STABLE_BOX_Y0 && p.y <= STABLE_BOX_Y1;
+    if (!on_box) {
+      p.z = static_cast<float>(floor_noise(rng));
+    } else if (p.x < STABLE_BOX_X0 + STABLE_BOX_EDGE_BAND_M) {
+      p.z = static_cast<float>(edge(rng));
+    } else {
+      p.z = static_cast<float>(STABLE_BOX_HEIGHT_M + top_noise(rng));
+    }
+  }
+  return cloud;
+}
+
+// A 3 cm sill (x 1.0 .. 1.15, |y| <= 0.4) on the floor, 2 cm grid, 3 mm noise; the whole sill moves by one uniform
+// offset in +-jitter_m per frame.
+pcl::PointCloud<pcl::PointXYZ> jittered_sill(int frame, double jitter_m)
+{
+  std::mt19937 rng(9000U + static_cast<unsigned>(frame));
+  std::normal_distribution<double> noise(0.0, SILL_NOISE_M);
+  const double offset = jitter_m > 0.0 ? std::uniform_real_distribution<double>(-jitter_m, jitter_m)(rng) : 0.0;
+  pcl::PointCloud<pcl::PointXYZ> cloud = ground_test::grid_cloud(0.3, 1.4, -0.5, 0.5, 0.02);
+  for (auto & p : cloud) {
+    const bool on_sill = p.x >= SILL_X0 && p.x <= SILL_X1 && std::fabs(p.y) <= SILL_HALF_WIDTH_M;
+    p.z = static_cast<float>((on_sill ? SILL_HEIGHT_M + offset : 0.0) + noise(rng));
+  }
+  return cloud;
+}
+
+// The user's black rubber mat (part ramp-synthetic-scene): a 25 cm, 63 mm (14 deg) wedge at x 1.0 .. 1.25,
+// y -0.45 .. -0.20 sampled on a 2 cm grid, 30 % of the returns kept per frame with 15 mm height noise, on a 3 cm,
+// 4 mm noise floor. Seed set s draws other noise and returns (seeds offset by s * SEED_SET_STRIDE).
+// slope_deg other than 0 raises the mat to that slope over the same length.
+pcl::PointCloud<pcl::PointXYZ> sparse_mat_ramp(int frame, unsigned seed_set, double slope_deg = 0.0)
+{
+  Scene mat;
+  const double height_m = slope_deg > 0.0 ? MAT_LENGTH_M * std::tan(slope_deg * DEG) : MAT_HEIGHT_M;
+  ground_test::add_ramp(mat, MAT_X0, MAT_LENGTH_M, height_m, MAT_Y0, MAT_Y1);
+  const auto dense = ground_test::sample_grid(mat, 0.95, 1.3, -0.5, -0.15, MAT_GRID_M);
+  const auto seed = 11000U + SEED_SET_STRIDE * seed_set + static_cast<unsigned>(frame);
+  pcl::PointCloud<pcl::PointXYZ> cloud =
+    ground_test::add_z_noise(ground_test::keep_fraction(dense, MAT_KEEP_FRACTION, seed), MAT_SIGMA_M, 0.0, 0.0, seed);
+  std::mt19937 rng(seed + 500U);
+  std::normal_distribution<double> noise(0.0, 0.004);
+  for (auto p : ground_test::grid_cloud(0.3, 1.45, -0.6, 0.4, 0.03)) {
+    const bool under_mat = p.x >= MAT_X0 && p.x <= MAT_X0 + MAT_LENGTH_M && p.y >= MAT_Y0 && p.y <= MAT_Y1;
+    if (!under_mat) {
+      p.z = static_cast<float>(noise(rng));
+      cloud.push_back(p);
+    }
+  }
+  return cloud;
+}
+
+// Floor scene cloud with a fresh noise seed per frame.
+pcl::PointCloud<pcl::PointXYZ> floor_frame(int frame)
+{
+  return ground_test::render(ground_test::floor_scene(), SIGMA_M, 0.0, 600U + static_cast<unsigned>(frame), DECIMATION);
+}
+
+// What the node published for one ToF cloud.
+struct FrameOutput
+{
+  builtin_interfaces::msg::Time stamp;
+  std::size_t obstacle = 0;
+  std::size_t drop = 0;
+  json warnings;  // the /ground/warning_areas document of the stamp (null when none arrived)
+};
+
+bool has_kind(const json & areas, const std::string & kind, const std::string & source)
+{
+  return std::any_of(areas.begin(), areas.end(), [&](const json & a) {
+    return a["kind"] == kind && (source.empty() || a["source"] == source);
+  });
+}
+
 // Which optional transforms the buffer gets.
 struct TfOptions
 {
@@ -403,11 +562,81 @@ protected:
     return stamp;
   }
 
-  // An RGB-D cloud (x, y, z, rgb as head_rgbd_cpp publishes it) of the floor scene in the camera frame: grey floor
-  // with a little texture, a red sheet when with_sheet.
-  builtin_interfaces::msg::Time publish_rgbd(bool with_sheet)
+  // Publish the cloud warm_up_frames(config_) times, waiting for each answer; returns the last stamp, whose output
+  // comes from stable cell classes.
+  builtin_interfaces::msg::Time warm_cloud_and_wait(const pcl::PointCloud<pcl::PointXYZ> & base_cloud)
   {
-    const auto base = scene_cloud(ground_test::floor_scene(), 5);
+    builtin_interfaces::msg::Time stamp;
+    for (int i = 0; i < warm_up_frames(config_); ++i) {
+      stamp = cloud_and_wait(base_cloud);
+    }
+    return stamp;
+  }
+
+  // Publish one cloud and collect the lethal point counts and the warning areas document of its stamp.
+  FrameOutput run_frame(const pcl::PointCloud<pcl::PointXYZ> & base_cloud)
+  {
+    FrameOutput out;
+    out.stamp = cloud_and_wait(base_cloud);
+    EXPECT_TRUE(wait_for([&] { return find_stamp(drop_, out.stamp).has_value(); }));
+    const auto obstacle = find_stamp(obstacle_, out.stamp);
+    const auto drop = find_stamp(drop_, out.stamp);
+    out.obstacle = obstacle ? xyz_of(*obstacle).size() : 0;
+    out.drop = drop ? xyz_of(*drop).size() : 0;
+    const auto doc = warnings_at(out.stamp);
+    out.warnings = doc ? *doc : json();
+    return out;
+  }
+
+  // Run frames 0 .. warm_up + frames - 1 of a scene and return the outputs after the warm-up (warm_up_frames when
+  // negative).
+  std::vector<FrameOutput> run_scene(
+    const std::function<pcl::PointCloud<pcl::PointXYZ>(int)> & scene, int frames, int warm_up = -1)
+  {
+    std::vector<FrameOutput> out;
+    warm_up = warm_up < 0 ? warm_up_frames(config_) : warm_up;
+    for (int i = 0; i < warm_up + frames; ++i) {
+      FrameOutput f = run_frame(scene(i));
+      if (i >= warm_up) {
+        out.push_back(std::move(f));
+      }
+    }
+    return out;
+  }
+
+  // Start a node with the temporal filter on and run a scene through run_scene.
+  std::vector<FrameOutput> run_temporal_scene(
+    const std::function<pcl::PointCloud<pcl::PointXYZ>(int)> & scene, int frames)
+  {
+    fill_tf();
+    Config config = base_config();
+    config.temporal.enabled = true;
+    start(config);
+    return run_scene(scene, frames);
+  }
+
+  // Train the floor colour model on grey floor RGB-D clouds, then show the red sheet (lifted by sheet_height_m).
+  void show_red_sheet(double sheet_height_m)
+  {
+    ASSERT_TRUE(wait_for([this] { return rgbd_pub_->get_subscription_count() > 0; }));
+    cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+    for (int i = 0; i < TRAIN_CLOUDS; ++i) {
+      const auto stamp = publish_rgbd(false);
+      ASSERT_TRUE(wait_for([&] { return find_stamp(labelled_, stamp).has_value(); }));
+    }
+    const auto sheet_stamp = publish_rgbd(true, sheet_height_m);
+    ASSERT_TRUE(wait_for([&] { return find_stamp(labelled_, sheet_stamp).has_value(); }));
+  }
+
+  // An RGB-D cloud (x, y, z, rgb as head_rgbd_cpp publishes it) of the floor scene in the camera frame: grey floor
+  // with a little texture, a red sheet when with_sheet (a plate of that height when sheet_height_m > 0).
+  builtin_interfaces::msg::Time publish_rgbd(bool with_sheet, double sheet_height_m = 0.0)
+  {
+    auto rgbd_scene = ground_test::floor_scene();
+    if (with_sheet && sheet_height_m > 0.0) {
+      ground_test::add_table_top(rgbd_scene, sheet_height_m, SHEET_X0, SHEET_X1, SHEET_Y0, SHEET_Y1);
+    }
+    const auto base = scene_cloud(rgbd_scene, 5);
     const Eigen::Isometry3d cam_T_base = BASE_T_CAM.inverse();
     sensor_msgs::msg::PointCloud2 msg;
     msg.header.frame_id = CAM_FRAME;
@@ -563,7 +792,7 @@ TEST_F(NodeTest, LevelFloorWithABoxGivesObstaclePointsAndAPlaneState)
 {
   fill_tf();
   start(base_config());
-  const auto stamp = cloud_and_wait(scene_cloud(box_scene()));
+  const auto stamp = warm_cloud_and_wait(scene_cloud(box_scene()));
 
   const auto obstacle = find_stamp(obstacle_, stamp);
   ASSERT_TRUE(obstacle.has_value());
@@ -618,7 +847,7 @@ TEST_F(NodeTest, TenCentimetreDropOffIsALethalDropRegion)
 {
   fill_tf();
   start(base_config());
-  const auto stamp = cloud_and_wait(scene_cloud(drop_scene(0.10)));
+  const auto stamp = warm_cloud_and_wait(scene_cloud(drop_scene(0.10)));
   ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
   const auto drop = find_stamp(drop_, stamp);
   const auto points = xyz_of(*drop);
@@ -641,7 +870,7 @@ TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningInTheMapFrame)
 {
   fill_tf();
   start(base_config());
-  const auto stamp = cloud_and_wait(scene_cloud(sill_scene(0.03)));
+  const auto stamp = warm_cloud_and_wait(scene_cloud(sill_scene(0.03)));
   EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
   ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
   EXPECT_EQ(xyz_of(*find_stamp(drop_, stamp)).size(), 0u);
@@ -677,7 +906,7 @@ TEST_F(NodeTest, FourteenDegreeRampIsARampWarningWithoutLethalPoints)
 {
   fill_tf();
   start(base_config());
-  const auto stamp = cloud_and_wait(scene_cloud(ramp_scene(14.0)));
+  const auto stamp = warm_cloud_and_wait(scene_cloud(ramp_scene(14.0)));
   EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
   ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
   EXPECT_EQ(xyz_of(*find_stamp(drop_, stamp)).size(), 0u);
@@ -848,7 +1077,7 @@ TEST_F(NodeTest, RgbdCloudWithARedSheetIsLabelledAndGivesAColourWarningArea)
   EXPECT_GE(metric("ground_labelled_clouds_total").value_or(0.0), TRAIN_CLOUDS + 1.0);
   EXPECT_TRUE(metric("ground_colour_mismatch_ratio").has_value());
 
-  const auto stamp = cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  const auto stamp = warm_cloud_and_wait(scene_cloud(ground_test::floor_scene()));
   const auto doc = warnings_at(stamp);
   ASSERT_TRUE(doc.has_value());
   bool colour = false;
@@ -981,7 +1210,7 @@ TEST_F(NodeTest, BoxOnNoisyFloorIsStillAnObstacle)
   config.temporal.enabled = true;
   start(config);
   builtin_interfaces::msg::Time stamp;
-  for (int i = 0; i < config.temporal.min_frames; ++i) {
+  for (int i = 0; i < warm_up_frames(config); ++i) {
     stamp = cloud_and_wait(noisy_floor(200 + i, true));
   }
   ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
@@ -1003,7 +1232,7 @@ TEST_F(NodeTest, PlaneLossResetsTheCellHistoryAndGauge)
   config.temporal.max_age_s = 5.0;  // only the plane-loss reset can drop the history
   start(config);
   builtin_interfaces::msg::Time stamp;
-  for (int i = 0; i < config.temporal.min_frames; ++i) {
+  for (int i = 0; i < warm_up_frames(config); ++i) {
     stamp = cloud_and_wait(noisy_floor(300 + i, true));
   }
   ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
@@ -1023,4 +1252,289 @@ TEST_F(NodeTest, PlaneLossResetsTheCellHistoryAndGauge)
   const auto flat = cloud_and_wait(noisy_floor(400, false));
   ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, flat).has_value(); }));
   EXPECT_EQ(xyz_of(*find_stamp(obstacle_, flat)).size(), 0u);
+}
+
+// --- stable cell classes (design D3, D5, D7, D8) ---------------------------------------------------------------------
+
+namespace
+{
+constexpr int FAR_BAND_FRAMES = 80;
+constexpr int BOX_FRAMES = 40;
+constexpr int SILL_FRAMES = 30;
+constexpr int RAMP_FRAMES = 40;
+constexpr int SLOPE_TRANSIENT_FRAMES = 8;  // temporal.window_frames: the frames before a new incline's history is full
+constexpr int CHURN_FRAMES = 40;
+constexpr int COLOUR_FRAMES = 8;
+constexpr double LETHAL_FREE_SHARE = 0.95;
+constexpr double BOX_LETHAL_SHARE = 0.95;
+constexpr double RAMP_SHARE = 0.90;
+constexpr double IDENTICAL_PAIR_SHARE = 0.90;
+
+double share(const std::vector<FrameOutput> & frames, const std::function<bool(const FrameOutput &)> & pred)
+{
+  return frames.empty() ? 0.0
+                        : static_cast<double>(std::count_if(frames.begin(), frames.end(), pred)) /
+                            static_cast<double>(frames.size());
+}
+
+bool lethal_free(const FrameOutput & f) { return f.obstacle == 0 && f.drop == 0; }
+}  // namespace
+
+TEST_F(NodeTest, NoisyFarBandOnEmptyFloorGivesNoLethalPointsAtP95)
+{
+  const auto frames = run_temporal_scene([](int i) { return far_band_floor(i, 0U); }, FAR_BAND_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), LETHAL_FREE_SHARE);
+  // The noisy far-band cells are unknown: the spread gate counts them.
+  EXPECT_GT(metric("ground_temporal_gated_cells").value_or(0.0), 0.0);
+  EXPECT_TRUE(metric("ground_stable_lethal_cells").has_value());
+}
+
+// The far band with other noise draws.
+TEST_F(NodeTest, NoisyFarBandGivesNoLethalPointsAtP95ForSeedSet1)
+{
+  const auto frames = run_temporal_scene([](int i) { return far_band_floor(i, 1U); }, FAR_BAND_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), LETHAL_FREE_SHARE);
+}
+
+TEST_F(NodeTest, NoisyFarBandGivesNoLethalPointsAtP95ForSeedSet2)
+{
+  const auto frames = run_temporal_scene([](int i) { return far_band_floor(i, 2U); }, FAR_BAND_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), LETHAL_FREE_SHARE);
+}
+
+TEST_F(NodeTest, NoisyFarBandGivesNoLethalPointsAtP95ForSeedSet3)
+{
+  const auto frames = run_temporal_scene([](int i) { return far_band_floor(i, 3U); }, FAR_BAND_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), LETHAL_FREE_SHARE);
+}
+
+TEST_F(NodeTest, FiveCentimetreBoxWithANoisyEdgeBandIsStablyLethal)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  const auto frames = run_scene(noisy_box, BOX_FRAMES);
+  EXPECT_GE(share(frames, [](const FrameOutput & f) { return f.obstacle > 0; }), BOX_LETHAL_SHARE);
+  // Only this frame's real points of stable lethal cells: every published point lies on or at the box.
+  const auto points = xyz_of(*find_stamp(obstacle_, frames.back().stamp));
+  ASSERT_FALSE(points.empty());
+  for (const auto & p : points) {
+    EXPECT_GE(p.x(), STABLE_BOX_X0 - CELL_M);
+    EXPECT_LE(p.x(), STABLE_BOX_X1 + CELL_M);
+    EXPECT_GE(p.y(), STABLE_BOX_Y0 - CELL_M);
+    EXPECT_LE(p.y(), STABLE_BOX_Y1 + CELL_M);
+    EXPECT_GT(p.z(), 0.02);
+  }
+  const auto state = state_after(
+    ns_of(frames.back().stamp), [](const json & d) { return !d["plane"].is_null() && !d["regions"].empty(); });
+  ASSERT_TRUE(state.has_value());
+  bool obstacle_region = false;
+  for (const auto & r : (*state)["regions"]) {
+    obstacle_region = obstacle_region || (r["kind"] == "step" && r["class"] == "obstacle");
+  }
+  EXPECT_TRUE(obstacle_region) << state->dump();
+  EXPECT_GT((*state)["obstacle_points"].get<int>(), 0);
+  EXPECT_GT(metric("ground_stable_lethal_cells").value_or(0.0), 0.0);
+}
+
+TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningEveryFrameAndNeverLethal)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  const int warm_up = warm_up_frames(config);
+  for (int i = 0; i < warm_up + SILL_FRAMES; ++i) {
+    const auto f = run_frame(
+      ground_test::render(sill_scene(SILL_HEIGHT_M), ground_test::DEFAULT_SIGMA_M, 0.0, 900U + i, DECIMATION));
+    EXPECT_EQ(f.obstacle, 0u) << "frame " << i;
+    EXPECT_EQ(f.drop, 0u) << "frame " << i;
+    if (i >= warm_up) {
+      ASSERT_FALSE(f.warnings.is_null()) << "frame " << i;
+      EXPECT_TRUE(has_kind(f.warnings["areas"], "step", "tof")) << "frame " << i << ": " << f.warnings.dump();
+    }
+  }
+  const auto state = state_after(ns_of(stamp_of(last_stamp_s_)), [](const json & d) { return !d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_TRUE(has_kind((*state)["warnings"], "step", "tof")) << state->dump();
+  EXPECT_GT(metric("ground_stable_warning_cells").value_or(0.0), 0.0);
+  EXPECT_EQ(metric("ground_stable_lethal_cells").value_or(-1.0), 0.0);
+}
+
+bool has_ramp(const FrameOutput & f) { return !f.warnings.is_null() && has_kind(f.warnings["areas"], "ramp", ""); }
+
+TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarning)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U); }, RAMP_FRAMES);
+  EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+// The same mat with other noise draws: the ramp verdict is not one lucky seed.
+TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet1)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 1U); }, RAMP_FRAMES);
+  EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet2)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 2U); }, RAMP_FRAMES);
+  EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet3)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 3U); }, RAMP_FRAMES);
+  EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+// The safety side of the ramp rule: the same sparse mat raised to 20 deg is lethal.
+TEST_F(NodeTest, SparseTwentyDegreeMatIsLethal)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U, STEEP_MAT_DEG); }, RAMP_FRAMES);
+  EXPECT_GE(share(frames, [](const FrameOutput & f) { return f.obstacle > 0; }), RAMP_SHARE);
+}
+
+// A new steep incline is lethal from the first frame its cells hold a stable class, not only once the slope history
+// holds a temporal window of clouds in them: until then its slope is fit over the clouds so far.
+TEST_F(NodeTest, NewSparseTwentyDegreeMatIsLethalFromItsFirstStableFrame)
+{
+  const auto frames =
+    run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U, STEEP_MAT_DEG); }, SLOPE_TRANSIENT_FRAMES);
+  for (std::size_t i = 0; i < frames.size(); ++i) {
+    EXPECT_GT(frames[i].obstacle, 0u) << "frame " << i;
+  }
+}
+
+// The shorter fit while the slope history fills does not make a new 14 deg mat lethal, for any seed set.
+TEST_F(NodeTest, NewSparseFourteenDegreeMatIsNotLethalWhileItsSlopeHistoryFills)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U); }, SLOPE_TRANSIENT_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, NewSparseFourteenDegreeMatIsNotLethalWhileItsSlopeHistoryFillsForSeedSet1)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 1U); }, SLOPE_TRANSIENT_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, NewSparseFourteenDegreeMatIsNotLethalWhileItsSlopeHistoryFillsForSeedSet2)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 2U); }, SLOPE_TRANSIENT_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, NewSparseFourteenDegreeMatIsNotLethalWhileItsSlopeHistoryFillsForSeedSet3)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 3U); }, SLOPE_TRANSIENT_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, JitteringStaticSillGivesIdenticalWarningAreas)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  const auto frames = run_scene([](int i) { return jittered_sill(i, SILL_JITTER_M); }, CHURN_FRAMES);
+  std::size_t identical = 0;
+  for (std::size_t i = 0; i < frames.size(); ++i) {
+    ASSERT_FALSE(frames[i].warnings.is_null()) << "frame " << i;
+    EXPECT_FALSE(frames[i].warnings["areas"].empty()) << "frame " << i;
+    if (i > 0 && frames[i].warnings["areas"].dump() == frames[i - 1].warnings["areas"].dump()) {
+      ++identical;
+    }
+  }
+  EXPECT_GE(static_cast<double>(identical) / static_cast<double>(frames.size() - 1), IDENTICAL_PAIR_SHARE);
+}
+
+TEST_F(NodeTest, RedSheetIsAColourWarningAreaAndNeverLethal)
+{
+  fill_tf();
+  start(base_config());
+  show_red_sheet(0.0);
+  const auto frames = run_scene(floor_frame, COLOUR_FRAMES);
+  for (const auto & f : frames) {
+    ASSERT_FALSE(f.warnings.is_null());
+    EXPECT_TRUE(has_kind(f.warnings["areas"], "colour", "colour")) << f.warnings.dump();
+    EXPECT_TRUE(lethal_free(f));
+  }
+  EXPECT_EQ(metric("ground_stable_lethal_cells").value_or(-1.0), 0.0);
+}
+
+TEST_F(NodeTest, SixCentimetreColourPlateIsAWarningAndNeverLethal)
+{
+  fill_tf();
+  Config config = base_config();
+  // A floor band wide enough that the RGB-D labelling flags the 6 cm plate as a floor colour mismatch: a colour
+  // cluster 6 cm above the floor, above the 4 cm step rule. The ToF cloud is the bare floor; colour never blocks.
+  config.fit.distance_m = 0.07;
+  start(config);
+  show_red_sheet(PLATE_HEIGHT_M);
+  const auto frames = run_scene(floor_frame, COLOUR_FRAMES);
+  for (const auto & f : frames) {
+    ASSERT_FALSE(f.warnings.is_null());
+    bool plate = false;
+    for (const auto & a : f.warnings["areas"]) {
+      if (a["kind"] == "colour" && a["source"] == "colour") {
+        plate = true;
+        EXPECT_NEAR(a["height_m"].get<double>(), PLATE_HEIGHT_M, 0.015) << f.warnings.dump();
+      }
+    }
+    EXPECT_TRUE(plate) << f.warnings.dump();
+    EXPECT_TRUE(lethal_free(f));
+  }
+  EXPECT_EQ(metric("ground_stable_lethal_cells").value_or(-1.0), 0.0);
+}
+
+TEST_F(NodeTest, StableClassGaugesAppearWithTheirFirstRealValues)
+{
+  fill_tf();
+  Config config = base_config();
+  config.temporal.enabled = true;
+  start(config);
+  for (const char * gauge :
+       {"ground_temporal_gated_cells", "ground_stable_lethal_cells", "ground_stable_warning_cells"}) {
+    EXPECT_FALSE(metric(gauge).has_value()) << gauge;
+  }
+  run_scene(noisy_box, 1);
+  EXPECT_TRUE(metric("ground_temporal_gated_cells").has_value());
+  EXPECT_GT(metric("ground_stable_lethal_cells").value_or(0.0), 0.0);
+  EXPECT_TRUE(metric("ground_stable_warning_cells").has_value());
+  run_scene([](int i) { return jittered_sill(i, 0.0); }, 1);
+  EXPECT_GT(metric("ground_stable_warning_cells").value_or(0.0), 0.0);
+}
+
+TEST_F(NodeTest, PlaneLossResetsTheCellClasses)
+{
+  fill_tf();
+  Config config = base_config();  // temporal off: only the class hysteresis delays the box
+  config.fit.hold_s = 0.3;
+  start(config);
+  const auto box = scene_cloud(box_scene());
+  const auto warm = warm_cloud_and_wait(box);
+  ASSERT_GT(xyz_of(*find_stamp(obstacle_, warm)).size(), 50u);
+  EXPECT_GT(metric("ground_stable_lethal_cells").value_or(0.0), 0.0);
+
+  const auto wall = scene_cloud(wall_scene());
+  builtin_interfaces::msg::Time wall_stamp;
+  for (int i = 0; i < 12; ++i) {
+    wall_stamp = publish_cloud(wall);
+    std::this_thread::sleep_for(milliseconds(static_cast<int>(CLOUD_PERIOD_S * 1000)));
+  }
+  ASSERT_TRUE(state_after(ns_of(wall_stamp), [](const json & d) { return d["plane"].is_null(); }).has_value());
+  EXPECT_EQ(metric("ground_stable_lethal_cells").value_or(-1.0), 0.0);
+  EXPECT_EQ(metric("ground_stable_warning_cells").value_or(-1.0), 0.0);
+
+  // The first box cloud after the loss is a new warm-up: remembered lethal cells would publish its points at once.
+  const auto first = cloud_and_wait(box);
+  EXPECT_EQ(xyz_of(*find_stamp(obstacle_, first)).size(), 0u);
+  const auto stable = warm_cloud_and_wait(box);
+  EXPECT_GT(xyz_of(*find_stamp(obstacle_, stable)).size(), 50u);
 }

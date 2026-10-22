@@ -29,6 +29,7 @@ constexpr double NS_PER_S = 1e9;
 constexpr double QUATERNION_NORM_TOLERANCE = 1e-3;
 constexpr double UNKNOWN_COVARIANCE = -1.0;  // sensor_msgs/Imu: orientation not provided
 constexpr double MIN_NORMAL_Z = 1e-6;
+constexpr double SAME_EDGE_M = 1e-9;  // a region copies its cluster's edge line exactly
 constexpr std::array<double, 9> FIT_SECONDS_BUCKETS = {0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.5, 1.0};
 constexpr std::array<FitReject, 6> ALL_REJECTS = {FitReject::too_few_points,   FitReject::no_plane,
                                                   FitReject::normal_off_prior, FitReject::offset_off_prior,
@@ -44,7 +45,7 @@ struct GaugeSpec
   const char * help;
 };
 
-constexpr std::array<GaugeSpec, 9> GAUGES = {{
+constexpr std::array<GaugeSpec, 12> GAUGES = {{
   {METRIC_INLIER_RATIO, "Inlier ratio of the last valid plane fit"},
   {METRIC_SLOPE, "Floor slope against gravity of the last cloud with a plane and a fresh IMU, degrees"},
   {METRIC_PLANE_VS_BASE, "Angle between the floor normal and base_link +z of the last cloud with a plane, degrees"},
@@ -53,6 +54,10 @@ constexpr std::array<GaugeSpec, 9> GAUGES = {{
   {METRIC_OBSTACLE_POINTS, "Points of the last obstacle_points cloud"},
   {METRIC_DROP_POINTS, "Points of the last drop_points cloud"},
   {METRIC_TEMPORAL_CELLS, "Cells the temporal median currently holds"},
+  {METRIC_TEMPORAL_GATED,
+   "Temporal cells unknown in the last cloud because their spread exceeded temporal.max_spread_m"},
+  {METRIC_STABLE_LETHAL, "Fixed-frame cells whose stable class is obstacle or drop"},
+  {METRIC_STABLE_WARNING, "Fixed-frame cells whose stable class is warning"},
   {METRIC_MISMATCH_RATIO, "Floor colour mismatch share of the floor band of the last labelled RGB-D cloud"},
 }};
 
@@ -186,6 +191,90 @@ std::vector<Region> all_regions(
   return regions;
 }
 
+bool is_lethal(CellClass c) { return c == CellClass::obstacle || c == CellClass::drop; }
+
+// The plane of the source frame expressed in the target frame.
+Plane transformed(const Plane & plane, const Eigen::Isometry3d & target_T_source)
+{
+  Plane out;
+  out.normal = target_T_source.linear() * plane.normal;
+  out.d = plane.d - out.normal.dot(target_T_source.translation());
+  return out;
+}
+
+// The points of `points` (base_link) whose fixed-frame cell is stable obstacle or drop, appended to out.
+void append_stable_lethal(
+  const pcl::PointCloud<pcl::PointXYZ> & points, const CellClassFilter & classes,
+  const Eigen::Isometry3d & fixed_T_base, pcl::PointCloud<pcl::PointXYZ> & out)
+{
+  for (const auto & p : points) {
+    if (is_lethal(classes.stable_at((fixed_T_base * Eigen::Vector3d(p.x, p.y, p.z)).head<2>()))) {
+      out.push_back(p);
+    }
+  }
+}
+
+// Whether any point of `points` (base_link) lies in a stable lethal cell.
+bool any_stable_lethal(
+  const pcl::PointCloud<pcl::PointXYZ> & points, const CellClassFilter & classes,
+  const Eigen::Isometry3d & fixed_T_base)
+{
+  return std::any_of(points.begin(), points.end(), [&](const pcl::PointXYZ & p) {
+    return is_lethal(classes.stable_at((fixed_T_base * Eigen::Vector3d(p.x, p.y, p.z)).head<2>()));
+  });
+}
+
+// The cluster a region was made from (regions_from_clusters copies its kind, edge line and point count), or nullptr.
+const Cluster * cluster_of(
+  const Region & region, const std::vector<Cluster> & above, const std::vector<Cluster> & below)
+{
+  for (const auto * group : {&above, &below}) {
+    for (const Cluster & c : *group) {
+      if (
+        c.kind == region.kind && c.points.size() == region.points &&
+        std::fabs(c.distance_m - region.distance_m) < SAME_EDGE_M &&
+        (c.edge_point - region.point).norm() < SAME_EDGE_M) {
+        return &c;
+      }
+    }
+  }
+  return nullptr;
+}
+
+// Mean of a polygon's vertices (the origin for an empty polygon).
+Eigen::Vector2d vertex_mean(const std::vector<Eigen::Vector2d> & polygon)
+{
+  Eigen::Vector2d sum = Eigen::Vector2d::Zero();
+  for (const auto & v : polygon) {
+    sum += v;
+  }
+  return polygon.empty() ? sum : Eigen::Vector2d(sum / static_cast<double>(polygon.size()));
+}
+
+// Even-odd point-in-polygon test.
+bool contains(const std::vector<Eigen::Vector2d> & polygon, const Eigen::Vector2d & p)
+{
+  bool in = false;
+  for (std::size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+    const Eigen::Vector2d & a = polygon[i];
+    const Eigen::Vector2d & b = polygon[j];
+    if ((a.y() > p.y()) != (b.y() > p.y()) && p.x() < (b.x() - a.x()) * (p.y() - a.y()) / (b.y() - a.y()) + a.x()) {
+      in = !in;
+    }
+  }
+  return in;
+}
+
+// Whether an area of polygon `next` continues the area of polygon `prev`: equal, or either holds the other's vertex
+// centroid (a cell joining or leaving keeps the area's identity).
+bool continues(const std::vector<Eigen::Vector2d> & prev, const std::vector<Eigen::Vector2d> & next)
+{
+  if (prev.empty() || next.empty()) {
+    return false;
+  }
+  return prev == next || contains(prev, vertex_mean(next)) || contains(next, vertex_mean(prev));
+}
+
 double seconds_since(const std::chrono::steady_clock::time_point & start)
 {
   return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -200,6 +289,8 @@ GroundNode::GroundNode(
   tf_buffer_(std::move(tf_buffer)),
   tracker_(config.fit),
   cell_filter_(config.temporal),
+  cell_class_(config.hysteresis, config.temporal.cell_size_m),
+  raw_heights_(slope_history_config(config.temporal)),
   colour_model_(config.colour),
   metrics_(NODE_NAME)
 {
@@ -362,12 +453,23 @@ void GroundNode::on_cloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & 
     process_plane(*msg, *tracked, fixed_T_base, stamp_s, started);
   } else {
     // No valid or held plane: no cloud, no warning areas (no placeholder data); the cell history is stale.
-    cell_filter_.reset();
-    set_gauge(METRIC_TEMPORAL_CELLS, 0.0);
+    reset_cells();
     fit_seconds_->Observe(seconds_since(started));
     cycle_ = Cycle{};
   }
   publish_state_on_change(stamp_ns, tracked);
+}
+
+void GroundNode::reset_cells()
+{
+  cell_filter_.reset();
+  cell_class_.reset();
+  raw_heights_.reset();
+  areas_fixed_.clear();
+  set_gauge(METRIC_TEMPORAL_CELLS, 0.0);
+  set_gauge(METRIC_TEMPORAL_GATED, static_cast<double>(cell_filter_.gated_cell_count()));
+  set_gauge(METRIC_STABLE_LETHAL, 0.0);
+  set_gauge(METRIC_STABLE_WARNING, 0.0);
 }
 
 void GroundNode::process_plane(
@@ -377,60 +479,177 @@ void GroundNode::process_plane(
   const Plane & plane = tracked.plane;
   const double edge_band_m = config_.traversability.edge_band_m;
   filtered_cloud_ = cell_filter_.apply(base_cloud_, plane, fixed_T_base, stamp_s);
+  if (config_.temporal.enabled) {
+    raw_heights_.add(base_cloud_, plane, fixed_T_base, stamp_s);
+  }
   set_gauge(METRIC_TEMPORAL_CELLS, static_cast<double>(cell_filter_.cell_count()));
+  set_gauge(METRIC_TEMPORAL_GATED, static_cast<double>(cell_filter_.gated_cell_count()));
   const Segmented seg = segment(filtered_cloud_, plane, config_.bands, config_.fit.distance_m);
-  const auto above =
+  auto above =
     extract_clusters(seg.above, seg.above_height, "step", plane, config_.edges, edge_band_m, &unclustered_index_);
   gather(seg.above, seg.above_height, unclustered_index_, unclustered_above_, unclustered_above_h_);
-  const auto below =
+  auto below =
     extract_clusters(seg.below, seg.below_height, "drop", plane, config_.edges, edge_band_m, &unclustered_index_);
   gather(seg.below, seg.below_height, unclustered_index_, unclustered_below_, unclustered_below_h_);
+  refine_slopes(above, 1.0, fixed_T_base);
+  refine_slopes(below, -1.0, fixed_T_base);
   Traversability rule = apply_rule(
     above, below, unclustered_above_, unclustered_above_h_, unclustered_below_, unclustered_below_h_,
     all_regions(above, below, config_.edges), config_.edges, config_.traversability);
+  observe_classes(rule, fixed_T_base, stamp_s);
   fit_seconds_->Observe(seconds_since(started));
 
-  cycle_ = Cycle{};
-  cycle_.warnings = std::move(rule.warnings);
-  // The colour areas of the latest labelled RGB-D cloud, moved from its base_link to this cloud's base_link through
-  // the fixed frame. Every colour cluster is a warning, never lethal.
-  if (colour_ && std::fabs(stamp_s - colour_->stamp_s) <= config_.fit.hold_s) {
-    const Eigen::Isometry3d base_T_colour = fixed_T_base.inverse() * colour_->fixed_T_base;
-    for (const WarningArea & area : colour_->areas) {
-      cycle_.warnings.push_back(moved(area, colour_->plane, base_T_colour));
-    }
-  }
-  cycle_.regions = std::move(rule.regions);
-  cycle_.obstacle_points = rule.obstacle.size();
-  cycle_.drop_points = rule.drop.size();
+  // Lethal clouds: only this frame's points, and only those in stable lethal cells (a lethal observation in a cell that
+  // is not yet stable is withheld; warning points in a stable lethal cell are lethal).
+  stable_obstacle_.clear();
+  stable_drop_.clear();
+  append_stable_lethal(rule.obstacle, cell_class_, fixed_T_base, stable_obstacle_);
+  append_stable_lethal(rule.warning_above, cell_class_, fixed_T_base, stable_obstacle_);
+  append_stable_lethal(rule.drop, cell_class_, fixed_T_base, stable_drop_);
+  append_stable_lethal(rule.warning_below, cell_class_, fixed_T_base, stable_drop_);
 
-  // Lethal points only; an empty cloud is a real "nothing lethal" observation with a valid plane.
-  obstacle_pub_->publish(to_cloud_msg(rule.obstacle, config_.base_frame, msg.header.stamp));
-  drop_pub_->publish(to_cloud_msg(rule.drop, config_.base_frame, msg.header.stamp));
+  cycle_ = Cycle{};
+  cycle_.regions = std::move(rule.regions);
+  for (Region & r : cycle_.regions) {
+    const Cluster * c = cluster_of(r, above, below);
+    r.cls = c != nullptr && any_stable_lethal(c->points, cell_class_, fixed_T_base) ? "obstacle" : "warning";
+  }
+  const Plane plane_fixed = transformed(plane, fixed_T_base);
+  areas_fixed_ = stable_areas_fixed();
+  const Eigen::Isometry3d base_T_fixed = fixed_T_base.inverse();
+  for (const PublishedArea & published : areas_fixed_) {
+    cycle_.warnings.push_back(moved(published.area, plane_fixed, base_T_fixed));
+  }
+  cycle_.obstacle_points = stable_obstacle_.size();
+  cycle_.drop_points = stable_drop_.size();
+
+  // An empty cloud is a real "nothing lethal" observation with a valid plane.
+  obstacle_pub_->publish(to_cloud_msg(stable_obstacle_, config_.base_frame, msg.header.stamp));
+  drop_pub_->publish(to_cloud_msg(stable_drop_, config_.base_frame, msg.header.stamp));
 
   set_gauge(METRIC_OBSTACLE_POINTS, static_cast<double>(cycle_.obstacle_points));
   set_gauge(METRIC_DROP_POINTS, static_cast<double>(cycle_.drop_points));
   set_gauge(METRIC_REGIONS, static_cast<double>(cycle_.regions.size()));
   set_gauge(METRIC_WARNING_AREAS, static_cast<double>(cycle_.warnings.size()));
+  set_gauge(
+    METRIC_STABLE_LETHAL,
+    static_cast<double>(cell_class_.count(CellClass::obstacle) + cell_class_.count(CellClass::drop)));
+  set_gauge(METRIC_STABLE_WARNING, static_cast<double>(cell_class_.count(CellClass::warning)));
   set_gauge(METRIC_PLANE_VS_BASE, plane_vs_base_deg(plane));
   if (prior_.from_imu) {
     set_gauge(METRIC_SLOPE, slope_vs_gravity(plane, prior_.up, config_.slope).total_deg);
   }
 
-  publish_warning_areas(msg.header.stamp, plane);
+  publish_warning_areas(msg.header.stamp, plane_fixed);
 }
 
-void GroundNode::publish_warning_areas(const builtin_interfaces::msg::Time & stamp, const Plane & plane)
+void GroundNode::refine_slopes(
+  std::vector<Cluster> & clusters, double sign, const Eigen::Isometry3d & fixed_T_base) const
 {
-  Eigen::Isometry3d frame_T_base;
-  if (!lookup(config_.warnings.frame, config_.base_frame, stamp, frame_T_base)) {
+  // With the temporal median a cluster's slope comes from one sample per cell: a small sparse ramp has three or four,
+  // straddling its foot, sides and top edge, and the fit scatters by several degrees from cloud to cloud. For an
+  // inclined cluster its raw points over the slope history, in its cells and their neighbours, give the slope instead
+  // (surface_slope.hpp).
+  if (!config_.temporal.enabled) {
+    return;
+  }
+  for (Cluster & c : clusters) {
+    if (!c.slope_known || c.slope_deg < SLOPE_REFIT_MIN_DEG) {
+      continue;
+    }
+    // A new inclined cluster is fit over the clouds kept so far: fewer clouds scatter more (~1 deg at
+    // temporal.min_frames clouds for the sparse 14 deg mat) but a steep incline is lethal from its first frame, where
+    // an unknown slope would leave it to its edge step, which a low incline passes.
+    const auto slope = surface_slope_deg(raw_heights_.around(c.points, fixed_T_base), sign, config_.fit.distance_m);
+    c.slope_known = slope.has_value();
+    c.slope_deg = slope.value_or(0.0);
+  }
+}
+
+void GroundNode::observe_classes(const Traversability & rule, const Eigen::Isometry3d & fixed_T_base, double stamp_s)
+{
+  cell_class_.begin_frame();
+  observe_steady(rule.obstacle, CellClass::obstacle, fixed_T_base);
+  observe_steady(rule.drop, CellClass::drop, fixed_T_base);
+  for (const WarningArea & area : rule.warnings) {
+    cell_class_.observe_area(area, fixed_T_base);
+  }
+  // The colour areas of the latest labelled RGB-D cloud, moved from its base_link to this cloud's base_link through
+  // the fixed frame. Every colour cluster is a warning, never lethal.
+  if (colour_ && std::fabs(stamp_s - colour_->stamp_s) <= config_.fit.hold_s) {
+    const Eigen::Isometry3d base_T_colour = fixed_T_base.inverse() * colour_->fixed_T_base;
+    for (const WarningArea & area : colour_->areas) {
+      cell_class_.observe_area(moved(area, colour_->plane, base_T_colour), fixed_T_base);
+    }
+  }
+  cell_class_.end_frame();
+}
+
+void GroundNode::observe_steady(
+  const pcl::PointCloud<pcl::PointXYZ> & points, CellClass cls, const Eigen::Isometry3d & fixed_T_base)
+{
+  const double max_spread_m = LETHAL_SPREAD_FRACTION * config_.temporal.max_spread_m;
+  const int quiet_frames = LETHAL_QUIET_WINDOWS * config_.temporal.window_frames;
+  steady_lethal_.clear();
+  for (const auto & p : points) {
+    if (cell_filter_.steady_at((fixed_T_base * Eigen::Vector3d(p.x, p.y, p.z)).head<2>(), max_spread_m, quiet_frames)) {
+      steady_lethal_.push_back(p);
+    }
+  }
+  cell_class_.observe_points(steady_lethal_, cls, fixed_T_base);
+}
+
+std::vector<GroundNode::PublishedArea> GroundNode::stable_areas_fixed() const
+{
+  const bool hold = config_.hysteresis.enabled;
+  std::vector<PublishedArea> out;
+  for (const StableArea & stable : cell_class_.warning_areas()) {
+    PublishedArea next;
+    next.area.kind = stable.kind;
+    next.area.polygon = stable.polygon;
+    next.area.height_m = stable.height_m;
+    next.area.slope_deg = stable.slope_deg;
+    next.area.source = stable.source;
+    const auto prev = std::find_if(areas_fixed_.begin(), areas_fixed_.end(), [&](const PublishedArea & p) {
+      return p.area.source == next.area.source && continues(p.area.polygon, next.area.polygon);
+    });
+    if (hold && prev != areas_fixed_.end()) {
+      const WarningArea & held = prev->area;
+      if (next.area.kind != held.kind) {
+        next.pending_kind = next.area.kind;
+        next.pending_frames = prev->pending_kind == next.area.kind ? prev->pending_frames + 1 : 1;
+        if (next.pending_frames < config_.hysteresis.enter_frames) {
+          // The new kind has not held long enough: keep the published kind and its values.
+          next.area.kind = held.kind;
+          next.area.height_m = held.height_m;
+          next.area.slope_deg = held.slope_deg;
+        } else {
+          next.pending_kind.clear();
+          next.pending_frames = 0;
+        }
+      } else if (
+        std::fabs(held.height_m - next.area.height_m) <= AREA_HEIGHT_DEADBAND_M &&
+        std::fabs(held.slope_deg - next.area.slope_deg) <= AREA_SLOPE_DEADBAND_DEG) {
+        next.area.height_m = held.height_m;
+        next.area.slope_deg = held.slope_deg;
+      }
+    }
+    out.push_back(std::move(next));
+  }
+  return out;
+}
+
+void GroundNode::publish_warning_areas(const builtin_interfaces::msg::Time & stamp, const Plane & plane_fixed)
+{
+  Eigen::Isometry3d frame_T_fixed;
+  if (!lookup(config_.warnings.frame, config_.fixed_frame, stamp, frame_T_fixed)) {
     drop(
-      DROP_REASON_NO_MAP_TF, "no TF " + config_.warnings.frame + " <- " + config_.base_frame + " at the cloud stamp");
+      DROP_REASON_NO_MAP_TF, "no TF " + config_.warnings.frame + " <- " + config_.fixed_frame + " at the cloud stamp");
     return;
   }
   areas_in_frame_.clear();
-  for (const WarningArea & area : cycle_.warnings) {
-    areas_in_frame_.push_back(moved(area, plane, frame_T_base));
+  for (const PublishedArea & published : areas_fixed_) {
+    areas_in_frame_.push_back(moved(published.area, plane_fixed, frame_T_fixed));
   }
   std_msgs::msg::String out;
   out.data = to_warning_areas_string(ns_of(stamp), config_.warnings.frame, areas_in_frame_);

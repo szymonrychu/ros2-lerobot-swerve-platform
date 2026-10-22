@@ -41,16 +41,16 @@ constexpr std::size_t MIN_TRIMMED_FRAMES = 5;
 // at <= 10% visible while 4..20 mm floor cells stay >= 95% visible (1.35 failed the floor bound; see the README).
 constexpr double TRIMMED_SPREAD_SCALE = 1.3;
 
-// Robust spread of the per-frame medians in a cell history. With few values it is 1.4826 * MAD. From
-// MIN_TRIMMED_FRAMES values on it is the standard deviation without the most deviant value: robust to one bad frame
-// like the MAD, but it varies far less between windows, so a cell with real temporal noise does not slip under the
-// limit by chance.
-double robust_spread(const std::deque<CellSample> & history, double centre)
+// Robust spread of one per-frame height of a cell history (field: the median or the plane's centre height). With few
+// values it is 1.4826 * MAD. From MIN_TRIMMED_FRAMES values on it is the standard deviation without the most deviant
+// value: robust to one bad frame like the MAD, but it varies far less between windows, so a cell with real temporal
+// noise does not slip under the limit by chance.
+double robust_spread(const std::deque<CellSample> & history, double CellSample::*field, double centre)
 {
   std::vector<double> deviations;
   deviations.reserve(history.size());
   for (const auto & entry : history) {
-    deviations.push_back(std::fabs(entry.height_m - centre));
+    deviations.push_back(std::fabs(entry.*field - centre));
   }
   if (history.size() < MIN_TRIMMED_FRAMES) {
     return MAD_TO_SIGMA * median(deviations);
@@ -134,9 +134,12 @@ bool fit_gradient(
 CellSample fit_cell(const std::vector<double> & dx, const std::vector<double> & dy, const std::vector<double> & h)
 {
   CellSample out;
+  std::vector<double> plain = h;
+  out.median_m = median(plain);
   std::vector<bool> use(h.size(), true);
   double gx = 0.0, gy = 0.0;
-  if (fit_gradient(dx, dy, h, use, gx, gy)) {
+  const bool fitted = fit_gradient(dx, dy, h, use, gx, gy);
+  if (fitted) {
     std::vector<double> res(h.size());
     for (std::size_t k = 0; k < h.size(); ++k) {
       res[k] = h[k] - gx * dx[k] - gy * dy[k];
@@ -176,6 +179,16 @@ CellSample fit_cell(const std::vector<double> & dx, const std::vector<double> & 
   }
   out.gradient_x = gx;
   out.gradient_y = gy;
+  if (fitted) {
+    double sum = 0.0, sum_sq = 0.0;
+    for (std::size_t k = 0; k < h.size(); ++k) {
+      const double r = h[k] - gx * dx[k] - gy * dy[k];
+      sum += r;
+      sum_sq += r * r;
+    }
+    const auto n = static_cast<double>(h.size());
+    out.residual_m = std::sqrt(std::max(0.0, sum_sq / n - (sum / n) * (sum / n)));
+  }
   std::vector<double> corrected(h.size());
   for (std::size_t k = 0; k < h.size(); ++k) {
     corrected[k] = h[k] - gx * dx[k] - gy * dy[k];
@@ -192,6 +205,15 @@ constexpr double GRADIENT_SIGNIFICANCE = 3.0;
 // Largest in-cell gradient magnitude kept (tan 22 deg). A steeper fit is a step edge inside the cell, which a plane
 // would smear into a ramp, so such a cell stays flat at its median height.
 constexpr double MAX_GRADIENT = 0.4;
+
+// Largest ratio of a cell's plane residual to the smallest one of its neighbours for an inclined cell. On an inclined
+// surface the plane leaves the sensor noise, as on the flat cells around it; across a step edge (a sill's or a box's
+// foot, a corner) it leaves about a quarter of the step height (measured 9 mm against 3 mm noise for a rendered 3 cm
+// sill), so such a cell keeps its median height instead of smearing the step into a ramp.
+constexpr double MAX_RESIDUAL_RATIO = 1.5;
+
+// Smallest cosine between the gradients of an inclined cell and of a neighbour that confirms it (45 deg).
+constexpr double MIN_NEIGHBOUR_GRADIENT_COS = 0.7;
 
 // Temporal median of one gradient component of a cell, or 0 if it is not significant: a flat noisy cell fits a random
 // gradient every frame, and applying it would tilt the cell by up to half a cell edge times the gradient.
@@ -225,6 +247,40 @@ double significant_gradient(
 }  // namespace
 
 CellMedianFilter::CellMedianFilter(const TemporalConfig & cfg) : cfg_(cfg) {}
+
+std::int64_t CellMedianFilter::key_of(const Eigen::Vector2d & xy_fixed) const
+{
+  return cell_key(
+    static_cast<std::int32_t>(std::floor(xy_fixed.x() / cfg_.cell_size_m)),
+    static_cast<std::int32_t>(std::floor(xy_fixed.y() / cfg_.cell_size_m)));
+}
+
+bool CellMedianFilter::steady_at(const Eigen::Vector2d & xy_fixed, double max_spread_m, int quiet_frames) const
+{
+  if (!cfg_.enabled) {
+    return true;
+  }
+  const auto it = cells_.find(key_of(xy_fixed));
+  if (it == cells_.end()) {
+    return false;
+  }
+  const Cell & cell = it->second;
+  if (!(cell.output && cell.spread && *cell.spread <= max_spread_m && cell.frames_since_gated >= quiet_frames)) {
+    return false;
+  }
+  // No neighbour gated in its last quiet_frames frames either.
+  const auto ix = static_cast<std::int32_t>(std::floor(xy_fixed.x() / cfg_.cell_size_m));
+  const auto iy = static_cast<std::int32_t>(std::floor(xy_fixed.y() / cfg_.cell_size_m));
+  for (std::int32_t dx = -1; dx <= 1; ++dx) {
+    for (std::int32_t dy = -1; dy <= 1; ++dy) {
+      const auto neighbour = cells_.find(cell_key(ix + dx, iy + dy));
+      if ((dx != 0 || dy != 0) && neighbour != cells_.end() && neighbour->second.frames_since_gated < quiet_frames) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
 
 void CellMedianFilter::reset()
 {
@@ -279,16 +335,24 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
     const Eigen::Vector3d pf = fixed_T_base * pb;
     fixed_x[i] = pf.x();
     fixed_y[i] = pf.y();
-    const auto ix = static_cast<std::int32_t>(std::floor(pf.x() / cfg_.cell_size_m));
-    const auto iy = static_cast<std::int32_t>(std::floor(pf.y() / cfg_.cell_size_m));
-    keys[i] = cell_key(ix, iy);
+    keys[i] = key_of(pf.head<2>());
     heights[i] = height_above(plane, pb);
     valid[i] = true;
     frame_cells[keys[i]].push_back(i);
   }
 
-  // Per-frame plane of every cell seen, then the temporal median over its history.
-  std::unordered_map<std::int64_t, CellPlane> cell_plane;
+  for (auto & [key, cell] : cells_) {
+    cell.output = false;
+  }
+
+  // Per-frame plane of every cell seen, then the temporal median gradient and plane residual of every cell with
+  // enough history.
+  struct ReadyCell
+  {
+    Eigen::Vector2d gradient;  // significant and at most MAX_GRADIENT, else zero
+    double residual_m;         // median plane residual of the frames with a plane fit; NaN without one
+  };
+  std::unordered_map<std::int64_t, ReadyCell> ready;
   std::vector<double> dx, dy, h, scratch;
   for (const auto & [key, indices] : frame_cells) {
     const double centre_x = (static_cast<std::int32_t>(key >> KEY_SHIFT) + 0.5) * cfg_.cell_size_m;
@@ -308,28 +372,92 @@ pcl::PointCloud<pcl::PointXYZ> CellMedianFilter::apply(
     while (history.size() > static_cast<std::size_t>(cfg_.window_frames)) {
       history.pop_front();
     }
-    if (history.size() >= static_cast<std::size_t>(cfg_.min_frames)) {
-      const auto temporal_median = [&](double CellSample::*field) {
-        scratch.clear();
-        for (const auto & entry : history) {
-          scratch.push_back(entry.*field);
-        }
-        return median(scratch);
-      };
-      const double centre = temporal_median(&CellSample::height_m);
-      const double spread = robust_spread(history, centre);
-      if (spread > cfg_.max_spread_m) {
-        ++gated_cell_count_;
-      } else {
-        CellPlane plane_of_cell{
-          centre, significant_gradient(history, &CellSample::gradient_x, &CellSample::gradient_se_x),
-          significant_gradient(history, &CellSample::gradient_y, &CellSample::gradient_se_y)};
-        if (std::hypot(plane_of_cell.gradient_x, plane_of_cell.gradient_y) > MAX_GRADIENT) {
-          plane_of_cell.gradient_x = 0.0;
-          plane_of_cell.gradient_y = 0.0;
-        }
-        cell_plane[key] = plane_of_cell;
+    if (history.size() < static_cast<std::size_t>(cfg_.min_frames)) {
+      continue;
+    }
+    Eigen::Vector2d gradient(
+      significant_gradient(history, &CellSample::gradient_x, &CellSample::gradient_se_x),
+      significant_gradient(history, &CellSample::gradient_y, &CellSample::gradient_se_y));
+    if (gradient.norm() > MAX_GRADIENT) {
+      gradient.setZero();
+    }
+    scratch.clear();
+    for (const auto & entry : history) {
+      if (std::isfinite(entry.residual_m)) {
+        scratch.push_back(entry.residual_m);
       }
+    }
+    ready.emplace(
+      key, ReadyCell{gradient, scratch.empty() ? std::numeric_limits<double>::quiet_NaN() : median(scratch)});
+  }
+
+  // A candidate for an inclined cell has a gradient and a plane residual at most MAX_RESIDUAL_RATIO times the smallest
+  // one of its neighbours.
+  const auto neighbours_of = [](std::int64_t key, const auto & visit) {
+    const auto ix = static_cast<std::int32_t>(key >> KEY_SHIFT);
+    const auto iy = static_cast<std::int32_t>(static_cast<std::uint32_t>(key));
+    for (std::int32_t ox = -1; ox <= 1; ++ox) {
+      for (std::int32_t oy = -1; oy <= 1; ++oy) {
+        if (ox != 0 || oy != 0) {
+          visit(cell_key(ix + ox, iy + oy));
+        }
+      }
+    }
+  };
+  std::unordered_map<std::int64_t, Eigen::Vector2d> candidates;
+  for (const auto & [key, info] : ready) {
+    if (info.gradient.isZero()) {
+      continue;
+    }
+    // The smallest neighbour residual: beside a step edge most neighbours can straddle the step too (a sill 1.5 cells
+    // deep, at an angle to the grid), the floor or the top beside it does not.
+    double reference = std::numeric_limits<double>::infinity();
+    neighbours_of(key, [&](std::int64_t n) {
+      const auto found = ready.find(n);
+      if (found != ready.end() && std::isfinite(found->second.residual_m)) {
+        reference = std::min(reference, found->second.residual_m);
+      }
+    });
+    if (std::isfinite(reference) && info.residual_m <= MAX_RESIDUAL_RATIO * reference) {
+      candidates.emplace(key, info.gradient);
+    }
+  }
+
+  // An inclined cell (a candidate with a candidate neighbour of a similar gradient: an inclined surface spans cells,
+  // a lone cell at a step edge or corner does not) is output on its median plane, its spread that of its centre
+  // heights; every other cell (flat, a step edge) at the median of its per-frame medians, its spread theirs.
+  std::unordered_map<std::int64_t, CellPlane> cell_plane;
+  for (const auto & [key, info] : ready) {
+    Cell & cell = cells_[key];
+    const auto & history = cell.history;
+    Eigen::Vector2d gradient = Eigen::Vector2d::Zero();
+    const auto found = candidates.find(key);
+    if (found != candidates.end()) {
+      const Eigen::Vector2d direction = found->second.normalized();
+      neighbours_of(key, [&](std::int64_t n) {
+        const auto other = candidates.find(n);
+        if (other != candidates.end() && direction.dot(other->second.normalized()) >= MIN_NEIGHBOUR_GRADIENT_COS) {
+          gradient = found->second;
+        }
+      });
+    }
+    double CellSample::*value = gradient.isZero() ? &CellSample::median_m : &CellSample::height_m;
+    scratch.clear();
+    for (const auto & entry : history) {
+      scratch.push_back(entry.*value);
+    }
+    const double centre = median(scratch);
+    const double spread = robust_spread(history, value, centre);
+    cell.spread = spread;
+    if (spread > cfg_.max_spread_m) {
+      ++gated_cell_count_;
+      cell.frames_since_gated = 0;
+    } else {
+      cell.output = true;
+      if (cell.frames_since_gated < std::numeric_limits<int>::max()) {
+        ++cell.frames_since_gated;
+      }
+      cell_plane[key] = CellPlane{centre, gradient.x(), gradient.y()};
     }
   }
 
