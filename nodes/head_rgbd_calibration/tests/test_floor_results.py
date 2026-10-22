@@ -236,7 +236,13 @@ def test_apply_keeps_applied_keys_and_adds_record(cfg: NodeConfig, state: Path) 
     marker = json.loads((applied / "applied.json").read_text())
     assert marker["session"] == "calib-20261019-120000"
     assert marker["files"] == ["tof_joint.json"]
-    record = {"session": SID, "result": result["id"], "applied_at": NOW.isoformat()}
+    record = {
+        "session": SID,
+        "result": result["id"],
+        "applied_at": NOW.isoformat(),
+        "source": "floor",
+        "floor": {"session": SID, "result": result["id"]},
+    }
     assert marker["head_chain"] == record
     assert body == {
         "head_chain": record,

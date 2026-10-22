@@ -45,6 +45,7 @@ FLOOR_SESSION_ID_RE = re.compile(r"^floor-\d{8}-\d{6}(?:-\d+)?$", re.ASCII)
 RESULTS_DIR = "results"
 HEAD_CHAIN_KEY = "head_chain"
 NOTE_DATE_FORMAT = "%Y-%m-%d"
+SOURCE_FLOOR = "floor"
 LOCK = threading.Lock()
 
 RunFn = Callable[..., subprocess.CompletedProcess]
@@ -220,6 +221,74 @@ def read_result(cfg: NodeConfig, sid: str, rid: str) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
+def read_applied_marker(cfg: NodeConfig) -> dict[str, Any]:
+    """applied/applied.json, empty when absent or unreadable."""
+    try:
+        data = json.loads((Path(cfg.state_dir) / APPLIED_DIR / APPLIED_MARKER).read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def current_floor_ref(cfg: NodeConfig) -> dict[str, str] | None:
+    """The floor result the applied head chain was checked against, from the `head_chain` record.
+
+    Args:
+        cfg: Node config (state_dir).
+
+    Returns:
+        {session, result}: the record's `floor` entry; for a record without a `floor` key (written by the floor apply
+        before the key existed) whose session matches FLOOR_SESSION_ID_RE, that record's own session and result;
+        None when there is neither.
+    """
+    record = read_applied_marker(cfg).get(HEAD_CHAIN_KEY)
+    if not isinstance(record, dict):
+        return None
+    if "floor" in record:
+        floor = record["floor"]
+        if isinstance(floor, dict) and floor.get("session") and floor.get("result"):
+            return {"session": str(floor["session"]), "result": str(floor["result"])}
+        return None
+    session, result = str(record.get("session", "")), str(record.get("result", ""))
+    if FLOOR_SESSION_ID_RE.fullmatch(session) and result:
+        return {"session": session, "result": result}
+    return None
+
+
+def apply_head_chain_file(
+    cfg: NodeConfig, source: Path, record: dict[str, Any], now: datetime, run: RunFn
+) -> dict[str, Any]:
+    """Copy a head_chain.json into applied/ and record it in applied.json (the one writer of the applied chain).
+
+    Args:
+        cfg: Node config (state_dir, restart_units).
+        source: The result's head_chain.json.
+        record: The `head_chain` record: {session, result, applied_at, source, floor}.
+        now: Apply time, for the unit states.
+        run: subprocess.run-compatible callable for the unit state.
+
+    Returns:
+        {head_chain: record, units: [{name, active_state, restarted}]}.
+
+    Raises:
+        NotApplicable: no RGB-D calibration is applied.
+    """
+    target = Path(cfg.state_dir) / APPLIED_DIR
+    marker = target / APPLIED_MARKER
+    with LOCK:
+        if not marker.is_file():
+            raise NotApplicable("no RGB-D calibration is applied; apply one before the head chain")
+        info = json.loads(marker.read_text())
+        tmp = target / f"{TEMP_PREFIX}{HEAD_CHAIN_FILE}"
+        try:
+            tmp.write_bytes(source.read_bytes())
+            os.replace(tmp, target / HEAD_CHAIN_FILE)
+            write_json_atomic(marker, {**info, HEAD_CHAIN_KEY: record})
+        finally:
+            tmp.unlink(missing_ok=True)
+    return {HEAD_CHAIN_KEY: record, "units": [unit_state(u, now.timestamp(), run) for u in cfg.restart_units]}
+
+
 def apply_floor(cfg: NodeConfig, sid: str, rid: str, now: datetime, run: RunFn) -> dict[str, Any]:
     """Apply a passing floor result: copy head_chain.json into applied/ and record it in applied.json.
 
@@ -231,7 +300,7 @@ def apply_floor(cfg: NodeConfig, sid: str, rid: str, now: datetime, run: RunFn) 
         run: subprocess.run-compatible callable for the unit state.
 
     Returns:
-        {head_chain: {session, result, applied_at}, units: [{name, active_state, restarted}]}.
+        {head_chain: {session, result, applied_at, source: "floor", floor: {session, result}}, units: [...]}.
 
     Raises:
         NotApplicable: the result did not pass, or no RGB-D calibration is applied.
@@ -244,21 +313,14 @@ def apply_floor(cfg: NodeConfig, sid: str, rid: str, now: datetime, run: RunFn) 
     source = directory / HEAD_CHAIN_FILE
     if json.loads(result_path.read_text()).get("passed") is not True or not source.is_file():
         raise NotApplicable(f"result {rid} did not pass and cannot be applied")
-    target = Path(cfg.state_dir) / APPLIED_DIR
-    marker = target / APPLIED_MARKER
-    with LOCK:
-        if not marker.is_file():
-            raise NotApplicable("no RGB-D calibration is applied; apply one before the floor fit")
-        record = {"session": sid, "result": rid, "applied_at": now.isoformat()}
-        info = json.loads(marker.read_text())
-        tmp = target / f"{TEMP_PREFIX}{HEAD_CHAIN_FILE}"
-        try:
-            tmp.write_bytes(source.read_bytes())
-            os.replace(tmp, target / HEAD_CHAIN_FILE)
-            write_json_atomic(marker, {**info, HEAD_CHAIN_KEY: record})
-        finally:
-            tmp.unlink(missing_ok=True)
-    return {HEAD_CHAIN_KEY: record, "units": [unit_state(u, now.timestamp(), run) for u in cfg.restart_units]}
+    record = {
+        "session": sid,
+        "result": rid,
+        "applied_at": now.isoformat(),
+        "source": SOURCE_FLOOR,
+        "floor": {"session": sid, "result": rid},
+    }
+    return apply_head_chain_file(cfg, source, record, now, run)
 
 
 def applied_head_chain(cfg: NodeConfig) -> dict[str, Any] | None:
@@ -268,16 +330,23 @@ def applied_head_chain(cfg: NodeConfig) -> dict[str, Any] | None:
         cfg: Node config (state_dir).
 
     Returns:
-        {session, result, note, joints: {name: {xyz, rpy}}}, None when the file is absent or invalid.
+        {session, result, note, source, floor, joints: {name: {xyz, rpy}}}, None when the file is absent or invalid.
+        source ("floor" or "head_arm") and floor ({session, result} or None) come from the applied.json record when it
+        names the same session and result, else None.
     """
     path = Path(cfg.state_dir) / APPLIED_DIR / HEAD_CHAIN_FILE
     try:
         data = json.loads(path.read_text())
         origins = parse_head_chain(data)
+        session, result = str(data.get("session", "")), str(data.get("result", ""))
+        record = read_applied_marker(cfg).get(HEAD_CHAIN_KEY)
+        matches = isinstance(record, dict) and (record.get("session"), record.get("result")) == (session, result)
         return {
-            "session": str(data.get("session", "")),
-            "result": str(data.get("result", "")),
+            "session": session,
+            "result": result,
             "note": str(data.get("note", "")),
+            "source": (record.get("source") or (SOURCE_FLOOR if "floor" not in record else None)) if matches else None,
+            "floor": current_floor_ref(cfg) if matches else None,
             "joints": {name: {"xyz": list(o.xyz), "rpy": list(o.rpy)} for name, o in origins.items()},
         }
     except (OSError, ValueError):
