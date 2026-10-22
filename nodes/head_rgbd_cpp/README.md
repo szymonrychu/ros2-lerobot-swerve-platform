@@ -123,8 +123,8 @@ seams, shadows) is not copied into depth. Tuning: the shipped `radius` 4, `eps` 
 by `test/core/test_upsample.cpp` (`BoxEdgeFollowsTheGuideEdge`, `TexturedFlatFloorStaysFlat`, `LargeHoleStaysEmpty`);
 none needed changing.
 
-Consumer: `/head_rgbd/depth_upsampled/image_raw` (16UC1 at the RGB size, with the RGB
-camera_info, one header per pair) is published as the edge input for the ground guidance of `ground_estimator_cpp`. Cost: one extra guided-filter pass per set, visible in
+Consumers: `/head_rgbd/depth_upsampled/image_raw` (16UC1 at the RGB size, with the RGB
+camera_info, one header per pair) is the edge input for the ground guidance of `ground_estimator_cpp`; any subscriber of the topic is a consumer. Cost: one extra guided-filter pass per set, visible in
 `head_rgbd_process_seconds`.
 
 ## Methodology
