@@ -340,5 +340,15 @@
       "head-chain-floor-plane-fit-a"
     ],
     "note": "flying_pixel_filter back on with keys (and possibly the rule) retuned on recorded raw depth: floor kept >= 95 %, box-edge mixed pixels removed >= 80 %, filter plus amplitude gate keep >= 90 % of the floor; applies to every /tof/depth/image_raw consumer; owner task tof-flying-pixel-retune"
+  },
+  {
+    "name": "ground-voxel-layer-enabled",
+    "kind": "config",
+    "owner": "drivable-ground-tof-filterin",
+    "file": "nodes/nav2_bringup/config/nav2_params.yaml",
+    "consumers": [
+      "rgb-d-ground-estimation-and"
+    ],
+    "note": "local costmap ground_voxel_layer.enabled true again only after the live ground acceptance passes (docs/runbooks/ground-robustness.md Results); other keys unchanged; owner task ground-voxel-layer-on"
   }
 ]
