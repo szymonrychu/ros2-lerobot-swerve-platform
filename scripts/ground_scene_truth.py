@@ -188,7 +188,8 @@ def solve_board(
 
 
 def board_frame(corners_xy: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Board frame in base_link from the four outer corners, in any order.
+    """Board frame in base_link from the four outer corners, in any order. The near edge is the one whose outward
+    normal points most along the robot's backward axis (-x), so an off-axis board still gets the right edge.
 
     :param corners_xy: (4, 2) corner positions in base_link, m (np.ndarray).
     :return: (origin, u, v): the near-right corner, and unit vectors along the near edge toward the robot's left
@@ -197,7 +198,15 @@ def board_frame(corners_xy: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndar
     centre = corners_xy.mean(axis=0)
     ring = corners_xy[np.argsort(np.arctan2(*(corners_xy - centre).T[::-1]))]
     edges = [(ring[i], ring[(i + 1) % 4]) for i in range(4)]
-    start, end = min(edges, key=lambda e: float(np.linalg.norm((e[0] + e[1]) / 2)))
+
+    def facing_robot(edge: tuple[np.ndarray, np.ndarray]) -> float:
+        direction = edge[1] - edge[0]
+        normal = np.array([direction[1], -direction[0]]) / np.linalg.norm(direction)
+        if normal @ ((edge[0] + edge[1]) / 2 - centre) < 0:
+            normal = -normal
+        return float(-normal[0])
+
+    start, end = max(edges, key=facing_robot)
     u = (end - start) / np.linalg.norm(end - start)
     if u @ ROBOT_LEFT < 0:
         start, end, u = end, start, -u
