@@ -84,9 +84,11 @@ TEST(EdgePoints, TexturedFlatFloorAddsNothing)
   std::vector<float> h;
   add_top(pts, h, BOX_FRONT_X_M, BOX_BACK_X_M);
   const std::size_t box_n = pts.size();
-  // A textured floor with +-1 cm noise in front of the box, 2 cm to 20 cm from it.
+  // A textured floor with +-1 cm noise right in front of the box, every point within max_shift_m
+  // of a stable point (nearest stable x is 1.04, so x in [0.99, 1.0) is at most ~5.6 cm away).
+  const auto cfg = test_config();
   unsigned s = 12345;
-  for (double x = BOX_FRONT_X_M - 0.20; x < BOX_FRONT_X_M - 0.02; x += STEP_M) {
+  for (double x = BOX_FRONT_X_M - 0.01; x < BOX_FRONT_X_M - 0.002; x += STEP_M) {
     for (double y = -BOX_HALF_Y_M; y <= BOX_HALF_Y_M; y += STEP_M) {
       s = s * 1664525U + 1013904223U;
       const float noise = (static_cast<float>(s >> 8) / static_cast<float>(1 << 24) - 0.5F) * 0.02F;
@@ -94,12 +96,20 @@ TEST(EdgePoints, TexturedFlatFloorAddsNothing)
       h.push_back(noise);
     }
   }
-  const auto e = ge::edge_points(pts, h, coarse_box(), Cloud(), test_config());
+  ASSERT_GT(pts.size(), box_n);
+  const Cloud stable = coarse_box();
+  for (std::size_t i = box_n; i < pts.size(); ++i) {
+    double best = 1e9;
+    for (const auto & q : stable) {
+      best = std::min<double>(best, std::hypot(q.x - pts[i].x, q.y - pts[i].y));
+    }
+    ASSERT_LE(best, cfg.max_shift_m) << "floor point must be a shift-eligible candidate";
+  }
+  const auto e = ge::edge_points(pts, h, stable, Cloud(), cfg);
   ASSERT_FALSE(e.obstacle.empty());
   for (const auto & p : e.obstacle) {
     EXPECT_GE(p.z, BOX_H_M - 1e-6) << "floor point at x=" << p.x;
   }
-  (void)box_n;
 }
 
 TEST(EdgePoints, ShiftLimitIsRespected)
