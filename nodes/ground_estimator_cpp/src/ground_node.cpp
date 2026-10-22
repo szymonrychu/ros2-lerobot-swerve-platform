@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <initializer_list>
 #include <sensor_msgs/msg/point_field.hpp>
@@ -39,8 +40,12 @@ constexpr std::array<FitReject, 6> ALL_REJECTS = {FitReject::too_few_points,   F
                                                   FitReject::too_few_inliers,  FitReject::low_inlier_ratio};
 constexpr std::array<const char *, 4> ALL_DROP_REASONS = {
   DROP_REASON_TF, DROP_REASON_NO_PLANE_RGBD, DROP_REASON_NO_MAP_TF, DROP_REASON_BAD_INPUT};
+constexpr std::array<const char *, 3> GUIDANCE_DROP_REASONS = {
+  DROP_REASON_GUIDANCE_BAD_INPUT, DROP_REASON_GUIDANCE_TF, DROP_REASON_GUIDANCE_NO_PLANE};
 constexpr const char * FITS_HELP = "Plane fits of ToF clouds, by result (ok or the reject reason)";
-constexpr const char * DROPPED_HELP = "Clouds or warning-area messages dropped, by reason";
+constexpr const char * GUIDANCE_FRAMES_HELP =
+  "Guidance pairs (upsampled depth, camera info, JPEG), by result (ok or the drop reason)";
+constexpr const char * DROPPED_HELP = "Clouds, guidance pairs or warning-area messages dropped, by reason";
 
 struct GaugeSpec
 {
@@ -53,7 +58,7 @@ constexpr std::array<GaugeSpec, 13> GAUGES = {{
   {METRIC_SLOPE, "Floor slope against gravity of the last cloud with a plane and a fresh IMU, degrees"},
   {METRIC_PLANE_VS_BASE, "Angle between the floor normal and base_link +z of the last cloud with a plane, degrees"},
   {METRIC_REGIONS, "Step and drop regions of the last cloud with a plane"},
-  {METRIC_WARNING_AREAS, "Warning areas (ToF and colour) of the last cloud with a plane"},
+  {METRIC_WARNING_AREAS, "Warning areas (ToF, colour and no_return) of the last cloud with a plane"},
   {METRIC_OBSTACLE_POINTS, "Points of the last obstacle_points cloud"},
   {METRIC_DROP_POINTS, "Points of the last drop_points cloud"},
   {METRIC_TEMPORAL_CELLS, "Cells the temporal median currently holds"},
@@ -302,6 +307,7 @@ GroundNode::GroundNode(
   cell_class_(config.hysteresis, config.temporal.cell_size_m),
   raw_heights_(slope_history_config(config.temporal)),
   colour_model_(config.colour),
+  no_return_(config.guidance.no_return, config.temporal.cell_size_m, config.fit.distance_m),
   metrics_(NODE_NAME)
 {
   if (!tf_buffer_) {
@@ -346,12 +352,49 @@ GroundNode::GroundNode(
       [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr & m) { on_rgbd(m); });
   }
 
+  if (config_.guidance.enabled) {
+    for (const char * result :
+         {GUIDANCE_RESULT_OK, DROP_REASON_GUIDANCE_BAD_INPUT, DROP_REASON_GUIDANCE_TF, DROP_REASON_GUIDANCE_NO_PLANE}) {
+      metrics_.counter(METRIC_GUIDANCE_FRAMES, GUIDANCE_FRAMES_HELP, {{"result", result}});
+    }
+    for (const char * reason : GUIDANCE_DROP_REASONS) {
+      metrics_.counter(METRIC_DROPPED, DROPPED_HELP, {{"reason", reason}});
+    }
+    guidance_seconds_ = &metrics_.histogram(
+      METRIC_GUIDANCE_SECONDS, "Processing time per guidance pair",
+      std::vector<double>(FIT_SECONDS_BUCKETS.begin(), FIT_SECONDS_BUCKETS.end()));
+    for (const GaugeSpec & spec :
+         {GaugeSpec{
+            METRIC_EDGE_POINTS, "Guidance edge points appended to the lethal clouds of the last cloud with a plane"},
+          GaugeSpec{METRIC_NO_RETURN_AREAS, "no_return warning areas of the last cloud with a plane"}}) {
+      gauges_[spec.name] = &prometheus::BuildGauge().Name(spec.name).Help(spec.help).Register(*metrics_.registry());
+    }
+    // Best effort, as head_rgbd_cpp publishes the pair; one header per pair, so ExactTime matches it.
+    depth_sub_.subscribe(this, config_.guidance.depth_topic, rmw_qos_profile_sensor_data);
+    info_sub_.subscribe(this, config_.guidance.info_topic, rmw_qos_profile_sensor_data);
+    rgb_sub_.subscribe(this, config_.guidance.rgb_topic, rmw_qos_profile_sensor_data);
+    guidance_sync_ = std::make_unique<message_filters::Synchronizer<GuidancePolicy>>(
+      GuidancePolicy(GUIDANCE_QUEUE), depth_sub_, info_sub_, rgb_sub_);
+    guidance_sync_->registerCallback(
+      std::bind(&GroundNode::on_guidance, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+    tof_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
+      config_.guidance.tof_info_topic, rclcpp::SensorDataQoS(),
+      [this](const sensor_msgs::msg::CameraInfo::ConstSharedPtr & m) { on_tof_info(m); });
+  }
+
   state_timer_ = rclcpp::create_timer(
     this, get_clock(), rclcpp::Duration::from_seconds(1.0 / config_.state.rate_hz), [this] { on_state_timer(); });
   RCLCPP_INFO(
     get_logger(), "ground estimator: %s -> %s/{obstacle_points,drop_points,warning_areas,state}%s",
     config_.cloud_topic.c_str(), config_.output_namespace.c_str(),
     config_.colour.enabled ? (", " + config_.rgbd_cloud_topic + " -> labelled_points").c_str() : "");
+  if (config_.guidance.enabled) {
+    RCLCPP_INFO(
+      get_logger(), "guidance: %s + %s + %s, ToF model from %s (edge points %s, no_return areas %s)",
+      config_.guidance.depth_topic.c_str(), config_.guidance.info_topic.c_str(), config_.guidance.rgb_topic.c_str(),
+      config_.guidance.tof_info_topic.c_str(), config_.guidance.edge.enabled ? "on" : "off",
+      config_.guidance.no_return.enabled ? "on" : "off");
+  }
 }
 
 void GroundNode::drop(const char * reason, const std::string & detail)
@@ -476,6 +519,11 @@ void GroundNode::reset_cells()
   cell_class_.reset();
   raw_heights_.reset();
   areas_fixed_.clear();
+  no_return_.reset();
+  no_return_fixed_.clear();
+  if (config_.guidance.enabled && config_.guidance.no_return.enabled) {
+    set_gauge(METRIC_NO_RETURN_AREAS, 0.0);
+  }
   set_gauge(METRIC_TEMPORAL_CELLS, 0.0);
   set_gauge(METRIC_TEMPORAL_GATED, static_cast<double>(cell_filter_.gated_cell_count()));
   set_gauge(METRIC_STABLE_LETHAL, 0.0);
@@ -549,6 +597,8 @@ void GroundNode::process_plane(
   // not yet stable is withheld; warning points in a stable lethal cell are lethal), and of those only the lethal marks.
   lethal_marks_of(rule.obstacle, rule.warning_above, plane, fixed_T_base, stable_obstacle_);
   lethal_marks_of(rule.drop, rule.warning_below, plane, fixed_T_base, stable_drop_);
+  const int64_t stamp_ns = ns_of(msg.header.stamp);
+  append_edge_points(fixed_T_base, stamp_ns);
 
   cycle_ = Cycle{};
   cycle_.regions = std::move(rule.regions);
@@ -561,6 +611,18 @@ void GroundNode::process_plane(
   const Eigen::Isometry3d base_T_fixed = fixed_T_base.inverse();
   for (const PublishedArea & published : areas_fixed_) {
     cycle_.warnings.push_back(moved(published.area, plane_fixed, base_T_fixed));
+  }
+  // The no_return areas are cell-aligned and stable on their own (NoReturnTracker hysteresis), published only while
+  // the guidance that votes them is fresh.
+  no_return_fixed_.clear();
+  if (config_.guidance.enabled && config_.guidance.no_return.enabled) {
+    if (guidance_fresh(stamp_ns)) {
+      no_return_fixed_ = no_return_.areas(Eigen::Isometry3d::Identity());
+    }
+    for (const WarningArea & area : no_return_fixed_) {
+      cycle_.warnings.push_back(moved(area, plane_fixed, base_T_fixed));
+    }
+    set_gauge(METRIC_NO_RETURN_AREAS, static_cast<double>(no_return_fixed_.size()));
   }
   cycle_.obstacle_points = stable_obstacle_.size();
   cycle_.drop_points = stable_drop_.size();
@@ -705,6 +767,9 @@ void GroundNode::publish_warning_areas(const builtin_interfaces::msg::Time & sta
   for (const PublishedArea & published : areas_fixed_) {
     areas_in_frame_.push_back(moved(published.area, plane_fixed, frame_T_fixed));
   }
+  for (const WarningArea & area : no_return_fixed_) {
+    areas_in_frame_.push_back(moved(area, plane_fixed, frame_T_fixed));
+  }
   std_msgs::msg::String out;
   out.data = to_warning_areas_string(ns_of(stamp), config_.warnings.frame, areas_in_frame_);
   warnings_pub_->publish(out);
@@ -754,6 +819,101 @@ void GroundNode::on_rgbd(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & m
   if (stats.mismatch_ratio) {
     set_gauge(METRIC_MISMATCH_RATIO, *stats.mismatch_ratio);
   }
+}
+
+void GroundNode::on_tof_info(const sensor_msgs::msg::CameraInfo::ConstSharedPtr & msg)
+{
+  tof_model_ = camera_model_of(*msg);
+  tof_frame_ = msg->header.frame_id;
+}
+
+void GroundNode::on_guidance(
+  const sensor_msgs::msg::Image::ConstSharedPtr & depth, const sensor_msgs::msg::CameraInfo::ConstSharedPtr & info,
+  const sensor_msgs::msg::CompressedImage::ConstSharedPtr & rgb)
+{
+  const auto started = std::chrono::steady_clock::now();
+  std::string detail;
+  const char * reason = use_guidance(*depth, *info, *rgb, detail);
+  metrics_
+    .counter(
+      METRIC_GUIDANCE_FRAMES, GUIDANCE_FRAMES_HELP, {{"result", reason != nullptr ? reason : GUIDANCE_RESULT_OK}})
+    .Increment();
+  if (reason != nullptr) {
+    drop(reason, detail);
+  }
+  guidance_seconds_->Observe(seconds_since(started));
+}
+
+const char * GroundNode::use_guidance(
+  const sensor_msgs::msg::Image & depth, const sensor_msgs::msg::CameraInfo & info,
+  const sensor_msgs::msg::CompressedImage & rgb, std::string & detail)
+{
+  // 1. Decode.
+  std::string why;
+  const std::optional<GuidanceFrame> frame = decode_guidance(depth, info, rgb, &why);
+  if (!frame) {
+    detail = "guidance pair: " + why;
+    return DROP_REASON_GUIDANCE_BAD_INPUT;
+  }
+  if (!tof_model_) {
+    detail = "guidance pair before a usable ToF camera_info on " + config_.guidance.tof_info_topic;
+    return DROP_REASON_GUIDANCE_BAD_INPUT;
+  }
+  // 2. TF at the pair stamp: the pair's optical frame (the depth is registered to the RGB) in base_link, base_link in
+  // the fixed frame and in the ToF optical frame.
+  const builtin_interfaces::msg::Time & stamp = depth.header.stamp;
+  Eigen::Isometry3d base_T_cam;
+  Eigen::Isometry3d fixed_T_base;
+  Eigen::Isometry3d tof_T_base;
+  if (
+    !lookup(config_.base_frame, frame->frame_id, stamp, base_T_cam) ||
+    !lookup(config_.fixed_frame, config_.base_frame, stamp, fixed_T_base) ||
+    !lookup(tof_frame_, config_.base_frame, stamp, tof_T_base)) {
+    detail = "no TF " + config_.base_frame + " <- " + frame->frame_id + ", " + config_.fixed_frame + " <- " +
+             config_.base_frame + " or " + tof_frame_ + " <- " + config_.base_frame + " at the pair stamp";
+    return DROP_REASON_GUIDANCE_TF;
+  }
+  // 3. The tracked plane at the pair stamp (the rule of the RGB-D cloud: no plane, no use).
+  const auto tracked = tracker_.current(fixed_T_base, static_cast<double>(frame->stamp_ns) / NS_PER_S);
+  if (!tracked) {
+    detail = "no plane within fit.hold_s at the guidance pair stamp";
+    return DROP_REASON_GUIDANCE_NO_PLANE;
+  }
+  // 4. Sample.
+  guidance_grid_.ensure(frame->model, config_.guidance.sample_step_px);
+  const GuidanceSamples samples =
+    sample_guidance(*frame, guidance_grid_, base_T_cam, tracked->plane, *tof_model_, tof_T_base, config_.guidance);
+  // 5. Keep the depth samples for the edge points and vote the no-return cells; the cells depth already sees are the
+  // occlusion shadows of what it sees, never no-return cells.
+  guidance_points_.set(samples, fixed_T_base, frame->stamp_ns);
+  if (config_.guidance.no_return.enabled) {
+    no_return_.observe(samples, colour_model_, config_.colour, fixed_T_base, cell_class_.blocking_cells());
+  }
+  guidance_ns_ = frame->stamp_ns;
+  return nullptr;
+}
+
+bool GroundNode::guidance_fresh(int64_t stamp_ns) const
+{
+  return config_.guidance.enabled && guidance_ns_ &&
+         std::fabs(static_cast<double>(stamp_ns - *guidance_ns_) / NS_PER_S) <= config_.guidance.max_age_s;
+}
+
+void GroundNode::append_edge_points(const Eigen::Isometry3d & fixed_T_base, int64_t stamp_ns)
+{
+  if (!config_.guidance.enabled) {
+    return;
+  }
+  std::size_t added = 0;
+  // The kept points are those of the pair guidance_fresh judges (an empty set gives no edge point).
+  if (config_.guidance.edge.enabled && guidance_fresh(stamp_ns)) {
+    const auto [points, heights] = guidance_points_.points_in_base(fixed_T_base.inverse());
+    const EdgePoints edge = edge_points(points, heights, stable_obstacle_, stable_drop_, config_.guidance.edge);
+    stable_obstacle_ += edge.obstacle;
+    stable_drop_ += edge.drop;
+    added = edge.obstacle.size() + edge.drop.size();
+  }
+  set_gauge(METRIC_EDGE_POINTS, static_cast<double>(added));
 }
 
 void GroundNode::on_state_timer()

@@ -29,6 +29,10 @@ below the tracked floor plane), so they stay correct on a slope or a tilted base
 | in | `/tof/points_filtered` | `sensor_msgs/PointCloud2` | reliable, depth 1 | ToF frame, transformed to base_link | 10 Hz, drives the plane fit and every output but `/ground/labelled_points` |
 | in | `/imu/data` | `sensor_msgs/Imu` | sensor data | IMU frame | prior of the floor normal; older than `imu.timeout_s` it is not used |
 | in | `/head_rgbd/points` | `sensor_msgs/PointCloud2` (XYZRGB) | best_effort, depth 1 | base_link or camera | coloured cloud for the floor colour model; only with `colour.enabled` |
+| in | `/head_rgbd/depth_upsampled/image_raw` | `sensor_msgs/Image` (16UC1, mm) | best_effort, depth 5 | RGB optical frame | guidance pair: upsampled depth at the RGB size (2 Hz); only with `guidance.enabled` (see RGB and amplitude guidance) |
+| in | `/head_rgbd/depth_upsampled/camera_info` | `sensor_msgs/CameraInfo` | best_effort, depth 5 | RGB optical frame | guidance pair: calibration of the upsampled depth; only with `guidance.enabled` |
+| in | `/head_rgbd/rgb/image_raw/compressed` | `sensor_msgs/CompressedImage` (JPEG) | best_effort, depth 5 | RGB optical frame | guidance pair: the RGB image, same header as the depth; only with `guidance.enabled` |
+| in | `/tof/camera_info` | `sensor_msgs/CameraInfo` | sensor data | ToF optical frame | ToF model of the no-return test (the latest is kept); only with `guidance.enabled` |
 | out | `/ground/obstacle_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | the lethal marks above the plane (see Robustness, lethal marks), up to `bands.obstacle_max_m`, within `bands.max_range_m` |
 | out | `/ground/drop_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | the lethal marks below the plane, down to `bands.drop_max_m` |
 | out | `/ground/labelled_points` | `sensor_msgs/PointCloud2` | best_effort, depth 1 | base_link | RGB-D cloud with a uint8 `label` field (see Labels); only with `colour.enabled` |
@@ -59,7 +63,7 @@ below the tracked floor plane), so they stay correct on a slope or a tilted base
 | `obstacle_points` | points of the last obstacle cloud | count |
 | `drop_points` | points of the last drop cloud | count |
 | `regions` | step, threshold, drop and ramp regions: `name`, `kind`, `class` (`obstacle` or `warning`), `height_m`, `frame`, `edge {point, direction, side}`, `distance_m`, `points` | m |
-| `warnings` | warning areas: `kind`, `polygon` (base_link, m), `height_m`, `slope_deg`, `source` (`tof` or `colour`) | m, degrees |
+| `warnings` | warning areas: `kind` (`step`, `drop`, `ramp`, `colour` or `no_return`), `polygon` (base_link, m), `height_m` and `slope_deg` (null when not measured, always for `no_return`), `source` (`tof`, `colour` or `rgb`) | m, degrees |
 | `colour` | `{model_ok, floor_samples, mismatch_ratio, stamp_ns}` of the last labelled RGB-D cloud; null when colour is disabled or no cloud was labelled | ratio |
 
 ## Labels
@@ -376,6 +380,69 @@ ramp 0.000.
 | `hysteresis.area_enter_density` | `0.75` | share of the history a cell voted in to join an area, 0 < v <= 1 |
 | `hysteresis.area_exit_density` | `0.25` | share of the history a cell keeps to stay in an area, 0 <= v <= area_enter_density |
 
+## RGB and amplitude guidance
+
+Design D1, D3, D4, D5, D12 (part guided-node). Depth stays the only height source: RGB decides where a lethal boundary
+sits and which unseen floor is not floor, never how high anything is.
+
+**Inputs.** While `guidance.enabled`, a `message_filters` ExactTime synchronizer (queue 5) pairs the upsampled depth,
+its camera info and the JPEG of head_rgbd_cpp (`guidance.depth_topic`, `guidance.info_topic`, `guidance.rgb_topic`,
+one header per pair, best effort, 2 Hz), and the latest `guidance.tof_info_topic` camera info gives the ToF model. On
+a pair (`GroundNode::on_guidance`):
+
+1. `decode_guidance` (16UC1 depth, plumb_bob camera info of the same size, a JPEG of the same size);
+2. TF at the pair stamp, waiting up to `tf_timeout_s`: base_link <- the pair's optical frame, `fixed_frame` <-
+   base_link, and the ToF camera info's frame <- base_link;
+3. the tracked plane at the pair stamp (as for the RGB-D cloud: no plane, no use);
+4. `sample_guidance` on the `guidance.sample_step_px` grid up to `guidance.max_range_m`;
+5. the depth samples replace the kept guidance points (`GuidancePoints`, fixed frame), and the no-return samples are
+   voted into the `NoReturnTracker` with the stable lethal and ToF warning cells as blocked cells.
+
+A failure at any step drops the whole pair (nothing from it is used): `guidance_bad_input` (undecodable pair, or no
+usable ToF camera info yet), `guidance_tf` or `guidance_no_plane`, counted in `ground_clouds_dropped_total{reason}`
+and `ground_guidance_frames_total{result}`. A guidance pair is used only while it is no older than
+`guidance.max_age_s` at the ToF cloud stamp (D12); an older one contributes nothing to that cloud.
+
+**Edge points.** On each ToF cloud with a plane, after the stable lethal marks are built, the kept guidance points
+are moved into this cloud's base_link through the fixed frame. Those with height >= `guidance.edge.min_height_m`
+within `guidance.edge.max_shift_m` (xy) of this frame's stable obstacle marks, and those with height <=
+-`min_height_m` near its stable drop marks, are decimated to one centroid per `guidance.edge.voxel_m` voxel and
+appended to `obstacle_points` and `drop_points` (base_link, the cloud stamp). The stable lethal marks, the frame they
+first appear in and every other output are unchanged; the state and gauge point counts include the edge points.
+
+**Never alone.** Without a stable lethal mark there is no edge point: a box the RGB-D pair shows and the ToF does not
+adds nothing (`NodeTest.GuidanceWithoutLethalRegionAddsNoLethalPoint`), and stale or TF-less guidance adds nothing
+(`StaleGuidanceAddsNothing`, `PairWithoutTfIsDroppedAndCounted`).
+
+**no_return areas.** A sampled RGB pixel without upsampled depth whose ray meets the tracked floor within
+[`guidance.no_return.min_range_m`, `guidance.max_range_m`] and lands inside the ToF image (`tof_margin_px` margin) is
+a no-return sample. A fixed-frame temporal cell is a no-return cell of the pair when it has `cell_min_samples`
+samples and a share of at least `cell_min_share` of them do not match the floor colour model (trained by the RGB-D
+cloud path; a model that is not ready claims nothing), and no blocked cell lies within `clearance_cells`. An N-of-M
+hysteresis (`window_frames`, `enter_frames`) makes it stable, and 8-connected groups of at least `min_cells` stable
+cells become warning areas of kind `no_return`, source `rgb`, a cell-aligned polygon and `height_m` and `slope_deg`
+null. While `guidance.no_return.enabled` and the guidance is fresh, they are added to `/ground/warning_areas` and the
+state's `warnings` after the ToF and colour areas. They are stable on their own and skip the published-area kind and
+height hold; the other areas keep their cell polygons (D4). They are never lethal: costmap_zones slows down in them,
+Nav2 never marks them. A plane loss resets the tracker with the other cells.
+
+With `guidance.enabled: false` the node subscribes to none of the guidance inputs, registers none of the guidance
+metrics and publishes exactly what it published before (`NodeTest.GuidanceDisabledBehavesAsBefore`).
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `guidance.enabled` | `true` | subscribe to the guidance pair and the ToF camera info |
+| `guidance.depth_topic`, `guidance.info_topic`, `guidance.rgb_topic` | `/head_rgbd/depth_upsampled/image_raw`, `/head_rgbd/depth_upsampled/camera_info`, `/head_rgbd/rgb/image_raw/compressed` | the pair |
+| `guidance.tof_info_topic` | `/tof/camera_info` | the ToF model of the no-return test |
+| `guidance.max_age_s` | `0.6` | oldest pair used, relative to the ToF cloud stamp, seconds |
+| `guidance.sample_step_px`, `guidance.max_range_m` | `2`, `2.0` | sampling stride (pixels) and farthest range (m) |
+| `guidance.edge.*` | see Configuration | `enabled`, `max_shift_m`, `min_height_m`, `voxel_m` of the edge points |
+| `guidance.no_return.*` | see Configuration | `enabled`, `min_range_m`, `cell_min_samples`, `cell_min_share`, `window_frames`, `enter_frames`, `min_cells`, `clearance_cells`, `tof_margin_px` |
+
+Metrics: `ground_guidance_frames_total{result}` (`ok` or the drop reason), `ground_guidance_seconds` (pair processing
+time), `ground_edge_points` (edge points of the last cloud), `ground_no_return_areas` (no_return areas of the last
+cloud); see Metrics.
+
 ## Metrics
 
 Prometheus on `metrics_port`.
@@ -388,7 +455,7 @@ Prometheus on `metrics_port`.
 | `ground_slope_deg` | gauge | floor slope against gravity of the last cloud with a plane and a fresh IMU |
 | `ground_plane_vs_base_deg` | gauge | angle between the floor normal and base_link +z |
 | `ground_regions` | gauge | step and drop regions of the last cloud with a plane |
-| `ground_warning_areas` | gauge | warning areas (ToF and colour) of the last cloud with a plane |
+| `ground_warning_areas` | gauge | warning areas (ToF, colour and no_return) of the last cloud with a plane |
 | `ground_obstacle_points` | gauge | points of the last obstacle cloud |
 | `ground_drop_points` | gauge | points of the last drop cloud |
 | `ground_occluded_points` | gauge | points of the last cloud removed as lying in an occlusion shadow |
@@ -397,8 +464,12 @@ Prometheus on `metrics_port`.
 | `ground_stable_lethal_cells` | gauge | cells whose hysteresis class is lethal (obstacle or drop) |
 | `ground_stable_warning_cells` | gauge | cells whose hysteresis class is warning |
 | `ground_colour_mismatch_ratio` | gauge | floor-colour mismatch share of the floor band of the last labelled RGB-D cloud |
-| `ground_clouds_dropped_total` | counter, label `reason` | clouds or warning-area messages dropped, `reason` is `tf`, `no_plane_rgbd`, `no_map_tf` or `bad_input` |
+| `ground_clouds_dropped_total` | counter, label `reason` | clouds, guidance pairs or warning-area messages dropped, `reason` is `tf`, `no_plane_rgbd`, `no_map_tf`, `bad_input` and, with `guidance.enabled`, `guidance_bad_input`, `guidance_tf` or `guidance_no_plane` |
 | `ground_labelled_clouds_total` | counter | labelled RGB-D clouds published |
+| `ground_guidance_frames_total` | counter, label `result` | guidance pairs, `ok` or the drop reason; only with `guidance.enabled` |
+| `ground_guidance_seconds` | histogram | processing time per guidance pair (decode, TF, sampling, no-return vote); only with `guidance.enabled` |
+| `ground_edge_points` | gauge | guidance edge points appended to the lethal clouds of the last cloud with a plane; only with `guidance.enabled` |
+| `ground_no_return_areas` | gauge | no_return warning areas of the last cloud with a plane; only with `guidance.enabled` and `guidance.no_return.enabled` |
 
 ## Plane tracking
 
