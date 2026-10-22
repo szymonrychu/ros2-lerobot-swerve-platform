@@ -115,6 +115,55 @@ Eigen::Vector2d centroid(const std::vector<Eigen::Vector2d> & polygon)
 
 }  // namespace
 
+CellKey cell_key_of(const Eigen::Vector2d & xy_fixed, double cell_size_m)
+{
+  return {
+    static_cast<std::int32_t>(std::floor(xy_fixed.x() / cell_size_m)),
+    static_cast<std::int32_t>(std::floor(xy_fixed.y() / cell_size_m))};
+}
+
+std::vector<std::set<CellKey>> cell_components(const std::set<CellKey> & cells)
+{
+  std::vector<std::set<CellKey>> out;
+  std::set<CellKey> visited;
+  for (const CellKey & start : cells) {
+    if (!visited.insert(start).second) {
+      continue;
+    }
+    std::set<CellKey> component;
+    std::vector<CellKey> stack{start};
+    while (!stack.empty()) {
+      const CellKey key = stack.back();
+      stack.pop_back();
+      component.insert(key);
+      for (int dx = -1; dx <= 1; ++dx) {
+        for (int dy = -1; dy <= 1; ++dy) {
+          const CellKey next{key.first + dx, key.second + dy};
+          if (cells.count(next) > 0 && visited.insert(next).second) {
+            stack.push_back(next);
+          }
+        }
+      }
+    }
+    out.push_back(std::move(component));
+  }
+  return out;
+}
+
+std::vector<Eigen::Vector2d> cell_outline(const std::set<CellKey> & cells, double cell_size_m)
+{
+  std::vector<Eigen::Vector2d> corners;
+  corners.reserve(4 * cells.size());
+  for (const CellKey & key : cells) {
+    for (const int cx : {0, 1}) {
+      for (const int cy : {0, 1}) {
+        corners.emplace_back((key.first + cx) * cell_size_m, (key.second + cy) * cell_size_m);
+      }
+    }
+  }
+  return convex_hull(std::move(corners));
+}
+
 CellClassFilter::CellClassFilter(const HysteresisConfig & cfg, double cell_size_m)
 : cfg_(cfg), cell_size_m_(cell_size_m)
 {
@@ -136,9 +185,7 @@ CellClassFilter::CellClassFilter(const HysteresisConfig & cfg, double cell_size_
 
 CellClassFilter::Key CellClassFilter::key_of(const Eigen::Vector2d & xy_fixed) const
 {
-  return {
-    static_cast<std::int32_t>(std::floor(xy_fixed.x() / cell_size_m_)),
-    static_cast<std::int32_t>(std::floor(xy_fixed.y() / cell_size_m_))};
+  return cell_key_of(xy_fixed, cell_size_m_);
 }
 
 CellClassFilter::FrameObservation & CellClassFilter::observe(const Key & key, CellClass cls)
@@ -300,6 +347,18 @@ std::size_t CellClassFilter::count(CellClass cls) const
     std::count_if(cells_.begin(), cells_.end(), [cls](const auto & kv) { return kv.second.stable == cls; }));
 }
 
+std::vector<CellKey> CellClassFilter::blocking_cells() const
+{
+  std::vector<CellKey> out;
+  for (const auto & [key, cell] : cells_) {
+    const bool tof_warning = cell.stable == CellClass::warning && cell.record && cell.record->source == SOURCE_TOF;
+    if (is_lethal(cell.stable) || tof_warning) {
+      out.push_back(key);
+    }
+  }
+  return out;
+}
+
 std::vector<StableArea> CellClassFilter::warning_areas() const { return areas_; }
 
 void CellClassFilter::update_areas()
@@ -314,8 +373,7 @@ void CellClassFilter::update_areas()
     return it != cells_.end() && it->second.stable == CellClass::warning ? it->second.active_run : 0;
   };
 
-  // Candidate cells: stable warning for area_enter_frames active frames. 8-connected components of a cell set, in the
-  // order of their smallest key.
+  // Candidate cells: stable warning for area_enter_frames active frames.
   // Share of the cell's history frames that voted; a cell must reach area_enter_density to join an area and stay at or
   // above area_exit_density once in one.
   const auto density = [this](const Key & key) {
@@ -333,37 +391,10 @@ void CellClassFilter::update_areas()
       candidates.insert(entry.first);
     }
   }
-  const auto components = [](const std::set<Key> & cells) {
-    std::vector<std::set<Key>> out;
-    std::set<Key> visited;
-    for (const Key & start : cells) {
-      if (!visited.insert(start).second) {
-        continue;
-      }
-      std::set<Key> component;
-      std::vector<Key> stack{start};
-      while (!stack.empty()) {
-        const Key key = stack.back();
-        stack.pop_back();
-        component.insert(key);
-        for (int dx = -1; dx <= 1; ++dx) {
-          for (int dy = -1; dy <= 1; ++dy) {
-            const Key next{key.first + dx, key.second + dy};
-            if (cells.count(next) > 0 && visited.insert(next).second) {
-              stack.push_back(next);
-            }
-          }
-        }
-      }
-      out.push_back(std::move(component));
-    }
-    return out;
-  };
-
   // A component with no published cell is new and takes all its cells; one touching a published area gets only the
   // published cells that are still candidates and the cells active for area_join_frames.
   std::vector<std::set<Key>> footprints;
-  for (std::set<Key> & component : components(candidates)) {
+  for (std::set<Key> & component : cell_components(candidates)) {
     const bool touches =
       std::any_of(component.begin(), component.end(), [&](const Key & k) { return published.count(k) > 0; });
     if (!touches) {
@@ -376,7 +407,7 @@ void CellClassFilter::update_areas()
         admitted.insert(key);
       }
     }
-    for (std::set<Key> & part : components(admitted)) {
+    for (std::set<Key> & part : cell_components(admitted)) {
       footprints.push_back(std::move(part));
     }
   }
@@ -391,17 +422,11 @@ void CellClassFilter::update_areas()
       continue;
     }
     StableArea area;
-    std::vector<Eigen::Vector2d> corners;
     std::map<std::string, int> kinds;
     std::vector<double> heights;
     std::vector<double> slopes;
     bool tof = false;
     for (const Key & key : footprint) {
-      for (const int cx : {0, 1}) {
-        for (const int cy : {0, 1}) {
-          corners.emplace_back((key.first + cx) * cell_size_m_, (key.second + cy) * cell_size_m_);
-        }
-      }
       const std::optional<Record> & rec = cells_.at(key).record;
       if (!rec) {
         continue;
@@ -415,7 +440,7 @@ void CellClassFilter::update_areas()
       }
       tof = tof || rec->source == SOURCE_TOF;
     }
-    area.polygon = convex_hull(std::move(corners));
+    area.polygon = cell_outline(footprint, cell_size_m_);
     int best = 0;
     area.kind = KIND_STEP;
     for (const auto & [kind, n] : kinds) {

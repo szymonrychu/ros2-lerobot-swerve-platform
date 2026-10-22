@@ -3,6 +3,7 @@
 #include <Eigen/Geometry>
 #include <cmath>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -11,8 +12,12 @@
 namespace
 {
 
+using ground_estimator_cpp::cell_components;
+using ground_estimator_cpp::cell_key_of;
+using ground_estimator_cpp::cell_outline;
 using ground_estimator_cpp::CellClass;
 using ground_estimator_cpp::CellClassFilter;
+using ground_estimator_cpp::CellKey;
 using ground_estimator_cpp::HysteresisConfig;
 using ground_estimator_cpp::StableArea;
 using ground_estimator_cpp::WarningArea;
@@ -359,6 +364,31 @@ TEST(CellClass, ResetForgetsEverything)
   // The history is gone: one more lethal vote does not reach enter_frames.
   frame(f, CellClass::obstacle);
   EXPECT_EQ(f.stable_at(BOX_XY), CellClass::none);
+}
+
+TEST(CellClass, BlockingCellsAreTheStableLethalAndTofWarningCells)
+{
+  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  for (int i = 0; i < 3; ++i) {
+    f.begin_frame();
+    f.observe_points(points_at(BOX_XY, 0.05F), CellClass::obstacle, IDENTITY);
+    f.observe_area(area_of(rect(0.0, 0.0, 0.2, 0.2)), IDENTITY);
+    f.observe_area(area_of(rect(1.0, 1.0, 1.2, 1.2), "colour", "colour"), IDENTITY);
+    f.end_frame();
+  }
+  ASSERT_EQ(f.count(CellClass::warning), 8u);
+  const std::vector<CellKey> expected{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {6, 1}};
+  EXPECT_EQ(f.blocking_cells(), expected);
+}
+
+TEST(CellClass, CellOutlineIsTheHullOfTheCellCornersAndComponentsAre8Connected)
+{
+  const std::set<CellKey> cells{{0, 0}, {1, 0}, {1, 1}};
+  expect_polygon_eq(cell_outline(cells, CELL_M), {{0.0, 0.0}, {0.2, 0.0}, {0.2, 0.2}, {0.1, 0.2}, {0.0, 0.1}});
+  EXPECT_TRUE(cell_outline({}, CELL_M).empty());
+  const std::vector<std::set<CellKey>> expected{{{0, 0}, {1, 1}}, {{5, 5}}};
+  EXPECT_EQ(cell_components({{5, 5}, {1, 1}, {0, 0}}), expected);
+  EXPECT_EQ(cell_key_of(Eigen::Vector2d(-0.05, 0.15), CELL_M), CellKey(-1, 1));
 }
 
 // --- area stability (hysteresis.area_*) ---------------------------------------------------------------------------
