@@ -671,6 +671,9 @@ User 2026-10-22 approved (yes): run the head-from-arm calibration live step befo
 ### D53: User 2026-10-22 approved (yes): filter thresholds, floor kept >= 95 % with the gate
 User 2026-10-22 approved (yes, with floor retention kept at 95 %, not 90 %): the retuned filter removes >= 80 % of the box-edge mixed pixels, the filter plus amplitude gate keep >= 95 % of the floor pixels, live it removes <= 10 % of all pixels, and false warnings behind the box stay in <= 5 % of frames (D23, D26, D27) (user decision)
 
+### D54: User 2026-10-22 approved (yes): two Nav2 goals of at most 1.5 m, user at the robot
+User 2026-10-22 approved (yes): the Nav2 check drives two goals of at most 1.5 m (across the scene around the box, then back) through the mcp_server navigation tools at Nav2 0.25 m/s cap, with the user at the robot and the robot undocked by the user (D25) (user decision)
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -780,6 +783,7 @@ User 2026-10-22 approved (yes, with floor retention kept at 95 %, not 90 %): the
 | D51 User 2026-10-22 approved (yes): solver fits the board-on-jaw | arm-board-pose-set, head-from-arm-board-solver |
 | D52 User 2026-10-22 approved (yes): head-from-arm calibration before the scene recording | calib-robot-runbook, capture-baseline-recordings |
 | D53 User 2026-10-22 approved (yes): filter thresholds, floor kept >= 95 % with the gate | tof-flying-pixel-retune, tof-filter-live-check, ground-estimator-live-scene |
+| D54 User 2026-10-22 approved (yes): two Nav2 goals of at most 1.5 m, user at the robot | nav2-goal-across-the-scene |
 
 ## Contracts
 

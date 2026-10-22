@@ -448,5 +448,16 @@
       "ground-estimator-live-scene"
     ],
     "status": "approved"
+  },
+  {
+    "id": "Q11",
+    "text": "User 2026-10-22 approved (yes): the Nav2 check drives two goals of at most 1.5 m (across the scene around the box, then back) through the mcp_server navigation tools at Nav2 0.25 m/s cap, with the user at the robot and the robot undocked by the user (D25)",
+    "decisions": [
+      "D54"
+    ],
+    "tasks": [
+      "nav2-goal-across-the-scene"
+    ],
+    "status": "approved"
   }
 ]
