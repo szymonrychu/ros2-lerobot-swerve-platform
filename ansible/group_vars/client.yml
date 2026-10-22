@@ -1630,7 +1630,7 @@ ros2_nodes:
         # Board on the fixed jaw, in gripper_link, from the URDF jaw geometry and the board outline: the
         # board plane normal to the tool axis, its centre on it 2 cm past the URDF tool point
         # (gripper_frame_joint), its front toward the arm. The fit solves the real mount from this start
-        # value; a measured mount goes here as the start value.
+        # value.
         board_mount: # jaw-geometry estimate, not a measurement (design D47)
           xyz_init: [-0.1279, 0.0998, -0.1181] # initial mount position, m
           rpy_init: [3.141593, 0.0, 0.0] # initial mount roll/pitch/yaw, rad
