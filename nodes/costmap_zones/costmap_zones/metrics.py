@@ -16,7 +16,12 @@ ZONES_REJECTED = Counter(
 ZONES_LAST_PUBLISH = Gauge(
     "costmap_zones_last_publish_timestamp_seconds", "Unix time of the latest mask publication (unset before the first)"
 )
-GROUND_AREAS = Gauge("costmap_zones_ground_areas", "Active ground warning areas (not expired, /map frame)")
+GROUND_AREAS = Gauge(
+    "costmap_zones_ground_areas", "Areas of the latest accepted ground warning message (0 once all expired)"
+)
+GROUND_CELLS = Gauge(
+    "costmap_zones_ground_cells", "Active ground warning map cells (covered within ground_warning_ttl_s)"
+)
 GROUND_IGNORED = Counter(
     "costmap_zones_ground_ignored_total",
     "Ground warning messages ignored (bad_message, frame_mismatch: not the /map frame, no_map: before /map)",
