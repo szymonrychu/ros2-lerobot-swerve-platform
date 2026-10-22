@@ -14,10 +14,10 @@ import pytest
 from rclpy.qos import HistoryPolicy, ReliabilityPolicy
 from ros2_common.head_rgbd_calibration.config import SelectionConfig
 from ros2_common.head_rgbd_calibration.poses import WAITING, captured_status
-from sensor_msgs.msg import CameraInfo, CompressedImage, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image, JointState
 
-from head_rgbd_calibration.capture import Busy, CaptureController, CaptureError, decode_mono16
-from head_rgbd_calibration.config import NodeConfig
+from head_rgbd_calibration.capture import Busy, CaptureController, CaptureError, StillOutcome, decode_mono16
+from head_rgbd_calibration.config import NodeConfig, StillConfig
 from head_rgbd_calibration.store import NotFound, SessionStore
 from tests.pose_factory import make_pose, synthetic_frames
 
@@ -481,3 +481,200 @@ def test_refused_pose_shows_the_reason(tmp_path: Path) -> None:
     assert state["running"] is True and state["pose_count"] == 0
     assert state["status"].startswith("pose 1 not stored: rgb_size")
     assert any(level == "error" and "not stored" in msg for level, msg in node.logger.records)
+
+
+# head_arm still capture
+
+HEAD_TOPIC = "/head/joint_states"
+ARM_TOPIC = "/follower/joint_states"
+HEAD_NAMES = ("head_pan", "head_tilt")
+ARM_NAMES = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
+STILL_TIMEOUT_S = 0.3
+RGB_PERIOD_NS = 500_000_000
+
+
+def joint_msg(stamp_ns: int, names: tuple[str, ...], base: float, drift: float = 0.0) -> JointState:
+    """A JointState of names; joint i reads base + i / 10 + drift."""
+    msg = JointState()
+    msg.header = header(stamp_ns)
+    msg.name = list(names)
+    msg.position = [base + i / 10 + drift for i in range(len(names))]
+    return msg
+
+
+def make_still_controller(tmp_path: Path, node: FakeNode | None = None) -> CaptureController:
+    cfg = make_cfg(tmp_path).model_copy(update={"still": StillConfig(timeout_s=STILL_TIMEOUT_S)})
+    return CaptureController(node or FakeNode(), SessionStore(Path(cfg.state_dir), cfg), cfg, lambda: NOW)
+
+
+def feed_still(
+    node: FakeNode,
+    rgb_jpeg: bytes | None = None,
+    arm_drift: float = 0.0,
+    arm_offset_ns: int = 0,
+    arm_names: tuple[str, ...] = ARM_NAMES,
+    head: bool = True,
+    arm: bool = True,
+) -> int:
+    """Feed 4 RGB frames at 2 Hz and joint samples at 50 Hz around them; returns the newest frame stamp."""
+    if rgb_jpeg is None:
+        frame, _ = synthetic_frames(NEAR_M, 1)
+        rgb_jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 95])[1].tobytes()
+    for k in range(4):
+        node.subscription(RGB_TOPIC).callback(compressed_msg(T0_NS + k * RGB_PERIOD_NS, rgb_jpeg))
+    for step in range(0, 4 * 25 + 1):
+        ns = T0_NS + step * 20_000_000
+        if head:
+            node.subscription(HEAD_TOPIC).callback(joint_msg(ns, HEAD_NAMES, 0.3))
+        if arm:
+            node.subscription(ARM_TOPIC).callback(joint_msg(ns + arm_offset_ns, arm_names, -0.2, arm_drift * step))
+    return T0_NS + 3 * RGB_PERIOD_NS
+
+
+def test_still_session_subscribes_three_topics(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    sid = controller.start_still_session(None)
+    assert controller.store.kind(sid) == "head_arm"
+    assert sorted(s.topic for s in node.subscriptions) == sorted([RGB_TOPIC, HEAD_TOPIC, ARM_TOPIC])
+    assert node.subscription(RGB_TOPIC).msg_type is CompressedImage
+    assert node.subscription(RGB_TOPIC).qos.reliability == ReliabilityPolicy.BEST_EFFORT
+    assert node.subscription(RGB_TOPIC).qos.depth == 5
+    for topic in (HEAD_TOPIC, ARM_TOPIC):
+        sub = node.subscription(topic)
+        assert sub.msg_type is JointState
+        assert sub.qos.reliability == ReliabilityPolicy.BEST_EFFORT
+        assert sub.qos.history == HistoryPolicy.KEEP_LAST
+        assert sub.qos.depth == 10
+    assert controller.state()["kind"] == "head_arm"
+    assert controller.state()["running"] is True
+
+
+def test_capture_still_stores_pose_with_nearest_joints(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    sid = controller.start_still_session(None)
+    stamp = feed_still(node, arm_offset_ns=5_000_000)
+    outcome = controller.capture_still(arm_pose=3, tier=1, head_offset=2)
+    assert outcome == StillOutcome(stored=True, pose_id=outcome.pose_id, reason="stored")
+    assert outcome.pose_id is not None
+    meta = json.loads((controller.store.pose_dir(sid, outcome.pose_id) / "pose.json").read_text())
+    assert meta["arm_pose"] == 3 and meta["tier"] == 1 and meta["head_offset"] == 2
+    assert meta["stamps"]["rgb"] == stamp
+    assert meta["joints"] == pytest.approx(
+        {"head_pan": 0.3, "head_tilt": 0.4, **{n: -0.2 + i / 10 for i, n in enumerate(ARM_NAMES)}}
+    )
+    assert controller.state()["pose_count"] == 1
+
+
+def test_capture_still_waits_for_still_joints(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    sid = controller.start_still_session(None)
+    feed_still(node, arm_drift=0.001)
+    outcome = controller.capture_still(0, 0, 0)
+    assert outcome.stored is False and outcome.pose_id is None
+    assert outcome.reason == f"not still within {STILL_TIMEOUT_S:g} s"
+    assert controller.store.pose_ids(sid) == []
+
+
+@pytest.mark.parametrize("missing", ["no_arm", "short_names"])
+def test_capture_still_refuses_stale_joints(tmp_path: Path, missing: str) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    sid = controller.start_still_session(None)
+    if missing == "no_arm":
+        feed_still(node, arm=False)
+    else:
+        feed_still(node, arm_names=ARM_NAMES[:4])
+    outcome = controller.capture_still(0, 0, 0)
+    assert (outcome.stored, outcome.pose_id, outcome.reason) == (False, None, "joints stale")
+    assert controller.store.pose_ids(sid) == []
+
+
+def test_joints_far_from_frame_stamp_are_stale(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    sid = controller.start_still_session(None)
+    feed_still(node, arm_offset_ns=3 * NS_PER_S)
+    assert controller.capture_still(0, 0, 0).reason == "joints stale"
+    assert controller.store.pose_ids(sid) == []
+
+
+def test_no_board_stores_nothing(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    sid = controller.start_still_session(None)
+    blank = cv2.imencode(".jpg", np.full((480, 640, 3), 127, dtype=np.uint8))[1].tobytes()
+    feed_still(node, rgb_jpeg=blank)
+    outcome = controller.capture_still(0, 0, 0)
+    assert (outcome.stored, outcome.pose_id, outcome.reason) == (False, None, "no board")
+    assert controller.store.pose_ids(sid) == []
+
+
+def test_store_refusal_is_reported(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    controller.start_still_session(None)
+    feed_still(node)
+    outcome = controller.capture_still(0, 7, 0)  # tier 7 is refused by the store
+    assert outcome.stored is False and outcome.pose_id is None
+    assert outcome.reason.startswith("refused: ") and "tier" in outcome.reason
+
+
+def test_still_session_stop_unsubscribes_everything(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    controller.start_still_session(None)
+    controller.stop()
+    assert node.subscriptions == [] and len(node.destroyed) == 3
+    assert controller.state()["running"] is False
+    assert controller.stop()["running"] is False
+
+
+def test_failed_still_start_leaves_nothing_subscribed(tmp_path: Path) -> None:
+    node = FakeNode(fail_subscription_at=3)
+    controller = make_still_controller(tmp_path, node)
+    with pytest.raises(RuntimeError):
+        controller.start_still_session(None)
+    assert node.subscriptions == []
+    controller.stop()
+    assert node.subscriptions == []
+
+
+def test_still_and_rgbd_exclude_each_other(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    controller.start(None)
+    with pytest.raises(Busy):
+        controller.start_still_session(None)
+    assert len(node.subscriptions) == 4  # nothing else was subscribed
+    controller.stop()
+    controller.start_still_session(None)
+    with pytest.raises(Busy):
+        controller.start(None)
+
+
+def test_reopening_an_rgbd_session_is_refused(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    sid = controller.start(None)["session_id"]
+    controller.stop()
+    with pytest.raises(CaptureError, match="rgbd"):
+        controller.start_still_session(sid)
+    assert node.subscriptions == []
+
+
+def test_reopening_a_head_arm_session_keeps_it(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    sid = controller.start_still_session(None)
+    controller.stop()
+    assert controller.start_still_session(sid) == sid
+    assert controller.state()["session_id"] == sid
+
+
+def test_capture_still_without_a_session_raises(tmp_path: Path) -> None:
+    controller = make_still_controller(tmp_path)
+    with pytest.raises(CaptureError):
+        controller.capture_still(0, 0, 0)

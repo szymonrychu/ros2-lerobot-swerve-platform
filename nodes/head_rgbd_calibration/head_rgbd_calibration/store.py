@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import cv2
 import numpy as np
@@ -23,6 +23,7 @@ from ros2_common.head_rgbd_calibration.charuco import Detection
 from ros2_common.head_rgbd_calibration.frames import CameraInfoData
 from ros2_common.head_rgbd_calibration.hints import capture_hints
 from ros2_common.head_rgbd_calibration.poses import CapturedPose
+from ros2_common.head_rgbd_calibration.views import ARM_JOINTS, HEAD_JOINTS, ArmBoardView
 
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.images import rgb_thumbnail, tof_thumbnail
@@ -48,6 +49,9 @@ DEPTH_FILE = "depth.png"
 THUMBNAIL_FILES = {"rgb": "rgb_thumb.jpg", "tof": "tof_thumb.jpg"}
 TEMP_PREFIX = ".tmp-"
 RGB_JPEG_QUALITY = 95
+KIND_RGBD = "rgbd"
+KIND_HEAD_ARM = "head_arm"
+STILL_TIERS = (0, 1, 2)
 
 
 class InvalidId(ValueError):
@@ -207,18 +211,30 @@ class SessionStore:
         found = [p.name for p in results.iterdir() if RESULT_ID_RE.fullmatch(p.name) and (p / RESULT_FILE).is_file()]
         return sorted(found, reverse=True)
 
+    def kind(self, sid: str) -> str:
+        """The session kind, "rgbd" for a session.json without the key."""
+        return self.read_session(sid).get("kind", KIND_RGBD)
+
+    def require_kind(self, sid: str, wanted: str, action: str) -> None:
+        """Raise ValueError unless the session is of the wanted kind."""
+        kind = self.kind(sid)
+        if kind != wanted:
+            raise ValueError(f"{action} needs a {wanted} session, {sid} is {kind}")
+
     def summary(self, sid: str) -> dict[str, Any]:
-        """session.json plus pose_ids, pose_count and result_count."""
+        """session.json plus kind, pose_ids, pose_count and result_count."""
         data = self.read_session(sid)
+        data["kind"] = data.get("kind", KIND_RGBD)
         ids = self.pose_ids(sid)
         return {**data, "pose_ids": ids, "pose_count": len(ids), "result_count": len(self.result_ids(sid))}
 
-    def create_session(self, now: datetime, lens_position: float) -> str:
+    def create_session(self, now: datetime, lens_position: float, kind: Literal["rgbd", "head_arm"] = KIND_RGBD) -> str:
         """Create a session.
 
         Args:
             now: Creation time; it names the session.
             lens_position: Lens position the head camera is locked at.
+            kind: "rgbd" (RGB+ToF poses) or "head_arm" (still RGB poses with measured joints).
 
         Returns:
             The id calib-YYYYmmdd-HHMMSS, with -N appended when that second is taken.
@@ -240,6 +256,7 @@ class SessionStore:
                 path / SESSION_FILE,
                 {
                     "id": sid,
+                    "kind": kind,
                     "created": now.isoformat(),
                     "lens_position": lens_position,
                     "rgb_size": None,
@@ -312,9 +329,10 @@ class SessionStore:
             The new pose id, zero-padded from the session's next_pose counter and never reused after a delete.
 
         Raises:
-            ValueError: the amplitude frame is empty (no thumbnail possible, nothing is stored) or an image has
-                another size than the session's first pose.
+            ValueError: the session is a head_arm one, the amplitude frame is empty (no thumbnail possible,
+                nothing is stored) or an image has another size than the session's first pose.
         """
+        self.require_kind(sid, KIND_RGBD, "add_pose")
         tof_thumb = tof_thumbnail(pose.amplitude.image, pose.tof_detection, self.cfg.selection.amplitude_percentiles)
         if tof_thumb is None:
             raise ValueError("empty amplitude frame: pose not stored")
@@ -343,23 +361,116 @@ class SessionStore:
         with self.lock:
             data = self.read_session(sid)
             self.apply_sizes(data, (rgb_w, rgb_h), (tof_w, tof_h))
-            pid = f"{data['next_pose']:0{POSE_ID_DIGITS}d}"
-            poses = self.session_dir(sid) / POSES_DIR
-            poses.mkdir(exist_ok=True)
-            tmp = poses / f"{TEMP_PREFIX}{pid}"
-            shutil.rmtree(tmp, ignore_errors=True)
-            tmp.mkdir()
-            try:
-                for name, content in files.items():
-                    (tmp / name).write_bytes(content)
-                (tmp / POSE_FILE).write_text(json.dumps(meta, indent=2))
-                os.replace(tmp, poses / pid)
-            except BaseException:
-                shutil.rmtree(tmp, ignore_errors=True)
-                raise
-            data["next_pose"] += 1
+            pid = self.write_pose_dir(sid, data, files, meta)
             write_json_atomic(self.session_dir(sid) / SESSION_FILE, data)
         return pid
+
+    def add_still_pose(
+        self,
+        sid: str,
+        rgb_jpeg: bytes,
+        rgb_image: np.ndarray,
+        detection: Detection,
+        joints: dict[str, float],
+        stamps: dict[str, int],
+        arm_pose: int,
+        tier: int,
+        head_offset: int,
+    ) -> str:
+        """Store a still RGB view of the gripper board with the measured joints (head_arm sessions).
+
+        Args:
+            sid: Session id.
+            rgb_jpeg: The camera JPEG, stored as received.
+            rgb_image: The decoded BGR frame (size check and thumbnail).
+            detection: Board corners found in rgb_image.
+            joints: Measured rad of all seven joints (HEAD_JOINTS and ARM_JOINTS).
+            stamps: Stamps in ns of the sources, e.g. {"rgb": ..., "joints": ...}.
+            arm_pose: Index of the scripted arm pose, 0 or more.
+            tier: Capture tier 0, 1 or 2.
+            head_offset: Index of the head offset, 0 or more.
+
+        Returns:
+            The new pose id.
+
+        Raises:
+            ValueError: wrong session kind, a joint missing, tier not 0/1/2, a negative arm_pose or head_offset,
+                or an image size other than the session's.
+        """
+        self.require_kind(sid, KIND_HEAD_ARM, "add_still_pose")
+        missing = [name for name in (*HEAD_JOINTS, *ARM_JOINTS) if name not in joints]
+        if missing:
+            raise ValueError(f"missing joints: {', '.join(missing)}")
+        if tier not in STILL_TIERS:
+            raise ValueError(f"tier must be 0, 1 or 2, got {tier}")
+        if arm_pose < 0 or head_offset < 0:
+            raise ValueError(f"arm_pose and head_offset must not be negative, got {arm_pose} and {head_offset}")
+        files = {
+            RGB_FILE: bytes(rgb_jpeg),
+            THUMBNAIL_FILES["rgb"]: rgb_thumbnail(rgb_image, detection, self.cfg.thumbnail_width_px),
+        }
+        meta = {
+            "stamps": {key: int(value) for key, value in stamps.items()},
+            "rgb": {
+                "ids": [int(i) for i in detection.ids],
+                "points": [[float(x), float(y)] for x, y in detection.points],
+            },
+            "joints": {name: float(value) for name, value in joints.items()},
+            "arm_pose": int(arm_pose),
+            "tier": int(tier),
+            "head_offset": int(head_offset),
+        }
+        rgb_h, rgb_w = rgb_image.shape[:2]
+        with self.lock:
+            data = self.read_session(sid)
+            wanted = [rgb_w, rgb_h]
+            if data["rgb_size"] is not None and data["rgb_size"] != wanted:
+                raise ValueError(f"rgb_size {wanted} differs from the session's {data['rgb_size']}: image size changed")
+            data["rgb_size"] = wanted
+            pid = self.write_pose_dir(sid, data, files, meta)
+            write_json_atomic(self.session_dir(sid) / SESSION_FILE, data)
+        return pid
+
+    def write_pose_dir(self, sid: str, data: dict[str, Any], files: dict[str, bytes], meta: dict[str, Any]) -> str:
+        """Write a pose directory atomically and advance data["next_pose"]; the caller holds the lock."""
+        pid = f"{data['next_pose']:0{POSE_ID_DIGITS}d}"
+        poses = self.session_dir(sid) / POSES_DIR
+        poses.mkdir(exist_ok=True)
+        tmp = poses / f"{TEMP_PREFIX}{pid}"
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir()
+        try:
+            for name, content in files.items():
+                (tmp / name).write_bytes(content)
+            (tmp / POSE_FILE).write_text(json.dumps(meta, indent=2))
+            os.replace(tmp, poses / pid)
+        except BaseException:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+        data["next_pose"] += 1
+        return pid
+
+    def load_arm_board_views(self, sid: str) -> list[ArmBoardView]:
+        """The still poses of a head_arm session as fit views (view_id = pose id), in pose order."""
+        self.require_kind(sid, KIND_HEAD_ARM, "load_arm_board_views")
+        views = []
+        for pid in self.pose_ids(sid):
+            meta = json.loads((self.pose_dir(sid, pid) / POSE_FILE).read_text())
+            views.append(
+                ArmBoardView(
+                    view_id=pid,
+                    arm_pose=meta["arm_pose"],
+                    tier=meta["tier"],
+                    joints=dict(meta["joints"]),
+                    detection=detection_from_json(meta["rgb"]),
+                )
+            )
+        return views
+
+    def captured_arm_poses(self, sid: str) -> set[int]:
+        """The arm pose indices that have at least one stored still pose."""
+        self.require_kind(sid, KIND_HEAD_ARM, "captured_arm_poses")
+        return {view.arm_pose for view in self.load_arm_board_views(sid)}
 
     def pose_hints(self, sid: str, pid: str) -> list[str]:
         """Capture hints of a stored pose.
@@ -373,6 +484,8 @@ class SessionStore:
             (nothing is written back).
         """
         meta = json.loads((self.pose_dir(sid, pid) / POSE_FILE).read_text())
+        if self.kind(sid) == KIND_HEAD_ARM:
+            return []
         if "hints" in meta:
             return list(meta["hints"])
         return capture_hints(detection_from_json(meta["rgb"]), detection_from_json(meta["tof"]), self.cfg.board)
@@ -427,7 +540,8 @@ class SessionStore:
         data = self.read_session(sid)
         cols, rows = self.cfg.coverage.cols, self.cfg.coverage.rows
         out: dict[str, dict[str, Any]] = {}
-        for camera in ("rgb", "tof"):
+        cameras = ("rgb",) if data.get("kind", KIND_RGBD) == KIND_HEAD_ARM else ("rgb", "tof")
+        for camera in cameras:
             counts = np.zeros((rows, cols), dtype=int)
             size = data[f"{camera}_size"]
             if size is not None:

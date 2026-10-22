@@ -531,6 +531,25 @@ are served as they are, nothing is generated:
 - `GET /models/{name}` downloads one of them (`application/pdf` or `model/3mf`, `Content-Disposition: attachment`).
   Any other name, file type or path answers `404`. Without `models_dir` both routes answer `404`.
 
+## Ground recordings
+
+An operator tool that captures replay recordings for the ground estimator from the live robot. It exists because ad-hoc rclpy probes on the client break DDS discovery of other nodes (and SSH sessions are not needed): the recorder runs inside the long-lived web_ui node, reusing its TF buffer. It publishes and commands nothing and is idle (no subscriptions, no TF listener) when not recording.
+
+Routes (404 when `ground_recorder.enabled` is false):
+
+- `POST /api/ground/recordings` with `{"name": "[a-z0-9_-]{1,32}", "duration_s": 1..max_duration_s}` answers 202 `{name, duration_s}`; 409 while a recording runs (or its file is still being written); 400 on a bad name or duration.
+- `GET /api/ground/recordings` lists `[{name, bytes, done, counts, dropped}]` (`counts` samples per stream, `dropped` per stream and reason: `tf`, `decode`, `range`, `size`, `unmatched`, `joints`).
+- `GET /api/ground/recordings/{name}` downloads the npz (`application/octet-stream`) once done; 404 unknown, 409 in progress.
+- `DELETE /api/ground/recordings/{name}` removes the file (404 unknown).
+
+Config (`ground_recorder`, unknown keys rejected, defaults in `config/default.yaml`): `enabled` (false), `dir` (`/tmp/web_ui_ground_recordings`), `max_duration_s` (30, 1..60), `max_files` (4, 1..20; older files are deleted after each recording), `tf_timeout_s` (0.5, 0..2), the topics `cloud_topic`, `tof_depth_topic`, `tof_amplitude_topic`, `tof_info_topic`, `pair_depth_topic`, `pair_info_topic`, `pair_rgb_topic`, `imu_topic`, `head_js_topic`, `state_topic`, and the frames `base_frame` (base_link), `odom_frame` (odom). Ansible enables it in the client `web_ui` block.
+
+Behaviour: starting creates the subscriptions (sensor-data QoS for images and IMU, reliable for the cloud and camera info). Every message gets the TF at its own stamp (base_link <- message frame, plus odom <- base_link for clouds and RGB pairs); a message whose TF does not arrive within `tf_timeout_s` is dropped and counted, never recorded with a guessed or latest pose. ToF depth + amplitude and upsampled depth + RGB are paired by stamp. At the end of the window the subscriptions are destroyed and the npz is written on a thread (atomic rename).
+
+Layout: see `web_ui/ground_recorder.py` (`GroundRecording`, layout version 2, a superset of the files read by `scripts/ground_replay_export.py`); the ROS side is `web_ui/ground_session.py`.
+
+Load while recording: about 300 ToF frames and 60 RGB pairs per 30 s are held in numpy arrays in memory (tens of MB) and written compressed at the end; the TF listener runs only during the window. Record with the robot static; head moves are fine.
+
 ## Calibrate page (hidden)
 
 Enabled only when the config has a `calibration` block; without it every `/api/calibration/*` route answers

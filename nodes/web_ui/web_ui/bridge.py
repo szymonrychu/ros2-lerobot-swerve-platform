@@ -24,6 +24,7 @@ import uuid
 from collections.abc import Callable, Collection, Iterable
 from concurrent.futures import Future, InvalidStateError
 from dataclasses import dataclass
+from pathlib import Path as FilePath
 from typing import Any
 
 import rclpy  # noqa: F401  # kept as module attribute for test patching
@@ -69,6 +70,7 @@ from .config import (
     HEAD_RGBD_RGB_ROLE,
     POI_RESULT_ROLE,
     RGBD_CLOUD_ROLE,
+    GroundRecorderConfig,
 )
 from .gps_anchor import (
     CALIBRATION_MAX_AGE_S,
@@ -85,6 +87,13 @@ from .gps_anchor import (
     valid_imu_orientation,
 )
 from .gps_status import parse_status_json
+from .ground_session import (
+    NAME_PATTERN,
+    GroundSession,
+    list_recordings,
+    read_recording_info,
+    remove_recording,
+)
 from .imu_calibration import parse_imu_status
 from .metrics import (
     BATTERY_CUTOFF_ACTIVE,
@@ -424,6 +433,8 @@ class BridgeNode(Node):
     _tilt_stale_s: float = TILT_STALE_S_DEFAULT
     # Ground state topic -> seconds without a message after which it is marked stale (set in __init__).
     _ground_stale_s: dict[str, float] = {}
+    # Running ground recording (set in ground_recording_start).
+    _ground: GroundSession | None = None
     # Queued per-command results awaiting the next flush (replaced, never mutated, so the class default is safe).
     _bursts: tuple[dict[str, Any], ...] = ()
 
@@ -453,6 +464,7 @@ class BridgeNode(Node):
         zoom_topics: dict[str, tuple[str, str, str]] | None = None,
         map3d_limits: dict[str, tuple[int, float]] | None = None,
         ground_stale_s: dict[str, float] | None = None,
+        ground_recorder: GroundRecorderConfig | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -468,6 +480,8 @@ class BridgeNode(Node):
             tof_ranges (dict[str, float] | None): head depth topic -> range (m) of its greyscale preview.
             map3d_limits (dict[str, tuple[int, float]] | None): 3D map cloud topic -> (max_points, voxel_m).
             ground_stale_s (dict[str, float] | None): Ground state topic -> age in seconds after which it is stale.
+            ground_recorder (GroundRecorderConfig | None): Settings of the ground recorder (needs the TF buffer), or None
+                when it is disabled.
             robot_pose_frames (tuple[str, str] | None): (map_frame, base_frame) for the TF robot pose,
                 or None to disable TF tracking.
             frame_id_defaults (dict[str, str] | None): Publish topic -> header.frame_id used when the
@@ -529,6 +543,9 @@ class BridgeNode(Node):
         self._frame_id_defaults = frame_id_defaults or {}
         self._robot_pose_frames = robot_pose_frames
         self._tf_buffer: Any = None
+        self._ground_cfg = ground_recorder
+        self._ground: GroundSession | None = None
+        self._ground_lock = threading.Lock()
         self._serialize_map_client: Any = None
         self._reset_map_clients: dict[str, Any] = {}
         self._cancel_goal_clients: dict[str, Any] = {}
@@ -611,8 +628,9 @@ class BridgeNode(Node):
                     topic, msg_cls, callback, qos, needs_tf=role in MAP_FRAME_ROLES | POSE_FRAME_ROLES
                 )
 
-        if robot_pose_frames is not None:
+        if robot_pose_frames is not None or ground_recorder is not None:
             self._tf_buffer = Buffer()
+        if robot_pose_frames is not None:
             self._demand[ROBOT_POSE_TOPIC] = DemandEntry(self.start_pose_timer, self.stop_pose_timer, True)
             self._serialize_map_client = self.create_client(SerializePoseGraph, SERIALIZE_MAP_SERVICE)
             self.reconcile_tf()
@@ -713,6 +731,7 @@ class BridgeNode(Node):
         now = time.monotonic() if now is None else now
         self.run_publisher_tasks()
         self.retry_frame_poses(now)
+        self.service_ground_recording()
         with self._demand_lock:
             wanted = self._wanted
             for topic, entry in self._demand.items():
@@ -731,6 +750,145 @@ class BridgeNode(Node):
                     log.info("ros_demand_stopped", topic=topic)
             self.reconcile_tf()
 
+    def ground_recording_start(self, name: str, duration_s: float) -> bool:
+        """Start a ground recording; the ROS thread subscribes on its next tick (any thread).
+
+        Args:
+            name (str): Recording name, [a-z0-9_-]{1,32}.
+            duration_s (float): Window length in seconds.
+
+        Returns:
+            bool: False when a recording is already running or the recorder is disabled.
+
+        Raises:
+            ValueError: Bad name.
+        """
+        if self._ground_cfg is None or self._tf_buffer is None:
+            return False
+        if not NAME_PATTERN.match(name):
+            raise ValueError(f"bad recording name {name!r}")
+        with self._ground_lock:
+            if self._ground is not None:
+                return False
+            session = GroundSession(
+                self._ground_cfg,
+                name,
+                duration_s,
+                self.create_subscription,
+                self.destroy_subscription,
+                self.ground_pose,
+                self.ground_recording_done,
+            )
+            self._ground = session
+        self._publisher_tasks.put(lambda: self.open_ground_session(session))
+        return True
+
+    def open_ground_session(self, session: GroundSession) -> None:
+        """Start the TF listener and the session's subscriptions (executor thread).
+
+        Args:
+            session (GroundSession): The session created by ground_recording_start.
+        """
+        self.reconcile_tf()
+        session.open()
+
+    def ground_recording_done(self) -> None:
+        """Free the recorder once the writer thread finished (writer thread)."""
+        with self._ground_lock:
+            self._ground = None
+
+    def service_ground_recording(self) -> None:
+        """Retry held samples of the running recording and close its window when over (executor thread)."""
+        session = self._ground
+        if session is not None:
+            session.service(time.monotonic())
+
+    def join_ground_recording(self, timeout: float | None = None) -> None:
+        """Wait for the running recording's file writer (tests, shutdown).
+
+        Args:
+            timeout (float | None): Longest wait in seconds, None for no limit.
+        """
+        session = self._ground
+        if session is not None and session.writer is not None:
+            session.writer.join(timeout)
+
+    def ground_pose(self, target: str, source: str, stamp_ns: int) -> tuple[float, ...]:
+        """Look up target <- source at a message stamp; never the latest transform.
+
+        Args:
+            target (str): Target frame.
+            source (str): Source frame.
+            stamp_ns (int): Message stamp in nanoseconds.
+
+        Returns:
+            tuple[float, ...]: x y z qx qy qz qw.
+
+        Raises:
+            TransformException: No stamp, or the transform is not available at the stamp yet.
+        """
+        if stamp_ns <= 0:
+            raise TransformException("message has no stamp")
+        tf = self._tf_buffer.lookup_transform(target, source, Time(nanoseconds=stamp_ns))
+        t, q = tf.transform.translation, tf.transform.rotation
+        return (float(t.x), float(t.y), float(t.z), float(q.x), float(q.y), float(q.z), float(q.w))
+
+    def ground_recording_info(self, name: str) -> dict[str, Any] | None:
+        """Describe a recording, running or finished.
+
+        Args:
+            name (str): Recording name.
+
+        Returns:
+            dict[str, Any] | None: {name, bytes, done, counts, dropped}, or None when unknown.
+        """
+        session = self._ground
+        if session is not None and session.name == name:
+            return session.info()
+        if self._ground_cfg is None or not NAME_PATTERN.match(name):
+            return None
+        return read_recording_info(FilePath(self._ground_cfg.dir), name)
+
+    def ground_recordings(self) -> list[dict[str, Any]]:
+        """List the running recording and the finished files, oldest first.
+
+        Returns:
+            list[dict[str, Any]]: One info dict per recording.
+        """
+        if self._ground_cfg is None:
+            return []
+        session = self._ground
+        directory = FilePath(self._ground_cfg.dir)
+        infos = (
+            [read_recording_info(directory, p.stem) for p in list_recordings(directory)] if directory.exists() else []
+        )
+        listed = [i for i in infos if i is not None and (session is None or i["name"] != session.name)]
+        return [*listed, *([session.info()] if session is not None else [])]
+
+    def ground_recording_path(self, name: str) -> FilePath:
+        """Path of a finished recording's npz.
+
+        Args:
+            name (str): Recording name (validated by the caller through ground_recording_info).
+
+        Returns:
+            FilePath: The npz file.
+        """
+        return FilePath(self._ground_cfg.dir) / f"{name}.npz"
+
+    def ground_recording_delete(self, name: str) -> bool:
+        """Delete a finished recording and its sidecar.
+
+        Args:
+            name (str): Recording name.
+
+        Returns:
+            bool: True when it existed.
+        """
+        if self._ground_cfg is None or not NAME_PATTERN.match(name):
+            return False
+        return remove_recording(FilePath(self._ground_cfg.dir), name)
+
     def run_publisher_tasks(self) -> None:
         """Run the queued publisher creations and the publishes behind them (executor thread)."""
         while True:
@@ -747,7 +905,9 @@ class BridgeNode(Node):
         """Run the TF listener while the anchor fit or an active topic needs it; drop old transforms when off."""
         if self._tf_buffer is None:
             return
-        needed = self._tf_always or any(self._demand[topic].needs_tf for topic in self._active)
+        needed = (
+            self._tf_always or self._ground is not None or any(self._demand[topic].needs_tf for topic in self._active)
+        )
         if needed and self._tf_listener is None:
             # Own node + own executor thread: /tf is processed even while the main executor is busy serializing.
             self._tf_listener = TransformListener(self._tf_buffer, None, spin_thread=True)

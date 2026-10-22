@@ -210,3 +210,122 @@ TEST(GuidedUpsample, StatsCountValidPixels)
   EXPECT_EQ(stats.valid_out, cv::countNonZero(out));
   EXPECT_EQ(stats.valid_out, 324 * 576);
 }
+
+namespace
+{
+
+constexpr double BOX_M = 0.95;
+constexpr double FLOOR_M = 1.0;
+constexpr double GUIDE_EDGE_ROW = 162.3;
+constexpr int BAND_EDGE_ROW = 81;  // low-resolution row holding the edge (162.3 / 2); the hole band is centred on it
+constexpr double EDGE_MARGIN_PX = 2.0;
+constexpr double EDGE_TOLERANCE_MM = 5.0;
+constexpr double NOISE_AMPLITUDE_MM = 5.0;
+constexpr double FLAT_TOLERANCE_MM = 10.0;
+constexpr int CHECKER_PX = 16;
+constexpr int SEAM_PERIOD_PX = 64;
+constexpr int NOISE_SEED = 7;
+
+// A 5 cm box top edge at 1 m: the box front face at 0.95 m above the floor plane at 1.0 m; the edge projects to row
+// GUIDE_EDGE_ROW of the 576x324 image and the guide has a sharp step there.
+synth::Scene box_edge_scene()
+{
+  synth::Scene scene;
+  scene.planes.push_back(synth::fronto_parallel_plane(FLOOR_M, BACK_ALBEDO));
+  const double y0 = (GUIDE_EDGE_ROW - (synth::RGB_MAPPING_HEIGHT - 1) / 2.0) / synth::RGB_MAPPING_F * BOX_M;
+  scene.boxes.push_back(
+    synth::Box{Eigen::Vector3d(-10.0, -10.0, BOX_M), Eigen::Vector3d(10.0, y0, BOX_M + 0.1), FRONT_ALBEDO});
+  return scene;
+}
+
+}  // namespace
+
+TEST(GuidedUpsample, BoxEdgeFollowsTheGuideEdge)
+{
+  const Inputs clean = render_inputs(box_edge_scene());
+  for (int band = 1; band <= 3; ++band) {
+    Inputs in = clean;
+    // The hole band filter_jump_edges leaves along the edge (1..3 low-resolution rows centred on the edge row).
+    in.depth_mm(cv::Rect(0, BAND_EDGE_ROW - (band - 1) / 2, in.depth_mm.cols, band)).setTo(0);
+    const cv::Mat out = guided_upsample(in.depth_mm, in.guide_bgr, UpsamplingConfig{});
+    int checked = 0;
+    for (int v = 0; v < out.rows; ++v) {
+      const double above = GUIDE_EDGE_ROW - v;  // positive on the box side
+      if (std::abs(above) < EDGE_MARGIN_PX + 1.0) {
+        continue;
+      }
+      const double expected_mm = (above > 0 ? BOX_M : FLOOR_M) * 1000.0;
+      for (int u = BORDER_PX; u < out.cols - BORDER_PX; u += 7) {
+        ASSERT_NEAR(out.at<uint16_t>(v, u), expected_mm, EDGE_TOLERANCE_MM)
+          << "band " << band << " (" << u << ", " << v << ")";
+        ++checked;
+      }
+    }
+    EXPECT_GT(checked, 1000);
+  }
+}
+
+TEST(GuidedUpsample, TexturedFlatFloorStaysFlat)
+{
+  synth::Scene scene;
+  scene.planes.push_back(synth::fronto_parallel_plane(FLOOR_M, 0.5));
+  Inputs in = render_inputs(scene);
+  // Checkerboard plus tile seams (dark lines) as the guide.
+  cv::Mat grey(in.guide_bgr.size(), CV_8UC1);
+  for (int v = 0; v < grey.rows; ++v) {
+    for (int u = 0; u < grey.cols; ++u) {
+      const bool checker = ((u / CHECKER_PX) + (v / CHECKER_PX)) % 2 == 0;
+      const bool seam = u % SEAM_PERIOD_PX < 2 || v % SEAM_PERIOD_PX < 2;
+      grey.at<uint8_t>(v, u) = seam ? 20 : (checker ? 220 : 60);
+    }
+  }
+  cv::cvtColor(grey, in.guide_bgr, cv::COLOR_GRAY2BGR);
+  cv::RNG rng(NOISE_SEED);
+  for (int v = 0; v < in.depth_mm.rows; ++v) {
+    for (int u = 0; u < in.depth_mm.cols; ++u) {
+      const double z = FLOOR_M * 1000.0 + rng.uniform(-NOISE_AMPLITUDE_MM, NOISE_AMPLITUDE_MM);
+      in.depth_mm.at<uint16_t>(v, u) = static_cast<uint16_t>(std::lround(z));
+    }
+  }
+  const cv::Mat out = guided_upsample(in.depth_mm, in.guide_bgr, UpsamplingConfig{});
+  double worst = 0.0;
+  for (int v = 0; v < out.rows; ++v) {
+    for (int u = 0; u < out.cols; ++u) {
+      ASSERT_GT(out.at<uint16_t>(v, u), 0) << "(" << u << ", " << v << ")";
+      worst = std::max(worst, std::abs(out.at<uint16_t>(v, u) - FLOOR_M * 1000.0));
+    }
+  }
+  std::printf("textured flat floor worst deviation %.2f mm\n", worst);
+  EXPECT_LE(worst, FLAT_TOLERANCE_MM);
+}
+
+TEST(GuidedUpsample, LargeHoleStaysEmpty)
+{
+  synth::Scene scene;
+  scene.planes.push_back(synth::fronto_parallel_plane(FLOOR_M, 0.5));
+  Inputs in = render_inputs(scene);
+  // Black ramp: the guide fades to black across the hole; the hole (60 x 50 low px) is far wider than 2 * radius.
+  cv::Mat grey(in.guide_bgr.size(), CV_8UC1);
+  for (int v = 0; v < grey.rows; ++v) {
+    for (int u = 0; u < grey.cols; ++u) {
+      grey.at<uint8_t>(v, u) = static_cast<uint8_t>(std::clamp(255 - std::abs(u - 288) * 2, 0, 255));
+    }
+  }
+  cv::cvtColor(grey, in.guide_bgr, cv::COLOR_GRAY2BGR);
+  in.depth_mm(cv::Rect(114, 56, 60, 50)).setTo(0);
+  const UpsamplingConfig cfg;
+  const cv::Mat out = guided_upsample(in.depth_mm, in.guide_bgr, cfg);
+  const cv::Mat valid = nearest_upsample(in.depth_mm) > 0;
+  cv::Mat distance;
+  cv::distanceTransform(~valid, distance, cv::DIST_L2, cv::DIST_MASK_PRECISE, CV_32F);
+  int far_pixels = 0;
+  for (int v = 0; v < out.rows; ++v) {
+    for (int u = 0; u < out.cols; ++u) {
+      if (distance.at<float>(v, u) > static_cast<float>(cfg.radius)) {
+        ASSERT_EQ(out.at<uint16_t>(v, u), 0) << "(" << u << ", " << v << ")";
+        ++far_pixels;
+      }
+    }
+  }
+  EXPECT_GT(far_pixels, 1000);
+}

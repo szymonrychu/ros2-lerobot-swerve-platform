@@ -9,6 +9,8 @@ subscription and the timer are destroyed when the capture stops, times out or fa
 
 import math
 import threading
+import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -16,27 +18,40 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+import cv2
 import yaml
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from ros2_common.head_rgbd_calibration.charuco import make_board
+from ros2_common.head_rgbd_calibration.charuco import detect, make_board
 from ros2_common.head_rgbd_calibration.frames import (
     StampedImage,
     decode_camera_info,
     decode_compressed,
     decode_mono16,
+    rgb_difference,
     stamp_ns,
 )
 from ros2_common.head_rgbd_calibration.poses import AMPLITUDE, DEPTH, RGB, WAITING, PoseCounter
-from sensor_msgs.msg import CameraInfo, CompressedImage, Image
+from ros2_common.head_rgbd_calibration.views import ARM_JOINTS, HEAD_JOINTS
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image, JointState
 
 from head_rgbd_calibration.config import NodeConfig
-from head_rgbd_calibration.store import SessionStore
+from head_rgbd_calibration.store import KIND_HEAD_ARM, SessionStore
 
 TOF_INFO_QOS_DEPTH = 1
 IDLE = "idle"
 STOPPED = "stopped"
 DROP_LOG_THROTTLE_S = 5.0
 LENS_POSITION_KEY = "lens_position"
+JOINT_SUBSCRIPTION_DEPTH = 10  # as FloorSweep's /head/joint_states
+RGB_HISTORY = 16
+JOINT_HISTORY = 400
+STILL_POLL_S = 0.02
+MIN_STILL_SAMPLES = 2
+NS_PER_S = 1_000_000_000
+REASON_STORED = "stored"
+REASON_NO_BOARD = "no board"
+REASON_JOINTS_STALE = "joints stale"
+REASON_STOPPED = "stopped"
 
 
 class CaptureError(RuntimeError):
@@ -76,6 +91,58 @@ class Capture:
     store_error: tuple[str, str] | None = None
     subscriptions: list[Any] = field(default_factory=list)
     timer: Any = None
+
+
+@dataclass(frozen=True)
+class JointsSample:
+    """Measured positions (rad, by joint name) of one joint group with the header stamp (ns) of the message."""
+
+    stamp_ns: int
+    positions: dict[str, float]
+
+
+@dataclass(frozen=True)
+class StillFrame:
+    """A decoded mapping RGB frame with the JPEG bytes it arrived as and its grey image."""
+
+    stamp_ns: int
+    image: Any
+    raw: bytes
+    grey: Any
+
+
+@dataclass(frozen=True)
+class StillOutcome:
+    """Result of capture_still: whether a pose was stored, its id, and the reason (stored, no board, ...)."""
+
+    stored: bool
+    pose_id: str | None
+    reason: str
+
+
+@dataclass
+class StillRun:
+    """One head_arm still session: its subscriptions and the recent frames and joint samples.
+
+    Attributes:
+        session_id: The head_arm session the poses are stored in.
+        started_at: Start time.
+        running: False once stopped.
+        pose_count: Poses stored in the session.
+        subscriptions: Subscriptions created by start_still_session.
+        frames: Recent RGB frames, newest last.
+        head: Recent head joint samples, newest last.
+        arm: Recent arm joint samples, newest last.
+    """
+
+    session_id: str
+    started_at: datetime
+    pose_count: int
+    running: bool = True
+    subscriptions: list[Any] = field(default_factory=list)
+    frames: deque[StillFrame] = field(default_factory=lambda: deque(maxlen=RGB_HISTORY))
+    head: deque[JointsSample] = field(default_factory=lambda: deque(maxlen=JOINT_HISTORY))
+    arm: deque[JointsSample] = field(default_factory=lambda: deque(maxlen=JOINT_HISTORY))
 
 
 def read_lens_position(path: str | Path, default: float) -> float:
@@ -138,17 +205,31 @@ class CaptureController:
         self.lock = threading.Lock()
         self.feed_lock = threading.Lock()
         self.capture: Capture | None = None
+        self.still: StillRun | None = None
+        self.latest_is_still = False
         self.starting = False
 
     def state(self) -> dict[str, Any]:
         """The capture state for the HTTP API.
 
         Returns:
-            {running, session_id, status, pose_count, started_at, stops_at}: status is the counter status
+            {running, session_id, kind, status, pose_count, started_at, stops_at}: kind ("head_arm") is only
+            present for a still session, the key set of an RGB-D capture is unchanged; status is the counter status
             ("waiting for frames" until both streams delivered a frame), "idle" before the first start, or why the
             last capture stopped; started_at and stops_at are ISO times, stops_at only while running.
         """
         with self.lock:
+            still = self.still if self.latest_is_still else None
+            if still is not None:
+                return {
+                    "running": still.running,
+                    "session_id": still.session_id,
+                    "kind": KIND_HEAD_ARM,
+                    "status": "still capture" if still.running else STOPPED,
+                    "pose_count": still.pose_count,
+                    "started_at": still.started_at.isoformat(),
+                    "stops_at": None,
+                }
             capture = self.capture
             if capture is None:
                 return {
@@ -186,26 +267,29 @@ class CaptureController:
                 far is destroyed first.
         """
         with self.lock:
-            if self.starting or (self.capture is not None and self.capture.running):
-                raise Busy("a capture is already running")
+            self.require_idle()
             self.starting = True
         try:
             capture = self.open(session_id)
             with self.lock:
                 self.capture = capture
+                self.latest_is_still = False
         finally:
             with self.lock:
                 self.starting = False
         self.logger.info(f"capture started on session {capture.session_id}")
         return self.state()
 
-    def open(self, session_id: str | None) -> Capture:
-        """Build a capture and create its subscriptions and timer; the session is created last.
+    def require_idle(self) -> None:
+        """Raise Busy unless no capture or still session runs or starts; the caller holds the lock."""
+        if self.starting or (self.capture is not None and self.capture.running):
+            raise Busy("a capture is already running")
+        if self.still is not None and self.still.running:
+            raise Busy("a still capture session is already running")
 
-        Callbacks drop every frame until the returned capture is installed as the current one.
-        """
+    def check_lens(self, session_id: str | None) -> float:
+        """Lens position of the head camera; a reopened session must have been captured at the same one."""
         lens = read_lens_position(self.cfg.head_camera_config_file, self.cfg.default_lens_position)
-        stored = 0
         if session_id is not None:
             recorded = float(self.store.read_session(session_id)["lens_position"])
             if not math.isclose(recorded, lens):
@@ -213,7 +297,15 @@ class CaptureController:
                     f"session {session_id} was captured at lens_position {recorded:g}, the head camera is set to "
                     f"{lens:g}: start a new session"
                 )
-            stored = len(self.store.pose_ids(session_id))
+        return lens
+
+    def open(self, session_id: str | None) -> Capture:
+        """Build a capture and create its subscriptions and timer; the session is created last.
+
+        Callbacks drop every frame until the returned capture is installed as the current one.
+        """
+        lens = self.check_lens(session_id)
+        stored = len(self.store.pose_ids(session_id)) if session_id is not None else 0
         started = self.clock()
         capture = Capture(
             session_id=session_id or "",
@@ -254,9 +346,228 @@ class CaptureController:
         """
         with self.lock:
             capture = self.capture
+            still = self.still
         if capture is not None:
             self.finish(capture, STOPPED)
+        if still is not None:
+            self.finish_still(still)
         return self.state()
+
+    def start_still_session(self, session_id: str | None) -> str:
+        """Start a head_arm still session: subscribe the mapping RGB stream and the head and arm joint states.
+
+        Args:
+            session_id: head_arm session to add poses to, None for a new one.
+
+        Returns:
+            The session id.
+
+        Raises:
+            Busy: an RGB-D capture or another still session runs or starts.
+            CaptureError: the head camera config is unreadable or invalid, the lens position differs from the
+                reopened session's, or the session is not a head_arm session.
+            NotFound, InvalidId: unknown or malformed session id.
+            Exception: whatever creating a subscription or the session raised; everything created so far is
+                destroyed first.
+        """
+        with self.lock:
+            self.require_idle()
+            self.starting = True
+        try:
+            run = self.open_still(session_id)
+            with self.lock:
+                self.still = run
+                self.latest_is_still = True
+        finally:
+            with self.lock:
+                self.starting = False
+        self.logger.info(f"still capture started on session {run.session_id}")
+        return run.session_id
+
+    def open_still(self, session_id: str | None) -> StillRun:
+        """Build a still run and create its subscriptions; the session is created last."""
+        lens = self.check_lens(session_id)
+        stored = 0
+        if session_id is not None:
+            kind = self.store.kind(session_id)
+            if kind != KIND_HEAD_ARM:
+                raise CaptureError(f"session {session_id} is a {kind} session, not {KIND_HEAD_ARM}")
+            stored = len(self.store.pose_ids(session_id))
+        run = StillRun(session_id=session_id or "", started_at=self.clock(), pose_count=stored)
+        topics = self.cfg.topics
+        joint_qos = rgb_qos(JOINT_SUBSCRIPTION_DEPTH)
+        subscriptions = (
+            (CompressedImage, topics.rgb, partial(self.on_still_rgb, run, topics.rgb), rgb_qos(self.cfg.qos.rgb_depth)),
+            (JointState, topics.head_joint_states, partial(self.on_joints, run.head, HEAD_JOINTS), joint_qos),
+            (JointState, topics.arm_joint_states, partial(self.on_joints, run.arm, ARM_JOINTS), joint_qos),
+        )
+        try:
+            for msg_type, topic, callback, profile in subscriptions:
+                run.subscriptions.append(self.node.create_subscription(msg_type, topic, callback, profile))
+            if session_id is None:
+                run.session_id = self.store.create_session(run.started_at, lens, KIND_HEAD_ARM)
+        except BaseException:
+            run.running = False
+            self.release_still(run)
+            raise
+        return run
+
+    def finish_still(self, run: StillRun) -> None:
+        """Mark the still run stopped and destroy its subscriptions (once)."""
+        with self.lock:
+            if not run.running:
+                return
+            run.running = False
+        self.release_still(run)
+        self.logger.info(f"still capture on session {run.session_id} {STOPPED}")
+
+    def release_still(self, run: StillRun) -> None:
+        """Destroy every subscription of a still run; a failing destroy does not stop the others."""
+        handles, run.subscriptions = run.subscriptions, []
+        for sub in handles:
+            try:
+                self.node.destroy_subscription(sub)
+            except Exception as exc:  # keep destroying the rest
+                self.logger.error(f"destroying a still capture subscription failed: {exc}")
+
+    def capture_still(self, arm_pose: int, tier: int, head_offset: int) -> StillOutcome:
+        """Wait for a still scene, then store the newest frame with the measured head and arm joints.
+
+        Blocking: call it from the sequencer thread, never from the executor (which delivers the frames).
+
+        Args:
+            arm_pose: Index of the scripted arm pose.
+            tier: Capture tier 0, 1 or 2.
+            head_offset: Index of the head offset.
+
+        Returns:
+            StillOutcome: stored with the pose id, or why nothing was stored: "no board", "joints stale",
+            "not still within <t> s", "refused: <store message>", or "stopped" when the session was stopped while
+            waiting. Missing joints are never filled in.
+
+        Raises:
+            CaptureError: no still session was started.
+        """
+        with self.lock:
+            run = self.still
+        if run is None:
+            raise CaptureError("no still session: start one first")
+        still = self.cfg.still
+        deadline = time.monotonic() + still.timeout_s
+        while True:
+            if not run.running:
+                return StillOutcome(False, None, REASON_STOPPED)
+            found = self.still_snapshot(run)
+            if found is not None:
+                return self.store_still(run, found, arm_pose, tier, head_offset)
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(STILL_POLL_S)
+        if self.joints_near_newest_frame(run) is None:
+            return StillOutcome(False, None, REASON_JOINTS_STALE)
+        return StillOutcome(False, None, f"not still within {still.timeout_s:g} s")
+
+    def joints_near_newest_frame(self, run: StillRun) -> tuple[StillFrame, JointsSample, JointsSample] | None:
+        """The newest frame with the head and arm samples nearest its stamp within max_joint_dt_s, else None."""
+        with self.lock:
+            frames, head, arm = list(run.frames), list(run.head), list(run.arm)
+        if not frames:
+            return None
+        frame = frames[-1]
+        limit = self.cfg.still.max_joint_dt_s * NS_PER_S
+        picked = []
+        for samples in (head, arm):
+            if not samples:
+                return None
+            best = min(samples, key=lambda s: abs(s.stamp_ns - frame.stamp_ns))
+            if abs(best.stamp_ns - frame.stamp_ns) > limit:
+                return None
+            picked.append(best)
+        return frame, picked[0], picked[1]
+
+    def still_snapshot(self, run: StillRun) -> tuple[StillFrame, JointsSample, JointsSample] | None:
+        """(frame, head sample, arm sample) when the last window_s of frames and joints is still, else None."""
+        near = self.joints_near_newest_frame(run)
+        if near is None:
+            return None
+        frame, head, arm = near
+        still = self.cfg.still
+        since = frame.stamp_ns - int(still.window_s * NS_PER_S)
+        with self.lock:
+            frames = [f for f in run.frames if f.stamp_ns >= since]
+            groups = (
+                (HEAD_JOINTS, [s for s in run.head if s.stamp_ns >= since]),
+                (ARM_JOINTS, [s for s in run.arm if s.stamp_ns >= since]),
+            )
+        if len(frames) < MIN_STILL_SAMPLES:
+            return None
+        if any(rgb_difference(a.grey, b.grey) > still.rgb_mad for a, b in zip(frames, frames[1:], strict=False)):
+            return None
+        for names, samples in groups:
+            if len(samples) < MIN_STILL_SAMPLES:
+                return None
+            for name in names:
+                values = [s.positions[name] for s in samples]
+                if max(values) - min(values) >= still.joint_still_rad:
+                    return None
+        return frame, head, arm
+
+    def store_still(
+        self,
+        run: StillRun,
+        found: tuple[StillFrame, JointsSample, JointsSample],
+        arm_pose: int,
+        tier: int,
+        head_offset: int,
+    ) -> StillOutcome:
+        """Detect the board in the frame and store it with its joints."""
+        frame, head, arm = found
+        detection = detect(frame.image, make_board(self.cfg.fit.board))
+        if detection is None:
+            return StillOutcome(False, None, REASON_NO_BOARD)
+        try:
+            pid = self.store.add_still_pose(
+                run.session_id,
+                frame.raw,
+                frame.image,
+                detection,
+                {**head.positions, **arm.positions},
+                {"rgb": frame.stamp_ns, "head_joints": head.stamp_ns, "arm_joints": arm.stamp_ns},
+                arm_pose,
+                tier,
+                head_offset,
+            )
+        except (ValueError, OSError) as exc:
+            return StillOutcome(False, None, f"refused: {exc}")
+        with self.lock:
+            run.pose_count += 1
+        self.logger.info(f"session {run.session_id}: still pose {pid} stored")
+        return StillOutcome(True, pid, REASON_STORED)
+
+    # still executor-thread callbacks
+
+    def on_still_rgb(self, run: StillRun, topic: str, msg: Any) -> None:
+        """Mapping RGB frame of a still session; the compressed bytes travel with it."""
+        if not run.running:
+            return
+        try:
+            image = decode_compressed(msg, topic)
+        except ValueError as exc:
+            self.drop(topic, exc)
+            return
+        frame = StillFrame(stamp_ns(msg), image, bytes(msg.data), cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
+        with self.lock:
+            run.frames.append(frame)
+
+    def on_joints(self, samples: deque[JointsSample], names: tuple[str, ...], msg: Any) -> None:
+        """Keep a stamped sample of a joint group; a message that lacks a joint of the group is ignored."""
+        index = {name: i for i, name in enumerate(msg.name)}
+        try:
+            positions = {name: float(msg.position[index[name]]) for name in names}
+        except (KeyError, IndexError):
+            return
+        with self.lock:
+            samples.append(JointsSample(stamp_ns(msg), positions))
 
     def expire(self, capture: Capture) -> None:
         """Timer callback: stop this capture after max_capture_s."""
