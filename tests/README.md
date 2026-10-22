@@ -1720,7 +1720,7 @@ Static checks of the `arducam_tof` deployment (Arducam ToF depth camera for the 
 | `test_node_type_is_in_the_normal_cgroup_tier_with_memory_limits` | Normal-tier cgroup weights with `memory_low` and `memory_max`. |
 | `test_node_type_has_no_dds_peer` | No `ROS_STATIC_PEERS` on the node type. |
 | `test_ros2_nodes_entry_deploys_enabled` | `ros2_nodes` entry is `present: true`, `enabled: true` with a `config` string. |
-| `test_deployed_config_holds_only_keys_the_driver_accepts` | Deployed YAML keys are exactly the driver config keys (including the three `flying_pixel_*` keys; unknown keys are rejected by the driver), `csi_device: 1f00128000.csi`, metrics port, `range_mode` near or far. |
+| `test_deployed_config_holds_only_keys_the_driver_accepts` | Deployed YAML keys are exactly the driver config keys (including the three `flying_pixel_*` keys and `min_range_m`; unknown keys are rejected by the driver), `csi_device: 1f00128000.csi`, metrics port, `range_mode` near or far. |
 | `test_deployed_config_loads_in_the_real_driver_load_config` | The deployed YAML loads in the driver's real `load_config`; runs unconditionally. |
 | `test_head_tab_topics_are_documented_in_the_config_comments` | The fixed depth, amplitude and camera_info topics are listed in the config comments. |
 | `test_metrics_port_is_scraped` | The metrics port is in `monitoring_agent_node_targets`. |

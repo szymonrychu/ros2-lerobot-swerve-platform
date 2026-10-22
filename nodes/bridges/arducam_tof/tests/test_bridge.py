@@ -1106,3 +1106,67 @@ def test_published_depth_has_flying_pixels_removed(monkeypatch: pytest.MonkeyPat
     pixels, removed = results[False]
     assert removed == 0
     assert pixels[1, 1] == 1400 and pixels[0, 0] == 1000
+
+
+NEAR_K = bridge.Intrinsics(100.0, 100.0, 1.0, 1.0)
+
+
+def test_near_range_filter_removes_radial_pixels_below_min_range() -> None:
+    depth = np.array([[200, 300, 0], [249, 250, 4000]], dtype=np.uint16)
+    out = bridge.near_range_filter(depth, 0.25, NEAR_K, True)
+    assert out.tolist() == [[0, 300, 0], [0, 250, 4000]]
+    assert out.dtype == np.uint16
+
+
+def test_near_range_filter_uses_the_ray_distance_of_z_depth() -> None:
+    # corner pixel (0, 0): ray norm sqrt(1 + 0.01^2 * 2) is ~1.0001, centre pixel (1, 1) is exactly 1
+    k = bridge.Intrinsics(10.0, 10.0, 1.0, 1.0)
+    z = np.array([[245, 300, 300], [300, 245, 300], [300, 300, 300]], dtype=np.uint16)
+    # z = 245 at the corner has radial 245 * sqrt(1.02) = 247.4 (< 250, removed); at the centre it is 245 (removed)
+    out = bridge.near_range_filter(z, 0.25, k, False)
+    assert out[0, 0] == 0 and out[1, 1] == 0 and out[0, 1] == 300
+    # z = 249 at the corner is radial 251.5 (kept) while the centre z = 249 is removed
+    edge = np.full((3, 3), 249, dtype=np.uint16)
+    out = bridge.near_range_filter(edge, 0.25, k, False)
+    assert out[1, 1] == 0 and out[0, 0] == 249
+
+
+def test_near_range_filter_z_without_intrinsics_compares_depth_directly() -> None:
+    depth = np.array([[200, 300]], dtype=np.uint16)
+    assert bridge.near_range_filter(depth, 0.25, None, False).tolist() == [[0, 300]]
+
+
+def test_near_range_filter_zero_is_off() -> None:
+    depth = np.array([[1, 200, 300]], dtype=np.uint16)
+    assert bridge.near_range_filter(depth, 0.0, NEAR_K, True).tolist() == [[1, 200, 300]]
+
+
+def near_frame() -> DepthData:
+    depth = np.full((HEIGHT, WIDTH), 1000.0, dtype=np.float32)
+    depth[0, 0] = 200.0
+    depth[2, 3] = 100.0
+    return DepthData(
+        depth, np.full((HEIGHT, WIDTH), 80.0, dtype=np.float32), np.full((HEIGHT, WIDTH), 300.0, dtype=np.float32)
+    )
+
+
+@pytest.mark.parametrize("radial", [True, False])
+def test_published_depth_has_near_pixels_removed(monkeypatch: pytest.MonkeyPatch, radial: bool) -> None:
+    results = {}
+    for min_range in (0.25, 0.0):
+        before = counter("tof_near_pixels_removed_total")
+        config = TofConfig(depth_is_radial=radial, flying_pixel_filter=False, min_range_m=min_range)
+        h = Harness(monkeypatch, config)
+        h.prepare = lambda camera: camera.frames.append(near_frame())
+        h.bridge.step()
+        [msg] = h.published(bridge.DEPTH_TOPIC)
+        pixels = np.frombuffer(bytes(msg.data), dtype="<u2").reshape(HEIGHT, WIDTH)
+        amplitude = np.frombuffer(bytes(h.published(bridge.AMPLITUDE_TOPIC)[0].data), dtype="<u2")
+        results[min_range] = (pixels, counter("tof_near_pixels_removed_total") - before, amplitude)
+    pixels, removed, amplitude = results[0.25]
+    assert removed == 2
+    assert pixels[0, 0] == 0 and pixels[2, 3] == 0 and pixels[1, 1] > 500
+    pixels_off, removed_off, amplitude_off = results[0.0]
+    assert removed_off == 0
+    assert pixels_off[0, 0] > 0 and pixels_off[2, 3] > 0
+    assert amplitude.tolist() == amplitude_off.tolist()

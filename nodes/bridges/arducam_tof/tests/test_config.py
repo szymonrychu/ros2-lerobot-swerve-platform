@@ -192,3 +192,12 @@ def test_flying_pixel_keys_validated(tmp_path: Path) -> None:
             load_config(write(tmp_path, line + "\n"))
     with pytest.raises(ConfigError, match="flying_pixel_jump"):
         load_config(write(tmp_path, "flying_pixel_jump: 0.1\n"))
+
+
+def test_min_range_m_validated(tmp_path: Path) -> None:
+    assert load_config(write(tmp_path, "")).min_range_m == 0.0
+    assert load_config(write(tmp_path, "min_range_m: 0.25\n")).min_range_m == 0.25
+    assert load_config(write(tmp_path, "min_range_m: 3.99\n")).min_range_m == 3.99
+    for line in ("min_range_m: -0.1", "min_range_m: 4.0", "min_range_m: near"):
+        with pytest.raises(ConfigError):
+            load_config(write(tmp_path, line + "\n"))

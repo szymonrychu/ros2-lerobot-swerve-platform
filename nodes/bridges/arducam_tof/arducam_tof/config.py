@@ -19,6 +19,7 @@ MAX_PORT = 65535
 MAX_STAMP_LATENCY_MS = 200.0
 MAX_FLYING_PIXEL_JUMP_RATIO = 0.5
 MAX_FLYING_PIXEL_MIN_JUMP_MM = 1000
+MAX_MIN_RANGE_M = 4.0
 VIDEO4LINUX_ROOT = Path("/sys/class/video4linux")
 CAPTURE_NODE_SUFFIX = "csi2_ch0"
 
@@ -55,6 +56,9 @@ class TofConfig(BaseModel):
             0 < v <= 0.5 (default 0.05).
         flying_pixel_min_jump_mm (int): Absolute floor of that depth jump in millimetres, 0 <= v <= 1000
             (default 30).
+        min_range_m (float): Pixels whose distance from the camera (the radial ray distance) is below this are
+            published as depth 0 (invalid, REP 118): nothing nearer than the camera height above the floor can be
+            floor, so it is the robot's own arm and its shadow. Metres, 0 <= v < 4.0; 0 (default) is off.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -72,6 +76,7 @@ class TofConfig(BaseModel):
     flying_pixel_filter: bool = True
     flying_pixel_jump_ratio: float = Field(default=0.05, gt=0.0, le=MAX_FLYING_PIXEL_JUMP_RATIO)
     flying_pixel_min_jump_mm: int = Field(default=30, ge=0, le=MAX_FLYING_PIXEL_MIN_JUMP_MM)
+    min_range_m: float = Field(default=0.0, ge=0.0, lt=MAX_MIN_RANGE_M)
 
     @field_validator("frame_id")
     @classmethod
