@@ -28,6 +28,25 @@
 namespace ground_estimator_cpp
 {
 
+// A fixed-frame cell of the temporal grid: (floor(x / cell_size_m), floor(y / cell_size_m)).
+using CellKey = std::pair<std::int32_t, std::int32_t>;
+
+// @param xy_fixed a point in the fixed frame.
+// @param cell_size_m edge of a cell in metres, > 0.
+// @return the key of its cell.
+CellKey cell_key_of(const Eigen::Vector2d & xy_fixed, double cell_size_m);
+
+// @param cells a set of cells.
+// @return its 8-connected components, ordered by their smallest key (ix, then iy).
+std::vector<std::set<CellKey>> cell_components(const std::set<CellKey> & cells);
+
+// The cell-aligned outline of a set of cells (the warning area polygon of ground-detection-robustness D8): the convex
+// hull of the cells' corners, counter-clockwise from the lowest-x (then lowest-y) corner, without collinear vertices.
+// @param cells the cells.
+// @param cell_size_m edge of a cell in metres.
+// @return the polygon in the fixed frame; empty for no cells.
+std::vector<Eigen::Vector2d> cell_outline(const std::set<CellKey> & cells, double cell_size_m);
+
 enum class CellClass : uint8_t
 {
   none,
@@ -85,6 +104,10 @@ public:
   //         key (ix, then iy).
   std::vector<StableArea> warning_areas() const;
 
+  // @return the cells depth already sees, in key order: stable lethal cells and stable warning cells whose latest
+  //         record has source "tof" (the blocked cells of NoReturnTracker::observe).
+  std::vector<CellKey> blocking_cells() const;
+
   // @param cls a class.
   // @return the number of tracked cells whose stable class is cls.
   std::size_t count(CellClass cls) const;
@@ -93,7 +116,7 @@ public:
   void reset();
 
 private:
-  using Key = std::pair<std::int32_t, std::int32_t>;  // (ix, iy)
+  using Key = CellKey;
 
   // What a cell records of its latest observation, read when it forms a warning area.
   struct Record
