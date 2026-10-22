@@ -71,6 +71,10 @@ Builds part guidance-frame in `guidance.hpp`: `CameraModel`, `camera_model_of`, 
 - implement `guidance.hpp`/`guidance.cpp`; the command PASSES
 - commit `feat(ground_estimator_cpp): guidance frame sampling`
 
+## Ruling
+
+- 2026-10-22 accepted: verifier agent died; verification on HEAD: Summary 395 tests, 0 failures, cpp-node-test PASS
+
 ## Notes
 
 - Conventions as in `nodes/head_rgbd_cpp/include/head_rgbd_cpp/registration.hpp`: OpenCV pixel centres, plumb_bob with D applied on projection, undistortPoints for rays. Reuse the rule, not the code (different package).

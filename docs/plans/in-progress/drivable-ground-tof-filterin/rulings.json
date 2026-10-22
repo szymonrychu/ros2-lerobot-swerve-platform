@@ -4,5 +4,11 @@
     "accept": true,
     "reason": "gate-repeat on parking-marker false positives ('goes here as the start value', 'dry run checks them before the first capture' are design D47 wording, not deferred work); verified: 83 passed, lint clean on c474ae22",
     "at": "2026-10-22T17:02:40Z"
+  },
+  {
+    "task": "guidance-frame-core",
+    "accept": true,
+    "reason": "verifier agent died; verification on HEAD: Summary 395 tests, 0 failures, cpp-node-test PASS",
+    "at": "2026-10-22T17:02:41Z"
   }
 ]
