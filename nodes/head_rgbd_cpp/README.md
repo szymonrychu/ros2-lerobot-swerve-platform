@@ -124,8 +124,7 @@ by `test/core/test_upsample.cpp` (`BoxEdgeFollowsTheGuideEdge`, `TexturedFlatFlo
 none needed changing.
 
 Consumers: `/head_rgbd/depth_upsampled/image_raw` (16UC1 at the RGB size, with the RGB
-camera_info, one header per pair) is published as the intended edge input for the ground guidance of `ground_estimator_cpp`;
-that subscriber is added by the guidance-node-wiring task, so today any subscriber of the topic is a consumer. Cost: one extra guided-filter pass per set, visible in
+camera_info, one header per pair) is the edge input for the ground guidance of `ground_estimator_cpp`; any subscriber of the topic is a consumer. Cost: one extra guided-filter pass per set, visible in
 `head_rgbd_process_seconds`.
 
 ## Methodology
