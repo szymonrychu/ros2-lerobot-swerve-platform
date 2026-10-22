@@ -454,3 +454,16 @@ def test_floor_sweep_defaults() -> None:
     for bad in ({"min_clouds_per_pose": 0}, {"clouds_per_pose": 4, "min_clouds_per_pose": 5}):
         with pytest.raises(ValidationError):
             config.FloorSweepConfig(**bad)
+
+
+def test_client_floor_grid_avoids_arm_and_far_floor() -> None:
+    # Pan -60 looks at the parked arm (all 3 poses skipped 2026-10-22) and tilt 12 sees the floor 2 m out, where a
+    # room's floor (e.g. a garage sloping to its drain) is no longer one plane: the client grid stays near and clear.
+    group_vars = yaml.safe_load((REPO_ROOT / "ansible" / "group_vars" / "client.yml").read_text())
+    node = next(n for n in group_vars["ros2_nodes"] if n["name"] == "head_rgbd_calibration")
+    floor = yaml.safe_load(node["config"])["floor"]
+    limits = floor["fit"]["limits"]
+    assert all(-45 <= p <= 45 for p in floor["pan_deg"])
+    assert max(floor["pan_deg"]) - min(floor["pan_deg"]) >= limits["min_pan_span_deg"]
+    assert min(floor["tilt_deg"]) >= 20
+    assert len(floor["pan_deg"]) * len(floor["tilt_deg"]) >= limits["min_poses"] + 4

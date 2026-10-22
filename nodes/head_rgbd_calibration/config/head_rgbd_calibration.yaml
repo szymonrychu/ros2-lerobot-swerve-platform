@@ -71,8 +71,8 @@ floor:
   command_topic: /head/joint_commands # JointState (head_pan, head_tilt rad) commands, as the web UI head tab
   cloud_topic: /tof/points # ToF cloud in tof_optical_frame
   command_frame_id: head_rgbd_calibration # header.frame_id of the commands
-  pan_deg: [-60, -30, 0, 30, 60] # pan grid, deg (-90..90)
-  tilt_deg: [12, 20, 28] # tilt grid, deg, + is down (each -30..30)
+  pan_deg: [-30, -15, 0, 15, 30, 45] # pan grid, deg (-90..90); -60 sees the parked arm
+  tilt_deg: [20, 24, 28] # tilt grid, deg, + is down (each -30..30); near floor only
   reach_tol_deg: 1.0 # a pose counts as reached within this of the target, deg (> 0)
   still_tol_deg: 0.2 # head still when the joint spread over still_window_s is under this, deg (> 0)
   still_window_s: 0.5 # window the stillness is judged over, s (> 0)

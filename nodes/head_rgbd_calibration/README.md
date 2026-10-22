@@ -209,7 +209,8 @@ robot level, not on blocks), then start the sweep. Only the head moves.
   `Busy` while a sweep runs or an RGB-D capture or compute runs (the HTTP layer passes that check as `blocked`).
   One sweep at a time, on a worker thread; a stop is `stop()`.
 - Grid: `floor.tilt_deg` rows, the `floor.pan_deg` direction alternating per row (serpentine); defaults pan
-  -60..60 by tilt 12/20/28 deg down, 15 poses, about a minute. Each pose is a `sensor_msgs/JointState` (`head_pan`,
+  -30..45 by tilt 20/24/28 deg down, 18 poses, about a minute (pan -60 sees the parked arm; tilt 12 sees the floor
+  2 m out, where a room floor is often not one plane). Each pose is a `sensor_msgs/JointState` (`head_pan`,
   `head_tilt`, radians, `header.frame_id` = `command_frame_id`), the same command as the web UI head tab. A pose counts
   once both joints are within `reach_tol_deg` of the target and still (spread under `still_tol_deg` over
   `still_window_s`); not within `move_timeout_s` it is skipped with `did not reach pan/tilt`.

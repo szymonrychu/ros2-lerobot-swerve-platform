@@ -80,8 +80,8 @@ def test_floor_defaults_and_tilt_range() -> None:
     assert floor.command_topic == "/head/joint_commands"
     assert floor.cloud_topic == "/tof/points"
     assert floor.command_frame_id == "head_rgbd_calibration"
-    assert floor.pan_deg == [-60, -30, 0, 30, 60]
-    assert floor.tilt_deg == [12, 20, 28]
+    assert floor.pan_deg == [-30, -15, 0, 15, 30, 45]
+    assert floor.tilt_deg == [20, 24, 28]
     assert floor.reach_tol_deg == 1.0
     assert floor.still_tol_deg == 0.2
     assert floor.still_window_s == 0.5

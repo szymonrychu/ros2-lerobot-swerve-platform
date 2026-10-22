@@ -18,11 +18,11 @@ Servo safety: only the head moves (pan and tilt, within the sweep grid); no arm 
 - A half-disc of about 1.8 m radius in front of the robot (from straight ahead round to both sides, the ToF range
   `max_range_m`) is clear: no box, cable, chair leg, wall foot or person in it. An object in view of some clouds of a
   pose skips that pose (`partly blocked: k of n clouds`); one in view of most clouds can bias the fit.
-- If that floor cannot be cleared, use the fallback grid instead of the default pan -60..60 x tilt 12/20/28: in the
-  `head_rgbd_calibration` `floor` block of `ansible/group_vars/client.yml` set `pan_deg: [-30, 30, 60]` and
-  `tilt_deg: [20, 24, 28]` (9 poses, pan span 90 deg, still over `min_poses` 8 and `min_pan_span_deg` 60; the steeper
-  tilts look at the floor closer to the robot), then redeploy `head_rgbd_calibration` as in Deploy. Restore the default
-  grid afterwards.
+- The grid is pan -30..45 x tilt 20/24/28 (18 poses): pan -60 looks at the parked arm and tilt 12 at the floor 2 m out,
+  where a room floor (a garage sloping to its drain) is no longer one plane. If part of that near floor cannot be
+  cleared, narrow `pan_deg` in the `head_rgbd_calibration` `floor` block of `ansible/group_vars/client.yml`
+  (keep a pan span of at least `min_pan_span_deg` 60 and at least `min_poses` 8 poses), redeploy
+  `head_rgbd_calibration` as in Deploy, and restore the grid afterwards.
 - The RGB-D calibration is applied (the ToF depth and the ToF-to-camera extrinsic are the base of this fit).
 - No agent session is running if mcp_server is deployed (deploying claude_agent/mcp_server kills a running session,
   exit 143): check the claude_agent session state, ask when one runs. This epic does not deploy mcp_server.
