@@ -270,6 +270,9 @@ User 2026-10-22 approved (yes): keep head mapping RGB at 2 Hz (user decision)
 ### D18: User 2026-10-22 approved (yes): RGB edges refine only lethal
 User 2026-10-22 approved (yes): RGB edges refine only lethal boundaries (user decision)
 
+### D19: User 2026-10-22 approved (yes): amplitude gate on /tof/depth
+User 2026-10-22 approved (yes): amplitude gate on /tof/depth/image_raw for every consumer (user decision)
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -317,6 +320,7 @@ User 2026-10-22 approved (yes): RGB edges refine only lethal boundaries (user de
 | D16 User 2026-10-22 approved (yes): user sets and keeps the scen | capture-baseline-recordings, scene-truth-from-board |
 | D17 User 2026-10-22 approved (yes): keep head mapping RGB at 2 H | rgbd-upsampling-on |
 | D18 User 2026-10-22 approved (yes): RGB edges refine only lethal | no-return-core |
+| D19 User 2026-10-22 approved (yes): amplitude gate on /tof/depth | tof-amplitude-gate |
 
 ## Contracts
 

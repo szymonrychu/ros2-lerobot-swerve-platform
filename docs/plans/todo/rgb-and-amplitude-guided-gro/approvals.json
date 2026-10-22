@@ -165,5 +165,16 @@
       "no-return-core"
     ],
     "status": "approved"
+  },
+  {
+    "id": "Q4",
+    "text": "User 2026-10-22 approved (yes): amplitude gate on /tof/depth/image_raw for every consumer",
+    "decisions": [
+      "D19"
+    ],
+    "tasks": [
+      "tof-amplitude-gate"
+    ],
+    "status": "approved"
   }
 ]
