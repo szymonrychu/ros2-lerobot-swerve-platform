@@ -4,11 +4,11 @@
 #
 # Usage:
 #   deploy-nodes.sh <target> <node1> [node2 ...] [ansible-playbook options]   # = --tags node1,node2
-#   (a name may also be a non-node target of the target, see non_node_targets: client and server have "monitoring")
+#   (a name may also be a non-node target of the target, see non_node_targets: client and server have "monitoring" and "system")
 #   deploy-nodes.sh <target> --all [ansible-playbook options]                # every node, no tag filter
 #
 # Targets:  client | server
-# Non-node targets: client: monitoring jetson_link | server: monitoring
+# Non-node targets: client: monitoring jetson_link system | server: monitoring system
 # Phase tags (see ansible/README.md, "Deploy tags"): apt, python, build, config, boot, setup, sync, restart, verify.
 # --tags / --skip-tags (and any other ansible-playbook option) are passed through; --tags cannot be combined with a node
 # list because ansible would run the union of both.
@@ -22,6 +22,7 @@
 #   ./scripts/deploy-nodes.sh client web_ui mcp_server
 #   ./scripts/deploy-nodes.sh server monitoring             # Mimir + Loki + Grafana + nginx + Alloy (deploy first)
 #   ./scripts/deploy-nodes.sh client monitoring             # Alloy + nginx; removes the old Prometheus + Grafana
+#   ./scripts/deploy-nodes.sh client system                 # system_optimize (sysctl, journald, Wi-Fi power save off, ...)
 #   ./scripts/deploy-nodes.sh server lerobot_leader
 #   ./scripts/deploy-nodes.sh client --all
 #   ./scripts/deploy-nodes.sh client --all --tags config,restart
@@ -46,10 +47,12 @@ esac
 #   monitoring - client: Alloy + nginx (roles/monitoring_agent, roles/web_proxy)
 #                server: Mimir + Loki + Grafana + nginx + Alloy (roles/monitoring, roles/web_proxy, roles/monitoring_agent)
 #   jetson_link - client: removes the retired Jetson link state from the client
+#   system - client and server: roles/system_optimize (debloat, sysctl, journald, watchdog, Wi-Fi power save off).
+#            Only ever runs when named: it is tagged never, so --all and node or phase tags skip it. Restarts no node.
 non_node_targets() {
   case "$1" in
-    client) echo "monitoring jetson_link" ;;
-    server) echo "monitoring" ;;
+    client) echo "monitoring jetson_link system" ;;
+    server) echo "monitoring system" ;;
     *) echo "" ;;
   esac
 }

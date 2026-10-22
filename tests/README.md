@@ -2278,7 +2278,8 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_ansible_cfg_gathers_minimal_facts_and_caches_them` | `gather_subset = min`, smart gathering, jsonfile fact cache (cache dir gitignored). |
 | `test_documented_tag_set_lists_every_phase_tag` | The "Deploy tags" table in `ansible/README.md` lists exactly sync, apt, python, build, config, boot, setup, restart, verify, always. |
 | `test_every_task_in_role_and_task_files_carries_a_documented_tag` | (parametrized per file) every task (block tags inherited) in the role, the verify role and `playbooks/tasks/*.yml` has a documented tag. |
-| `test_non_node_targets_are_parsed` | `non_node_targets` reads `monitoring` and `jetson_link` for the client and `monitoring` for the server from `scripts/deploy-nodes.sh`. |
+| `test_non_node_targets_are_parsed` | `non_node_targets` reads the client's targets (`monitoring`, `system` and the uninstall target) and the server's (`monitoring`, `system`) from `scripts/deploy-nodes.sh`. |
+| `test_system_target_includes_system_optimize_only_under_system_and_never` | (client, server) `system` is a non-node target; `system_optimize` is included exactly once, tagged (and applied with) `[system, never]` only and no phase, node or monitoring tag. |
 | `test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag` | (client, server) every pre/main/post task of the deploy playbooks has a documented, node-name or non-node-target (`monitoring`) tag. |
 | `test_every_node_has_a_tagged_deploy_step` | (client, server) each `ros2_nodes` entry has exactly one deploy include tagged with its name plus apt/python/build/config, applying the node tag to the included tasks. |
 | `test_node_specific_setup_files_carry_their_node_tag` | The mcp_server token, claude_agent token, poi_store, slam maps, web_ui tile cache and Pi camera boot config (`arducam_tof`) task files carry their node tag. |

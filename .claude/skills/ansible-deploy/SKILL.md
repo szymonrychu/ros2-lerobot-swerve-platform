@@ -75,6 +75,7 @@ The playbook syncs the repo once, deploys the selected nodes, restarts what chan
 | After Ansible role/config structure changes | `deploy-nodes.sh <target> --all` |
 | Server monitoring stack (Mimir + Loki + Grafana at `http://server.ros2.lan/grafana/`, nginx on port 80, Alloy for the server's own metrics and journal; not a ROS node, never part of a node deploy). Deploy it before the client | `deploy-nodes.sh server monitoring` |
 | Robot monitoring agent (Alloy pushing metrics to the server's Mimir and the journal to its Loki, nginx on port 80 in front of the web UI with `/grafana/` redirected to the server; removes the robot's old Prometheus + Grafana; not a ROS node) | `deploy-nodes.sh client monitoring` |
+| Changed `roles/system_optimize` (sysctl, journald, watchdog, debloat, persistent Wi-Fi power save off; not a ROS node, tagged `never` so `--all` and node tags skip it; restarts no node) | `deploy-nodes.sh client system` and/or `deploy-nodes.sh server system` |
 | Changed a node's metrics port or `monitoring_agent_node_targets` (group_vars/client.yml; the robot's Alloy scrapes our nodes' `/metrics`) | the node(s), then `deploy-nodes.sh client monitoring` |
 | Changed a dashboard (`roles/monitoring/files/*.json`), the Mimir/Loki/Grafana config or the server's slice | `deploy-nodes.sh server monitoring` |
 
