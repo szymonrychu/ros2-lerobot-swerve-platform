@@ -345,5 +345,13 @@
       "rgb-d-ground-estimation-and"
     ],
     "note": "local costmap ground_voxel_layer.enabled true again only after the live ground acceptance passes (docs/runbooks/ground-robustness.md Results); other keys unchanged; owner task ground-voxel-layer-on"
+  },
+  {
+    "name": "robot-event-map-reset",
+    "kind": "schema",
+    "owner": "drivable-ground-tof-filterin",
+    "file": "nodes/web_ui/web_ui/bridge.py",
+    "consumers": [],
+    "note": "/robot_events {seq, ts, type: map_reset, severity: critical, source: web_ui, message, data: {tab, requester, user_agent, ok, pois_removed, photos_removed}} published by web_ui after every POST /api/map/reset outcome; mcp_server map_epoch_reset events name it as their cause; owner task map-reset-requester-event"
   }
 ]
