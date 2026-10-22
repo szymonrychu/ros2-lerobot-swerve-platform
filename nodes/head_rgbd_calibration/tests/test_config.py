@@ -281,4 +281,4 @@ def test_fit_board_mount_default_is_the_nominal_jaw_mount() -> None:
     assert mount.xyz_init != (0.0, 0.0, 0.0)
     assert mount.rpy_init[0] == pytest.approx(3.141593)
     assert mount.outline_margin_m == 0.01
-    assert "provisional" in SHIPPED.read_text()
+    assert "board_mount: # jaw-geometry estimate, not a measurement" in SHIPPED.read_text()

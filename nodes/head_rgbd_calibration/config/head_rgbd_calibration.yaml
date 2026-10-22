@@ -123,10 +123,11 @@ fit:
     square_mm: 40.0
     marker_mm: 30.0
     dictionary: DICT_5X5_100
-  # Board on the fixed jaw, in gripper_link: the board plane normal to the tool axis, its centre on it 2 cm
-  # beyond the URDF tool point (gripper_frame_joint), its front toward the arm. The fit solves the real mount;
-  # the measured mount replaces only this start value (calib-robot-runbook).
-  board_mount: # provisional nominal mount (design D47)
+  # Board on the fixed jaw, in gripper_link, from the URDF jaw geometry and the board outline: the
+  # board plane normal to the tool axis, its centre on it 2 cm past the URDF tool point
+  # (gripper_frame_joint), its front toward the arm. The fit solves the real mount from this start
+  # value; a measured mount goes here as the start value.
+  board_mount: # jaw-geometry estimate, not a measurement (design D47)
     xyz_init: [-0.1279, 0.0998, -0.1181] # initial mount position, m
     rpy_init: [3.141593, 0.0, 0.0] # initial mount roll/pitch/yaw, rad
     outline_margin_m: 0.01 # margin around the board outline, m
@@ -165,9 +166,9 @@ robot:
   call_timeout_s: 60.0 # timeout of a normal tool call, s (> 0)
   move_timeout_s: 120.0 # timeout of an arm move call, s (> 0)
 # Scripted arm sequence of the head-from-arm capture (design D37, D38). Poses are measured (follower) joint
-# angles, rad, the space move_arm_joints takes (urdf = measured + fit.joint_offsets_rad). Provisional until the
-# dry run in the head-arm runbook; tests/test_arm_pose_set.py proves every pose and transit safe by FK, the
-# board in view and a passing synthetic fit.
+# angles, rad, the space move_arm_joints takes (urdf = measured + fit.joint_offsets_rad).
+# tests/test_arm_pose_set.py proves every pose and transit safe by FK, the board in view and a passing synthetic
+# fit; the head-arm runbook dry run checks them on the robot before the first capture.
 arm_sequence:
   # Board about 0.34 m in front of the head camera, lifted to the camera height and forward of the body.
   base_pose: {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: 0.0}
@@ -219,7 +220,7 @@ arm_sequence:
   settle_s: 1.0 # wait after a move before the still capture, s (>= 0)
   confirm_timeout_s: 600.0 # an unanswered confirm ends the sequence (arm held), s (> 0)
   head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, 6.0]] # (pan, tilt) added to the aimed head, deg
-  provisional_margin_m: 0.05 # board margin added while board_mount is the nominal one, m (>= 0)
+  provisional_margin_m: 0.05 # extra board margin for the jaw-geometry board_mount estimate, m (>= 0)
   # FK pose check before every arm command (shared core arm_pose_check; body equals the mcp_server body block).
   pose_check:
     body: # robot body obstacles in base_link, a copy of the mcp_server body block (m)

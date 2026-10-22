@@ -399,8 +399,8 @@ class PoseChecker:
             fit: Head-from-arm fit config: joint offsets, arm base in base_link, board and its mount.
             cfg: Pose check settings.
             board_margin_m: Clearance the board points keep from the obstacles and the arm links (m); None uses
-                `cfg.margin_m`. The arm sequence passes `margin_m + provisional_margin_m` while the board mount is
-                the nominal one (design D47): the mount uncertainty moves the board, not the arm links.
+                `cfg.margin_m`. The arm sequence passes `margin_m + provisional_margin_m` for the estimated
+                board mount (design D47): the mount uncertainty moves the board, not the arm links.
 
         Raises:
             ValueError: `board_margin_m` is negative.

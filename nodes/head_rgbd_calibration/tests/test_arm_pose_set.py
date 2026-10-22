@@ -7,7 +7,7 @@ with `fit.joint_offsets_rad`.
 
 The home pose the sequence starts from is `HOME_POSE`: `scripts/gen_nav_footprint.yaml` `parked_arm_joints`, the
 repo record of the home that mcp_server's `arm.home_file` (/var/lib/ros2/arm/home.yaml) holds and `arm_home` parks
-at. The board mount is the shipped nominal one (provisional, design D47): the safety tests use the board margin
+at. The board mount is the shipped jaw-geometry estimate (design D47): the safety tests use the board margin
 `margin_m + provisional_margin_m` and the mount shifted by +-1 cm and turned by +-5 deg about each gripper axis.
 """
 
@@ -52,6 +52,8 @@ MEASURED_SPACE_PHRASE = (
     "limits minus margin, applied in URDF space: urdf = measured + offset)"
 )
 WIDENED_TILT_RAD = (-0.5236, 1.0472)  # -30..+60 deg, the reprinted mount's range (head-tilt-range-widened)
+CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
+MOUNT_ESTIMATE_NOTE = "jaw-geometry estimate, not a measurement"
 MOUNT_SHIFT_M = 0.01
 MOUNT_TURN_DEG = 5.0
 MIN_VISIBLE_CORNERS = 12
@@ -155,7 +157,7 @@ def band_mounts() -> Iterator[tuple[str, BoardMountConfig]]:
 
 
 def checkers(head_urdf: str, mounts: Iterable[tuple[str, BoardMountConfig]]) -> Iterator[tuple[str, PoseChecker]]:
-    """A pose checker per board mount, with the provisional board margin."""
+    """A pose checker per board mount, with the extra board margin of the estimated mount."""
     for label, mount in mounts:
         fit = FIT.model_copy(update={"board_mount": mount})
         yield label, PoseChecker(ARM_URDF, head_urdf, fit, SEQ.pose_check, SEQ.board_margin_m(nominal_mount=True))
@@ -223,16 +225,17 @@ def test_home_pose_is_the_parked_arm() -> None:
 
 
 def test_board_mount_is_the_nominal_jaw_mount() -> None:
-    """The shipped mount: the board normal to the tool axis, its centre on it 2 cm beyond the URDF tool point."""
+    """The shipped mount: the board normal to the tool axis, its centre on it 2 cm past the URDF tool point."""
     tool_xyz, _ = UrdfChain.from_text(ARM_URDF).origin("gripper_frame_joint")
     assert tool_xyz == pytest.approx(SYN.TOOL_POINT, abs=EPS)
     xyz, rpy = SYN.nominal_board_mount(FIT)
     assert FIT.board_mount.xyz_init == pytest.approx(xyz, abs=1e-4)
     assert FIT.board_mount.rpy_init == pytest.approx(rpy, abs=1e-6)
     assert NodeConfig().fit.board_mount == FIT.board_mount
-    text = SHIPPED_YAML.read_text()
-    mount_block = text[text.index("  board_mount:") : text.index("  limits: # acceptance limits of the fit")]
-    assert "provisional" in mount_block
+    for path in (SHIPPED_YAML, CLIENT_YML):
+        text = path.read_text()
+        mount_block = text[text.index("  board_mount:") : text.index("  limits: # acceptance limits of the fit")]
+        assert MOUNT_ESTIMATE_NOTE in mount_block, path
 
 
 def test_tier_rules_hold_for_shipped_set() -> None:
@@ -285,7 +288,7 @@ def sequence_failures(head_urdf: str, mounts: Iterable[tuple[str, BoardMountConf
 
 @pytest.mark.parametrize("head_name", list(SAFETY_HEADS))
 def test_every_pose_and_transit_is_safe(head_name: str) -> None:
-    """The nominal (shipped, provisional) mount with margin_m + provisional_margin_m."""
+    """The shipped (estimated) mount with margin_m + provisional_margin_m."""
     failures = sequence_failures(SAFETY_HEADS[head_name], [("nominal", FIT.board_mount)])
     assert failures == [], "\n".join(failures[:20])
 

@@ -60,10 +60,10 @@ MAX_FLOOR_PAN_DEG = 90.0
 MAX_FLOOR_TILT_DEG = 30.0
 DEFAULT_ROBOT_MCP_URL = "http://127.0.0.1:18200/mcp"
 DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
-# Nominal board mount on the fixed jaw (provisional, design D47): the board plane normal to the tool axis (gripper_link
-# z), its centre on that axis 2 cm beyond the URDF tool point (gripper_frame_joint origin (-0.0079, -0.000218,
-# -0.0981) in gripper_link), its front toward the arm. The fit solves the real mount; a measurement replaces only
-# this start value (calib-robot-runbook).
+# Board mount on the fixed jaw estimated from the URDF jaw geometry, not measured (design D47): the board plane
+# normal to the tool axis (gripper_link z), its centre on that axis 2 cm past the URDF tool point (gripper_frame_joint
+# origin (-0.0079, -0.000218, -0.0981) in gripper_link), its front toward the arm. The fit solves the real mount from
+# this start value; a measured mount goes in as the start value (calib-robot-runbook).
 NOMINAL_BOARD_XYZ = (-0.1279, 0.0998, -0.1181)
 NOMINAL_BOARD_RPY = (3.141593, 0.0, 0.0)
 WRIST_ROLL = "wrist_roll"
@@ -260,7 +260,7 @@ def joint_name_errors(pose: dict[str, float], where: str) -> list[str]:
 
 
 def default_fit() -> HeadArmFitConfig:
-    """Head-from-arm fit defaults with the nominal (provisional) board mount on the fixed jaw."""
+    """Head-from-arm fit defaults with the jaw-geometry estimate of the board mount on the fixed jaw."""
     return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=NOMINAL_BOARD_XYZ, rpy_init=NOMINAL_BOARD_RPY))
 
 
@@ -271,8 +271,8 @@ class ArmSequenceConfig(StrictModel):
     (within `max_flex_delta_rad`), tier 2 also in elbow_flex, shoulder_lift and shoulder_pan (each within
     `max_big_delta_rad`). `gripper_rad` is sent once with the base pose and is at most the half-open
     `pose_check.max_roll_gripper_rad`. `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles,
-    one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points while the board
-    mount is the nominal one.
+    one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points when the board
+    mount is the jaw-geometry estimate.
     """
 
     base_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_BASE_POSE))
@@ -331,10 +331,10 @@ class ArmSequenceConfig(StrictModel):
         """Clearance the board points keep (`PoseChecker(board_margin_m=...)`).
 
         Args:
-            nominal_mount: True while `fit.board_mount` is the nominal (unmeasured) mount.
+            nominal_mount: True when `fit.board_mount` is the jaw-geometry estimate.
 
         Returns:
-            float: `pose_check.margin_m`, plus `provisional_margin_m` for the nominal mount (m).
+            float: `pose_check.margin_m`, plus `provisional_margin_m` for the estimated mount (m).
         """
         return self.pose_check.margin_m + (self.provisional_margin_m if nominal_mount else 0.0)
 
