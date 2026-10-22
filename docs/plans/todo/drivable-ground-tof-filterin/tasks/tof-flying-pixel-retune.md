@@ -48,10 +48,11 @@ so it is off in `ansible/group_vars/client.yml`. It uses part baseline-fixtures:
   with height strictly between 0.012 m and 0.038 m above the plane, counted on the unfiltered frame.
 - Thresholds, on the real frames, in every scene that contains the class:
   - floor pixels kept >= 95 % with the filter alone (user requirement);
-  - mixed pixels at the box edges removed >= 80 % (my call, design D26);
+  - mixed pixels at the box edges removed >= 80 % (user 2026-10-22, Q10);
   - box-top pixels and board pixels kept >= 95 % each;
   - filter followed by the amplitude gate (`amplitude_gate` with the shipped `amplitude_min_normalised`) keeps
-    >= 90 % of the floor pixels (my call, design D26: the ground fit must not starve again).
+    >= 95 % of the floor pixels (user 2026-10-22, Q10: floor retention stays 95 %, not 90 %; the ground fit must
+    not starve again).
 - The synthetic tests of ground-detection-robustness in `tests/test_bridge.py` (tilted floor kept, mixed band behind
   the box removed, invalid pixels stay invalid, published depth filtered and counted) keep passing; a changed rule
   updates their parameters only when the real-data numbers above justify it, never their thresholds.
@@ -74,7 +75,7 @@ so it is off in `ansible/group_vars/client.yml`. It uses part baseline-fixtures:
 - a1: on the recorded frames the filter alone keeps >= 95 % of the floor pixels 0.3-2.0 m in every scene [evidence: test:nodes/bridges/arducam_tof/tests/test_flying_pixel_real.py::test_real_floor_pixels_kept]
 - a2: on the recorded frames >= 80 % of the mixed pixels at the box edges are removed [evidence: test:nodes/bridges/arducam_tof/tests/test_flying_pixel_real.py::test_real_box_edge_mixed_pixels_removed]
 - a3: box-top and board pixels are kept >= 95 % [evidence: test:nodes/bridges/arducam_tof/tests/test_flying_pixel_real.py::test_real_box_top_and_board_kept]
-- a4: filter plus amplitude gate keep >= 90 % of the floor pixels [evidence: test:nodes/bridges/arducam_tof/tests/test_flying_pixel_real.py::test_real_filter_and_gate_keep_floor]
+- a4: filter plus amplitude gate keep >= 95 % of the floor pixels [evidence: test:nodes/bridges/arducam_tof/tests/test_flying_pixel_real.py::test_real_filter_and_gate_keep_floor]
 - a5: the shipped defaults equal the client.yml values and are validated [evidence: test:nodes/bridges/arducam_tof/tests/test_config.py::test_flying_pixel_retuned_defaults]
 - a6: client.yml turns the filter on and the deployed block loads in the real driver [evidence: test:tests/test_arducam_tof_config.py::test_flying_pixel_filter_on_in_client]
 - a7: the synthetic filter tests, every node test and the lint pass [evidence: command:cd nodes/bridges/arducam_tof && uv run pytest tests -q && uv run poe lint]
@@ -128,3 +129,5 @@ block has `flying_pixel_filter: true` with the retuned keys; the README has the 
   ground estimator): the floor retention test is what guards them.
 - Prior art: `nodes/head_rgbd_cpp/src/core/tof_filter.cpp:filter_jump_edges` (the same 8-neighbour rule on the
   registered RGB-D image).
+
+- 2026-10-22 amended: User 2026-10-22 Q10: yes, but floor retention with filter plus amplitude gate stays 95 % (not 90 %)
