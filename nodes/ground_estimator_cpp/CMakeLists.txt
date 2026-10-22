@@ -84,6 +84,14 @@ if(BUILD_TESTING)
   target_link_libraries(test_node ground_estimator_node_lib)
   # synthetic_floor.hpp as "core/synthetic_floor.hpp".
   target_include_directories(test_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+
+  # The live recordings of test/data/replay through GroundNode with the shipped config (replay_fixture.hpp).
+  ament_add_gtest(test_replay test/test_replay.cpp TIMEOUT 300)
+  target_link_libraries(test_replay ground_estimator_node_lib)
+  target_include_directories(test_replay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+  target_compile_definitions(test_replay PRIVATE
+    GROUND_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data"
+    GROUND_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
 endif()
 
 ament_package()

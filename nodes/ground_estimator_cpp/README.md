@@ -10,11 +10,13 @@ executable `ground_node` (ROS node name `ground_estimator`) wires the core libra
   segmentation, edges, traversability, colour model, state JSON, config. `test/core/test_*.cpp` each become a gtest
   named after the file.
 - `src/ground_node.cpp`, `include/ground_estimator_cpp/ground_node.hpp`: `GroundNode`; `src/main.cpp`: the executable.
-  `test/test_node.cpp` runs the node in-process.
+  `test/test_node.cpp` runs the node in-process; `test/test_replay.cpp` replays the live recordings through it (see
+  Replay tests).
 - `config/ground_estimator.yaml`: every key with its default, meaning and unit (installed to
   `/etc/ros2/ground_estimator_cpp/config.yaml`, override path with `GROUND_ESTIMATOR_CONFIG`). Unknown keys and invalid
   values exit 78.
 - `test/data/state_example.json`, `test/data/warning_areas_example.json`: documents the consumers are tested against.
+- `test/data/replay/{home,box,ramp}.bin`, `test/replay_fixture.hpp`: the replay fixtures and their reader and metrics.
 
 ## Topics
 
@@ -271,3 +273,96 @@ Prometheus on `metrics_port`.
   assumed floor.
 - The state then carries `plane: null` and a `reason`.
 - There is no state before the first ToF cloud, and no warning areas are published without a plane.
+
+## Replay tests
+
+`test/test_replay.cpp` (gtest `test_replay`, part of `scripts/cpp-node-test.sh ground_estimator_cpp`) feeds the
+2026-10-22 live recordings of the user's scene through the real `GroundNode` and prints one metrics line per scene.
+The fixtures live inside the package because `cpp-node-test.sh` copies only the packages into the container.
+
+### Fixtures
+
+| File | Scene (robot static, head tilt 29.4 deg) |
+|------|------------------------------------------|
+| `test/data/replay/home.bin` | head pan 0: board near, box on the left, far floor |
+| `test/data/replay/box.bin` | head pan +35 deg: the 5 cm box and the floor |
+| `test/data/replay/ramp.bin` | head pan -30 deg: the black rubber ramp and the board edge |
+
+Each holds 15 s (150 clouds, 375 IMU samples) of `/tof/points_filtered` as delivered (decimation 4, 5 cm voxel, self
+filter applied; the ToF mixed pixels are in the data), recorded seconds 5-20 of the 40 s recordings. Regenerate a
+fixture from its recording (numpy npz, keys and layout in the converter docstring) with:
+
+```bash
+uv run python scripts/ground_replay_export.py <recording>/ground_home.npz nodes/ground_estimator_cpp/test/data/replay/home.bin
+```
+
+The trim window is the constants `START_S` (5.0 s after the first cloud) and `DURATION_S` (15.0 s) at the top of
+`scripts/ground_replay_export.py`; its `read_replay(path)` decodes the same layout in Python.
+
+### Binary layout
+
+Little-endian, version 1 (`REPLAY_VERSION`; the C++ reader `ground_replay::read_replay` rejects another magic or
+version, a truncated file and trailing bytes):
+
+| Field | Type |
+|-------|------|
+| magic | 8 bytes `GRNDRPLY` |
+| version | uint32 `1` |
+| cloud frame id | uint32 length, then that many UTF-8 bytes (`tof_optical_frame`) |
+| cloud count | uint32 |
+| per cloud | int64 `stamp_ns`; float64[7] `base_T_cloud` (base_link <- cloud frame); float64[7] `odom_T_base` (odom <- base_link), both `x y z qx qy qz qw` at the cloud stamp; uint32 point count; int16[count x 3] `x y z` in mm in the cloud frame |
+| IMU count | uint32 |
+| per IMU sample | int64 `stamp_ns`; float64[10] orientation `x y z w`, linear acceleration `x y z`, angular velocity `x y z` (frame `imu_link`) |
+| `base_T_imu` | float64[7] `x y z qx qy qz qw` (base_link <- imu_link) |
+
+### How a scene is replayed
+
+- Config: the shipped `config/ground_estimator.yaml` through `validate` and `from_yaml`; only the cloud, IMU and
+  RGB-D topics, the output namespace (unique per test) and `metrics_port` (off) are overridden.
+- Time: the scene is restamped to the wall clock keeping its relative timing and replayed in real time: each cloud is
+  published at its stamp, after the IMU samples up to that stamp, as a PointCloud2 (float32 x y z in metres in the
+  cloud frame).
+- TF: a `tf2_ros::Buffer` holds `base_link <- tof_optical_frame` and `odom <- base_link` at every cloud stamp, a
+  static identity `map <- odom` and a static `base_link <- imu_link`.
+- Outputs: the test waits for the cloud's own outputs before the next cloud (obstacle and drop clouds of its stamp,
+  base_link, and the `/ground/warning_areas` document of its stamp, map frame). A cloud the node processed (counted in
+  `ground_fits_total`) whose obstacle cloud does not arrive within 0.5 s was not answered with a plane.
+- Every scene test asserts that the node answered with a plane in at least one frame; the metrics are printed, not
+  asserted (the acceptance limits are added on top of this harness).
+
+### Metrics and ROIs
+
+Base_link coordinates, the D14 ground truth measured from the recordings. Every metric ignores points (and warning
+areas whose centroid lies) at x < 0.37 m, the robot's own parked gripper. Counted frames are the frames at least 2 s
+after the first cloud that the node answered with a plane. ROI edges are inclusive; a share with no counted frame is
+`nan`.
+
+| ROI | x (m) | y (m) | Meaning |
+|-----|-------|-------|---------|
+| `BOX_LETHAL_ROI` | 0.57 .. 0.81 | 0.02 .. 0.36 | the box top (x 0.60-0.78, y 0.05-0.33) dilated by 3 cm |
+| `BOARD_ROI` | 0.37 .. 0.57 | -0.12 .. +0.14 | the flat ChArUco board, stopping 3 cm before the box front |
+| `FAR_SIDE_ROI` | 0.78 .. 0.95 | 0.05 .. 0.33 | the occluded floor behind the box |
+| `RAMP_ROI` | 0.75 .. 1.10 | -0.45 .. -0.15 | the black rubber ramp (no ToF returns) |
+| stray zone | >= 0.37, hypot(x, y) <= 1.2 | | everything within 1.2 m outside `BOX_LETHAL_ROI` |
+
+| Metric | Definition |
+|--------|------------|
+| `plane_share` | answered frames / frames after the 2 s warm-up |
+| `box_lethal_share` | share of counted frames with an obstacle point in `BOX_LETHAL_ROI` |
+| `board_lethal_frames` | counted frames with an obstacle or drop point in `BOARD_ROI` |
+| `stray_lethal_share` | share of counted frames with an obstacle or drop point in the stray zone |
+| `far_side_warning_frames` | counted frames with a `ramp` or `step` warning area whose polygon centroid (vertex mean, in base_link) lies in `FAR_SIDE_ROI` |
+| `ramp_lethal_frames` | counted frames with an obstacle or drop point in `RAMP_ROI` |
+| `churn_share` | share of consecutive counted frames whose warning set differs: kind plus polygon vertices rounded to 1 cm, as `scripts/ground_noise_report.py:warning_set` |
+
+### Baseline
+
+Measured by `scripts/cpp-node-test.sh ground_estimator_cpp` on the shipped config before the live-round fixes (the
+acceptance targets are box share >= 0.95, board and ramp lethal frames 0, churn < 0.10, no far-side warning); two
+runs gave identical lines:
+
+```text
+replay home: plane_share=1.000 box_lethal_share=0.869 board_lethal_frames=116 stray_lethal_share=1.000 far_side_warning_frames=5 ramp_lethal_frames=0 churn_share=0.690
+replay box: plane_share=1.000 box_lethal_share=0.519 board_lethal_frames=0 stray_lethal_share=0.512 far_side_warning_frames=21 ramp_lethal_frames=0 churn_share=0.391
+replay ramp: plane_share=0.984 box_lethal_share=0.000 board_lethal_frames=22 stray_lethal_share=0.220 far_side_warning_frames=0 ramp_lethal_frames=4 churn_share=0.183
+```
