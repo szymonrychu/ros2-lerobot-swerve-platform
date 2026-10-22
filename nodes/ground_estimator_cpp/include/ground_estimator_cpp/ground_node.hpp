@@ -9,9 +9,9 @@
 // that is not yet stable is withheld, a held cell publishes nothing it did not see this frame), a region is an obstacle
 // when a cell holding its cluster's points is stable lethal, and the warning areas are the stable warning cell groups
 // with cell-aligned polygons. An area continuing a published one (same source, either polygon holding the other's
-// vertex centroid) keeps the published kind until a new kind has held hysteresis.enter_frames frames in a row, and
-// keeps the published height and slope while the new values stay within AREA_HEIGHT_DEADBAND_M and
-// AREA_SLOPE_DEADBAND_DEG of them, so a static scene publishes identical areas (the values are earlier measurements
+// vertex centroid) takes the kind of the cell classes as is (the kind hold is hysteresis.area_kind_frames alone) and
+// keeps the published height and slope while the kind is unchanged and the new values stay within
+// AREA_HEIGHT_DEADBAND_M and AREA_SLOPE_DEADBAND_DEG of them, so a static scene publishes identical areas (the values are earlier measurements
 // of the same area; the polygon is always this frame's cells).
 //
 // Cluster slopes (temporal filter on): the slope of a cluster whose cell-median fit reads at least SLOPE_REFIT_MIN_DEG
@@ -146,12 +146,10 @@ private:
     std::size_t drop_points = 0;
   };
 
-  // A published stable warning area (fixed frame) with the kind it may switch to.
+  // A published stable warning area (fixed frame).
   struct PublishedArea
   {
     WarningArea area;
-    std::string pending_kind;  // a kind other than area.kind seen in the latest frames
-    int pending_frames = 0;    // consecutive frames of pending_kind
   };
 
   void on_cloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg);

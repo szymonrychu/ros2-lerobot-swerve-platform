@@ -915,6 +915,29 @@ TEST_F(NodeTest, FourteenDegreeRampIsARampWarningWithoutLethalPoints)
   EXPECT_TRUE(has_area(*doc, "ramp")) << doc->dump();
 }
 
+// The filter's hysteresis.area_kind_frames is the only kind hold: with it at 1 a changed kind is published the frame
+// the cell classes report it, not enter_frames frames later.
+TEST_F(NodeTest, AreaKindChangeIsPublishedWithoutAnExtraNodeHold)
+{
+  constexpr int SWITCH_FRAMES = 12;
+  constexpr int MAX_LAG_FRAMES = 4;
+  fill_tf();
+  Config config = base_config();
+  config.hysteresis.area_kind_frames = 1;
+  start(config);
+  warm_cloud_and_wait(scene_cloud(sill_scene(0.03)));
+  const auto ramp = scene_cloud(ramp_scene(14.0));
+  int first_ramp = -1;
+  for (int i = 0; i < SWITCH_FRAMES && first_ramp < 0; ++i) {
+    const auto f = run_frame(ramp);
+    if (!f.warnings.is_null() && has_kind(f.warnings["areas"], "ramp", "")) {
+      first_ramp = i;
+    }
+  }
+  ASSERT_GE(first_ramp, 0);
+  EXPECT_LE(first_ramp, MAX_LAG_FRAMES);
+}
+
 TEST_F(NodeTest, NoMapTransformGivesNoWarningAreasAndCountsIt)
 {
   fill_tf({true, false});

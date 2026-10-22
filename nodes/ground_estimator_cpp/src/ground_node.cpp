@@ -649,20 +649,8 @@ std::vector<GroundNode::PublishedArea> GroundNode::stable_areas_fixed() const
     });
     if (hold && prev != areas_fixed_.end()) {
       const WarningArea & held = prev->area;
-      if (next.area.kind != held.kind) {
-        next.pending_kind = next.area.kind;
-        next.pending_frames = prev->pending_kind == next.area.kind ? prev->pending_frames + 1 : 1;
-        if (next.pending_frames < config_.hysteresis.enter_frames) {
-          // The new kind has not held long enough: keep the published kind and its values.
-          next.area.kind = held.kind;
-          next.area.height_m = held.height_m;
-          next.area.slope_deg = held.slope_deg;
-        } else {
-          next.pending_kind.clear();
-          next.pending_frames = 0;
-        }
-      } else if (
-        std::fabs(held.height_m - next.area.height_m) <= AREA_HEIGHT_DEADBAND_M &&
+      if (
+        next.area.kind == held.kind && std::fabs(held.height_m - next.area.height_m) <= AREA_HEIGHT_DEADBAND_M &&
         std::fabs(held.slope_deg - next.area.slope_deg) <= AREA_SLOPE_DEADBAND_DEG) {
         next.area.height_m = held.height_m;
         next.area.slope_deg = held.slope_deg;
