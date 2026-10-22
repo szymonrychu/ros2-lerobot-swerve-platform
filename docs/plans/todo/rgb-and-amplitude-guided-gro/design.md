@@ -261,6 +261,9 @@ The tiers stay free / warning / lethal. `traversability.max_step_fraction` (0.33
 `max_slope_deg` 15 stay as they are, and the replay acceptance asserts the shipped values. The no_return kind is a
 warning (caution) tier member. Serves A7.
 
+### D16: User 2026-10-22 approved (yes): user sets and keeps the scen
+User 2026-10-22 approved (yes): user sets and keeps the scene; box/ramp dimensions asked at capture time (user decision)
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -305,6 +308,7 @@ warning (caution) tier member. Serves A7.
 | D13 CPU measured | guidance-live-check-and-cpu |
 | D14 Baseline first | capture-baseline-recordings |
 | D15 Tiers and rule unchanged | guidance-replay-acceptance, live-report-guidance-metrics |
+| D16 User 2026-10-22 approved (yes): user sets and keeps the scen | capture-baseline-recordings, scene-truth-from-board |
 
 ## Contracts
 
