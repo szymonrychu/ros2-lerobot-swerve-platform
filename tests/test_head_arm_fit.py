@@ -10,7 +10,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from ros2_common.head_rgbd_calibration.chain import UrdfChain, pose_from_xyz_rpy
+from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy
 from ros2_common.head_rgbd_calibration.config import HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
     CAMERA_FRAME,
@@ -31,6 +31,7 @@ from tests.head_arm_synthetic import (
     SYNTH_CAMERA_MATRIX,
     SYNTH_DIST,
     SYNTH_TRUTH_DELTAS,
+    TOOL_POINT,
     URDF_DIR,
     HeadArmTruth,
     arm_board_scene,
@@ -226,6 +227,18 @@ def test_synthetic_start_chain_is_applied_floor_fit() -> None:
         assert start[name] == pytest.approx(value, abs=1e-6), name  # URDF text precision
     for name in ("mount_x_m", "mount_y_m", "mount_yaw_deg"):
         assert start[name] == pytest.approx(raw[name], abs=1e-12), name
+
+
+def test_synth_arm_poses_cover_joints_above_floor() -> None:
+    cfg = HeadArmFitConfig()
+    arm = UrdfChain.from_text(ARM_URDF)
+    base = arm_in_robot_base(cfg.base_in_base_link.model_dump())
+    assert len(SYNTH_ARM_POSES) >= 24
+    for joint in ("shoulder_pan", "elbow_flex", "wrist_flex", "wrist_roll"):
+        assert len({pose[joint] for pose in SYNTH_ARM_POSES}) >= 3, joint
+    for pose in SYNTH_ARM_POSES:
+        tool = base @ arm.transform("gripper_link", pose, offsets=cfg.joint_offsets_rad) @ np.append(TOOL_POINT, 1.0)
+        assert tool[2] > 0.0, pose
 
 
 def test_view_missing_a_joint_raises(noisy_views: list) -> None:
