@@ -3279,7 +3279,9 @@ Unit tests for `scripts/ground_noise_report.py` (runbook pass/fail numbers from 
 | Test | Description |
 |------|-------------|
 | `test_box_scene_pass_and_fail` | `box_obstacle_share`: obstacle region at the box, or obstacle points with no warning region or area centroid there; exit code follows the 0.95 limit. |
-| `test_ramp_scene_share_and_slope_error` | `ramp_warning_share` (ramp area in the ROI, no obstacle region there) and slope error p50/p90 against 14 deg. |
+| `test_ramp_scene_informational_metrics` | `ramp_warning_share` and slope error p50/p90 against 14 deg are reported but not gated; ramp gates are `ramp_lethal_states` and churn only. |
+| `test_ramp_scene_never_lethal` | `ramp_lethal_states` counts states with an obstacle region in the ramp ROI; passes with none, fails with one. |
+| `test_scene_rois_match_ground_truth` | The yaml box, board and ramp ROIs equal the measured ground truth; `ramp_lethal_states_max` is 0 and the old ramp gates are gone. |
 | `test_board_scene_lethal_states` | `board_lethal_states` counts states with an obstacle-class region in the board ROI. |
 | `test_empty_scene_lethal_p95` | p95 of obstacle plus drop points; states without a plane are left out. |
 | `test_warning_churn_share` | Share of consecutive pairs with a differing warning set (kind plus polygon rounded to 1 cm). |
@@ -3305,7 +3307,8 @@ Guards for `docs/runbooks/ground-robustness.md` (static ground robustness runboo
 
 | Test | Description |
 |------|-------------|
-| `test_runbook_sections` | Safety, Scene, Prerequisites, Procedure, Acceptance and Results sections, in order. |
+| `test_runbook_sections` | Safety, Scene, Prerequisites, Procedure, Acceptance, Sensor limits and Results sections, in order. |
 | `test_runbook_thresholds_match_report_config` | The Acceptance numbers equal the thresholds of `scripts/ground_noise_report.yaml`. |
+| `test_runbook_documents_ramp_sensor_limit` | Sensor limits section explains the ToF-invisible black rubber ramp and the board albedo bias; Results carry `ramp_lethal_states` and `ramp_warning_share`. |
 | `test_runbook_commands_exist` | Every `scripts/` file the runbook names is tracked (`git ls-files`). |
 | `test_runbook_forbids_driving` | Safety section: parked and charging, no drive commands, only head pan/tilt, no arm motion. |

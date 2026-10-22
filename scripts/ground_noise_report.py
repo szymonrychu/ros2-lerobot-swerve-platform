@@ -20,8 +20,9 @@ from typing import Any
 
 import numpy as np
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
+STRICT = ConfigDict(extra="forbid")
 LOG = logging.getLogger("ground_noise_report")
 
 STATE_TOPIC = "/ground/state"
@@ -40,6 +41,8 @@ EXIT_FAIL = 1
 class Roi(BaseModel):
     """Axis-aligned rectangle in base_link metres."""
 
+    model_config = STRICT
+
     x_min: float
     x_max: float
     y_min: float
@@ -53,12 +56,16 @@ class Roi(BaseModel):
 class BoxScene(BaseModel):
     """Box object: ROI and nominal height."""
 
+    model_config = STRICT
+
     roi: Roi
     height_m: float
 
 
 class RampScene(BaseModel):
     """Ramp object: ROI and true slope."""
+
+    model_config = STRICT
 
     roi: Roi
     slope_deg: float
@@ -67,11 +74,15 @@ class RampScene(BaseModel):
 class BoardScene(BaseModel):
     """Colour board lying flat: ROI only."""
 
+    model_config = STRICT
+
     roi: Roi
 
 
 class SceneConfig(BaseModel):
     """The physical scene."""
+
+    model_config = STRICT
 
     box: BoxScene
     ramp: RampScene
@@ -81,9 +92,10 @@ class SceneConfig(BaseModel):
 class Thresholds(BaseModel):
     """Pass limits; *_min must be reached, *_max must not be exceeded, churn must stay strictly below."""
 
+    model_config = STRICT
+
     box_obstacle_share_min: float
-    ramp_warning_share_min: float
-    ramp_slope_abs_error_p50_max: float
+    ramp_lethal_states_max: int
     board_lethal_states_max: int
     empty_lethal_points_p95_max: float
     warning_churn_share_max: float
@@ -91,6 +103,8 @@ class Thresholds(BaseModel):
 
 class ReportConfig(BaseModel):
     """Contents of ground_noise_report.yaml."""
+
+    model_config = STRICT
 
     scene: SceneConfig
     thresholds: Thresholds
@@ -197,7 +211,7 @@ def box_hit(state: dict[str, Any], roi: Roi) -> bool:
 
 
 def ramp_hit(state: dict[str, Any], roi: Roi) -> bool:
-    """Ramp counts as a warning: ramp area at the ramp and no obstacle region there."""
+    """Informational: ramp area at the ramp and no obstacle region there."""
     return area_in(state, roi, KIND_RAMP) and not region_in(state, roi, CLASS_OBSTACLE)
 
 
@@ -252,6 +266,9 @@ def scene_metrics(scene: str, states: list[dict[str, Any]], config: ReportConfig
     elif scene == "ramp":
         ramp = config.scene.ramp
         errors = ramp_slope_errors(states, ramp.roi, ramp.slope_deg)
+        metrics["ramp_lethal_states"] = (
+            sum(1 for s in states if region_in(s, ramp.roi, CLASS_OBSTACLE)) if states else None
+        )
         metrics["ramp_warning_share"] = share(states, lambda s: ramp_hit(s, ramp.roi))
         metrics["ramp_slope_abs_error_p50"] = percentile(errors, P50)
         metrics["ramp_slope_abs_error_p90"] = percentile(errors, P90)
@@ -279,10 +296,7 @@ def check_thresholds(
     """
     rules: dict[str, list[tuple[str, str, float, Callable[[float, float], bool]]]] = {
         "box": [("box_obstacle_share", ">=", limits.box_obstacle_share_min, lambda v, lim: v >= lim)],
-        "ramp": [
-            ("ramp_warning_share", ">=", limits.ramp_warning_share_min, lambda v, lim: v >= lim),
-            ("ramp_slope_abs_error_p50", "<=", limits.ramp_slope_abs_error_p50_max, lambda v, lim: v <= lim),
-        ],
+        "ramp": [("ramp_lethal_states", "<=", limits.ramp_lethal_states_max, lambda v, lim: v <= lim)],
         "board": [("board_lethal_states", "<=", limits.board_lethal_states_max, lambda v, lim: v <= lim)],
         "empty": [("empty_lethal_points_p95", "<=", limits.empty_lethal_points_p95_max, lambda v, lim: v <= lim)],
     }

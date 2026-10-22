@@ -14,7 +14,7 @@ CONFIG_PATH = REPO_ROOT / "scripts" / "ground_noise_report.yaml"
 
 PLANE = {"normal": [0.0, 0.0, 1.0], "height_m": 0.0}
 BOX_POINT = [0.7, 0.15]
-RAMP_POINT = [1.1, -0.3]
+RAMP_POINT = [0.9, -0.3]
 BOARD_POINT = [0.45, 0.0]
 FAR_POINT = [1.8, 0.0]
 
@@ -78,23 +78,45 @@ def test_box_scene_pass_and_fail(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert out["metrics"]["box_obstacle_share"] == 0.0
 
 
-def test_ramp_scene_share_and_slope_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    good = state(warnings=[area("ramp", 1.12, -0.32, 13.0)])
-    bad_slope = state(warnings=[area("ramp", 1.12, -0.32, 6.0)])
-    obstructed = state(warnings=[area("ramp", 1.12, -0.32, 14.0)], regions=[region(RAMP_POINT, "obstacle")])
-    outside = state(warnings=[area("ramp", 0.5, 0.5, 14.0)])
+def test_ramp_scene_informational_metrics(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    good = state(warnings=[area("ramp", 0.92, -0.30, 13.0)])
+    bad_slope = state(warnings=[area("ramp", 0.92, -0.30, 6.0)])
     code, out = run(tmp_path, "ramp", [good] * 10, capsys)
     assert code == 0
     assert out["metrics"]["ramp_warning_share"] == 1.0
     assert out["metrics"]["ramp_slope_abs_error_p50"] == pytest.approx(1.0)
     assert out["metrics"]["ramp_slope_abs_error_p90"] == pytest.approx(1.0)
-    code, out = run(tmp_path, "ramp", [good] * 7 + [obstructed, outside, bad_slope], capsys)
-    assert code == 1
-    assert out["metrics"]["ramp_warning_share"] == pytest.approx(0.8)
-    code, out = run(tmp_path, "ramp", [bad_slope] * 10, capsys)
-    assert code == 1
+    # warning share and slope error are informational: a bad ramp reading still passes
+    code, out = run(tmp_path, "ramp", [bad_slope] * 10 + [state()] * 10, capsys)
+    assert code == 0
+    assert out["metrics"]["ramp_warning_share"] == pytest.approx(0.5)
     assert out["metrics"]["ramp_slope_abs_error_p50"] == pytest.approx(8.0)
-    assert out["thresholds"]["ramp_slope_abs_error_p50"]["passed"] is False
+    assert set(out["thresholds"]) == {"ramp_lethal_states", "warning_churn_share"}
+
+
+def test_ramp_scene_never_lethal(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    no_area = state()
+    lethal = state(regions=[region(RAMP_POINT, "obstacle")])
+    elsewhere = state(regions=[region(BOX_POINT, "obstacle")])
+    code, out = run(tmp_path, "ramp", [no_area, elsewhere] * 5, capsys)
+    assert code == 0
+    assert out["metrics"]["ramp_lethal_states"] == 0
+    code, out = run(tmp_path, "ramp", [no_area] * 9 + [lethal], capsys)
+    assert code == 1
+    assert out["metrics"]["ramp_lethal_states"] == 1
+    assert out["thresholds"]["ramp_lethal_states"]["passed"] is False
+
+
+def test_scene_rois_match_ground_truth() -> None:
+    scene = yaml.safe_load(CONFIG_PATH.read_text())["scene"]
+    assert scene["box"]["roi"] == {"x_min": 0.60, "x_max": 0.78, "y_min": 0.05, "y_max": 0.33}
+    assert scene["board"]["roi"] == {"x_min": 0.37, "x_max": 0.61, "y_min": -0.12, "y_max": 0.14}
+    assert scene["ramp"]["roi"] == {"x_min": 0.75, "x_max": 1.10, "y_min": -0.45, "y_max": -0.15}
+    assert "height_m" in scene["box"] and "slope_deg" in scene["ramp"]
+    thresholds = yaml.safe_load(CONFIG_PATH.read_text())["thresholds"]
+    assert thresholds["ramp_lethal_states_max"] == 0
+    assert "ramp_warning_share_min" not in thresholds
+    assert "ramp_slope_abs_error_p50_max" not in thresholds
 
 
 def test_board_scene_lethal_states(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
