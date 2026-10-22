@@ -251,6 +251,16 @@ def test_apply_keeps_applied_keys_and_adds_record(cfg: NodeConfig, state: Path) 
     assert not list(applied.glob(".tmp-*"))
 
 
+def test_floor_apply_records_source(cfg: NodeConfig, state: Path) -> None:
+    write_observations(state, SID)
+    put_applied(state)
+    result = compute_floor(cfg, SID, NOW)
+    body = apply_floor(cfg, SID, result["id"], NOW, fake_run)
+    record = body["head_chain"]
+    assert record["source"] == "floor"
+    assert record["floor"] == {"session": SID, "result": result["id"]}
+
+
 def test_apply_refusals(cfg: NodeConfig, state: Path) -> None:
     failing_state(state)
     put_applied(state)
