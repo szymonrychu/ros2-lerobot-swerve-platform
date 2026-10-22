@@ -1,6 +1,6 @@
 ---
 title: Cell spread gate
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Noisy far-band ToF cells become unknown instead of ~200 lethal points per frame on empty floor."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_median.hpp, nodes/ground_estimator_cpp/src/core/cell_median.cpp, nodes/ground_estimator_cpp/test/core/test_cell_median.cpp]
@@ -12,8 +12,7 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--cell-spread-gate
-branch: ground-detection-robustness--cell-spread-gate
+branch: main
 verified_head: a52ce617
 run: ground-detection-robustness
 provides: []
