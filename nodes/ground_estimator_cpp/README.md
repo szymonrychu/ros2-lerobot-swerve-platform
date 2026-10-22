@@ -209,6 +209,27 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `hysteresis.area_history_frames` | `20` | frames of voting history behind the area densities, 1..120 |
 | `hysteresis.area_enter_density` | `0.75` | share of the history frames a cell voted in to join an area, 0 < v <= 1 |
 | `hysteresis.area_exit_density` | `0.25` | share of the history frames a cell must stay at or above to remain in an area, 0 <= v <= area_enter_density |
+| `guidance.enabled` | `true` | use the guidance frame |
+| `guidance.depth_topic` | `/head_rgbd/depth_upsampled/image_raw` | upsampled depth image, produced by head_rgbd_cpp |
+| `guidance.info_topic` | `/head_rgbd/depth_upsampled/camera_info` | camera info of the upsampled depth, produced by head_rgbd_cpp |
+| `guidance.rgb_topic` | `/head_rgbd/rgb/image_raw/compressed` | RGB image, produced by head_rgbd_cpp |
+| `guidance.tof_info_topic` | `/tof/camera_info` | ToF camera info, produced by arducam_tof |
+| `guidance.max_age_s` | `0.6` | oldest guidance frame still used, relative to the cloud stamp, seconds, 0 < v <= 2 |
+| `guidance.sample_step_px` | `2` | pixel stride of the sampling grid, pixels, 1..8 |
+| `guidance.max_range_m` | `2.0` | farthest range sampled, metres, 0 < v <= bands.max_range_m |
+| `guidance.edge.enabled` | `true` | publish edge points |
+| `guidance.edge.max_shift_m` | `0.06` | largest xy distance of an edge point from a stable lethal point of the frame, metres, 0 < v <= 0.15 |
+| `guidance.edge.min_height_m` | `0.02` | smallest absolute height of an edge point, metres, 0 < v <= the max step (0.04) |
+| `guidance.edge.voxel_m` | `0.02` | voxel of the edge point decimation, metres, 0.005 <= v <= 0.05 |
+| `guidance.no_return.enabled` | `true` | detect no-return areas |
+| `guidance.no_return.min_range_m` | `0.3` | nearer cells are not judged, metres, 0 <= v < guidance.max_range_m |
+| `guidance.no_return.cell_min_samples` | `6` | samples a cell needs before it is judged, >= 1 |
+| `guidance.no_return.cell_min_share` | `0.8` | share of a cell's samples without a return for it to count, 0 < v <= 1 |
+| `guidance.no_return.window_frames` | `4` | frames a cell is judged over, 1..20 |
+| `guidance.no_return.enter_frames` | `3` | frames of no return that make a cell a no-return cell, 1..window_frames |
+| `guidance.no_return.min_cells` | `2` | smallest area published, in cells, >= 1 |
+| `guidance.no_return.clearance_cells` | `1` | cells around an area kept clear of valid returns, 0..3 |
+| `guidance.no_return.tof_margin_px` | `4` | margin inside the ToF image border where nothing is judged, pixels, 0..20 |
 | `metrics_port` | `19119` | Prometheus port, 1..65535, or null to disable |
 
 The spread in `temporal.max_spread_m` is computed over the per-frame cell medians. With fewer than 5 values it is 1.4826 * MAD (1.4826 turns the MAD into a Gaussian sigma). From 5 values on it is the standard deviation after dropping the most deviant value, times 1.3: it is as robust to one outlier frame as the MAD but varies far less between windows (8 frames: a plain MAD slips under the limit by chance). Dropping a value shrinks the estimate to ~0.77 of sigma, so 1.3 is the consistent factor (1.35 was tried and failed the >= 95 % floor-visibility bound). Measured bounds (20+ seeds, 8-frame window): far-band cells of 43-90 mm spread leak in at most 5 % of cell-frames, floor cells of 4-20 mm stay visible in at least 95 % of cell-frames (a single 20 mm cell about 85 %); the class hysteresis and lethal point gates downstream absorb the leaks. A gated cell is unknown (no points, so never lethal, a step, a drop or part of a cluster), keeps its history, and is known again as soon as its spread is back under the limit. No range cap is used.

@@ -62,7 +62,7 @@ struct DepthConfig
 // Guided-filter upsampling to the RGB resolution.
 struct UpsamplingConfig
 {
-  bool enabled = false;
+  bool enabled = true;
   int radius = 4;            // 1..16
   double eps = 0.001;        // > 0
   double min_support = 0.5;  // 0 < v <= 1

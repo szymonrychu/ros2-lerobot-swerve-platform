@@ -423,3 +423,107 @@ TEST(Config, RejectsTemporalRanges)
   expect_rejected("temporal: {max_age_s: 5.1}", "temporal.max_age_s");
   expect_rejected("temporal: {enabled: maybe}", "temporal.enabled");
 }
+
+TEST(Config, GuidanceDefaults)
+{
+  const Config c = ground_estimator_cpp::from_yaml(YAML::Load("{}"));
+  EXPECT_TRUE(c.guidance.enabled);
+  EXPECT_EQ(c.guidance.depth_topic, "/head_rgbd/depth_upsampled/image_raw");
+  EXPECT_EQ(c.guidance.info_topic, "/head_rgbd/depth_upsampled/camera_info");
+  EXPECT_EQ(c.guidance.rgb_topic, "/head_rgbd/rgb/image_raw/compressed");
+  EXPECT_EQ(c.guidance.tof_info_topic, "/tof/camera_info");
+  EXPECT_DOUBLE_EQ(c.guidance.max_age_s, 0.6);
+  EXPECT_EQ(c.guidance.sample_step_px, 2);
+  EXPECT_DOUBLE_EQ(c.guidance.max_range_m, 2.0);
+  EXPECT_TRUE(c.guidance.edge.enabled);
+  EXPECT_DOUBLE_EQ(c.guidance.edge.max_shift_m, 0.06);
+  EXPECT_DOUBLE_EQ(c.guidance.edge.min_height_m, 0.02);
+  EXPECT_DOUBLE_EQ(c.guidance.edge.voxel_m, 0.02);
+  EXPECT_TRUE(c.guidance.no_return.enabled);
+  EXPECT_DOUBLE_EQ(c.guidance.no_return.min_range_m, 0.3);
+  EXPECT_EQ(c.guidance.no_return.cell_min_samples, 6);
+  EXPECT_DOUBLE_EQ(c.guidance.no_return.cell_min_share, 0.8);
+  EXPECT_EQ(c.guidance.no_return.window_frames, 4);
+  EXPECT_EQ(c.guidance.no_return.enter_frames, 3);
+  EXPECT_EQ(c.guidance.no_return.min_cells, 2);
+  EXPECT_EQ(c.guidance.no_return.clearance_cells, 1);
+  EXPECT_EQ(c.guidance.no_return.tof_margin_px, 4);
+  expect_accepted("{}");
+}
+
+TEST(Config, RejectsGuidanceRanges)
+{
+  expect_accepted("guidance: {enabled: false}");
+  expect_rejected("guidance: {enabled: maybe}", "guidance.enabled");
+  expect_accepted("guidance: {max_age_s: 2}");
+  expect_accepted("guidance: {max_age_s: 0.01}");
+  expect_rejected("guidance: {max_age_s: 0}", "guidance.max_age_s");
+  expect_rejected("guidance: {max_age_s: 2.1}", "guidance.max_age_s");
+  expect_accepted("guidance: {sample_step_px: 1}");
+  expect_accepted("guidance: {sample_step_px: 8}");
+  expect_rejected("guidance: {sample_step_px: 0}", "guidance.sample_step_px");
+  expect_rejected("guidance: {sample_step_px: 9}", "guidance.sample_step_px");
+  expect_accepted("guidance: {max_range_m: 0.31}");
+  expect_rejected("guidance: {max_range_m: 0}", "guidance.max_range_m");
+  expect_rejected("guidance: {max_range_m: -1}", "guidance.max_range_m");
+  expect_accepted("guidance: {depth_topic: /a, info_topic: /b, rgb_topic: /c, tof_info_topic: /d}");
+  expect_rejected("guidance: {depth_topic: [1]}", "guidance.depth_topic");
+
+  expect_accepted("guidance: {edge: {max_shift_m: 0.15}}");
+  expect_rejected("guidance: {edge: {max_shift_m: 0}}", "guidance.edge.max_shift_m");
+  expect_rejected("guidance: {edge: {max_shift_m: 0.16}}", "guidance.edge.max_shift_m");
+  expect_accepted("guidance: {edge: {min_height_m: 0.04}}");
+  expect_rejected("guidance: {edge: {min_height_m: 0}}", "guidance.edge.min_height_m");
+  expect_rejected("guidance: {edge: {min_height_m: 0.041}}", "guidance.edge.min_height_m");
+  expect_accepted("guidance: {edge: {voxel_m: 0.005}}");
+  expect_accepted("guidance: {edge: {voxel_m: 0.05}}");
+  expect_rejected("guidance: {edge: {voxel_m: 0.004}}", "guidance.edge.voxel_m");
+  expect_rejected("guidance: {edge: {voxel_m: 0.051}}", "guidance.edge.voxel_m");
+  expect_rejected("guidance: {edge: {enabled: maybe}}", "guidance.edge.enabled");
+
+  expect_accepted("guidance: {no_return: {min_range_m: 0}}");
+  expect_rejected("guidance: {no_return: {min_range_m: -0.1}}", "guidance.no_return.min_range_m");
+  expect_accepted("guidance: {no_return: {cell_min_samples: 1}}");
+  expect_rejected("guidance: {no_return: {cell_min_samples: 0}}", "guidance.no_return.cell_min_samples");
+  expect_accepted("guidance: {no_return: {cell_min_share: 1.0}}");
+  expect_rejected("guidance: {no_return: {cell_min_share: 0}}", "guidance.no_return.cell_min_share");
+  expect_rejected("guidance: {no_return: {cell_min_share: 1.01}}", "guidance.no_return.cell_min_share");
+  expect_accepted("guidance: {no_return: {window_frames: 1, enter_frames: 1}}");
+  expect_accepted("guidance: {no_return: {window_frames: 20, enter_frames: 20}}");
+  expect_rejected("guidance: {no_return: {window_frames: 0, enter_frames: 1}}", "guidance.no_return.window_frames");
+  expect_rejected("guidance: {no_return: {window_frames: 21}}", "guidance.no_return.window_frames");
+  expect_rejected("guidance: {no_return: {enter_frames: 0}}", "guidance.no_return.enter_frames");
+  expect_accepted("guidance: {no_return: {min_cells: 1}}");
+  expect_rejected("guidance: {no_return: {min_cells: 0}}", "guidance.no_return.min_cells");
+  expect_accepted("guidance: {no_return: {clearance_cells: 0}}");
+  expect_accepted("guidance: {no_return: {clearance_cells: 3}}");
+  expect_rejected("guidance: {no_return: {clearance_cells: -1}}", "guidance.no_return.clearance_cells");
+  expect_rejected("guidance: {no_return: {clearance_cells: 4}}", "guidance.no_return.clearance_cells");
+  expect_accepted("guidance: {no_return: {tof_margin_px: 0}}");
+  expect_accepted("guidance: {no_return: {tof_margin_px: 20}}");
+  expect_rejected("guidance: {no_return: {tof_margin_px: -1}}", "guidance.no_return.tof_margin_px");
+  expect_rejected("guidance: {no_return: {tof_margin_px: 21}}", "guidance.no_return.tof_margin_px");
+  expect_rejected("guidance: {no_return: {enabled: maybe}}", "guidance.no_return.enabled");
+}
+
+TEST(Config, RejectsGuidanceCrossKeyViolations)
+{
+  expect_accepted("bands: {max_range_m: 3}\nguidance: {max_range_m: 3}");
+  expect_rejected("guidance: {max_range_m: 2.5}", "guidance.max_range_m");
+  expect_rejected("bands: {max_range_m: 1.5}", "guidance.max_range_m");
+  expect_accepted(
+    "traversability: {wheel_radius_m: 0.09, max_step_fraction: 0.5}\nguidance: {edge: {min_height_m: 0.089}}");
+  expect_rejected("traversability: {wheel_radius_m: 0.02}\nfit: {distance_m: 0.01}", "guidance.edge.min_height_m");
+  expect_rejected("guidance: {no_return: {enter_frames: 5}}", "guidance.no_return.enter_frames");
+  expect_accepted("guidance: {no_return: {window_frames: 5, enter_frames: 5}}");
+  expect_rejected("guidance: {no_return: {min_range_m: 2.0}}", "guidance.no_return.min_range_m");
+  expect_rejected("guidance: {max_range_m: 0.3}", "guidance.no_return.min_range_m");
+  expect_accepted("guidance: {max_range_m: 0.31}");
+}
+
+TEST(Config, RejectsUnknownGuidanceKeys)
+{
+  expect_rejected("guidance: {foo: 1}", "guidance.foo");
+  expect_rejected("guidance: {edge: {foo: 1}}", "guidance.edge.foo");
+  expect_rejected("guidance: {no_return: {foo: 1}}", "guidance.no_return.foo");
+}

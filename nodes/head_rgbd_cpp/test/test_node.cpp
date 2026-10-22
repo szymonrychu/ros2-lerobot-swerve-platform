@@ -358,9 +358,10 @@ TEST_F(NodeTest, InputsAreSubscribedOnlyWhileAnOutputHasSubscribers)
   depth_info_sub_.reset();
   rgb_sub_.reset();
   rgb_info_sub_.reset();
-  EXPECT_TRUE(wait_for([this] { return rgb_pub_->get_subscription_count() == 0; }));
-  EXPECT_EQ(tof_pub_->get_subscription_count(), 0u);
-  EXPECT_EQ(info_pub_->get_subscription_count(), 0u);
+  EXPECT_TRUE(wait_for([this] {
+    return rgb_pub_->get_subscription_count() == 0 && tof_pub_->get_subscription_count() == 0 &&
+           info_pub_->get_subscription_count() == 0;
+  }));
 }
 
 TEST_F(NodeTest, PublishesRegisteredPairWithTheRgbStampAndFrame)
@@ -482,7 +483,9 @@ TEST_F(NodeTest, CloudIsPublishedAtMostAtTheConfiguredRate)
 TEST_F(NodeTest, UpsampledTopicsExistOnlyWhenEnabled)
 {
   fill_tf(0.0);
-  start(base_config());
+  Config c = base_config();
+  c.upsampling.enabled = false;
+  start(c);
   std::this_thread::sleep_for(milliseconds(500));
   EXPECT_EQ(probe_->get_publishers_info_by_topic(std::string(NS) + "/depth_upsampled/image_raw").size(), 0u);
   EXPECT_EQ(probe_->get_publishers_info_by_topic(std::string(NS) + "/depth_upsampled/camera_info").size(), 0u);

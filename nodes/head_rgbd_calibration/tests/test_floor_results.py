@@ -236,13 +236,29 @@ def test_apply_keeps_applied_keys_and_adds_record(cfg: NodeConfig, state: Path) 
     marker = json.loads((applied / "applied.json").read_text())
     assert marker["session"] == "calib-20261019-120000"
     assert marker["files"] == ["tof_joint.json"]
-    record = {"session": SID, "result": result["id"], "applied_at": NOW.isoformat()}
+    record = {
+        "session": SID,
+        "result": result["id"],
+        "applied_at": NOW.isoformat(),
+        "source": "floor",
+        "floor": {"session": SID, "result": result["id"]},
+    }
     assert marker["head_chain"] == record
     assert body == {
         "head_chain": record,
         "units": [{"name": "unit-a.service", "active_state": "active", "restarted": True}],
     }
     assert not list(applied.glob(".tmp-*"))
+
+
+def test_floor_apply_records_source(cfg: NodeConfig, state: Path) -> None:
+    write_observations(state, SID)
+    put_applied(state)
+    result = compute_floor(cfg, SID, NOW)
+    body = apply_floor(cfg, SID, result["id"], NOW, fake_run)
+    record = body["head_chain"]
+    assert record["source"] == "floor"
+    assert record["floor"] == {"session": SID, "result": result["id"]}
 
 
 def test_apply_refusals(cfg: NodeConfig, state: Path) -> None:

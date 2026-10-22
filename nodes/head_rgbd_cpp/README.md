@@ -65,7 +65,7 @@ level and any error exits 78 with one `<key>: <problem>` line per error.
 | `filter.jump_abs_mm` | 30 | minimum absolute jump, mm |
 | `filter.min_valid_neighbours` | 3 | valid neighbours (of 8) a pixel needs |
 | `depth.min_m` / `depth.max_m` | 0.1 / 4.0 | valid depth range, m |
-| `upsampling.enabled` | false | guided-filter upsampling to the RGB size |
+| `upsampling.enabled` | true | guided-filter upsampling to the RGB size |
 | `upsampling.radius` | 4 | guided filter radius, px |
 | `upsampling.eps` | 0.001 | guided filter regularisation |
 | `upsampling.min_support` | 0.5 | minimum filter support of a valid pixel |
@@ -113,6 +113,20 @@ Nothing is published for a set that cannot be registered from real data; the set
 A JPEG that does not decode skips the upsampled depth or the cloud of that set (logged, throttled); colour is never
 made up.
 
+## Upsampling
+
+On by default (`upsampling.enabled: true`). The registered depth (288x162) is nearest-upsampled by 2 and smoothed along the
+edges of the grey RGB image in masked normalised form, so the depth edges of obstacles and drops follow the RGB edges at
+camera resolution (pinned: pixels 2 px or more from the guide edge read the box or floor depth within 5 mm) while holes never bleed zeros and a no-return area
+wider than `radius` stays empty. RGB only moves where an existing depth edge lies; texture on flat floor (board, tile
+seams, shadows) is not copied into depth. Tuning: the shipped `radius` 4, `eps` 0.001, `min_support` 0.5 are validated
+by `test/core/test_upsample.cpp` (`BoxEdgeFollowsTheGuideEdge`, `TexturedFlatFloorStaysFlat`, `LargeHoleStaysEmpty`);
+none needed changing.
+
+Consumers: `/head_rgbd/depth_upsampled/image_raw` (16UC1 at the RGB size, with the RGB
+camera_info, one header per pair) is the edge input for the ground guidance of `ground_estimator_cpp`; any subscriber of the topic is a consumer. Cost: one extra guided-filter pass per set, visible in
+`head_rgbd_process_seconds`.
+
 ## Methodology
 
 Calibration, synchronisation, registration, filtering, upsampling and validation (with targets and a results table) are
@@ -122,7 +136,7 @@ written down in [`docs/head-rgbd-fusion-methodology.md`](../../docs/head-rgbd-fu
 - Pairing: ApproximateTime, `sync.max_pair_dt_s` 0.06; the whole set is stamped with the RGB stamp (exact pairs).
 - Motion: tf2 time travel through `odom`; pairs above 10 deg/s or 0.3 m/s are dropped.
 - Jump-edge filter 30 mm / 5 % / 3 valid neighbours; depth range 0.1-4.0 m.
-- Upsampling off (masked guided filter, radius 4, `min_support` 0.5, when on); cloud 1 Hz.
+- Upsampling on (masked guided filter, radius 4, `eps` 0.001, `min_support` 0.5); cloud 1 Hz.
 - Calibration source: the deployed `tof_calibration_file` is the applied state file `/var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml`
   (not under `/etc/ros2`). It is written by Apply on the web UI Calibrate page (RGB-D section) and survives Ansible
   deploys. When the applied dir is empty, the deploy seeds it from the committed `nodes/head_rgbd_cpp/config/tof_calibration.yaml`

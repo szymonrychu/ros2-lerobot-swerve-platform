@@ -13,6 +13,8 @@
     "session": "floor-20261021-120000",
     "result": "r-20261021-123000",
     "note": "floor fit 2026-10-21, height RMS 2.1 mm, normal RMS 0.12 deg",
+    "source": "floor",
+    "floor": {"session": "floor-20261021-120000", "result": "r-20261021-123000"},
     "joints": {
       "head_mount_joint": {
         "xyz": [0.15, 0.1, 0.38],

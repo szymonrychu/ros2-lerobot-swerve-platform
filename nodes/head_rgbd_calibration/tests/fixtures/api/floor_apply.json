@@ -2,7 +2,9 @@
   "head_chain": {
     "session": "floor-20261021-120000",
     "result": "r-20261021-123000",
-    "applied_at": "2026-10-21T12:30:00+00:00"
+    "applied_at": "2026-10-21T12:30:00+00:00",
+    "source": "floor",
+    "floor": {"session": "floor-20261021-120000", "result": "r-20261021-123000"}
   },
   "units": [
     {

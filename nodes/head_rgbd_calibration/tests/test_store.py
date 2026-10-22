@@ -9,10 +9,11 @@ import cv2
 import numpy as np
 import pytest
 from ros2_common.head_rgbd_calibration.frames import CameraInfoData
+from ros2_common.head_rgbd_calibration.views import ARM_JOINTS, HEAD_JOINTS
 
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import InvalidId, NotFound, SessionStore
-from tests.pose_factory import few_rgb_corner_pose, make_pose
+from tests.pose_factory import few_rgb_corner_pose, make_pose, still_arm_pose
 
 NOW = datetime(2026, 10, 19, 12, 30, 45)
 LENS = 1.5
@@ -315,3 +316,124 @@ def test_pose_hints_fallback_for_legacy_pose(store: SessionStore) -> None:
     path.write_text(json.dumps(meta))
     assert store.pose_hints(sid, pid)[0].startswith("few corners: 6 RGB")
     assert "hints" not in json.loads(path.read_text())
+
+
+# head_arm sessions (design D36)
+
+JOINTS = {name: 0.1 * i for i, name in enumerate((*HEAD_JOINTS, *ARM_JOINTS))}
+
+
+def add_still(store: SessionStore, sid: str, **kwargs):
+    pose = still_arm_pose(kwargs.pop("joints", JOINTS), **kwargs)
+    return store.add_still_pose(
+        sid, pose.rgb_jpeg, pose.rgb_image, pose.detection, pose.joints, pose.stamps, pose.arm_pose, pose.tier,
+        pose.head_offset,
+    )  # fmt: skip
+
+
+@pytest.fixture
+def arm_sid(store: SessionStore) -> str:
+    return store.create_session(NOW, LENS, kind="head_arm")
+
+
+def test_legacy_session_kind_is_rgbd(store: SessionStore) -> None:
+    sid = store.create_session(NOW, LENS)
+    assert store.load_session(sid)["kind"] == "rgbd"
+    path = store.state_dir / "sessions" / sid / "session.json"
+    data = json.loads(path.read_text())
+    del data["kind"]
+    path.write_text(json.dumps(data))
+    assert store.load_session(sid)["kind"] == "rgbd"
+    assert store.list_sessions()[0]["kind"] == "rgbd"
+
+
+def test_head_arm_session_records_kind(store: SessionStore, arm_sid: str) -> None:
+    data = json.loads((store.state_dir / "sessions" / arm_sid / "session.json").read_text())
+    assert data["kind"] == "head_arm"
+    assert store.list_sessions()[0]["kind"] == "head_arm"
+
+
+def test_still_pose_layout(store: SessionStore, arm_sid: str) -> None:
+    pose = still_arm_pose(JOINTS, arm_pose=3, tier=1, head_offset=2)
+    pid = store.add_still_pose(
+        arm_sid, pose.rgb_jpeg, pose.rgb_image, pose.detection, pose.joints, pose.stamps, 3, 1, 2
+    )  # fmt: skip
+    assert pid == "001"
+    path = store.state_dir / "sessions" / arm_sid / "poses" / pid
+    assert sorted(p.name for p in path.iterdir()) == ["pose.json", "rgb.jpg", "rgb_thumb.jpg"]
+    assert (path / "rgb.jpg").read_bytes() == pose.rgb_jpeg
+    meta = json.loads((path / "pose.json").read_text())
+    assert set(meta) == {"stamps", "rgb", "joints", "arm_pose", "tier", "head_offset"}
+    assert meta["joints"] == JOINTS and meta["stamps"] == pose.stamps
+    assert (meta["arm_pose"], meta["tier"], meta["head_offset"]) == (3, 1, 2)
+    assert meta["rgb"]["ids"] == [int(i) for i in pose.detection.ids]
+    assert len(meta["rgb"]["points"]) == len(pose.detection.ids)
+    assert store.load_session(arm_sid)["rgb_size"] == [576, 324]
+    assert store.pose_hints(arm_sid, pid) == []
+
+
+@pytest.mark.parametrize("kwargs", [{"tier": 3}, {"tier": -1}, {"arm_pose": -1}, {"head_offset": -1}])
+def test_still_pose_refusals(store: SessionStore, arm_sid: str, kwargs: dict) -> None:
+    for name in JOINTS:
+        with pytest.raises(ValueError, match=name):
+            add_still(store, arm_sid, joints={k: v for k, v in JOINTS.items() if k != name})
+    with pytest.raises(ValueError):
+        add_still(store, arm_sid, **kwargs)
+    assert store.pose_ids(arm_sid) == []
+
+
+def test_still_pose_refuses_another_image_size(store: SessionStore, arm_sid: str) -> None:
+    add_still(store, arm_sid)
+    pose = still_arm_pose(JOINTS)
+    small = cv2.resize(pose.rgb_image, (288, 162))
+    with pytest.raises(ValueError, match="size"):
+        store.add_still_pose(arm_sid, pose.rgb_jpeg, small, pose.detection, pose.joints, pose.stamps, 0, 0, 0)
+    assert store.pose_ids(arm_sid) == ["001"]
+
+
+def test_wrong_kind_raises(store: SessionStore, arm_sid: str) -> None:
+    with pytest.raises(ValueError):
+        store.add_pose(arm_sid, make_pose())
+    rgbd = store.create_session(NOW, LENS)
+    with pytest.raises(ValueError):
+        add_still(store, rgbd)
+    with pytest.raises(ValueError):
+        store.load_arm_board_views(rgbd)
+    with pytest.raises(ValueError):
+        store.captured_arm_poses(rgbd)
+    assert store.pose_ids(rgbd) == []
+
+
+def test_load_arm_board_views(store: SessionStore, arm_sid: str) -> None:
+    other = {k: v + 1.0 for k, v in JOINTS.items()}
+    add_still(store, arm_sid, arm_pose=2, tier=0, head_offset=0)
+    add_still(store, arm_sid, joints=other, arm_pose=5, tier=2, head_offset=1)
+    views = store.load_arm_board_views(arm_sid)
+    assert [v.view_id for v in views] == ["001", "002"]
+    assert [(v.arm_pose, v.tier) for v in views] == [(2, 0), (5, 2)]
+    assert views[0].joints == JOINTS and views[1].joints == other
+    expected = still_arm_pose(JOINTS).detection
+    assert np.array_equal(views[0].detection.ids, expected.ids)
+    assert np.allclose(views[0].detection.points, expected.points)
+
+
+def test_captured_arm_poses(store: SessionStore, arm_sid: str) -> None:
+    assert store.captured_arm_poses(arm_sid) == set()
+    add_still(store, arm_sid, arm_pose=4)
+    add_still(store, arm_sid, arm_pose=4, head_offset=1)
+    add_still(store, arm_sid, arm_pose=7)
+    assert store.captured_arm_poses(arm_sid) == {4, 7}
+
+
+def test_head_arm_coverage_has_only_rgb(store: SessionStore, arm_sid: str) -> None:
+    add_still(store, arm_sid)
+    coverage = store.coverage(arm_sid)
+    assert set(coverage) == {"rgb"}
+    assert sum(sum(row) for row in coverage["rgb"]["counts"]) > 0
+
+
+def test_still_pose_tof_thumbnail_is_not_found(store: SessionStore, arm_sid: str) -> None:
+    pid = add_still(store, arm_sid)
+    with pytest.raises(NotFound):
+        store.thumbnail_path(arm_sid, pid, "tof")
+    assert store.thumbnail_path(arm_sid, pid, "rgb").is_file()
