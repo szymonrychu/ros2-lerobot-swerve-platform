@@ -700,6 +700,7 @@ ros2_node_type_defaults:
           - ros-jazzy-std-msgs
           - ros-jazzy-tf2
           - ros-jazzy-tf2-ros
+          - ros-jazzy-message-filters
           - ros-jazzy-tf2-eigen
           - ros-jazzy-pcl-conversions
           - libpcl-dev
@@ -725,6 +726,7 @@ ros2_node_type_defaults:
       - ros-jazzy-std-msgs
       - ros-jazzy-tf2
       - ros-jazzy-tf2-ros
+      - ros-jazzy-message-filters
       - ros-jazzy-tf2-eigen
       - ros-jazzy-pcl-conversions
       - libpcl-dev
