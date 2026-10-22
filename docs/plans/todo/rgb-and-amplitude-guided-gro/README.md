@@ -1,6 +1,6 @@
 ---
 title: RGB and amplitude guided ground edges and no-return areas
-blockers: [Ground detection robustness]
+blockers: ["Ground detection robustness: spread gate, hysteresis and ramp rule"]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
