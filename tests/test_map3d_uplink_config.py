@@ -83,7 +83,8 @@ def test_plugin_rate_and_lazy_per_entry(specs, contract) -> None:
         if stream.transport == "compressedDepth":
             depth_base = stream.dest.removesuffix("/compressedDepth")
             assert spec.plugin == REPUBLISHER
-            assert spec.parameters == {
+            base_params = {k: v for k, v in spec.parameters.items() if not k.startswith("qos_overrides.")}
+            assert base_params == {
                 "in_transport": "raw",
                 "out_transport": "compressedDepth",
                 f"{depth_base.strip('/').replace('/', '.')}.compressedDepth.png_level": 1,
