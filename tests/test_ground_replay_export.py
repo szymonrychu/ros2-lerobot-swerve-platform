@@ -1,5 +1,6 @@
 """Unit tests for scripts/ground_replay_export.py: live recording npz to the ground replay binary and back."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from scripts.ground_replay_export import (
 
 TINY_V2_PATH = Path(__file__).resolve().parents[1] / "nodes/ground_estimator_cpp/test/data/replay/tiny_v2.bin"
 UPDATE_TINY_ENV = "UPDATE_TINY_V2"
+RUN4_V1_SHA256 = "b81cd9047f0c895bcf001862397a1660b0ed0f8ef9244d7d5f8638e287a31a5c"
 
 FRAME = "tof_optical_frame"
 T0_NS = 1_792_642_215_220_634_811
@@ -233,21 +235,15 @@ def test_v2_round_trip_pairs(tmp_path: Path) -> None:
 
 
 def test_v1_output_unchanged(tmp_path: Path) -> None:
-    """A layout-1 input gives the version-1 file, with the header version 1 and no guidance section."""
+    """A layout-1 input gives run 4's version-1 bytes (sha256 taken from run 4's writer, commit dc26218c)."""
     npz, out = tmp_path / "rec.npz", tmp_path / "rec.bin"
-    write_recording(npz, clouds=12, seconds=1.0)
-    export(npz, out, start_s=0.0, duration_s=1.0)
+    write_recording(npz, clouds=250, seconds=22.0)
+    export(npz, out, start_s=START_S, duration_s=DURATION_S)
     data = out.read_bytes()
     assert int.from_bytes(data[8:12], "little") == 1
+    assert hashlib.sha256(data).hexdigest() == RUN4_V1_SHA256
     replay = read_replay(out)
     assert replay.version == 1 and replay.rgb_model is None and replay.tof_model is None and replay.pairs == []
-    # a v2 input with pairs: false keeps the v1 prefix byte for byte
-    v2_npz, v2_out = tmp_path / "v2.npz", tmp_path / "v2.bin"
-    write_v2_recording(v2_npz)
-    export(v2_npz, v2_out, start_s=0.0, duration_s=1.0, pairs=False)
-    v1_from_v2 = v2_out.read_bytes()
-    assert int.from_bytes(v1_from_v2[8:12], "little") == 2
-    assert v1_from_v2[12:].startswith(b"\x11\x00\x00\x00tof_optical_frame")
 
 
 def test_pairs_false_writes_zero_pairs(tmp_path: Path) -> None:
