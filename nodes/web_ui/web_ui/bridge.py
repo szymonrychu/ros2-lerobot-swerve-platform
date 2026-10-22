@@ -2031,7 +2031,8 @@ class BridgeNode(Node):
         def create() -> None:
             try:
                 self.publishers_[topic] = (self.create_publisher(msg_cls, topic, 10), msg_cls)
-                self._publisher_created_at[topic] = time.monotonic()
+                with self._publish_lock:
+                    self._publisher_created_at[topic] = time.monotonic()
                 log.info("publisher_created", topic=topic, msg_type=msg_type_str)
             except Exception:
                 log.error("publisher_create_failed", topic=topic, msg_type=msg_type_str, exc_info=True)
@@ -2051,7 +2052,9 @@ class BridgeNode(Node):
             self._log_warning(f"publish_dict: topic {topic!r} not in allowlist")
             return
         with self._publish_lock:
-            if topic in self._publishers_pending or self._publishes_queued.get(topic, 0) > 0:
+            fresh = topic in self._publisher_created_at
+            if fresh or topic in self._publishers_pending or self._publishes_queued.get(topic, 0) > 0:
+                # A fresh publisher may still wait for its subscriber, which must never block this (event loop) thread.
                 # Creation and earlier publishes of this topic run first on the executor thread (strict FIFO).
                 self._publishes_queued[topic] = self._publishes_queued.get(topic, 0) + 1
 
@@ -2096,7 +2099,8 @@ class BridgeNode(Node):
             topic (str): Publish topic.
             pub (Any): Its ROS publisher.
         """
-        created_at = self._publisher_created_at.pop(topic, None)
+        with self._publish_lock:
+            created_at = self._publisher_created_at.pop(topic, None)
         if created_at is None or time.monotonic() - created_at >= PUBLISH_MATCH_WINDOW_S:
             return
         deadline = time.monotonic() + PUBLISH_MATCH_WAIT_S

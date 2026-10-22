@@ -608,3 +608,33 @@ def test_matched_publisher_publishes_without_waiting(ros: FakeRos) -> None:
         node.publish_now(GOAL, {})
     sleep.assert_not_called()
     pub.publish.assert_called_once()
+
+
+def test_publish_dict_never_waits_on_the_caller_thread(ros: FakeRos) -> None:
+    """publish_dict inside the match window returns at once; the executor queue waits, then publishes in order."""
+    node, pub = eager_goal_node(ros)
+    counts = iter([0, 0, 1])
+    pub.get_subscription_count.side_effect = lambda: next(counts, 1)
+    caller = threading.get_ident()
+    sleepers: list[int] = []
+    clock = {"t": 100.0}
+
+    def sleep(s: float) -> None:
+        sleepers.append(threading.get_ident())
+        clock["t"] += s
+
+    with patch("web_ui.bridge.time.monotonic", lambda: clock["t"]), patch("web_ui.bridge.time.sleep", sleep):
+        node.publish_dict(GOAL, {})
+        node.publish_dict(GOAL, {})
+        assert sleepers == []
+        pub.publish.assert_not_called()
+        node.run_publisher_tasks()
+    assert pub.publish.call_count == 2
+    assert sleepers and caller == sleepers[0]  # test thread plays the executor here
+
+
+def test_publish_dict_outside_the_window_publishes_directly(ros: FakeRos) -> None:
+    node, pub = eager_goal_node(ros)
+    node.publish_now(GOAL, {})  # consumes the wait state
+    node.publish_dict(GOAL, {})
+    assert pub.publish.call_count == 2
