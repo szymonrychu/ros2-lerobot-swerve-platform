@@ -44,6 +44,7 @@ from .camera_scene import (
     ground_fields,
     ground_report,
     parent_transform,
+    picture_sizes,
     pixel_input,
     pixel_scale,
 )
@@ -79,23 +80,30 @@ ImageWidth = Annotated[
         ge=16,
         le=4096,
         description=(
-            "Width (px) of the image the pixel was read from, e.g. 384 for a default get_camera_image picture; "
-            "with image_height the pixel is scaled to the calibrated image size. Omit only for pixels read from the "
+            "Width (px) of the image the pixel was read from, e.g. 384 for a default get_camera_image picture "
+            "(each camera's default size is in the tool description); with image_height the pixel is scaled to the calibrated image size. Omit only for pixels read from the "
             "calibrated-size image (get_annotated_camera_image, mark_candidate_points)"
         ),
     ),
 ]
 ImageHeight = Annotated[
     int | None,
-    Field(ge=16, le=4096, description="Height (px) of the image the pixel was read from (288 for 384x288)"),
+    Field(
+        ge=16,
+        le=4096,
+        description=(
+            "Height (px) of the image the pixel was read from (216 for the 384x216 front picture, 288 for a 384x288 "
+            "one; each camera's default size is in the tool description)"
+        ),
+    ),
 ]
 Overlay = Literal["grid", "reach", "gripper", "planned_gripper", "lidar"]
 # Warning in the pixel-taking tool descriptions: pixels of a smaller picture are wrong without the image size.
 PIXEL_SIZE_NOTE = (
     "IMPORTANT: u, v are pixels of the CALIBRATED image size (get_annotated_camera_image and mark_candidate_points "
     "images, the result's 'image') unless image_width and image_height give the size of the image the pixel came "
-    "from: get_camera_image returns 384x288 by default, so pass image_width 384, image_height 288 for its pixels "
-    "(an unscaled small-image pixel lands at the wrong place)."
+    "from: get_camera_image returns {sizes} by default, so pass those as image_width, image_height for its pixels "
+    "(an unscaled small-image pixel lands at the wrong place; another aspect is refused)."
 )
 MAX_GROUND_RANGE_M = 6.0  # candidate points whose floor point is farther are skipped (near-horizon pixels are noise)
 MIN_GOOD_SAMPLES = 6  # six mount parameters
@@ -179,6 +187,10 @@ def register(ctx: ToolContext) -> None:
         ctx (ToolContext): Shared registration context.
     """
     server, robot, config = ctx.server, ctx.robot, ctx.config
+    sizes = picture_sizes(config)
+    picture_text = " and ".join(f"{w}x{h} ({camera})" for camera, (w, h) in sorted(sizes.items(), reverse=True))
+    pixel_size_note = PIXEL_SIZE_NOTE.format(sizes=picture_text)
+    default_px = config.limits.default_camera_px
     candidates = CandidateStore()
     samples = SampleStore(config.cameras.calibration_dir)
     kin = robot.arm.kin
@@ -263,7 +275,7 @@ def register(ctx: ToolContext) -> None:
             "coordinates have z = floor + surface_height_m. 'gripper' uses the CURRENT measured arm joints (the camera moves with "
             "the arm); 'front' is the head RGB camera (Camera Module 3 on the pan/tilt head, 16:9). Returns ground_base_link {x,y,z} (m, x forward, y left, "
             "floor z = 0), ground_map {x,y} when the map pose is known, distance_from_base_m, bearing_deg, method and "
-            f"uncertainty_note. {floor_note} Pixel (u right, v down). {PIXEL_SIZE_NOTE} The result reports pixel "
+            f"uncertainty_note. {floor_note} Pixel (u right, v down). {pixel_size_note} The result reports pixel "
             "(calibrated size), image (calibrated size) and pixel_input (what you passed) when scaled. Errors if the "
             "camera is not calibrated (intrinsics and mount missing in the config) or the pixel does not see the floor."
         )
@@ -279,7 +291,7 @@ def register(ctx: ToolContext) -> None:
         """Pixel -> floor point; the tool description is passed to the decorator (it states the frames)."""
         with camera_errors():
             scene, _, _ = scene_for(camera)
-            scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height)
+            scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height, default_px)
             if scale is None:
                 return data_result(ground_report(scene, camera, u, v, map_pose(), surface_height_m))
             assert image_width is not None and image_height is not None
@@ -397,7 +409,8 @@ def register(ctx: ToolContext) -> None:
             "resolve_candidate(set_id, n). Optional region {u0,v0,u1,v1} limits the grid; spacing_px sets the grid; "
             "at most max_points dots (evenly thinned). The image and the points' u, v are in the calibrated image "
             "size (table 'image'); region is in that size too unless image_width / image_height give the size of "
-            "the image you read it from (384x288 for a default get_camera_image picture). Errors if the camera is "
+            "the image you read it from (default get_camera_image pictures: "
+            f"{picture_text}). Errors if the camera is "
             "not calibrated."
         ),
     )
@@ -415,7 +428,7 @@ def register(ctx: ToolContext) -> None:
         """Numbered candidate dots; the tool description is passed to the decorator."""
         with camera_errors():
             scene, setup, joints = scene_for(camera)
-            scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height) or 1.0
+            scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height, default_px) or 1.0
             pose = map_pose()
             img = grab(camera, setup)
             box = (
@@ -519,7 +532,8 @@ def register(ctx: ToolContext) -> None:
             "the sample count. Use several well spread markers (and for 'gripper' several arm poses), then call "
             "solve_camera_calibration. Works before the camera is calibrated. The pixel is in the calibrated image "
             "size (the intrinsics' width x height) unless image_width / image_height give the size of the image it "
-            "came from (384x288 for a default get_camera_image picture; scaling needs the intrinsics)."
+            "came from (default get_camera_image pictures: "
+            f"{picture_text}; scaling needs the intrinsics)."
         )
     )
     def capture_calibration_sample(
@@ -536,7 +550,7 @@ def register(ctx: ToolContext) -> None:
         with camera_errors():
             if image_width is not None or image_height is not None:
                 intr = camera_setup(config, camera, need_mount=False).intrinsics
-                scale = pixel_scale(image_width, image_height, intr.width, intr.height) or 1.0
+                scale = pixel_scale(image_width, image_height, intr.width, intr.height, default_px) or 1.0
                 u, v = u * scale, v * scale
             parent = str(getattr(config.cameras, camera).parent_frame)
             joints = arm_joints(required=camera == "gripper")

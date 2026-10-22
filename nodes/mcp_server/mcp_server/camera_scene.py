@@ -38,6 +38,9 @@ FRAME_ARM = "arm_base"
 GROUND_METHOD = (
     "pinhole ray through the pixel intersected with the horizontal plane at floor + surface_height_m (camera_geometry)"
 )
+# Calibrated image size shown in tool descriptions while a camera has no readable intrinsics (head_camera_cpp stream,
+# gripper camera frame).
+NOMINAL_IMAGE_SIZE = {"front": (1152, 648), "gripper": (640, 480)}
 ASPECT_TOLERANCE = 0.005  # relative aspect-ratio difference within which a calibration scales to the image size
 logger = logging.getLogger(__name__)
 # (path, mtime_ns) -> parsed file; an apply rewrites the file, so the next camera call sees the new mtime.
@@ -69,17 +72,58 @@ class PixelError(ValueError):
     """Raised when a pixel has no valid floor point (outside the image, above the horizon or behind the camera)."""
 
 
-def pixel_scale(image_width: int | None, image_height: int | None, width: int, height: int) -> float | None:
+def default_picture_size(width: int, height: int, longest_px: int) -> tuple[int, int]:
+    """Size of the default get_camera_image picture of a camera: `longest_px` on the longest side, same aspect.
+
+    Args:
+        width (int): Calibrated image width.
+        height (int): Calibrated image height.
+        longest_px (int): Longest side of the default picture (limits.default_camera_px).
+
+    Returns:
+        tuple[int, int]: (width, height), e.g. (384, 216) for a 1152x648 camera and 384.
+    """
+    factor = longest_px / max(width, height)
+    return round(width * factor), round(height * factor)
+
+
+def picture_sizes(cfg: McpServerConfig) -> dict[str, tuple[int, int]]:
+    """Default get_camera_image picture size of each camera, from its calibrated aspect.
+
+    Args:
+        cfg (McpServerConfig): Node configuration (intrinsics, limits.default_camera_px).
+
+    Returns:
+        dict[str, tuple[int, int]]: Camera name -> (width, height); a camera without readable intrinsics uses its
+            nominal frame size (NOMINAL_IMAGE_SIZE) for the aspect.
+    """
+    sizes: dict[str, tuple[int, int]] = {}
+    for name, nominal in NOMINAL_IMAGE_SIZE.items():
+        try:
+            intr = camera_setup(cfg, name, need_mount=False).intrinsics
+            size = (intr.width, intr.height)
+        except CameraNotCalibratedError:
+            size = nominal
+        sizes[name] = default_picture_size(*size, cfg.limits.default_camera_px)
+    return sizes
+
+
+def pixel_scale(
+    image_width: int | None, image_height: int | None, width: int, height: int, default_px: int | None = None
+) -> float | None:
     """Factor from the pixels of a (smaller or larger) image of the same camera to the calibrated image size.
 
-    get_camera_image returns 384x288 by default while the camera tools work in the calibrated size (640x480): a pixel
-    picked on the small image must be multiplied by this factor.
+    get_camera_image returns a small picture by default (384x288 for a 4:3 camera, 384x216 for the 16:9 front camera)
+    while the camera tools work in the calibrated size: a pixel picked on the small image must be multiplied by this
+    factor.
 
     Args:
         image_width (int | None): Width of the image the pixel came from; None = the calibrated size.
         image_height (int | None): Its height; None = the calibrated size.
         width (int): Calibrated image width.
         height (int): Calibrated image height.
+        default_px (int | None): limits.default_camera_px; when given, an aspect error names the camera's default
+            picture size.
 
     Returns:
         float | None: Scale (calibrated / given); None when no size was given (pixels are calibrated-size pixels).
@@ -93,9 +137,13 @@ def pixel_scale(image_width: int | None, image_height: int | None, width: int, h
         raise PixelError("give both image_width and image_height (the size of the image the pixel came from)")
     sx, sy = width / image_width, height / image_height
     if abs(sx - sy) > PIXEL_ASPECT_TOLERANCE * max(sx, sy):
+        hint = ""
+        if default_px is not None:
+            default = default_picture_size(width, height, default_px)
+            hint = f"the default get_camera_image picture of this camera is {default[0]}x{default[1]}; "
         raise PixelError(
             f"image {image_width}x{image_height} does not have the aspect of the calibrated {width}x{height} image "
-            "(a crop cannot be scaled): use the calibrated size, e.g. get_annotated_camera_image"
+            f"(a crop cannot be scaled): {hint}use that size or the calibrated size, e.g. get_annotated_camera_image"
         )
     return (sx + sy) / 2.0
 
