@@ -37,7 +37,7 @@ Precondition, checked first and stopped on when not met:
 - Sanity check, stop when it fails: >= 80 % of the recorded cloud points 0.03-0.07 m above the floor within 0.3 m of the truth box lie inside the box footprint grown by 0.03 m. This shows the box is where the truth says.
 - Exports through `scripts/ground_replay_scenes.yaml`:
   - baseline fixtures `nodes/ground_estimator_cpp/test/data/replay_rgbd/{home,box,ramp,empty}_baseline.bin`, 15 s windows, `pairs: false`, each <= 3 MB;
-  - `nodes/bridges/arducam_tof/tests/data/amplitude_frames.npz`: <= 40 ToF frames over home, ramp and empty, <= 2 MB, plus the truth polygons (board, ramp, empty) and the plane from the floor fit of the empty frames. This is for tof-amplitude-gate.
+  - `nodes/bridges/arducam_tof/tests/data/amplitude_frames.npz` through `export_tof_frames` (replay-format-v2) with the committed `truth.yaml`: <= 40 ToF frames over home, ramp and empty, <= 2 MB, with keys `tof_depth_mm`, `tof_amplitude`, `tof_base_T`, `tof_stamps_ns`, `tof_K`, `tof_D`, `tof_size`, `scene`, `truth_board`, `truth_ramp`, `truth_empty` and `floor_plane`. This is for tof-amplitude-gate.
 - `test/test_replay.cpp`: one `ReplayBaseline.<Scene>` test per baseline fixture. Each replays with guidance off (`Guidance::off`) and the shipped config and prints `replay-baseline <scene>: ...` with every metric of part guidance-replay-harness. It asserts only plane_share > 0, because the baseline is recorded, not judged. Run 4's existing replay tests still pass.
 - README `nodes/ground_estimator_cpp/README.md` `## Replay tests`: a "Baseline 2026-10" table with the per-scene lines, the scene sheet values and the truth provenance.
 
@@ -45,7 +45,7 @@ Precondition, checked first and stopped on when not met:
 
 - a1: the four baseline fixtures and the truth are committed [evidence: command: git ls-files nodes/ground_estimator_cpp/test/data/replay_rgbd/home_baseline.bin nodes/ground_estimator_cpp/test/data/replay_rgbd/box_baseline.bin nodes/ground_estimator_cpp/test/data/replay_rgbd/ramp_baseline.bin nodes/ground_estimator_cpp/test/data/replay_rgbd/empty_baseline.bin nodes/ground_estimator_cpp/test/data/replay_rgbd/truth.yaml | wc -l | grep -qx ' *5']
 - a2: the ToF frame subset for the amplitude gate is committed [evidence: command: git ls-files nodes/bridges/arducam_tof/tests/data/amplitude_frames.npz | grep -q amplitude_frames]
-- a3: every committed fixture is at most 3 MB [evidence: command: test -z "$(find nodes/ground_estimator_cpp/test/data/replay_rgbd -name '*.bin' -size +2930k)"]
+- a3: every baseline fixture is at most 3 MB [evidence: command: test -z "$(find nodes/ground_estimator_cpp/test/data/replay_rgbd -name '*_baseline.bin' -size +2930k)"]
 - a4: the baseline replays print their metric lines and run 4's replay assertions still pass [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
 - a5: the README carries the baseline table [evidence: doc-section: nodes/ground_estimator_cpp/README.md#Replay tests]
 - a6: the truth spread and the box sanity-check numbers are in the commit message, and the recordings were made through web_ui only [evidence: judgement]
@@ -87,3 +87,5 @@ Five fixture files and the ToF subset committed; `scripts/cpp-node-test.sh groun
 - Robot static and charging; only head commands are sent, through `scripts/ground_record.py`.
 - Never use rclpy, `ros2 topic` or SSH on the client (memory `feedback_no_rclpy_probes_on_client`).
 - If the head poses do not show board + box in one view, choose poses that do and record them in `ground_record.yaml`.
+
+- 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
