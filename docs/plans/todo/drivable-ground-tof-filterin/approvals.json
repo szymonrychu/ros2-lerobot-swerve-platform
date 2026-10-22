@@ -435,5 +435,18 @@
       "capture-baseline-recordings"
     ],
     "status": "approved"
+  },
+  {
+    "id": "Q10",
+    "text": "User 2026-10-22 approved (yes, with floor retention kept at 95 %, not 90 %): the retuned filter removes >= 80 % of the box-edge mixed pixels, the filter plus amplitude gate keep >= 95 % of the floor pixels, live it removes <= 10 % of all pixels, and false warnings behind the box stay in <= 5 % of frames (D23, D26, D27)",
+    "decisions": [
+      "D53"
+    ],
+    "tasks": [
+      "tof-flying-pixel-retune",
+      "tof-filter-live-check",
+      "ground-estimator-live-scene"
+    ],
+    "status": "approved"
   }
 ]

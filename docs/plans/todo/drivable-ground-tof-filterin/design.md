@@ -668,6 +668,9 @@ User 2026-10-22 approved (yes): solver fits the board-on-jaw pose, measurement o
 ### D52: User 2026-10-22 approved (yes): head-from-arm calibration before the scene recording
 User 2026-10-22 approved (yes): run the head-from-arm calibration live step before recording the ground scene, so every recording and replay carries the calibrated head chain; the board goes back into the scene and the placements are re-measured before the baseline recording (D21) (user decision)
 
+### D53: User 2026-10-22 approved (yes): filter thresholds, floor kept >= 95 % with the gate
+User 2026-10-22 approved (yes, with floor retention kept at 95 %, not 90 %): the retuned filter removes >= 80 % of the box-edge mixed pixels, the filter plus amplitude gate keep >= 95 % of the floor pixels, live it removes <= 10 % of all pixels, and false warnings behind the box stay in <= 5 % of frames (D23, D26, D27) (user decision)
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -776,6 +779,7 @@ User 2026-10-22 approved (yes): run the head-from-arm calibration live step befo
 | D50 User 2026-10-22 approved (yes): clip board only after base p | head-arm-pose-capture-sequen, head-arm-calibrate-ui-sectio |
 | D51 User 2026-10-22 approved (yes): solver fits the board-on-jaw | arm-board-pose-set, head-from-arm-board-solver |
 | D52 User 2026-10-22 approved (yes): head-from-arm calibration before the scene recording | calib-robot-runbook, capture-baseline-recordings |
+| D53 User 2026-10-22 approved (yes): filter thresholds, floor kept >= 95 % with the gate | tof-flying-pixel-retune, tof-filter-live-check, ground-estimator-live-scene |
 
 ## Contracts
 
