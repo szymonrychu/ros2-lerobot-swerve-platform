@@ -1,6 +1,6 @@
 ---
 title: MCP front camera applied
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent's front camera tools become calibrated: pixel rays use the applied intrinsics and the measured camera mount."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/camera_scene.py, ansible/group_vars/client.yml, nodes/mcp_server/tests/test_camera_config.py, nodes/mcp_server/tests/test_camera_scene_head.py]
@@ -12,8 +12,7 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--mcp-front-camera-applied
-branch: drivable-ground-tof-filterin--mcp-front-camera-applied
+branch: main
 verified_head: cabdd10b8914fbd5ecf2e189e77bac6e4142b14e
 run: drivable-ground-tof-filterin
 provides: []
