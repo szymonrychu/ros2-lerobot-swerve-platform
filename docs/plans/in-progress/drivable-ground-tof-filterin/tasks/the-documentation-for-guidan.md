@@ -35,7 +35,9 @@ Why: Operators who tune these keys would get the wrong meaning. Those files belo
 
 ## Files
 
-
+- `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp`
+- `nodes/ground_estimator_cpp/config/ground_estimator.yaml`
+- `ansible/group_vars/client.yml`
 
 ## Interfaces
 

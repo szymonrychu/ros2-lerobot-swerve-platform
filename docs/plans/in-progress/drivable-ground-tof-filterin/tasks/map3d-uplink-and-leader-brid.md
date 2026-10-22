@@ -35,7 +35,8 @@ Why: This is a likely part of how Wi-Fi outages spread into the robot graph. To 
 
 ## Files
 
-
+- `ansible/group_vars/client.yml`
+- `nodes/map3d_uplink/README.md`
 
 ## Interfaces
 

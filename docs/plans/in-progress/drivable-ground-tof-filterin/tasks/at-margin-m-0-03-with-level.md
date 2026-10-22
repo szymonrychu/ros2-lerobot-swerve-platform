@@ -35,7 +35,10 @@ Why: Tier-2 poses that turn shoulder_pan right by 0.3-0.35 rad from a pan-0 base
 
 ## Files
 
-
+- `nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml`
+- `nodes/head_rgbd_calibration/head_rgbd_calibration/config.py`
+- `ansible/group_vars/client.yml`
+- `nodes/head_rgbd_calibration/tests/test_arm_pose_set.py`
 
 ## Interfaces
 

@@ -35,7 +35,8 @@ Why: The map3d uplink seems not to be feeding RTAB-Map even while the link is up
 
 ## Files
 
-
+- `nodes/map3d_uplink/README.md`
+- `ansible/group_vars/server.yml`
 
 ## Interfaces
 
