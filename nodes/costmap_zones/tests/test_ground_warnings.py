@@ -18,12 +18,16 @@ install_ros_stubs()
 from costmap_zones.config import CostmapZonesConfig  # noqa: E402
 from costmap_zones.ground_warnings import GroundWarningStore, parse_warning_areas  # noqa: E402
 from costmap_zones.node import ZoneMaskPublisher  # noqa: E402
+from costmap_zones.raster import MapGeometry, fill_zone  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[3]
 INSIDE_CELL = (5, 5)
 OUTSIDE_CELL = (5, 15)
 AREA_POLYGON = [[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]]
 OTHER_POLYGON = [[1.2, 0.2], [1.8, 0.2], [1.8, 0.8], [1.2, 0.8]]
+
+
+GEOMETRY = MapGeometry.from_map_info("map", make_map().info)
 
 
 class Clock:
@@ -115,19 +119,19 @@ def test_parse_rejects(data: str) -> None:
 
 def test_store_ttl_expiry(clock: Clock) -> None:
     store = GroundWarningStore(3.0, logging.getLogger("t"), clock)
-    assert store.receive(warning(area()).data, "map") is None
+    assert store.receive(warning(area()).data, "map", GEOMETRY) is None
     clock.t += 2.9
-    assert len(store.active()) == 1
+    assert store.active_cells(GEOMETRY)[INSIDE_CELL]
     clock.t += 0.2
-    assert store.active() == []
+    assert not store.active_cells(GEOMETRY).any()
 
 
 def test_store_frame_mismatch_ignored_and_logged_once(clock: Clock, caplog: pytest.LogCaptureFixture) -> None:
     store = GroundWarningStore(3.0, logging.getLogger("t"), clock)
     with caplog.at_level(logging.WARNING):
-        assert store.receive(warning(area(), frame="odom").data, "map") == "frame_mismatch"
-        assert store.receive(warning(area(), frame="odom").data, "map") == "frame_mismatch"
-    assert store.active() == []
+        assert store.receive(warning(area(), frame="odom").data, "map", GEOMETRY) == "frame_mismatch"
+        assert store.receive(warning(area(), frame="odom").data, "map", GEOMETRY) == "frame_mismatch"
+    assert not store.active_cells(GEOMETRY).any()
     assert len([r for r in caplog.records if "odom" in r.getMessage()]) == 1
 
 
@@ -223,6 +227,90 @@ def test_areas_gauge(node: ZoneMaskPublisher, log: list) -> None:
     ready(node)
     node.on_ground(warning(area(), area(OTHER_POLYGON)))
     assert REGISTRY.get_sample_value("costmap_zones_ground_areas") == 2
+
+
+def jitter(polygon: list[list[float]], d: float) -> list[list[float]]:
+    return [[x + d, y - d] for x, y in polygon]
+
+
+def test_jittered_polygons_same_cells_publish_once(node: ZoneMaskPublisher, log: list, clock: Clock) -> None:
+    inner = [[0.22, 0.22], [0.78, 0.22], [0.78, 0.78], [0.22, 0.78]]  # edges inside cells, not on cell boundaries
+    ready(node)
+    node.on_ground(warning(area(inner)))
+    n = count(log, "ground_cost")
+    for k in range(20):
+        clock.t += 0.2
+        node.on_ground(warning(area(jitter(inner, 0.001 * (k % 3 - 1)))))
+    assert count(log, "ground_cost") == n
+    assert count(log, "speed") == n
+
+
+def test_alternating_area_sets_same_cells_no_churn(node: ZoneMaskPublisher, log: list, clock: Clock) -> None:
+    whole = area()
+    halves = [
+        area([[0.2, 0.2], [0.5, 0.2], [0.5, 0.8], [0.2, 0.8]]),
+        area([[0.5, 0.2], [0.8, 0.2], [0.8, 0.8], [0.5, 0.8]]),
+    ]
+    ready(node)
+    node.on_ground(warning(whole))
+    clock.t += 0.6
+    node.on_ground(warning(*halves))  # may add the cells on the shared edge, once
+    n = count(log, "ground_cost")
+    for k in range(10):
+        clock.t += 0.2
+        node.on_ground(warning(whole) if k % 2 else warning(*halves))
+    assert count(log, "ground_cost") == n
+
+
+def test_cell_expires_after_ttl(node: ZoneMaskPublisher, log: list, clock: Clock) -> None:
+    ready(node)
+    node.on_ground(warning(area()))
+    n = count(log, "ground_cost")
+    clock.t += 2.9
+    node.on_ground(warning(area(OTHER_POLYGON)))
+    assert count(log, "ground_cost") == n + 1
+    clock.t += 0.6  # first cells are 3.5 s old, the other area's cells 0.6 s
+    node.tick()
+    assert count(log, "ground_cost") == n + 2
+    cost = grid(last(log, "ground_cost"))
+    assert cost[INSIDE_CELL] == -1 and cost[5, 15] == 40
+    node.tick()
+    assert count(log, "ground_cost") == n + 2
+
+
+def test_many_messages_bounded_by_cell_union(node: ZoneMaskPublisher, log: list, clock: Clock) -> None:
+    ready(node)
+    union = np.zeros((GEOMETRY.height, GEOMETRY.width), dtype=bool)
+    for k in range(30):
+        clock.t += 0.05
+        polygon = [[0.2 + 0.01 * k, 0.2], [0.4 + 0.01 * k, 0.2], [0.4 + 0.01 * k, 0.4], [0.2 + 0.01 * k, 0.4]]
+        node.on_ground(warning(area(polygon)))
+        union |= fill_zone(GEOMETRY, tuple(map(tuple, polygon)))
+    clock.t += 1.0
+    node.tick()
+    active = node.ground.active_cells(GEOMETRY)
+    assert (active == union).all()
+    assert REGISTRY.get_sample_value("costmap_zones_ground_cells") == union.sum()
+    assert (grid(last(log, "ground_cost")) == 40).sum() == union.sum()
+
+
+def test_geometry_change_clears_cells(node: ZoneMaskPublisher, log: list) -> None:
+    ready(node)
+    node.on_ground(warning(area()))
+    assert node.ground.active_cells(GEOMETRY).any()
+    bigger = MapGeometry.from_map_info("map", make_map(width=40).info)
+    cells = node.ground.active_cells(bigger)
+    assert cells.shape == (10, 40) and not cells.any()
+    assert not node.ground.active_cells(GEOMETRY).any()
+
+
+def test_cells_gauge(node: ZoneMaskPublisher, log: list) -> None:
+    ready(node)
+    node.on_ground(warning(area()))
+    cells = int((grid(last(log, "ground_cost")) == 40).sum())
+    assert cells > 0
+    assert REGISTRY.get_sample_value("costmap_zones_ground_cells") == cells
+    assert REGISTRY.get_sample_value("costmap_zones_ground_areas") == 1
 
 
 def test_config_defaults() -> None:

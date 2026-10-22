@@ -22,6 +22,7 @@ from .config import CostmapZonesConfig
 from .ground_warnings import GroundWarningStore, active_key
 from .metrics import (
     GROUND_AREAS,
+    GROUND_CELLS,
     GROUND_IGNORED,
     ZONE_PUBLISHES,
     ZONES_ACTIVE,
@@ -57,7 +58,7 @@ REASON_ROTATED_MAP = "rotated_map"
 MASK_KEEPOUT = "keepout"
 MASK_SPEED = "speed"
 MASK_GROUND_COST = "ground_cost"
-PublishKey = tuple[tuple[str, float, float, float, int, int], str, frozenset]
+PublishKey = tuple[tuple[str, float, float, float, int, int], str, bytes]
 TICK_PERIOD_S = 0.25
 
 
@@ -79,8 +80,8 @@ class ZoneMaskPublisher:
 
     Nothing is published until a valid /map and a valid /poi/list have both arrived (No Placeholder Data).
     The filter infos go out once, right after the first masks, and never again: a re-sent info makes the Nav2
-    filter re-subscribe to its mask. Ground warning areas (TTL store) lower the speed mask and fill the local-only
-    ground cost mask; a change of the active area set republishes at most ground_mask_max_rate_hz (tick() flushes
+    filter re-subscribe to its mask. Ground warning cells (per-cell TTL store) lower the speed mask and fill the local-only
+    ground cost mask; a change of the active cell set republishes at most ground_mask_max_rate_hz (tick() flushes
     a deferred change and expiry). The keepout mask never carries ground areas, and a mask whose digest equals the last published one is not
     republished (a ground flap republishes only the speed and ground cost masks).
     """
@@ -173,7 +174,7 @@ class ZoneMaskPublisher:
             msg (String): JSON of contract ground-warning-areas.
         """
         frame = self.map_msg.header.frame_id if self.map_msg is not None else None
-        reason = self.ground.receive(msg.data, frame)
+        reason = self.ground.receive(msg.data, frame, self.geometry)
         if reason is not None:
             GROUND_IGNORED.labels(reason).inc()
             return
@@ -187,9 +188,10 @@ class ZoneMaskPublisher:
         """Publish the masks (and, the first time, the infos) when the publish key changed."""
         if self.map_msg is None or self.geometry is None or self.zones is None:
             return
-        areas = self.ground.active()
-        GROUND_AREAS.set(len(areas))
-        key = (geometry_key(self.geometry), zones_digest(self.zones), active_key(areas))
+        cells = self.ground.active_cells(self.geometry)
+        GROUND_AREAS.set(self.ground.area_count)
+        GROUND_CELLS.set(int(cells.sum()))
+        key = (geometry_key(self.geometry), zones_digest(self.zones), active_key(cells))
         if key == self.published_key:
             return
         now = self.monotonic()
@@ -200,11 +202,10 @@ class ZoneMaskPublisher:
             and now - self.last_publish_monotonic < 1.0 / self.config.ground_mask_max_rate_hz
         ):
             return
-        polygons = [tuple(area.polygon) for area in areas]
         try:
             keepout = rasterise_keepout(self.geometry, self.zones, self.config.slow_zone_mask_value)
-            speed = rasterise_speed(self.geometry, self.zones, polygons, self.config.ground_warning_speed_pct)
-            ground_cost = rasterise_ground_cost(self.geometry, polygons, self.config.ground_warning_mask_value)
+            speed = rasterise_speed(self.geometry, self.zones, cells, self.config.ground_warning_speed_pct)
+            ground_cost = rasterise_ground_cost(self.geometry, cells, self.config.ground_warning_mask_value)
         except RotatedMapError as exc:
             if key[0] != self.rejected_geometry:
                 self.rejected_geometry = key[0]
@@ -230,7 +231,7 @@ class ZoneMaskPublisher:
             return
         ZONES_LAST_PUBLISH.set(time.time())
         self.logger.info(
-            f"published masks {published}: {len(self.zones)} active zones, {len(areas)} ground areas, "
+            f"published masks {published}: {len(self.zones)} active zones, {int(cells.sum())} ground cells, "
             f"map {self.geometry.width}x{self.geometry.height}"
         )
         if not self.infos_sent:
