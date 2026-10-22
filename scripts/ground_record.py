@@ -271,13 +271,18 @@ async def record_scene(
 
     config.out_dir.mkdir(parents=True, exist_ok=True)
     capture = asyncio.create_task(capture_lines(scene, ws, config.out_dir / f"{scene.name}.ndjson"))
+    done = asyncio.create_task(wait_done(scene, client, poll_interval_s))
     try:
         body = {"name": scene.name, "duration_s": scene.duration_s}
         check(await client.post(RECORDINGS_PATH, json=body), scene, STEP_START)
-        await wait_done(scene, client, poll_interval_s)
+        await asyncio.wait({capture, done}, return_when=asyncio.FIRST_COMPLETED)
+        if capture.done() and not capture.cancelled() and capture.exception() is not None:
+            raise SceneError(scene.name, STEP_CAPTURE, f"websocket capture failed: {capture.exception()!r}")
+        await done
     finally:
-        capture.cancel()
-        await asyncio.gather(capture, return_exceptions=True)
+        for task in (capture, done):
+            task.cancel()
+        await asyncio.gather(capture, done, return_exceptions=True)
 
     item = f"{RECORDINGS_PATH}/{scene.name}"
     response = check(await client.get(item), scene, STEP_DOWNLOAD)

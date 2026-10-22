@@ -127,6 +127,25 @@ def test_refused_head_command_is_the_scene_failure(tmp_path: Path) -> None:
     assert "POST /api/ground/recordings" not in calls
 
 
+def test_websocket_drop_during_capture_fails_scene_at_capture_step(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class DroppingWebSocket(FakeWebSocket):
+        async def recv(self) -> str:
+            if self.inbox.empty() and "POST /api/ground/recordings" in calls:
+                raise ConnectionError("websocket dropped")
+            return await super().recv()
+
+    ws = DroppingWebSocket(calls)
+    ws.push(head_js(35, 29.4))
+
+    with pytest.raises(SceneError, match="dropped") as error:
+        run_scene(make_config(tmp_path), ws, make_client(calls, done=False))
+
+    assert error.value.step == "capture"
+    assert not any(call.startswith("DELETE") for call in calls)
+
+
 def test_capture_lines_written_in_report_format(tmp_path: Path) -> None:
     calls: list[str] = []
     ws = FakeWebSocket(calls)
