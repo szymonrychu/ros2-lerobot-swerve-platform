@@ -16,5 +16,11 @@
     "accept": true,
     "reason": "verifier agent died; verification: Summary 397 tests, 0 failures, cpp-node-test PASS",
     "at": "2026-10-22T17:02:41Z"
+  },
+  {
+    "task": "ground-record-script",
+    "accept": true,
+    "reason": "verify-task.py crashed (diff against 'placeholder'), not a task fault; orchestrator verified HEAD c2263422 on its branch, clean tree: tests/test_ground_record.py 7 passed, poe lint clean",
+    "at": "2026-10-22T17:02:41Z"
   }
 ]

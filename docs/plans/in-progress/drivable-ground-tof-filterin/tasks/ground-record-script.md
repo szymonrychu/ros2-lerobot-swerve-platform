@@ -77,6 +77,10 @@ Builds part record-script: `scripts/ground_record.py` with `run_scene(...)`, `Re
 - write the script and `scripts/ground_record.yaml`; the same command PASSES; the ruff commands PASS
 - add the tests/README entry; commit `feat(scripts): ground scene recorder over web_ui`
 
+## Ruling
+
+- 2026-10-22 accepted: verify-task.py crashed (diff against 'placeholder'), not a task fault; orchestrator verified HEAD c2263422 on its branch, clean tree: tests/test_ground_record.py 7 passed, poe lint clean
+
 ## Notes
 
 The head command is refused by web_ui outside the head ranges or while the head is released (`server.py` head_error/released_error); surface those error messages as the scene failure. The scratchpad `ws_capture.py` shows the subscribe message shape. Never publish anything but the head command.
