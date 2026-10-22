@@ -143,7 +143,7 @@ def result_dir(store: SessionStore, sid: str, rid: str) -> Path:
     return store.result_dir(sid, rid)
 
 
-def test_passing_result_writes_every_file(cfg: NodeConfig, store: SessionStore, ready: str) -> None:
+def test_compute_writes_result_report_and_chain(cfg: NodeConfig, store: SessionStore, ready: str) -> None:
     result = compute_head_arm(cfg, store, ready, NOW)
     assert result["passed"] is True, (result["failed_limits"], result["error"])
     assert result["id"] == "r-20261022-140000"
@@ -217,7 +217,7 @@ def test_failed_limit_writes_only_report_and_result(cfg: NodeConfig, ready: str,
     assert sorted(p.name for p in directory.iterdir()) == ["report.md", "result.json"]
 
 
-def test_floor_from_applied_record_floor_entry(cfg: NodeConfig, state: Path, store: SessionStore) -> None:
+def test_floor_values_from_applied_record(cfg: NodeConfig, state: Path, store: SessionStore) -> None:
     write_intrinsics(state)
     # The head_chain record names a head_arm apply whose floor entry is the real floor result.
     put_marker(
@@ -237,7 +237,7 @@ def test_floor_from_applied_record_floor_entry(cfg: NodeConfig, state: Path, sto
     assert result["passed"] is True, result["failed_limits"]
 
 
-def test_floor_from_legacy_record_itself(cfg: NodeConfig, ready: str, store: SessionStore) -> None:
+def test_legacy_floor_record_is_the_reference(cfg: NodeConfig, ready: str, store: SessionStore) -> None:
     # `ready` holds the legacy {session, result, applied_at} record of the floor apply.
     result = compute_head_arm(cfg, store, ready, NOW)
     assert result["floor"] == {"session": FLOOR_SID, "result": FLOOR_RID}
@@ -256,7 +256,7 @@ def test_no_floor_record_fails_cross_check(cfg: NodeConfig, state: Path, store: 
     assert not (directory / "head_chain.json").exists()
 
 
-def test_apply_writes_chain_and_record(cfg: NodeConfig, state: Path, store: SessionStore, ready: str) -> None:
+def test_apply_writes_applied_chain_and_record(cfg: NodeConfig, state: Path, store: SessionStore, ready: str) -> None:
     result = compute_head_arm(cfg, store, ready, NOW)
     body = apply_head_arm(cfg, store, ready, result["id"], NOW, fake_run)
     source = result_dir(store, ready, result["id"]) / "head_chain.json"
@@ -281,7 +281,7 @@ def test_apply_writes_chain_and_record(cfg: NodeConfig, state: Path, store: Sess
     assert not list((state / "applied").glob(".tmp-*"))
 
 
-def test_apply_refuses_failed_result(cfg: NodeConfig, state: Path, store: SessionStore) -> None:
+def test_failed_result_not_applicable(cfg: NodeConfig, state: Path, store: SessionStore) -> None:
     write_intrinsics(state)
     put_marker(state)
     sid = make_session(store, cfg)
