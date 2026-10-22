@@ -198,6 +198,17 @@
               tags: [monitoring]
           tags: [monitoring]
 
+        # Not a ROS node: `./scripts/deploy-nodes.sh server system` (--tags system) applies roles/system_optimize (debloat,
+        # sysctl, journald, watchdog, persistent Wi-Fi power save off). `never` keeps it out of every other run: an
+        # untagged --all and node or phase tags skip it. It restarts no ROS node (only its own services), so nothing is
+        # queued; a failure is still covered by the rescue below.
+        - name: System optimization (roles/system_optimize)
+          ansible.builtin.include_role:
+            name: system_optimize
+            apply:
+              tags: [system, never]
+          tags: [system, never]
+
       # A failure anywhere above (after a heavy step stopped the nodes, say) must not leave the robot down: restart the
       # queued nodes and start the stopped ones, whatever that start does, then fail the run with the original error.
       rescue:

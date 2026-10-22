@@ -184,8 +184,29 @@ def test_every_task_in_role_and_task_files_carries_a_documented_tag(path: Path) 
 
 def test_non_node_targets_are_parsed() -> None:
     """Guard against a vacuous pass: both hosts have the monitoring target (agent on both, stack on the server)."""
-    assert non_node_targets("client") == {"monitoring", "jetson_link"}
-    assert non_node_targets("server") == {"monitoring"}
+    assert "system" in non_node_targets("client")
+    assert non_node_targets("client") - {"system"} == {"monitoring", "jetson_link"}
+    assert non_node_targets("server") == {"monitoring", "system"}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_system_target_includes_system_optimize_only_under_system_and_never(target: str) -> None:
+    """`system` applies roles/system_optimize (it debloats packages): the include carries tags system AND never, so only
+    an explicit system tag runs it; --all, node and phase tags cannot reach it."""
+    assert "system" in non_node_targets(target)
+    play = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]
+    includes = [
+        (task, tags)
+        for section in ("pre_tasks", "tasks", "post_tasks")
+        for task, tags in effective_tasks(play.get(section, []))
+        if "system_optimize" in str(task.get("ansible.builtin.include_role", ""))
+    ]
+    assert len(includes) == 1
+    task, tags = includes[0]
+    assert {"system", "never"} <= tags
+    assert tags & (PHASE_TAGS | set(node_names(target)) | {"monitoring"}) == set()
+    assert task["ansible.builtin.include_role"]["apply"]["tags"] == ["system", "never"]
+    assert task.get("tags") == ["system", "never"]
 
 
 @pytest.mark.parametrize("target", TARGETS)
