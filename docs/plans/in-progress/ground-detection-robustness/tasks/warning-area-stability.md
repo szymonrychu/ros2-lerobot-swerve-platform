@@ -1,6 +1,6 @@
 ---
 title: Warning area stability
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Slow-down areas stop appearing and vanishing frame to frame, so the planner sees a steady scene."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_class.hpp, nodes/ground_estimator_cpp/src/core/cell_class.cpp, nodes/ground_estimator_cpp/test/core/test_cell_class.cpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--warning-area-stability
+branch: ground-detection-robustness--warning-area-stability
 verified_head: ""
 run: ""
 provides: []

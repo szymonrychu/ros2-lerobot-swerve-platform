@@ -1,6 +1,6 @@
 ---
 title: Replay acceptance and docs
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The live-round acceptance holds on real data in every build, and the changes are documented for the next developer."
 files: [nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--replay-acceptance-and-docs
+branch: ground-detection-robustness--replay-acceptance-and-docs
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: Occlusion and segment config
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One validated, deployed definition of the new occlusion and segment-step settings for the two fixes that use them."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--occlusion-and-segment-config
+branch: ground-detection-robustness--occlusion-and-segment-config
 verified_head: ""
 run: ""
 provides: []

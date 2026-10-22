@@ -1,6 +1,6 @@
 ---
 title: ToF flying pixel filter
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Object edges stop dragging fake ramps and steps into every ToF consumer, at the source."
 files: [nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/tests/test_config.py, nodes/bridges/arducam_tof/README.md, ansible/group_vars/client.yml, tests/test_arducam_tof_config.py, tests/README.md]
@@ -12,8 +12,8 @@ model: sonnet
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--tof-flying-pixel-filter
+branch: ground-detection-robustness--tof-flying-pixel-filter
 verified_head: ""
 run: ""
 provides: []
