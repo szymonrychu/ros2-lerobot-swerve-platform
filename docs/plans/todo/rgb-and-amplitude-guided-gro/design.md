@@ -267,6 +267,9 @@ User 2026-10-22 approved (yes): user sets and keeps the scene; box/ramp dimensio
 ### D17: User 2026-10-22 approved (yes): keep head mapping RGB at 2 H
 User 2026-10-22 approved (yes): keep head mapping RGB at 2 Hz (user decision)
 
+### D18: User 2026-10-22 approved (yes): RGB edges refine only lethal
+User 2026-10-22 approved (yes): RGB edges refine only lethal boundaries (user decision)
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -313,6 +316,7 @@ User 2026-10-22 approved (yes): keep head mapping RGB at 2 Hz (user decision)
 | D15 Tiers and rule unchanged | guidance-replay-acceptance, live-report-guidance-metrics |
 | D16 User 2026-10-22 approved (yes): user sets and keeps the scen | capture-baseline-recordings, scene-truth-from-board |
 | D17 User 2026-10-22 approved (yes): keep head mapping RGB at 2 H | rgbd-upsampling-on |
+| D18 User 2026-10-22 approved (yes): RGB edges refine only lethal | no-return-core |
 
 ## Contracts
 

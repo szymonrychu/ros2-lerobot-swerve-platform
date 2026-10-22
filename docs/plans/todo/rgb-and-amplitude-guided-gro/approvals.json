@@ -154,5 +154,16 @@
       "rgbd-upsampling-on"
     ],
     "status": "approved"
+  },
+  {
+    "id": "Q3",
+    "text": "User 2026-10-22 approved (yes): RGB edges refine only lethal boundaries",
+    "decisions": [
+      "D18"
+    ],
+    "tasks": [
+      "no-return-core"
+    ],
+    "status": "approved"
   }
 ]
