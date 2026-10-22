@@ -231,5 +231,15 @@
       "head-chain-floor-plane-fit-a"
     ],
     "note": "/tof/depth/image_raw: pixels at depth discontinuities (a valid 3x3 neighbour differing by more than max(flying_pixel_min_jump_mm, flying_pixel_jump_ratio * depth)) are published as 0 (invalid, REP 118) when flying_pixel_filter is true (default); flat floor 0.3-2.0 m keeps >= 95 %; counter tof_flying_pixels_removed_total; owner task tof-flying-pixel-filter"
+  },
+  {
+    "name": "head-arm-fit",
+    "kind": "api",
+    "owner": "head-and-arm-calibration-fro",
+    "file": "shared/ros2_common/head_rgbd_calibration/head_arm_fit.py",
+    "consumers": [
+      "arm-joint-offsets-from-the-g"
+    ],
+    "note": "fit_head_from_arm, HeadArmFit, aim_head; owner task head-from-arm-board-solver"
   }
 ]
