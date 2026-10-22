@@ -3302,6 +3302,20 @@ README, Replay tests). Synthetic recordings with the real key layout are written
 | `test_export_trims_window` | Only clouds and IMU samples stamped in [first cloud + `START_S`, + `DURATION_S`) are kept; the offsets are rebuilt from the kept clouds. |
 | `test_read_rejects_wrong_magic` | A file without the `GRNDRPLY` magic is rejected with `ValueError`. |
 
+### `test_ground_scene_truth.py`
+
+Unit tests for `scripts/ground_scene_truth.py` (replay-scene ground truth from the ChArUco board pose). A board rendered
+through a distorted pinhole at a known pose in base_link (`tests/rgbd_synthetic.py`) stands in for the recording.
+
+| Test | Description |
+|------|-------------|
+| `test_truth_from_rendered_board` | The board outline recovered from a distorted rendered view lands within 5 mm of the placed board, also yawed. |
+| `test_placements_build_polygons` | Box and ramp footprints follow from the board corners (any order), dims and measured placements, including a yawed placement and both `low_end` values. |
+| `test_moving_board_rejected` | A board 1 cm away in some frames fails: no truth from a moving or occluded board. |
+| `test_too_few_detections_rejected` | Fewer than 5 accepted detections (or a frame without a board) fail. |
+| `test_scene_sheet_validates` | `SceneSheet` fills the path defaults, requires the measured fields and rejects unknown keys. |
+| `test_run_writes_truth_yaml` | The script reads an npz recording and a sheet from `tmp_path` and writes the truth YAML with provenance. |
+
 ### `test_ground_robustness_runbook.py`
 
 Guards for `docs/runbooks/ground-robustness.md` (static ground robustness runbook, robot parked).
