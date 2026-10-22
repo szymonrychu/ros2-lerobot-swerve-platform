@@ -18,6 +18,8 @@ namespace ground_estimator_cpp
 // A point P is occluded when a nearer point Q (smaller horizontal distance from the sensor) in the same azimuth bin
 // of cfg.azimuth_bin_deg has h_Q >= cfg.min_occluder_height_m, h_P <= h_Q - cfg.min_height_drop_m and
 // elevation(P) <= elevation(Q) + cfg.elevation_margin_deg, elevation = atan2(h - sensor_height_m, distance).
+// An occluder is supported: its height is the median of its own and its two nearer neighbours in the bin, so a single
+// noisy return never casts a shadow, and a bin needs three points before it has an occluder.
 // One refinement keeps vertical faces (a wall, a box front) from shadowing themselves: a Q closer than one bin width
 // of range (distance * bin width in radians) counts only when |elevation(P) - elevation(Q)| is within half the
 // margin, i.e. P lies on Q's ray, as a mixed pixel does, not on the face below it.

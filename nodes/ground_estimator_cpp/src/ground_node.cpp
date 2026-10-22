@@ -16,6 +16,7 @@
 #include <thread>
 #include <utility>
 
+#include "ground_estimator_cpp/occlusion.hpp"
 #include "ground_estimator_cpp/segmentation.hpp"
 
 namespace ground_estimator_cpp
@@ -29,7 +30,8 @@ constexpr double NS_PER_S = 1e9;
 constexpr double QUATERNION_NORM_TOLERANCE = 1e-3;
 constexpr double UNKNOWN_COVARIANCE = -1.0;  // sensor_msgs/Imu: orientation not provided
 constexpr double MIN_NORMAL_Z = 1e-6;
-constexpr double SAME_EDGE_M = 1e-9;  // a region copies its cluster's edge line exactly
+constexpr double FLOOR_NOISE_KEEP_M = 0.01;  // shadowed points this close to the plane stay (see drop_occluded)
+constexpr double SAME_EDGE_M = 1e-9;         // a region copies its cluster's edge line exactly
 constexpr std::array<double, 9> FIT_SECONDS_BUCKETS = {0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.5, 1.0};
 constexpr std::array<FitReject, 6> ALL_REJECTS = {FitReject::too_few_points,   FitReject::no_plane,
                                                   FitReject::normal_off_prior, FitReject::offset_off_prior,
@@ -45,7 +47,7 @@ struct GaugeSpec
   const char * help;
 };
 
-constexpr std::array<GaugeSpec, 12> GAUGES = {{
+constexpr std::array<GaugeSpec, 13> GAUGES = {{
   {METRIC_INLIER_RATIO, "Inlier ratio of the last valid plane fit"},
   {METRIC_SLOPE, "Floor slope against gravity of the last cloud with a plane and a fresh IMU, degrees"},
   {METRIC_PLANE_VS_BASE, "Angle between the floor normal and base_link +z of the last cloud with a plane, degrees"},
@@ -58,6 +60,7 @@ constexpr std::array<GaugeSpec, 12> GAUGES = {{
    "Temporal cells unknown in the last cloud because their spread exceeded temporal.max_spread_m"},
   {METRIC_STABLE_LETHAL, "Fixed-frame cells whose stable class is obstacle or drop"},
   {METRIC_STABLE_WARNING, "Fixed-frame cells whose stable class is warning"},
+  {METRIC_OCCLUDED_POINTS, "Points of the last ToF cloud with a plane dropped by the occlusion shadow gate"},
   {METRIC_MISMATCH_RATIO, "Floor colour mismatch share of the floor band of the last labelled RGB-D cloud"},
 }};
 
@@ -450,7 +453,7 @@ void GroundNode::on_cloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & 
 
   const auto tracked = tracker_.current(fixed_T_base, stamp_s);
   if (tracked) {
-    process_plane(*msg, *tracked, fixed_T_base, stamp_s, started);
+    process_plane(*msg, *tracked, fixed_T_base, base_T_cloud.translation(), stamp_s, started);
   } else {
     // No valid or held plane: no cloud, no warning areas (no placeholder data); the cell history is stale.
     reset_cells();
@@ -472,9 +475,36 @@ void GroundNode::reset_cells()
   set_gauge(METRIC_STABLE_WARNING, 0.0);
 }
 
+void GroundNode::drop_occluded(const Plane & plane, const Eigen::Vector3d & sensor_base)
+{
+  const std::size_t n = filtered_cloud_.size();
+  floor_reference_.heights.resize(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    const auto & p = filtered_cloud_[i];
+    floor_reference_.heights[i] = static_cast<float>(height_above(plane, Eigen::Vector3d(p.x, p.y, p.z)));
+  }
+  const double sensor_height_m = height_above(plane, sensor_base);
+  const std::vector<bool> occluded =
+    occluded_mask(filtered_cloud_, floor_reference_.heights, sensor_base.head<2>(), sensor_height_m, config_.occlusion);
+  floor_reference_.points.clear();
+  floor_reference_.points.reserve(n);
+  std::size_t kept = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+    // A shadowed point within the ToF floor noise is floor whatever hides it: it cannot make a step, ramp or drop, and
+    // it keeps the floor level beside an obstacle.
+    if (!occluded[i] || std::fabs(floor_reference_.heights[i]) <= FLOOR_NOISE_KEEP_M) {
+      floor_reference_.points.push_back(filtered_cloud_[i]);
+      floor_reference_.heights[kept++] = floor_reference_.heights[i];
+    }
+  }
+  floor_reference_.heights.resize(kept);
+  set_gauge(METRIC_OCCLUDED_POINTS, static_cast<double>(n - kept));
+  filtered_cloud_ = floor_reference_.points;
+}
+
 void GroundNode::process_plane(
   const sensor_msgs::msg::PointCloud2 & msg, const TrackedPlane & tracked, const Eigen::Isometry3d & fixed_T_base,
-  double stamp_s, const std::chrono::steady_clock::time_point & started)
+  const Eigen::Vector3d & sensor_base, double stamp_s, const std::chrono::steady_clock::time_point & started)
 {
   const Plane & plane = tracked.plane;
   const double edge_band_m = config_.traversability.edge_band_m;
@@ -484,12 +514,16 @@ void GroundNode::process_plane(
   }
   set_gauge(METRIC_TEMPORAL_CELLS, static_cast<double>(cell_filter_.cell_count()));
   set_gauge(METRIC_TEMPORAL_GATED, static_cast<double>(cell_filter_.gated_cell_count()));
+  // The shadow gate reads the cells, not the raw points: a cell's median over the window is stable to a few millimetres
+  // where a raw point scatters by centimetres, so a 5 cm box is told from floor noise and its mixed-pixel tail (a
+  // stable bias, which no per-point test removes) from the floor behind it.
+  drop_occluded(plane, sensor_base);
   const Segmented seg = segment(filtered_cloud_, plane, config_.bands, config_.fit.distance_m);
-  auto above =
-    extract_clusters(seg.above, seg.above_height, "step", plane, config_.edges, edge_band_m, &unclustered_index_);
+  auto above = extract_clusters(
+    seg.above, seg.above_height, "step", plane, config_.edges, edge_band_m, &unclustered_index_, &floor_reference_);
   gather(seg.above, seg.above_height, unclustered_index_, unclustered_above_, unclustered_above_h_);
-  auto below =
-    extract_clusters(seg.below, seg.below_height, "drop", plane, config_.edges, edge_band_m, &unclustered_index_);
+  auto below = extract_clusters(
+    seg.below, seg.below_height, "drop", plane, config_.edges, edge_band_m, &unclustered_index_, &floor_reference_);
   gather(seg.below, seg.below_height, unclustered_index_, unclustered_below_, unclustered_below_h_);
   refine_slopes(above, 1.0, fixed_T_base);
   refine_slopes(below, -1.0, fixed_T_base);

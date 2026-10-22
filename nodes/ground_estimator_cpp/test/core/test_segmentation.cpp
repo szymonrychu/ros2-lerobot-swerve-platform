@@ -64,6 +64,20 @@ TEST(Segmentation, ClassifyBands)
   EXPECT_EQ(classify(0.0, b.max_range_m + 0.01, b, FLOOR_DISTANCE_M), Band::none);
 }
 
+TEST(Segmentation, ClassifyIgnoresTheRobotsOwnNearZone)
+{
+  // The parked gripper and the mixed pixels trailing from it read as a 6 cm obstacle up to 0.42 m from base_link.
+  const BandsConfig b;
+  EXPECT_DOUBLE_EQ(b.min_range_m, 0.42);
+  EXPECT_EQ(classify(0.06, b.min_range_m - 0.01, b, FLOOR_DISTANCE_M), Band::none);
+  EXPECT_EQ(classify(0.0, b.min_range_m - 0.01, b, FLOOR_DISTANCE_M), Band::none);
+  EXPECT_EQ(classify(-0.2, b.min_range_m - 0.01, b, FLOOR_DISTANCE_M), Band::none);
+  EXPECT_EQ(classify(0.06, b.min_range_m, b, FLOOR_DISTANCE_M), Band::above);
+  BandsConfig off;
+  off.min_range_m = 0.0;
+  EXPECT_EQ(classify(0.06, 0.1, off, FLOOR_DISTANCE_M), Band::above);
+}
+
 TEST(Segmentation, BoxOnLevelFloor)
 {
   auto scene = floor_scene();

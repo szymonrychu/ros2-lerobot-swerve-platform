@@ -667,3 +667,88 @@ TEST(EdgeSegment, BandShorterThanAWindowKeepsTheWholeBandMedian)
   ASSERT_EQ(whole.size(), 1u);
   EXPECT_NEAR(whole[0].edge_step_m, SILL_HEIGHT_M, 1e-6);
 }
+
+namespace
+{
+constexpr double BIASED_TOP_M = 0.040;     // a 5.5 cm box read from a plane that sits 1.5 cm above the local floor
+constexpr double BIASED_FLOOR_M = -0.015;  // the floor beside it, plane-relative
+constexpr double BIASED_STEP_M = BIASED_TOP_M - BIASED_FLOOR_M;
+constexpr double RING_GRID_M = 0.04;
+
+ground_estimator_cpp::FloorReference floor_ring(double x0, double x1, double y0, double y1, double h)
+{
+  ground_estimator_cpp::FloorReference ring;
+  const auto cloud = grid_cloud(x0, x1, y0, y1, RING_GRID_M, h);
+  for (const auto & p : cloud) {
+    ring.points.push_back(p);
+    ring.heights.push_back(static_cast<float>(h));
+  }
+  return ring;
+}
+
+std::vector<Cluster> biased_box(const ground_estimator_cpp::FloorReference * floor, const EdgesConfig & cfg)
+{
+  const auto top = grid_cloud(0.6, 0.8, 0.05, 0.33, GRID_M, BIASED_TOP_M);
+  const std::vector<float> heights(top.size(), static_cast<float>(BIASED_TOP_M));
+  return extract_clusters(top, heights, "step", Plane{}, cfg, EDGE_BAND_M, nullptr, floor);
+}
+}  // namespace
+
+TEST(EdgeFloorReference, StepIsMeasuredFromTheLocalFloorNotThePlane)
+{
+  const auto ring = floor_ring(0.4, 0.56, -0.1, 0.5, BIASED_FLOOR_M);
+  const auto clusters = biased_box(&ring, EdgesConfig{});
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_NEAR(clusters[0].edge_step_m, BIASED_STEP_M, 1e-6);
+  const auto plane_only = biased_box(nullptr, EdgesConfig{});
+  ASSERT_EQ(plane_only.size(), 1u);
+  EXPECT_NEAR(plane_only[0].edge_step_m, BIASED_TOP_M, 1e-6);
+}
+
+TEST(EdgeFloorReference, SwitchedOffByAZeroRadius)
+{
+  const auto ring = floor_ring(0.4, 0.56, -0.1, 0.5, BIASED_FLOOR_M);
+  EdgesConfig cfg;
+  cfg.floor_reference_m = 0.0;
+  const auto clusters = biased_box(&ring, cfg);
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_NEAR(clusters[0].edge_step_m, BIASED_TOP_M, 1e-6);
+}
+
+TEST(EdgeFloorReference, TooFewRingPointsKeepThePlane)
+{
+  EdgesConfig cfg;
+  const auto sparse = floor_ring(0.5, 0.52, 0.1, 0.12, BIASED_FLOOR_M);  // a single point
+  ASSERT_LT(sparse.points.size(), static_cast<std::size_t>(cfg.floor_reference_min_points));
+  const auto clusters = biased_box(&sparse, cfg);
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_NEAR(clusters[0].edge_step_m, BIASED_TOP_M, 1e-6);
+}
+
+TEST(EdgeFloorReference, PointsBeyondTheRadiusAndTallOnesDoNotCount)
+{
+  EdgesConfig cfg;
+  auto ring = floor_ring(1.2, 1.4, 0.0, 0.4, BIASED_FLOOR_M);  // 0.4 m beyond the box: outside the 0.2 m radius
+  const auto tall = floor_ring(0.45, 0.55, 0.05, 0.33, 0.2);   // beside the box but 20 cm tall: not floor
+  ring.points.insert(ring.points.end(), tall.points.begin(), tall.points.end());
+  ring.heights.insert(ring.heights.end(), tall.heights.begin(), tall.heights.end());
+  const auto clusters = biased_box(&ring, cfg);
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_NEAR(clusters[0].edge_step_m, BIASED_TOP_M, 1e-6);
+}
+
+TEST(EdgeFloorReference, LevelFloorLeavesTheStepAsItWas)
+{
+  const auto ring = floor_ring(0.4, 0.56, -0.1, 0.5, 0.0);
+  const auto clusters = biased_box(&ring, EdgesConfig{});
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_NEAR(clusters[0].edge_step_m, BIASED_TOP_M, 1e-6);
+}
+
+TEST(EdgeFloorReference, ALevelFarFromThePlaneIsAnotherSurfaceAndKeepsThePlane)
+{
+  const auto ring = floor_ring(0.4, 0.56, -0.1, 0.5, -0.03);  // 3 cm off the plane: a lower floor, not a bias
+  const auto clusters = biased_box(&ring, EdgesConfig{});
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_NEAR(clusters[0].edge_step_m, BIASED_TOP_M, 1e-6);
+}

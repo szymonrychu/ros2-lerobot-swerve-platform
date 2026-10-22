@@ -137,7 +137,7 @@ void parse_fit(const YAML::Node & root, Config & c, Errors & errors)
 
 void parse_bands(const YAML::Node & root, Config & c, Errors & errors)
 {
-  const YAML::Node s = section(root, "bands", {"obstacle_max_m", "drop_max_m", "max_range_m"}, errors);
+  const YAML::Node s = section(root, "bands", {"obstacle_max_m", "drop_max_m", "max_range_m", "min_range_m"}, errors);
   if (!s.IsDefined()) {
     return;
   }
@@ -146,6 +146,8 @@ void parse_bands(const YAML::Node & root, Config & c, Errors & errors)
   c.bands.drop_max_m = read<double>(s, p, "drop_max_m", c.bands.drop_max_m, errors);
   c.bands.max_range_m = read<double>(s, p, "max_range_m", c.bands.max_range_m, errors);
   rc::gt(p + "max_range_m", c.bands.max_range_m, 0.0, errors);
+  c.bands.min_range_m = read<double>(s, p, "min_range_m", c.bands.min_range_m, errors);
+  rc::ge(p + "min_range_m", c.bands.min_range_m, 0.0, errors);
 }
 
 void parse_traversability(const YAML::Node & root, Config & c, Errors & errors)
@@ -179,7 +181,7 @@ void parse_edges(const YAML::Node & root, Config & c, Errors & errors)
   const YAML::Node s = section(
     root, "edges",
     {"cluster_tolerance_m", "min_cluster_points", "max_regions", "step_max_height_m", "step_flatness_m", "slope_bin_m",
-     "slope_min_cells", "step_segment_m", "step_segment_min_points"},
+     "slope_min_cells", "step_segment_m", "step_segment_min_points", "floor_reference_m", "floor_reference_min_points"},
     errors);
   if (!s.IsDefined()) {
     return;
@@ -208,6 +210,12 @@ void parse_edges(const YAML::Node & root, Config & c, Errors & errors)
   e.step_segment_min_points = read<int>(s, p, "step_segment_min_points", e.step_segment_min_points, errors);
   rc::ge<int>(p + "step_segment_min_points", e.step_segment_min_points, 1, errors);
   rc::le<int>(p + "step_segment_min_points", e.step_segment_min_points, MAX_STEP_SEGMENT_MIN_POINTS, errors);
+  e.floor_reference_m = read<double>(s, p, "floor_reference_m", e.floor_reference_m, errors);
+  rc::ge(p + "floor_reference_m", e.floor_reference_m, 0.0, errors);
+  rc::le(p + "floor_reference_m", e.floor_reference_m, MAX_CELL_SIZE_M, errors);
+  e.floor_reference_min_points = read<int>(s, p, "floor_reference_min_points", e.floor_reference_min_points, errors);
+  rc::ge<int>(p + "floor_reference_min_points", e.floor_reference_min_points, 1, errors);
+  rc::le<int>(p + "floor_reference_min_points", e.floor_reference_min_points, MAX_STEP_SEGMENT_MIN_POINTS, errors);
 }
 
 void parse_occlusion(const YAML::Node & root, Config & c, Errors & errors)
@@ -356,6 +364,11 @@ void check_cross_rules(const Config & c, Errors & errors)
   require_that(
     c.bands.obstacle_max_m > step, "bands.obstacle_max_m",
     "must be above the max step (" + std::to_string(step) + ", got " + std::to_string(c.bands.obstacle_max_m) + ")",
+    errors);
+  require_that(
+    c.bands.min_range_m < c.bands.max_range_m, "bands.min_range_m",
+    "must be below bands.max_range_m (" + std::to_string(c.bands.max_range_m) + "), got " +
+      std::to_string(c.bands.min_range_m),
     errors);
   require_that(
     c.bands.drop_max_m > step, "bands.drop_max_m",

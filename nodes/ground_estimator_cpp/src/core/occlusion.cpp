@@ -1,6 +1,7 @@
 #include "ground_estimator_cpp/occlusion.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -19,13 +20,25 @@ constexpr double DEG_TO_RAD = M_PI / 180.0;
 constexpr double MIN_NEAR_RANGE_M = 0.003;
 
 // A near occluder shadows only a point on (nearly) its own ray: this share of the elevation margin.
-constexpr double NEAR_RAY_FRACTION = 0.5;
+constexpr double NEAR_RAY_FRACTION = 0.25;
+
+// A point less than this far behind a near occluder in range is on the occluder's own surface, not behind it: the face
+// below an edge seen at a graze lies a fraction of a degree from the edge's ray, and a vertical face spreads over a few
+// centimetres of range inside one azimuth bin.
+constexpr double SAME_SURFACE_M = 0.04;
+
+// An occluder is supported by its two nearer neighbours in the bin: its height is the median of the three, so one noisy
+// return is never a shadow caster (a box top is, a single +4 cm outlier on a noisy floor is not).
+constexpr std::size_t SUPPORT_POINTS = 3;
 
 struct Polar
 {
   double range = 0.0;      // horizontal distance from the sensor
   double elevation = 0.0;  // atan2(h - sensor_height, range)
+  double height = 0.0;
   std::size_t index = 0;
+  double occluder_height = -std::numeric_limits<double>::infinity();  // supported height, -inf without full support
+  double occluder_elevation = 0.0;                                    // atan2(occluder_height - sensor_height, range)
 };
 
 }  // namespace
@@ -55,11 +68,20 @@ std::vector<bool> occluded_mask(
       continue;
     }
     const long bin = std::lround(std::floor(std::atan2(dy, dx) / bin_rad));  // NOLINT(runtime/int)
-    bins[bin].push_back({range, std::atan2(h - sensor_height_m, range), i});
+    bins[bin].push_back({range, std::atan2(h - sensor_height_m, range), h, i});
   }
   for (auto & entry : bins) {
     auto & pts = entry.second;
     std::sort(pts.begin(), pts.end(), [](const Polar & a, const Polar & b) { return a.range < b.range; });
+    for (std::size_t k = SUPPORT_POINTS - 1; k < pts.size(); ++k) {
+      std::array<double, SUPPORT_POINTS> window;
+      for (std::size_t w = 0; w < SUPPORT_POINTS; ++w) {
+        window[w] = heights[pts[k - w].index];
+      }
+      std::sort(window.begin(), window.end());
+      pts[k].occluder_height = window[SUPPORT_POINTS / 2];
+      pts[k].occluder_elevation = std::atan2(pts[k].occluder_height - sensor_height_m, pts[k].range);
+    }
     // Far occluders (at least one bin width of range nearer) cast a shadow over everything lower in elevation; their
     // running maximum of elevation, with the height of that point, is the shadow horizon. Near occluders (closer than
     // that) shadow only along their own ray: a mixed pixel on the ray through an edge, never the face below an edge.
@@ -70,9 +92,9 @@ std::vector<bool> occluded_mask(
       const Polar & p = pts[k];
       const double near_range = std::max(MIN_NEAR_RANGE_M, p.range * bin_rad);
       while (next < k && pts[next].range <= p.range - near_range) {
-        const double h = heights[pts[next].index];
-        if (h >= cfg.min_occluder_height_m && pts[next].elevation > horizon) {
-          horizon = pts[next].elevation;
+        const double h = pts[next].occluder_height;
+        if (h >= cfg.min_occluder_height_m && pts[next].occluder_elevation > horizon) {
+          horizon = pts[next].occluder_elevation;
           horizon_height = h;
         }
         ++next;
@@ -81,9 +103,12 @@ std::vector<bool> occluded_mask(
       bool occluded = horizon > -std::numeric_limits<double>::infinity() &&
                       h <= horizon_height - cfg.min_height_drop_m && p.elevation <= horizon + margin_rad;
       for (std::size_t j = next; !occluded && j < k; ++j) {
-        const double hq = heights[pts[j].index];
-        occluded = hq >= cfg.min_occluder_height_m && h <= hq - cfg.min_height_drop_m &&
-                   std::fabs(p.elevation - pts[j].elevation) <= NEAR_RAY_FRACTION * margin_rad;
+        // The near occluder is a supported point (its own height and elevation count: the median of its neighbours is a
+        // height no point has), a surface of its own at least SAME_SURFACE_M nearer.
+        const Polar & q = pts[j];
+        occluded = p.range - q.range >= SAME_SURFACE_M && q.occluder_height >= cfg.min_occluder_height_m &&
+                   h <= q.height - cfg.min_height_drop_m &&
+                   std::fabs(p.elevation - q.elevation) <= NEAR_RAY_FRACTION * margin_rad;
       }
       mask[p.index] = occluded;
     }

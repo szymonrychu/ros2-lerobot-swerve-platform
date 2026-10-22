@@ -74,6 +74,7 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.bands.obstacle_max_m, 0.6);
   EXPECT_DOUBLE_EQ(c.bands.drop_max_m, 1.0);
   EXPECT_DOUBLE_EQ(c.bands.max_range_m, 2.0);
+  EXPECT_DOUBLE_EQ(c.bands.min_range_m, 0.42);
   EXPECT_DOUBLE_EQ(c.traversability.wheel_radius_m, 0.06);
   EXPECT_DOUBLE_EQ(c.traversability.max_step_fraction, 0.3333);
   EXPECT_DOUBLE_EQ(c.traversability.max_slope_deg, 15.0);
@@ -107,12 +108,14 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.edges.slope_bin_m, 0.10);
   EXPECT_EQ(c.edges.slope_min_cells, 3);
   EXPECT_TRUE(c.occlusion.enabled);
-  EXPECT_DOUBLE_EQ(c.occlusion.azimuth_bin_deg, 1.0);
-  EXPECT_DOUBLE_EQ(c.occlusion.elevation_margin_deg, 0.5);
-  EXPECT_DOUBLE_EQ(c.occlusion.min_occluder_height_m, 0.02);
-  EXPECT_DOUBLE_EQ(c.occlusion.min_height_drop_m, 0.01);
+  EXPECT_DOUBLE_EQ(c.occlusion.azimuth_bin_deg, 4.0);
+  EXPECT_DOUBLE_EQ(c.occlusion.elevation_margin_deg, 2.0);
+  EXPECT_DOUBLE_EQ(c.occlusion.min_occluder_height_m, 0.03);
+  EXPECT_DOUBLE_EQ(c.occlusion.min_height_drop_m, 0.005);
   EXPECT_DOUBLE_EQ(c.edges.step_segment_m, 0.10);
   EXPECT_EQ(c.edges.step_segment_min_points, 3);
+  EXPECT_DOUBLE_EQ(c.edges.floor_reference_m, 0.10);
+  EXPECT_EQ(c.edges.floor_reference_min_points, 4);
   ASSERT_TRUE(c.metrics_port.has_value());
   EXPECT_EQ(*c.metrics_port, 19119);
 }
@@ -233,6 +236,9 @@ TEST(Config, RejectsFitRangesAndCrossKeyRules)
 TEST(Config, RejectsBandRanges)
 {
   expect_rejected("bands: {max_range_m: 0}", "bands.max_range_m");
+  expect_accepted("bands: {min_range_m: 0}");
+  expect_rejected("bands: {min_range_m: -0.1}", "bands.min_range_m");
+  expect_rejected("bands: {min_range_m: 2.0}", "bands.min_range_m");
   expect_rejected("bands: {obstacle_max_m: 0.03}", "bands.obstacle_max_m");
   expect_rejected("bands: {drop_max_m: 0.03}", "bands.drop_max_m");
 }
@@ -335,6 +341,14 @@ TEST(Config, RejectsSegmentStepRanges)
   expect_accepted("edges: {step_segment_min_points: 50}");
   expect_rejected("edges: {step_segment_min_points: 0}", "edges.step_segment_min_points");
   expect_rejected("edges: {step_segment_min_points: 51}", "edges.step_segment_min_points");
+  expect_accepted("edges: {floor_reference_m: 0}");
+  expect_accepted("edges: {floor_reference_m: 0.5}");
+  expect_rejected("edges: {floor_reference_m: -0.01}", "edges.floor_reference_m");
+  expect_rejected("edges: {floor_reference_m: 0.51}", "edges.floor_reference_m");
+  expect_accepted("edges: {floor_reference_min_points: 1}");
+  expect_accepted("edges: {floor_reference_min_points: 50}");
+  expect_rejected("edges: {floor_reference_min_points: 0}", "edges.floor_reference_min_points");
+  expect_rejected("edges: {floor_reference_min_points: 51}", "edges.floor_reference_min_points");
 }
 
 TEST(Config, RejectsSlopeRules)

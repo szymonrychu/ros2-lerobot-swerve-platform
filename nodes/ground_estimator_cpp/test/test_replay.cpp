@@ -55,6 +55,7 @@ constexpr const char * BASE = "base_link";
 constexpr const char * TOF_FRAME = "tof_optical_frame";
 constexpr const char * IMU_FRAME = "imu_link";  // frame of the recorded IMU samples (brief ground-live.md)
 constexpr const char * SCENES[] = {"home", "box", "ramp"};
+constexpr double MIN_BOX_LETHAL_SHARE = 0.95;  // frames after warm-up with obstacle points on the box
 constexpr int64_t NS_PER_S = 1000000000LL;
 // The fixtures hold 15 s of a 10 Hz ToF stream.
 constexpr std::size_t MIN_CLOUDS = 140, MAX_CLOUDS = 160;
@@ -631,8 +632,19 @@ TEST(ReplayMetrics, MetricsLineNamesEveryMetric)
 
 // --- the scenes through GroundNode -------------------------------------------------------------------------------
 
-TEST_F(ReplayTest, HomeSceneReplaysThroughTheNode) { replay_scene("home"); }
+TEST_F(ReplayTest, HomeSceneReplaysThroughTheNode)
+{
+  const auto frames = replay_scene("home");
+  EXPECT_GE(ground_replay::box_lethal_share(frames), MIN_BOX_LETHAL_SHARE);
+  EXPECT_EQ(ground_replay::far_side_warning_frames(frames), 0);
+  EXPECT_EQ(ground_replay::board_lethal_frames(frames), 0);
+}
 
-TEST_F(ReplayTest, BoxSceneReplaysThroughTheNode) { replay_scene("box"); }
+TEST_F(ReplayTest, BoxSceneReplaysThroughTheNode)
+{
+  const auto frames = replay_scene("box");
+  EXPECT_GE(ground_replay::box_lethal_share(frames), MIN_BOX_LETHAL_SHARE);
+  EXPECT_EQ(ground_replay::far_side_warning_frames(frames), 0);
+}
 
 TEST_F(ReplayTest, RampSceneReplaysThroughTheNode) { replay_scene("ramp"); }

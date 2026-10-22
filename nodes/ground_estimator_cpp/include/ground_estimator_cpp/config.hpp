@@ -49,6 +49,7 @@ struct BandsConfig
   double obstacle_max_m = 0.6;  // > max_step_m
   double drop_max_m = 1.0;      // > max_step_m
   double max_range_m = 2.0;     // > 0
+  double min_range_m = 0.42;    // 0 <= v < max_range_m; nearer points (the robot's own parked gripper) are in no band
 };
 
 // Obstacle versus warning rule.
@@ -84,16 +85,18 @@ struct EdgesConfig
   int slope_min_cells = 3;           // 2..50; fewest slope bins for a slope estimate, below it the slope is unknown
   double step_segment_m = 0.10;      // 0.02..0.5; length of a boundary segment a step is measured along (D17)
   int step_segment_min_points = 3;   // 1..50; fewest boundary points in a segment for it to count (D17)
+  double floor_reference_m = 0.10;   // 0..0.5; ring around a cluster whose floor points set its floor level (0 = plane)
+  int floor_reference_min_points = 4;  // 1..50; fewest ring points for the floor level to replace the plane
 };
 
 // Occlusion shadow gate (D16): a cell hidden behind a nearer occluder is not read as a drop or ramp.
 struct OcclusionConfig
 {
   bool enabled = true;                  // false = no shadow gate
-  double azimuth_bin_deg = 1.0;         // 0.1..10; width of an azimuth bin of the occluder horizon
-  double elevation_margin_deg = 0.5;    // 0..5; slack on the shadow ray elevation, degrees
-  double min_occluder_height_m = 0.02;  // > 0, < bands.obstacle_max_m; lowest plane-relative height that occludes
-  double min_height_drop_m = 0.01;      // > 0; smallest height drop behind an occluder that counts as shadowed
+  double azimuth_bin_deg = 4.0;         // 0.1..10; width of an azimuth bin of the occluder horizon
+  double elevation_margin_deg = 2.0;    // 0..5; slack on the shadow ray elevation, degrees
+  double min_occluder_height_m = 0.03;  // > 0, < bands.obstacle_max_m; lowest plane-relative height that occludes
+  double min_height_drop_m = 0.005;     // > 0; smallest height drop behind an occluder that counts as shadowed
 };
 
 // Tilt limits of the tilt_guard.
