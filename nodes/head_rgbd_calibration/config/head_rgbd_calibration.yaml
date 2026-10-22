@@ -168,7 +168,7 @@ robot:
 # Scripted arm sequence of the head-from-arm capture (design D37, D38). Poses are measured (follower) joint
 # angles, rad, the space move_arm_joints takes (urdf = measured + fit.joint_offsets_rad).
 # tests/test_arm_pose_set.py proves every pose and transit safe by FK, the board in view and a passing synthetic
-# fit; the head-arm runbook dry run checks them on the robot before the first capture.
+# fit; the sequencer re-checks every move from the measured joints (check_path) before it commands it.
 arm_sequence:
   # Board about 0.34 m in front of the head camera, lifted to the camera height and forward of the body.
   base_pose: {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: 0.0}
