@@ -540,6 +540,34 @@ Cliff limitation: the monitor sees a cliff only while the ToF looks at it (the h
 there is no below-floor source behind or beside the robot, and a cliff into a void with no returns gives no points.
 The local costmap keeps cliff voxels for 15 s after the head looked away, so the planner keeps avoiding a seen edge.
 
+### Invalid source stop during the final turn
+
+Cause (2026-10-22 16:30:35, robot retro "explore other end of the room"): both laser_filter outputs stopped for ~1.9 s
+during a Wi-Fi drop on the client; the stale-source stop itself worked as designed. Fix: none landed yet (D55) - the
+path from the Wi-Fi drop into laser_filter is not visible in the stored telemetry (below); the fail-safe stays.
+
+Evidence (Loki, Mimir; times CEST, `t` = 16:30:t):
+
+- Sources and SLAM lost the same laser_filter output at the same moment: collision_monitor's last `/scan_filtered`
+  stamp was 34.499 (age 1.016-1.79 s from 35.48 to 36.29), its last `/tof/points_filtered` stamp 34.46-34.47 (age up
+  to 1.91 s at 36.38); slam_toolbox's `map -> odom` stayed at 34.999 = last scan + `transform_timeout` 0.5 s, which is
+  the TF extrapolation that aborted the rotation shim at 35.16 (a consequence, not a second cause). Fresh scans and
+  clouds were back between 36.29 and 36.46 ("continue normal operation" 36.459).
+- Upstream was steady: rplidar 7.20 Hz with a longest gap of 0.154 s in the 60 s windows around 34-36
+  (`lidar_scan_gap_seconds_max`, measured by a separate `/scan` subscriber), ToF 10.0 Hz, wheel odom 50 Hz, IMU 25 Hz;
+  robot_localization_ekf, rf2o and laser_filter logged nothing from 16:20 to 16:34.
+- laser_filter was not starved: 0.063 cores, CPU pressure (full) 0.060 s/s, the same as before and after; no memory
+  pressure. Client: 3.73-3.79 of 4 cores busy, CPU pressure (some) 0.70 s/s, no Pi throttling.
+- Wi-Fi: the server received 110-180 KB/s from the client until 16:30:22, then 0.2-0.35 KB/s from 27 to 42; web_ui's
+  browser socket stalled from <= 28.4 (dropped at 38.39); wlan0 `CTRL-EVENT-DISCONNECTED` 36.140, `Lost carrier`
+  36.147, reassociated to another access point 42.34. UDP `SndbufErrors` were 465 in 25-40 and 255 in 40-55, and zero in
+  the rest of the two stored days except the 14:22 roam (robot carried, Nav2 idle). The outputs resumed 0.15-0.3 s
+  after the carrier was lost.
+- Not established: a capture of wlan0 UDP on 2026-10-22 17:25 showed Wi-Fi traffic only from map3d_uplink and
+  leader_bridge (the static-peer bridges); laser_filter (participant id above 3) sent none, and its KEEP_LAST writers
+  do not wait for acknowledgements (Fast DDS 2.14). Which shared resource tied laser_filter, or its delivery, to the
+  Wi-Fi drop needs a reproduction with per-message timing; 15 s scrapes and the silent laser_filter cannot show it.
+
 ### Validating StopBox on the robot (after changing the lidar, filter or footprint)
 
 1. Put the robot in open space (nothing within ~0.5 m) with rplidar_a1, static_tf_publisher and nav2_bringup running.

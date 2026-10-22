@@ -1981,6 +1981,14 @@ Static wiring invariants of the poi_store node (Ansible, playbooks, lint script,
 
 The node's own tests (store, models, config and `test_metrics.py`: `poi_commands_total{op,ok}` for ok, failed and unparseable (`invalid`) commands, `poi_count` after adds, clear and load, `poi_save_failures_total` with the rollback, the `metrics_port` config field; including `kind: object` POIs with their sighting fields and defaults for old files, and the `clear` op that deletes every POI of one `created_by`, persists and keeps the revision when nothing was removed) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && uv run pytest tests -q`.
 
+### test_collision_source_stall.py
+
+Pins the collision_monitor stale-source fail-safe kept through the 2026-10-22 16:30:35 "invalid source" stop (design D55; diagnosis in nodes/nav2_bringup/README.md "Invalid source stop during the final turn"). Reads nav2_params.yaml only.
+
+| Test | Covers |
+|---|---|
+| `test_fail_safe_stale_source_stop_kept` | `source_timeout` is 1.0 s, the observation sources are scan, tof_obstacles and tof_cliff, each is enabled and none overrides the timeout. |
+
 ### test_costmap_zones_config.py
 
 Static wiring invariants of the costmap_zones node (Ansible node type, entry, playbook, metrics target, docs).
