@@ -4,8 +4,8 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: The head can look further down at the board on the gripper and at grasp scenes next to the robot.
 files: [nodes/web_ui/urdf/head.urdf, ansible/group_vars/client.yml, nodes/web_ui/config/default.yaml, nodes/web_ui/web_ui/config.py, nodes/web_ui/frontend/src/tabs/HeadTab.tsx, tests/test_head_servo_config.py, nodes/web_ui/tests/test_head_urdf.py, nodes/mcp_server/tests/test_head_kinematics.py]
-verify: "uv run --frozen pytest tests/test_head_servo_config.py tests/test_head_config_consistency.py -q && (cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q) && (cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py -q) && uv run poe lint-ansible"
-depends_on: [calib-ansible-deploy-config, board-on-gripper-hardware-st]
+verify: "uv run --frozen pytest tests/test_head_servo_config.py tests/test_head_config_consistency.py -q && (cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q) && (cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py -q) && uv run poe lint-ansible && uv run --frozen pytest tests/test_arm_pose_check.py -q && (cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py -q)"
+depends_on: [calib-ansible-deploy-config, board-on-gripper-hardware-st, arm-pose-safety-check, arm-board-pose-set]
 owns: []
 uses: []
 model: ""
@@ -29,6 +29,7 @@ Widen the head tilt range to the reprinted mount (design D12; approval H6). Defa
 - `ansible/group_vars/client.yml`: base_servos `head` group tilt `command_min_steps`/`command_max_steps` for the inverted tilt servo: +60 deg -> 1365, -30 deg -> 2389 (4096 steps per turn about 2048); the comment updated; the web_ui head tab range `[-30, 60]`; `startup_position_rad` and mcp `home_tilt_rad` stay 0.5236.
 - `nodes/web_ui/config/default.yaml` `head_tilt_range_deg: [-30, 60]`; `nodes/web_ui/web_ui/config.py` `HEAD_TAB_DEFAULT_TILT_RANGE_DEG = (-30.0, 60.0)`; `nodes/web_ui/frontend/src/tabs/HeadTab.tsx` `DEFAULT_TILT_RANGE_DEG = [-30, 60]`.
 - Tests updated to the new range: `tests/test_head_servo_config.py` (steps (1365, 2389), startup still 1707), `nodes/web_ui/tests/test_head_urdf.py` (limits), `nodes/mcp_server/tests/test_head_kinematics.py` (limits); `tests/test_head_config_consistency.py` passes unchanged.
+- The head envelope of the pose check reads the URDF limits, so with the widened URDF `tests/test_arm_pose_check.py` and the shipped pose set's `nodes/head_rgbd_calibration/tests/test_arm_pose_set.py` (safety, visibility) must still pass unchanged; ordered after arm-pose-safety-check and arm-board-pose-set for that reason.
 
 ## Acceptance conditions
 
@@ -38,6 +39,7 @@ Widen the head tilt range to the reprinted mount (design D12; approval H6). Defa
 - a4: web_ui and mcp_server head tests pass [evidence: command:cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q && cd ../mcp_server && uv run --frozen pytest tests/test_head_kinematics.py tests/test_head_controller.py -q]
 - a5: frontend head tab tests, type check and lint pass [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/tabs/HeadTab.test.tsx && npx tsc --noEmit && npm run lint]
 - a6: ansible checks pass [evidence: command:uv run poe lint-ansible && uv run poe test-ansible]
+- a7: the pose check and the shipped pose set stay safe with the widened range [evidence: command:uv run --frozen pytest tests/test_arm_pose_check.py -q && cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py -q]
 
 ## Files
 

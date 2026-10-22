@@ -74,4 +74,7 @@ from mcp_server's.
 
 - The node config keys themselves were added to client.yml by the tasks that added them; this task adds the group and
   the cross-config pins.
+- The dependency on web-ui-applied-head-urdf is only file ordering: both edit `ansible/group_vars/client.yml`
+  (web_ui `head_applied_calibration_dir` there, the node entry here), and ticket.py requires overlapping files to be
+  ordered; no code of that task is used.
 - Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).

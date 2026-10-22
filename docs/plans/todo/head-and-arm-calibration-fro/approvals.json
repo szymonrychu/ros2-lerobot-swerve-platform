@@ -15,7 +15,7 @@
   {
     "id": "H2",
     "text": "Arm safety (project rules): least dramatic joints first; any pose moving shoulder_pan, shoulder_lift or elbow needs the user's explicit OK at run time (UI confirmation); every scripted pose FK-checked against self-collision with the robot body and head; wrist roll only half-open and lifted; negative elbow stretches; the existing 6x5 board is the gripper board; arm motion only through mcp_server's guarded tools; no driving (robot charging).",
-    "decisions": ["D7", "D8", "D9", "D15"],
+    "decisions": ["D7", "D8", "D9", "D15", "D17"],
     "tasks": [
       "board-on-gripper-hardware-st",
       "robot-mcp-client",

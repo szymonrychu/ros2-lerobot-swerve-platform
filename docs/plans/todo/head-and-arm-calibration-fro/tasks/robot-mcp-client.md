@@ -40,8 +40,10 @@ An MCP client of mcp_server so the node moves the head and arm only through the 
   - Typed helpers (sync wrappers safe from a worker thread): `set_head_angles(pan_deg, tilt_deg)`, `take_arm()`
     (`take_control(subsystem="arm")`), `move_arm_joints(targets, speed_scale)` (timeout `move_timeout_s`),
     `release_arm(keep_position: bool)` (`release_control(subsystem="arm", keep_position=...)`: True leaves the arm
-    where it is, False parks it home; either way mcp_server homes the head when no lease remains), `arm_state()`
-    (`get_arm_state`). The head tools need the arm or the base lease (mcp_server `head_tools.py` LEASE_NOTE); the
+    where it is and keeps the head too (`reset.head: kept`), False parks it home and then homes the head when no lease
+    remains (`nodes/mcp_server/mcp_server/control.py::release_head`); the helper never sends
+    `carried_object_radius_m`), `arm_state()` (`get_arm_state`; positions in measured follower joint space),
+    `control_state()` (`get_control_state`; `arm.carrying` is the carrying signal). The head tools need the arm or the base lease (mcp_server `head_tools.py` LEASE_NOTE); the
     sequencer takes it, this client only exposes the calls. A tool error comes back as `is_error` with the tool's text.
 - New `tests/test_robot_client.py` (fake transport): tool names and argument shapes per helper; `keep_position`
   passed through; unreachable -> `is_error`, `unreachable`, text `mcp_server unreachable at <url>`; missing token file
@@ -74,7 +76,7 @@ An MCP client of mcp_server so the node moves the head and arm only through the 
 ## Interfaces
 
 - `robot_client.py::RobotClient`, `ToolResult`, helpers `set_head_angles`, `take_arm`, `move_arm_joints`,
-  `release_arm`, `arm_state` (part `calib-robot-client`); config `robot`.
+  `release_arm`, `arm_state`, `control_state` (part `calib-robot-client`); config `robot`.
 
 ## Expected outcome
 

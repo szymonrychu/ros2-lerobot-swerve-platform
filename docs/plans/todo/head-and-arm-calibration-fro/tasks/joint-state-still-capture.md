@@ -33,7 +33,8 @@ here is an ad-hoc probe.
   - `topics.head_joint_states` `/head/joint_states`, `topics.arm_joint_states` `/follower/joint_states`;
   - `still: StillConfig`: `window_s` 0.6, `rgb_mad` 2.0, `joint_still_rad` 0.002, `max_joint_dt_s` 0.1, `timeout_s`
     6.0 (all gt 0);
-  - `fit: HeadArmFitConfig` (core defaults; `fit.board` must equal `board`, validated with an error naming both);
+  - `fit: HeadArmFitConfig` (core defaults; `fit.board` must equal the existing `NodeConfig.board`
+    (`board: BoardConfig`, `head_rgbd_calibration/config.py`), validated with an error naming both);
   - `arm_urdf_file` (default the deployed `nodes/web_ui/urdf/so101_arm.urdf` path, next to `head_urdf_file`).
 - `nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py`:
   - `start_still_session(session_id: str | None) -> str`: creates (or reopens) a `head_arm` session (reopening another

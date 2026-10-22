@@ -37,7 +37,9 @@ approval H2; CLAUDE.md servo safety; MEMORY feedback_arm_motion_safety). Pure nu
     `board_grid` 5 (points per board edge).
   - `head_envelope(head_urdf: str, cfg: PoseCheckConfig) -> CylinderObstacle`: a vertical cylinder about the pan axis
     (x, y of `head_mount_joint` in the given URDF, so the applied chain is used) from the crossbar top to the mount z
-    plus `head_height_m`, radius `head_radius_m`.
+    plus `head_height_m`, radius `head_radius_m`, grown when needed so it contains the head visuals at every pan/tilt
+    inside that URDF's `head_pan`/`head_tilt` joint limits (sampled at the limits and every 15 deg between), so a
+    widened tilt range is covered automatically.
   - `PoseChecker(arm_urdf: str, head_urdf: str, fit: HeadArmFitConfig, cfg: PoseCheckConfig)` with
     `check_pose(joints: dict[str, float], gripper_rad: float, rolling: bool) -> list[str]` and
     `check_path(start: dict[str, float], target: dict[str, float], gripper_rad: float) -> list[str]`; an empty list
@@ -59,8 +61,9 @@ approval H2; CLAUDE.md servo safety; MEMORY feedback_arm_motion_safety). Pure nu
 - New `tests/test_arm_pose_check.py`:
   - the `BodyConfig` defaults equal the client.yml mcp_server `body` block (read from the YAML);
   - the head envelope contains every visual of `head_post`, `head_pan_base`, `head_pan_link`, `head_link`, the camera
-    and ToF links of `nodes/web_ui/urdf/head.urdf` at pan -90/0/90 deg and tilt -30/0/30 deg, and moves with an
-    applied `head_mount_joint` override;
+    and ToF links of `nodes/web_ui/urdf/head.urdf` at pan/tilt sampled across the limits read from that URDF (never
+    hard-coded), also for a fixture copy with the tilt limit set to [-0.5236, 1.0472] (the widened range), and moves
+    with an applied `head_mount_joint` override;
   - a pose with the tool at 0.05 m is refused naming `min_tool_height_m`; a board corner inside the lidar cylinder, a
     forearm through the head envelope, a board point on the forearm each refused with their rule;
   - a roll move with the gripper at 1.2 rad or the tool at 0.12 m refused; the same roll at 0.5 rad and 0.20 m passes;

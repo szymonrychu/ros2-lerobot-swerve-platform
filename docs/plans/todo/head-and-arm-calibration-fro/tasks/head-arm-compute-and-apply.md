@@ -31,8 +31,12 @@ Compute and apply of a `head_arm` session, reusing the floor fit's result and ap
     `store.load_arm_board_views(sid)`; intrinsics from `<state_dir>/applied/head_camera_calibration.yaml` (missing:
     `result.json` with `passed: false`, `error: "no applied head camera calibration"`), its image size equal to the
     session's (else an error naming both); head URDF `floor_results.base_urdf(cfg)` (the applied chain), arm URDF
-    `cfg.arm_urdf_file`; `floor` = the `params` of the floor result named by the applied record's `floor` entry (below),
-    None when there is none; `fit_head_from_arm(views, K, D, head_urdf, arm_urdf, cfg.fit, floor)`.
+    `cfg.arm_urdf_file`; `floor` = the `params` (`floor_fit/<sid>/results/<rid>/result.json`, read with
+    `floor_results.read_result`) of the floor result named by the `applied/applied.json` `head_chain` record: its
+    `floor` entry (below), or, for a record the current `apply_floor` wrote (`{session, result, applied_at}`, no
+    `floor` key; this is the robot's state after the 2026-10-22 apply of floor-20261022-064337 /
+    r-20261022-065211) whose `session` matches `FLOOR_SESSION_ID_RE`, that record's own session and result; None when
+    neither exists; `fit_head_from_arm(views, K, D, head_urdf, arm_urdf, cfg.fit, floor)`.
   - Result files in the store's `results/<rid>/` of the session: `result.json` `{id, session, kind: "head_arm",
     created, passed, failed_limits, error, rms_px, holdout_rms_px, holdout_board_mm, views, arm_poses, pan_span_deg,
     tilt_span_deg, max_correlation, params: {name: {value, sigma, start, floor, floor_delta}}, board_mount, per_view,
@@ -51,7 +55,8 @@ Compute and apply of a `head_arm` session, reusing the floor fit's result and ap
   The floor routes and their fixtures keep working.
 - New `tests/test_head_arm_results.py` (a `head_arm` session built with `pose_factory.still_arm_pose` and detections
   from `tests/head_arm_synthetic.py::arm_board_scene`, loaded by path): a passing result with every file; missing
-  intrinsics error; a failed limit writes only `report.md` and `result.json`; `floor` read from the applied record;
+  intrinsics error; a failed limit writes only `report.md` and `result.json`; `floor` read from the applied record's
+  `floor` entry and, for a legacy `{session, result, applied_at}` floor record, from that record itself;
   no floor record -> `floor_cross_check` failed; the fitted joints merged over the applied chain; apply of a passed
   result writes `applied/head_chain.json` and the record with `source: "head_arm"` and the carried `floor`; a failed
   result refused. `tests/test_floor_results.py` gains: a floor apply records `source: "floor"` and itself as `floor`.
@@ -61,7 +66,8 @@ Compute and apply of a `head_arm` session, reusing the floor fit's result and ap
 
 - a1: a head_arm session computes a passing result with its files [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_results.py::test_compute_writes_result_report_and_chain]
 - a2: a failed limit writes no head_chain.json and cannot be applied [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_results.py::test_failed_result_not_applicable]
-- a3: the floor cross-check reads the applied floor result [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_results.py::test_floor_values_from_applied_record]
+- a3: the floor cross-check reads the floor result named by applied/applied.json (its floor entry, or a legacy floor record written by the current apply_floor) [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_results.py::test_floor_values_from_applied_record]
+- a8: a legacy floor record without the floor key is used as the floor reference [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_results.py::test_legacy_floor_record_is_the_reference]
 - a4: apply goes through the shared writer and records the source [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_results.py::test_apply_writes_applied_chain_and_record]
 - a5: a floor apply records itself as source and floor [evidence: test:nodes/head_rgbd_calibration/tests/test_floor_results.py::test_floor_apply_records_source]
 - a6: floor, apply and API tests pass [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_floor_results.py tests/test_floor_api.py tests/test_apply.py tests/test_app.py -q]

@@ -50,15 +50,23 @@ Every motion goes through `RobotClient`; nothing is commanded before its path ch
   reasons).
 - Exits: `stop()`, a tool error, an exception and a `confirm_timeout_s` wait in `waiting_board` or
   `waiting_big_joints` all end in `holding` when the board may be on (after `board_attached`), or `idle` before it:
-  `capture.stop()` and `release_arm(keep_position=True)` (the arm holds a checked pose; mcp_server homes the head).
-  The sequence never parks on its own.
+  `capture.stop()` and `release_arm(keep_position=True)` (the arm holds a checked pose; mcp_server keeps the head where
+  it is and reports `reset.head: kept`, `nodes/mcp_server/mcp_server/control.py::release_head`). The sequence never
+  parks on its own and never sends `carried_object_radius_m`, so mcp_server publishes the frozen measured-arm footprint
+  without a carried-object circle and writes no carry record (`move_arm_joints` never touches it).
+- `park(board_removed=True)` first reads `control_state()`: when `arm.carrying.carrying` is true (a holding load on
+  the gripper or a carry record) Park is refused quoting its reasons (mcp_server would refuse the park too); the park
+  release homes the arm and then the head (`reset.head: homed`).
+- `gripper_rad` is a position where the jaws do not squeeze the clip (no holding load, `holding_min_effort`), so the
+  board never counts as a carried object.
 - `state() -> {running, phase, session_id, tier, arm_pose, total_poses, captured, skipped, status, error,
   big_joints: [names], waiting_since}`.
 - New `tests/test_sequencer.py` (fake RobotClient, fake capture, injected clock): `move_to_base` without confirm sends
   nothing; call order of a full run; tier 2 only after `allow_big_joints(True)`, skipped with False; the gripper key
   only in the base move; a failing path check (fake pose) stops before any command; release with
   `keep_position=True` on end, stop, tool error, exception and confirm timeout, and no park; `park` refused without
-  `board_removed` and only then `release_arm(keep_position=False)`; head commands equal aim plus offset and an
+  `board_removed` and only then `release_arm(keep_position=False)`; Park refused while `control_state()` reports
+  carrying; no call ever carries `carried_object_radius_m`; head commands equal aim plus offset and an
   out-of-limit offset is skipped with its reason; Busy; state keys.
 
 ## Acceptance conditions
@@ -70,6 +78,7 @@ Every motion goes through `RobotClient`; nothing is commanded before its path ch
 - a5: park only after the board-removed confirm [evidence: test:nodes/head_rgbd_calibration/tests/test_sequencer.py::test_park_needs_board_removed]
 - a6: the gripper is commanded only with the base pose [evidence: test:nodes/head_rgbd_calibration/tests/test_sequencer.py::test_gripper_only_in_base_move]
 - a7: head commands are the aim plus the offsets within limits [evidence: test:nodes/head_rgbd_calibration/tests/test_sequencer.py::test_head_aim_offsets]
+- a9: Park is refused while mcp_server reports carrying, and no release carries a radius [evidence: test:nodes/head_rgbd_calibration/tests/test_sequencer.py::test_park_refused_while_carrying]
 - a8: node lint passes [evidence: command:cd nodes/head_rgbd_calibration && uv run poe lint]
 
 ## Files

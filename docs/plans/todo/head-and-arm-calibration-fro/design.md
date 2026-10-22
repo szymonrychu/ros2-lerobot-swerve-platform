@@ -105,8 +105,12 @@ The fit starts from the applied chain (the floor-fit z, roll, pitch, tilt zero a
 `floor_delta` = fitted minus the applied floor result; over `max_floor_delta_mm` 10 / `max_floor_delta_deg` 1.5 the
 result fails. x, y and yaw get sanity limits against their start (`max_start_delta_mm` 30, `max_start_delta_deg` 5). An
 optional prior (`floor_prior_weight`, default 0) adds one residual per floor parameter; off by default because the
-floor fit carries the garage floor slope (normal RMS 0.83 deg). The applied record names the floor result the chain was
-checked against. Open question Q2. Serves H1, H3.
+floor fit carries the garage floor slope (normal RMS 0.83 deg). The floor values come from the robot's
+`applied/applied.json` `head_chain` record: today's `apply_floor` (`floor_results.py`) already writes `{session,
+result, applied_at}` there, so the 2026-10-22 apply recorded session floor-20261022-064337, result r-20261022-065211;
+a record without the new `floor` key whose session matches `FLOOR_SESSION_ID_RE` is that floor result itself, and its
+`floor_fit/<sid>/results/<rid>/result.json` `params` are the cross-check values. From now on both applies write
+`source` and `floor`. Open question Q2. Serves H1, H3.
 
 ### D5: One robust least-squares fit with sigma, held-out arm poses and limits
 
@@ -142,9 +146,14 @@ elbow_flex, shoulder_lift, shoulder_pan -> tier 2 -> back to the base pose -> ho
 The gripper target is sent once with the base pose (`gripper_rad`, at most the half-open `max_roll_gripper_rad`) and
 never again. Before every command the path from the measured joints to the target is FK-checked (D9); a refusal stops
 before anything moves. Every exit (end, stop, tool error, exception, confirm timeout) releases with
-`keep_position: true` (the arm holds a checked pose; the head homes, which is safe because the board stays outside the
-head envelope); "Park" (`release_control` with park) is a separate confirmed action after the user removed the board.
-speed_scale <= 0.3. User decision 2026-10-22 (supersedes the old gate Q4: elbow moves now need the confirm).
+`keep_position: true`: the arm holds a checked pose and mcp_server keeps the head where it is (`reset.head: kept`,
+`control.py::release_head`). "Park" (`release_control` with park) is a separate confirmed action after the user
+removed the board; it is refused while `get_control_state` reports `arm.carrying`, and its release homes the head after
+the arm (the board stays outside the head envelope anyway). The board is never a carried object: `move_arm_joints`
+writes no carry record, the sequence never sends `carried_object_radius_m` (the keep release publishes the frozen
+measured-arm footprint without a carried circle; the robot does not drive), and `gripper_rad` leaves the jaws without a
+holding load on the clip. `move_arm_joints` targets are measured follower angles (`arm.py::move_joints`: "measured
+(follower) joint space, as reported by get_arm_state"; `urdf = measured + offset`). speed_scale <= 0.3. User decision 2026-10-22 (supersedes the old gate Q4: elbow moves now need the confirm).
 Open question Q3. Serves H2.
 
 ### D9: Pose check in the shared core
@@ -153,7 +162,7 @@ Open question Q3. Serves H2.
 board outline points >= 0.05 m above the floor; board points and arm link capsules (upper arm, forearm, wrist) at least
 `margin_m` from the body obstacles (a copy of mcp_server's `body` boxes and cylinders, pinned equal by the deploy test)
 and from the head envelope (a vertical cylinder about the pan axis of the given head URDF containing the head at every
-pan/tilt, pinned against the URDF visuals); board points clear of the upper arm and forearm; a wrist_roll change only
+pan/tilt inside that URDF's joint limits, so it covers a widened tilt range too; pinned against the URDF visuals); board points clear of the upper arm and forearm; a wrist_roll change only
 with the gripper at most half open and the tool >= 0.15 m high; shoulder_lift over 1.85 rad with a negative elbow_flex
 refused; joints inside the arm URDF limits. mcp_server keeps its own checks on top. Serves H2.
 
@@ -189,6 +198,14 @@ arm-joint-offsets-from-the-g (blocked by this epic), to be re-planned there agai
 
 `models/charuco-6x5-40mm` (`scripts/markers_generate.yaml` `charuco:`, ids 0-14) on a clip on the fixed jaw; no new
 plate. Kept from the old gate Q2. Serves H2.
+
+### D17: The board mount is fitted; the measurement is only a start value
+
+Standard hand-eye: the target-in-gripper pose is unknown and fitted (6 DOF, D2), so neither the solver nor the pose
+set waits for the hardware step. The pose set ships with a nominal mount from the jaw geometry, checked with an extra
+`provisional_margin_m` and a +-1 cm / +-5 deg mount band; the user's measurement replaces the nominal start value in
+calib-robot-runbook, and the poses stay provisional until a dry run without the board there. Open question Q4 ("no"
+puts arm-board-pose-set back behind board-on-gripper-hardware-st). (my call pending Q4) Serves H2.
 
 ### D16: Guided step-by-step process
 
@@ -245,6 +262,7 @@ cuts work without adding risk (scripted arm poses and head offsets). Kept from t
 | D14 The arm joint offset solve moves to a follow-up epic | calib-docs-and-test-index |
 | D15 The existing 6x5 board is the gripper board | calib-config-and-view-types, board-on-gripper-hardware-st |
 | D16 Guided step-by-step process | head-arm-calibrate-ui-sectio, head-arm-pose-capture-sequen |
+| D17 The board mount is fitted; the measurement is only a start value | head-from-arm-board-solver, arm-board-pose-set, calib-robot-runbook |
 
 ## Contracts
 

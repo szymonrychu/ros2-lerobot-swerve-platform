@@ -3,8 +3,8 @@ title: Calib robot runbook
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The head chain measured against the arm is applied on the robot and checked with real numbers."
-files: [docs/runbooks/head-arm-calibration.md]
-verify: "grep -q '^## Results' docs/runbooks/head-arm-calibration.md"
+files: [docs/runbooks/head-arm-calibration.md, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml]
+verify: "grep -q '^## Results' docs/runbooks/head-arm-calibration.md && (cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py tests/test_config.py -q) && uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q"
 depends_on: [calib-docs-and-test-index]
 owns: []
 uses: []
@@ -37,6 +37,17 @@ Prerequisite: the Hardware section of `docs/runbooks/head-arm-calibration.md` is
      first); `./scripts/deploy-nodes.sh client head_rgbd_calibration head_state_publisher mcp_server web_ui
      base_servos 2>&1 | tee .logs/deploy-head-arm-calib.log`; services start without `ModuleNotFoundError`.
   2. Tilt range: `set_head_angles` tilt 30, 40, 50 and the recorded limit at pan 0, slowly; nothing touches; record.
+  2a. Board mount (design D17): compare the board pose the Hardware section recorded with the provisional nominal
+     `fit.board_mount`. Within 1 cm / 5 deg: replace the nominal start value with the measurement in the shipped
+     `nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml` and the client.yml block (comment "measured
+     <date>"). Outside it: same replacement, then rerun `cd nodes/head_rgbd_calibration && uv run --frozen pytest
+     tests/test_arm_pose_set.py tests/test_config.py -q` and `uv run --frozen pytest
+     tests/test_head_rgbd_calibration_deploy.py -q`; a failing safety test stops here (named blocker: the pose set needs
+     re-planning for that mount). Commit and redeploy head_rgbd_calibration.
+  2b. Dry run (the poses are provisional until it passes): with the user watching and confirming each dialog, run Move
+     to base pose and every tier without the board (press Board attached with nothing clipped); the user stops at any
+     pose that looks close to the body, the head or the floor; record each stop. Park after the confirm. Then clip the
+     board.
   3. Head from arm on the Calibrate page with the user watching (robot docked, no driving): Move to base pose (the user
      confirms), the user clips the board, tiers 0 and 1, then ask the user before "Allow elbow and shoulder moves"
      (CLAUDE.md servo safety); record views, arm poses, skipped reasons, RMS, held-out RMS and board error, every
@@ -56,10 +67,14 @@ Prerequisite: the Hardware section of `docs/runbooks/head-arm-calibration.md` is
 - a1: the runbook has a Results section with real numbers [evidence: doc-section:docs/runbooks/head-arm-calibration.md#Results]
 - a2: the applied result passed every limit and the floor check held on the robot [evidence: judgement]
 - a3: every big-joint motion had the user's OK [evidence: judgement]
+- a4: the measured board mount replaced the provisional one and the pose set tests still pass [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py tests/test_config.py -q]
+- a5: the dry run without the board was recorded before the board run [evidence: judgement]
 
 ## Files
 
 - `docs/runbooks/head-arm-calibration.md`
+- `nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml`
+- `ansible/group_vars/client.yml`
 
 ## Interfaces
 
