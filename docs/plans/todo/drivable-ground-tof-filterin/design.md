@@ -154,7 +154,7 @@ Head from arm:
 - `ground_voxel_layer` turned on before every live acceptance row passes, or a Nav2 goal sent without the user at the
   robot.
 - The flying-pixel filter switched off again silently, or retuned so that it starves the ground fit (floor kept < 95 %
-  alone, < 90 % with the amplitude gate).
+  alone or with the amplitude gate, D53).
 - Fixtures that do not reproduce the live failures being used to declare them fixed.
 - Recordings made on a head chain that is changed afterwards without re-recording (D21).
 
@@ -427,7 +427,7 @@ recordings, the replay judges an old geometry and the live run a new one, so the
 (calib-robot-runbook) runs before capture-baseline-recordings (dependency), and the 1.9-2.2 deg plane-vs-base tilt is
 first measured on the calibrated chain. The ChArUco board of the ground scene is the 6x5 board of the calibration
 (D45); when it is the same physical board, it leaves the scene for the calibration and goes back before the baseline
-recording, and its pose is measured again then (D22). (my call, Q9) Serves G1, G3.
+recording, and its pose is measured again then (D22). (user, D52) Serves G1, G3.
 
 ### D22: The live scene is recorded with truth from the board pose and measured placements
 
@@ -446,7 +446,7 @@ ground-estimator-live-scene replays the gated fixtures (filter and amplitude gat
 shipped config and `Guidance::off`, first reproduces the live failures, then fixes the estimator until: box lethal
 share >= 0.95 (home and the pan -30 box scene), board lethal frames 0, empty-floor lethal share <= 0.05 (0 lethal points
 at p95), ramp lethal frames 0, churn < 0.10, stray lethal share <= 0.05 and far-side warnings (ramp, step and drop kinds,
-0.20 m behind the box) in <= 5 % of frames (my call). The plane tilt is reported with its cause. Thresholds are never
+0.20 m behind the box) in <= 5 % of frames (user, D53). The plane tilt is reported with its cause. Thresholds are never
 loosened; the rule and the lethal latency stay; run 4's fixtures keep passing. guidance-replay-acceptance then runs
 with the guidance on and depends on it. Serves G1.
 
@@ -464,7 +464,7 @@ ground-voxel-layer-on flips `ground_voxel_layer.enabled` only after every live R
 including the 15 s decay, unchanged). nav2-goal-across-the-scene then drives two goals of at most 1.5 m (across the
 scene around the box, and back) through mcp_server's guarded navigation tools under the base lease, Nav2's 0.25 m/s
 cap unchanged, with the user at the robot; the local costmap is read through web_ui. Its runbook is a new file,
-because the ground-robustness runbook forbids driving. (my call, Q11) Serves G1.
+because the ground-robustness runbook forbids driving. (user, D54) Serves G1.
 
 ### D26: The flying-pixel filter is retuned on the recorded raw depth, then turned on
 
@@ -472,17 +472,17 @@ The baseline recordings are taken with the filter off, so the ToF frame subset h
 first measures why the current rule removes about 70 % (per scene, per range band), then retunes the keys or the rule
 inside `flying_pixel_filter` (left to the builder: a plane-consistent test, a neighbour count or a range-dependent
 threshold), judged on the real frames: floor kept >= 95 % with the filter alone (user), mixed pixels at the box edges
-removed >= 80 % (my call), box top and board kept >= 95 %, filter plus amplitude gate keep >= 90 % of the floor (my
-call: the ground fit must not starve again). It runs after tof-amplitude-gate (same files) and is deployed with it at
-live step 2, so the gated fixtures carry both. Cross-epic contract `tof-flying-pixel-retune`. (my call, Q10) Serves
+removed >= 80 % (user, D53), box top and board kept >= 95 %, filter plus amplitude gate keep >= 95 % of the floor
+(user, D53: floor retention stays 95 %, not 90 %; the ground fit must not starve again). It runs after tof-amplitude-gate (same files) and is deployed with it at
+live step 2, so the gated fixtures carry both. Cross-epic contract `tof-flying-pixel-retune`. (user, D53) Serves
 G2.
 
 ### D27: Live filter check from the node's counters
 
 After the live step 2 deploy, tof-filter-live-check reads `tof_flying_pixels_removed_total` and
 `tof_amplitude_gated_pixels_total` from Mimir (the Prometheus API `scripts/node_cpu_compare.py` uses), with the head
-at home for 10 min: the flying-pixel removed share must be <= 0.10 of all pixels (my call; it was about 0.70), and the
-ground plane must be valid in >= 95 % of the `/ground/state` lines of every gated recording. (my call, Q10) Serves G2.
+at home for 10 min: the flying-pixel removed share must be <= 0.10 of all pixels (user, D53; it was about 0.70), and the
+ground plane must be valid in >= 95 % of the `/ground/state` lines of every gated recording. (user, D53) Serves G2.
 
 ### D28: Live steps need the user, and say so
 
