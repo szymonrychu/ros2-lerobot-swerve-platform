@@ -182,7 +182,25 @@ async def wait_settled(scene: Scene, config: RecordConfig, ws: Socket) -> None:
         raise SceneError(
             scene.name, STEP_SETTLE, f"head not within {config.settle_tolerance_deg} deg of target in time"
         ) from None
-    await asyncio.sleep(scene.settle_s)
+    await drain(ws, scene.settle_s)
+
+
+async def drain(ws: Socket, duration_s: float) -> None:
+    """Read and discard websocket frames for a duration so none queue up unread.
+
+    Args:
+        ws (Socket): websocket to keep reading.
+        duration_s (float): how long to keep draining, in seconds.
+    """
+
+    async def discard() -> None:
+        while True:
+            await ws.recv()
+
+    try:
+        await asyncio.wait_for(discard(), timeout=duration_s)
+    except TimeoutError:
+        pass
 
 
 async def capture_lines(scene: Scene, ws: Socket, path: Path) -> None:

@@ -145,6 +145,20 @@ def test_capture_lines_written_in_report_format(tmp_path: Path) -> None:
     assert (skipped, malformed) == (0, 0)
 
 
+def test_settle_period_frames_are_drained_not_captured(tmp_path: Path) -> None:
+    calls: list[str] = []
+    ws = FakeWebSocket(calls)
+    ws.push(head_js(35, 29.4))
+    ws.push(state_line(99))
+    config = make_config(tmp_path)
+    config.scenes[0].settle_s = 0.05
+
+    run_scene(config, ws, make_client(calls))
+
+    assert (tmp_path / "out" / "box.ndjson").read_text() == ""
+    assert ws.inbox.empty()
+
+
 def test_config_validates() -> None:
     config = RecordConfig.model_validate(yaml.safe_load(CONFIG_PATH.read_text()))
     assert config.web_ui_url == "http://client.ros2.lan:8080"
