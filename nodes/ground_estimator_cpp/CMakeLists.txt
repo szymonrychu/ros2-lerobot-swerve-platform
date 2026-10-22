@@ -23,6 +23,7 @@ find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_eigen REQUIRED)
+find_package(message_filters REQUIRED)
 find_package(pcl_conversions REQUIRED)
 
 # The pure logic, without ROS node code: every src/core/*.cpp, picked up by the glob below.
@@ -51,11 +52,12 @@ target_compile_definitions(ground_estimator_core PUBLIC ${PCL_DEFINITIONS})
 ament_target_dependencies(ground_estimator_core PUBLIC sensor_msgs std_msgs pcl_conversions)
 set_target_properties(ground_estimator_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# The ROS wiring: GroundNode and the ground_estimator_node executable (single-threaded executor: the cloud, IMU and
-# RGB-D callbacks and the state timer never run concurrently).
+# The ROS wiring: GroundNode and the ground_estimator_node executable (single-threaded executor: the cloud, IMU, RGB-D
+# and guidance callbacks and the state timer never run concurrently).
 add_library(ground_estimator_node_lib STATIC src/ground_node.cpp)
 target_link_libraries(ground_estimator_node_lib PUBLIC ground_estimator_core)
-ament_target_dependencies(ground_estimator_node_lib PUBLIC rclcpp sensor_msgs std_msgs tf2 tf2_ros tf2_eigen)
+ament_target_dependencies(ground_estimator_node_lib PUBLIC
+  rclcpp sensor_msgs std_msgs tf2 tf2_ros tf2_eigen message_filters)
 set_target_properties(ground_estimator_node_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_executable(ground_estimator_node src/main.cpp)

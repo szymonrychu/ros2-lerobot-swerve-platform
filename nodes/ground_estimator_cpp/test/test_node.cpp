@@ -15,12 +15,18 @@
 #include <cstring>
 #include <functional>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <optional>
 #include <random>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
+#include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -70,6 +76,8 @@ constexpr int TRAIN_CLOUDS = 3;
 constexpr uint8_t LABEL_MISMATCH = 3;
 // A4 sheet flat on the floor in front of the robot.
 constexpr double SHEET_X0 = 0.6, SHEET_X1 = 0.897, SHEET_Y0 = -0.105, SHEET_Y1 = 0.105;
+constexpr int PAIR_TRIES = 4;
+constexpr milliseconds PAIR_WAIT{3000};
 
 std::atomic<int> g_test_index{0};
 
@@ -450,6 +458,117 @@ bool has_kind(const json & areas, const std::string & kind, const std::string & 
   });
 }
 
+// --- guidance pairs: upsampled depth, its camera info and the JPEG, as head_rgbd_cpp publishes them -------------
+
+// The guidance camera of the synthetic pairs: a 320x180 pinhole (70 deg horizontal field of view, no distortion) at
+// BASE_T_CAM, principal point at the image centre.
+constexpr int PAIR_W = 320, PAIR_H = 180;
+constexpr double PAIR_F = 228.5;
+// The ToF camera info: a 240x180 pinhole covering the 70 x 50 deg field of view of ground_test::render.
+constexpr int TOF_W = 240, TOF_H = 180;
+constexpr double TOF_FX = 171.4, TOF_FY = 193.0;
+constexpr int JPEG_QUALITY = 95;
+const cv::Vec3b FLOOR_BGR(120, 120, 120);
+const cv::Vec3b BOX_BGR(60, 110, 160);
+const cv::Vec3b BLACK_BGR(24, 20, 20);
+constexpr double BOX_COLOUR_MIN_Z_M = 0.01;  // hits above this height take the box colour
+
+// What a guidance pair shows: the depth geometry and, optionally, the floor hits without a depth return (black).
+struct PairScene
+{
+  Scene scene;
+  std::function<bool(const Eigen::Vector3d &)> no_return;
+};
+
+// The three messages of one pair.
+struct PairMessages
+{
+  sensor_msgs::msg::Image depth;
+  sensor_msgs::msg::CameraInfo info;
+  sensor_msgs::msg::CompressedImage rgb;
+};
+
+sensor_msgs::msg::CameraInfo pinhole_info(
+  int w, int h, double fx, double fy, const std::string & frame, const builtin_interfaces::msg::Time & stamp)
+{
+  sensor_msgs::msg::CameraInfo info;
+  info.header.frame_id = frame;
+  info.header.stamp = stamp;
+  info.width = static_cast<uint32_t>(w);
+  info.height = static_cast<uint32_t>(h);
+  info.distortion_model = "plumb_bob";
+  info.d.assign(5, 0.0);
+  info.k = {fx, 0.0, w / 2.0, 0.0, fy, h / 2.0, 0.0, 0.0, 1.0};
+  info.r = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+  info.p = {fx, 0.0, w / 2.0, 0.0, 0.0, fy, h / 2.0, 0.0, 0.0, 0.0, 1.0, 0.0};
+  return info;
+}
+
+// Ray-cast the pair scene from the guidance camera: per pixel the nearest hit along the ray (x, y, 1) of the camera,
+// whose ray parameter is the optical z; a hit the no_return test accepts reads 0 and black, a box hit (above
+// BOX_COLOUR_MIN_Z_M) the box colour, the floor grey with a little texture.
+PairMessages render_pair(const PairScene & pair, const std::string & frame, const builtin_interfaces::msg::Time & stamp)
+{
+  cv::Mat depth(PAIR_H, PAIR_W, CV_16UC1, cv::Scalar(0));
+  cv::Mat bgr(PAIR_H, PAIR_W, CV_8UC3, cv::Scalar(0, 0, 0));
+  const Eigen::Vector3d origin = BASE_T_CAM.translation();
+  for (int v = 0; v < PAIR_H; ++v) {
+    for (int u = 0; u < PAIR_W; ++u) {
+      const Eigen::Vector3d ray((u - PAIR_W / 2.0) / PAIR_F, (v - PAIR_H / 2.0) / PAIR_F, 1.0);
+      const Eigen::Vector3d dir = BASE_T_CAM.linear() * ray;
+      double best = std::numeric_limits<double>::infinity();
+      for (const auto & surface : pair.scene.surfaces) {
+        const auto t = surface(origin, dir);
+        if (t && *t > 0.0 && *t < best) {
+          best = *t;
+        }
+      }
+      if (!std::isfinite(best)) {
+        continue;
+      }
+      const Eigen::Vector3d hit = origin + best * dir;
+      if (pair.no_return && pair.no_return(hit)) {
+        bgr.at<cv::Vec3b>(v, u) = BLACK_BGR;
+        continue;
+      }
+      depth.at<uint16_t>(v, u) = static_cast<uint16_t>(std::lround(best * 1000.0));
+      const auto texture = static_cast<uchar>(FLOOR_BGR[0] + (u + 2 * v) % 7 - 3);
+      bgr.at<cv::Vec3b>(v, u) = hit.z() > BOX_COLOUR_MIN_Z_M ? BOX_BGR : cv::Vec3b(texture, texture, texture);
+    }
+  }
+  PairMessages out;
+  out.depth.header.frame_id = frame;
+  out.depth.header.stamp = stamp;
+  out.depth.width = PAIR_W;
+  out.depth.height = PAIR_H;
+  out.depth.encoding = "16UC1";
+  out.depth.is_bigendian = 0;
+  out.depth.step = PAIR_W * sizeof(uint16_t);
+  out.depth.data.resize(static_cast<std::size_t>(out.depth.step) * PAIR_H);
+  std::memcpy(out.depth.data.data(), depth.data, out.depth.data.size());
+  out.info = pinhole_info(PAIR_W, PAIR_H, PAIR_F, PAIR_F, frame, stamp);
+  out.rgb.header.frame_id = frame;
+  out.rgb.header.stamp = stamp;
+  out.rgb.format = "jpeg";
+  std::vector<uchar> jpeg;
+  cv::imencode(".jpg", bgr, jpeg, {cv::IMWRITE_JPEG_QUALITY, JPEG_QUALITY});
+  out.rgb.data.assign(jpeg.begin(), jpeg.end());
+  return out;
+}
+
+// A second GroundNode on the same inputs with its own outputs (output_namespace of the main node plus a suffix), for
+// frame-by-frame comparisons of two configs on identical clouds.
+struct Twin
+{
+  Config config;
+  std::shared_ptr<GroundNode> node;
+  std::shared_ptr<rclcpp::Node> probe;
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_sub, drop_sub;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr warnings_sub;
+  Inbox<sensor_msgs::msg::PointCloud2> obstacle, drop;
+  Inbox<std_msgs::msg::String> warnings;
+};
+
 // Which optional transforms the buffer gets.
 struct TfOptions
 {
@@ -474,6 +593,10 @@ protected:
     c.imu_topic = prefix + "/imu/data";
     c.rgbd_cloud_topic = prefix + "/head_rgbd/points";
     c.output_namespace = prefix + "/ground";
+    c.guidance.depth_topic = prefix + "/head_rgbd/depth_upsampled/image_raw";
+    c.guidance.info_topic = prefix + "/head_rgbd/depth_upsampled/camera_info";
+    c.guidance.rgb_topic = prefix + "/head_rgbd/rgb/image_raw/compressed";
+    c.guidance.tof_info_topic = prefix + "/tof/camera_info";
     c.imu.level_reference_roll_deg = 0.0;
     c.imu.level_reference_pitch_deg = 0.0;
     c.temporal.enabled = false;  // the static scenes below are single clouds; the temporal tests switch it on
@@ -508,6 +631,11 @@ protected:
     rgbd_pub_ =
       probe_->create_publisher<sensor_msgs::msg::PointCloud2>(config.rgbd_cloud_topic, rclcpp::QoS(10).best_effort());
     imu_pub_ = probe_->create_publisher<sensor_msgs::msg::Imu>(config.imu_topic, rclcpp::SensorDataQoS());
+    const auto pair_qos = rclcpp::QoS(10).best_effort();
+    depth_pub_ = probe_->create_publisher<sensor_msgs::msg::Image>(config.guidance.depth_topic, pair_qos);
+    info_pub_ = probe_->create_publisher<sensor_msgs::msg::CameraInfo>(config.guidance.info_topic, pair_qos);
+    rgb_pub_ = probe_->create_publisher<sensor_msgs::msg::CompressedImage>(config.guidance.rgb_topic, pair_qos);
+    tof_info_pub_ = probe_->create_publisher<sensor_msgs::msg::CameraInfo>(config.guidance.tof_info_topic, pair_qos);
     const auto reliable = rclcpp::QoS(50).reliable();
     obstacle_sub_ = probe_->create_subscription<sensor_msgs::msg::PointCloud2>(
       config.obstacle_points(), reliable,
@@ -524,11 +652,43 @@ protected:
       [this](std_msgs::msg::String::ConstSharedPtr m) { state_.add(*m); });
     executor_.add_node(node_);
     executor_.add_node(probe_);
+    for (const auto & twin : twins_) {
+      executor_.add_node(twin->node);
+      executor_.add_node(twin->probe);
+    }
     spinner_ = std::thread([this] { executor_.spin(); });
     ASSERT_TRUE(wait_for([this] {
-      return cloud_pub_->get_subscription_count() > 0 && imu_pub_->get_subscription_count() > 0 &&
-             obstacle_sub_->get_publisher_count() > 0 && state_sub_->get_publisher_count() > 0;
+      const bool twins_ready = std::all_of(twins_.begin(), twins_.end(), [](const std::unique_ptr<Twin> & t) {
+        return t->obstacle_sub->get_publisher_count() > 0 && t->drop_sub->get_publisher_count() > 0 &&
+               t->warnings_sub->get_publisher_count() > 0;
+      });
+      return cloud_pub_->get_subscription_count() > twins_.size() && imu_pub_->get_subscription_count() > 0 &&
+             obstacle_sub_->get_publisher_count() > 0 && state_sub_->get_publisher_count() > 0 && twins_ready;
     }));
+  }
+
+  // A twin node on the main config's inputs (call after fill_tf, before start); its outputs go to
+  // <main output_namespace>_<name>.
+  Twin & add_twin(const Config & main, Config twin_config, const std::string & name)
+  {
+    twin_config.cloud_topic = main.cloud_topic;
+    twin_config.imu_topic = main.imu_topic;
+    twin_config.rgbd_cloud_topic = main.rgbd_cloud_topic;
+    twin_config.output_namespace = main.output_namespace + "_" + name;
+    twins_.push_back(std::make_unique<Twin>());
+    Twin * t = twins_.back().get();
+    t->config = twin_config;
+    t->node = std::make_shared<GroundNode>(twin_config, buffer_);
+    t->probe = std::make_shared<rclcpp::Node>("ground_twin_probe_" + name + std::to_string(g_test_index.load()));
+    const auto reliable = rclcpp::QoS(50).reliable();
+    t->obstacle_sub = t->probe->create_subscription<sensor_msgs::msg::PointCloud2>(
+      twin_config.obstacle_points(), reliable,
+      [t](sensor_msgs::msg::PointCloud2::ConstSharedPtr m) { t->obstacle.add(*m); });
+    t->drop_sub = t->probe->create_subscription<sensor_msgs::msg::PointCloud2>(
+      twin_config.drop_points(), reliable, [t](sensor_msgs::msg::PointCloud2::ConstSharedPtr m) { t->drop.add(*m); });
+    t->warnings_sub = t->probe->create_subscription<std_msgs::msg::String>(
+      twin_config.warning_areas(), reliable, [t](std_msgs::msg::String::ConstSharedPtr m) { t->warnings.add(*m); });
+    return *t;
   }
 
   void TearDown() override
@@ -725,6 +885,63 @@ protected:
     return found;
   }
 
+  // The ToF camera info, then one guidance pair stamped now in `frame`; returns the stamp.
+  builtin_interfaces::msg::Time publish_pair(const PairScene & pair, const std::string & frame = CAM_FRAME)
+  {
+    const auto stamp = next_stamp();
+    tof_info_pub_->publish(pinhole_info(TOF_W, TOF_H, TOF_FX, TOF_FY, TOF_FRAME, stamp));
+    PairMessages m = render_pair(pair, frame, stamp);
+    depth_pub_->publish(m.depth);
+    info_pub_->publish(m.info);
+    rgb_pub_->publish(m.rgb);
+    return stamp;
+  }
+
+  // ground_guidance_frames_total{result} of a node.
+  static double guidance_frames(GroundNode & node, const std::string & result)
+  {
+    return series_value(node.metrics().render(), "ground_guidance_frames_total{result=\"" + result + "\"}")
+      .value_or(0.0);
+  }
+
+  // Publish a pair until `counted` (the main node when null) counts it with `result`, at most PAIR_TRIES times (the
+  // pair topics are best effort, and the first ToF camera info may arrive after its pair); returns the counted stamp.
+  builtin_interfaces::msg::Time pair_and_wait(
+    const PairScene & pair, const std::string & result = "ok", const std::string & frame = CAM_FRAME,
+    GroundNode * counted = nullptr)
+  {
+    GroundNode & node = counted != nullptr ? *counted : *node_;
+    builtin_interfaces::msg::Time stamp;
+    const auto all_frames = [&node] {
+      double sum = 0.0;
+      for (const char * r : {"ok", "guidance_bad_input", "guidance_tf", "guidance_no_plane"}) {
+        sum += guidance_frames(node, r);
+      }
+      return sum;
+    };
+    for (int attempt = 0; attempt < PAIR_TRIES; ++attempt) {
+      const double before = guidance_frames(node, result);
+      const double before_all = all_frames();
+      stamp = publish_pair(pair, frame);
+      wait_for([&] { return all_frames() > before_all; }, PAIR_WAIT);
+      if (guidance_frames(node, result) > before) {
+        return stamp;
+      }
+    }
+    ADD_FAILURE() << "no guidance pair counted as " << result;
+    return stamp;
+  }
+
+  // Wait for the guidance subscriptions of the main node (and of every guidance twin).
+  void wait_for_pair_subscribers(std::size_t subscribers = 1)
+  {
+    ASSERT_TRUE(wait_for([&] {
+      return depth_pub_->get_subscription_count() >= subscribers &&
+             info_pub_->get_subscription_count() >= subscribers && rgb_pub_->get_subscription_count() >= subscribers &&
+             tof_info_pub_->get_subscription_count() >= subscribers;
+    }));
+  }
+
   double t0_ = 0.0;
   double last_stamp_s_ = 0.0;
   Config config_;
@@ -736,6 +953,10 @@ protected:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr rgbd_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_, tof_info_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr rgb_pub_;
+  std::vector<std::unique_ptr<Twin>> twins_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_sub_, drop_sub_, labelled_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr warnings_sub_, state_sub_;
   Inbox<sensor_msgs::msg::PointCloud2> obstacle_, drop_, labelled_;
@@ -1770,4 +1991,351 @@ TEST_F(NodeTest, PlacedBoxIsLethalWithinEnterFramesOfItsFirstFilteredBoxHeights)
   ASSERT_GE(first_lethal, 0) << "the box never became lethal";
   EXPECT_LE(first_lethal - first_filtered, config.hysteresis.enter_frames)
     << "box cells filtered at frame " << first_filtered << ", first lethal at frame " << first_lethal;
+}
+
+// --- RGB and amplitude guidance (design D3, D4, D5, D12; part guided-node) ---------------------------------------
+
+namespace
+{
+
+// box_scene()'s box (x 0.85 .. 1.15, y -0.2 .. 0.2, 10 cm) is what the guidance pair shows; the ToF sees it with its
+// near edge 4 cm short (x 0.89), the edge error of the live ToF.
+constexpr double TRUE_EDGE_X = 0.85;
+constexpr double TOF_EDGE_X = 0.89;
+constexpr double BOX_X1 = 1.15, BOX_HALF_Y = 0.2, BOX_TOP_M = 0.10;
+constexpr double EDGE_TOL_M = 0.02;  // the A3 target: the published edge within 2 cm of the true one
+constexpr int GUIDED_FRAMES = 6;     // frames checked after the warm-up
+// The black patch without ToF returns (x 0.75 .. 1.15, y -0.2 .. 0.2 on the floor).
+constexpr double PATCH_X0 = 0.75, PATCH_X1 = 1.15, PATCH_Y0 = -0.2, PATCH_Y1 = 0.2;
+constexpr int NO_RETURN_MAX_FRAMES = 12;
+constexpr double STALE_AGE_S = 0.3;
+
+Scene tof_box_scene()
+{
+  auto scene = ground_test::floor_scene();
+  ground_test::add_box(
+    scene, Eigen::Vector3d((TOF_EDGE_X + BOX_X1) / 2.0, 0.0, BOX_TOP_M / 2.0),
+    Eigen::Vector3d(BOX_X1 - TOF_EDGE_X, 2.0 * BOX_HALF_Y, BOX_TOP_M));
+  return scene;
+}
+
+PairScene true_box_pair() { return PairScene{box_scene(), nullptr}; }
+
+bool in_patch(const Eigen::Vector3d & p)
+{
+  return p.x() >= PATCH_X0 && p.x() <= PATCH_X1 && p.y() >= PATCH_Y0 && p.y() <= PATCH_Y1;
+}
+
+// The floor with the black patch: no depth and black where the floor hit is in the patch.
+PairScene black_patch_pair() { return PairScene{ground_test::floor_scene(), in_patch}; }
+
+// The ToF floor cloud with no returns from the patch.
+pcl::PointCloud<pcl::PointXYZ> floor_without_patch()
+{
+  pcl::PointCloud<pcl::PointXYZ> out;
+  for (const auto & p : scene_cloud(ground_test::floor_scene())) {
+    if (!in_patch(Eigen::Vector3d(p.x, p.y, p.z))) {
+      out.push_back(p);
+    }
+  }
+  return out;
+}
+
+// The points of the inbox's cloud of the stamp (waits for it; empty when it never arrives).
+std::vector<Eigen::Vector3f> points_at(
+  Inbox<sensor_msgs::msg::PointCloud2> & inbox, const builtin_interfaces::msg::Time & stamp)
+{
+  std::optional<sensor_msgs::msg::PointCloud2> found;
+  EXPECT_TRUE(wait_for([&] {
+    found = find_stamp(inbox, stamp);
+    return found.has_value();
+  }));
+  return found ? xyz_of(*found) : std::vector<Eigen::Vector3f>();
+}
+
+// The areas of the warning-areas document of the stamp (waits for it; null when it never arrives).
+json areas_at(Inbox<std_msgs::msg::String> & inbox, const builtin_interfaces::msg::Time & stamp)
+{
+  std::optional<json> found;
+  EXPECT_TRUE(wait_for([&] {
+    found = find_doc(inbox, [&](const json & d) { return d["stamp_ns"].get<int64_t>() == ns_of(stamp); });
+    return found.has_value();
+  }));
+  return found ? (*found)["areas"] : json();
+}
+
+bool same_point(const Eigen::Vector3f & a, const Eigen::Vector3f & b) { return a == b; }
+
+// The points of `of` that are not in `in` (exact coordinates).
+std::vector<Eigen::Vector3f> extra_points(
+  const std::vector<Eigen::Vector3f> & of, const std::vector<Eigen::Vector3f> & in)
+{
+  std::vector<Eigen::Vector3f> out;
+  for (const auto & p : of) {
+    if (std::none_of(in.begin(), in.end(), [&](const Eigen::Vector3f & q) { return same_point(p, q); })) {
+      out.push_back(p);
+    }
+  }
+  return out;
+}
+
+bool contains_all(const std::vector<Eigen::Vector3f> & of, const std::vector<Eigen::Vector3f> & points)
+{
+  return extra_points(points, of).empty();
+}
+
+double min_x(const std::vector<Eigen::Vector3f> & points)
+{
+  double m = std::numeric_limits<double>::infinity();
+  for (const auto & p : points) {
+    m = std::min(m, static_cast<double>(p.x()));
+  }
+  return m;
+}
+
+Config without_guidance(Config c)
+{
+  c.guidance.enabled = false;
+  return c;
+}
+
+}  // namespace
+
+// A3: the ToF sees the box 4 cm short; the guidance pair shows its true near edge. The published obstacle cloud is the
+// stable lethal cloud of the guidance-off twin plus edge points, which reach the true edge within 2 cm and stay on the
+// box; the stable points and the frame they first appear in are the twin's.
+TEST_F(NodeTest, GuidedBoxGetsEdgePointsAtItsTrueEdge)
+{
+  fill_tf();
+  const Config config = base_config();
+  Twin & plain = add_twin(config, without_guidance(config), "plain");
+  start(config);
+  wait_for_pair_subscribers();
+  cloud_and_wait(scene_cloud(tof_box_scene()));  // a plane for the first pair
+  const int warm = warm_up_frames(config_);
+  std::size_t edge_frames = 0;
+  double last_guided = 0.0;
+  for (int i = 0; i < warm + GUIDED_FRAMES; ++i) {
+    pair_and_wait(true_box_pair());
+    const FrameOutput f = run_frame(scene_cloud(tof_box_scene()));
+    const auto guided = points_at(obstacle_, f.stamp);
+    const auto stable = points_at(plain.obstacle, f.stamp);
+    last_guided = static_cast<double>(guided.size());
+    EXPECT_TRUE(contains_all(guided, stable)) << "frame " << i << ": a stable lethal point is missing";
+    EXPECT_EQ(guided.empty(), stable.empty()) << "frame " << i << ": guidance changed when the box is lethal";
+    EXPECT_EQ(points_at(drop_, f.stamp).size(), points_at(plain.drop, f.stamp).size());
+    if (i < warm) {
+      continue;
+    }
+    ASSERT_FALSE(stable.empty()) << "frame " << i;
+    EXPECT_GE(min_x(stable), TOF_EDGE_X - 0.005) << "the ToF box edge is 4 cm short";
+    const auto edge = extra_points(guided, stable);
+    if (edge.empty()) {
+      continue;
+    }
+    ++edge_frames;
+    EXPECT_NEAR(min_x(guided), TRUE_EDGE_X, EDGE_TOL_M) << "frame " << i;
+    for (const auto & p : edge) {
+      EXPECT_GE(p.x(), TRUE_EDGE_X - EDGE_TOL_M) << p.transpose();
+      EXPECT_LE(p.x(), BOX_X1 + EDGE_TOL_M) << p.transpose();
+      EXPECT_LE(std::fabs(p.y()), BOX_HALF_Y + EDGE_TOL_M) << p.transpose();
+      EXPECT_GE(p.z(), config.guidance.edge.min_height_m - 0.005) << p.transpose();
+      EXPECT_LE(p.z(), BOX_TOP_M + EDGE_TOL_M) << p.transpose();
+    }
+  }
+  EXPECT_EQ(edge_frames, static_cast<std::size_t>(GUIDED_FRAMES));
+  EXPECT_GT(metric("ground_edge_points").value_or(0.0), 0.0);
+  EXPECT_GE(metric("ground_guidance_frames_total{result=\"ok\"}").value_or(0.0), warm + GUIDED_FRAMES);
+  EXPECT_GE(metric("ground_guidance_seconds_count").value_or(0.0), warm + GUIDED_FRAMES);
+  // The obstacle_points gauge and the state count the published cloud, edge points included.
+  EXPECT_TRUE(wait_for([&] { return metric("ground_obstacle_points").value_or(-1.0) == last_guided; }));
+  EXPECT_TRUE(state_after(0, [&](const json & d) {
+                return !d["plane"].is_null() && d["obstacle_points"].get<double>() == last_guided;
+              }).has_value());
+}
+
+// D3, never alone: the pair shows a box the ToF does not see (flat floor), so there is no stable lethal point and the
+// guidance adds none.
+TEST_F(NodeTest, GuidanceWithoutLethalRegionAddsNoLethalPoint)
+{
+  fill_tf();
+  start(base_config());
+  wait_for_pair_subscribers();
+  cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  for (int i = 0; i < warm_up_frames(config_) + GUIDED_FRAMES; ++i) {
+    pair_and_wait(true_box_pair());
+    const FrameOutput f = run_frame(scene_cloud(ground_test::floor_scene()));
+    EXPECT_EQ(f.obstacle, 0u) << "frame " << i;
+    EXPECT_EQ(f.drop, 0u) << "frame " << i;
+    EXPECT_EQ(metric("ground_edge_points").value_or(-1.0), 0.0) << "frame " << i;
+  }
+  EXPECT_GE(metric("ground_guidance_frames_total{result=\"ok\"}").value_or(0.0), 1.0);
+}
+
+// D12: a pair older than guidance.max_age_s at the cloud stamp adds nothing (the clouds equal the guidance-off twin's);
+// a fresh pair after it adds edge points again.
+TEST_F(NodeTest, StaleGuidanceAddsNothing)
+{
+  fill_tf();
+  Config config = base_config();
+  config.guidance.max_age_s = STALE_AGE_S;
+  Twin & plain = add_twin(config, without_guidance(config), "plain");
+  start(config);
+  wait_for_pair_subscribers();
+  warm_cloud_and_wait(scene_cloud(tof_box_scene()));
+  pair_and_wait(true_box_pair());
+  std::this_thread::sleep_for(std::chrono::duration<double>(2.0 * STALE_AGE_S));
+  for (int i = 0; i < GUIDED_FRAMES; ++i) {
+    const FrameOutput f = run_frame(scene_cloud(tof_box_scene()));
+    const auto guided = points_at(obstacle_, f.stamp);
+    const auto stable = points_at(plain.obstacle, f.stamp);
+    ASSERT_FALSE(stable.empty());
+    EXPECT_EQ(guided.size(), stable.size()) << "frame " << i;
+    EXPECT_TRUE(contains_all(guided, stable)) << "frame " << i;
+    EXPECT_GE(min_x(guided), TOF_EDGE_X - 0.005) << "frame " << i;
+    EXPECT_EQ(metric("ground_edge_points").value_or(-1.0), 0.0) << "frame " << i;
+  }
+  // The same pair fresh: the edge points are back.
+  pair_and_wait(true_box_pair());
+  const FrameOutput fresh = run_frame(scene_cloud(tof_box_scene()));
+  EXPECT_GT(points_at(obstacle_, fresh.stamp).size(), points_at(plain.obstacle, fresh.stamp).size());
+}
+
+// Step 2: a pair whose RGB frame has no TF is dropped (guidance_tf) and nothing from it is used.
+TEST_F(NodeTest, PairWithoutTfIsDroppedAndCounted)
+{
+  fill_tf();
+  start(base_config());
+  wait_for_pair_subscribers();
+  warm_cloud_and_wait(scene_cloud(tof_box_scene()));
+  pair_and_wait(true_box_pair(), "guidance_tf", "camera_without_tf");
+  EXPECT_GE(dropped("guidance_tf"), 1.0);
+  EXPECT_EQ(metric("ground_guidance_frames_total{result=\"ok\"}").value_or(-1.0), 0.0);
+  for (int i = 0; i < GUIDED_FRAMES; ++i) {
+    const FrameOutput f = run_frame(scene_cloud(tof_box_scene()));
+    EXPECT_GT(f.obstacle, 0u);
+    EXPECT_GE(min_x(points_at(obstacle_, f.stamp)), TOF_EDGE_X - 0.005) << "frame " << i;
+    EXPECT_EQ(metric("ground_edge_points").value_or(-1.0), 0.0) << "frame " << i;
+  }
+}
+
+// Step 3: a pair before any plane is dropped (guidance_no_plane).
+TEST_F(NodeTest, PairWithoutAPlaneIsDroppedAndCounted)
+{
+  fill_tf();
+  start(base_config());
+  wait_for_pair_subscribers();
+  pair_and_wait(true_box_pair(), "guidance_no_plane");
+  EXPECT_GE(dropped("guidance_no_plane"), 1.0);
+  EXPECT_EQ(metric("ground_guidance_frames_total{result=\"ok\"}").value_or(-1.0), 0.0);
+}
+
+// Step 1: a pair whose JPEG does not decode is dropped (guidance_bad_input).
+TEST_F(NodeTest, UndecodablePairIsDroppedAsBadInput)
+{
+  fill_tf();
+  start(base_config());
+  wait_for_pair_subscribers();
+  cloud_and_wait(scene_cloud(ground_test::floor_scene()));
+  for (int attempt = 0; attempt < PAIR_TRIES && dropped("guidance_bad_input") < 1.0; ++attempt) {
+    const auto stamp = next_stamp();
+    tof_info_pub_->publish(pinhole_info(TOF_W, TOF_H, TOF_FX, TOF_FY, TOF_FRAME, stamp));
+    PairMessages m = render_pair(true_box_pair(), CAM_FRAME, stamp);
+    m.rgb.data.assign(64, 0xAB);
+    depth_pub_->publish(m.depth);
+    info_pub_->publish(m.info);
+    rgb_pub_->publish(m.rgb);
+    wait_for([&] { return dropped("guidance_bad_input") >= 1.0; }, PAIR_WAIT);
+  }
+  EXPECT_GE(dropped("guidance_bad_input"), 1.0);
+  EXPECT_GE(metric("ground_guidance_frames_total{result=\"guidance_bad_input\"}").value_or(0.0), 1.0);
+  EXPECT_EQ(metric("ground_guidance_frames_total{result=\"ok\"}").value_or(-1.0), 0.0);
+}
+
+// A4: the black patch has no depth in the pair and no ToF returns; its colour is not the floor's. It becomes a
+// no_return warning area (source rgb, null height and slope) in warning_areas (map frame) and in the state (base_link),
+// and the obstacle and drop clouds equal the guidance-off twin's.
+TEST_F(NodeTest, BlackPatchWithoutReturnsPublishesANoReturnAreaWithNullHeights)
+{
+  fill_tf();
+  const Config config = base_config();
+  Twin & plain = add_twin(config, without_guidance(config), "plain");
+  start(config);
+  wait_for_pair_subscribers();
+  ASSERT_TRUE(wait_for([this] { return rgbd_pub_->get_subscription_count() > 1; }));
+  cloud_and_wait(floor_without_patch());
+  for (int i = 0; i < TRAIN_CLOUDS; ++i) {
+    const auto stamp = publish_rgbd(false);
+    ASSERT_TRUE(wait_for([&] { return find_stamp(labelled_, stamp).has_value(); }));
+  }
+  std::optional<FrameOutput> found;
+  for (int i = 0; i < NO_RETURN_MAX_FRAMES && !found; ++i) {
+    pair_and_wait(black_patch_pair());
+    const FrameOutput f = run_frame(floor_without_patch());
+    EXPECT_EQ(points_at(obstacle_, f.stamp), points_at(plain.obstacle, f.stamp)) << "frame " << i;
+    EXPECT_EQ(points_at(drop_, f.stamp), points_at(plain.drop, f.stamp)) << "frame " << i;
+    EXPECT_FALSE(has_kind(areas_at(plain.warnings, f.stamp), "no_return", ""));
+    if (!f.warnings.is_null() && has_kind(f.warnings["areas"], "no_return", "rgb")) {
+      found = f;
+    }
+  }
+  ASSERT_TRUE(found.has_value()) << "no no_return area after " << NO_RETURN_MAX_FRAMES << " frames";
+  const Eigen::Vector3d patch_base((PATCH_X0 + PATCH_X1) / 2.0, (PATCH_Y0 + PATCH_Y1) / 2.0, 0.0);
+  const Eigen::Vector3d patch_map = MAP_T_ODOM * ODOM_T_BASE * patch_base;
+  for (const auto & a : found->warnings["areas"]) {
+    if (a["kind"] != "no_return") {
+      continue;
+    }
+    EXPECT_EQ(a["source"], "rgb");
+    EXPECT_TRUE(a["height_m"].is_null()) << a.dump();
+    EXPECT_TRUE(a["slope_deg"].is_null()) << a.dump();
+    const Eigen::Vector2d c = centroid(a["polygon"]);
+    EXPECT_NEAR(c.x(), patch_map.x(), 2.0 * CENTROID_TOL_M);
+    EXPECT_NEAR(c.y(), patch_map.y(), 2.0 * CENTROID_TOL_M);
+  }
+  const auto state = state_after(ns_of(found->stamp), [](const json & d) {
+    return !d["plane"].is_null() && has_kind(d["warnings"], "no_return", "rgb");
+  });
+  ASSERT_TRUE(state.has_value());
+  for (const auto & a : (*state)["warnings"]) {
+    if (a["kind"] == "no_return") {
+      EXPECT_TRUE(a["height_m"].is_null()) << a.dump();
+      EXPECT_TRUE(a["slope_deg"].is_null()) << a.dump();
+      const Eigen::Vector2d c = centroid(a["polygon"]);
+      EXPECT_NEAR(c.x(), patch_base.x(), 2.0 * CENTROID_TOL_M);
+      EXPECT_NEAR(c.y(), patch_base.y(), 2.0 * CENTROID_TOL_M);
+    }
+  }
+  EXPECT_GE(metric("ground_no_return_areas").value_or(0.0), 1.0);
+}
+
+// guidance.enabled false: the node ignores the pairs and its outputs equal, frame by frame, those of a node that gets
+// no pair at all; a guidance node on the same pairs differs (the pairs would change the outputs).
+TEST_F(NodeTest, GuidanceDisabledBehavesAsBefore)
+{
+  fill_tf();
+  const Config config = without_guidance(base_config());
+  Config unfed = base_config();  // guidance on, its pair topics unused
+  Twin & reference = add_twin(config, unfed, "reference");
+  Config fed = config;
+  fed.guidance.enabled = true;
+  Twin & guided = add_twin(config, fed, "guided");
+  start(config);
+  wait_for_pair_subscribers();
+  EXPECT_EQ(depth_pub_->get_subscription_count(), 1u) << "only the guided twin subscribes to the pairs";
+  cloud_and_wait(scene_cloud(tof_box_scene()));
+  bool guided_differs = false;
+  for (int i = 0; i < warm_up_frames(config_) + GUIDED_FRAMES; ++i) {
+    pair_and_wait(true_box_pair(), "ok", CAM_FRAME, guided.node.get());
+    const FrameOutput f = run_frame(scene_cloud(tof_box_scene()));
+    EXPECT_EQ(points_at(obstacle_, f.stamp), points_at(reference.obstacle, f.stamp)) << "frame " << i;
+    EXPECT_EQ(points_at(drop_, f.stamp), points_at(reference.drop, f.stamp)) << "frame " << i;
+    ASSERT_FALSE(f.warnings.is_null()) << "frame " << i;
+    EXPECT_EQ(f.warnings["areas"], areas_at(reference.warnings, f.stamp)) << "frame " << i;
+    guided_differs = guided_differs || points_at(guided.obstacle, f.stamp) != points_at(obstacle_, f.stamp);
+  }
+  EXPECT_TRUE(guided_differs);
+  EXPECT_FALSE(metric("ground_guidance_frames_total{result=\"ok\"}").has_value());
+  EXPECT_FALSE(metric("ground_edge_points").has_value());
+  EXPECT_FALSE(metric("ground_no_return_areas").has_value());
 }

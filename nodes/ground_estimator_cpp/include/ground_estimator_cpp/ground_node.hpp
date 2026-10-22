@@ -20,6 +20,17 @@
 // cell medians. A new incline is fit over the clouds kept so far, so a steep one is lethal from its first frame; when
 // the refit fails its slope is unknown.
 //
+// Guidance (part guided-node; design D3, D4, D5, D12), only while guidance.enabled: an ExactTime synchronizer over the
+// upsampled depth, its camera info and the JPEG of head_rgbd_cpp (one header per pair) plus the latest ToF camera info.
+// A pair is decoded, moved to base_link and the fixed frame at its stamp, judged against the tracked plane at its
+// stamp and sampled (guidance.hpp); its depth samples are kept for the edge points (edge_points.hpp) and its
+// no-return samples voted into the NoReturnTracker (no_return.hpp) with the stable lethal and ToF warning cells as the
+// blocked cells. Any failure drops the whole pair. On each ToF cloud with a plane and guidance no older than
+// guidance.max_age_s, the edge points of this frame's stable lethal marks are appended to the lethal clouds (never
+// without a stable lethal point, never removing one) and the tracker's no_return areas join the warning areas; they
+// are cell-aligned and stable on their own and skip the PublishedArea continuity. The executor is single-threaded:
+// the guidance, cloud, IMU and RGB-D callbacks never run concurrently.
+//
 // Topics (part ground-topics, names from Config): <ns>/obstacle_points, <ns>/drop_points (PointCloud2 XYZ, reliable
 // depth 1), <ns>/warning_areas (std_msgs/String, reliable depth 1), <ns>/labelled_points (PointCloud2 XYZ rgb label,
 // best_effort depth 1), <ns>/state (std_msgs/String, reliable transient_local depth 1).
@@ -27,6 +38,9 @@
 #ifndef GROUND_ESTIMATOR_CPP__GROUND_NODE_HPP_
 #define GROUND_ESTIMATOR_CPP__GROUND_NODE_HPP_
 
+#include <message_filters/subscriber.h>
+#include <message_filters/sync_policies/exact_time.h>
+#include <message_filters/synchronizer.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <prometheus/family.h>
@@ -41,6 +55,9 @@
 #include <memory>
 #include <optional>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
+#include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -52,7 +69,10 @@
 #include "ground_estimator_cpp/cell_median.hpp"
 #include "ground_estimator_cpp/colour.hpp"
 #include "ground_estimator_cpp/config.hpp"
+#include "ground_estimator_cpp/edge_points.hpp"
 #include "ground_estimator_cpp/edges.hpp"
+#include "ground_estimator_cpp/guidance.hpp"
+#include "ground_estimator_cpp/no_return.hpp"
 #include "ground_estimator_cpp/plane_fit.hpp"
 #include "ground_estimator_cpp/state.hpp"
 #include "ground_estimator_cpp/surface_slope.hpp"
@@ -87,6 +107,14 @@ constexpr const char * METRIC_OCCLUDED_POINTS = "ground_occluded_points";
 constexpr const char * METRIC_MISMATCH_RATIO = "ground_colour_mismatch_ratio";
 constexpr const char * METRIC_DROPPED = "ground_clouds_dropped_total";
 constexpr const char * METRIC_LABELLED = "ground_labelled_clouds_total";
+// Guidance metrics (part guided-node), registered only while guidance.enabled.
+constexpr const char * METRIC_GUIDANCE_FRAMES = "ground_guidance_frames_total";  // {result}: ok or the drop reason
+constexpr const char * METRIC_GUIDANCE_SECONDS = "ground_guidance_seconds";
+constexpr const char * METRIC_EDGE_POINTS = "ground_edge_points";
+constexpr const char * METRIC_NO_RETURN_AREAS = "ground_no_return_areas";
+
+// Queue of the guidance ExactTime synchronizer, pairs.
+constexpr uint32_t GUIDANCE_QUEUE = 5;
 
 // A lethal point votes its cell lethal only when the temporal cell is steady (CellMedianFilter::steady_at): a spread of
 // at most LETHAL_SPREAD_FRACTION * temporal.max_spread_m and no spread gate of it or of its 8 neighbours in its last
@@ -109,6 +137,12 @@ constexpr const char * DROP_REASON_TF = "tf";                        // a cloud 
 constexpr const char * DROP_REASON_NO_PLANE_RGBD = "no_plane_rgbd";  // an RGB-D cloud without a plane at its stamp
 constexpr const char * DROP_REASON_NO_MAP_TF = "no_map_tf";          // warning areas without TF to warnings.frame
 constexpr const char * DROP_REASON_BAD_INPUT = "bad_input";          // a cloud without float32 x, y, z (or rgb)
+constexpr const char * DROP_REASON_GUIDANCE_BAD_INPUT = "guidance_bad_input";  // undecodable pair or no ToF model
+constexpr const char * DROP_REASON_GUIDANCE_TF = "guidance_tf";                // a pair without TF at its stamp
+constexpr const char * DROP_REASON_GUIDANCE_NO_PLANE = "guidance_no_plane";    // a pair without a plane at its stamp
+
+// result label of ground_guidance_frames_total for a pair that was used.
+constexpr const char * GUIDANCE_RESULT_OK = "ok";
 
 // State reasons that are not a fit reject.
 constexpr const char * REASON_NO_TF = "no_tf";
@@ -169,6 +203,23 @@ private:
   void on_imu(const sensor_msgs::msg::Imu::ConstSharedPtr & msg);
   void on_rgbd(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & msg);
   void on_state_timer();
+  // One synchronized guidance pair (part guided-node): counted in ground_guidance_frames_total, timed in
+  // ground_guidance_seconds; a failure is a drop and leaves the kept guidance as it was.
+  void on_guidance(
+    const sensor_msgs::msg::Image::ConstSharedPtr & depth, const sensor_msgs::msg::CameraInfo::ConstSharedPtr & info,
+    const sensor_msgs::msg::CompressedImage::ConstSharedPtr & rgb);
+  void on_tof_info(const sensor_msgs::msg::CameraInfo::ConstSharedPtr & msg);
+  // Decode, move, judge and sample a pair, then keep its samples and vote its no-return cells.
+  // @param detail set to the reason of a drop.
+  // @return nullptr when the pair was used, else its drop reason (DROP_REASON_GUIDANCE_*).
+  const char * use_guidance(
+    const sensor_msgs::msg::Image & depth, const sensor_msgs::msg::CameraInfo & info,
+    const sensor_msgs::msg::CompressedImage & rgb, std::string & detail);
+  // @return true when guidance is on and a pair was used no more than guidance.max_age_s from stamp_ns.
+  bool guidance_fresh(int64_t stamp_ns) const;
+  // Append the edge points of this frame's stable lethal marks (stable_obstacle_, stable_drop_) to them when the kept
+  // guidance points are fresh and guidance.edge.enabled; sets ground_edge_points while guidance is on.
+  void append_edge_points(const Eigen::Isometry3d & fixed_T_base, int64_t stamp_ns);
 
   void process_plane(
     const sensor_msgs::msg::PointCloud2 & msg, const TrackedPlane & tracked, const Eigen::Isometry3d & fixed_T_base,
@@ -202,9 +253,10 @@ private:
 
   PlaneTracker tracker_;
   CellMedianFilter cell_filter_;
-  CellClassFilter cell_class_;              // on the cell_filter_ grid; reset with it
-  RawHeightHistory raw_heights_;            // the raw clouds of the slope history, for the cluster slopes
-  std::vector<PublishedArea> areas_fixed_;  // the published stable warning areas
+  CellClassFilter cell_class_;                // on the cell_filter_ grid; reset with it
+  RawHeightHistory raw_heights_;              // the raw clouds of the slope history, for the cluster slopes
+  std::vector<PublishedArea> areas_fixed_;    // the published stable warning areas
+  std::vector<WarningArea> no_return_fixed_;  // the published no_return areas (fixed frame)
   FloorColourModel colour_model_;
   std::optional<ImuSample> latest_imu_;
   std::optional<Eigen::Quaterniond> imu_to_base_;  // static rotation of IMU-frame vectors into base_frame
@@ -236,8 +288,9 @@ private:
   pcl::PointCloud<pcl::PointXYZ> mismatch_cloud_;
   std::vector<float> mismatch_h_;
   std::vector<WarningArea> areas_in_frame_;
-  pcl::PointCloud<pcl::PointXYZ> stable_obstacle_, stable_drop_;  // this frame's lethal marks (lethal_marks_of)
-  pcl::PointCloud<pcl::PointXYZ> steady_lethal_;                  // lethal points of steady cells (scratch)
+  // This frame's lethal marks (lethal_marks_of), then plus the guidance edge points (append_edge_points).
+  pcl::PointCloud<pcl::PointXYZ> stable_obstacle_, stable_drop_;
+  pcl::PointCloud<pcl::PointXYZ> steady_lethal_;  // lethal points of steady cells (scratch)
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
@@ -248,6 +301,22 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr warnings_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
   rclcpp::TimerBase::SharedPtr state_timer_;
+
+  // Guidance (only while guidance.enabled).
+  using GuidancePolicy = message_filters::sync_policies::ExactTime<
+    sensor_msgs::msg::Image, sensor_msgs::msg::CameraInfo, sensor_msgs::msg::CompressedImage>;
+  message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub_;
+  message_filters::Subscriber<sensor_msgs::msg::CameraInfo> info_sub_;
+  message_filters::Subscriber<sensor_msgs::msg::CompressedImage> rgb_sub_;
+  std::unique_ptr<message_filters::Synchronizer<GuidancePolicy>> guidance_sync_;  // after its subscribers
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr tof_info_sub_;
+  std::optional<CameraModel> tof_model_;  // of the latest ToF camera info with a usable calibration
+  std::string tof_frame_;                 // its frame
+  RayGrid guidance_grid_;
+  GuidancePoints guidance_points_;
+  NoReturnTracker no_return_;           // on the cell_filter_ grid; reset with it
+  std::optional<int64_t> guidance_ns_;  // stamp of the latest pair used
+  prometheus::Histogram * guidance_seconds_ = nullptr;
 
   ros2_common_cpp::Metrics metrics_;
   prometheus::Histogram * fit_seconds_ = nullptr;
