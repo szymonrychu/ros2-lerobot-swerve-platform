@@ -9,10 +9,11 @@ import pytest
 import yaml
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
+from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 
-from mcp_server.camera_scene import CameraNotCalibratedError, Scene, build_scene, camera_setup, parent_transform
+from mcp_server.camera_scene import Scene, build_scene, camera_setup, parent_transform
 from mcp_server.config import REPO_ROOT, McpServerConfig
-from mcp_server.head import HeadController
+from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.head_kinematics import CAMERA_FRAME, HeadKinematics
 from mcp_server.ik import ArmKinematics
 
@@ -171,14 +172,40 @@ def test_deployed_head_section_equals_the_code_defaults() -> None:
     assert deployed_config().head == McpServerConfig().head
 
 
-def test_deployed_front_camera_hangs_on_head_link_with_the_urdf_mount_and_is_not_calibrated() -> None:
-    cfg = deployed_config()
-    front = cfg.cameras.front
-    assert front.parent_frame == "head_link" and front.intrinsics is None and front.mount is not None
-    with pytest.raises(CameraNotCalibratedError):
-        camera_setup(cfg, "front")
-    head_kin = HeadKinematics(cfg.head.urdf_path)
-    urdf_mount = np.linalg.inv(head_kin.link_pose(0.0, 0.0, "head_link")) @ head_kin.link_pose(
-        0.0, 0.0, "head_camera_link"
+def test_deployed_front_camera_is_the_applied_head_camera_joint_with_applied_intrinsics() -> None:
+    front = deployed_config().cameras.front
+    assert front.parent_frame == "head_camera_link" and front.mount is not None
+    assert front.mount.parent_frame == "head_camera_link"
+    assert np.allclose(front.mount.to_matrix(), np.eye(4))
+    assert front.intrinsics is not None
+    assert str(front.intrinsics.calibration_file) == (
+        "/var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml"
     )
-    assert np.allclose(front.mount.to_matrix(), urdf_mount)
+
+
+def test_zero_mount_on_head_camera_link_equals_the_old_head_link_mount(kin: ArmKinematics) -> None:
+    """The deployed zero mount on head_camera_link poses the camera exactly as the old head_link mount did."""
+    new = head_config(
+        parent_frame="head_camera_link", mount={**HEAD_MOUNT, "parent_frame": "head_camera_link", "x": 0.0, "y": 0.0}
+    )
+    old = head_config()
+    head, _ = head_at(new, 15.0, 25.0)
+    assert np.allclose(
+        front_scene(new, kin, head).t_ref_optical, front_scene(old, kin, head).t_ref_optical, atol=URDF_ATOL
+    )
+
+
+def test_front_scene_moves_with_an_applied_head_camera_joint(kin: ArmKinematics, tmp_path: Path) -> None:
+    cfg = head_config(
+        parent_frame="head_camera_link", mount={**HEAD_MOUNT, "parent_frame": "head_camera_link", "x": 0.0, "y": 0.0}
+    )
+    provider = AppliedHeadKinematics(cfg.head.urdf_path, tmp_path)
+    backend = FakeHeadBackend({"head_pan": 0.0, "head_tilt": 0.0})
+    head = HeadController(backend, provider, cfg.head)
+    before = front_scene(cfg, kin, head).t_ref_optical.copy()
+    origins = {"head_camera_joint": Origin((0.02, -0.025, 0.03), (0.0, 0.0, 0.0))}
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "head_chain.json").write_text(head_chain_json(origins, "test", "s2", "ok"))
+    (tmp_path / "applied.json").write_text(json.dumps({"session": "s2"}))
+    after = front_scene(cfg, kin, head).t_ref_optical
+    assert (after[:3, 3] - before[:3, 3])[2] == pytest.approx(0.03, abs=1e-6)
