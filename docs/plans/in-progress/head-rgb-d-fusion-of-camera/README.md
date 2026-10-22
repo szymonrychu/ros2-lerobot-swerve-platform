@@ -1,7 +1,7 @@
 ---
 title: Head RGB-D fusion of camera and ToF
 blockers: [Pan tilt head control with agent and web UI, Remove the Jetson coprocessor, Marker and calibration board generator, Head RGB-D calibration in the web UI Calibrate page]
-stage: build
+stage: review
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
