@@ -665,6 +665,9 @@ User 2026-10-22 approved (yes): clip board only after base pose, hold arm on eve
 ### D51: User 2026-10-22 approved (yes): solver fits the board-on-jaw
 User 2026-10-22 approved (yes): solver fits the board-on-jaw pose, measurement only a start value, poses provisional until a dry run (user decision)
 
+### D52: User 2026-10-22 approved (yes): head-from-arm calibration before the scene recording
+User 2026-10-22 approved (yes): run the head-from-arm calibration live step before recording the ground scene, so every recording and replay carries the calibrated head chain; the board goes back into the scene and the placements are re-measured before the baseline recording (D21) (user decision)
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -772,6 +775,7 @@ User 2026-10-22 approved (yes): solver fits the board-on-jaw pose, measurement o
 | D49 User 2026-10-22 approved (yes): floor-fit values as start va | head-from-arm-board-solver, head-arm-compute-and-apply |
 | D50 User 2026-10-22 approved (yes): clip board only after base p | head-arm-pose-capture-sequen, head-arm-calibrate-ui-sectio |
 | D51 User 2026-10-22 approved (yes): solver fits the board-on-jaw | arm-board-pose-set, head-from-arm-board-solver |
+| D52 User 2026-10-22 approved (yes): head-from-arm calibration before the scene recording | calib-robot-runbook, capture-baseline-recordings |
 
 ## Contracts
 

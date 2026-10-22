@@ -423,5 +423,17 @@
       "head-from-arm-board-solver"
     ],
     "status": "approved"
+  },
+  {
+    "id": "Q9",
+    "text": "User 2026-10-22 approved (yes): run the head-from-arm calibration live step before recording the ground scene, so every recording and replay carries the calibrated head chain; the board goes back into the scene and the placements are re-measured before the baseline recording (D21)",
+    "decisions": [
+      "D52"
+    ],
+    "tasks": [
+      "calib-robot-runbook",
+      "capture-baseline-recordings"
+    ],
+    "status": "approved"
   }
 ]
