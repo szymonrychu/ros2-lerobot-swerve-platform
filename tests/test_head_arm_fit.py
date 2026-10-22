@@ -120,7 +120,7 @@ def tolerance(name: str) -> float:
     return TOLERANCE_MM / 1000.0 if name.endswith("_m") else TOLERANCE_DEG
 
 
-def test_fit_recovers_perturbed_chain(noisy_fit: HeadArmFit) -> None:
+def test_recovers_perturbed_head_chain_with_noise(noisy_fit: HeadArmFit) -> None:
     want = expected(TRUTH_DELTAS)
     for name in PARAM_NAMES:
         error = abs(noisy_fit.params[name] - want[name])
@@ -154,7 +154,7 @@ def test_fit_reports_coverage_and_holdout(noisy_fit: HeadArmFit, noisy_views: li
     assert set(data["per_view"][0]) == {"view_id", "arm_pose", "rms_px", "held_out"}
 
 
-def test_noiseless_fit_is_exact() -> None:
+def test_noiseless_recovery_exact() -> None:
     result = fit(scene(truth(TRUTH_DELTAS), 0.0))
     want = expected(TRUTH_DELTAS)
     for name in PARAM_NAMES:
@@ -166,7 +166,7 @@ def test_noiseless_fit_is_exact() -> None:
     )
 
 
-def test_pan_origin_yaw_folds_into_mount_yaw() -> None:
+def test_pan_zero_folds_into_mount_yaw() -> None:
     chain = UrdfChain.from_text(HEAD_URDF)
     pan_xyz, (pan_roll, pan_pitch, pan_yaw) = chain.origin("head_pan")
     pan_origin = Origin(pan_xyz, (pan_roll, pan_pitch, pan_yaw + math.radians(1.0)))
@@ -185,7 +185,7 @@ def test_narrow_pan_span_fails(noisy_views: list) -> None:
     assert not result.passed
 
 
-def test_floor_cross_check_fails_off_floor_and_without_floor(noisy_views: list) -> None:
+def test_floor_cross_check_limits(noisy_views: list) -> None:
     off = {**APPLIED_FLOOR, "tilt_zero_deg": expected(TRUTH_DELTAS)["tilt_zero_deg"] + FLOOR_OFFSET_DEG}
     result = fit(noisy_views, floor=off)
     assert "floor_delta:tilt_zero_deg" in result.failed_limits
@@ -196,7 +196,7 @@ def test_floor_cross_check_fails_off_floor_and_without_floor(noisy_views: list) 
     assert not blind.passed
 
 
-def test_floor_prior_pulls_tilt_zero(noisy_views: list, noisy_fit: HeadArmFit) -> None:
+def test_floor_prior_weight_pulls(noisy_views: list, noisy_fit: HeadArmFit) -> None:
     off = {**APPLIED_FLOOR, "tilt_zero_deg": expected(TRUTH_DELTAS)["tilt_zero_deg"] + FLOOR_OFFSET_DEG}
     weighted = fit(noisy_views, cfg=fit_config(floor_prior_weight=100.0), floor=off)
     free = abs(noisy_fit.params["tilt_zero_deg"] - off["tilt_zero_deg"])
@@ -204,13 +204,13 @@ def test_floor_prior_pulls_tilt_zero(noisy_views: list, noisy_fit: HeadArmFit) -
     assert pulled < free - 0.5
 
 
-def test_large_noise_fails_a_sigma_limit() -> None:
+def test_noisy_views_fail_a_sigma_limit() -> None:
     result = fit(scene(truth(TRUTH_DELTAS), 3.0))
     assert {"max_sigma_mm", "max_sigma_deg"} & set(result.failed_limits)
     assert not result.passed
 
 
-def test_fixed_joints_keep_urdf_values(noisy_fit: HeadArmFit) -> None:
+def test_fixed_components_stay_at_urdf(noisy_fit: HeadArmFit) -> None:
     chain = UrdfChain.from_text(HEAD_URDF)
     assert set(noisy_fit.origins) == {"head_mount_joint", "head_tilt"}
     assert noisy_fit.origins["head_tilt"].xyz == pytest.approx(chain.origin("head_tilt")[0], abs=1e-12)
@@ -225,7 +225,7 @@ def test_fixed_joints_keep_urdf_values(noisy_fit: HeadArmFit) -> None:
     assert "head_pan" not in model and "head_camera_joint" not in model
 
 
-def test_aim_head_puts_point_on_optical_axis_and_clamps() -> None:
+def test_aim_head() -> None:
     chain = UrdfChain.from_text(HEAD_URDF)
     for point in ([0.5, -0.2, 0.2], [0.4, 0.3, 0.45], [0.8, 0.0, 0.0]):
         target = np.array(point)
