@@ -7,8 +7,8 @@ are read in Grafana, never with `top` over SSH. Design: `docs/plans/in-progress/
 (D11, D12); node: `nodes/ground_estimator_cpp/README.md`; Nav2 side: `nodes/nav2_bringup/README.md`.
 
 Obstacle rule under test: a step, threshold, drop or ramp is an obstacle (lethal) when its step exceeds one third of the
-wheel diameter (0.04 m) or its slope exceeds 8 deg; otherwise it is a warning (slow-down, passable). Exactly 0.04 m and
-8 deg are warnings. Servo safety: scenes drive at the lowest speed first; nothing here moves an arm joint.
+wheel diameter (0.04 m) or its slope exceeds 15 deg; otherwise it is a warning (slow-down, passable). Exactly 0.04 m and
+15 deg are warnings. Servo safety: scenes drive at the lowest speed first; nothing here moves an arm joint.
 
 After a head remount run `docs/runbooks/head-remount-floor-check.md` first (z-depth, head pan sign, re-zero,
 recalibration, floor numbers).
@@ -22,7 +22,7 @@ recalibration, floor numbers).
   kills a running agent session, exit 143). Check the claude_agent session state first; ask when one is running.
 - `topic_scraper_api` is enabled for the client in `ansible/group_vars/client.yml` (`enabled: true`) and deployed, else port
   18100 refuses connections (CLAUDE.md).
-- A level, empty floor patch of at least 3 m x 2 m, the sill and drop props (3 cm and 5 cm), a box, a 6 deg and a steeper
+- A level, empty floor patch of at least 3 m x 2 m, the sill and drop props (3 cm and 5 cm), a box, a 13 deg and a steeper
   ramp, a red sheet, a tape measure.
 
 ## Deploy
@@ -61,7 +61,7 @@ Robot still on the level floor, 60 s of `/ground/state`:
 
 For each scene place the prop 1 m ahead, read `/ground/state` regions, `/ground/warning_areas`, the web UI Ground layer and
 the local costmap, then drive at the prop with a nav goal. Obstacle rule: max step = one third of the wheel diameter =
-0.04 m, max slope 8 deg.
+0.04 m, max slope 15 deg (bounded by the tilt_guard error limits).
 
 - 3 cm sill: a warning area, `/speed_limit` at the warning percent while crossing, non-lethal ground cost cells (about 101,
   below INSCRIBED 253), the robot drives over it.
@@ -71,8 +71,8 @@ the local costmap, then drive at the prop with a nav goal. Obstacle rule: max st
 - 10 cm drop at 1 m: a drop region with height within 2 cm and edge distance within 5 cm of the tape measure,
   `ground_drop_mark` cells, CliffStop behaves unchanged (still driven by `tof_cliff`).
 - box: obstacle points and `ground_obstacle_mark` cells.
-- 6 deg ramp: a warning with slope within 1 deg of the measured angle, driven over slowly.
-- ramp steeper than 8 deg: an obstacle, lethal mark, planner routes around.
+- 13 deg ramp: a warning with slope within 1 deg of the measured angle, driven over slowly.
+- ramp steeper than 15 deg: an obstacle, lethal mark, planner routes around.
 - red sheet flat on the floor: `floor_colour_mismatch` labels in the web UI Ground layer and a colour warning area
   (slow-down, passable). Compare the fixed and the ground marks in the web UI local costmap with the layers toggled at
   runtime: `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false|true` and
@@ -109,7 +109,7 @@ The values equal `nodes/ground_estimator_cpp/config/ground_estimator.yaml` and t
 | `fit.max_normal_angle_deg` | 10 | level floor, fit never rejected on the floor |
 | `fit.max_offset_m` | 0.08 | level floor, fit never rejected on the floor |
 | `traversability.wheel_radius_m` | 0.06 | equals swerve_drive_controller; max step 1/3 of the diameter (`max_step_fraction`) = 0.04 m |
-| `traversability.max_slope_deg` | 8 | 6 deg ramp warning, steeper ramp obstacle |
+| `traversability.max_slope_deg` | 15 | 13 deg ramp warning, ramp steeper than 15 deg obstacle |
 | `edges.step_max_height_m` | 0.2 | 3 cm and 5 cm sills and drops, box |
 | `colour.max_mahalanobis` | 3.0 | red sheet flagged, floor not flagged |
 | `ground_warning_speed_pct` | 40 | `/speed_limit` while crossing the 3 cm sill |
@@ -148,8 +148,8 @@ The robot run fills this table. Status values: PASS, FAIL, NOT RUN.
 | 5 cm drop | lethal mark, routed around | | |
 | 10 cm drop at 1 m | height within 2 cm, edge within 5 cm, CliffStop unchanged | | |
 | Box | obstacle | | |
-| 6 deg ramp | warning, slope within 1 deg, driven slowly | | |
-| Ramp steeper than 8 deg | obstacle | | |
+| 13 deg ramp | warning, slope within 1 deg, driven slowly | | |
+| Ramp steeper than 15 deg | obstacle | | |
 | Red sheet | colour mismatch labels, warning area, passable | | |
 | ground_estimator_cpp CPU p95 | <= 0.10 core | | |
 | nav2_bringup_ground_layer delta | <= +0.05 core | | |

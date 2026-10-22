@@ -255,3 +255,12 @@
 - **Decision**: after the pan/tilt mount reprint the SDK depth is radial (not z); arducam_tof converts it to z in arducam_tof with the calibrated K and publishes that K. The head_pan servo is mounted reversed (`inverted: true`, +pan = left, CCW from above). ground_estimator_cpp takes a per-cell (10 cm) temporal median of plane-relative heights before segmentation. The ToF obstacle band (STVL tof_mark and collision monitor tof_obstacles) is 10 cm. The obstacle vs warning rule unchanged (max step 0.04 m, max slope 8 deg). Robot runbook: `docs/runbooks/head-remount-floor-check.md`.
 
 - CPU budget (2026-10-21): client saturated (~3.7 cores); decisions: rclpy EventsExecutor per node with `executor: single_threaded` config rollback, IMU 25 Hz, head camera 15 fps, client Alloy scrape 15 s; measured by `docs/runbooks/client-cpu-budget.md`.
+
+## Ground detection robustness (2026-10-21)
+
+- **Box**: the 5 cm box stays an obstacle under the 1/3-wheel rule (0.04 m); it must be classified stably.
+- **Ramp**: `traversability.max_slope_deg` 15 deg (was 8 deg), bounded by the tilt_guard error limits (`roll_error_deg` 15, not the warn limits), because the user calls the ~14 deg ramp (25 cm long, 63 mm high) a safe skew, so a warning.
+- **Noise**: a per-cell temporal spread gate (`temporal.max_spread_m`, gated cells unknown), a median (not p90) edge step, robust slope with `slope_known`, per-cell class hysteresis (`hysteresis.*`, 3 of 5 frames to enter, 0.3 s lethal latency), `lethal_min_points` 2, `fit.smoothing` 0.2.
+- **Colour**: colour-mismatch clusters are warning-only, never lethal.
+- **Costmap**: costmap_zones keeps a cell-keyed store of warning areas and publishes only on change.
+- Runbook (static robot, report script over topic_scraper captures): `docs/runbooks/ground-robustness.md`. Details: `nodes/ground_estimator_cpp/README.md` (Robustness).
