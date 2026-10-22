@@ -71,7 +71,10 @@ class AppliedHeadKinematics:
             return "none", "none"
         try:
             data = json.loads((self.applied_dir / APPLIED_MARKER_FILE).read_text())
-            return str(data.get("session", "none")), str(data.get("result", "none"))
+            record = data.get("head_chain")
+            if not isinstance(record, dict):
+                record = data
+            return str(record.get("session", "none")), str(record.get("result", "none"))
         except (OSError, ValueError, AttributeError):
             return "none", "none"
 

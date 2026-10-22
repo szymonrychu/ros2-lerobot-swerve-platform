@@ -102,11 +102,18 @@ def test_home_moves_to_configured_home() -> None:
 FLOOR_POINT = np.array([2.0, 0.3, 0.0])
 
 
-def write_applied(applied: Path, dz: float = 0.05, session: str = "s1") -> None:
+def write_applied(applied: Path, dz: float = 0.05, session: str = "s1", nested: bool = False) -> None:
     applied.mkdir(exist_ok=True)
     origins = {"head_mount_joint": Origin((0.15, 0.10, 0.31 + dz), (0.0, 0.0, 0.0))}
     (applied / "head_chain.json").write_text(head_chain_json(origins, "test", session, "ok"))
-    (applied / "applied.json").write_text(json.dumps({"session": session}))
+    marker = {"session": session}
+    if nested:
+        marker = {
+            "session": "rgbd-old",
+            "result": "rgbd-res",
+            "head_chain": {"session": session, "result": "floor-res"},
+        }
+    (applied / "applied.json").write_text(json.dumps(marker))
 
 
 def test_no_applied_dir_uses_repo_urdf(tmp_path: Path) -> None:
@@ -121,6 +128,18 @@ def test_look_at_uses_applied_head_chain(tmp_path: Path) -> None:
     assert provider.current().look_at(FLOOR_POINT)[1] != pytest.approx(KINEMATICS.look_at(FLOOR_POINT)[1], abs=1e-3)
     head = HeadController(FakeHeadBackend(), provider, HeadSettings())
     assert head.kinematics.look_at(FLOOR_POINT) == provider.current().look_at(FLOOR_POINT)
+
+
+def test_reload_log_names_head_chain_session(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    write_applied(tmp_path)
+    provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, tmp_path)
+    write_applied(tmp_path, session="floor-s9", nested=True)
+    marker = tmp_path / "applied.json"
+    os.utime(marker, ns=(marker.stat().st_atime_ns, marker.stat().st_mtime_ns + 1_000_000_000))
+    with caplog.at_level(logging.INFO, logger="mcp_server.head"):
+        provider.current()
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "floor-s9" in text and "floor-res" in text and "rgbd-old" not in text
 
 
 def test_applied_marker_change_reloads_kinematics(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
