@@ -264,6 +264,9 @@ warning (caution) tier member. Serves A7.
 ### D16: User 2026-10-22 approved (yes): user sets and keeps the scen
 User 2026-10-22 approved (yes): user sets and keeps the scene; box/ramp dimensions asked at capture time (user decision)
 
+### D17: User 2026-10-22 approved (yes): keep head mapping RGB at 2 H
+User 2026-10-22 approved (yes): keep head mapping RGB at 2 Hz (user decision)
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -309,6 +312,7 @@ User 2026-10-22 approved (yes): user sets and keeps the scene; box/ramp dimensio
 | D14 Baseline first | capture-baseline-recordings |
 | D15 Tiers and rule unchanged | guidance-replay-acceptance, live-report-guidance-metrics |
 | D16 User 2026-10-22 approved (yes): user sets and keeps the scen | capture-baseline-recordings, scene-truth-from-board |
+| D17 User 2026-10-22 approved (yes): keep head mapping RGB at 2 H | rgbd-upsampling-on |
 
 ## Contracts
 

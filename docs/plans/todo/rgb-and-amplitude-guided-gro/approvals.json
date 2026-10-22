@@ -143,5 +143,16 @@
       "scene-truth-from-board"
     ],
     "status": "approved"
+  },
+  {
+    "id": "Q2",
+    "text": "User 2026-10-22 approved (yes): keep head mapping RGB at 2 Hz",
+    "decisions": [
+      "D17"
+    ],
+    "tasks": [
+      "rgbd-upsampling-on"
+    ],
+    "status": "approved"
   }
 ]
