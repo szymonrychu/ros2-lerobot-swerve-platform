@@ -101,6 +101,28 @@ def test_truth_from_rendered_board() -> None:
         assert dist.min(axis=0).max() < CORNER_TOLERANCE_M
 
 
+def test_board_polygon_includes_plate_margin() -> None:
+    """The board outline grows by the plate margin on every side, which places the board frame origin."""
+    margin = 0.005
+    cam = camera()
+    result = solve_board(
+        [v[0] for v in [view()] * 5],
+        [v[1] for v in [view()] * 5],
+        make_board(BOARD_CFG),
+        cam.k.ravel(),
+        cam.d,
+        {**OUTLINE, "margin_m": margin},
+    )
+    got = result.corners[:, :2]
+    want = expected_corners(0.0)
+    centre = want.mean(axis=0)
+    grown = want + margin * np.sign(want - centre)
+    dist = np.linalg.norm(got[:, None, :] - grown[None, :, :], axis=2)
+    assert dist.min(axis=0).max() < CORNER_TOLERANCE_M / 2
+    bare = np.linalg.norm(got[:, None, :] - want[None, :, :], axis=2)
+    assert bare.min(axis=0).min() > margin * 0.9
+
+
 def test_placements_build_polygons() -> None:
     """Box and ramp polygons follow from the board corners, dims and placements (yaw is counter-clockwise)."""
     sheet = SceneSheet.model_validate(SHEET)
