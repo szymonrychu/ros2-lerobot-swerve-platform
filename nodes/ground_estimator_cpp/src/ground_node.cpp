@@ -665,6 +665,15 @@ void GroundNode::observe_steady(
   cell_class_.observe_points(steady_lethal_, cls, fixed_T_base);
 }
 
+// Two unmeasured values are equal, a measured one differs from an unmeasured one, two measured ones by the deadband.
+static bool within_deadband(const std::optional<double> & a, const std::optional<double> & b, double deadband)
+{
+  if (!a || !b) {
+    return !a && !b;
+  }
+  return std::fabs(*a - *b) <= deadband;
+}
+
 std::vector<GroundNode::PublishedArea> GroundNode::stable_areas_fixed() const
 {
   const bool hold = config_.hysteresis.enabled;
@@ -682,8 +691,8 @@ std::vector<GroundNode::PublishedArea> GroundNode::stable_areas_fixed() const
     if (hold && prev != areas_fixed_.end()) {
       const WarningArea & held = prev->area;
       if (
-        next.area.kind == held.kind && std::fabs(held.height_m - next.area.height_m) <= AREA_HEIGHT_DEADBAND_M &&
-        std::fabs(held.slope_deg - next.area.slope_deg) <= AREA_SLOPE_DEADBAND_DEG) {
+        next.area.kind == held.kind && within_deadband(held.height_m, next.area.height_m, AREA_HEIGHT_DEADBAND_M) &&
+        within_deadband(held.slope_deg, next.area.slope_deg, AREA_SLOPE_DEADBAND_DEG)) {
         next.area.height_m = held.height_m;
         next.area.slope_deg = held.slope_deg;
       }

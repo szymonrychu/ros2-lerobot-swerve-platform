@@ -7,6 +7,7 @@
 #include <pcl/point_types.h>
 
 #include <Eigen/Core>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,9 +36,9 @@ struct WarningArea
 {
   std::string kind;                      // "step", "drop", "ramp" (slope >= RAMP_MIN_SLOPE_DEG) or "colour"
   std::vector<Eigen::Vector2d> polygon;  // cluster hull in base_link
-  double height_m = 0.0;                 // signed median height above the floor
-  double slope_deg = 0.0;
-  std::string source;  // "tof" or "colour"
+  std::optional<double> height_m;        // signed median height above the floor; nullopt: not measured
+  std::optional<double> slope_deg;       // nullopt: not measured
+  std::string source;                    // "tof" or "colour"
 };
 
 // Output of the rule.
