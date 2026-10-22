@@ -25,8 +25,9 @@ public:
   // @param cfg the temporal settings.
   explicit CellMedianFilter(const TemporalConfig & cfg);
 
-  // Add one frame and return the points of the cells that have enough history, moved along the plane normal to the
-  // cell's temporal median height. Points of younger cells are not output. O(points + cells).
+  // Add one frame and return the points of the cells that have enough history and a steady value (a spread over
+  // temporal.max_spread_m makes the cell unknown and its history is kept; it is known again once the spread is well
+  // under the limit), moved along the plane normal to the cell's temporal median height. Points of younger cells are not output. O(points + cells).
   // @param points_base the cloud in base_link.
   // @param plane the floor plane in base_link.
   // @param fixed_T_base pose of base_link in the fixed frame.
@@ -42,11 +43,22 @@ public:
   // @return cells that currently hold at least one per-frame value.
   std::size_t cell_count() const { return cells_.size(); }
 
+  // @return cells that were unknown in the last apply because the robust spread of their per-frame medians
+  //   exceeded temporal.max_spread_m (1.4826 * MAD below 5 values, scaled trimmed standard deviation from 5 on; see
+  //   the README).
+  std::size_t gated_cell_count() const { return gated_cell_count_; }
+
 private:
+  struct Cell
+  {
+    std::deque<std::pair<double, double>> history;  // (stamp, per-frame median)
+  };
+
   TemporalConfig cfg_;
-  std::unordered_map<std::int64_t, std::deque<std::pair<double, double>>> cells_;  // (stamp, per-frame median)
+  std::unordered_map<std::int64_t, Cell> cells_;
   double newest_stamp_s_ = 0.0;
   bool has_stamp_ = false;
+  std::size_t gated_cell_count_ = 0;
 };
 
 }  // namespace ground_estimator_cpp

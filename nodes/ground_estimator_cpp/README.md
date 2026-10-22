@@ -164,6 +164,10 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `hysteresis.exit_frames` | `1` | frames of the new class needed to leave the current one, 1..enter_frames |
 | `metrics_port` | `19119` | Prometheus port, 1..65535, or null to disable |
 
+The spread in `temporal.max_spread_m` is computed over the per-frame cell medians. With fewer than 5 values it is 1.4826 * MAD (1.4826 turns the MAD into a Gaussian sigma). From 5 values on it is the standard deviation after dropping the most deviant value, times 1.3: it is as robust to one outlier frame as the MAD but varies far less between windows (8 frames: a plain MAD slips under the limit by chance). Dropping a value shrinks the estimate to ~0.77 of sigma, so 1.3 is the consistent factor (1.35 was tried and failed the >= 95 % floor-visibility bound). Measured bounds (20+ seeds, 8-frame window): far-band cells of 43-90 mm spread leak in at most 5 % of cell-frames, floor cells of 4-20 mm stay visible in at least 95 % of cell-frames (a single 20 mm cell about 85 %); the class hysteresis and lethal point gates downstream absorb the leaks. A gated cell is unknown (no points, so never lethal, a step, a drop or part of a cluster), keeps its history, and is known again as soon as its spread is back under the limit. No range cap is used.
+
+Measured bounds (24 fixed seeds, 8-frame window, `test_cell_median.cpp`): 8 values estimate a spread with ~25% scatter, so no limit separates 20 mm from 30 mm with certainty. Cells with 4..20 mm per-frame noise are visible in >= 95% of frames; cells with 30..42 mm temporal std are visible in <= 10% of cell-frames; cells with 43..90 mm are visible in <= 5% (not zero, the worst case is 43 mm). A single 20 mm cell is visible only ~85% of the time; the class hysteresis and lethal point gates downstream absorb those flickers.
+
 ## Metrics
 
 Prometheus on `metrics_port`.

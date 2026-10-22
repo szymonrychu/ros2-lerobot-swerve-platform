@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <random>
 
 #include "ground_estimator_cpp/cell_median.hpp"
 #include "synthetic_floor.hpp"
@@ -31,6 +33,28 @@ double max_abs_z(const Cloud & c)
     m = std::max(m, static_cast<double>(std::fabs(p.z)));
   }
   return m;
+}
+
+constexpr double CELL_M = 0.10;
+constexpr double CELL_POINT_OFFSET_M = 0.02;
+
+// One cloud with four points in every 0.1 m cell of [x0, x1) x [-0.3, 0.3); cell (ix, iy) sits at height value(ix, iy).
+Cloud cell_cloud(double x0, double x1, const std::function<double(int, int)> & value)
+{
+  Cloud c;
+  for (int ix = static_cast<int>(std::lround(x0 / CELL_M)); ix < static_cast<int>(std::lround(x1 / CELL_M)); ++ix) {
+    for (int iy = -3; iy < 3; ++iy) {
+      const double z = value(ix, iy);  // one value per cell and frame
+      for (const double dx : {-CELL_POINT_OFFSET_M, CELL_POINT_OFFSET_M}) {
+        for (const double dy : {-CELL_POINT_OFFSET_M, CELL_POINT_OFFSET_M}) {
+          c.push_back(pcl::PointXYZ(
+            static_cast<float>((ix + 0.5) * CELL_M + dx), static_cast<float>((iy + 0.5) * CELL_M + dy),
+            static_cast<float>(z)));
+        }
+      }
+    }
+  }
+  return c;
 }
 
 }  // namespace
@@ -169,4 +193,161 @@ TEST(CellMedian, StampGoingBackResets)
   }
   EXPECT_TRUE(filter.apply(cloud, Plane(), Eigen::Isometry3d::Identity(), 1.0).empty());
   EXPECT_EQ(filter.cell_count(), 1u);
+}
+
+namespace
+{
+
+constexpr int SEED_COUNT = 24;
+constexpr int SIGMA_STEPS = 13;  // temporal stds spread evenly over a band, one per cell column/row combination
+
+struct Visibility
+{
+  std::size_t cell_frames = 0;
+  std::size_t visible_cell_frames = 0;
+  std::size_t gated_seen = 0;
+  double fraction() const { return static_cast<double>(visible_cell_frames) / static_cast<double>(cell_frames); }
+};
+
+// Runs SEED_COUNT fixed seeds (40 frames each) over cells at x in [x0, x1) whose per-frame value has a temporal std
+// spread evenly over [sigma_lo, sigma_hi] metres (one std per cell). Uniform noise (the far-band ToF shape) when
+// uniform is true, Gaussian otherwise. Counts cell-frames after window_frames.
+Visibility measure_visibility(double x0, double x1, double sigma_lo, double sigma_hi, bool uniform)
+{
+  const TemporalConfig cfg;
+  Visibility result;
+  for (int seed = 1; seed <= SEED_COUNT; ++seed) {
+    CellMedianFilter filter(cfg);
+    std::mt19937 rng(static_cast<unsigned>(seed));
+    for (int i = 0; i < 40; ++i) {
+      const Cloud in = cell_cloud(x0, x1, [&](int ix, int iy) {
+        const double sigma =
+          sigma_lo + (sigma_hi - sigma_lo) * (((ix * 7 + iy + 30) % SIGMA_STEPS) / (SIGMA_STEPS - 1.0));
+        if (uniform) {
+          return 0.04 + std::uniform_real_distribution<double>(-std::sqrt(3.0) * sigma, std::sqrt(3.0) * sigma)(rng);
+        }
+        return std::normal_distribution<double>(0.0, sigma)(rng);
+      });
+      const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+      if (i >= cfg.window_frames) {
+        result.cell_frames += in.size() / 4;
+        result.visible_cell_frames += out.size() / 4;
+        result.gated_seen += filter.gated_cell_count();
+      }
+    }
+  }
+  return result;
+}
+
+}  // namespace
+
+// The measured far-band noise (floor + U(+0.04, +0.19), temporal std 43..90 mm) is gated. A window of 8 values gives a
+// spread estimate with ~25% relative scatter, so a cell is not gated with certainty: the leak is bounded, not zero.
+TEST(CellMedian, FarBandNoiseCellsAreGatedAndRarelyOutput)
+{
+  const Visibility v = measure_visibility(1.15, 1.45, 0.043, 0.090, true);
+  EXPECT_GT(v.gated_seen, 0u);
+  EXPECT_LE(v.fraction(), 0.05);
+}
+
+// 30..42 mm is only 1.2..1.7 times the 25 mm limit; the downstream class hysteresis and lethal point gates absorb the rest.
+TEST(CellMedian, ThirtyToFortyTwoMillimetreFarBandCellsLeakAtMostTenPercent)
+{
+  const Visibility v = measure_visibility(1.15, 1.45, 0.030, 0.042, true);
+  EXPECT_GT(v.gated_seen, 0u);
+  EXPECT_LE(v.fraction(), 0.10);
+}
+
+TEST(CellMedian, MeasuredFloorNoiseStaysVisible)
+{
+  const Visibility v = measure_visibility(0.35, 1.05, 0.004, 0.020, false);
+  EXPECT_GE(v.fraction(), 0.95);
+}
+
+// A gated cell is known again as soon as its spread is under the limit (no stricter release threshold): after the
+// noisy values leave the window, +-16 mm alternation (estimated spread ~23 mm) is visible in every frame.
+TEST(CellMedian, GatedCellIsReleasedAsSoonAsSpreadIsUnderTheLimit)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  for (int i = 0; i < 40; ++i) {
+    const double noisy = (i % 2 == 0 ? 1.0 : -1.0) * 0.1;
+    const double calm = (i % 2 == 0 ? 1.0 : -1.0) * 0.016;
+    const double value = i < 12 ? noisy : calm;
+    const Cloud in = cell_cloud(0.6, 0.7, [&](int, int) { return value; });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= 12 + cfg.window_frames) {
+      EXPECT_EQ(out.size(), in.size()) << "frame " << i;
+    }
+  }
+}
+
+TEST(CellMedian, StaticBoxTopIsOutputEveryFrame)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(21);
+  std::normal_distribution<double> noise(0.0, 0.0045);
+  for (int i = 0; i < 25; ++i) {
+    const Cloud in = cell_cloud(0.6, 0.9, [&](int, int) { return 0.05 + noise(rng); });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= cfg.min_frames) {
+      ASSERT_EQ(out.size(), in.size()) << "frame " << i;
+      for (const auto & p : out) {
+        EXPECT_NEAR(p.z, 0.05, 0.01);
+      }
+    }
+  }
+}
+
+TEST(CellMedian, SingleOutlierFrameDoesNotGateASteadyCell)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(31);
+  std::normal_distribution<double> noise(0.0, 0.003);
+  for (int i = 0; i < 20; ++i) {
+    const double bump = i == 10 ? 0.15 : 0.0;
+    const Cloud in = cell_cloud(0.6, 0.7, [&](int, int) { return bump + noise(rng); });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+    if (i >= cfg.min_frames) {
+      EXPECT_EQ(out.size(), in.size()) << "frame " << i;
+      EXPECT_EQ(filter.gated_cell_count(), 0u) << "frame " << i;
+    }
+  }
+}
+
+TEST(CellMedian, GatedCellRecoversWithinTheWindow)
+{
+  const TemporalConfig cfg;
+  CellMedianFilter filter(cfg);
+  std::mt19937 rng(41);
+  std::normal_distribution<double> quiet(0.0, 0.003);
+  std::uniform_real_distribution<double> wild(0.0, 0.3);
+  const int noisy_frames = 12;
+  for (int i = 0; i < noisy_frames; ++i) {
+    filter.apply(
+      cell_cloud(0.6, 0.7, [&](int, int) { return wild(rng); }), Plane(), Eigen::Isometry3d::Identity(),
+      i * FRAME_DT_S);
+  }
+  EXPECT_GT(filter.gated_cell_count(), 0u);
+  std::size_t frames_to_recover = 0;
+  bool recovered = false;
+  for (int i = 0; i < 3 * cfg.window_frames && !recovered; ++i) {
+    const Cloud in = cell_cloud(0.6, 0.7, [&](int, int) { return quiet(rng); });
+    const Cloud out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), (noisy_frames + i) * FRAME_DT_S);
+    ++frames_to_recover;
+    recovered = out.size() == in.size() && filter.gated_cell_count() == 0u;
+  }
+  EXPECT_TRUE(recovered);
+  EXPECT_LE(frames_to_recover, static_cast<std::size_t>(cfg.window_frames));
+}
+
+TEST(CellMedian, DisabledReportsNoGatedCells)
+{
+  TemporalConfig cfg;
+  cfg.enabled = false;
+  CellMedianFilter filter(cfg);
+  filter.apply(grid_cloud(0.0, 0.5, 0.0, 0.5, 0.05), Plane(), Eigen::Isometry3d::Identity(), 0.0);
+  EXPECT_EQ(filter.gated_cell_count(), 0u);
 }
