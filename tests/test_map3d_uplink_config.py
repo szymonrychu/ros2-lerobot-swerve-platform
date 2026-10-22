@@ -189,3 +189,15 @@ def test_readme_documents_purpose_lazy_and_measuring() -> None:
     text = README.read_text()
     for needle in ("Cross-host", "map3d_topics", "lazy", "bandwidth", "continuous"):
         assert needle in text, needle
+
+
+def test_every_topic_tools_relay_publishes_with_its_contract_qos(specs, contract) -> None:
+    """Without an override topic_tools copies the client publisher's QoS (e.g. reliable scans over Wi-Fi), not the contract's."""
+    for stream in contract.uplink + contract.downlink:
+        if stream.transport != "raw":
+            continue
+        spec = spec_for(specs, stream.dest)
+        prefix = f"qos_overrides.{stream.dest}.publisher"
+        assert spec.parameters[f"{prefix}.reliability"] == stream.qos.reliability, stream.dest
+        assert spec.parameters[f"{prefix}.durability"] == stream.qos.durability, stream.dest
+        assert spec.parameters[f"{prefix}.depth"] == stream.qos.depth, stream.dest

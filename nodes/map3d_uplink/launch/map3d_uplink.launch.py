@@ -17,7 +17,7 @@ from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "rtabmap_mapping"))
-from map3d_topics import TF_STATIC_TOPIC, Map3dTopics, Stream, load_map3d_topics  # noqa: E402
+from map3d_topics import TF_STATIC_TOPIC, Map3dTopics, Qos, Stream, load_map3d_topics  # noqa: E402
 
 CONTAINER_NAME = "map3d_uplink"
 CONTAINER_PACKAGE = "rclcpp_components"
@@ -68,21 +68,22 @@ def node_name(dest: str) -> str:
     return dest.removesuffix(f"/{DEPTH_TRANSPORT}").strip("/").replace("/", "_")
 
 
-def tf_static_qos(topic: str, side: str) -> dict:
-    """QoS overrides of the latched /tf_static relay so late joiners get every static transform.
+def qos_override(topic: str, side: str, qos: Qos) -> dict:
+    """QoS override parameters of one relay endpoint.
 
     Args:
         topic: topic the override applies to.
         side: "subscription" or "publisher".
+        qos: QoS to apply.
 
     Returns:
-        qos_overrides parameters (reliable, transient_local, depth 100).
+        qos_overrides parameters (reliability, durability, depth).
     """
     prefix = f"qos_overrides.{topic}.{side}"
     return {
-        f"{prefix}.reliability": "reliable",
-        f"{prefix}.durability": "transient_local",
-        f"{prefix}.depth": TF_STATIC_QOS_DEPTH,
+        f"{prefix}.reliability": qos.reliability,
+        f"{prefix}.durability": qos.durability,
+        f"{prefix}.depth": qos.depth,
     }
 
 
@@ -116,9 +117,11 @@ def build_stream_node(stream: Stream) -> ComposableNodeSpec:
     else:
         plugin = RELAY_PLUGIN
     parameters["lazy"] = stream.source != TF_STATIC_TOPIC
+    # topic_tools copies the client publisher's QoS unless told otherwise: a reliable source (scan) would cross Wi-Fi
+    # reliable and stall behind retransmissions instead of the contract's best_effort.
+    parameters.update(qos_override(stream.dest, "publisher", stream.qos))
     if stream.source == TF_STATIC_TOPIC:
-        parameters.update(tf_static_qos(stream.source, "subscription"))
-        parameters.update(tf_static_qos(stream.dest, "publisher"))
+        parameters.update(qos_override(stream.source, "subscription", stream.qos))
     return ComposableNodeSpec(package=TOPIC_TOOLS_PACKAGE, plugin=plugin, name=name, parameters=parameters)
 
 
