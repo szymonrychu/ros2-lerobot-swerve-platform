@@ -70,3 +70,12 @@ safety check use real geometry.
 
 - No robot motion in this task.
 - Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
+
+## User answers (2026-10-22)
+
+- Mount: the 6x5 board glued to a stick on its back (middle of the long edge, "square lollipop"), the stick held in the
+  closed gripper and secured with a rubber band; the board is at a right angle to the gripper and its edge about 20 mm
+  from the grip tip, touching the gripper.
+- Mass: 214 g.
+- Still open: which side the printed face points (gripper camera side or the other), the board rotation on the jaw,
+  the tilt-down limit of the reprinted mount, and whether the camera/ToF bracket changed since 2026-10-21.
