@@ -1,0 +1,14 @@
+# Config of scripts/ground_record.py: head-only recording scenes driven through the web_ui of the robot.
+# The robot stays static; only head_pan / head_tilt move. Scene angles are the starting layout, fixed to the
+# user's scene by the baseline recording step.
+web_ui_url: http://client.ros2.lan:8080
+out_dir: .logs/ground_recordings
+head_command_topic: /head/joint_commands
+head_js_topic: /head/joint_states
+settle_tolerance_deg: 1.0
+settle_timeout_s: 15
+scenes:
+  - {name: home, pan_deg: 0, tilt_deg: 29.4, settle_s: 10, duration_s: 30, capture_topics: [/ground/state]}
+  - {name: box, pan_deg: 35, tilt_deg: 29.4, settle_s: 10, duration_s: 30, capture_topics: [/ground/state]}
+  - {name: ramp, pan_deg: -30, tilt_deg: 29.4, settle_s: 10, duration_s: 30, capture_topics: [/ground/state]}
+  - {name: empty, pan_deg: -60, tilt_deg: 29.4, settle_s: 10, duration_s: 30, capture_topics: [/ground/state]}

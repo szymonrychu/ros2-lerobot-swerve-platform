@@ -35,6 +35,7 @@ dev = [
     "rtree>=1.2",
     "rosbags>=0.10,<1",
     "ros2-common",
+    "websockets>=17.3",
 ]
 
 [tool.uv]

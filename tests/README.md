@@ -3274,6 +3274,18 @@ Static pins for `docs/runbooks/client-cpu-budget.md` (client CPU budget measurem
 | `test_runbook_deploys_only_through_deploy_nodes` | Deploy lines use `scripts/deploy-nodes.sh` with a tee to `.logs/`; no `ansible-playbook`. |
 | `test_cpu_compare_lists_every_changed_unit` | node_cpu_compare.yaml has an entry for each of the eleven changed units and keeps the existing ones. |
 
+### `test_ground_record.py`
+
+Unit tests for `scripts/ground_record.py` (head-only ground scenes recorded via the web_ui websocket and recorder API); a fake websocket and `httpx.MockTransport` stand in for the robot.
+
+| Test | Description |
+|------|-------------|
+| `test_scene_points_head_then_records_and_downloads` | Order: head publish, POST, poll, download, DELETE; the head command is the only publish; `<name>.npz` written. |
+| `test_head_not_settled_fails_scene_without_recording` | A head that never reaches the target fails the scene at step `settle`; no POST, no files. |
+| `test_refused_head_command_is_the_scene_failure` | A web_ui error frame (range or released refusal) becomes the scene failure message. |
+| `test_capture_lines_written_in_report_format` | `<name>.ndjson` lines are `{t, topic, data}` and parse with `ground_noise_report.read_capture`. |
+| `test_config_validates` | `ground_record.yaml` and the model defaults give the four scenes; unknown keys are rejected. |
+
 ### `test_ground_noise_report.py`
 
 Unit tests for `scripts/ground_noise_report.py` (runbook pass/fail numbers from `/ground/state` captures); NDJSON fixtures are written to `tmp_path`.
