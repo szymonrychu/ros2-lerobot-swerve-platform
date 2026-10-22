@@ -59,6 +59,15 @@ struct Region
   std::size_t points = 0;
 };
 
+// Points around the clusters that set the floor level next to them: the cloud points of the frame with their
+// plane-relative heights (parallel). A plane sits a centimetre or two off the floor around an obstacle (range bias and
+// tilt of a noisy ToF); the step of a cluster is measured from the floor beside it, not from the plane.
+struct FloorReference
+{
+  pcl::PointCloud<pcl::PointXYZ> points;  // base_link
+  std::vector<float> heights;             // signed height above the plane, parallel to points
+};
+
 // Cluster candidate points and compute the features of each cluster.
 // @param points candidate points in base_link (Segmented::above or ::below).
 // @param heights signed heights above the plane, parallel to points.
@@ -67,10 +76,16 @@ struct Region
 // @param cfg cluster_tolerance_m, min_cluster_points, slope_bin_m and slope_min_cells.
 // @param edge_band_m width of the band at the edge line used for edge_step_m (traversability.edge_band_m).
 // @param unclustered if not null, receives the indices into points of the points in no cluster (too small groups).
+// @param floor if not null and cfg.floor_reference_m > 0: the points of the frame; the median plane-relative height of
+//        those within cfg.floor_reference_m of a cluster, outside it and no higher or lower than the floor limit, is
+//        the floor level of the cluster (with at least cfg.floor_reference_min_points of them, and at most 2 cm off the
+//        plane; otherwise the plane).
+//        The edge step is then |height - floor level| (also the ramp-foot cap).
 // @return the clusters, nearest edge line first.
 std::vector<Cluster> extract_clusters(
   const pcl::PointCloud<pcl::PointXYZ> & points, const std::vector<float> & heights, const std::string & kind,
-  const Plane & plane, const EdgesConfig & cfg, double edge_band_m, std::vector<int> * unclustered = nullptr);
+  const Plane & plane, const EdgesConfig & cfg, double edge_band_m, std::vector<int> * unclustered = nullptr,
+  const FloorReference * floor = nullptr);
 
 // Regions of the clusters: every drop, and every step with |median| <= step_max_height_m and a height spread
 // (p90 - p10) <= step_flatness_m.

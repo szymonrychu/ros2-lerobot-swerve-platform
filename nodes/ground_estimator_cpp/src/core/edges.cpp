@@ -43,6 +43,13 @@ constexpr std::size_t MIN_SLOPE_SAMPLES = 3;
 constexpr double RAMP_EDGE_MIN_SLOPE_DEG = 5.0;
 // Segment windows slide by this fraction of the window length (at most half a window).
 constexpr double SEGMENT_STRIDE_FRACTION = 0.25;
+// Plane-relative heights beyond this are not floor: they never set the floor level of a cluster.
+constexpr double FLOOR_REFERENCE_LIMIT_M = 0.05;
+// A floor level further than this from the plane is not a bias of the plane but another surface (the lower floor beside
+// a ledge, a table top): the plane is kept.
+constexpr double FLOOR_SHIFT_MAX_M = 0.02;
+// Reference points at this distance from a cluster point are the cluster's own points.
+constexpr double OWN_POINT_M = 1e-4;
 constexpr const char * KIND_DROP = "drop";
 constexpr const char * KIND_STEP = "step";
 
@@ -275,8 +282,45 @@ double segment_step(std::vector<BandPoint> band, double window_m, std::size_t mi
   return best >= 0.0 ? best : whole;
 }
 
+// Floor level beside a cluster.
+// @param c the cluster (points set).
+// @param floor the frame's points with plane-relative heights, or null.
+// @param cfg floor_reference_m and floor_reference_min_points.
+// @return the median plane-relative height of the floor points within cfg.floor_reference_m of the cluster (not its
+//         own points); 0 without floor, with the reference switched off, with too few such points or when the level is
+//         more than FLOOR_SHIFT_MAX_M off the plane.
+double floor_level(const Cluster & c, const FloorReference * floor, const EdgesConfig & cfg)
+{
+  if (floor == nullptr || cfg.floor_reference_m <= 0.0 || floor->points.size() != floor->heights.size()) {
+    return 0.0;
+  }
+  const double radius2 = cfg.floor_reference_m * cfg.floor_reference_m;
+  const double own2 = OWN_POINT_M * OWN_POINT_M;
+  std::vector<double> ring;
+  for (std::size_t i = 0; i < floor->points.size(); ++i) {
+    if (std::fabs(floor->heights[i]) > FLOOR_REFERENCE_LIMIT_M) {
+      continue;
+    }
+    const auto & q = floor->points[i];
+    double nearest2 = std::numeric_limits<double>::infinity();
+    for (const auto & p : c.points) {
+      const double dx = static_cast<double>(p.x) - q.x;
+      const double dy = static_cast<double>(p.y) - q.y;
+      nearest2 = std::min(nearest2, dx * dx + dy * dy);
+    }
+    if (nearest2 > own2 && nearest2 <= radius2) {
+      ring.push_back(floor->heights[i]);
+    }
+  }
+  if (ring.size() < static_cast<std::size_t>(cfg.floor_reference_min_points)) {
+    return 0.0;
+  }
+  const double level = percentile(ring, MEDIAN);
+  return std::fabs(level) <= FLOOR_SHIFT_MAX_M ? level : 0.0;
+}
+
 // Fill every feature of a cluster whose kind, points and heights are set.
-void compute_features(Cluster & c, const EdgesConfig & cfg, double edge_band_m)
+void compute_features(Cluster & c, const EdgesConfig & cfg, double edge_band_m, const FloorReference * floor)
 {
   const std::size_t n = c.points.size();
   std::vector<Eigen::Vector2d> xy;
@@ -329,10 +373,11 @@ void compute_features(Cluster & c, const EdgesConfig & cfg, double edge_band_m)
 
   // The step is measured along the boundary: the largest p50 over segments of it (a band mostly made of a mixed
   // pixel tail still reads the step on the stretch where the edge is seen cleanly).
+  const double floor_h = floor_level(c, floor, cfg);
   std::vector<BandPoint> band;
   for (std::size_t i = 0; i < n; ++i) {
     if (std::fabs(offsets[i] - line_offset) <= edge_band_m) {
-      band.push_back({axis.dot(xy[i]), std::fabs(h[i])});
+      band.push_back({axis.dot(xy[i]), std::fabs(h[i] - floor_h)});
     }
   }
   c.edge_step_m =
@@ -350,7 +395,7 @@ void compute_features(Cluster & c, const EdgesConfig & cfg, double edge_band_m)
     // cell above the floor band sits up to a cell's rise above the surface: the step at the edge is at most the
     // fitted surface's height there. Flat tops (boxes, sills) keep the band median.
     if (fit && c.slope_deg >= RAMP_EDGE_MIN_SLOPE_DEG) {
-      c.edge_step_m = std::min(c.edge_step_m, std::fabs(fit->height_at(c.edge_point)));
+      c.edge_step_m = std::min(c.edge_step_m, std::fabs(fit->height_at(c.edge_point) - floor_h));
     }
   }
 
@@ -361,7 +406,8 @@ void compute_features(Cluster & c, const EdgesConfig & cfg, double edge_band_m)
 
 std::vector<Cluster> extract_clusters(
   const pcl::PointCloud<pcl::PointXYZ> & points, const std::vector<float> & heights, const std::string & kind,
-  const Plane & /*plane*/, const EdgesConfig & cfg, double edge_band_m, std::vector<int> * unclustered)
+  const Plane & /*plane*/, const EdgesConfig & cfg, double edge_band_m, std::vector<int> * unclustered,
+  const FloorReference * floor)
 {
   std::vector<Cluster> clusters;
   std::vector<bool> used(points.size(), false);
@@ -384,7 +430,7 @@ std::vector<Cluster> extract_clusters(
         c.heights.push_back(heights[idx]);
         used[idx] = true;
       }
-      compute_features(c, cfg, edge_band_m);
+      compute_features(c, cfg, edge_band_m, floor);
       clusters.push_back(std::move(c));
     }
   }

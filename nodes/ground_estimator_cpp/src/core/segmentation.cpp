@@ -9,7 +9,7 @@ namespace ground_estimator_cpp
 
 Band classify(double height, double range, const BandsConfig & bands, double floor_distance_m)
 {
-  if (range > bands.max_range_m) {
+  if (range < bands.min_range_m || range > bands.max_range_m) {
     return Band::none;
   }
   if (std::fabs(height) <= floor_distance_m) {

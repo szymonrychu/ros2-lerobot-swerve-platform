@@ -477,24 +477,29 @@ void GroundNode::reset_cells()
 
 void GroundNode::drop_occluded(const Plane & plane, const Eigen::Vector3d & sensor_base)
 {
-  heights_.resize(base_cloud_.size());
-  for (std::size_t i = 0; i < base_cloud_.size(); ++i) {
-    const auto & p = base_cloud_[i];
-    heights_[i] = static_cast<float>(height_above(plane, Eigen::Vector3d(p.x, p.y, p.z)));
+  const std::size_t n = filtered_cloud_.size();
+  floor_reference_.heights.resize(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    const auto & p = filtered_cloud_[i];
+    floor_reference_.heights[i] = static_cast<float>(height_above(plane, Eigen::Vector3d(p.x, p.y, p.z)));
   }
   const double sensor_height_m = height_above(plane, sensor_base);
   const std::vector<bool> occluded =
-    occluded_mask(base_cloud_, heights_, sensor_base.head<2>(), sensor_height_m, config_.occlusion);
-  visible_cloud_.clear();
-  visible_cloud_.reserve(base_cloud_.size());
-  for (std::size_t i = 0; i < base_cloud_.size(); ++i) {
+    occluded_mask(filtered_cloud_, floor_reference_.heights, sensor_base.head<2>(), sensor_height_m, config_.occlusion);
+  floor_reference_.points.clear();
+  floor_reference_.points.reserve(n);
+  std::size_t kept = 0;
+  for (std::size_t i = 0; i < n; ++i) {
     // A shadowed point within the ToF floor noise is floor whatever hides it: it cannot make a step, ramp or drop, and
-    // it keeps the floor reference of the boundary segments behind an obstacle.
-    if (!occluded[i] || std::fabs(heights_[i]) <= FLOOR_NOISE_KEEP_M) {
-      visible_cloud_.push_back(base_cloud_[i]);
+    // it keeps the floor level beside an obstacle.
+    if (!occluded[i] || std::fabs(floor_reference_.heights[i]) <= FLOOR_NOISE_KEEP_M) {
+      floor_reference_.points.push_back(filtered_cloud_[i]);
+      floor_reference_.heights[kept++] = floor_reference_.heights[i];
     }
   }
-  set_gauge(METRIC_OCCLUDED_POINTS, static_cast<double>(base_cloud_.size() - visible_cloud_.size()));
+  floor_reference_.heights.resize(kept);
+  set_gauge(METRIC_OCCLUDED_POINTS, static_cast<double>(n - kept));
+  filtered_cloud_ = floor_reference_.points;
 }
 
 void GroundNode::process_plane(
@@ -503,19 +508,22 @@ void GroundNode::process_plane(
 {
   const Plane & plane = tracked.plane;
   const double edge_band_m = config_.traversability.edge_band_m;
-  drop_occluded(plane, sensor_base);
-  filtered_cloud_ = cell_filter_.apply(visible_cloud_, plane, fixed_T_base, stamp_s);
+  filtered_cloud_ = cell_filter_.apply(base_cloud_, plane, fixed_T_base, stamp_s);
   if (config_.temporal.enabled) {
-    raw_heights_.add(visible_cloud_, plane, fixed_T_base, stamp_s);
+    raw_heights_.add(base_cloud_, plane, fixed_T_base, stamp_s);
   }
   set_gauge(METRIC_TEMPORAL_CELLS, static_cast<double>(cell_filter_.cell_count()));
   set_gauge(METRIC_TEMPORAL_GATED, static_cast<double>(cell_filter_.gated_cell_count()));
+  // The shadow gate reads the cells, not the raw points: a cell's median over the window is stable to a few millimetres
+  // where a raw point scatters by centimetres, so a 5 cm box is told from floor noise and its mixed-pixel tail (a
+  // stable bias, which no per-point test removes) from the floor behind it.
+  drop_occluded(plane, sensor_base);
   const Segmented seg = segment(filtered_cloud_, plane, config_.bands, config_.fit.distance_m);
-  auto above =
-    extract_clusters(seg.above, seg.above_height, "step", plane, config_.edges, edge_band_m, &unclustered_index_);
+  auto above = extract_clusters(
+    seg.above, seg.above_height, "step", plane, config_.edges, edge_band_m, &unclustered_index_, &floor_reference_);
   gather(seg.above, seg.above_height, unclustered_index_, unclustered_above_, unclustered_above_h_);
-  auto below =
-    extract_clusters(seg.below, seg.below_height, "drop", plane, config_.edges, edge_band_m, &unclustered_index_);
+  auto below = extract_clusters(
+    seg.below, seg.below_height, "drop", plane, config_.edges, edge_band_m, &unclustered_index_, &floor_reference_);
   gather(seg.below, seg.below_height, unclustered_index_, unclustered_below_, unclustered_below_h_);
   refine_slopes(above, 1.0, fixed_T_base);
   refine_slopes(below, -1.0, fixed_T_base);

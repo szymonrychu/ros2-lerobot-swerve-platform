@@ -30,6 +30,7 @@ bands:  # bands settings
   obstacle_max_m: 0.6  # obstacle band top above the plane, metres, > traversability max step
   drop_max_m: 1.0  # drop band depth below the plane, metres, > traversability max step
   max_range_m: 2.0  # farthest point published in the bands, metres, > 0
+  min_range_m: 0.42  # nearest point (from base_link) in the bands: the robot's own parked gripper and its mixed pixels lie closer, metres, 0 <= v < max_range_m
 
 traversability:  # traversability settings
   wheel_radius_m: 0.06  # wheel radius, metres, same as swerve_drive_controller wheel_radius_m
@@ -51,13 +52,15 @@ edges:  # edges settings
   slope_min_cells: 3  # fewest slope bins a cluster must cover for a slope estimate (below it the slope is unknown), 2..50
   step_segment_m: 0.1  # length of the boundary segment a step is measured along, metres, 0.02 <= v <= 0.5
   step_segment_min_points: 3  # fewest boundary points in a segment for it to count, 1..50
+  floor_reference_m: 0.1  # ring around a cluster whose floor points set the floor level its step is measured from, metres, 0 (plane) .. 0.5
+  floor_reference_min_points: 4  # fewest ring points for the floor level to replace the plane, 1..50
 
 occlusion:  # occlusion shadow gate settings
   enabled: true  # do not read a cell hidden behind a nearer occluder as a drop or ramp
-  azimuth_bin_deg: 2.0  # width of an azimuth bin of the occluder horizon, degrees, 0.1..10
-  elevation_margin_deg: 1.0  # slack on the shadow ray elevation, degrees, 0..5
-  min_occluder_height_m: 0.04  # lowest plane-relative height that occludes, metres, > 0 and < bands.obstacle_max_m
-  min_height_drop_m: 0.015  # smallest height drop behind an occluder that counts as shadowed, metres, > 0
+  azimuth_bin_deg: 4.0  # width of an azimuth bin of the occluder horizon, degrees, 0.1..10
+  elevation_margin_deg: 2.0  # slack on the shadow ray elevation, degrees, 0..5
+  min_occluder_height_m: 0.03  # lowest plane-relative height that occludes, metres, > 0 and < bands.obstacle_max_m
+  min_height_drop_m: 0.005  # smallest height drop behind an occluder that counts as shadowed, metres, > 0
 
 slope:  # slope settings
   roll_warn_deg: 8  # tilt_guard roll warning limit, degrees

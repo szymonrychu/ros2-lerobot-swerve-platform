@@ -31,7 +31,7 @@ enum class Band : uint8_t
 // @param bands band limits and maximum range.
 // @param floor_distance_m half thickness of the floor band (fit.distance_m).
 // @return floor: |h| <= floor_distance_m; above: up to bands.obstacle_max_m; below: down to -bands.drop_max_m;
-//         none otherwise or when range > bands.max_range_m.
+//         none otherwise or when range < bands.min_range_m or range > bands.max_range_m.
 Band classify(double height, double range, const BandsConfig & bands, double floor_distance_m);
 
 // Points per band, in their base_link coordinates, with signed heights parallel to above and below.
