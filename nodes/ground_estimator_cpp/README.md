@@ -186,8 +186,9 @@ How the node keeps noisy ToF returns from becoming marks (2026-10-21 capture: ~2
 - **Lethal points**: unclustered lethal points count only when at least `traversability.lethal_min_points` lie within
   `edges.cluster_tolerance_m` of each other.
 - **Cell class hysteresis** (`hysteresis.*`): each fixed-frame cell keeps its class (free, warning, obstacle, drop) until
-  another class holds `hysteresis.enter_frames` of the last `hysteresis.window_frames` frames; leaving a class to a
-  less severe one needs `hysteresis.exit_frames`. At 10 Hz a new lethal cell therefore appears after 3 frames, a latency
+  another class holds `hysteresis.enter_frames` of the last `hysteresis.window_frames` frames; a cell stays in its
+  class while that class still holds at least `hysteresis.exit_frames` of the window, so with `exit_frames` 1 a
+  lethal cell drops only after a whole window with no lethal vote. At 10 Hz a new lethal cell therefore appears after 3 frames, a latency
   of 0.3 s. Stable cells are counted in `ground_stable_lethal_cells` and `ground_stable_warning_cells`.
 - **Cell-aligned warning areas**: warning areas are built from the stable warning cells, so their polygons follow the
   cell grid and do not churn with single frames. costmap_zones keys them by cell and publishes the masks only on change.

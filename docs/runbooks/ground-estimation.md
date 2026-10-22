@@ -71,7 +71,7 @@ the local costmap, then drive at the prop with a nav goal. Obstacle rule: max st
 - 10 cm drop at 1 m: a drop region with height within 2 cm and edge distance within 5 cm of the tape measure,
   `ground_drop_mark` cells, CliffStop behaves unchanged (still driven by `tof_cliff`).
 - box: obstacle points and `ground_obstacle_mark` cells.
-- 13 deg ramp: a warning with slope within 3 deg of the measured angle, driven over slowly.
+- 13 deg ramp: a warning with slope within 1 deg of the measured angle, driven over slowly.
 - ramp steeper than 15 deg: an obstacle, lethal mark, planner routes around.
 - red sheet flat on the floor: `floor_colour_mismatch` labels in the web UI Ground layer and a colour warning area
   (slow-down, passable). Compare the fixed and the ground marks in the web UI local costmap with the layers toggled at
@@ -148,7 +148,7 @@ The robot run fills this table. Status values: PASS, FAIL, NOT RUN.
 | 5 cm drop | lethal mark, routed around | | |
 | 10 cm drop at 1 m | height within 2 cm, edge within 5 cm, CliffStop unchanged | | |
 | Box | obstacle | | |
-| 13 deg ramp | warning, slope within 3 deg, driven slowly | | |
+| 13 deg ramp | warning, slope within 1 deg, driven slowly | | |
 | Ramp steeper than 15 deg | obstacle | | |
 | Red sheet | colour mismatch labels, warning area, passable | | |
 | ground_estimator_cpp CPU p95 | <= 0.10 core | | |
