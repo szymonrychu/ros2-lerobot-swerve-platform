@@ -176,11 +176,11 @@ struct NoReturnConfig
   bool enabled = true;
   double min_range_m = 0.3;     // 0 <= v < guidance.max_range_m, metres; nearer cells are not judged
   int cell_min_samples = 6;     // >= 1; samples a cell needs before it is judged
-  double cell_min_share = 0.8;  // 0 < v <= 1; share of a cell's samples without a return for it to count
+  double cell_min_share = 0.8;  // 0 < v <= 1; share of a cell's no-return samples whose colour does not match the floor, for it to count
   int window_frames = 4;        // 1..20; frames a cell is judged over
   int enter_frames = 3;         // 1..window_frames; frames of no return that make a cell a no-return cell
   int min_cells = 2;            // >= 1; smallest area published, in cells
-  int clearance_cells = 1;      // 0..3; cells around an area kept clear of valid returns
+  int clearance_cells = 1;      // 0..3; distance, in cells, from blocked lethal or warning ToF cells
   int tof_margin_px = 4;        // 0..20, pixels; margin inside the ToF image border where nothing is judged
 };
 
