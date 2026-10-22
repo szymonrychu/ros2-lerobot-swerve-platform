@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "Each view pairs a still head image of the board with the head and arm joints measured at that instant, or is not stored at all."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/tests/test_capture.py, nodes/head_rgbd_calibration/tests/test_config.py, nodes/head_rgbd_calibration/tests/conftest.py]
 verify: "(cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_capture.py tests/test_config.py tests/test_store.py -q && uv run poe lint) && uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q"
-depends_on: [session-kinds-joint-poses]
+depends_on: [session-kinds-joint-poses, web-ui-ground-recorder-api]
 owns: [calib-still-capture]
 uses: [calib-session-kinds, head-arm-calib-config]
 model: ""
@@ -100,3 +100,4 @@ stored at all.
 - Reuse `floor_sweep.JointSample`-style stamped samples and `frames.stamp_ns`; do not add a second joint-state cache
   style.
 - Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
+- 2026-10-22 umbrella re-plan: depends on web-ui-ground-recorder-api only to order the shared `ansible/group_vars/client.yml` edits (design D29); no code of that task is used here.

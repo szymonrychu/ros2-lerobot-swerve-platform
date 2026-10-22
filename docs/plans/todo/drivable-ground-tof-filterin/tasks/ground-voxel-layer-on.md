@@ -51,17 +51,24 @@ uses part live-acceptance (the PASS rows of `docs/runbooks/ground-robustness.md`
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part ground-layer-on: `nodes/nav2_bringup/config/nav2_params.yaml` local costmap `ground_voxel_layer.enabled:
+true`. Uses part live-acceptance. Keeps contract nav2-tof-voxel-bands (tof_voxel_layer and the collision monitor
+unchanged).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_nav_ground_voxel_layer.py tests/test_ground_docs.py -q` PASS with the layer enabled; every
+other Nav2 key unchanged; README switch-over section updated.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Flip the assertion in `test_ground_layer_settings_equal_the_tof_layer_settings`; the test FAILS.
+- Set `enabled: true` with the comment; the test PASSES; `uv run pytest tests/test_nav_ground_voxel_layer.py
+  tests/test_ground_docs.py -q` PASS; `uv run poe lint` PASS.
+- README; commit `feat(nav2_bringup): ground voxel layer on after the live ground acceptance`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Code task of run 4 (design D29); the orchestrator deploys nav2_bringup at live step 4 before
+  nav2-goal-across-the-scene.
+- Do not start before every Results row of the ground-robustness runbook is PASS.

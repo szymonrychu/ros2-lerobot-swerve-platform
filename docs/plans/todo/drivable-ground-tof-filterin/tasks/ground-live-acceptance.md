@@ -71,17 +71,30 @@ Precondition, checked first and stopped on when not met (report `blocked` with w
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part live-acceptance: the PASS rows of `docs/runbooks/ground-robustness.md#Results` and
+`scripts/ground_acceptance_record.yaml`. Uses parts record-script (`scripts/ground_record.py`), live-report
+(`scripts/ground_noise_report.py` with truth ROIs) and baseline-fixtures (`truth.yaml`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The ground-robustness runbook's Results table holds 8 windows x their metrics, all PASS, measured live on the new
+layout; `uv run pytest tests/test_ground_robustness_runbook.py -q` PASS.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Check the preconditions; `uv run python scripts/ground_scene_truth.py` on a fresh home recording: board within 5 mm
+  of `truth.yaml`, else stop and report the offset.
+- Write the record config and the runbook test changes; `uv run pytest tests/test_ground_robustness_runbook.py -q`
+  FAILS (procedure still names topic_scraper).
+- Rewrite Scene, Prerequisites and Procedure; the same command PASSES.
+- `uv run python scripts/ground_record.py scripts/ground_acceptance_record.yaml`; expect 8 `.ndjson` files; run the
+  report per window; fill Results; commit `docs(runbooks): live ground acceptance on the new scene` with the summary
+  lines in the message.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live task at live step 3 (design D29): needs the user (scene in place, light on, robot static and charging, head
+  moves allowed). No arm motion, no drive commands.
+- Runs right after guidance-live-check-and-cpu on the same deploy; it may reuse that task's captures only when they
+  cover 2 x 60 s per scene at the poses above.
+- Live data only through the web_ui websocket/API (user decision, approval A8); no rclpy, `ros2` CLI or SSH.

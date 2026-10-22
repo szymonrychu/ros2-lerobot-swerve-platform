@@ -80,17 +80,36 @@ pan -30 (3.4-3.5 cm), drop warnings appeared 2.5 cm behind the box, and the plan
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part live-scene-estimator: `test/replay_fixture.hpp::far_side_warning_frames(frames, truth)` and
+`::plane_tilt_deg(frames)`, `test/test_replay.cpp` `ReplayLiveScene.<Scene>` tests, and the fixed core modules and
+keys. Keeps the `/ground/state` and `/ground/warning_areas` JSON schemas, the lethal cloud topics and the rule
+(contract ground-traversability-rule). Uses parts guidance-replay-harness (`run_scene`, `Guidance::off`, the truth
+overloads), gated-fixtures, scene-truth and guided-node.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with four `replay-live-scene <scene>: ...` lines meeting every
+threshold, run 4's replay tests unchanged and green; README `## Live scene acceptance` with before/after per scene.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the two metrics with unit tests on hand-built frames and the `ReplayLiveScene.<Scene>` tests;
+  `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS on the failing live metrics (the red replay, numbers copied to
+  the commit message with the live ones).
+- Per failure: find the cause on the replay (cell medians, edge band, plane tracker, lethal gates), write the core
+  unit test first (FAILS), fix (PASSES).
+- Mirror any key change in client.yml; `uv run pytest tests/test_ground_estimator_deploy.py -q` and
+  `uv run poe test-ansible` PASS.
+- `scripts/cpp-node-test.sh ground_estimator_cpp` PASS; README section; commit
+  `fix(ground_estimator_cpp): pass the live scene acceptance on the gated replay`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Code task of run 3 (design D29), after capture-gated-recordings committed the gated fixtures; the orchestrator
+  deploys ground_estimator_cpp at live step 3.
+- Guidance stays off here: the base estimator must pass alone; guidance-replay-acceptance then proves the guidance
+  keeps these numbers (it depends on this task).
+- The board is a flat 4 mm print: its lethal points are depth bias (albedo), not geometry; the amplitude gate is in the
+  fixtures already. The box is exactly 5 cm; reading 3.4-3.5 cm at pan -30 is under-reading by 1.5 cm, which a
+  2 deg plane tilt explains at about 0.6 m: check the plane first.
+- `nodes/ground_estimator_cpp/src/` covers `src/core/*.cpp` and `src/ground_node.cpp`.

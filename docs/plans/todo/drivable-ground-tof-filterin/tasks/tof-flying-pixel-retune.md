@@ -94,17 +94,37 @@ so it is off in `ansible/group_vars/client.yml`. It uses part baseline-fixtures:
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part flying-pixel-retune (cross-epic contract tof-flying-pixel-retune):
+`nodes/bridges/arducam_tof/arducam_tof/bridge.py:flying_pixel_filter` (same name, possibly new keyword parameters
+for a changed rule) and the `TofConfig` keys `flying_pixel_filter`, `flying_pixel_jump_ratio`,
+`flying_pixel_min_jump_mm` plus any new key; `/tof/depth/image_raw` keeps 16UC1 mm with 0 = invalid. Keeps the
+counter `tof_flying_pixels_removed_total`. Uses part baseline-fixtures (`tests/data/amplitude_frames.npz` keys
+`tof_depth_mm`, `tof_amplitude`, `tof_base_T`, `tof_K`, `tof_D`, `tof_size`, `scene`, `truth_board`, `truth_ramp`,
+`truth_empty`, `truth_box`, `box_height_m`, `floor_plane`) and part amplitude-gate (`arducam_tof/amplitude.py`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/bridges/arducam_tof && uv run pytest tests -q` PASS including the four real-data tests; the client.yml
+block has `flying_pixel_filter: true` with the retuned keys; the README has the before/after table.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Run the current rule over `amplitude_frames.npz` in the shell (numpy one-off, no committed scratch file) and record
+  the per-scene, per-band removed shares; name the cause.
+- Write `tests/test_flying_pixel_real.py` and `test_flying_pixel_retuned_defaults`;
+  `uv run pytest tests/test_flying_pixel_real.py tests/test_config.py -q` FAILS on the current keys.
+- Change the keys (and the rule if the numbers demand it); the same command PASSES; `uv run pytest tests -q` PASSES
+  (the synthetic tests of `test_bridge.py` included).
+- Set the client.yml block, add `test_flying_pixel_filter_on_in_client`; `uv run pytest tests/test_arducam_tof_config.py -q`
+  and `uv run poe test-ansible` PASS.
+- README section; commit `fix(arducam_tof): retune the flying-pixel filter on recorded depth and turn it on` with the
+  first-step numbers in the message.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Code task of run 2 (design D29); the orchestrator deploys arducam_tof at live step 2 together with the amplitude
+  gate, before capture-gated-recordings.
+- The filter reaches every `/tof/depth/image_raw` consumer (head floor fit, RGB-D calibration, Nav2 ToF voxel layer,
+  ground estimator): the floor retention test is what guards them.
+- Prior art: `nodes/head_rgbd_cpp/src/core/tof_filter.cpp:filter_jump_edges` (the same 8-neighbour rule on the
+  registered RGB-D image).

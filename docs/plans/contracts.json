@@ -284,9 +284,7 @@
     "owner": "drivable-ground-tof-filterin",
     "file": "nodes/bridges/arducam_tof/arducam_tof/config.py",
     "consumers": [
-      "head-rgb-d-fusion-of-camera",
       "rgb-d-ground-estimation-and",
-      "tof-3d-obstacle-detection-fo",
       "head-chain-floor-plane-fit-a"
     ],
     "note": "/tof/depth/image_raw: after the flying-pixel filter, a valid pixel with amplitude*(z/1m)^2 < amplitude_min_normalised becomes 0 (amplitude_gate, default on); encoding and z-depth meaning unchanged; /tof/amplitude/image_raw unchanged; owner task tof-amplitude-gate"
@@ -324,9 +322,7 @@
     "kind": "topic",
     "owner": "drivable-ground-tof-filterin",
     "file": "ansible/group_vars/client.yml",
-    "consumers": [
-      "head-rgb-d-fusion-of-camera"
-    ],
+    "consumers": [],
     "note": "head_rgbd_cpp upsampling.enabled true on the client: /head_rgbd/depth_upsampled/image_raw (16UC1, RGB size) + /head_rgbd/depth_upsampled/camera_info + /head_rgbd/rgb/image_raw/compressed with one header per pair (2 Hz); consumed by ground_estimator_cpp guidance; owner task rgbd-upsampling-on"
   },
   {
@@ -335,9 +331,7 @@
     "owner": "drivable-ground-tof-filterin",
     "file": "nodes/bridges/arducam_tof/arducam_tof/config.py",
     "consumers": [
-      "head-rgb-d-fusion-of-camera",
       "rgb-d-ground-estimation-and",
-      "tof-3d-obstacle-detection-fo",
       "head-chain-floor-plane-fit-a"
     ],
     "note": "flying_pixel_filter back on with keys (and possibly the rule) retuned on recorded raw depth: floor kept >= 95 %, box-edge mixed pixels removed >= 80 %, filter plus amplitude gate keep >= 90 % of the floor; applies to every /tof/depth/image_raw consumer; owner task tof-flying-pixel-retune"

@@ -65,17 +65,28 @@ Precondition, checked first and stopped on when not met (report `blocked`, `whoC
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses part ground-layer-on (the deployed Nav2 params). Drives only through mcp_server's guarded tools
+(`take_control`, `move_relative` / `navigate_to_pose`, `release_control`; base lease, battery and tilt gates) and
+reads the costmap through web_ui. Writes `docs/runbooks/ground-nav2-check.md` and its test.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_nav2_check_runbook.py -q` PASS; the runbook Results show goals A and B SUCCEEDED with
+the user present, no contact, and no lethal cell on the board or the empty floor.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_ground_nav2_check_runbook.py`; it FAILS (no runbook).
+- Write the runbook Safety, Procedure and Acceptance; the test PASSES.
+- With the user at the robot: count lethal cells, send goal A (<= 1.5 m), then goal B; record each result.
+- Fill Results; `uv run pytest tests/test_ground_nav2_check_runbook.py -q && uv run poe lint` PASS; commit
+  `docs(runbooks): Nav2 goal across the ground scene`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live task at live step 4 (design D29): the only driving in this epic. Needs the user present at the robot, the
+  robot undocked by the user, the scene in place, the light on; short slow goals only (Nav2 caps 0.25 m/s).
+- The robot MCP server must be reachable (the orchestrator's `robot` MCP tools or the mcp client pattern of
+  `nodes/claude_agent/claude_agent/robot_stop.py::call_robot_tool`); a refused lease or battery gate is reported,
+  never worked around.
+- Deploying mcp_server kills a running agent session (MEMORY): nothing is deployed in this task.

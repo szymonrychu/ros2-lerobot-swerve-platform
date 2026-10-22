@@ -57,17 +57,28 @@ Precondition, checked first and stopped on when not met (report `blocked`, `whoC
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Uses part flying-pixel-retune (the deployed filter and its counter `tof_flying_pixels_removed_total`), the amplitude
+gate counter `tof_amplitude_gated_pixels_total` and part gated-fixtures (the `.ndjson` captures of
+capture-gated-recordings). Writes only the README `## Live check` section.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The README `## Live check` table shows the live removed shares (flying-pixel <= 0.10) and the plane-valid share
+(>= 0.95) per gated scene, each row PASS, measured after the live step 2 deploy.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Check the preconditions (deploy time recorded, gated `.ndjson` files present, the user's scene and light); stop and
+  report when one is not met.
+- After 10 min settle, `curl -s 'http://server.ros2.lan:9009/prometheus/api/v1/query' --data-urlencode
+  'query=avg_over_time(rate(tof_flying_pixels_removed_total[1m])[10m:1m])'` and the same for
+  `tof_amplitude_gated_pixels_total`; expect one series each.
+- Compute the shares and the plane-valid shares; write the README table; `cd nodes/bridges/arducam_tof && uv run poe
+  lint` PASS; commit `docs(arducam_tof): live check of the retuned flying-pixel filter`.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live task at live step 2 (design D29): needs the user (scene in place, light on, robot static and charging, head
+  moves allowed). No rclpy, no `ros2` CLI, no SSH on the client (MEMORY feedback_no_rclpy_probes_on_client).
+- The metric labels on Mimir follow the node's metrics port scrape (`tests/test_arducam_tof_config.py::
+  test_metrics_port_is_scraped_exactly_when_the_node_is_enabled`); select the client series by its job/host label.

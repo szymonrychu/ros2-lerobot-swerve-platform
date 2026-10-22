@@ -176,5 +176,252 @@
       "tof-amplitude-gate"
     ],
     "status": "approved"
+  },
+  {
+    "id": "G1",
+    "text": "User 2026-10-22, \"Go for all 3 within one epic\", item 1, ground detection on the live scene: record THIS scene (box, ramp, board; the new layout ahead/right of the robot) with a recorder that does not use ad-hoc rclpy on the client (the web-ui-ground-recorder-api and ground-record-script tasks), add it as replay fixtures with measured truth, fix the estimator until the live acceptance passes (box lethal >= 95 %, board never lethal, no lethal on empty floor at p95, churn < 10 %), then turn ground_voxel_layer back on and verify Nav2 reaches a goal across the scene. The unmet live acceptance of ground-detection-robustness moves into this epic; live steps need the user (scene in place, light on, robot static, head moves allowed, driving only short slow goals with the user present).",
+    "decisions": [
+      "D21",
+      "D22",
+      "D23",
+      "D24",
+      "D25",
+      "D28",
+      "D29"
+    ],
+    "tasks": [
+      "web-ui-ground-recorder-api",
+      "ground-record-script",
+      "scene-truth-from-board",
+      "capture-baseline-recordings",
+      "capture-gated-recordings",
+      "live-report-guidance-metrics",
+      "ground-estimator-live-scene",
+      "guidance-replay-acceptance",
+      "guidance-live-check-and-cpu",
+      "ground-live-acceptance",
+      "ground-voxel-layer-on",
+      "nav2-goal-across-the-scene"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G2",
+    "text": "User 2026-10-22, \"Go for all 3 within one epic\", item 2, ToF flying-pixel filter retune: nodes/bridges/arducam_tof flying_pixel_filter (3x3 jump > max(30 mm, 5 % depth)) removed ~70 % of live pixels and is off in client.yml; retune it on real recorded depth frames (raw depth recordings, same recorder), keep >= 95 % of floor pixels, remove mixed pixels at the box edges, then turn it back on.",
+    "decisions": [
+      "D22",
+      "D26",
+      "D27",
+      "D28",
+      "D29"
+    ],
+    "tasks": [
+      "replay-format-v2",
+      "capture-baseline-recordings",
+      "tof-flying-pixel-retune",
+      "capture-gated-recordings",
+      "tof-filter-live-check"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "G3",
+    "text": "User 2026-10-22, \"Go for all 3 within one epic\", item 3: the approved head-and-arm calibration plan (head-and-arm-calibration-fro, 20 tasks, approvals H1-H9, gate answers HQ1-HQ4) and the approved RGB and amplitude plan (A1-A8, Q1-Q4) live in this one epic, with their tasks, requirement/AC text, approvals and decisions kept; the arm-joint-offsets follow-up epic stays separate.",
+    "decisions": [
+      "D20",
+      "D21",
+      "D28",
+      "D29"
+    ],
+    "tasks": [
+      "calib-robot-runbook",
+      "calib-docs-and-test-index",
+      "joint-state-still-capture",
+      "capture-baseline-recordings"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H1",
+    "text": "User 2026-10-22: calibrate the head position/angles based on the arm position/angles (the arm is trusted as calibrated): the solve fits the head chain (mount x/y/z, yaw/pitch/roll, pan zero, tilt zero, tilt roll as observable) from the 6x5 ChArUco board clipped to the gripper, seen by the head camera over a scripted set of arm poses, with the floor-fit values as prior/cross-check.",
+    "decisions": [
+      "D31",
+      "D32",
+      "D33",
+      "D34",
+      "D36"
+    ],
+    "tasks": [
+      "calib-config-and-view-types",
+      "head-from-arm-board-solver",
+      "session-kinds-joint-poses",
+      "joint-state-still-capture",
+      "head-arm-compute-and-apply"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H2",
+    "text": "Arm safety (project rules): least dramatic joints first; any pose moving shoulder_pan, shoulder_lift or elbow needs the user's explicit OK at run time (UI confirmation); every scripted pose FK-checked against self-collision with the robot body and head; wrist roll only half-open and lifted; negative elbow stretches; the existing 6x5 board is the gripper board; arm motion only through mcp_server's guarded tools; no driving (robot charging).",
+    "decisions": [
+      "D37",
+      "D38",
+      "D39",
+      "D45",
+      "D47"
+    ],
+    "tasks": [
+      "board-on-gripper-hardware-st",
+      "robot-mcp-client",
+      "arm-pose-safety-check",
+      "arm-board-pose-set",
+      "head-arm-pose-capture-sequen",
+      "head-arm-sequence-http-api",
+      "head-arm-calibrate-ui-sectio",
+      "calib-ansible-deploy-config"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H3",
+    "text": "The result must pass held-out validation limits before Apply (like the floor fit); a result over any limit cannot be applied.",
+    "decisions": [
+      "D34",
+      "D35"
+    ],
+    "tasks": [
+      "head-from-arm-board-solver",
+      "head-arm-compute-and-apply",
+      "head-arm-sequence-http-api",
+      "head-arm-calibrate-ui-sectio"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H4",
+    "text": "The applied result reaches every head-chain consumer through the existing head_chain.json override: head_state_publisher, mcp_server HeadKinematics and front camera (no mcp_server restart), and the web UI head URDF.",
+    "decisions": [
+      "D36",
+      "D40"
+    ],
+    "tasks": [
+      "head-arm-compute-and-apply",
+      "mcp-head-kinematics-applied",
+      "mcp-front-camera-applied",
+      "web-ui-applied-head-urdf"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H5",
+    "text": "A guided step-by-step Head from arm section on the web UI Calibrate page (step cards for the physical steps, confirms, result, Apply).",
+    "decisions": [
+      "D41",
+      "D46"
+    ],
+    "tasks": [
+      "calib-frontend-api",
+      "head-arm-calibrate-ui-sectio",
+      "head-arm-pose-capture-sequen"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H6",
+    "text": "Gate Q1 (kept): after the reprint the head tilt range is -30..+60 deg (+ is down) everywhere it is pinned, or the smaller tilt-down limit the user records.",
+    "decisions": [
+      "D42"
+    ],
+    "tasks": [
+      "board-on-gripper-hardware-st",
+      "head-tilt-range-widened"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H7",
+    "text": "Synthetic-scene tests for the fit and the pose check, READMEs and tests/README.md, and a runbook executed on the robot with real numbers.",
+    "decisions": [
+      "D43"
+    ],
+    "tasks": [
+      "head-from-arm-board-solver",
+      "arm-pose-safety-check",
+      "arm-board-pose-set",
+      "calib-docs-and-test-index",
+      "calib-robot-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H8",
+    "text": "User 2026-10-22: the arm joint offset solve (arm-offsets-plate-solver, arm-offsets-compute-apply, arm-calibrate-ui-section) moves to a separate follow-up epic via ticket.py (arm-joint-offsets-from-the-g, blocked by this one), not deleted, so nothing is lost.",
+    "decisions": [
+      "D44"
+    ],
+    "tasks": [
+      "calib-docs-and-test-index"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H9",
+    "text": "User 2026-10-22: Python stays in web_ui, mcp_server and the existing Python calibration code; no rclpy probes on the client.",
+    "decisions": [
+      "D36"
+    ],
+    "tasks": [
+      "joint-state-still-capture",
+      "calib-robot-runbook"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "HQ1",
+    "text": "User 2026-10-22 approved (yes): fold pan zero into the head_mount_joint yaw",
+    "decisions": [
+      "D48"
+    ],
+    "tasks": [
+      "head-from-arm-board-solver",
+      "head-arm-compute-and-apply"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "HQ2",
+    "text": "User 2026-10-22 approved (yes): floor-fit values as start values and pass/fail cross-check, weighted prior off",
+    "decisions": [
+      "D49"
+    ],
+    "tasks": [
+      "head-from-arm-board-solver",
+      "head-arm-compute-and-apply"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "HQ3",
+    "text": "User 2026-10-22 approved (yes): clip board only after base pose, hold arm on every stop, park only after board removal confirmed",
+    "decisions": [
+      "D50"
+    ],
+    "tasks": [
+      "head-arm-pose-capture-sequen",
+      "head-arm-calibrate-ui-sectio"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "HQ4",
+    "text": "User 2026-10-22 approved (yes): solver fits the board-on-jaw pose, measurement only a start value, poses provisional until a dry run",
+    "decisions": [
+      "D51"
+    ],
+    "tasks": [
+      "arm-board-pose-set",
+      "head-from-arm-board-solver"
+    ],
+    "status": "approved"
   }
 ]
