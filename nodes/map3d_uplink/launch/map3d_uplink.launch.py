@@ -29,7 +29,6 @@ RELAY_PLUGIN = "topic_tools::RelayNode"
 REPUBLISHER_PLUGIN = "image_transport::Republisher"
 DEPTH_TRANSPORT = "compressedDepth"
 DEPTH_PNG_LEVEL = 1
-TF_STATIC_QOS_DEPTH = 100
 
 
 @dataclass(frozen=True)
@@ -107,6 +106,9 @@ def build_stream_node(stream: Stream) -> ComposableNodeSpec:
                 "in_transport": "raw",
                 "out_transport": DEPTH_TRANSPORT,
                 f"{base.strip('/').replace('/', '.')}.{DEPTH_TRANSPORT}.png_level": DEPTH_PNG_LEVEL,
+                # same contract QoS as the topic_tools relays: no reliable retransmission stall on the Wi-Fi leg
+                **qos_override(stream.dest, "publisher", stream.qos),
+                **qos_override(stream.source, "subscription", stream.qos),
             },
             remappings=(("in", stream.source), ("out", base)),
         )

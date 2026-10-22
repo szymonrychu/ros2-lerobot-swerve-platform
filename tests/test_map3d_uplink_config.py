@@ -201,3 +201,14 @@ def test_every_topic_tools_relay_publishes_with_its_contract_qos(specs, contract
         assert spec.parameters[f"{prefix}.reliability"] == stream.qos.reliability, stream.dest
         assert spec.parameters[f"{prefix}.durability"] == stream.qos.durability, stream.dest
         assert spec.parameters[f"{prefix}.depth"] == stream.qos.depth, stream.dest
+
+
+def test_depth_republisher_uses_contract_qos_both_sides(specs, contract) -> None:
+    """The compressedDepth Republisher must not cross Wi-Fi with the upstream QoS either."""
+    depth = next(s for s in contract.uplink if s.transport == "compressedDepth")
+    spec = next(s for s in specs if s.remappings_dict.get("in") == depth.source)
+    for topic, side in ((depth.dest, "publisher"), (depth.source, "subscription")):
+        prefix = f"qos_overrides.{topic}.{side}"
+        assert spec.parameters[f"{prefix}.reliability"] == depth.qos.reliability
+        assert spec.parameters[f"{prefix}.durability"] == depth.qos.durability
+        assert spec.parameters[f"{prefix}.depth"] == depth.qos.depth
