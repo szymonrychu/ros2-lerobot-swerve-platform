@@ -78,13 +78,11 @@ constexpr double MIN_POSITION_VARIANCE_M2 = 1e-5;
 // Residuals beyond this many robust sigmas are left out of the second fit.
 constexpr double GRADIENT_TRIM_SIGMAS = 2.5;
 
-double unused_variance = 0.0;
-
-// Least squares gradient (gx, gy) of h = c + gx dx + gy dy over the selected points; false if undetermined.
+// Least squares gradient (gx, gy; optional variance outputs per unit sigma^2 may be null) of h = c + gx dx + gy dy over the selected points; false if undetermined.
 bool fit_gradient(
   const std::vector<double> & dx, const std::vector<double> & dy, const std::vector<double> & h,
-  const std::vector<bool> & use, double & gx, double & gy, double & var_x_per_sigma2 = unused_variance,
-  double & var_y_per_sigma2 = unused_variance)
+  const std::vector<bool> & use, double & gx, double & gy, double * var_x_per_sigma2 = nullptr,
+  double * var_y_per_sigma2 = nullptr)
 {
   double n = 0.0, mx = 0.0, my = 0.0, mh = 0.0;
   for (std::size_t k = 0; k < h.size(); ++k) {
@@ -119,8 +117,12 @@ bool fit_gradient(
   }
   gx = (syy * sxh - sxy * syh) / det;
   gy = (sxx * syh - sxy * sxh) / det;
-  var_x_per_sigma2 = syy / det;
-  var_y_per_sigma2 = sxx / det;
+  if (var_x_per_sigma2 != nullptr) {
+    *var_x_per_sigma2 = syy / det;
+  }
+  if (var_y_per_sigma2 != nullptr) {
+    *var_y_per_sigma2 = sxx / det;
+  }
   return true;
 }
 
@@ -149,11 +151,11 @@ CellSample fit_cell(const std::vector<double> & dx, const std::vector<double> & 
       use[k] = std::fabs(res[k] - centre) <= limit;
     }
     double tx = 0.0, ty = 0.0, vx = 0.0, vy = 0.0;
-    if (limit > 0.0 && fit_gradient(dx, dy, h, use, tx, ty, vx, vy)) {
+    if (limit > 0.0 && fit_gradient(dx, dy, h, use, tx, ty, &vx, &vy)) {
       gx = tx;
       gy = ty;
     } else {
-      fit_gradient(dx, dy, h, std::vector<bool>(h.size(), true), tx, ty, vx, vy);
+      fit_gradient(dx, dy, h, std::vector<bool>(h.size(), true), tx, ty, &vx, &vy);
     }
     // Standard error of the fitted gradient from the scatter of the kept residuals about the fitted plane.
     std::vector<double> kept;

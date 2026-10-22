@@ -359,7 +359,7 @@ namespace
 {
 
 // The robot scene: the user's 25 cm, 63 mm (14.1 deg) ramp surrounded by floor, 0.02 m floor band, per-point noise
-// 0.02 m, 30% of the 2 cm grid per frame, cells at a random offset and yaw per seed.
+// 0.02 m, 60% of the 2 cm grid per frame, cells at a random offset and yaw per seed.
 constexpr double RAMP_X0_M = 1.0;
 constexpr double RAMP_LENGTH_M = 0.25;
 constexpr double RAMP_HEIGHT_M = 0.063;
@@ -417,4 +417,38 @@ TEST(CellMedian, RobotRampSlopeSurvivesTheCells)
   ASSERT_GE(slopes.size(), RAMP_SEEDS * 3 / 4);
   std::sort(slopes.begin(), slopes.end());
   EXPECT_NEAR(slopes[slopes.size() / 2], truth_deg, RAMP_TOL_DEG);
+}
+
+TEST(CellMedian, SlopeInsideACellIsKept)
+{
+  // A noise-free 14 deg incline over many 10 cm cells: collapsing each cell to one height would put the points up to
+  // half a cell times the slope (12 mm) off; with the in-cell gradient they stay within a few mm.
+  constexpr double SLOPE = 0.25;
+  constexpr double MAX_ERR_M = 0.004;
+  constexpr double SENSOR_SIGMA_M = 0.002;
+  constexpr double INTERIOR_X0_M = 0.1;
+  constexpr double INTERIOR_X1_M = 0.7;
+  constexpr double INTERIOR_Y_M = 0.1;
+  Cloud truth;
+  for (double x = 0.0; x < 0.8; x += 0.02) {
+    for (double y = -0.2; y < 0.2; y += 0.02) {
+      truth.push_back(pcl::PointXYZ(static_cast<float>(x), static_cast<float>(y), static_cast<float>(SLOPE * x)));
+    }
+  }
+  CellMedianFilter filter{TemporalConfig{}};
+  Cloud out;
+  Cloud in;
+  for (int i = 0; i < 10; ++i) {
+    in = add_z_noise(truth, SENSOR_SIGMA_M, 0.0, 0.0, 700 + i);
+    out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+  }
+  ASSERT_GT(out.size(), truth.size() / 2);
+  double worst = 0.0;
+  for (const auto & p : out) {
+    if (p.x < INTERIOR_X0_M || p.x > INTERIOR_X1_M || std::fabs(p.y) > INTERIOR_Y_M) {
+      continue;  // border cells hold few points and stay flat
+    }
+    worst = std::max(worst, static_cast<double>(std::fabs(p.z - SLOPE * p.x)));
+  }
+  EXPECT_LT(worst, MAX_ERR_M);
 }
