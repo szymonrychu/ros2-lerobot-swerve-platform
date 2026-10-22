@@ -271,7 +271,7 @@ class ArmSequenceConfig(StrictModel):
     (within `max_flex_delta_rad`), tier 2 also in elbow_flex, shoulder_lift and shoulder_pan (each within
     `max_big_delta_rad`). `gripper_rad` is sent once with the base pose and is at most the half-open
     `pose_check.max_roll_gripper_rad`. `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles,
-    one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points when the board
+    one view each. `estimate_margin_m` is added to `pose_check.margin_m` for the board points when the board
     mount is the jaw-geometry estimate.
     """
 
@@ -290,7 +290,7 @@ class ArmSequenceConfig(StrictModel):
         default_factory=lambda: list(DEFAULT_HEAD_OFFSETS_DEG), min_length=1
     )
     pose_check: PoseCheckConfig = Field(default_factory=PoseCheckConfig)
-    provisional_margin_m: float = Field(default=0.05, ge=0)
+    estimate_margin_m: float = Field(default=0.05, ge=0)
 
     @model_validator(mode="after")
     def check_poses(self) -> Self:
@@ -334,9 +334,9 @@ class ArmSequenceConfig(StrictModel):
             nominal_mount: True when `fit.board_mount` is the jaw-geometry estimate.
 
         Returns:
-            float: `pose_check.margin_m`, plus `provisional_margin_m` for the estimated mount (m).
+            float: `pose_check.margin_m`, plus `estimate_margin_m` for the estimated mount (m).
         """
-        return self.pose_check.margin_m + (self.provisional_margin_m if nominal_mount else 0.0)
+        return self.pose_check.margin_m + (self.estimate_margin_m if nominal_mount else 0.0)
 
 
 class NodeConfig(StrictModel):
