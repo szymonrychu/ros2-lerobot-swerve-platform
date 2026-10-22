@@ -3,9 +3,10 @@
 from dataclasses import dataclass
 
 from ros2_common.head_rgbd_calibration.charuco import Detection
+from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
 
 HEAD_JOINTS = ("head_pan", "head_tilt")
-ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
+ARM_JOINTS = ARM_JOINT_NAMES
 
 
 @dataclass(frozen=True)

@@ -117,7 +117,7 @@ DEFAULT_JOINT_OFFSETS_RAD = {
 
 
 class BoardMountConfig(StrictModel):
-    """Board frame in gripper_link: start values of the mount (the hardware step records the real one) and plate margin.
+    """Board frame in gripper_link: start values of the mount and the plate margin.
 
     `xyz_init` is the board frame origin in gripper_link (m), `rpy_init` the fixed-axis xyz rotation (rad),
     `outline_margin_m` the plate margin beyond the outer squares used by the pose check.

@@ -33,7 +33,7 @@ def client_arm() -> dict:
     return yaml.safe_load(node["config"])["arm"]
 
 
-def test_defaults() -> None:
+def test_head_arm_fit_config_defaults() -> None:
     cfg = HeadArmFitConfig()
     assert cfg.board_mount == BoardMountConfig(xyz_init=(0, 0, 0), rpy_init=(0, 0, 0), outline_margin_m=0.01)
     assert cfg.limits == HeadArmFitLimits(
@@ -57,7 +57,7 @@ def test_defaults() -> None:
     assert cfg.base_in_base_link == BaseInBaseLink(x=0.0592, y=-0.05, z=0.100, yaw=0.0)
 
 
-def test_board_equals_markers_spec() -> None:
+def test_board_is_the_existing_charuco_board() -> None:
     spec = yaml.safe_load(MARKERS_YAML.read_text())["charuco"]
     board = HeadArmFitConfig().board
     assert board == BoardConfig(**{k: spec[k] for k in BoardConfig.model_fields})
@@ -76,7 +76,7 @@ def test_unknown_keys_and_bad_joint_set_rejected() -> None:
         HeadArmFitLimits(holdout_every=1)
 
 
-def test_defaults_match_client_yml() -> None:
+def test_arm_gauge_matches_client_yml() -> None:
     arm = client_arm()
     cfg = HeadArmFitConfig()
     assert cfg.joint_offsets_rad == arm["joint_offsets_rad"]
@@ -94,13 +94,13 @@ def test_board_corners_3d_geometry() -> None:
 def test_board_corners_3d_match_detection() -> None:
     cfg = BoardConfig()
     camera = rgb_camera()
-    pose = board_poses(1, camera, cfg)[0]
+    pose = board_poses(1, camera, cfg, distance_m=(0.4, 0.5), max_tilt_deg=15)[0]
     detection = detect(render_rgb(camera, pose, cfg), make_board(cfg))
     assert detection is not None
     corners = board_corners_3d(cfg)[detection.ids]
     projected, _ = cv2.projectPoints(corners, pose.rvec, pose.t, camera.k, camera.d)
     error = np.linalg.norm(projected.reshape(-1, 2) - detection.points, axis=1)
-    assert np.sqrt(np.mean(error**2)) < PROJECTION_TOLERANCE_PX
+    assert error.max() < PROJECTION_TOLERANCE_PX
 
 
 def test_board_outline_spans_outer_squares_plus_margin() -> None:
