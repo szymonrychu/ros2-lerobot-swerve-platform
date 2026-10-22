@@ -3287,6 +3287,18 @@ Unit tests for `scripts/ground_noise_report.py` (runbook pass/fail numbers from 
 | `test_malformed_lines_counted` | Bad JSON, non-objects and unparseable payloads are counted, never fatal. |
 | `test_exit_code_reflects_thresholds` | Exit 0/1 from the configured thresholds; an empty capture fails; unknown scene rejected. |
 
+### `test_ground_replay_export.py`
+
+Unit tests for `scripts/ground_replay_export.py`, the converter of a live ground recording (npz) into the replay binary
+of `nodes/ground_estimator_cpp/test/data/replay/` (layout in the converter docstring and the ground_estimator_cpp
+README, Replay tests). Synthetic recordings with the real key layout are written to `tmp_path`.
+
+| Test | Description |
+|------|-------------|
+| `test_export_round_trip` | A recording inside the window decodes (`read_replay`) back to the same cloud stamps, poses, points, IMU samples, `base_T_imu` and frame id. |
+| `test_export_trims_window` | Only clouds and IMU samples stamped in [first cloud + `START_S`, + `DURATION_S`) are kept; the offsets are rebuilt from the kept clouds. |
+| `test_read_rejects_wrong_magic` | A file without the `GRNDRPLY` magic is rejected with `ValueError`. |
+
 ### `test_ground_robustness_runbook.py`
 
 Guards for `docs/runbooks/ground-robustness.md` (static ground robustness runbook, robot parked).
