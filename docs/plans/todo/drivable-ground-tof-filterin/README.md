@@ -1,5 +1,5 @@
 ---
-title: RGB and amplitude guided ground edges and no-return areas
+title: "Drivable ground, ToF filtering and head-from-arm calibration"
 blockers: ["Ground detection robustness: spread gate, hysteresis and ramp rule"]
 stage: build
 owner: ""
