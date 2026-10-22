@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: ""
 branch: ""
-verified_head: ""
+verified_head: c152d490bdb67a0c5265659d53469f49cd09bca7
 run: ""
 provides: []
 ---
@@ -60,3 +60,5 @@ Discovered in task `rgbd-motion-compensation` during run `head-rgb-d-fusion-of-c
 ## Ruling
 
 Folded into rgbd-final-suite-and-runbook (run 3 planText note) or a workflow process note; not a separate task.
+
+- 2026-10-22 closing (user answer A): no code change; resolved by c152d490bdb67a0c5265659d53469f49cd09bca7 (pair_dt documented in docs/head-rgbd-fusion-methodology.md and nodes/head_rgbd_cpp/README.md), recorded as verified_head.

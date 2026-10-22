@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: ""
 branch: ""
-verified_head: ""
+verified_head: 700bb86f58a2353b69eb8eb80abf10a36a7e2bd2
 run: ""
 provides: []
 ---
@@ -60,3 +60,5 @@ Discovered in task `rgbd-motion-compensation` during run `head-rgb-d-fusion-of-c
 ## Ruling
 
 Folded into rgbd-final-suite-and-runbook (run 3 planText note) or a workflow process note; not a separate task.
+
+- 2026-10-22 closing (user answer A): workflow process note, no code change; verified_head is the ruling commit 700bb86f58a2353b69eb8eb80abf10a36a7e2bd2.
