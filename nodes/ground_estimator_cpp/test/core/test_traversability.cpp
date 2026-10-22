@@ -2,6 +2,7 @@
 
 #include <Eigen/Geometry>
 #include <cmath>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -353,4 +354,21 @@ TEST(Traversability, LethalMarksClearTheStepThemselvesAndHaveCompany)
   EXPECT_EQ(lethal_marks(drop, {-0.10f, -0.10f, -0.10f}, {-0.09f, -0.02f, -0.11f}, LIMIT, RADIUS, 2).size(), 2u);
   // Exactly at the limit is not lethal (the rule is step > limit).
   EXPECT_TRUE(lethal_marks(drop, {-0.04f, -0.04f, -0.04f}, {-0.1f, -0.1f, -0.1f}, LIMIT, RADIUS, 1).empty());
+}
+
+TEST(WithinDeadband, TwoNulloptAreEqual)
+{
+  EXPECT_TRUE(::ground_estimator_cpp::within_deadband(std::nullopt, std::nullopt, 0.0));
+}
+
+TEST(WithinDeadband, NulloptVersusValueDiffersEitherWay)
+{
+  EXPECT_FALSE(::ground_estimator_cpp::within_deadband(std::nullopt, 0.0, 10.0));
+  EXPECT_FALSE(::ground_estimator_cpp::within_deadband(0.0, std::nullopt, 10.0));
+}
+
+TEST(WithinDeadband, TwoValuesUseTheDeadband)
+{
+  EXPECT_TRUE(::ground_estimator_cpp::within_deadband(1.0, 1.04, 0.05));
+  EXPECT_FALSE(::ground_estimator_cpp::within_deadband(1.0, 1.06, 0.05));
 }

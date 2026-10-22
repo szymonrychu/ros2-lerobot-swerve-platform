@@ -290,6 +290,20 @@ TEST(GroundState, WarningsCarryTheirShape)
   EXPECT_EQ(warnings[1].at("source"), "colour");
 }
 
+TEST(WarningAreasJson, NullHeightAndSlopeWrittenAsNull)
+{
+  WarningArea area = colour_area();
+  area.height_m = std::nullopt;
+  area.slope_deg = std::nullopt;
+  StateInputs in = full_inputs();
+  in.warnings = {area};
+  const json w = build_state(in).at("warnings")[0];
+  EXPECT_TRUE(w.at("height_m").is_null());
+  EXPECT_TRUE(w.at("slope_deg").is_null());
+  EXPECT_EQ(keys_in_order(w.dump()), (std::vector<std::string>{"kind", "polygon", "height_m", "slope_deg", "source"}));
+  EXPECT_NE(to_warning_areas_string(1, "base_link", {area}).find("\"height_m\":null"), std::string::npos);
+}
+
 TEST(GroundState, ColourShape)
 {
   json c = build_state(full_inputs()).at("colour");

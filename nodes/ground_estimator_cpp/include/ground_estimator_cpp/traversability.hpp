@@ -7,6 +7,7 @@
 #include <pcl/point_types.h>
 
 #include <Eigen/Core>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,9 +36,9 @@ struct WarningArea
 {
   std::string kind;                      // "step", "drop", "ramp" (slope >= RAMP_MIN_SLOPE_DEG) or "colour"
   std::vector<Eigen::Vector2d> polygon;  // cluster hull in base_link
-  double height_m = 0.0;                 // signed median height above the floor
-  double slope_deg = 0.0;
-  std::string source;  // "tof" or "colour"
+  std::optional<double> height_m;        // signed median height above the floor; nullopt: not measured
+  std::optional<double> slope_deg;       // nullopt: not measured
+  std::string source;                    // "tof" or "colour"
 };
 
 // Output of the rule.
@@ -107,6 +108,10 @@ pcl::PointCloud<pcl::PointXYZ> lethal_marks(
 std::vector<WarningArea> colour_warning_areas(
   const pcl::PointCloud<pcl::PointXYZ> & mismatch_points_base, const std::vector<float> & heights, const Plane & plane,
   const EdgesConfig & edges, const TraversabilityConfig & cfg);
+
+/// Two unmeasured (nullopt) values are equal, a measured one differs from an unmeasured one, two measured ones
+/// by the deadband.
+bool within_deadband(const std::optional<double> & a, const std::optional<double> & b, double deadband);
 
 }  // namespace ground_estimator_cpp
 

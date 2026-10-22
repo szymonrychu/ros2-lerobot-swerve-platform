@@ -159,4 +159,12 @@ std::vector<WarningArea> colour_warning_areas(
   return areas;
 }
 
+bool within_deadband(const std::optional<double> & a, const std::optional<double> & b, double deadband)
+{
+  if (!a || !b) {
+    return !a && !b;
+  }
+  return std::fabs(*a - *b) <= deadband;
+}
+
 }  // namespace ground_estimator_cpp
