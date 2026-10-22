@@ -80,6 +80,16 @@ a capture runs (design D4) and publishes nothing.
   subscriptions and, for a new session, writes its `session.json`. Callback errors are logged, never raised into the
   executor.
 
+### Still capture (head_arm sessions)
+
+`CaptureController.start_still_session(session_id)` opens a `head_arm` session and subscribes the mapping RGB stream,
+`topics.head_joint_states` and `topics.arm_joint_states` (refused while an RGB-D capture runs). `capture_still(arm_pose,
+tier, head_offset)` blocks (sequencer thread) until the last `still.window_s` of frames differ by at most
+`still.rgb_mad` and all seven joints moved less than `still.joint_still_rad`, detects `fit.board` in the newest frame,
+and stores it with the head and arm samples nearest its stamp (within `still.max_joint_dt_s`). The outcome reason is
+`stored`, `no board`, `joints stale`, `not still within <t> s` or `refused: <store message>`; a missing joint means no
+pose, never a zero. `stop()` destroys every subscription. `fit.board` must equal `board`.
+
 ## Config keys
 
 File named by `HEAD_RGBD_CALIBRATION_CONFIG`; every key has a default (`config/head_rgbd_calibration.yaml`). Unknown
