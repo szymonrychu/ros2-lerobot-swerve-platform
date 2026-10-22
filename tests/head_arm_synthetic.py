@@ -8,12 +8,13 @@ by the fit tests, the arm pose set tests and the node tests.
 
 import math
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
 import cv2
 import numpy as np
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy, xyz_rpy_from_pose
 from ros2_common.head_rgbd_calibration.charuco import MIN_CORNERS, Detection, board_corners_3d
-from ros2_common.head_rgbd_calibration.config import HeadArmFitConfig
+from ros2_common.head_rgbd_calibration.config import BoardMountConfig, HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
     CAMERA_FRAME,
     GRIPPER_LINK,
@@ -23,9 +24,32 @@ from ros2_common.head_rgbd_calibration.head_arm_fit import (
     aim_head,
     board_centre,
 )
-from ros2_common.head_rgbd_calibration.urdf_text import Origin
+from ros2_common.head_rgbd_calibration.urdf_text import Origin, rewrite_joint_origin
 from ros2_common.head_rgbd_calibration.views import ArmBoardView
 
+URDF_DIR = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf"
+APPLIED_NOTE = "floor fit 2026-10-22"
+# The applied floor-fit chain of 2026-10-22 (floor_fit.PARAM_NAMES, m and deg): the start chain of every scene.
+APPLIED_FLOOR = {
+    "mount_z_m": 0.246,
+    "mount_roll_deg": -0.32,
+    "mount_pitch_deg": 1.50,
+    "tilt_zero_deg": -6.50,
+    "tilt_roll_deg": 0.92,
+}
+# Truth of the standard scene: the start chain moved by these amounts (head_arm_fit.PARAM_NAMES, m and deg).
+SYNTH_TRUTH_DELTAS = {
+    "mount_x_m": 0.008,
+    "mount_y_m": -0.006,
+    "mount_z_m": 0.005,
+    "mount_roll_deg": 0.4,
+    "mount_pitch_deg": -0.5,
+    "mount_yaw_deg": 1.5,
+    "tilt_zero_deg": 0.6,
+    "tilt_roll_deg": -0.4,
+}
+MOUNT_INIT_SHIFT_M = 0.010
+MOUNT_INIT_TURN_DEG = 8.0
 IMAGE_SIZE = (576, 324)
 SYNTH_CAMERA_MATRIX = np.array([[440.0, 0.0, 288.0], [0.0, 440.0, 162.0], [0.0, 0.0, 1.0]])
 SYNTH_DIST = np.zeros(5)
@@ -99,6 +123,39 @@ class HeadArmTruth:
         return pose_from_xyz_rpy(self.board_xyz, self.board_rpy)
 
 
+def applied_head_urdf(head_urdf: str, floor: dict[str, float] = APPLIED_FLOOR) -> str:
+    """Head URDF text with a floor-fit chain written into head_mount_joint (z, roll, pitch) and head_tilt (origin
+    pitch and roll); mount x/y/yaw and the head_tilt xyz/yaw keep the URDF values.
+
+    Args:
+        head_urdf: Head URDF text (e.g. nodes/web_ui/urdf/head.urdf).
+        floor: Floor-fit values per floor_fit.PARAM_NAMES entry (m and deg).
+
+    Returns:
+        str: The rewritten URDF text.
+    """
+    chain = UrdfChain.from_text(head_urdf)
+    (mx, my, _), (_, _, myaw) = chain.origin(MOUNT_JOINT)
+    txyz, (_, _, tyaw) = chain.origin(TILT_JOINT)
+    mount = Origin(
+        (mx, my, floor["mount_z_m"]),
+        (math.radians(floor["mount_roll_deg"]), math.radians(floor["mount_pitch_deg"]), myaw),
+    )
+    tilt = Origin(txyz, (math.radians(floor["tilt_roll_deg"]), math.radians(floor["tilt_zero_deg"]), tyaw))
+    text = rewrite_joint_origin(head_urdf, MOUNT_JOINT, mount, APPLIED_NOTE)
+    return rewrite_joint_origin(text, TILT_JOINT, tilt, APPLIED_NOTE)
+
+
+def synth_head_urdf() -> str:
+    """nodes/web_ui/urdf/head.urdf with the applied floor-fit chain of 2026-10-22 (`APPLIED_FLOOR`)."""
+    return applied_head_urdf((URDF_DIR / "head.urdf").read_text())
+
+
+def synth_arm_urdf() -> str:
+    """nodes/web_ui/urdf/so101_arm.urdf text."""
+    return (URDF_DIR / "so101_arm.urdf").read_text()
+
+
 def nominal_board_mount(cfg: HeadArmFitConfig) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     """A board mount that faces back along the tool axis: the board plane normal to gripper_link z, its centre on the
     tool axis `BOARD_STANDOFF_M` beyond the gripper_frame_link point, its front toward the arm.
@@ -165,6 +222,41 @@ def perturbed_origins(head_urdf: str, deltas: dict[str, float]) -> dict[str, Ori
         ),
         TILT_JOINT: Origin(txyz, (troll + deg("tilt_roll_deg"), tpitch + deg("tilt_zero_deg"), tyaw)),
     }
+
+
+def synth_truth(
+    head_urdf: str,
+    deltas: dict[str, float] = SYNTH_TRUTH_DELTAS,
+    extra: dict[str, Origin] | None = None,
+    cfg: HeadArmFitConfig | None = None,
+) -> HeadArmTruth:
+    """Truth of a scene: the chain of `head_urdf` moved by `deltas`, plus `extra` origins, and the nominal board mount.
+
+    Args:
+        head_urdf: Head URDF text (the start chain).
+        deltas: Per head_arm_fit.PARAM_NAMES entry the change from the URDF value (m or deg).
+        extra: Further origin overrides (e.g. a head_pan origin), applied after `deltas`.
+        cfg: Fit config whose board geometry places the nominal mount; the default config when None.
+
+    Returns:
+        HeadArmTruth: The truth.
+    """
+    xyz, rpy = nominal_board_mount(cfg or HeadArmFitConfig())
+    return HeadArmTruth(origins={**perturbed_origins(head_urdf, deltas), **(extra or {})}, board_xyz=xyz, board_rpy=rpy)
+
+
+def synth_fit_config(**overrides: object) -> HeadArmFitConfig:
+    """Fit config whose board mount start is `MOUNT_INIT_SHIFT_M` / `MOUNT_INIT_TURN_DEG` off the nominal (truth)
+    mount.
+
+    Args:
+        **overrides: Further HeadArmFitConfig fields.
+
+    Returns:
+        HeadArmFitConfig: The config.
+    """
+    xyz, rpy = perturbed_board_mount(*nominal_board_mount(HeadArmFitConfig()), MOUNT_INIT_SHIFT_M, MOUNT_INIT_TURN_DEG)
+    return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=xyz, rpy_init=rpy), **overrides)
 
 
 def truth_chain(chain: UrdfChain, origins: dict[str, Origin]) -> UrdfChain:
