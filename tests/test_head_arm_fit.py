@@ -7,7 +7,6 @@ chain) and nodes/web_ui/urdf/so101_arm.urdf; the truth chain is the start chain 
 import json
 import math
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -23,57 +22,32 @@ from ros2_common.head_rgbd_calibration.head_arm_fit import (
     head_origins,
     start_params,
 )
-from ros2_common.head_rgbd_calibration.urdf_text import Origin, rewrite_joint_origin
+from ros2_common.head_rgbd_calibration.urdf_text import Origin
 
 from tests.head_arm_synthetic import (
+    APPLIED_FLOOR,
     DEFAULT_HEAD_OFFSETS_DEG,
+    MOUNT_INIT_SHIFT_M,
+    MOUNT_INIT_TURN_DEG,
     SYNTH_ARM_POSES,
     SYNTH_CAMERA_MATRIX,
     SYNTH_DIST,
+    TRUTH_DELTAS,
+    URDF_DIR,
     HeadArmTruth,
+    applied_head_urdf,
     arm_board_scene,
     nominal_board_mount,
     perturbed_board_mount,
     perturbed_origins,
 )
 
-URDF_DIR = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf"
-APPLIED_MOUNT = Origin((0.15, 0.10, 0.246), (math.radians(-0.32), math.radians(1.50), 0.0))
-APPLIED_TILT = Origin((0.0, 0.0, 0.04), (math.radians(0.92), math.radians(-6.50), 0.0))
-APPLIED_FLOOR = {
-    "mount_z_m": 0.246,
-    "mount_roll_deg": -0.32,
-    "mount_pitch_deg": 1.50,
-    "tilt_zero_deg": -6.50,
-    "tilt_roll_deg": 0.92,
-}
-TRUTH_DELTAS = {
-    "mount_x_m": 0.008,
-    "mount_y_m": -0.006,
-    "mount_z_m": 0.005,
-    "mount_roll_deg": 0.4,
-    "mount_pitch_deg": -0.5,
-    "mount_yaw_deg": 1.5,
-    "tilt_zero_deg": 0.6,
-    "tilt_roll_deg": -0.4,
-}
 NOISE_PX = 0.3
 SEED = 7
 TOLERANCE_MM = 1.5
 TOLERANCE_DEG = 0.15
 SIGMA_FACTOR = 3.0
 FLOOR_OFFSET_DEG = 2.0
-MOUNT_INIT_SHIFT_M = 0.010
-MOUNT_INIT_TURN_DEG = 8.0
-
-
-def applied_head_urdf() -> str:
-    """head.urdf with the applied floor-fit chain of 2026-10-22 written into its origins."""
-    text = (URDF_DIR / "head.urdf").read_text()
-    text = rewrite_joint_origin(text, "head_mount_joint", APPLIED_MOUNT, "floor fit 2026-10-22")
-    return rewrite_joint_origin(text, "head_tilt", APPLIED_TILT, "floor fit 2026-10-22")
-
-
 HEAD_URDF = applied_head_urdf()
 ARM_URDF = (URDF_DIR / "so101_arm.urdf").read_text()
 

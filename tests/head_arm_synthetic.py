@@ -8,6 +8,7 @@ by the fit tests, the arm pose set tests and the node tests.
 
 import math
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -23,9 +24,35 @@ from ros2_common.head_rgbd_calibration.head_arm_fit import (
     aim_head,
     board_centre,
 )
-from ros2_common.head_rgbd_calibration.urdf_text import Origin
+from ros2_common.head_rgbd_calibration.urdf_text import Origin, rewrite_joint_origin
 from ros2_common.head_rgbd_calibration.views import ArmBoardView
 
+URDF_DIR = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf"
+# The applied floor-fit head chain of 2026-10-22 (the start chain of the head-from-arm fit) and its floor values.
+APPLIED_MOUNT = Origin((0.15, 0.10, 0.246), (math.radians(-0.32), math.radians(1.50), 0.0))
+APPLIED_TILT = Origin((0.0, 0.0, 0.04), (math.radians(0.92), math.radians(-6.50), 0.0))
+APPLIED_FLOOR = {
+    "mount_z_m": 0.246,
+    "mount_roll_deg": -0.32,
+    "mount_pitch_deg": 1.50,
+    "tilt_zero_deg": -6.50,
+    "tilt_roll_deg": 0.92,
+}
+APPLIED_NOTE = "floor fit 2026-10-22"
+# Truth of the synthetic scenes: the start chain moved by these (head_arm_fit.PARAM_NAMES units), the board mount
+# start MOUNT_INIT_SHIFT_M / MOUNT_INIT_TURN_DEG off the truth mount.
+TRUTH_DELTAS = {
+    "mount_x_m": 0.008,
+    "mount_y_m": -0.006,
+    "mount_z_m": 0.005,
+    "mount_roll_deg": 0.4,
+    "mount_pitch_deg": -0.5,
+    "mount_yaw_deg": 1.5,
+    "tilt_zero_deg": 0.6,
+    "tilt_roll_deg": -0.4,
+}
+MOUNT_INIT_SHIFT_M = 0.010
+MOUNT_INIT_TURN_DEG = 8.0
 IMAGE_SIZE = (576, 324)
 SYNTH_CAMERA_MATRIX = np.array([[440.0, 0.0, 288.0], [0.0, 440.0, 162.0], [0.0, 0.0, 1.0]])
 SYNTH_DIST = np.zeros(5)
@@ -116,6 +143,17 @@ def nominal_board_mount(cfg: HeadArmFitConfig) -> tuple[tuple[float, float, floa
     pose[:3, :3] = rotation
     pose[:3, 3] = centre - rotation @ board_centre(cfg.board)
     return xyz_rpy_from_pose(pose)
+
+
+def applied_head_urdf() -> str:
+    """nodes/web_ui/urdf/head.urdf with the applied floor-fit chain of 2026-10-22 written into its origins.
+
+    Returns:
+        str: Head URDF text.
+    """
+    text = (URDF_DIR / "head.urdf").read_text()
+    text = rewrite_joint_origin(text, MOUNT_JOINT, APPLIED_MOUNT, APPLIED_NOTE)
+    return rewrite_joint_origin(text, TILT_JOINT, APPLIED_TILT, APPLIED_NOTE)
 
 
 def perturbed_board_mount(
