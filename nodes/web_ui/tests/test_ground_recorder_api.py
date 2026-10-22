@@ -16,7 +16,20 @@ from tf2_ros import ExtrapolationException
 from web_ui import bridge as bridge_mod
 from web_ui.bridge import BridgeNode
 from web_ui.config import AppConfig, GroundRecorderConfig
-from web_ui.ground_recorder import KEY_BASE_T_CLOUD, KEY_ODOM_T_BASE, KEY_POINTS_MM, KEY_TOF_AMPLITUDE
+from web_ui.ground_recorder import (
+    KEY_BASE_T_CLOUD,
+    KEY_BASE_T_IMU,
+    KEY_HEAD_JS,
+    KEY_ODOM_T_BASE,
+    KEY_PAIR_BASE_T_RGB,
+    KEY_PAIR_DEPTH_MM,
+    KEY_PAIR_JPEG,
+    KEY_PAIR_ODOM_T_BASE,
+    KEY_POINTS_MM,
+    KEY_STATE_JSON,
+    KEY_TOF_AMPLITUDE,
+)
+from web_ui.ground_session import MATCH_CAPACITY
 
 from .test_bridge_on_demand import FakeRos, ros  # noqa: F401  (ros is a fixture)
 
@@ -299,3 +312,118 @@ def test_oldest_files_beyond_max_files_are_deleted(ros: FakeRos, clock: Clock, t
     assert [r["name"] for r in node.ground_recordings()] == ["b", "c"]
     assert node.ground_recording_delete("b") is True
     assert node.ground_recording_info("b") is None
+
+
+def lookup_stamps(node: BridgeNode) -> set[int]:
+    """Stamps (ns) passed as the time argument of every TF lookup."""
+    return {call.args[2].nanoseconds for call in node._tf_buffer.lookup_transform.call_args_list}
+
+
+def test_tf_is_looked_up_at_the_message_stamp(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
+    node = recorder_node(tmp_path)
+    set_tf(node, {("base_link", "tof_optical"), ("odom", "base_link")})
+    start(node)
+    ros.callback("/tof/points_filtered")(cloud_msg(STAMP, POINTS))
+    ros.callback("/tof/points_filtered")(cloud_msg(STAMP + 7, POINTS))
+    assert node._tf_buffer.lookup_transform.call_count == 4
+    assert lookup_stamps(node) == {STAMP, STAMP + 7}  # never Time(0) / latest
+
+
+def finish(node: BridgeNode, clock: Clock, tmp_path: Path) -> Any:
+    clock.now += 10.0
+    node.apply_demand()
+    node.join_ground_recording(5)
+    return np.load(tmp_path / "scene.npz")
+
+
+def test_rgb_and_upsampled_depth_pair_recorded_by_stamp(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
+    node = recorder_node(tmp_path)
+    set_tf(node, {("base_link", "rgb_optical"), ("odom", "base_link")})
+    start(node)
+    ros.callback("/head_rgbd/depth_upsampled/image_raw")(image_msg(STAMP, np.full((2, 3), 900), "16UC1", "rgb_optical"))
+    assert node.ground_recording_info("scene")["counts"]["pair"] == 0  # half a frame is not a sample
+    ros.callback("/head_rgbd/rgb/image_raw/compressed")(
+        SimpleNamespace(header=header(STAMP, "rgb_optical"), format="jpeg", data=b"\xff\xd8jpeg")
+    )
+    assert node.ground_recording_info("scene")["counts"]["pair"] == 1
+    assert lookup_stamps(node) == {STAMP}
+    data = finish(node, clock, tmp_path)
+    assert bytes(data[KEY_PAIR_JPEG]) == b"\xff\xd8jpeg"
+    assert data[KEY_PAIR_DEPTH_MM].shape == (1, 2, 3)
+    assert data[KEY_PAIR_BASE_T_RGB].tolist() == [[1.0, 0.0, 0.5, 0.0, 0.0, 0.0, 1.0]]
+    assert data[KEY_PAIR_ODOM_T_BASE].tolist() == [[7.0, 0.0, 0.5, 0.0, 0.0, 0.0, 1.0]]
+
+
+def test_pair_without_tf_dropped_and_unmatched_half_counted(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
+    node = recorder_node(tmp_path)
+    set_tf(node, set())
+    start(node)
+    ros.callback("/head_rgbd/depth_upsampled/image_raw")(image_msg(STAMP, np.full((2, 3), 900), "16UC1", "rgb_optical"))
+    ros.callback("/head_rgbd/rgb/image_raw/compressed")(
+        SimpleNamespace(header=header(STAMP, "rgb_optical"), format="jpeg", data=b"j")
+    )
+    ros.callback("/head_rgbd/rgb/image_raw/compressed")(
+        SimpleNamespace(header=header(STAMP + 1, "rgb_optical"), format="jpeg", data=b"lonely")
+    )
+    clock.now += 1.0
+    node.apply_demand()
+    clock.now += 10.0
+    node.apply_demand()
+    node.join_ground_recording(5)
+    info = node.ground_recording_info("scene")
+    assert info["counts"]["pair"] == 0
+    assert info["dropped"]["pair"] == {"tf": 1, "unmatched": 1}
+
+
+def test_unmatched_halves_beyond_capacity_are_dropped(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
+    node = recorder_node(tmp_path)
+    set_tf(node, set())
+    start(node)
+    for i in range(MATCH_CAPACITY + 3):
+        ros.callback("/tof/amplitude/image_raw")(image_msg(STAMP + i, np.full((2, 3), 1), "mono16", "tof_optical"))
+    assert node.ground_recording_info("scene")["dropped"]["tof"] == {"unmatched": 3}
+
+
+def test_undecodable_messages_are_dropped_and_counted(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
+    node = recorder_node(tmp_path)
+    set_tf(node, {("base_link", "tof_optical"), ("odom", "base_link")})
+    start(node)
+    ros.callback("/tof/depth/image_raw")(image_msg(STAMP, np.full((2, 3), 1), "rgb8", "tof_optical"))
+    bad_cloud = cloud_msg(STAMP, POINTS)
+    bad_cloud.fields = []
+    ros.callback("/tof/points_filtered")(bad_cloud)
+    info = node.ground_recording_info("scene")
+    assert info["dropped"]["tof"] == {"decode": 1}
+    assert info["dropped"]["cloud"] == {"decode": 1}
+    assert info["counts"]["cloud"] == 0
+
+
+def test_imu_head_and_state_are_recorded(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
+    node = recorder_node(tmp_path)
+    set_tf(node, {("base_link", "imu_link")})
+    start(node)
+    vec = lambda x, y, z: SimpleNamespace(x=x, y=y, z=z)  # noqa: E731
+    imu = SimpleNamespace(
+        header=header(STAMP, "imu_link"),
+        orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+        linear_acceleration=vec(0.0, 0.0, 9.8),
+        angular_velocity=vec(0.0, 0.0, 0.1),
+    )
+    ros.callback("/imu/data")(imu)
+    ros.callback("/imu/data")(imu)
+    assert lookup_stamps(node) == {STAMP}
+    assert node._tf_buffer.lookup_transform.call_count == 1  # the mount is looked up once
+    ros.callback("/head/joint_states")(
+        SimpleNamespace(header=header(STAMP, ""), name=["head_tilt", "head_pan"], position=[0.2, -0.1])
+    )
+    ros.callback("/head/joint_states")(SimpleNamespace(header=header(STAMP, ""), name=["other"], position=[1.0]))
+    ros.callback("/ground/state")(SimpleNamespace(data='{"phase": "ok"}'))
+    info = node.ground_recording_info("scene")
+    assert info["counts"]["imu"] == 2
+    assert info["counts"]["head"] == 1
+    assert info["counts"]["state"] == 1
+    assert info["dropped"]["head"] == {"joints": 1}
+    data = finish(node, clock, tmp_path)
+    assert data[KEY_BASE_T_IMU].tolist() == [1.0, 0.0, 0.5, 0.0, 0.0, 0.0, 1.0]
+    assert np.allclose(data[KEY_HEAD_JS][0][-2:], [-0.1, 0.2])
+    assert '"phase"' in str(data[KEY_STATE_JSON][0])
