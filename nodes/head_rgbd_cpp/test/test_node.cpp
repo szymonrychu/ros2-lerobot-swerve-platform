@@ -482,7 +482,9 @@ TEST_F(NodeTest, CloudIsPublishedAtMostAtTheConfiguredRate)
 TEST_F(NodeTest, UpsampledTopicsExistOnlyWhenEnabled)
 {
   fill_tf(0.0);
-  start(base_config());
+  Config c = base_config();
+  c.upsampling.enabled = false;
+  start(c);
   std::this_thread::sleep_for(milliseconds(500));
   EXPECT_EQ(probe_->get_publishers_info_by_topic(std::string(NS) + "/depth_upsampled/image_raw").size(), 0u);
   EXPECT_EQ(probe_->get_publishers_info_by_topic(std::string(NS) + "/depth_upsampled/camera_info").size(), 0u);

@@ -1480,7 +1480,7 @@ ros2_nodes:
         max_m: 4.0 # farther depth is invalid, m (> min_m)
 
       upsampling:
-        enabled: false     # guided-filter upsampling of the depth to the RGB resolution
+        enabled: true      # guided-filter upsampling to the RGB size; input of ground_estimator_cpp guidance
         radius: 4          # guided filter radius, px (1..16)
         eps: 0.001         # guided filter regularisation (> 0)
         min_support: 0.5   # minimum filter support for a pixel to be valid (0 < v <= 1)
