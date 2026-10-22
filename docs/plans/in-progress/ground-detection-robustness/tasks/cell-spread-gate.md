@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--cell-spread-gate
 branch: ground-detection-robustness--cell-spread-gate
-verified_head: 2647cc6e465e9c6142c651c3c8bccf24fff68975
+verified_head: a52ce617
 run: ground-detection-robustness
 provides: []
 acs_for_audit: []

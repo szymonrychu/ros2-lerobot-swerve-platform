@@ -1,6 +1,6 @@
 ---
 title: Ground robustness docs
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The README, the ground runbook and MEMORY.md describe the rule and the noise handling that actually run on the robot."
 files: [nodes/ground_estimator_cpp/README.md, tests/test_ground_estimator_readme.py, docs/runbooks/ground-estimation.md, tests/test_ground_docs.py, MEMORY.md, tests/README.md]
