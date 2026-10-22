@@ -167,7 +167,8 @@
     "file": "ansible/group_vars/client.yml",
     "consumers": [
       "printable-metadata-markers-t",
-      "head-rgb-d-fusion-of-camera"
+      "head-rgb-d-fusion-of-camera",
+      "rgb-and-amplitude-guided-gro"
     ],
     "note": "/head_camera/image_raw(/compressed) at 15 fps (head_camera_cpp frame_duration_us 66666, code default 33333 unchanged); mapping stream rate_hz and marker_detector process_hz stay <= 15; owner task head-camera-15-fps"
   },
