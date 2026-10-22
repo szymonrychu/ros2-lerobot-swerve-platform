@@ -65,6 +65,8 @@ The agent's front camera tools become calibrated: pixel rays use the applied int
 
 - 2026-10-22 accepted: gate-repeat only on parking-marker false positives (design D47 wording 'before the first capture', 'a measured mount goes here as the start value', a config doc 'over the last this many seconds'); verified True on HEAD by the run's own verifier
 
+- 2026-10-22 accepted: round-cap only on the parking-marker false positive ('the head-arm runbook dry run checks them on the robot before the first capture' is design D47 wording); verified True on HEAD
+
 ## Notes
 
 - Design: the epic design.md (`ticket.py path drivable-ground-tof-filterin design`) (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus). Ordered after arm-board-pose-set only because both edit ansible/group_vars/client.yml.
