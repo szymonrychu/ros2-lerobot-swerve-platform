@@ -29,8 +29,8 @@ below the tracked floor plane), so they stay correct on a slope or a tilted base
 | in | `/tof/points_filtered` | `sensor_msgs/PointCloud2` | reliable, depth 1 | ToF frame, transformed to base_link | 10 Hz, drives the plane fit and every output but `/ground/labelled_points` |
 | in | `/imu/data` | `sensor_msgs/Imu` | sensor data | IMU frame | prior of the floor normal; older than `imu.timeout_s` it is not used |
 | in | `/head_rgbd/points` | `sensor_msgs/PointCloud2` (XYZRGB) | best_effort, depth 1 | base_link or camera | coloured cloud for the floor colour model; only with `colour.enabled` |
-| out | `/ground/obstacle_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | points above the plane up to `bands.obstacle_max_m`, within `bands.max_range_m` |
-| out | `/ground/drop_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | points below the plane down to `bands.drop_max_m` |
+| out | `/ground/obstacle_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | the lethal marks above the plane (see Robustness, lethal marks), up to `bands.obstacle_max_m`, within `bands.max_range_m` |
+| out | `/ground/drop_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | the lethal marks below the plane, down to `bands.drop_max_m` |
 | out | `/ground/labelled_points` | `sensor_msgs/PointCloud2` | best_effort, depth 1 | base_link | RGB-D cloud with a uint8 `label` field (see Labels); only with `colour.enabled` |
 | out | `/ground/state` | `std_msgs/String` (JSON) | reliable, transient_local, depth 1 | base_link | see State; published at `state.rate_hz` |
 | out | `/ground/warning_areas` | `std_msgs/String` (JSON) | reliable, depth 1 | `warnings.frame` | `{stamp_ns, frame, areas: [{kind, polygon, height_m, slope_deg, source}]}` for costmap_zones |
@@ -235,7 +235,21 @@ How the node keeps noisy ToF returns from becoming marks (2026-10-21 capture: ~2
   clouds kept so far (a steep one is lethal from its first frame); a failed refit leaves the slope unknown.
 - **Steady lethal points**: a lethal point counts only when its cell is steady (`CellMedian::steady_at`): output with a
   spread of at most 0.6 x `temporal.max_spread_m`, and neither it nor any of its 8 neighbours gated in the last
-  2 x `temporal.window_frames` frames. This drops the floor/band mix at the edge of a noisy far band.
+  2 x `temporal.window_frames` frames. This drops the floor/band mix at the edge of a noisy far band. A gated run that
+  is a turnover does not count as a gate: the cell was output before it, the run lasts at most `temporal.window_frames`
+  frames, every value that arrived during it lies within `temporal.max_spread_m` of the level output after it, and that
+  level differs from the one before by more than `temporal.max_spread_m` (an object placed on tracked floor, or
+  removed). Without it a 5 cm box placed on floor the node had tracked became lethal 1.8 s after its cells came out of
+  the filter (`NodeTest.PlacedBoxIsLethalWithinEnterFramesOfItsFirstFilteredBoxHeights`); a noisy run between two
+  levels still needs the quiet frames (`CellMedian.NoisyRunBetweenTwoSteadyLevelsStillNeedsQuietFrames`).
+- **Lethal marks**: the published obstacle and drop points are this frame's points in stable lethal cells that clear
+  the step themselves (`lethal_marks`, `traversability.hpp`): their own height in this frame and their cell's temporal
+  height both beyond 0.04 m on the same side of the floor, with at least `traversability.lethal_min_points` such
+  points within `edges.cluster_tolerance_m`. The temporal median moves every point of a 10 cm cell to the cell's
+  height, so a cell straddling a box edge lifted its floor points to the box height and a mixed-pixel tail cell read
+  2-3 cm; on the replays these were the stray lethal points beside and behind the box (home 0.808, box 0.302 of the
+  frames), and a lone 5 cm return at the top of the black ramp was lethal in 4 frames. The cell classes, regions and
+  warning areas are unchanged; only the marks are filtered (`NodeTest.LethalMarksOfABoxLieOnItsFootprint`).
 - **Colour clusters** (label 3) are warning-only: never lethal, whatever their slope.
 - **Lethal points**: unclustered lethal points count only when at least `traversability.lethal_min_points` lie within
   `edges.cluster_tolerance_m` of each other.
@@ -248,6 +262,98 @@ How the node keeps noisy ToF returns from becoming marks (2026-10-21 capture: ~2
   cell grid and do not churn with single frames. costmap_zones keys them by cell and publishes the masks only on change.
 - **Plane smoothing**: `fit.smoothing` is 0.2, so the plane follows the head slowly once the spread gate removed the
   noise.
+
+## Occlusion gate
+
+Design D16. The ToF returns at a depth discontinuity mix the near and the far surface: behind the 5 cm box the
+recordings hold a tail of "mixed pixels" falling from 3.5 to 0.9 cm over x 0.78-0.95 m, which read as a ramp or a step
+on the box's far side. Per cloud, after the plane fit and the temporal median and before segmentation,
+`occluded_mask` (`occlusion.hpp`) drops every point that lies in the shadow of a nearer raised point seen from the
+sensor (the translation of `base_link <- cloud frame`):
+
+- same azimuth bin of `occlusion.azimuth_bin_deg` around the sensor;
+- the occluder at least `occlusion.min_occluder_height_m` above the plane (floor noise never occludes), its height
+  the median of itself and its two nearer neighbours in the bin, so a single noisy return casts no shadow;
+- the point at least `occlusion.min_height_drop_m` lower than the occluder, and its elevation angle from the sensor at
+  most `occlusion.elevation_margin_deg` above the occluder's (it lies on or under the occluder's grazing ray).
+
+A rising surface (a ramp, a wall) is never shadowed, a drop behind a floor edge stays visible (its occluder is floor),
+and a vertical face does not shadow itself (an occluder closer than one bin width of range counts only when the point
+lies on its ray). Shadowed points within 1 cm of the plane are kept as floor. The gate reads the cells, not the raw
+points: a cell median is steady to a few millimetres, so the tail (a steady bias) is told from the floor behind it.
+O(n log n): one sort per azimuth bin. `occlusion.enabled: false` switches it off. Gauge `ground_occluded_points`: the
+points of the last cloud with a plane that the gate dropped. The ToF bridge removes most mixed pixels on the
+full-resolution depth image first (arducam_tof flying-pixel filter, D15); the recordings were taken downstream of
+`point_cloud_xyz` and keep them, so the replay proves the gate on its own.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `occlusion.enabled` | `true` | run the gate |
+| `occlusion.azimuth_bin_deg` | `4.0` | azimuth bin width, degrees, 0.1..10 |
+| `occlusion.elevation_margin_deg` | `2.0` | slack on the shadow ray elevation, degrees, 0..5 |
+| `occlusion.min_occluder_height_m` | `0.03` | lowest height that occludes, metres, > 0 and < `bands.obstacle_max_m` |
+| `occlusion.min_height_drop_m` | `0.005` | smallest drop below the occluder that is shadowed, metres, > 0 |
+
+## Segment step
+
+Design D17. The whole-band median of D4 under-read the box: its low side and the mixed-pixel tail filled most of the
+edge band and pulled the p50 to 3.2-4.1 cm, so the 5 cm box flipped between obstacle and warning. The edge step of a
+cluster is now the largest p50 of |height| over contiguous windows of `edges.step_segment_m` along its robot-facing
+edge band, windows sliding by a quarter window, each holding at least `edges.step_segment_min_points` band points; a
+band shorter than one window, or with no window holding enough points, keeps the whole-band p50. The height is
+measured from the floor beside the cluster: the median height of the frame's points within `edges.floor_reference_m`
+of it (outside it, at floor level) when there are at least `edges.floor_reference_min_points` of them and they lie
+within 2 cm of the plane, otherwise from the plane. The ramp-foot cap of D11 applies after it. The rule is unchanged
+(brief D3): obstacle above 0.04 m, steeper than 15 deg. A 3 cm sill stays a warning (no window of it reads over 4 cm),
+the 5 cm box front (5.5 cm) is an obstacle, and the board (-4..+3 cm albedo bias) is never lethal on the replays.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `edges.step_segment_m` | `0.1` | window length along the edge band, metres, 0.02..0.5 |
+| `edges.step_segment_min_points` | `3` | fewest band points in a window, 1..50 |
+| `edges.floor_reference_m` | `0.1` | ring around a cluster whose floor points set its floor level, metres, 0 (plane) .. 0.5 |
+| `edges.floor_reference_min_points` | `4` | fewest ring points for the floor level to replace the plane, 1..50 |
+| `bands.min_range_m` | `0.42` | nearest point (from base_link) in the bands: the parked gripper and its mixed pixels lie closer |
+
+## Warning area stability
+
+Design D18. On the replays the warning areas churned (the published set changed between consecutive frames).
+Diagnosis on the replay, before the change (differing consecutive pairs, events classified as area appeared, vanished,
+kind changed, polygon changed):
+
+| Scene | Differing pairs | Appeared | Vanished | Kind | Polygon | churn |
+|-------|-----------------|----------|----------|------|---------|-------|
+| home | 75 of 129 | 13 | 14 | 15 | 55 | 0.581 |
+| box | 29 of 128 | 10 | 10 | 5 | 7 | 0.227 |
+| ramp | 19 of 126 | 6 | 6 | 1 | 6 | 0.151 |
+
+Causes: border cells with sporadic votes stayed stable for `hysteresis.window_frames` after their last vote and
+joined or left areas every few frames; short-lived components; and the drop or ramp kind read from each frame's latest
+cell record. `CellClassFilter` (`cell_class.hpp`) now stabilises the areas with these mechanisms, all under
+`hysteresis.*`:
+
+- active-run gates: a stable warning cell joins a new area after `area_enter_frames` active frames (voted or stable),
+  an already published area after `area_join_frames`;
+- vote density: a cell joins an area when it voted in at least `area_enter_density` of the last
+  `area_history_frames` frames and stays while it keeps at least `area_exit_density`;
+- minimum size: a new component of fewer than `area_min_cells` cells is not published (its cells keep their class);
+- kind persistence: an area keeps its published kind until another kind holds most of its cells for
+  `area_kind_frames` frames (the node applies no kind hold of its own).
+
+An area is published only while its cells are stable warning cells (no placeholder data). `stable_at`, the cell counts
+and the lethal clouds do not depend on the area mechanisms, so a new lethal obstacle is not delayed by them
+(`NodeTest.PlacedBoxIsLethalWithinEnterFramesOfItsFirstFilteredBoxHeights`). Churn after: home 0.078, box 0.000,
+ramp 0.000.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `hysteresis.area_enter_frames` | `3` | active frames before a stable warning cell joins a new area, 1..30 |
+| `hysteresis.area_join_frames` | `8` | active frames before a cell joins a published area, area_enter_frames..30 |
+| `hysteresis.area_min_cells` | `3` | smallest new area published, in cells, 1..100 |
+| `hysteresis.area_kind_frames` | `10` | frames another kind must hold most of an area's cells to change its kind, 1..30 |
+| `hysteresis.area_history_frames` | `20` | frames of voting history behind the densities, 1..120 |
+| `hysteresis.area_enter_density` | `0.75` | share of the history a cell voted in to join an area, 0 < v <= 1 |
+| `hysteresis.area_exit_density` | `0.25` | share of the history a cell keeps to stay in an area, 0 <= v <= area_enter_density |
 
 ## Metrics
 
@@ -295,7 +401,8 @@ Prometheus on `metrics_port`.
 ## Replay tests
 
 `test/test_replay.cpp` (gtest `test_replay`, part of `scripts/cpp-node-test.sh ground_estimator_cpp`) feeds the
-2026-10-22 live recordings of the user's scene through the real `GroundNode` and prints one metrics line per scene.
+2026-10-22 live recordings of the user's scene through the real `GroundNode`, prints one metrics line per scene and
+asserts the live-round acceptance (see Acceptance).
 The fixtures live inside the package because `cpp-node-test.sh` copies only the packages into the container.
 
 ### Fixtures
@@ -345,8 +452,8 @@ version, a truncated file and trailing bytes):
 - Outputs: the test waits for the cloud's own outputs before the next cloud (obstacle and drop clouds of its stamp,
   base_link, and the `/ground/warning_areas` document of its stamp, map frame). A cloud the node processed (counted in
   `ground_fits_total`) whose obstacle cloud does not arrive within 0.5 s was not answered with a plane.
-- Every scene test asserts that the node answered with a plane in at least one frame and prints the metrics line;
-  the metrics themselves are not asserted.
+- Every scene test asserts that the node answered with a plane in at least one frame, prints the metrics line and
+  asserts the live-round acceptance below.
 
 ### Metrics and ROIs
 
@@ -373,10 +480,42 @@ after the first cloud that the node answered with a plane. ROI edges are inclusi
 | `ramp_lethal_frames` | counted frames with an obstacle or drop point in `RAMP_ROI` |
 | `churn_share` | share of consecutive counted frames whose warning set differs: kind plus polygon vertices rounded to 1 cm, as `scripts/ground_noise_report.py:warning_set` |
 
+### Acceptance
+
+The live-round acceptance (design D14-D19, approved items A10-A14), asserted by `ReplayTest.HomeSceneMeetsTheLiveRoundAcceptance`,
+`ReplayTest.BoxSceneMeetsTheLiveRoundAcceptance` and `ReplayTest.RampSceneMeetsTheLiveRoundAcceptance` over the
+counted frames. No threshold may be loosened; a failing metric is a finding.
+
+| Scene | Assertions |
+|-------|------------|
+| home | `box_lethal_share >= 0.95`, `far_side_warning_frames == 0`, `board_lethal_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
+| box | `box_lethal_share >= 0.95`, `far_side_warning_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
+| ramp | `board_lethal_frames == 0` (the board edge is in the ramp view), `ramp_lethal_frames == 0` (D19: no returns on the black rubber, never lethal), `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
+
+`stray_lethal_share <= 0.05` is the approved empty-floor goal (no lethal point within 1.2 m outside the box at p95 of
+the frames); the board never lethal is strict (0 frames). The ramp's `ramp_warning_share` and slope error are not
+gates (D19). Final lines, `scripts/cpp-node-test.sh ground_estimator_cpp` on the shipped config:
+
+```text
+replay home: plane_share=1.000 box_lethal_share=1.000 board_lethal_frames=0 stray_lethal_share=0.031 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.078
+replay box: plane_share=1.000 box_lethal_share=0.992 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
+replay ramp: plane_share=0.984 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
+```
+
+Before the lethal marks (Robustness) the same replay read home `stray_lethal_share=0.808`, box `0.302`, ramp `0.079`
+with `ramp_lethal_frames=4`. The remaining home strays (4 counted frames) are real returns: 4-6 cm points just past the
+box ROI's y edge (x 0.72-0.76, y 0.38-0.40) and at x 0.37-0.39, y 0.21-0.25 next to the gripper zone.
+
+The latency pin `NodeTest.PlacedBoxIsLethalWithinEnterFramesOfItsFirstFilteredBoxHeights` goes with it: a 5 cm box
+placed on floor the node has tracked for 20 frames gives obstacle points no later than `hysteresis.enter_frames` frames
+(0.3 s at 10 Hz) after the first frame in which the temporal filter outputs box heights for its cells, with the shipped
+config.
+
 ### Baseline
 
-Measured by `scripts/cpp-node-test.sh ground_estimator_cpp` on the shipped config as committed with these fixtures;
-two runs gave identical lines:
+The first replay, measured by `scripts/cpp-node-test.sh ground_estimator_cpp` on the shipped config as committed with
+these fixtures, before the occlusion gate, the segment step, the area stability and the lethal marks; two runs gave
+identical lines:
 
 ```text
 replay home: plane_share=1.000 box_lethal_share=0.869 board_lethal_frames=116 stray_lethal_share=1.000 far_side_warning_frames=5 ramp_lethal_frames=0 churn_share=0.690
