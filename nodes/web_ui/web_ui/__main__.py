@@ -47,6 +47,7 @@ def main() -> None:
     node = BridgeNode(
         topics=config.all_subscribed_topics(),
         allowed_publish_topics=set(config.publish_topics()),
+        publish_topic_types=config.publish_topic_types(),
         topic_roles=config.topic_roles(),
         tof_ranges=config.tof_ranges(),
         map3d_limits=config.map3d_limits(),

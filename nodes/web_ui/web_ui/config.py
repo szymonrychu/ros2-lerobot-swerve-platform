@@ -62,6 +62,9 @@ HEAD_TAB_DEFAULT_HOME_DEG: tuple[float, float] = (0.0, 30.0)
 # Joint names of the head command (sensor_msgs/JointState name[]); positions are radians.
 HEAD_PAN_JOINT = "head_pan"
 HEAD_TILT_JOINT = "head_tilt"
+# Message types of the publish topics fixed by their tab field (strings as the web UI sends them in publish frames).
+GOAL_MSG_TYPE = "geometry_msgs/PoseStamped"
+JOINT_COMMAND_MSG_TYPE = "sensor_msgs/JointState"
 # header.frame_id stamped on head commands published by the web UI (the filter-free operator source).
 HEAD_COMMAND_FRAME_ID = "web_ui"
 # Defaults filled into map_nav tabs for fields left unset (other tab types keep None).
@@ -955,6 +958,22 @@ class AppConfig(BaseModel):
             if tab.type == MAP_NAV_TAB_TYPE and tab.map3d_command_topic:
                 topics.add(tab.map3d_command_topic)
         return sorted(topics)
+
+    def publish_topic_types(self) -> dict[str, str]:
+        """Map each publish topic whose message type is fixed by its tab field to that type.
+
+        Returns:
+            dict[str, str]: Topic -> message type string (goal: PoseStamped, arm/head command: JointState).
+        """
+        types: dict[str, str] = {}
+        for tab in self.tabs:
+            if tab.goal_topic:
+                types[tab.goal_topic] = GOAL_MSG_TYPE
+            if tab.arm_command_topic:
+                types[tab.arm_command_topic] = JOINT_COMMAND_MSG_TYPE
+            if tab.head_command_topic:
+                types[tab.head_command_topic] = JOINT_COMMAND_MSG_TYPE
+        return types
 
 
 def load_config(path: Path | None = None) -> AppConfig:
