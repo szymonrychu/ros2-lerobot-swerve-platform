@@ -1,0 +1,125 @@
+{
+  "id": "r-20261022-140000",
+  "session": "calib-20261022-140000",
+  "kind": "head_arm",
+  "created": "2026-10-22T14:00:00+00:00",
+  "passed": true,
+  "failed_limits": [],
+  "error": null,
+  "rms_px": 0.4195252562075754,
+  "holdout_rms_px": 0.4381503167477793,
+  "holdout_board_mm": 0.4834185607282122,
+  "views": 80,
+  "arm_poses": 24,
+  "pan_span_deg": 39.20499606200164,
+  "tilt_span_deg": 20.463536802664656,
+  "max_correlation": {
+    "pair": [
+      "mount_y_m",
+      "mount_yaw_deg"
+    ],
+    "value": -0.9886904714371841
+  },
+  "params": {
+    "mount_x_m": {
+      "value": 0.15595283006103774,
+      "sigma": 0.00010248007061700846,
+      "start": 0.15,
+      "floor": null,
+      "floor_delta": null
+    },
+    "mount_y_m": {
+      "value": 0.09987668380356664,
+      "sigma": 0.0001303846193143742,
+      "start": 0.1,
+      "floor": null,
+      "floor_delta": null
+    },
+    "mount_z_m": {
+      "value": 0.31302942896977837,
+      "sigma": 0.000163029137035367,
+      "start": 0.31,
+      "floor": 0.313,
+      "floor_delta": 2.942896977836673e-05
+    },
+    "mount_roll_deg": {
+      "value": -0.0016456745372035956,
+      "sigma": 0.01358712502020843,
+      "start": 0.0,
+      "floor": 0.0,
+      "floor_delta": -0.0016456745372035956
+    },
+    "mount_pitch_deg": {
+      "value": -0.00206191942768324,
+      "sigma": 0.02911027703156339,
+      "start": 0.0,
+      "floor": 0.0,
+      "floor_delta": -0.00206191942768324
+    },
+    "mount_yaw_deg": {
+      "value": 1.018819098260005,
+      "sigma": 0.02092253663848733,
+      "start": 0.0,
+      "floor": null,
+      "floor_delta": null
+    },
+    "tilt_zero_deg": {
+      "value": 0.4063199069599852,
+      "sigma": 0.022436801243634407,
+      "start": 0.0,
+      "floor": 0.4,
+      "floor_delta": 0.006319906959985189
+    },
+    "tilt_roll_deg": {
+      "value": 0.0026466265698014873,
+      "sigma": 0.007000143636534694,
+      "start": 0.0,
+      "floor": 0.0,
+      "floor_delta": 0.0026466265698014873
+    }
+  },
+  "board_mount": {
+    "xyz": [
+      -0.12787451268335315,
+      0.09980618016880946,
+      -0.11803168650342817
+    ],
+    "rpy": [
+      -3.14088302846349,
+      -0.00016235250044460692,
+      -0.00018684819606940017
+    ]
+  },
+  "per_view": [
+    {
+      "view_id": "001",
+      "arm_pose": 0,
+      "rms_px": 0.3809836737270061,
+      "held_out": false
+    },
+    {
+      "view_id": "002",
+      "arm_pose": 0,
+      "rms_px": 0.40307780361573664,
+      "held_out": false
+    }
+  ],
+  "limits": [
+    {
+      "name": "rms_px",
+      "value": 0.4195252562075754,
+      "limit": 1.0,
+      "ok": true
+    },
+    {
+      "name": "holdout_rms_px",
+      "value": 0.4381503167477793,
+      "limit": 1.5,
+      "ok": true
+    }
+  ],
+  "floor": {
+    "session": "floor-20261022-064337",
+    "result": "r-20261022-065211"
+  }
+}
