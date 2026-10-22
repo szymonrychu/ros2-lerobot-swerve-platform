@@ -31,14 +31,14 @@ Precondition, checked first and stopped on when not met:
 - only the head moves.
 
 - `uv run python scripts/ground_record.py` with the same scenes as the baseline gives `.logs/ground_recordings/*.npz` (not committed).
-- Exports through `scripts/ground_replay_scenes.yaml`: `nodes/ground_estimator_cpp/test/data/replay_rgbd/{home,box,ramp,empty}.bin`, 10 s windows with `pairs: true`, each <= 3 MB. If a window does not fit, shorten it, never below 8 s; below that, report the size as a finding.
+- Exports through `scripts/ground_replay_scenes.yaml`: `nodes/ground_estimator_cpp/test/data/replay_rgbd/{home,box,ramp,empty}.bin`, 10 s windows with `pairs: true` (all pairs at the live 2 Hz, full 576x324 size, so the replay matches the live guidance), each <= 6 MB (`MAX_PAIR_FIXTURE_BYTES`). If a window does not fit, shorten it, never below 8 s; below that, report the size as a finding.
 - `test/test_replay.cpp`: `ReplayGated.<Scene>` tests replay each fixture with guidance off and print `replay-gated <scene>: ...` (the amplitude-only effect). They assert only plane_share > 0 and that every pair was decoded.
 - README `## Replay tests`: a "Gated" table next to the baseline, and the fixture sizes.
 
 ## Acceptance conditions
 
 - a1: the four gated fixtures with pairs are committed [evidence: command: git ls-files nodes/ground_estimator_cpp/test/data/replay_rgbd/home.bin nodes/ground_estimator_cpp/test/data/replay_rgbd/box.bin nodes/ground_estimator_cpp/test/data/replay_rgbd/ramp.bin nodes/ground_estimator_cpp/test/data/replay_rgbd/empty.bin | wc -l | grep -qx ' *4']
-- a2: every fixture is at most 3 MB [evidence: command: test -z "$(find nodes/ground_estimator_cpp/test/data/replay_rgbd -name '*.bin' -size +2930k)"]
+- a2: every gated fixture is at most 6 MB [evidence: command: test -z "$(find nodes/ground_estimator_cpp/test/data/replay_rgbd -name '*.bin' -size +5860k)"]
 - a3: the gated replays decode every pair and print their lines [evidence: command: scripts/cpp-node-test.sh ground_estimator_cpp]
 - a4: the README carries the gated table [evidence: doc-section: nodes/ground_estimator_cpp/README.md#Replay tests]
 - a5: the board pose check against truth.yaml (offset in mm) is in the commit message and the recordings were made through web_ui only [evidence: judgement]
@@ -69,3 +69,5 @@ Four gated fixtures committed, each <= 3 MB; `scripts/cpp-node-test.sh ground_es
 ## Notes
 
 Live task (D11): the orchestrator deploys arducam_tof with the gate and confirms the scene before dispatching it. Same live rules as capture-baseline-recordings.
+
+- 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
