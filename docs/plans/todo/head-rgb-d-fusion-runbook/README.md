@@ -1,6 +1,6 @@
 ---
 title: Head RGB-D fusion runbook
-blockers: [Drivable ground, ToF filtering and head-from-arm calibration]
+blockers: ["Drivable ground, ToF filtering and head-from-arm calibration"]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
