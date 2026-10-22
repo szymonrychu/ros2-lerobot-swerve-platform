@@ -1480,7 +1480,7 @@ ros2_nodes:
         max_m: 4.0 # farther depth is invalid, m (> min_m)
 
       upsampling:
-        enabled: false     # guided-filter upsampling of the depth to the RGB resolution
+        enabled: true      # guided-filter upsampling to the RGB size; input of ground_estimator_cpp guidance
         radius: 4          # guided filter radius, px (1..16)
         eps: 0.001         # guided filter regularisation (> 0)
         min_support: 0.5   # minimum filter support for a pixel to be valid (0 < v <= 1)
@@ -2071,6 +2071,31 @@ ros2_nodes:
         area_history_frames: 20  # frames of voting history behind the area densities, 1..120
         area_enter_density: 0.75  # share of the history frames a cell voted in to join an area, 0 < v <= 1
         area_exit_density: 0.25  # share of the history frames a cell must stay at or above to remain in an area, 0 <= v <= area_enter_density
+
+      guidance:  # ToF guidance frame: upsampled depth plus RGB beside the ToF cloud (design D3, D5, D12)
+        enabled: true  # use the guidance frame
+        depth_topic: /head_rgbd/depth_upsampled/image_raw  # upsampled depth image, produced by head_rgbd_cpp
+        info_topic: /head_rgbd/depth_upsampled/camera_info  # camera info of the upsampled depth, produced by head_rgbd_cpp
+        rgb_topic: /head_rgbd/rgb/image_raw/compressed  # RGB image, produced by head_rgbd_cpp
+        tof_info_topic: /tof/camera_info  # ToF camera info, produced by arducam_tof
+        max_age_s: 0.6  # oldest guidance frame still used, relative to the cloud stamp, seconds, 0 < v <= 2
+        sample_step_px: 2  # pixel stride of the sampling grid, pixels, 1..8
+        max_range_m: 2.0  # farthest range sampled, metres, 0 < v <= bands.max_range_m
+        edge:  # RGB-snapped edge points of lethal regions
+          enabled: true  # publish edge points
+          max_shift_m: 0.06  # largest xy distance of an edge point from a stable lethal point of the frame, metres, 0 < v <= 0.15
+          min_height_m: 0.02  # smallest absolute height of an edge point, metres, 0 < v <= the max step (0.04)
+          voxel_m: 0.02  # voxel of the edge point decimation, metres, 0.005 <= v <= 0.05
+        no_return:  # areas the ToF should see but returns nothing from
+          enabled: true  # detect no-return areas
+          min_range_m: 0.3  # nearer cells are not judged, metres, 0 <= v < guidance.max_range_m
+          cell_min_samples: 6  # samples a cell needs before it is judged, >= 1
+          cell_min_share: 0.8  # share of a cell's samples without a return for it to count, 0 < v <= 1
+          window_frames: 4  # frames a cell is judged over, 1..20
+          enter_frames: 3  # frames of no return that make a cell a no-return cell, 1..window_frames
+          min_cells: 2  # smallest area published, in cells, >= 1
+          clearance_cells: 1  # cells around an area kept clear of valid returns, 0..3
+          tof_margin_px: 4  # margin inside the ToF image border where nothing is judged, pixels, 0..20
 
       metrics_port: 19119 # Prometheus /metrics on 127.0.0.1
   - name: slam_toolbox

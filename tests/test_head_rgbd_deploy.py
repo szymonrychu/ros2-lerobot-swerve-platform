@@ -121,6 +121,12 @@ def test_tof_calibration_file_is_the_applied_file() -> None:
     assert entry_config("head_rgbd_cpp")["tof_calibration_file"] == APPLIED_TOF_FILE
 
 
+def test_upsampling_is_enabled_for_ground_guidance() -> None:
+    """The guided upsampling is on: its depth edges are the input of ground_estimator_cpp guidance."""
+    assert entry_config("head_rgbd_cpp")["upsampling"]["enabled"] is True
+    assert yaml.safe_load(DEFAULTS.read_text())["upsampling"]["enabled"] is True
+
+
 def test_ros2_nodes_entry() -> None:
     nodes = client_vars()["ros2_nodes"]
     names = [n["name"] for n in nodes]
