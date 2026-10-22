@@ -248,6 +248,14 @@ class FrontierList(BaseModel):
     map_version: list[Any] = Field(description="/map version key (stamp sec, nanosec, width, height, origin x, y)")
     map_age_s: float | None = Field(description="Age of the /map message (s)")
     epoch: int = Field(description="Id epoch: ids restart when the map is reset")
+    epoch_changed_at: float | None = Field(
+        default=None, description="Wall-clock epoch seconds the current epoch started; null in epoch 1"
+    )
+    epoch_cause: dict[str, Any] | None = Field(
+        default=None,
+        description="Why the current epoch started (the map_epoch_reset event cause: type, source, requester, "
+        "message; type 'unexplained' with the cell counts when no reset event was seen); null in epoch 1",
+    )
     retired_since_last_call: list[RetiredView]
     compute_ms: dict[str, float] = Field(
         description="Time spent by this call per stage (0 = served from the per-version cache) and in total"
@@ -351,5 +359,12 @@ class ExplorationStatus(BaseModel):
         description="Survey coverage of the reachable free space from the survey spots, with the unsurveyed areas"
     )
     battery: BatteryLimit
+    epoch: int | None = Field(default=None, description="Frontier id epoch (null while /map is unavailable)")
+    epoch_changed_at: float | None = Field(
+        default=None, description="Wall-clock epoch seconds the current epoch started; null in epoch 1"
+    )
+    epoch_cause: dict[str, Any] | None = Field(
+        default=None, description="Why the current epoch started (see list_frontiers); null in epoch 1"
+    )
     robot_pose: dict[str, float] | None = None
     notes: list[str] = Field(default_factory=list)

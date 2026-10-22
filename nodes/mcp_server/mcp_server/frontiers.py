@@ -9,11 +9,12 @@ Cells are (row, col) of an OccupancyGrid: row along the grid y axis, col along i
 occupancy (free at or below FREE_THRESHOLD, occupied at or above OCCUPIED_THRESHOLD, as in perception.py).
 """
 
+import logging
 import math
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -28,6 +29,8 @@ from mcp_core_cpp import frontiers as core
 from .config import FootprintSettings, FrontierSettings
 from .metrics import FRONTIER_COMPUTE, FRONTIER_COUNT
 from .perception import FREE_THRESHOLD, OCCUPIED_THRESHOLD
+
+LOGGER = logging.getLogger("mcp_server.frontiers")
 
 UNKNOWN = -1
 FREE = 0
@@ -183,6 +186,27 @@ class ViewPose:
     distance_m: float
     geodesic_m: float | None
     score: float
+
+
+@dataclass(frozen=True)
+class EpochChange:
+    """One tracker epoch start (the map was reset or replaced).
+
+    Attributes:
+        epoch_before (int): Epoch that ended.
+        epoch_after (int): Epoch that started.
+        known_before (int): Known cells of the previous map.
+        known_after (int): Known cells of the new map.
+        resolution_before (float): Previous map resolution (m/cell).
+        resolution_after (float): New map resolution (m/cell).
+    """
+
+    epoch_before: int
+    epoch_after: int
+    known_before: int
+    known_after: int
+    resolution_before: float
+    resolution_after: float
 
 
 @dataclass(frozen=True, eq=False)
@@ -667,6 +691,10 @@ class FrontierTracker:
         self.lock = threading.Lock()
         self.snapshot: FrontierSnapshot | None = None
         self.epoch = 1
+        self.epoch_changed_at: float | None = None  # wall clock (epoch s) the current epoch started; None in epoch 1
+        self.epoch_cause: dict[str, Any] | None = None  # why the current epoch started; None in epoch 1
+        # Called (outside the lock) once per epoch start; returns the cause dict recorded in epoch_cause.
+        self.on_epoch_reset: Callable[[EpochChange], dict[str, Any]] | None = None
         self.next_id = 1
         self.retired_ids: OrderedDict[int, RetiredFrontier] = OrderedDict()
         self.unreported: list[RetiredFrontier] = []
@@ -692,6 +720,7 @@ class FrontierTracker:
         Returns:
             FrontierSnapshot: The snapshot of grid.version.
         """
+        change: EpochChange | None = None
         with self.lock:
             prev = self.snapshot
             if prev is not None and prev.version == grid.version:
@@ -702,7 +731,17 @@ class FrontierTracker:
                 not math.isclose(grid.resolution, prev.grid.resolution)
                 or grid.known_cells < self.settings.epoch_reset_known_fraction * prev.grid.known_cells
             ):
+                change = EpochChange(
+                    epoch_before=self.epoch,
+                    epoch_after=self.epoch + 1,
+                    known_before=int(prev.grid.known_cells),
+                    known_after=int(grid.known_cells),
+                    resolution_before=float(prev.grid.resolution),
+                    resolution_after=float(grid.resolution),
+                )
                 self.epoch += 1
+                self.epoch_changed_at = time.time()
+                self.epoch_cause = None
                 self.next_id = 1
                 self.retired_ids.clear()
                 self.unreported.clear()
@@ -745,7 +784,26 @@ class FrontierTracker:
             )
             self.geodesic_cache.clear()
             self.compute_count += 1
-            return self.snapshot
+            snapshot = self.snapshot
+        if change is not None and self.on_epoch_reset is not None:
+            try:
+                cause = self.on_epoch_reset(change)
+            except Exception:  # explaining a reset must never break the frontier tools
+                LOGGER.exception("map epoch reset hook failed")
+            else:
+                with self.lock:
+                    if self.epoch == change.epoch_after:
+                        self.epoch_cause = cause
+        return snapshot
+
+    def epoch_info(self) -> tuple[float | None, dict[str, Any] | None]:
+        """When and why the current epoch started.
+
+        Returns:
+            tuple[float | None, dict[str, Any] | None]: (wall clock epoch s, cause dict); (None, None) in epoch 1.
+        """
+        with self.lock:
+            return self.epoch_changed_at, self.epoch_cause
 
     def retire(self, entry: tuple[int, int | None, bool], version: tuple) -> RetiredFrontier:
         """Record a retired id (caller holds the lock); the oldest beyond retired_keep are forgotten.
