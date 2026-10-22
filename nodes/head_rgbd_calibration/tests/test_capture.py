@@ -550,7 +550,7 @@ def test_still_session_subscribes_three_topics(tmp_path: Path) -> None:
     assert controller.state()["running"] is True
 
 
-def test_still_pose_stored_with_nearest_joints(tmp_path: Path) -> None:
+def test_capture_still_stores_pose_with_nearest_joints(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_still_controller(tmp_path, node)
     sid = controller.start_still_session(None)
@@ -567,7 +567,7 @@ def test_still_pose_stored_with_nearest_joints(tmp_path: Path) -> None:
     assert controller.state()["pose_count"] == 1
 
 
-def test_moving_arm_is_not_still(tmp_path: Path) -> None:
+def test_capture_still_waits_for_still_joints(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_still_controller(tmp_path, node)
     sid = controller.start_still_session(None)
@@ -579,7 +579,7 @@ def test_moving_arm_is_not_still(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("missing", ["no_arm", "short_names"])
-def test_missing_arm_joints_mean_stale_joints(tmp_path: Path, missing: str) -> None:
+def test_capture_still_refuses_stale_joints(tmp_path: Path, missing: str) -> None:
     node = FakeNode()
     controller = make_still_controller(tmp_path, node)
     sid = controller.start_still_session(None)
@@ -622,7 +622,7 @@ def test_store_refusal_is_reported(tmp_path: Path) -> None:
     assert outcome.reason.startswith("refused: ") and "tier" in outcome.reason
 
 
-def test_still_stop_leaves_nothing_subscribed(tmp_path: Path) -> None:
+def test_still_session_stop_unsubscribes_everything(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_still_controller(tmp_path, node)
     controller.start_still_session(None)
