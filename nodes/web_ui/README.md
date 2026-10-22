@@ -427,6 +427,12 @@ Because tiles come from the same origin, the Content-Security-Policy keeps `img-
 | 503 | ROS bridge or the reset service is unavailable, or map_manager is not running (slam reset done) |
 | 504 | No response within 10 s (slam reset, or map_manager clear) |
 
+Every reset request that reaches the route is logged (`map_reset_requested` with `tab`, `requester`, `user_agent`; then `map_reset_outcome` with `ok` and the message) and publishes one `/robot_events` event (std_msgs/String JSON, reliable, depth 10) after the outcome is known, also when the reset fails or is refused (battery cut-off, unknown tab): `{type: "map_reset", source: "web_ui", severity: "critical", message: "map reset on tab 'map' requested by <requester>: ok|failed: <result>", data: {tab, requester, user_agent, ok, pois_removed, photos_removed}}`. `requester` is the first `X-Forwarded-For` hop, else the socket peer address. The agent therefore sees who asked for every reset.
+
+### Map reset during go_to_frontier
+
+Finding for the 16:28 "Explore" job (retro 2026-10-22, epoch 1->2 with no map_guard event): web_ui logged `reset_map_requested` (service `/slam_toolbox/reset`) at 16:24:29 CEST and `map_reset` ok ("removed 3 live POIs and 1 photos") at 16:24:44, so the reset came through `POST /api/map/reset`, not map_guard (map_guard_cpp ran in dry run). The only caller of that route in the code base is the Map tab "Reset map" button (`frontend/src/tabs/MapNavTab.tsx`); neither claude_agent nor mcp_server has a path to it, and their logs hold nothing for that minute. The requester (which browser or address) cannot be known from the existing logs, because the route logged no client information and the web proxy access log is not shipped. From now on the log lines and the `map_reset` robot event above name the requester.
+
 `POST /api/nav/stop?tab=<tab id>` calls `<navigate_action>/_action/cancel_goal` (`action_msgs/srv/CancelGoal` with a zero goal id and zero stamp, which cancels every goal) and returns `{"ok", "message"}`; the message says how many goals were canceling. On success the cached goal (`goal_topic`) is dropped and clients get a `data: null` event, so the goal marker disappears for everyone.
 
 | Status | Meaning |
