@@ -241,4 +241,4 @@ cAdvisor `container_cpu_usage_seconds_total` of `ros2-head_rgbd_cpp.service`, e.
 `rate(container_cpu_usage_seconds_total{id=~".*ros2-head_rgbd_cpp.service"}[1m])` (cores), and the node's own
 `rate(process_cpu_seconds_total{job=~".*head_rgbd.*"}[1m])` from its Prometheus port 19117; take the p95 of the 10 minute
 window (`quantile_over_time(0.95, ...[10m:15s])`). Use an Explore query when no dashboard panel lists the unit. Also check
-`head_rgbd_process_seconds` (p95 <= 15 ms). Repeat with `upsampling.enabled: true` and report both.
+`head_rgbd_process_seconds` (p95 <= 15 ms). Repeat with `upsampling.enabled: false` and report both.
