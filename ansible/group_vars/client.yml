@@ -1659,6 +1659,12 @@ ros2_nodes:
           wrist_flex: 0.0988
           wrist_roll: -0.071
         floor_prior_weight: 0.0 # weight of the floor-fit prior (>= 0)
+      # mcp_server the node moves the head and arm through (guarded tools only).
+      robot:
+        mcp_url: http://127.0.0.1:18200/mcp # mcp_server Streamable HTTP URL
+        token_file: /etc/ros2/mcp_server/token # bearer token file, read per call
+        call_timeout_s: 60.0 # timeout of a normal tool call, s (> 0)
+        move_timeout_s: 120.0 # timeout of an arm move call, s (> 0)
   # Carries the head RGB-D, scan, TF and command streams to the server and the 3D map back (lazy, throttled).
   - name: map3d_uplink
     node_type: map3d_uplink

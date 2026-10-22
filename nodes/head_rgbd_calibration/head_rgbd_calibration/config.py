@@ -55,6 +55,8 @@ MIN_CLOUDS_KEY = "min_clouds_per_pose"
 CLOUDS_KEY = "clouds_per_pose"
 MAX_FLOOR_PAN_DEG = 90.0
 MAX_FLOOR_TILT_DEG = 30.0
+DEFAULT_ROBOT_MCP_URL = "http://127.0.0.1:18200/mcp"
+DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
 
 
 class TopicsConfig(StrictModel):
@@ -163,6 +165,15 @@ class FloorSweepConfig(StrictModel):
         return values
 
 
+class RobotConfig(StrictModel):
+    """The mcp_server the node moves the head and arm through (its guarded tools only)."""
+
+    mcp_url: str = DEFAULT_ROBOT_MCP_URL
+    token_file: str = DEFAULT_ROBOT_TOKEN_FILE
+    call_timeout_s: float = Field(default=60.0, gt=0)
+    move_timeout_s: float = Field(default=120.0, gt=0)
+
+
 class NodeConfig(StrictModel):
     """Whole node config; every key has a default so an empty file is valid."""
 
@@ -188,6 +199,7 @@ class NodeConfig(StrictModel):
     floor: FloorSweepConfig = Field(default_factory=FloorSweepConfig)
     still: StillConfig = Field(default_factory=StillConfig)
     fit: HeadArmFitConfig = Field(default_factory=HeadArmFitConfig)
+    robot: RobotConfig = Field(default_factory=RobotConfig)
 
     @model_validator(mode="after")
     def check_fit_board(self) -> Self:
