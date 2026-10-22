@@ -77,7 +77,8 @@
     "owner": "servo-torque-off-and-neutral",
     "file": "nodes/bridges/feetech_servos/neutral.py",
     "consumers": [
-      "head-and-arm-calibration-fro"
+      "head-and-arm-calibration-fro",
+      "arm-joint-offsets-from-the-g"
     ],
     "note": "/var/lib/ros2/arm/calibration_stale.json {version:1, group, saved_at, joints:{name:{before_steps,after_steps}}, stale:[joint_offsets, home]}; writer feetech bridge after an arm neutral save; mcp_server removes home on arm_set_home; the arm calibration apply removes joint_offsets; empty list deletes the file; owner task bridge-runtime-neutral-save"
   },
