@@ -349,6 +349,7 @@ none
 - Q1: Before capture-baseline-recordings, can you set the scene: robot static and charging, the 5 cm box with its front face on the far edge of the ChArUco board, the black ramp's long side against one side edge of the board, an empty floor area in head reach; give the box top length x width, the ramp width and which side; and leave it all in place until capture-gated-recordings is done? [recommended: yes; the truth comes from the board pose, and the capture tasks stop if the board moved more than 5 mm]
 - Q2: Keep the head mapping RGB stream at 2 Hz, so edge points and no_return areas refresh twice a second and are moved through odom in between, instead of raising it (more client CPU, contract head-camera-stream-rate)? [recommended: yes, keep 2 Hz]
 - Q3: Refine only lethal boundaries (obstacles, drops) with the RGB edges, and keep the non-lethal warning areas on their 10 cm cell polygons so warning churn stays under 10 %? [recommended: yes]
+- Q4: Apply the amplitude gate to /tof/depth/image_raw for every consumer (Nav2 ToF layer, head floor fit, RGB-D calibration), as the flying-pixel filter is, rather than only on the ground estimator's path? [recommended: yes; one depth stream, and the floor-retention test guards the floor fit]
 
 ## Irreversible operations in scope
 
