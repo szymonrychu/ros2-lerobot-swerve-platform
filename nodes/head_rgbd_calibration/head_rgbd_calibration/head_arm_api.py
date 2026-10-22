@@ -97,8 +97,14 @@ def head_arm_router(
         except (SequenceError, ValueError) as exc:
             return error_response(HTTP_BAD_REQUEST, str(exc))
 
-    def head_arm_session(sid: str) -> None:
-        store.require_kind(sid, KIND_HEAD_ARM, "head-arm calibration")
+    def wrong_kind(sid: str) -> Any:
+        """The 400 response when the session is not a head_arm one (ids that do not exist raise 404/InvalidId)."""
+        store.existing_session_dir(sid)
+        try:
+            store.require_kind(sid, KIND_HEAD_ARM, "head-arm calibration")
+        except ValueError as exc:
+            return error_response(HTTP_BAD_REQUEST, str(exc))
+        return None
 
     @router.get("/state")
     def state() -> dict[str, Any]:
@@ -149,22 +155,17 @@ def head_arm_router(
 
     @router.get("/sessions/{sid}/results/{rid}")
     def result(sid: str, rid: str) -> Any:
-
-        def read() -> Any:
-            head_arm_session(sid)
-            path = store.result_dir(sid, rid) / RESULT_FILE
-            if not path.is_file():
-                raise NotFound(f"no such result: {rid}")
-            return json.loads(path.read_text())
-
-        return step(read)
+        if (refused := wrong_kind(sid)) is not None:
+            return refused
+        path = store.result_dir(sid, rid) / RESULT_FILE
+        if not path.is_file():
+            raise NotFound(f"no such result: {rid}")
+        return json.loads(path.read_text())
 
     @router.post("/sessions/{sid}/results/{rid}/apply")
     def apply(sid: str, rid: str) -> Any:
-        def do_apply() -> Any:
-            head_arm_session(sid)
-            return apply_head_arm(cfg, store, sid, rid, datetime.now().astimezone(), run)
-
-        return step(do_apply)
+        if (refused := wrong_kind(sid)) is not None:
+            return refused
+        return apply_head_arm(cfg, store, sid, rid, datetime.now().astimezone(), run)
 
     return router

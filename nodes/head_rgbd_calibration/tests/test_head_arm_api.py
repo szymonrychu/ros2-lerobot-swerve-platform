@@ -301,10 +301,11 @@ def test_non_head_arm_session_result_routes_are_400(parts: SimpleNamespace) -> N
 
 def test_bodies_match_fixtures(parts: SimpleNamespace) -> None:
     sid = ready_session(parts)
-    assert_matches_fixture(parts.client.get("/api/head-arm/state").json(), "head_arm_state")
     result = parts.client.post(f"/api/head-arm/sessions/{sid}/compute").json()
     assert_matches_fixture(result, "head_arm_result")
     assert_matches_fixture(parts.client.get("/api/head-arm/sessions").json(), "head_arm_sessions")
+    assert parts.client.post(f"/api/head-arm/sessions/{sid}/results/{result['id']}/apply").status_code == 200
+    assert_matches_fixture(parts.client.get("/api/head-arm/state").json(), "head_arm_state")
 
 
 def test_confirms_required(parts: SimpleNamespace) -> None:
