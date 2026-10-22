@@ -207,3 +207,20 @@ def test_tool_plane_null_gives_reason_note(robot: FakeRobot) -> None:
 def test_description_documents_ground(robot: FakeRobot) -> None:
     doc = tool_descriptions(build_mcp_server(robot, McpServerConfig(), TOKEN))["get_map_summary"]
     assert "ground" in doc and "obstacles_3d" in doc and "fixed" in doc
+
+
+def test_no_return_warning_with_null_heights() -> None:
+    """A no_return warning has null height and slope: the state parses and the summary keeps them null."""
+    no_return = {
+        "kind": "no_return",
+        "polygon": [[0.5, -0.2], [0.9, -0.2], [0.9, 0.3], [0.5, 0.3]],
+        "height_m": None,
+        "slope_deg": None,
+        "source": "no_return",
+    }
+    state = GroundState.model_validate(example() | {"warnings": [no_return]})
+    summary = summarize_ground(state, 0.0)
+    warning = summary.warnings[0]
+    assert warning.kind == "no_return"
+    assert warning.height_m is None and warning.slope_deg is None
+    assert warning.nearest_distance_m == 0.5
