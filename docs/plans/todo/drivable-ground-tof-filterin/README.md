@@ -1,6 +1,6 @@
 ---
 title: "Drivable ground, ToF filtering and head-from-arm calibration"
-blockers: [Head RGB-D fusion of camera and ToF, Printable metadata markers that become POIs, RTAB-Map RGB-D 3D mapping on the server]
+blockers: []
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
