@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "Real RGB-D replay data with the gate on, the test bed of the guided acceptance"
 files: [scripts/ground_replay_scenes.yaml, nodes/ground_estimator_cpp/test/data/replay_rgbd/, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/README.md]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
-depends_on: [tof-amplitude-gate]
+depends_on: [tof-amplitude-gate, tof-flying-pixel-retune]
 owns: [gated-fixtures]
 uses: [record-script, guidance-replay-harness, baseline-fixtures, amplitude-gate]
 model: ""
@@ -23,16 +23,17 @@ provides: []
 
 ## Requirement
 
-Live task: re-record the same scenes with the amplitude gate deployed and commit the guidance fixtures with RGB-D pairs (part gated-fixtures, design D7, D9, D11). It uses parts record-script, guidance-replay-harness, baseline-fixtures and amplitude-gate.
+Live task: re-record the same scenes with the amplitude gate and the retuned flying-pixel filter deployed and commit the guidance fixtures with RGB-D pairs (part gated-fixtures, design D7, D9, D11, D26, D28; approvals A2, A6, G1, G2). It uses parts record-script, guidance-replay-harness, baseline-fixtures and amplitude-gate.
 
 Precondition, checked first and stopped on when not met:
-- tof-amplitude-gate is merged and the orchestrator has deployed arducam_tof;
+- tof-amplitude-gate and tof-flying-pixel-retune are merged and the orchestrator has deployed arducam_tof with both (`flying_pixel_filter: true`, `amplitude_gate: true`), and recorded the deploy time;
+- the light is on, as at the baseline;
 - the robot has not moved and the scene is unchanged since capture-baseline-recordings: `scripts/ground_scene_truth.py` on the new home recording gives board corners within 5 mm of the committed `truth.yaml` (otherwise stop and report the offset);
 - only the head moves.
 
-- `uv run python scripts/ground_record.py` with the same scenes as the baseline gives `.logs/ground_recordings/*.npz` (not committed).
+- `uv run python scripts/ground_record.py` with the same scenes as the baseline gives `.logs/ground_recordings/*.npz` and `.ndjson` (not committed; tof-filter-live-check and ground-estimator-live-scene read the `.ndjson` `/ground/state` lines).
 - Exports through `scripts/ground_replay_scenes.yaml`: `nodes/ground_estimator_cpp/test/data/replay_rgbd/{home,box,ramp,empty}.bin`, 10 s windows with `pairs: true` (all pairs at the live 2 Hz, full 576x324 size, so the replay matches the live guidance), each <= 6 MB (`MAX_PAIR_FIXTURE_BYTES`). If a window does not fit, shorten it, never below 8 s; below that, report the size as a finding.
-- `test/test_replay.cpp`: `ReplayGated.<Scene>` tests replay each fixture with guidance off and print `replay-gated <scene>: ...` (the amplitude-only effect). They assert only plane_share > 0 and that every pair was decoded.
+- `test/test_replay.cpp`: `ReplayGated.<Scene>` tests replay each fixture with guidance off and print `replay-gated <scene>: ...` (the effect of the filter and the gate). They assert only plane_share > 0 and that every pair was decoded.
 - README `## Replay tests`: a "Gated" table next to the baseline, and the fixture sizes.
 
 ## Acceptance conditions
@@ -71,3 +72,5 @@ Four gated fixtures committed, each <= 6 MB; `scripts/cpp-node-test.sh ground_es
 Live task (D11): the orchestrator deploys arducam_tof with the gate and confirms the scene before dispatching it. Same live rules as capture-baseline-recordings.
 
 - 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
+
+- 2026-10-22 amended: planner: umbrella re-plan (approval G2, D26): the retuned flying-pixel filter is deployed with the amplitude gate before the gated recordings; ndjson kept for the live filter check
