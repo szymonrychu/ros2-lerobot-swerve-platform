@@ -1,6 +1,6 @@
 ---
 title: "tests/README.md has no entry for tests/test_arm_pose_check.py, and the head_rgbd_calibration/shared README does not describe arm_pose_check.py"
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "CLAUDE.md requires every test file and test to be documented in tests/README.md (H7 READMEs). Those files are not in this task's file list, and no plan task explicitly owns them."
 files: []
@@ -12,8 +12,8 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tests-readme-md-has-no-entry
+branch: drivable-ground-tof-filterin--tests-readme-md-has-no-entry
 verified_head: ""
 run: ""
 provides: []

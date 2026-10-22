@@ -13,7 +13,7 @@ estimate: 60
 actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--front-camera-ground-points
-branch: none
+branch: drivable-ground-tof-filterin--front-camera-ground-points
 verified_head: unknown
 run: drivable-ground-tof-filterin
 provides: []

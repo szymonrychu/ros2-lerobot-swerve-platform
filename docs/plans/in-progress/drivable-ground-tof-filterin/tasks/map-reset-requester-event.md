@@ -1,6 +1,6 @@
 ---
 title: Map reset requester event
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A map reset from the web UI is no longer a mystery: the agent gets an event naming who asked"
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_map_reset_event.py, nodes/web_ui/README.md]
