@@ -35,7 +35,11 @@ Ground truth (base_link metres, x forward, y left):
    ./scripts/deploy-nodes.sh client topic_scraper_api 2>&1 | tee .logs/deploy-topic-scraper.log
    ```
 
-3. After the run restore `enabled: false` for `topic_scraper_api` in `ansible/group_vars/client.yml` and redeploy it.
+3. Teardown, run as the last step of the Procedure: set `enabled: false` for `topic_scraper_api` in `ansible/group_vars/client.yml` and deploy it:
+
+   ```bash
+   ./scripts/deploy-nodes.sh client topic_scraper_api 2>&1 | tee .logs/deploy-topic-scraper-off.log
+   ```
 
 ## Procedure
 
