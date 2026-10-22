@@ -14,6 +14,7 @@ CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 NODE_DIR = REPO_ROOT / "nodes" / "ground_estimator_cpp"
 DEFAULTS = NODE_DIR / "config" / "ground_estimator.yaml"
+ARDUCAM_BRIDGE = REPO_ROOT / "nodes" / "bridges" / "arducam_tof" / "arducam_tof" / "bridge.py"
 LASER_FILTER_DEFAULTS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
 NAME = "ground_estimator_cpp"
 WORKSPACE = "/opt/ros2-ws"
@@ -166,6 +167,12 @@ def test_topics_match_their_producers() -> None:
     assert ground["cloud_topic"] == laser["cloud_filtered_topic"]
     assert ground["imu_topic"] == entry_config("bno055_imu")["topic"]
     assert ground["rgbd_cloud_topic"] == entry_config("head_rgbd_cpp")["output_namespace"] + "/points"
+    head_ns = entry_config("head_rgbd_cpp")["output_namespace"]
+    guidance = ground["guidance"]
+    assert guidance["depth_topic"] == head_ns + "/depth_upsampled/image_raw"
+    assert guidance["info_topic"] == head_ns + "/depth_upsampled/camera_info"
+    assert guidance["rgb_topic"] == head_ns + "/rgb/image_raw/compressed"
+    assert f'CAMERA_INFO_TOPIC = "{guidance["tof_info_topic"]}"' in ARDUCAM_BRIDGE.read_text()
 
 
 def test_limits_match_tilt_guard_and_swerve() -> None:
@@ -202,3 +209,10 @@ def test_robustness_keys_present() -> None:
     assert config["traversability"]["lethal_min_points"] == 2
     assert config["edges"]["slope_bin_m"] == 0.10
     assert config["edges"]["slope_min_cells"] == 3
+
+
+def test_guidance_block_is_in_the_client_config() -> None:
+    guidance = entry_config(NAME)["guidance"]
+    assert guidance == yaml.safe_load(DEFAULTS.read_text())["guidance"]
+    assert set(guidance["edge"]) == {"enabled", "max_shift_m", "min_height_m", "voxel_m"}
+    assert guidance["max_range_m"] <= entry_config(NAME)["bands"]["max_range_m"]
