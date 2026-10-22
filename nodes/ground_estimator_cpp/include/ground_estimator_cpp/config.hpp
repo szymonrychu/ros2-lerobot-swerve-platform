@@ -82,6 +82,18 @@ struct EdgesConfig
   double step_flatness_m = 0.03;     // > 0
   double slope_bin_m = 0.10;         // 0.02..0.5; xy bin edge a cluster is sampled in for its slope fit
   int slope_min_cells = 3;           // 2..50; fewest slope bins for a slope estimate, below it the slope is unknown
+  double step_segment_m = 0.10;      // 0.02..0.5; length of a boundary segment a step is measured along (D17)
+  int step_segment_min_points = 3;   // 1..50; fewest boundary points in a segment for it to count (D17)
+};
+
+// Occlusion shadow gate (D16): a cell hidden behind a nearer occluder is not read as a drop or ramp.
+struct OcclusionConfig
+{
+  bool enabled = true;                  // false = no shadow gate
+  double azimuth_bin_deg = 1.0;         // 0.1..10; width of an azimuth bin of the occluder horizon
+  double elevation_margin_deg = 0.5;    // 0..5; slack on the shadow ray elevation, degrees
+  double min_occluder_height_m = 0.02;  // > 0, < bands.obstacle_max_m; lowest plane-relative height that occludes
+  double min_height_drop_m = 0.01;      // > 0; smallest height drop behind an occluder that counts as shadowed
 };
 
 // Tilt limits of the tilt_guard.
@@ -145,6 +157,7 @@ struct Config
   TraversabilityConfig traversability;
   WarningsConfig warnings;
   EdgesConfig edges;
+  OcclusionConfig occlusion;
   SlopeConfig slope;
   ColourConfig colour;
   StateConfig state;

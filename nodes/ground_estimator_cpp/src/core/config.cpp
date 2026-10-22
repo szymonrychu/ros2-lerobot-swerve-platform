@@ -33,6 +33,10 @@ constexpr double MAX_SPREAD_M = 0.2;
 constexpr int MAX_LETHAL_MIN_POINTS = 50;
 constexpr int MIN_SLOPE_MIN_CELLS = 2;
 constexpr int MAX_SLOPE_MIN_CELLS = 50;
+constexpr int MAX_STEP_SEGMENT_MIN_POINTS = 50;
+constexpr double MIN_AZIMUTH_BIN_DEG = 0.1;
+constexpr double MAX_AZIMUTH_BIN_DEG = 10.0;
+constexpr double MAX_ELEVATION_MARGIN_DEG = 5.0;
 
 // The value under node[key] as T (fallback when missing or invalid) with the lax pydantic-style coercions; errors
 // name prefix + key.
@@ -175,7 +179,7 @@ void parse_edges(const YAML::Node & root, Config & c, Errors & errors)
   const YAML::Node s = section(
     root, "edges",
     {"cluster_tolerance_m", "min_cluster_points", "max_regions", "step_max_height_m", "step_flatness_m", "slope_bin_m",
-     "slope_min_cells"},
+     "slope_min_cells", "step_segment_m", "step_segment_min_points"},
     errors);
   if (!s.IsDefined()) {
     return;
@@ -198,6 +202,39 @@ void parse_edges(const YAML::Node & root, Config & c, Errors & errors)
   e.slope_min_cells = read<int>(s, p, "slope_min_cells", e.slope_min_cells, errors);
   rc::ge<int>(p + "slope_min_cells", e.slope_min_cells, MIN_SLOPE_MIN_CELLS, errors);
   rc::le<int>(p + "slope_min_cells", e.slope_min_cells, MAX_SLOPE_MIN_CELLS, errors);
+  e.step_segment_m = read<double>(s, p, "step_segment_m", e.step_segment_m, errors);
+  rc::ge(p + "step_segment_m", e.step_segment_m, MIN_CELL_SIZE_M, errors);
+  rc::le(p + "step_segment_m", e.step_segment_m, MAX_CELL_SIZE_M, errors);
+  e.step_segment_min_points = read<int>(s, p, "step_segment_min_points", e.step_segment_min_points, errors);
+  rc::ge<int>(p + "step_segment_min_points", e.step_segment_min_points, 1, errors);
+  rc::le<int>(p + "step_segment_min_points", e.step_segment_min_points, MAX_STEP_SEGMENT_MIN_POINTS, errors);
+}
+
+void parse_occlusion(const YAML::Node & root, Config & c, Errors & errors)
+{
+  const YAML::Node s = section(
+    root, "occlusion",
+    {"enabled", "azimuth_bin_deg", "elevation_margin_deg", "min_occluder_height_m", "min_height_drop_m"}, errors);
+  if (s.IsDefined()) {
+    const std::string p = "occlusion.";
+    OcclusionConfig & o = c.occlusion;
+    o.enabled = read<bool>(s, p, "enabled", o.enabled, errors);
+    o.azimuth_bin_deg = read<double>(s, p, "azimuth_bin_deg", o.azimuth_bin_deg, errors);
+    rc::ge(p + "azimuth_bin_deg", o.azimuth_bin_deg, MIN_AZIMUTH_BIN_DEG, errors);
+    rc::le(p + "azimuth_bin_deg", o.azimuth_bin_deg, MAX_AZIMUTH_BIN_DEG, errors);
+    o.elevation_margin_deg = read<double>(s, p, "elevation_margin_deg", o.elevation_margin_deg, errors);
+    rc::ge(p + "elevation_margin_deg", o.elevation_margin_deg, 0.0, errors);
+    rc::le(p + "elevation_margin_deg", o.elevation_margin_deg, MAX_ELEVATION_MARGIN_DEG, errors);
+    o.min_occluder_height_m = read<double>(s, p, "min_occluder_height_m", o.min_occluder_height_m, errors);
+    rc::gt(p + "min_occluder_height_m", o.min_occluder_height_m, 0.0, errors);
+    o.min_height_drop_m = read<double>(s, p, "min_height_drop_m", o.min_height_drop_m, errors);
+    rc::gt(p + "min_height_drop_m", o.min_height_drop_m, 0.0, errors);
+  }
+  require_that(
+    c.occlusion.min_occluder_height_m < c.bands.obstacle_max_m, "occlusion.min_occluder_height_m",
+    "must be below bands.obstacle_max_m (" + std::to_string(c.bands.obstacle_max_m) + "), got " +
+      std::to_string(c.occlusion.min_occluder_height_m),
+    errors);
 }
 
 void parse_slope(const YAML::Node & root, Config & c, Errors & errors)
@@ -342,8 +379,25 @@ Config parse(const YAML::Node & node, Errors & errors)
   Config c;
   rc::forbid_unknown(
     node,
-    {"cloud_topic", "imu_topic", "rgbd_cloud_topic", "output_namespace", "base_frame", "fixed_frame", "tf_timeout_s",
-     "imu", "fit", "bands", "traversability", "warnings", "edges", "slope", "colour", "state", "temporal", "hysteresis",
+    {"cloud_topic",
+     "imu_topic",
+     "rgbd_cloud_topic",
+     "output_namespace",
+     "base_frame",
+     "fixed_frame",
+     "tf_timeout_s",
+     "imu",
+     "fit",
+     "bands",
+     "traversability",
+     "warnings",
+     "edges",
+     "occlusion",
+     "slope",
+     "colour",
+     "state",
+     "temporal",
+     "hysteresis",
      "metrics_port"},
     errors);
   if (!node.IsMap()) {
@@ -368,6 +422,7 @@ Config parse(const YAML::Node & node, Errors & errors)
     c.warnings.frame = read<std::string>(s, "warnings.", "frame", c.warnings.frame, errors);
   }
   parse_edges(node, c, errors);
+  parse_occlusion(node, c, errors);
   parse_slope(node, c, errors);
   parse_colour_and_state(node, c, errors);
   parse_temporal(node, c, errors);
