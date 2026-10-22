@@ -142,6 +142,23 @@ struct HysteresisConfig
   int window_frames = 5;  // 1..30
   int enter_frames = 3;   // exit_frames..window_frames, enter_frames * 2 > window_frames
   int exit_frames = 1;    // 1..enter_frames
+  // Warning area stability (CellClassFilter): a stable warning cell joins an area once it has been active (voted or
+  // stable) for this many consecutive frames, so a cell flickering at an area's border does not reshape it.
+  int area_enter_frames = 3;  // 1..30, frames; new areas only
+  // Components of fewer area cells are not published (their cells keep their class), so a lone blip is no area.
+  int area_min_cells = 3;  // 1..100, cells
+  // A cell next to a published area joins it only after this many active frames (a new area needs area_enter_frames),
+  // so a border cell that appears for a few frames does not reshape the area.
+  int area_join_frames = 8;  // area_enter_frames..30, frames
+  // Frames another kind must have most of an area's cells before the area's kind changes.
+  int area_kind_frames = 10;  // 1..30, frames
+  // A cell reaches an area only while it voted in at least area_enter_density of the last area_history_frames frames
+  // (of the frames since its first vote while fewer have passed) and, once in an area, stays while at or above
+  // area_exit_density, so cells that vote now and then at an area's border or on a bare floor do not make or reshape
+  // areas.
+  int area_history_frames = 20;      // 1..120, frames
+  double area_enter_density = 0.75;  // > 0, <= 1, share of the history frames
+  double area_exit_density = 0.25;   // 0..area_enter_density, share of the history frames
 };
 
 // Every setting of the node.

@@ -28,6 +28,8 @@ constexpr int MIN_FLOOR_SAMPLES = 10;
 constexpr double MIN_CELL_SIZE_M = 0.02;
 constexpr double MAX_CELL_SIZE_M = 0.5;
 constexpr int MAX_WINDOW_FRAMES = 30;
+constexpr int MAX_AREA_MIN_CELLS = 100;
+constexpr int MAX_AREA_HISTORY_FRAMES = 120;
 constexpr double MAX_AGE_S = 5.0;
 constexpr double MAX_SPREAD_M = 0.2;
 constexpr int MAX_LETHAL_MIN_POINTS = 50;
@@ -317,7 +319,11 @@ void parse_temporal(const YAML::Node & root, Config & c, Errors & errors)
 
 void parse_hysteresis(const YAML::Node & root, Config & c, Errors & errors)
 {
-  const YAML::Node s = section(root, "hysteresis", {"enabled", "window_frames", "enter_frames", "exit_frames"}, errors);
+  const YAML::Node s = section(
+    root, "hysteresis",
+    {"enabled", "window_frames", "enter_frames", "exit_frames", "area_enter_frames", "area_min_cells",
+     "area_join_frames", "area_kind_frames", "area_history_frames", "area_enter_density", "area_exit_density"},
+    errors);
   if (s.IsDefined()) {
     const std::string p = "hysteresis.";
     HysteresisConfig & h = c.hysteresis;
@@ -328,6 +334,24 @@ void parse_hysteresis(const YAML::Node & root, Config & c, Errors & errors)
     h.enter_frames = read<int>(s, p, "enter_frames", h.enter_frames, errors);
     h.exit_frames = read<int>(s, p, "exit_frames", h.exit_frames, errors);
     rc::ge<int>(p + "exit_frames", h.exit_frames, 1, errors);
+    h.area_enter_frames = read<int>(s, p, "area_enter_frames", h.area_enter_frames, errors);
+    rc::ge<int>(p + "area_enter_frames", h.area_enter_frames, 1, errors);
+    rc::le<int>(p + "area_enter_frames", h.area_enter_frames, MAX_WINDOW_FRAMES, errors);
+    h.area_min_cells = read<int>(s, p, "area_min_cells", h.area_min_cells, errors);
+    rc::ge<int>(p + "area_min_cells", h.area_min_cells, 1, errors);
+    rc::le<int>(p + "area_min_cells", h.area_min_cells, MAX_AREA_MIN_CELLS, errors);
+    h.area_join_frames = read<int>(s, p, "area_join_frames", h.area_join_frames, errors);
+    rc::le<int>(p + "area_join_frames", h.area_join_frames, MAX_WINDOW_FRAMES, errors);
+    h.area_kind_frames = read<int>(s, p, "area_kind_frames", h.area_kind_frames, errors);
+    rc::ge<int>(p + "area_kind_frames", h.area_kind_frames, 1, errors);
+    rc::le<int>(p + "area_kind_frames", h.area_kind_frames, MAX_WINDOW_FRAMES, errors);
+    h.area_history_frames = read<int>(s, p, "area_history_frames", h.area_history_frames, errors);
+    rc::ge<int>(p + "area_history_frames", h.area_history_frames, 1, errors);
+    rc::le<int>(p + "area_history_frames", h.area_history_frames, MAX_AREA_HISTORY_FRAMES, errors);
+    h.area_enter_density = read<double>(s, p, "area_enter_density", h.area_enter_density, errors);
+    in_open_closed(p + "area_enter_density", h.area_enter_density, 1.0, errors);
+    h.area_exit_density = read<double>(s, p, "area_exit_density", h.area_exit_density, errors);
+    rc::ge(p + "area_exit_density", h.area_exit_density, 0.0, errors);
   }
   const HysteresisConfig & h = c.hysteresis;
   require_that(
@@ -339,6 +363,16 @@ void parse_hysteresis(const YAML::Node & root, Config & c, Errors & errors)
     h.enter_frames <= h.window_frames, "hysteresis.enter_frames",
     "must be at most hysteresis.window_frames (" + std::to_string(h.window_frames) + ", got " +
       std::to_string(h.enter_frames) + ")",
+    errors);
+  require_that(
+    h.area_join_frames >= h.area_enter_frames, "hysteresis.area_join_frames",
+    "must be at least hysteresis.area_enter_frames (" + std::to_string(h.area_enter_frames) + ", got " +
+      std::to_string(h.area_join_frames) + ")",
+    errors);
+  require_that(
+    h.area_exit_density <= h.area_enter_density, "hysteresis.area_exit_density",
+    "must be at most hysteresis.area_enter_density (" + std::to_string(h.area_enter_density) + ", got " +
+      std::to_string(h.area_exit_density) + ")",
     errors);
   require_that(
     h.enter_frames * 2 > h.window_frames, "hysteresis.enter_frames",

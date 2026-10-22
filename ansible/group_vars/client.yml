@@ -2061,6 +2061,13 @@ ros2_nodes:
         window_frames: 5  # recent frames a cell's class is judged over, 1..30
         enter_frames: 3  # frames of a class (within the window) needed to enter it, exit_frames..window_frames, a strict majority of the window
         exit_frames: 1  # frames of the new class needed to leave the current one, 1..enter_frames
+        area_enter_frames: 3  # active frames (voted or stable) before a stable warning cell joins a new area, 1..30
+        area_join_frames: 8  # active frames before a cell joins an area that is already published, area_enter_frames..30
+        area_min_cells: 3  # smallest new warning area published, in cells (smaller components keep their cells' class only), 1..100
+        area_kind_frames: 10  # frames another kind must have most of an area's cells before the area's kind changes, 1..30
+        area_history_frames: 20  # frames of voting history behind the area densities, 1..120
+        area_enter_density: 0.75  # share of the history frames a cell voted in to join an area, 0 < v <= 1
+        area_exit_density: 0.25  # share of the history frames a cell must stay at or above to remain in an area, 0 <= v <= area_enter_density
 
       metrics_port: 19119 # Prometheus /metrics on 127.0.0.1
   - name: slam_toolbox

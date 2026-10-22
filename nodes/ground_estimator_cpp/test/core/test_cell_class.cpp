@@ -345,6 +345,209 @@ TEST(CellClass, ResetForgetsEverything)
   EXPECT_EQ(f.stable_at(BOX_XY), CellClass::none);
 }
 
+// --- area stability (hysteresis.area_*) ---------------------------------------------------------------------------
+
+// A 3 x 2 core block plus a border cell (3, 0) next to it.
+const Polygon CORE = rect(0.0, 0.0, 0.3, 0.2);
+const Polygon BORDER_CELL = rect(0.3, 0.0, 0.4, 0.1);
+const Polygon CORE_WITH_BORDER = {{0.0, 0.0}, {0.4, 0.0}, {0.4, 0.1}, {0.3, 0.2}, {0.0, 0.2}};
+
+// Class votes that flip a cell's stable class every frame (2 of 3 to enter, 2 to stay), no area gating.
+HysteresisConfig ungated_flickering()
+{
+  HysteresisConfig cfg;
+  cfg.window_frames = 3;
+  cfg.enter_frames = 2;
+  cfg.exit_frames = 2;
+  cfg.area_enter_frames = 1;
+  cfg.area_join_frames = 1;
+  cfg.area_min_cells = 1;
+  cfg.area_enter_density = 0.0;
+  cfg.area_exit_density = 0.0;
+  return cfg;
+}
+
+// The same class votes with the shipped area settings.
+HysteresisConfig gated_flickering()
+{
+  HysteresisConfig cfg;
+  cfg.window_frames = 3;
+  cfg.enter_frames = 2;
+  cfg.exit_frames = 2;
+  return cfg;
+}
+
+// Frames from the third on whose single area is exactly the core, with the border cell seen every other frame.
+int frames_with_core_area(const HysteresisConfig & cfg, int frames)
+{
+  CellClassFilter f(cfg, CELL_M);
+  int identical = 0;
+  for (int i = 0; i < frames; ++i) {
+    std::vector<WarningArea> seen{area_of(CORE)};
+    if (i % 2 == 0) {
+      seen.push_back(area_of(BORDER_CELL));
+    }
+    area_frame(f, seen);
+    const std::vector<StableArea> areas = f.warning_areas();
+    if (
+      i >= 2 && areas.size() == 1 && areas[0].polygon.size() == CORE.size() &&
+      areas[0].polygon[2].isApprox(Eigen::Vector2d(0.3, 0.2))) {
+      ++identical;
+    }
+  }
+  return identical;
+}
+
+TEST(CellClass, BorderCellFlickeringEveryOtherFrameLeavesOneIdenticalAreaEveryFrame)
+{
+  constexpr int FRAMES = 20;
+  // Ungated, the border cell reshapes the area every time it is stable.
+  EXPECT_LT(frames_with_core_area(ungated_flickering(), FRAMES), FRAMES - 2 - 3);
+  // Gated, the core is the area on every frame from the third (the core's second vote makes it stable on the second
+  // frame and its third active frame publishes it).
+  EXPECT_EQ(frames_with_core_area(gated_flickering(), FRAMES), FRAMES - 2);
+}
+
+TEST(CellClass, BorderCellJoinsAPublishedAreaOnItsAreaJoinFramesThActiveFrame)
+{
+  const HysteresisConfig cfg;  // area_join_frames 8
+  CellClassFilter f(cfg, CELL_M);
+  for (int i = 0; i < 3; ++i) {
+    area_frame(f, {area_of(CORE)});
+  }
+  ASSERT_EQ(f.warning_areas().size(), 1u);
+  expect_polygon_eq(f.warning_areas()[0].polygon, CORE);
+  for (int k = 1; k <= cfg.area_join_frames; ++k) {
+    area_frame(f, {area_of(CORE), area_of(BORDER_CELL)});
+    ASSERT_EQ(f.warning_areas().size(), 1u) << "border frame " << k;
+    if (k < cfg.area_join_frames) {
+      expect_polygon_eq(f.warning_areas()[0].polygon, CORE);
+    }
+  }
+  expect_polygon_eq(f.warning_areas()[0].polygon, CORE_WITH_BORDER);
+}
+
+TEST(CellClass, ACellVotingTwoFramesOfThreeIsStableButNeverJoinsAnArea)
+{
+  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  for (int i = 0; i < 30; ++i) {
+    std::vector<WarningArea> seen{area_of(CORE)};
+    if (i % 3 != 2) {
+      seen.push_back(area_of(BORDER_CELL));
+    }
+    area_frame(f, seen);
+    if (i >= 2) {
+      ASSERT_EQ(f.warning_areas().size(), 1u) << "frame " << i;
+      expect_polygon_eq(f.warning_areas()[0].polygon, CORE);
+    }
+  }
+  EXPECT_EQ(f.stable_at(Eigen::Vector2d(0.35, 0.05)), CellClass::warning);
+  EXPECT_EQ(f.count(CellClass::warning), 7u);
+}
+
+TEST(CellClass, AJoinedCellVotingOnceInFiveFramesStaysStableButLeavesTheArea)
+{
+  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  for (int i = 0; i < 20; ++i) {
+    area_frame(f, {area_of(CORE), area_of(BORDER_CELL)});
+  }
+  ASSERT_EQ(f.warning_areas().size(), 1u);
+  expect_polygon_eq(f.warning_areas()[0].polygon, CORE_WITH_BORDER);
+  // One vote in five frames keeps the cell stable (exit_frames 1) while its density falls below 0.25 within 20 frames.
+  for (int i = 0; i < 40; ++i) {
+    std::vector<WarningArea> seen{area_of(CORE)};
+    if (i % 5 == 0) {
+      seen.push_back(area_of(BORDER_CELL));
+    }
+    area_frame(f, seen);
+  }
+  EXPECT_EQ(f.stable_at(Eigen::Vector2d(0.35, 0.05)), CellClass::warning);
+  ASSERT_EQ(f.warning_areas().size(), 1u);
+  expect_polygon_eq(f.warning_areas()[0].polygon, CORE);
+}
+
+TEST(CellClass, AreaIsGoneAsSoonAsItsCellsAreNoLongerStableWarningCells)
+{
+  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  for (int i = 0; i < 6; ++i) {
+    area_frame(f, {area_of(CORE)});
+  }
+  ASSERT_EQ(f.warning_areas().size(), 1u);
+  // exit_frames 1: the cells stay stable until window_frames - 1 empty frames have passed, then nothing is kept.
+  for (int i = 0; i < HysteresisConfig{}.window_frames - 1; ++i) {
+    area_frame(f, {});
+    EXPECT_EQ(f.warning_areas().size(), 1u) << "empty frame " << i;
+  }
+  area_frame(f, {});
+  EXPECT_TRUE(f.warning_areas().empty());
+  EXPECT_EQ(f.count(CellClass::warning), 0u);
+}
+
+TEST(CellClass, ABlipSmallerThanAreaMinCellsIsNotPublishedButItsCellsKeepTheirClass)
+{
+  const HysteresisConfig cfg;  // area_min_cells 3
+  CellClassFilter f(cfg, CELL_M);
+  for (int i = 0; i < 6; ++i) {
+    area_frame(f, {area_of(rect(0.0, 0.0, 0.2, 0.1))});  // two cells
+  }
+  EXPECT_TRUE(f.warning_areas().empty());
+  EXPECT_EQ(f.count(CellClass::warning), 2u);
+  EXPECT_EQ(f.stable_at(Eigen::Vector2d(0.05, 0.05)), CellClass::warning);
+  // A third cell makes a component of area_min_cells: published.
+  for (int i = 0; i < cfg.area_join_frames; ++i) {
+    area_frame(f, {area_of(rect(0.0, 0.0, 0.3, 0.1))});
+  }
+  ASSERT_EQ(f.warning_areas().size(), 1u);
+  expect_polygon_eq(f.warning_areas()[0].polygon, rect(0.0, 0.0, 0.3, 0.1));
+}
+
+TEST(CellClass, ABlockFlipFloppingBetweenStepAndRampKeepsItsPublishedKind)
+{
+  const HysteresisConfig cfg;  // area_kind_frames 10
+  CellClassFilter f(cfg, CELL_M);
+  for (int i = 0; i < 3; ++i) {
+    area_frame(f, {area_of(CORE, "step")});
+  }
+  ASSERT_EQ(f.warning_areas().size(), 1u);
+  EXPECT_EQ(f.warning_areas()[0].kind, "step");
+  for (int i = 0; i < 40; ++i) {
+    area_frame(f, {area_of(CORE, i % 2 == 0 ? "ramp" : "step")});
+    ASSERT_EQ(f.warning_areas().size(), 1u);
+    EXPECT_EQ(f.warning_areas()[0].kind, "step") << "frame " << i;
+  }
+  // Another kind with most of the cells for area_kind_frames frames in a row takes over on the last of them.
+  for (int i = 1; i <= cfg.area_kind_frames; ++i) {
+    area_frame(f, {area_of(CORE, "ramp")});
+    EXPECT_EQ(f.warning_areas()[0].kind, i < cfg.area_kind_frames ? "step" : "ramp") << "ramp frame " << i;
+  }
+}
+
+TEST(CellClass, ANewKindNeedsMostOfTheAreasCellsNotJustSome)
+{
+  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  for (int i = 0; i < 3; ++i) {
+    area_frame(f, {area_of(CORE, "step")});
+  }
+  // One of six cells reads ramp every frame: never most of the cells.
+  for (int i = 0; i < 30; ++i) {
+    area_frame(
+      f, {area_of(rect(0.0, 0.0, 0.2, 0.2), "step"), area_of(rect(0.2, 0.0, 0.3, 0.1), "ramp"),
+          area_of(rect(0.2, 0.1, 0.3, 0.2), "step")});
+    ASSERT_EQ(f.warning_areas().size(), 1u);
+    EXPECT_EQ(f.warning_areas()[0].kind, "step") << "frame " << i;
+  }
+}
+
+TEST(CellClass, DisabledPublishesEveryComponentAtOnce)
+{
+  CellClassFilter f(disabled(), CELL_M);
+  area_frame(f, {area_of(rect(0.0, 0.0, 0.1, 0.1), "step")});
+  ASSERT_EQ(f.warning_areas().size(), 1u);
+  area_frame(f, {area_of(rect(0.0, 0.0, 0.1, 0.1), "ramp")});
+  ASSERT_EQ(f.warning_areas().size(), 1u);
+  EXPECT_EQ(f.warning_areas()[0].kind, "ramp");
+}
+
 TEST(CellClass, DisabledIsPassThrough)
 {
   CellClassFilter f(disabled(), CELL_M);

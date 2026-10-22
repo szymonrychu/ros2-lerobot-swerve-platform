@@ -186,7 +186,19 @@ def test_limits_match_tilt_guard_and_swerve() -> None:
 def test_robustness_keys_present() -> None:
     config = entry_config(NAME)
     assert config["temporal"]["max_spread_m"] == 0.025
-    assert config["hysteresis"] == {"enabled": True, "window_frames": 5, "enter_frames": 3, "exit_frames": 1}
+    assert config["hysteresis"] == {
+        "enabled": True,
+        "window_frames": 5,
+        "enter_frames": 3,
+        "exit_frames": 1,
+        "area_enter_frames": 3,
+        "area_join_frames": 8,
+        "area_min_cells": 3,
+        "area_kind_frames": 10,
+        "area_history_frames": 20,
+        "area_enter_density": 0.75,
+        "area_exit_density": 0.25,
+    }
     assert config["traversability"]["lethal_min_points"] == 2
     assert config["edges"]["slope_bin_m"] == 0.10
     assert config["edges"]["slope_min_cells"] == 3
