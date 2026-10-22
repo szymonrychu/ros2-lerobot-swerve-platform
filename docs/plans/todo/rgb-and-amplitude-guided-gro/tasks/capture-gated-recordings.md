@@ -56,13 +56,13 @@ Builds part gated-fixtures: `nodes/ground_estimator_cpp/test/data/replay_rgbd/{h
 
 ## Expected outcome
 
-Four gated fixtures committed, each <= 3 MB; `scripts/cpp-node-test.sh ground_estimator_cpp` PASS printing four `replay-gated <scene>: ...` lines; the README gated table matches them.
+Four gated fixtures committed, each <= 6 MB; `scripts/cpp-node-test.sh ground_estimator_cpp` PASS printing four `replay-gated <scene>: ...` lines; the README gated table matches them.
 
 ## Steps
 
 - check the preconditions; `uv run python scripts/ground_record.py` (same scenes)
 - run the truth script on the new home recording into a temporary file and compare its board corners with the committed `truth.yaml`; stop if any corner moved more than 5 mm
-- add the fixture entries and export; expect each <= 3 MB
+- add the fixture entries and export; expect each <= 6 MB
 - add the gated tests; `scripts/cpp-node-test.sh ground_estimator_cpp` PASSES with the lines
 - README table; commit `test(ground_estimator_cpp): gated recordings with RGB-D pairs` with the board offset in the message
 

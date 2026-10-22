@@ -3,7 +3,7 @@ title: Guidance live check and CPU
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: Proof on the robot that the guidance works and what it costs on the Pi 5
-files: [docs/runbooks/ground-guidance.md, tests/test_ground_guidance_runbook.py, tests/README.md, scripts/node_cpu_compare.yaml, MEMORY.md]
+files: [docs/runbooks/ground-guidance.md, tests/test_ground_guidance_runbook.py, tests/README.md, scripts/ground_guidance_cpu.yaml, MEMORY.md]
 verify: "uv run pytest tests/test_ground_guidance_runbook.py -q && uv run poe lint"
 depends_on: [guidance-replay-acceptance, live-report-guidance-metrics]
 owns: []
@@ -65,12 +65,12 @@ Precondition, checked first:
 - `docs/runbooks/ground-guidance.md`
 - `tests/test_ground_guidance_runbook.py`
 - `tests/README.md`
-- `scripts/node_cpu_compare.yaml`
+- `scripts/ground_guidance_cpu.yaml`
 - `MEMORY.md`
 
 ## Interfaces
 
-No code interfaces. It produces the runbook `docs/runbooks/ground-guidance.md`, the `scripts/node_cpu_compare.yaml` entries and a MEMORY.md line. It uses part record-script and part live-report.
+No code interfaces. It produces the runbook `docs/runbooks/ground-guidance.md`, the `scripts/ground_guidance_cpu.yaml` entries and a MEMORY.md line. It uses part record-script and part live-report.
 
 ## Expected outcome
 

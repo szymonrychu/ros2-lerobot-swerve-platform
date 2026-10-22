@@ -39,9 +39,9 @@ real driving risks. The approved order is:
   and its width error is <= 0.02 m. Both must be strictly better than with guidance off. Lethal points more than 3 cm
   outside the box appear in <= 5 % of frames.
 - G4 No-return: on the ramp replay, a `no_return` warning area covers >= 70 % of the ramp footprint in >= 90 % of
-  frames after warm-up. A no_return area outside the ramp appears in <= 5 % of frames, in every scene.
+  frames after warm-up. A no_return area cell more than 0.10 m (one cell, my call) outside the ramp appears in <= 5 % of frames, in every scene.
 - G5 Safety: RGB never creates a lethal point by itself. The board, tile seams and shadows never add lethal points.
-  Board lethal frames stay 0, and every ground-detection-robustness replay assertion still passes.
+  `board_lethal_frames(frames, truth)` stays 0 (run 4's metric name, truth overload from guidance-replay-metrics), and every ground-detection-robustness replay assertion still passes.
 - G6 Ops: Pi 5 CPU of head_rgbd_cpp (upsampling), ground_estimator_cpp (guidance) and arducam_tof (gate) is measured
   before/after. A live check through the web_ui websocket is recorded in `docs/runbooks/ground-guidance.md`. READMEs
   and tests/README are up to date.
@@ -73,18 +73,34 @@ real driving risks. The approved order is:
 - No new nodes (user). Live data only through the web_ui websocket/API (user). Recordings: robot static and charging,
   head moves allowed (user).
 - The free / warning / lethal tiers and the rule (step > 0.04 m or slope > 15 deg) are unchanged (user).
-- ground-detection-robustness (the blocker epic) must be done first: run 4 adds the flying-pixel filter
-  (`tof-depth-flying-pixel-filter`), the replay harness (`replay-harness` in
-  `nodes/ground_estimator_cpp/test/replay_fixture.hpp`, `scripts/ground_replay_export.py`) and the area stability.
-  This epic extends those; it does not duplicate them.
+- This epic starts only after ground-detection-robustness has merged. It is the README blocker. Checked on main
+  2026-10-22: none of its run 4 artifacts exist yet. They come from these run 4 tasks of that epic:
+  - `replay-fixtures-and-test`: `nodes/ground_estimator_cpp/test/replay_fixture.hpp` (part replay-harness: reader,
+    `ReplayFrame`, the metrics `box_lethal_share`, `board_lethal_frames`, `stray_lethal_share`,
+    `far_side_warning_frames`, `ramp_lethal_frames`, `churn_share`, `plane_share`), `test/test_replay.cpp`,
+    `scripts/ground_replay_export.py`, `tests/test_ground_replay_export.py` and `test/data/replay/{home,box,ramp}.bin`;
+  - `tof-flying-pixel-filter`: `arducam_tof/bridge.py:flying_pixel_filter` (contract tof-depth-flying-pixel-filter);
+  - `warning-area-stability`: the area stability in `CellClassFilter`;
+  - `replay-acceptance-and-docs`: the replay assertions and the latency pin;
+  - `wire-shadow-gate-on-replay` and `shadow-gate-and-segment-step`: the occlusion gate.
+
+  This epic extends them; it does not duplicate them.
+- Contracts used from three other in-progress epics are already delivered on main, so they are not added as blockers:
+  - `head-rgbd-points` (head-rgb-d-fusion-of-camera): `nodes/head_rgbd_cpp/src/head_rgbd_node.cpp` publishes
+    `points()` and the `depth_upsampled` topics;
+  - `tof-points-filtered` (tof-3d-obstacle-detection-fo): the laser_filter cloud path to `/tof/points_filtered` in
+    `ansible/group_vars/client.yml`;
+  - `tof-depth-z` (tof-depth-fix-and-ground-noi): `arducam_tof/bridge.py:radial_to_z`.
+
+  `graph --todo` reports them as "not blocked by owner"; that is expected.
 - Tests: C++ through `scripts/cpp-node-test.sh <pkg>` (no test ref runner for .cpp files, so C++ ACs are `command:`
   refs); Python per package with `uv run --frozen pytest`.
-- Fixtures go in plain git, at most 3 MB per scene file (D9).
+- Fixtures go in plain git: at most 3 MB per scene file without pairs and 6 MB with pairs (D9).
 - Run plan (D11): three code runs separated by live steps that the orchestrator triggers.
   - Run 1: every task without a live precondition.
   - Live step 1, orchestrator: deploy web_ui and head_rgbd_cpp; the user sets the scene (Q1); then
     capture-baseline-recordings runs.
-  - Run 2: tof-amplitude-gate.
+  - Run 2: tof-amplitude-gate and live-report-guidance-metrics (both need the committed baseline truth and frames).
   - Live step 2, orchestrator: deploy arducam_tof; then capture-gated-recordings runs.
   - Run 3: guidance-replay-acceptance.
   - Then the orchestrator deploys ground_estimator_cpp, costmap_zones, mcp_server and web_ui, and runs
@@ -192,9 +208,9 @@ Serves A1, A8.
 
 Version 2 of run 4's binary adds a guidance section: the RGB and ToF camera models, and per RGB-D pair its stamp,
 base_T_rgb, odom_T_base, the JPEG bytes and the upsampled depth as lossless 16-bit PNG. The C++ reader decodes v1 and
-v2. Exports above 3 MB per file fail (10 s windows with pairs, 15 s without). A small ToF frame subset (depth +
-amplitude) goes to `nodes/bridges/arducam_tof/tests/data/amplitude_frames.npz` for the gate's real-data test. Plain
-git, no LFS (my call: total under 20 MB, no new tooling). Serves A1, A6.
+v2. Fixtures keep every pair at the live rate (2 Hz) and size (576x324), so the replay matches the live guidance. The cap is 3 MB per file without pairs (15 s windows) and 6 MB with pairs (10 s windows, at least 8 s; about 0.2 MB of PNG and 35 kB of JPEG per pair). Exports above the cap fail. A small ToF frame subset (depth +
+amplitude, with the truth polygons `truth_board`, `truth_ramp`, `truth_empty` and the `floor_plane`, written by `export_tof_frames` in capture-baseline-recordings) goes to `nodes/bridges/arducam_tof/tests/data/amplitude_frames.npz` for the gate's real-data test. Plain
+git, no LFS (my call: total under 30 MB, no new tooling). Serves A1, A6.
 
 ### D10: Ground truth from the ChArUco board pose
 
@@ -210,7 +226,7 @@ measured. (my call) Serves A1, A6.
 
 Recording needs deployed code and the user's scene, so the work runs as three plan-execute runs. The live tasks
 (capture-baseline-recordings, capture-gated-recordings, guidance-live-check-and-cpu) state their deploy precondition
-in their Notes, and the orchestrator deploys before dispatching them. Serves A1.
+in their Notes, and the orchestrator deploys before dispatching them. live-report-guidance-metrics runs in run 2, after capture-baseline-recordings has committed `truth.yaml`. Serves A1.
 
 ### D12: Guidance freshness and the 2 Hz mapping stream
 
@@ -220,9 +236,18 @@ publishes no edge points and no no-return update. The mapping stream stays at 2 
 
 ### D13: CPU measured with the client-cpu-budget method
 
-Before/after numbers come from `rate(container_cpu_usage_seconds_total{host="client"})` through
-`scripts/node_cpu_compare.yaml` (runbook client-cpu-budget). Target: the added CPU of head_rgbd_cpp, ground_estimator_cpp
-and arducam_tof together is at most 0.15 of one core. Over that is a finding, not a pass. (my call) Serves A6.
+Before/after numbers come from `rate(container_cpu_usage_seconds_total{host="client"})` through the existing
+`scripts/node_cpu_compare.py`, run with a new config `scripts/ground_guidance_cpu.yaml` (runbook client-cpu-budget).
+The three features are switched on by three deploys at different times, so each node gets its own `switch_time`:
+- head_rgbd_cpp: live step 1;
+- arducam_tof: live step 2;
+- ground_estimator_cpp: the final deploy.
+
+The orchestrator records each deploy's `date +%s`. The config sets `window_h: 1` and `settle_min: 10`, so per node the
+before window is [switch - 1 h, switch] and the after window is [switch + 10 min, switch + 70 min]; the robot is static,
+so the load is steady. A node's added CPU is its after mean minus its before mean. The total is the sum of the three
+deltas, and the target is at most 0.15 of one core. Over that is a finding, not a pass. Mimir keeps 1 day: a switch
+outside 70 min to 23 h before the run is a named "not measurable" row, never an estimate. (my call) Serves A6.
 
 ### D14: Baseline first
 

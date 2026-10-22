@@ -68,7 +68,7 @@ Version 2 of the replay fixture (design D9, part replay-format-v2). It extends r
 ## Interfaces
 
 Builds part replay-format-v2:
-- `scripts/ground_replay_export.py`: `export`, `export_tof_frames`, `read_replay`, `MAX_FIXTURE_BYTES`, `ReplayScenes` (config);
+- `scripts/ground_replay_export.py`: `export`, `export_tof_frames`, `read_replay`, `MAX_FIXTURE_BYTES`, `MAX_PAIR_FIXTURE_BYTES`, `ReplayScenes` (config);
 - `nodes/ground_estimator_cpp/test/replay_fixture.hpp`: `CameraModel`, `ReplayPair`, `Replay::rgb_model`, `Replay::tof_model`, `Replay::pairs`.
 
 Keeps run 4's part replay-harness (v1 reader, ReplayFrame, metrics) unchanged.

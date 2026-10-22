@@ -32,7 +32,7 @@ The replay harness for the guidance (part guidance-replay-harness, design D9, D1
     - `box_width_error_m`: per frame, the extent of those obstacle points along the edge direction minus the true width. The result is the p95 of the absolute value.
     - `outside_lethal_frames_share`: the share of frames with any obstacle point more than 0.03 m outside the box footprint and within 0.15 m of it.
     - `no_return_cover_share`: the share of frames in which the no_return areas cover >= 70 % of the ramp footprint. Coverage is rasterised on a 0.01 m grid.
-    - `no_return_stray_share`: the share of frames with a no_return area cell centre more than 0.10 m outside the ramp footprint.
+    - `no_return_stray_share`: the share of frames with a no_return area cell centre more than 0.10 m (one cell, my call) outside the ramp footprint.
     - `empty_lethal_share`: the share of frames with an obstacle point inside the empty rectangle.
   - Truth-based overloads of run 4's metrics. Run 4 (ground-detection-robustness/replay-fixtures-and-test, part replay-harness) defines `box_lethal_share`, `board_lethal_frames`, `stray_lethal_share`, `ramp_lethal_frames`, `far_side_warning_frames`, `churn_share` and `plane_share` over its fixed 2026-10-22 ROI constants. This task adds overloads of the same names taking a `SceneTruth`, with the truth polygons in place of the constants:
     - `box_lethal_share(frames, truth)`: the box ROI is the box footprint grown by 0.03 m;
@@ -67,7 +67,7 @@ The replay harness for the guidance (part guidance-replay-harness, design D9, D1
 ## Interfaces
 
 Builds part guidance-replay-harness in `test/replay_fixture.hpp` and `test/test_replay.cpp`:
-- `SceneTruth`, `load_truth`, the seven new metric functions, `Guidance`, `run_scene` and `print_metrics`;
+- `SceneTruth`, `load_truth`, the six new metric functions, the truth overloads of run 4's `box_lethal_share`, `board_lethal_frames`, `stray_lethal_share` and `ramp_lethal_frames`, `Guidance`, `run_scene` and `print_metrics`;
 - the pair, ToF camera_info and derived XYZRGB publishing.
 
 Uses replay-format-v2, scene-truth and guidance-config (topic and enabled keys). Run 4's metric functions and its replay tests stay unchanged.
