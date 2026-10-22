@@ -15,7 +15,7 @@ import importlib.util
 import math
 import sys
 import xml.etree.ElementTree as ET
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from functools import cache
 from pathlib import Path
 from types import ModuleType
@@ -154,9 +154,9 @@ def band_mounts() -> Iterator[tuple[str, BoardMountConfig]]:
                 )
 
 
-def checkers(head_urdf: str) -> Iterator[tuple[str, PoseChecker]]:
-    """A pose checker per band mount, with the provisional board margin."""
-    for label, mount in band_mounts():
+def checkers(head_urdf: str, mounts: Iterable[tuple[str, BoardMountConfig]]) -> Iterator[tuple[str, PoseChecker]]:
+    """A pose checker per board mount, with the provisional board margin."""
+    for label, mount in mounts:
         fit = FIT.model_copy(update={"board_mount": mount})
         yield label, PoseChecker(ARM_URDF, head_urdf, fit, SEQ.pose_check, SEQ.board_margin_m(nominal_mount=True))
 
@@ -212,7 +212,7 @@ def aimed_views(head_name: str) -> list[tuple[float, float, list[tuple[int, floa
     return out
 
 
-def test_move_arm_joints_targets_are_measured_angles() -> None:
+def test_target_joint_convention() -> None:
     docstring = " ".join(ARM_PY.read_text().split())
     assert MEASURED_SPACE_PHRASE in docstring
 
@@ -265,17 +265,38 @@ def test_transits_are_short() -> None:
         assert largest <= MAX_TRANSIT_RAD, (name_a, name_b, largest)
 
 
-@pytest.mark.parametrize("head_name", list(SAFETY_HEADS))
-def test_every_pose_and_transit_is_safe(head_name: str) -> None:
-    head_urdf = SAFETY_HEADS[head_name]
+def sequence_failures(head_urdf: str, mounts: Iterable[tuple[str, BoardMountConfig]]) -> list[str]:
+    """Safety-check entries of every pose (rolling where wrist_roll changes) and transit of the sequence, per mount.
+
+    :param head_urdf: head URDF text, its joint limits give the head envelope
+    :param mounts: (label, board mount) pairs to check the sequence with
+    :return: one "<mount> <step>: <entry>" line per failed check; empty when everything is safe
+    """
     steps = sequence()
     roll_change = SEQ.pose_check.roll_min_change_rad
     failures = []
-    for mount, checker in checkers(head_urdf):
+    for mount, checker in checkers(head_urdf, mounts):
         for (name_a, a), (name_b, b) in zip(steps, steps[1:], strict=False):
             rolling = abs(b[WRIST_ROLL] - a[WRIST_ROLL]) > roll_change
             failures += [f"{mount} {name_b}: {e}" for e in checker.check_pose(b, SEQ.gripper_rad, rolling)]
             failures += [f"{mount} {name_a} -> {name_b}: {e}" for e in checker.check_path(a, b, SEQ.gripper_rad)]
+    return failures
+
+
+@pytest.mark.parametrize("head_name", list(SAFETY_HEADS))
+def test_every_pose_and_transit_is_safe(head_name: str) -> None:
+    """The nominal (shipped, provisional) mount with margin_m + provisional_margin_m."""
+    failures = sequence_failures(SAFETY_HEADS[head_name], [("nominal", FIT.board_mount)])
+    assert failures == [], "\n".join(failures[:20])
+
+
+@pytest.mark.parametrize("head_name", list(SAFETY_HEADS))
+def test_safe_under_board_mount_uncertainty(head_name: str) -> None:
+    """The mount shifted by +-1 cm along and turned by +-5 deg about each gripper_link axis, so a measured mount in
+    that band keeps every pose and transit safe."""
+    mounts = list(band_mounts())
+    assert len(mounts) == 1 + 2 * 2 * 3
+    failures = sequence_failures(SAFETY_HEADS[head_name], mounts[1:])
     assert failures == [], "\n".join(failures[:20])
 
 
@@ -284,7 +305,7 @@ def test_safety_check_refuses_a_pose_the_tier_rules_allow() -> None:
     the right frame rail, which the safety test catches."""
     pose = {**SEQ.base_pose, "shoulder_pan": SEQ.base_pose["shoulder_pan"] + SEQ.max_big_delta_rad}
     ArmSequenceConfig.model_validate({**SEQ.model_dump(), "tier2_poses": [*SEQ.tier2_poses, pose]})
-    _, checker = next(checkers(SHIPPED_HEAD))
+    _, checker = next(checkers(SHIPPED_HEAD, [("nominal", FIT.board_mount)]))
     entries = checker.check_pose(pose, SEQ.gripper_rad, rolling=False)
     assert any(e.startswith("link_clearance: upper arm to frame_right") for e in entries), entries
 
@@ -309,14 +330,14 @@ def test_base_pose_puts_the_board_in_front_of_the_head() -> None:
 
 
 @pytest.mark.parametrize("head_name", list(HEADS))
-def test_board_in_view_at_every_pose(head_name: str) -> None:
+def test_board_visible_from_aimed_head(head_name: str) -> None:
     for index, (_, _, views) in enumerate(aimed_views(head_name)):
         good = [n >= MIN_VISIBLE_CORNERS and MIN_CAMERA_DISTANCE_M <= d <= MAX_CAMERA_DISTANCE_M for n, d in views]
         assert sum(good) >= MIN_GOOD_OFFSETS, (index, views)
 
 
 @pytest.mark.parametrize("head_name", list(HEADS))
-def test_aimed_angles_cover_the_fit_limits(head_name: str) -> None:
+def test_coverage_limits(head_name: str) -> None:
     aimed = aimed_views(head_name)
     pan_span = math.degrees(float(np.ptp([pan for pan, _, _ in aimed])))
     tilt_span = math.degrees(float(np.ptp([tilt for _, tilt, _ in aimed])))
@@ -326,7 +347,7 @@ def test_aimed_angles_cover_the_fit_limits(head_name: str) -> None:
 
 
 @pytest.mark.parametrize("head_name", list(HEADS))
-def test_synthetic_fit_on_the_shipped_set_passes(head_name: str) -> None:
+def test_synthetic_fit_on_shipped_set_passes(head_name: str) -> None:
     head_urdf = HEADS[head_name]
     start = start_params(UrdfChain.from_text(head_urdf))
     floor = {name: start[name] for name in FLOOR_PARAMS}

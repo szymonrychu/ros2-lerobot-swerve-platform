@@ -299,9 +299,12 @@ stops capture, kills a running compute child and destroys the node.
   pan/tilt range checks, the `arm_sequence` defaults and its validation errors naming the tier, pose and joint.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
-  the provisional board margin and the mount shifted +-1 cm / turned +-5 deg (also with a -30..+60 deg tilt URDF),
-  the base pose in front of the head, at least 12 board corners in view for 3 of 4 head offsets, the aimed pan/tilt
-  span, a passing synthetic `fit_head_from_arm`, and the measured-space phrase of `move_arm_joints`.
+  the provisional board margin (`test_every_pose_and_transit_is_safe`) and with the mount shifted +-1 cm / turned
+  +-5 deg (`test_safe_under_board_mount_uncertainty`), both also with a -30..+60 deg tilt URDF, the base pose in front
+  of the head, at least 12 board corners in view for 3 of 4 head offsets (`test_board_visible_from_aimed_head`), the
+  aimed pan/tilt span and pose count (`test_coverage_limits`), a passing synthetic `fit_head_from_arm`
+  (`test_synthetic_fit_on_shipped_set_passes`), and the measured-space phrase of `move_arm_joints`
+  (`test_target_joint_convention`).
 - `tests/test_floor_sweep.py` - the floor sweep against a fake node, fake clock and sleep and synthetic floor clouds:
   command order, frame_id and serpentine grid, session id and `observations.json`, clouds only after still plus settle,
   unreachable pose skipped with reason, a pose under `min_clouds_per_pose` skipped as partly blocked

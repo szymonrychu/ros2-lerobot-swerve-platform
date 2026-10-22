@@ -261,7 +261,7 @@ def base(joint: str) -> float:
         "no-head-offsets",
     ],
 )
-def test_arm_sequence_validation_names_tier_pose_and_joint(data, pattern: str) -> None:
+def test_arm_sequence_validation_names_pose(data, pattern: str) -> None:
     with pytest.raises(ValidationError, match=pattern):
         NodeConfig.model_validate({"arm_sequence": data()})
 
