@@ -145,5 +145,17 @@
       "head-arm-compute-and-apply"
     ],
     "status": "approved"
+  },
+  {
+    "id": "Q2",
+    "text": "User 2026-10-22 approved (yes): floor-fit values as start values and pass/fail cross-check, weighted prior off",
+    "decisions": [
+      "D19"
+    ],
+    "tasks": [
+      "head-from-arm-board-solver",
+      "head-arm-compute-and-apply"
+    ],
+    "status": "approved"
   }
 ]

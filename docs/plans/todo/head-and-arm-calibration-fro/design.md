@@ -215,6 +215,9 @@ cuts work without adding risk (scripted arm poses and head offsets). Kept from t
 ### D18: User 2026-10-22 approved (yes): fold pan zero into the head_
 User 2026-10-22 approved (yes): fold pan zero into the head_mount_joint yaw (user decision)
 
+### D19: User 2026-10-22 approved (yes): floor-fit values as start va
+User 2026-10-22 approved (yes): floor-fit values as start values and pass/fail cross-check, weighted prior off (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -267,6 +270,7 @@ User 2026-10-22 approved (yes): fold pan zero into the head_mount_joint yaw (use
 | D16 Guided step-by-step process | head-arm-calibrate-ui-sectio, head-arm-pose-capture-sequen |
 | D17 The board mount is fitted; the measurement is only a start value | head-from-arm-board-solver, arm-board-pose-set, calib-robot-runbook |
 | D18 User 2026-10-22 approved (yes): fold pan zero into the head_ | head-from-arm-board-solver, head-arm-compute-and-apply |
+| D19 User 2026-10-22 approved (yes): floor-fit values as start va | head-from-arm-board-solver, head-arm-compute-and-apply |
 
 ## Contracts
 
