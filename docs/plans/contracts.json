@@ -216,5 +216,19 @@
       "rgb-d-ground-estimation-and"
     ],
     "note": "obstacle when edge step (p50 of the edge band) > 1/3 wheel diameter (0.04 m) or a measurable slope > traversability.max_slope_deg 15 (<= min tilt_guard roll/pitch error limits); colour clusters warning-only; lethal marks need lethal_min_points and hysteresis.enter_frames of hysteresis.window_frames; owner task slope-and-smoothing-defaults"
+  },
+  {
+    "name": "tof-depth-flying-pixel-filter",
+    "kind": "topic",
+    "owner": "ground-detection-robustness",
+    "file": "nodes/bridges/arducam_tof/arducam_tof/config.py",
+    "consumers": [
+      "head-rgb-d-fusion-of-camera",
+      "rgb-d-ground-estimation-and",
+      "tof-3d-obstacle-detection-fo",
+      "head-and-arm-calibration-fro",
+      "head-chain-floor-plane-fit-a"
+    ],
+    "note": "/tof/depth/image_raw: pixels at depth discontinuities (a valid 3x3 neighbour differing by more than max(flying_pixel_min_jump_mm, flying_pixel_jump_ratio * depth)) are published as 0 (invalid, REP 118) when flying_pixel_filter is true (default); flat floor 0.3-2.0 m keeps >= 95 %; counter tof_flying_pixels_removed_total; owner task tof-flying-pixel-filter"
   }
 ]
