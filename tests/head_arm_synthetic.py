@@ -123,17 +123,18 @@ class HeadArmTruth:
         return pose_from_xyz_rpy(self.board_xyz, self.board_rpy)
 
 
-def applied_head_urdf(head_urdf: str, floor: dict[str, float] = APPLIED_FLOOR) -> str:
+def applied_head_urdf(head_urdf: str, floor: dict[str, float] | None = None) -> str:
     """Head URDF text with a floor-fit chain written into head_mount_joint (z, roll, pitch) and head_tilt (origin
     pitch and roll); mount x/y/yaw and the head_tilt xyz/yaw keep the URDF values.
 
     Args:
         head_urdf: Head URDF text (e.g. nodes/web_ui/urdf/head.urdf).
-        floor: Floor-fit values per floor_fit.PARAM_NAMES entry (m and deg).
+        floor: Floor-fit values per floor_fit.PARAM_NAMES entry (m and deg); `APPLIED_FLOOR` when None.
 
     Returns:
         str: The rewritten URDF text.
     """
+    floor = APPLIED_FLOOR if floor is None else floor
     chain = UrdfChain.from_text(head_urdf)
     (mx, my, _), (_, _, myaw) = chain.origin(MOUNT_JOINT)
     txyz, (_, _, tyaw) = chain.origin(TILT_JOINT)
@@ -226,7 +227,7 @@ def perturbed_origins(head_urdf: str, deltas: dict[str, float]) -> dict[str, Ori
 
 def synth_truth(
     head_urdf: str,
-    deltas: dict[str, float] = SYNTH_TRUTH_DELTAS,
+    deltas: dict[str, float] | None = None,
     extra: dict[str, Origin] | None = None,
     cfg: HeadArmFitConfig | None = None,
 ) -> HeadArmTruth:
@@ -234,7 +235,8 @@ def synth_truth(
 
     Args:
         head_urdf: Head URDF text (the start chain).
-        deltas: Per head_arm_fit.PARAM_NAMES entry the change from the URDF value (m or deg).
+        deltas: Per head_arm_fit.PARAM_NAMES entry the change from the URDF value (m or deg); `SYNTH_TRUTH_DELTAS`
+            when None.
         extra: Further origin overrides (e.g. a head_pan origin), applied after `deltas`.
         cfg: Fit config whose board geometry places the nominal mount; the default config when None.
 
@@ -242,7 +244,8 @@ def synth_truth(
         HeadArmTruth: The truth.
     """
     xyz, rpy = nominal_board_mount(cfg or HeadArmFitConfig())
-    return HeadArmTruth(origins={**perturbed_origins(head_urdf, deltas), **(extra or {})}, board_xyz=xyz, board_rpy=rpy)
+    moved = perturbed_origins(head_urdf, SYNTH_TRUTH_DELTAS if deltas is None else deltas)
+    return HeadArmTruth(origins={**moved, **(extra or {})}, board_xyz=xyz, board_rpy=rpy)
 
 
 def synth_fit_config(**overrides: object) -> HeadArmFitConfig:
