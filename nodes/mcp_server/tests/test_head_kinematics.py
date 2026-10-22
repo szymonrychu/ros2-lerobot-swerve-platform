@@ -177,7 +177,7 @@ def test_point_off_the_reachable_cone_is_refused_not_clamped(head: HeadKinematic
     assert info.value.pan < -math.radians(90.0)
 
 
-def test_from_text_equals_path_constructor() -> None:
+def test_from_text_equals_path() -> None:
     from_path = HeadKinematics(HEAD_URDF)
     from_text = HeadKinematics.from_text(HEAD_URDF.read_text(), "inline")
     assert from_text.limits == from_path.limits

@@ -115,7 +115,7 @@ def test_no_applied_dir_uses_repo_urdf(tmp_path: Path) -> None:
         assert provider.current().look_at(FLOOR_POINT) == KINEMATICS.look_at(FLOOR_POINT)
 
 
-def test_head_chain_changes_look_at_tilt(tmp_path: Path) -> None:
+def test_look_at_uses_applied_head_chain(tmp_path: Path) -> None:
     write_applied(tmp_path)
     provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, tmp_path)
     assert provider.current().look_at(FLOOR_POINT)[1] != pytest.approx(KINEMATICS.look_at(FLOOR_POINT)[1], abs=1e-3)
@@ -123,7 +123,7 @@ def test_head_chain_changes_look_at_tilt(tmp_path: Path) -> None:
     assert head.kinematics.look_at(FLOOR_POINT) == provider.current().look_at(FLOOR_POINT)
 
 
-def test_changed_marker_mtime_reloads(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_applied_marker_change_reloads_kinematics(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     write_applied(tmp_path, dz=0.05, session="s1")
     provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, tmp_path)
     first = provider.current()
@@ -150,7 +150,7 @@ def test_broken_head_chain_keeps_urdf_chain_with_warning(tmp_path: Path, caplog:
     assert any("head_chain.json" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records)
 
 
-def test_rebuild_exception_keeps_previous_kinematics(
+def test_broken_override_keeps_previous_kinematics(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write_applied(tmp_path)
