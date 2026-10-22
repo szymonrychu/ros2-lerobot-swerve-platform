@@ -568,6 +568,9 @@ class HeadSettings(StrictModel):
     """Pan/tilt head: URDF, topics, home angles and move-completion thresholds."""
 
     urdf_path: Path = Field(default=DEFAULT_HEAD_URDF, validate_default=True)
+    # Directory of the applied head calibration (head_chain.json, tof_joint.json, applied.json); the same directory
+    # head_state_publisher reads. None keeps the repo URDF chain.
+    applied_dir: Path | None = Path("/var/lib/ros2/head_rgbd_calibration/applied")
     joint_names: tuple[str, str] = ("head_pan", "head_tilt")
     command_topic: str = Field(default="/head/joint_commands", pattern=r"^/[A-Za-z0-9_/]+$")
     state_topic: str = Field(default="/head/joint_states", pattern=r"^/[A-Za-z0-9_/]+$")

@@ -1,11 +1,17 @@
 """Tests for mcp_server.head: HeadController over FakeHeadBackend (measured, check, move, home)."""
 
+import json
+import logging
 import math
+import os
+from pathlib import Path
 
+import numpy as np
 import pytest
+from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 
 from mcp_server.config import HeadSettings, McpServerConfig
-from mcp_server.head import HEAD_FRAME_ID, HeadController, HeadError
+from mcp_server.head import HEAD_FRAME_ID, AppliedHeadKinematics, HeadController, HeadError
 from mcp_server.head_kinematics import DEFAULT_HEAD_URDF, HeadKinematics
 from tests.fakes import FakeHeadBackend
 
@@ -13,7 +19,7 @@ KINEMATICS = HeadKinematics(DEFAULT_HEAD_URDF)
 
 
 def make(backend: FakeHeadBackend, **overrides: float) -> HeadController:
-    return HeadController(backend, KINEMATICS, HeadSettings(**overrides))
+    return HeadController(backend, AppliedHeadKinematics(DEFAULT_HEAD_URDF, None), HeadSettings(**overrides))
 
 
 def test_defaults() -> None:
@@ -91,3 +97,91 @@ def test_home_moves_to_configured_home() -> None:
     assert result.status == "converged"
     assert backend.commands[-1] == {"head_pan": 0.0, "head_tilt": 0.5236}
     assert math.isclose(result.measured["head_tilt"], 0.5236, abs_tol=0.03)
+
+
+FLOOR_POINT = np.array([2.0, 0.3, 0.0])
+
+
+def write_applied(applied: Path, dz: float = 0.05, session: str = "s1", nested: bool = False) -> None:
+    applied.mkdir(exist_ok=True)
+    origins = {"head_mount_joint": Origin((0.15, 0.10, 0.31 + dz), (0.0, 0.0, 0.0))}
+    (applied / "head_chain.json").write_text(head_chain_json(origins, "test", session, "ok"))
+    marker = {"session": session}
+    if nested:
+        marker = {
+            "session": "rgbd-old",
+            "result": "rgbd-res",
+            "head_chain": {"session": session, "result": "floor-res"},
+        }
+    (applied / "applied.json").write_text(json.dumps(marker))
+
+
+def test_no_applied_dir_uses_repo_urdf(tmp_path: Path) -> None:
+    for applied in (None, tmp_path / "missing"):
+        provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, applied)
+        assert provider.current().look_at(FLOOR_POINT) == KINEMATICS.look_at(FLOOR_POINT)
+
+
+def test_look_at_uses_applied_head_chain(tmp_path: Path) -> None:
+    write_applied(tmp_path)
+    provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, tmp_path)
+    assert provider.current().look_at(FLOOR_POINT)[1] != pytest.approx(KINEMATICS.look_at(FLOOR_POINT)[1], abs=1e-3)
+    head = HeadController(FakeHeadBackend(), provider, HeadSettings())
+    assert head.kinematics.look_at(FLOOR_POINT) == provider.current().look_at(FLOOR_POINT)
+
+
+def test_reload_log_names_head_chain_session(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    write_applied(tmp_path)
+    provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, tmp_path)
+    write_applied(tmp_path, session="floor-s9", nested=True)
+    marker = tmp_path / "applied.json"
+    os.utime(marker, ns=(marker.stat().st_atime_ns, marker.stat().st_mtime_ns + 1_000_000_000))
+    with caplog.at_level(logging.INFO, logger="mcp_server.head"):
+        provider.current()
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "floor-s9" in text and "floor-res" in text and "rgbd-old" not in text
+
+
+def test_applied_marker_change_reloads_kinematics(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    write_applied(tmp_path, dz=0.05, session="s1")
+    provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, tmp_path)
+    first = provider.current()
+    assert provider.current() is first
+    write_applied(tmp_path, dz=0.10, session="s2")
+    marker = tmp_path / "applied.json"
+    os.utime(marker, ns=(marker.stat().st_atime_ns, marker.stat().st_mtime_ns + 1_000_000_000))
+    with caplog.at_level(logging.INFO, logger="mcp_server.head"):
+        second = provider.current()
+    assert second is not first
+    assert second.look_at(FLOOR_POINT) != first.look_at(FLOOR_POINT)
+    assert any("s2" in r.getMessage() for r in caplog.records)
+    marker.unlink()
+    (tmp_path / "head_chain.json").unlink()
+    assert provider.current().look_at(FLOOR_POINT) == pytest.approx(KINEMATICS.look_at(FLOOR_POINT))
+
+
+def test_broken_head_chain_keeps_urdf_chain_with_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    (tmp_path / "head_chain.json").write_text("{not json")
+    (tmp_path / "applied.json").write_text("{}")
+    with caplog.at_level(logging.WARNING, logger="mcp_server.head"):
+        provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, tmp_path)
+        assert provider.current().look_at(FLOOR_POINT) == pytest.approx(KINEMATICS.look_at(FLOOR_POINT))
+    assert any("head_chain.json" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records)
+
+
+def test_broken_override_keeps_previous_kinematics(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_applied(tmp_path)
+    provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, tmp_path)
+    first = provider.current()
+
+    def boom(text: str, source: str) -> HeadKinematics:
+        raise ValueError("bad urdf")
+
+    monkeypatch.setattr(HeadKinematics, "from_text", staticmethod(boom))
+    marker = tmp_path / "applied.json"
+    os.utime(marker, ns=(marker.stat().st_atime_ns, marker.stat().st_mtime_ns + 1_000_000_000))
+    with caplog.at_level(logging.ERROR, logger="mcp_server.head"):
+        assert provider.current() is first
+    assert any("bad urdf" in r.getMessage() for r in caplog.records)
