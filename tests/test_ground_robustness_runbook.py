@@ -9,7 +9,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNBOOK_PATH = REPO_ROOT / "docs" / "runbooks" / "ground-robustness.md"
 REPORT_CONFIG_PATH = REPO_ROOT / "scripts" / "ground_noise_report.yaml"
-REQUIRED_SECTIONS = ("Safety", "Scene", "Prerequisites", "Procedure", "Acceptance", "Results")
+REQUIRED_SECTIONS = ("Safety", "Scene", "Prerequisites", "Procedure", "Acceptance", "Sensor limits", "Results")
 SCRIPT_PATTERN = re.compile(r"\b(scripts/[\w./-]+\.(?:py|sh|yaml))")
 PERCENT_TO_FRACTION = 100.0
 
@@ -47,11 +47,19 @@ def test_runbook_thresholds_match_report_config() -> None:
     acceptance = section_text("Acceptance")
     percents = [int(v) for v in re.findall(r"(\d+)%", acceptance)]
     assert round(thresholds["box_obstacle_share_min"] * PERCENT_TO_FRACTION) in percents
-    assert round(thresholds["ramp_warning_share_min"] * PERCENT_TO_FRACTION) in percents
     assert round(thresholds["warning_churn_share_max"] * PERCENT_TO_FRACTION) in percents
-    assert f"+-{thresholds['ramp_slope_abs_error_p50_max']:g} deg" in acceptance
+    assert f"ramp never lethal ({thresholds['ramp_lethal_states_max']} lethal states)" in acceptance.lower()
     assert f"{thresholds['board_lethal_states_max']} lethal" in acceptance or "no lethal" in acceptance
     assert f"{thresholds['empty_lethal_points_p95_max']} lethal points at p95" in acceptance
+
+
+def test_runbook_documents_ramp_sensor_limit() -> None:
+    limits = section_text("Sensor limits").lower()
+    for phrase in ("black rubber", "confidence threshold", "invisible to the tof", "never lethal", "charuco", "albedo"):
+        assert phrase in limits
+    results = section_text("Results")
+    assert "ramp_lethal_states" in results
+    assert "ramp_warning_share" in results
 
 
 def test_runbook_commands_exist() -> None:
