@@ -63,7 +63,7 @@ DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
 # Board mount on the fixed jaw estimated from the URDF jaw geometry, not measured (design D47): the board plane
 # normal to the tool axis (gripper_link z), its centre on that axis 2 cm past the URDF tool point (gripper_frame_joint
 # origin (-0.0079, -0.000218, -0.0981) in gripper_link), its front toward the arm. The fit solves the real mount from
-# this start value; a measured mount goes in as the start value (calib-robot-runbook).
+# this start value.
 NOMINAL_BOARD_XYZ = (-0.1279, 0.0998, -0.1181)
 NOMINAL_BOARD_RPY = (3.141593, 0.0, 0.0)
 WRIST_ROLL = "wrist_roll"

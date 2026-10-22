@@ -685,6 +685,10 @@ class IntrinsicsSettings(StrictModel):
     hfov_deg: float | None = Field(default=None, gt=0.0, lt=180.0)
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
+    # Size of the images the tools get from this camera. With a calibration_file of another size (same aspect within
+    # 0.5 %) the intrinsics are scaled to it; both or neither.
+    image_width: int | None = Field(default=None, gt=0)
+    image_height: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def one_source(self) -> "IntrinsicsSettings":
@@ -693,6 +697,8 @@ class IntrinsicsSettings(StrictModel):
         Returns:
             IntrinsicsSettings: The validated settings.
         """
+        if (self.image_width is None) != (self.image_height is None):
+            raise ValueError("intrinsics: set image_width and image_height together")
         hfov_keys = (self.hfov_deg, self.width, self.height)
         if self.calibration_file is not None:
             if any(k is not None for k in hfov_keys):

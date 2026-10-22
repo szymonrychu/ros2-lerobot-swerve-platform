@@ -1630,7 +1630,7 @@ ros2_nodes:
         # Board on the fixed jaw, in gripper_link, from the URDF jaw geometry and the board outline: the
         # board plane normal to the tool axis, its centre on it 2 cm past the URDF tool point
         # (gripper_frame_joint), its front toward the arm. The fit solves the real mount from this start
-        # value; a measured mount goes here as the start value.
+        # value.
         board_mount: # jaw-geometry estimate, not a measurement (design D47)
           xyz_init: [-0.1279, 0.0998, -0.1181] # initial mount position, m
           rpy_init: [3.141593, 0.0, 0.0] # initial mount roll/pitch/yaw, rad
@@ -2821,15 +2821,21 @@ ros2_nodes:
             pitch: 1.1950
             yaw: -1.4466
         # Front = the head RGB camera (Camera Module 3) on the pan/tilt head: its pose follows the measured head angles
-        # (/head/joint_states). The mount is the head.urdf head_link -> head_camera_link origin. Intrinsics are null
-        # (no calibration exists for this camera), so the camera tools answer 'not calibrated'.
+        # (/head/joint_states). The camera hangs on head_camera_link with a zero mount, so the head.urdf
+        # head_camera_joint (the applied head_chain.json override, reloaded by HeadKinematics) IS the mount and an
+        # Apply on the Calibrate page reaches the tools without a restart. Intrinsics are the applied head RGB
+        # calibration (576x324, read at each camera call, mtime cached); they are scaled to the 1152x648
+        # head_camera_cpp stream (same aspect). A missing file: the camera tools answer 'not calibrated'.
         front:
-          parent_frame: head_link
-          intrinsics: null
+          parent_frame: head_camera_link
+          intrinsics:
+            calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml
+            image_width: 1152
+            image_height: 648
           mount:
-            parent_frame: head_link
-            x: 0.02
-            y: -0.025
+            parent_frame: head_camera_link
+            x: 0.0
+            y: 0.0
             z: 0.0
             roll: 0.0
             pitch: 0.0

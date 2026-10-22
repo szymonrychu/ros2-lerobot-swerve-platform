@@ -9,11 +9,14 @@ default ``head_link``) is a link of the head URDF, posed in base_link from the m
 angles (``HeadKinematics.link_pose``), just as the gripper camera's parent is posed from the measured arm joints.
 """
 
+import logging
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
+import yaml
 from ros2_common.camera_geometry import (
     CameraIntrinsics,
     MountPose,
@@ -35,6 +38,11 @@ FRAME_ARM = "arm_base"
 GROUND_METHOD = (
     "pinhole ray through the pixel intersected with the horizontal plane at floor + surface_height_m (camera_geometry)"
 )
+ASPECT_TOLERANCE = 0.005  # relative aspect-ratio difference within which a calibration scales to the image size
+logger = logging.getLogger(__name__)
+# (path, mtime_ns) -> parsed file; an apply rewrites the file, so the next camera call sees the new mtime.
+intrinsics_cache: dict[Path, tuple[int, CameraIntrinsics]] = {}
+warned: set[tuple[str, int | None]] = set()  # (message key, mtime_ns) already logged: one warning per file state
 APPROX_NOTE = "approximate intrinsics (hfov only: square pixels, centred principal point, no distortion)"
 
 
@@ -119,19 +127,101 @@ class CameraSetup:
     mount: MountPose | None
 
 
+def warn_once(key: str, stamp: int | None, message: str) -> None:
+    """Log a warning once per (key, file state)."""
+    if (key, stamp) not in warned:
+        warned.add((key, stamp))
+        logger.warning(message)
+
+
+def scale_intrinsics(intr: CameraIntrinsics, width: int, height: int) -> CameraIntrinsics | None:
+    """Intrinsics for an image of another size with the same aspect ratio.
+
+    Args:
+        intr (CameraIntrinsics): Calibrated intrinsics.
+        width (int): Target image width in pixels.
+        height (int): Target image height in pixels.
+
+    Returns:
+        CameraIntrinsics | None: fx, cx scaled by the width ratio, fy, cy by the height ratio (distortion unchanged);
+            the input when the size already matches; None when the aspect ratios differ by more than 0.5 %.
+    """
+    if (intr.width, intr.height) == (width, height):
+        return intr
+    if abs((width / height) / (intr.width / intr.height) - 1.0) > ASPECT_TOLERANCE:
+        return None
+    sx, sy = width / intr.width, height / intr.height
+    return intr.model_copy(
+        update={
+            "width": width,
+            "height": height,
+            "fx": intr.fx * sx,
+            "cx": intr.cx * sx,
+            "fy": intr.fy * sy,
+            "cy": intr.cy * sy,
+        }
+    )
+
+
+def read_calibration(path: Path) -> tuple[int, CameraIntrinsics] | None:
+    """Parse a calibration yaml with an mtime cache (re-read when the file changes).
+
+    Args:
+        path (Path): camera_calibration yaml.
+
+    Returns:
+        tuple[int, CameraIntrinsics] | None: (mtime_ns, intrinsics); None when the file is missing or unreadable
+            (warned once per path).
+    """
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        intrinsics_cache.pop(path, None)
+        warn_once(str(path), None, f"camera calibration file {path} is missing: the camera is not calibrated")
+        return None
+    cached = intrinsics_cache.get(path)
+    if cached is not None and cached[0] == stamp:
+        return cached
+    try:
+        entry = (stamp, CameraIntrinsics.from_calibration_yaml(path))
+    except (OSError, ValueError, KeyError, IndexError, TypeError, yaml.YAMLError) as exc:
+        warn_once(
+            str(path), stamp, f"camera calibration file {path} is unreadable ({exc}): the camera is not calibrated"
+        )
+        return None
+    intrinsics_cache[path] = entry
+    return entry
+
+
 def load_intrinsics(settings: IntrinsicsSettings | None) -> tuple[CameraIntrinsics, bool] | None:
-    """Build intrinsics from the config.
+    """Build intrinsics from the config; a calibration file is read lazily (mtime cache) at each call.
 
     Args:
         settings (IntrinsicsSettings | None): Configured source.
 
     Returns:
-        tuple[CameraIntrinsics, bool] | None: (intrinsics, approximate) or None when not configured.
+        tuple[CameraIntrinsics, bool] | None: (intrinsics, approximate) or None when not configured, when the
+            calibration file is missing or unreadable, or when its aspect ratio differs from the image size.
     """
     if settings is None:
         return None
     if settings.calibration_file is not None:
-        return CameraIntrinsics.from_calibration_yaml(settings.calibration_file), False
+        entry = read_calibration(settings.calibration_file)
+        if entry is None:
+            return None
+        stamp, intr = entry
+        if settings.image_width is not None and settings.image_height is not None:
+            scaled = scale_intrinsics(intr, settings.image_width, settings.image_height)
+            if scaled is None:
+                warn_once(
+                    f"{settings.calibration_file}:aspect",
+                    stamp,
+                    f"camera calibration {settings.calibration_file} is {intr.width}x{intr.height}, the image is "
+                    f"{settings.image_width}x{settings.image_height}: different aspect ratio, not calibrated",
+                )
+                return None
+            intr = scaled
+        return intr, False
     assert settings.hfov_deg is not None and settings.width is not None and settings.height is not None
     return CameraIntrinsics.from_hfov(settings.width, settings.height, settings.hfov_deg), True
 
