@@ -160,6 +160,7 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `bands.obstacle_max_m` | `0.6` | obstacle band top above the plane, metres, > traversability max step |
 | `bands.drop_max_m` | `1.0` | drop band depth below the plane, metres, > traversability max step |
 | `bands.max_range_m` | `2.0` | farthest point published in the bands, metres, > 0 |
+| `bands.min_range_m` | `0.42` | nearest point (from base_link) in the bands: the robot's own parked gripper and its mixed pixels lie closer, metres, 0 <= v < max_range_m |
 | `traversability.wheel_radius_m` | `0.06` | wheel radius, metres, same as swerve_drive_controller wheel_radius_m |
 | `traversability.max_step_fraction` | `0.3333` | max rideable step as a fraction of the wheel diameter (0.04 m), 0 < v < 1 |
 | `traversability.max_slope_deg` | `15.0` | steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg |
@@ -173,6 +174,15 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `edges.step_flatness_m` | `0.03` | max height spread for a flat top, metres, > 0 |
 | `edges.slope_bin_m` | `0.1` | edge of the xy bins a cluster is sampled in for its slope fit, metres, 0.02 <= v <= 0.5 |
 | `edges.slope_min_cells` | `3` | fewest slope bins a cluster must cover for a slope estimate (below it the slope is unknown), 2..50 |
+| `edges.step_segment_m` | `0.1` | length of the boundary segment a step is measured along, metres, 0.02 <= v <= 0.5 |
+| `edges.step_segment_min_points` | `3` | fewest boundary points in a segment for it to count, 1..50 |
+| `edges.floor_reference_m` | `0.1` | ring around a cluster whose floor points set the floor level its step is measured from, metres, 0 (plane) .. 0.5 |
+| `edges.floor_reference_min_points` | `4` | fewest ring points for the floor level to replace the plane, 1..50 |
+| `occlusion.enabled` | `true` | do not read a cell hidden behind a nearer occluder as a drop or ramp |
+| `occlusion.azimuth_bin_deg` | `4.0` | width of an azimuth bin of the occluder horizon, degrees, 0.1..10 |
+| `occlusion.elevation_margin_deg` | `2.0` | slack on the shadow ray elevation, degrees, 0..5 |
+| `occlusion.min_occluder_height_m` | `0.03` | lowest plane-relative height that occludes, metres, > 0 and < bands.obstacle_max_m |
+| `occlusion.min_height_drop_m` | `0.005` | smallest height drop behind an occluder that counts as shadowed, metres, > 0 |
 | `slope.roll_warn_deg` | `8` | tilt_guard roll warning limit, degrees |
 | `slope.roll_error_deg` | `15` | tilt_guard roll error limit, degrees, > roll_warn_deg |
 | `slope.pitch_warn_deg` | `12` | tilt_guard pitch warning limit, degrees |
@@ -247,6 +257,7 @@ Prometheus on `metrics_port`.
 | `ground_warning_areas` | gauge | warning areas (ToF and colour) of the last cloud with a plane |
 | `ground_obstacle_points` | gauge | points of the last obstacle cloud |
 | `ground_drop_points` | gauge | points of the last drop cloud |
+| `ground_occluded_points` | gauge | points of the last cloud removed as lying in an occlusion shadow |
 | `ground_temporal_cells` | gauge | cells the temporal median currently holds (0 when the plane is lost or temporal is disabled) |
 | `ground_temporal_gated_cells` | gauge | cells the temporal spread gate currently holds unknown |
 | `ground_stable_lethal_cells` | gauge | cells whose hysteresis class is lethal (obstacle or drop) |
