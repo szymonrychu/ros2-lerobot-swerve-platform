@@ -89,7 +89,7 @@ class FloorFitLimits(StrictModel):
     min_poses: int = Field(default=8, gt=0)
     min_pan_span_deg: float = Field(default=60.0, gt=0)
     max_height_rms_mm: float = Field(default=8.0, gt=0)
-    max_normal_rms_deg: float = Field(default=0.6, gt=0)
+    max_normal_rms_deg: float = Field(default=1.0, gt=0)
     max_sigma_z_mm: float = Field(default=3.0, gt=0)
     max_sigma_deg: float = Field(default=0.3, gt=0)
     max_delta_z_m: float = Field(default=0.10, gt=0)

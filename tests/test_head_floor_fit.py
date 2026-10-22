@@ -118,7 +118,7 @@ def test_floor_fit_config_defaults_and_ranges() -> None:
     assert cfg.plane.seed == 0
     assert cfg.limits == FloorFitLimits()
     assert (cfg.limits.min_observations, cfg.limits.min_poses, cfg.limits.min_pan_span_deg) == (30, 8, 60.0)
-    assert (cfg.limits.max_height_rms_mm, cfg.limits.max_normal_rms_deg) == (8.0, 0.6)
+    assert (cfg.limits.max_height_rms_mm, cfg.limits.max_normal_rms_deg) == (8.0, 1.0)
     assert (cfg.limits.max_sigma_z_mm, cfg.limits.max_sigma_deg) == (3.0, 0.3)
     assert (cfg.limits.max_delta_z_m, cfg.limits.max_delta_deg) == (0.10, 10.0)
     assert (cfg.sigma_height_mm, cfg.sigma_normal_deg, cfg.huber_scale) == (5.0, 0.5, 1.0)

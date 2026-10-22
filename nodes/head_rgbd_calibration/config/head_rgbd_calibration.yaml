@@ -96,7 +96,7 @@ floor:
       min_poses: 8
       min_pan_span_deg: 60.0
       max_height_rms_mm: 8.0
-      max_normal_rms_deg: 0.6
+      max_normal_rms_deg: 1.0
       max_sigma_z_mm: 3.0
       max_sigma_deg: 0.3
       max_delta_z_m: 0.1

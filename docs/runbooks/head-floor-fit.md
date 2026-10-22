@@ -59,7 +59,7 @@ python scripts/topic_scraper_collect.py --source client=http://client.ros2.lan:1
 3. When the sweep has ended, **Compute**. Read the table: mount z (mm), mount roll, mount pitch, tilt zero (deg) with
    current, fitted, delta and sigma (the tilt roll is in `params.tilt_roll_deg` of result.json and goes into the
    applied `head_tilt` origin with the tilt zero), the height and normal RMS and the per-pose residuals. The height and
-   normal RMS and the limits on them (`max_height_rms_mm` 8, `max_normal_rms_deg` 0.6) are over pose means (the mean
+   normal RMS and the limits on them (`max_height_rms_mm` 8, `max_normal_rms_deg` 1.0: a room floor sloping 1-2 % to a drain tilts 0.6-1.1 deg) are over pose means (the mean
    of a pose's clouds): one pose's clouds scatter about 1 deg cloud to cloud, so the per-observation RMS
    (`observation_height_rms_mm`, `observation_normal_rms_deg` in result.json) is larger and is not limited. A failed
    result lists the failed limits and Apply stays disabled: fix the cause (floor, clearance, lighting) and sweep again.
