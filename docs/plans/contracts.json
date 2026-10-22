@@ -215,7 +215,8 @@
     "owner": "ground-detection-robustness",
     "file": "nodes/ground_estimator_cpp/config/ground_estimator.yaml",
     "consumers": [
-      "rgb-d-ground-estimation-and"
+      "rgb-d-ground-estimation-and",
+      "rgb-and-amplitude-guided-gro"
     ],
     "note": "obstacle when edge step (p50 of the edge band) > 1/3 wheel diameter (0.04 m) or a measurable slope > traversability.max_slope_deg 15 (<= min tilt_guard roll/pitch error limits); colour clusters warning-only; lethal marks need lethal_min_points and hysteresis.enter_frames of hysteresis.window_frames; owner task slope-and-smoothing-defaults"
   },
