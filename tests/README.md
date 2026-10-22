@@ -3301,6 +3301,13 @@ README, Replay tests). Synthetic recordings with the real key layout are written
 | `test_export_round_trip` | A recording inside the window decodes (`read_replay`) back to the same cloud stamps, poses, points, IMU samples, `base_T_imu` and frame id. |
 | `test_export_trims_window` | Only clouds and IMU samples stamped in [first cloud + `START_S`, + `DURATION_S`) are kept; the offsets are rebuilt from the kept clouds. |
 | `test_read_rejects_wrong_magic` | A file without the `GRNDRPLY` magic is rejected with `ValueError`. |
+| `test_v2_round_trip_pairs` | A layout-2 recording gives a version-2 file; both camera models, the pairs (stamps, poses, JPEG bytes, lossless uint16 depth) and the v1 sections decode back unchanged. |
+| `test_v1_output_unchanged` | A layout-1 input still gives the version-1 file without models or pairs. |
+| `test_pairs_false_writes_zero_pairs` | `pairs=False` writes version 2 with both models and a pair count of 0. |
+| `test_fixture_size_cap` | An export above `MAX_FIXTURE_BYTES` / `MAX_PAIR_FIXTURE_BYTES` (3 MB / 6 MB) raises with the size and writes nothing. |
+| `test_scenes_config_validates` | `ground_replay_scenes.yaml` parses (pydantic), unknown keys are rejected, `export_all` writes every fixture. |
+| `test_export_tof_frames_subset` | `export_tof_frames` keeps every n-th frame per recording with the documented keys and dtypes, the truth polygons, `box_height_m`, and a floor plane within 2 mm of a synthetic floor. |
+| `test_tiny_v2_fixture_is_current` | `ground_estimator_cpp/test/data/replay/tiny_v2.bin` (3 clouds, 2 pairs) equals a fresh export of the synthetic recording (`UPDATE_TINY_V2=1` rewrites it). |
 
 ### `test_ground_robustness_runbook.py`
 
