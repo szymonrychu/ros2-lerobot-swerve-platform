@@ -14,7 +14,7 @@ find_package(ament_cmake REQUIRED)
 find_package(ros2_common_cpp REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d)
 find_package(PCL REQUIRED COMPONENTS common sample_consensus segmentation search kdtree)
 find_package(nlohmann_json REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -39,6 +39,8 @@ target_link_libraries(ground_estimator_core PUBLIC
   nlohmann_json::nlohmann_json
   opencv_core
   opencv_imgproc
+  opencv_imgcodecs
+  opencv_calib3d
   pcl_common
   pcl_sample_consensus
   pcl_segmentation

@@ -447,8 +447,9 @@ The trim window is the constants `START_S` (5.0 s after the first cloud) and `DU
 
 ### Binary layout
 
-Little-endian, version 1 (`REPLAY_VERSION`; the C++ reader `ground_replay::read_replay` rejects another magic or
-version, a truncated file and trailing bytes):
+Little-endian, version 1 (`REPLAY_VERSION`) or 2 (`REPLAY_VERSION_PAIRS`); the C++ reader `ground_replay::read_replay`
+decodes both and rejects another magic or version, a truncated section, a depth PNG that does not decode to
+`CV_16UC1`, and trailing bytes. Version 1 (clouds, IMU, `base_T_imu`):
 
 | Field | Type |
 |-------|------|
@@ -460,6 +461,44 @@ version, a truncated file and trailing bytes):
 | IMU count | uint32 |
 | per IMU sample | int64 `stamp_ns`; float64[10] orientation `x y z w`, linear acceleration `x y z`, angular velocity `x y z` (frame `imu_link`) |
 | `base_T_imu` | float64[7] `x y z qx qy qz qw` (base_link <- imu_link) |
+
+Version 2 (an input recording with `layout_version` 2, from the web_ui ground recorder) has the same sections with the
+header version 2, then the guidance section:
+
+| Field | Type |
+|-------|------|
+| RGB model, then ToF model | float64[9] `K`; float64[5] `D`; uint32 width; uint32 height; uint32 length + UTF-8 frame id |
+| pair count | uint32 (0 when exported with `pairs: false`) |
+| per pair | int64 `stamp_ns`; float64[7] `base_T_rgb`; float64[7] `odom_T_base`; uint32 length + JPEG bytes; uint32 length + PNG bytes (the upsampled depth, uint16 mm, lossless `cv2.imencode(".png")`) |
+
+The reader fills `ReplayScene::rgb_model`, `tof_model` (`CameraModel {K, D, width, height, frame}`) and `pairs`
+(`ReplayPair {stamp_ns, base_T_rgb, odom_T_base, jpeg, depth_mm}`, `depth_mm` decoded with
+`cv::imdecode(IMREAD_UNCHANGED)` as `CV_16UC1`); all three are empty for version 1. `Replay` is an alias of
+`ReplayScene`. `test/data/replay/tiny_v2.bin` (3 clouds, 2 pairs, 16x12 images) is generated from a synthetic npz by the
+export; `tests/test_ground_replay_export.py::test_tiny_v2_fixture_is_current` regenerates it and compares bytes
+(`UPDATE_TINY_V2=1 uv run pytest tests/test_ground_replay_export.py` rewrites it after a layout change).
+
+Size caps: `MAX_FIXTURE_BYTES` = 3 000 000 for a file without pairs, `MAX_PAIR_FIXTURE_BYTES` = 6 000 000 with pairs (a
+576x324 depth PNG is about 0.2 MB, a JPEG about 35 kB). An export above its cap raises with the size and writes nothing.
+
+### Scenes config and the ToF frame subset
+
+`uv run python scripts/ground_replay_export.py` without arguments exports every entry of
+`scripts/ground_replay_scenes.yaml` (pydantic, unknown keys rejected):
+
+```yaml
+fixtures:      # replay binaries
+  - {input: <recording.npz>, output: <fixture.bin>, start_s: 5.0, duration_s: 10.0, pairs: true}
+tof_frames:    # ToF depth + amplitude subsets for the amplitude gate and flying-pixel tests
+  - {input: [<a.npz>, <b.npz>], output: <frames.npz>, every_n: 5, max_frames: 40, truth_yaml: <truth.yaml>}
+```
+
+`export_tof_frames` keeps every `every_n`-th frame of each input (at most `max_frames` over all inputs, split evenly so
+every scene is present) and writes `tof_depth_mm`, `tof_amplitude`, `tof_base_T`, `tof_stamps_ns`, `tof_K`, `tof_D`,
+`tof_size`, `scene`, the truth polygons `truth_board`, `truth_ramp`, `truth_empty`, `truth_box` (4 x 2, base_link m, from
+the truth YAML keys `board`, `ramp`, `empty`, `box`), `box_height_m`, and `floor_plane` (`nx ny nz d`, `n.p + d = 0` in
+base_link: RANSAC at 1 cm, then a least-squares fit of the inliers, over the depth points whose floor point lies in
+`truth_empty`).
 
 ### How a scene is replayed
 
