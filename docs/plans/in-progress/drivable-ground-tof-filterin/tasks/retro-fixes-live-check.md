@@ -1,6 +1,6 @@
 ---
 title: Retro fixes live check
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Proof on the robot that the final turns, backing, mirror keep-out and front-camera positions work"
 files: [docs/runbooks/agent-retro-fixes.md, tests/test_agent_retro_runbook.py, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--retro-fixes-live-check
+branch: drivable-ground-tof-filterin--retro-fixes-live-check
 verified_head: ""
 run: ""
 provides: []

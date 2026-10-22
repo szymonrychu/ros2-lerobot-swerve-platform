@@ -1,6 +1,6 @@
 ---
 title: StopBox backing and turns
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The robot can back away from a nearby obstacle, and a turn that would hit one is refused before it moves"
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/look_around.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/mcp_server/tests/test_move_relative_clearance.py, nodes/mcp_server/README.md]
@@ -12,8 +12,8 @@ model: opus
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--stopbox-backing-and-turns
+branch: drivable-ground-tof-filterin--stopbox-backing-and-turns
 verified_head: ""
 run: ""
 provides: []
