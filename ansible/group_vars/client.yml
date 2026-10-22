@@ -2001,7 +2001,7 @@ ros2_nodes:
         obstacle_max_m: 0.6  # obstacle band top above the plane, metres, > traversability max step
         drop_max_m: 1.0  # drop band depth below the plane, metres, > traversability max step
         max_range_m: 2.0  # farthest point published in the bands, metres, > 0
-        min_range_m: 0.42  # nearest point (from base_link) in the bands: the robot's own parked gripper and its mixed pixels lie closer, metres, 0 <= v < max_range_m
+        min_range_m: 0.42  # nearest point from base_link in the bands (the parked gripper lies closer), metres, 0 <= v < max_range_m
 
       traversability:  # traversability settings
         wheel_radius_m: 0.06  # wheel radius, metres, same as swerve_drive_controller wheel_radius_m
