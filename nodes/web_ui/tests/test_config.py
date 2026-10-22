@@ -85,6 +85,38 @@ overlays: []
     assert "/controller/goal_pose" in cfg.publish_topics()
 
 
+def test_publish_topic_types(tmp_path: Path) -> None:
+    """Goal topics are PoseStamped; arm and head command topics are JointState; map3d commands are not listed."""
+    p = tmp_path / "cfg.yaml"
+    p.write_text(
+        """
+tabs:
+  - id: nav
+    type: map_nav
+    label: Nav
+    goal_topic: /goal_pose
+    arm_command_topic: /arm/cmd
+  - id: head
+    type: head
+    label: Head
+    head_command_topic: /head/cmd
+overlays: []
+"""
+    )
+    cfg = load_config(p)
+    types = cfg.publish_topic_types()
+    assert types["/goal_pose"] == "geometry_msgs/PoseStamped"
+    assert types["/arm/cmd"] == "sensor_msgs/JointState"
+    assert types["/head/cmd"] == "sensor_msgs/JointState"
+    assert set(types) <= set(cfg.publish_topics())
+
+
+def test_publish_topic_types_empty_without_command_fields(tmp_path: Path) -> None:
+    p = tmp_path / "cfg.yaml"
+    p.write_text("tabs: []\noverlays: []\n")
+    assert load_config(p).publish_topic_types() == {}
+
+
 def test_rgbd_camera_tab_type_is_valid(tmp_path: Path) -> None:
     """rgbd_camera is a valid tab type."""
     p = tmp_path / "cfg.yaml"

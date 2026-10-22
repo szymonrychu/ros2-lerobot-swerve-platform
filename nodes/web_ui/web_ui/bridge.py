@@ -220,6 +220,11 @@ FRAME_POSE_WAIT_S = 1.0
 FRAME_POSE_LOG_PERIOD_S = 60.0
 # A robot pose whose TF stamp is older than this (vs the node clock) is dropped, never replayed to late joiners.
 ROBOT_POSE_STALE_S = 2.0
+# A publisher younger than this with no matched subscriber waits (once) for discovery before its first publish.
+PUBLISH_MATCH_WINDOW_S = 5.0
+# Longest the executor thread waits for a subscriber to match before publishing anyway.
+PUBLISH_MATCH_WAIT_S = 1.0
+PUBLISH_MATCH_POLL_S = 0.02
 # map_nav roles whose messages are re-expressed in map_frame (plans, goals, robot footprint, costmap origin);
 # every other topic passes through.
 MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint", "costmap"})
@@ -426,6 +431,7 @@ class BridgeNode(Node):
         self,
         topics: list[str],
         allowed_publish_topics: set[str],
+        publish_topic_types: dict[str, str] | None = None,
         topic_roles: dict[str, str] | None = None,
         tof_ranges: dict[str, float] | None = None,
         robot_pose_frames: tuple[str, str] | None = None,
@@ -456,6 +462,8 @@ class BridgeNode(Node):
         Args:
             topics (list[str]): ROS2 topic strings to subscribe to.
             allowed_publish_topics (set[str]): Allowlist of topics this node may publish to.
+            publish_topic_types (dict[str, str] | None): Message type string per allowlisted topic whose type is known
+                up front; their publishers are created at start so DDS discovery completes before the first command.
             topic_roles (dict[str, str] | None): map_nav topic -> role ("map", "path", "goal"), head topic -> head role.
             tof_ranges (dict[str, float] | None): head depth topic -> range (m) of its greyscale preview.
             map3d_limits (dict[str, tuple[int, float]] | None): 3D map cloud topic -> (max_points, voxel_m).
@@ -514,6 +522,7 @@ class BridgeNode(Node):
         self._lock = threading.Lock()
         self.publishers_: dict[str, tuple[Any, type]] = {}
         self._allowed_publish_topics = allowed_publish_topics
+        self._publisher_created_at: dict[str, float] = {}
         self._topic_last_rx: dict[str, float] = {}
         self._stale_warn = WarnThrottle()
         self._stale_topics: set[str] = set()
@@ -614,6 +623,8 @@ class BridgeNode(Node):
         log.info(
             "ros2_node_ready", node_name="web_ui_bridge", always_on=len(self._always_on), on_demand=len(self._demand)
         )
+        for topic, msg_type in (publish_topic_types or {}).items():
+            self.create_publisher_for(topic, msg_type)
         self.create_timer(TOPIC_STALE_S, self.on_health_tick)
         self.create_timer(DEMAND_APPLY_PERIOD_S, self.apply_demand)
 
@@ -2020,6 +2031,8 @@ class BridgeNode(Node):
         def create() -> None:
             try:
                 self.publishers_[topic] = (self.create_publisher(msg_cls, topic, 10), msg_cls)
+                with self._publish_lock:
+                    self._publisher_created_at[topic] = time.monotonic()
                 log.info("publisher_created", topic=topic, msg_type=msg_type_str)
             except Exception:
                 log.error("publisher_create_failed", topic=topic, msg_type=msg_type_str, exc_info=True)
@@ -2039,7 +2052,9 @@ class BridgeNode(Node):
             self._log_warning(f"publish_dict: topic {topic!r} not in allowlist")
             return
         with self._publish_lock:
-            if topic in self._publishers_pending or self._publishes_queued.get(topic, 0) > 0:
+            fresh = topic in self._publisher_created_at
+            if fresh or topic in self._publishers_pending or self._publishes_queued.get(topic, 0) > 0:
+                # A fresh publisher may still wait for its subscriber, which must never block this (event loop) thread.
                 # Creation and earlier publishes of this topic run first on the executor thread (strict FIFO).
                 self._publishes_queued[topic] = self._publishes_queued.get(topic, 0) + 1
 
@@ -2065,6 +2080,7 @@ class BridgeNode(Node):
             log.warning("publish_no_publisher", topic=topic)
             return
         pub, msg_cls = self.publishers_[topic]
+        self.wait_for_subscriber(topic, pub)
         try:
             msg = _dict_to_ros_msg(msg_cls(), data)
             self.fill_header(topic, msg)
@@ -2072,6 +2088,27 @@ class BridgeNode(Node):
             log.debug("publish_sent", topic=topic)
         except Exception as exc:
             log.warning("publish_error", topic=topic, error=str(exc))
+
+    def wait_for_subscriber(self, topic: str, pub: Any) -> None:
+        """Block the executor thread for at most PUBLISH_MATCH_WAIT_S until a fresh publisher has a subscriber.
+
+        Only the first publish within PUBLISH_MATCH_WINDOW_S of the publisher's creation waits; a volatile subscriber
+        that is not yet discovered would drop the message. Logs a warning when it gives up with no subscriber.
+
+        Args:
+            topic (str): Publish topic.
+            pub (Any): Its ROS publisher.
+        """
+        with self._publish_lock:
+            created_at = self._publisher_created_at.pop(topic, None)
+        if created_at is None or time.monotonic() - created_at >= PUBLISH_MATCH_WINDOW_S:
+            return
+        deadline = time.monotonic() + PUBLISH_MATCH_WAIT_S
+        while pub.get_subscription_count() == 0:
+            if time.monotonic() >= deadline:
+                log.warning("publish_without_subscriber", topic=topic, waited_s=PUBLISH_MATCH_WAIT_S)
+                return
+            time.sleep(PUBLISH_MATCH_POLL_S)
 
     def fill_header(self, topic: str, msg: Any) -> None:
         """Fill a zero header.stamp with the node clock and an empty frame_id with the topic default.

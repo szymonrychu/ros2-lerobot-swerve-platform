@@ -77,8 +77,8 @@ with no browser. So the bridge creates a topic's rclpy subscription only while a
   A bridge timer (`DEMAND_APPLY_PERIOD_S`, 0.1 s) runs `apply_demand` on the executor thread, which creates and
   destroys the on-demand subscriptions, the pose timer and the TF listener and applies the linger. Doing that from
   another thread raced the executor's wait-set build and killed the spin thread (`InvalidHandle: cannot use
-  Destroyable because destruction was requested`). Publishers requested by a WS `publish` message
-  (`create_publisher_for`) are also created by that timer, and the publish is queued behind the creation. Tests:
+  Destroyable because destruction was requested`). Command publishers whose type is fixed by config (goal topic `geometry_msgs/PoseStamped`, arm/head command topics `sensor_msgs/JointState`, `AppConfig.publish_topic_types`) are created at start by that timer, so DDS discovery has finished before the first command (a lazily created publisher lost the first goal: the volatile `/goal_pose` subscriber had not matched yet). A first publish within `PUBLISH_MATCH_WINDOW_S` (5 s) of creation with no matched subscriber waits at most `PUBLISH_MATCH_WAIT_S` (1 s) for one, then publishes anyway and logs `publish_without_subscriber`. Publishers requested by a WS `publish` message
+  (`create_publisher_for`, the fallback for topics whose type is only known from the command) are also created by that timer, and the publish is queued behind the creation. Tests:
   `tests/test_ros_thread_affinity.py`.
 - **Spin errors.** `spin_loop` in `web_ui/spin.py` logs an exception from `spin_once` (`spin_once_failed`, error
   level), counts it in `webui_spin_errors_total`, backs off 0.5 s and keeps spinning, so one failure no longer leaves

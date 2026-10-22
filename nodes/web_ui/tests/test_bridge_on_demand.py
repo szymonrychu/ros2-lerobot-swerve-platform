@@ -21,6 +21,7 @@ from web_ui.bridge import (
     GPS_ANCHOR_TOPIC,
     MAP_GUARD_RESET_TOPIC,
     MAP_SUB_QOS,
+    PUBLISH_MATCH_WAIT_S,
     ROBOT_POSE_TOPIC,
     TF_LISTENER_JOIN_TIMEOUT_S,
     BridgeNode,
@@ -522,3 +523,118 @@ def test_tilt_state_and_battery_are_fed_with_zero_clients(ros: FakeRos, tmp_path
         ws.send_json({"type": "publish", "topic": "/goal_pose", "msg_type": "geometry_msgs/PoseStamped", "data": {}})
         frames = [ws.receive_json() for _ in range(3)]
     assert any(f.get("type") == "error" and f.get("source") == TILT_GUARD_ERROR_SOURCE for f in frames)
+
+
+# --- eager command publishers ------------------------------------------------------------------------------------
+
+GOAL = "/goal_pose"
+
+
+def test_allowlisted_publishers_are_created_at_start(ros: FakeRos) -> None:
+    """Publishers of every allowlisted topic with a known type exist after the first executor tick, before any command."""
+    node = make_node(
+        allowed_publish_topics={GOAL, "/arm/cmd"},
+        publish_topic_types={GOAL: "geometry_msgs/PoseStamped", "/arm/cmd": "sensor_msgs/JointState"},
+    )
+    assert GOAL not in ros.publishers
+    node.apply_demand(0.0)
+    assert {GOAL, "/arm/cmd"} <= set(ros.publishers)
+    assert set(node.publishers_) == {GOAL, "/arm/cmd"}
+
+
+def test_publisher_for_stays_the_fallback_for_unlisted_types(ros: FakeRos) -> None:
+    """A topic whose type is only known from the command still gets its publisher from create_publisher_for."""
+    node = make_node(allowed_publish_topics={"/late"})
+    node.apply_demand(0.0)
+    assert "/late" not in ros.publishers
+    node.create_publisher_for("/late", "geometry_msgs/PoseStamped")
+    node.apply_demand(0.0)
+    assert "/late" in ros.publishers
+
+
+def eager_goal_node(ros: FakeRos) -> tuple[BridgeNode, Any]:
+    node = make_node(allowed_publish_topics={GOAL}, publish_topic_types={GOAL: "geometry_msgs/PoseStamped"})
+    node.apply_demand(0.0)
+    return node, ros.publishers[GOAL]
+
+
+def test_first_publish_waits_for_a_matched_subscriber(ros: FakeRos) -> None:
+    """A publish right after creation polls until a subscriber matches, then publishes without a warning."""
+    node, pub = eager_goal_node(ros)
+    counts = iter([0, 0, 1])
+    pub.get_subscription_count.side_effect = lambda: next(counts, 1)
+    clock = {"t": 100.0}
+
+    def sleep(s: float) -> None:
+        clock["t"] += s
+
+    with (
+        patch("web_ui.bridge.time.monotonic", lambda: clock["t"]),
+        patch("web_ui.bridge.time.sleep", sleep),
+        patch("web_ui.bridge.log") as log,
+    ):
+        node.publish_now(GOAL, {})
+    pub.publish.assert_called_once()
+    assert 0 < clock["t"] - 100.0 < PUBLISH_MATCH_WAIT_S
+    log.warning.assert_not_called()
+
+
+def test_no_subscriber_publishes_after_the_bound_and_warns(ros: FakeRos) -> None:
+    """Without any subscriber the wait is bounded by PUBLISH_MATCH_WAIT_S, then it publishes anyway and warns."""
+    node, pub = eager_goal_node(ros)
+    pub.get_subscription_count.return_value = 0
+    clock = {"t": 100.0}
+
+    def sleep(s: float) -> None:
+        clock["t"] += s
+
+    with (
+        patch("web_ui.bridge.time.monotonic", lambda: clock["t"]),
+        patch("web_ui.bridge.time.sleep", sleep),
+        patch("web_ui.bridge.log") as log,
+    ):
+        node.publish_now(GOAL, {})
+        waited = clock["t"] - 100.0
+        node.publish_now(GOAL, {})
+    pub.publish.assert_called()
+    assert PUBLISH_MATCH_WAIT_S <= waited <= PUBLISH_MATCH_WAIT_S + 0.2
+    assert clock["t"] - 100.0 == waited  # the second publish does not wait again
+    assert log.warning.call_args_list[0].args[0] == "publish_without_subscriber"
+
+
+def test_matched_publisher_publishes_without_waiting(ros: FakeRos) -> None:
+    node, pub = eager_goal_node(ros)
+    with patch("web_ui.bridge.time.sleep") as sleep:
+        node.publish_now(GOAL, {})
+    sleep.assert_not_called()
+    pub.publish.assert_called_once()
+
+
+def test_publish_dict_never_waits_on_the_caller_thread(ros: FakeRos) -> None:
+    """publish_dict inside the match window returns at once; the executor queue waits, then publishes in order."""
+    node, pub = eager_goal_node(ros)
+    counts = iter([0, 0, 1])
+    pub.get_subscription_count.side_effect = lambda: next(counts, 1)
+    caller = threading.get_ident()
+    sleepers: list[int] = []
+    clock = {"t": 100.0}
+
+    def sleep(s: float) -> None:
+        sleepers.append(threading.get_ident())
+        clock["t"] += s
+
+    with patch("web_ui.bridge.time.monotonic", lambda: clock["t"]), patch("web_ui.bridge.time.sleep", sleep):
+        node.publish_dict(GOAL, {})
+        node.publish_dict(GOAL, {})
+        assert sleepers == []
+        pub.publish.assert_not_called()
+        node.run_publisher_tasks()
+    assert pub.publish.call_count == 2
+    assert sleepers and caller == sleepers[0]  # test thread plays the executor here
+
+
+def test_publish_dict_outside_the_window_publishes_directly(ros: FakeRos) -> None:
+    node, pub = eager_goal_node(ros)
+    node.publish_now(GOAL, {})  # consumes the wait state
+    node.publish_dict(GOAL, {})
+    assert pub.publish.call_count == 2

@@ -91,6 +91,7 @@ def make_bridge(**attrs: Any) -> Any:
     node._lock = threading.Lock()
     node.publishers_ = {}
     node._publishers_pending = set()
+    node._publisher_created_at = {}
     node._publishes_queued = {}
     node._publish_lock = threading.Lock()
     node._allowed_publish_topics = set()
