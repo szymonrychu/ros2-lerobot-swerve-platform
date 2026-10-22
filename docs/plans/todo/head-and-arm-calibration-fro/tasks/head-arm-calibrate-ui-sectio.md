@@ -23,11 +23,37 @@ provides: []
 
 ## Requirement
 
+The "Head from arm" section on the Calibrate page, a guided step-by-step process (design D8, D11, D16; approvals H2,
+H3, H5; CLAUDE.md servo safety).
 
+- New `nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.tsx`, built like `HeadFloorFit.tsx` (MUI,
+  `TOUCH_TARGET_PX` buttons, polling `getHeadArmState()` at its interval), step cards driven by `sequence.phase`:
+  1. Idle: "The arm moves to the calibration pose without the board. Keep the area around the robot clear." Button
+     "Move to base pose" opens a confirm dialog naming the joints that move (shoulder_pan, shoulder_lift, elbow_flex,
+     wrist_flex, wrist_roll, gripper) and only on "Move" calls `moveToBase(true)`.
+  2. `waiting_board`: "Clip the ChArUco board to the fixed jaw." Button "Board attached".
+  3. Running tiers 0 and 1: tier, pose i of N, captured, skipped, the status line; "Stop" always visible.
+  4. `waiting_big_joints`: a confirm dialog "Allow elbow and shoulder moves" naming `sequence.big_joints`; "Allow" calls
+     `allowBigJoints(true)`, "Skip" calls `allowBigJoints(false)`.
+  5. `holding`: "Remove the board from the gripper." Button "Park arm" opens a confirm "The board is removed" and only
+     then calls `park(true)`.
+  6. Compute (enabled when the sequence is not running and the session has views) -> result card: pass/fail, RMS,
+     held-out RMS and board error, views, arm poses, pan/tilt span, largest correlation, a parameter table (start,
+     fitted, delta, sigma, floor value and delta; mm for x/y/z, deg for angles), failed limits, the report collapsed.
+  7. "Apply" only for a passed result -> the applied record (session, result, source) and the unit restart states;
+     node error messages in an Alert.
+- `CalibratePage.tsx` renders `HeadArmCalibration` when `config.rgbd` is true, after `HeadFloorFit`; the "Arm
+  calibration - deferred" line stays for epic arm-joint-offsets-from-the-g.
+- New `HeadArmCalibration.test.tsx` (mocked api): no motion call without the dialog confirm; Board attached; the
+  big-joint dialog Allow and Skip; Park only after its confirm; Stop; Compute and the result table; Apply disabled for a
+  failed result; error alert. `CalibratePage.test.tsx`: the section shows with rgbd and not without.
 
 ## Acceptance conditions
 
-
+- a1: section tests pass (confirm dialogs gate every motion call) [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/calibrate/HeadArmCalibration.test.tsx]
+- a2: the page renders the section with rgbd only [evidence: command:cd nodes/web_ui/frontend && npx vitest run src/calibrate/CalibratePage.test.tsx]
+- a3: type check, lint and build pass [evidence: command:cd nodes/web_ui/frontend && npx tsc --noEmit && npm run lint && npm run build]
+- a4: Apply is offered only for a passed result [evidence: judgement]
 
 ## Files
 
@@ -38,17 +64,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `HeadArmCalibration` component; uses `headArmApi.ts`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The user runs the head-from-arm calibration from a browser, step by step, confirming every big-joint motion, and
+applies only a passing result.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `HeadArmCalibration.test.tsx` and the page test first; run them: red.
+- Implement; run `cd nodes/web_ui/frontend && npx vitest run src/calibrate/HeadArmCalibration.test.tsx src/calibrate/CalibratePage.test.tsx && npx tsc --noEmit && npm run lint && npm run build`;
+  expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The node enforces the confirms too (head-arm-sequence-http-api); the dialogs are the user's OK, not the only guard.
+- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).

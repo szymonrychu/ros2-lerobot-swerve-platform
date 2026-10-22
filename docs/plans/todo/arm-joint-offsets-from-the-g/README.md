@@ -39,7 +39,7 @@ delivered (head_arm sessions, still capture, sequencer, pose check, head-from-ar
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+Estimate: 210 min | Actual: 0 min | Remaining estimate: 210 min
 
 ## Review
 

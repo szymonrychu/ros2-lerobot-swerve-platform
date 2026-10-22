@@ -23,11 +23,29 @@ provides: []
 
 ## Requirement
 
+Hardware prerequisite only the user can do (design D8, D12, D15; approvals H2, H6). The pose set (arm-board-pose-set)
+and the tilt range (head-tilt-range-widened) wait for it.
 
+- Write `docs/runbooks/head-arm-calibration.md` with a `## Hardware` section listing what the user does and what is
+  recorded:
+  1. The 6x5 ChArUco board (`models/charuco-6x5-40mm.3mf`/`.pdf`, about 250 x 210 mm with margins, the board used for
+     the RGB-D calibration) on a clip that holds it rigidly on the fixed jaw, so the board cannot slip during the
+     sequence; the gripper closed on the clip at most half open (the roll rule). Record the clip, the board's outer
+     size and margin, and its mass (the arm carries it at speed_scale <= 0.3).
+  2. The approximate board frame pose in `gripper_link` (board origin = the first inner corner of the ChArUco grid, as
+     `board_corners_3d`): translation in mm and rotation in deg, measured with a ruler against the jaw (the fit refines
+     it; the safety check uses it with its margin, so it must be within about 1 cm and 5 deg).
+  3. The tilt-down angle the reprinted mount allows without touching the body, the lidar or the ToF cable (checked by
+     the user by hand with the head torque off, or the user's own slow test), and whether the camera/ToF bracket
+     changed since the 2026-10-21 RGB-D calibration (if it changed, the RGB-D calibration is redone first).
+  4. That the robot stays docked and charging (no driving) and the area around the arm is clear during the sequence.
+- Ask the user for each item and record the answers (date, measured values) in the section. Until the user confirms,
+  report the task `blocked` with `whoCanClear: user` and the list above; never fill in values the user did not give.
 
 ## Acceptance conditions
 
-
+- a1: the runbook has a Hardware section with the user's recorded answers [evidence: doc-section:docs/runbooks/head-arm-calibration.md#Hardware]
+- a2: the user confirmed the clip, the board pose on the jaw and the tilt-down limit [evidence: judgement]
 
 ## Files
 
@@ -35,17 +53,20 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `docs/runbooks/head-arm-calibration.md` `## Hardware` (read by arm-board-pose-set and head-tilt-range-widened).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The board clip, its pose on the jaw and the mount's tilt limit are recorded from the user, so the pose set and the
+safety check use real geometry.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the section; ask the user; record the answers; commit `docs: head and arm calibration hardware prerequisites`.
+- Run `test -f docs/runbooks/head-arm-calibration.md && grep -q '^## Hardware' docs/runbooks/head-arm-calibration.md`;
+  expect exit 0.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- No robot motion in this task.
+- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).

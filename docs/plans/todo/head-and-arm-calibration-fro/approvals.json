@@ -1,180 +1,107 @@
 [
   {
-    "id": "A1",
-    "text": "Head calibrate: floor ChArUco board at 3-4 spots over a pan/tilt grid driven by the node, one fit of head height, mount roll/pitch, tilt zero and camera lever, applied as a head_chain override read by head_state_publisher, mcp_server HeadKinematics and front camera, and the web UI.",
-    "decisions": [
-      "D1",
-      "D2",
-      "D3",
-      "D5",
-      "D6",
-      "D8",
-      "D11"
-    ],
+    "id": "H1",
+    "text": "User 2026-10-22: calibrate the head position/angles based on the arm position/angles (the arm is trusted as calibrated): the solve fits the head chain (mount x/y/z, yaw/pitch/roll, pan zero, tilt zero, tilt roll as observable) from the 6x5 ChArUco board clipped to the gripper, seen by the head camera over a scripted set of arm poses, with the floor-fit values as prior/cross-check.",
+    "decisions": ["D1", "D2", "D3", "D4", "D6"],
     "tasks": [
       "calib-config-and-view-types",
-      "urdf-chain-fk-core",
-      "head-chain-override-format",
-      "head-chain-board-solver",
+      "head-from-arm-board-solver",
       "session-kinds-joint-poses",
       "joint-state-still-capture",
+      "head-arm-compute-and-apply"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H2",
+    "text": "Arm safety (project rules): least dramatic joints first; any pose moving shoulder_pan, shoulder_lift or elbow needs the user's explicit OK at run time (UI confirmation); every scripted pose FK-checked against self-collision with the robot body and head; wrist roll only half-open and lifted; negative elbow stretches; the existing 6x5 board is the gripper board; arm motion only through mcp_server's guarded tools; no driving (robot charging).",
+    "decisions": ["D7", "D8", "D9", "D15"],
+    "tasks": [
+      "board-on-gripper-hardware-st",
       "robot-mcp-client",
-      "head-grid-capture-sequence",
-      "head-chain-compute-apply",
-      "sequence-http-api",
-      "head-state-publisher-chain",
-      "mcp-head-kinematics-applied",
-      "mcp-front-camera-applied",
-      "web-ui-applied-head-urdf",
+      "arm-pose-safety-check",
+      "arm-board-pose-set",
+      "head-arm-pose-capture-sequen",
+      "head-arm-sequence-http-api",
+      "head-arm-calibrate-ui-sectio",
       "calib-ansible-deploy-config"
     ],
     "status": "approved"
   },
   {
-    "id": "A2",
-    "text": "Arm calibrate: small ChArUco plate on the gripper seen by the head; arm moves start small (wrist/elbow), bigger joints only with the user's OK; fits shoulder_lift, elbow, wrist_flex, wrist_roll offsets and head yaw/x/y with the arm as yaw reference; output is a joint_offsets_rad snippet for review and commit, the head part applied.",
-    "decisions": [
-      "D1",
-      "D2",
-      "D4",
-      "D5",
-      "D6",
-      "D7",
-      "D8"
-    ],
+    "id": "H3",
+    "text": "The result must pass held-out validation limits before Apply (like the floor fit); a result over any limit cannot be applied.",
+    "decisions": ["D4", "D5"],
     "tasks": [
-      "arm-offsets-plate-solver",
-      "arm-pose-capture-sequence",
-      "arm-offsets-compute-apply",
-      "sequence-http-api"
+      "head-from-arm-board-solver",
+      "head-arm-compute-and-apply",
+      "head-arm-sequence-http-api",
+      "head-arm-calibrate-ui-sectio"
     ],
     "status": "approved"
   },
   {
-    "id": "A3",
-    "text": "Two buttons on the web UI Calibrate page: Head calibrate, then Arm calibrate.",
-    "decisions": [
-      "D9"
+    "id": "H4",
+    "text": "The applied result reaches every head-chain consumer through the existing head_chain.json override: head_state_publisher, mcp_server HeadKinematics and front camera (no mcp_server restart), and the web UI head URDF.",
+    "decisions": ["D6", "D10"],
+    "tasks": [
+      "head-arm-compute-and-apply",
+      "mcp-head-kinematics-applied",
+      "mcp-front-camera-applied",
+      "web-ui-applied-head-urdf"
     ],
+    "status": "approved"
+  },
+  {
+    "id": "H5",
+    "text": "A guided step-by-step Head from arm section on the web UI Calibrate page (step cards for the physical steps, confirms, result, Apply).",
+    "decisions": ["D11", "D16"],
     "tasks": [
       "calib-frontend-api",
-      "head-calibrate-ui-section",
-      "arm-calibrate-ui-section"
+      "head-arm-calibrate-ui-sectio",
+      "head-arm-pose-capture-sequen"
     ],
     "status": "approved"
   },
   {
-    "id": "A4",
-    "text": "Runs after the head mount reprint allowing >= 60 deg tilt-down; the existing 6x5 ChArUco board doubles as the gripper plate; the tilt range is widened once the reprint is mounted.",
-    "decisions": [
-      "D10"
-    ],
+    "id": "H6",
+    "text": "Gate Q1 (kept): after the reprint the head tilt range is -30..+60 deg (+ is down) everywhere it is pinned, or the smaller tilt-down limit the user records.",
+    "decisions": ["D12"],
     "tasks": [
-      "hardware-reprint-and-plate",
+      "board-on-gripper-hardware-st",
       "head-tilt-range-widened"
     ],
     "status": "approved"
   },
   {
-    "id": "A5",
-    "text": "Synthetic-scene tests for both fits, READMEs and tests/README.md, and a runbook executed on the robot with real numbers.",
-    "decisions": [
-      "D8",
-      "D12"
-    ],
+    "id": "H7",
+    "text": "Synthetic-scene tests for the fit and the pose check, READMEs and tests/README.md, and a runbook executed on the robot with real numbers.",
+    "decisions": ["D13"],
     "tasks": [
-      "head-chain-board-solver",
-      "arm-offsets-plate-solver",
+      "head-from-arm-board-solver",
+      "arm-pose-safety-check",
+      "arm-board-pose-set",
       "calib-docs-and-test-index",
       "calib-robot-runbook"
     ],
     "status": "approved"
   },
   {
-    "id": "G1",
-    "text": "Gate Q2: reuse the existing 6x5 ChArUco board (models/charuco-6x5-40mm, scripts/markers_generate.yaml charuco:, ids 0-14) as the gripper plate; no new plate is generated. Floor and gripper captures are separate sessions (head_chain, arm) with the one physical board, so ids never clash.",
-    "decisions": [
-      "D13"
-    ],
+    "id": "H8",
+    "text": "User 2026-10-22: the arm joint offset solve (arm-offsets-plate-solver, arm-offsets-compute-apply, arm-calibrate-ui-section) moves to a separate follow-up epic via ticket.py (arm-joint-offsets-from-the-g, blocked by this one), not deleted, so nothing is lost.",
+    "decisions": ["D14"],
     "tasks": [
-      "calib-config-and-view-types",
+      "calib-docs-and-test-index"
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "H9",
+    "text": "User 2026-10-22: Python stays in web_ui, mcp_server and the existing Python calibration code; no rclpy probes on the client.",
+    "decisions": ["D6"],
+    "tasks": [
       "joint-state-still-capture",
-      "arm-pose-capture-sequence",
-      "hardware-reprint-and-plate"
-    ],
-    "status": "approved"
-  },
-  {
-    "id": "G2",
-    "text": "Gate Q3: the plate rotation is not observable apart from the wrist_roll zero; by default the wrist_roll zero is fixed from the servo neutral the user records with the jaws aligned by eye and the solver fits the plate rotation; an optional CAD rotation fixes the plate rotation and frees wrist_roll. Accuracy consequence in D4.",
-    "decisions": [
-      "D14"
-    ],
-    "tasks": [
-      "calib-config-and-view-types",
-      "arm-offsets-plate-solver"
-    ],
-    "status": "approved"
-  },
-  {
-    "id": "G3",
-    "text": "Gate: the calibration is a guided process (UI step cards: place or move the board by hand, clip the board to the jaw, Start, Next spot, Compute, Apply); automation is kept only where it cuts work without adding risk (head grid per spot, scripted arm poses); capture, solve, apply and limits unchanged.",
-    "decisions": [
-      "D15"
-    ],
-    "tasks": [
-      "head-calibrate-ui-section",
-      "arm-calibrate-ui-section",
-      "head-grid-capture-sequence"
-    ],
-    "status": "approved"
-  },
-  {
-    "id": "G4",
-    "text": "Gate Q4: tiers 0 (wrist roll) and 1 (wrist flex and elbow, small amplitude) run without a confirm; tier 2 (shoulder joints) keeps allow_big_joints behind a confirm dialog.",
-    "decisions": [
-      "D16"
-    ],
-    "tasks": [
-      "arm-pose-capture-sequence",
-      "sequence-http-api",
-      "calib-frontend-api",
-      "arm-calibrate-ui-section"
-    ],
-    "status": "approved"
-  },
-  {
-    "id": "G5",
-    "text": "Gate Q1: after the reprint the head tilt range is -30..+60 deg (+ is down) everywhere it is pinned.",
-    "decisions": [
-      "D17"
-    ],
-    "tasks": [
-      "head-tilt-range-widened"
-    ],
-    "status": "approved"
-  },
-  {
-    "id": "G6",
-    "text": "Gate Q5: the 0.5 m drive-straight yaw check is optional, only with the user's explicit OK, slow, base lease, mcp move_relative; board-spot moves are manual.",
-    "decisions": [
-      "D18"
-    ],
-    "tasks": [
       "calib-robot-runbook"
-    ],
-    "status": "approved"
-  },
-  {
-    "id": "A6",
-    "text": "User D1 2026-10-21 'Both, quick fit first': the blocker epic head-chain-floor-plane-fit-a delivers head-chain-override-format, head-state-publisher-chain and urdf-chain-fk-core (contracts head-chain-override and urdf-chain-fk move there) and applies a ToF floor-plane head chain fit as head_chain.json; here those three tasks only confirm the delivered parts, and the board head fit refines the applied chain (head-chain-compute-apply starts from the applied head_chain.json)",
-    "decisions": [
-      "D19"
-    ],
-    "tasks": [
-      "head-chain-override-format",
-      "head-state-publisher-chain",
-      "urdf-chain-fk-core"
     ],
     "status": "approved"
   }

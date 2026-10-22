@@ -1,0 +1,9 @@
+[
+  {
+    "id": "M1",
+    "text": "User 2026-10-22: the arm joint offset solve (arm-offsets-plate-solver, arm-offsets-compute-apply, arm-calibrate-ui-section) moves here from head-and-arm-calibration-fro, not deleted, so nothing is lost.",
+    "decisions": ["D1"],
+    "tasks": ["arm-offsets-plate-solver", "arm-offsets-compute-apply", "arm-calibrate-ui-section"],
+    "status": "approved"
+  }
+]

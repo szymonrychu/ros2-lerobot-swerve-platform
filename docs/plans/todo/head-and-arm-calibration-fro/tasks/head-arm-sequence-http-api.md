@@ -23,11 +23,42 @@ provides: []
 
 ## Requirement
 
+HTTP routes for the guided head-from-arm calibration (owns the `head-arm-calib-api` contract; design D6, D8;
+approvals H2, H3). Same error body `{ok: false, message}` and status mapping as `floor_api.py` (InvalidId and NotFound
+404, Busy and NotApplicable 409, a refused step 400).
 
+- New `head_rgbd_calibration/head_arm_api.py`, `head_arm_router(sequencer, capture, sweep, job, store, cfg, run) ->
+  APIRouter` with prefix `/api/head-arm`:
+  - `GET /state` -> `{sequence: Sequencer.state(), applied: floor_results.applied_head_chain(cfg)}`.
+  - `POST /sequence/base` body `{confirm: bool}` -> state; 400 without `confirm: true`; 409 while a capture, a compute,
+    a floor sweep or a sequence runs.
+  - `POST /sequence/board-attached` -> state; 409 outside phase `waiting_board`.
+  - `POST /sequence/big-joints` body `{confirm: bool}` -> state; 409 outside phase `waiting_big_joints`.
+  - `POST /sequence/stop` -> state (also when idle).
+  - `POST /park` body `{board_removed: bool}` -> state; 400 without `board_removed: true`; 409 while running.
+  - `GET /sessions` (the `head_arm` sessions with `{id, created, views, arm_poses, results}`), `POST
+    /sessions/{sid}/compute` (409 while a sequence runs), `GET /sessions/{sid}/results/{rid}`, `POST
+    /sessions/{sid}/results/{rid}/apply` (409 for a failed result).
+- `__main__.py`: builds `RobotClient` and `Sequencer` (head URDF `floor_results.base_urdf`, arm URDF
+  `cfg.arm_urdf_file`); the floor sweep's `blocked` also names a running sequence and the sequencer's `blocked` names a
+  running capture, compute or floor sweep; includes the router; shutdown stops the sequence first (the arm holds), then
+  the capture, the sweep, the job and the node.
+- Fixtures in `tests/fixtures/api/`: new `head_arm_state.json`, `head_arm_result.json`, `head_arm_sessions.json`;
+  `tests/contract.py` checks them like the floor fixtures.
+- New `tests/test_head_arm_api.py` with a fake sequencer: every route, bodies matching the fixtures (contract), the
+  400 and 409 cases, `confirm`/`board_removed` passed through only when true, compute and apply through
+  `head_arm_results`. `tests/test_main.py`: wiring and shutdown order.
+- The whole node suite passes.
 
 ## Acceptance conditions
 
-
+- a1: route bodies match the contract fixtures [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_api.py::test_bodies_match_fixtures]
+- a2: base move and park are refused without their confirms [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_api.py::test_confirms_required]
+- a3: busy and wrong-phase requests answer 409 [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_api.py::test_busy_and_phase_conflicts]
+- a4: a failed result cannot be applied over HTTP [evidence: test:nodes/head_rgbd_calibration/tests/test_head_arm_api.py::test_apply_failed_result_conflict]
+- a5: shutdown stops the sequence first [evidence: test:nodes/head_rgbd_calibration/tests/test_main.py::test_shutdown_stops_sequence_first]
+- a6: the node suite passes [evidence: command:cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q]
+- a7: node lint passes [evidence: command:cd nodes/head_rgbd_calibration && uv run poe lint]
 
 ## Files
 
@@ -42,17 +73,21 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+- `/api/head-arm/*` routes and the three fixtures (part `head-arm-calib-api`); the web UI proxies them under
+  `/api/calibration/rgbd/` like the floor routes.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The web UI can drive the guided head-from-arm calibration, with every confirm and refusal enforced by the node, not
+only by the browser.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the fixtures and `tests/test_head_arm_api.py` first; run them: red.
+- Implement the router and the wiring; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv run poe lint`;
+  expect every test passed and lint clean.
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Model it on `floor_api.py`; keep the floor routes unchanged.
+- Design: `ticket.py path head-and-arm-calibration-fro design` (decisions D1-D16, review focus).
