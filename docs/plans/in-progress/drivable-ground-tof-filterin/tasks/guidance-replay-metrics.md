@@ -84,6 +84,10 @@ Uses replay-format-v2, scene-truth and guidance-config (topic and enabled keys).
 - implement them in `replay_fixture.hpp` and the harness; the command PASSES
 - update the README metric definitions; commit `test(ground_estimator_cpp): guidance replay metrics and harness`
 
+## Ruling
+
+- 2026-10-22 accepted: verifier agent died; verification: Summary 397 tests, 0 failures, cpp-node-test PASS
+
 ## Notes
 
 Restamping and TF filling follow run 4's `run_frame` pattern in `test_replay.cpp`; the pairs interleave with the clouds by stamp. The derived XYZRGB cloud mimics `nodes/head_rgbd_cpp/src/core/cloud.cpp:build_cloud` (packed float rgb, see colour.hpp `to_labelled_msg` for the packing used here).

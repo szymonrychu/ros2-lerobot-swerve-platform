@@ -10,5 +10,11 @@
     "accept": true,
     "reason": "verifier agent died; verification on HEAD: Summary 395 tests, 0 failures, cpp-node-test PASS",
     "at": "2026-10-22T17:02:41Z"
+  },
+  {
+    "task": "guidance-replay-metrics",
+    "accept": true,
+    "reason": "verifier agent died; verification: Summary 397 tests, 0 failures, cpp-node-test PASS",
+    "at": "2026-10-22T17:02:41Z"
   }
 ]
