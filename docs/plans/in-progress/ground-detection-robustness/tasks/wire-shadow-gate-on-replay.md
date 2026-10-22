@@ -1,6 +1,6 @@
 ---
 title: Wire shadow gate on replay
-status: escalated
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "On the user's real scene the box is a stable obstacle and no fake ramp appears behind it."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/test/core/test_config.cpp]
@@ -12,8 +12,7 @@ model: sonnet
 estimate: 90
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--wire-shadow-gate-on-replay
-branch: ground-detection-robustness--wire-shadow-gate-on-replay
+branch: main
 verified_head: "not reported: verify-task.py had not printed its JSON when this relay stopped"
 run: ground-detection-robustness
 provides: []
