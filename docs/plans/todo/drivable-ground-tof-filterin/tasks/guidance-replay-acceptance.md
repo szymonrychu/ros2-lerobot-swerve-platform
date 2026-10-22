@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "The approved edge, no-return and safety numbers locked in on real recordings"
 files: [nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/src/core/edge_points.cpp, nodes/ground_estimator_cpp/src/core/no_return.cpp, nodes/ground_estimator_cpp/test/core/test_edge_points.cpp, nodes/ground_estimator_cpp/test/core/test_no_return.cpp, nodes/ground_estimator_cpp/README.md]
 verify: "scripts/cpp-node-test.sh ground_estimator_cpp && uv run pytest tests/test_ground_estimator_deploy.py -q && uv run poe test-ansible"
-depends_on: [guidance-node-wiring, capture-gated-recordings]
+depends_on: [guidance-node-wiring, capture-gated-recordings, ground-estimator-live-scene]
 owns: []
 uses: [guided-node, guidance-replay-harness, gated-fixtures]
 model: opus
@@ -32,7 +32,7 @@ Lock in the guided acceptance on the real gated recordings (design D1, D3, D5, D
   - every scene: `no_return_stray_share <= 0.05` (tolerance 0.10 m, one cell, my call); `stray_lethal_share(frames, truth) <= 0.05`; `churn_share < 0.10` (run 4's metric, no ROI) with the no_return areas included.
   - empty: `empty_lethal_share <= 0.05`, and no no_return area in more than 5 % of frames.
   - rule unchanged (D15): the loaded shipped config has `traversability.max_step_fraction == 0.3333` and `max_slope_deg == 15`.
-- Run 4's replay acceptance tests on its own fixtures keep passing unchanged.
+- Run 4's replay acceptance tests on its own fixtures keep passing unchanged, and so do the `ReplayLiveScene.<Scene>` tests of ground-estimator-live-scene (guidance off; design D23): the guidance never undoes the live-scene numbers.
 - Metric names: the truth overloads and the new metrics are defined in guidance-replay-metrics; `churn_share` and `plane_share` come unchanged from run 4 (ground-detection-robustness/replay-fixtures-and-test).
 - Tuning allowed only through the guidance keys within their validated ranges (`config/ground_estimator.yaml`, mirrored in `ansible/group_vars/client.yml`), and through fixes in `src/core/edge_points.cpp` or `src/core/no_return.cpp` with their unit tests still green. A threshold above is never loosened. When a metric cannot be met, the failing metric and its value are the finding.
 - README `nodes/ground_estimator_cpp/README.md` `## RGB and amplitude guidance`: a before/after table per scene (baseline, gated, guided) for every metric above, and the final key values.
@@ -77,3 +77,5 @@ No new interfaces: replay assertions over part guidance-replay-harness on part g
 - Deploy with `scripts/deploy-nodes.sh client ground_estimator_cpp costmap_zones web_ui` (orchestrator; mcp_server separately).
 
 - 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
+
+- 2026-10-22 amended: planner: umbrella re-plan (approval G1, D23): the live-scene replay tests of ground-estimator-live-scene keep passing with the guidance on
