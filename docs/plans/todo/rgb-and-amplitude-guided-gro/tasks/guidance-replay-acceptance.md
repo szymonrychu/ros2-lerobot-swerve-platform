@@ -26,13 +26,14 @@ provides: []
 Lock in the guided acceptance on the real gated recordings (design D1, D3, D5, D15; goals G3, G4, G5). It uses parts guided-node, guidance-replay-harness and gated-fixtures.
 
 - `test/test_replay.cpp` `ReplayGuided.<Scene>` tests replay each gated fixture with `Guidance::on` and with `Guidance::off`, print both lines, and assert. Frames are those after warm-up, with x < 0.37 excluded.
-  - home and box: `box_front_edge_error_m <= 0.02`; `box_width_error_m <= 0.02`; both strictly smaller than with guidance off; `outside_lethal_frames_share <= 0.05`; `box_lethal_share >= 0.95`.
-  - home and ramp (the board is in view): `board_lethal_frames == 0` and `board_lethal_points_frames == 0`. The textured board never gets a lethal point.
-  - ramp: `ramp_lethal_frames == 0` and `no_return_cover_share >= 0.90`.
-  - every scene: `no_return_stray_share <= 0.05`; `stray_lethal_share <= 0.05`; `churn_share < 0.10` with the no_return areas included.
+  - home and box: `box_front_edge_error_m <= 0.02`; `box_width_error_m <= 0.02`; both strictly smaller than with guidance off; `outside_lethal_frames_share <= 0.05`; `box_lethal_share(frames, truth) >= 0.95`.
+  - home and ramp (the board is in view): `board_lethal_frames(frames, truth) == 0`. The textured board never gets a lethal point.
+  - ramp: `ramp_lethal_frames(frames, truth) == 0` and `no_return_cover_share >= 0.90`.
+  - every scene: `no_return_stray_share <= 0.05` (tolerance 0.10 m, one cell, my call); `stray_lethal_share(frames, truth) <= 0.05`; `churn_share < 0.10` (run 4's metric, no ROI) with the no_return areas included.
   - empty: `empty_lethal_share <= 0.05`, and no no_return area in more than 5 % of frames.
   - rule unchanged (D15): the loaded shipped config has `traversability.max_step_fraction == 0.3333` and `max_slope_deg == 15`.
 - Run 4's replay acceptance tests on its own fixtures keep passing unchanged.
+- Metric names: the truth overloads and the new metrics are defined in guidance-replay-metrics; `churn_share` and `plane_share` come unchanged from run 4 (ground-detection-robustness/replay-fixtures-and-test).
 - Tuning allowed only through the guidance keys within their validated ranges (`config/ground_estimator.yaml`, mirrored in `ansible/group_vars/client.yml`), and through fixes in `src/core/edge_points.cpp` or `src/core/no_return.cpp` with their unit tests still green. A threshold above is never loosened. When a metric cannot be met, the failing metric and its value are the finding.
 - README `nodes/ground_estimator_cpp/README.md` `## RGB and amplitude guidance`: a before/after table per scene (baseline, gated, guided) for every metric above, and the final key values.
 
@@ -74,3 +75,5 @@ No new interfaces: replay assertions over part guidance-replay-harness on part g
 - If a metric cannot be met, report the metric and its value as the finding; never loosen a threshold.
 - The gripper zone x < 0.37 stays excluded (the self-filter margin, not this epic).
 - Deploy with `scripts/deploy-nodes.sh client ground_estimator_cpp costmap_zones web_ui` (orchestrator; mcp_server separately).
+
+- 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
