@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "The agent's front camera tools become calibrated: pixel rays use the applied intrinsics and the measured camera mount."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/camera_scene.py, ansible/group_vars/client.yml, nodes/mcp_server/tests/test_camera_config.py, nodes/mcp_server/tests/test_camera_scene_head.py]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_config.py tests/test_camera_scene_head.py tests/test_config.py -q && uv run poe lint"
-depends_on: [mcp-head-kinematics-applied]
+depends_on: [mcp-head-kinematics-applied, arm-board-pose-set]
 owns: []
 uses: [head-chain-override]
 model: ""
@@ -23,20 +23,11 @@ provides: []
 
 ## Requirement
 
-The mcp_server front camera (head RGB) uses the applied head_camera_joint and the applied intrinsics (design D5; today `cameras.front` duplicates head_camera_joint with null intrinsics, client.yml).
 
-- `ansible/group_vars/client.yml` mcp_server `cameras.front`: `parent_frame: head_camera_link`, mount `parent_frame: head_camera_link` with x, y, z, roll, pitch, yaw all 0 (the applied `head_camera_joint` is then the mount, through the reloading HeadKinematics), intrinsics `calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml`; the comment explains both.
-- `nodes/mcp_server/mcp_server/config.py` (and `camera_scene.py` where the intrinsics are used): the front intrinsics file is read lazily at each camera call with an mtime cache, so an apply is picked up without a restart; a missing file means the camera tools answer 'not calibrated' (warning once), never a crash at startup. When the file's image size differs from the front image size with the same aspect ratio (within 0.5 %), fx and cx scale by the width ratio and fy and cy by the height ratio (distortion unchanged); a different aspect ratio keeps the front camera uncalibrated with a warning naming both sizes. Read the front stream size from the head_camera_cpp config in client.yml and pin it in the test.
-- Tests: `tests/test_camera_config.py`: the client.yml front block validates (parent is a head URDF link); scaling from 576x324 to the front size doubles or scales K exactly; different aspect ratio -> uncalibrated; missing file -> uncalibrated. `tests/test_camera_scene_head.py`: the front camera pose with a zero mount on head_camera_link equals the old mount values at the URDF chain, and moves with an applied head_camera_joint.
 
 ## Acceptance conditions
 
-- a1: applied intrinsics are scaled to the front image size [evidence: test:nodes/mcp_server/tests/test_camera_config.py::test_front_intrinsics_scaled_to_stream_size]
-- a2: a missing or mismatched intrinsics file leaves the front camera uncalibrated [evidence: test:nodes/mcp_server/tests/test_camera_config.py::test_front_intrinsics_missing_or_mismatched_uncalibrated]
-- a3: the front camera pose follows the applied head_camera_joint [evidence: test:nodes/mcp_server/tests/test_camera_scene_head.py::test_front_pose_follows_applied_head_camera_joint]
-- a4: camera and config tests pass [evidence: command:cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_config.py tests/test_camera_scene_head.py tests/test_config.py -q]
-- a5: head consistency tests pass [evidence: command:uv run --frozen pytest tests/test_head_config_consistency.py -q]
-- a6: mcp_server lint passes [evidence: command:cd nodes/mcp_server && uv run poe lint]
+
 
 ## Files
 
@@ -48,18 +39,17 @@ The mcp_server front camera (head RGB) uses the applied head_camera_joint and th
 
 ## Interfaces
 
-- client.yml `cameras.front` on `head_camera_link` with a zero mount and the applied intrinsics file; lazy intrinsics load with mtime cache and size scaling.
+Signatures, schemas and contracts this task builds or must keep, with file:symbol.
 
 ## Expected outcome
 
-The agent's front camera tools become calibrated: pixel rays use the applied intrinsics and the measured camera mount.
+What is true and observable when the task is done.
 
 ## Steps
 
-- Tests first (red), implement, verify.
-- Run `cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_config.py tests/test_camera_scene_head.py tests/test_config.py -q && uv run poe lint`; expect every test passed and lint clean.
+Test first. One step per bullet, with the exact command and the output to expect.
+A retirement test asserts on `git ls-files <path>`, never on the filesystem.
 
 ## Notes
 
-- Design: the epic design.md (`ticket.py path head-and-arm-calibration-fro design`) (decisions D1-D12, review focus).
-
+Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
