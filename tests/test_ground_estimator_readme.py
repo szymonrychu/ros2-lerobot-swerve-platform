@@ -115,3 +115,18 @@ def test_readme_documents_labels_and_the_obstacle_rule(readme: str) -> None:
     rule = readme.split("## Obstacle or warning", 1)[1].split("\n## ", 1)[0]
     for phrase in ("one third", "wheel diameter", "max_slope_deg", "costmap_zones", "slow-down"):
         assert phrase in rule, phrase
+
+
+def test_readme_documents_robustness(readme: str) -> None:
+    assert re.search(r"^## Robustness\s*$", readme, re.M)
+    section = readme.split("## Robustness", 1)[1].split("\n## ", 1)[0]
+    for phrase in (
+        "max_spread_m",
+        "lethal_min_points",
+        "slope_min_cells",
+        "hysteresis",
+        "enter_frames",
+        "roll_error_deg",
+        "15 deg",
+    ):
+        assert phrase in section, phrase

@@ -95,7 +95,7 @@ into `temporal.cell_size_m` cells (so the cells stay put while the robot moves),
 height per cell and keeps the median of the last `temporal.window_frames` of those values, dropping values older than
 `temporal.max_age_s`. The points of a cell with at least `temporal.min_frames` values are moved along the plane normal
 to that height and segmentation, clusters, regions and the traversability rule run on them. The plane fit itself keeps
-the raw cloud. The rule (0.04 m step, 8 degrees slope) is unchanged.
+the raw cloud. The rule (0.04 m step, 15 degrees slope) is unchanged by the filter.
 
 Warm-up: a cell outputs nothing until it has `min_frames` values, so after start, after the plane is lost (the filter
 is reset then) or when the robot looks at new floor, obstacles and drops appear after `min_frames` / 10 Hz = 0.4 s with
@@ -126,13 +126,13 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `fit.candidate_band_m` | `0.15` | half-width of the band around the IMU plane that feeds the fit, metres, > distance_m |
 | `fit.max_range_m` | `2.5` | farthest point used for the fit, metres, > 0 |
 | `fit.hold_s` | `1.0` | seconds the last plane is kept when a fit fails, >= 0 |
-| `fit.smoothing` | `0.5` | weight of the new plane in the running estimate, 0 < v <= 1 (1 = no smoothing) |
+| `fit.smoothing` | `0.2` | weight of the new plane in the running estimate, 0 < v <= 1 (1 = no smoothing) |
 | `bands.obstacle_max_m` | `0.6` | obstacle band top above the plane, metres, > traversability max step |
 | `bands.drop_max_m` | `1.0` | drop band depth below the plane, metres, > traversability max step |
 | `bands.max_range_m` | `2.0` | farthest point published in the bands, metres, > 0 |
 | `traversability.wheel_radius_m` | `0.06` | wheel radius, metres, same as swerve_drive_controller wheel_radius_m |
 | `traversability.max_step_fraction` | `0.3333` | max rideable step as a fraction of the wheel diameter (0.04 m), 0 < v < 1 |
-| `traversability.max_slope_deg` | `8.0` | steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg |
+| `traversability.max_slope_deg` | `15.0` | steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg |
 | `traversability.edge_band_m` | `0.05` | width of the strip on each side of an edge that sets its step height, metres, > 0 |
 | `traversability.lethal_min_points` | `2` | fewest unclustered lethal points within edges.cluster_tolerance_m of each other for any to be lethal, 1..50 |
 | `warnings.frame` | `map` | frame of the published warning areas |
@@ -168,6 +168,32 @@ The spread in `temporal.max_spread_m` is computed over the per-frame cell median
 
 Measured bounds (24 fixed seeds, 8-frame window, `test_cell_median.cpp`): 8 values estimate a spread with ~25% scatter, so no limit separates 20 mm from 30 mm with certainty. Cells with 4..20 mm per-frame noise are visible in >= 95% of frames; cells with 30..42 mm temporal std are visible in <= 10% of cell-frames; cells with 43..90 mm are visible in <= 5% (not zero, the worst case is 43 mm). A single 20 mm cell is visible only ~85% of the time; the class hysteresis and lethal point gates downstream absorb those flickers.
 
+## Robustness
+
+How the node keeps noisy ToF returns from becoming marks (2026-10-21 capture: ~200 lethal points per frame on empty floor).
+
+- **Rule**: a surface is an obstacle above 0.04 m or steeper than 15 deg (`traversability.max_slope_deg`, was 8 deg: the
+  ~14 deg ramp is safe). `max_slope_deg` is bounded by the tilt_guard error limits (`slope.roll_error_deg` 15 and
+  `slope.pitch_error_deg` 20), not the warn limits; the config rejects a larger value. Exactly 15 deg is a warning.
+- **Temporal spread gate**: a cell whose robust spread of per-frame medians exceeds `temporal.max_spread_m` (0.025 m) is
+  gated: unknown, never lethal, never part of an edge, a step or a drop. It is known again when its spread falls back.
+  Gated cells are counted in `ground_temporal_gated_cells`.
+- **Median edge step**: a region's step is the median of |height| in the `traversability.edge_band_m` strip, not the p90,
+  so a 3 cm sill stays a warning and a 5 cm box stays an obstacle.
+- **Robust slope**: a Huber plane fit over one sample per `edges.slope_bin_m` bin. Fewer than `edges.slope_min_cells`
+  bins, or bins in a line, give `slope_known` false and slope 0 (never an obstacle by slope).
+- **Colour clusters** (label 3) are warning-only: never lethal, whatever their slope.
+- **Lethal points**: unclustered lethal points count only when at least `traversability.lethal_min_points` lie within
+  `edges.cluster_tolerance_m` of each other.
+- **Cell class hysteresis** (`hysteresis.*`): each fixed-frame cell keeps its class (free, warning, obstacle, drop) until
+  another class holds `hysteresis.enter_frames` of the last `hysteresis.window_frames` frames; leaving a class to a
+  less severe one needs `hysteresis.exit_frames`. At 10 Hz a new lethal cell therefore appears after 3 frames, a latency
+  of 0.3 s. Stable cells are counted in `ground_stable_lethal_cells` and `ground_stable_warning_cells`.
+- **Cell-aligned warning areas**: warning areas are built from the stable warning cells, so their polygons follow the
+  cell grid and do not churn with single frames. costmap_zones keys them by cell and publishes the masks only on change.
+- **Plane smoothing**: `fit.smoothing` is 0.2, so the plane follows the head slowly once the spread gate removed the
+  noise.
+
 ## Metrics
 
 Prometheus on `metrics_port`.
@@ -184,6 +210,9 @@ Prometheus on `metrics_port`.
 | `ground_obstacle_points` | gauge | points of the last obstacle cloud |
 | `ground_drop_points` | gauge | points of the last drop cloud |
 | `ground_temporal_cells` | gauge | cells the temporal median currently holds (0 when the plane is lost or temporal is disabled) |
+| `ground_temporal_gated_cells` | gauge | cells the temporal spread gate currently holds unknown |
+| `ground_stable_lethal_cells` | gauge | cells whose hysteresis class is lethal (obstacle or drop) |
+| `ground_stable_warning_cells` | gauge | cells whose hysteresis class is warning |
 | `ground_colour_mismatch_ratio` | gauge | floor-colour mismatch share of the floor band of the last labelled RGB-D cloud |
 | `ground_clouds_dropped_total` | counter, label `reason` | clouds or warning-area messages dropped, `reason` is `tf`, `no_plane_rgbd`, `no_map_tf` or `bad_input` |
 | `ground_labelled_clouds_total` | counter | labelled RGB-D clouds published |

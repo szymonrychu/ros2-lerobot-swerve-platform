@@ -2185,7 +2185,7 @@ Keeps the ground estimation docs consistent with the shipped config and the repo
 | `test_runbook_scripts_exist` | Every `scripts/...` path named in the runbook is tracked by git. |
 | `test_runbook_ground_topics_are_node_outputs` | Every `/ground/` topic in the runbook is a ground_estimator_cpp output under the configured namespace and is documented in the node README. |
 | `test_runbook_pins_the_rates_and_the_deploy_command` | The 10 / 1 / 2 Hz rates, TF drop and head joint_states records, the exact deploy command and the mcp_server session check. |
-| `test_runbook_scenes_cover_both_sides_of_the_rule` | Sills and drops of 3 and 5 cm, the 10 cm drop, box, ramps, red sheet, 0.04 m, 8 deg, CliffStop, the runtime layer toggles. |
+| `test_runbook_scenes_cover_both_sides_of_the_rule` | Sills and drops of 3 and 5 cm, the 10 cm drop, box, the 13 deg ramp, red sheet, 0.04 m, 15 deg, CliffStop, the runtime layer toggles. |
 | `test_memory_has_the_decision` | MEMORY.md has the Ground plane entry with its key terms. |
 | `test_topic_flow_names_the_node_and_the_ground_topics` | topic_flow.puml names ground_estimator_cpp, its three inputs and the four /ground topics. |
 | `test_tests_readme_lists_every_ground_test_file` | This file lists every `tests/test_*ground*.py` and the ground tests of the other suites. |
@@ -2209,6 +2209,7 @@ Keeps `nodes/ground_estimator_cpp/README.md` in sync with the node. Parses `STAT
 | `test_readme_names_every_config_key` | Every key of the shipped yaml appears in the README. |
 | `test_readme_names_every_state_key` | Every `STATE_KEYS` entry appears in the README. |
 | `test_readme_names_every_metric` | Every `ground_*` metric name of the node sources appears in the README. |
+| `test_readme_documents_robustness` | The `## Robustness` section names `max_spread_m`, `lethal_min_points`, `slope_min_cells`, `hysteresis`, `enter_frames`, `roll_error_deg` and `15 deg`. |
 | `test_readme_documents_labels_and_the_obstacle_rule` | Label values 0..4 are tabled and the obstacle-or-warning rule names one third of the wheel diameter, `max_slope_deg`, costmap_zones and the slow-down. |
 
 ### `test_ground_estimator_deploy.py`
