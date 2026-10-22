@@ -205,7 +205,7 @@ def mount_xyz(text: str) -> list[float]:
     return vec(joint.find("origin").get("xyz"))  # type: ignore[union-attr]
 
 
-def test_override_applied_to_served_head_urdf(tmp_path: Path) -> None:
+def test_served_head_urdf_has_applied_chain(tmp_path: Path) -> None:
     """A valid head_chain.json changes the served head URDF, no-store."""
     write_chain(tmp_path, [0.2, 0.11, 0.33])
     resp = make_client(tmp_path).get("/api/urdf/head.urdf")
@@ -215,7 +215,7 @@ def test_override_applied_to_served_head_urdf(tmp_path: Path) -> None:
     assert mount_xyz(resp.text) == pytest.approx([0.2, 0.11, 0.33])
 
 
-def test_no_dir_serves_file_bytes() -> None:
+def test_head_urdf_raw_without_applied_dir() -> None:
     """Without head_applied_calibration_dir the file is served unchanged."""
     resp = make_client(None).get("/api/urdf/head.urdf")
     assert resp.content == HEAD_URDF.read_bytes()
@@ -249,7 +249,7 @@ def test_invalid_override_serves_chain_and_logs(tmp_path: Path) -> None:
     assert any(entry["log_level"] == "warning" and "head_chain.json" in str(entry) for entry in logs)
 
 
-def test_other_urdf_files_untouched(tmp_path: Path) -> None:
+def test_other_urdfs_untouched(tmp_path: Path) -> None:
     """Non-head URDF files and traversal checks are unchanged."""
     write_chain(tmp_path, [0.2, 0.11, 0.33])
     client = make_client(tmp_path)
