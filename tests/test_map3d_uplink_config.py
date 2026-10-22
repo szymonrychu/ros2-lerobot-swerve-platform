@@ -192,7 +192,7 @@ def test_readme_documents_purpose_lazy_and_measuring() -> None:
 
 
 def test_every_topic_tools_relay_publishes_with_its_contract_qos(specs, contract) -> None:
-    """Without an override topic_tools copies the client publisher's QoS (e.g. reliable scans over Wi-Fi), not the contract's."""
+    """topic_tools copies the client publisher QoS (e.g. reliable scans over Wi-Fi) unless the contract QoS is set."""
     for stream in contract.uplink + contract.downlink:
         if stream.transport != "raw":
             continue
