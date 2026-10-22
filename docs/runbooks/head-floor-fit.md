@@ -87,18 +87,18 @@ If a check fails, repeat the sweep (Start sweep again); do not hand-edit `head_c
 
 ## Results
 
-Filled when the orchestrator runs this with the user after merge.
-
-Date:
+Date: 2026-10-22, garage (tiled floor sloping to a central drain), floor cleared and lit by the user.
 
 | Check | Number | Result |
 |---|---|---|
-| Deploy (failed=0, units active) | | |
-| Sweep (observations, skipped) | | |
-| Fit passed (pose-mean height RMS mm, normal RMS deg; per-observation RMS) | | |
-| Apply (units restarted) | | |
-| Home: plane height (0 +- 0.01 m), before / after | | |
-| Home: plane_vs_base (< 0.6 deg), before / after | | |
-| Home: obstacle points (< 10), before / after | | |
-| Pose 2: plane height / plane_vs_base / obstacle points | | |
-| Pose 3: plane height / plane_vs_base / obstacle points | | |
+| Deploy (failed=0, units active) | head_rgbd_calibration failed=0 (grid and limit commits 9a24d694, 0f2401df) | PASS |
+| Sweep (observations, skipped) | floor-20261022-064337: 179 observations, 0 of 18 poses skipped | PASS |
+| Fit passed (pose-mean height RMS mm, normal RMS deg; per-observation RMS) | r-20261022-065211: 6.0 mm, 0.83 deg; 8.8 mm, 1.30 deg; sigmas <= 0.19 deg. Fitted mount z 0.246 m (URDF 0.31), tilt zero -6.50 deg, mount pitch 1.50 deg, mount roll -0.32 deg, tilt roll 0.92 deg. Normal RMS passes the 1.0 limit (user decision 2026-10-22; failed the earlier 0.6); two earlier sessions agreed (tilt zero -6.4 / -6.2 deg) | PASS |
+| Apply (units restarted) | head_camera_cpp, head_rgbd_cpp, head_state_publisher restarted, active | PASS |
+| Home: plane height (0 +- 0.01 m), before / after | 0.069 m / 0.0026 m | PASS |
+| Home: plane_vs_base (< 0.6 deg), before / after | 4.5 deg / 0.79 deg | FAIL by 0.2 deg: the garage floor slope (the fit's normal RMS 0.83 deg is the same size) |
+| Home: obstacle points (< 10), before / after | median 40-62 / median 0 (max 11, the parked gripper edge) | PASS |
+| Pose 2: plane height / plane_vs_base / obstacle points | pan 30 tilt 22: 0.0063 m / 0.72 deg / 0 | PASS / FAIL (slope) / PASS |
+| Pose 3: plane height / plane_vs_base / obstacle points | pan -25 tilt 22: 0.0003 m / 0.70 deg / 0 | PASS / FAIL (slope) / PASS |
+
+Not verified here: plane_vs_base < 0.6 deg needs a level floor; repeat the three checks on one.
