@@ -25,6 +25,10 @@ ground_estimator_cpp publishes `{stamp_ns, frame, areas: [{kind, polygon, height
 the wheel diameter, slope at most `max_slope_deg`), so the robot may ride through them at reduced speed. costmap_zones
 stays the single writer of the Nav2 speed mask and adds these areas next to the POI slow zones:
 
+- Kinds: besides step, ramp and colour there is `no_return`: the RGB sees non-floor but the ToF has no returns (for
+  example a black ramp). Its `height_m` and `slope_deg` are `null` ("not measured"), both fields are nullable for every
+  kind. A `no_return` area is treated like any warning area: it lowers the speed mask and fills the ground cost, never
+  lethal and never free; a message with null heights is accepted, not rejected.
 - Every received message marks the map cells its areas cover (see "Ground warning cells"); a
   message whose `frame` is not the `/map` header frame (or that arrives before `/map`) is ignored, logged once per frame
   and counted in `costmap_zones_ground_ignored_total{reason}`.
