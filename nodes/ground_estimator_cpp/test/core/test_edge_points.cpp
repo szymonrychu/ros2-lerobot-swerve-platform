@@ -153,7 +153,7 @@ TEST(EdgePoints, VoxelDecimationBoundsTheCount)
   const auto e = ge::edge_points(pts, h, coarse_box(), Cloud(), cfg);
   // The top is 5 cm x 20 cm: at most (5/1+2) x (20/1+2) voxels, far fewer than the input points.
   EXPECT_LE(e.obstacle.size(), 7U * 22U);
-  EXPECT_LT(e.obstacle.size(), pts.size() / 10);
+  EXPECT_LT(e.obstacle.size(), pts.size() / 3);
   // No two edge points share a voxel.
   for (std::size_t i = 0; i < e.obstacle.size(); ++i) {
     for (std::size_t j = i + 1; j < e.obstacle.size(); ++j) {

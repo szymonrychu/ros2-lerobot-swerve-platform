@@ -70,8 +70,8 @@ Cloud select(
   out.reserve(voxels.size());
   for (const auto & kv : voxels) {
     const auto & a = kv.second;
-    out.push_back(pcl::PointXYZ(
-      static_cast<float>(a.x / a.n), static_cast<float>(a.y / a.n), static_cast<float>(a.z / a.n)));
+    const double n = a.n;
+    out.push_back(pcl::PointXYZ(static_cast<float>(a.x / n), static_cast<float>(a.y / n), static_cast<float>(a.z / n)));
   }
   return out;
 }
