@@ -210,6 +210,13 @@ How the node keeps noisy ToF returns from becoming marks (2026-10-21 capture: ~2
   so a 3 cm sill stays a warning and a 5 cm box stays an obstacle.
 - **Robust slope**: a Huber plane fit over one sample per `edges.slope_bin_m` bin. Fewer than `edges.slope_min_cells`
   bins, or bins in a line, give `slope_known` false and slope 0 (never an obstacle by slope).
+- **Ramp slope refit**: a cluster whose cell-median fit reads at least `SLOPE_REFIT_MIN_DEG` (5 deg) is refit from the
+  raw heights of the last `SLOPE_HISTORY_WINDOWS` (2) x `temporal.window_frames` clouds in its cells and their
+  neighbours (`surface_slope.hpp`), so a small ramp is judged on its whole surface. A new incline is fit over the
+  clouds kept so far (a steep one is lethal from its first frame); a failed refit leaves the slope unknown.
+- **Steady lethal points**: a lethal point counts only when its cell is steady (`CellMedian::steady_at`): output with a
+  spread of at most 0.6 x `temporal.max_spread_m`, and neither it nor any of its 8 neighbours gated in the last
+  2 x `temporal.window_frames` frames. This drops the floor/band mix at the edge of a noisy far band.
 - **Colour clusters** (label 3) are warning-only: never lethal, whatever their slope.
 - **Lethal points**: unclustered lethal points count only when at least `traversability.lethal_min_points` lie within
   `edges.cluster_tolerance_m` of each other.
