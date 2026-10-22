@@ -1,6 +1,6 @@
 ---
 title: "GroundNode::stable_areas_fixed still applies its own kind hold (hysteresis.enter_frames) on top of the filter's kind persistence; now redundant and adds extra lag on a real kind change"
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Outside this task's file list; simplify once the filter's area_kind_frames is the only kind hold."
 files: ["nodes/ground_estimator_cpp/src/ground_node.cpp:636-670"]
@@ -12,8 +12,8 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--groundnode-stable-areas-fixe
+branch: ground-detection-robustness--groundnode-stable-areas-fixe
 verified_head: ""
 run: ""
 provides: []
