@@ -9,6 +9,7 @@ keep the node user's shared memory.
 """
 
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import jinja2
 import pytest
@@ -71,7 +72,11 @@ def test_nodes_do_not_override_discovery_except_bridge_peers(host: str) -> None:
 
 def test_shared_env_is_localhost_simple_discovery() -> None:
     common = load_vars("all")
-    assert common["ros2_dds_env"] == ["ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST", "FASTDDS_BUILTIN_TRANSPORTS=UDPv4"]
+    assert common["ros2_dds_env"] == [
+        "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST",
+        "FASTDDS_BUILTIN_TRANSPORTS=UDPv4",
+        "FASTRTPS_DEFAULT_PROFILES_FILE={{ ros2_dds_profiles_file }}",
+    ]
     for removed in ("ros2_dds_discovery_port", "ros2_dds_local_discovery"):
         assert removed not in common
 
@@ -107,11 +112,67 @@ def test_shell_env_uses_localhost_discovery() -> None:
     assert "FASTDDS_BUILTIN_TRANSPORTS=UDPv4" in content
 
 
-def test_no_orphan_fastdds_profile_xml() -> None:
-    """The XML profile (FASTRTPS_DEFAULT_PROFILES_FILE) was replaced by ros2_dds_env and is referenced nowhere."""
+def test_old_fastdds_no_multicast_profiles_stay_gone() -> None:
+    """The former fastdds_no_multicast* XML files were replaced and must not come back."""
     assert not list(ANSIBLE_DIR.rglob("fastdds_no_multicast*"))
+
+
+def render_peers_profile() -> str:
+    """Render the localhost peers profile the way dds_host_setup.yml installs it.
+
+    Returns:
+        str: The XML text.
+    """
+    tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "tasks" / "dds_host_setup.yml").read_text())
+    task = next(t for t in tasks if t.get("ansible.builtin.template", {}).get("dest") == "{{ ros2_dds_profiles_file }}")
+    src = ANSIBLE_DIR / "playbooks" / "templates" / task["ansible.builtin.template"]["src"]
+    env = jinja2.Environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
+    return env.from_string(src.read_text()).render(**load_vars("all"))
+
+
+def test_profiles_file_is_in_dds_env() -> None:
+    common = load_vars("all")
+    assert common["ros2_dds_profiles_file"] == "/etc/ros2/fastdds_localhost_peers.xml"
+    assert "FASTRTPS_DEFAULT_PROFILES_FILE={{ ros2_dds_profiles_file }}" in common["ros2_dds_env"]
+    assert (common["ros2_dds_extra_peer_first_id"], common["ros2_dds_extra_peer_last_id"]) == (32, 99)
+    assert common["ros2_dds_domain_id"] == 0
+
+
+def test_peers_profile_lists_loopback_ports_for_ids_32_to_99() -> None:
+    """Metatraffic unicast port = 7400 + 250*domain + 10 + 2*id; rmw_fastrtps announces only to ids 0..31 itself."""
+    root = ET.fromstring(render_peers_profile())
+    ns = {"p": "http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles"}
+    participants = root.findall("p:participant", ns)
+    assert len(participants) == 1 and participants[0].get("is_default_profile") == "true"
+    locators = participants[0].findall("p:rtps/p:builtin/p:initialPeersList/p:locator/p:udpv4", ns)
+    assert [loc.findtext("p:address", namespaces=ns) for loc in locators] == ["127.0.0.1"] * 68
+    assert [int(loc.findtext("p:port", namespaces=ns)) for loc in locators] == [7410 + 2 * i for i in range(32, 100)]
+
+
+def test_peers_profile_has_no_participant_id_or_transport_overrides() -> None:
+    text = render_peers_profile()
+    for forbidden in ("participantID", "transport_descriptors", "useBuiltinTransports", "<defaultUnicastLocatorList"):
+        assert forbidden not in text, forbidden
+
+
+def test_peers_profile_installed_before_any_node_restart() -> None:
+    tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "tasks" / "dds_host_setup.yml").read_text())
+    names = [t["name"] for t in tasks]
+    install = next(i for i, t in enumerate(tasks) if "ansible.builtin.template" in t)
+    restart = next(i for i, t in enumerate(tasks) if "ros2-" in str(t.get("ansible.builtin.shell", "")))
+    assert install < restart, names
+    t = tasks[install]
+    spec = t["ansible.builtin.template"]
+    assert (spec["owner"], spec["group"], spec["mode"]) == ("root", "root", "0644")
+    assert "config" in t["tags"]
+    dir_path = "{{ ros2_dds_profiles_file | dirname }}"
+    parents = [x for x in tasks if x.get("ansible.builtin.file", {}).get("path") == dir_path]
+    assert parents and tasks.index(parents[0]) < install
+
+
+def test_readme_documents_peers_profile() -> None:
     text = (ANSIBLE_DIR / "README.md").read_text()
-    assert "FASTRTPS_DEFAULT_PROFILES_FILE" not in text
+    assert "FASTRTPS_DEFAULT_PROFILES_FILE" in text and "32" in text and "initialPeersList" in text
 
 
 def test_readme_documents_raw_image_over_loopback_as_unsupported() -> None:

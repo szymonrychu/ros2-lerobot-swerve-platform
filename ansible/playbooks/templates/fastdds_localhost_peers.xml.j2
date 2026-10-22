@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Managed by Ansible (playbooks/tasks/dds_host_setup.yml). Default Fast DDS participant profile: rmw_fastrtps with
+     ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST announces only to participant IDs 0..31 on 127.0.0.1; this adds explicit
+     metatraffic unicast ports for IDs {{ ros2_dds_extra_peer_first_id }}..{{ ros2_dds_extra_peer_last_id }}
+     (port = 7400 + 250 * domain + 10 + 2 * id, domain {{ ros2_dds_domain_id }}). -->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <participant profile_name="localhost_peers_{{ ros2_dds_extra_peer_first_id }}_{{ ros2_dds_extra_peer_last_id }}" is_default_profile="true">
+    <rtps>
+      <builtin>
+        <initialPeersList>
+{% for id in range(ros2_dds_extra_peer_first_id, ros2_dds_extra_peer_last_id + 1) %}
+          <locator><udpv4><address>127.0.0.1</address><port>{{ 7400 + 250 * ros2_dds_domain_id + 10 + 2 * id }}</port></udpv4></locator>
+{% endfor %}
+        </initialPeersList>
+      </builtin>
+    </rtps>
+  </participant>
+</profiles>

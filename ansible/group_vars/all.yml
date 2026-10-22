@@ -26,9 +26,23 @@ ros2_hosts_entries:
 # keep mapping the deleted inode and write into it (observed 2026-10-11: web_ui deaf after an OOM restart, discovery
 # fine, data and service replies never arrived). Trade-off: same-host image topics are copied through loopback UDP,
 # which costs CPU.
+# More than 32 participants per host: with ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST rmw_fastrtps (Jazzy, Fast DDS 2.14)
+# sets maxInitialPeersRange=32 and the only initial peer is 127.0.0.1, so a participant announces to participant IDs
+# 0..31 only; any two participants with IDs >= 32 never discover each other. Verified live 2026-10-22 on the client
+# (~43 participants): web_ui (id 35) never matched Nav2's bt_navigator (id 32), so goals were lost, and mcp_server,
+# poi_store, map_manager, marker_detector and claude_agent (ids 36-41) were unreachable. FASTRTPS_DEFAULT_PROFILES_FILE
+# points at a default participant profile (playbooks/templates/fastdds_localhost_peers.xml.j2, installed by dds_host_setup.yml)
+# whose initialPeersList adds 127.0.0.1 with explicit metatraffic ports for IDs ros2_dds_extra_peer_first_id..last_id.
+# A probe participant pinned to ID 60 with that profile discovered every node; without it only IDs < 32.
 ros2_dds_env:
   - "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
   - "FASTDDS_BUILTIN_TRANSPORTS=UDPv4"
+  - "FASTRTPS_DEFAULT_PROFILES_FILE={{ ros2_dds_profiles_file }}"
+
+ros2_dds_profiles_file: /etc/ros2/fastdds_localhost_peers.xml
+ros2_dds_domain_id: 0 # ROS_DOMAIN_ID of every node; part of the metatraffic port formula
+ros2_dds_extra_peer_first_id: 32
+ros2_dds_extra_peer_last_id: 99
 
 # Seconds between node starts when a deploy brings the stack back up (playbooks/tasks/start_ros_nodes.yml).
 ros2_node_start_interval_s: 2
