@@ -315,6 +315,15 @@ def test_safety_check_refuses_a_pose_the_tier_rules_allow() -> None:
     assert any(e.startswith("link_clearance: upper arm to frame_right") for e in entries), entries
 
 
+def test_tier2_shoulder_pan_stays_in_the_clear_band() -> None:
+    """At margin_m 0.03 the upper arm comes within 30 mm of frame_right above pan ~0.25 rad and the lidar and head
+    envelope below pan ~-0.5, so every shipped shoulder_pan stays inside [-0.5, 0.2] and the base pan keeps the
+    +-max_big_delta_rad tier-2 swing from reaching either edge."""
+    pans = [pose["shoulder_pan"] for pose in [SEQ.base_pose, *SEQ.tier2_poses]]
+    assert SEQ.pose_check.margin_m >= 0.03
+    assert -0.5 <= min(pans) and max(pans) <= 0.2, pans
+
+
 def test_base_pose_puts_the_board_in_front_of_the_head() -> None:
     body = SEQ.pose_check.body
     body_front = max([box.center[0] + box.size[0] / 2 for box in body.boxes] + [c.x + c.radius for c in body.cylinders])
