@@ -261,5 +261,15 @@
       "arm-joint-offsets-from-the-g"
     ],
     "note": "session kind head_arm, add_still_pose pose.json {stamps, rgb, joints (7), arm_pose, tier, head_offset}; owner task session-kinds-joint-poses"
+  },
+  {
+    "name": "arm-pose-check",
+    "kind": "api",
+    "owner": "head-and-arm-calibration-fro",
+    "file": "shared/ros2_common/head_rgbd_calibration/arm_pose_check.py",
+    "consumers": [
+      "arm-joint-offsets-from-the-g"
+    ],
+    "note": "PoseChecker.check_pose/check_path with the board on the gripper; owner task arm-pose-safety-check"
   }
 ]
