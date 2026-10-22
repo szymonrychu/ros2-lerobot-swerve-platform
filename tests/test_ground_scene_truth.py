@@ -234,3 +234,12 @@ def test_run_writes_truth_yaml(tmp_path: Path) -> None:
     assert truth["provenance"]["spread_mm"] < 2.0
     assert truth["provenance"]["date"]
     assert min(np.linalg.norm(np.array(truth["board"]) - c, axis=1).min() for c in expected_corners(0.0)) < 0.005
+
+
+def test_board_frame_off_axis_board_to_the_right() -> None:
+    """A board ahead-right of the robot: near edge faces the robot, u points left, v away."""
+    corners = np.array([[0.4, -0.8], [0.4, -0.55], [0.61, -0.55], [0.61, -0.8]])
+    origin, u, v = board_frame(corners)
+    assert np.allclose(origin, [0.4, -0.8])
+    assert np.allclose(u, [0.0, 1.0])
+    assert np.allclose(v, [1.0, 0.0])
