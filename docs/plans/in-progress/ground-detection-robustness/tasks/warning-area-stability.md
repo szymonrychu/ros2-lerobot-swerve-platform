@@ -1,6 +1,6 @@
 ---
 title: Warning area stability
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Slow-down areas stop appearing and vanishing frame to frame, so the planner sees a steady scene."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_class.hpp, nodes/ground_estimator_cpp/src/core/cell_class.cpp, nodes/ground_estimator_cpp/test/core/test_cell_class.cpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--warning-area-stability
 branch: ground-detection-robustness--warning-area-stability
 verified_head: ""
-run: ""
+run: ground-detection-robustness
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Warning area stability
@@ -70,3 +72,5 @@ Builds part area-stability in `CellClassFilter` (`cell_class.hpp`): `warning_are
 ## Notes
 
 Uses replay-harness. Live churn: 51 of 59 pairs changed kinds or count, 8 only polygon shape. Polygons are already cell-aligned (D8): look for components merging and splitting at border cells, short-lived components and kind votes between step and ramp. The lethal latency must not change.
+
+- 2026-10-22 run ground-detection-robustness: dependency-failed on wire-shadow-gate-on-replay

@@ -1,6 +1,6 @@
 ---
 title: Replay acceptance and docs
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The live-round acceptance holds on real data in every build, and the changes are documented for the next developer."
 files: [nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/README.md]
@@ -15,8 +15,10 @@ review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--replay-acceptance-and-docs
 branch: ground-detection-robustness--replay-acceptance-and-docs
 verified_head: ""
-run: ""
+run: ground-detection-robustness
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Replay acceptance and docs
@@ -65,3 +67,5 @@ No new interfaces: assertions over the replay-harness metrics, one latency NodeT
 ## Notes
 
 The thresholds are the approved ones (A10-A14); none may be loosened. Board never lethal is strict (0 frames); stray lethal follows the approved empty-floor p95 goal (<= 5 % of frames).
+
+- 2026-10-22 run ground-detection-robustness: dependency-failed on warning-area-stability

@@ -1,6 +1,6 @@
 ---
 title: Runbook ROIs and ramp limit
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The live runbook measures the scene where the objects really are and accepts the ramp the ToF cannot see as long as it is never lethal.
 files: [scripts/ground_noise_report.py, scripts/ground_noise_report.yaml, tests/test_ground_noise_report.py, tests/test_ground_robustness_runbook.py, docs/runbooks/ground-robustness.md, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--runbook-rois-and-ramp-limit
 branch: ground-detection-robustness--runbook-rois-and-ramp-limit
-verified_head: ""
-run: ""
+verified_head: a323ddc4eeda61d93c30f3080b448557281282c6
+run: ground-detection-robustness
 provides: []
+acs_for_audit: []
+process_gaps: []
 ---
 
 # Runbook ROIs and ramp limit

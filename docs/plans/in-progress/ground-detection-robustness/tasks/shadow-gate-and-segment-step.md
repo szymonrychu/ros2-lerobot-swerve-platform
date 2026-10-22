@@ -1,6 +1,6 @@
 ---
 title: Shadow gate and segment step
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Mixed pixels behind obstacles are removed and a 5 cm box reads as a 5 cm step even when its band is mostly tail.
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/occlusion.hpp, nodes/ground_estimator_cpp/src/core/occlusion.cpp, nodes/ground_estimator_cpp/test/core/test_occlusion.cpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/edges.hpp, nodes/ground_estimator_cpp/src/core/edges.cpp, nodes/ground_estimator_cpp/test/core/test_edges.cpp, nodes/ground_estimator_cpp/test/core/synthetic_floor.hpp]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--shadow-gate-and-segment-step
 branch: ground-detection-robustness--shadow-gate-and-segment-step
-verified_head: ""
-run: ""
-provides: []
+verified_head: 2764d07290022d06ab798eb51ecf6bcce915f5df
+run: ground-detection-robustness
+provides: [mixed-pixel-tail-helper]
+acs_for_audit: [a4]
+process_gaps: []
 ---
 
 # Shadow gate and segment step

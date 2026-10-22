@@ -1,6 +1,6 @@
 ---
 title: Replay fixtures and test
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The ground estimator is tested on the user's real scene (the live recordings), not only on synthetic floors."
 files: [scripts/ground_replay_export.py, tests/test_ground_replay_export.py, nodes/ground_estimator_cpp/test/data/replay/, nodes/ground_estimator_cpp/test/replay_fixture.hpp, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/README.md, tests/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--replay-fixtures-and-test
 branch: ground-detection-robustness--replay-fixtures-and-test
-verified_head: ""
-run: ""
-provides: []
+verified_head: fca0ab9564b15a1f8e2354507e103df830d2782e
+run: ground-detection-robustness
+provides: [replay-harness, replay-runner, replay-python-reader]
+acs_for_audit: [a5]
+process_gaps: [Red/green evidence for the original dc26218c commit is not recorded in a form I could check]
 ---
 
 # Replay fixtures and test
