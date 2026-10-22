@@ -221,6 +221,9 @@ User 2026-10-22 approved (yes): floor-fit values as start values and pass/fail c
 ### D20: User 2026-10-22 approved (yes): clip board only after base p
 User 2026-10-22 approved (yes): clip board only after base pose, hold arm on every stop, park only after board removal confirmed (user decision)
 
+### D21: User 2026-10-22 approved (yes): solver fits the board-on-jaw
+User 2026-10-22 approved (yes): solver fits the board-on-jaw pose, measurement only a start value, poses provisional until a dry run (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -275,6 +278,7 @@ User 2026-10-22 approved (yes): clip board only after base pose, hold arm on eve
 | D18 User 2026-10-22 approved (yes): fold pan zero into the head_ | head-from-arm-board-solver, head-arm-compute-and-apply |
 | D19 User 2026-10-22 approved (yes): floor-fit values as start va | head-from-arm-board-solver, head-arm-compute-and-apply |
 | D20 User 2026-10-22 approved (yes): clip board only after base p | head-arm-pose-capture-sequen, head-arm-calibrate-ui-sectio |
+| D21 User 2026-10-22 approved (yes): solver fits the board-on-jaw | arm-board-pose-set, head-from-arm-board-solver |
 
 ## Contracts
 
