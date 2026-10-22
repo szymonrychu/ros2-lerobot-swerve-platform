@@ -336,7 +336,7 @@ def arm_sid(store: SessionStore) -> str:
     return store.create_session(NOW, LENS, kind="head_arm")
 
 
-def test_kind_defaults_to_rgbd_and_legacy_session_reads_as_rgbd(store: SessionStore) -> None:
+def test_legacy_session_kind_is_rgbd(store: SessionStore) -> None:
     sid = store.create_session(NOW, LENS)
     assert store.load_session(sid)["kind"] == "rgbd"
     path = store.state_dir / "sessions" / sid / "session.json"
@@ -372,15 +372,11 @@ def test_still_pose_layout(store: SessionStore, arm_sid: str) -> None:
     assert store.pose_hints(arm_sid, pid) == []
 
 
-def test_still_pose_refuses_a_missing_joint_naming_it(store: SessionStore, arm_sid: str) -> None:
+@pytest.mark.parametrize("kwargs", [{"tier": 3}, {"tier": -1}, {"arm_pose": -1}, {"head_offset": -1}])
+def test_still_pose_refusals(store: SessionStore, arm_sid: str, kwargs: dict) -> None:
     for name in JOINTS:
         with pytest.raises(ValueError, match=name):
             add_still(store, arm_sid, joints={k: v for k, v in JOINTS.items() if k != name})
-    assert store.pose_ids(arm_sid) == []
-
-
-@pytest.mark.parametrize("kwargs", [{"tier": 3}, {"tier": -1}, {"arm_pose": -1}, {"head_offset": -1}])
-def test_still_pose_refuses_bad_numbers(store: SessionStore, arm_sid: str, kwargs: dict) -> None:
     with pytest.raises(ValueError):
         add_still(store, arm_sid, **kwargs)
     assert store.pose_ids(arm_sid) == []
@@ -408,7 +404,7 @@ def test_wrong_kind_raises(store: SessionStore, arm_sid: str) -> None:
     assert store.pose_ids(rgbd) == []
 
 
-def test_load_arm_board_views_round_trip(store: SessionStore, arm_sid: str) -> None:
+def test_load_arm_board_views(store: SessionStore, arm_sid: str) -> None:
     other = {k: v + 1.0 for k, v in JOINTS.items()}
     add_still(store, arm_sid, arm_pose=2, tier=0, head_offset=0)
     add_still(store, arm_sid, joints=other, arm_pose=5, tier=2, head_offset=1)
