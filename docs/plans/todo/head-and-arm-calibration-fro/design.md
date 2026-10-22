@@ -218,6 +218,9 @@ User 2026-10-22 approved (yes): fold pan zero into the head_mount_joint yaw (use
 ### D19: User 2026-10-22 approved (yes): floor-fit values as start va
 User 2026-10-22 approved (yes): floor-fit values as start values and pass/fail cross-check, weighted prior off (user decision)
 
+### D20: User 2026-10-22 approved (yes): clip board only after base p
+User 2026-10-22 approved (yes): clip board only after base pose, hold arm on every stop, park only after board removal confirmed (user decision)
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -271,6 +274,7 @@ User 2026-10-22 approved (yes): floor-fit values as start values and pass/fail c
 | D17 The board mount is fitted; the measurement is only a start value | head-from-arm-board-solver, arm-board-pose-set, calib-robot-runbook |
 | D18 User 2026-10-22 approved (yes): fold pan zero into the head_ | head-from-arm-board-solver, head-arm-compute-and-apply |
 | D19 User 2026-10-22 approved (yes): floor-fit values as start va | head-from-arm-board-solver, head-arm-compute-and-apply |
+| D20 User 2026-10-22 approved (yes): clip board only after base p | head-arm-pose-capture-sequen, head-arm-calibrate-ui-sectio |
 
 ## Contracts
 

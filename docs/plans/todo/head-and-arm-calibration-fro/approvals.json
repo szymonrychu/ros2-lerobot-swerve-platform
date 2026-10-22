@@ -157,5 +157,17 @@
       "head-arm-compute-and-apply"
     ],
     "status": "approved"
+  },
+  {
+    "id": "Q3",
+    "text": "User 2026-10-22 approved (yes): clip board only after base pose, hold arm on every stop, park only after board removal confirmed",
+    "decisions": [
+      "D20"
+    ],
+    "tasks": [
+      "head-arm-pose-capture-sequen",
+      "head-arm-calibrate-ui-sectio"
+    ],
+    "status": "approved"
   }
 ]
