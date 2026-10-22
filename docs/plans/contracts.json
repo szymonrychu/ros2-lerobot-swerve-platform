@@ -58,7 +58,8 @@
     "owner": "tof-3d-obstacle-detection-fo",
     "file": "ansible/group_vars/client.yml",
     "consumers": [
-      "rgb-d-ground-estimation-and"
+      "rgb-d-ground-estimation-and",
+      "rgb-and-amplitude-guided-gro"
     ],
     "note": "/tof/points_filtered: laser_filter self-filtered ToF cloud, tof_optical_frame, ~10 Hz, reliable; ground_estimator_cpp input and ground_clear frustum source (tasks ground-node-wiring, nav2-ground-voxel-layer)"
   },
