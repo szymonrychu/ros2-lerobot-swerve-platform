@@ -241,5 +241,15 @@
       "arm-joint-offsets-from-the-g"
     ],
     "note": "fit_head_from_arm, HeadArmFit, aim_head; owner task head-from-arm-board-solver"
+  },
+  {
+    "name": "head-arm-calib-api",
+    "kind": "api",
+    "owner": "head-and-arm-calibration-fro",
+    "file": "nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_state.json",
+    "consumers": [
+      "arm-joint-offsets-from-the-g"
+    ],
+    "note": "/api/head-arm/* routes and fixtures head_arm_state/result/sessions.json; owner task head-arm-sequence-http-api"
   }
 ]
