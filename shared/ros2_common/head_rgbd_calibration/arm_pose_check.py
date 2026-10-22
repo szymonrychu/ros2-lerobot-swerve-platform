@@ -380,7 +380,14 @@ def mm(value_m: float) -> str:
 class PoseChecker:
     """FK check of arm poses and joint paths with the board on the gripper, against the floor, body and head."""
 
-    def __init__(self, arm_urdf: str, head_urdf: str, fit: HeadArmFitConfig, cfg: PoseCheckConfig) -> None:
+    def __init__(
+        self,
+        arm_urdf: str,
+        head_urdf: str,
+        fit: HeadArmFitConfig,
+        cfg: PoseCheckConfig,
+        board_margin_m: float | None = None,
+    ) -> None:
         """Parse the arm, build the head envelope and the obstacle set.
 
         Args:
@@ -388,10 +395,19 @@ class PoseChecker:
             head_urdf: Head URDF XML, the applied chain (the head envelope reads its mount and joint limits).
             fit: Head-from-arm fit config: joint offsets, arm base in base_link, board and its mount.
             cfg: Pose check settings.
+            board_margin_m: Clearance the board points keep from the obstacles and the arm links (m); None uses
+                `cfg.margin_m`. The arm sequence passes `margin_m + provisional_margin_m` for the estimated
+                board mount (design D47): the mount uncertainty moves the board, not the arm links.
+
+        Raises:
+            ValueError: `board_margin_m` is negative.
         """
+        if board_margin_m is not None and board_margin_m < 0.0:
+            raise ValueError(f"board_margin_m must be >= 0, got {board_margin_m}")
         self.chain = UrdfChain.from_text(arm_urdf)
         self.fit = fit
         self.cfg = cfg
+        self.board_margin_m = cfg.margin_m if board_margin_m is None else board_margin_m
         self.base = arm_in_robot_base(fit.base_in_base_link.model_dump())
         self.envelope = head_envelope(head_urdf, cfg)
         self.obstacles = ObstacleSet(list(cfg.body.boxes), [*cfg.body.cylinders, self.envelope])
@@ -465,9 +481,10 @@ class PoseChecker:
         if board_z < cfg.min_board_height_m:
             entries.append(f"min_board_height_m: board point height {mm(board_z)} < {mm(cfg.min_board_height_m)}")
         margin = f"margin_m {mm(cfg.margin_m)}"
+        board_margin = f"board_margin_m {mm(self.board_margin_m)}"
         for name, clearance in zip(self.obstacles.names, self.obstacles.distances(board).min(axis=0), strict=True):
-            if clearance < cfg.margin_m:
-                entries.append(f"board_clearance: board to {name} clearance {mm(clearance)} < {margin}")
+            if clearance < self.board_margin_m:
+                entries.append(f"board_clearance: board to {name} clearance {mm(clearance)} < {board_margin}")
         starts = np.array([poses[start][:3, 3] for _, start, _ in CAPSULES])
         ends = np.array([poses[end][:3, 3] for _, _, end in CAPSULES])
         link_clear = self.obstacles.segment_distances(starts, ends) - cfg.link_radius_m
@@ -481,8 +498,8 @@ class PoseChecker:
             if part not in BOARD_LINK_PARTS:
                 continue
             clearance = float(point_segment_distances(board, start, end).min()) - cfg.link_radius_m
-            if clearance < cfg.margin_m:
-                entries.append(f"board_link_clearance: board to {part} clearance {mm(clearance)} < {margin}")
+            if clearance < self.board_margin_m:
+                entries.append(f"board_link_clearance: board to {part} clearance {mm(clearance)} < {board_margin}")
         return entries
 
     def joint_limit_entries(self, joints: Mapping[str, float], gripper_rad: float) -> list[str]:

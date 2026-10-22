@@ -6,8 +6,11 @@ from typing import Any, Self
 
 import yaml
 from pydantic import Field, field_validator, model_validator
+from ros2_common.head_rgbd_calibration.arm_pose_check import PoseCheckConfig
 from ros2_common.head_rgbd_calibration.config import (
+    ARM_JOINT_NAMES,
     BoardConfig,
+    BoardMountConfig,
     FloorFitConfig,
     HeadArmFitConfig,
     LimitsConfig,
@@ -57,6 +60,61 @@ MAX_FLOOR_PAN_DEG = 90.0
 MAX_FLOOR_TILT_DEG = 30.0
 DEFAULT_ROBOT_MCP_URL = "http://127.0.0.1:18200/mcp"
 DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
+# Board mount on the fixed jaw estimated from the URDF jaw geometry, not measured (design D47): the board plane
+# normal to the tool axis (gripper_link z), its centre on that axis 2 cm past the URDF tool point (gripper_frame_joint
+# origin (-0.0079, -0.000218, -0.0981) in gripper_link), its front toward the arm. The fit solves the real mount from
+# this start value; a measured mount goes in as the start value (calib-robot-runbook).
+NOMINAL_BOARD_XYZ = (-0.1279, 0.0998, -0.1181)
+NOMINAL_BOARD_RPY = (3.141593, 0.0, 0.0)
+WRIST_ROLL = "wrist_roll"
+WRIST_FLEX = "wrist_flex"
+BIG_JOINTS = ("elbow_flex", "shoulder_lift", "shoulder_pan")
+POSE_TOLERANCE_RAD = 1e-9
+# Arm poses in measured (follower) joint space, the angles move_arm_joints takes (urdf = measured + offset), as
+# (shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll) rad. The base pose holds the board about 0.34 m in
+# front of the head camera, lifted to the camera height and forward of the body; each tier steps in short transits.
+DEFAULT_BASE_POSE = (-0.12, 0.3, 0.0, -0.5, 0.0)
+DEFAULT_GRIPPER_RAD = 0.4
+DEFAULT_TIER0_POSES = (
+    (-0.12, 0.3, 0.0, -0.5, 0.3),
+    (-0.12, 0.3, 0.0, -0.5, 0.6),
+    (-0.12, 0.3, 0.0, -0.5, 0.9),
+    (-0.12, 0.3, 0.0, -0.5, 1.2),
+    (-0.12, 0.3, 0.0, -0.5, 0.75),
+    (-0.12, 0.3, 0.0, -0.5, 0.15),
+    (-0.12, 0.3, 0.0, -0.5, -0.3),
+    (-0.12, 0.3, 0.0, -0.5, -0.6),
+    (-0.12, 0.3, 0.0, -0.5, -0.9),
+    (-0.12, 0.3, 0.0, -0.5, -1.2),
+)
+DEFAULT_TIER1_POSES = (
+    (-0.12, 0.3, 0.0, -0.3, -0.9),
+    (-0.12, 0.3, 0.0, -0.1, -0.5),
+    (-0.12, 0.3, 0.0, -0.1, 0.0),
+    (-0.12, 0.3, 0.0, -0.3, 0.4),
+    (-0.12, 0.3, 0.0, -0.7, 0.7),
+    (-0.12, 0.3, 0.0, -0.9, 1.0),
+    (-0.12, 0.3, 0.0, -0.9, 0.4),
+    (-0.12, 0.3, 0.0, -0.7, -0.1),
+    (-0.12, 0.3, 0.0, -0.9, -0.6),
+)
+DEFAULT_TIER2_POSES = (
+    (-0.27, 0.3, 0.0, -0.5, -0.3),
+    (-0.42, 0.3, 0.0, -0.3, 0.0),
+    (-0.47, 0.5, 0.0, -0.7, 0.4),
+    (-0.42, 0.6, 0.15, -0.85, 0.8),
+    (-0.22, 0.65, 0.0, -0.8, 0.3),
+    (-0.02, 0.6, 0.0, -0.7, -0.2),
+    (0.13, 0.5, 0.15, -0.8, -0.6),
+    (0.13, 0.3, 0.0, -0.4, -0.2),
+    (0.08, 0.1, 0.0, -0.2, 0.3),
+    (-0.02, -0.05, 0.2, -0.3, 0.7),
+    (-0.22, -0.05, 0.0, -0.15, 0.2),
+    (-0.42, 0.05, -0.2, -0.2, -0.3),
+    (-0.32, 0.3, -0.3, -0.2, -0.7),
+    (-0.12, 0.45, 0.3, -0.85, -0.2),
+)
+DEFAULT_HEAD_OFFSETS_DEG = ((0.0, 0.0), (10.0, 0.0), (-10.0, 0.0), (0.0, 6.0))
 
 
 class TopicsConfig(StrictModel):
@@ -174,6 +232,113 @@ class RobotConfig(StrictModel):
     move_timeout_s: float = Field(default=120.0, gt=0)
 
 
+def arm_pose(values: tuple[float, ...]) -> dict[str, float]:
+    """Arm joint name -> angle (rad) from values in ARM_JOINT_NAMES order.
+
+    Args:
+        values: One angle per arm joint (rad).
+
+    Returns:
+        dict[str, float]: The pose.
+    """
+    return dict(zip(ARM_JOINT_NAMES, values, strict=True))
+
+
+def joint_name_errors(pose: dict[str, float], where: str) -> list[str]:
+    """Errors for a pose that does not name exactly the five arm joints (the gripper is no pose joint).
+
+    Args:
+        pose: Joint name -> angle (rad).
+        where: Label of the pose in the messages.
+
+    Returns:
+        list[str]: One message per missing and per extra joint.
+    """
+    missing = [f"{where}: missing joint {name}" for name in ARM_JOINT_NAMES if name not in pose]
+    extra = [f"{where}: joint {name} is not an arm joint" for name in pose if name not in ARM_JOINT_NAMES]
+    return missing + extra
+
+
+def default_fit() -> HeadArmFitConfig:
+    """Head-from-arm fit defaults with the jaw-geometry estimate of the board mount on the fixed jaw."""
+    return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=NOMINAL_BOARD_XYZ, rpy_init=NOMINAL_BOARD_RPY))
+
+
+class ArmSequenceConfig(StrictModel):
+    """Scripted arm poses of the head-from-arm capture (design D37, D38, D39, D47), in measured joint space.
+
+    Tier 0 poses differ from `base_pose` only in wrist_roll (within `max_roll_delta_rad`), tier 1 also in wrist_flex
+    (within `max_flex_delta_rad`), tier 2 also in elbow_flex, shoulder_lift and shoulder_pan (each within
+    `max_big_delta_rad`). `gripper_rad` is sent once with the base pose and is at most the half-open
+    `pose_check.max_roll_gripper_rad`. `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles,
+    one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points when the board
+    mount is the jaw-geometry estimate.
+    """
+
+    base_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_BASE_POSE))
+    gripper_rad: float = DEFAULT_GRIPPER_RAD
+    tier0_poses: list[dict[str, float]] = Field(default_factory=lambda: [arm_pose(p) for p in DEFAULT_TIER0_POSES])
+    tier1_poses: list[dict[str, float]] = Field(default_factory=lambda: [arm_pose(p) for p in DEFAULT_TIER1_POSES])
+    tier2_poses: list[dict[str, float]] = Field(default_factory=lambda: [arm_pose(p) for p in DEFAULT_TIER2_POSES])
+    max_roll_delta_rad: float = Field(default=1.2, gt=0)
+    max_flex_delta_rad: float = Field(default=0.4, gt=0)
+    max_big_delta_rad: float = Field(default=0.35, gt=0)
+    speed_scale: float = Field(default=0.2, gt=0, le=0.3)
+    settle_s: float = Field(default=1.0, ge=0)
+    confirm_timeout_s: float = Field(default=600.0, gt=0)
+    head_offsets_deg: list[tuple[float, float]] = Field(
+        default_factory=lambda: list(DEFAULT_HEAD_OFFSETS_DEG), min_length=1
+    )
+    pose_check: PoseCheckConfig = Field(default_factory=PoseCheckConfig)
+    provisional_margin_m: float = Field(default=0.05, ge=0)
+
+    @model_validator(mode="after")
+    def check_poses(self) -> Self:
+        errors = joint_name_errors(self.base_pose, "base_pose")
+        if self.gripper_rad > self.pose_check.max_roll_gripper_rad:
+            errors.append(
+                f"gripper_rad {self.gripper_rad:g} exceeds pose_check.max_roll_gripper_rad "
+                f"{self.pose_check.max_roll_gripper_rad:g} (half open)"
+            )
+        if errors:
+            raise ValueError("; ".join(errors))
+        limits = {WRIST_ROLL: ("max_roll_delta_rad", self.max_roll_delta_rad)}
+        limits[WRIST_FLEX] = ("max_flex_delta_rad", self.max_flex_delta_rad)
+        limits |= {name: ("max_big_delta_rad", self.max_big_delta_rad) for name in BIG_JOINTS}
+        allowed = {0: {WRIST_ROLL}, 1: {WRIST_ROLL, WRIST_FLEX}, 2: {WRIST_ROLL, WRIST_FLEX, *BIG_JOINTS}}
+        for tier, joints in allowed.items():
+            for index, pose in enumerate(getattr(self, f"tier{tier}_poses")):
+                where = f"tier {tier} pose {index} (tier{tier}_poses[{index}])"
+                names = joint_name_errors(pose, where)
+                errors += names
+                if names:
+                    continue
+                for name in ARM_JOINT_NAMES:
+                    delta = pose[name] - self.base_pose[name]
+                    key, limit = limits[name]
+                    if name not in joints and abs(delta) > POSE_TOLERANCE_RAD:
+                        errors.append(
+                            f"{where}: {name} {pose[name]:g} rad differs from base_pose {self.base_pose[name]:g} rad; "
+                            f"tier {tier} may move only {', '.join(sorted(joints))}"
+                        )
+                    elif abs(delta) > limit + POSE_TOLERANCE_RAD:
+                        errors.append(f"{where}: {name} moves {delta:+.4f} rad from base_pose, beyond {key} {limit:g}")
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self
+
+    def board_margin_m(self, nominal_mount: bool) -> float:
+        """Clearance the board points keep (`PoseChecker(board_margin_m=...)`).
+
+        Args:
+            nominal_mount: True when `fit.board_mount` is the jaw-geometry estimate.
+
+        Returns:
+            float: `pose_check.margin_m`, plus `provisional_margin_m` for the estimated mount (m).
+        """
+        return self.pose_check.margin_m + (self.provisional_margin_m if nominal_mount else 0.0)
+
+
 class NodeConfig(StrictModel):
     """Whole node config; every key has a default so an empty file is valid."""
 
@@ -198,8 +363,9 @@ class NodeConfig(StrictModel):
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     floor: FloorSweepConfig = Field(default_factory=FloorSweepConfig)
     still: StillConfig = Field(default_factory=StillConfig)
-    fit: HeadArmFitConfig = Field(default_factory=HeadArmFitConfig)
+    fit: HeadArmFitConfig = Field(default_factory=default_fit)
     robot: RobotConfig = Field(default_factory=RobotConfig)
+    arm_sequence: ArmSequenceConfig = Field(default_factory=ArmSequenceConfig)
 
     @model_validator(mode="after")
     def check_fit_board(self) -> Self:

@@ -109,6 +109,12 @@ keys are rejected.
 | `thumbnail_width_px` | 320 | `rgb_thumb.jpg` width (never enlarged) |
 | `coverage.cols` / `coverage.rows` | 4 / 3 | Coverage grid |
 | `board`, `selection`, `limits` | core defaults | ChArUco board, still-pose selection (`selection.amplitude_percentiles` also normalises the ToF thumbnail), fit limits |
+| `fit.board_mount` | jaw-geometry estimate | Start value of the board pose in `gripper_link`: plane normal to the tool axis, centre 2 cm past the URDF tool point. Estimated from the URDF jaw and the board outline, not measured (design D47); the fit solves the real mount |
+| `arm_sequence.base_pose`, `gripper_rad` | board ~0.34 m in front of the head camera, 0.4 rad | Base pose (measured joint angles, the `move_arm_joints` space: `urdf = measured + fit.joint_offsets_rad`) and the gripper sent once with it (at most `pose_check.max_roll_gripper_rad`) |
+| `arm_sequence.tier0_poses` / `tier1_poses` / `tier2_poses` | 10 / 9 / 14 poses | Tier 0 moves only wrist_roll (within `max_roll_delta_rad` 1.2), tier 1 also wrist_flex (`max_flex_delta_rad` 0.4), tier 2 also elbow_flex, shoulder_lift, shoulder_pan (`max_big_delta_rad` 0.35). Load errors name the tier, pose and joint |
+| `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.2 (<= 0.3), 1.0, 600 | Arm speed, wait after a move, unanswered confirm timeout |
+| `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, 6]]` | (pan, tilt) offsets added to the aimed head angles, one view each |
+| `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` for the jaw-geometry mount estimate |
 
 ## Compute
 
@@ -290,7 +296,16 @@ stops capture, kills a running compute child and destroys the node.
 `cd nodes/head_rgbd_calibration && uv run pytest tests/ -v`
 
 - `tests/test_config.py` - config defaults equal the shipped YAML, unknown keys rejected, the `floor` defaults and the
-  pan/tilt range checks.
+  pan/tilt range checks, the `arm_sequence` defaults and its validation errors naming the tier, pose and joint.
+- `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
+  URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
+  the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
+  shifted +-1 cm / turned
+  +-5 deg (`test_safe_under_board_mount_uncertainty`), both also with a -30..+60 deg tilt URDF, the base pose in front
+  of the head, at least 12 board corners in view for 3 of 4 head offsets (`test_board_visible_from_aimed_head`), the
+  aimed pan/tilt span and pose count (`test_coverage_limits`), a passing synthetic `fit_head_from_arm`
+  (`test_synthetic_fit_on_shipped_set_passes`), and the measured-space phrase of `move_arm_joints`
+  (`test_target_joint_convention`).
 - `tests/test_floor_sweep.py` - the floor sweep against a fake node, fake clock and sleep and synthetic floor clouds:
   command order, frame_id and serpentine grid, session id and `observations.json`, clouds only after still plus settle,
   unreachable pose skipped with reason, a pose under `min_clouds_per_pose` skipped as partly blocked

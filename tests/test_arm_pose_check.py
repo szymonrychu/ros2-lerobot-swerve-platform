@@ -303,3 +303,21 @@ def test_path_check_catches_mid_path_contact() -> None:
     steps = math.ceil(3.2 / PoseCheckConfig().path_step_rad)
     assert all(abs(f * steps - round(f * steps)) < 0.07 for f in fractions)
     assert len(set(fractions)) > 1
+
+
+def test_board_margin_applies_to_board_rules_only() -> None:
+    fit = fit_with(mount_with_corner_at(ZERO, np.array([0.40, -0.05, 0.35])))
+    plain = checker(fit)
+    assert plain.board_margin_m == PoseCheckConfig().margin_m
+    board_clear = float(plain.obstacles.distances(plain.board_points(ZERO)).min())
+    assert board_clear > PoseCheckConfig().margin_m
+    base_entries = plain.check_pose(ZERO, 0.3, rolling=False)
+    assert not [e for e in base_entries if e.startswith("board_")], base_entries
+
+    wide = PoseChecker(ARM_URDF, HEAD_URDF, fit, PoseCheckConfig(), board_margin_m=board_clear + 0.01)
+    entries = wide.check_pose(ZERO, 0.3, rolling=False)
+    board = [e for e in entries if e.startswith("board_clearance")]
+    assert board and all(f"board_margin_m {(board_clear + 0.01) * 1000:.1f} mm" in e for e in board), entries
+    assert [e for e in entries if not e.startswith("board_")] == base_entries
+    with pytest.raises(ValueError, match="board_margin_m"):
+        PoseChecker(ARM_URDF, HEAD_URDF, fit, PoseCheckConfig(), board_margin_m=-0.01)
