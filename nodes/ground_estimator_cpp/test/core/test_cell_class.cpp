@@ -237,8 +237,10 @@ TEST(CellClass, AreaAttributesAreTheCellMajorityAndMedians)
   const std::vector<StableArea> areas = f.warning_areas();
   ASSERT_EQ(areas.size(), 1u);
   EXPECT_EQ(areas[0].kind, "step");
-  EXPECT_DOUBLE_EQ(areas[0].height_m, 0.02);
-  EXPECT_DOUBLE_EQ(areas[0].slope_deg, 2.0);
+  ASSERT_TRUE(areas[0].height_m.has_value());
+  EXPECT_DOUBLE_EQ(*areas[0].height_m, 0.02);
+  ASSERT_TRUE(areas[0].slope_deg.has_value());
+  EXPECT_DOUBLE_EQ(*areas[0].slope_deg, 2.0);
   EXPECT_EQ(areas[0].source, "tof");
 
   // A 1:1 tie of kinds picks the lexicographically smallest; even counts take the mean of the middle values.
@@ -251,8 +253,22 @@ TEST(CellClass, AreaAttributesAreTheCellMajorityAndMedians)
   const std::vector<StableArea> tied = g.warning_areas();
   ASSERT_EQ(tied.size(), 1u);
   EXPECT_EQ(tied[0].kind, "drop");
-  EXPECT_NEAR(tied[0].height_m, -0.005, 1e-12);
+  ASSERT_TRUE(tied[0].height_m.has_value());
+  EXPECT_NEAR(*tied[0].height_m, -0.005, 1e-12);
   EXPECT_EQ(tied[0].source, "colour");
+}
+
+TEST(CellClassFilter, AreaWithoutRecordedSlopeHasNoSlope)
+{
+  CellClassFilter f(disabled(), CELL_M);
+  WarningArea a = area_of(rect(0.0, 0.0, 0.2, 0.1), "step", "colour");
+  a.height_m = std::nullopt;
+  a.slope_deg = std::nullopt;
+  area_frame(f, {a});
+  const std::vector<StableArea> areas = f.warning_areas();
+  ASSERT_EQ(areas.size(), 1u);
+  EXPECT_FALSE(areas[0].height_m.has_value());
+  EXPECT_FALSE(areas[0].slope_deg.has_value());
 }
 
 TEST(CellClass, DropOrObstacleByTheLatestLethalVote)

@@ -41,8 +41,8 @@ struct StableArea
 {
   std::vector<Eigen::Vector2d> polygon;  // convex hull of the cells' corners, counter-clockwise
   std::string kind;                      // most frequent recorded kind of the cells (ties: lexicographically smallest)
-  double height_m = 0.0;                 // median of the cells' recorded heights
-  double slope_deg = 0.0;                // median of the cells' recorded slopes; 0 when no cell has one
+  std::optional<double> height_m;        // median of the cells' recorded heights; nullopt: no cell recorded one
+  std::optional<double> slope_deg;       // median of the cells' recorded slopes; nullopt: no cell recorded one
   std::string source;                    // "tof" when any cell was recorded from a tof observation, else "colour"
 };
 
@@ -99,7 +99,7 @@ private:
   struct Record
   {
     std::string kind;
-    double height_m = 0.0;
+    std::optional<double> height_m;
     std::optional<double> slope_deg;
     std::string source;
   };

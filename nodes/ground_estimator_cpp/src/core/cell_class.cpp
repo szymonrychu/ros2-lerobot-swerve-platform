@@ -407,7 +407,9 @@ void CellClassFilter::update_areas()
         continue;
       }
       ++kinds[rec->kind];
-      heights.push_back(rec->height_m);
+      if (rec->height_m) {
+        heights.push_back(*rec->height_m);
+      }
       if (rec->slope_deg) {
         slopes.push_back(*rec->slope_deg);
       }
@@ -422,8 +424,8 @@ void CellClassFilter::update_areas()
         area.kind = kind;
       }
     }
-    area.height_m = heights.empty() ? 0.0 : median(heights);
-    area.slope_deg = slopes.empty() ? 0.0 : median(slopes);
+    area.height_m = heights.empty() ? std::nullopt : std::optional<double>(median(heights));
+    area.slope_deg = slopes.empty() ? std::nullopt : std::optional<double>(median(slopes));
     area.source = tof ? SOURCE_TOF : SOURCE_COLOUR;
 
     // Kind persistence: the previous area sharing most cells keeps its published kind until another kind has most of
