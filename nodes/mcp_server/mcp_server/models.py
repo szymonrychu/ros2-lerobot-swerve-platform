@@ -217,8 +217,8 @@ class GroundWarning(BaseModel):
 
     kind: str
     polygon: list[tuple[float, float]]
-    height_m: float
-    slope_deg: float
+    height_m: float | None
+    slope_deg: float | None
     source: str
 
 
@@ -326,9 +326,16 @@ class GroundSummaryRegion(BaseModel):
 class GroundSummaryWarning(BaseModel):
     """A warning area in the ground summary."""
 
-    kind: str = Field(description="ramp, flat step/threshold or colour (flat object of another colour than the floor)")
-    height_m: float = Field(description="Height (m) relative to the floor plane")
-    slope_deg: float = Field(description="Surface slope (deg)")
+    kind: str = Field(
+        description="ramp, flat step/threshold, colour (flat object of another colour than the floor) or no_return "
+        "(the camera sees something non-floor where the ToF has no return)"
+    )
+    height_m: float | None = Field(
+        description="Height (m) relative to the floor plane; null: not measured (no_return: no ToF return where the camera sees something)"
+    )
+    slope_deg: float | None = Field(
+        description="Surface slope (deg); null: not measured (no_return: no ToF return where the camera sees something)"
+    )
     nearest_distance_m: float = Field(description="Distance from base_link to the nearest point of the area (m)")
 
 
@@ -418,8 +425,8 @@ def summarize_ground(state: GroundState, age_s: float) -> GroundSummary:
         warnings=[
             GroundSummaryWarning(
                 kind=w.kind,
-                height_m=round(w.height_m, 3),
-                slope_deg=round(w.slope_deg, 1),
+                height_m=opt(w.height_m, 3),
+                slope_deg=opt(w.slope_deg, 1),
                 nearest_distance_m=round(polygon_distance(w.polygon), 3),
             )
             for w in state.warnings
