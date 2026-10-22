@@ -557,13 +557,10 @@ void GroundNode::refine_slopes(
     if (!c.slope_known || c.slope_deg < SLOPE_REFIT_MIN_DEG) {
       continue;
     }
-    std::size_t clouds = 0;
-    const auto samples = raw_heights_.around(c.points, fixed_T_base, &clouds);
-    const auto slope = clouds >= static_cast<std::size_t>(config_.temporal.window_frames)
-                         ? surface_slope_deg(samples, sign, config_.fit.distance_m)
-                         : std::nullopt;
-    // Fewer clouds than a temporal window scatter by over a degree: the slope is not known yet (a new inclined
-    // cluster is judged on its step until then, with no cell-median slope standing in).
+    // A new inclined cluster is fit over the clouds kept so far: fewer clouds scatter more (~1 deg at
+    // temporal.min_frames clouds for the sparse 14 deg mat) but a steep incline is lethal from its first frame, where
+    // an unknown slope would leave it to its edge step, which a low incline passes.
+    const auto slope = surface_slope_deg(raw_heights_.around(c.points, fixed_T_base), sign, config_.fit.distance_m);
     c.slope_known = slope.has_value();
     c.slope_deg = slope.value_or(0.0);
   }

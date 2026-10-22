@@ -300,13 +300,6 @@ int warm_up_frames(const Config & c)
   return temporal + (c.hysteresis.enabled ? c.hysteresis.enter_frames : 1);
 }
 
-// Frames until an inclined cluster's slope is known and its ramp kind published: its cells need temporal.window_frames
-// clouds in the slope history (surface_slope.hpp), then a kind change holds hysteresis.enter_frames frames.
-int slope_warm_up_frames(const Config & c)
-{
-  return std::max(warm_up_frames(c), c.temporal.window_frames + (c.hysteresis.enabled ? c.hysteresis.enter_frames : 1));
-}
-
 // --- multi-frame scenes, base_link grids with noise keyed by the fixed-frame (odom) cell -------------------------
 
 constexpr double CELL_M = 0.10;  // temporal.cell_size_m default: the per-cell noise is drawn per fixed-frame cell
@@ -611,16 +604,15 @@ protected:
     return out;
   }
 
-  // Start a node with the temporal filter on and run a scene through run_scene; inclined scenes warm up until their
-  // slope is known (slope_warm_up_frames).
+  // Start a node with the temporal filter on and run a scene through run_scene.
   std::vector<FrameOutput> run_temporal_scene(
-    const std::function<pcl::PointCloud<pcl::PointXYZ>(int)> & scene, int frames, bool inclined = false)
+    const std::function<pcl::PointCloud<pcl::PointXYZ>(int)> & scene, int frames)
   {
     fill_tf();
     Config config = base_config();
     config.temporal.enabled = true;
     start(config);
-    return run_scene(scene, frames, inclined ? slope_warm_up_frames(config) : -1);
+    return run_scene(scene, frames);
   }
 
   // Train the floor colour model on grey floor RGB-D clouds, then show the red sheet (lifted by sheet_height_m).
@@ -1270,6 +1262,7 @@ constexpr int FAR_BAND_FRAMES = 80;
 constexpr int BOX_FRAMES = 40;
 constexpr int SILL_FRAMES = 30;
 constexpr int RAMP_FRAMES = 40;
+constexpr int SLOPE_TRANSIENT_FRAMES = 8;  // temporal.window_frames: the frames before a new incline's history is full
 constexpr int CHURN_FRAMES = 40;
 constexpr int COLOUR_FRAMES = 8;
 constexpr double LETHAL_FREE_SHARE = 0.95;
@@ -1373,7 +1366,7 @@ bool has_ramp(const FrameOutput & f) { return !f.warnings.is_null() && has_kind(
 
 TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarning)
 {
-  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U); }, RAMP_FRAMES, true);
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U); }, RAMP_FRAMES);
   EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
   EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
 }
@@ -1381,21 +1374,21 @@ TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarning)
 // The same mat with other noise draws: the ramp verdict is not one lucky seed.
 TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet1)
 {
-  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 1U); }, RAMP_FRAMES, true);
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 1U); }, RAMP_FRAMES);
   EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
   EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
 }
 
 TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet2)
 {
-  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 2U); }, RAMP_FRAMES, true);
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 2U); }, RAMP_FRAMES);
   EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
   EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
 }
 
 TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet3)
 {
-  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 3U); }, RAMP_FRAMES, true);
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 3U); }, RAMP_FRAMES);
   EXPECT_GE(share(frames, has_ramp), RAMP_SHARE);
   EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
 }
@@ -1403,9 +1396,44 @@ TEST_F(NodeTest, SparseFourteenDegreeMatIsAStableRampWarningForSeedSet3)
 // The safety side of the ramp rule: the same sparse mat raised to 20 deg is lethal.
 TEST_F(NodeTest, SparseTwentyDegreeMatIsLethal)
 {
-  const auto frames =
-    run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U, STEEP_MAT_DEG); }, RAMP_FRAMES, true);
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U, STEEP_MAT_DEG); }, RAMP_FRAMES);
   EXPECT_GE(share(frames, [](const FrameOutput & f) { return f.obstacle > 0; }), RAMP_SHARE);
+}
+
+// A new steep incline is lethal from the first frame its cells hold a stable class, not only once the slope history
+// holds a temporal window of clouds in them: until then its slope is fit over the clouds so far.
+TEST_F(NodeTest, NewSparseTwentyDegreeMatIsLethalFromItsFirstStableFrame)
+{
+  const auto frames =
+    run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U, STEEP_MAT_DEG); }, SLOPE_TRANSIENT_FRAMES);
+  for (std::size_t i = 0; i < frames.size(); ++i) {
+    EXPECT_GT(frames[i].obstacle, 0u) << "frame " << i;
+  }
+}
+
+// The shorter fit while the slope history fills does not make a new 14 deg mat lethal, for any seed set.
+TEST_F(NodeTest, NewSparseFourteenDegreeMatIsNotLethalWhileItsSlopeHistoryFills)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 0U); }, SLOPE_TRANSIENT_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, NewSparseFourteenDegreeMatIsNotLethalWhileItsSlopeHistoryFillsForSeedSet1)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 1U); }, SLOPE_TRANSIENT_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, NewSparseFourteenDegreeMatIsNotLethalWhileItsSlopeHistoryFillsForSeedSet2)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 2U); }, SLOPE_TRANSIENT_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
+}
+
+TEST_F(NodeTest, NewSparseFourteenDegreeMatIsNotLethalWhileItsSlopeHistoryFillsForSeedSet3)
+{
+  const auto frames = run_temporal_scene([](int i) { return sparse_mat_ramp(i, 3U); }, SLOPE_TRANSIENT_FRAMES);
+  EXPECT_GE(share(frames, lethal_free), RAMP_SHARE);
 }
 
 TEST_F(NodeTest, JitteringStaticSillGivesIdenticalWarningAreas)

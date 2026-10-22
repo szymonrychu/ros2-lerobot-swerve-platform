@@ -17,7 +17,8 @@
 // Cluster slopes (temporal filter on): the slope of a cluster whose cell-median fit reads at least SLOPE_REFIT_MIN_DEG
 // is refit from the raw heights of the last SLOPE_HISTORY_WINDOWS * temporal.window_frames clouds in its cells and
 // their neighbours (surface_slope.hpp), so a small sparse ramp is judged on its whole surface instead of three or four
-// cell medians. Until its cells hold temporal.window_frames clouds (or when the refit fails) its slope is unknown.
+// cell medians. A new incline is fit over the clouds kept so far, so a steep one is lethal from its first frame; when
+// the refit fails its slope is unknown.
 //
 // Topics (part ground-topics, names from Config): <ns>/obstacle_points, <ns>/drop_points (PointCloud2 XYZ, reliable
 // depth 1), <ns>/warning_areas (std_msgs/String, reliable depth 1), <ns>/labelled_points (PointCloud2 XYZ rgb label,
