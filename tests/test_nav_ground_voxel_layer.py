@@ -204,8 +204,10 @@ def test_ground_layer_settings_equal_the_tof_layer_settings() -> None:
     local = costmap_params("local_costmap")
     ground = local[LAYER]
     assert ground["plugin"] == STVL_PLUGIN
-    assert ground["enabled"] is True
-    for key in LAYER_KEYS:
+    # Off by default since 2026-10-22: live, its 15 s decay piled up the estimator's flickering lethal points into
+    # dozens of false lethal cells that left Nav2 no path; back on once the live ground acceptance passes.
+    assert ground["enabled"] is False
+    for key in (k for k in LAYER_KEYS if k != "enabled"):
         assert type(ground[key]) is type(local[TOF_LAYER][key]), key
         assert ground[key] == local[TOF_LAYER][key], key
     assert ground["voxel_decay"] == 15.0 and ground["voxel_size"] == 0.05 and ground["combination_method"] == 1

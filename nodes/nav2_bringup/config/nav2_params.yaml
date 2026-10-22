@@ -357,8 +357,10 @@ local_costmap:
       # CliffStop keep the 10 Hz ToF bands (user decision D-A1); the global costmap has no ground layer.
       ground_voxel_layer:
         plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
-        # On next to the fixed bands: both mark, combined by max, so the ground layer can only add cost.
-        enabled: true
+        # Off since 2026-10-22: live, the 15 s decay piled the estimator's flickering lethal points into dozens of false
+        # lethal cells and Nav2 found no path. Turn it on (both mark, combined by max) once the live ground acceptance
+        # passes; runtime: `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled true`.
+        enabled: false
         # Same decay as tof_voxel_layer: a voxel the estimator no longer publishes clears 15 s after its last mark.
         voxel_decay: 15.0
         # 0 = linear decay over voxel_decay seconds.
