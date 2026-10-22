@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   decodeGroundCloud,
   GROUND_COLORS,
+  GROUND_EDGE_LEGEND,
+  warningAreaColour,
+  warningAreaReadouts,
   groundReadout,
   groundVisible,
   labelColour,
@@ -176,5 +179,28 @@ describe('groundReadout', () => {
     expect(r).toEqual({ slope: '6.3 deg', level: 'warning', height: '-0.031 m' })
     expect(groundReadout(undefined)).toBeNull()
     expect(groundReadout(state({ plane: null }))).toBeNull()
+  })
+})
+
+describe('no_return areas', () => {
+  const noReturn = { kind: 'no_return', polygon: [[0, 0], [1, 0], [1, 1]], height_m: null, slope_deg: null, source: 'no_return_0' }
+  const step = { kind: 'step', polygon: [[0, 0], [1, 0], [1, 1]], height_m: 0.03, slope_deg: 2, source: 'step_0' }
+
+  it('draws no_return areas in their own colour with a legend entry', () => {
+    expect(GROUND_COLORS.noReturnFill).not.toBe(GROUND_COLORS.warningFill)
+    expect(GROUND_COLORS.noReturnFill).not.toBe(GROUND_COLORS.mismatch)
+    expect(warningAreaColour('no_return')).toBe(GROUND_COLORS.noReturnFill)
+    expect(warningAreaColour('step')).toBe(GROUND_COLORS.warningFill)
+    expect(GROUND_EDGE_LEGEND).toContainEqual(['No ToF return (caution)', GROUND_COLORS.noReturnFill])
+    const polys = warningPolygons(state({ warnings: [noReturn, step] } as unknown as Partial<GroundState>))
+    expect(polys.map((w) => warningAreaColour(w.kind))).toEqual([GROUND_COLORS.noReturnFill, GROUND_COLORS.warningFill])
+  })
+
+  it('reads null area heights and slopes as n/a', () => {
+    expect(warningAreaReadouts(state({ warnings: [noReturn, step] } as unknown as Partial<GroundState>))).toEqual([
+      { source: 'no_return_0', kind: 'no_return', height: 'n/a', slope: 'n/a' },
+      { source: 'step_0', kind: 'step', height: '0.030 m', slope: '2.0 deg' },
+    ])
+    expect(warningAreaReadouts(undefined)).toEqual([])
   })
 })

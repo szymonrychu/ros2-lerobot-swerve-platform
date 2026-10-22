@@ -464,7 +464,7 @@ The Map tab's 3D view has a **Head RGB-D** layer (off by default, key `headRgbd`
 - Points by label: floor green, obstacle (above floor) red, drop (below floor) blue, floor colour mismatch orange, unlabelled grey.
 - A translucent green 2 m x 2 m patch around `base_link` on the fitted plane.
 - A 2 m edge line per region: red for class `obstacle`, yellow for class `warning`.
-- Translucent yellow warning areas (slow down) from the state `warnings`.
+- Translucent yellow warning areas (slow down) from the state `warnings`; areas of kind `no_return` (the RGB sees non-floor where the ToF has no returns) are purple (`GROUND_COLORS.noReturnFill`), legend "No ToF return (caution)", and their `height_m` and `slope_deg` may be null (read as "n/a").
 - The Layers panel legend lists these colours and reads out the slope, `slope_level` and plane height.
 
 Nothing is drawn from the plane, edges, warning areas or read-out while the state is absent, `stale` or has `plane: null`; the labelled points are hidden while the state is stale.
