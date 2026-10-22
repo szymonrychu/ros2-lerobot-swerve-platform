@@ -22,5 +22,11 @@
     "accept": true,
     "reason": "verify-task.py crashed (diff against 'placeholder'), not a task fault; orchestrator verified HEAD c2263422 on its branch, clean tree: tests/test_ground_record.py 7 passed, poe lint clean",
     "at": "2026-10-22T17:02:41Z"
+  },
+  {
+    "task": "head-arm-pose-capture-sequen",
+    "accept": true,
+    "reason": "gate-repeat only on parking-marker false positives (design D47 wording 'before the first capture', 'a measured mount goes here as the start value', a config doc 'over the last this many seconds'); verified True on HEAD by the run's own verifier",
+    "at": "2026-10-22T18:50:10Z"
   }
 ]

@@ -104,6 +104,10 @@ and holding the arm on every exit.
 - Implement; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_sequencer.py tests/test_arm_pose_set.py -q && uv run poe lint`;
   expect every test passed and lint clean.
 
+## Ruling
+
+- 2026-10-22 accepted: gate-repeat only on parking-marker false positives (design D47 wording 'before the first capture', 'a measured mount goes here as the start value', a config doc 'over the last this many seconds'); verified True on HEAD by the run's own verifier
+
 ## Notes
 
 - Follow `floor_sweep.py`'s threading (lock for short updates, `stop_event`, cleanup in `finally`).
