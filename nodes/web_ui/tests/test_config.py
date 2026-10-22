@@ -7,7 +7,15 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from web_ui.config import VALID_TAB_TYPES, AppConfig, CalibrationConfig, GpsStatusConfig, TabConfig, load_config
+from web_ui.config import (
+    VALID_TAB_TYPES,
+    AppConfig,
+    CalibrationConfig,
+    GpsStatusConfig,
+    GroundRecorderConfig,
+    TabConfig,
+    load_config,
+)
 
 
 def test_load_config_minimal(config_yaml: Path) -> None:
@@ -484,3 +492,37 @@ def test_agent_retros_with_agent_chat_tab_is_valid_and_uses_its_url() -> None:
 def test_agent_retros_without_agent_chat_tab_is_rejected_with_reason() -> None:
     with pytest.raises(ValidationError, match="agent_retros.*requires an agent_chat tab"):
         AppConfig.model_validate({"tabs": [RETROS_TAB]})
+
+
+def test_ground_recorder_defaults_and_ranges() -> None:
+    cfg = AppConfig().ground_recorder
+    assert (cfg.enabled, cfg.dir, cfg.max_duration_s, cfg.max_files, cfg.tf_timeout_s) == (
+        False,
+        "/tmp/web_ui_ground_recordings",
+        30,
+        4,
+        0.5,
+    )
+    assert cfg.cloud_topic == "/tof/points_filtered"
+    assert cfg.tof_depth_topic == "/tof/depth/image_raw"
+    assert cfg.tof_amplitude_topic == "/tof/amplitude/image_raw"
+    assert cfg.tof_info_topic == "/tof/camera_info"
+    assert cfg.pair_depth_topic == "/head_rgbd/depth_upsampled/image_raw"
+    assert cfg.pair_info_topic == "/head_rgbd/depth_upsampled/camera_info"
+    assert cfg.pair_rgb_topic == "/head_rgbd/rgb/image_raw/compressed"
+    assert (cfg.imu_topic, cfg.head_js_topic, cfg.state_topic) == ("/imu/data", "/head/joint_states", "/ground/state")
+    assert (cfg.base_frame, cfg.odom_frame) == ("base_link", "odom")
+    for bad in (
+        {"max_duration_s": 0.5},
+        {"max_duration_s": 61},
+        {"max_files": 0},
+        {"max_files": 21},
+        {"tf_timeout_s": -0.1},
+        {"tf_timeout_s": 2.5},
+        {"unknown_key": 1},
+    ):
+        with pytest.raises(ValidationError):
+            GroundRecorderConfig(**bad)
+    assert GroundRecorderConfig(max_duration_s=60, max_files=20, tf_timeout_s=0).max_files == 20
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate({"ground_recorder": {"bogus": 1}})

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
 
 from .gps_anchor import (
@@ -624,6 +624,30 @@ class CalibrationConfig(BaseModel):
         return groups
 
 
+class GroundRecorderConfig(BaseModel):
+    """Operator tool recording ToF + RGB + amplitude replay files from the live robot (idle when not recording)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    dir: str = "/tmp/web_ui_ground_recordings"  # npz files are written here
+    max_duration_s: float = Field(30, ge=1, le=60)  # longest recording a request may ask for
+    max_files: int = Field(4, ge=1, le=20)  # older files beyond this many are deleted after each recording
+    tf_timeout_s: float = Field(0.5, ge=0, le=2)  # a message whose TF does not arrive within this is dropped
+    cloud_topic: str = "/tof/points_filtered"
+    tof_depth_topic: str = "/tof/depth/image_raw"
+    tof_amplitude_topic: str = "/tof/amplitude/image_raw"
+    tof_info_topic: str = "/tof/camera_info"
+    pair_depth_topic: str = "/head_rgbd/depth_upsampled/image_raw"
+    pair_info_topic: str = "/head_rgbd/depth_upsampled/camera_info"
+    pair_rgb_topic: str = "/head_rgbd/rgb/image_raw/compressed"
+    imu_topic: str = "/imu/data"
+    head_js_topic: str = "/head/joint_states"
+    state_topic: str = "/ground/state"
+    base_frame: str = "base_link"
+    odom_frame: str = "odom"
+
+
 class AppConfig(BaseModel):
     """Full web_ui application configuration."""
 
@@ -635,6 +659,7 @@ class AppConfig(BaseModel):
     battery: BatteryConfig | None = None  # absent: battery features off, nothing blocked
     gps_status: GpsStatusConfig | None = None  # absent: no GPS status chips
     calibration: CalibrationConfig | None = None  # absent: the Calibrate page is off, /api/calibration/* answers 404
+    ground_recorder: GroundRecorderConfig = GroundRecorderConfig()  # /api/ground/recordings; off by default
     models_dir: str | None = None  # printable PDF/3MF files served at /models/{name}; absent: /api/models answers 404
     # Nav goals are refused when the cached tilt guard state is older than this many seconds (the guard sends 1 Hz).
     tilt_guard_stale_s: float = Field(TILT_STALE_S_DEFAULT, gt=0)
