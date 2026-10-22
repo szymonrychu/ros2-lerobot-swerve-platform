@@ -3309,6 +3309,21 @@ README, Replay tests). Synthetic recordings with the real key layout are written
 | `test_export_tof_frames_subset` | `export_tof_frames` keeps every n-th frame per recording with the documented keys and dtypes, the truth polygons, `box_height_m`, and a floor plane within 2 mm of a synthetic floor. |
 | `test_tiny_v2_fixture_is_current` | `ground_estimator_cpp/test/data/replay/tiny_v2.bin` (3 clouds, 2 pairs) equals a fresh export of the synthetic recording (`UPDATE_TINY_V2=1` rewrites it). |
 
+### `test_ground_scene_truth.py`
+
+Unit tests for `scripts/ground_scene_truth.py` (replay-scene ground truth from the ChArUco board pose). A board rendered
+through a distorted pinhole at a known pose in base_link (`tests/rgbd_synthetic.py`) stands in for the recording.
+
+| Test | Description |
+|------|-------------|
+| `test_truth_from_rendered_board` | The board outline recovered from a distorted rendered view lands within 5 mm of the placed board, also yawed. |
+| `test_board_polygon_includes_plate_margin` | The board outline grows by the plate margin on every side (which places the board frame origin), not the bare corner polygon. |
+| `test_placements_build_polygons` | Box and ramp footprints follow from the board corners (any order), dims and measured placements, including a yawed placement and both `low_end` values. |
+| `test_moving_board_rejected` | A board 1 cm away in some frames fails: no truth from a moving or occluded board. |
+| `test_too_few_detections_rejected` | Fewer than 5 accepted detections (or a frame without a board) fail. |
+| `test_scene_sheet_validates` | `SceneSheet` fills the path defaults, requires the measured fields and rejects unknown keys. |
+| `test_run_writes_truth_yaml` | The script reads an npz recording and a sheet from `tmp_path` and writes the truth YAML with provenance. |
+
 ### `test_ground_robustness_runbook.py`
 
 Guards for `docs/runbooks/ground-robustness.md` (static ground robustness runbook, robot parked).
