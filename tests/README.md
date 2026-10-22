@@ -36,6 +36,35 @@ URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.p
 | `test_xyz_rpy_round_trip` | xyz/rpy to pose and back within 1e-12. |
 | `test_arm_in_robot_base_default_gauge` | The default gauge maps the arm root to (0.0592, -0.05, 0.100); yaw rotates the arm axes. |
 
+### `test_head_arm_calib_config.py`
+
+Head-from-arm fit config, board corner geometry and view types (`shared/ros2_common/head_rgbd_calibration/{config,charuco,views}.py`).
+
+| Test | Description |
+|------|-------------|
+| `test_head_arm_fit_config_defaults` | `HeadArmFitConfig` defaults: board mount, every `HeadArmFitLimits` value, Huber scale, floor prior weight and the `base_in_base_link` gauge (0.0592, -0.05, 0.100). |
+| `test_board_is_the_existing_charuco_board` | The default board equals the `charuco` spec in the markers YAML. |
+| `test_unknown_keys_and_bad_joint_set_rejected` | Unknown keys, a joint-offset set missing `wrist_roll` or containing `gripper`, and `holdout_every=1` raise `ValidationError`. |
+| `test_arm_gauge_matches_client_yml` | Default joint offsets and `base_in_base_link` equal the arm config in `client.yml`. |
+| `test_board_corners_3d_geometry` | `board_corners_3d` gives 20 corners in the z = 0 plane spaced one square apart along x and y. |
+| `test_board_corners_3d_match_detection` | Corners of a rendered board, projected with the true pose, land on the detected points within the pixel tolerance. |
+| `test_board_outline_spans_outer_squares_plus_margin` | `board_outline` is 4 points spanning the outer squares plus the margin; margin 0 gives 0.24 x 0.2 m. |
+| `test_require_joints_names_missing` | `require_joints` accepts a complete `ArmBoardView` and raises `ValueError` naming the view and each missing head/arm joint. |
+
+### `test_arm_pose_check.py`
+
+FK pose check of the arm with the board on the gripper (`shared/ros2_common/head_rgbd_calibration/arm_pose_check.py`) against the robot body, head envelope and board outline.
+
+| Test | Description |
+|------|-------------|
+| `test_body_defaults_equal_mcp_server_body` | `BodyConfig` defaults equal the `body` config of the `mcp_server` node in `client.yml` (frame boxes, wheel and lidar cylinders). |
+| `test_head_envelope_contains_head_visuals` | The head envelope (default and grown radius/height) contains the head URDF visuals. |
+| `test_pose_violations_are_named` | A clear pose gives no entries; a pose with the tool at 50 mm is reported as a named `min_tool_height_m` violation. |
+| `test_roll_rules` | Wrist-roll rules for a level tool at 12 cm and 20 cm: rolling is refused or allowed per height. |
+| `test_stretched_arm_and_limits` | A stretched shoulder/elbow pose is refused by `stretched_shoulder_lift_max_rad`, also when offsets keep it inside the URDF limits. |
+| `test_path_check_catches_mid_path_contact` | `check_path` finds contact in the middle of a move whose start and target poses are both clear. |
+| `test_board_margin_applies_to_board_rules_only` | The board margin applies to `board_*` rules only; the base rules keep `margin_m`. |
+
 ### `test_head_floor_fit.py`
 
 Floor-plane head chain fit (`shared/ros2_common/head_rgbd_calibration/floor_fit.py`, design D2-D4) on `nodes/web_ui/urdf/head.urdf`, with clouds from `tests/head_floor_synthetic.py`. Truth chain: mount z +0.03 m, roll +1.5 deg, pitch -3.0 deg, tilt zero +2.0 deg (plus a +1.2 deg head_tilt roll in `test_tilt_roll_is_recovered`).
