@@ -17,6 +17,7 @@
 #include <deque>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -117,9 +118,20 @@ private:
     std::deque<CellClass> votes;
     CellClass stable = CellClass::none;
     CellClass last_lethal = CellClass::obstacle;
+    int active_run = 0;  // consecutive frames the cell was voted or had a stable class
     std::optional<Record> record;
   };
 
+  // A published area of the latest frame, matched to the next frame's components by shared cells.
+  struct Track
+  {
+    std::set<Key> cells;
+    std::string kind;          // the published kind
+    std::string pending_kind;  // the kind with the most cells, not yet held area_enter_frames frames
+    int pending_frames = 0;
+  };
+
+  void update_areas();
   Key key_of(const Eigen::Vector2d & xy_fixed) const;
   FrameObservation & observe(const Key & key, CellClass cls);
 
@@ -127,6 +139,9 @@ private:
   double cell_size_m_;
   std::map<Key, FrameObservation> frame_;
   std::map<Key, Cell> cells_;
+  std::vector<StableArea> areas_;
+  std::vector<Track> tracks_;
+  std::map<Key, std::deque<bool>> history_;  // per cell: voted in each of the last area_history_frames frames
 };
 
 }  // namespace ground_estimator_cpp

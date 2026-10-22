@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <set>
 
@@ -122,6 +123,13 @@ CellClassFilter::CellClassFilter(const HysteresisConfig & cfg, double cell_size_
     cfg_.window_frames = 1;
     cfg_.enter_frames = 1;
     cfg_.exit_frames = 1;
+    cfg_.area_enter_frames = 1;
+    cfg_.area_min_cells = 1;
+    cfg_.area_join_frames = 1;
+    cfg_.area_kind_frames = 1;
+    cfg_.area_history_frames = 1;
+    cfg_.area_enter_density = 0.0;
+    cfg_.area_exit_density = 0.0;
   }
   cfg_.window_frames = std::max(cfg_.window_frames, 1);
 }
@@ -257,8 +265,27 @@ void CellClassFilter::end_frame()
     } else {
       cell.stable = CellClass::none;
     }
+    // A cell is active while it is voted or has a stable class, so a cell decaying out of its class keeps its run.
+    cell.active_run = (vote != CellClass::none || cell.stable != CellClass::none) ? cell.active_run + 1 : 0;
     ++it;
   }
+  // Area history: one bit per frame (the cell was voted) for the last area_history_frames frames, kept until all clear.
+  for (const auto & [key, obs] : frame_) {
+    if (obs.label != CellClass::none) {
+      history_[key];
+    }
+  }
+  const auto history_window = static_cast<std::size_t>(cfg_.area_history_frames);
+  for (auto it = history_.begin(); it != history_.end();) {
+    const auto obs = frame_.find(it->first);
+    it->second.push_back(obs != frame_.end() && obs->second.label != CellClass::none);
+    while (it->second.size() > history_window) {
+      it->second.pop_front();
+    }
+    const bool voted = std::any_of(it->second.begin(), it->second.end(), [](bool v) { return v; });
+    it = voted ? std::next(it) : history_.erase(it);
+  }
+  update_areas();
 }
 
 CellClass CellClassFilter::stable_at(const Eigen::Vector2d & xy_fixed) const
@@ -273,40 +300,103 @@ std::size_t CellClassFilter::count(CellClass cls) const
     std::count_if(cells_.begin(), cells_.end(), [cls](const auto & kv) { return kv.second.stable == cls; }));
 }
 
-std::vector<StableArea> CellClassFilter::warning_areas() const
+std::vector<StableArea> CellClassFilter::warning_areas() const { return areas_; }
+
+void CellClassFilter::update_areas()
 {
-  // cells_ is ordered by key, so each component is found from its smallest key and the output is in that order.
-  std::vector<StableArea> areas;
-  std::set<Key> visited;
-  for (const auto & [start, start_cell] : cells_) {
-    if (start_cell.stable != CellClass::warning || visited.count(start) > 0) {
-      continue;
+  // The previous frame's footprint: the cells of every published area.
+  std::set<Key> published;
+  for (const Track & track : tracks_) {
+    published.insert(track.cells.begin(), track.cells.end());
+  }
+  const auto run_of = [this](const Key & key) {
+    const auto it = cells_.find(key);
+    return it != cells_.end() && it->second.stable == CellClass::warning ? it->second.active_run : 0;
+  };
+
+  // Candidate cells: stable warning for area_enter_frames active frames. 8-connected components of a cell set, in the
+  // order of their smallest key.
+  // Share of the cell's history frames that voted; a cell must reach area_enter_density to join an area and stay at or
+  // above area_exit_density once in one.
+  const auto density = [this](const Key & key) {
+    const auto it = history_.find(key);
+    if (it == history_.end()) {
+      return 0.0;
     }
-    std::vector<Key> component;
-    std::vector<Key> stack{start};
-    visited.insert(start);
-    while (!stack.empty()) {
-      const Key key = stack.back();
-      stack.pop_back();
-      component.push_back(key);
-      for (int dx = -1; dx <= 1; ++dx) {
-        for (int dy = -1; dy <= 1; ++dy) {
-          const Key next{key.first + dx, key.second + dy};
-          const auto it = cells_.find(next);
-          if (it != cells_.end() && it->second.stable == CellClass::warning && visited.insert(next).second) {
-            stack.push_back(next);
+    return static_cast<double>(std::count(it->second.begin(), it->second.end(), true)) /
+           static_cast<double>(it->second.size());
+  };
+  std::set<Key> candidates;
+  for (const auto & entry : cells_) {
+    const double needed = published.count(entry.first) > 0 ? cfg_.area_exit_density : cfg_.area_enter_density;
+    if (run_of(entry.first) >= cfg_.area_enter_frames && density(entry.first) >= needed) {
+      candidates.insert(entry.first);
+    }
+  }
+  const auto components = [](const std::set<Key> & cells) {
+    std::vector<std::set<Key>> out;
+    std::set<Key> visited;
+    for (const Key & start : cells) {
+      if (!visited.insert(start).second) {
+        continue;
+      }
+      std::set<Key> component;
+      std::vector<Key> stack{start};
+      while (!stack.empty()) {
+        const Key key = stack.back();
+        stack.pop_back();
+        component.insert(key);
+        for (int dx = -1; dx <= 1; ++dx) {
+          for (int dy = -1; dy <= 1; ++dy) {
+            const Key next{key.first + dx, key.second + dy};
+            if (cells.count(next) > 0 && visited.insert(next).second) {
+              stack.push_back(next);
+            }
           }
         }
       }
+      out.push_back(std::move(component));
     }
+    return out;
+  };
 
+  // A component with no published cell is new and takes all its cells; one touching a published area gets only the
+  // published cells that are still candidates and the cells active for area_join_frames.
+  std::vector<std::set<Key>> footprints;
+  for (std::set<Key> & component : components(candidates)) {
+    const bool touches =
+      std::any_of(component.begin(), component.end(), [&](const Key & k) { return published.count(k) > 0; });
+    if (!touches) {
+      footprints.push_back(std::move(component));
+      continue;
+    }
+    std::set<Key> admitted;
+    for (const Key & key : component) {
+      if (published.count(key) > 0 || run_of(key) >= cfg_.area_join_frames) {
+        admitted.insert(key);
+      }
+    }
+    for (std::set<Key> & part : components(admitted)) {
+      footprints.push_back(std::move(part));
+    }
+  }
+  std::sort(footprints.begin(), footprints.end(), [](const std::set<Key> & a, const std::set<Key> & b) {
+    return *a.begin() < *b.begin();
+  });
+
+  std::vector<StableArea> areas;
+  std::vector<Track> tracks;
+  for (std::set<Key> & footprint : footprints) {
+    if (static_cast<int>(footprint.size()) < cfg_.area_min_cells) {
+      continue;
+    }
     StableArea area;
     std::vector<Eigen::Vector2d> corners;
     std::map<std::string, int> kinds;
     std::vector<double> heights;
     std::vector<double> slopes;
     bool tof = false;
-    for (const Key & key : component) {
+    for (const Key & key : footprint) {
       for (const int cx : {0, 1}) {
         for (const int cy : {0, 1}) {
           corners.emplace_back((key.first + cx) * cell_size_m_, (key.second + cy) * cell_size_m_);
@@ -335,15 +425,49 @@ std::vector<StableArea> CellClassFilter::warning_areas() const
     area.height_m = heights.empty() ? 0.0 : median(heights);
     area.slope_deg = slopes.empty() ? 0.0 : median(slopes);
     area.source = tof ? SOURCE_TOF : SOURCE_COLOUR;
+
+    // Kind persistence: the previous area sharing most cells keeps its published kind until another kind has most of
+    // the cells for area_kind_frames consecutive frames.
+    Track track;
+    track.cells = std::move(footprint);
+    track.kind = area.kind;
+    const Track * prev = nullptr;
+    std::size_t prev_overlap = 0;
+    for (const Track & candidate : tracks_) {
+      const auto overlap = static_cast<std::size_t>(std::count_if(
+        track.cells.begin(), track.cells.end(), [&](const Key & k) { return candidate.cells.count(k) > 0; }));
+      if (overlap > prev_overlap) {
+        prev = &candidate;
+        prev_overlap = overlap;
+      }
+    }
+    if (prev != nullptr) {
+      track.kind = prev->kind;
+      if (area.kind != prev->kind && kinds[area.kind] > kinds[prev->kind]) {
+        track.pending_kind = area.kind;
+        track.pending_frames = prev->pending_kind == area.kind ? prev->pending_frames + 1 : 1;
+        if (track.pending_frames >= cfg_.area_kind_frames) {
+          track.kind = area.kind;
+          track.pending_kind.clear();
+          track.pending_frames = 0;
+        }
+      }
+    }
+    area.kind = track.kind;
+    tracks.push_back(std::move(track));
     areas.push_back(std::move(area));
   }
-  return areas;
+  areas_ = std::move(areas);
+  tracks_ = std::move(tracks);
 }
 
 void CellClassFilter::reset()
 {
   frame_.clear();
   cells_.clear();
+  areas_.clear();
+  tracks_.clear();
+  history_.clear();
 }
 
 }  // namespace ground_estimator_cpp
