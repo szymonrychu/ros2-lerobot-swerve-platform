@@ -1,7 +1,7 @@
 ---
 title: Printable metadata markers that become POIs
 blockers: [Marker and calibration board generator, Head RGB-D fusion of camera and ToF, Remove the Jetson coprocessor, POI fixes photos as POIs and cleanups]
-stage: build
+stage: review
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
