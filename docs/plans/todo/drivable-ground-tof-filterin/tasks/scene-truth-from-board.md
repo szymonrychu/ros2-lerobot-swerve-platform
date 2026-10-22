@@ -23,24 +23,25 @@ provides: []
 
 ## Requirement
 
-Ground truth for the replay scenes from the ChArUco board pose (design D10, part scene-truth). The robot is static, so base_link is fixed across scenes. The board's pose in base_link places the box and the ramp, which the user puts against the board's edges and measures (Q1).
+Ground truth for the replay scenes from the ChArUco board pose (design D10, part scene-truth). The robot is static, so base_link is fixed across scenes. The board's pose in base_link places the box and the ramp, whose placements the user measures against the board (Q1; design D22: the current live layout, not placements assumed against the board's edges).
 
 - Scene sheet model `SceneSheet` for `scripts/ground_scenes.yaml` (pydantic, unknown keys rejected); the sheet file itself is written by capture-baseline-recordings with the user's values (tests use sheets in tmp_path):
   - `recording` (npz path, default `.logs/ground_recordings/home.npz`), `truth_out` (default `nodes/ground_estimator_cpp/test/data/replay_rgbd/truth.yaml`), `board_config` (default `scripts/markers_generate.yaml`, its `charuco` block);
-  - `box: {length_m, width_m, height_m: 0.05, offset_m}`. The box's front face lies on the board's far edge (the edge farther from the robot), centred on the board's centre line plus offset_m along that edge (+ toward the robot's left);
-  - `ramp: {length_m: 0.25, width_m, height_m: 0.063, side}`. The ramp's long side lies against the board's left or right edge (`side: left|right`, robot frame), its low end flush with the board's near edge, and its length runs away from the robot;
-  - `empty: {x_min, x_max, y_min, y_max}`, a bare-floor rectangle in base_link, optional.
+  - the board frame of the placements: origin at the board's outer corner nearest the robot on the robot's right, `u` along the board's near edge toward the robot's left, `v` along its right edge away from the robot (both on the floor, m);
+  - `box: {length_m, width_m, height_m: 0.05, placement: {u_m, v_m, yaw_deg}}`: the box's near-right footprint corner at (u_m, v_m) in the board frame, its near edge (`width_m` long) at yaw_deg from `u` (+ counter-clockwise seen from above), its `length_m` running away from the robot;
+  - `ramp: {length_m: 0.25, width_m, height_m: 0.063, low_end: near|far, placement: {u_m, v_m, yaw_deg}}`: the same placement convention, the ramp's length running away from the robot and `low_end` naming the end at floor level;
+  - `empty: {x_min, x_max, y_min, y_max}`, a bare-floor rectangle in base_link, required (the live acceptance and the flying-pixel retune measure the floor there).
 
-  The measured fields (box and ramp dims, offset, side) have no default.
+  The measured fields (box and ramp dims, placements, low_end, the empty rectangle) have no default. The old "box against the board's far edge" and "ramp against a side edge" layouts are particular placements of this form.
 - `scripts/ground_scene_truth.py [sheet]`:
   1. for every RGB-D pair of the recording, detect the board with `shared/ros2_common/head_rgbd_calibration/charuco.py:detect` (`make_board` from the `charuco` block) and solve its pose with `cv2.solvePnP` and the recorded RGB model (rgb_K, rgb_D), then move it to base_link with the pair's base_T_rgb;
   2. require >= 5 detections with >= 12 corners each;
   3. take the median of the board corners in base_link. When a corner of any accepted detection is more than 5 mm from that median, the script fails: no truth from a moving or occluded board;
-  4. write the truth YAML: `board` polygon (4 xy corners, m), `box` footprint polygon, `box_front_edge` segment, `ramp` footprint polygon, `empty` rectangle, and `provenance` (recording name, detections, spread_mm, date).
+  4. write the truth YAML: `board` polygon (4 xy corners, m), `box` footprint polygon, `box_front_edge` segment (the box edge facing the robot), `box_height_m`, `ramp` footprint polygon, `ramp_low_end`, `empty` rectangle, and `provenance` (recording name, detections, spread_mm, date, the measured placements).
 - Type hints, docstrings with types, constants on top; shapely may be used for polygons (root dev dependency).
 - Tests first (seen failing) in `tests/test_ground_scene_truth.py`:
   - `test_truth_from_rendered_board`: the board image is drawn with `CharucoBoard.generateImage`, warped into a pinhole image at a known pose with plumb_bob distortion, and the recovered corners land within 5 mm;
-  - `test_placements_build_polygons`: the box and ramp polygons follow from a known board pose and dims;
+  - `test_placements_build_polygons`: the box and ramp polygons follow from a known board pose, the dims and measured placements, including a yawed placement and both `low_end` values;
   - `test_moving_board_rejected`: two poses 1 cm apart fail;
   - `test_too_few_detections_rejected`;
   - `test_scene_sheet_validates`: the measured fields are required, unknown keys are rejected.
@@ -49,7 +50,7 @@ Ground truth for the replay scenes from the ChArUco board pose (design D10, part
 ## Acceptance conditions
 
 - a1: a rendered board's corners are recovered within 5 mm [evidence: test: tests/test_ground_scene_truth.py::test_truth_from_rendered_board]
-- a2: box and ramp footprints follow from the board pose and the measured dims [evidence: test: tests/test_ground_scene_truth.py::test_placements_build_polygons]
+- a2: box and ramp footprints follow from the board pose, the measured dims and the measured placements in the board frame [evidence: test: tests/test_ground_scene_truth.py::test_placements_build_polygons]
 - a3: a board that moved by more than 5 mm gives no truth [evidence: test: tests/test_ground_scene_truth.py::test_moving_board_rejected]
 - a4: fewer than 5 detections give no truth [evidence: test: tests/test_ground_scene_truth.py::test_too_few_detections_rejected]
 - a5: the scene sheet requires the measured fields and rejects unknown keys [evidence: test: tests/test_ground_scene_truth.py::test_scene_sheet_validates]
@@ -80,3 +81,5 @@ Builds part scene-truth: `scripts/ground_scene_truth.py` with `SceneSheet` (pyda
 - Board: `scripts/markers_generate.yaml` charuco block (6 x 5 squares of 40 mm, DICT_5X5_100), `shared/ros2_common/head_rgbd_calibration/config.py:BoardConfig`.
 - The board is 4 mm thick (thickness_mm), so its top surface is 4 mm above the floor. Use the board's top plane for the corners and project the footprints straight down onto the floor (z of the plane is not used by the 2D polygons).
 - The RGB image of a pair is the raw, distorted mapping frame (head_rgbd_cpp publishes it unrectified): pass rgb_D to solvePnP.
+
+- 2026-10-22 amended: planner: umbrella re-plan (user 2026-10-22 'Go for all 3 within one epic', approval G1, D22): placements of THIS live scene measured against the board instead of assumed against its edges; empty rectangle required
