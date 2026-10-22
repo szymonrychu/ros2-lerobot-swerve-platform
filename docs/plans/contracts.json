@@ -47,7 +47,8 @@
     "owner": "head-rgb-d-fusion-of-camera",
     "file": "nodes/head_rgbd_cpp/include/head_rgbd_cpp/config.hpp",
     "consumers": [
-      "rgb-d-ground-estimation-and"
+      "rgb-d-ground-estimation-and",
+      "rgb-and-amplitude-guided-gro"
     ],
     "note": "/head_rgbd/points: PointCloud2 XYZRGB (packed float32 rgb) in the RGB optical frame, RGB stamp, <= cloud.rate_hz (1 Hz), published while subscribed; consumed by ground_estimator_cpp colour labels (task ground-node-wiring)"
   },
