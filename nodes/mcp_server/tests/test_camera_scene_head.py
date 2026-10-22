@@ -195,7 +195,7 @@ def test_zero_mount_on_head_camera_link_equals_the_old_head_link_mount(kin: ArmK
     )
 
 
-def test_front_scene_moves_with_an_applied_head_camera_joint(kin: ArmKinematics, tmp_path: Path) -> None:
+def test_front_pose_follows_applied_head_camera_joint(kin: ArmKinematics, tmp_path: Path) -> None:
     cfg = head_config(
         parent_frame="head_camera_link", mount={**HEAD_MOUNT, "parent_frame": "head_camera_link", "x": 0.0, "y": 0.0}
     )

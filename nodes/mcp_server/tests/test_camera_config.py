@@ -145,7 +145,7 @@ def test_client_yml_front_image_size_is_the_head_camera_stream() -> None:
     )
 
 
-def test_calibration_scales_from_576x324_to_the_front_size(tmp_path: Path) -> None:
+def test_front_intrinsics_scaled_to_stream_size(tmp_path: Path) -> None:
     path = write_calib(tmp_path / "c.yaml", CALIB_576)
     intr = camera_setup(front_cfg(path, HEAD_CAMERA_DEFAULT_SIZE), "front").intrinsics
     assert (intr.width, intr.height) == HEAD_CAMERA_DEFAULT_SIZE
@@ -199,3 +199,12 @@ def test_an_apply_is_picked_up_without_a_restart(tmp_path: Path) -> None:
 
     os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 10_000_000))
     assert camera_setup(cfg, "front").intrinsics.fx == 500.0
+
+
+def test_front_intrinsics_missing_or_mismatched_uncalibrated(tmp_path: Path) -> None:
+    missing = front_cfg(tmp_path / "absent.yaml", HEAD_CAMERA_DEFAULT_SIZE)
+    with pytest.raises(CameraNotCalibratedError):
+        camera_setup(missing, "front")
+    path = write_calib(tmp_path / "c.yaml", CALIB_576)
+    with pytest.raises(CameraNotCalibratedError):
+        camera_setup(front_cfg(path, (640, 480)), "front")
