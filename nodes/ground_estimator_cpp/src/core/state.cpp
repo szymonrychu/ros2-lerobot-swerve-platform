@@ -42,8 +42,8 @@ ordered_json area_json(const WarningArea & area)
   ordered_json out = ordered_json::object();
   out["kind"] = area.kind;
   out["polygon"] = polygon_json(area.polygon);
-  out["height_m"] = round_decimals(area.height_m);
-  out["slope_deg"] = round_decimals(area.slope_deg);
+  out["height_m"] = area.height_m ? ordered_json(round_decimals(*area.height_m)) : ordered_json(nullptr);
+  out["slope_deg"] = area.slope_deg ? ordered_json(round_decimals(*area.slope_deg)) : ordered_json(nullptr);
   out["source"] = area.source;
   return out;
 }
