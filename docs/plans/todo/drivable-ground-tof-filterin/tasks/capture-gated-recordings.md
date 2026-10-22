@@ -1,6 +1,6 @@
 ---
 title: Capture gated recordings
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Real RGB-D replay data with the gate on, the test bed of the guided acceptance"
 files: [scripts/ground_replay_scenes.yaml, nodes/ground_estimator_cpp/test/data/replay_rgbd/, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--capture-gated-recordings
+branch: drivable-ground-tof-filterin--capture-gated-recordings
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: Nav2 goal across the scene
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Proof that the robot drives around the box on the ground layer instead of finding no path
 files: [docs/runbooks/ground-nav2-check.md, tests/test_ground_nav2_check_runbook.py, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--nav2-goal-across-the-scene
+branch: drivable-ground-tof-filterin--nav2-goal-across-the-scene
 verified_head: ""
 run: ""
 provides: []

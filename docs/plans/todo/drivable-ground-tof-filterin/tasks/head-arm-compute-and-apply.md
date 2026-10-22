@@ -1,6 +1,6 @@
 ---
 title: Head arm compute and apply
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A captured session becomes a checked head chain result that is applied to every consumer through the floor fit's one apply path, or refused."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/head_arm_results.py, nodes/head_rgbd_calibration/head_rgbd_calibration/floor_results.py, nodes/head_rgbd_calibration/tests/test_head_arm_results.py, nodes/head_rgbd_calibration/tests/test_floor_results.py]
@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-arm-compute-and-apply
+branch: drivable-ground-tof-filterin--head-arm-compute-and-apply
 verified_head: ""
 run: ""
 provides: []

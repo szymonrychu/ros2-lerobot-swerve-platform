@@ -1,6 +1,6 @@
 ---
 title: Guidance replay acceptance
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The approved edge, no-return and safety numbers locked in on real recordings"
 files: [nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/src/core/edge_points.cpp, nodes/ground_estimator_cpp/src/core/no_return.cpp, nodes/ground_estimator_cpp/test/core/test_edge_points.cpp, nodes/ground_estimator_cpp/test/core/test_no_return.cpp, nodes/ground_estimator_cpp/README.md]
@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-replay-acceptance
+branch: drivable-ground-tof-filterin--guidance-replay-acceptance
 verified_head: ""
 run: ""
 provides: []

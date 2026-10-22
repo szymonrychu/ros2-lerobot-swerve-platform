@@ -1,6 +1,6 @@
 ---
 title: Live report guidance metrics
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The live check judges no_return areas against the same truth as the replay
 files: [scripts/ground_noise_report.py, scripts/ground_noise_report.yaml, tests/test_ground_noise_report.py, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--live-report-guidance-metrics
+branch: drivable-ground-tof-filterin--live-report-guidance-metrics
 verified_head: ""
 run: ""
 provides: []

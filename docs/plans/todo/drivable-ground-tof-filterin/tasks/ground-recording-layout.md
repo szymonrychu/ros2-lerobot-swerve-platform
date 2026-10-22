@@ -1,6 +1,6 @@
 ---
 title: Ground recording layout
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Recordings with RGB, amplitude and depth in one replayable file, so every later step is measured on real data"
 files: [nodes/web_ui/web_ui/ground_recorder.py, nodes/web_ui/tests/test_ground_recorder.py]
@@ -12,8 +12,8 @@ model: ""
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-recording-layout
+branch: drivable-ground-tof-filterin--ground-recording-layout
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: Calib docs and test index
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A mid-level ROS2 developer can understand, run and extend the head-from-arm calibration from the READMEs."
 files: [shared/README.md, nodes/head_rgbd_calibration/README.md, nodes/head_state_publisher/README.md, nodes/mcp_server/README.md, nodes/web_ui/README.md, ansible/README.md, docs/markers.md, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: skip
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--calib-docs-and-test-index
+branch: drivable-ground-tof-filterin--calib-docs-and-test-index
 verified_head: ""
 run: ""
 provides: []

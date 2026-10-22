@@ -1,6 +1,6 @@
 ---
 title: Arm board pose set
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "A shipped arm pose set that is proven safe by FK, keeps the board in view and is known to give a passing fit before the arm ever moves."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/tests/test_arm_pose_set.py, nodes/head_rgbd_calibration/tests/test_config.py]
@@ -12,8 +12,8 @@ model: opus
 estimate: 75
 actual: ""
 review: full
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--arm-board-pose-set
+branch: drivable-ground-tof-filterin--arm-board-pose-set
 verified_head: ""
 run: ""
 provides: []

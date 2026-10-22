@@ -1,6 +1,6 @@
 ---
 title: ToF flying pixel retune
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The ToF filter goes back on without starving the ground fit, so mixed pixels at object edges stop faking ramps and drops"
 files: [nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_flying_pixel_real.py, nodes/bridges/arducam_tof/tests/test_config.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/README.md, ansible/group_vars/client.yml, tests/test_arducam_tof_config.py]
@@ -12,8 +12,8 @@ model: opus
 estimate: 90
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tof-flying-pixel-retune
+branch: drivable-ground-tof-filterin--tof-flying-pixel-retune
 verified_head: ""
 run: ""
 provides: []

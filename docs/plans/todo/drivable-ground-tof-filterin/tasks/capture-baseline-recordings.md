@@ -1,6 +1,6 @@
 ---
 title: Capture baseline recordings
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Before numbers on the real scene, so every later improvement is proven, not assumed"
 files: [scripts/ground_scenes.yaml, scripts/ground_record.yaml, scripts/ground_replay_scenes.yaml, nodes/ground_estimator_cpp/test/data/replay_rgbd/, nodes/bridges/arducam_tof/tests/data/amplitude_frames.npz, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--capture-baseline-recordings
+branch: drivable-ground-tof-filterin--capture-baseline-recordings
 verified_head: ""
 run: ""
 provides: []

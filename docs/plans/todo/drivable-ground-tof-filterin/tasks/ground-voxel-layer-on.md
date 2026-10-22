@@ -1,6 +1,6 @@
 ---
 title: Ground voxel layer on
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 avoids what the ground estimator sees (steps, drops) again, now that its output is stable"
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_ground_voxel_layer.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 20
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-voxel-layer-on
+branch: drivable-ground-tof-filterin--ground-voxel-layer-on
 verified_head: ""
 run: ""
 provides: []

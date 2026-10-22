@@ -1,6 +1,6 @@
 ---
 title: Edge points core
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Obstacle and drop boundaries placed where the camera sees them, within a few cm of what depth found"
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/edge_points.hpp, nodes/ground_estimator_cpp/src/core/edge_points.cpp, nodes/ground_estimator_cpp/test/core/test_edge_points.cpp]
@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--edge-points-core
+branch: drivable-ground-tof-filterin--edge-points-core
 verified_head: ""
 run: ""
 provides: []

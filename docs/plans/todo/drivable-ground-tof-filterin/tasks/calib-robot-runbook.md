@@ -1,8 +1,8 @@
 ---
 title: Calib robot runbook
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
-value: "The head chain measured against the arm is applied on the robot and checked with real numbers."
+value: The head chain measured against the arm is applied on the robot and checked with real numbers.
 files: [docs/runbooks/head-arm-calibration.md, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml]
 verify: "grep -q '^## Results' docs/runbooks/head-arm-calibration.md && (cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py tests/test_config.py -q) && uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q"
 depends_on: [calib-docs-and-test-index]
@@ -12,8 +12,8 @@ model: ""
 estimate: 90
 actual: ""
 review: skip
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--calib-robot-runbook
+branch: drivable-ground-tof-filterin--calib-robot-runbook
 verified_head: ""
 run: ""
 provides: []

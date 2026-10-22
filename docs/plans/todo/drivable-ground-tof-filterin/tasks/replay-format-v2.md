@@ -1,6 +1,6 @@
 ---
 title: Replay format v2
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Replay fixtures that carry the RGB-D pairs, so the guidance is tested on real images"
 files: [scripts/ground_replay_export.py, tests/test_ground_replay_export.py, nodes/ground_estimator_cpp/test/replay_fixture.hpp, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/test/data/replay/tiny_v2.bin, nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/README.md, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--replay-format-v2
+branch: drivable-ground-tof-filterin--replay-format-v2
 verified_head: ""
 run: ""
 provides: []

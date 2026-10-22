@@ -1,6 +1,6 @@
 ---
 title: Guidance live check and CPU
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: Proof on the robot that the guidance works and what it costs on the Pi 5
 files: [docs/runbooks/ground-guidance.md, tests/test_ground_guidance_runbook.py, tests/README.md, scripts/ground_guidance_cpu.yaml, MEMORY.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-live-check-and-cpu
+branch: drivable-ground-tof-filterin--guidance-live-check-and-cpu
 verified_head: ""
 run: ""
 provides: []

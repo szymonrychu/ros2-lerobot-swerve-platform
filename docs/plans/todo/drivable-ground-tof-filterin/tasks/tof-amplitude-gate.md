@@ -1,6 +1,6 @@
 ---
 title: ToF amplitude gate
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Dark-surface depth bias removed at the source, so the board stops reading as a step"
 files: [nodes/bridges/arducam_tof/arducam_tof/amplitude.py, nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_amplitude.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/README.md, ansible/group_vars/client.yml, tests/test_arducam_tof_config.py]
@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tof-amplitude-gate
+branch: drivable-ground-tof-filterin--tof-amplitude-gate
 verified_head: ""
 run: ""
 provides: []

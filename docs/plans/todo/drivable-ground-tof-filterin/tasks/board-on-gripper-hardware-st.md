@@ -1,6 +1,6 @@
 ---
 title: Board on gripper hardware step
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The board clip, its pose on the jaw and the mount's tilt limit are recorded from the user, so the pose set and the safety check use real geometry."
 files: [docs/runbooks/head-arm-calibration.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 30
 actual: ""
 review: skip
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--board-on-gripper-hardware-st
+branch: drivable-ground-tof-filterin--board-on-gripper-hardware-st
 verified_head: ""
 run: ""
 provides: []

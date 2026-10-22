@@ -1,6 +1,6 @@
 ---
 title: Scene truth from board
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Centimetre-true box, board and ramp positions, so edge errors of 1-2 cm can be measured at all"
 files: [scripts/ground_scene_truth.py, tests/test_ground_scene_truth.py, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--scene-truth-from-board
+branch: drivable-ground-tof-filterin--scene-truth-from-board
 verified_head: ""
 run: ""
 provides: []

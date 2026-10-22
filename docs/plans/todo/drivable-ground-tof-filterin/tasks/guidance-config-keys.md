@@ -1,6 +1,6 @@
 ---
 title: Guidance config keys
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "One validated, documented place for every guidance setting, mirrored in Ansible"
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, tests/test_ground_estimator_deploy.py, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 50
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-config-keys
+branch: drivable-ground-tof-filterin--guidance-config-keys
 verified_head: ""
 run: ""
 provides: []

@@ -1,6 +1,6 @@
 ---
 title: ToF filter live check
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Proof on the robot that the retuned filter keeps the ground fit fed (removed share <= 10 %, plane valid >= 95 %)"
 files: [nodes/bridges/arducam_tof/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 30
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tof-filter-live-check
+branch: drivable-ground-tof-filterin--tof-filter-live-check
 verified_head: ""
 run: ""
 provides: []

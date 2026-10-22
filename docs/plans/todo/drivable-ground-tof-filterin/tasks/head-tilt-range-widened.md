@@ -1,6 +1,6 @@
 ---
 title: Head tilt range widened
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The head can look further down at the board on the gripper and at grasp scenes next to the robot.
 files: [nodes/web_ui/urdf/head.urdf, ansible/group_vars/client.yml, nodes/web_ui/config/default.yaml, nodes/web_ui/web_ui/config.py, nodes/web_ui/frontend/src/tabs/HeadTab.tsx, tests/test_head_servo_config.py, nodes/web_ui/tests/test_head_urdf.py, nodes/mcp_server/tests/test_head_kinematics.py]
@@ -12,8 +12,8 @@ model: ""
 estimate: 45
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-tilt-range-widened
+branch: drivable-ground-tof-filterin--head-tilt-range-widened
 verified_head: ""
 run: ""
 provides: []

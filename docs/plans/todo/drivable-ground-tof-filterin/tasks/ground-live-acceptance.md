@@ -1,6 +1,6 @@
 ---
 title: Ground live acceptance
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The robot's ground detection is proven on the real scene, so Nav2 can trust it: the acceptance moved from ground-detection-robustness, with real numbers"
 files: [docs/runbooks/ground-robustness.md, tests/test_ground_robustness_runbook.py, scripts/ground_acceptance_record.yaml, tests/README.md]
@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-live-acceptance
+branch: drivable-ground-tof-filterin--ground-live-acceptance
 verified_head: ""
 run: ""
 provides: []

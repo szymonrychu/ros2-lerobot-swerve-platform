@@ -1,6 +1,6 @@
 ---
 title: Arm pose safety check
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "No arm pose or transit with the board on the gripper is commanded unless FK shows the tool, the board and the arm links clear of the floor, the body and the head."
 files: [shared/ros2_common/head_rgbd_calibration/arm_pose_check.py, tests/test_arm_pose_check.py]
@@ -12,8 +12,8 @@ model: opus
 estimate: 75
 actual: ""
 review: full
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--arm-pose-safety-check
+branch: drivable-ground-tof-filterin--arm-pose-safety-check
 verified_head: ""
 run: ""
 provides: []

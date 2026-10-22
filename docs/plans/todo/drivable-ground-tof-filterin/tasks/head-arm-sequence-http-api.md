@@ -1,6 +1,6 @@
 ---
 title: Head arm sequence HTTP API
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The web UI can drive the guided head-from-arm calibration, with every confirm and refusal enforced by the node, not only by the browser."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/head_arm_api.py, nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py, nodes/head_rgbd_calibration/tests/test_head_arm_api.py, nodes/head_rgbd_calibration/tests/test_main.py, nodes/head_rgbd_calibration/tests/contract.py, nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_state.json, nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_result.json, nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_sessions.json]
@@ -12,8 +12,8 @@ model: ""
 estimate: 75
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-arm-sequence-http-api
+branch: drivable-ground-tof-filterin--head-arm-sequence-http-api
 verified_head: ""
 run: ""
 provides: []

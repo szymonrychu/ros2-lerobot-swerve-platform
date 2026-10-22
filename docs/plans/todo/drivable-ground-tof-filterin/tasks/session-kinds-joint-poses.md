@@ -1,6 +1,6 @@
 ---
 title: Session kinds joint poses
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Board-on-gripper views are stored with all seven measured joints in the existing session store, never with invented values."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/store.py, nodes/head_rgbd_calibration/tests/test_store.py, nodes/head_rgbd_calibration/tests/pose_factory.py]
@@ -12,8 +12,8 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--session-kinds-joint-poses
+branch: drivable-ground-tof-filterin--session-kinds-joint-poses
 verified_head: ""
 run: ""
 provides: []
