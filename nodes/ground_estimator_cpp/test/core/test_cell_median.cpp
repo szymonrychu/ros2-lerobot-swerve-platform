@@ -6,6 +6,8 @@
 #include <random>
 
 #include "ground_estimator_cpp/cell_median.hpp"
+#include "ground_estimator_cpp/edges.hpp"
+#include "ground_estimator_cpp/segmentation.hpp"
 #include "synthetic_floor.hpp"
 
 namespace
@@ -15,6 +17,7 @@ using ground_estimator_cpp::CellMedianFilter;
 using ground_estimator_cpp::Plane;
 using ground_estimator_cpp::TemporalConfig;
 using ground_test::add_z_noise;
+using ground_test::DEG;
 using ground_test::grid_cloud;
 using Cloud = pcl::PointCloud<pcl::PointXYZ>;
 
@@ -350,4 +353,102 @@ TEST(CellMedian, DisabledReportsNoGatedCells)
   CellMedianFilter filter(cfg);
   filter.apply(grid_cloud(0.0, 0.5, 0.0, 0.5, 0.05), Plane(), Eigen::Isometry3d::Identity(), 0.0);
   EXPECT_EQ(filter.gated_cell_count(), 0u);
+}
+
+namespace
+{
+
+// The robot scene: the user's 25 cm, 63 mm (14.1 deg) ramp surrounded by floor, 0.02 m floor band, per-point noise
+// 0.02 m, 60% of the 2 cm grid per frame, cells at a random offset and yaw per seed.
+constexpr double RAMP_X0_M = 1.0;
+constexpr double RAMP_LENGTH_M = 0.25;
+constexpr double RAMP_HEIGHT_M = 0.063;
+constexpr double RAMP_Y0_M = -0.45;
+constexpr double RAMP_Y1_M = -0.20;
+constexpr double RAMP_GRID_M = 0.02;
+constexpr double RAMP_KEEP_FRACTION = 0.6;
+constexpr double RAMP_SIGMA_M = 0.02;
+constexpr double ROBOT_FLOOR_BAND_M = 0.02;
+constexpr double EDGE_BAND_M = 0.05;
+constexpr int RAMP_FRAMES = 10;
+constexpr unsigned RAMP_SEEDS = 20;
+constexpr double RAMP_TOL_DEG = 3.0;
+constexpr double MAX_ALIGNMENT_OFFSET_M = 0.1;
+constexpr double MAX_YAW_DEG = 45.0;
+
+}  // namespace
+
+TEST(CellMedian, RobotRampSlopeSurvivesTheCells)
+{
+  ground_test::Scene scene;
+  ground_test::add_ramp(scene, RAMP_X0_M, RAMP_LENGTH_M, RAMP_HEIGHT_M, RAMP_Y0_M, RAMP_Y1_M);
+  const Cloud dense = ground_test::sample_grid(scene, 0.8, 1.45, -0.65, 0.0, RAMP_GRID_M);
+  const double truth_deg = std::atan(RAMP_HEIGHT_M / RAMP_LENGTH_M) / DEG;
+  std::vector<double> slopes;
+  for (unsigned seed = 1; seed <= RAMP_SEEDS; ++seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<double> offset(0.0, MAX_ALIGNMENT_OFFSET_M);
+    std::uniform_real_distribution<double> yaw(0.0, MAX_YAW_DEG);
+    Eigen::Isometry3d fixed_T_base = Eigen::Isometry3d::Identity();
+    fixed_T_base.translate(Eigen::Vector3d(offset(rng), offset(rng), 0.0));
+    fixed_T_base.rotate(Eigen::AngleAxisd(yaw(rng) * DEG, Eigen::Vector3d::UnitZ()));
+    CellMedianFilter filter{TemporalConfig{}};
+    Cloud filtered;
+    for (int frame = 0; frame < RAMP_FRAMES; ++frame) {
+      const unsigned frame_seed = seed * 1000U + static_cast<unsigned>(frame);
+      const Cloud noisy = add_z_noise(
+        ground_test::keep_fraction(dense, RAMP_KEEP_FRACTION, frame_seed), RAMP_SIGMA_M, 0.0, 0.0, frame_seed + 500U);
+      filtered = filter.apply(noisy, Plane(), fixed_T_base, frame * FRAME_DT_S);
+    }
+    const auto seg =
+      ground_estimator_cpp::segment(filtered, Plane(), ground_estimator_cpp::BandsConfig{}, ROBOT_FLOOR_BAND_M);
+    const auto clusters = ground_estimator_cpp::extract_clusters(
+      seg.above, seg.above_height, "step", Plane(), ground_estimator_cpp::EdgesConfig{}, EDGE_BAND_M);
+    const ground_estimator_cpp::Cluster * best = nullptr;
+    for (const auto & c : clusters) {
+      if (best == nullptr || c.points.size() > best->points.size()) {
+        best = &c;
+      }
+    }
+    if (best != nullptr && best->slope_known) {
+      slopes.push_back(best->slope_deg);
+    }
+  }
+  ASSERT_GE(slopes.size(), RAMP_SEEDS * 3 / 4);
+  std::sort(slopes.begin(), slopes.end());
+  EXPECT_NEAR(slopes[slopes.size() / 2], truth_deg, RAMP_TOL_DEG);
+}
+
+TEST(CellMedian, SlopeInsideACellIsKept)
+{
+  // A noise-free 14 deg incline over many 10 cm cells: collapsing each cell to one height would put the points up to
+  // half a cell times the slope (12 mm) off; with the in-cell gradient they stay within a few mm.
+  constexpr double SLOPE = 0.25;
+  constexpr double MAX_ERR_M = 0.004;
+  constexpr double SENSOR_SIGMA_M = 0.002;
+  constexpr double INTERIOR_X0_M = 0.1;
+  constexpr double INTERIOR_X1_M = 0.7;
+  constexpr double INTERIOR_Y_M = 0.1;
+  Cloud truth;
+  for (double x = 0.0; x < 0.8; x += 0.02) {
+    for (double y = -0.2; y < 0.2; y += 0.02) {
+      truth.push_back(pcl::PointXYZ(static_cast<float>(x), static_cast<float>(y), static_cast<float>(SLOPE * x)));
+    }
+  }
+  CellMedianFilter filter{TemporalConfig{}};
+  Cloud out;
+  Cloud in;
+  for (int i = 0; i < 10; ++i) {
+    in = add_z_noise(truth, SENSOR_SIGMA_M, 0.0, 0.0, 700 + i);
+    out = filter.apply(in, Plane(), Eigen::Isometry3d::Identity(), i * FRAME_DT_S);
+  }
+  ASSERT_GT(out.size(), truth.size() / 2);
+  double worst = 0.0;
+  for (const auto & p : out) {
+    if (p.x < INTERIOR_X0_M || p.x > INTERIOR_X1_M || std::fabs(p.y) > INTERIOR_Y_M) {
+      continue;  // border cells hold few points and stay flat
+    }
+    worst = std::max(worst, static_cast<double>(std::fabs(p.z - SLOPE * p.x)));
+  }
+  EXPECT_LT(worst, MAX_ERR_M);
 }

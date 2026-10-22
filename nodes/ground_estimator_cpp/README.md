@@ -97,6 +97,24 @@ height per cell and keeps the median of the last `temporal.window_frames` of tho
 to that height and segmentation, clusters, regions and the traversability rule run on them. The plane fit itself keeps
 the raw cloud. The rule (0.04 m step, 8 degrees slope) is unchanged.
 
+In-cell slope: a cell is not collapsed to one height. Per frame a cell with at least 12 points gets a robust plane
+(least squares, refitted without residuals beyond 2.5 robust sigmas): the height at the cell centre and the gradient
+in the fixed frame. The cell keeps the temporal median of both. A gradient component is applied only when it is 3
+standard errors away from zero (the larger of the frame to frame scatter and the fit error of one frame, so 4 to 8
+values cannot agree by chance), and a gradient steeper than tan 22 deg is dropped, because it is a step edge inside the
+cell that a plane would smear into a ramp. The points are moved to height + gradient . (xy - centre). Without it a
+25 cm ramp of 14 deg on 10 cm cells became a staircase and the cluster slope estimator saw 4-9 deg (measured 5.7 on the
+robot); a cell with fewer than 12 points, or with noise too high to see the gradient, behaves as before (flat at its
+median).
+
+Decision (cell size): `temporal.cell_size_m` stays 0.10 because each cell keeps its in-cell slope. This task re-ran the
+ramp test of `CellMedian.RobotRampSlopeSurvivesTheCells` (C++, 20 seeds, random cell offset and yaw) with both sizes:
+0.10 m gives slope p50 14.3 deg (range 9.8-16.6), 0.05 m gives p50 13.0 deg (range 10.3-15.5). Both are inside
+14 +- 3 deg, so the smaller cell buys nothing, while it has 4x fewer points per cell, which weakens the spread gate
+and the gradient fit. The earlier "8-10 deg with misaligned cells" figure came from the finding's Python simulation of
+cells that collapse to one height; it was not measured by this task. Test `CellMedian.SlopeInsideACellIsKept` pins the
+in-cell gradient on a noise-free 14 deg incline (points stay within 4 mm of the surface; a collapsed cell is 12 mm off).
+
 Warm-up: a cell outputs nothing until it has `min_frames` values, so after start, after the plane is lost (the filter
 is reset then) or when the robot looks at new floor, obstacles and drops appear after `min_frames` / 10 Hz = 0.4 s with
 the defaults. Set `temporal.enabled: false` for the raw per-frame behaviour.
