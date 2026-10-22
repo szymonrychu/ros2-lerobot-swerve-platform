@@ -665,15 +665,6 @@ void GroundNode::observe_steady(
   cell_class_.observe_points(steady_lethal_, cls, fixed_T_base);
 }
 
-// Two unmeasured values are equal, a measured one differs from an unmeasured one, two measured ones by the deadband.
-static bool within_deadband(const std::optional<double> & a, const std::optional<double> & b, double deadband)
-{
-  if (!a || !b) {
-    return !a && !b;
-  }
-  return std::fabs(*a - *b) <= deadband;
-}
-
 std::vector<GroundNode::PublishedArea> GroundNode::stable_areas_fixed() const
 {
   const bool hold = config_.hysteresis.enabled;

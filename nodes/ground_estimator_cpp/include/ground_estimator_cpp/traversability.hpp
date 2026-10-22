@@ -109,6 +109,10 @@ std::vector<WarningArea> colour_warning_areas(
   const pcl::PointCloud<pcl::PointXYZ> & mismatch_points_base, const std::vector<float> & heights, const Plane & plane,
   const EdgesConfig & edges, const TraversabilityConfig & cfg);
 
+/// Two unmeasured (nullopt) values are equal, a measured one differs from an unmeasured one, two measured ones
+/// by the deadband.
+bool within_deadband(const std::optional<double> & a, const std::optional<double> & b, double deadband);
+
 }  // namespace ground_estimator_cpp
 
 #endif  // GROUND_ESTIMATOR_CPP__TRAVERSABILITY_HPP_
