@@ -16,5 +16,11 @@
     "accept": true,
     "reason": "Verifier timed out on docker (no verdict). Orchestrator reran scripts/cpp-node-test.sh ground_estimator_cpp on HEAD 0dfbd483, clean tree: Summary: 356 tests, 0 errors, 0 failures, 0 skipped; PASS; replays box_lethal_share 1.000 all box scenes, board 0, far_side 0. Last fix was a stray backup-file deletion (deletion exception). Stray lethal and churn are delivered by warning-area-stability and replay-acceptance-and-docs.",
     "at": "2026-10-22T07:55:29Z"
+  },
+  {
+    "task": "warning-area-stability",
+    "accept": true,
+    "reason": "Verifier agent died (docker run length). Orchestrator reran on 30ed28ec, clean tree: Summary: 365 tests, 0 errors, 0 failures, 0 skipped; PASS; churn_share home 0.078 box 0.000 ramp 0.000 (< 0.10). README key doc gap (hysteresis.area_* keys) fixed on main after merge (doc-edit exception).",
+    "at": "2026-10-22T09:07:57Z"
   }
 ]

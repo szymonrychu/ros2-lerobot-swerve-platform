@@ -69,6 +69,10 @@ Builds part area-stability in `CellClassFilter` (`cell_class.hpp`): `warning_are
 - implement in cell_class.cpp and config.cpp, document the keys in the yaml, mirror in client.yml; the command PASSES and the replay churn lines are < 0.10
 - `uv run pytest tests/test_ground_estimator_deploy.py -q` PASSES; commit `fix(ground_estimator_cpp): stable warning areas` with the per-scene breakdown
 
+## Ruling
+
+- 2026-10-22 accepted: Verifier agent died (docker run length). Orchestrator reran on 30ed28ec, clean tree: Summary: 365 tests, 0 errors, 0 failures, 0 skipped; PASS; churn_share home 0.078 box 0.000 ramp 0.000 (< 0.10). README key doc gap (hysteresis.area_* keys) fixed on main after merge (doc-edit exception).
+
 ## Notes
 
 Uses replay-harness. Live churn: 51 of 59 pairs changed kinds or count, 8 only polygon shape. Polygons are already cell-aligned (D8): look for components merging and splitting at border cells, short-lived components and kind votes between step and ramp. The lethal latency must not change.
