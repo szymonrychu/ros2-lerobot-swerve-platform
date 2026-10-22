@@ -34,7 +34,7 @@ the same ansible/group_vars/client.yml and head chain, so the runbook runs on th
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+Estimate: 90 min | Actual: 0 min | Remaining estimate: 90 min
 
 ## Review
 

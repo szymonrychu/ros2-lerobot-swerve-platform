@@ -1,0 +1,9 @@
+[
+  {
+    "id": "F1",
+    "text": "User 2026-10-22, answer A (yes): close rtab-map-rgb-d-3d-mapping-on with its one leftover live runbook task deferred; the task final-suite-and-runbook moves into its own follow-up epic with requirement and AC verbatim, blocked by drivable-ground-tof-filterin since they share client.yml.",
+    "decisions": ["D1"],
+    "tasks": ["final-suite-and-runbook"],
+    "status": "approved"
+  }
+]
