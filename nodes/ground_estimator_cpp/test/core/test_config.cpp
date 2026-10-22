@@ -70,13 +70,13 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.fit.candidate_band_m, 0.15);
   EXPECT_DOUBLE_EQ(c.fit.max_range_m, 2.5);
   EXPECT_DOUBLE_EQ(c.fit.hold_s, 1.0);
-  EXPECT_DOUBLE_EQ(c.fit.smoothing, 0.5);
+  EXPECT_DOUBLE_EQ(c.fit.smoothing, 0.2);
   EXPECT_DOUBLE_EQ(c.bands.obstacle_max_m, 0.6);
   EXPECT_DOUBLE_EQ(c.bands.drop_max_m, 1.0);
   EXPECT_DOUBLE_EQ(c.bands.max_range_m, 2.0);
   EXPECT_DOUBLE_EQ(c.traversability.wheel_radius_m, 0.06);
   EXPECT_DOUBLE_EQ(c.traversability.max_step_fraction, 0.3333);
-  EXPECT_DOUBLE_EQ(c.traversability.max_slope_deg, 8.0);
+  EXPECT_DOUBLE_EQ(c.traversability.max_slope_deg, 15.0);
   EXPECT_DOUBLE_EQ(c.traversability.edge_band_m, 0.05);
   EXPECT_EQ(c.warnings.frame, "map");
   EXPECT_DOUBLE_EQ(c.edges.cluster_tolerance_m, 0.1);
