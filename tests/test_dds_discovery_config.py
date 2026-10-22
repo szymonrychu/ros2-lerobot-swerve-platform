@@ -165,7 +165,8 @@ def test_peers_profile_installed_before_any_node_restart() -> None:
     spec = t["ansible.builtin.template"]
     assert (spec["owner"], spec["group"], spec["mode"]) == ("root", "root", "0644")
     assert "config" in t["tags"]
-    parents = [x for x in tasks if x.get("ansible.builtin.file", {}).get("path") == "{{ ros2_dds_profiles_file | dirname }}"]
+    dir_path = "{{ ros2_dds_profiles_file | dirname }}"
+    parents = [x for x in tasks if x.get("ansible.builtin.file", {}).get("path") == dir_path]
     assert parents and tasks.index(parents[0]) < install
 
 
