@@ -1,6 +1,6 @@
 ---
 title: "map3d_uplink and leader_bridge (the static-peer Wi-Fi bridges) make blocking Fast DDS UDP sends. Fast DDS 2.14 UDPTransportInterface::send sets SO_SNDTIMEO to the remaining max_blocking_time, and once that time has passed it sets 0, which means no timeout. So during a Wi-Fi stall these processes block until the carrier is lost. 720 UDP SndbufErrors were counted in the 16:30 outage."
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "This is a likely part of how Wi-Fi outages spread into the robot graph. To check at the live reproduction: does a blocked bridge stall same-host topics?"
 files: []
@@ -12,8 +12,8 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--map3d-uplink-and-leader-brid
+branch: drivable-ground-tof-filterin--map3d-uplink-and-leader-brid
 verified_head: ""
 run: ""
 provides: []

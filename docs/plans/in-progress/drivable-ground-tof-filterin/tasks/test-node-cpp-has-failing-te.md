@@ -1,6 +1,6 @@
 ---
 title: "test_node.cpp has failing tests: NodeTest stamp-limit checks at lines 997 and 1002, and PlaneLossResetsTheCellHistoryAndGauge at line 1251"
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The full ground_estimator_cpp suite reports 8 failures there. This task changed no node code, so they come from the merged base or from timing under load."
 files: [nodes/ground_estimator_cpp/test/test_node.cpp]
@@ -12,8 +12,8 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--test-node-cpp-has-failing-te
+branch: drivable-ground-tof-filterin--test-node-cpp-has-failing-te
 verified_head: ""
 run: ""
 provides: []

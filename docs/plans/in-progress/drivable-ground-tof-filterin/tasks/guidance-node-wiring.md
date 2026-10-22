@@ -1,6 +1,6 @@
 ---
 title: Guidance node wiring
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: The running ground estimator publishes sharper lethal edges and no_return areas from the live RGB-D pairs
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/package.xml, nodes/ground_estimator_cpp/README.md]

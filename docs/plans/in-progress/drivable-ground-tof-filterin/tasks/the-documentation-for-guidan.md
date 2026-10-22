@@ -1,6 +1,6 @@
 ---
 title: "The documentation for guidance.no_return.cell_min_share and clearance_cells describes different semantics from the approved requirement. It calls cell_min_share the share of samples without a return, but the requirement uses the share of no-return samples whose colour does not match the floor. It calls clearance_cells the cells kept clear of valid returns, but the requirement uses the distance from blocked lethal or warning ToF cells."
-status: todo
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "Operators who tune these keys would get the wrong meaning. Those files belong to guidance-config-keys, not this task."
 files: []
@@ -12,8 +12,8 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: ""
-branch: ""
+worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--the-documentation-for-guidan
+branch: drivable-ground-tof-filterin--the-documentation-for-guidan
 verified_head: ""
 run: ""
 provides: []
