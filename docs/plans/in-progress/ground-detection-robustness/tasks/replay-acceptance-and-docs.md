@@ -51,17 +51,17 @@ Lock in the live-round acceptance on the real recordings and document the live-r
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+No new interfaces: assertions over the replay-harness metrics, one latency NodeTest and README sections. Uses area-stability.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with every replay assertion of the Requirement and the latency pin; the README carries the four sections with the final per-scene numbers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the replay assertions and the latency NodeTest; `scripts/cpp-node-test.sh ground_estimator_cpp` PASSES (if one fails, report the metric and its value as the finding)
+- write the README sections and the config table rows; commit `test(ground_estimator_cpp): live-round replay acceptance`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The thresholds are the approved ones (A10-A14); none may be loosened. Board never lethal is strict (0 frames); stray lethal follows the approved empty-floor p95 goal (<= 5 % of frames).

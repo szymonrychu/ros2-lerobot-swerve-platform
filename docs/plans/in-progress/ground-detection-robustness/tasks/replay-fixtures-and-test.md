@@ -53,17 +53,21 @@ Turn the 2026-10-22 live recordings into committed replay fixtures and a C++ rep
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part replay-harness in `nodes/ground_estimator_cpp/test/replay_fixture.hpp`: the fixture reader, `ReplayFrame` and the metric functions (`box_lethal_share`, `board_lethal_frames`, `stray_lethal_share`, `far_side_warning_frames`, `ramp_lethal_frames`, `churn_share`, `plane_share`) with the D14 ROIs as constants. `scripts/ground_replay_export.py:read_replay` decodes the same layout in Python. Keeps `GroundNode` and every topic schema unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Three committed fixtures (15 s each), `test_replay` in `scripts/cpp-node-test.sh ground_estimator_cpp` PASS, one `replay <scene>: ...` metrics line per scene in the test output, and the README baseline matching those lines.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `tests/test_ground_replay_export.py`; `uv run pytest tests/test_ground_replay_export.py -q` FAILS (no module)
+- write `scripts/ground_replay_export.py`; the same command PASSES; `uv run poe lint` PASSES
+- export the three scenes: `uv run python scripts/ground_replay_export.py <scratchpad>/rec/ground_home.npz nodes/ground_estimator_cpp/test/data/replay/home.bin` (and box, ramp)
+- write the reader and metric tests in `test/test_replay.cpp` and the CMake target; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS (no reader)
+- write `test/replay_fixture.hpp` and the per-scene replay tests; the command PASSES and prints the metrics lines
+- write the README `## Replay tests` section with the measured lines and the `tests/README.md` entry; commit `test(ground_estimator_cpp): replay the live recordings`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Recordings: /private/tmp/claude-501/-Users-szymonri-Documents-ros2-lerobot-sverve-platform/5751a2d7-e308-446f-9481-6ac5ce26e7d3/scratchpad/rec/ground_{home,box,ramp}.npz (gitignored scratchpad, not committed). ground_empty.npz has no clouds; skip it. Reuse the NodeTest patterns (`run_frame`, `warm_up_frames`, `Inbox`) by copying what the replay needs into test_replay.cpp; do not restructure test_node.cpp. Obstacle and drop clouds are published in base_link. The baseline numbers are expected to fail the later acceptance (box share 0.93, churn ~1.0 live); record them, do not assert them.

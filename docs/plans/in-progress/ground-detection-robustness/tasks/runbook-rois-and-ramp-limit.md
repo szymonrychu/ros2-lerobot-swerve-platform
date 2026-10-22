@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: The live runbook measures the scene where the objects really are and accepts the ramp the ToF cannot see as long as it is never lethal.
 files: [scripts/ground_noise_report.py, scripts/ground_noise_report.yaml, tests/test_ground_noise_report.py, tests/test_ground_robustness_runbook.py, docs/runbooks/ground-robustness.md, tests/README.md]
 verify: "uv run pytest tests/test_ground_noise_report.py tests/test_ground_robustness_runbook.py -q && uv run poe lint"
-depends_on: []
+depends_on: [ground-robustness-runbook]
 owns: []
 uses: []
 model: sonnet
@@ -50,17 +50,18 @@ Move the static runbook and its report to the measured ground truth and make the
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`scripts/ground_noise_report.yaml` thresholds gain `ramp_lethal_states_max` and lose `ramp_warning_share_min` and `ramp_slope_abs_error_p50_max`; the report JSON keeps every metric name and adds `ramp_lethal_states`. The runbook commands are unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_noise_report.py tests/test_ground_robustness_runbook.py -q` PASS with the new tests; `uv run poe lint` clean; the runbook shows the measured scene and the ramp sensor limit.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the new and updated tests; `uv run pytest tests/test_ground_noise_report.py tests/test_ground_robustness_runbook.py -q` FAILS on them
+- update the yaml, the report and the runbook; the command PASSES; `uv run poe lint` PASSES
+- update tests/README.md; commit `fix(ground_noise_report): measured ROIs and ramp never lethal`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Ground truth and the ramp ruling are in the brief (ground-live.md) and design D14, D19. The runbook stays static: no driving, head moves only.

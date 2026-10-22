@@ -61,5 +61,40 @@
     "decisions": ["D1", "D2"],
     "tasks": ["slope-and-smoothing-defaults", "node-stable-classes", "ground-robustness-docs"],
     "status": "approved"
+  },
+  {
+    "id": "A10",
+    "text": "Live round (brief D1): commit trimmed live recordings (15-20 s per scene, compact format readable from a C++ gtest, Python converter under scripts/) and a C++ replay test that feeds them through the real node pipeline and asserts per-scene metrics against the measured ground truth, gripper zone x < 0.37 excluded.",
+    "decisions": ["D14"],
+    "tasks": ["replay-fixtures-and-test", "wire-shadow-gate-on-replay", "warning-area-stability", "replay-acceptance-and-docs"],
+    "status": "approved"
+  },
+  {
+    "id": "A11",
+    "text": "Live round, root cause 1: ToF mixed pixels at depth edges are removed in arducam_tof on the full-resolution depth image (>= 95 % of a tilted flat floor at 0.3-2.0 m kept, the mixed pixels behind a 5 cm box removed), and the ground estimator itself passes on the replay data that still contains them: no ramp warning on the box's far side.",
+    "decisions": ["D15", "D16"],
+    "tasks": ["tof-flying-pixel-filter", "occlusion-and-segment-config", "shadow-gate-and-segment-step", "wire-shadow-gate-on-replay", "replay-acceptance-and-docs"],
+    "status": "approved"
+  },
+  {
+    "id": "A12",
+    "text": "Live round, root cause 2 and brief D3: the step is measured along contiguous boundary segments (configurable length, e.g. 0.10 m) under the unchanged rule (step > 0.04 m, max slope 15 deg); the 5 cm box is a stable obstacle in >= 95 % of replay frames, a 3 cm sill stays a warning, the board is never lethal.",
+    "decisions": ["D17"],
+    "tasks": ["occlusion-and-segment-config", "shadow-gate-and-segment-step", "wire-shadow-gate-on-replay", "replay-acceptance-and-docs"],
+    "status": "approved"
+  },
+  {
+    "id": "A13",
+    "text": "Live round, root cause 3: warning churn < 10 % after warm-up in every replay scene, diagnosed on the replay and stabilised, with a new real lethal obstacle's latency kept <= 0.3 s; no lethal outside the box within 1.2 m.",
+    "decisions": ["D18"],
+    "tasks": ["warning-area-stability", "replay-acceptance-and-docs"],
+    "status": "approved"
+  },
+  {
+    "id": "A14",
+    "text": "Live round, brief D2: the ramp acceptance becomes never lethal plus a documented sensor limit in the runbook (no ToF returns on black rubber); the runbook ROIs in scripts/ground_noise_report.yaml are corrected to the measured ground truth.",
+    "decisions": ["D19"],
+    "tasks": ["runbook-rois-and-ramp-limit", "replay-acceptance-and-docs"],
+    "status": "approved"
   }
 ]

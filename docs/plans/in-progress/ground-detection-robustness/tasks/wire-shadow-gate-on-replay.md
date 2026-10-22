@@ -51,17 +51,19 @@ Put the occlusion shadow gate and the boundary-segment step to work in GroundNod
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+GroundNode keeps every topic and schema; adds the gauge `ground_occluded_points`. Uses `occluded_mask` (occlusion-gate), the segment step (segment-step), the replay metrics (replay-harness) and the mixed-pixel tail (mixed-pixel-scene).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the new NodeTests and the replay assertions: box lethal >= 95 % and no far-side ramp or step warning in the box and home recordings, board never lethal in home.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the NodeTests and the replay assertions; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS on them; note the failing replay numbers
+- wire the gate and the gauge in ground_node.cpp; rerun; retune D16/D17 defaults only if the replay still fails, with config.hpp, yaml, client.yml and the defaults test together
+- `uv run pytest tests/test_ground_estimator_deploy.py -q` PASSES
+- commit `feat(ground_estimator_cpp): drop occluded points and step by segment` with the replay numbers before and after
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+See the Requirement's notes. If the replay cannot reach a threshold with the gate and segment step, report the metric and value as the finding; do not loosen a threshold.

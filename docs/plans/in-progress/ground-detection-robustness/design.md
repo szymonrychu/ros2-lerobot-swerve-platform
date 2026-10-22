@@ -46,6 +46,8 @@ User, 2026-10-21: "There is still a lot of random noise on the ground/floor/obst
 - Python: type hints, pydantic config, constants on top, docstrings with types (CLAUDE.md).
 - Deploy only with `scripts/deploy-nodes.sh`; the runbook is executed by the orchestrator, robot static.
 - client.yml is also edited by head-chain-floor-plane-fit-a (in progress): the epic is blocked on it.
+- Live round (2026-10-22, brief ground-live.md): no new nodes; Python stays in arducam_tof, C++ in ground_estimator_cpp (brief D4). Tasks end at merged and deployed; the live check needs the user (tof_obstacle_cloud restart, head floor fit on a cleared floor) and is run by the orchestrator afterwards (brief D5). The robot is not driven.
+- Replay fixtures live inside the package (`nodes/ground_estimator_cpp/test/data/replay/`): cpp-node-test.sh copies only the packages into the container, so nothing under `scripts/` is visible to a gtest.
 
 ## Decisions
 
@@ -101,6 +103,30 @@ The cluster slope is a robust fit (IRLS Huber or RANSAC) of plane-relative heigh
 
 New keys land in one foundation task (robust-config-keys) with their validation and the client.yml mirror; the two value changes (D2, D10) land in slope-and-smoothing-defaults with their test pins; client.yml edits are chained by dependsOn and the epic is blocked on head-chain-floor-plane-fit-a (client.yml overlap and the plane geometry the runbook needs). Serves A1, A6, A7.
 
+### D14: Replay fixtures from the live recordings and a C++ replay test
+
+The 2026-10-22 recordings (home pan 0, box pan +35, ramp pan -30; robot static) are trimmed to 15 s per scene (my call, inside the brief's 15-20 s) by `scripts/ground_replay_export.py` into a versioned little-endian binary per scene under `nodes/ground_estimator_cpp/test/data/replay/` (clouds as int16 mm in tof_optical_frame, base_T_cloud and odom_T_base per cloud, IMU samples, base_T_imu). A `test_replay` gtest feeds them through the real GroundNode with the shipped `config/ground_estimator.yaml` (only topics and metrics port overridden), restamped to wall time, one cloud at a time, and computes per-scene metrics over frames after a 2 s warm-up (my call) that the node answered with a plane. Ground truth in base_link (brief): box top x 0.60-0.78, y 0.05-0.33; box far side x 0.78-0.95, y 0.05-0.33; board x 0.37-0.61, y -0.12..+0.14; ramp x 0.75-1.10, y -0.45..-0.15; gripper zone x < 0.37 excluded everywhere. Metric ROIs (my call): box lethal ROI = truth dilated 3 cm (x 0.57-0.81, y 0.02-0.36); board ROI x 0.37-0.57, y -0.12..+0.14 (stops 3 cm before the box front so the box's own edge band is not a board hit); stray zone x >= 0.37, hypot(x, y) <= 1.2 outside the box ROI. Churn uses the report's definition (kind plus polygon rounded to 1 cm, `scripts/ground_noise_report.py:warning_set`) on the per-cloud `/ground/warning_areas` document, because the 2 Hz state timer runs on wall time. Alternatives: gzipped JSON (rejected: needs zlib wiring in the gtest for no gain), replaying the npz from Python through ROS (rejected: not a gtest, not in cpp-node-test.sh). Serves A10.
+
+### D15: Flying-pixel filter in arducam_tof
+
+`arducam_tof` invalidates (0, REP 118) depth pixels whose 3x3 neighbourhood holds a valid neighbour differing by more than a range-relative jump (`flying_pixel_jump_ratio`, with an absolute floor `flying_pixel_min_jump_mm`), on the full-resolution depth image before point_cloud_xyz decimates; `flying_pixel_filter` switches it off. Vectorised numpy, no per-pixel Python loop. It must keep >= 95 % of the pixels of a tilted flat floor at 0.3-2.0 m (grazing incidence) and remove the mixed pixels between a 5 cm box top and the floor behind it. A counter `tof_flying_pixels_removed_total` makes the live effect visible. Defence in depth: the replay data is recorded downstream of point_cloud_xyz and keeps its mixed pixels, so D16 and D17 must pass without it. Serves A11.
+
+### D16: Occlusion shadow gate in the ground estimator
+
+Per cloud, after the plane fit and before the temporal cell median, a point is dropped (unknown, never published) when it lies in the shadow of a nearer raised point seen from the sensor: same azimuth bin (`occlusion.azimuth_bin_deg`) around the sensor origin (translation of base_T_cloud), the occluder at least `occlusion.min_occluder_height_m` above the plane, the point at least `occlusion.min_height_drop_m` lower than the occluder and its elevation angle from the sensor at most `occlusion.elevation_margin_deg` above the occluder's. Floor noise never occludes (occluders are raised points), drops behind a floor edge stay visible, rising surfaces (ramps, walls) are never shadowed. Mixed pixels at a box's far edge lie on the grazing rays and are removed. Alternatives: a cloud-level neighbour-jump filter (rejected: the cloud is voxelised and unorganised, ray neighbours are lost), raising the step threshold behind obstacles (rejected: hides real objects). (my call) Serves A11.
+
+### D17: Edge step from contiguous boundary segments
+
+`edge_step_m` becomes the largest p50 of |h| over contiguous windows of `edges.step_segment_m` (0.10) along the edge band, each window holding at least `edges.step_segment_min_points` band points; a band shorter than one window, or with no window holding enough points, keeps the whole-band p50 (D4). The ramp-foot clamp of D11 still applies after it. The rule is unchanged (brief D3): obstacle step > 0.04 m (1/3 wheel diameter), max slope 15 deg; a 3 cm sill stays a warning, the 5 cm box front (5.5 cm) is an obstacle even when its low side and mixed-pixel tail fill most of the band. Alternative: a higher band percentile (rejected: that was the p90 problem D4 fixed). Serves A12.
+
+### D18: Warning-area stability on the cell grid
+
+The churn task diagnoses the 51-of-59 changing pairs on the replay (area appears or vanishes, kind change, polygon change) and stabilises the areas inside CellClassFilter with the mechanisms the diagnosis calls for, from: area existence hysteresis (a component is published after `hysteresis.area_enter_frames` consecutive frames), a minimum component size (`hysteresis.area_min_cells`), and kind persistence (an area keeps its published kind until another kind holds most of its cells for area_enter_frames). An area is published only while its cells are stable warning cells (no placeholder data), and the lethal path (stable_at, lethal clouds) does not depend on it, so a new real lethal obstacle's latency is unchanged (<= 0.3 s after the temporal filter outputs its cells). Key names beyond these are the builder's, under `hysteresis.*`, validated and mirrored. (my call) Serves A13.
+
+### D19: Ramp acceptance is never lethal plus a documented sensor limit
+
+The black rubber ramp returns no ToF depth at all (below the confidence threshold), which no software here fixes. Its acceptance becomes: never lethal (no obstacle region in the ramp ROI in any state, no lethal point in the ramp ROI in the replay); `ramp_warning_share` and the slope error stay in the report as informational metrics, not gates. The runbook gets a Sensor limits section, and the ROIs in `scripts/ground_noise_report.yaml` and the runbook Scene table move to the measured ground truth of D14. The synthetic 14 deg ramp tests (A7) stay as they are. Orchestrator ruling under the user's "you're on your own" (brief D2). Serves A14.
+
 ## Research
 
 | Lens | Ran or skipped | Adopted ideas | Rejected ideas |
@@ -109,6 +135,8 @@ New keys land in one foundation task (robust-config-keys) with their validation 
 | Code read (LSP/grep) | ran | cell grid shared with CellMedianFilter (`cell_median.cpp:cell_key`); `edges.cpp:compute_features` p90 and PCA slope; `traversability.cpp:lethal_unclustered`, `colour_warning_areas`; `costmap_zones/ground_warnings.py:GroundWarningStore` TTL union | per-region identity by cluster matching (`traversability.cpp` SAME_EDGE_M matching is exact per frame only) |
 | External research | skipped: the causes are measured and the fixes are standard robust statistics (MAD, IRLS, N-of-M hysteresis) | | |
 | architect-researcher | skipped: one viable approach per fix, all inside one node and one consumer, reversible by config | | |
+| Live check after deploy (brief ground-live.md, 2026-10-22, recordings scratchpad/rec/ground_{home,box,ramp}.npz) | ran | replay fixtures and test (brief D1), flying-pixel filter (root cause 1), boundary-segment step (root cause 2), area stability (root cause 3), ramp never lethal plus sensor limit (brief D2), ROIs to measured truth | fixing the ramp in software (no ToF returns on black rubber); fixing the gripper zone here (head floor fit, head-chain-floor-plane-fit-a) |
+| Code read, live round (grep) | ran | `bridge.py:depth_to_mm`/`radial_to_z` as the filter's neighbours in `publish_frame`; `edges.cpp:compute_features` band p50; `cell_class.hpp:CellClassFilter::warning_areas`; `test_node.cpp` NodeTest harness (`run_frame`, `warm_up_frames`); `ground_noise_report.py:warning_set` churn key | a cloud-level flying-pixel filter (`/tof/points_filtered` is voxelised, unorganised) |
 
 ## Research inputs
 
@@ -125,6 +153,17 @@ New keys land in one foundation task (robust-config-keys) with their validation 
 | brief D1, D2 | box obstacle, ramp warning at 15 deg | slope-and-smoothing-defaults, ground-robustness-docs |
 | brief "Existing parts" | tests pin both sides of each threshold (6/10 deg) | slope-and-smoothing-defaults |
 | brief "Concurrent" | order client.yml after head-chain-floor-plane-fit-a | epic blocker (README), robust-config-keys |
+| ground-live.md "Live result" | box share 0.93, churn 1.0, far-side ramp warnings, false step at x 0.33 | replay-fixtures-and-test (baseline), wire-shadow-gate-on-replay, warning-area-stability, replay-acceptance-and-docs |
+| ground-live.md "Recordings" | 3 x 40 s npz, keys and frames | replay-fixtures-and-test |
+| ground-live.md "Ground truth" | box, far side, gripper, board, ramp ROIs | replay-fixtures-and-test, replay-acceptance-and-docs, runbook-rois-and-ramp-limit |
+| ground-live.md "Ground truth" gripper | head floor fit fixes it, replay excludes x < 0.37 | rejected: owned by head-chain-floor-plane-fit-a |
+| ground-live.md root cause 1 | flying pixels at depth discontinuities | tof-flying-pixel-filter, occlusion-and-segment-config, shadow-gate-and-segment-step, wire-shadow-gate-on-replay |
+| ground-live.md root cause 2 | step along boundary segments | occlusion-and-segment-config, shadow-gate-and-segment-step, wire-shadow-gate-on-replay |
+| ground-live.md root cause 3 | warning churn, latency <= 0.3 s | warning-area-stability, replay-acceptance-and-docs |
+| ground-live.md D1 | replay fixtures and per-scene assertions | replay-fixtures-and-test, wire-shadow-gate-on-replay, replay-acceptance-and-docs |
+| ground-live.md D2 | ramp never lethal, sensor limit, ROIs corrected | runbook-rois-and-ramp-limit, replay-acceptance-and-docs |
+| ground-live.md D3 | rule unchanged (0.04 m, 15 deg) | shadow-gate-and-segment-step (no rule key changes) |
+| ground-live.md D4, D5 | no new nodes; live check by the orchestrator after merge and deploy | Constraints (every task) |
 
 ## Decision coverage
 
@@ -143,6 +182,12 @@ New keys land in one foundation task (robust-config-keys) with their validation 
 | D11 Robust ramp slope with minimum support | robust-config-keys, edge-step-and-ramp-slope, lethal-point-gates |
 | D12 Runbook with a report script over topic_scraper captures | ground-noise-report-script, ground-robustness-runbook |
 | D13 One config foundation, client.yml mirrored per task | robust-config-keys, slope-and-smoothing-defaults, costmap-cell-keyed-warnings |
+| D14 Replay fixtures and a C++ replay test | replay-fixtures-and-test, wire-shadow-gate-on-replay, warning-area-stability, replay-acceptance-and-docs |
+| D15 Flying-pixel filter in arducam_tof | tof-flying-pixel-filter |
+| D16 Occlusion shadow gate | occlusion-and-segment-config, shadow-gate-and-segment-step, wire-shadow-gate-on-replay, replay-acceptance-and-docs |
+| D17 Edge step from contiguous boundary segments | occlusion-and-segment-config, shadow-gate-and-segment-step, wire-shadow-gate-on-replay, replay-acceptance-and-docs |
+| D18 Warning-area stability on the cell grid | warning-area-stability, replay-acceptance-and-docs |
+| D19 Ramp never lethal plus a sensor limit | runbook-rois-and-ramp-limit, replay-acceptance-and-docs |
 
 ## Contracts
 
@@ -157,6 +202,16 @@ New keys land in one foundation task (robust-config-keys) with their validation 
 | `ground-traversability-rule` | slope-and-smoothing-defaults | ground-robustness-docs | `nodes/ground_estimator_cpp/config/ground_estimator.yaml` |
 | `stable-warning-areas` | node-stable-classes | ground-robustness-docs | `nodes/ground_estimator_cpp/src/ground_node.cpp` |
 
+| `replay-harness` | replay-fixtures-and-test | wire-shadow-gate-on-replay, warning-area-stability, replay-acceptance-and-docs | `nodes/ground_estimator_cpp/test/replay_fixture.hpp` |
+| `replay-fix-config` | occlusion-and-segment-config | shadow-gate-and-segment-step, wire-shadow-gate-on-replay | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp` |
+| `occlusion-gate` | shadow-gate-and-segment-step | wire-shadow-gate-on-replay | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/occlusion.hpp` |
+| `segment-step` | shadow-gate-and-segment-step | wire-shadow-gate-on-replay | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/edges.hpp` |
+| `mixed-pixel-scene` | shadow-gate-and-segment-step | wire-shadow-gate-on-replay | `nodes/ground_estimator_cpp/test/core/synthetic_floor.hpp` |
+| `area-stability` | warning-area-stability | replay-acceptance-and-docs | `nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_class.hpp` |
+| `tof-depth-flying-pixel-filter` | tof-flying-pixel-filter | none | `nodes/bridges/arducam_tof/arducam_tof/config.py` |
+
+`tof-depth-flying-pixel-filter` is registered in docs/plans/contracts.json as a cross-epic contract: /tof/depth/image_raw gains 0 (invalid) pixels at depth discontinuities; consumers are the epics reading ToF depth (head-rgb-d-fusion-of-camera, rgb-d-ground-estimation-and, tof-3d-obstacle-detection-fo, head-and-arm-calibration-fro, head-chain-floor-plane-fit-a). This epic also uses `tof-depth-z` (owner tof-depth-fix-and-ground-noi), whose defining file `bridge.py` it edits without changing the z-depth meaning. `ground-traversability-rule` is unchanged by the live round (brief D3).
+
 `ground-traversability-rule` is also registered in docs/plans/contracts.json as a cross-epic contract (consumer epic rgb-d-ground-estimation-and, whose runbook verifies the rule). Existing, unchanged: `ground-warning-areas` JSON (rgb-d-ground-estimation-and/ground-state-json, `state.hpp:to_warning_areas_string`), read by costmap-cell-keyed-warnings through `costmap_zones/ground_warnings.py:GroundWarningMessage`.
 
 ## Review focus
@@ -166,6 +221,7 @@ New keys land in one foundation task (robust-config-keys) with their validation 
 - edges.cpp: the robust slope on sparse and misaligned bins; `slope_known` false never silently hides a steep, well-supported ramp.
 - costmap_zones: the cell store expires per cell and never grows without bound; geometry change clears it.
 - Config: yaml and client.yml stay equal; validation names every key.
+- Live round: the replay metrics are computed exactly as D14 defines them (ROIs, warm-up, denominators of answered frames); the occlusion gate never drops a drop-off's below-floor points or a rising surface; the segment step does not make the board (-4..+3 cm) or a 3 cm sill lethal; area stability never publishes an area whose cells are no longer stable warning cells and never delays the lethal clouds; the flying-pixel filter keeps the grazing floor.
 
 ## Left to the builder
 
@@ -173,13 +229,19 @@ New keys land in one foundation task (robust-config-keys) with their validation 
 - The kd-tree or grid used for the lethal_min_points neighbour count.
 - The costmap cell representation (boolean mask or flat-index set) and the raster helper shape.
 - The NDJSON reader details of the report script, after reading topic_scraper_collect's output format.
+- The replay binary layout (little-endian, magic plus version, documented in the converter docstring and the README) and the C++ reader shape.
+- The occlusion gate's data structure (sort per azimuth bin, or a polar grid), as long as it is O(n log n) per cloud and meets the D16 tests; the key defaults of D16 and D17 may be retuned by the replay evidence (config.hpp, yaml, client.yml and the defaults test together).
+- The flying-pixel thresholds' defaults, from the synthetic depth tests.
+- Which D18 mechanisms are adopted, by the replay diagnosis.
 
 ## Assumptions and unknowns
 
 - The far-band noise is temporal (30-90 mm std of cell values) rather than a steady bias; a steady bias above 4 cm would pass the spread gate. Confirmed by the runbook's empty-floor scene.
 - The false drops behind the box are noisy enough to be gated or held below enter_frames; confirmed by the box scene churn and drop counts.
 - The plane height and offset rejections are fixed by head-chain-floor-plane-fit-a before the runbook runs (blocker).
-- The sparse-ramp synthetic model (30% of a 2 cm grid, 15 mm noise) matches the black mat; confirmed by the ramp scene slope error.
+- The sparse-ramp synthetic model (30% of a 2 cm grid, 15 mm noise) matches the black mat; confirmed by the ramp scene slope error. Live round: the real mat gives no returns at all (brief), so the ramp acceptance is D19.
+- The recordings' head chain carries the ~5 deg error (plane height 0.07 m, tilt 4.2-4.6 deg); the replay asserts against the recorded base_link, so the numbers hold for this geometry. After the head floor fit (other epic) the live check confirms them.
+- The far-side tail (3.5 -> 0.9 cm over x 0.78-0.95) is mostly mixed pixels on grazing rays (D16 removes them); part may be voxel and cell smearing of the box edge. Confirmed by the replay assertions of wire-shadow-gate-on-replay; the task retunes D16 defaults on that evidence.
 
 ## Open questions
 

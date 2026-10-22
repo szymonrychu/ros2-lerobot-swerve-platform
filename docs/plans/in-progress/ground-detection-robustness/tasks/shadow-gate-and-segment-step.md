@@ -56,17 +56,19 @@ Notes: uses part replay-fix-config (occlusion-and-segment-config). No node wirin
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds parts occlusion-gate (`include/ground_estimator_cpp/occlusion.hpp:occluded_mask`), segment-step (`Cluster::edge_step_m` semantics in `edges.hpp`, computed in `edges.cpp:compute_features`) and mixed-pixel-scene (`test/core/synthetic_floor.hpp`). `extract_clusters`, `regions_from_clusters` and `classify_cluster` keep their signatures.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the new test_occlusion gtest and the new edges tests; every existing test green.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `test/core/test_occlusion.cpp` and the synthetic tail helper; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS (no occlusion.hpp)
+- implement `occluded_mask`; the command PASSES the occlusion tests
+- write the segment-step tests in `test/core/test_edges.cpp`; the command FAILS on them
+- implement the segment windows in `compute_features`; the command PASSES; commit `feat(ground_estimator_cpp): occlusion shadow gate and segment edge step`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Uses replay-fix-config from occlusion-and-segment-config. The segment step raises the step of noisy clusters slightly (max over windows of p50): the 3 cm sill and the spike tests pin that it stays below the rule; the board check on real data comes in wire-shadow-gate-on-replay.

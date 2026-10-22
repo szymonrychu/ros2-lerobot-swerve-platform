@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "One validated, deployed definition of the new occlusion and segment-step settings for the two fixes that use them."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml]
 verify: "scripts/cpp-node-test.sh ground_estimator_cpp && uv run pytest tests/test_ground_estimator_deploy.py -q"
-depends_on: []
+depends_on: [ground-robustness-runbook]
 owns: [replay-fix-config]
 uses: []
 model: sonnet
@@ -48,17 +48,19 @@ Add the config keys of the occlusion shadow gate (design D16) and the boundary-s
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part replay-fix-config: `Config::occlusion` (`OcclusionConfig`), `EdgesConfig::step_segment_m`, `EdgesConfig::step_segment_min_points` in `include/ground_estimator_cpp/config.hpp`, read by `validate` and `from_yaml`. Existing keys and the traversability rule are unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the extended config tests; `uv run pytest tests/test_ground_estimator_deploy.py -q` PASS; the shipped yaml and client.yml carry the new keys with documented ranges.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- extend `test/core/test_config.cpp`; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS on the new tests
+- add the fields, parsing and validation, the yaml block; the command PASSES
+- mirror the yaml in client.yml; `uv run pytest tests/test_ground_estimator_deploy.py -q` PASSES
+- commit `feat(ground_estimator_cpp): occlusion and segment step config keys`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Design D16 and D17 give the semantics. This is the config foundation of the live round (like D13); it lands first so the two core fixes build on one definition.

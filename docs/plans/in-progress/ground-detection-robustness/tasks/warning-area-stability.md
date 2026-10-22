@@ -54,17 +54,19 @@ Stop the warning areas from churning (design D18, brief root cause 3): live, 51 
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part area-stability in `CellClassFilter` (`cell_class.hpp`): `warning_areas()` returns the stabilised areas; `stable_at`, `count`, `observe_*`, `begin_frame`/`end_frame` keep their contracts. New `hysteresis.*` keys in `HysteresisConfig`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the new cell class and config tests; test_replay prints churn_share < 0.10 for home, box and ramp; yaml and client.yml carry the new keys.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- run `scripts/cpp-node-test.sh ground_estimator_cpp` and read the replay churn lines; instrument locally to classify the changing pairs per scene
+- write the cell class tests for the mechanisms the diagnosis calls for and the config tests; the command FAILS on them
+- implement in cell_class.cpp and config.cpp, document the keys in the yaml, mirror in client.yml; the command PASSES and the replay churn lines are < 0.10
+- `uv run pytest tests/test_ground_estimator_deploy.py -q` PASSES; commit `fix(ground_estimator_cpp): stable warning areas` with the per-scene breakdown
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Uses replay-harness. Live churn: 51 of 59 pairs changed kinds or count, 8 only polygon shape. Polygons are already cell-aligned (D8): look for components merging and splitting at border cells, short-lived components and kind votes between step and ramp. The lethal latency must not change.
