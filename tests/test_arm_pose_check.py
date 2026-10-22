@@ -250,8 +250,10 @@ def test_roll_rules() -> None:
     assert "max_roll_gripper_rad" in rules(check.check_pose(LEVEL_TOOL_20CM, 1.2, rolling=True))
     assert "roll_min_tool_height_m" in rules(check.check_pose(LEVEL_TOOL_12CM, 0.5, rolling=True))
     assert check.check_pose(LEVEL_TOOL_20CM, 0.5, rolling=True) == []
-    # A wrist_roll difference within the mcp_server roll guard's minimum change is no roll.
-    assert check.check_path(LEVEL_TOOL_12CM, {**LEVEL_TOOL_12CM, "wrist_roll": 0.05}, 1.2) == []
+    # Any wrist_roll difference between start and target is a roll, however small.
+    entries = check.check_path(LEVEL_TOOL_12CM, {**LEVEL_TOOL_12CM, "wrist_roll": 0.05}, 1.2)
+    assert {"max_roll_gripper_rad", "roll_min_tool_height_m"} <= set(rules(entries)), entries
+    assert check.check_path(LEVEL_TOOL_12CM, LEVEL_TOOL_12CM, 1.2) == []
 
 
 def test_stretched_arm_and_limits() -> None:
