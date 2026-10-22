@@ -272,5 +272,20 @@
       "arm-joint-offsets-from-the-g"
     ],
     "note": "PoseChecker.check_pose/check_path with the board on the gripper; owner task arm-pose-safety-check"
+  },
+  {
+    "name": "tof-depth-amplitude-gate",
+    "kind": "topic",
+    "owner": "rgb-and-amplitude-guided-gro",
+    "file": "nodes/bridges/arducam_tof/arducam_tof/config.py",
+    "consumers": [
+      "head-rgb-d-fusion-of-camera",
+      "rgb-d-ground-estimation-and",
+      "tof-3d-obstacle-detection-fo",
+      "head-and-arm-calibration-fro",
+      "head-chain-floor-plane-fit-a",
+      "ground-detection-robustness"
+    ],
+    "note": "/tof/depth/image_raw: after the flying-pixel filter, a valid pixel with amplitude*(z/1m)^2 < amplitude_min_normalised becomes 0 (amplitude_gate, default on); encoding and z-depth meaning unchanged; /tof/amplitude/image_raw unchanged; owner task tof-amplitude-gate"
   }
 ]
