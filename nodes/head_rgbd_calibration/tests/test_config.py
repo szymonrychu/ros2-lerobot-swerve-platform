@@ -14,11 +14,24 @@ NODE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = NODE_DIR.parents[1]
 SHIPPED = NODE_DIR / "config" / "head_rgbd_calibration.yaml"
 TOOL_YAML = REPO_ROOT / "scripts" / "head_rgbd_calibrate.yaml"
+CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 
 
 def test_defaults_equal_shipped_yaml() -> None:
     assert load_config(SHIPPED) == NodeConfig()
     assert yaml.safe_load(SHIPPED.read_text()) == NodeConfig().model_dump(mode="json")
+
+
+def test_client_yml_arm_sequence_and_board_mount_equal_defaults() -> None:
+    """The deployed config block carries the shipped arm sequence and the nominal board mount, key for key."""
+    nodes = yaml.safe_load(CLIENT_YML.read_text())["ros2_nodes"]
+    block = yaml.safe_load(next(n for n in nodes if n["name"] == "head_rgbd_calibration")["config"])
+    defaults = NodeConfig().model_dump(mode="json")
+    assert block["arm_sequence"] == defaults["arm_sequence"]
+    assert block["fit"]["board_mount"] == defaults["fit"]["board_mount"]
+    deployed = NodeConfig.model_validate(block)
+    assert deployed.arm_sequence == NodeConfig().arm_sequence
+    assert deployed.fit.board_mount == NodeConfig().fit.board_mount
 
 
 def test_empty_file_gives_defaults(tmp_path: Path) -> None:
