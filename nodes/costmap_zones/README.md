@@ -25,7 +25,7 @@ ground_estimator_cpp publishes `{stamp_ns, frame, areas: [{kind, polygon, height
 the wheel diameter, slope at most `max_slope_deg`), so the robot may ride through them at reduced speed. costmap_zones
 stays the single writer of the Nav2 speed mask and adds these areas next to the POI slow zones:
 
-- Every received message keeps its areas active for `ground_warning_ttl_s` (3 s, monotonic clock) after receipt; a
+- Every received message marks the map cells its areas cover (see "Ground warning cells"); a
   message whose `frame` is not the `/map` header frame (or that arrives before `/map`) is ignored, logged once per frame
   and counted in `costmap_zones_ground_ignored_total{reason}`.
 - Speed mask: `ground_warning_speed_pct` (40) inside active areas; the lowest percent wins with POI slow zones (a 30 %
@@ -38,9 +38,20 @@ stays the single writer of the Nav2 speed mask and adds these areas next to the 
 - Why not the keepout mask: it is shared with the global costmap (static map + lidar only, which must stay untouched by
   a short-lived local estimate) and its filter would mix ground cost with POI zones. The keepout mask never carries
   ground areas.
-- Masks are republished when the active area set changes (receipt of a new set or expiry), at most
+- Masks are republished when the active cell set changes (new cells or expiry), at most
   `ground_mask_max_rate_hz` (2 Hz; a timer flushes a deferred change and expiry). An empty set after expiry republishes
   the cleared masks (real state). Nothing is published before `/map` and `/poi/list` (no placeholder masks).
+
+## Ground warning cells
+
+Warning areas are keyed by map cell, not kept as whole messages: `GroundWarningStore` holds per cell of the current
+`/map` grid the monotonic time of the last accepted message whose areas cover it (rasterised like the zones, conservative
+edges). A cell stays active for `ground_warning_ttl_s` (3 s) after the last message that covered it, then expires on its
+own. The speed and ground cost masks are built from the active cell mask, and the publish key is a digest of that
+cell set: polygons that jitter inside the same cells, or area lists that differ but cover the same cells, republish
+nothing; masks change only when a cell enters or leaves the active set. Memory is one float per map cell, whatever the
+message rate. A change of the map geometry clears all cells. `costmap_zones_ground_areas` still reports the areas of
+the latest accepted message; `costmap_zones_ground_cells` is the number of active cells.
 
 ## Mask encoding
 
@@ -159,7 +170,8 @@ map (a POI-wide limitation).
 | `costmap_zones_publishes_total{mask}` | mask publications per mask (`keepout`, `speed`, `ground_cost`); a flapping ground area shows as `speed`/`ground_cost` only |
 | `costmap_zones_active{zone}` | active zones (`keepout`, `slow`) in the latest valid list |
 | `costmap_zones_rejected_total{reason}` | `invalid_entry`, `bad_list`, `rotated_map` |
-| `costmap_zones_ground_areas` | active (not expired) ground warning areas |
+| `costmap_zones_ground_areas` | areas of the latest accepted ground warning message (0 once all cells expired) |
+| `costmap_zones_ground_cells` | active ground warning map cells |
 | `costmap_zones_ground_ignored_total{reason}` | ignored ground messages: `bad_message`, `frame_mismatch`, `no_map` |
 | `costmap_zones_last_publish_timestamp_seconds` | unix time of the latest mask publication |
 

@@ -3085,7 +3085,7 @@ ros2_nodes:
       slow_zone_mask_value: 60
       # Ground warning areas from ground_estimator_cpp (<output_namespace>/warning_areas): slow-down, clear to ride through.
       ground_warnings_topic: /ground/warning_areas
-      # Seconds a received message's areas stay active.
+      # Seconds a map cell stays active after the last message that covered it.
       ground_warning_ttl_s: 3.0
       # Speed mask percent inside warning areas (lowest percent wins with POI slow zones).
       ground_warning_speed_pct: 40

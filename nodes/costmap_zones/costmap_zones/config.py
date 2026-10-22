@@ -40,7 +40,7 @@ class CostmapZonesConfig(BaseModel):
             keep-out). 0 is refused: the filter writes any value other than -1 into unknown cells, so 0 would turn
             unknown space inside a slow zone into FREE.
         ground_warnings_topic: std_msgs/String JSON from ground_estimator_cpp (contract ground-warning-areas).
-        ground_warning_ttl_s: Seconds a received message's areas stay active (> 0).
+        ground_warning_ttl_s: Seconds a map cell stays active after the last message that covered it (> 0).
         ground_warning_speed_pct: Speed mask percent inside ground warning areas (10..100).
         ground_warning_mask_value: Ground cost mask value inside warning areas (1..99; 40 -> cost ~101, passable).
         ground_cost_mask_topic: nav_msgs/OccupancyGrid local-only ground cost mask.
