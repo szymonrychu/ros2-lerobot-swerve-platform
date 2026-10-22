@@ -32,6 +32,7 @@ from starlette.responses import Response
 from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig, TileSourceConfig
+from .ground_session import NAME_PATTERN
 from .imu_calibration import HTTP_CONFLICT, register_imu_calibration_routes
 from .metrics import (
     BROADCAST_SECONDS,
@@ -1088,6 +1089,68 @@ def build_app(
         ok = bool(getattr(response, "success", False))
         message = getattr(response, "message", "") or f"{service} {'succeeded' if ok else 'failed'}"
         return action_response(action, ok, message, 200 if ok else 500)
+
+    def ground_recorder_ready() -> JSONResponse | None:
+        """Reject a ground recorder call while the recorder is off or has no bridge.
+
+        Returns:
+            JSONResponse | None: 404 when disabled, 503 without a bridge, otherwise None.
+        """
+        if not config.ground_recorder.enabled:
+            return action_response("ground_recordings", False, "ground recorder disabled", 404)
+        if bridge_node is None:
+            return action_response("ground_recordings", False, "ROS bridge unavailable", 503)
+        return None
+
+    @app.post("/api/ground/recordings")
+    async def ground_recording_start(request: Request) -> JSONResponse:
+        if (unavailable := ground_recorder_ready()) is not None:
+            return unavailable
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        limit = config.ground_recorder.max_duration_s
+        name = body.get("name") if isinstance(body, dict) else None
+        duration = body.get("duration_s") if isinstance(body, dict) else None
+        if not isinstance(name, str) or not NAME_PATTERN.match(name):
+            return action_response("ground_recordings", False, "name must match [a-z0-9_-]{1,32}", 400)
+        if isinstance(duration, bool) or not isinstance(duration, int | float) or not 1 <= duration <= limit:
+            return action_response("ground_recordings", False, f"duration_s must be within 1..{limit:g}", 400)
+        if not bridge_node.ground_recording_start(name, duration):
+            return action_response("ground_recordings", False, "a recording is already running", 409)
+        return JSONResponse({"name": name, "duration_s": duration}, status_code=202)
+
+    @app.get("/api/ground/recordings")
+    async def ground_recording_list() -> JSONResponse:
+        if (unavailable := ground_recorder_ready()) is not None:
+            return unavailable
+        return JSONResponse(bridge_node.ground_recordings())
+
+    @app.get("/api/ground/recordings/{name}")
+    async def ground_recording_download(name: str) -> Response:
+        if (unavailable := ground_recorder_ready()) is not None:
+            return unavailable
+        info = bridge_node.ground_recording_info(name) if NAME_PATTERN.match(name) else None
+        if info is None:
+            return action_response("ground_recordings", False, f"no recording {name!r}", 404)
+        if not info["done"]:
+            return action_response("ground_recordings", False, f"recording {name!r} is in progress", 409)
+        return FileResponse(
+            bridge_node.ground_recording_path(name), media_type="application/octet-stream", filename=f"{name}.npz"
+        )
+
+    @app.delete("/api/ground/recordings/{name}")
+    async def ground_recording_delete(name: str) -> JSONResponse:
+        if (unavailable := ground_recorder_ready()) is not None:
+            return unavailable
+        info = bridge_node.ground_recording_info(name) if NAME_PATTERN.match(name) else None
+        if info is None:
+            return action_response("ground_recordings", False, f"no recording {name!r}", 404)
+        if not info["done"]:
+            return action_response("ground_recordings", False, f"recording {name!r} is in progress", 409)
+        bridge_node.ground_recording_delete(name)
+        return action_response("ground_recordings", True, f"deleted {name!r}", 200)
 
     @app.post("/api/arm/home")
     async def arm_home(tab: str) -> JSONResponse:

@@ -39,6 +39,15 @@ constexpr int MAX_STEP_SEGMENT_MIN_POINTS = 50;
 constexpr double MIN_AZIMUTH_BIN_DEG = 0.1;
 constexpr double MAX_AZIMUTH_BIN_DEG = 10.0;
 constexpr double MAX_ELEVATION_MARGIN_DEG = 5.0;
+constexpr double MAX_GUIDANCE_AGE_S = 2.0;
+constexpr int MAX_SAMPLE_STEP_PX = 8;
+constexpr double MAX_EDGE_SHIFT_M = 0.15;
+constexpr double MIN_EDGE_VOXEL_M = 0.005;
+constexpr double MAX_EDGE_VOXEL_M = 0.05;
+constexpr int MAX_NO_RETURN_WINDOW_FRAMES = 20;
+constexpr int MAX_CLEARANCE_CELLS = 3;
+constexpr int MAX_TOF_MARGIN_PX = 20;
+constexpr double MAX_STEP_TOLERANCE_M = 1e-4;  // the default step is 0.039996 m, documented as 0.04
 
 // The value under node[key] as T (fallback when missing or invalid) with the lax pydantic-style coercions; errors
 // name prefix + key.
@@ -381,6 +390,119 @@ void parse_hysteresis(const YAML::Node & root, Config & c, Errors & errors)
     errors);
 }
 
+void parse_guidance_edge(const YAML::Node & guidance, Config & c, Errors & errors)
+{
+  const YAML::Node node = guidance["edge"];
+  if (!node.IsDefined()) {
+    return;
+  }
+  rc::forbid_unknown(node, {"enabled", "max_shift_m", "min_height_m", "voxel_m"}, errors, "guidance.edge");
+  if (!node.IsMap()) {
+    return;
+  }
+  const std::string p = "guidance.edge.";
+  EdgeGuidanceConfig & e = c.guidance.edge;
+  e.enabled = read<bool>(node, p, "enabled", e.enabled, errors);
+  e.max_shift_m = read<double>(node, p, "max_shift_m", e.max_shift_m, errors);
+  in_open_closed(p + "max_shift_m", e.max_shift_m, MAX_EDGE_SHIFT_M, errors);
+  e.min_height_m = read<double>(node, p, "min_height_m", e.min_height_m, errors);
+  rc::gt(p + "min_height_m", e.min_height_m, 0.0, errors);
+  e.voxel_m = read<double>(node, p, "voxel_m", e.voxel_m, errors);
+  rc::ge(p + "voxel_m", e.voxel_m, MIN_EDGE_VOXEL_M, errors);
+  rc::le(p + "voxel_m", e.voxel_m, MAX_EDGE_VOXEL_M, errors);
+}
+
+void parse_guidance_no_return(const YAML::Node & guidance, Config & c, Errors & errors)
+{
+  const YAML::Node node = guidance["no_return"];
+  if (!node.IsDefined()) {
+    return;
+  }
+  rc::forbid_unknown(
+    node,
+    {"enabled", "min_range_m", "cell_min_samples", "cell_min_share", "window_frames", "enter_frames", "min_cells",
+     "clearance_cells", "tof_margin_px"},
+    errors, "guidance.no_return");
+  if (!node.IsMap()) {
+    return;
+  }
+  const std::string p = "guidance.no_return.";
+  NoReturnConfig & n = c.guidance.no_return;
+  n.enabled = read<bool>(node, p, "enabled", n.enabled, errors);
+  n.min_range_m = read<double>(node, p, "min_range_m", n.min_range_m, errors);
+  rc::ge(p + "min_range_m", n.min_range_m, 0.0, errors);
+  n.cell_min_samples = read<int>(node, p, "cell_min_samples", n.cell_min_samples, errors);
+  rc::ge<int>(p + "cell_min_samples", n.cell_min_samples, 1, errors);
+  n.cell_min_share = read<double>(node, p, "cell_min_share", n.cell_min_share, errors);
+  in_open_closed(p + "cell_min_share", n.cell_min_share, 1.0, errors);
+  n.window_frames = read<int>(node, p, "window_frames", n.window_frames, errors);
+  rc::ge<int>(p + "window_frames", n.window_frames, 1, errors);
+  rc::le<int>(p + "window_frames", n.window_frames, MAX_NO_RETURN_WINDOW_FRAMES, errors);
+  n.enter_frames = read<int>(node, p, "enter_frames", n.enter_frames, errors);
+  rc::ge<int>(p + "enter_frames", n.enter_frames, 1, errors);
+  n.min_cells = read<int>(node, p, "min_cells", n.min_cells, errors);
+  rc::ge<int>(p + "min_cells", n.min_cells, 1, errors);
+  n.clearance_cells = read<int>(node, p, "clearance_cells", n.clearance_cells, errors);
+  rc::ge<int>(p + "clearance_cells", n.clearance_cells, 0, errors);
+  rc::le<int>(p + "clearance_cells", n.clearance_cells, MAX_CLEARANCE_CELLS, errors);
+  n.tof_margin_px = read<int>(node, p, "tof_margin_px", n.tof_margin_px, errors);
+  rc::ge<int>(p + "tof_margin_px", n.tof_margin_px, 0, errors);
+  rc::le<int>(p + "tof_margin_px", n.tof_margin_px, MAX_TOF_MARGIN_PX, errors);
+}
+
+void parse_guidance(const YAML::Node & root, Config & c, Errors & errors)
+{
+  const YAML::Node s = section(
+    root, "guidance",
+    {"enabled", "depth_topic", "info_topic", "rgb_topic", "tof_info_topic", "max_age_s", "sample_step_px",
+     "max_range_m", "edge", "no_return"},
+    errors);
+  if (s.IsDefined()) {
+    const std::string p = "guidance.";
+    GuidanceConfig & g = c.guidance;
+    g.enabled = read<bool>(s, p, "enabled", g.enabled, errors);
+    g.depth_topic = read<std::string>(s, p, "depth_topic", g.depth_topic, errors);
+    g.info_topic = read<std::string>(s, p, "info_topic", g.info_topic, errors);
+    g.rgb_topic = read<std::string>(s, p, "rgb_topic", g.rgb_topic, errors);
+    g.tof_info_topic = read<std::string>(s, p, "tof_info_topic", g.tof_info_topic, errors);
+    g.max_age_s = read<double>(s, p, "max_age_s", g.max_age_s, errors);
+    in_open_closed(p + "max_age_s", g.max_age_s, MAX_GUIDANCE_AGE_S, errors);
+    g.sample_step_px = read<int>(s, p, "sample_step_px", g.sample_step_px, errors);
+    rc::ge<int>(p + "sample_step_px", g.sample_step_px, 1, errors);
+    rc::le<int>(p + "sample_step_px", g.sample_step_px, MAX_SAMPLE_STEP_PX, errors);
+    g.max_range_m = read<double>(s, p, "max_range_m", g.max_range_m, errors);
+    rc::gt(p + "max_range_m", g.max_range_m, 0.0, errors);
+    parse_guidance_edge(s, c, errors);
+    parse_guidance_no_return(s, c, errors);
+  }
+}
+
+// Guidance rules that span sections, checked on the parsed values (defaults included).
+void check_guidance_rules(const Config & c, Errors & errors)
+{
+  const GuidanceConfig & g = c.guidance;
+  require_that(
+    g.max_range_m <= c.bands.max_range_m, "guidance.max_range_m",
+    "must be at most bands.max_range_m (" + std::to_string(c.bands.max_range_m) + ", got " +
+      std::to_string(g.max_range_m) + ")",
+    errors);
+  require_that(
+    g.edge.min_height_m <= c.max_step_m() + MAX_STEP_TOLERANCE_M, "guidance.edge.min_height_m",
+    "must be at most the max step (" + std::to_string(c.max_step_m()) + ", got " + std::to_string(g.edge.min_height_m) +
+      ")",
+    errors);
+  require_that(
+    g.no_return.enter_frames <= g.no_return.window_frames, "guidance.no_return.enter_frames",
+    "must be at most guidance.no_return.window_frames (" + std::to_string(g.no_return.window_frames) + ", got " +
+      std::to_string(g.no_return.enter_frames) + ")",
+    errors);
+  require_that(
+    g.no_return.min_range_m < g.max_range_m, "guidance.no_return.min_range_m",
+    "must be below guidance.max_range_m (" + std::to_string(g.max_range_m) + ", got " +
+      std::to_string(g.no_return.min_range_m) + ")",
+    errors);
+}
+
 // Rules that span sections, checked on the parsed values (defaults included).
 void check_cross_rules(const Config & c, Errors & errors)
 {
@@ -445,6 +567,7 @@ Config parse(const YAML::Node & node, Errors & errors)
      "state",
      "temporal",
      "hysteresis",
+     "guidance",
      "metrics_port"},
     errors);
   if (!node.IsMap()) {
@@ -474,7 +597,9 @@ Config parse(const YAML::Node & node, Errors & errors)
   parse_colour_and_state(node, c, errors);
   parse_temporal(node, c, errors);
   parse_hysteresis(node, c, errors);
+  parse_guidance(node, c, errors);
   check_cross_rules(c, errors);
+  check_guidance_rules(c, errors);
 
   if (const YAML::Node port = node["metrics_port"]; port.IsDefined()) {
     if (rc::is_yaml_null(port)) {
