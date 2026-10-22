@@ -10,5 +10,11 @@
     "accept": true,
     "reason": "statistical bounds of an 8-frame window: measured 43-90 mm leak <= 5%, 4-20 mm floor visibility >= 95% (single 20 mm cell ~85%); zero leak is unreachable; downstream class hysteresis (N of M) and lethal point gates (>=2 points/persistence) absorb leaks; doc mismatch 1.35 vs 1.3 fixed in a52ce617, re-verified",
     "at": "2026-10-22T00:08:52Z"
+  },
+  {
+    "task": "wire-shadow-gate-on-replay",
+    "accept": true,
+    "reason": "Verifier timed out on docker (no verdict). Orchestrator reran scripts/cpp-node-test.sh ground_estimator_cpp on HEAD 0dfbd483, clean tree: Summary: 356 tests, 0 errors, 0 failures, 0 skipped; PASS; replays box_lethal_share 1.000 all box scenes, board 0, far_side 0. Last fix was a stray backup-file deletion (deletion exception). Stray lethal and churn are delivered by warning-area-stability and replay-acceptance-and-docs.",
+    "at": "2026-10-22T07:55:29Z"
   }
 ]

@@ -66,6 +66,10 @@ GroundNode keeps every topic and schema; adds the gauge `ground_occluded_points`
 - `uv run pytest tests/test_ground_estimator_deploy.py -q` PASSES
 - commit `feat(ground_estimator_cpp): drop occluded points and step by segment` with the replay numbers before and after
 
+## Ruling
+
+- 2026-10-22 accepted: Verifier timed out on docker (no verdict). Orchestrator reran scripts/cpp-node-test.sh ground_estimator_cpp on HEAD 0dfbd483, clean tree: Summary: 356 tests, 0 errors, 0 failures, 0 skipped; PASS; replays box_lethal_share 1.000 all box scenes, board 0, far_side 0. Last fix was a stray backup-file deletion (deletion exception). Stray lethal and churn are delivered by warning-area-stability and replay-acceptance-and-docs.
+
 ## Notes
 
 See the Requirement's notes. If the replay cannot reach a threshold with the gate and segment step, report the metric and value as the finding; do not loosen a threshold.
