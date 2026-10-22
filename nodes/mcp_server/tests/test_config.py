@@ -1,5 +1,6 @@
 """Tests for mcp_server.config (pydantic YAML config, env lookup, bearer token)."""
 
+import ast
 import re
 from pathlib import Path
 
@@ -602,3 +603,15 @@ def test_exploration_defaults_and_bounds() -> None:
         with pytest.raises(ValidationError):
             McpServerConfig.model_validate({"exploration": bad})
     assert McpServerConfig.model_validate({"exploration": {"rays": 8, "downsample": 1}}).exploration.rays == 8
+
+
+def test_head_applied_dir_default_null_and_matches_head_state_publisher() -> None:
+    launch = REPO_ROOT / "nodes/head_state_publisher/launch/head_state_publisher.launch.py"
+    constant = next(
+        node.value
+        for node in ast.parse(launch.read_text()).body
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "APPLIED_DIR" for t in node.targets)
+    )
+    launch_dir = Path(ast.literal_eval(constant.args[0]))
+    assert McpServerConfig().head.applied_dir == launch_dir == Path("/var/lib/ros2/head_rgbd_calibration/applied")
+    assert McpServerConfig.model_validate({"head": {"applied_dir": None}}).head.applied_dir is None

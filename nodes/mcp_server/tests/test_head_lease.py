@@ -9,8 +9,7 @@ import pytest
 
 from mcp_server.config import McpServerConfig
 from mcp_server.control import ControlManager
-from mcp_server.head import HeadController
-from mcp_server.head_kinematics import HeadKinematics
+from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.tools import build_mcp_server
 
 from .fakes import FakeHeadBackend
@@ -107,7 +106,7 @@ def test_stuck_head_reports_failed_and_both_leases_are_released(tmp_path: Path) 
     store_home_then_move_away(robot)
     cfg = robot.arm.cfg.head
     robot.head_backend = FakeHeadBackend({"head_pan": PAN, "head_tilt": TILT}, speed=0.0)  # follower never moves
-    robot.head = HeadController(robot.head_backend, HeadKinematics(cfg.urdf_path), cfg)
+    robot.head = HeadController(robot.head_backend, AppliedHeadKinematics(cfg.urdf_path, None), cfg)
     ctl = manager(robot)
     ctl.take("arm")
     ctl.take("base")

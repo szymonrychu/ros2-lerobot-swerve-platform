@@ -6,8 +6,7 @@ import numpy as np
 from ros2_common.camera_geometry import MountPose
 
 from mcp_server.config import McpServerConfig
-from mcp_server.head import HeadController
-from mcp_server.head_kinematics import HeadKinematics
+from mcp_server.head import AppliedHeadKinematics, HeadController
 
 from .fakes import FakeHeadBackend
 
@@ -48,7 +47,7 @@ def camera_config(
 def fresh_head(cfg: McpServerConfig, pan: float = 0.0, tilt: float = 0.0) -> HeadController:
     """Head controller whose fresh /head/joint_states report (pan, tilt) rad (the front camera scene needs it)."""
     backend = FakeHeadBackend({"head_pan": pan, "head_tilt": tilt})
-    return HeadController(backend, HeadKinematics(cfg.head.urdf_path), cfg.head)
+    return HeadController(backend, AppliedHeadKinematics(cfg.head.urdf_path, None), cfg.head)
 
 
 def front_mount() -> MountPose:

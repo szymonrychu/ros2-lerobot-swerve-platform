@@ -14,8 +14,7 @@ from starlette.testclient import TestClient
 from mcp_server.arm import ArmController
 from mcp_server.base_motion import DriveOutcome, SpinOutcome
 from mcp_server.config import McpServerConfig
-from mcp_server.head import HeadController
-from mcp_server.head_kinematics import HeadKinematics
+from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import (
     BasePose,
@@ -77,7 +76,7 @@ class FakeRobot(PerceptionFakeMixin):
             cfg,
         )
         self.head_backend = FakeHeadBackend()
-        self.head = HeadController(self.head_backend, HeadKinematics(cfg.head.urdf_path), cfg.head)
+        self.head = HeadController(self.head_backend, AppliedHeadKinematics(cfg.head.urdf_path, None), cfg.head)
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.camera_error: str | None = None
         self.base_released: bool | None = None  # bridge torque state of the base group (None unknown or stale)

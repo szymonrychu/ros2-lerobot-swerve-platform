@@ -68,8 +68,7 @@ from .footprint_geometry import Point2
 from .frontiers import MapGrid
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .grasp_tools import GraspService
-from .head import HEAD_FRAME_ID, HeadController
-from .head_kinematics import HeadKinematics
+from .head import HEAD_FRAME_ID, AppliedHeadKinematics, HeadController
 from .ik import ArmKinematics, load_joint_limits
 from .map3d import cloud_from_message
 from .map_client import MapRequests
@@ -756,7 +755,9 @@ class RosRobot:
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
         self.release_pub = self.node.create_publisher(Bool, t.autonomy_release, COMMAND_QOS)
         self.head_cmd_pub = self.node.create_publisher(JointState, config.head.command_topic, COMMAND_QOS)
-        self.head = HeadController(self, HeadKinematics(config.head.urdf_path), config.head)
+        self.head = HeadController(
+            self, AppliedHeadKinematics(config.head.urdf_path, config.head.applied_dir), config.head
+        )
         self.twist_pub = self.node.create_publisher(Twist, t.cmd_vel, COMMAND_QOS)
         self.poi_command_pub = self.node.create_publisher(String, t.poi_command, COMMAND_QOS)
         self.poi = PoiRequests(

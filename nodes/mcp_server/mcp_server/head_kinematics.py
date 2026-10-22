@@ -122,7 +122,36 @@ class HeadKinematics:
         Raises:
             ValueError: When the URDF lacks head_pan / head_tilt limits or uses an unsupported joint type.
         """
-        root = ET.parse(urdf_path).getroot()
+        self.parse(ET.parse(urdf_path).getroot(), str(urdf_path))
+
+    @classmethod
+    def from_text(cls, urdf_text: str, source: str) -> "HeadKinematics":
+        """Parse the head URDF from its XML text (the path constructor reads the file and does the same).
+
+        Args:
+            urdf_text (str): Head URDF XML.
+            source (str): Where the text came from, named in error messages.
+
+        Returns:
+            HeadKinematics: Kinematics of that URDF.
+
+        Raises:
+            ValueError: When the URDF lacks head_pan / head_tilt limits or uses an unsupported joint type.
+        """
+        kinematics = cls.__new__(cls)
+        kinematics.parse(ET.fromstring(urdf_text), source)
+        return kinematics
+
+    def parse(self, root: ET.Element, source: str) -> None:
+        """Fill the joint tree, links and limits from a parsed URDF.
+
+        Args:
+            root (ET.Element): The ``<robot>`` element.
+            source (str): Origin of the URDF, named in error messages.
+
+        Raises:
+            ValueError: When the URDF lacks head_pan / head_tilt limits or uses an unsupported joint type.
+        """
         self.joints: dict[str, UrdfJoint] = {}  # child link -> joint
         limits: dict[str, tuple[float, float]] = {}
         for joint in root.iter("joint"):
@@ -147,7 +176,7 @@ class HeadKinematics:
             )
         missing = [j for j in (PAN_JOINT, TILT_JOINT) if j not in limits]
         if missing:
-            raise ValueError(f"{urdf_path}: no revolute limits for {missing}")
+            raise ValueError(f"{source}: no revolute limits for {missing}")
         self.links = {BASE_LINK, *self.joints}
         self._limits = {PAN_JOINT: limits[PAN_JOINT], TILT_JOINT: limits[TILT_JOINT]}
 

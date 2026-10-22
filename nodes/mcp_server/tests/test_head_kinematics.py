@@ -175,3 +175,14 @@ def test_point_off_the_reachable_cone_is_refused_not_clamped(head: HeadKinematic
     with pytest.raises(HeadAimError) as info:
         head.look_at(target)
     assert info.value.pan < -math.radians(90.0)
+
+
+def test_from_text_equals_path_constructor() -> None:
+    from_path = HeadKinematics(HEAD_URDF)
+    from_text = HeadKinematics.from_text(HEAD_URDF.read_text(), "inline")
+    assert from_text.limits == from_path.limits
+    assert from_text.links == from_path.links
+    for link in (CAMERA_FRAME, TOF_FRAME, "head_link"):
+        np.testing.assert_allclose(from_text.link_pose(0.3, 0.2, link), from_path.link_pose(0.3, 0.2, link))
+    point = np.array([2.0, 0.4, 0.0])
+    assert from_text.look_at(point) == from_path.look_at(point)

@@ -1,15 +1,21 @@
 """Pan/tilt head controller: validated joint moves with arrival detection from real /head/joint_states only."""
 
+import json
+import logging
 import math
+import threading
+from pathlib import Path
 from typing import Literal, Protocol
 
 from pydantic import BaseModel
+from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE, apply_overrides
 
 from .arm import JointSample
 from .config import HeadSettings
 from .head_kinematics import HeadKinematics
 from .models import HeadAngles
 
+LOGGER = logging.getLogger(__name__)
 HEAD_FRAME_ID = "autonomy"
 POLL_INTERVAL_S = 0.05
 MoveStatus = Literal["converged", "timeout", "no_feedback"]
@@ -17,6 +23,94 @@ MoveStatus = Literal["converged", "timeout", "no_feedback"]
 
 class HeadError(RuntimeError):
     """A head request was refused (angle outside the URDF limits)."""
+
+
+class AppliedHeadKinematics:
+    """Head kinematics on the repo URDF with the applied calibration overrides, rebuilt when the marker changes.
+
+    The marker is ``applied_dir/applied.json``: a new, changed or removed marker (mtime_ns) triggers a rebuild on the
+    next ``current()`` call, so an apply reaches the running server without a restart.
+    """
+
+    def __init__(self, urdf_path: Path, applied_dir: Path | None) -> None:
+        """Build the first kinematics (the repo URDF plus whatever is applied now).
+
+        Args:
+            urdf_path (Path): Repo head URDF.
+            applied_dir (Path | None): Applied calibration directory; None disables the override.
+
+        Raises:
+            ValueError: When the first build fails (there is no previous kinematics to keep).
+        """
+        self.urdf_path = urdf_path
+        self.applied_dir = applied_dir
+        self.lock = threading.Lock()
+        self.stamp = self.marker_stamp()
+        self.kinematics = self.build()
+
+    def marker_stamp(self) -> int | None:
+        """Modification time of the applied marker.
+
+        Returns:
+            int | None: mtime_ns, or None when there is no applied_dir or no marker.
+        """
+        if self.applied_dir is None:
+            return None
+        try:
+            return (self.applied_dir / APPLIED_MARKER_FILE).stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def marker_fields(self) -> tuple[str, str]:
+        """Session and result named by the applied marker, for the reload log line.
+
+        Returns:
+            tuple[str, str]: (session, result); "none" for a field that is absent, or both when unreadable.
+        """
+        if self.applied_dir is None:
+            return "none", "none"
+        try:
+            data = json.loads((self.applied_dir / APPLIED_MARKER_FILE).read_text())
+            return str(data.get("session", "none")), str(data.get("result", "none"))
+        except (OSError, ValueError, AttributeError):
+            return "none", "none"
+
+    def build(self) -> HeadKinematics:
+        """Parse the repo URDF with the applied overrides, logging every override warning.
+
+        Returns:
+            HeadKinematics: The new kinematics.
+        """
+        text = self.urdf_path.read_text()
+        source = str(self.urdf_path)
+        if self.applied_dir is not None:
+            text, warnings = apply_overrides(text, self.applied_dir)
+            for warning in warnings:
+                LOGGER.warning("ignoring head override %s", warning)
+            source = f"{source} + {self.applied_dir}"
+        return HeadKinematics.from_text(text, source)
+
+    def current(self) -> HeadKinematics:
+        """Kinematics of the applied chain, rebuilt first when the applied marker changed.
+
+        A failed rebuild is logged and the previous kinematics stay in use.
+
+        Returns:
+            HeadKinematics: Current kinematics.
+        """
+        with self.lock:
+            stamp = self.marker_stamp()
+            if stamp == self.stamp:
+                return self.kinematics
+            self.stamp = stamp
+            try:
+                self.kinematics = self.build()
+            except Exception as error:
+                LOGGER.exception("head kinematics reload failed (%s), keeping the previous chain", error)
+            else:
+                session, result = self.marker_fields()
+                LOGGER.info("head kinematics reloaded: applied session %s, result %s", session, result)
+            return self.kinematics
 
 
 class HeadBackend(Protocol):
@@ -66,17 +160,26 @@ class HeadMoveResult(BaseModel):
 class HeadController:
     """Commands the head joints and waits for the measured angles to arrive."""
 
-    def __init__(self, backend: HeadBackend, kinematics: HeadKinematics, settings: HeadSettings) -> None:
-        """Bind the backend, the URDF limits and the settings.
+    def __init__(self, backend: HeadBackend, kinematics: AppliedHeadKinematics, settings: HeadSettings) -> None:
+        """Bind the backend, the head kinematics provider and the settings.
 
         Args:
             backend (HeadBackend): Robot access.
-            kinematics (HeadKinematics): Head URDF (limits).
+            kinematics (AppliedHeadKinematics): Provider of the applied head chain (limits, look_at, link_pose).
             settings (HeadSettings): Head configuration.
         """
         self.backend = backend
-        self.kinematics = kinematics
+        self.provider = kinematics
         self.settings = settings
+
+    @property
+    def kinematics(self) -> HeadKinematics:
+        """Head kinematics of the applied chain, re-read at each access.
+
+        Returns:
+            HeadKinematics: The provider's current kinematics.
+        """
+        return self.provider.current()
 
     def measured(self) -> dict[str, float] | None:
         """Measured head angles from a fresh sample; never zero-filled.
