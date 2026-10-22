@@ -10,8 +10,8 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from ros2_common.head_rgbd_calibration.chain import UrdfChain, pose_from_xyz_rpy
-from ros2_common.head_rgbd_calibration.config import BoardMountConfig, HeadArmFitConfig
+from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy
+from ros2_common.head_rgbd_calibration.config import HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
     CAMERA_FRAME,
     PARAM_NAMES,
@@ -27,51 +27,46 @@ from ros2_common.head_rgbd_calibration.urdf_text import Origin
 from tests.head_arm_synthetic import (
     APPLIED_FLOOR,
     DEFAULT_HEAD_OFFSETS_DEG,
-    MOUNT_INIT_SHIFT_M,
-    MOUNT_INIT_TURN_DEG,
     SYNTH_ARM_POSES,
     SYNTH_CAMERA_MATRIX,
     SYNTH_DIST,
-    TRUTH_DELTAS,
+    SYNTH_TRUTH_DELTAS,
+    TOOL_POINT,
     URDF_DIR,
     HeadArmTruth,
-    applied_head_urdf,
     arm_board_scene,
     nominal_board_mount,
-    perturbed_board_mount,
-    perturbed_origins,
+    synth_arm_urdf,
+    synth_fit_config,
+    synth_head_urdf,
+    synth_truth,
 )
 
+HEAD_URDF = synth_head_urdf()
+ARM_URDF = synth_arm_urdf()
 NOISE_PX = 0.3
 SEED = 7
 TOLERANCE_MM = 1.5
 TOLERANCE_DEG = 0.15
 SIGMA_FACTOR = 3.0
 FLOOR_OFFSET_DEG = 2.0
-HEAD_URDF = applied_head_urdf()
-ARM_URDF = (URDF_DIR / "so101_arm.urdf").read_text()
-
-
-def fit_config(**overrides: object) -> HeadArmFitConfig:
-    """Fit config whose board mount start is 10 mm / 8 deg off the truth mount."""
-    xyz, rpy = perturbed_board_mount(*nominal_board_mount(HeadArmFitConfig()), MOUNT_INIT_SHIFT_M, MOUNT_INIT_TURN_DEG)
-    return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=xyz, rpy_init=rpy), **overrides)
 
 
 def truth(deltas: dict[str, float], extra: dict[str, Origin] | None = None) -> HeadArmTruth:
     """Truth: the start chain moved by `deltas`, plus `extra` origins, and the nominal board mount."""
-    xyz, rpy = nominal_board_mount(HeadArmFitConfig())
-    return HeadArmTruth(origins={**perturbed_origins(HEAD_URDF, deltas), **(extra or {})}, board_xyz=xyz, board_rpy=rpy)
+    return synth_truth(HEAD_URDF, deltas, extra)
 
 
 def scene(t: HeadArmTruth, noise_px: float, cfg: HeadArmFitConfig | None = None) -> list:
     return arm_board_scene(
-        t, HEAD_URDF, ARM_URDF, SYNTH_ARM_POSES, DEFAULT_HEAD_OFFSETS_DEG, noise_px, SEED, cfg or fit_config()
+        t, HEAD_URDF, ARM_URDF, SYNTH_ARM_POSES, DEFAULT_HEAD_OFFSETS_DEG, noise_px, SEED, cfg or synth_fit_config()
     )
 
 
 def fit(views: list, cfg: HeadArmFitConfig | None = None, floor: dict[str, float] | None = APPLIED_FLOOR) -> HeadArmFit:
-    return fit_head_from_arm(views, SYNTH_CAMERA_MATRIX, SYNTH_DIST, HEAD_URDF, ARM_URDF, cfg or fit_config(), floor)
+    return fit_head_from_arm(
+        views, SYNTH_CAMERA_MATRIX, SYNTH_DIST, HEAD_URDF, ARM_URDF, cfg or synth_fit_config(), floor
+    )
 
 
 def expected(deltas: dict[str, float]) -> dict[str, float]:
@@ -82,7 +77,7 @@ def expected(deltas: dict[str, float]) -> dict[str, float]:
 
 @pytest.fixture(scope="module")
 def noisy_views() -> list:
-    return scene(truth(TRUTH_DELTAS), NOISE_PX)
+    return scene(truth(SYNTH_TRUTH_DELTAS), NOISE_PX)
 
 
 @pytest.fixture(scope="module")
@@ -95,7 +90,7 @@ def tolerance(name: str) -> float:
 
 
 def test_recovers_perturbed_head_chain_with_noise(noisy_fit: HeadArmFit) -> None:
-    want = expected(TRUTH_DELTAS)
+    want = expected(SYNTH_TRUTH_DELTAS)
     for name in PARAM_NAMES:
         error = abs(noisy_fit.params[name] - want[name])
         assert error <= tolerance(name), (name, noisy_fit.params[name], want[name])
@@ -108,7 +103,7 @@ def test_recovers_perturbed_head_chain_with_noise(noisy_fit: HeadArmFit) -> None
 
 
 def test_fit_reports_coverage_and_holdout(noisy_fit: HeadArmFit, noisy_views: list) -> None:
-    cfg = fit_config()
+    cfg = synth_fit_config()
     poses = sorted({v.arm_pose for v in noisy_views})
     held = set(poses[cfg.limits.holdout_every - 1 :: cfg.limits.holdout_every])
     assert noisy_fit.arm_poses == len(poses)
@@ -129,8 +124,8 @@ def test_fit_reports_coverage_and_holdout(noisy_fit: HeadArmFit, noisy_views: li
 
 
 def test_noiseless_recovery_exact() -> None:
-    result = fit(scene(truth(TRUTH_DELTAS), 0.0))
-    want = expected(TRUTH_DELTAS)
+    result = fit(scene(truth(SYNTH_TRUTH_DELTAS), 0.0))
+    want = expected(SYNTH_TRUTH_DELTAS)
     for name in PARAM_NAMES:
         assert result.params[name] == pytest.approx(want[name], abs=1e-6), name
     np.testing.assert_allclose(
@@ -160,7 +155,7 @@ def test_narrow_pan_span_fails(noisy_views: list) -> None:
 
 
 def test_floor_cross_check_limits(noisy_views: list) -> None:
-    off = {**APPLIED_FLOOR, "tilt_zero_deg": expected(TRUTH_DELTAS)["tilt_zero_deg"] + FLOOR_OFFSET_DEG}
+    off = {**APPLIED_FLOOR, "tilt_zero_deg": expected(SYNTH_TRUTH_DELTAS)["tilt_zero_deg"] + FLOOR_OFFSET_DEG}
     result = fit(noisy_views, floor=off)
     assert "floor_delta:tilt_zero_deg" in result.failed_limits
     assert not result.passed
@@ -171,15 +166,15 @@ def test_floor_cross_check_limits(noisy_views: list) -> None:
 
 
 def test_floor_prior_weight_pulls(noisy_views: list, noisy_fit: HeadArmFit) -> None:
-    off = {**APPLIED_FLOOR, "tilt_zero_deg": expected(TRUTH_DELTAS)["tilt_zero_deg"] + FLOOR_OFFSET_DEG}
-    weighted = fit(noisy_views, cfg=fit_config(floor_prior_weight=100.0), floor=off)
+    off = {**APPLIED_FLOOR, "tilt_zero_deg": expected(SYNTH_TRUTH_DELTAS)["tilt_zero_deg"] + FLOOR_OFFSET_DEG}
+    weighted = fit(noisy_views, cfg=synth_fit_config(floor_prior_weight=100.0), floor=off)
     free = abs(noisy_fit.params["tilt_zero_deg"] - off["tilt_zero_deg"])
     pulled = abs(weighted.params["tilt_zero_deg"] - off["tilt_zero_deg"])
     assert pulled < free - 0.5
 
 
 def test_noisy_views_fail_a_sigma_limit() -> None:
-    result = fit(scene(truth(TRUTH_DELTAS), 3.0))
+    result = fit(scene(truth(SYNTH_TRUTH_DELTAS), 3.0))
     assert {"max_sigma_mm", "max_sigma_deg"} & set(result.failed_limits)
     assert not result.passed
 
@@ -217,12 +212,33 @@ def test_aim_head() -> None:
 
 
 def test_report_names_every_parameter(noisy_fit: HeadArmFit) -> None:
-    text = head_arm_report_markdown(noisy_fit, fit_config(), "arm-20261022-120000", "2026-10-22")
+    text = head_arm_report_markdown(noisy_fit, synth_fit_config(), "arm-20261022-120000", "2026-10-22")
     for name in PARAM_NAMES:
         assert name in text
     assert "pan zero folded into mount_yaw_deg" in text
     assert "holdout_board_mm" in text
     assert "PASS" in text
+
+
+def test_synthetic_start_chain_is_applied_floor_fit() -> None:
+    start = start_params(UrdfChain.from_text(HEAD_URDF))
+    raw = start_params(UrdfChain.from_text((URDF_DIR / "head.urdf").read_text()))
+    for name, value in APPLIED_FLOOR.items():
+        assert start[name] == pytest.approx(value, abs=1e-6), name  # URDF text precision
+    for name in ("mount_x_m", "mount_y_m", "mount_yaw_deg"):
+        assert start[name] == pytest.approx(raw[name], abs=1e-12), name
+
+
+def test_synth_arm_poses_cover_joints_above_floor() -> None:
+    cfg = HeadArmFitConfig()
+    arm = UrdfChain.from_text(ARM_URDF)
+    base = arm_in_robot_base(cfg.base_in_base_link.model_dump())
+    assert len(SYNTH_ARM_POSES) >= 24
+    for joint in ("shoulder_pan", "elbow_flex", "wrist_flex", "wrist_roll"):
+        assert len({pose[joint] for pose in SYNTH_ARM_POSES}) >= 3, joint
+    for pose in SYNTH_ARM_POSES:
+        tool = base @ arm.transform("gripper_link", pose, offsets=cfg.joint_offsets_rad) @ np.append(TOOL_POINT, 1.0)
+        assert tool[2] > 0.0, pose
 
 
 def test_view_missing_a_joint_raises(noisy_views: list) -> None:
