@@ -120,9 +120,7 @@ class PoseCheckConfig(StrictModel):
     """Pose check settings (m, rad).
 
     `head_radius_m` and `head_height_m` (above the head mount z) are the head envelope of the shipped head URDF;
-    `head_envelope` grows them for a URDF whose head reaches further. `roll_min_change_rad` is the mcp_server roll
-    guard's minimum wrist_roll change (`roll_guard_min_change_rad`): a smaller difference between a measured start and
-    a target is no roll.
+    `head_envelope` grows them for a URDF whose head reaches further.
     """
 
     body: BodyConfig = Field(default_factory=BodyConfig)
@@ -134,7 +132,6 @@ class PoseCheckConfig(StrictModel):
     head_height_m: float = Field(default=0.075, ge=0)
     roll_min_tool_height_m: float = Field(default=0.15, ge=0)
     max_roll_gripper_rad: float = Field(default=0.8, gt=0)
-    roll_min_change_rad: float = Field(default=0.1, ge=0)
     stretched_shoulder_lift_max_rad: float = 1.85
     path_step_rad: float = Field(default=0.05, gt=0)
     board_grid: int = Field(default=5, ge=2)
@@ -535,7 +532,7 @@ class PoseChecker:
             if missing:
                 raise ValueError(f"path {label} is missing arm joints: {', '.join(missing)}")
         delta = {name: target[name] - start[name] for name in ARM_JOINT_NAMES}
-        rolling = abs(delta[WRIST_ROLL]) > self.cfg.roll_min_change_rad
+        rolling = delta[WRIST_ROLL] != 0.0
         count = max(1, math.ceil(max(abs(v) for v in delta.values()) / self.cfg.path_step_rad - 1e-9))
         entries = []
         for i in range(count + 1):
