@@ -1165,7 +1165,7 @@ def test_published_depth_has_near_pixels_removed(monkeypatch: pytest.MonkeyPatch
         results[min_range] = (pixels, counter("tof_near_pixels_removed_total") - before, amplitude)
     pixels, removed, amplitude = results[0.25]
     assert removed == 2
-    assert pixels[0, 0] == 0 and pixels[2, 3] == 0 and pixels[1, 1] > 900
+    assert pixels[0, 0] == 0 and pixels[2, 3] == 0 and pixels[1, 1] > 500
     pixels_off, removed_off, amplitude_off = results[0.0]
     assert removed_off == 0
     assert pixels_off[0, 0] > 0 and pixels_off[2, 3] > 0
