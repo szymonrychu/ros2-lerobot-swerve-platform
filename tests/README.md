@@ -3284,6 +3284,7 @@ Unit tests for `scripts/ground_record.py` (head-only ground scenes recorded via 
 | `test_head_not_settled_fails_scene_without_recording` | A head that never reaches the target fails the scene at step `settle`; no POST, no files. |
 | `test_refused_head_command_is_the_scene_failure` | A web_ui error frame (range or released refusal) becomes the scene failure message. |
 | `test_capture_lines_written_in_report_format` | `<name>.ndjson` lines are `{t, topic, data}` and parse with `ground_noise_report.read_capture`. |
+| `test_settle_period_frames_are_drained_not_captured` | Frames arriving during the settle wait are read and discarded, so they never reach the ndjson. |
 | `test_config_validates` | `ground_record.yaml` and the model defaults give the four scenes; unknown keys are rejected. |
 
 ### `test_ground_noise_report.py`
