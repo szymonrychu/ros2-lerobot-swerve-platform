@@ -60,6 +60,7 @@ export const GROUND_COLORS = {
   edgeWarning: '#fdd835',
   plane: '#2e9e4f',
   warningFill: '#fdd835',
+  noReturnFill: '#8e24aa',
 } as const
 
 /** Layer toolbar swatches (kept here so the toolbar does not pull in the 3D chunk). */

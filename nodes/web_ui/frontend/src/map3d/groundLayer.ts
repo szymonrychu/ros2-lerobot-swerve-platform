@@ -26,6 +26,7 @@ export const GROUND_EDGE_LEGEND: readonly (readonly [string, string])[] = [
   ['Obstacle edge', GROUND_COLORS.edgeObstacle],
   ['Warning edge', GROUND_COLORS.edgeWarning],
   ['Warning area (slow down)', GROUND_COLORS.warningFill],
+  ['No ToF return (caution)', GROUND_COLORS.noReturnFill],
 ]
 
 const LABEL_COLOURS: readonly string[] = [
@@ -72,8 +73,8 @@ export interface GroundRegion {
 export interface GroundWarningArea {
   kind: string
   polygon: Vec2Tuple[]
-  height_m: number
-  slope_deg: number
+  height_m: number | null
+  slope_deg: number | null
   source: string
 }
 
@@ -133,6 +134,14 @@ export interface WarningPolygon {
   kind: string
   source: string
   polygon: Vec2Tuple[]
+}
+
+/** Height and slope of one warning area, as text ("n/a" for null). */
+export interface WarningAreaReadout {
+  source: string
+  kind: string
+  height: string
+  slope: string
 }
 
 /** Slope, slope level and plane height of a state, as text. */
@@ -279,4 +288,26 @@ export function groundReadout(state: GroundState | null | undefined): GroundRead
     level: state.slope_level ?? 'n/a',
     height: `${state.plane!.height_m.toFixed(3)} m`,
   }
+}
+
+/**
+ * @param kind - warning area kind
+ * @returns the fill colour (hex): purple for no_return, yellow for every other kind
+ */
+export function warningAreaColour(kind: string): string {
+  return kind === 'no_return' ? GROUND_COLORS.noReturnFill : GROUND_COLORS.warningFill
+}
+
+/**
+ * @param state - ground state
+ * @returns per warning area the height and slope as text, "n/a" for null; none for an invisible state
+ */
+export function warningAreaReadouts(state: GroundState | null | undefined): WarningAreaReadout[] {
+  if (!groundVisible(state)) return []
+  return (state.warnings ?? []).map((w) => ({
+    source: w.source,
+    kind: w.kind,
+    height: w.height_m === null || w.height_m === undefined ? 'n/a' : `${w.height_m.toFixed(3)} m`,
+    slope: w.slope_deg === null || w.slope_deg === undefined ? 'n/a' : `${w.slope_deg.toFixed(1)} deg`,
+  }))
 }

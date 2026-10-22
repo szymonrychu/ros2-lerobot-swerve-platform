@@ -18,6 +18,7 @@ import {
   planePatch,
   planeZ,
   regionEdges,
+  warningAreaColour,
   warningPolygons,
   type GroundState,
   type Vec3Tuple,
@@ -611,7 +612,7 @@ export const GroundLayer = memo(function GroundLayer({
         <group position={rosToThree(p)} rotation={[0, rosYawToThreeY(p.yaw), 0]}>
           {overlay.patch && <FanMesh vertices={overlay.patch} color={GROUND_COLORS.plane} opacity={GROUND_PATCH_OPACITY} />}
           {overlay.areas.map((a, i) => (
-            <FanMesh key={`${a.source}-${i}`} vertices={a.vertices} color={GROUND_COLORS.warningFill} opacity={GROUND_WARNING_OPACITY} />
+            <FanMesh key={`${a.source}-${i}`} vertices={a.vertices} color={warningAreaColour(a.kind)} opacity={GROUND_WARNING_OPACITY} />
           ))}
           {overlay.edges.map((e) => (
             <Line key={e.name} points={e.line} color={e.colour} lineWidth={GROUND_EDGE_WIDTH} />
