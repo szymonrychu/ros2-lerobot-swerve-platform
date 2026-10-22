@@ -1,5 +1,6 @@
 // Per-cell temporal median of plane-relative heights. Points are binned by their xy in the fixed frame, so the cells
-// stay put while the robot or the head moves; a cell's height is the median of its last few per-frame medians.
+// stay put while the robot or the head moves; a cell's height at its centre is the median of its last few per-frame
+// values, and so is its in-cell height gradient (a robust plane fit per frame), so a ramp keeps its slope inside a cell.
 #ifndef GROUND_ESTIMATOR_CPP__CELL_MEDIAN_HPP_
 #define GROUND_ESTIMATOR_CPP__CELL_MEDIAN_HPP_
 
@@ -13,13 +14,26 @@
 #include <limits>
 #include <optional>
 #include <unordered_map>
-#include <utility>
 
 #include "ground_estimator_cpp/config.hpp"
 #include "ground_estimator_cpp/plane_fit.hpp"
 
 namespace ground_estimator_cpp
 {
+
+// One frame of one cell: the plane h = height + gradient_x * dx + gradient_y * dy about the cell centre (fixed-frame
+// dx, dy), height and gradient from a robust fit of the cell's points, and the plain median of the points' heights.
+struct CellSample
+{
+  double stamp_s = 0.0;
+  double median_m = 0.0;  // median plane-relative height of the cell's points
+  double height_m = 0.0;  // height of the fitted plane at the cell centre
+  double gradient_x = 0.0;
+  double gradient_y = 0.0;
+  double gradient_se_x = 0.0;  // standard error of gradient_x from the fit residuals
+  double gradient_se_y = 0.0;
+  double residual_m = std::numeric_limits<double>::quiet_NaN();  // RMS of the heights about the plane; NaN unfitted
+};
 
 class CellMedianFilter
 {
@@ -29,7 +43,11 @@ public:
 
   // Add one frame and return the points of the cells that have enough history and a steady value (a spread over
   // temporal.max_spread_m makes the cell unknown and its history is kept; it is known again once the spread is well
-  // under the limit), moved along the plane normal to the cell's temporal median height. Points of younger cells are not output. O(points + cells).
+  // under the limit), moved along the plane normal to the cell's temporal median: for an inclined cell (a significant
+  // in-cell gradient, a plane residual like its flat neighbours' and a neighbour of a similar gradient) the median
+  // height at the cell centre plus the median gradient times the offset from the centre, for any other cell (flat, a
+  // step edge) the median of its per-frame median heights. The spread is that of the value used. Points of younger
+  // cells are not output. O(points + cells).
   // @param points_base the cloud in base_link.
   // @param plane the floor plane in base_link.
   // @param fixed_T_base pose of base_link in the fixed frame.
@@ -64,9 +82,9 @@ public:
 private:
   struct Cell
   {
-    std::deque<std::pair<double, double>> history;  // (stamp, per-frame median)
-    std::optional<double> spread;                   // of the last apply in which the cell was seen with min_frames
-    bool output = false;                            // the cell's points were output in the last apply
+    std::deque<CellSample> history;  // per-frame samples (stamp, median, plane about the centre)
+    std::optional<double> spread;    // of the last apply in which the cell was seen with min_frames
+    bool output = false;             // the cell's points were output in the last apply
     int frames_since_gated = std::numeric_limits<int>::max();  // frames with min_frames values since the last gate
   };
 

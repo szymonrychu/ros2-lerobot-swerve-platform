@@ -1,6 +1,6 @@
 ---
 title: Node stable classes
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "What Nav2 and costmap_zones receive is stable: no lethal noise on empty floor, the box always lethal, the ramp a steady slow-down area."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/test/test_node.cpp]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--node-stable-classes
 branch: ground-detection-robustness--node-stable-classes
-verified_head: ""
+verified_head: 2317cbe4cc84bf15d66b6862326bfac914d4fca7
 run: ground-detection-robustness
-provides: []
+provides: [raw-height-history, surface-slope-fit]
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["README does not yet document SLOPE_HISTORY_WINDOWS, SLOPE_REFIT_MIN_DEG, the slope-unknown startup delay or the steady_at neighbour rule (implementer reports it as owned by ground-robustness-docs)"]
 ---
 
 # Node stable classes
@@ -82,3 +82,5 @@ Notes: no placeholder data: a cell held lethal publishes only the points seen in
 See the Notes paragraph of the Requirement; design: docs/plans/todo/ground-detection-robustness/design.md.
 
 - 2026-10-22 run ground-detection-robustness: dependency-failed on cell-spread-gate, cell-class-hysteresis, slope-and-smoothing-defaults
+
+- 2026-10-22 run ground-detection-robustness: dependency-failed on cell-spread-gate, slope-and-smoothing-defaults

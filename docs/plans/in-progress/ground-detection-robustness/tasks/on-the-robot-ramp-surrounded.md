@@ -1,6 +1,6 @@
 ---
 title: "On the robot (ramp surrounded by floor, 10 cm temporal cells, 0.02 m floor band), a 25 cm ramp leaves only 1-2 cell columns above the floor band, and the top cell mixes ramp and floor. A Python simulation of that scene gives slope p50 4-9 deg for any estimator. This matches the measured 5.7 deg. The edges fix makes the slope unknown in that case (classified on step height only) instead of wrong. Reading about 14 deg on the robot needs temporal.cell_size_m around 0.05: simulated p50 13.1 deg with aligned cells, but only 8-10 deg with misaligned cells. Or it needs a filter that keeps the slope inside each cell."
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Approved item A7's value (the 14 deg ramp reads about 14 deg on the robot) depends on the temporal cell geometry, not only on the cluster slope estimator."
 files: [nodes/ground_estimator_cpp/src/core/cell_median.cpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_median.hpp, nodes/ground_estimator_cpp/test/core/test_cell_median.cpp, nodes/ground_estimator_cpp/README.md]
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/ground-detection-robustness--on-the-robot-ramp-surrounded
 branch: ground-detection-robustness--on-the-robot-ramp-surrounded
-verified_head: ""
-run: ""
+verified_head: 2fad7eab580a00d7de146c9c20e57afc6ebbc9bd
+run: ground-detection-robustness
 provides: []
+acs_for_audit: [a3]
+process_gaps: []
 ---
 
 # On the robot (ramp surrounded by floor, 10 cm temporal cells, 0.02 m floor band), a 25 cm ramp leaves only 1-2 cell columns above the floor band, and the top cell mixes ramp and floor. A Python simulation of that scene gives slope p50 4-9 deg for any estimator. This matches the measured 5.7 deg. The edges fix makes the slope unknown in that case (classified on step height only) instead of wrong. Reading about 14 deg on the robot needs temporal.cell_size_m around 0.05: simulated p50 13.1 deg with aligned cells, but only 8-10 deg with misaligned cells. Or it needs a filter that keeps the slope inside each cell.
@@ -64,3 +66,4 @@ The 14 deg ramp on the robot reads about 14 deg instead of 4-9 deg, so the slope
 
 Discovered in task `edge-step-and-ramp-slope` during run `ground-detection-robustness`.
 
+- 2026-10-22 run ground-detection-robustness: dependency-failed on cell-spread-gate
