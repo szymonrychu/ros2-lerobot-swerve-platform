@@ -549,3 +549,121 @@ TEST(Edges, SparseMatRampEdgeStepStaysBelowTheRule)
   misaligned.rotate(Eigen::AngleAxisd(MISALIGNED_YAW_DEG * DEG, Eigen::Vector3d::UnitZ()));
   EXPECT_GE(mat_edge_below_rule_share(misaligned), MAT_EDGE_BELOW_RULE_SHARE);
 }
+
+namespace
+{
+constexpr double BOX_X0_M = 1.0;
+constexpr double BOX_X1_M = 1.15;
+constexpr double BOX_HALF_WIDTH_M = 0.15;
+constexpr double BOX_BAND_ROWS_END_M = 1.07;  // rows before this x are boundary rows, beyond it the box body
+constexpr double BOX_STRETCH_HALF_M = 0.06;   // the 12 cm stretch of the boundary that reads the full box height
+constexpr double BOX_STRETCH_HEIGHT_M = 0.055;
+constexpr double BOX_BODY_HEIGHT_M = 0.05;
+constexpr double TAIL_LOW_M = 0.01;
+constexpr double TAIL_HIGH_M = 0.035;
+constexpr double GRID_M = 0.01;
+constexpr double STEP_RULE_LIMIT_M = 0.04;
+constexpr double SILL_HEIGHT_M = 0.03;
+constexpr double SILL_NOISE_M = 0.01;
+constexpr double SILL_RESULT_LIMIT_M = 0.035;
+constexpr double SPIKE_HEIGHT_M = 0.06;
+constexpr double SPIKE_Y_M = 0.30;
+constexpr double LONG_WINDOW_M = 0.5;
+
+// A 5 cm box 30 cm wide whose boundary rows read a 5.5 cm stretch in the middle and a 1 - 3.5 cm mixed tail elsewhere,
+// rotated about the base_link origin by yaw_deg.
+pcl::PointCloud<pcl::PointXYZ> tailed_box(double yaw_deg, double stretch_height_m = BOX_STRETCH_HEIGHT_M)
+{
+  std::mt19937 rng(SEED);
+  std::uniform_real_distribution<double> tail(TAIL_LOW_M, TAIL_HIGH_M);
+  const Eigen::Rotation2Dd turn(yaw_deg * DEG);
+  pcl::PointCloud<pcl::PointXYZ> cloud;
+  for (double x = BOX_X0_M; x <= BOX_X1_M + 1e-9; x += GRID_M) {
+    for (double y = -BOX_HALF_WIDTH_M; y <= BOX_HALF_WIDTH_M + 1e-9; y += GRID_M) {
+      double h = BOX_BODY_HEIGHT_M;
+      if (x < BOX_BAND_ROWS_END_M) {
+        h = std::fabs(y) <= BOX_STRETCH_HALF_M ? stretch_height_m : tail(rng);
+      }
+      const Eigen::Vector2d p = turn * Eigen::Vector2d(x, y);
+      cloud.push_back(pcl::PointXYZ(static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(h)));
+    }
+  }
+  return cloud;
+}
+
+std::vector<Cluster> clusters_of(const pcl::PointCloud<pcl::PointXYZ> & cloud, const EdgesConfig & cfg = EdgesConfig{})
+{
+  std::vector<float> heights;
+  for (const auto & p : cloud) {
+    heights.push_back(p.z);
+  }
+  return extract_clusters(cloud, heights, "step", Plane{}, cfg, EDGE_BAND_M);
+}
+}  // namespace
+
+TEST(EdgeSegment, BoxWithMostlyTailBandReadsItsFullStretch)
+{
+  const auto clusters = clusters_of(tailed_box(0.0));
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_GT(clusters[0].edge_step_m, STEP_RULE_LIMIT_M);
+}
+
+TEST(EdgeSegment, BoxAtYawDiagonalEdgeReadsItsFullStretch)
+{
+  const auto clusters = clusters_of(tailed_box(35.0));
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_GT(clusters[0].edge_step_m, STEP_RULE_LIMIT_M);
+}
+
+TEST(EdgeSegment, NoisySillStaysBelowTheRule)
+{
+  const auto sill = grid_cloud(BOX_X0_M, BOX_X1_M, -0.4, 0.4, GRID_M, SILL_HEIGHT_M);
+  const auto clusters = clusters_of(add_z_noise(sill, SILL_NOISE_M, 0.0, 0.0, SEED));
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_LE(clusters[0].edge_step_m, SILL_RESULT_LIMIT_M);
+}
+
+TEST(EdgeSegment, SparseSpikeWindowsAreIgnored)
+{
+  // A 3 cm sill with a dense boundary over y -0.1 .. 0.1 and, 0.2 m further along, two 6 cm boundary points: every
+  // window holding them holds fewer than step_segment_min_points boundary points, so they do not count.
+  pcl::PointCloud<pcl::PointXYZ> cloud;
+  const auto add = [&cloud](double x, double y, double z) {
+    cloud.push_back(pcl::PointXYZ(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)));
+  };
+  for (double x = BOX_X0_M; x <= BOX_X0_M + 0.04 + 1e-9; x += GRID_M) {
+    for (double y = -0.1; y <= 0.1 + 1e-9; y += GRID_M) {
+      add(x, y, SILL_HEIGHT_M);
+    }
+  }
+  add(BOX_X0_M, SPIKE_Y_M, SPIKE_HEIGHT_M);
+  add(BOX_X0_M, SPIKE_Y_M + GRID_M, SPIKE_HEIGHT_M);
+  for (double x = BOX_X0_M + 0.06; x <= BOX_X1_M + 1e-9; x += GRID_M) {  // body behind the boundary joins the groups
+    for (double y = -0.1; y <= SPIKE_Y_M + GRID_M + 1e-9; y += GRID_M) {
+      add(x, y, SILL_HEIGHT_M);
+    }
+  }
+  const auto clusters = clusters_of(cloud);
+  ASSERT_EQ(clusters.size(), 1u);
+  EXPECT_LE(clusters[0].edge_step_m, SILL_RESULT_LIMIT_M);
+}
+
+TEST(EdgeSegment, BandShorterThanAWindowKeepsTheWholeBandMedian)
+{
+  // 40 % of the boundary reads 6 cm, 60 % 3 cm: the whole-band p50 is 3 cm. The default 10 cm window finds the
+  // stretch (6 cm); a window longer than the band does not.
+  auto flat = grid_cloud(BOX_X0_M, BOX_X1_M, -BOX_HALF_WIDTH_M, BOX_HALF_WIDTH_M, GRID_M, SILL_HEIGHT_M);
+  for (auto & p : flat) {
+    if (std::fabs(p.y) <= BOX_STRETCH_HALF_M) {
+      p.z = static_cast<float>(SPIKE_HEIGHT_M);
+    }
+  }
+  const auto windowed = clusters_of(flat);
+  ASSERT_EQ(windowed.size(), 1u);
+  EXPECT_NEAR(windowed[0].edge_step_m, SPIKE_HEIGHT_M, 1e-6);
+  EdgesConfig cfg;
+  cfg.step_segment_m = LONG_WINDOW_M;
+  const auto whole = clusters_of(flat, cfg);
+  ASSERT_EQ(whole.size(), 1u);
+  EXPECT_NEAR(whole[0].edge_step_m, SILL_HEIGHT_M, 1e-6);
+}

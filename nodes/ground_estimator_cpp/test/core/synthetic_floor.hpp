@@ -10,6 +10,7 @@
 
 #include <Eigen/Geometry>
 #include <cmath>
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -307,6 +308,34 @@ inline pcl::PointCloud<pcl::PointXYZ> add_z_noise(
     p.z += static_cast<float>(pick(rng) < outlier_fraction ? uniform(rng) : gauss(rng));
   }
   return out;
+}
+
+// Mixed-pixel tail of a box (part mixed-pixel-scene): a ToF pixel straddling a depth edge averages the near edge and
+// the far floor, so its point lands on the ray from the sensor through the box's far top edge, between the edge and
+// the floor behind. Adds count points (seeded): each picks a point on the segment edge_a..edge_b, then a ray
+// parameter uniform between start_fraction of the way from the edge to the floor plane z = floor_z_m and the floor,
+// and appends the point to cloud. The first start_fraction of the way is left out: a pixel that close to the edge
+// reads as the edge itself (a height within the sensor noise of the box top), not as a tail.
+// Returns the index of the first appended point so callers can tell tail points from the rest.
+inline std::size_t add_mixed_pixel_tail(
+  pcl::PointCloud<pcl::PointXYZ> & cloud, const Eigen::Vector3d & sensor_origin, const Eigen::Vector3d & edge_a,
+  const Eigen::Vector3d & edge_b, double floor_z_m, int count, unsigned seed, double start_fraction = 0.3)
+{
+  const std::size_t first = cloud.size();
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<double> unit(0.0, 1.0);
+  for (int i = 0; i < count; ++i) {
+    const Eigen::Vector3d edge = edge_a + unit(rng) * (edge_b - edge_a);
+    const Eigen::Vector3d ray = edge - sensor_origin;
+    if (ray.z() >= 0.0 || edge.z() <= floor_z_m) {
+      continue;
+    }
+    const double t_floor = (floor_z_m - sensor_origin.z()) / ray.z();  // ray parameter of the floor behind the edge
+    const double t = 1.0 + (start_fraction + unit(rng) * (1.0 - start_fraction)) * (t_floor - 1.0);  // 1.0 = edge
+    const Eigen::Vector3d p = sensor_origin + t * ray;
+    cloud.push_back(pcl::PointXYZ(static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z())));
+  }
+  return first;
 }
 
 }  // namespace ground_test

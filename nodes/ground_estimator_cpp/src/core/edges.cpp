@@ -41,6 +41,8 @@ constexpr std::size_t MIN_SLOPE_SAMPLES = 3;
 // Slope from which the edge step is capped by the fitted surface's height at the edge line (a 10 cm cell rises
 // under 9 mm below it, so flat tops never use the fit).
 constexpr double RAMP_EDGE_MIN_SLOPE_DEG = 5.0;
+// Segment windows slide by this fraction of the window length (at most half a window).
+constexpr double SEGMENT_STRIDE_FRACTION = 0.25;
 constexpr const char * KIND_DROP = "drop";
 constexpr const char * KIND_STEP = "step";
 
@@ -219,6 +221,60 @@ std::optional<SurfaceFit> robust_surface_fit(const std::vector<SlopeSample> & sa
   return SurfaceFit{centroid, coef};
 }
 
+// One boundary point: its position along the edge direction and |height|.
+struct BandPoint
+{
+  double along = 0.0;
+  double height = 0.0;
+};
+
+// Largest p50 of |height| over the windows of window_m along the edge that hold at least min_points band points
+// (windows start every SEGMENT_STRIDE_FRACTION of a window; the last one ends at the last point). The whole-band p50
+// when the band is shorter than one window or no window holds enough points.
+double segment_step(std::vector<BandPoint> band, double window_m, std::size_t min_points)
+{
+  if (band.empty()) {
+    return 0.0;
+  }
+  std::sort(band.begin(), band.end(), [](const BandPoint & a, const BandPoint & b) { return a.along < b.along; });
+  std::vector<double> all;
+  all.reserve(band.size());
+  for (const auto & b : band) {
+    all.push_back(b.height);
+  }
+  const double whole = percentile(all, STEP_PERCENTILE);
+  const double first = band.front().along;
+  const double last = band.back().along;
+  if (last - first < window_m) {
+    return whole;
+  }
+  const double stride = window_m * SEGMENT_STRIDE_FRACTION;
+  double best = -1.0;
+  std::size_t lo = 0;
+  std::size_t hi = 0;
+  for (double start = first;; start += stride) {
+    start = std::min(start, last - window_m);
+    while (lo < band.size() && band[lo].along < start) {
+      ++lo;
+    }
+    while (hi < band.size() && band[hi].along <= start + window_m) {
+      ++hi;
+    }
+    if (hi - lo >= min_points) {
+      std::vector<double> window;
+      window.reserve(hi - lo);
+      for (std::size_t i = lo; i < hi; ++i) {
+        window.push_back(band[i].height);
+      }
+      best = std::max(best, percentile(window, STEP_PERCENTILE));
+    }
+    if (start >= last - window_m) {
+      break;
+    }
+  }
+  return best >= 0.0 ? best : whole;
+}
+
 // Fill every feature of a cluster whose kind, points and heights are set.
 void compute_features(Cluster & c, const EdgesConfig & cfg, double edge_band_m)
 {
@@ -271,13 +327,16 @@ void compute_features(Cluster & c, const EdgesConfig & cfg, double edge_band_m)
   // Cluster on the side of +normal: left when cross(axis, normal) > 0.
   c.side = (axis.x() * normal.y() - axis.y() * normal.x()) > 0.0 ? "left" : "right";
 
-  std::vector<double> band_heights;
+  // The step is measured along the boundary: the largest p50 over segments of it (a band mostly made of a mixed
+  // pixel tail still reads the step on the stretch where the edge is seen cleanly).
+  std::vector<BandPoint> band;
   for (std::size_t i = 0; i < n; ++i) {
     if (std::fabs(offsets[i] - line_offset) <= edge_band_m) {
-      band_heights.push_back(std::fabs(h[i]));
+      band.push_back({axis.dot(xy[i]), std::fabs(h[i])});
     }
   }
-  c.edge_step_m = percentile(band_heights, STEP_PERCENTILE);
+  c.edge_step_m =
+    segment_step(std::move(band), cfg.step_segment_m, static_cast<std::size_t>(cfg.step_segment_min_points));
 
   // Robust slope of the plane-relative height over per-level samples; 0 and unknown without enough support.
   c.slope_known = false;
