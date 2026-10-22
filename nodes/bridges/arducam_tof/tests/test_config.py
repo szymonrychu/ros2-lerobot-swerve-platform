@@ -167,3 +167,28 @@ def test_csi_device_is_loaded_from_yaml(tmp_path: Path) -> None:
 def test_depth_is_radial_must_be_a_bool(tmp_path: Path) -> None:
     with pytest.raises(ConfigError):
         load_config(write(tmp_path, "depth_is_radial: [1]\n"))
+
+
+def test_flying_pixel_keys_validated(tmp_path: Path) -> None:
+    defaults = load_config(write(tmp_path, ""))
+    assert defaults.flying_pixel_filter is True
+    assert 0 < defaults.flying_pixel_jump_ratio <= 0.5
+    assert 0 <= defaults.flying_pixel_min_jump_mm <= 1000
+    config = load_config(
+        write(tmp_path, "flying_pixel_filter: false\nflying_pixel_jump_ratio: 0.5\nflying_pixel_min_jump_mm: 0\n")
+    )
+    assert config.flying_pixel_filter is False
+    assert config.flying_pixel_jump_ratio == 0.5
+    assert config.flying_pixel_min_jump_mm == 0
+    assert load_config(write(tmp_path, "flying_pixel_min_jump_mm: 1000\n")).flying_pixel_min_jump_mm == 1000
+    for line in (
+        "flying_pixel_jump_ratio: 0",
+        "flying_pixel_jump_ratio: 0.51",
+        "flying_pixel_min_jump_mm: -1",
+        "flying_pixel_min_jump_mm: 1001",
+        "flying_pixel_filter: maybe",
+    ):
+        with pytest.raises(ConfigError, match=line.split(":")[0]):
+            load_config(write(tmp_path, line + "\n"))
+    with pytest.raises(ConfigError, match="flying_pixel_jump"):
+        load_config(write(tmp_path, "flying_pixel_jump: 0.1\n"))

@@ -1366,6 +1366,12 @@ ros2_nodes:
       tof_calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml
       # The SDK depth is the distance along each pixel ray; true converts it to z-depth with that K.
       depth_is_radial: true
+      # Zero ToF flying (mixed) pixels at depth discontinuities on the full-resolution z-depth: a valid pixel goes to 0
+      # when a valid 3x3 neighbour differs by more than max(min_jump_mm, ratio * its depth). Without it every object
+      # edge drags a 10-25 cm tail of intermediate heights into /tof/points_filtered (fake ramps and steps).
+      flying_pixel_filter: true
+      flying_pixel_jump_ratio: 0.05
+      flying_pixel_min_jump_mm: 30
       # Topics are fixed in the driver (the web_ui head tab subscribes to them):
       # /tof/depth/image_raw
       # /tof/amplitude/image_raw

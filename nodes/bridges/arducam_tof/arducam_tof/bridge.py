@@ -70,6 +70,9 @@ IDENTITY_R = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
 
 FRAMES_PUBLISHED = Counter("tof_frames_published_total", "ToF frames published (depth, amplitude, camera_info)")
 FRAMES_DROPPED = Counter("tof_frames_dropped_total", "ToF frame requests that published nothing, by reason", ["reason"])
+FLYING_PIXELS_REMOVED = Counter(
+    "tof_flying_pixels_removed_total", "ToF flying (mixed) pixels zeroed at depth discontinuities"
+)
 OPEN_FAILURES = Counter("tof_camera_open_failures_total", "Failed attempts to open and start the ToF camera")
 REOPENS = Counter("tof_camera_reopens_total", "Times the ToF camera was closed and reopened after yielding no frames")
 
@@ -190,6 +193,35 @@ def radial_to_z(depth_mm: np.ndarray, intrinsics: Intrinsics) -> np.ndarray:
     """
     z = np.rint(depth_mm / ray_norm_image(depth_mm.shape, intrinsics))
     return np.where(depth_mm > 0, z, 0).astype(np.uint16)
+
+
+def flying_pixel_filter(depth_mm: np.ndarray, jump_ratio: float, min_jump_mm: int) -> np.ndarray:
+    """Zero the mixed ("flying") pixels at depth discontinuities.
+
+    A valid pixel becomes 0 (invalid, REP 118) when a valid pixel of its 3x3 neighbourhood differs from it by more
+    than max(min_jump_mm, jump_ratio * its depth). 0 pixels are never compared.
+
+    Args:
+        depth_mm (np.ndarray): uint16 z-depth in millimetres; 0 = invalid.
+        jump_ratio (float): Depth-relative jump threshold (dimensionless).
+        min_jump_mm (int): Absolute floor of the jump threshold in millimetres.
+
+    Returns:
+        np.ndarray: uint16 depth of the same shape with the flying pixels set to 0.
+    """
+    depth = depth_mm.astype(np.int32)
+    threshold = np.maximum(float(min_jump_mm), jump_ratio * depth)
+    flying = np.zeros(depth.shape, dtype=bool)
+    height, width = depth.shape
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dy == 0 and dx == 0:
+                continue
+            here = (slice(max(dy, 0), height + min(dy, 0)), slice(max(dx, 0), width + min(dx, 0)))
+            there = (slice(max(-dy, 0), height + min(-dy, 0)), slice(max(-dx, 0), width + min(-dx, 0)))
+            both_valid = (depth[here] > 0) & (depth[there] > 0)
+            flying[here] |= both_valid & (np.abs(depth[here] - depth[there]) > threshold[here])
+    return np.where(flying, 0, depth_mm).astype(np.uint16)
 
 
 def amplitude_to_mono16(amplitude: np.ndarray) -> np.ndarray:
@@ -493,6 +525,12 @@ class TofBridge:
             depth_mm = depth_to_mm(depth, confidence, self.config.confidence_threshold)
             if self.config.depth_is_radial and self.intrinsics is not None:
                 depth_mm = radial_to_z(depth_mm, self.intrinsics)
+            if self.config.flying_pixel_filter:
+                filtered = flying_pixel_filter(
+                    depth_mm, self.config.flying_pixel_jump_ratio, self.config.flying_pixel_min_jump_mm
+                )
+                FLYING_PIXELS_REMOVED.inc(int(np.count_nonzero(depth_mm)) - int(np.count_nonzero(filtered)))
+                depth_mm = filtered
             amplitude16 = amplitude_to_mono16(amplitude)
         finally:
             self.camera.releaseFrame(frame)
