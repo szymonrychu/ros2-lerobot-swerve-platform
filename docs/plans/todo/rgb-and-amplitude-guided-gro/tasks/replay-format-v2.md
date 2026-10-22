@@ -67,17 +67,26 @@ Version 2 of the replay fixture (design D9, part replay-format-v2). It extends r
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part replay-format-v2:
+- `scripts/ground_replay_export.py`: `export`, `export_tof_frames`, `read_replay`, `MAX_FIXTURE_BYTES`, `ReplayScenes` (config);
+- `nodes/ground_estimator_cpp/test/replay_fixture.hpp`: `CameraModel`, `ReplayPair`, `Replay::rgb_model`, `Replay::tof_model`, `Replay::pairs`.
+
+Keeps run 4's part replay-harness (v1 reader, ReplayFrame, metrics) unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_replay_export.py -q` PASS with the 7 new tests and run 4's; `scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the 3 reader tests; `tiny_v2.bin` committed (a few kB).
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the Python tests; `uv run pytest tests/test_ground_replay_export.py -q` FAILS on them
+- implement v2 export, read and the scenes config; the same command PASSES; generate `tiny_v2.bin` with the test helper
+- write the C++ reader tests; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS (no v2 reader)
+- implement the v2 reader and the CMake components; the command PASSES
+- update both READMEs; commit `test(ground_estimator_cpp): replay fixture v2 with RGB-D pairs`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Built on run 4's `replay-fixtures-and-test`: read its converter and reader first and extend them; do not fork them.
+- The PNG keeps 16-bit depth losslessly (`cv2.imencode('.png', depth_uint16)`; `cv::imdecode(..., cv::IMREAD_UNCHANGED)` gives CV_16UC1).
+- `opencv-python-headless` is already a root dev dependency.

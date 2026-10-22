@@ -62,17 +62,19 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part record-script: `scripts/ground_record.py` with `run_scene(...)`, `RecordConfig` (pydantic) and `main()`. It uses the web_ui `/ws` protocol (`subscribe`, `publish` messages as `nodes/web_ui/web_ui/server.py` handles them) and part ground-recorder-api.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_record.py -q` PASS (4 tests); root lint and ruff on the script clean; `websockets` in the root dev group.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- `uv add --dev websockets`
+- write `tests/test_ground_record.py`; `uv run pytest tests/test_ground_record.py -q` FAILS (no module)
+- write the script and `scripts/ground_record.yaml`; the same command PASSES; the ruff commands PASS
+- add the tests/README entry; commit `feat(scripts): ground scene recorder over web_ui`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The head command is refused by web_ui outside the head ranges or while the head is released (`server.py` head_error/released_error); surface those error messages as the scene failure. The scratchpad `ws_capture.py` shows the subscribe message shape. Never publish anything but the head command.

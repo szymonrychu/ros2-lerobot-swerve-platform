@@ -1,0 +1,58 @@
+[
+  {
+    "id": "A1",
+    "text": "Baseline first: the box, board, ramp and empty scenes are recorded with RGB + amplitude after ground-detection-robustness run 4, without rclpy probes on the client, and their replay numbers (guidance off, gate off) are written down before anything is tuned; ground truth from the ChArUco board pose.",
+    "decisions": ["D8", "D9", "D10", "D11", "D14"],
+    "tasks": ["ground-recording-layout", "web-ui-ground-recorder-api", "ground-record-script", "replay-format-v2", "scene-truth-from-board", "guidance-replay-metrics", "capture-baseline-recordings"],
+    "status": "approved"
+  },
+  {
+    "id": "A2",
+    "text": "ToF amplitude guidance: per-pixel confidence from the pixel-aligned amplitude image; low-amplitude pixels dropped so the albedo bias on the printed board drops to p95 |h| <= 2 cm while >= 95 % of the floor 0.3-2.0 m is kept.",
+    "decisions": ["D7"],
+    "tasks": ["tof-amplitude-gate", "capture-gated-recordings"],
+    "status": "approved"
+  },
+  {
+    "id": "A3",
+    "text": "RGB-guided edges: boundaries of depth-detected lethal regions (obstacles, drops) snapped to RGB edges through the head_rgbd_cpp guided upsampling, so the box edge error drops from ~5 cm to <= 2 cm on replay.",
+    "decisions": ["D2", "D3", "D4", "D12"],
+    "tasks": ["rgbd-upsampling-on", "guidance-config-keys", "guidance-frame-core", "edge-points-core", "guidance-node-wiring", "guidance-replay-acceptance"],
+    "status": "approved"
+  },
+  {
+    "id": "A4",
+    "text": "No-return areas: where the RGB sees non-floor and the ToF has no returns (the black ramp) a no_return caution warning area is published, never free and never lethal, with null heights accepted by costmap_zones, mcp_server and web_ui.",
+    "decisions": ["D5", "D6"],
+    "tasks": ["area-heights-nullable", "costmap-nullable-heights", "mcp-nullable-heights", "web-ui-no-return-areas", "guidance-frame-core", "no-return-core", "guidance-node-wiring", "guidance-replay-acceptance"],
+    "status": "approved"
+  },
+  {
+    "id": "A5",
+    "text": "RGB never creates a lethal obstacle by itself, heights only from depth; texture-only edges on flat floor (board, tile seams, shadows) do not add obstacles.",
+    "decisions": ["D1", "D2", "D3", "D5"],
+    "tasks": ["rgbd-upsampling-on", "edge-points-core", "no-return-core", "guidance-replay-acceptance"],
+    "status": "approved"
+  },
+  {
+    "id": "A6",
+    "text": "Replay recordings that include RGB + amplitude, replay tests against the measured ground truth, the Pi 5 CPU budget measured, and README/runbook/tests updated.",
+    "decisions": ["D9", "D10", "D13"],
+    "tasks": ["capture-gated-recordings", "guidance-replay-acceptance", "live-report-guidance-metrics", "guidance-live-check-and-cpu"],
+    "status": "approved"
+  },
+  {
+    "id": "A7",
+    "text": "Graded traversability cost declined: the free / warning / lethal tiers and the rule (step > 0.04 m or slope > 15 deg) stay unchanged.",
+    "decisions": ["D1", "D15"],
+    "tasks": ["guidance-replay-acceptance", "live-report-guidance-metrics"],
+    "status": "approved"
+  },
+  {
+    "id": "A8",
+    "text": "No new nodes; C++ for robot nodes except web_ui and mcp_server; live data via the web_ui websocket only, never rclpy probes on the client; recordings with the robot static and charging, head moves allowed.",
+    "decisions": ["D8", "D11"],
+    "tasks": ["web-ui-ground-recorder-api", "ground-record-script", "capture-baseline-recordings", "capture-gated-recordings", "guidance-live-check-and-cpu"],
+    "status": "approved"
+  }
+]

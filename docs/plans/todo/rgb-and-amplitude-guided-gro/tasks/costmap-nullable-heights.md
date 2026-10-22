@@ -44,17 +44,18 @@ costmap_zones accepts warning areas with null height and slope, and treats a `no
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`costmap_zones/ground_warnings.py:GroundArea` with `height_m: float | None`, `slope_deg: float | None` (contract ground-warning-no-return). The rasterisation and the cell-keyed store keep their behaviour.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/costmap_zones && uv run --frozen pytest tests -q` PASS with the two new tests; lint clean.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the two tests; `cd nodes/costmap_zones && uv run --frozen pytest tests/test_ground_warnings.py -q` FAILS (null rejected)
+- make the fields optional; the command PASSES; `uv run --frozen pytest tests -q && uv run --frozen poe lint` PASS
+- README; commit `feat(costmap_zones): accept no_return warning areas with null heights`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Deploy with `scripts/deploy-nodes.sh client costmap_zones` before or with ground_estimator_cpp (orchestrator).

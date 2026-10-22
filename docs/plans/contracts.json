@@ -289,8 +289,7 @@
       "rgb-d-ground-estimation-and",
       "tof-3d-obstacle-detection-fo",
       "head-and-arm-calibration-fro",
-      "head-chain-floor-plane-fit-a",
-      "ground-detection-robustness"
+      "head-chain-floor-plane-fit-a"
     ],
     "note": "/tof/depth/image_raw: after the flying-pixel filter, a valid pixel with amplitude*(z/1m)^2 < amplitude_min_normalised becomes 0 (amplitude_gate, default on); encoding and z-depth meaning unchanged; /tof/amplitude/image_raw unchanged; owner task tof-amplitude-gate"
   },
@@ -300,8 +299,7 @@
     "owner": "rgb-and-amplitude-guided-gro",
     "file": "nodes/ground_estimator_cpp/include/ground_estimator_cpp/traversability.hpp",
     "consumers": [
-      "rgb-d-ground-estimation-and",
-      "ground-detection-robustness"
+      "rgb-d-ground-estimation-and"
     ],
     "note": "/ground/warning_areas and /ground/state warnings: height_m and slope_deg number|null (null: not measured); new kind no_return, source rgb, cell-aligned polygon, never lethal; consumers costmap_zones GroundArea, mcp_server GroundWarning, web_ui groundLayer.ts; owner tasks area-heights-nullable, no-return-core, guidance-node-wiring"
   },
@@ -311,8 +309,7 @@
     "owner": "rgb-and-amplitude-guided-gro",
     "file": "nodes/ground_estimator_cpp/include/ground_estimator_cpp/edge_points.hpp",
     "consumers": [
-      "rgb-d-ground-estimation-and",
-      "ground-detection-robustness"
+      "rgb-d-ground-estimation-and"
     ],
     "note": "/ground/obstacle_points and /ground/drop_points may also hold guidance edge points: guided-depth points with |height| >= guidance.edge.min_height_m within guidance.edge.max_shift_m of this frame's stable lethal points, voxel guidance.edge.voxel_m; never without a stable lethal point; base_link, cloud stamp; owner tasks edge-points-core, guidance-node-wiring"
   },
@@ -321,9 +318,7 @@
     "kind": "schema",
     "owner": "rgb-and-amplitude-guided-gro",
     "file": "nodes/web_ui/web_ui/ground_recorder.py",
-    "consumers": [
-      "ground-detection-robustness"
-    ],
+    "consumers": [],
     "note": "web_ui ground recording npz, layout_version 2: superset of the 2026-10-22 keys read by scripts/ground_replay_export.py (stamps_ns, cloud_frame, offsets, points_mm, base_T_cloud, odom_T_base, imu, base_T_imu, head_js) plus tof_* and pair_* streams; owner task ground-recording-layout"
   },
   {

@@ -52,17 +52,19 @@ Switch on the guided-filter upsampling of head_rgbd_cpp as the RGB edge mechanis
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part upsampled-depth-on (cross-epic contract head-rgbd-guidance-pair): `/head_rgbd/depth_upsampled/image_raw` (16UC1, RGB size), `/head_rgbd/depth_upsampled/camera_info`, `/head_rgbd/rgb/image_raw/compressed`, one header per pair, live on the robot. `guided_upsample(depth_mm, guide_bgr, cfg, stats)` keeps its signature.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh head_rgbd_cpp` PASS with the three new tests; `uv run pytest tests/test_head_rgbd_deploy.py -q` PASS; client.yml has `upsampling.enabled: true`.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the three tests; `scripts/cpp-node-test.sh head_rgbd_cpp` FAILS or shows which behaviour the current defaults miss
+- tune or fix within the ranges; the command PASSES
+- set client.yml and the deploy test; `uv run pytest tests/test_head_rgbd_deploy.py -q && uv run poe test-ansible` PASS
+- update the README; commit `feat(head_rgbd_cpp): guided upsampling on for ground guidance`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The guided filter here is the masked normalised form (`upsample.hpp`): holes never bleed zeros. Its `min_support` gate and its radius distance rule are what keep a large no-return hole empty. Deploy with `scripts/deploy-nodes.sh client head_rgbd_cpp` (orchestrator).

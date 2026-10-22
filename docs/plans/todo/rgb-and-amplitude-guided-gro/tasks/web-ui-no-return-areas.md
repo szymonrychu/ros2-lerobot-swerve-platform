@@ -43,17 +43,18 @@ The web_ui 3D ground layer shows no_return areas and accepts null heights (desig
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`frontend/src/map3d/groundLayer.ts`: `GroundWarningArea` with nullable `height_m` and `slope_deg`, and `GROUND_COLORS.noReturnFill` plus its legend row (contract ground-warning-no-return).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/web_ui/frontend && npx vitest run src/map3d` PASS with the two new tests; `npx tsc --noEmit` and `npm run lint` clean.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the two tests; `npx vitest run src/map3d/groundLayer.test.ts` FAILS
+- implement; the command PASSES; tsc and lint PASS
+- README; commit `feat(web_ui): show no_return ground areas`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Pick a colour distinct from the warning and colour-mismatch fills (for example purple); keep the legend order of `groundLayer.ts`. The frontend build ships with the web_ui deploy (orchestrator).

@@ -41,7 +41,7 @@ which depth pixels are trustworthy, and where depth is missing although somethin
 
 ## Time
 
-Derived by `ticket.py tasks` and `apply-run` from the task `estimate` and `actual` fields; never edit by hand. Report only, never a budget.
+Estimate: 1365 min | Actual: 0 min | Remaining estimate: 1365 min
 
 ## Review
 

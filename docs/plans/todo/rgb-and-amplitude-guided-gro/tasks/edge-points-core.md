@@ -56,17 +56,18 @@ Edge points: lethal boundary refinement from the guided depth, pure core code (p
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part edge-points in `edge_points.hpp`: `GuidancePoints`, `EdgePoints {obstacle, drop}` and `edge_points(...)`. Uses `GuidanceSamples` (part guidance-frame) and `EdgeGuidanceConfig` (part guidance-config). Cross-epic contract ground-edge-points: obstacle_points and drop_points may hold edge points within max_shift_m of depth-lethal points, with heights from the guided depth.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the seven new tests.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `test/core/test_edge_points.cpp`; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS (no header)
+- implement; the command PASSES
+- commit `feat(ground_estimator_cpp): guidance edge points`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+pcl KdTreeFLANN on the xy projection (z = 0 copies) of the stable points gives the nearest distance; the stable clouds are small (tens to hundreds of points). Heights come from the guided depth only (D1).

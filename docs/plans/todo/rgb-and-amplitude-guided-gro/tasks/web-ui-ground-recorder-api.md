@@ -76,17 +76,21 @@ A recorder API in web_ui (design D8, part ground-recorder-api). An operator capt
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part ground-recorder-api: the four `/api/ground/recordings` routes and the `ground_recorder` config block. Uses `ground_recorder.GroundRecording` (part ground-recording-layout). The rest of the web_ui API and websocket protocol is unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The web_ui tests listed in verify PASS, `uv run --frozen poe lint` is clean, and `uv run poe test-ansible` PASSES. With `enabled: false` every recorder route answers 404 and no subscription exists.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `tests/test_ground_recorder_api.py` and the config test; `cd nodes/web_ui && uv run --frozen pytest tests/test_ground_recorder_api.py tests/test_config.py -q` FAILS
+- implement the config block, the bridge recorder wiring and the routes; the same command PASSES; `uv run --frozen poe lint` PASSES
+- document the keys in `config/default.yaml`, enable in client.yml, write the README section; `uv run poe test-ansible` PASSES
+- commit `feat(web_ui): ground recorder API`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Reuse the bridge's existing tf buffer and its on-demand subscription pattern (`bridge.py` DemandEntry, `PendingFramePose`, which waits for TF like a tf2 MessageFilter).
+- Deploy with `scripts/deploy-nodes.sh client web_ui` after merge (orchestrator). Deploying web_ui does not touch mcp_server, but check `feedback_deploy_during_agent_session` before any mcp_server deploy.
+- A recording of 30 s holds about 300 ToF frames and 60 pairs; keep it in numpy arrays, not Python lists of messages.

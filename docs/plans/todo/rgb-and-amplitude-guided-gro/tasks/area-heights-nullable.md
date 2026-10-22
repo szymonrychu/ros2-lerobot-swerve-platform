@@ -50,17 +50,18 @@ Make the height and slope of a warning area nullable in ground_estimator_cpp (de
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part nullable-area-heights: `WarningArea::height_m` and `WarningArea::slope_deg` as `std::optional<double>`; JSON null in `to_warning_areas_string` and the state. Cross-epic contract ground-warning-no-return (`{kind, polygon, height_m: number|null, slope_deg: number|null, source}`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the two new tests; published JSON is unchanged for every existing area except that an area without a recorded slope now carries null instead of 0.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the two tests; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS
+- change the type and its producers and writers; the command PASSES
+- commit `refactor(ground_estimator_cpp): nullable warning area height and slope`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Search every use: `grep -rn "height_m\|slope_deg" nodes/ground_estimator_cpp/src nodes/ground_estimator_cpp/include nodes/ground_estimator_cpp/test`. `CellClassFilter::warning_areas` used `heights.empty() ? 0.0 : median(...)`; that 0.0 was a placeholder. The JSON consumers are updated by the costmap, mcp and web-ui tasks; nothing deploys a null before guidance-node-wiring.

@@ -54,17 +54,18 @@ provides: []
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part live-report: `scripts/ground_noise_report.py` gains the `truth` config key and the `no_return_cover_share` and `no_return_stray_share` metrics in its summary JSON. The capture formats it reads (topic_scraper NDJSON and web_ui `/ws` lines) are unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_noise_report.py -q` PASS with the three new tests and the existing ones; root lint and ruff clean.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the three tests; `uv run pytest tests/test_ground_noise_report.py -q` FAILS
+- implement; the command PASSES; the ruff commands PASS
+- tests/README entry; commit `feat(scripts): no_return metrics and truth ROIs in the ground report`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The ROI rectangles were corrected by ground-detection-robustness/runbook-rois-and-ramp-limit; keep them as the fallback. Read the truth YAML with pyyaml; shapely is available for the polygon coverage.

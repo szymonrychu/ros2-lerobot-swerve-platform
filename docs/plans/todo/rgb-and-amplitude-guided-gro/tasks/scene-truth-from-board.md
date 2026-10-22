@@ -63,17 +63,20 @@ Ground truth for the replay scenes from the ChArUco board pose (design D10, part
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part scene-truth: `scripts/ground_scene_truth.py` with `SceneSheet` (pydantic), `board_pose_in_base(...)`, `scene_polygons(...)` and `main()`. The truth YAML schema is `board`, `box`, `box_front_edge`, `ramp`, `empty` and `provenance`; guidance-replay-metrics and live-report-guidance-metrics read it. Uses the npz layout of part ground-recording-layout (pair_*, rgb_K, rgb_D).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`uv run pytest tests/test_ground_scene_truth.py -q` PASS (5 tests); root lint and ruff on the script clean.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `tests/test_ground_scene_truth.py`; `uv run pytest tests/test_ground_scene_truth.py -q` FAILS (no module)
+- write the script; the same command PASSES; the ruff commands PASS
+- add the tests/README entry; commit `feat(scripts): scene ground truth from the ChArUco board`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Board: `scripts/markers_generate.yaml` charuco block (6 x 5 squares of 40 mm, DICT_5X5_100), `shared/ros2_common/head_rgbd_calibration/config.py:BoardConfig`.
+- The board is 4 mm thick (thickness_mm), so its top surface is 4 mm above the floor. Use the board's top plane for the corners and project the footprints straight down onto the floor (z of the plane is not used by the 2D polygons).
+- The RGB image of a pair is the raw, distorted mapping frame (head_rgbd_cpp publishes it unrectified): pass rgb_D to solvePnP.

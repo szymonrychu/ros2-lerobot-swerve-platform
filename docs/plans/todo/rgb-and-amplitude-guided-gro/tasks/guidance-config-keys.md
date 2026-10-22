@@ -72,17 +72,19 @@ The `guidance` config block of ground_estimator_cpp (part guidance-config, desig
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part guidance-config: `GuidanceConfig`, `EdgeGuidanceConfig`, `NoReturnConfig` in `config.hpp` and `Config::guidance`; `validate`/`from_yaml` handle the block.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the new config tests; `uv run pytest tests/test_ground_estimator_deploy.py -q` PASS; yaml and client.yml carry the block.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the config tests; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS
+- implement parsing and validation; the command PASSES
+- document the yaml, mirror client.yml, update the deploy test; `uv run pytest tests/test_ground_estimator_deploy.py -q && uv run poe test-ansible` PASS
+- commit `feat(ground_estimator_cpp): guidance config keys`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Follow the existing block style in `src/core/config.cpp` (named errors per key, cross-key checks after the block). Ground-detection-robustness added `hysteresis.*` keys the same way; keep their order and comments.

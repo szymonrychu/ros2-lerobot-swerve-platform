@@ -61,17 +61,19 @@ Precondition, checked first:
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+No code interfaces. It produces the runbook `docs/runbooks/ground-guidance.md`, the `scripts/node_cpu_compare.yaml` entries and a MEMORY.md line. It uses part record-script and part live-report.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+The runbook with Scene, Procedure, Acceptance and Results (live numbers per scene, CPU before/after per node, PASS/FAIL rows); `uv run pytest tests/test_ground_guidance_runbook.py -q` PASS.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `tests/test_ground_guidance_runbook.py`; `uv run pytest tests/test_ground_guidance_runbook.py -q` FAILS (no runbook)
+- check the preconditions; run the live check (record script, then the report per scene) and the CPU compare
+- write the runbook with the measured numbers; the test PASSES; `uv run poe lint` PASSES
+- MEMORY.md line and tests/README entry; commit `docs(runbooks): ground guidance live check and CPU`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Live task (D11). If the robot is unreachable, report it as a blocker naming the orchestrator/user; do not write numbers that were not measured. The CPU windows follow `docs/runbooks/client-cpu-budget.md` (Mimir keeps 1 day).

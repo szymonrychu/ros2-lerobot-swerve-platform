@@ -56,17 +56,21 @@ Lock in the guided acceptance on the real gated recordings (design D1, D3, D5, D
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+No new interfaces: replay assertions over part guidance-replay-harness on part gated-fixtures, run through part guided-node. Key values only change inside their validated ranges.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with every `ReplayGuided.*` assertion and run 4's replay tests; the README carries the baseline / gated / guided table.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the `ReplayGuided.*` assertions; `scripts/cpp-node-test.sh ground_estimator_cpp` shows which metrics fail with the default keys
+- tune the keys or fix edge_points/no_return with their unit tests green; the command PASSES
+- mirror tuned values in client.yml; `uv run pytest tests/test_ground_estimator_deploy.py -q && uv run poe test-ansible` PASS
+- README table; commit `test(ground_estimator_cpp): guided replay acceptance`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- If a metric cannot be met, report the metric and its value as the finding; never loosen a threshold.
+- The gripper zone x < 0.37 stays excluded (the self-filter margin, not this epic).
+- Deploy with `scripts/deploy-nodes.sh client ground_estimator_cpp costmap_zones web_ui` (orchestrator; mcp_server separately).

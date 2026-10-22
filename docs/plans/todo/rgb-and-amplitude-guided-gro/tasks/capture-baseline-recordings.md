@@ -62,17 +62,28 @@ Precondition, checked first and stopped on when not met:
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part baseline-fixtures:
+- `nodes/ground_estimator_cpp/test/data/replay_rgbd/{home,box,ramp,empty}_baseline.bin` (v2, no pairs) and `truth.yaml`;
+- `nodes/bridges/arducam_tof/tests/data/amplitude_frames.npz`;
+- the filled `scripts/ground_scenes.yaml`, `scripts/ground_record.yaml` and `scripts/ground_replay_scenes.yaml`.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Five fixture files and the ToF subset committed; `scripts/cpp-node-test.sh ground_estimator_cpp` PASS printing four `replay-baseline <scene>: ...` lines; the README baseline table matches them.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- check the preconditions (API 200, deployed head_rgbd upsampling: `/head_rgbd/depth_upsampled/image_raw` present in a short recording); stop and report if not met
+- write the scene sheet and the record config; `uv run python scripts/ground_record.py`; expect four npz and ndjson files in `.logs/ground_recordings/`
+- `uv run python scripts/ground_scene_truth.py`; expect `truth.yaml` with spread_mm <= 5
+- run the box sanity check (a one-off numpy check in the shell; no scratch .py file committed); stop if < 80 %
+- `uv run python scripts/ground_replay_export.py` (scenes config); expect each output <= 3 MB
+- add the baseline tests; `scripts/cpp-node-test.sh ground_estimator_cpp` PASSES with the lines
+- write the README table; commit `test(ground_estimator_cpp): baseline recordings with RGB and amplitude` with the truth and sanity numbers in the message
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Live task (D11). The orchestrator deploys and confirms the user's scene before dispatching it.
+- Robot static and charging; only head commands are sent, through `scripts/ground_record.py`.
+- Never use rclpy, `ros2 topic` or SSH on the client (memory `feedback_no_rclpy_probes_on_client`).
+- If the head poses do not show board + box in one view, choose poses that do and record them in `ground_record.yaml`.

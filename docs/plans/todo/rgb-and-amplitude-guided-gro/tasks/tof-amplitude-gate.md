@@ -66,17 +66,26 @@ Amplitude confidence for the ToF depth in arducam_tof (part amplitude-gate, desi
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part amplitude-gate:
+- `arducam_tof/amplitude.py`: `normalised_amplitude`, `amplitude_gate`, and `amplitude_correction` only if the data needs it;
+- `TofConfig.amplitude_gate`, `TofConfig.amplitude_min_normalised`;
+- counter `tof_amplitude_gated_pixels_total`.
+
+Topics, encodings and the z-depth meaning of /tof/depth/image_raw are unchanged (contract tof-depth-z). New cross-epic contract tof-depth-amplitude-gate, applied after tof-depth-flying-pixel-filter.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/bridges/arducam_tof && uv run pytest tests -q` PASS with the new tests; `uv run poe lint` clean; `uv run pytest tests/test_arducam_tof_config.py -q` PASS; client.yml sets both keys; the README states the before/after board and floor numbers.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- load `tests/data/amplitude_frames.npz` and measure the board heights against the normalised amplitude; note the result for the commit message
+- write the tests; `cd nodes/bridges/arducam_tof && uv run pytest tests -q` FAILS on them
+- implement the module, the config keys, the publish_frame call and the counter; the same command PASSES; `uv run poe lint` PASSES
+- set client.yml and DRIVER_KEYS; `uv run pytest tests/test_arducam_tof_config.py -q && uv run poe test-ansible` PASS
+- update the README; commit `feat(arducam_tof): amplitude gate for low-signal depth`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- `bridge.py` imports the Arducam SDK at the top. Keep `amplitude.py` free of it and of rclpy, so root scripts can load it with `importlib.util.spec_from_file_location`, as `tests/test_arducam_tof_config.py` does with config.py.
+- The head floor fit and the RGB-D calibration read this depth too (contract consumers): the floor retention test is their guard. Deploy with `scripts/deploy-nodes.sh client arducam_tof` (orchestrator).

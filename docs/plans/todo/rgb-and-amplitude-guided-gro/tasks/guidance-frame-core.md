@@ -57,17 +57,20 @@ The guidance frame and its sampling, pure core code without ROS node wiring (par
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part guidance-frame in `guidance.hpp`: `CameraModel`, `camera_model_of`, `RayGrid`, `GuidanceFrame`, `decode_guidance`, `GuidanceSamples`, `sample_guidance`. Uses `GuidanceConfig` (part guidance-config) and `Plane` (`plane_fit.hpp`).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the seven `Guidance.*` tests.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `test/core/test_guidance.cpp`; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS (no header)
+- implement `guidance.hpp`/`guidance.cpp`; the command PASSES
+- commit `feat(ground_estimator_cpp): guidance frame sampling`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- Conventions as in `nodes/head_rgbd_cpp/include/head_rgbd_cpp/registration.hpp`: OpenCV pixel centres, plumb_bob with D applied on projection, undistortPoints for rays. Reuse the rule, not the code (different package).
+- The upsampled depth is z along the optical axis in mm.
+- `test/core/synthetic_floor.hpp` has the head pose helpers.

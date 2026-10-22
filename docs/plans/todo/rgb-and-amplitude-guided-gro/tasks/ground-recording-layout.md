@@ -60,17 +60,18 @@ A ROS-free module `nodes/web_ui/web_ui/ground_recorder.py` (part ground-recordin
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part ground-recording-layout in `nodes/web_ui/web_ui/ground_recorder.py`: `GroundRecording`, `LAYOUT_VERSION` = 2 and the `KEY_*` constants (cross-epic contract ground-recording-npz). The nine 2026-10-22 keys keep their meaning, so run 4's `scripts/ground_replay_export.py` reads a new recording's clouds unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/web_ui && uv run --frozen pytest tests/test_ground_recorder.py -q` PASS (6 tests); `uv run --frozen poe lint` clean. No ROS import in the module.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `tests/test_ground_recorder.py`; `cd nodes/web_ui && uv run --frozen pytest tests/test_ground_recorder.py -q` FAILS (no module)
+- write `web_ui/ground_recorder.py`; the same command PASSES; `uv run --frozen poe lint` PASSES
+- commit `feat(web_ui): ground recording layout`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+The old layout is in ground-live.md (keys stamps_ns, cloud_frame, offsets, points_mm, base_T_cloud, odom_T_base, imu, base_T_imu, head_js). The scratchpad rclpy recorder that made the 2026-10-22 files is the thing being replaced; do not copy its probe approach. numpy is already a web_ui dependency (check `nodes/web_ui/pyproject.toml`; add with `uv add` only if missing).

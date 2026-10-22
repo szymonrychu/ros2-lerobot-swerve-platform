@@ -3,7 +3,7 @@ title: No return core
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Dark obstacles the ToF cannot see (the black ramp) become caution areas instead of free floor"
-files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/no_return.hpp, nodes/ground_estimator_cpp/src/core/no_return.cpp, nodes/ground_estimator_cpp/test/core/test_no_return.cpp]
+files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/no_return.hpp, nodes/ground_estimator_cpp/src/core/no_return.cpp, nodes/ground_estimator_cpp/test/core/test_no_return.cpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_class.hpp, nodes/ground_estimator_cpp/src/core/cell_class.cpp]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [guidance-frame-core, area-heights-nullable]
 owns: [no-return-tracker]
@@ -57,20 +57,25 @@ The no-return tracker, pure core code (part no-return-tracker, design D1, D5). I
 - `nodes/ground_estimator_cpp/include/ground_estimator_cpp/no_return.hpp`
 - `nodes/ground_estimator_cpp/src/core/no_return.cpp`
 - `nodes/ground_estimator_cpp/test/core/test_no_return.cpp`
+- `nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_class.hpp` (only to expose the cell-aligned polygon builder)
+- `nodes/ground_estimator_cpp/src/core/cell_class.cpp` (same)
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part no-return-tracker in `no_return.hpp`: `NoReturnTracker {observe, areas, reset}`. Uses `GuidanceSamples` (part guidance-frame), `NoReturnConfig` (part guidance-config), `FloorColourModel` (`colour.hpp`), the cell keys of `cell_median.hpp`, and `WarningArea` with optional heights (part nullable-area-heights). Area schema per contract ground-warning-no-return: kind `no_return`, source `rgb`, height_m and slope_deg null.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the eight `NoReturn.*` tests.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `test/core/test_no_return.cpp`; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS (no header)
+- implement; the command PASSES
+- commit `feat(ground_estimator_cpp): no-return tracker`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The cell-aligned outline should reuse the polygon builder of the stable warning areas (ground-detection-robustness D8, in `cell_class.cpp`); expose it rather than copy it, if it is file-local.
+- The colour model's readiness and threshold are `colour.min_floor_samples` and `colour.max_mahalanobis`.
+- No-return samples are floor hits, so their cell is where the ray meets the floor.

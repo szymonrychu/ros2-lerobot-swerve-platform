@@ -77,17 +77,25 @@ Wire the guidance into GroundNode (part guided-node, design D3, D4, D5, D12). It
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part guided-node:
+- `GroundNode::on_guidance(depth, info, rgb)` and the guidance members;
+- metrics `ground_guidance_frames_total{result}`, `ground_edge_points`, `ground_no_return_areas`, `ground_guidance_seconds`;
+- drop reasons `guidance_bad_input`, `guidance_tf`, `guidance_no_plane`.
+
+Topic schemas are unchanged except the nullable area heights and the no_return kind (contract ground-warning-no-return) and the edge points in the lethal clouds (contract ground-edge-points).
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the six new NodeTests and every existing one; the README guidance section exists.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the NodeTests; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS
+- add message_filters to package.xml and CMake; wire the synchronizer, the pair processing, the edge points and the no_return areas; the command PASSES
+- write the README section; commit `feat(ground_estimator_cpp): RGB and amplitude guidance in the node`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+- The executor is single-threaded (CMakeLists comment): the guidance callback never runs concurrently with the cloud callback, so no locks.
+- The RGB-D cloud path (`on_rgbd`, colour model) stays as is; the colour model it trains is the one the no-return tracker reads.
+- Deploy order (orchestrator): costmap_zones, mcp_server and web_ui before or with ground_estimator_cpp.

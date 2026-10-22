@@ -52,17 +52,20 @@ Precondition, checked first and stopped on when not met:
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part gated-fixtures: `nodes/ground_estimator_cpp/test/data/replay_rgbd/{home,box,ramp,empty}.bin` (v2 with pairs) and their `scripts/ground_replay_scenes.yaml` entries.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+Four gated fixtures committed, each <= 3 MB; `scripts/cpp-node-test.sh ground_estimator_cpp` PASS printing four `replay-gated <scene>: ...` lines; the README gated table matches them.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- check the preconditions; `uv run python scripts/ground_record.py` (same scenes)
+- run the truth script on the new home recording into a temporary file and compare its board corners with the committed `truth.yaml`; stop if any corner moved more than 5 mm
+- add the fixture entries and export; expect each <= 3 MB
+- add the gated tests; `scripts/cpp-node-test.sh ground_estimator_cpp` PASSES with the lines
+- README table; commit `test(ground_estimator_cpp): gated recordings with RGB-D pairs` with the board offset in the message
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Live task (D11): the orchestrator deploys arducam_tof with the gate and confirms the scene before dispatching it. Same live rules as capture-baseline-recordings.

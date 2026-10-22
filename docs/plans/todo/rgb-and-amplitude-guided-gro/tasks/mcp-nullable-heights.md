@@ -43,17 +43,18 @@ mcp_server accepts ground warnings with null height and slope (design D6, cross-
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+`mcp_server/models.py`: `GroundWarning.height_m` and `slope_deg` as `float | None`; `GroundSummaryWarning` the same (contract ground-warning-no-return). The tool output schema gains nullable fields only.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`cd nodes/mcp_server && uv run --frozen pytest tests/test_ground_summary.py tests/test_floor_guard_ground.py -q` PASS with the new test; lint clean.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write `test_no_return_warning_with_null_heights`; the command FAILS (validation error)
+- make the fields optional and fix every consumer; the command PASSES; `uv run --frozen poe lint` PASSES
+- README; commit `feat(mcp_server): no_return ground warnings with null heights`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Deploying mcp_server kills a running agent session (memory `feedback_deploy_during_agent_session`): the orchestrator checks before deploying.

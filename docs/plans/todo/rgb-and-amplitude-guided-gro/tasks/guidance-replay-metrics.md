@@ -60,17 +60,22 @@ The replay harness for the guidance (part guidance-replay-harness, design D9, D1
 
 ## Interfaces
 
-Signatures, schemas and contracts this task builds or must keep, with file:symbol.
+Builds part guidance-replay-harness in `test/replay_fixture.hpp` and `test/test_replay.cpp`:
+- `SceneTruth`, `load_truth`, the seven new metric functions, `Guidance`, `run_scene` and `print_metrics`;
+- the pair, ToF camera_info and derived XYZRGB publishing.
+
+Uses replay-format-v2, scene-truth and guidance-config (topic and enabled keys). Run 4's metric functions and its replay tests stay unchanged.
 
 ## Expected outcome
 
-What is true and observable when the task is done.
+`scripts/cpp-node-test.sh ground_estimator_cpp` PASS with the metric, truth-loader and harness tests; `tiny_truth.yaml` committed.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- write the metric, truth and harness tests in `test/test_replay.cpp`; `scripts/cpp-node-test.sh ground_estimator_cpp` FAILS (missing functions)
+- implement them in `replay_fixture.hpp` and the harness; the command PASSES
+- update the README metric definitions; commit `test(ground_estimator_cpp): guidance replay metrics and harness`
 
 ## Notes
 
-Context the implementer needs: pitfalls, shared parts to reuse, decisions already made.
+Restamping and TF filling follow run 4's `run_frame` pattern in `test_replay.cpp`; the pairs interleave with the clouds by stamp. The derived XYZRGB cloud mimics `nodes/head_rgbd_cpp/src/core/cloud.cpp:build_cloud` (packed float rgb, see colour.hpp `to_labelled_msg` for the packing used here).
