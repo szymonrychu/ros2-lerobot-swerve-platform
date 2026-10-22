@@ -346,6 +346,7 @@ Cross-epic contracts (`docs/plans/contracts.json`): owned here are `tof-depth-am
 ## Open questions
 
 none
+- Q1: Before capture-baseline-recordings, can you set the scene: robot static and charging, the 5 cm box with its front face on the far edge of the ChArUco board, the black ramp's long side against one side edge of the board, an empty floor area in head reach; give the box top length x width, the ramp width and which side; and leave it all in place until capture-gated-recordings is done? [recommended: yes; the truth comes from the board pose, and the capture tasks stop if the board moved more than 5 mm]
 
 ## Irreversible operations in scope
 
