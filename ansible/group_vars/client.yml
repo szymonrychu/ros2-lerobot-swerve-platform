@@ -1746,7 +1746,6 @@ ros2_nodes:
           head_height_m: 0.075 # head envelope top above the head mount (grown to the URDF head), m
           roll_min_tool_height_m: 0.15 # tool point height while wrist_roll changes, m
           max_roll_gripper_rad: 0.8 # gripper at most this open while wrist_roll changes (half open), rad
-          roll_min_change_rad: 0.1 # a smaller wrist_roll change is no roll (mcp_server roll guard), rad
           stretched_shoulder_lift_max_rad: 1.85 # refused above this with a negative (stretched) elbow_flex, rad
           path_step_rad: 0.05 # path samples: no joint steps more than this, rad (> 0)
           board_grid: 5 # board points per edge of the checked lattice (>= 2)

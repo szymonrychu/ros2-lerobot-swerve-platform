@@ -1,7 +1,7 @@
 """The shipped head-from-arm arm pose set: safe by FK, the board in view, coverage and a passing synthetic fit.
 
 Everything runs on nodes/web_ui/urdf/so101_arm.urdf and nodes/web_ui/urdf/head.urdf, both as shipped and with the
-applied floor-fit chain of 2026-10-22 as overrides (`tests/head_arm_synthetic.py::applied_head_urdf`). The poses are
+applied floor-fit chain of 2026-10-22 as overrides (`tests/head_arm_synthetic.py::synth_head_urdf`). The poses are
 stored as measured (follower) angles, the space `move_arm_joints` takes; every FK applies `urdf = measured + offset`
 with `fit.joint_offsets_rad`.
 
@@ -94,7 +94,7 @@ SEQ: ArmSequenceConfig = CFG.arm_sequence
 FIT: HeadArmFitConfig = CFG.fit
 ARM_URDF = (URDF_DIR / "so101_arm.urdf").read_text()
 SHIPPED_HEAD = (URDF_DIR / "head.urdf").read_text()
-APPLIED_HEAD = SYN.applied_head_urdf()
+APPLIED_HEAD = SYN.synth_head_urdf()
 HOME_POSE: dict[str, float] = {
     name: float(value)
     for name, value in yaml.safe_load(FOOTPRINT_YAML.read_text())["parked_arm_joints"].items()
@@ -221,7 +221,10 @@ def test_target_joint_convention() -> None:
 
 def test_home_pose_is_the_parked_arm() -> None:
     assert set(HOME_POSE) == set(ARM_JOINT_NAMES)
-    assert "/var/lib/ros2/arm/home.yaml" in FOOTPRINT_YAML.read_text()
+    nodes = yaml.safe_load(CLIENT_YML.read_text())["ros2_nodes"]
+    home_file = yaml.safe_load(next(n for n in nodes if n["name"] == "mcp_server")["config"])["arm"]["home_file"]
+    assert home_file == "/var/lib/ros2/arm/home.yaml"
+    assert home_file in FOOTPRINT_YAML.read_text()
 
 
 def test_board_mount_is_the_nominal_jaw_mount() -> None:
@@ -276,11 +279,10 @@ def sequence_failures(head_urdf: str, mounts: Iterable[tuple[str, BoardMountConf
     :return: one "<mount> <step>: <entry>" line per failed check; empty when everything is safe
     """
     steps = sequence()
-    roll_change = SEQ.pose_check.roll_min_change_rad
     failures = []
     for mount, checker in checkers(head_urdf, mounts):
         for (name_a, a), (name_b, b) in zip(steps, steps[1:], strict=False):
-            rolling = abs(b[WRIST_ROLL] - a[WRIST_ROLL]) > roll_change
+            rolling = b[WRIST_ROLL] != a[WRIST_ROLL]
             failures += [f"{mount} {name_b}: {e}" for e in checker.check_pose(b, SEQ.gripper_rad, rolling)]
             failures += [f"{mount} {name_a} -> {name_b}: {e}" for e in checker.check_path(a, b, SEQ.gripper_rad)]
     return failures
@@ -356,8 +358,7 @@ def test_synthetic_fit_on_shipped_set_passes(head_name: str) -> None:
     floor = {name: start[name] for name in FLOOR_PARAMS}
     if head_name == "applied":
         assert floor == pytest.approx(SYN.APPLIED_FLOOR)
-    xyz, rpy = SYN.nominal_board_mount(FIT)
-    truth = SYN.HeadArmTruth(origins=SYN.perturbed_origins(head_urdf, SYN.TRUTH_DELTAS), board_xyz=xyz, board_rpy=rpy)
+    truth = SYN.synth_truth(head_urdf, cfg=FIT)
     start_xyz, start_rpy = SYN.perturbed_board_mount(
         FIT.board_mount.xyz_init, FIT.board_mount.rpy_init, SYN.MOUNT_INIT_SHIFT_M, SYN.MOUNT_INIT_TURN_DEG
     )
