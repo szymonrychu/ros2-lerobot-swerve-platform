@@ -1,11 +1,14 @@
 """Tilt events carry the evidence to judge them: IMU roll/pitch, time over the limit, base speed, ground plane, map_guard."""
 
 import json
+import threading
+from types import ModuleType
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
-from mcp_server.config import MonitorSettings
+from mcp_server.config import McpServerConfig, MonitorSettings
 from mcp_server.models import GroundState
 from mcp_server.monitor import RobotMonitor
 
@@ -147,3 +150,19 @@ def test_unrelated_events_do_not_change_map_guard_state() -> None:
     mon.on_robot_event(json.dumps({"type": "bump", "source": "x", "data": {}}))
     mon.on_robot_event("not json")
     assert mon.map_guard_state == "disturbed"
+
+
+def test_ros_robot_forwards_ground_state_to_monitor(ros_iface: ModuleType) -> None:
+    robot = ros_iface.RosRobot.__new__(ros_iface.RosRobot)
+    robot.cfg = McpServerConfig()
+    robot.lock = threading.Lock()
+    robot.latest = {}
+    robot.ground_state_error = None
+    robot.log = MagicMock()
+    robot.monitor = MagicMock()
+    robot.on_ground_state(json.dumps(example()))
+    (forwarded,) = robot.monitor.on_ground_state.call_args.args
+    assert isinstance(forwarded, GroundState) and forwarded.frame == "base_link"
+    robot.monitor.reset_mock()
+    robot.on_ground_state("{not json")
+    robot.monitor.on_ground_state.assert_not_called()
