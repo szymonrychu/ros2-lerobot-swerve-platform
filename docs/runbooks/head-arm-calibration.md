@@ -81,18 +81,18 @@ bus under the board load: park with the board (D63) and unclip between sessions.
 ## Results
 
 Run 2026-10-23 by the orchestrator with the user (session `calib-20261023-074418`). This section was
-written from the run's record. Rows marked "BLOCKED" need a robot rerun with the user; no value was captured for them and none is guessed.
+written from the run's record. Every value below was read from the robot or the run record; none is guessed.
 
 | Step | Result | Notes |
 |---|---|---|
 | Full suite green | pass 2026-10-23 | root pytest, lint, lint-nodes, test-ansible, and the head_rgbd_calibration, mcp_server and web_ui pytest suites all exit 0 (last web_ui run: 1080 passed); frontend tsc/npm checks not run here; log `.logs/full-suite.log` |
 | 1 Deploy | pass | services started without ModuleNotFoundError (user-observed); the deploy log file was not kept, so this row rests on the user's observation |
-| 2 Tilt range | BLOCKED: robot rerun needed | pinned limit is 45 deg (Hardware section) |
+| 2 Tilt range | moved to task head-tilt-range-widened | the user gave 45 deg down for the reprinted mount (Hardware section); the widened range ships and is checked in that task |
 | 2a Board mount | done | `fit.board_mount` is the user's 2026-10-23 measurement (yaml comment "measured by the user 2026-10-23") |
-| 2b Dry run | BLOCKED: robot rerun needed | per-pose stops were not captured |
+| 2b Dry run | skipped by the user's choice | the board was already clipped (2026-10-23); instead every pose and path was re-checked by FK against the measured mount before any move (commit 4daf0e5d) |
 | 3 Head from arm | pass | see numbers below |
-| 4 Apply | pass, applied 11:52 | head_state_publisher, head_camera_cpp, head_rgbd_cpp restarted; `/ground/state` height delta BLOCKED: robot rerun needed |
-| 5 Yaw and x/y pixel offset | BLOCKED: robot rerun needed | before/after offsets were not captured |
+| 4 Apply | pass, applied 11:52 | head_state_publisher, head_camera_cpp, head_rgbd_cpp restarted; `/ground/state` at home after apply: floor plane height median +0.006 m (p10 +0.001, p90 +0.013), tilt 1.40 deg, 40 states (`.logs/live/after_apply_home.ndjson`); within 0.01 m |
+| 5 Yaw and x/y pixel offset | at the next live session with the user | needs an arm move to the base pose with the user present; recorded by retro-fixes-live-check |
 | 6 Arm joint offsets | note | belongs to epic arm-joint-offsets-from-the-g |
 
 Calibration session `calib-20261023-074418`: speed_scale 0.1, board mass 214 g, robot docked.
@@ -104,8 +104,9 @@ Calibration session `calib-20261023-074418`: speed_scale 0.1, board mass 214 g, 
 - Recompute `r-20261023-112701` PASSED: rms 2.93 px, held-out 2.88 px / 2.86 mm, largest floor delta
   1.43 deg.
 - Parameters: mount x 0.1655 m, y 0.1107 m, z 0.2456 m; roll 1.114 deg, pitch 1.452 deg, yaw 0.473 deg;
-  tilt_zero -6.495 deg; tilt_roll 0.312 deg; pan_axis x -0.0367 m, y -0.0105 m. Per-parameter sigma: BLOCKED,
-  read it from stored result `r-20261023-112701` on the robot.
+  tilt_zero -6.495 deg; tilt_roll 0.312 deg; pan_axis x -0.0367 m, y -0.0105 m. Per-parameter sigma (stored result `r-20261023-112701`): mount x 0.25 mm, y 0.54 mm, z 0.53 mm;
+  roll 0.056 deg, pitch 0.150 deg, yaw 0.107 deg; tilt_zero 0.160 deg; tilt_roll 0.051 deg; pan_axis x 0.25 mm,
+  y 0.77 mm.
 - Applied 11:52; survives reboot.
 - Incident: after about 4 h holding the board (load 200) gripper servo 6 dropped off the bus and the
   robot was power-cycled; the arm returned to rest. Park with the board (D63) was added and reviewed.
