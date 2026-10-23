@@ -16,6 +16,8 @@
 // the frames counted are those at least WARM_UP_S after the first frame that the node answered with a plane.
 //   plane_share              answered frames / frames after the warm-up
 //   box_lethal_share         share of answered frames with an obstacle point in BOX_LETHAL_ROI
+//   box_warning_share        share of answered frames with a ToF step warning area whose polygon centroid (vertex
+//                            mean) lies in BOX_LETHAL_ROI (the 5 cm box under the temporary 60 mm lethal step)
 //   board_lethal_frames      answered frames with an obstacle or drop point in BOARD_ROI
 //   stray_lethal_share       share of answered frames with an obstacle or drop point in the stray zone: x >= 0.37,
 //                            hypot(x, y) <= STRAY_RANGE_M, outside BOX_LETHAL_ROI
@@ -480,6 +482,21 @@ inline double box_lethal_share(const std::vector<ReplayFrame> & frames)
 {
   return share_of_frames(frames, [](const ReplayFrame & f) {
     return any_point(f.obstacle, [](double x, double y) { return BOX_LETHAL_ROI.contains(x, y); });
+  });
+}
+
+// @return the share of counted frames with a ToF step warning area centred in BOX_LETHAL_ROI.
+inline double box_warning_share(const std::vector<ReplayFrame> & frames)
+{
+  return share_of_frames(frames, [](const ReplayFrame & f) {
+    for (const auto & a : areas_of(f)) {
+      const Eigen::Vector2d c = centroid_in_base(a, f.base_T_warnings);
+      const bool tof_step = a["kind"] == "step" && a["source"] == "tof";
+      if (tof_step && c.x() >= GRIPPER_X_MAX && BOX_LETHAL_ROI.contains(c.x(), c.y())) {
+        return true;
+      }
+    }
+    return false;
   });
 }
 

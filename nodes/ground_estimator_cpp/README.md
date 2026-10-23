@@ -81,8 +81,8 @@ The `label` field of `/ground/labelled_points`:
 
 ## Obstacle or warning
 
-A step, drop or ramp is an obstacle when its edge step exceeds one third of the wheel diameter (`traversability.max_step_fraction`
-of `2 * traversability.wheel_radius_m`, 0.04 m by default) or its slope exceeds `traversability.max_slope_deg`.
+A step, drop or ramp is an obstacle when its edge step exceeds `traversability.max_step_fraction` of the wheel diameter
+(`2 * traversability.wheel_radius_m`, 0.06 m by default: temporary, user 2026-10-23; one third, 0.04 m, before). Heights within `bands.floor_band_m` (0.04 m) of the plane are floor, so 0.04-0.06 m is the warning band or its slope exceeds `traversability.max_slope_deg`.
 Otherwise it is a warning area: the node publishes it on `/ground/warning_areas` and costmap_zones turns it into a
 slow-down instead of a lethal cell. Colour-flagged flat objects (label 3) follow the same rule: a flat patch of a
 different colour is a warning area with `source` `colour`, unless its height or slope crosses the limits above.
@@ -102,7 +102,7 @@ into `temporal.cell_size_m` cells (so the cells stay put while the robot moves),
 height per cell and keeps the median of the last `temporal.window_frames` of those values, dropping values older than
 `temporal.max_age_s`. The points of a cell with at least `temporal.min_frames` values are moved along the plane normal
 to that height and segmentation, clusters, regions and the traversability rule run on them. The plane fit itself keeps
-the raw cloud. The rule (0.04 m step, 15 degrees slope) is unchanged by the filter.
+the raw cloud. The rule (0.06 m step, 15 degrees slope) is unchanged by the filter.
 
 In-cell slope: a cell is not collapsed to one height. Per frame a cell with at least 12 points gets a robust plane
 (least squares, refitted without residuals beyond 2.5 robust sigmas): the height at the cell centre and the gradient
@@ -166,8 +166,9 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `bands.drop_max_m` | `1.0` | drop band depth below the plane, metres, > traversability max step |
 | `bands.max_range_m` | `2.0` | farthest point published in the bands, metres, > 0 |
 | `bands.min_range_m` | `0.42` | nearest point (from base_link) in the bands: the robot's own parked gripper and its mixed pixels lie closer, metres, 0 <= v < max_range_m |
+| `bands.floor_band_m` | `0.04` | temporary (user 2026-10-23): heights within this distance of the floor plane count as floor (no warning, lethal, step, drop or edge); revert to `fit.distance_m` (0.02) when the live ground acceptance passes. The plane fit keeps `fit.distance_m`. metres, `fit.distance_m` <= v <= max step |
 | `traversability.wheel_radius_m` | `0.06` | wheel radius, metres, same as swerve_drive_controller wheel_radius_m |
-| `traversability.max_step_fraction` | `0.3333` | max rideable step as a fraction of the wheel diameter (0.04 m), 0 < v < 1 |
+| `traversability.max_step_fraction` | `0.5` | temporary (user 2026-10-23): max rideable step as a fraction of the wheel diameter (0.5 = 0.06 m, was 0.3333 = 0.04 m), 0 < v < 1 |
 | `traversability.max_slope_deg` | `15.0` | steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg |
 | `traversability.edge_band_m` | `0.05` | width of the strip on each side of an edge that sets its step height, metres, > 0 |
 | `traversability.lethal_min_points` | `2` | fewest unclustered lethal points within edges.cluster_tolerance_m of each other for any to be lethal, 1..50 |
@@ -224,7 +225,7 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `guidance.max_range_m` | `2.0` | farthest range sampled, metres, 0 < v <= bands.max_range_m |
 | `guidance.edge.enabled` | `true` | publish edge points |
 | `guidance.edge.max_shift_m` | `0.06` | largest xy distance of an edge point from a stable lethal point of the frame, metres, 0 < v <= 0.15 |
-| `guidance.edge.min_height_m` | `0.02` | smallest absolute height of an edge point, metres, 0 < v <= the max step (0.04) |
+| `guidance.edge.min_height_m` | `0.06` | smallest absolute height of an edge point, metres, 0 < v <= the max step (0.06; was 0.02 with the 0.04 m step) |
 | `guidance.edge.voxel_m` | `0.02` | voxel of the edge point decimation, metres, 0.005 <= v <= 0.05 |
 | `guidance.no_return.enabled` | `true` | detect no-return areas |
 | `guidance.no_return.min_range_m` | `0.3` | nearer cells are not judged, metres, 0 <= v < guidance.max_range_m |
@@ -606,6 +607,7 @@ after the first cloud that the node answered with a plane. ROI edges are inclusi
 |--------|------------|
 | `plane_share` | answered frames / frames after the 2 s warm-up |
 | `box_lethal_share` | share of counted frames with an obstacle point in `BOX_LETHAL_ROI` |
+| `box_warning_share` | share of counted frames with a ToF `step` warning area centred in `BOX_LETHAL_ROI` |
 | `board_lethal_frames` | counted frames with an obstacle or drop point in `BOARD_ROI` |
 | `stray_lethal_share` | share of counted frames with an obstacle or drop point in the stray zone |
 | `far_side_warning_frames` | counted frames with a `ramp` or `step` warning area whose polygon centroid (vertex mean, in base_link) lies in `FAR_SIDE_ROI` |
@@ -666,17 +668,26 @@ counted frames. No threshold may be loosened; a failing metric is a finding.
 
 | Scene | Assertions |
 |-------|------------|
-| home | `box_lethal_share >= 0.95`, `far_side_warning_frames == 0`, `board_lethal_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
-| box | `box_lethal_share >= 0.95`, `far_side_warning_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
+| home | `box_lethal_share == 0` (temporary 60 mm lethal step, user 2026-10-23; was `>= 0.95`), `box_warning_share` printed only, `far_side_warning_frames == 0`, `board_lethal_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
+| box | `box_lethal_share == 0` (temporary 60 mm lethal step, user 2026-10-23; was `>= 0.95`), `box_warning_share` printed only, `far_side_warning_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
 | ramp | `board_lethal_frames == 0` (the board edge is in the ramp view), `ramp_lethal_frames == 0` (D19: no returns on the black rubber, never lethal), `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
 
 `stray_lethal_share <= 0.05` is the approved empty-floor goal (no lethal point within 1.2 m outside the box at p95 of
 the frames); the board never lethal is strict (0 frames). The ramp's `ramp_warning_share` and slope error are not
-gates (D19). Final lines, `scripts/cpp-node-test.sh ground_estimator_cpp` on the shipped config:
+gates (D19). Final lines before the temporary 40 mm floor band / 60 mm lethal step (user 2026-10-23), `scripts/cpp-node-test.sh ground_estimator_cpp` on the shipped config:
 
 ```text
 replay home: plane_share=1.000 box_lethal_share=1.000 board_lethal_frames=0 stray_lethal_share=0.031 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.078
 replay box: plane_share=1.000 box_lethal_share=0.992 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
+replay ramp: plane_share=0.984 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
+```
+
+With the temporary 40 mm floor band and 60 mm lethal step (user 2026-10-23) the 5 cm box reads 41-45 mm, so it is
+no longer lethal and only a rare step warning (box scene `box_warning_share=0.132`, home 0):
+
+```text
+replay home: plane_share=1.000 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.023
+replay box: plane_share=1.000 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.039
 replay ramp: plane_share=0.984 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
 ```
 

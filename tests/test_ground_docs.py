@@ -113,8 +113,8 @@ def test_threshold_validation_defaults_equal_the_shipped_config() -> None:
     for key, value in found.items():
         if key in config:
             assert config[key] == pytest.approx(value), key
-    assert config["traversability.max_step_fraction"] == pytest.approx(1 / 3, abs=1e-3)
-    assert "1/3" in section("Threshold validation")
+    assert config["traversability.max_step_fraction"] == pytest.approx(0.5)
+    assert "max_step_fraction" in section("Threshold validation")
     assert "`ground_warning_speed_pct` | 40 |" in section("Threshold validation")
     assert "`ground_warning_mask_value` | 40 |" in section("Threshold validation")
 

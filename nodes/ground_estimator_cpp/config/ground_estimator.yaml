@@ -31,10 +31,11 @@ bands:  # bands settings
   drop_max_m: 1.0  # drop band depth below the plane, metres, > traversability max step
   max_range_m: 2.0  # farthest point published in the bands, metres, > 0
   min_range_m: 0.42  # nearest point (from base_link) in the bands: the robot's own parked gripper and its mixed pixels lie closer, metres, 0 <= v < max_range_m
+  floor_band_m: 0.04  # temporary (user 2026-10-23): heights within this of the floor plane are floor; revert when live ground acceptance passes, metres
 
 traversability:  # traversability settings
   wheel_radius_m: 0.06  # wheel radius, metres, same as swerve_drive_controller wheel_radius_m
-  max_step_fraction: 0.3333  # max rideable step as a fraction of the wheel diameter (0.04 m), 0 < v < 1
+  max_step_fraction: 0.5  # temporary (user 2026-10-23): max rideable step as a fraction of the wheel diameter (0.06 m, was 0.3333), 0 < v < 1
   max_slope_deg: 15.0  # steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg
   edge_band_m: 0.05  # width of the strip on each side of an edge that sets its step height, metres, > 0
   lethal_min_points: 2  # fewest unclustered lethal points within edges.cluster_tolerance_m of each other for any to be lethal, 1..50
@@ -110,7 +111,7 @@ guidance:  # ToF guidance frame: upsampled depth plus RGB beside the ToF cloud (
   edge:  # RGB-snapped edge points of lethal regions
     enabled: true  # publish edge points
     max_shift_m: 0.06  # largest xy distance of an edge point from a stable lethal point of the frame, metres, 0 < v <= 0.15
-    min_height_m: 0.02  # smallest absolute height of an edge point, metres, 0 < v <= the max step (0.04)
+    min_height_m: 0.06  # smallest absolute height of an edge point, metres, 0 < v <= the max step (0.06)
     voxel_m: 0.02  # voxel of the edge point decimation, metres, 0.005 <= v <= 0.05
   no_return:  # areas the ToF should see but returns nothing from
     enabled: true  # detect no-return areas

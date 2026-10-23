@@ -148,7 +148,8 @@ void parse_fit(const YAML::Node & root, Config & c, Errors & errors)
 
 void parse_bands(const YAML::Node & root, Config & c, Errors & errors)
 {
-  const YAML::Node s = section(root, "bands", {"obstacle_max_m", "drop_max_m", "max_range_m", "min_range_m"}, errors);
+  const YAML::Node s =
+    section(root, "bands", {"obstacle_max_m", "drop_max_m", "max_range_m", "min_range_m", "floor_band_m"}, errors);
   if (!s.IsDefined()) {
     return;
   }
@@ -159,6 +160,8 @@ void parse_bands(const YAML::Node & root, Config & c, Errors & errors)
   rc::gt(p + "max_range_m", c.bands.max_range_m, 0.0, errors);
   c.bands.min_range_m = read<double>(s, p, "min_range_m", c.bands.min_range_m, errors);
   rc::ge(p + "min_range_m", c.bands.min_range_m, 0.0, errors);
+  c.bands.floor_band_m = read<double>(s, p, "floor_band_m", c.bands.floor_band_m, errors);
+  rc::gt(p + "floor_band_m", c.bands.floor_band_m, 0.0, errors);
 }
 
 void parse_traversability(const YAML::Node & root, Config & c, Errors & errors)
@@ -516,6 +519,15 @@ void check_cross_rules(const Config & c, Errors & errors)
     step > c.fit.distance_m, "traversability.max_step_fraction",
     "max step 2 * wheel_radius_m * max_step_fraction (" + std::to_string(step) + ") must exceed fit.distance_m (" +
       std::to_string(c.fit.distance_m) + ")",
+    errors);
+  require_that(
+    c.bands.floor_band_m >= c.fit.distance_m, "bands.floor_band_m",
+    "must be at least fit.distance_m (" + std::to_string(c.fit.distance_m) + ", got " +
+      std::to_string(c.bands.floor_band_m) + ")",
+    errors);
+  require_that(
+    c.bands.floor_band_m <= step + MAX_STEP_TOLERANCE_M, "bands.floor_band_m",
+    "must be at most the max step (" + std::to_string(step) + ", got " + std::to_string(c.bands.floor_band_m) + ")",
     errors);
   require_that(
     c.bands.obstacle_max_m > step, "bands.obstacle_max_m",
