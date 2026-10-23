@@ -26,6 +26,12 @@ describe('headFloorApi', () => {
     stub(200, { sweep: stateFx.sweep, applied: null })
     expect((await getFloorState()).ok).toBe(true)
   })
+  it('getFloorState rejects a malformed applied source or floor', async () => {
+    stub(200, { sweep: stateFx.sweep, applied: { ...stateFx.applied, source: 7 } })
+    expect((await getFloorState()).ok).toBe(false)
+    stub(200, { sweep: stateFx.sweep, applied: { ...stateFx.applied, floor: { session: 's' } } })
+    expect((await getFloorState()).ok).toBe(false)
+  })
   it('startSweep and stopSweep take the sweep state', async () => {
     const f = stub(200, stateFx.sweep)
     expect(await startSweep()).toEqual({ ok: true, value: stateFx.sweep })
