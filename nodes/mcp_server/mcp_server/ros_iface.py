@@ -1949,7 +1949,7 @@ class RosRobot:
         return ScanPoints(frame=self.cfg.topics.base_frame, age_s=round(scan.age(time.monotonic()), 3), points=rows)
 
     def on_ground_state(self, payload: str) -> None:
-        """Parse one /ground/state message and cache it; an invalid one is logged once per distinct error, not stored.
+        """Parse one /ground/state message, cache it and hand it to the monitor as tilt evidence; an invalid one is logged once per distinct error, not stored.
 
         Args:
             payload (str): JSON per the ground-state contract.
@@ -1965,6 +1965,7 @@ class RosRobot:
         self.ground_state_error = None
         with self.lock:
             self.latest["ground_state"] = Stamped(value=state, stamp=time.monotonic())
+        self.monitor.on_ground_state(state)
 
     def ground_state(self, max_age_s: float | None = GROUND_DEFAULT_AGE) -> tuple[GroundState, float] | None:
         """Latest /ground/state with its receive age.

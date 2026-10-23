@@ -139,6 +139,7 @@ def ros_robot(ros_iface: ModuleType) -> Any:
     robot.latest = {}
     robot.ground_state_error = None
     robot.log = MagicMock()
+    robot.monitor = MagicMock()
     return robot
 
 

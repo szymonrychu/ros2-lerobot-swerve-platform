@@ -35,6 +35,7 @@ from .models import (
     ControlVitals,
     CpuVitals,
     EventSeverity,
+    GroundState,
     HottestServo,
     ImuVitals,
     MeasuredSpeed,
@@ -91,6 +92,19 @@ MIN_QUATERNION_NORM = 0.5
 TILT_SOURCE = "tilt_guard"
 TILT_EVENT_TYPES = {"warning": "tilt_warning", "error": "tilt_error"}
 TILT_CLEAR_EVENT = "tilt_clear"
+TILT_EVIDENCE_MAX_AGE_S = 1.0  # odometry and /ground/state older than this are not evidence of the trip
+# map_guard /robot_events type -> the guard state it announces (map_guard_cpp agent.hpp)
+MAP_GUARD_EVENT_STATES = {"map_guard_disturbed": "disturbed", "map_guard_resumed": "ok", "map_guard_reset": "reset"}
+TILT_EVIDENCE_KEYS = (
+    "imu_roll_deg",
+    "imu_pitch_deg",
+    "over_limit_s",
+    "base_speed_mps",
+    "ground_pitch_deg",
+    "ground_roll_deg",
+    "ground_age_s",
+    "map_guard_state",
+)
 TILT_DRIVE_ENABLED_EVENT = "tilt_drive_enabled"  # info: base drive released while the level is still warning
 # critical: Nav2 never answered the goal cancel at a warning/error entry (after tilt_cancel_attempts tries).
 TILT_CANCEL_FAILED_EVENT = "tilt_nav_cancel_failed"
@@ -345,6 +359,9 @@ class RobotMonitor:
         self.stall_since: float | None = None
         self.cpu: tuple[float, float | None] | None = None
         self.tilt_guard: tuple[float, TiltGuardState] | None = None  # (receive time, last /tilt_guard/state)
+        self.ground: tuple[float, GroundState] | None = None  # (receive time, last /ground/state)
+        self.map_guard_state: str | None = None  # latest map_guard state announced on /robot_events
+        self.tilt_over_since: float | None = None  # monitor time the tilt guard first left ok (None while ok)
         self.nav_canceller: Callable[[], bool] | None = None
         # Whether a queued job (motion queue) runs; set by register_tools. A map reset during one is critical.
         self.job_running: Callable[[], bool] = lambda: False
@@ -408,6 +425,7 @@ class RobotMonitor:
         message: str,
         data: dict[str, Any] | None = None,
         debounce: bool = True,
+        log_fields: tuple[str, ...] = (),
     ) -> RobotEvent | None:
         """Record an event unless it repeats within its debounce window (escalations always pass). Lock held.
 
@@ -418,6 +436,7 @@ class RobotMonitor:
             message (str): Human-readable text.
             data (dict[str, Any] | None): Extra structured fields.
             debounce (bool): Apply the per-(type, source) debounce.
+            log_fields (tuple[str, ...]): Keys of data appended to the log line as key=value.
 
         Returns:
             RobotEvent | None: The event, or None when debounced.
@@ -442,11 +461,12 @@ class RobotMonitor:
         self.in_flight += 1
         LOGGER.log(
             logging.INFO if severity == "info" else logging.WARNING,
-            "robot event %s %s %s: %s",
+            "robot event %s %s %s: %s%s",
             severity,
             type_,
             source,
             message,
+            "".join(f" {key}={event.data.get(key)}" for key in log_fields),
         )
         return event
 
@@ -678,7 +698,8 @@ class RobotMonitor:
         last = None if self.tilt_guard is None else self.tilt_guard[1]
         previous = "ok" if last is None else last.level
         was_inhibited = last is not None and last.base_drive_inhibited
-        self.tilt_guard = (self.clock(), state)
+        now = self.clock()
+        self.tilt_guard = (now, state)
         tilt = describe_tilt(state)
         data = {
             "level": state.level,
@@ -688,7 +709,10 @@ class RobotMonitor:
             "limits": state.limits.model_dump(),
             "base_drive_inhibited": state.base_drive_inhibited,
             "imu_ok": state.imu_ok,
+            **self.tilt_evidence(state, now),
         }
+        if state.level == "ok":
+            self.tilt_over_since = None
         if state.level == previous:
             if state.level == "warning" and was_inhibited and not state.base_drive_inhibited:
                 self.emit(
@@ -698,6 +722,7 @@ class RobotMonitor:
                     f"tilt guard still warning, base drive enabled again: {tilt}. {TILT_MANUAL_HINT}",
                     data,
                     debounce=False,
+                    log_fields=TILT_EVIDENCE_KEYS,
                 )
             return False
         if state.level == "ok":
@@ -708,6 +733,7 @@ class RobotMonitor:
                 f"tilt guard clear: {tilt}, back within limits; navigation and base motion are allowed again",
                 data,
                 debounce=False,
+                log_fields=TILT_EVIDENCE_KEYS,
             )
             return False
         if state.level == "warning" and state.base_drive_inhibited:
@@ -719,8 +745,54 @@ class RobotMonitor:
             message = f"{lead}: {tilt}. Active Nav2 goals are cancelled; {TILT_MANUAL_HINT}"
         else:
             message = f"tilt guard error: {tilt}. Active Nav2 goals are cancelled; {TILT_ERROR_NOTE}"
-        self.emit(TILT_EVENT_TYPES[state.level], "critical", TILT_SOURCE, message, data, debounce=False)
+        self.emit(
+            TILT_EVENT_TYPES[state.level],
+            "critical",
+            TILT_SOURCE,
+            message,
+            data,
+            debounce=False,
+            log_fields=TILT_EVIDENCE_KEYS,
+        )
         return True
+
+    def tilt_evidence(self, state: TiltGuardState, now: float) -> dict[str, Any]:
+        """The evidence to judge a tilt event as a real tilt or an IMU artefact. Lock held; missing data is None.
+
+        over_limit_s is the time since the guard first left ok (0 at the trip, the whole excursion at the clear); the
+        clear is computed before the excursion is closed. Odometry and /ground/state older than
+        TILT_EVIDENCE_MAX_AGE_S are not used (the ground age is still reported).
+
+        Args:
+            state (TiltGuardState): The guard state that triggered the event.
+            now (float): Monitor time of that state.
+
+        Returns:
+            dict[str, Any]: TILT_EVIDENCE_KEYS: imu_roll_deg / imu_pitch_deg (the guard IMU, deg), over_limit_s (s),
+                base_speed_mps (odometry speed, m/s), ground_pitch_deg / ground_roll_deg (the /ground/state plane
+                slope, deg), ground_age_s (age of the latest /ground/state, s) and map_guard_state (str).
+        """
+        if state.level != "ok" and self.tilt_over_since is None:
+            self.tilt_over_since = now
+        over = 0.0 if self.tilt_over_since is None else now - self.tilt_over_since
+        speed = None
+        if self.odom is not None and now - self.odom[0] <= TILT_EVIDENCE_MAX_AGE_S:
+            speed = round(math.hypot(self.odom[1], self.odom[2]), 3)
+        ground_age = ground_pitch = ground_roll = None
+        if self.ground is not None:
+            ground_age = round(now - self.ground[0], 3)
+            if ground_age <= TILT_EVIDENCE_MAX_AGE_S:
+                ground_pitch, ground_roll = self.ground[1].slope_pitch_deg, self.ground[1].slope_roll_deg
+        return {
+            "imu_roll_deg": state.roll_deg,
+            "imu_pitch_deg": state.pitch_deg,
+            "over_limit_s": round(over, 3),
+            "base_speed_mps": speed,
+            "ground_pitch_deg": ground_pitch,
+            "ground_roll_deg": ground_roll,
+            "ground_age_s": ground_age,
+            "map_guard_state": self.map_guard_state,
+        }
 
     def cancel_nav(self) -> None:
         """Cancel every Nav2 goal through the canceller, off the calling thread (spawn): retried up to
@@ -874,8 +946,18 @@ class RobotMonitor:
         """
         self.rf2o = (self.clock(), vx, vy, wz)
 
+    @delivers
+    def on_ground_state(self, state: GroundState) -> None:
+        """Record the latest /ground/state as tilt evidence.
+
+        Args:
+            state (GroundState): Parsed /ground/state.
+        """
+        self.ground = (self.clock(), state)
+
     def on_robot_event(self, raw: str) -> None:
-        """Record a map_reset / map_guard_reset event from /robot_events as a candidate cause of a map epoch reset.
+        """Record a map_reset / map_guard_reset event from /robot_events as a candidate cause of a map epoch reset,
+        and the latest map_guard state (map_guard_disturbed, map_guard_resumed, map_guard_reset) as tilt evidence.
 
         Args:
             raw (str): std_msgs/String JSON of a /robot_events event; other types and malformed payloads are ignored.
@@ -884,7 +966,13 @@ class RobotMonitor:
             event = json.loads(raw)
         except ValueError:
             return
-        if not isinstance(event, dict) or event.get("type") not in MAP_RESET_CAUSE_TYPES:
+        if not isinstance(event, dict):
+            return
+        guard_state = MAP_GUARD_EVENT_STATES.get(event.get("type"))
+        if guard_state is not None:
+            with self.lock:
+                self.map_guard_state = guard_state
+        if event.get("type") not in MAP_RESET_CAUSE_TYPES:
             return
         data = event.get("data")
         cause: dict[str, Any] = {

@@ -766,6 +766,60 @@ null with a note before the first message; both allowed flags are false while `b
 line ends with e.g. `tilt guard warning: roll 9.0 deg (limits 8/15), pitch 2.5 deg (limits 12/20)` once a state has
 arrived (`tilt guard warning, base inhibited: ...` while the inhibit outlasts the error).
 
+### Tilt event evidence
+
+`tilt_warning`, `tilt_error` and `tilt_clear` (and `tilt_drive_enabled`) carry in `data`, and append to their log line as
+`key=value`, the evidence to judge a trip as a real tilt or an IMU artefact. Missing data is `null`, never invented.
+
+| Field | Meaning |
+|---|---|
+| `imu_roll_deg`, `imu_pitch_deg` | roll / pitch of the guard's IMU at the event (the same as `roll_deg` / `pitch_deg`) |
+| `over_limit_s` | seconds since the guard first left `ok` in this excursion: 0 at the `tilt_warning`, the time since the warning at a `tilt_error`, the whole excursion at the `tilt_clear` |
+| `base_speed_mps` | speed from `/odometry/filtered` at the event; null when the last odometry is older than 1 s |
+| `ground_pitch_deg`, `ground_roll_deg` | `slope_pitch_deg` / `slope_roll_deg` of the latest `/ground/state` when it is younger than 1 s, else null (also null when the state has no plane) |
+| `ground_age_s` | age of that `/ground/state` (null before the first one), so a stale plane is visible |
+| `map_guard_state` | latest map_guard state seen on `/robot_events` (`disturbed` from `map_guard_disturbed`, `ok` from `map_guard_resumed`, `reset` from `map_guard_reset`); null when none seen |
+
+A real tilt shows the ground plane pitch following the IMU pitch (or map_guard `disturbed` with `lifted` / `carried`); an
+IMU artefact shows a level ground plane, `map_guard_state` ok and an `over_limit_s` of one sample.
+Tests: `tests/test_tilt_event_evidence.py`.
+
+#### Tilt warning near the bean bag
+
+Event of 2026-10-22 16:21:15 CEST, before the 16:28 "Explore" job (retrospective: "A tilt_warning (pitch -19.4 deg)
+fired before the job started, near the bean bag"). Verdict: **real tilt, the robot was picked up and carried; not an
+IMU artefact.** Evidence (the retrospective logs in `.logs/agent-retro-2026-10-22/` and the Mimir series for 16:21:00-16:21:30 CEST,
+queried at `http://server.ros2.lan:9009/prometheus`; Mimir scrapes every 15 s, so the 5.8 s excursion itself fell
+between two samples and only its neighbours and counters are visible):
+
+- swerve_drive_controller and mcp_server agree: pitch -19.4 deg, roll 2.1 deg (limits 12/20 and 8/15) at 16:21:15.76,
+  cleared at 16:21:21.52 with roll 0.4 and pitch 1.5. A pitch excursion of 5.8 s that returns to level in one step is
+  a body being lifted and set down, not a drifting estimate (a bias fault would not return to 1.5 deg).
+- map_guard, which judges from lidar scan matching and wheel odometry independently of the IMU orientation, reported
+  `ok -> disturbed: reason carried,rotated` at 16:21:15.998 (0.24 s after the trip), `also lifted` at 16:21:16.30, and
+  settled at 16:21:21.42 (`reason carried,lifted,rotated`), 0.1 s before the tilt clear. Two unrelated sensor paths
+  moved together with the tilt: the robot was lifted and turned.
+- bno055_imu rejected 113 stationary gyro-bias samples in the 30 s up to 16:21:42 (gyro more than 0.05 rad/s from the
+  bias while the base was not commanded): the gyro saw motion that the wheels did not make, which is the signature of
+  being moved by hand, not of a faulty sensor. Later windows reject 1 to 3 samples.
+- no navigation or drive command was active (no goal in the mcp_server log around the trip, and the 1132 s old
+  cmd_vel above), so the robot did not drive onto the bean bag by itself.
+- Mimir, IMU and drive: `tilt_pitch_deg` read 0.22 deg at 16:21:10 and 0.91 deg at 16:21:25 (roll 0.07 and 0.36), level
+  on both sides of the excursion, with no sample inside it, so the -19.4 deg trip is not a slow drift. `imu_gyro_bias_
+  rejected_samples_total` rose 262 -> 323 between 16:21:15 and 16:21:20 and 323 -> 375 by 16:21:35 (+113 in total,
+  exactly the logged count) and was flat before and after: the gyro saw motion only during the tilt window. `imu_mode`
+  stayed 12 (NDOF) and `imu_seconds_since_publish` stayed 0.01-0.02 s, so the IMU did not reset or stall.
+  `swerve_cmd_vel_age_seconds` was 1132 s at 16:21:15 (last drive command about 19 min earlier, counting up every
+  scrape), `swerve_cmd_speed_scale` 1.0 and `tilt_guard_level` 0 at every scrape. `map_guard_tilt_deg` read 0.06 deg at
+  16:21:15-16:21:25 (its own small-angle estimate, not the 19 deg).
+- Mimir, ground estimator: `ground_slope_deg` 3.84, `ground_plane_vs_base_deg` 3.52 and `ground_inlier_ratio` 0.58
+  were identical at every scrape from 16:20:00 to 16:24:00 and `ground_fits_total` stayed 0: the estimator published
+  no fit in that window, so the ground plane neither confirms nor contradicts the tilt. This is the gap the new
+  `ground_age_s` field makes visible (a stale plane gives `ground_pitch_deg` null with its age).
+
+The warning was correct. Tilt events now carry the ground plane, speed and map_guard state, so the next one can be
+judged from the event itself.
+
 ## Battery cut-off gate
 
 Optional `battery` config section (the shared `ros2_common.battery.BatteryConfig`: `topic`, `cells`, `cutoff_cell_v`,
