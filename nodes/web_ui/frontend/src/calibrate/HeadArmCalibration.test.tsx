@@ -59,6 +59,13 @@ describe('HeadArmCalibration', () => {
     expect(m.moveToBase).toHaveBeenCalledWith(true)
   })
 
+  it('idle state with null tier and arm_pose shows no null text', async () => {
+    setState(seq({ tier: null, arm_pose: null, skipped: {}, session_id: 'x' }))
+    render(<HeadArmCalibration />)
+    await screen.findByText(/Tier -, pose - of/)
+    expect(screen.queryByText(/null/)).toBeNull()
+  })
+
   it('Board attached posts', async () => {
     setState(seq({ phase: 'waiting_board', running: true }))
     m.boardAttached.mockResolvedValue(ok(seq({ running: true, phase: 'capturing' })))
@@ -69,10 +76,10 @@ describe('HeadArmCalibration', () => {
   })
 
   it('shows tier progress and Stop while running', async () => {
-    setState(seq({ running: true, phase: 'capturing', status: 'capturing tier 1', skipped: { '3': 'unreachable' } }))
+    setState(seq({ running: true, phase: 'capturing', status: 'capturing tier 1', skipped: { unreachable: 3, collision: 2 } }))
     m.stopSequence.mockResolvedValue(ok(seq({ phase: 'holding' })))
     render(<HeadArmCalibration />)
-    await screen.findByText(/Tier 1, pose 7 of 24, 30 captured, 1 skipped/)
+    await screen.findByText(/Tier 1, pose 8 of 24, 30 captured, 5 skipped/)
     expect(screen.getByText(/capturing tier 1/)).toBeTruthy()
     await click('Stop')
     expect(m.stopSequence).toHaveBeenCalled()

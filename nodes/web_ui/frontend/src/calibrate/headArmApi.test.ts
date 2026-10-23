@@ -37,6 +37,11 @@ describe("headArmApi", () => {
     stub(200, { sequence: stateFx.sequence, applied: null });
     expect((await getHeadArmState()).ok).toBe(true);
   });
+  it("getHeadArmState accepts the idle sequence with null tier and arm_pose", async () => {
+    const idle = { ...stateFx.sequence, tier: null, arm_pose: null, skipped: {} };
+    stub(200, { sequence: idle, applied: null });
+    expect((await getHeadArmState()).ok).toBe(true);
+  });
   it("sequence steps post their path and body", async () => {
     const f = stub(200, stateFx.sequence);
     expect(await moveToBase(true)).toEqual({

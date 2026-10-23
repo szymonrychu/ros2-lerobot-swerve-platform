@@ -16,16 +16,16 @@ import {
 
 const BASE = "/api/calibration/rgbd/head-arm";
 
-/** Progress of the guided arm sequence. `skipped` maps a pose index to the reason it was skipped. */
+/** Progress of the guided arm sequence. `skipped` maps each skip reason to its count; `arm_pose` is the 0-based pose index; tier and arm_pose are null while idle. */
 export interface HeadArmSequence {
   running: boolean;
   phase: string;
   session_id: string | null;
-  tier: number;
-  arm_pose: number;
+  tier: number | null;
+  arm_pose: number | null;
   total_poses: number;
   captured: number;
-  skipped: Record<string, string>;
+  skipped: Record<string, number>;
   status: string;
   error: string | null;
   /** Joints the tier-2 confirm names (elbow_flex, shoulder_lift, shoulder_pan). */
@@ -104,8 +104,8 @@ const SEQUENCE: Record<string, Check> = {
   running: isBool,
   phase: isStr,
   session_id: isNullOr(isStr),
-  tier: isNum,
-  arm_pose: isNum,
+  tier: isNullOr(isNum),
+  arm_pose: isNullOr(isNum),
   total_poses: isNum,
   captured: isNum,
   skipped: isObj,

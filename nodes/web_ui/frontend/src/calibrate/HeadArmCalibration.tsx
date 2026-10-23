@@ -232,7 +232,7 @@ export function HeadArmCalibration() {
   }
 
   const phase = sequence?.phase ?? PHASE_IDLE
-  const skipped = Object.keys(sequence?.skipped ?? {}).length
+  const skipped = Object.values(sequence?.skipped ?? {}).reduce((a, n) => a + n, 0)
   const target = { minHeight: TOUCH_TARGET_PX }
   const bigJoints = sequence?.big_joints.join(', ') ?? ''
   return (
@@ -276,10 +276,10 @@ export function HeadArmCalibration() {
       {sequence && sequence.session_id && (
         <Box sx={{ mt: 1 }}>
           {running && sequence.total_poses > 0 && (
-            <LinearProgress variant="determinate" value={(100 * sequence.arm_pose) / sequence.total_poses} />
+            <LinearProgress variant="determinate" value={(100 * (sequence.arm_pose ?? 0)) / sequence.total_poses} />
           )}
           <Typography variant="body2">
-            {`Tier ${sequence.tier}, pose ${sequence.arm_pose} of ${sequence.total_poses}, ${sequence.captured} captured, ${skipped} skipped - ${sequence.status}`}
+            {`${sequence.tier === null ? 'Tier -' : `Tier ${sequence.tier}`}, pose ${sequence.arm_pose === null ? '-' : sequence.arm_pose + 1} of ${sequence.total_poses}, ${sequence.captured} captured, ${skipped} skipped - ${sequence.status}`}
           </Typography>
         </Box>
       )}
