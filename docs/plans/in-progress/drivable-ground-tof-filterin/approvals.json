@@ -560,5 +560,16 @@
       "head-arm-pose-capture-sequen"
     ],
     "status": "approved"
+  },
+  {
+    "id": "FLOORPRIOR",
+    "text": "User 2026-10-23 chose option 1: the head-from-arm fit uses the floor-fit prior with floor_prior_weight 10 (replaces D49's prior-off default). Real session calib-20261023-074418 then passes at 2.93 px; the floor fit pins the floor plane relative to base_link, the arm adds x, y, yaw and the pan axis.",
+    "decisions": [
+      "D64"
+    ],
+    "tasks": [
+      "head-arm-compute-and-apply"
+    ],
+    "status": "approved"
   }
 ]

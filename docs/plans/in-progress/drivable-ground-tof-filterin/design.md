@@ -747,6 +747,9 @@ at 1 m and 0.10 m at 2 m (my call). Serves R1, R2, R4, R5.
 ### D63: User 2026-10-23: 'Park should be possible with board for eas
 User 2026-10-23: 'Park should be possible with board for easy retries.' Replaces HQ3's park-only-after-the-board-is-off: Park with the calibration board on is allowed when the park path passes the FK pose check with the board outline (plus a sag margin); any other carried object keeps the carry refusal. (user decision)
 
+### D64: User 2026-10-23 chose option 1: the head-from-arm fit uses t
+User 2026-10-23 chose option 1: the head-from-arm fit uses the floor-fit prior with floor_prior_weight 10 (replaces D49's prior-off default). Real session calib-20261023-074418 then passes at 2.93 px; the floor fit pins the floor plane relative to base_link, the arm adds x, y, yaw and the pan axis. (user decision)
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -875,6 +878,7 @@ User 2026-10-23: 'Park should be possible with board for easy retries.' Replaces
 | D61 Agent behaviour lessons in the skills | agent-retro-skill-lessons |
 | D62 Retro fixes in run 1, proven at live step 4 | retro-fixes-live-check |
 | D63 User 2026-10-23: 'Park should be possible with board for eas | head-arm-pose-capture-sequen |
+| D64 User 2026-10-23 chose option 1: the head-from-arm fit uses t | head-arm-compute-and-apply |
 
 ## Contracts
 
