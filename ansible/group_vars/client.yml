@@ -3069,6 +3069,7 @@ ros2_nodes:
         facing_half_angle_deg: 30.0 # a lookup faces a frontier within this angle
         facing_max_distance_m: 6.0 # ... and within this distance of the lookup position
         compute_path_timeout_s: 5.0 # plan_frontier_visit Nav2 path check timeout
+        keepout_poi_stale_s: 600.0 # an older poi list keeps the last keep-out zones (poi_store republishes only on change)
         look_timeout_s: 20.0 # look_toward_frontier rotation timeout
         look_camera: front # look_toward_frontier default camera (front or gripper)
       # Survey coverage and the battery stop limit of get_exploration_status / mark_survey_spot (nodes/mcp_server/README.md,
