@@ -225,6 +225,10 @@ class RobotApi(Protocol):
         """Latest /poi/list (POIs, revision); RobotError when poi_store never published."""
         ...
 
+    def poi_list_age_s(self) -> float | None:
+        """Seconds since /poi/list was last received; None when none arrived yet."""
+        ...
+
     def poi_request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
         """Send a /poi/command and wait for its /poi/result; RobotError when poi_store is down, slow or rejects."""
         ...

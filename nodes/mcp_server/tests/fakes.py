@@ -264,6 +264,7 @@ class PerceptionFakeMixin:
         self.map3d_status_msg: dict | None = None  # latest /map3d/status JSON (None = none received)
         self.poi_store_up = True
         self.pois: list[dict] = []
+        self.poi_age_s = 0.0
         self.poi_commands: list[tuple[str, dict]] = []
         self.poi_clears: list[str | None] = []
         self.poi_clear_args: list[dict] = []
@@ -459,6 +460,9 @@ class PerceptionFakeMixin:
         if not self.poi_store_up:
             raise RobotError("poi_store is not running (no /poi/list received)")
         return list(self.pois), len(self.poi_commands)
+
+    def poi_list_age_s(self) -> float:
+        return self.poi_age_s
 
     def poi_clear(
         self,

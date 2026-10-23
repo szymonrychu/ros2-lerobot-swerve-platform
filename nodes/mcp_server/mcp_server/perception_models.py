@@ -233,6 +233,13 @@ class FrontierView(BaseModel):
     )
 
 
+class ExcludedFrontier(BaseModel):
+    """A frontier hidden because it lies in a person-drawn keep-out area (a mirror's ghost free space)."""
+
+    id: int = Field(description="Frontier id")
+    zone_poi_id: str = Field(description="Id of the keep-out area POI that contains the frontier")
+
+
 class RetiredView(BaseModel):
     """A frontier id that no longer exists."""
 
@@ -257,6 +264,11 @@ class FrontierList(BaseModel):
         "message; type 'unexplained' with the cell counts when no reset event was seen); null in epoch 1",
     )
     retired_since_last_call: list[RetiredView]
+    excluded_keepout: list[ExcludedFrontier] = Field(
+        default_factory=list,
+        description="Frontiers left out of this list because their target or centroid lies in an open keepout area "
+        "POI (e.g. ghost free space behind a mirror)",
+    )
     compute_ms: dict[str, float] = Field(
         description="Time spent by this call per stage (0 = served from the per-version cache) and in total"
     )
@@ -359,6 +371,11 @@ class ExplorationStatus(BaseModel):
         description="Survey coverage of the reachable free space from the survey spots, with the unsurveyed areas"
     )
     battery: BatteryLimit
+    excluded_keepout: list[ExcludedFrontier] | None = Field(
+        default=None,
+        description="Frontiers ignored (not reachable, not counted against complete) because they lie in a keepout "
+        "area POI; null when not computable",
+    )
     epoch: int | None = Field(default=None, description="Frontier id epoch (null while /map is unavailable)")
     epoch_changed_at: float | None = Field(
         default=None, description="Wall-clock epoch seconds the current epoch started; null in epoch 1"

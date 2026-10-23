@@ -2410,6 +2410,15 @@ class RosRobot:
         except ValueError as exc:
             raise RobotError(f"unreadable /poi/list: {exc}") from exc
 
+    def poi_list_age_s(self) -> float | None:
+        """Seconds since /poi/list was last received.
+
+        Returns:
+            float | None: Age (s), None when none arrived yet.
+        """
+        item = self.get("poi_list")
+        return None if item is None else item.age(time.monotonic())
+
     def poi_request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
         """Send a /poi/command and wait for the matching /poi/result.
 

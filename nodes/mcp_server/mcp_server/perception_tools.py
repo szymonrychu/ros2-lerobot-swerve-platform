@@ -22,7 +22,7 @@ from ros2_common.poi_categories import (
 )
 
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
-from .frontiers import FrontierTracker, cells_to_map, update_recorded
+from .frontiers import FrontierTracker, cells_to_map, frontier_keepout, update_recorded
 from .look_around import LookMode, montage_jpeg, run_look_around
 from .models import RobotError
 from .object_memory import OBJECT_KIND, ObjectMemory, describe_objects, record_from_poi
@@ -221,7 +221,7 @@ def topdown_style(config: McpServerConfig) -> TopdownStyle:
 
 
 def frontier_markers(tracker: FrontierTracker | None, robot: RobotApi) -> list[dict]:
-    """Frontiers of the current map as topdown dicts (id, target_xy, cells_xy in the map frame).
+    """Frontiers of the current map as topdown dicts (id, target_xy, cells_xy in the map frame, excluded = lies in a keep-out area).
 
     Args:
         tracker (FrontierTracker | None): Frontier tracker, None when not configured.
@@ -238,10 +238,19 @@ def frontier_markers(tracker: FrontierTracker | None, robot: RobotApi) -> list[d
     grid = robot.map_grid()
     if grid is None:
         raise ValueError("/map unavailable: no recent map (or its frame has no TF)")
+    zones, _ = tracker.keepouts.read(robot, tracker.settings.keepout_poi_stale_s)
     markers = []
     for frontier in update_recorded(tracker, grid)[0].frontiers:
         xs, ys = cells_to_map(grid, frontier.cells[:, 0], frontier.cells[:, 1])
-        markers.append({"id": frontier.id, "target_xy": frontier.target_xy, "cells_xy": np.stack([xs, ys], axis=1)})
+        zone = frontier_keepout(frontier, zones)
+        markers.append(
+            {
+                "id": frontier.id,
+                "target_xy": frontier.target_xy,
+                "cells_xy": np.stack([xs, ys], axis=1),
+                "excluded": zone is not None,
+            }
+        )
     return markers
 
 

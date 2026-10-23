@@ -38,6 +38,8 @@ COLOR_POI_DONE = (60, 140, 60)
 COLOR_POI_CANCELLED = (130, 130, 130)
 COLOR_OBJECT = (200, 0, 120)
 COLOR_FRONTIER = (255, 255, 0)  # cyan (BGR)
+COLOR_FRONTIER_KEEPOUT = (110, 110, 110)  # grey: a frontier inside a keep-out area
+KEEPOUT_LEGEND = ("in keep-out", COLOR_FRONTIER_KEEPOUT)
 MARKER_RADIUS_PX = 5
 COLOR_TEXT = (20, 20, 20)
 COLOR_LEGEND_BG = (255, 255, 255)
@@ -431,10 +433,24 @@ def draw_objects(image: np.ndarray, objects: Sequence[dict], pose: tuple[float, 
         draw_label(image, str(obj.get("label", "")), u + 6, v + 4, COLOR_OBJECT)
 
 
+def frontier_color(frontier: dict) -> tuple[int, int, int]:
+    """Draw colour of a frontier dict.
+
+    Args:
+        frontier (dict): Frontier dict; "excluded" truthy means it lies in a keep-out area.
+
+    Returns:
+        tuple[int, int, int]: BGR colour (grey in a keep-out, cyan otherwise).
+    """
+    return COLOR_FRONTIER_KEEPOUT if frontier.get("excluded") else COLOR_FRONTIER
+
+
 def draw_frontiers(
     image: np.ndarray, frontiers: Sequence[dict], pose: tuple[float, float, float], scale: float
 ) -> list[int]:
     """Draw frontier cells in cyan and a filled marker at each target with its id on a white backing.
+
+    A frontier dict with a truthy "excluded" (it lies in a keep-out area) is drawn in grey.
 
     Args:
         image (np.ndarray): BGR canvas (modified in place).
@@ -450,14 +466,14 @@ def draw_frontiers(
     for frontier in frontiers:
         cells = np.asarray(frontier["cells_xy"], float).reshape(-1, 2)
         if len(cells):
-            draw_points(image, map_points_to_px(cells, pose, px, scale), COLOR_FRONTIER)
+            draw_points(image, map_points_to_px(cells, pose, px, scale), frontier_color(frontier))
     for frontier in frontiers:
         u, v = map_points_to_px(np.array([frontier["target_xy"]], float), pose, px, scale)[0]
         if not (0 <= u < px and 0 <= v < px):
             continue
         drawn.append(frontier["id"])
         centre = int_pt(u, v)
-        cv2.circle(image, centre, MARKER_RADIUS_PX, COLOR_FRONTIER, -1)
+        cv2.circle(image, centre, MARKER_RADIUS_PX, frontier_color(frontier), -1)
         cv2.circle(image, centre, MARKER_RADIUS_PX, COLOR_TEXT, 1)
         text = str(frontier["id"])
         (w, h), baseline = cv2.getTextSize(text, FONT, LABEL_SCALE, 1)
@@ -468,14 +484,17 @@ def draw_frontiers(
     return drawn
 
 
-def draw_legend(image: np.ndarray, layers: Sequence[str]) -> None:
+def draw_legend(
+    image: np.ndarray, layers: Sequence[str], extra: Sequence[tuple[str, tuple[int, int, int]]] = ()
+) -> None:
     """Legend in the top-left corner: a colour swatch and name per drawn layer.
 
     Args:
         image (np.ndarray): BGR canvas (modified in place).
         layers (Sequence[str]): Layers that were drawn.
+        extra (Sequence[tuple[str, tuple[int, int, int]]]): Further (text, BGR colour) rows after the layers.
     """
-    lines = [LEGEND_ENTRIES[name] for name in layers]
+    lines = [LEGEND_ENTRIES[name] for name in layers] + list(extra)
     row_h = 14
     width = 8 + max((len(text) for text, _ in lines), default=0) * 7 + 16
     cv2.rectangle(image, (0, 0), (min(width, image.shape[1]), 4 + row_h * len(lines)), COLOR_LEGEND_BG, -1)
@@ -595,7 +614,8 @@ def render_topdown(
             draw_points(image, base_points_to_px(inputs.scan_points, px, scale), COLOR_LIDAR)
         elif layer == "footprint":
             draw_footprint(image, style, scale)
-    draw_legend(image, drawn)
+    keepout_drawn = any(f.get("excluded") for f in frontiers or []) and "frontiers" in drawn
+    draw_legend(image, drawn, [KEEPOUT_LEGEND] if keepout_drawn else [])
     draw_scale_bar(image, scale)
     return TopdownRender(
         image=image, scale_m_per_px=scale, layers_present=drawn, layers_missing=gaps, frontier_ids_drawn=frontier_ids
