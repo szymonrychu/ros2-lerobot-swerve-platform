@@ -81,3 +81,7 @@ passes.
 
 - LIVE step 4 of D29 (user at the robot, undocked by the user; short slow goals only), after nav2-goal-across-the-scene.
 - Driving only through mcp_server's guarded tools under the base lease; no rclpy, `ros2` CLI or SSH on the client.
+
+## Added 2026-10-23
+
+Also record the head-from-arm step 5 (docs/runbooks/head-arm-calibration.md): arm at the base pose without the board, `head_look_at` on the tool point, the tool point pixel offset from the head camera image centre in deg, after the applied chain r-20261023-112701 (and the CAD chain for comparison if it is quick to restore). Fill the runbook row.
