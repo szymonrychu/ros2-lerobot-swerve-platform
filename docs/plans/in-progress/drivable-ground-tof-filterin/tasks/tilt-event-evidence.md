@@ -83,6 +83,10 @@ before; the README holds the verdict on the 16:21:15 warning.
 - Add the fields; tests PASS; run the verify command and the mcp_server suite; commit
   `feat(mcp_server): tilt events carry IMU and ground-plane evidence`.
 
+## Ruling
+
+- 2026-10-23 accepted: verify-task.py crashed (--prev-head 'unknown'), not a task fault; orchestrator on HEAD (clean): test_tilt_event_evidence 11 passed, mcp_server lint clean
+
 ## Notes
 
 - Live step: none (code, run 1 of D29); the diagnosis uses history only.

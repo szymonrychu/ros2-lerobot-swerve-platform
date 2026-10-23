@@ -52,5 +52,11 @@
     "accept": true,
     "reason": "round-cap on AC a6 'node suite passes': orchestrator ran it on HEAD (clean tree): head_rgbd_calibration 376 passed, lint clean",
     "at": "2026-10-23T01:11:24Z"
+  },
+  {
+    "task": "tilt-event-evidence",
+    "accept": true,
+    "reason": "verify-task.py crashed (--prev-head 'unknown'), not a task fault; orchestrator on HEAD (clean): test_tilt_event_evidence 11 passed, mcp_server lint clean",
+    "at": "2026-10-23T01:11:24Z"
   }
 ]
