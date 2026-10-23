@@ -32,6 +32,13 @@ MSG_NEEDS_PARK_CONFIRM = (
 )
 
 
+class ParkRequest(BaseModel):
+    """Body of POST /api/head-arm/park: `board_on` states the calibration board is on the gripper (recorded)."""
+
+    confirm: bool = False
+    board_on: bool = False
+
+
 class ConfirmRequest(BaseModel):
     """Body of the confirmed sequence steps."""
 
@@ -133,10 +140,10 @@ def head_arm_router(
         return sequencer.stop()
 
     @router.post("/park")
-    def park(body: ConfirmRequest | None = None) -> Any:
+    def park(body: ParkRequest | None = None) -> Any:
         if not (body and body.confirm):
             return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_PARK_CONFIRM)
-        return step(sequencer.park, True)
+        return step(sequencer.park, True, body.board_on)
 
     @router.get("/sessions")
     def sessions() -> list[dict[str, Any]]:

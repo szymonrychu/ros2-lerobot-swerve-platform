@@ -298,7 +298,7 @@ stops capture, kills a running compute child and destroys the node.
 
 - `tests/test_config.py` - config defaults equal the shipped YAML, unknown keys rejected, the `floor` defaults and the
   pan/tilt range checks, the `arm_sequence` defaults and its validation errors naming the tier, pose and joint.
-- `tests/test_sequencer.py` - the sequence over a fake mcp_server, including Park with the board on: path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
+- `tests/test_sequencer.py` - the sequence over a fake mcp_server, including Park with the board on (the board record restored after a restart, the stated-on Park, a plain park clearing it): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
   the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
@@ -370,3 +370,13 @@ arm keeps holding. A pass moves to `park_pose` through the guarded `move_arm_joi
 then calls `release_control(subsystem=arm, keep_position=false, park_calibration_board=true)`, the one narrow allowance
 in mcp_server (see its README). Any other carry reason (a held grasp, a carried radius) or a load without this
 sequence's board refuses with mcp_server's reasons quoted.
+
+### The board record survives a restart
+
+When the board is attached (and again when the sequence ends, with the capture session id) the sequencer writes
+`<state_dir>/head_arm_board.json` (`session_id`, `mount` used, `clipped_at`). A node start with that file restores the
+`holding` phase and the board-on gating, so Park with the board still works after a restart or a deploy. A completed
+park, or a new base move, removes it. A node that never saw the clip (the record is missing) refuses a clamped board as
+before, unless the user states it on the Calibrate page ("Park (board is on the gripper)" in the idle state, API
+`POST /api/head-arm/park {"confirm": true, "board_on": true}`): that statement is recorded in the same file and the
+board path check, with the sag margin, still runs before anything moves.

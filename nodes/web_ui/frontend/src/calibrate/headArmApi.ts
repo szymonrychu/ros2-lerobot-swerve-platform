@@ -239,11 +239,11 @@ export const allowBigJoints = (confirm: boolean) =>
   );
 export const stopSequence = () =>
   request<HeadArmSequence>(`${BASE}/sequence/stop`, POST, badSequence);
-/** Parks the arm (the board may stay on when its park path is clear); `confirm` is the user's confirm. */
-export const park = (confirm: boolean) =>
+/** Parks the arm (the board may stay on when its park path is clear); `confirm` is the user's confirm, `boardOn` states the board is on the gripper (recorded). */
+export const park = (confirm: boolean, boardOn = false) =>
   request<HeadArmSequence>(
     `${BASE}/park`,
-    post({ confirm }),
+    post({ confirm, board_on: boardOn }),
     badSequence,
   );
 export const listHeadArmSessions = () =>

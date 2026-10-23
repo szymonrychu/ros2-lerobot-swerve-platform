@@ -42,7 +42,7 @@ const PHASE_WAITING_BOARD = 'waiting_board'
 const PHASE_WAITING_BIG = 'waiting_big_joints'
 const PHASE_HOLDING = 'holding'
 
-type Dialog = 'base' | 'park' | null
+type Dialog = 'base' | 'park' | 'parkBoard' | null
 
 interface ParamRow {
   label: string
@@ -255,6 +255,9 @@ export function HeadArmCalibration() {
           <Button variant="contained" sx={{ ...target, mt: 1 }} disabled={busy} onClick={() => setDialog('base')}>
             Move to base pose
           </Button>
+          <Button variant="outlined" sx={{ ...target, mt: 1, ml: 1 }} disabled={busy} onClick={() => setDialog('parkBoard')}>
+            Park (board is on the gripper)
+          </Button>
         </Box>
       )}
       {phase === PHASE_WAITING_BOARD && (
@@ -330,6 +333,17 @@ export function HeadArmCalibration() {
         onConfirm={() => void step(() => moveToBase(true))}
       >
         {`These joints move: ${BASE_JOINTS.join(', ')}. The robot must not be driving and the area around it must be clear.`}
+      </Confirm>
+      <Confirm
+        open={dialog === 'parkBoard'}
+        title="The calibration board is on the gripper"
+        confirmLabel="Park with the board"
+        onCancel={() => setDialog(null)}
+        onConfirm={() => void step(() => park(true, true))}
+      >
+        Use this when the arm still holds the board but this page lost the sequence (for example after a restart). The
+        board is recorded as on the gripper, the park path is checked with it, and Park is refused, naming the rule,
+        when the board would hit the floor, the body or the head.
       </Confirm>
       <Confirm
         open={dialog === 'park'}

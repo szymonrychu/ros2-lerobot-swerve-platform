@@ -68,8 +68,8 @@ class FakeSequencer:
     def allow_big_joints(self, confirmed: bool) -> dict[str, Any]:
         return self.act("allow_big_joints", confirmed)
 
-    def park(self, confirm: bool) -> dict[str, Any]:
-        return self.act("park", confirm)
+    def park(self, confirm: bool, board_on: bool = False) -> dict[str, Any]:
+        return self.act("park", (confirm, board_on))
 
     def stop(self) -> dict[str, Any]:
         return self.act("stop")
@@ -204,7 +204,9 @@ def test_park_needs_confirm(parts: SimpleNamespace, body: dict[str, Any] | None)
 
 def test_park_passes_confirm_and_conflicts_while_running(parts: SimpleNamespace) -> None:
     assert parts.client.post("/api/head-arm/park", json={"confirm": True}).status_code == 200
-    assert parts.sequencer.calls == [("park", True)]
+    assert parts.sequencer.calls == [("park", (True, False))]
+    assert parts.client.post("/api/head-arm/park", json={"confirm": True, "board_on": True}).status_code == 200
+    assert parts.sequencer.calls[-1] == ("park", (True, True))
     parts.sequencer.error = Busy("a head-arm sequence is running")
     assert parts.client.post("/api/head-arm/park", json={"confirm": True}).status_code == 409
     parts.sequencer.error = SequenceError("Park refused: carrying")

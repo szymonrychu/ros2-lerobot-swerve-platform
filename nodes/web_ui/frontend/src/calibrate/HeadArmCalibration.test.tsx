@@ -111,6 +111,17 @@ describe('HeadArmCalibration', () => {
     expect(m.park).toHaveBeenCalledWith(true)
   })
 
+  it('Idle Park with the board states it is on the gripper', async () => {
+    setState(seq({}))
+    m.park.mockResolvedValue(ok(seq({ phase: 'parking' })))
+    render(<HeadArmCalibration />)
+    await click('Park (board is on the gripper)')
+    expect(m.park).not.toHaveBeenCalled()
+    expect(screen.getByText('The calibration board is on the gripper')).toBeTruthy()
+    await click('Park with the board')
+    expect(m.park).toHaveBeenCalledWith(true, true)
+  })
+
   it('Compute shows the result table and Apply posts', async () => {
     setState(seq({}))
     m.computeHeadArm.mockResolvedValue(ok(resultFx as api.HeadArmResult))
