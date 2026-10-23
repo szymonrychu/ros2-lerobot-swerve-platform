@@ -56,7 +56,7 @@ def test_head_arm_fit_config_defaults() -> None:
         max_pan_axis_delta_mm=50.0,
     )
     assert cfg.huber_f_scale_px == 1.0
-    assert cfg.floor_prior_weight == 0.0
+    assert cfg.floor_prior_weight == 10.0  # user decision 2026-10-23 (replaces D49 prior off)
     assert cfg.base_in_base_link == BaseInBaseLink(x=0.0592, y=-0.05, z=0.100, yaw=0.0)
 
 

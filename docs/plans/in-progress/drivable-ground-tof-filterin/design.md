@@ -531,10 +531,16 @@ the follow-up). User decision 2026-10-22. Serves H1.
 
 Free: `head_mount_joint` x, y, z, roll, pitch, yaw; `head_tilt` origin pitch (tilt zero) and roll (tilt roll); the
 board pose in `gripper_link`. Names `mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`, `tilt_zero_deg`,
-`tilt_roll_deg` equal `floor_fit.PARAM_NAMES`; new `mount_x_m`, `mount_y_m`, `mount_yaw_deg`. Fixed at the applied
-chain: `head_tilt` xyz (the 0.04 m offset is degenerate with mount z), `head_pan` origin (D33), `head_camera_joint` and
-the optical joints (RGB-D calibration; the camera pitch is degenerate with the tilt zero), intrinsics; the whole arm.
-(my call for the camera lever: not in the user's list.) Serves H1.
+`tilt_roll_deg` equal `floor_fit.PARAM_NAMES`; new `mount_x_m`, `mount_y_m`, `mount_yaw_deg`. Also free, with
+`fit.fit_pan_axis` (default on, 2026-10-23): the head pan axis position relative to the head, `pan_axis_x_m` and
+`pan_axis_y_m` = the `head_pan` origin x, y in `head_pan_base`, with the `head_tilt` origin xyz moved back by the same
+shift so the head is unchanged at pan 0 (written to head_chain.json, `head_pan` is a chain joint). Session
+calib-20261023-074418 put the axis 37.9 mm behind and 11.2 mm right of the URDF value: the fixed axis left 13 px at the
++-10 deg pan offsets (rms 12.2 px), the free axis 2.67 px. The pan axis direction relative to the head is not added (it
+is the tilt roll and zero already, degenerate) and neither is a pan scale factor (3.33 px alone, correlation 0.994 with
+the axis). Fixed at the applied chain: `head_tilt` z (the 0.04 m offset is degenerate with mount z), `head_pan` rpy and
+z (D33), `head_camera_joint` and the optical joints (RGB-D calibration; the camera pitch is degenerate with the tilt
+zero), intrinsics; the whole arm. (my call for the camera lever: not in the user's list.) Serves H1.
 
 ### D33: The pan zero is folded into the mount yaw
 
@@ -549,7 +555,8 @@ every recorded pan angle). Open question Q5. Serves H1.
 The fit starts from the applied chain (the floor-fit z, roll, pitch, tilt zero and tilt roll). For those five,
 `floor_delta` = fitted minus the applied floor result; over `max_floor_delta_mm` 10 / `max_floor_delta_deg` 1.5 the
 result fails. x, y and yaw get sanity limits against their start (`max_start_delta_mm` 30, `max_start_delta_deg` 5). An
-optional prior (`floor_prior_weight`, default 0) adds one residual per floor parameter; off by default because the
+optional prior (`floor_prior_weight`, default 10 since the user decision of 2026-10-23, see D49) adds one residual
+per floor parameter; it was off by default because the
 floor fit carries the garage floor slope (normal RMS 0.83 deg). The floor values come from the robot's
 `applied/applied.json` `head_chain` record: today's `apply_floor` (`floor_results.py`) already writes `{session,
 result, applied_at}` there, so the 2026-10-22 apply recorded session floor-20261022-064337, result r-20261022-065211;
@@ -662,6 +669,12 @@ User 2026-10-22 approved (yes): fold pan zero into the head_mount_joint yaw (use
 
 ### D49: User 2026-10-22 approved (yes): floor-fit values as start va
 User 2026-10-22 approved (yes): floor-fit values as start values and pass/fail cross-check, weighted prior off (user decision)
+
+Superseded for the prior by the user decision of 2026-10-23 (option 1): `floor_prior_weight` 10. With the free pan
+axis, calib-20261023-074418 without the prior failed the floor cross-check on mount roll (+2.06 deg), mount pitch
+(-2.84 deg) and tilt zero (+2.80 deg) (the arm views place the pan axis direction off the floor fit; mount pitch plus
+tilt zero agree within 0.04 deg); with weight 10 every limit passes at rms 2.93 px (2.67 px without), held-out
+2.88 px / 2.86 mm, floor deltas at most 1.43 deg. The floor values stay start values and the cross-check stays.
 
 ### D50: User 2026-10-22 approved (yes): clip board only after base p
 User 2026-10-22 approved (yes): clip board only after base pose, hold arm on every stop, park only after board removal confirmed (user decision)

@@ -25,8 +25,9 @@ FIXTURE = REPO_ROOT / "tests" / "fixtures" / "head_arm" / "calib-20261023-074418
 FLOOR_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "head_arm" / "floor-20261022-064337.json"
 FLOOR_PAN_AXIS_TOLERANCE_DEG = 0.1
 FLOOR_PAN_AXIS_TOLERANCE_M = 0.0005
-# The floor fit and the head-from-arm fit disagree on the pan axis direction (mount roll and pitch, with the tilt zero
-# keeping the camera pitch at pan 0): these floor cross-checks fail on this session.
+# Without the floor prior the floor fit and the head-from-arm fit disagree on the pan axis direction (mount roll and
+# pitch, with the tilt zero keeping the camera pitch at pan 0): these floor cross-checks fail on this session.
+PRIOR_RMS_PX = 2.93
 FLOOR_DISAGREEMENT = ["floor_delta:mount_roll_deg", "floor_delta:mount_pitch_deg", "floor_delta:tilt_zero_deg"]
 URDF_DIR = REPO_ROOT / "nodes" / "web_ui" / "urdf"
 FOLDS = 5
@@ -135,16 +136,27 @@ def test_pan_axis_fit_meets_accuracy_limits(pan_axis_fit: HeadArmFit, session: t
     assert failed_accuracy(pan_axis_fit, cfg) == []
     assert pan_axis_fit.params["pan_axis_x_m"] * 1000.0 == pytest.approx(PAN_AXIS_MM[0], abs=PAN_AXIS_TOLERANCE_MM)
     assert pan_axis_fit.params["pan_axis_y_m"] * 1000.0 == pytest.approx(PAN_AXIS_MM[1], abs=PAN_AXIS_TOLERANCE_MM)
-    # Every head offset fits alike: the pan offsets no longer carry a misfit.
+    # The pan offsets no longer carry the misfit (13 px with the fixed axis); the floor prior costs the +10 deg offset
+    # about 0.5 px (3.33 px against 2.64 px at the aimed view).
     by_offset = pan_axis_fit.offset_rms_px
-    assert max(by_offset.values()) < 1.2 * min(by_offset.values())
-    assert max(by_offset.values()) < cfg.limits.rms_px
+    assert max(by_offset.values()) < 1.3 * min(by_offset.values())
+    assert max(by_offset.values()) < 3.5
 
 
 def test_real_session_outcome(pan_axis_fit: HeadArmFit) -> None:
-    """With the evidence-based limits only the floor cross-check of the pan axis direction fails."""
-    assert pan_axis_fit.failed_limits == FLOOR_DISAGREEMENT
-    assert abs(pan_axis_fit.floor_delta["mount_pitch_deg"] + pan_axis_fit.floor_delta["tilt_zero_deg"]) < 0.1
+    """With the floor prior (weight 10, user decision 2026-10-23) the session passes every limit."""
+    assert pan_axis_fit.failed_limits == []
+    assert pan_axis_fit.passed
+    assert pan_axis_fit.rms_px == pytest.approx(PRIOR_RMS_PX, abs=0.05)
+
+
+def test_without_floor_prior_only_the_floor_cross_check_fails(session: tuple[dict, list[ArmBoardView]]) -> None:
+    """Prior off (the D49 default before 2026-10-23): only the floor cross-check of the pan axis direction fails."""
+    doc, views = session
+    result = run_fit(doc, views, node_fit_config(doc, floor_prior_weight=0.0))
+    assert result.failed_limits == FLOOR_DISAGREEMENT
+    assert max(result.offset_rms_px.values()) < 1.2 * min(result.offset_rms_px.values())
+    assert abs(result.floor_delta["mount_pitch_deg"] + result.floor_delta["tilt_zero_deg"]) < 0.1
 
 
 def test_floor_values_do_not_depend_on_pan_axis(pan_axis_fit: HeadArmFit, session: tuple[dict, list]) -> None:

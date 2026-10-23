@@ -328,7 +328,7 @@ def synth_truth(
 
 def synth_fit_config(**overrides: object) -> HeadArmFitConfig:
     """Fit config whose board mount start is `MOUNT_INIT_SHIFT_M` / `MOUNT_INIT_TURN_DEG` off the nominal (truth)
-    mount.
+    mount, the floor prior off (`floor_prior_weight` 0) unless overridden.
 
     Args:
         **overrides: Further HeadArmFitConfig fields.
@@ -337,7 +337,9 @@ def synth_fit_config(**overrides: object) -> HeadArmFitConfig:
         HeadArmFitConfig: The config.
     """
     xyz, rpy = perturbed_board_mount(*nominal_board_mount(HeadArmFitConfig()), MOUNT_INIT_SHIFT_M, MOUNT_INIT_TURN_DEG)
-    return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=xyz, rpy_init=rpy), **overrides)
+    # The scenes move the truth away from the applied floor values, so the floor prior is off unless asked for.
+    fields: dict[str, object] = {"floor_prior_weight": 0.0, **overrides}
+    return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=xyz, rpy_init=rpy), **fields)
 
 
 def truth_chain(chain: UrdfChain, origins: dict[str, Origin]) -> UrdfChain:

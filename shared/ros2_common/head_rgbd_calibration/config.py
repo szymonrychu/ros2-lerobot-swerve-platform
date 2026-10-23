@@ -174,6 +174,11 @@ class HeadArmFitConfig(StrictModel):
 
     `fit_pan_axis` frees the head pan axis position (head_pan origin x, y) relative to the head, which stays where
     it is at pan 0 (head_tilt origin moved back by the same amount).
+
+    `floor_prior_weight` 10 (user decision 2026-10-23, replacing D49's prior off): without it the arm views of
+    calib-20261023-074418 put the pan axis direction 2.1-2.8 deg off the floor fit (mount roll, mount pitch and tilt
+    zero fail the floor cross-check; mount pitch plus tilt zero agree within 0.04 deg); with it the fit passes at rms
+    2.93 px against 2.67 px, held-out 2.88 px against 2.98 px.
     """
 
     board: BoardConfig = Field(default_factory=BoardConfig)
@@ -183,7 +188,7 @@ class HeadArmFitConfig(StrictModel):
     huber_f_scale_px: float = Field(default=1.0, gt=0)
     base_in_base_link: BaseInBaseLink = Field(default_factory=BaseInBaseLink)
     joint_offsets_rad: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_JOINT_OFFSETS_RAD))
-    floor_prior_weight: float = Field(default=0.0, ge=0)
+    floor_prior_weight: float = Field(default=10.0, ge=0)
 
     @model_validator(mode="after")
     def check_joints(self) -> Self:

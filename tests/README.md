@@ -76,8 +76,9 @@ per-cloud floor planes and the applied tof_joint). Pins the diagnosis and the ev
 | Test | Description |
 |------|-------------|
 | `test_fixed_pan_axis_reproduces_live_failure` | The fixed pan axis reproduces the live result: rms 12.2 px, the +-10 deg pan offsets at least 2 px worse than the aimed view. |
-| `test_pan_axis_fit_meets_accuracy_limits` | The free pan axis passes every residual, sigma, correlation and pan axis limit, sits at -37.9 / -11.2 mm (+-3 mm), and every head offset fits alike. |
-| `test_real_session_outcome` | Only the floor cross-checks of mount roll, mount pitch and tilt zero fail (the two fits disagree on the pan axis direction; mount pitch plus tilt zero agree within 0.1 deg). |
+| `test_pan_axis_fit_meets_accuracy_limits` | The free pan axis (floor prior on) passes every residual, sigma, correlation and pan axis limit, sits at -37.9 / -11.2 mm (+-3 mm), and every head offset fits within 30 % and below 3.5 px. |
+| `test_real_session_outcome` | With the floor prior (weight 10, user decision 2026-10-23) the session passes every limit at rms 2.93 px. |
+| `test_without_floor_prior_only_the_floor_cross_check_fails` | Prior off: only the floor cross-checks of mount roll, mount pitch and tilt zero fail (the two fits disagree on the pan axis direction; mount pitch plus tilt zero agree within 0.1 deg), and every head offset fits within 20 %. |
 | `test_floor_values_do_not_depend_on_pan_axis` | Refitting the floor sweep with the arm-fitted pan axis reproduces the applied floor values and changes them by less than 0.1 deg / 0.5 mm, so the cross-check compares like with like. |
 | `test_leave_poses_out_within_limits` | Five folds, each holding out five arm poses: every fold meets the residual, sigma, correlation and pan axis limits. |
 
@@ -87,7 +88,7 @@ Head-from-arm fit config, board corner geometry and view types (`shared/ros2_com
 
 | Test | Description |
 |------|-------------|
-| `test_head_arm_fit_config_defaults` | `HeadArmFitConfig` defaults: board mount, `fit_pan_axis` on, every `HeadArmFitLimits` value (the evidence-based rms 3.0 px, held-out 4.0 px / 4.5 mm, `max_correlation` 0.99, `max_pan_axis_delta_mm` 50), Huber scale, floor prior weight and the `base_in_base_link` gauge (0.0592, -0.05, 0.100). |
+| `test_head_arm_fit_config_defaults` | `HeadArmFitConfig` defaults: board mount, `fit_pan_axis` on, every `HeadArmFitLimits` value (the evidence-based rms 3.0 px, held-out 4.0 px / 4.5 mm, `max_correlation` 0.99, `max_pan_axis_delta_mm` 50), Huber scale, floor prior weight (10, user decision 2026-10-23) and the `base_in_base_link` gauge (0.0592, -0.05, 0.100). |
 | `test_board_is_the_existing_charuco_board` | The default board equals the `charuco` spec in the markers YAML. |
 | `test_unknown_keys_and_bad_joint_set_rejected` | Unknown keys, a joint-offset set missing `wrist_roll` or containing `gripper`, and `holdout_every=1` raise `ValidationError`. |
 | `test_arm_gauge_matches_client_yml` | Default joint offsets and `base_in_base_link` equal the arm config in `client.yml`. |

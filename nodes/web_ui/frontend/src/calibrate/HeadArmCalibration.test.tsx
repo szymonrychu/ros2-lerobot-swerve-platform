@@ -130,6 +130,34 @@ describe('HeadArmCalibration', () => {
     expect(screen.getByText(/source head_arm/)).toBeTruthy()
   })
 
+  it('shows the pan axis parameters and the RMS per head offset', async () => {
+    setState(seq({}))
+    m.computeHeadArm.mockResolvedValue(ok(resultFx as api.HeadArmResult))
+    render(<HeadArmCalibration />)
+    await screen.findByText(/without the board/)
+    await click('Compute')
+    await screen.findByText('Passed')
+    // Start 0, fitted and delta in mm, sigma, no floor value.
+    const row = (label: string) => screen.getByText(label).closest('tr')?.textContent
+    expect(row('Pan axis x (mm)')).toBe('Pan axis x (mm)0.00-30.10-30.100.40--')
+    expect(row('Pan axis y (mm)')).toBe('Pan axis y (mm)0.00-9.90-9.900.60--')
+    expect(screen.getByText('Head offset 0: 24 views, RMS 0.41 px')).toBeTruthy()
+    expect(screen.getByText('Head offset 1: 24 views, RMS 0.43 px')).toBeTruthy()
+  })
+
+  it('a result without pan axis or per-offset RMS shows neither', async () => {
+    setState(seq({}))
+    const params = Object.fromEntries(Object.entries(resultFx.params).filter(([k]) => !k.startsWith('pan_axis')))
+    const { offset_rms_px: _omit, ...older } = resultFx
+    m.computeHeadArm.mockResolvedValue(ok({ ...older, params } as unknown as api.HeadArmResult))
+    render(<HeadArmCalibration />)
+    await screen.findByText(/without the board/)
+    await click('Compute')
+    await screen.findByText('Passed')
+    expect(screen.queryByText('Pan axis x (mm)')).toBeNull()
+    expect(screen.queryByText(/Head offset 0/)).toBeNull()
+  })
+
   it('Compute is disabled without views', async () => {
     setState(seq({}), [{ ...SESSION, views: 0 }])
     render(<HeadArmCalibration />)
