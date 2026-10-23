@@ -56,6 +56,13 @@ export interface HeadArmPerView {
   held_out: boolean;
 }
 
+/** Corner RMS of every view at one head offset (index into arm_sequence.head_offsets_deg). */
+export interface HeadArmOffsetRms {
+  head_offset: number;
+  views: number;
+  rms_px: number;
+}
+
 /** result.json of one head-from-arm fit. */
 export interface HeadArmResult {
   id: string;
@@ -75,6 +82,8 @@ export interface HeadArmResult {
   params: Record<string, HeadArmParam>;
   board_mount: { xyz: number[]; rpy: number[] };
   per_view: HeadArmPerView[];
+  /** Absent in results computed before the per-offset breakdown (2026-10-23). */
+  offset_rms_px?: HeadArmOffsetRms[];
   floor: { session: string; result: string } | null;
 }
 

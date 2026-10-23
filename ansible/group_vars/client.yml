@@ -1644,12 +1644,23 @@ ros2_nodes:
           xyz_init: [-0.1665, 0.1938, -0.1181] # initial mount position, m
           rpy_init: [3.141593, 0.0, 0.185886] # initial mount roll/pitch/yaw, rad
           outline_margin_m: 0.01 # margin around the board outline, m
+        # Fit the head pan axis position (head_pan origin x, y) relative to the head; the head_tilt origin moves back by
+        # the same shift so the head stays put at pan 0. Session calib-20261023-074418: the fixed axis left 13 px at the
+        # +-10 deg pan offsets (rms 12.2 px), the free axis sits 38 mm behind and 11 mm right of the URDF value (rms 2.7 px).
+        fit_pan_axis: true
+        # The residual limits are evidence from calib-20261023-074418 refitted with the free
+        # pan axis over five leave-poses-out folds (tests/test_head_arm_real_session.py): the arm is about 2 mm accurate
+        # (gripper camera calibration), about 2.5 px at the board distance; fit rms 2.51-2.72 px, held-out 2.56-3.59 px
+        # and 2.89-3.77 mm, sigma at most 0.72 mm and 0.153 deg, largest correlation 0.973-0.976 (mount y / mount yaw).
+        # Wrong models of the same views stay above rms_px: fixed pan axis 11.2-12.2 px (held-out 9.4-14.9 px,
+        # 9.4-10.5 mm), a pan scale factor instead of the axis 3.07-3.33 px.
         limits: # acceptance limits of the fit
-          rms_px: 1.0
-          holdout_rms_px: 1.5
-          holdout_board_mm: 5.0
+          rms_px: 3.0 # fit-view corner RMS, px
+          holdout_rms_px: 4.0 # held-out arm poses corner RMS, px
+          holdout_board_mm: 4.5 # held-out board centre, arm FK against the view's solvePnP, RMS mm
           max_sigma_mm: 2.0
           max_sigma_deg: 0.2
+          max_correlation: 0.99 # |correlation| of any two head parameters; degenerate sets reach 0.994 or more
           min_views: 40
           min_arm_poses: 16
           min_pan_span_deg: 30.0
@@ -1659,6 +1670,7 @@ ros2_nodes:
           max_floor_delta_deg: 1.5
           max_start_delta_mm: 30.0
           max_start_delta_deg: 5.0
+          max_pan_axis_delta_mm: 50.0 # pan axis shift against its start, mm (head 90 mm wide; the session gave 38 mm)
         huber_f_scale_px: 1.0 # robust loss scale, px
         base_in_base_link: # arm base in base_link, m and rad
           x: 0.0592
@@ -1671,7 +1683,10 @@ ros2_nodes:
           elbow_flex: -0.107
           wrist_flex: 0.0988
           wrist_roll: -0.071
-        floor_prior_weight: 0.0 # weight of the floor-fit prior (>= 0)
+        # Weight of the floor-fit prior (>= 0). User decision 2026-10-23 (replaces D49's prior off): 10. Session
+        # calib-20261023-074418 without it fails the floor cross-check (pan axis direction 2.1-2.8 deg off the floor fit);
+        # with it every limit passes at rms 2.93 px (2.67 px without), held-out 2.88 px / 2.86 mm.
+        floor_prior_weight: 10.0
       # mcp_server the node moves the head and arm through (guarded tools only).
       robot:
         mcp_url: http://127.0.0.1:18200/mcp # mcp_server Streamable HTTP URL

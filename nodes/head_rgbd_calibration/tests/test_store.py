@@ -410,7 +410,7 @@ def test_load_arm_board_views(store: SessionStore, arm_sid: str) -> None:
     add_still(store, arm_sid, joints=other, arm_pose=5, tier=2, head_offset=1)
     views = store.load_arm_board_views(arm_sid)
     assert [v.view_id for v in views] == ["001", "002"]
-    assert [(v.arm_pose, v.tier) for v in views] == [(2, 0), (5, 2)]
+    assert [(v.arm_pose, v.tier, v.head_offset) for v in views] == [(2, 0, 0), (5, 2, 1)]
     assert views[0].joints == JOINTS and views[1].joints == other
     expected = still_arm_pose(JOINTS).detection
     assert np.array_equal(views[0].detection.ids, expected.ids)

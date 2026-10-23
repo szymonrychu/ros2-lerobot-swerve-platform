@@ -463,6 +463,7 @@ class SessionStore:
                     tier=meta["tier"],
                     joints=dict(meta["joints"]),
                     detection=detection_from_json(meta["rgb"]),
+                    head_offset=meta["head_offset"],
                 )
             )
         return views

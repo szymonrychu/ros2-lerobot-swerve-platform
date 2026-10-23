@@ -60,6 +60,9 @@ const PARAM_ROWS: ParamRow[] = [
   { label: 'Mount yaw (deg)', key: 'mount_yaw_deg', scale: 1, digits: 3 },
   { label: 'Tilt zero (deg)', key: 'tilt_zero_deg', scale: 1, digits: 3 },
   { label: 'Tilt roll (deg)', key: 'tilt_roll_deg', scale: 1, digits: 3 },
+  // Head pan axis position relative to the head (head_pan origin x, y); only when the fit frees it.
+  { label: 'Pan axis x (mm)', key: 'pan_axis_x_m', scale: M_TO_MM, digits: 2 },
+  { label: 'Pan axis y (mm)', key: 'pan_axis_y_m', scale: M_TO_MM, digits: 2 },
 ]
 
 const signed = (v: number, digits: number) => `${v >= 0 ? '+' : ''}${v.toFixed(digits)}`
@@ -82,6 +85,11 @@ function ResultView({ result }: { result: HeadArmResult }) {
       <Typography variant="body2" sx={{ mt: 1 }}>
         {`RMS ${result.rms_px.toFixed(2)} px. Held-out RMS ${result.holdout_rms_px.toFixed(2)} px. Held-out board error ${result.holdout_board_mm.toFixed(2)} mm.`}
       </Typography>
+      {result.offset_rms_px?.map((o) => (
+        <Typography key={o.head_offset} variant="body2" color="text.secondary">
+          {`Head offset ${o.head_offset}: ${o.views} views, RMS ${o.rms_px.toFixed(2)} px`}
+        </Typography>
+      ))}
       <Typography variant="body2">
         {`${result.views} views, ${result.arm_poses} arm poses, pan span ${result.pan_span_deg.toFixed(1)} deg, tilt span ${result.tilt_span_deg.toFixed(1)} deg`}
         {corr ? `, largest correlation ${corr.value.toFixed(3)} (${corr.pair.join(' / ')})` : ''}

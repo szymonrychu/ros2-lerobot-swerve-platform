@@ -17,7 +17,6 @@ import yaml
 from ros2_common.head_rgbd_calibration.floor_fit import json_float
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
     FLOOR_PARAMS,
-    PARAM_NAMES,
     HeadArmFit,
     fit_head_from_arm,
     head_arm_report_markdown,
@@ -87,7 +86,8 @@ def result_body(
     rid: str, sid: str, now: datetime, fit: HeadArmFit, cfg: NodeConfig, floor: dict[str, float] | None,
     floor_ref: dict[str, str] | None,
 ) -> dict[str, Any]:  # fmt: skip
-    """The result.json content of a computed fit."""
+    """The result.json content of a computed fit: one `params` entry per fitted parameter (the pan axis ones too, with
+    no floor value), `offset_rms_px` the residual per head offset."""
     body = fit.to_json()
     params = {
         name: {
@@ -97,7 +97,7 @@ def result_body(
             "floor": json_float(floor[name]) if floor and name in floor else None,
             "floor_delta": body["floor_delta"].get(name),
         }
-        for name in PARAM_NAMES
+        for name in body["params"]
     }
     checks = [
         {"name": name, "value": json_float(value), "limit": json_float(limit), "ok": bool(ok)}
@@ -127,6 +127,7 @@ def result_body(
         "params": params,
         "board_mount": body["board_mount"],
         "per_view": body["per_view"],
+        "offset_rms_px": body["offset_rms_px"],
         "limits": checks,
         "floor": floor_ref,
     }

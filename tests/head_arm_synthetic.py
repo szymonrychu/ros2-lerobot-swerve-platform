@@ -271,12 +271,37 @@ def perturbed_origins(head_urdf: str, deltas: dict[str, float]) -> dict[str, Ori
     }
 
 
+def moved_pan_axis(head_urdf: str, dx_m: float, dy_m: float) -> dict[str, Origin]:
+    """head_pan and head_tilt origins that move the pan axis by (dx_m, dy_m) in head_pan_base and leave the head where
+    it is at pan 0: the head_pan origin moves by (dx, dy, 0) and the head_tilt origin back by the same amount (the head
+    URDF head_pan rpy is zero, so both shifts are in the same frame).
+
+    Args:
+        head_urdf: Head URDF text (the start chain).
+        dx_m: Pan axis shift along head_pan_base x (m).
+        dy_m: Pan axis shift along head_pan_base y (m).
+
+    Returns:
+        dict[str, Origin]: Origins of head_pan and head_tilt (head_tilt keeps its URDF rpy; `synth_truth` merges the
+            moved xyz with the perturbed rpy).
+    """
+    chain = UrdfChain.from_text(head_urdf)
+    (px, py, pz), pan_rpy = chain.origin(PAN_JOINT)
+    assert max(abs(v) for v in pan_rpy) < 1e-12, "moved_pan_axis assumes a zero head_pan rpy"
+    (tx, ty, tz), tilt_rpy = chain.origin(TILT_JOINT)
+    return {
+        PAN_JOINT: Origin((px + dx_m, py + dy_m, pz), pan_rpy),
+        TILT_JOINT: Origin((tx - dx_m, ty - dy_m, tz), tilt_rpy),
+    }
+
+
 def synth_truth(
     head_urdf: str,
     deltas: dict[str, float] | None = None,
     extra: dict[str, Origin] | None = None,
     cfg: HeadArmFitConfig | None = None,
     mount: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None,
+    pan_axis_m: tuple[float, float] = (0.0, 0.0),
 ) -> HeadArmTruth:
     """Truth of a scene: the chain of `head_urdf` moved by `deltas`, plus `extra` origins, and the board mount.
 
@@ -287,18 +312,23 @@ def synth_truth(
         extra: Further origin overrides (e.g. a head_pan origin), applied after `deltas`.
         cfg: Fit config whose board geometry places the nominal mount; the default config when None.
         mount: Board mount (xyz m, rpy rad) in gripper_link; `nominal_board_mount` when None.
+        pan_axis_m: Pan axis shift (x, y) in head_pan_base (m), the head kept in place at pan 0 (`moved_pan_axis`).
 
     Returns:
         HeadArmTruth: The truth.
     """
     xyz, rpy = mount or nominal_board_mount(cfg or HeadArmFitConfig())
     moved = perturbed_origins(head_urdf, SYNTH_TRUTH_DELTAS if deltas is None else deltas)
+    axis = moved_pan_axis(head_urdf, *pan_axis_m)
+    tilt = moved[TILT_JOINT]
+    moved[PAN_JOINT] = axis[PAN_JOINT]
+    moved[TILT_JOINT] = Origin(axis[TILT_JOINT].xyz, tilt.rpy)
     return HeadArmTruth(origins={**moved, **(extra or {})}, board_xyz=xyz, board_rpy=rpy)
 
 
 def synth_fit_config(**overrides: object) -> HeadArmFitConfig:
     """Fit config whose board mount start is `MOUNT_INIT_SHIFT_M` / `MOUNT_INIT_TURN_DEG` off the nominal (truth)
-    mount.
+    mount, the floor prior off (`floor_prior_weight` 0) unless overridden.
 
     Args:
         **overrides: Further HeadArmFitConfig fields.
@@ -307,7 +337,9 @@ def synth_fit_config(**overrides: object) -> HeadArmFitConfig:
         HeadArmFitConfig: The config.
     """
     xyz, rpy = perturbed_board_mount(*nominal_board_mount(HeadArmFitConfig()), MOUNT_INIT_SHIFT_M, MOUNT_INIT_TURN_DEG)
-    return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=xyz, rpy_init=rpy), **overrides)
+    # The scenes move the truth away from the applied floor values, so the floor prior is off unless asked for.
+    fields: dict[str, object] = {"floor_prior_weight": 0.0, **overrides}
+    return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=xyz, rpy_init=rpy), **fields)
 
 
 def truth_chain(chain: UrdfChain, origins: dict[str, Origin]) -> UrdfChain:
@@ -357,7 +389,8 @@ def arm_board_scene(
         tiers: Tier of each arm pose; 0 for every pose when None.
 
     Returns:
-        list[ArmBoardView]: Views, id `p<pose>-h<offset>`, `arm_pose` the index into `arm_poses`.
+        list[ArmBoardView]: Views, id `p<pose>-h<offset>`, `arm_pose` the index into `arm_poses`, `head_offset` the
+            index into `head_offsets_deg`.
     """
     rng = np.random.default_rng(seed)
     head = UrdfChain.from_text(head_urdf)
@@ -401,6 +434,7 @@ def arm_board_scene(
                     tier=0 if tiers is None else tiers[pose_index],
                     joints={**joints, PAN_JOINT: pan, TILT_JOINT: tilt},
                     detection=Detection(ids=ids, points=points.astype(np.float64)),
+                    head_offset=k,
                 )
             )
     return views

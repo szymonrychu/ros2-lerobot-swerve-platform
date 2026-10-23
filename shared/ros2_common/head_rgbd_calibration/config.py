@@ -129,13 +129,25 @@ class BoardMountConfig(StrictModel):
 
 
 class HeadArmFitLimits(StrictModel):
-    """Acceptance limits of the head-from-arm fit; a result outside any of them is refused."""
+    """Acceptance limits of the head-from-arm fit; a result outside any of them is refused.
 
-    rms_px: float = Field(default=1.0, gt=0)
-    holdout_rms_px: float = Field(default=1.5, gt=0)
-    holdout_board_mm: float = Field(default=5.0, gt=0)
+    The residual limits come from the real session calib-20261023-074418 (29 arm poses, 113 views) refitted with the
+    pan axis free over five leave-poses-out folds (tests/test_head_arm_real_session.py): the arm is about 2 mm
+    accurate (gripper camera calibration), about 2.5 px at the board distance, and the folds gave fit rms 2.51-2.72 px,
+    held-out 2.56-3.59 px and held-out board error 2.89-3.77 mm, formal sigma at most 0.72 mm and 0.153 deg, the
+    largest correlation 0.973-0.976 (mount y and mount yaw). A wrong model of the same views stays above `rms_px`: the
+    fixed pan axis 11.2-12.2 px (held-out 9.4-14.9 px, 9.4-10.5 mm), a pan scale factor instead of the axis
+    3.07-3.33 px. Degenerate parameter sets reach a correlation of 0.994 or more (`max_correlation`).
+    `max_pan_axis_delta_mm` bounds the pan axis shift against its start (the head is 90 mm wide; the session gave
+    38 mm).
+    """
+
+    rms_px: float = Field(default=3.0, gt=0)
+    holdout_rms_px: float = Field(default=4.0, gt=0)
+    holdout_board_mm: float = Field(default=4.5, gt=0)
     max_sigma_mm: float = Field(default=2.0, gt=0)
     max_sigma_deg: float = Field(default=0.2, gt=0)
+    max_correlation: float = Field(default=0.99, gt=0, le=1)
     min_views: int = Field(default=40, gt=0)
     min_arm_poses: int = Field(default=16, gt=0)
     min_pan_span_deg: float = Field(default=30.0, gt=0)
@@ -145,6 +157,7 @@ class HeadArmFitLimits(StrictModel):
     max_floor_delta_deg: float = Field(default=1.5, gt=0)
     max_start_delta_mm: float = Field(default=30.0, gt=0)
     max_start_delta_deg: float = Field(default=5.0, gt=0)
+    max_pan_axis_delta_mm: float = Field(default=50.0, gt=0)
 
 
 class BaseInBaseLink(StrictModel):
@@ -157,15 +170,25 @@ class BaseInBaseLink(StrictModel):
 
 
 class HeadArmFitConfig(StrictModel):
-    """Head-from-arm fit: board and its mount on the gripper, limits, the trusted arm gauge and the floor prior."""
+    """Head-from-arm fit: board and its mount on the gripper, limits, the trusted arm gauge and the floor prior.
+
+    `fit_pan_axis` frees the head pan axis position (head_pan origin x, y) relative to the head, which stays where
+    it is at pan 0 (head_tilt origin moved back by the same amount).
+
+    `floor_prior_weight` 10 (user decision 2026-10-23, replacing D49's prior off): without it the arm views of
+    calib-20261023-074418 put the pan axis direction 2.1-2.8 deg off the floor fit (mount roll, mount pitch and tilt
+    zero fail the floor cross-check; mount pitch plus tilt zero agree within 0.04 deg); with it the fit passes at rms
+    2.93 px against 2.67 px, held-out 2.88 px against 2.98 px.
+    """
 
     board: BoardConfig = Field(default_factory=BoardConfig)
+    fit_pan_axis: bool = True
     board_mount: BoardMountConfig = Field(default_factory=BoardMountConfig)
     limits: HeadArmFitLimits = Field(default_factory=HeadArmFitLimits)
     huber_f_scale_px: float = Field(default=1.0, gt=0)
     base_in_base_link: BaseInBaseLink = Field(default_factory=BaseInBaseLink)
     joint_offsets_rad: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_JOINT_OFFSETS_RAD))
-    floor_prior_weight: float = Field(default=0.0, ge=0)
+    floor_prior_weight: float = Field(default=10.0, ge=0)
 
     @model_validator(mode="after")
     def check_joints(self) -> Self:

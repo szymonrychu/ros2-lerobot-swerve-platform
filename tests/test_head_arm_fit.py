@@ -8,18 +8,23 @@ import json
 import math
 from dataclasses import replace
 
+import cv2
 import numpy as np
 import pytest
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy
 from ros2_common.head_rgbd_calibration.config import HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
     CAMERA_FRAME,
+    PAN_AXIS_PARAMS,
     PARAM_NAMES,
     HeadArmFit,
     aim_head,
+    camera_pose,
     fit_head_from_arm,
+    fit_param_names,
     head_arm_report_markdown,
     head_origins,
+    limit_checks,
     start_params,
 )
 from ros2_common.head_rgbd_calibration.urdf_text import Origin
@@ -50,11 +55,18 @@ TOLERANCE_MM = 1.5
 TOLERANCE_DEG = 0.15
 SIGMA_FACTOR = 3.0
 FLOOR_OFFSET_DEG = 2.0
+# Pan axis moved back and right of the head (m), the kind of shift the 2026-10-23 session showed (-38 mm, -11 mm).
+PAN_AXIS_SHIFT_M = (-0.030, -0.010)
+FIXED_PAN_MISFIT_PX = 2.0
+ALL_NAMES = (*PARAM_NAMES, *PAN_AXIS_PARAMS)
 
 
-def truth(deltas: dict[str, float], extra: dict[str, Origin] | None = None) -> HeadArmTruth:
-    """Truth: the start chain moved by `deltas`, plus `extra` origins, and the nominal board mount."""
-    return synth_truth(HEAD_URDF, deltas, extra)
+def truth(
+    deltas: dict[str, float], extra: dict[str, Origin] | None = None, pan_axis_m: tuple[float, float] = (0.0, 0.0)
+) -> HeadArmTruth:
+    """Truth: the start chain moved by `deltas` and its pan axis by `pan_axis_m`, plus `extra` origins, and the
+    nominal board mount."""
+    return synth_truth(HEAD_URDF, deltas, extra, pan_axis_m=pan_axis_m)
 
 
 def scene(t: HeadArmTruth, noise_px: float, cfg: HeadArmFitConfig | None = None) -> list:
@@ -70,9 +82,14 @@ def fit(views: list, cfg: HeadArmFitConfig | None = None, floor: dict[str, float
 
 
 def expected(deltas: dict[str, float]) -> dict[str, float]:
-    """Parameter values (m, deg) of the start chain moved by `deltas`."""
-    start = start_params(UrdfChain.from_text(HEAD_URDF))
-    return {name: start[name] + deltas.get(name, 0.0) for name in PARAM_NAMES}
+    """Parameter values (m, deg) of the start chain moved by `deltas` (pan axis entries included)."""
+    start = start_params(UrdfChain.from_text(HEAD_URDF), ALL_NAMES)
+    return {name: start[name] + deltas.get(name, 0.0) for name in ALL_NAMES}
+
+
+@pytest.fixture(scope="module")
+def pan_axis_views() -> list:
+    return scene(truth(SYNTH_TRUTH_DELTAS, pan_axis_m=PAN_AXIS_SHIFT_M), NOISE_PX)
 
 
 @pytest.fixture(scope="module")
@@ -91,7 +108,8 @@ def tolerance(name: str) -> float:
 
 def test_recovers_perturbed_head_chain_with_noise(noisy_fit: HeadArmFit) -> None:
     want = expected(SYNTH_TRUTH_DELTAS)
-    for name in PARAM_NAMES:
+    assert tuple(noisy_fit.params) == ALL_NAMES
+    for name in ALL_NAMES:
         error = abs(noisy_fit.params[name] - want[name])
         assert error <= tolerance(name), (name, noisy_fit.params[name], want[name])
         assert error <= SIGMA_FACTOR * noisy_fit.sigma[name], (name, error, noisy_fit.sigma[name])
@@ -115,18 +133,22 @@ def test_fit_reports_coverage_and_holdout(noisy_fit: HeadArmFit, noisy_views: li
     assert noisy_fit.tilt_span_deg >= cfg.limits.min_tilt_span_deg
     assert set(noisy_fit.floor_delta) == set(APPLIED_FLOOR)
     pair, value = noisy_fit.max_correlation.pair, noisy_fit.max_correlation.value
-    assert len(pair) == 2 and set(pair) <= set(PARAM_NAMES)
-    assert abs(value) < 0.999  # no free parameter is degenerate with another (design D32)
+    assert len(pair) == 2 and set(pair) <= set(ALL_NAMES)
+    assert abs(value) < cfg.limits.max_correlation  # no free parameter is degenerate with another (design D32)
     data = json.loads(json.dumps(noisy_fit.to_json(), allow_nan=False))
     assert data["passed"] is True
-    assert set(data["origins"]) == {"head_mount_joint", "head_tilt"}
+    assert set(data["origins"]) == {"head_mount_joint", "head_pan", "head_tilt"}
     assert set(data["per_view"][0]) == {"view_id", "arm_pose", "rms_px", "held_out"}
+    offsets = {entry["head_offset"]: entry for entry in data["offset_rms_px"]}
+    assert sorted(offsets) == list(range(len(DEFAULT_HEAD_OFFSETS_DEG)))
+    assert sum(entry["views"] for entry in offsets.values()) == len(noisy_views)
+    assert all(entry["rms_px"] < 0.5 for entry in offsets.values())
 
 
 def test_noiseless_recovery_exact() -> None:
     result = fit(scene(truth(SYNTH_TRUTH_DELTAS), 0.0))
     want = expected(SYNTH_TRUTH_DELTAS)
-    for name in PARAM_NAMES:
+    for name in ALL_NAMES:
         assert result.params[name] == pytest.approx(want[name], abs=1e-6), name
     np.testing.assert_allclose(
         pose_from_xyz_rpy(result.board_mount["xyz"], result.board_mount["rpy"]),
@@ -181,17 +203,100 @@ def test_noisy_views_fail_a_sigma_limit() -> None:
 
 def test_fixed_components_stay_at_urdf(noisy_fit: HeadArmFit) -> None:
     chain = UrdfChain.from_text(HEAD_URDF)
-    assert set(noisy_fit.origins) == {"head_mount_joint", "head_tilt"}
-    assert noisy_fit.origins["head_tilt"].xyz == pytest.approx(chain.origin("head_tilt")[0], abs=1e-12)
-    assert noisy_fit.origins["head_tilt"].rpy[2] == pytest.approx(chain.origin("head_tilt")[1][2], abs=1e-12)
-    values = [noisy_fit.params[n] if n.endswith("_m") else math.radians(noisy_fit.params[n]) for n in PARAM_NAMES]
-    model = head_origins(chain, np.array(values))
-    assert set(model) == {"head_mount_joint", "head_tilt"}
-    assert model["head_mount_joint"].xyz == pytest.approx(noisy_fit.origins["head_mount_joint"].xyz, abs=1e-12)
-    assert model["head_mount_joint"].rpy == pytest.approx(noisy_fit.origins["head_mount_joint"].rpy, abs=1e-12)
-    assert model["head_tilt"].rpy == pytest.approx(noisy_fit.origins["head_tilt"].rpy, abs=1e-12)
-    # head_pan, head_camera_joint and the optical joint are not overridden: the model uses the URDF for them.
-    assert "head_pan" not in model and "head_camera_joint" not in model
+    pan_xyz, pan_rpy = chain.origin("head_pan")
+    tilt_xyz, tilt_rpy = chain.origin("head_tilt")
+    assert set(noisy_fit.origins) == {"head_mount_joint", "head_pan", "head_tilt"}
+    pan = noisy_fit.origins["head_pan"]
+    assert pan.xyz[:2] == pytest.approx((noisy_fit.params["pan_axis_x_m"], noisy_fit.params["pan_axis_y_m"]), abs=1e-12)
+    assert pan.xyz[2] == pytest.approx(pan_xyz[2], abs=1e-12)
+    assert pan.rpy == pytest.approx(pan_rpy, abs=1e-12)
+    # The head stays put at pan 0: the head_tilt origin moves back by the pan axis shift (head_pan rpy is zero).
+    shift = np.subtract(pan.xyz, pan_xyz)
+    assert noisy_fit.origins["head_tilt"].xyz == pytest.approx(tuple(np.subtract(tilt_xyz, shift)), abs=1e-12)
+    assert noisy_fit.origins["head_tilt"].rpy[2] == pytest.approx(tilt_rpy[2], abs=1e-12)
+    values = [noisy_fit.params[n] if n.endswith("_m") else math.radians(noisy_fit.params[n]) for n in ALL_NAMES]
+    model = head_origins(chain, np.array(values), ALL_NAMES)
+    assert set(model) == {"head_mount_joint", "head_pan", "head_tilt"}
+    for joint in model:
+        assert model[joint].xyz == pytest.approx(noisy_fit.origins[joint].xyz, abs=1e-12), joint
+        assert model[joint].rpy == pytest.approx(noisy_fit.origins[joint].rpy, abs=1e-12), joint
+    # head_camera_joint and the optical joint are not overridden: the model uses the URDF for them.
+    assert "head_camera_joint" not in model
+
+
+def test_fixed_pan_axis_keeps_mount_and_tilt_only() -> None:
+    cfg = synth_fit_config(fit_pan_axis=False)
+    assert fit_param_names(cfg) == PARAM_NAMES
+    result = fit(scene(truth(SYNTH_TRUTH_DELTAS), NOISE_PX), cfg=cfg)
+    assert tuple(result.params) == PARAM_NAMES
+    assert set(result.origins) == {"head_mount_joint", "head_tilt"}
+    chain = UrdfChain.from_text(HEAD_URDF)
+    assert result.origins["head_tilt"].xyz == pytest.approx(chain.origin("head_tilt")[0], abs=1e-12)
+    assert result.passed, result.failed_limits
+
+
+def test_pan_axis_parameters_move_the_axis_not_the_head() -> None:
+    chain = UrdfChain.from_text(HEAD_URDF)
+    start = start_params(chain, ALL_NAMES)
+    shift = np.array([0.02, -0.015])
+    values = [start[n] if n.endswith("_m") else math.radians(start[n]) for n in ALL_NAMES]
+    values[len(PARAM_NAMES) :] = list(np.add(values[len(PARAM_NAMES) :], shift))
+    moved = head_origins(chain, np.array(values), ALL_NAMES)
+    still = {"head_pan": 0.0, "head_tilt": 0.2}
+    np.testing.assert_allclose(camera_pose(chain, still, moved), camera_pose(chain, still), atol=1e-12)
+    mount = moved["head_mount_joint"]
+    pan_base = chain.transform("head_pan_base", {}, {"head_mount_joint": (mount.xyz, mount.rpy)})
+    axis_point = pan_base @ np.append(moved["head_pan"].xyz, 1.0)
+    axis_dir = pan_base[:3, :3] @ np.array([0.0, 0.0, 1.0])
+    turn = 0.3
+    rotation = cv2.Rodrigues(axis_dir * turn)[0]
+    at_zero = camera_pose(chain, still, moved)
+    turned = camera_pose(chain, {**still, "head_pan": turn}, moved)
+    np.testing.assert_allclose(turned[:3, 3], axis_point[:3] + rotation @ (at_zero[:3, 3] - axis_point[:3]), atol=1e-12)
+    np.testing.assert_allclose(turned[:3, :3], rotation @ at_zero[:3, :3], atol=1e-12)
+
+
+def test_pan_axis_fit_recovers_moved_pan_axis(pan_axis_views: list) -> None:
+    result = fit(pan_axis_views)
+    want = expected({**SYNTH_TRUTH_DELTAS, "pan_axis_x_m": PAN_AXIS_SHIFT_M[0], "pan_axis_y_m": PAN_AXIS_SHIFT_M[1]})
+    for name in ALL_NAMES:
+        error = abs(result.params[name] - want[name])
+        assert error <= tolerance(name), (name, result.params[name], want[name])
+        assert error <= SIGMA_FACTOR * result.sigma[name], (name, error, result.sigma[name])
+    assert result.rms_px < 0.5
+    assert result.holdout_board_mm < 2.0
+    assert all(value < 0.5 for value in result.offset_rms_px.values())
+    assert abs(result.max_correlation.value) < synth_fit_config().limits.max_correlation
+    assert result.passed, result.failed_limits
+
+
+def test_fixed_pan_axis_fit_cannot_absorb_moved_pan_axis(pan_axis_views: list) -> None:
+    result = fit(pan_axis_views, cfg=synth_fit_config(fit_pan_axis=False))
+    assert result.rms_px > FIXED_PAN_MISFIT_PX
+    by_offset = result.offset_rms_px
+    # The +-10 deg pan offsets carry the misfit (as the 2026-10-23 session: 13 px against 10 px).
+    assert min(by_offset[1], by_offset[2]) > by_offset[0]
+    assert "rms_px" in result.failed_limits
+    assert not result.passed
+
+
+def test_max_correlation_limit(noisy_fit: HeadArmFit) -> None:
+    cfg = synth_fit_config()
+    names = [name for name, *_ in limit_checks(noisy_fit, cfg.limits)]
+    assert "max_correlation" in names
+    tight = cfg.limits.model_copy(update={"max_correlation": 0.1})
+    failed = [name for name, _, _, ok in limit_checks(noisy_fit, tight) if not ok]
+    assert failed == ["max_correlation"]
+
+
+def test_pan_axis_delta_limit(noisy_fit: HeadArmFit) -> None:
+    cfg = synth_fit_config()
+    names = {name for name, *_ in limit_checks(noisy_fit, cfg.limits)}
+    assert names >= {"start_delta:pan_axis_x_m", "start_delta:pan_axis_y_m"}
+    shifted = noisy_fit.start_params["pan_axis_x_m"] - 0.06
+    moved = replace(noisy_fit, params={**noisy_fit.params, "pan_axis_x_m": shifted})
+    failed = [name for name, _, _, ok in limit_checks(moved, cfg.limits) if not ok]
+    assert failed == ["start_delta:pan_axis_x_m"]
 
 
 def test_aim_head() -> None:
@@ -213,9 +318,11 @@ def test_aim_head() -> None:
 
 def test_report_names_every_parameter(noisy_fit: HeadArmFit) -> None:
     text = head_arm_report_markdown(noisy_fit, synth_fit_config(), "arm-20261022-120000", "2026-10-22")
-    for name in PARAM_NAMES:
+    for name in ALL_NAMES:
         assert name in text
     assert "pan zero folded into mount_yaw_deg" in text
+    assert "## Residuals per head offset" in text
+    assert "| 1 |" in text
     assert "holdout_board_mm" in text
     assert "PASS" in text
 
