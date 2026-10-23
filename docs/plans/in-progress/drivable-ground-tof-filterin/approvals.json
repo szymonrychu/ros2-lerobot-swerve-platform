@@ -549,5 +549,16 @@
       "agent-retro-skill-lessons"
     ],
     "status": "approved"
+  },
+  {
+    "id": "PARK",
+    "text": "User 2026-10-23: 'Park should be possible with board for easy retries.' Replaces HQ3's park-only-after-the-board-is-off: Park with the calibration board on is allowed when the park path passes the FK pose check with the board outline (plus a sag margin); any other carried object keeps the carry refusal.",
+    "decisions": [
+      "D63"
+    ],
+    "tasks": [
+      "head-arm-pose-capture-sequen"
+    ],
+    "status": "approved"
   }
 ]
