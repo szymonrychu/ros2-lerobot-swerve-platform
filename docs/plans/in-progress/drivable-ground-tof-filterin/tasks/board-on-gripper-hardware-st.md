@@ -66,6 +66,10 @@ safety check use real geometry.
 - Run `test -f docs/runbooks/head-arm-calibration.md && grep -q '^## Hardware' docs/runbooks/head-arm-calibration.md`;
   expect exit 0.
 
+## Ruling
+
+- 2026-10-23 accepted: The numeric mount is not missing: the user described it (photo + 'up', 20 mm past the tip) and commit 4daf0e5d turned it into xyz_init [-0.1665, 0.1938, -0.1181] / rpy_init [3.141593, 0, 0.185886] in gripper_link; the live fit then solved the real mount (result r-20261023-112701 passed). Design D47: the measurement is only a start value. Runbook section written and verified (a6cf97c1).
+
 ## Notes
 
 - No robot motion in this task.
