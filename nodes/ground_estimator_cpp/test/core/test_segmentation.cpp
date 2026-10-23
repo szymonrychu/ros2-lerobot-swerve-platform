@@ -64,6 +64,16 @@ TEST(Segmentation, ClassifyBands)
   EXPECT_EQ(classify(0.0, b.max_range_m + 0.01, b, FLOOR_DISTANCE_M), Band::none);
 }
 
+TEST(Segmentation, ShippedFloorBandCoversThirtyFiveMillimetresBothWays)
+{
+  const BandsConfig b;
+  EXPECT_DOUBLE_EQ(b.floor_band_m, 0.04);
+  EXPECT_EQ(classify(0.035, 1.0, b, b.floor_band_m), Band::floor);
+  EXPECT_EQ(classify(-0.035, 1.0, b, b.floor_band_m), Band::floor);
+  EXPECT_EQ(classify(0.045, 1.0, b, b.floor_band_m), Band::above);
+  EXPECT_EQ(classify(-0.045, 1.0, b, b.floor_band_m), Band::below);
+}
+
 TEST(Segmentation, ClassifyIgnoresTheRobotsOwnNearZone)
 {
   // The parked gripper and the mixed pixels trailing from it read as a 6 cm obstacle up to 0.42 m from base_link.

@@ -42,6 +42,14 @@ constexpr int DECIMATION = 2;
 constexpr double LOW_SILL_M = 0.035;
 constexpr double HIGH_SILL_M = 0.045;
 
+// The 40 mm step rule (max_step_fraction 0.3333) the scenes below are calibrated for; the shipped rule is 60 mm.
+TraversabilityConfig legacy_rule()
+{
+  TraversabilityConfig cfg;
+  cfg.max_step_fraction = 0.3333;
+  return cfg;
+}
+
 ground_test::Sensor over_the_lip()
 {
   ground_test::Sensor sensor;
@@ -63,7 +71,7 @@ ground_test::Sensor overhead()
 
 Traversability run(
   const Scene & scene, const ground_test::Sensor & sensor = overhead(), double floor_distance = FLOOR_DISTANCE_M,
-  const TraversabilityConfig & cfg = TraversabilityConfig{})
+  const TraversabilityConfig & cfg = legacy_rule())
 {
   const auto seg =
     segment(render(scene, SIGMA_M, 0.0, SEED, DECIMATION, sensor), Plane{}, BandsConfig{}, floor_distance);
@@ -128,7 +136,7 @@ bool has_kind(const Traversability & t, const std::string & kind)
 
 TEST(Traversability, ClassifyThresholdsAreWarnings)
 {
-  const TraversabilityConfig cfg;
+  const TraversabilityConfig cfg = legacy_rule();
   EXPECT_EQ(classify_cluster(0.04, 15.0, true, cfg).cls, Cls::warning);
   EXPECT_EQ(classify_cluster(0.04, 15.0, true, cfg).reason, "traversable");
   const auto step = classify_cluster(0.0401, 0.0, true, cfg);
@@ -181,7 +189,7 @@ TEST(Traversability, BoxIsObstacle)
 
 TEST(Traversability, LargerWheelRidesFiveCentimetres)
 {
-  TraversabilityConfig cfg;
+  TraversabilityConfig cfg = legacy_rule();
   cfg.wheel_radius_m = 0.09;
   const auto t = run(sill(0.05), overhead(), FLOOR_DISTANCE_M, cfg);
   EXPECT_TRUE(t.obstacle.empty());
@@ -216,9 +224,9 @@ TEST(Traversability, IsolatedReturns)
   const EdgesConfig edges;
   const auto tall = returns({{1.0F, 0.0F}}, 0.10F);
   const auto none = returns({{1.0F, 0.0F}}, 0.03F);
-  const auto lone = apply_rule({}, {}, tall, {0.10F}, empty, {}, {}, edges, TraversabilityConfig{});
+  const auto lone = apply_rule({}, {}, tall, {0.10F}, empty, {}, {}, edges, legacy_rule());
   EXPECT_TRUE(lone.obstacle.empty());
-  TraversabilityConfig single;
+  TraversabilityConfig single = legacy_rule();
   single.lethal_min_points = 1;
   const auto a = apply_rule({}, {}, tall, {0.10F}, empty, {}, {}, edges, single);
   EXPECT_EQ(a.obstacle.size(), 1u);
@@ -233,7 +241,7 @@ TEST(Traversability, LethalNeedsNeighbour)
 {
   const pcl::PointCloud<pcl::PointXYZ> empty;
   const EdgesConfig edges;
-  const TraversabilityConfig cfg;
+  const TraversabilityConfig cfg = legacy_rule();
   const auto close = returns({{1.0F, 0.0F}, {1.05F, 0.0F}}, 0.10F);
   const auto far = returns({{1.0F, 0.0F}, {1.5F, 0.0F}}, 0.10F);
   EXPECT_EQ(apply_rule({}, {}, close, {0.10F, 0.10F}, empty, {}, {}, edges, cfg).obstacle.size(), 2u);
@@ -284,7 +292,7 @@ TEST(Traversability, ColourPlateIsWarningOnly)
 
 TEST(Traversability, UnknownSlopeUsesEdgeStepOnly)
 {
-  const TraversabilityConfig cfg;
+  const TraversabilityConfig cfg = legacy_rule();
   EXPECT_EQ(classify_cluster(0.03, 40.0, false, cfg).cls, Cls::warning);
   EXPECT_EQ(classify_cluster(0.05, 0.0, false, cfg).cls, Cls::obstacle);
   EXPECT_EQ(classify_cluster(0.03, 40.0, true, cfg).cls, Cls::obstacle);
@@ -371,4 +379,12 @@ TEST(WithinDeadband, TwoValuesUseTheDeadband)
 {
   EXPECT_TRUE(::ground_estimator_cpp::within_deadband(1.0, 1.04, 0.05));
   EXPECT_FALSE(::ground_estimator_cpp::within_deadband(1.0, 1.06, 0.05));
+}
+
+TEST(Traversability, ShippedRuleSplitsFiftyFiveFromSixtyFiveMillimetres)
+{
+  const TraversabilityConfig cfg;
+  EXPECT_EQ(classify_cluster(0.055, 0.0, true, cfg).cls, Cls::warning);
+  EXPECT_EQ(classify_cluster(0.06, 0.0, true, cfg).cls, Cls::warning);
+  EXPECT_EQ(classify_cluster(0.065, 0.0, true, cfg).cls, Cls::obstacle);
 }

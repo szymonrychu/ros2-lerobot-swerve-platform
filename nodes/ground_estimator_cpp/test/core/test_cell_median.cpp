@@ -27,6 +27,7 @@ constexpr double SIGMA_M = 0.026;
 constexpr double OUTLIER_FRACTION = 0.2;
 constexpr double OUTLIER_RANGE_M = 0.06;
 constexpr double STEP_RULE_M = 0.04;
+constexpr double LEGACY_STEP_FRACTION = 0.3333;
 constexpr double FRAME_DT_S = 0.1;
 constexpr double GRID_STEP_M = 0.04;
 constexpr int FRAMES = 20;
@@ -732,7 +733,9 @@ TEST(CellMedian, SillEdgeCellsKeepTheirMedianHeight)
 // an edge step over the step rule in every frame instead of a smeared plane at its foot.
 TEST(CellMedian, BoxEdgeCellsKeepTheStep)
 {
-  const double limit = ground_estimator_cpp::max_step_m(ground_estimator_cpp::TraversabilityConfig{});
+  ground_estimator_cpp::TraversabilityConfig rule;
+  rule.max_step_fraction = LEGACY_STEP_FRACTION;  // the 5 cm box is judged against the 40 mm step
+  const double limit = ground_estimator_cpp::max_step_m(rule);
   for (unsigned seed = 1; seed <= STEP_SEEDS; ++seed) {
     const Eigen::Isometry3d fixed_T_base = random_cell_alignment(seed);
     CellMedianFilter filter{TemporalConfig{}};

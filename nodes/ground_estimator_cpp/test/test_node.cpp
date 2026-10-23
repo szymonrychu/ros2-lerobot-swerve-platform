@@ -326,6 +326,21 @@ constexpr double BOX_TOP_NOISE_M = 0.004;
 constexpr double BOX_FLOOR_NOISE_M = 0.008;
 constexpr double SILL_X0 = 1.0, SILL_X1 = 1.15, SILL_HALF_WIDTH_M = 0.4;
 constexpr double SILL_HEIGHT_M = 0.03;
+constexpr double LEGACY_FLOOR_BAND_M = 0.02;
+constexpr double LEGACY_STEP_FRACTION = 0.3333;
+constexpr double LEGACY_EDGE_MIN_HEIGHT_M = 0.02;
+
+// The floor band, lethal step and edge point height the fixtures of this file were calibrated for.
+void pin_legacy_rule(Config & c)
+{
+  c.bands.floor_band_m = LEGACY_FLOOR_BAND_M;
+  c.traversability.max_step_fraction = LEGACY_STEP_FRACTION;
+  c.guidance.edge.min_height_m = LEGACY_EDGE_MIN_HEIGHT_M;
+}
+
+constexpr double FLOOR_BUMP_M = 0.035;    // inside the 40 mm floor band
+constexpr double WARNING_BUMP_M = 0.055;  // between the floor band and the 60 mm lethal step
+constexpr double LETHAL_BUMP_M = 0.065;   // above the 60 mm lethal step
 constexpr double SILL_JITTER_M = 0.01;
 constexpr double SILL_NOISE_M = 0.003;
 constexpr double MAT_X0 = 1.0, MAT_LENGTH_M = 0.25, MAT_HEIGHT_M = 0.063, MAT_Y0 = -0.45, MAT_Y1 = -0.20;
@@ -600,6 +615,20 @@ protected:
     c.imu.level_reference_roll_deg = 0.0;
     c.imu.level_reference_pitch_deg = 0.0;
     c.temporal.enabled = false;  // the static scenes below are single clouds; the temporal tests switch it on
+    // The fixtures of this file are calibrated for the 20 mm floor band and the 40 mm lethal step; the temporary
+    // shipped values (40 mm band, 60 mm step) are exercised by shipped_rule_config().
+    pin_legacy_rule(c);
+    return c;
+  }
+
+  // base_config() with the shipped floor band, lethal step and edge point height (the Config defaults).
+  Config shipped_rule_config()
+  {
+    Config c = base_config();
+    const Config defaults;
+    c.bands.floor_band_m = defaults.bands.floor_band_m;
+    c.traversability.max_step_fraction = defaults.traversability.max_step_fraction;
+    c.guidance.edge.min_height_m = defaults.guidance.edge.min_height_m;
     return c;
   }
 
@@ -1087,6 +1116,60 @@ TEST_F(NodeTest, TenCentimetreDropOffIsALethalDropRegion)
   }
   EXPECT_TRUE(lethal_drop) << state->dump();
   EXPECT_GT((*state)["drop_points"].get<int>(), 50);
+}
+
+TEST_F(NodeTest, ThirtyFiveMillimetreBumpIsFloorWithNoWarningAndNoLethal)
+{
+  fill_tf();
+  start(shipped_rule_config());
+  const auto stamp = warm_cloud_and_wait(scene_cloud(sill_scene(FLOOR_BUMP_M)));
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
+  EXPECT_EQ(xyz_of(*find_stamp(drop_, stamp)).size(), 0u);
+  const auto doc = warnings_at(stamp);
+  ASSERT_TRUE(doc.has_value());
+  EXPECT_TRUE((*doc)["areas"].empty()) << doc->dump();
+  const auto state = state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_TRUE((*state)["regions"].empty()) << state->dump();
+}
+
+TEST_F(NodeTest, ThirtyFiveMillimetreDipIsFloorWithNoWarningAndNoLethal)
+{
+  fill_tf();
+  start(shipped_rule_config());
+  const auto stamp = warm_cloud_and_wait(scene_cloud(drop_scene(FLOOR_BUMP_M)));
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
+  EXPECT_EQ(xyz_of(*find_stamp(drop_, stamp)).size(), 0u);
+  const auto doc = warnings_at(stamp);
+  ASSERT_TRUE(doc.has_value());
+  EXPECT_TRUE((*doc)["areas"].empty()) << doc->dump();
+  const auto state = state_after(ns_of(stamp), [](const json & d) { return !d["plane"].is_null(); });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_TRUE((*state)["regions"].empty()) << state->dump();
+}
+
+TEST_F(NodeTest, FiftyFiveMillimetreBumpIsAStepWarningAndNeverLethal)
+{
+  fill_tf();
+  start(shipped_rule_config());
+  const auto stamp = warm_cloud_and_wait(scene_cloud(sill_scene(WARNING_BUMP_M)));
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
+  const auto doc = warnings_at(stamp);
+  ASSERT_TRUE(doc.has_value());
+  ASSERT_EQ((*doc)["areas"].size(), 1u) << doc->dump();
+  EXPECT_EQ((*doc)["areas"][0]["kind"], "step");
+}
+
+TEST_F(NodeTest, SixtyFiveMillimetreBumpIsLethal)
+{
+  fill_tf();
+  start(shipped_rule_config());
+  const auto stamp = warm_cloud_and_wait(scene_cloud(sill_scene(LETHAL_BUMP_M)));
+  ASSERT_TRUE(wait_for([&] { return find_stamp(obstacle_, stamp).has_value(); }));
+  EXPECT_GT(xyz_of(*find_stamp(obstacle_, stamp)).size(), 20u);
 }
 
 TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningInTheMapFrame)
@@ -1720,7 +1803,7 @@ TEST_F(NodeTest, SixCentimetreColourPlateIsAWarningAndNeverLethal)
   Config config = base_config();
   // A floor band wide enough that the RGB-D labelling flags the 6 cm plate as a floor colour mismatch: a colour
   // cluster 6 cm above the floor, above the 4 cm step rule. The ToF cloud is the bare floor; colour never blocks.
-  config.fit.distance_m = 0.07;
+  config.bands.floor_band_m = 0.07;
   start(config);
   show_red_sheet(PLATE_HEIGHT_M);
   const auto frames = run_scene(floor_frame, COLOUR_FRAMES);
@@ -1960,7 +2043,8 @@ TEST_F(NodeTest, LethalMarksOfABoxLieOnItsFootprint)
 TEST_F(NodeTest, PlacedBoxIsLethalWithinEnterFramesOfItsFirstFilteredBoxHeights)
 {
   fill_tf();
-  const Config config = shipped_config(base_config());
+  Config config = shipped_config(base_config());
+  pin_legacy_rule(config);  // the 5 cm box is lethal under the 40 mm step, not under the shipped 60 mm
   start(config);
   // The same temporal filter the node runs, on the same clouds about the true floor z = 0, tells the frame in which
   // the box cells first come out at box height.

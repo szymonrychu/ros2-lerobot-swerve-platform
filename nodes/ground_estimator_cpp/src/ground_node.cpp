@@ -307,7 +307,7 @@ GroundNode::GroundNode(
   cell_class_(config.hysteresis, config.temporal.cell_size_m),
   raw_heights_(slope_history_config(config.temporal)),
   colour_model_(config.colour),
-  no_return_(config.guidance.no_return, config.temporal.cell_size_m, config.fit.distance_m),
+  no_return_(config.guidance.no_return, config.temporal.cell_size_m, config.bands.floor_band_m),
   metrics_(NODE_NAME)
 {
   if (!tf_buffer_) {
@@ -578,7 +578,7 @@ void GroundNode::process_plane(
   // where a raw point scatters by centimetres, so a 5 cm box is told from floor noise and its mixed-pixel tail (a
   // stable bias, which no per-point test removes) from the floor behind it.
   drop_occluded(plane, sensor_base);
-  const Segmented seg = segment(filtered_cloud_, plane, config_.bands, config_.fit.distance_m);
+  const Segmented seg = segment(filtered_cloud_, plane, config_.bands, config_.bands.floor_band_m);
   auto above = extract_clusters(
     seg.above, seg.above_height, "step", plane, config_.edges, edge_band_m, &unclustered_index_, &floor_reference_);
   gather(seg.above, seg.above_height, unclustered_index_, unclustered_above_, unclustered_above_h_);
@@ -664,7 +664,7 @@ void GroundNode::refine_slopes(
     // A new inclined cluster is fit over the clouds kept so far: fewer clouds scatter more (~1 deg at
     // temporal.min_frames clouds for the sparse 14 deg mat) but a steep incline is lethal from its first frame, where
     // an unknown slope would leave it to its edge step, which a low incline passes.
-    const auto slope = surface_slope_deg(raw_heights_.around(c.points, fixed_T_base), sign, config_.fit.distance_m);
+    const auto slope = surface_slope_deg(raw_heights_.around(c.points, fixed_T_base), sign, config_.bands.floor_band_m);
     c.slope_known = slope.has_value();
     c.slope_deg = slope.value_or(0.0);
   }
@@ -798,7 +798,7 @@ void GroundNode::on_rgbd(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & m
   }
   const Plane & plane = tracked->plane;
   const LabelStats stats =
-    label_cloud(rgbd_cloud_, plane, config_.bands, config_.colour, config_.fit.distance_m, colour_model_, labels_);
+    label_cloud(rgbd_cloud_, plane, config_.bands, config_.colour, config_.bands.floor_band_m, colour_model_, labels_);
   mismatch_cloud_.clear();
   mismatch_h_.clear();
   for (const MismatchPoint & m : mismatch_points(rgbd_cloud_, labels_, plane)) {

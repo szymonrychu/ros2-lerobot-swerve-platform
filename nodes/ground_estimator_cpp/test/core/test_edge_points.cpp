@@ -25,6 +25,7 @@ ge::EdgeGuidanceConfig test_config()
 {
   ge::EdgeGuidanceConfig c;
   c.voxel_m = 0.01;
+  c.min_height_m = 0.02;  // the cases below are 5 cm boxes; the shipped 0.06 m is the lethal step
   return c;
 }
 

@@ -186,7 +186,7 @@ def test_limits_match_tilt_guard_and_swerve() -> None:
     trav = ground["traversability"]
     assert trav["wheel_radius_m"] == swerve["wheel_radius_m"] == 0.06
     max_step = trav["wheel_radius_m"] * 2 * trav["max_step_fraction"]
-    assert math.isclose(max_step, 2 * trav["wheel_radius_m"] / 3, abs_tol=1e-4)
+    assert math.isclose(max_step, trav["wheel_radius_m"], abs_tol=1e-4)  # temporary 60 mm step (user 2026-10-23)
     assert trav["max_slope_deg"] <= min(tilt["roll_error_deg"], tilt["pitch_error_deg"])
 
 

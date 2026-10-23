@@ -63,7 +63,6 @@ constexpr const char * BASE = "base_link";
 constexpr const char * TOF_FRAME = "tof_optical_frame";
 constexpr const char * IMU_FRAME = "imu_link";  // frame of the recorded IMU samples (brief ground-live.md)
 constexpr const char * SCENES[] = {"home", "box", "ramp"};
-constexpr double MIN_BOX_LETHAL_SHARE = 0.95;    // frames after warm-up with obstacle points on the box
 constexpr double MAX_STRAY_LETHAL_SHARE = 0.05;  // frames with a lethal point within 1.2 m outside the box (p95)
 constexpr double MAX_CHURN_SHARE = 0.10;         // consecutive frames whose warning set changes
 constexpr int64_t NS_PER_S = 1000000000LL;
@@ -809,6 +808,17 @@ TEST(ReplayMetrics, BoxLethalShareCountsObstaclePointsInTheBoxRoi)
   EXPECT_TRUE(std::isnan(box_lethal_share({frame_at(0.0)})));
 }
 
+TEST(ReplayMetrics, BoxWarningShareCountsTofStepAreasCentredOnTheBox)
+{
+  using ground_replay::box_warning_share;
+  EXPECT_DOUBLE_EQ(box_warning_share(one_area("step", 0.70, 0.20)), 1.0);
+  EXPECT_DOUBLE_EQ(box_warning_share(one_area("step", 0.565, 0.20)), 0.0);  // ROI x 0.57 .. 0.81
+  EXPECT_DOUBLE_EQ(box_warning_share(one_area("step", 0.70, 0.365)), 0.0);  // ROI y 0.02 .. 0.36
+  EXPECT_DOUBLE_EQ(box_warning_share(one_area("ramp", 0.70, 0.20)), 0.0);
+  EXPECT_DOUBLE_EQ(box_warning_share(one_area("colour", 0.70, 0.20)), 0.0);
+  EXPECT_TRUE(std::isnan(box_warning_share({frame_at(0.0)})));
+}
+
 TEST(ReplayMetrics, BoardLethalFramesCountsObstacleAndDropPointsOnTheBoard)
 {
   using ground_replay::board_lethal_frames;
@@ -1407,14 +1417,16 @@ TEST_F(Harness, GuidanceOffOverridesTheConfig)
 // --- the scenes through GroundNode -------------------------------------------------------------------------------
 
 // The live-round acceptance (design D14-D19, approved items A10-A14) on the real recordings, over the frames after the
-// warm-up, the gripper zone x < 0.37 excluded: the 5 cm box is lethal in at least 95 % of the frames with no ramp or
-// step warning behind it, the board is never lethal, the black rubber ramp is never lethal (no ToF returns on the
+// warm-up, the gripper zone x < 0.37 excluded: the 5 cm box is never lethal (temporary, user 2026-10-23: floor band
+// 40 mm, lethal step 60 mm; the box reads 41-45 mm, so its step warning share is printed, not asserted), with no ramp
+// or step warning behind it, the board is never lethal, the black rubber ramp is never lethal (no ToF returns on the
 // rubber, D19), no lethal point lies within 1.2 m outside the box in more than 5 % of the frames (the empty-floor p95
 // goal) and the warning set changes in fewer than 10 % of the consecutive frames.
 TEST_F(ReplayTest, HomeSceneMeetsTheLiveRoundAcceptance)
 {
   const auto frames = replay_scene("home");
-  EXPECT_GE(ground_replay::box_lethal_share(frames), MIN_BOX_LETHAL_SHARE);
+  std::cout << "replay home: box_warning_share=" << ground_replay::box_warning_share(frames) << std::endl;
+  EXPECT_DOUBLE_EQ(ground_replay::box_lethal_share(frames), 0.0);
   EXPECT_EQ(ground_replay::far_side_warning_frames(frames), 0);
   EXPECT_EQ(ground_replay::board_lethal_frames(frames), 0);
   EXPECT_LE(ground_replay::stray_lethal_share(frames), MAX_STRAY_LETHAL_SHARE);
@@ -1424,7 +1436,8 @@ TEST_F(ReplayTest, HomeSceneMeetsTheLiveRoundAcceptance)
 TEST_F(ReplayTest, BoxSceneMeetsTheLiveRoundAcceptance)
 {
   const auto frames = replay_scene("box");
-  EXPECT_GE(ground_replay::box_lethal_share(frames), MIN_BOX_LETHAL_SHARE);
+  std::cout << "replay box: box_warning_share=" << ground_replay::box_warning_share(frames) << std::endl;
+  EXPECT_DOUBLE_EQ(ground_replay::box_lethal_share(frames), 0.0);
   EXPECT_EQ(ground_replay::far_side_warning_frames(frames), 0);
   EXPECT_LE(ground_replay::stray_lethal_share(frames), MAX_STRAY_LETHAL_SHARE);
   EXPECT_LT(ground_replay::churn_share(frames), MAX_CHURN_SHARE);

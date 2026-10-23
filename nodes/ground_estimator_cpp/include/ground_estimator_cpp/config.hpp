@@ -50,16 +50,19 @@ struct BandsConfig
   double drop_max_m = 1.0;      // > max_step_m
   double max_range_m = 2.0;     // > 0
   double min_range_m = 0.42;    // 0 <= v < max_range_m; nearer points (the robot's own parked gripper) are in no band
+  // temporary (user 2026-10-23): heights within this distance of the floor plane count as floor; revert to fit.distance_m
+  // (0.02) when the live ground acceptance passes. fit.distance_m <= v <= max step.
+  double floor_band_m = 0.04;
 };
 
 // Obstacle versus warning rule.
 struct TraversabilityConfig
 {
-  double wheel_radius_m = 0.06;       // > 0
-  double max_step_fraction = 0.3333;  // 0 < v < 1 of the wheel diameter
-  double max_slope_deg = 15.0;        // 0 < v <= min(slope.roll_error_deg, slope.pitch_error_deg)
-  double edge_band_m = 0.05;          // > 0
-  int lethal_min_points = 2;          // 1..50; fewest unclustered lethal points within edges.cluster_tolerance_m
+  double wheel_radius_m = 0.06;    // > 0
+  double max_step_fraction = 0.5;  // 0 < v < 1 of the wheel diameter; temporary (user 2026-10-23), was 0.3333
+  double max_slope_deg = 15.0;     // 0 < v <= min(slope.roll_error_deg, slope.pitch_error_deg)
+  double edge_band_m = 0.05;       // > 0
+  int lethal_min_points = 2;       // 1..50; fewest unclustered lethal points within edges.cluster_tolerance_m
 };
 
 // Largest rideable step: max_step_fraction of the wheel diameter. The single definition of the threshold.
@@ -166,7 +169,7 @@ struct EdgeGuidanceConfig
 {
   bool enabled = true;
   double max_shift_m = 0.06;   // 0 < v <= 0.15, metres; largest xy distance of an edge point from a stable lethal point
-  double min_height_m = 0.02;  // 0 < v <= max step (0.04), metres; smallest |height| of an edge point
+  double min_height_m = 0.06;  // 0 < v <= max step (0.06), metres; smallest |height| of an edge point
   double voxel_m = 0.02;       // 0.005..0.05, metres; voxel of the edge point decimation
 };
 

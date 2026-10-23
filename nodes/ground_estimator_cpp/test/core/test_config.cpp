@@ -76,7 +76,8 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.bands.max_range_m, 2.0);
   EXPECT_DOUBLE_EQ(c.bands.min_range_m, 0.42);
   EXPECT_DOUBLE_EQ(c.traversability.wheel_radius_m, 0.06);
-  EXPECT_DOUBLE_EQ(c.traversability.max_step_fraction, 0.3333);
+  EXPECT_DOUBLE_EQ(c.traversability.max_step_fraction, 0.5);
+  EXPECT_DOUBLE_EQ(c.bands.floor_band_m, 0.04);
   EXPECT_DOUBLE_EQ(c.traversability.max_slope_deg, 15.0);
   EXPECT_DOUBLE_EQ(c.traversability.edge_band_m, 0.05);
   EXPECT_EQ(c.warnings.frame, "map");
@@ -140,12 +141,14 @@ TEST(Config, DerivedTopicsFollowTheNamespace)
   EXPECT_EQ(d.warning_areas(), "/floor/warning_areas");
 }
 
-TEST(Config, MaxStepIsOneThirdOfWheelDiameter)
+TEST(Config, MaxStepIsHalfOfWheelDiameter)
 {
   Config c = ground_estimator_cpp::from_yaml(YAML::Load("{}"));
-  EXPECT_NEAR(c.max_step_m(), 0.04, 1e-4);
-  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {wheel_radius_m: 0.09}"));
   EXPECT_NEAR(c.max_step_m(), 0.06, 1e-4);
+  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {wheel_radius_m: 0.09}"));
+  EXPECT_NEAR(c.max_step_m(), 0.09, 1e-4);
+  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {max_step_fraction: 0.3333}"));
+  EXPECT_NEAR(c.max_step_m(), 0.04, 1e-4);
 }
 
 TEST(Config, ShippedYamlDocumentsEveryKey)
@@ -248,6 +251,15 @@ TEST(Config, RejectsBandRanges)
   expect_rejected("bands: {min_range_m: 2.0}", "bands.min_range_m");
   expect_rejected("bands: {obstacle_max_m: 0.03}", "bands.obstacle_max_m");
   expect_rejected("bands: {drop_max_m: 0.03}", "bands.drop_max_m");
+}
+
+TEST(Config, RejectsFloorBandOutsideTheFitDistanceAndTheMaxStep)
+{
+  expect_rejected("bands: {floor_band_m: 0}", "bands.floor_band_m");
+  expect_rejected("bands: {floor_band_m: 0.01}", "bands.floor_band_m");  // below fit.distance_m 0.02
+  expect_rejected("bands: {floor_band_m: 0.07}", "bands.floor_band_m");  // above the 0.06 max step
+  expect_accepted("bands: {floor_band_m: 0.02}");
+  expect_accepted("bands: {floor_band_m: 0.06}");
 }
 
 TEST(Config, RejectsTraversabilityRules)
@@ -437,7 +449,7 @@ TEST(Config, GuidanceDefaults)
   EXPECT_DOUBLE_EQ(c.guidance.max_range_m, 2.0);
   EXPECT_TRUE(c.guidance.edge.enabled);
   EXPECT_DOUBLE_EQ(c.guidance.edge.max_shift_m, 0.06);
-  EXPECT_DOUBLE_EQ(c.guidance.edge.min_height_m, 0.02);
+  EXPECT_DOUBLE_EQ(c.guidance.edge.min_height_m, 0.06);
   EXPECT_DOUBLE_EQ(c.guidance.edge.voxel_m, 0.02);
   EXPECT_TRUE(c.guidance.no_return.enabled);
   EXPECT_DOUBLE_EQ(c.guidance.no_return.min_range_m, 0.3);
@@ -474,7 +486,7 @@ TEST(Config, RejectsGuidanceRanges)
   expect_rejected("guidance: {edge: {max_shift_m: 0.16}}", "guidance.edge.max_shift_m");
   expect_accepted("guidance: {edge: {min_height_m: 0.04}}");
   expect_rejected("guidance: {edge: {min_height_m: 0}}", "guidance.edge.min_height_m");
-  expect_rejected("guidance: {edge: {min_height_m: 0.041}}", "guidance.edge.min_height_m");
+  expect_rejected("guidance: {edge: {min_height_m: 0.061}}", "guidance.edge.min_height_m");
   expect_accepted("guidance: {edge: {voxel_m: 0.005}}");
   expect_accepted("guidance: {edge: {voxel_m: 0.05}}");
   expect_rejected("guidance: {edge: {voxel_m: 0.004}}", "guidance.edge.voxel_m");
