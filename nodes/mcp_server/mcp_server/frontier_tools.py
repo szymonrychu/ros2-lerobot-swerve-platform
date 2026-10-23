@@ -26,10 +26,12 @@ from .frontiers import (
     RetiredFrontier,
     ViewPose,
     facing_lookup,
+    frontier_keepout,
     nearest_poi,
     update_recorded,
 )
 from .geometry import normalize_angle
+from .keepouts import KeepOut
 from .look_around import check_clearance, read_sectors, required_clearance_m
 from .lookup_tools import record_lookup
 from .metrics import FRONTIER_COMPUTE
@@ -37,6 +39,7 @@ from .models import BasePose, NavigationResult, RobotError
 from .perception_models import (
     XY,
     BatteryLimit,
+    ExcludedFrontier,
     ExplorationFrontier,
     ExplorationStatus,
     FrontierList,
@@ -259,6 +262,16 @@ class FrontierContext:
         self.settings = ctx.config.frontiers
         self.tracker, self.snapshot, self.compute_ms = refresh(ctx)
         self.notes: list[str] = list(self.snapshot.notes)
+        self.keepouts, keepout_notes = self.tracker.keepouts.read(ctx.robot, self.settings.keepout_poi_stale_s)
+        self.notes.extend(keepout_notes)
+        self.excluded: dict[int, KeepOut] = {}
+        self.frontiers: list[Frontier] = []
+        for frontier in self.snapshot.frontiers:
+            zone = frontier_keepout(frontier, self.keepouts)
+            if zone is None:
+                self.frontiers.append(frontier)
+            else:
+                self.excluded[frontier.id] = zone
         self.pose = ctx.robot.robot_pose()
         self.geo: GeodesicResult | None = None
         if self.pose is not None:
@@ -271,8 +284,16 @@ class FrontierContext:
         footprint = None if ctx.control is None else ctx.control.footprint
         self.view_clearance_m = view_clearance_m(ctx.config, footprint)
 
+    def excluded_views(self) -> list[ExcludedFrontier]:
+        """Frontiers hidden by a keep-out zone.
+
+        Returns:
+            list[ExcludedFrontier]: {id, zone_poi_id} in id order.
+        """
+        return [ExcludedFrontier(id=i, zone_poi_id=z.id) for i, z in sorted(self.excluded.items())]
+
     def view_pose(self, frontier: Frontier) -> tuple[ViewPose | None, bool | None]:
-        """Observation pose of a frontier and whether it is reachable.
+        """Observation pose of a frontier (never inside a keep-out zone) and whether it is reachable.
 
         Args:
             frontier (Frontier): The frontier.
@@ -282,8 +303,10 @@ class FrontierContext:
             (None and False otherwise); without it the pose is ranked by standoff only and reachable is None.
         """
         if self.geo is None:
-            return self.tracker.view_pose(self.snapshot, frontier, self.view_clearance_m), None
-        view = self.tracker.view_pose(self.snapshot, frontier, self.view_clearance_m, self.geo.distance_m)
+            return self.tracker.view_pose(self.snapshot, frontier, self.view_clearance_m, None, self.keepouts), None
+        view = self.tracker.view_pose(
+            self.snapshot, frontier, self.view_clearance_m, self.geo.distance_m, self.keepouts
+        )
         return view, view is not None
 
     def pois(self) -> list[dict[str, Any]]:
@@ -438,7 +461,7 @@ def build_frontier_list(ctx: ToolContext, max_count: int | None, reachable_only:
     fc = FrontierContext(ctx)
     if fc.pose is None:
         fc.notes.append(NO_POSE_NOTE)
-    views = sorted(fc.describe(list(fc.snapshot.frontiers)), key=sort_key)
+    views = sorted(fc.describe(fc.frontiers), key=sort_key)
     if reachable_only:
         views = [v for v in views if v.reachable]
     cap = fc.settings.max_listed if max_count is None else max_count
@@ -456,6 +479,7 @@ def build_frontier_list(ctx: ToolContext, max_count: int | None, reachable_only:
         epoch_changed_at=epoch_changed_at,
         epoch_cause=epoch_cause,
         retired_since_last_call=retired,
+        excluded_keepout=fc.excluded_views(),
         compute_ms=fc.compute_ms,
         robot_pose=fc.robot_pose_dict(),
         notes=fc.notes,
@@ -475,6 +499,10 @@ def build_visit_plan(ctx: ToolContext, frontier_id: int) -> FrontierVisitPlan:
     fc = FrontierContext(ctx)
     frontier = resolve(fc.tracker, fc.snapshot, frontier_id)
     [view] = fc.describe([frontier])
+    if frontier.id in fc.excluded:
+        fc.notes.append(
+            f"frontier {frontier.id} lies in keep-out {fc.excluded[frontier.id].id}: go_to_frontier refuses it"
+        )
     rotation = None
     if fc.pose is None:
         fc.notes.append(NO_POSE_NOTE + "; rotation_deg is null")
@@ -525,6 +553,11 @@ def run_go_to_frontier(ctx: ToolContext, frontier_id: int, timeout_s: float | No
     timeout = nav_timeout(ctx.config, timeout_s)
     fc = FrontierContext(ctx)
     frontier = resolve(fc.tracker, fc.snapshot, frontier_id)
+    if frontier_id in fc.excluded:
+        raise ToolError(
+            f"frontier {frontier_id} lies in keep-out {fc.excluded[frontier_id].id}: the person marked that area off "
+            "limits (e.g. ghost free space behind a mirror); pick another frontier (nothing moved)"
+        )
     fc.require_pose("go_to_frontier")
     view, _ = fc.view_pose(frontier)
     if view is None:
@@ -679,7 +712,7 @@ def build_exploration_status(ctx: ToolContext) -> ExplorationStatus:
         notes.append(f"poi_store unavailable: survey spots and coverage are not computable ({exc})")
         return unknown()
 
-    views = fc.describe(list(fc.snapshot.frontiers))
+    views = fc.describe(fc.frontiers)
     notes.extend(n for n in fc.notes if n not in notes)
     reachable = sorted((v for v in views if v.reachable), key=sort_key)
     frontiers = [
@@ -728,6 +761,7 @@ def build_exploration_status(ctx: ToolContext) -> ExplorationStatus:
         survey_spots=spots,
         coverage=cov,
         battery=battery,
+        excluded_keepout=fc.excluded_views(),
         robot_pose=fc.robot_pose_dict(),
         notes=notes,
     )

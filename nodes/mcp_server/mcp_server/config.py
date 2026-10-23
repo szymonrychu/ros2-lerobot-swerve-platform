@@ -1534,6 +1534,8 @@ class FrontierSettings(StrictModel):
     facing_half_angle_deg: float = Field(default=30.0, gt=0.0, le=180.0)  # lookup faces a frontier within this angle
     facing_max_distance_m: float = Field(default=6.0, gt=0.0)  # ... and within this distance of the lookup position
     compute_path_timeout_s: float = Field(default=5.0, gt=0.0)  # plan_frontier_visit Nav2 check
+    # A poi list older than this keeps the last keep-out zones (poi_store republishes only on change, so keep it long).
+    keepout_poi_stale_s: float = Field(default=600.0, gt=0.0)
     look_timeout_s: float = Field(default=20.0, gt=0.0)  # look_toward_frontier rotation timeout
     look_camera: Literal["front", "gripper"] = "front"  # look_toward_frontier default camera
 

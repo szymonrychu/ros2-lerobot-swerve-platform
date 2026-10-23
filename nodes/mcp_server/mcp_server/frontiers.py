@@ -27,6 +27,7 @@ from scipy.spatial.transform import Rotation
 from mcp_core_cpp import frontiers as core
 
 from .config import FootprintSettings, FrontierSettings
+from .keepouts import KeepOut, KeepoutMemory, points_in_polygon
 from .metrics import FRONTIER_COMPUTE, FRONTIER_COUNT
 from .perception import FREE_THRESHOLD, OCCUPIED_THRESHOLD
 
@@ -552,13 +553,14 @@ def observation_pose(
     standoff: tuple[float, float],
     los_candidates: int,
     geodesic: np.ndarray | None = None,
+    keepouts: Sequence[KeepOut] = (),
 ) -> ViewPose | None:
     """Best pose to look at a frontier from: known free, clear, inside the standoff window, with line of sight.
 
     Candidates are cells whose nearest frontier cell belongs to this frontier, at a distance within standoff, with
     clearance >= view_clearance_m (and a finite geodesic when one is given). Score = geodesic (0 without one) +
     |distance - mid standoff|; the first of the los_candidates best whose line to its nearest frontier cell is clear
-    wins. Never a pose in unknown or occupied space.
+    wins. Never a pose in unknown or occupied space, nor inside a keep-out zone.
 
     Args:
         frontier (RawFrontier): The frontier (its label must belong to dist_field).
@@ -569,6 +571,7 @@ def observation_pose(
         standoff (tuple[float, float]): (min, max) distance to the frontier (m).
         los_candidates (int): Best-scored candidates checked for line of sight.
         geodesic (np.ndarray | None): Geodesic distance from the robot (m), None to rank by standoff only.
+        keepouts (Sequence[KeepOut]): Keep-out zones; candidate cells inside one are dropped.
 
     Returns:
         ViewPose | None: The pose, None when no candidate qualifies.
@@ -602,6 +605,12 @@ def observation_pose(
         mask &= np.isfinite(geo)
         score = score + np.where(np.isfinite(geo), geo, 0.0)
     rr, cc = np.nonzero(mask)
+    if rr.size and keepouts:
+        xs, ys = cells_to_map(grid, rr + r0, cc + c0)
+        blocked = np.zeros(rr.shape, dtype=bool)
+        for zone in keepouts:
+            blocked |= points_in_polygon(xs, ys, zone.polygon)
+        rr, cc = rr[~blocked], cc[~blocked]
     if rr.size == 0:
         return None
     scores = score[rr, cc]
@@ -700,6 +709,7 @@ class FrontierTracker:
         self.unreported: list[RetiredFrontier] = []
         self.geodesic_cache: OrderedDict[tuple[tuple, tuple[int, int]], GeodesicResult] = OrderedDict()
         self.compute_count = 0
+        self.keepouts = KeepoutMemory()
 
     @property
     def retired(self) -> list[RetiredFrontier]:
@@ -905,6 +915,7 @@ class FrontierTracker:
         frontier: Frontier,
         view_clearance_m: float,
         geodesic: np.ndarray | None = None,
+        keepouts: Sequence[KeepOut] = (),
     ) -> ViewPose | None:
         """observation_pose with the configured standoff window and los_candidates.
 
@@ -913,6 +924,7 @@ class FrontierTracker:
             frontier (Frontier): The frontier.
             view_clearance_m (float): Clearance the pose needs (m).
             geodesic (np.ndarray | None): Geodesic distances from the robot (m), None to rank by standoff only.
+            keepouts (Sequence[KeepOut]): Keep-out zones no pose may lie in.
 
         Returns:
             ViewPose | None: The pose, None when no candidate qualifies.
@@ -927,6 +939,7 @@ class FrontierTracker:
             (s.standoff_min_m, s.standoff_max_m),
             s.los_candidates,
             geodesic,
+            keepouts,
         )
 
 
@@ -1054,3 +1067,20 @@ def update_recorded(tracker: "FrontierTracker", grid: Any) -> tuple[Any, bool]:
             FRONTIER_COMPUTE.labels(stage).observe(ms / 1000.0)
         FRONTIER_COUNT.set(len(snapshot.frontiers))
     return snapshot, computed
+
+
+def frontier_keepout(frontier: RawFrontier, zones: Sequence[KeepOut]) -> KeepOut | None:
+    """The keep-out zone a frontier lies in: the first zone containing its target cell or its centroid.
+
+    Args:
+        frontier (RawFrontier): The frontier.
+        zones (Sequence[KeepOut]): Keep-out zones.
+
+    Returns:
+        KeepOut | None: The zone, None when the frontier is outside all of them.
+    """
+    for point in (frontier.target_xy, frontier.centroid_xy):
+        for zone in zones:
+            if bool(points_in_polygon(np.array([point[0]]), np.array([point[1]]), zone.polygon)[0]):
+                return zone
+    return None

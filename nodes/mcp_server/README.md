@@ -667,6 +667,24 @@ frontiers of the latest computed version. A frontier that is `reachable: true` h
 geodesic uses half-width clearance, Nav2 the real footprint on a lattice): `plan_frontier_visit` is the authority for
 the chosen pose; tune `pass_clearance_margin_m` if the two disagree often.
 
+### Mirror ghost frontiers
+
+A floor-level mirror (a mirrored wardrobe) shows the single-plane lidar free space behind it, so SLAM maps ghost free
+space and ghost frontiers at its edge that look reachable. A lidar-side mirror filter cannot work: one scan plane cannot
+tell a mirror from an opening. The person draws a **keep-out** over the ghost area once (an open POI of kind `area` with
+`zone: "keepout"`, drawn in the web UI; parsed like `costmap_zones/zones.py`, code in `keepouts.py`) and the frontier
+tools honour it:
+
+- A frontier whose target cell or centroid lies inside a keep-out is dropped from `list_frontiers` and
+  `get_exploration_status` (not listed as reachable, not counted against `complete`, not in `unreachable_frontiers`) and
+  reported as `excluded_keepout: [{id, zone_poi_id}]` in both results.
+- Observation poses inside a keep-out are skipped (the next best pose is used; none left means `reachable: false`).
+- `go_to_frontier` on an excluded id is refused with a message naming the keep-out POI (nothing moves);
+  `plan_frontier_visit` notes it.
+- `get_topdown_view` draws excluded frontiers in grey with the legend row "in keep-out".
+- Zones come from the `/poi/list` mcp_server already reads. A list older than `frontiers.keepout_poi_stale_s` (default
+  600 s) or an unavailable poi_store keeps the last zones and says so in the notes. No zones means no exclusion.
+
 ## Exploration status
 
 `get_exploration_status()` and `mark_survey_spot(note="", x=None, y=None)` (in `frontier_tools.py`, both in `ALWAYS_ALLOWED_TOOLS`, no lease, no motion) tell the agent when the surroundings are completely mapped and surveyed and when to stop for the battery. Coverage maths is `exploration.py`; the survey spot tags are `ros2_common.poi_categories`.
