@@ -1,6 +1,6 @@
 ---
 title: Calib ansible deploy config
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The deployed node can call mcp_server, and its copies of the arm gauge, offsets, URDF and body obstacles cannot drift from mcp_server's."
 files: [ansible/group_vars/client.yml, ansible/playbooks/tasks/head_rgbd_calibration_setup.yml, tests/test_head_rgbd_calibration_deploy.py]
@@ -12,8 +12,7 @@ model: ""
 estimate: 45
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--calib-ansible-deploy-config
-branch: drivable-ground-tof-filterin--calib-ansible-deploy-config
+branch: main
 verified_head: ""
 run: drivable-ground-tof-filterin
 provides: []
