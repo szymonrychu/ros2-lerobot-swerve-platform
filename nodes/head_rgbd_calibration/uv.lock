@@ -228,6 +228,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "mcp" },
     { name = "numpy" },
     { name = "opencv-python-headless" },
@@ -239,7 +240,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "poethepoet" },
     { name = "pytest" },
     { name = "ruff" },
@@ -249,6 +249,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.111.0,<0.136" },
+    { name = "httpx", specifier = ">=0.27.0,<0.28" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "opencv-python-headless", specifier = ">=4.9.0,<5" },
@@ -260,7 +261,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27.0,<0.28" },
     { name = "poethepoet", specifier = ">=0.42.0,<0.43" },
     { name = "pytest", specifier = ">=8.0.0,<9" },
     { name = "ruff", specifier = "==0.15.20" },
