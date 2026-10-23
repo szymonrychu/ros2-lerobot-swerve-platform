@@ -37,7 +37,7 @@ from . import (
     motion_tools,
     perception_tools,
 )
-from .arm import MAX_OBJECT_WIDTH_M, ArmError
+from .arm import MAX_OBJECT_WIDTH_M, ArmError, BoardPark
 from .base_motion import DriveError, DriveOutcome
 from .camera_scene import camera_setup, pixel_scale
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
@@ -86,6 +86,7 @@ TIMING_RESULT_KEYS = (
 SERVER_NAME = "robot"
 TOKEN_CLIENT_ID = "robot-mcp-client"
 ADMIN_CLEAR_AGENT_POIS_PATH = "/admin/clear_agent_pois"
+ADMIN_PARK_BOARD_PATH = "/admin/park_calibration_board"
 CLEAR_STATUSES = TypeAdapter(list[Literal["open", "done", "cancelled"]])
 METRICS_PATH = "/metrics"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
@@ -1094,13 +1095,6 @@ def register_core_tools(ctx: ToolContext) -> None:
                 "a circle around the tool point added to the navigation footprint",
             ),
         ] = None,
-        park_calibration_board: Annotated[
-            bool,
-            Field(
-                description="parking arm release only: the holding load on the gripper is the calibration board's "
-                "stick (head_rgbd_calibration); passes that one carry reason and parks at speed_scale 0.1"
-            ),
-        ] = False,
     ) -> ReleaseResult:
         """Release control leases, parking first by default. arm: drive to the stored home pose (the same
         self-collision-safe routes as arm_home), then publish the autonomy release so the leader arm and web UI work
@@ -1121,12 +1115,9 @@ def register_core_tools(ctx: ToolContext) -> None:
         the arm (keep_position=false) is REFUSED while the gripper carries an object (get_control_state arm.carrying:
         carried_object_radius_m set, last grasp held - grasped or unverified -, or a holding load): put the object
         down first (release_object). subsystem='all' while carrying still releases the base and reports reset.arm
-        'refused: carrying (...)'. A keep_position release while carrying keeps the grip strength.
-        park_calibration_board=true (parking release only; used by head_rgbd_calibration) ignores the holding-load
-        reason alone, because the jaw clamps the calibration board's stick, and parks at speed_scale 0.1; a last grasp
-        held or a carried_object_radius_m still refuses the park."""
+        'refused: carrying (...)'. A keep_position release while carrying keeps the grip strength."""
         with tool_errors():
-            return control.release(subsystem, keep_position, carried_object_radius_m, park_calibration_board)
+            return control.release(subsystem, keep_position, carried_object_radius_m)
 
     @tool()
     def get_control_state() -> ControlState:
@@ -1395,8 +1386,10 @@ def build_app(
     GET /metrics (Prometheus text format, scraped by Grafana Alloy on the robot) needs no token but answers loopback
     clients only (403 otherwise), so exposing the server on the LAN does not expose the metrics.
 
-    The admin route is plain HTTP, not an MCP tool, so the model cannot call it. It exists for claude_agent, which runs
-    as another Linux user and cannot reach poi_store over DDS.
+    The admin routes are plain HTTP, not MCP tools, so the model cannot call them. /admin/clear_agent_pois exists for
+    claude_agent, which runs as another Linux user and cannot reach poi_store over DDS. /admin/park_calibration_board
+    is the head_rgbd_calibration node's park with the calibration board on the gripper: it ignores the holding load of
+    the clamped stick only, and FK-checks the board on every home leg before anything is released.
 
     Args:
         server (MCPServer): Server from build_mcp_server (its token verifier guards the MCP path).
@@ -1440,4 +1433,25 @@ def build_app(
             return JSONResponse({"ok": True, "removed": int((result.get("poi") or {}).get("removed", 0))})
 
         app.add_route(ADMIN_CLEAR_AGENT_POIS_PATH, clear_agent_pois, methods=["POST"])
+
+        async def park_calibration_board(request: Request) -> JSONResponse:
+            scheme, _, presented = request.headers.get("authorization", "").partition(" ")
+            if scheme.lower() != "bearer" or await verifier.verify_token(presented.strip()) is None:
+                return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+            control = getattr(server, "control", None)
+            if control is None:
+                return JSONResponse({"ok": False, "error": "no control manager"}, status_code=503)
+            try:
+                raw = json.loads(await request.body())
+                board = BoardPark.from_request(raw["points"], raw["margin_m"], raw["min_height_m"])
+            except (ValueError, KeyError, TypeError) as exc:
+                message = f'body must be JSON {{"points": [[x, y, z], ...], "margin_m": m, "min_height_m": m}}: {exc}'
+                return JSONResponse({"ok": False, "error": message}, status_code=400)
+            try:
+                result = await run_in_threadpool(control.park_calibration_board, board)
+            except (ToolError, ArmError, RobotError, ValueError) as exc:
+                return JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
+            return JSONResponse({"ok": True, "result": result.model_dump(mode="json")})
+
+        app.add_route(ADMIN_PARK_BOARD_PATH, park_calibration_board, methods=["POST"])
     return app

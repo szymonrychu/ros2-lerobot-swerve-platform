@@ -18,7 +18,12 @@ from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 from head_rgbd_calibration.apply import NotApplicable
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.floor_results import applied_head_chain
-from head_rgbd_calibration.head_arm_results import apply_head_arm, compute_head_arm, latest_board_mount
+from head_rgbd_calibration.head_arm_results import (
+    apply_head_arm,
+    compute_head_arm,
+    head_arm_session_exists,
+    latest_board_mount,
+)
 from head_rgbd_calibration.store import SessionStore
 from tests.pose_factory import still_arm_pose
 
@@ -301,3 +306,14 @@ def test_latest_board_mount_reads_the_newest_result(tmp_path: Path) -> None:
         folder.mkdir(parents=True)
         (folder / "result.json").write_text(json.dumps({"id": rid, "board_mount": {"xyz": xyz, "rpy": [0, 0, 1]}}))
     assert latest_board_mount(store, sid) == {"xyz": [0.4, 0.5, 0.6], "rpy": [0.0, 0.0, 1.0]}
+
+
+def test_head_arm_session_exists_only_for_stored_head_arm_sessions(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    head_arm = store.create_session(NOW, 1.0, "head_arm")
+    rgbd = store.create_session(NOW, 1.0, "rgbd")
+    assert head_arm_session_exists(store, head_arm) is True
+    assert head_arm_session_exists(store, rgbd) is False
+    assert head_arm_session_exists(store, None) is False
+    assert head_arm_session_exists(store, "head_arm-20200101-000000") is False
+    assert head_arm_session_exists(store, "../escape") is False

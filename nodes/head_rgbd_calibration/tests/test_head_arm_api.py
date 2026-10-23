@@ -41,6 +41,7 @@ STATE_DOC = {
     "error": None,
     "big_joints": ["elbow_flex", "shoulder_lift", "shoulder_pan"],
     "waiting_since": None,
+    "board_record": {"session_id": "calib-20261023-074418", "clipped_at": "2026-10-23T07:50:00+00:00"},
 }
 
 

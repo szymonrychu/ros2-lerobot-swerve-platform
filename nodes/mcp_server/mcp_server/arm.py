@@ -17,10 +17,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
+import numpy as np
+
 from .calibration_marker import CalibrationMarker, clear_stale, load_marker
 from .carry import CarryRecord, CarryStore, GraspKind, carry_path
 from .config import ArmBaseOffset, LimitSettings, McpServerConfig
 from .floor_guard import (
+    GRIPPER_LINK,
     FloorGuard,
     FloorOverride,
     GroundEstimateError,
@@ -66,7 +69,7 @@ from .models import (
 )
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .sag import SETTLE_LOG_MARKER, GravityModel, SagCompensator, compensate
-from .self_collision import GRIPPER_MOVING_PARTS, BodyReport, SelfCollisionChecker, combine_scales, joint_line
+from .self_collision import GRIPPER_MOVING_PARTS, BodyReport, SelfCollisionChecker, combine_scales, joint_line, rigid
 from .staleness import Stamped, is_fresh
 from .trajectory import (
     JointLimits,
@@ -229,6 +232,61 @@ def lower_clearance(target: GuardReport, commanded: GuardReport) -> GuardReport:
             for p, t, c in zip(picks, target.lowest_points, commanded.lowest_points, strict=True)
         ],
     )
+
+
+# Park with the calibration board on (D63): the board outline given by the caller, in gripper_link, and what the park
+# must clear. The board park is internal (ControlManager.park_calibration_board, the admin route).
+BOARD_MIN_POINTS = 4
+BOARD_MAX_REACH_M = 0.6  # every outline point lies within this distance of gripper_link (a board on a stick)
+BOARD_MAX_MARGIN_M = 0.2
+BOARD_MAX_HEIGHT_M = 0.5
+BOARD_REST_TOLERANCE_RAD = 0.1  # the arm must already be this close to the stored home: the homing leg is trivial
+
+
+@dataclass(frozen=True)
+class BoardPark:
+    """The calibration board outline a park is checked with.
+
+    Attributes:
+        points: (N, 3) outline and lattice points in gripper_link (m).
+        margin_m: Clearance the board keeps from every body obstacle (m), sag margin included.
+        min_height_m: Lowest board point height above the floor (base_link z, m), sag margin included.
+    """
+
+    points: np.ndarray
+    margin_m: float
+    min_height_m: float
+
+    @classmethod
+    def from_request(cls, points: object, margin_m: object, min_height_m: object) -> "BoardPark":
+        """Validate a board outline.
+
+        Args:
+            points: At least BOARD_MIN_POINTS finite [x, y, z] points (m) within BOARD_MAX_REACH_M of gripper_link.
+            margin_m: Body clearance (m), 0..BOARD_MAX_MARGIN_M.
+            min_height_m: Floor clearance (m), 0..BOARD_MAX_HEIGHT_M.
+
+        Returns:
+            BoardPark: The validated board.
+
+        Raises:
+            ValueError: The outline or a limit is invalid (nothing is checked or moved).
+        """
+        try:
+            array = np.array(points, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"board outline invalid: points must be numeric [x, y, z] rows ({exc})") from exc
+        if array.ndim != 2 or array.shape[1] != 3 or len(array) < BOARD_MIN_POINTS:
+            raise ValueError(f"board outline invalid: need at least {BOARD_MIN_POINTS} [x, y, z] points")
+        if not np.isfinite(array).all() or float(np.linalg.norm(array, axis=1).max()) > BOARD_MAX_REACH_M:
+            raise ValueError(
+                f"board outline invalid: points must be finite and within {BOARD_MAX_REACH_M} m of gripper_link"
+            )
+        if not isinstance(margin_m, int | float) or not 0.0 <= margin_m <= BOARD_MAX_MARGIN_M:
+            raise ValueError(f"board outline invalid: margin_m must be within 0..{BOARD_MAX_MARGIN_M} m")
+        if not isinstance(min_height_m, int | float) or not 0.0 <= min_height_m <= BOARD_MAX_HEIGHT_M:
+            raise ValueError(f"board outline invalid: min_height_m must be within 0..{BOARD_MAX_HEIGHT_M} m")
+        return cls(array, float(margin_m), float(min_height_m))
 
 
 class ArmError(RuntimeError):
@@ -2220,7 +2278,11 @@ class ArmController:
         )
 
     def home(
-        self, keep_prior_control: bool = True, floor: FloorOverride | None = None, speed_scale: float | None = None
+        self,
+        keep_prior_control: bool = True,
+        floor: FloorOverride | None = None,
+        speed_scale: float | None = None,
+        board: BoardPark | None = None,
     ) -> ArmMotionResult:
         """Move to the stored home pose, then release control unless it is to be kept.
 
@@ -2232,6 +2294,7 @@ class ArmController:
             keep_prior_control (bool): Keep control afterwards if it was held before the call.
             floor (FloorOverride | None): Per-call slow-zone overrides.
             speed_scale (float | None): Speed scale of every leg; None for the maximum.
+            board (BoardPark | None): Calibration board on the gripper: every leg is FK-checked with it first.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -2254,7 +2317,9 @@ class ArmController:
             raise ArmError(f"no home pose stored at {self.cfg.arm.home_file}; call arm_set_home first")
         keep = keep_prior_control and self._held
         try:
-            result = self.home_motion({j: v for j, v in pose.items() if j in self.joint_names}, floor, speed_scale)
+            result = self.home_motion(
+                {j: v for j, v in pose.items() if j in self.joint_names}, floor, speed_scale, board
+            )
         except ArmBusyError:
             raise
         except ArmError:
@@ -2266,7 +2331,11 @@ class ArmController:
         return result
 
     def home_motion(
-        self, pose: dict[str, float], floor: FloorOverride | None, speed_scale: float | None = None
+        self,
+        pose: dict[str, float],
+        floor: FloorOverride | None,
+        speed_scale: float | None = None,
+        board: BoardPark | None = None,
     ) -> ArmMotionResult:
         """Move to the home pose along the first collision-free route (plan_home), leg by leg.
 
@@ -2274,11 +2343,15 @@ class ArmController:
             pose (dict[str, float]): Home pose (arm joints, measured space).
             floor (FloorOverride | None): Per-call slow-zone overrides.
             speed_scale (float | None): Speed scale of every leg; None for the maximum.
+            board (BoardPark | None): Calibration board on the gripper: refuses the motion, before it starts, when
+                the arm is not at the rest pose or a leg takes the board too close to the floor or the body.
 
         Returns:
             ArmMotionResult: Result of the last leg run (an intermediate that did not converge ends the motion).
         """
         note, legs = self.plan_home(pose)
+        if board is not None:
+            self.check_board_legs(self.command_base(self.require_sample()), legs, board)
         names = [j for j in self.joint_names if j in pose]
         result: ArmMotionResult | None = None
         for index, leg in enumerate(legs):
@@ -2289,6 +2362,61 @@ class ArmController:
         if note == "direct":
             return result
         return result.model_copy(update={"message": f"home via a safe intermediate ({note}): {result.message}"})
+
+    def check_board_home(self, board: BoardPark) -> None:
+        """Refuse a board park that home_motion(board=...) would refuse (nothing moves; a pre-check before release).
+
+        Args:
+            board (BoardPark): The board on the gripper.
+
+        Raises:
+            ArmError: No home pose, the arm is not at the rest pose, or a leg hits the floor or the body.
+            SelfCollisionError: No collision-free route home.
+        """
+        pose = self.stored_home()
+        if pose is None:
+            raise ArmError(f"no home pose stored at {self.cfg.arm.home_file}; call arm_set_home first")
+        _, legs = self.plan_home({j: v for j, v in pose.items() if j in self.joint_names})
+        self.check_board_legs(self.command_base(self.require_sample()), legs, board)
+
+    def check_board_legs(self, start: dict[str, float], legs: list[dict[str, float]], board: BoardPark) -> None:
+        """FK-check the board along every straight joint leg of a home route.
+
+        Args:
+            start: The pose the route starts from (every arm joint).
+            legs: The route legs, the last one the rest pose.
+            board: The board on the gripper.
+
+        Raises:
+            ArmError: The arm is further than BOARD_REST_TOLERANCE_RAD from the rest pose (a long unchecked homing
+                leg), or a leg puts a board point below min_height_m or within margin_m of a body obstacle.
+        """
+        goal = legs[-1]
+        away = max(abs(goal[j] - start[j]) for j in goal)
+        if away > BOARD_REST_TOLERANCE_RAD:
+            raise ArmError(
+                f"board park refused: the arm is not at its rest pose ({away:.3f} rad from home, over "
+                f"{BOARD_REST_TOLERANCE_RAD} rad); move to the rest pose first so the board is checked on every leg"
+            )
+        prev = start
+        for leg in legs:
+            for joints in joint_line(prev, leg):
+                frame = self.kin.link_frame(joints, GRIPPER_LINK)
+                points = self.body_check.to_base_link(rigid(frame[:3, :3], frame[:3, 3], board.points))
+                lowest = float(points[:, 2].min())
+                if lowest < board.min_height_m:
+                    raise ArmError(
+                        f"board park refused: board point height {lowest * 1000:.1f} mm < min_board_height "
+                        f"{board.min_height_m * 1000:.1f} mm on the way home"
+                    )
+                for obstacle in self.body_check.body.obstacles:
+                    clearance = float(obstacle.signed_distance(points).min())
+                    if clearance < board.margin_m:
+                        raise ArmError(
+                            f"board park refused: board to {obstacle.name} clearance {clearance * 1000:.1f} mm < "
+                            f"{board.margin_m * 1000:.1f} mm on the way home"
+                        )
+            prev = leg
 
     def home_service_call(self) -> tuple[bool, str]:
         """/arm/home service body: move home and always release control afterwards.

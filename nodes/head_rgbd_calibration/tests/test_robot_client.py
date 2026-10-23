@@ -4,10 +4,11 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from head_rgbd_calibration.config import RobotConfig
-from head_rgbd_calibration.robot_client import RawToolResult, RobotClient, ToolResult
+from head_rgbd_calibration.robot_client import RawToolResult, RobotClient, ToolResult, admin_post
 
 TOKEN = "s3cret-token-value"
 URL = "http://127.0.0.1:18200/mcp"
@@ -122,3 +123,37 @@ def test_release_arm_keep_position(token_file: Path) -> None:
         {"subsystem": "arm", "keep_position": True},
         {"subsystem": "arm", "keep_position": False},
     ]
+
+
+def test_park_with_board_uses_the_admin_transport_not_a_tool(token_file: Path) -> None:
+    mcp, admin = FakeTransport(), FakeTransport(RawToolResult(False, "{}", {"ok": True, "result": {"reset": {}}}))
+    client = RobotClient(RobotConfig(mcp_url=URL, token_file=str(token_file)), call=mcp, admin_call=admin)
+    result = client.park_with_board([[0.0, 0.0, 0.0]] * 4, 0.04, 0.06)
+    assert mcp.calls == []
+    assert admin.calls == [
+        (
+            URL,
+            TOKEN,
+            "/admin/park_calibration_board",
+            {"points": [[0.0, 0.0, 0.0]] * 4, "margin_m": 0.04, "min_height_m": 0.06},
+        )
+    ]
+    assert result.data == {"ok": True, "result": {"reset": {}}}
+
+
+def test_admin_post_sends_the_bearer_token_to_the_route_beside_the_mcp_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path != "/admin/park_calibration_board":
+            return httpx.Response(404)
+        if request.headers["authorization"] != f"Bearer {TOKEN}":
+            return httpx.Response(401, json={"ok": False, "error": "unauthorized"})
+        return httpx.Response(409, json={"ok": False, "error": "board park refused: floor"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    refused = asyncio.run(admin_post(URL, TOKEN, "/admin/park_calibration_board", {"points": []}))
+    assert refused.is_error and "409" in refused.text and "board park refused: floor" in refused.text
+    assert str(seen[0].url) == "http://127.0.0.1:18200/admin/park_calibration_board"

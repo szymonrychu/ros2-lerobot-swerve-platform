@@ -312,3 +312,10 @@ def test_park_pose_names_every_arm_joint_and_sag_margin_is_not_negative() -> Non
         NodeConfig.model_validate({"arm_sequence": sequence_with(park_pose=pose)})
     with pytest.raises(ValueError):
         NodeConfig.model_validate({"arm_sequence": sequence_with(park_board_sag_margin_m=-0.001)})
+
+
+def test_board_record_max_age_defaults_to_two_hours_and_must_be_positive() -> None:
+    assert NodeConfig().arm_sequence.board_record_max_age_s == 7200.0
+    assert load_config(SHIPPED).arm_sequence.board_record_max_age_s == 7200.0
+    with pytest.raises(ValueError):
+        NodeConfig.model_validate({"arm_sequence": sequence_with(board_record_max_age_s=0)})

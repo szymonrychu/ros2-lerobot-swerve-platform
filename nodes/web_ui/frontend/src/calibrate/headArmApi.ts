@@ -32,6 +32,8 @@ export interface HeadArmSequence {
   big_joints: string[];
   /** Epoch seconds since the sequence waits for a user confirm; null while it does not wait. */
   waiting_since: number | null;
+  /** A fresh board-clipped record from before a node restart; the user still confirms the board is on. */
+  board_record: { session_id: string | null; clipped_at: string } | null;
 }
 
 /** Body of GET /head-arm/state; `applied` is null while no head chain is applied. */
@@ -113,6 +115,9 @@ const SEQUENCE: Record<string, Check> = {
   error: isNullOr(isStr),
   big_joints: isArrayOf(isStr),
   waiting_since: isNullOr(isNum),
+  board_record: isNullOr(
+    (r) => isObj(r) && isNullOr(isStr)(r.session_id) && isStr(r.clipped_at),
+  ),
 };
 const PARAM: Record<string, Check> = {
   value: isNum,

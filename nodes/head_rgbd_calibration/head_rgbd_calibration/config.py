@@ -80,6 +80,7 @@ DEFAULT_GRIPPER_RAD = 0.4
 # board on (a test pins the two equal).
 DEFAULT_PARK_POSE = (-0.003, -1.35, 1.578, -0.1, -1.637)
 DEFAULT_PARK_BOARD_SAG_MARGIN_M = 0.01
+DEFAULT_BOARD_RECORD_MAX_AGE_S = 7200.0
 DEFAULT_TIER0_POSES = (
     (-0.12, 0.3, 0.0, -0.5, 0.3),
     (-0.12, 0.3, 0.0, -0.5, 0.6),
@@ -280,6 +281,8 @@ class ArmSequenceConfig(StrictModel):
     mount is the shipped hand-measured start (not fit-solved). `park_pose` is the parked arm a park with the board on
     drives to (path-checked first); `park_board_sag_margin_m` is added to the board floor, body and head clearances
     of that check, because the board sags below FK under its weight (about 4 mm measured, 214 g).
+    `board_record_max_age_s` is the oldest board-clipped record a node start still offers to the user (older ones are
+    ignored and logged).
     """
 
     base_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_BASE_POSE))
@@ -300,6 +303,7 @@ class ArmSequenceConfig(StrictModel):
     provisional_margin_m: float = Field(default=0.05, ge=0)
     park_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_PARK_POSE))
     park_board_sag_margin_m: float = Field(default=DEFAULT_PARK_BOARD_SAG_MARGIN_M, ge=0)
+    board_record_max_age_s: float = Field(default=DEFAULT_BOARD_RECORD_MAX_AGE_S, gt=0)
 
     @model_validator(mode="after")
     def check_poses(self) -> Self:

@@ -122,6 +122,13 @@ describe('HeadArmCalibration', () => {
     expect(m.park).toHaveBeenCalledWith(true, true)
   })
 
+  it('Idle Park dialog shows the remembered board record', async () => {
+    setState(seq({ board_record: { session_id: 'calib-20261023-074418', clipped_at: '2026-10-23T07:50:00+00:00' } }))
+    render(<HeadArmCalibration />)
+    await click('Park (board is on the gripper)')
+    expect(screen.getByText(/clipped in session calib-20261023-074418/)).toBeTruthy()
+  })
+
   it('Compute shows the result table and Apply posts', async () => {
     setState(seq({}))
     m.computeHeadArm.mockResolvedValue(ok(resultFx as api.HeadArmResult))

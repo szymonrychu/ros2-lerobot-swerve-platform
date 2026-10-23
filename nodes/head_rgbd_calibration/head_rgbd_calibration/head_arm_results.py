@@ -132,6 +132,24 @@ def result_body(
     }
 
 
+def head_arm_session_exists(store: SessionStore, sid: str | None) -> bool:
+    """Whether `sid` is a stored head_arm session.
+
+    Args:
+        store: Session store.
+        sid: Session id (None: no session).
+
+    Returns:
+        bool: True for an existing session of kind head_arm.
+    """
+    if sid is None:
+        return False
+    try:
+        return store.kind(sid) == KIND
+    except (NotFound, OSError, ValueError):
+        return False
+
+
 def latest_board_mount(store: SessionStore, sid: str | None) -> dict[str, list[float]] | None:
     """Board mount of the newest fitted result of a head_arm session.
 

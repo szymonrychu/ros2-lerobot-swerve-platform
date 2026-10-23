@@ -10,7 +10,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
+import httpx
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
@@ -22,6 +24,7 @@ LOG = logging.getLogger(__name__)
 
 TOKEN_KEY = "MCP_SERVER_TOKEN"
 SUBSYSTEM_ARM = "arm"
+ADMIN_PARK_BOARD_PATH = "/admin/park_calibration_board"
 # Root causes meaning nothing listens at the URL; the cause chain is read because the transport wraps them.
 UNREACHABLE_ERRORS: tuple[type[BaseException], ...] = (ConnectionError,)
 CAUSE_DEPTH = 8
@@ -74,6 +77,32 @@ async def mcp_call(url: str, token: str, name: str, args: dict[str, Any]) -> Raw
         result = await client.call_tool(name, args)
     text = " ".join(block.text for block in result.content if isinstance(block, TextContent))
     return RawToolResult(bool(result.is_error), text, result.structured_content)
+
+
+async def admin_post(url: str, token: str, path: str, args: dict[str, Any]) -> RawToolResult:
+    """POST JSON to an mcp_server admin route (plain HTTP next to the MCP path, same bearer token).
+
+    Args:
+        url (str): mcp_server MCP URL; the route is on the same host and port.
+        token (str): Bearer token.
+        path (str): Admin route path, e.g. "/admin/park_calibration_board".
+        args (dict[str, Any]): JSON body.
+
+    Returns:
+        RawToolResult: is_error for a non-200 answer (text is its `error`); structured is the JSON answer.
+    """
+    parts = urlsplit(url)
+    target = f"{parts.scheme}://{parts.netloc}{path}"
+    async with httpx.AsyncClient(headers={"Authorization": f"Bearer {token}"}) as client:
+        response = await client.post(target, json=args)
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if response.status_code != httpx.codes.OK:
+        reason = body.get("error") if isinstance(body, dict) else None
+        return RawToolResult(True, f"{path} answered {response.status_code}: {reason or response.text[:200]}")
+    return RawToolResult(False, json.dumps(body), body)
 
 
 def read_token(path: Path | str) -> str:
@@ -131,29 +160,37 @@ def structured_data(structured: Any, text: str) -> dict[str, Any] | None:
 class RobotClient:
     """Synchronous (worker-thread safe) wrapper of the mcp_server tools the calibration uses."""
 
-    def __init__(self, cfg: RobotConfig, call: Transport | None = None) -> None:
+    def __init__(self, cfg: RobotConfig, call: Transport | None = None, admin_call: Transport | None = None) -> None:
         """
         Args:
             cfg (RobotConfig): URL, token file and timeouts.
             call (Transport | None): Replacement transport `(url, token, name, args)` (tests); default is mcp_call.
+            admin_call (Transport | None): Replacement transport of the admin routes, `name` being the route path;
+                default is admin_post.
         """
         self.cfg = cfg
         self.transport: Transport = call or mcp_call
+        self.admin_transport: Transport = admin_call or admin_post
 
-    def call_tool(self, name: str, args: dict[str, Any], timeout_s: float) -> ToolResult:
+    def call_tool(
+        self, name: str, args: dict[str, Any], timeout_s: float, transport: Transport | None = None
+    ) -> ToolResult:
         """Call one tool; never raises. The token is read per call and never appears in the result or logs.
 
         Args:
             name (str): Tool name.
             args (dict[str, Any]): Tool arguments.
             timeout_s (float): Upper bound for connect plus call.
+            transport (Transport | None): Transport for this call (the admin routes); default is the MCP one.
 
         Returns:
             ToolResult: The result, or is_error with the reason.
         """
-        return asyncio.run(self.call_tool_async(name, args, timeout_s))
+        return asyncio.run(self.call_tool_async(name, args, timeout_s, transport))
 
-    async def call_tool_async(self, name: str, args: dict[str, Any], timeout_s: float) -> ToolResult:
+    async def call_tool_async(
+        self, name: str, args: dict[str, Any], timeout_s: float, transport: Transport | None = None
+    ) -> ToolResult:
         """Async body of call_tool (see there)."""
         url = self.cfg.mcp_url
         try:
@@ -162,7 +199,7 @@ class RobotClient:
             return ToolResult(True, str(exc))
         try:
             async with asyncio.timeout(timeout_s):
-                raw = await self.transport(url, token, name, args)
+                raw = await (transport or self.transport)(url, token, name, args)
         except TimeoutError:
             return ToolResult(True, f"{name} call timed out after {timeout_s:g} s")
         except Exception as exc:  # noqa: BLE001 - transport/auth/tool failures all become a reported result
@@ -190,16 +227,28 @@ class RobotClient:
         args = {"targets": targets, "speed_scale": speed_scale}
         return self.call_tool("move_arm_joints", args, self.cfg.move_timeout_s)
 
-    def release_arm(self, keep_position: bool, park_calibration_board: bool = False) -> ToolResult:
-        """Release the arm lease: keep_position True leaves arm and head where they are, False parks home.
-
-        `park_calibration_board` (parking release only) tells mcp_server the holding load is the calibration board's
-        stick: it passes that one carry reason and parks at speed_scale 0.1; any other carry reason still refuses.
-        """
-        args: dict[str, Any] = {"subsystem": SUBSYSTEM_ARM, "keep_position": keep_position}
-        if park_calibration_board:
-            args["park_calibration_board"] = True
+    def release_arm(self, keep_position: bool) -> ToolResult:
+        """Release the arm lease: keep_position True leaves arm and head where they are, False parks home."""
+        args = {"subsystem": SUBSYSTEM_ARM, "keep_position": keep_position}
         return self.call_tool("release_control", args, self.cfg.call_timeout_s)
+
+    def park_with_board(self, points: list[list[float]], margin_m: float, min_height_m: float) -> ToolResult:
+        """Park the arm with the calibration board on the gripper through mcp_server's internal admin route.
+
+        mcp_server ignores the holding load of the clamped stick only, requires the arm at its rest pose, FK-checks
+        the board outline on every home leg against the floor and the body, and parks at speed_scale 0.1. This is not
+        an MCP tool: the agent-facing release_control keeps refusing every carried object.
+
+        Args:
+            points: Board outline and lattice points in gripper_link (m).
+            margin_m: Body clearance the board keeps, sag margin included (m).
+            min_height_m: Lowest board point height above the floor, sag margin included (m).
+
+        Returns:
+            ToolResult: `data` is `{ok, result: {released, reset, state}}`; is_error carries mcp_server's refusal.
+        """
+        args = {"points": points, "margin_m": margin_m, "min_height_m": min_height_m}
+        return self.call_tool(ADMIN_PARK_BOARD_PATH, args, self.cfg.move_timeout_s, self.admin_transport)
 
     def arm_state(self) -> ToolResult:
         """Arm positions in measured follower joint space."""
