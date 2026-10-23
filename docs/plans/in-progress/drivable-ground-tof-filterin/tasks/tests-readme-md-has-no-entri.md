@@ -12,8 +12,7 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tests-readme-md-has-no-entri
-branch: current worktree branch
+branch: main
 verified_head: be91b0e2729712fd9fee128fcbcbee6daa8be3ec
 run: drivable-ground-tof-filterin
 provides: []

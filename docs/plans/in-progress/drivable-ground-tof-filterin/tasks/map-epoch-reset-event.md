@@ -12,8 +12,7 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--map-epoch-reset-event
-branch: drivable-ground-tof-filterin--map-epoch-reset-event
+branch: main
 verified_head: 75a7f4bd194b1dc2da0b415308e513c0adbe7fd0
 run: drivable-ground-tof-filterin
 provides: [map-epoch-event]

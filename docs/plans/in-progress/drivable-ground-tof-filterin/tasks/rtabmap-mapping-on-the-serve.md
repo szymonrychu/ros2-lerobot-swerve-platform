@@ -12,8 +12,7 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--rtabmap-mapping-on-the-serve
-branch: drivable-ground-tof-filterin--rtabmap-mapping-on-the-serve
+branch: main
 verified_head: 8c90b001886329e16d37c81b7554295d3af5ca7f
 run: drivable-ground-tof-filterin
 provides: []

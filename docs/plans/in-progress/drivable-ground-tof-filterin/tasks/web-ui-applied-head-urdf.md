@@ -12,8 +12,7 @@ model: ""
 estimate: 45
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--web-ui-applied-head-urdf
-branch: drivable-ground-tof-filterin--web-ui-applied-head-urdf
+branch: main
 verified_head: a88e0010a385d1730dacbfcc7e02642cf84c3c2d
 run: drivable-ground-tof-filterin
 provides: []

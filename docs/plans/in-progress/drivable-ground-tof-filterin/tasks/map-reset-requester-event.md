@@ -12,8 +12,7 @@ model: ""
 estimate: 50
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--map-reset-requester-event
-branch: drivable-ground-tof-filterin--map-reset-requester-event
+branch: main
 verified_head: c9961a7b84384aead800f516a677ac828681489a
 run: drivable-ground-tof-filterin
 provides: [map-reset-event]

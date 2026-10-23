@@ -12,8 +12,7 @@ model: ""
 estimate: 60
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--frontiers-honour-keep-outs
-branch: drivable-ground-tof-filterin--frontiers-honour-keep-outs
+branch: main
 verified_head: 06374595a0511d1817ff4e0fe0327f08c46d8cc2
 run: drivable-ground-tof-filterin
 provides: [frontier-keepout]

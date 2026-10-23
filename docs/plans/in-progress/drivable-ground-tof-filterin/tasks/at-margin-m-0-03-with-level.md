@@ -12,8 +12,7 @@ model: ""
 estimate: ""
 actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--at-margin-m-0-03-with-level
-branch: drivable-ground-tof-filterin--at-margin-m-0-03-with-level
+branch: main
 verified_head: 60811e79aa9945e34dbad0e36e1376f3322a4756
 run: drivable-ground-tof-filterin
 provides: []
