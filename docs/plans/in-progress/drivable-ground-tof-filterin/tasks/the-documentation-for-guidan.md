@@ -55,6 +55,10 @@ The documentation for guidance.no_return.cell_min_share and clearance_cells desc
 2. Fix it at nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp:NoReturnConfig comments; nodes/ground_estimator_cpp/config/ground_estimator.yaml guidance.no_return comments.
 3. Run the task verify command and confirm it passes.
 
+## Ruling
+
+- 2026-10-23 accepted: comment-only fix (4 doc comments in config.hpp/yaml match the approved semantics); verifier timed out; orchestrator: ground_estimator deploy+readme tests 20 passed
+
 ## Notes
 
 Discovered in task `no-return-core` during run `drivable-ground-tof-filterin`.
