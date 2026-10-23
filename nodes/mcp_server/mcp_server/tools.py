@@ -7,6 +7,7 @@ import logging
 import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from mcp.server.auth.provider import AccessToken
@@ -39,8 +40,16 @@ from . import (
 )
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
+from .calibration_board import BoardPark
 from .camera_scene import camera_setup, pixel_scale
-from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
+from .config import (
+    HARD_MAX_DRIVE_S,
+    HARD_MAX_IMAGE_PX,
+    HARD_MAX_SPEED_SCALE,
+    MIN_TOKEN_LENGTH,
+    GripProfileOverride,
+    McpServerConfig,
+)
 from .control import MAX_CARRIED_RADIUS_M, ControlManager, LeaseNeed, ReleaseTarget, Subsystem
 from .floor_guard import TiltOverrideDeg
 from .footprint import NavFootprint
@@ -86,6 +95,7 @@ TIMING_RESULT_KEYS = (
 SERVER_NAME = "robot"
 TOKEN_CLIENT_ID = "robot-mcp-client"
 ADMIN_CLEAR_AGENT_POIS_PATH = "/admin/clear_agent_pois"
+ADMIN_PARK_BOARD_PATH = "/admin/park_calibration_board"
 CLEAR_STATUSES = TypeAdapter(list[Literal["open", "done", "cancelled"]])
 METRICS_PATH = "/metrics"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
@@ -1377,6 +1387,25 @@ def stop_queued_motion(server: MCPServer, robot: RobotApi) -> bool:
     return True
 
 
+def read_board_park_token(path: str | None) -> str | None:
+    """The board-park token from its file (read per request).
+
+    Args:
+        path (str | None): `server.board_park_token_file`.
+
+    Returns:
+        str | None: The stripped token, or None when unset, unreadable or shorter than MIN_TOKEN_LENGTH.
+    """
+    if not path:
+        return None
+    try:
+        value = Path(path).read_text().strip()
+    except OSError:
+        return None
+    value = value.split("=", 1)[1].strip() if value.startswith("MCP_BOARD_PARK_TOKEN=") else value
+    return value if len(value) >= MIN_TOKEN_LENGTH else None
+
+
 def build_app(
     server: MCPServer, config: McpServerConfig, robot: RobotApi | None = None, token: str | None = None
 ) -> Starlette:
@@ -1385,8 +1414,10 @@ def build_app(
     GET /metrics (Prometheus text format, scraped by Grafana Alloy on the robot) needs no token but answers loopback
     clients only (403 otherwise), so exposing the server on the LAN does not expose the metrics.
 
-    The admin route is plain HTTP, not an MCP tool, so the model cannot call it. It exists for claude_agent, which runs
-    as another Linux user and cannot reach poi_store over DDS.
+    The admin routes are plain HTTP, not MCP tools, so the model cannot call them. /admin/clear_agent_pois exists for
+    claude_agent, which runs as another Linux user and cannot reach poi_store over DDS. /admin/park_calibration_board
+    is the head_rgbd_calibration node's park with the calibration board on the gripper: it ignores the holding load of
+    the clamped stick only, and FK-checks the board on every home leg before anything is released.
 
     Args:
         server (MCPServer): Server from build_mcp_server (its token verifier guards the MCP path).
@@ -1430,4 +1461,36 @@ def build_app(
             return JSONResponse({"ok": True, "removed": int((result.get("poi") or {}).get("removed", 0))})
 
         app.add_route(ADMIN_CLEAR_AGENT_POIS_PATH, clear_agent_pois, methods=["POST"])
+
+        async def park_calibration_board(request: Request) -> JSONResponse:
+            file_token = read_board_park_token(config.server.board_park_token_file)
+            if file_token is None:
+                return JSONResponse({"ok": False, "error": "the board park token is not configured"}, status_code=503)
+            scheme, _, presented = request.headers.get("authorization", "").partition(" ")
+            presented = presented.strip()
+            # Only the dedicated token opens this route; the shared MCP token (claude_agent holds it) never does.
+            if (
+                scheme.lower() != "bearer"
+                or hmac.compare_digest(presented.encode(), token.encode())
+                or not hmac.compare_digest(presented.encode(), file_token.encode())
+            ):
+                return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+            control = getattr(server, "control", None)
+            if control is None:
+                return JSONResponse({"ok": False, "error": "no control manager"}, status_code=503)
+            try:
+                raw = json.loads(await request.body())
+                if set(raw) != {"mount"}:
+                    raise ValueError("the body carries the board mount only")
+                board = BoardPark.from_mount(config.calibration_board, raw["mount"]["xyz"], raw["mount"]["rpy"])
+            except (ValueError, KeyError, TypeError) as exc:
+                message = f'body must be JSON {{"mount": {{"xyz": [x, y, z], "rpy": [r, p, y]}}}}: {exc}'
+                return JSONResponse({"ok": False, "error": message}, status_code=400)
+            try:
+                result = await run_in_threadpool(control.park_calibration_board, board)
+            except (ToolError, ArmError, RobotError, ValueError) as exc:
+                return JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
+            return JSONResponse({"ok": True, "result": result.model_dump(mode="json")})
+
+        app.add_route(ADMIN_PARK_BOARD_PATH, park_calibration_board, methods=["POST"])
     return app

@@ -103,12 +103,30 @@ describe('HeadArmCalibration', () => {
     setState(seq({ phase: 'holding', running: true }))
     m.park.mockResolvedValue(ok(seq({ phase: 'parking' })))
     render(<HeadArmCalibration />)
-    await screen.findByText(/Remove the board from the gripper/)
+    await screen.findByText(/The board may stay on the gripper/)
     await click('Park arm')
     expect(m.park).not.toHaveBeenCalled()
-    expect(screen.getByText('The board is removed')).toBeTruthy()
+    expect(screen.getByText('Park the arm')).toBeTruthy()
     await click('Park')
     expect(m.park).toHaveBeenCalledWith(true)
+  })
+
+  it('Idle Park with the board states it is on the gripper', async () => {
+    setState(seq({}))
+    m.park.mockResolvedValue(ok(seq({ phase: 'parking' })))
+    render(<HeadArmCalibration />)
+    await click('Park (board is on the gripper)')
+    expect(m.park).not.toHaveBeenCalled()
+    expect(screen.getByText('The calibration board is on the gripper')).toBeTruthy()
+    await click('Park with the board')
+    expect(m.park).toHaveBeenCalledWith(true, true)
+  })
+
+  it('Idle Park dialog shows the remembered board record', async () => {
+    setState(seq({ board_record: { session_id: 'calib-20261023-074418', clipped_at: '2026-10-23T07:50:00+00:00' } }))
+    render(<HeadArmCalibration />)
+    await click('Park (board is on the gripper)')
+    expect(screen.getByText(/clipped in session calib-20261023-074418/)).toBeTruthy()
   })
 
   it('Compute shows the result table and Apply posts', async () => {

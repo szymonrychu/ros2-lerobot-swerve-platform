@@ -100,7 +100,7 @@ describe('CalibratePage', () => {
   it('shows the Head from arm section after Head floor fit only with rgbd configured', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.endsWith('/head-arm/state')) {
-        const sequence = { running: false, phase: 'idle', session_id: null, tier: 0, arm_pose: 0, total_poses: 0, captured: 0, skipped: {}, status: 'idle', error: null, big_joints: [], waiting_since: null }
+        const sequence = { running: false, phase: 'idle', session_id: null, tier: 0, arm_pose: 0, total_poses: 0, captured: 0, skipped: {}, status: 'idle', error: null, big_joints: [], waiting_since: null, board_record: null }
         return new Response(JSON.stringify({ sequence, applied: null }))
       }
       if (url.endsWith('/head-arm/sessions')) return new Response('[]')

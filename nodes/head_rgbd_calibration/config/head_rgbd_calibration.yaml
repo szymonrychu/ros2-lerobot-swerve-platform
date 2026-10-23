@@ -181,6 +181,7 @@ fit:
 robot:
   mcp_url: http://127.0.0.1:18200/mcp # mcp_server Streamable HTTP URL
   token_file: /etc/ros2/mcp_server/token # bearer token file, read per call
+  board_park_token_file: /etc/ros2/mcp_server/board_park_token # token of the park-with-board admin route
   call_timeout_s: 60.0 # timeout of a normal tool call, s (> 0)
   move_timeout_s: 120.0 # timeout of an arm move call, s (> 0)
 # Scripted arm sequence of the head-from-arm capture (design D37, D38). Poses are measured (follower) joint
@@ -240,6 +241,10 @@ arm_sequence:
   confirm_timeout_s: 600.0 # an unanswered confirm ends the sequence (arm held), s (> 0)
   head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, 6.0]] # (pan, tilt) added to the aimed head, deg
   provisional_margin_m: 0.05 # extra board margin while board_mount is the hand-measured start, m (>= 0)
+  # Parked arm (gen_nav_footprint.yaml parked_arm_joints): the target of Park with the board on.
+  park_pose: {shoulder_pan: -0.003, shoulder_lift: -1.35, elbow_flex: 1.578, wrist_flex: -0.1, wrist_roll: -1.637}
+  park_board_sag_margin_m: 0.01 # added to the board floor, body and head clearances of the Park path check (board sags under its weight), m (>= 0)
+  board_record_max_age_s: 7200.0 # a board-clipped record older than this is ignored at start-up, s (> 0)
   # FK pose check before every arm command (shared core arm_pose_check; body equals the mcp_server body block).
   pose_check:
     body: # robot body obstacles in base_link, a copy of the mcp_server body block (m)

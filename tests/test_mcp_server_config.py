@@ -210,10 +210,16 @@ def test_mcp_server_node_entry_and_config() -> None:
         "guard_rules",
         "reach_map",
         "approach",
+        "calibration_board",
         "on_demand",
         "joint_state_rate",
     }
-    assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
+    assert cfg["server"] == {
+        "host": "0.0.0.0",
+        "port": PORT,
+        "path": "/mcp",
+        "board_park_token_file": "/etc/ros2/mcp_server/board_park_token",
+    }
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
     assert cfg["arm"]["urdf_path"] == "nodes/web_ui/urdf/so101_arm.urdf"
     assert (REPO_ROOT / cfg["arm"]["urdf_path"]).is_file()

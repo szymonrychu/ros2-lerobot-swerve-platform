@@ -118,6 +118,7 @@ keys are rejected.
 | `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.1 (<= 0.3), 1.0, 600 | Arm speed (slow for the fragile board mount; `move_arm_joints` has no acceleration option, its quintic peak acceleration scales with the speed squared), wait after a move, unanswered confirm timeout |
 | `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, 6]]` | (pan, tilt) offsets added to the aimed head angles, one view each |
 | `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` while the mount is the shipped hand-measured start |
+| `arm_sequence.park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s` | the parked arm (`scripts/gen_nav_footprint.yaml` `parked_arm_joints`), 0.01, 7200 | Park with the board on (design D63): the arm moves to `park_pose` only after the path from the measured joints passes the pose check with the board outline and `park_board_sag_margin_m` added to the board floor, body and head clearances (the live run showed the board about 4 mm below FK under its 214 g) |
 
 ## Compute
 
@@ -300,6 +301,7 @@ stops capture, kills a running compute child and destroys the node.
 
 - `tests/test_config.py` - config defaults equal the shipped YAML, unknown keys rejected, the `floor` defaults and the
   pan/tilt range checks, the `arm_sequence` defaults and its validation errors naming the tier, pose and joint.
+- `tests/test_sequencer.py` - the sequence over a fake mcp_server, including Park with the board on (checked even when no load is reported, then the internal admin park; the board record offered only fresh and for a stored session, the stated-on Park, a stale record plus a non-board load refused): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
   the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
@@ -359,3 +361,34 @@ or not applicable).
 A passing compute also writes `head_chain.json` (the applied joints kept, `head_mount_joint` and `head_tilt` replaced; a
 `head_pan` origin from a head-from-arm fit is kept, and so is the `head_tilt` xyz it moved). Apply
 copies it to `applied/` and adds `head_chain` to `applied/applied.json`, which starts the apply path unit.
+
+## Park with the board on (design D63)
+
+`POST /api/head-arm/park {"confirm": true, "board_on": false}` works with the calibration board still on the gripper, so
+a retry after a refusal needs no board removal. The board counts as on when this sequence clipped it, or the user
+states it now (`board_on: true`, the Calibrate page button "Park (board is on the gripper)" in the idle state). The
+sequencer reads `get_control_state`:
+
+- Board not on: the plain `release_control` park; a holding load is refused as ever, with a hint to state the board.
+- Board on (whatever the load reads): the path from the measured joints to `arm_sequence.park_pose` is checked with
+  `PoseChecker` and the board outline of the newest fitted `board_mount` of the session
+  (`head_arm_results.latest_board_mount`), else the recorded mount, else `fit.board_mount`, with
+  `park_board_sag_margin_m` added to the board floor (`min_board_height_m`), body and head clearances. A violation
+  refuses with the named rules ("Park refused by the path check with the board on ...") and the arm keeps holding. A pass
+  moves to `park_pose` through the guarded `move_arm_joints` at `arm_sequence.speed_scale` (0.1), then calls mcp_server's
+  internal `POST /admin/park_calibration_board` with the board mount as the only content (`robot.board_park_token_file`,
+  its own token). mcp_server owns the outline and margins, refuses a mount over 30 mm / 10 deg from its configured one,
+  requires the measured arm at its rest pose (the stored home, which `park_pose` equals), FK-checks the board on every
+  home leg from the measured joints against the floor and the body, and parks at 0.1 (see its README). The
+  agent-facing `release_control` has no such argument and claude_agent cannot read the board-park token.
+- Any carry reason other than the holding load (a held grasp, a carried radius) refuses with mcp_server's reasons quoted.
+
+### The board record
+
+When the board is attached (and again when the sequence ends, with the capture session id) the sequencer writes
+`<state_dir>/head_arm_board.json` (`session_id`, `mount` used, `clipped_at`). A completed park or a new base move removes
+it. A node start only offers a record: it is shown as `sequence.board_record` (the Park dialog mentions it) when it is
+younger than `arm_sequence.board_record_max_age_s` (7200 s) and its session is a stored head_arm session; older, unknown
+or unreadable records are ignored and logged. The record never switches the board on: after a restart the user must
+state that the board is on (`board_on: true`, the idle "Park (board is on the gripper)" button) before a board park, and
+the path checks still run. Without that statement a clamped board is refused.

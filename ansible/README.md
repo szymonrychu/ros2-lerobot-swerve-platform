@@ -628,6 +628,11 @@ received, `<id>.jpg` + `index.jsonl`; the retention limits are the `lookups:` bl
 reads the token through `EnvironmentFile=`; the token never enters git. Fetch it on the dev machine with
 `eval "$(./scripts/robot_mcp_token.sh)"` (see `nodes/mcp_server/README.md`).
 
+The same task file creates the board-park token `/etc/ros2/mcp_server/board_park_token` once (`force: false`, group
+`board-park`, mode `0640`, `no_log`). It authenticates only `POST /admin/park_calibration_board` (head_rgbd_calibration's
+park with the calibration board on the gripper); the head_rgbd_calibration service joins group `board-park`, claude_agent
+does not, and the shared MCP token is refused on that route (`tests/test_board_park_config.py`).
+
 ### Servo torque off and neutral
 
 The web UI Calibrate page releases torque per servo group and re-zeroes (records and saves the neutral in the servo

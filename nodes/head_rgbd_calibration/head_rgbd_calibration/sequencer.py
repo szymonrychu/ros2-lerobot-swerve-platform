@@ -3,7 +3,13 @@ through checked poses, the head aimed at it by the node.
 
 Order: `move_to_base` (confirmed; no board) -> the user clips the board, `board_attached` -> tier 0 (wrist_roll) ->
 tier 1 (wrist_flex, wrist_roll) -> `allow_big_joints` (elbow_flex, shoulder_lift, shoulder_pan; declined skips tier 2)
--> tier 2 -> back to the base pose -> `holding` -> the user removes the board, `park` (confirmed) -> `idle`.
+-> tier 2 -> back to the base pose -> `holding` -> `park` (confirmed) -> `idle`. Park works with the board on (design
+D63, easy retries): the whole path from the measured joints to `arm_sequence.park_pose` is checked with the board
+outline (the latest fitted board_mount when a result exists, else the configured one) and `park_board_sag_margin_m`
+added to the board floor, body and head clearances; a pass moves there at `speed_scale` and parks through mcp_server's
+internal `POST /admin/park_calibration_board` (own token, the board mount as the only request content): mcp_server
+ignores the holding load of the clamped stick and nothing else, and re-checks the board on every home leg from the
+measured joints. The agent-facing `release_control` has no board argument.
 
 Every motion goes through RobotClient (mcp_server's guarded tools) and every arm command waits for the FK path check
 from the measured joints to the target (`PoseChecker.check_path`); a refusal stops before anything moves. The gripper
@@ -17,13 +23,17 @@ short updates (never across a tool call or `blocked`); the worker waits through 
 every wait on the injected `clock`.
 """
 
+import json
 import logging
 import math
+import os
 import threading
 import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -48,6 +58,7 @@ RETURNING = "returning_to_base"
 HOLDING = "holding"
 PARKING = "parking"
 POLL_S = 0.05
+BOARD_RECORD_FILE = "head_arm_board.json"  # in state_dir, next to the sessions
 CONVERGED = "converged"
 HOMED = "homed"
 MOUNT_TOLERANCE = 1e-6
@@ -57,7 +68,9 @@ TIER_COUNT = 3
 BIG_JOINT_TIER = 2
 REASON_STOPPED = "stopped"
 MESSAGE_BOARD = "Clip the board to the fixed jaw, then press Board attached"
-MESSAGE_REMOVE = "Remove the board, then press Park"
+MESSAGE_STATE_BOARD = "; if the calibration board is on the gripper, state that the board is on and press Park again"
+MESSAGE_PARK = "Press Park (the board may stay on when its park path is clear)"
+HOLDING_LOAD_PREFIX = "holding load"  # mcp_server carrying reason of a gripper that clamps something (the board stick)
 BASE_JOINTS = (*ARM_JOINT_NAMES, GRIPPER_JOINT)
 
 
@@ -192,6 +205,10 @@ class Sequencer:
         blocked: Callable[[], str | None],
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        fitted_mount: Callable[[str | None], dict[str, list[float]] | None] | None = None,
+        board_file: Path | None = None,
+        session_exists: Callable[[str | None], bool] | None = None,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         """Create an idle sequencer (nothing is called until move_to_base or park).
 
@@ -204,7 +221,21 @@ class Sequencer:
             blocked: Returns a reason while an RGB-D capture, a compute or a floor sweep forbids a sequence, else None.
             sleep: Sleeps seconds (the injected clock's sleep in tests).
             clock: Monotonic seconds; every wait is measured on it.
+            fitted_mount: Given the capture session id, the board mount `{"xyz", "rpy"}` of its latest fit result, or
+                None without one; the Park path check uses it instead of `fit.board_mount`.
+            board_file: JSON record `{session_id, mount, clipped_at}` of a board clipped to the gripper, written when
+                the board is attached (or the user states it is on) and removed by a completed park or a new base
+                move. A node start only offers it (state()["board_record"]) when it is younger than
+                `arm_sequence.board_record_max_age_s` and `session_exists` accepts its session; the user must still
+                state that the board is on (park(board_on=True)) before a board park. None: not kept.
+            session_exists: Whether a capture session id is a stored head_arm session (default: any id).
+            now: Wall clock (default: datetime.now(UTC)); stamps and ages the board record.
         """
+        self.board_file = board_file
+        self.session_exists = session_exists or (lambda session_id: session_id is not None)
+        self.now = now or (lambda: datetime.now(UTC))
+        self.board_record: dict[str, Any] | None = None
+        self.fitted_mount = fitted_mount or (lambda _session_id: None)
         self.capture = capture
         self.robot = robot
         self.cfg = cfg
@@ -230,6 +261,75 @@ class Sequencer:
         self.waiting_since: float | None = None
         self.board_on = False
         self.big_joints_allowed: bool | None = None
+        self.recorded_mount: dict[str, list[float]] | None = None
+        self.restore_board()
+
+    def restore_board(self) -> None:
+        """Offer the board record of a previous run: only a fresh one of a stored session, never as the state itself.
+
+        A record older than `board_record_max_age_s`, of an unknown session or unreadable is ignored and logged. A
+        valid one is shown as `state()["board_record"]` (the UI pre-fills its confirm); a board park still needs the
+        user's fresh statement that the board is on.
+        """
+        if self.board_file is None or not self.board_file.is_file():
+            return
+        try:
+            record = json.loads(self.board_file.read_text())
+            session = record.get("session_id")
+            clipped_at = datetime.fromisoformat(record["clipped_at"])
+            recorded = {k: [float(v) for v in record["mount"][k]] for k in ("xyz", "rpy")}
+            if session is not None and not isinstance(session, str):
+                raise ValueError("session_id is not a string")
+            if clipped_at.tzinfo is None:
+                raise ValueError("clipped_at has no timezone")
+        except (OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
+            LOG.warning("board record %s unreadable, ignored: %s", self.board_file, exc)
+            return
+        age = (self.now() - clipped_at).total_seconds()
+        if age > self.seq.board_record_max_age_s or age < 0:
+            LOG.warning(
+                "board record %s ignored: clipped %.0f s ago (limit %g s)",
+                self.board_file,
+                age,
+                self.seq.board_record_max_age_s,
+            )
+            return
+        if not self.session_exists(session):
+            LOG.warning(
+                "board record %s ignored: session %r is not a stored head_arm session", self.board_file, session
+            )
+            return
+        self.board_record = {"session_id": session, "clipped_at": record["clipped_at"]}
+        self.session_id = session
+        self.recorded_mount = recorded
+        LOG.info("board record offered (session %s, clipped %s)", session, record["clipped_at"])
+
+    def record_board(self) -> None:
+        """Write the board record (atomically); a failed write is logged, the in-memory state stands."""
+        if self.board_file is None:
+            return
+        mount = self.cfg.fit.board_mount
+        record = {
+            "session_id": self.session_id,
+            "mount": {"xyz": list(mount.xyz_init), "rpy": list(mount.rpy_init)},
+            "clipped_at": self.now().isoformat(timespec="seconds"),
+        }
+        try:
+            self.board_file.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.board_file.with_name(self.board_file.name + ".tmp")
+            temp.write_text(json.dumps(record))
+            os.replace(temp, self.board_file)
+        except OSError as exc:
+            LOG.error("cannot write the board record %s: %s", self.board_file, exc)
+
+    def clear_board(self) -> None:
+        """Remove the board record."""
+        if self.board_file is None:
+            return
+        try:
+            self.board_file.unlink(missing_ok=True)
+        except OSError as exc:
+            LOG.error("cannot remove the board record %s: %s", self.board_file, exc)
 
     def state(self) -> dict[str, Any]:
         """The sequence state for the HTTP API.
@@ -238,7 +338,8 @@ class Sequencer:
             {running, phase, session_id, tier, arm_pose, total_poses, captured, skipped, status, error, big_joints,
             waiting_since}: arm_pose is the 0-based index over the whole pose set of the pose worked on (None before
             the first), skipped maps each skip reason to its count, big_joints names the joints tier 2 moves,
-            waiting_since is the clock time a confirm wait began (None outside a wait).
+            waiting_since is the clock time a confirm wait began (None outside a wait), board_record is
+            `{session_id, clipped_at}` of a fresh board record from before a node restart (None without one).
         """
         with self.lock:
             return {
@@ -254,6 +355,7 @@ class Sequencer:
                 "error": self.error,
                 "big_joints": list(BIG_JOINTS),
                 "waiting_since": self.waiting_since,
+                "board_record": self.board_record,
             }
 
     def wait(self, timeout: float | None = None) -> None:
@@ -294,7 +396,7 @@ class Sequencer:
             if self.running:
                 raise Busy(f"a head-arm sequence is running (phase {self.phase}): stop it first")
             if phase == MOVING_TO_BASE and self.phase == HOLDING:
-                raise Busy(f"the arm holds the board pose: {MESSAGE_REMOVE} before a new sequence")
+                raise Busy(f"the arm holds the board pose: {MESSAGE_PARK} before a new sequence")
             previous = self.phase
             self.running = True
         reason = self.blocked()
@@ -350,6 +452,7 @@ class Sequencer:
             self.board_on = False
             self.big_joints_allowed = None
             self.status = "taking the arm"
+        self.clear_board()
         self.stop_event.clear()
         self.thread = threading.Thread(target=self.work, args=(plan,), name="head-arm-sequence", daemon=True)
         self.thread.start()
@@ -391,6 +494,7 @@ class Sequencer:
             if not self.running or self.phase != WAITING_BOARD:
                 raise Busy(f"Board attached is accepted in phase {WAITING_BOARD} only (phase {self.phase})")
             self.board_on = True
+        self.record_board()
         return self.state()
 
     def allow_big_joints(self, confirmed: bool) -> dict[str, Any]:
@@ -411,11 +515,19 @@ class Sequencer:
             self.big_joints_allowed = bool(confirmed)
         return self.state()
 
-    def park(self, board_removed: bool) -> dict[str, Any]:
-        """Park the arm (mcp_server homes the arm, then the head) after the user removed the board.
+    def park(self, confirmed: bool, board_on: bool = False) -> dict[str, Any]:
+        """Park the arm (mcp_server homes the arm, then the head), with the board on or off the gripper.
+
+        Board not on (this sequence did not clip it and the user did not state it): the plain park, refused by
+        mcp_server's carry reasons as ever. Board on (the sequence clipped it, or `board_on`): whatever the load
+        reads, the path to `park_pose` is checked with the board outline and the sag margin, the arm moves there and
+        mcp_server's internal board park finishes it (it checks the board again on its home legs). Any carry reason
+        other than the holding load of the clamped stick refuses.
 
         Args:
-            board_removed: The user confirmed the board is off the gripper.
+            confirmed: The user confirmed the park move.
+            board_on: The user states, now, that the calibration board is on the gripper (a node that never saw the
+                clip, or restarted since): recorded in the board file; the path checks still run.
 
         Returns:
             The state() after the start of the park.
@@ -423,15 +535,31 @@ class Sequencer:
         Raises:
             ValueError: Not confirmed (nothing is called).
             Busy: A sequence or park runs, or `blocked` names a reason.
-            SequenceError: get_control_state fails or reports carrying (its reasons are quoted); nothing moved.
+            SequenceError: get_control_state fails, reports a carried object other than the board (its reasons are
+                quoted) or the board path check refuses (its rules are quoted); nothing moved.
         """
-        if not board_removed:
-            raise ValueError("Park needs board_removed=True: remove the board from the gripper first")
-        previous = self.claim(PARKING, "checking that the gripper carries nothing")
+        if not confirmed:
+            raise ValueError("Park needs confirmed=True: the arm moves to its park pose")
+        previous = self.claim(PARKING, "checking what the gripper carries")
+        if board_on:
+            with self.lock:
+                stated = not self.board_on
+                self.board_on = True
+            if stated:
+                self.record_board()
+        params: dict[str, Any] | None = None
         try:
             reasons = carrying_reasons(self.robot.control_state())
-            if reasons:
-                raise SequenceError(f"Park refused: mcp_server reports carrying ({'; '.join(reasons)})")
+            with self.lock:
+                board = self.board_on
+            others = [r for r in reasons if not r.startswith(HOLDING_LOAD_PREFIX)]
+            if others or (reasons and not board):
+                hint = "" if others else MESSAGE_STATE_BOARD
+                raise SequenceError(f"Park refused: mcp_server reports carrying ({'; '.join(reasons)}){hint}")
+            if board:
+                with self.lock:
+                    self.status = "checking the board's park path"
+                params = self.check_board_park_path()
         except SequenceError as exc:
             self.give_up(previous, str(exc))
             raise
@@ -442,23 +570,77 @@ class Sequencer:
         with self.lock:
             self.status = "parking: homing the arm, then the head"
         self.stop_event.clear()
-        self.thread = threading.Thread(target=self.park_work, args=(previous,), name="head-arm-park", daemon=True)
+        self.thread = threading.Thread(
+            target=self.park_work, args=(previous, params), name="head-arm-park", daemon=True
+        )
         self.thread.start()
         return self.state()
 
+    def check_board_park_path(self) -> dict[str, Any]:
+        """Check the path from the measured joints to `park_pose` with the board on the gripper.
+
+        The board keeps `park_board_sag_margin_m` more than the sequence margin from the body and the head, and that
+        much more than `min_board_height_m` above the floor (the board sags below FK under its weight).
+
+        Raises:
+            SequenceError: A URDF is unusable, or the path check names a violated rule (nothing moved).
+            StepFailed: get_arm_state fails or reports no measured joints.
+
+        Returns:
+            dict[str, Any]: The board mount the check used, `{"xyz", "rpy"}`, which is all mcp_server's own check of the
+                home legs takes from the node (it owns the outline, the margins and the floor height).
+        """
+        seq = self.seq
+        sag = seq.park_board_sag_margin_m
+        fit = self.cfg.fit
+        fitted = self.fitted_mount(self.session_id)
+        used = fitted if fitted is not None else self.recorded_mount
+        if used is not None:
+            mount = fit.board_mount.model_copy(update={"xyz_init": tuple(used["xyz"]), "rpy_init": tuple(used["rpy"])})
+            fit = fit.model_copy(update={"board_mount": mount})
+        margin = seq.board_margin_m(fitted is None and nominal_mount(self.cfg)) + sag
+        pose_check = seq.pose_check.model_copy(update={"min_board_height_m": seq.pose_check.min_board_height_m + sag})
+        try:
+            checker = PoseChecker(self.arm_urdf(), self.head_urdf(), fit, pose_check, margin)
+        except (ValueError, KeyError, OSError, SyntaxError) as exc:
+            raise SequenceError(f"cannot read the arm or head URDF: {type(exc).__name__}: {exc}") from exc
+        start = self.measured()
+        gripper = max(start.get(GRIPPER_JOINT, seq.gripper_rad), seq.gripper_rad)
+        entries = checker.check_path(start, dict(seq.park_pose), gripper)
+        if entries:
+            quoted = "; ".join(entries[:MAX_QUOTED_ENTRIES])
+            more = f" (+{len(entries) - MAX_QUOTED_ENTRIES} more)" if len(entries) > MAX_QUOTED_ENTRIES else ""
+            raise SequenceError(
+                f"Park refused by the path check with the board on, nothing was moved and the arm keeps holding: "
+                f"{quoted}{more}"
+            )
+        return {"xyz": list(fit.board_mount.xyz_init), "rpy": list(fit.board_mount.rpy_init)}
+
     # worker thread
 
-    def park_work(self, previous: str) -> None:
-        """Worker: take the arm and release it with a park; a failure leaves the phase as it was."""
+    def park_work(self, previous: str, board: dict[str, Any] | None = None) -> None:
+        """Worker: take the arm and release it with a park; a failure leaves the phase as it was.
+
+        Args:
+            previous: The phase before the park.
+            board: The board is on the gripper (the mount check_board_park_path returned): move to `park_pose`
+                first (its path was checked), then park through mcp_server's internal board park.
+        """
         error: str | None = None
         status = ""
         lease = False
         try:
             self.call(self.robot.take_arm(), "take_control")
             lease = True
-            result = self.call(self.robot.release_arm(keep_position=False), "release_control (park)")
+            if board is not None:
+                self.park_move()
+                result = self.call(self.robot.park_with_board(board), "park_calibration_board")
+                data = (result.data or {}).get("result") or {}
+            else:
+                result = self.call(self.robot.release_arm(keep_position=False), "release_control (park)")
+                data = result.data or {}
             lease = False
-            reset = (result.data or {}).get("reset") or {}
+            reset = data.get("reset") or {}
             if reset.get("arm") != HOMED:
                 raise StepFailed(f"the park did not home the arm: reset.arm {reset.get('arm')!r}")
             status = f"parked: arm {reset.get('arm')}, head {reset.get('head', 'n/a')}"
@@ -477,11 +659,28 @@ class Sequencer:
                 self.phase = IDLE
                 self.status = status
                 self.error = None
+                self.board_on = False
             else:
                 self.phase = previous
                 self.status = f"park failed: {error}"
                 self.error = error
+        if error is None:
+            self.clear_board()
         LOG.info("head-arm park %s", "done" if error is None else f"failed: {error}")
+
+    def park_move(self) -> None:
+        """Move to `park_pose` at the sequence speed scale (guarded by mcp_server); the path was checked.
+
+        Raises:
+            StepFailed: The move fails or does not converge.
+        """
+        result = self.call(
+            self.robot.move_arm_joints(dict(self.seq.park_pose), self.seq.speed_scale),
+            "move_arm_joints to the park pose",
+        )
+        status, message = tool_status(result)
+        if status != CONVERGED:
+            raise StepFailed(f"move_arm_joints to the park pose did not converge: {status}: {message}")
 
     def work(self, plan: Plan) -> None:
         """Worker: run the sequence, then always stop the capture and release the arm holding its position."""
@@ -504,9 +703,11 @@ class Sequencer:
                 self.waiting_since = None
                 self.error = error
                 detail = f": {error}" if error else ""
-                follow = f"; {MESSAGE_REMOVE}" if self.phase == HOLDING else ""
+                follow = f"; {MESSAGE_PARK}" if self.phase == HOLDING else ""
                 note = "; tier 2 skipped" if self.big_joints_allowed is False else ""
                 self.status = f"{outcome}{detail}{note}{follow}"
+        if self.board_on:
+            self.record_board()  # now with the capture session id
         LOG.info("head-arm sequence %s", outcome)
 
     def hold(self, error: str | None) -> str | None:

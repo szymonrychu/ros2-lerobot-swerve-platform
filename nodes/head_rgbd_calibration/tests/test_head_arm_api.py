@@ -41,6 +41,7 @@ STATE_DOC = {
     "error": None,
     "big_joints": ["elbow_flex", "shoulder_lift", "shoulder_pan"],
     "waiting_since": None,
+    "board_record": {"session_id": "calib-20261023-074418", "clipped_at": "2026-10-23T07:50:00+00:00"},
 }
 
 
@@ -68,8 +69,8 @@ class FakeSequencer:
     def allow_big_joints(self, confirmed: bool) -> dict[str, Any]:
         return self.act("allow_big_joints", confirmed)
 
-    def park(self, board_removed: bool) -> dict[str, Any]:
-        return self.act("park", board_removed)
+    def park(self, confirm: bool, board_on: bool = False) -> dict[str, Any]:
+        return self.act("park", (confirm, board_on))
 
     def stop(self) -> dict[str, Any]:
         return self.act("stop")
@@ -194,21 +195,23 @@ def test_stop_also_when_idle(parts: SimpleNamespace) -> None:
     assert parts.sequencer.calls == [("stop", None)]
 
 
-@pytest.mark.parametrize("body", [None, {}, {"board_removed": False}])
-def test_park_needs_board_removed(parts: SimpleNamespace, body: dict[str, Any] | None) -> None:
+@pytest.mark.parametrize("body", [None, {}, {"confirm": False}])
+def test_park_needs_confirm(parts: SimpleNamespace, body: dict[str, Any] | None) -> None:
     response = parts.client.post("/api/head-arm/park", json=body)
     assert response.status_code == 400
-    assert response.json()["ok"] is False and "board_removed" in response.json()["message"]
+    assert response.json()["ok"] is False and "confirm" in response.json()["message"]
     assert parts.sequencer.calls == []
 
 
-def test_park_passes_board_removed_and_conflicts_while_running(parts: SimpleNamespace) -> None:
-    assert parts.client.post("/api/head-arm/park", json={"board_removed": True}).status_code == 200
-    assert parts.sequencer.calls == [("park", True)]
+def test_park_passes_confirm_and_conflicts_while_running(parts: SimpleNamespace) -> None:
+    assert parts.client.post("/api/head-arm/park", json={"confirm": True}).status_code == 200
+    assert parts.sequencer.calls == [("park", (True, False))]
+    assert parts.client.post("/api/head-arm/park", json={"confirm": True, "board_on": True}).status_code == 200
+    assert parts.sequencer.calls[-1] == ("park", (True, True))
     parts.sequencer.error = Busy("a head-arm sequence is running")
-    assert parts.client.post("/api/head-arm/park", json={"board_removed": True}).status_code == 409
+    assert parts.client.post("/api/head-arm/park", json={"confirm": True}).status_code == 409
     parts.sequencer.error = SequenceError("Park refused: carrying")
-    assert parts.client.post("/api/head-arm/park", json={"board_removed": True}).status_code == 400
+    assert parts.client.post("/api/head-arm/park", json={"confirm": True}).status_code == 400
 
 
 def test_sessions_list_only_head_arm_sessions(parts: SimpleNamespace) -> None:
@@ -313,7 +316,7 @@ def test_confirms_required(parts: SimpleNamespace) -> None:
         ("/api/head-arm/sequence/base", {}),
         ("/api/head-arm/sequence/base", {"confirm": False}),
         ("/api/head-arm/park", {}),
-        ("/api/head-arm/park", {"board_removed": False}),
+        ("/api/head-arm/park", {"confirm": False}),
     ):
         assert parts.client.post(path, json=body).status_code == 400
 

@@ -133,6 +133,48 @@ def result_body(
     }
 
 
+def head_arm_session_exists(store: SessionStore, sid: str | None) -> bool:
+    """Whether `sid` is a stored head_arm session.
+
+    Args:
+        store: Session store.
+        sid: Session id (None: no session).
+
+    Returns:
+        bool: True for an existing session of kind head_arm.
+    """
+    if sid is None:
+        return False
+    try:
+        return store.kind(sid) == KIND
+    except (NotFound, OSError, ValueError):
+        return False
+
+
+def latest_board_mount(store: SessionStore, sid: str | None) -> dict[str, list[float]] | None:
+    """Board mount of the newest fitted result of a head_arm session.
+
+    Args:
+        store: Session store.
+        sid: Session id (None: no session).
+
+    Returns:
+        dict[str, list[float]] | None: `{"xyz": [m] * 3, "rpy": [rad] * 3}` of the newest result that holds one, None
+            without a session, a result or a stored session.
+    """
+    if sid is None:
+        return None
+    try:
+        results = store.list_results(sid)
+    except (NotFound, OSError, ValueError):
+        return None
+    for result in results:
+        mount = result.get("board_mount")
+        if isinstance(mount, dict) and len(mount.get("xyz", ())) == 3 and len(mount.get("rpy", ())) == 3:
+            return {"xyz": [float(v) for v in mount["xyz"]], "rpy": [float(v) for v in mount["rpy"]]}
+    return None
+
+
 def error_body(rid: str, sid: str, now: datetime, error: str) -> dict[str, Any]:
     """The result.json content of a computation that could not run."""
     return {

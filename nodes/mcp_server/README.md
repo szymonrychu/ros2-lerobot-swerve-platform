@@ -950,6 +950,23 @@ something) and, while carrying, keeps the grip profile's torque limit on the gri
 restore_torque=False)`); the default torque comes back with the next open or a parked release. `carried_object_radius_m`
 is refused without `keep_position=true`, with `subsystem='base'`, outside 0..0.3 m, or without the arm lease held.
 
+**Park with the calibration board on (D63).** The carrying refusal has one allowance, and it is not an MCP tool: the plain
+HTTP route `POST /admin/park_calibration_board`. It has its own token, `server.board_park_token_file`
+(`/etc/ros2/mcp_server/board_park_token`, created by `mcp_server_setup.yml`, group `board-park` mode 0640, read by the
+head_rgbd_calibration service group only); the shared MCP token that claude_agent holds is refused (401), and the route
+answers 503 while the token file is missing or short. `release_control` has no board argument and keeps refusing every
+carried object. The body is `{"mount": {"xyz": [x, y, z], "rpy": [r, p, y]}}` and nothing else: the board outline,
+clearances and floor height are mcp_server's own `calibration_board:` config (board squares, `outline_margin_m`,
+`lattice_points`, `margin_m` 0.09, `min_height_m` 0.06, the configured `mount_*`), pinned equal to head_rgbd_calibration's
+by `tests/test_board_park_config.py`; a mount further than `mount_tolerance_m` (30 mm) or `mount_tolerance_deg` (10 deg)
+from the configured one answers 400. `ControlManager.park_calibration_board` then ignores the `holding load` reason alone
+(a held grasp or a `carried_object_radius_m` record still refuses, naming only those reasons), requires the arm lease,
+a fresh `/follower/joint_states` (`timeouts.follower_stale_s`), the MEASURED arm within 0.1 rad of the stored home and of
+the commanded pose, and FK-checks the board along every leg of the home route, starting from the measured joints,
+against the floor and the body (`ArmController.check_board_legs`, before anything is released: a refusal leaves the arm
+holding). The park runs at `speed_scale` 0.1 (`CALIBRATION_BOARD_PARK_SPEED_SCALE`). Answers: 200 `{ok, result:
+ReleaseResult}`, 400 invalid body or mount, 401 token, 409 refused (the reason is `error`), 503 no token configured.
+
 **get_control_state** (sensor): `arm.at_home` is true when the five non-gripper joints are within
 `limits.settle_tolerance_for(joint)` (0.08 rad default) of the stored home pose; the gripper is excluded so a job may
 end at home holding an object; `null` without a stored home or fresh joint states. `base.steering_neutral` is `null`

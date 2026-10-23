@@ -32,6 +32,8 @@ export interface HeadArmSequence {
   big_joints: string[];
   /** Epoch seconds since the sequence waits for a user confirm; null while it does not wait. */
   waiting_since: number | null;
+  /** A fresh board-clipped record from before a node restart; the user still confirms the board is on. */
+  board_record: { session_id: string | null; clipped_at: string } | null;
 }
 
 /** Body of GET /head-arm/state; `applied` is null while no head chain is applied. */
@@ -122,6 +124,9 @@ const SEQUENCE: Record<string, Check> = {
   error: isNullOr(isStr),
   big_joints: isArrayOf(isStr),
   waiting_since: isNullOr(isNum),
+  board_record: isNullOr(
+    (r) => isObj(r) && isNullOr(isStr)(r.session_id) && isStr(r.clipped_at),
+  ),
 };
 const PARAM: Record<string, Check> = {
   value: isNum,
@@ -248,11 +253,11 @@ export const allowBigJoints = (confirm: boolean) =>
   );
 export const stopSequence = () =>
   request<HeadArmSequence>(`${BASE}/sequence/stop`, POST, badSequence);
-/** Parks the arm; `boardRemoved` is the user's confirm that the board is off the gripper. */
-export const park = (boardRemoved: boolean) =>
+/** Parks the arm (the board may stay on when its park path is clear); `confirm` is the user's confirm, `boardOn` states the board is on the gripper (recorded). */
+export const park = (confirm: boolean, boardOn = false) =>
   request<HeadArmSequence>(
     `${BASE}/park`,
-    post({ board_removed: boardRemoved }),
+    post({ confirm, board_on: boardOn }),
     badSequence,
   );
 export const listHeadArmSessions = () =>

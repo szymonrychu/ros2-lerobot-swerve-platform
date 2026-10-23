@@ -39,6 +39,34 @@
     mode: "0640"
   tags: [setup]
 
+# The board-park token opens only POST /admin/park_calibration_board (head_rgbd_calibration's park with the calibration
+# board on). Its own file and group board-park: claude_agent holds the shared MCP token (group mcp-token) but not this
+# group, so the agent cannot reach the route. Created once (force: false), never in git.
+- name: Ensure the group that may read the board-park token exists
+  ansible.builtin.group:
+    name: board-park
+    system: true
+  tags: [setup]
+
+- name: Create the board-park token if absent
+  ansible.builtin.copy:
+    dest: /etc/ros2/mcp_server/board_park_token
+    content: "{{ lookup('ansible.builtin.password', '/dev/null', length=48, chars=['ascii_letters', 'digits']) }}\n"
+    owner: "{{ ansible_user }}"
+    group: board-park
+    mode: "0640"
+    force: false
+  no_log: true
+  tags: [setup]
+
+- name: Let group board-park read the existing board-park token
+  ansible.builtin.file:
+    path: /etc/ros2/mcp_server/board_park_token
+    owner: "{{ ansible_user }}"
+    group: board-park
+    mode: "0640"
+  tags: [setup]
+
 - name: Ensure arm home pose directory exists (owned by the node user)
   ansible.builtin.file:
     path: /var/lib/ros2/arm

@@ -42,7 +42,7 @@ const PHASE_WAITING_BOARD = 'waiting_board'
 const PHASE_WAITING_BIG = 'waiting_big_joints'
 const PHASE_HOLDING = 'holding'
 
-type Dialog = 'base' | 'park' | null
+type Dialog = 'base' | 'park' | 'parkBoard' | null
 
 interface ParamRow {
   label: string
@@ -263,6 +263,9 @@ export function HeadArmCalibration() {
           <Button variant="contained" sx={{ ...target, mt: 1 }} disabled={busy} onClick={() => setDialog('base')}>
             Move to base pose
           </Button>
+          <Button variant="outlined" sx={{ ...target, mt: 1, ml: 1 }} disabled={busy} onClick={() => setDialog('parkBoard')}>
+            Park (board is on the gripper)
+          </Button>
         </Box>
       )}
       {phase === PHASE_WAITING_BOARD && (
@@ -275,7 +278,9 @@ export function HeadArmCalibration() {
       )}
       {phase === PHASE_HOLDING && (
         <Box sx={{ mt: 1 }}>
-          <Typography variant="body2">Remove the board from the gripper.</Typography>
+          <Typography variant="body2">
+            Press Park to park the arm. The board may stay on the gripper when its park path is clear; otherwise Park is refused and the arm keeps holding.
+          </Typography>
           <Button variant="contained" sx={{ ...target, mt: 1 }} onClick={() => setDialog('park')}>
             Park arm
           </Button>
@@ -338,13 +343,26 @@ export function HeadArmCalibration() {
         {`These joints move: ${BASE_JOINTS.join(', ')}. The robot must not be driving and the area around it must be clear.`}
       </Confirm>
       <Confirm
+        open={dialog === 'parkBoard'}
+        title="The calibration board is on the gripper"
+        confirmLabel="Park with the board"
+        onCancel={() => setDialog(null)}
+        onConfirm={() => void step(() => park(true, true))}
+      >
+        {`Use this when the arm still holds the board but this page lost the sequence (for example after a restart). The board is recorded as on the gripper, the park path is checked with it, and Park is refused, naming the rule, when the board would hit the floor, the body or the head.${
+          sequence?.board_record
+            ? ` The node remembers a board clipped in session ${sequence.board_record.session_id ?? 'unknown'} at ${sequence.board_record.clipped_at}: confirm it is still on the gripper.`
+            : ''
+        }`}
+      </Confirm>
+      <Confirm
         open={dialog === 'park'}
-        title="The board is removed"
+        title="Park the arm"
         confirmLabel="Park"
         onCancel={() => setDialog(null)}
         onConfirm={() => void step(() => park(true))}
       >
-        The board is off the gripper. The arm will move to its park pose.
+        The arm will move to its park pose, with the board on the gripper or not. Park is refused, naming the rule, when the board would hit the floor, the body or the head.
       </Confirm>
       <Confirm
         open={phase === PHASE_WAITING_BIG}
