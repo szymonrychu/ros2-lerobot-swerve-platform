@@ -396,7 +396,7 @@ def camera_image_scale(config: McpServerConfig, camera: str, width: int, height:
             "pixel_note": f"the {camera} camera has no intrinsics: the pixel tools cannot use it",
         }
     try:
-        scale = pixel_scale(width, height, intr.width, intr.height)
+        scale = pixel_scale(width, height, intr.width, intr.height, config.limits.default_camera_px)
     except ValueError as exc:
         return {
             "calibrated_image": {"width": intr.width, "height": intr.height},

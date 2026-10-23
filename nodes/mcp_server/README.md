@@ -128,6 +128,25 @@ defaults to the mount measured on the robot 2026-10-10 `{x: 0.0592, y: -0.05, z:
 5 cm right, 10 cm above the robot plane). Set it to `null` to disable the arm <-> base_link conversions. Without it, gripper results are in the arm base frame only (`ground_arm_base`; no `ground_base_link`, no
 `ground_map`; distance and bearing are measured from the arm base) and the front camera cannot place arm overlays.
 
+### Front camera object positions
+
+`front` is the head RGB camera (Camera Module 3 on the pan/tilt head, `head_camera_cpp` stream `/head_camera/image_raw/compressed`,
+1152x648, 16:9). Its intrinsics are the applied head RGB calibration
+`/var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml` (576x324, `cameras.front.intrinsics.calibration_file`,
+read lazily at each camera call with an mtime cache, scaled to the stream size by `image_width` / `image_height`, same aspect).
+The camera hangs on `head_camera_link` with a zero mount, so its pose is the applied head chain (`head_chain.json`) at the
+CURRENT measured `head_pan` / `head_tilt`. `pixel_to_ground` and `mark_candidate_points` with `camera: "front"` therefore
+return floor points with `approximate_intrinsics: false`; an Apply on the Calibrate page reaches them without a restart.
+
+- Picture sizes: `get_camera_image` returns `limits.default_camera_px` on the longest side at the camera's calibrated
+  aspect: 384x216 for `front`, 384x288 for the 4:3 gripper (`camera_scene.default_picture_size` / `picture_sizes`). The
+  tool descriptions name these sizes. Pass a pixel of that picture with `image_width` / `image_height`; it is scaled to the
+  calibrated size, and the same pixel on the calibrated-size image gives the same floor point (within 1 mm). A size of
+  another aspect (384x288 for `front`) is refused with a message naming the right size.
+- No placeholder: while the calibration file is missing or unreadable the camera answers `camera front not calibrated`
+  (no hfov fallback for floor points).
+- Tests: `tests/test_front_ground_points.py`.
+
 ### Tools
 
 - `pixel_to_ground`: `front` gives `ground_base_link`; `gripper` gives `ground_arm_base` (plus `ground_base_link` and
