@@ -65,6 +65,20 @@ FK pose check of the arm with the board on the gripper (`shared/ros2_common/head
 | `test_path_check_catches_mid_path_contact` | `check_path` finds contact in the middle of a move whose start and target poses are both clear. |
 | `test_board_margin_applies_to_board_rules_only` | The board margin applies to `board_*` rules only; the base rules keep `margin_m`. |
 
+### `test_arm_pose_check.py`
+
+FK safety check of arm poses and joint paths with the calibration board on the gripper (`shared/ros2_common/head_rgbd_calibration/arm_pose_check.py`), on `nodes/web_ui/urdf/head.urdf` and `so101_arm.urdf` and the `mcp_server` body block of `ansible/group_vars/client.yml`.
+
+| Test | Description |
+|------|-------------|
+| `test_body_defaults_equal_mcp_server_body` | `BodyConfig` defaults equal the client.yml mcp_server `body` block; boxes are frame_left, frame_right, crossbar. |
+| `test_head_envelope_contains_head_visuals` | `head_envelope` cylinder sits on the head mount axis, starts at the crossbar top and reaches the head height. |
+| `test_pose_violations_are_named` | A clear pose has no entries; each violating pose reports its named rule. |
+| `test_roll_rules` | Wrist roll rules (half-open and lifted) at the level tool poses of 12 cm and 20 cm. |
+| `test_stretched_arm_and_limits` | A stretched shoulder/elbow pose is refused by the stretched rule; URDF joint limits are checked with offsets. |
+| `test_path_check_catches_mid_path_contact` | `check_path` refuses a path whose start and target are clear but whose middle contacts the body. |
+| `test_board_margin_applies_to_board_rules_only` | `board_margin_m` applies to the board rules only, not to the arm link rules. |
+
 ### `test_head_floor_fit.py`
 
 Floor-plane head chain fit (`shared/ros2_common/head_rgbd_calibration/floor_fit.py`, design D2-D4) on `nodes/web_ui/urdf/head.urdf`, with clouds from `tests/head_floor_synthetic.py`. Truth chain: mount z +0.03 m, roll +1.5 deg, pitch -3.0 deg, tilt zero +2.0 deg (plus a +1.2 deg head_tilt roll in `test_tilt_roll_is_recovered`).
