@@ -60,12 +60,13 @@ MAX_FLOOR_PAN_DEG = 90.0
 MAX_FLOOR_TILT_DEG = 30.0
 DEFAULT_ROBOT_MCP_URL = "http://127.0.0.1:18200/mcp"
 DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
-# Board mount on the fixed jaw estimated from the URDF jaw geometry, not measured (design D47): the board plane
-# normal to the tool axis (gripper_link z), its centre on that axis 2 cm past the URDF tool point (gripper_frame_joint
-# origin (-0.0079, -0.000218, -0.0981) in gripper_link), its front toward the arm. The fit solves the real mount from
-# this start value.
-NOMINAL_BOARD_XYZ = (-0.1279, 0.0998, -0.1181)
-NOMINAL_BOARD_RPY = (3.141593, 0.0, 0.0)
+# Board mount on a stick in the closed gripper as measured by the user 2026-10-23, not fit-solved (design D47): the
+# board plane across the tool axis (gripper_link z) 2 cm past the URDF tool point (gripper_frame_joint origin
+# (-0.0079, -0.000218, -0.0981) in gripper_link), the print toward the arm, the centre 0.12 m above the tool axis on
+# the side that is up at the parked arm (gripper_link (-0.185, 0.983, 0)), the long edges level there. The fit
+# solves the real mount from this start value.
+NOMINAL_BOARD_XYZ = (-0.1665, 0.1938, -0.1181)
+NOMINAL_BOARD_RPY = (3.141593, 0.0, 0.185886)
 WRIST_ROLL = "wrist_roll"
 WRIST_FLEX = "wrist_flex"
 BIG_JOINTS = ("elbow_flex", "shoulder_lift", "shoulder_pan")
@@ -102,15 +103,15 @@ DEFAULT_TIER2_POSES = (
     (-0.27, 0.3, 0.0, -0.5, -0.3),
     (-0.42, 0.3, 0.0, -0.3, 0.0),
     (-0.47, 0.5, 0.0, -0.7, 0.4),
-    (-0.42, 0.6, 0.15, -0.85, 0.8),
-    (-0.22, 0.65, 0.0, -0.8, 0.3),
+    (-0.42, 0.6, 0.15, -0.85, -0.2),
+    (-0.22, 0.65, 0.0, -0.8, 0.0),
     (-0.02, 0.6, 0.0, -0.7, -0.2),
     (0.13, 0.5, 0.15, -0.8, -0.6),
     (0.13, 0.3, 0.0, -0.4, -0.2),
     (0.08, 0.1, 0.0, -0.2, 0.3),
     (-0.02, -0.05, 0.2, -0.3, 0.7),
     (-0.22, -0.05, 0.0, -0.15, 0.2),
-    (-0.42, 0.05, -0.2, -0.2, -0.3),
+    (-0.3, 0.15, -0.2, -0.2, -0.3),
     (-0.32, 0.3, -0.3, -0.2, -0.7),
     (-0.12, 0.45, 0.3, -0.85, -0.2),
 )
@@ -260,7 +261,7 @@ def joint_name_errors(pose: dict[str, float], where: str) -> list[str]:
 
 
 def default_fit() -> HeadArmFitConfig:
-    """Head-from-arm fit defaults with the jaw-geometry estimate of the board mount on the fixed jaw."""
+    """Head-from-arm fit defaults with the user-measured board mount (stick in the closed gripper) as the start."""
     return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=NOMINAL_BOARD_XYZ, rpy_init=NOMINAL_BOARD_RPY))
 
 
@@ -271,8 +272,8 @@ class ArmSequenceConfig(StrictModel):
     (within `max_flex_delta_rad`), tier 2 also in elbow_flex, shoulder_lift and shoulder_pan (each within
     `max_big_delta_rad`). `gripper_rad` is sent once with the base pose and is at most the half-open
     `pose_check.max_roll_gripper_rad`. `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles,
-    one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points when the board
-    mount is the jaw-geometry estimate.
+    one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points while the board
+    mount is the shipped hand-measured start (not fit-solved).
     """
 
     base_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_BASE_POSE))
@@ -283,7 +284,7 @@ class ArmSequenceConfig(StrictModel):
     max_roll_delta_rad: float = Field(default=1.2, gt=0)
     max_flex_delta_rad: float = Field(default=0.4, gt=0)
     max_big_delta_rad: float = Field(default=0.35, gt=0)
-    speed_scale: float = Field(default=0.2, gt=0, le=0.3)
+    speed_scale: float = Field(default=0.1, gt=0, le=0.3)
     settle_s: float = Field(default=1.0, ge=0)
     confirm_timeout_s: float = Field(default=600.0, gt=0)
     head_offsets_deg: list[tuple[float, float]] = Field(
@@ -331,10 +332,10 @@ class ArmSequenceConfig(StrictModel):
         """Clearance the board points keep (`PoseChecker(board_margin_m=...)`).
 
         Args:
-            nominal_mount: True when `fit.board_mount` is the jaw-geometry estimate.
+            nominal_mount: True when `fit.board_mount` is the shipped hand-measured start.
 
         Returns:
-            float: `pose_check.margin_m`, plus `provisional_margin_m` for the estimated mount (m).
+            float: `pose_check.margin_m`, plus `provisional_margin_m` for the shipped mount (m).
         """
         return self.pose_check.margin_m + (self.provisional_margin_m if nominal_mount else 0.0)
 

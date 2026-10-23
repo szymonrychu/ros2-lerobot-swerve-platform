@@ -95,7 +95,7 @@ class Plan:
 
 
 def nominal_mount(cfg: NodeConfig) -> bool:
-    """Whether `fit.board_mount` is still the jaw-geometry estimate (design D47; it gets the provisional margin).
+    """Whether `fit.board_mount` is still the shipped hand-measured start (design D47; it gets the provisional margin).
 
     Args:
         cfg: Node config.
