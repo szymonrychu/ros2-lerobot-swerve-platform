@@ -190,9 +190,15 @@ class RobotClient:
         args = {"targets": targets, "speed_scale": speed_scale}
         return self.call_tool("move_arm_joints", args, self.cfg.move_timeout_s)
 
-    def release_arm(self, keep_position: bool) -> ToolResult:
-        """Release the arm lease: keep_position True leaves arm and head where they are, False parks home."""
-        args = {"subsystem": SUBSYSTEM_ARM, "keep_position": keep_position}
+    def release_arm(self, keep_position: bool, park_calibration_board: bool = False) -> ToolResult:
+        """Release the arm lease: keep_position True leaves arm and head where they are, False parks home.
+
+        `park_calibration_board` (parking release only) tells mcp_server the holding load is the calibration board's
+        stick: it passes that one carry reason and parks at speed_scale 0.1; any other carry reason still refuses.
+        """
+        args: dict[str, Any] = {"subsystem": SUBSYSTEM_ARM, "keep_position": keep_position}
+        if park_calibration_board:
+            args["park_calibration_board"] = True
         return self.call_tool("release_control", args, self.cfg.call_timeout_s)
 
     def arm_state(self) -> ToolResult:

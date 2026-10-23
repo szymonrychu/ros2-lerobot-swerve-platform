@@ -1094,6 +1094,13 @@ def register_core_tools(ctx: ToolContext) -> None:
                 "a circle around the tool point added to the navigation footprint",
             ),
         ] = None,
+        park_calibration_board: Annotated[
+            bool,
+            Field(
+                description="parking arm release only: the holding load on the gripper is the calibration board's "
+                "stick (head_rgbd_calibration); passes that one carry reason and parks at speed_scale 0.1"
+            ),
+        ] = False,
     ) -> ReleaseResult:
         """Release control leases, parking first by default. arm: drive to the stored home pose (the same
         self-collision-safe routes as arm_home), then publish the autonomy release so the leader arm and web UI work
@@ -1114,9 +1121,12 @@ def register_core_tools(ctx: ToolContext) -> None:
         the arm (keep_position=false) is REFUSED while the gripper carries an object (get_control_state arm.carrying:
         carried_object_radius_m set, last grasp held - grasped or unverified -, or a holding load): put the object
         down first (release_object). subsystem='all' while carrying still releases the base and reports reset.arm
-        'refused: carrying (...)'. A keep_position release while carrying keeps the grip strength."""
+        'refused: carrying (...)'. A keep_position release while carrying keeps the grip strength.
+        park_calibration_board=true (parking release only; used by head_rgbd_calibration) ignores the holding-load
+        reason alone, because the jaw clamps the calibration board's stick, and parks at speed_scale 0.1; a last grasp
+        held or a carried_object_radius_m still refuses the park."""
         with tool_errors():
-            return control.release(subsystem, keep_position, carried_object_radius_m)
+            return control.release(subsystem, keep_position, carried_object_radius_m, park_calibration_board)
 
     @tool()
     def get_control_state() -> ControlState:

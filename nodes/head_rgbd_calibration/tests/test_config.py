@@ -296,3 +296,19 @@ def test_fit_board_mount_default_is_the_measured_mount() -> None:
     assert mount == load_config(SHIPPED).fit.board_mount
     assert mount.outline_margin_m == 0.01
     assert "board_mount: # measured by the user 2026-10-23, not fit-solved" in SHIPPED.read_text()
+
+
+def test_park_pose_is_the_parked_arm_and_sag_margin_defaults() -> None:
+    parked = yaml.safe_load((REPO_ROOT / "scripts" / "gen_nav_footprint.yaml").read_text())["parked_arm_joints"]
+    seq = NodeConfig().arm_sequence
+    assert seq.park_pose == {name: parked[name] for name in ARM_JOINT_NAMES}
+    assert seq.park_board_sag_margin_m == 0.01
+    assert load_config(SHIPPED).arm_sequence.park_board_sag_margin_m == 0.01
+
+
+def test_park_pose_names_every_arm_joint_and_sag_margin_is_not_negative() -> None:
+    pose = {k: v for k, v in NodeConfig().arm_sequence.park_pose.items() if k != "wrist_roll"}
+    with pytest.raises(ValueError, match="park_pose: missing joint wrist_roll"):
+        NodeConfig.model_validate({"arm_sequence": sequence_with(park_pose=pose)})
+    with pytest.raises(ValueError):
+        NodeConfig.model_validate({"arm_sequence": sequence_with(park_board_sag_margin_m=-0.001)})

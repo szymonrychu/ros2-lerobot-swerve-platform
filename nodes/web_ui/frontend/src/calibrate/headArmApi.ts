@@ -239,11 +239,11 @@ export const allowBigJoints = (confirm: boolean) =>
   );
 export const stopSequence = () =>
   request<HeadArmSequence>(`${BASE}/sequence/stop`, POST, badSequence);
-/** Parks the arm; `boardRemoved` is the user's confirm that the board is off the gripper. */
-export const park = (boardRemoved: boolean) =>
+/** Parks the arm (the board may stay on when its park path is clear); `confirm` is the user's confirm. */
+export const park = (confirm: boolean) =>
   request<HeadArmSequence>(
     `${BASE}/park`,
-    post({ board_removed: boardRemoved }),
+    post({ confirm }),
     badSequence,
   );
 export const listHeadArmSessions = () =>

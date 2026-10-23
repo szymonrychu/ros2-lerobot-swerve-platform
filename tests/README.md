@@ -1099,6 +1099,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `get_control_state` / `release_control(all)` payloads; the vitals carry `ctl arm=-@home base=-` /
   `ctl arm=H@away base=H`; the `any` need is satisfied by either lease; a queued gripper step fails at dispatch when
   the arm lease is not held
+- park with the calibration board on (`nodes/mcp_server/tests/test_control_board_park.py`, `control.py` / `arm.py` / `tools.py`): `release_control(park_calibration_board=true)` parks through a holding-load carry refusal at speed_scale 0.1 on every home leg, still refuses a last grasp held and a carried radius (naming only those reasons), is refused with `keep_position=true` or for the base, and is accepted by the MCP tool
 - control leases and the carrying signal (`test_control_carrying.py`, `control.py` / `arm.py` / `carry.py`): lease
   generation (H1): a `grasp_object` whose planning is interrupted by the web UI Home (`/arm/home`) ends `aborted` with
   `arm control not held (released by the /arm/home service ...)` and the arm is not re-taken (the next arm tool is

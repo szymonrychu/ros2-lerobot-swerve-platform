@@ -71,7 +71,7 @@ describe("headArmApi", () => {
     expect(f).toHaveBeenLastCalledWith(`${B}/park`, {
       method: "POST",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ board_removed: true }),
+      body: JSON.stringify({ confirm: true }),
     });
   });
   it("listHeadArmSessions accepts the sessions fixture", async () => {

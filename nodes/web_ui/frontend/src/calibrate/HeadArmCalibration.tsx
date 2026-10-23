@@ -267,7 +267,9 @@ export function HeadArmCalibration() {
       )}
       {phase === PHASE_HOLDING && (
         <Box sx={{ mt: 1 }}>
-          <Typography variant="body2">Remove the board from the gripper.</Typography>
+          <Typography variant="body2">
+            Press Park to park the arm. The board may stay on the gripper when its park path is clear; otherwise Park is refused and the arm keeps holding.
+          </Typography>
           <Button variant="contained" sx={{ ...target, mt: 1 }} onClick={() => setDialog('park')}>
             Park arm
           </Button>
@@ -331,12 +333,12 @@ export function HeadArmCalibration() {
       </Confirm>
       <Confirm
         open={dialog === 'park'}
-        title="The board is removed"
+        title="Park the arm"
         confirmLabel="Park"
         onCancel={() => setDialog(null)}
         onConfirm={() => void step(() => park(true))}
       >
-        The board is off the gripper. The arm will move to its park pose.
+        The arm will move to its park pose, with the board on the gripper or not. Park is refused, naming the rule, when the board would hit the floor, the body or the head.
       </Confirm>
       <Confirm
         open={phase === PHASE_WAITING_BIG}

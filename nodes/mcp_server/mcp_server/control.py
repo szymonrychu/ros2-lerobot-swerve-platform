@@ -88,6 +88,14 @@ RADIUS_NEEDS_KEEP = (
 )
 RADIUS_NEEDS_ARM = "release_control refused: carried_object_radius_m applies to subsystem='arm' or 'all'"
 RADIUS_NEEDS_LEASE = "release_control refused: carried_object_radius_m needs the arm lease held (the footprint is set at the arm release)"
+# Park with the calibration board on (D63): the board's stick clamped by the jaw reads as a holding load. The flag
+# lets a parking arm release pass that one reason, at this speed scale; any other carry reason still refuses.
+HOLDING_LOAD_PREFIX = "holding load"
+CALIBRATION_BOARD_PARK_SPEED_SCALE = 0.1
+BOARD_FLAG_NEEDS_PARK = (
+    "release_control refused: park_calibration_board applies to a parking arm release only (subsystem 'arm' or "
+    "'all' with keep_position=false)"
+)
 CARRYING_REFUSAL = (
     "release_control refused: the arm cannot park while the gripper carries an object ({reasons}) - put the object "
     "down first (release_object), or release with keep_position=true"
@@ -514,7 +522,11 @@ class ControlManager:
         return self.lease_scope("arm" if "arm" in self.step_needs([kind]) else None)
 
     def release(
-        self, subsystem: ReleaseTarget, keep_position: bool = False, carried_object_radius_m: float | None = None
+        self,
+        subsystem: ReleaseTarget,
+        keep_position: bool = False,
+        carried_object_radius_m: float | None = None,
+        park_calibration_board: bool = False,
     ) -> ReleaseResult:
         """Release leases, resetting each by default. The release always happens; a failed reset is reported.
 
@@ -523,6 +535,9 @@ class ControlManager:
             keep_position (bool): True skips the reset (arm keeps its last goal, base only clears the flag).
             carried_object_radius_m (float | None): keep_position=true arm release only: radius (0..0.3 m) of the
                 carried object, a circle around the tool point added to the footprint (0 means none).
+            park_calibration_board (bool): Parking arm release only: the holding load on the gripper is the
+                calibration board's stick, not a carried object. That one carry reason is ignored and the park runs at
+                CALIBRATION_BOARD_PARK_SPEED_SCALE; a grasp record or a carried radius still refuses.
 
         Returns:
             ReleaseResult: Released subsystems, per subsystem reset outcome and the state afterwards. With
@@ -535,6 +550,8 @@ class ControlManager:
                 an object (nothing is released).
         """
         targets = RELEASE_ORDER if subsystem == "all" else (subsystem,)
+        if park_calibration_board and (keep_position or "arm" not in targets):
+            raise ToolError(BOARD_FLAG_NEEDS_PARK)
         if carried_object_radius_m is not None:
             self.check_carried_radius(carried_object_radius_m, keep_position, "arm" in targets)
             carried_object_radius_m = carried_object_radius_m or None  # 0 = no carried object
@@ -548,6 +565,8 @@ class ControlManager:
         carry_refusal: str | None = None
         if not keep_position and "arm" in targets and self.arm_held:
             reasons = self.carrying_state().reasons
+            if park_calibration_board:
+                reasons = [r for r in reasons if not r.startswith(HOLDING_LOAD_PREFIX)]
             if reasons:
                 if subsystem != "all":
                     raise ToolError(CARRYING_REFUSAL.format(reasons="; ".join(reasons)))
@@ -560,7 +579,7 @@ class ControlManager:
             elif carry_refusal is not None:
                 outcome = carry_refusal
             else:
-                outcome = self.release_arm(keep_position, carried_object_radius_m)
+                outcome = self.release_arm(keep_position, carried_object_radius_m, park_calibration_board)
             reset[name] = outcome
             if not outcome.startswith(KEPT_PREFIXES):
                 released.append(name)
@@ -645,7 +664,7 @@ class ControlManager:
             )
             holding, why = evaluate_precondition(Precondition(type="gripper_holding"), live, self.config)
             if holding:
-                reasons.append(f"holding load: {why}")
+                reasons.append(f"{HOLDING_LOAD_PREFIX}: {why}")
         return CarryingState(carrying=bool(reasons), reasons=reasons, radius_m=record.radius_m)
 
     def carrying(self) -> list[str]:
@@ -656,7 +675,9 @@ class ControlManager:
         """
         return self.carrying_state().reasons
 
-    def release_arm(self, keep_position: bool, carried_object_radius_m: float | None = None) -> str:
+    def release_arm(
+        self, keep_position: bool, carried_object_radius_m: float | None = None, park_calibration_board: bool = False
+    ) -> str:
         """Release the arm lease, homing first unless kept, skipped under battery cut-off or no home is stored; then
         publish the footprint (static after a home, else the frozen measured pose with the carried object).
 
@@ -666,6 +687,7 @@ class ControlManager:
         Args:
             keep_position (bool): Release only.
             carried_object_radius_m (float | None): Carried object radius (keep_position only; None = none).
+            park_calibration_board (bool): Park at CALIBRATION_BOARD_PARK_SPEED_SCALE (the board is on the gripper).
 
         Returns:
             str: homed | kept | failed: <why> | skipped: <why> | stopped: <why> (a footprint that could not be
@@ -683,7 +705,8 @@ class ControlManager:
             outcome = "failed: no home pose stored"
         else:
             try:
-                result = self.arm.home(keep_prior_control=True)
+                speed = CALIBRATION_BOARD_PARK_SPEED_SCALE if park_calibration_board else None
+                result = self.arm.home(keep_prior_control=True, speed_scale=speed)
             except ArmError as exc:
                 outcome = f"failed: {exc}"
             else:

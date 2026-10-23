@@ -21,6 +21,7 @@ from head_rgbd_calibration.floor_api import floor_router
 from head_rgbd_calibration.floor_results import base_urdf
 from head_rgbd_calibration.floor_sweep import FloorSweep
 from head_rgbd_calibration.head_arm_api import head_arm_router
+from head_rgbd_calibration.head_arm_results import latest_board_mount
 from head_rgbd_calibration.jobs import ComputeJob
 from head_rgbd_calibration.robot_client import RobotClient
 from head_rgbd_calibration.sequencer import Sequencer
@@ -116,6 +117,7 @@ def main() -> int:
         lambda: base_urdf(cfg),
         lambda: Path(cfg.arm_urdf_file).read_text(),
         lambda: sequence_blocked_reason(capture, job, sweep),
+        fitted_mount=lambda sid: latest_board_mount(store, sid),
     )
     app = build_app(capture, job, store, cfg, subprocess.run)
     app.include_router(floor_router(sweep, capture, job, cfg, subprocess.run))

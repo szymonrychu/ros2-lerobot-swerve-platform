@@ -27,19 +27,15 @@ MSG_SWEEP_RUNNING = "a floor sweep is running; stop it first"
 MSG_COMPUTE_RUNNING = "a compute is running; wait for it to finish"
 MSG_CAPTURE_RUNNING = "a capture is running; stop it first"
 MSG_NEEDS_CONFIRM = "the base move needs confirm=true: it moves the arm joints (no board attached)"
-MSG_NEEDS_BOARD_REMOVED = "park needs board_removed=true: remove the board from the gripper first"
+MSG_NEEDS_PARK_CONFIRM = (
+    "park needs confirm=true: the arm moves to its park pose (the board may stay on when the path is clear)"
+)
 
 
 class ConfirmRequest(BaseModel):
     """Body of the confirmed sequence steps."""
 
     confirm: bool = False
-
-
-class ParkRequest(BaseModel):
-    """Body of POST /api/head-arm/park."""
-
-    board_removed: bool = False
 
 
 def list_head_arm_sessions(store: SessionStore) -> list[dict[str, Any]]:
@@ -137,9 +133,9 @@ def head_arm_router(
         return sequencer.stop()
 
     @router.post("/park")
-    def park(body: ParkRequest | None = None) -> Any:
-        if not (body and body.board_removed):
-            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_BOARD_REMOVED)
+    def park(body: ConfirmRequest | None = None) -> Any:
+        if not (body and body.confirm):
+            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_PARK_CONFIRM)
         return step(sequencer.park, True)
 
     @router.get("/sessions")

@@ -91,12 +91,15 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
             self.cfg = cfg
 
     class FakeSequencer:
-        def __init__(self, capture: Any, robot: Any, cfg: Any, head_urdf: Any, arm_urdf: Any, blocked: Any) -> None:
+        def __init__(
+            self, capture: Any, robot: Any, cfg: Any, head_urdf: Any, arm_urdf: Any, blocked: Any, fitted_mount: Any
+        ) -> None:
             rec.sequencer = self
             self.args = (capture, robot, cfg)
             self.head_urdf = head_urdf
             self.arm_urdf = arm_urdf
             self.blocked = blocked
+            self.fitted_mount = fitted_mount
 
         def stop(self) -> dict[str, Any]:
             rec.events.append("sequencer_stop")
@@ -201,6 +204,7 @@ def test_urdf_callables_read_the_configured_files(rec: Recorder, tmp_path: Path)
     cfg = rec.arm_routers[0][5]
     assert rec.sequencer.arm_urdf() == Path(cfg.arm_urdf_file).read_text()
     assert rec.sequencer.head_urdf() == entry.base_urdf(cfg)
+    assert rec.sequencer.fitted_mount(None) is None  # the park path check reads the session's newest fitted mount
 
 
 def test_sequencer_is_blocked_while_a_capture_compute_or_sweep_runs(rec: Recorder) -> None:

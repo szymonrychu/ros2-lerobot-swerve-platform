@@ -115,6 +115,7 @@ keys are rejected.
 | `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.1 (<= 0.3), 1.0, 600 | Arm speed (slow for the fragile board mount; `move_arm_joints` has no acceleration option, its quintic peak acceleration scales with the speed squared), wait after a move, unanswered confirm timeout |
 | `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, 6]]` | (pan, tilt) offsets added to the aimed head angles, one view each |
 | `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` while the mount is the shipped hand-measured start |
+| `arm_sequence.park_pose`, `park_board_sag_margin_m` | the parked arm (`scripts/gen_nav_footprint.yaml` `parked_arm_joints`), 0.01 | Park with the board on (design D63): the arm moves to `park_pose` only after the path from the measured joints passes the pose check with the board outline and `park_board_sag_margin_m` added to the board floor, body and head clearances (the live run showed the board about 4 mm below FK under its 214 g) |
 
 ## Compute
 
@@ -297,6 +298,7 @@ stops capture, kills a running compute child and destroys the node.
 
 - `tests/test_config.py` - config defaults equal the shipped YAML, unknown keys rejected, the `floor` defaults and the
   pan/tilt range checks, the `arm_sequence` defaults and its validation errors naming the tier, pose and joint.
+- `tests/test_sequencer.py` - the sequence over a fake mcp_server, including Park with the board on: path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
   the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
@@ -354,3 +356,17 @@ or not applicable).
 
 A passing compute also writes `head_chain.json` (the applied joints kept, `head_mount_joint` and `head_tilt` replaced). Apply
 copies it to `applied/` and adds `head_chain` to `applied/applied.json`, which starts the apply path unit.
+
+## Park with the board on (design D63)
+
+`POST /api/head-arm/park {"confirm": true}` works with the calibration board still on the gripper, so a retry after a
+refusal needs no board removal. The sequencer reads `get_control_state`: nothing carried parks as before
+(`release_control`, no flag). A holding load alone while this sequence clipped the board (the jaw clamps the stick) is
+the board case: the path from the measured joints to `arm_sequence.park_pose` is checked with `PoseChecker` and the
+board outline of the newest fitted `board_mount` of the session (`head_arm_results.latest_board_mount`), else
+`fit.board_mount`, with `park_board_sag_margin_m` added to the board floor (`min_board_height_m`), body and head
+clearances. A violation refuses with the named rules ("Park refused by the path check with the board on ...") and the
+arm keeps holding. A pass moves to `park_pose` through the guarded `move_arm_joints` at `arm_sequence.speed_scale` (0.1),
+then calls `release_control(subsystem=arm, keep_position=false, park_calibration_board=true)`, the one narrow allowance
+in mcp_server (see its README). Any other carry reason (a held grasp, a carried radius) or a load without this
+sequence's board refuses with mcp_server's reasons quoted.

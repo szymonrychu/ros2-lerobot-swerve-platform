@@ -76,6 +76,10 @@ POSE_TOLERANCE_RAD = 1e-9
 # front of the head camera, lifted to the camera height and forward of the body; each tier steps in short transits.
 DEFAULT_BASE_POSE = (-0.12, 0.3, 0.0, -0.5, 0.0)
 DEFAULT_GRIPPER_RAD = 0.4
+# The parked arm: scripts/gen_nav_footprint.yaml parked_arm_joints (the mcp_server home), the target of a park with the
+# board on (a test pins the two equal).
+DEFAULT_PARK_POSE = (-0.003, -1.35, 1.578, -0.1, -1.637)
+DEFAULT_PARK_BOARD_SAG_MARGIN_M = 0.01
 DEFAULT_TIER0_POSES = (
     (-0.12, 0.3, 0.0, -0.5, 0.3),
     (-0.12, 0.3, 0.0, -0.5, 0.6),
@@ -273,7 +277,9 @@ class ArmSequenceConfig(StrictModel):
     `max_big_delta_rad`). `gripper_rad` is sent once with the base pose and is at most the half-open
     `pose_check.max_roll_gripper_rad`. `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles,
     one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points while the board
-    mount is the shipped hand-measured start (not fit-solved).
+    mount is the shipped hand-measured start (not fit-solved). `park_pose` is the parked arm a park with the board on
+    drives to (path-checked first); `park_board_sag_margin_m` is added to the board floor, body and head clearances
+    of that check, because the board sags below FK under its weight (about 4 mm measured, 214 g).
     """
 
     base_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_BASE_POSE))
@@ -292,10 +298,12 @@ class ArmSequenceConfig(StrictModel):
     )
     pose_check: PoseCheckConfig = Field(default_factory=PoseCheckConfig)
     provisional_margin_m: float = Field(default=0.05, ge=0)
+    park_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_PARK_POSE))
+    park_board_sag_margin_m: float = Field(default=DEFAULT_PARK_BOARD_SAG_MARGIN_M, ge=0)
 
     @model_validator(mode="after")
     def check_poses(self) -> Self:
-        errors = joint_name_errors(self.base_pose, "base_pose")
+        errors = joint_name_errors(self.base_pose, "base_pose") + joint_name_errors(self.park_pose, "park_pose")
         if self.gripper_rad > self.pose_check.max_roll_gripper_rad:
             errors.append(
                 f"gripper_rad {self.gripper_rad:g} exceeds pose_check.max_roll_gripper_rad "

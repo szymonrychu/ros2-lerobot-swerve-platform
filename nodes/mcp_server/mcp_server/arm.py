@@ -2219,7 +2219,9 @@ class ArmController:
             }
         )
 
-    def home(self, keep_prior_control: bool = True, floor: FloorOverride | None = None) -> ArmMotionResult:
+    def home(
+        self, keep_prior_control: bool = True, floor: FloorOverride | None = None, speed_scale: float | None = None
+    ) -> ArmMotionResult:
         """Move to the stored home pose, then release control unless it is to be kept.
 
         Control is released after the motion completes or fails (any result, or an error once the motion was
@@ -2229,6 +2231,7 @@ class ArmController:
         Args:
             keep_prior_control (bool): Keep control afterwards if it was held before the call.
             floor (FloorOverride | None): Per-call slow-zone overrides.
+            speed_scale (float | None): Speed scale of every leg; None for the maximum.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -2251,7 +2254,7 @@ class ArmController:
             raise ArmError(f"no home pose stored at {self.cfg.arm.home_file}; call arm_set_home first")
         keep = keep_prior_control and self._held
         try:
-            result = self.home_motion({j: v for j, v in pose.items() if j in self.joint_names}, floor)
+            result = self.home_motion({j: v for j, v in pose.items() if j in self.joint_names}, floor, speed_scale)
         except ArmBusyError:
             raise
         except ArmError:
@@ -2262,12 +2265,15 @@ class ArmController:
             self.release()
         return result
 
-    def home_motion(self, pose: dict[str, float], floor: FloorOverride | None) -> ArmMotionResult:
+    def home_motion(
+        self, pose: dict[str, float], floor: FloorOverride | None, speed_scale: float | None = None
+    ) -> ArmMotionResult:
         """Move to the home pose along the first collision-free route (plan_home), leg by leg.
 
         Args:
             pose (dict[str, float]): Home pose (arm joints, measured space).
             floor (FloorOverride | None): Per-call slow-zone overrides.
+            speed_scale (float | None): Speed scale of every leg; None for the maximum.
 
         Returns:
             ArmMotionResult: Result of the last leg run (an intermediate that did not converge ends the motion).
@@ -2276,7 +2282,7 @@ class ArmController:
         names = [j for j in self.joint_names if j in pose]
         result: ArmMotionResult | None = None
         for index, leg in enumerate(legs):
-            result = self.move_joints({j: leg[j] for j in names}, floor=floor)
+            result = self.move_joints({j: leg[j] for j in names}, speed_scale, floor=floor)
             if result.status != "converged" and index < len(legs) - 1:
                 break
         assert result is not None
