@@ -237,10 +237,12 @@ ros2_node_type_defaults:
     cpu_weight: 100
     io_weight: 100
     oom_score_adjust: 0
-    # Group that may read the mcp_server bearer token (the node calls mcp_server's guarded arm tools); the group is
+    # Groups that may read the mcp_server bearer token (the node calls mcp_server's guarded arm tools) and the board-park
+    # token (its internal park with the calibration board; claude_agent is not in board-park); both groups are
     # created by playbooks/tasks/mcp_server_setup.yml and, for ordering, also by head_rgbd_calibration_setup.yml.
     supplementary_groups:
       - mcp-token
+      - board-park
     config_path: /etc/ros2/head_rgbd_calibration
     env:
       - HEAD_RGBD_CALIBRATION_CONFIG=/etc/ros2/head_rgbd_calibration/config.yaml
@@ -1676,6 +1678,7 @@ ros2_nodes:
       robot:
         mcp_url: http://127.0.0.1:18200/mcp # mcp_server Streamable HTTP URL
         token_file: /etc/ros2/mcp_server/token # bearer token file, read per call
+        board_park_token_file: /etc/ros2/mcp_server/board_park_token # token of the park-with-board admin route
         call_timeout_s: 60.0 # timeout of a normal tool call, s (> 0)
         move_timeout_s: 120.0 # timeout of an arm move call, s (> 0)
       # Scripted arm sequence of the head-from-arm capture (design D37, D38). Poses are measured (follower) joint
@@ -2642,6 +2645,24 @@ ros2_nodes:
         host: "0.0.0.0"
         port: 18200
         path: /mcp
+        # Token of POST /admin/park_calibration_board (head_rgbd_calibration's park with the board on): its own file,
+        # readable by the head_rgbd_calibration service group only, not by claude_agent (see mcp_server_setup.yml).
+        board_park_token_file: /etc/ros2/mcp_server/board_park_token
+      # The head calibration board on the gripper for that park: mcp_server's own geometry, kept equal to
+      # head_rgbd_calibration's fit.board / fit.board_mount / park margins by tests/test_board_park_config.py. A request
+      # only names the board mount, within the tolerance of mount_*; margins and the floor height are never the request's.
+      calibration_board:
+        squares_x: 6
+        squares_y: 5
+        square_mm: 40.0
+        outline_margin_m: 0.01 # plate margin beyond the outer squares
+        lattice_points: 5 # points per plate edge of the checked lattice
+        mount_xyz_m: [-0.1665, 0.1938, -0.1181] # board frame origin in gripper_link
+        mount_rpy_rad: [3.141593, 0.0, 0.185886] # fixed-axis xyz rotation
+        mount_tolerance_m: 0.03
+        mount_tolerance_deg: 10.0
+        margin_m: 0.09 # clearance from the body: 0.03 pose-check margin + 0.05 nominal-mount allowance + 0.01 sag
+        min_height_m: 0.06 # lowest board point above the floor: 0.05 + 0.01 sag
       topics:
         # Head RGB camera (tool camera `front`): Camera Module 3 on the pan/tilt head with the ToF, head_camera_cpp,
         # 1152x648 at 15 fps, 16:9.

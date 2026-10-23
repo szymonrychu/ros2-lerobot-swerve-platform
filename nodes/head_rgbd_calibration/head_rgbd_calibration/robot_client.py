@@ -173,7 +173,12 @@ class RobotClient:
         self.admin_transport: Transport = admin_call or admin_post
 
     def call_tool(
-        self, name: str, args: dict[str, Any], timeout_s: float, transport: Transport | None = None
+        self,
+        name: str,
+        args: dict[str, Any],
+        timeout_s: float,
+        transport: Transport | None = None,
+        token_file: str | None = None,
     ) -> ToolResult:
         """Call one tool; never raises. The token is read per call and never appears in the result or logs.
 
@@ -182,19 +187,25 @@ class RobotClient:
             args (dict[str, Any]): Tool arguments.
             timeout_s (float): Upper bound for connect plus call.
             transport (Transport | None): Transport for this call (the admin routes); default is the MCP one.
+            token_file (str | None): Token file for this call; default is the shared MCP token file.
 
         Returns:
             ToolResult: The result, or is_error with the reason.
         """
-        return asyncio.run(self.call_tool_async(name, args, timeout_s, transport))
+        return asyncio.run(self.call_tool_async(name, args, timeout_s, transport, token_file))
 
     async def call_tool_async(
-        self, name: str, args: dict[str, Any], timeout_s: float, transport: Transport | None = None
+        self,
+        name: str,
+        args: dict[str, Any],
+        timeout_s: float,
+        transport: Transport | None = None,
+        token_file: str | None = None,
     ) -> ToolResult:
         """Async body of call_tool (see there)."""
         url = self.cfg.mcp_url
         try:
-            token = read_token(self.cfg.token_file)
+            token = read_token(token_file or self.cfg.token_file)
         except ValueError as exc:
             return ToolResult(True, str(exc))
         try:
@@ -232,23 +243,28 @@ class RobotClient:
         args = {"subsystem": SUBSYSTEM_ARM, "keep_position": keep_position}
         return self.call_tool("release_control", args, self.cfg.call_timeout_s)
 
-    def park_with_board(self, points: list[list[float]], margin_m: float, min_height_m: float) -> ToolResult:
+    def park_with_board(self, mount: dict[str, list[float]]) -> ToolResult:
         """Park the arm with the calibration board on the gripper through mcp_server's internal admin route.
 
-        mcp_server ignores the holding load of the clamped stick only, requires the arm at its rest pose, FK-checks
-        the board outline on every home leg against the floor and the body, and parks at speed_scale 0.1. This is not
-        an MCP tool: the agent-facing release_control keeps refusing every carried object.
+        The request names the board mount only; mcp_server owns the board outline, the margins and the floor height,
+        refuses a mount further than its tolerance from the configured one, ignores the holding load of the clamped
+        stick only, requires the measured arm at its rest pose, FK-checks the board on every home leg against the
+        floor and the body, and parks at speed_scale 0.1. The route has its own token (`board_park_token_file`), not
+        the shared MCP one, and is not an MCP tool: the agent-facing release_control keeps refusing every carried object.
 
         Args:
-            points: Board outline and lattice points in gripper_link (m).
-            margin_m: Body clearance the board keeps, sag margin included (m).
-            min_height_m: Lowest board point height above the floor, sag margin included (m).
+            mount: The board mount used by the node's path check, `{"xyz": [m] * 3, "rpy": [rad] * 3}`.
 
         Returns:
             ToolResult: `data` is `{ok, result: {released, reset, state}}`; is_error carries mcp_server's refusal.
         """
-        args = {"points": points, "margin_m": margin_m, "min_height_m": min_height_m}
-        return self.call_tool(ADMIN_PARK_BOARD_PATH, args, self.cfg.move_timeout_s, self.admin_transport)
+        return self.call_tool(
+            ADMIN_PARK_BOARD_PATH,
+            {"mount": mount},
+            self.cfg.move_timeout_s,
+            self.admin_transport,
+            self.cfg.board_park_token_file,
+        )
 
     def arm_state(self) -> ToolResult:
         """Arm positions in measured follower joint space."""

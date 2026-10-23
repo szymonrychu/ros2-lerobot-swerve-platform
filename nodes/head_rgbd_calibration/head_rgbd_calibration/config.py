@@ -60,6 +60,7 @@ MAX_FLOOR_PAN_DEG = 90.0
 MAX_FLOOR_TILT_DEG = 30.0
 DEFAULT_ROBOT_MCP_URL = "http://127.0.0.1:18200/mcp"
 DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
+DEFAULT_ROBOT_BOARD_PARK_TOKEN_FILE = "/etc/ros2/mcp_server/board_park_token"
 # Board mount on a stick in the closed gripper as measured by the user 2026-10-23, not fit-solved (design D47): the
 # board plane across the tool axis (gripper_link z) 2 cm past the URDF tool point (gripper_frame_joint origin
 # (-0.0079, -0.000218, -0.0981) in gripper_link), the print toward the arm, the centre 0.12 m above the tool axis on
@@ -234,6 +235,7 @@ class RobotConfig(StrictModel):
 
     mcp_url: str = DEFAULT_ROBOT_MCP_URL
     token_file: str = DEFAULT_ROBOT_TOKEN_FILE
+    board_park_token_file: str = DEFAULT_ROBOT_BOARD_PARK_TOKEN_FILE  # token of the park-with-board admin route only
     call_timeout_s: float = Field(default=60.0, gt=0)
     move_timeout_s: float = Field(default=120.0, gt=0)
 

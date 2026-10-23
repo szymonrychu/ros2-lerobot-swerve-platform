@@ -7,6 +7,7 @@ import logging
 import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from mcp.server.auth.provider import AccessToken
@@ -37,10 +38,18 @@ from . import (
     motion_tools,
     perception_tools,
 )
-from .arm import MAX_OBJECT_WIDTH_M, ArmError, BoardPark
+from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
+from .calibration_board import BoardPark
 from .camera_scene import camera_setup, pixel_scale
-from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
+from .config import (
+    HARD_MAX_DRIVE_S,
+    HARD_MAX_IMAGE_PX,
+    HARD_MAX_SPEED_SCALE,
+    MIN_TOKEN_LENGTH,
+    GripProfileOverride,
+    McpServerConfig,
+)
 from .control import MAX_CARRIED_RADIUS_M, ControlManager, LeaseNeed, ReleaseTarget, Subsystem
 from .floor_guard import TiltOverrideDeg
 from .footprint import NavFootprint
@@ -1378,6 +1387,25 @@ def stop_queued_motion(server: MCPServer, robot: RobotApi) -> bool:
     return True
 
 
+def read_board_park_token(path: str | None) -> str | None:
+    """The board-park token from its file (read per request).
+
+    Args:
+        path (str | None): `server.board_park_token_file`.
+
+    Returns:
+        str | None: The stripped token, or None when unset, unreadable or shorter than MIN_TOKEN_LENGTH.
+    """
+    if not path:
+        return None
+    try:
+        value = Path(path).read_text().strip()
+    except OSError:
+        return None
+    value = value.split("=", 1)[1].strip() if value.startswith("MCP_BOARD_PARK_TOKEN=") else value
+    return value if len(value) >= MIN_TOKEN_LENGTH else None
+
+
 def build_app(
     server: MCPServer, config: McpServerConfig, robot: RobotApi | None = None, token: str | None = None
 ) -> Starlette:
@@ -1435,17 +1463,28 @@ def build_app(
         app.add_route(ADMIN_CLEAR_AGENT_POIS_PATH, clear_agent_pois, methods=["POST"])
 
         async def park_calibration_board(request: Request) -> JSONResponse:
+            file_token = read_board_park_token(config.server.board_park_token_file)
+            if file_token is None:
+                return JSONResponse({"ok": False, "error": "the board park token is not configured"}, status_code=503)
             scheme, _, presented = request.headers.get("authorization", "").partition(" ")
-            if scheme.lower() != "bearer" or await verifier.verify_token(presented.strip()) is None:
+            presented = presented.strip()
+            # Only the dedicated token opens this route; the shared MCP token (claude_agent holds it) never does.
+            if (
+                scheme.lower() != "bearer"
+                or hmac.compare_digest(presented.encode(), token.encode())
+                or not hmac.compare_digest(presented.encode(), file_token.encode())
+            ):
                 return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
             control = getattr(server, "control", None)
             if control is None:
                 return JSONResponse({"ok": False, "error": "no control manager"}, status_code=503)
             try:
                 raw = json.loads(await request.body())
-                board = BoardPark.from_request(raw["points"], raw["margin_m"], raw["min_height_m"])
+                if set(raw) != {"mount"}:
+                    raise ValueError("the body carries the board mount only")
+                board = BoardPark.from_mount(config.calibration_board, raw["mount"]["xyz"], raw["mount"]["rpy"])
             except (ValueError, KeyError, TypeError) as exc:
-                message = f'body must be JSON {{"points": [[x, y, z], ...], "margin_m": m, "min_height_m": m}}: {exc}'
+                message = f'body must be JSON {{"mount": {{"xyz": [x, y, z], "rpy": [r, p, y]}}}}: {exc}'
                 return JSONResponse({"ok": False, "error": message}, status_code=400)
             try:
                 result = await run_in_threadpool(control.park_calibration_board, board)

@@ -45,7 +45,8 @@ from typing import Literal, Protocol
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryGuard
 
-from .arm import EXPECTED_LEASE, SOURCE_NONE, ArmController, ArmError, BoardPark, finite_effort
+from .arm import EXPECTED_LEASE, SOURCE_NONE, ArmController, ArmError, finite_effort
+from .calibration_board import BoardPark
 from .carry import CarryRecord
 from .config import McpServerConfig
 from .footprint import NavFootprint

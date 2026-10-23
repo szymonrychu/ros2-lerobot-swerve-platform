@@ -1,9 +1,15 @@
-# The service joins group mcp-token (SupplementaryGroups=) to read the mcp_server token. This setup runs before
+# The service joins groups mcp-token and board-park (SupplementaryGroups=) to read the mcp_server token and the board-park token. This setup runs before
 # mcp_server_setup.yml in the client playbook, and systemd will not start a unit naming a missing group, so create it
 # here too (idempotent, same definition as mcp_server_setup.yml).
 - name: Ensure the group that may read the mcp_server token exists
   ansible.builtin.group:
     name: mcp-token
+    system: true
+  tags: [setup]
+
+- name: Ensure the group that may read the board-park token exists
+  ansible.builtin.group:
+    name: board-park
     system: true
   tags: [setup]
 

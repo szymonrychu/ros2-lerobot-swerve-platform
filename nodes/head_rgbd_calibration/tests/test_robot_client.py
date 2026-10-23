@@ -11,6 +11,7 @@ from head_rgbd_calibration.config import RobotConfig
 from head_rgbd_calibration.robot_client import RawToolResult, RobotClient, ToolResult, admin_post
 
 TOKEN = "s3cret-token-value"
+BOARD_TOKEN = "board-park-token-value"
 URL = "http://127.0.0.1:18200/mcp"
 
 
@@ -127,16 +128,15 @@ def test_release_arm_keep_position(token_file: Path) -> None:
 
 def test_park_with_board_uses_the_admin_transport_not_a_tool(token_file: Path) -> None:
     mcp, admin = FakeTransport(), FakeTransport(RawToolResult(False, "{}", {"ok": True, "result": {"reset": {}}}))
-    client = RobotClient(RobotConfig(mcp_url=URL, token_file=str(token_file)), call=mcp, admin_call=admin)
-    result = client.park_with_board([[0.0, 0.0, 0.0]] * 4, 0.04, 0.06)
+    board_file = token_file.with_name("board_park_token")
+    board_file.write_text(BOARD_TOKEN + "\n")
+    cfg = RobotConfig(mcp_url=URL, token_file=str(token_file), board_park_token_file=str(board_file))
+    client = RobotClient(cfg, call=mcp, admin_call=admin)
+    result = client.park_with_board({"xyz": [0.1, 0.2, 0.3], "rpy": [0.0, 0.0, 1.0]})
     assert mcp.calls == []
+    # The dedicated board-park token, never the shared MCP one.
     assert admin.calls == [
-        (
-            URL,
-            TOKEN,
-            "/admin/park_calibration_board",
-            {"points": [[0.0, 0.0, 0.0]] * 4, "margin_m": 0.04, "min_height_m": 0.06},
-        )
+        (URL, BOARD_TOKEN, "/admin/park_calibration_board", {"mount": {"xyz": [0.1, 0.2, 0.3], "rpy": [0.0, 0.0, 1.0]}})
     ]
     assert result.data == {"ok": True, "result": {"reset": {}}}
 
@@ -157,3 +157,12 @@ def test_admin_post_sends_the_bearer_token_to_the_route_beside_the_mcp_path(monk
     refused = asyncio.run(admin_post(URL, TOKEN, "/admin/park_calibration_board", {"points": []}))
     assert refused.is_error and "409" in refused.text and "board park refused: floor" in refused.text
     assert str(seen[0].url) == "http://127.0.0.1:18200/admin/park_calibration_board"
+
+
+def test_park_with_board_reports_a_missing_board_park_token_file(token_file: Path) -> None:
+    admin = FakeTransport()
+    cfg = RobotConfig(mcp_url=URL, token_file=str(token_file), board_park_token_file=str(token_file.with_name("nope")))
+    result = RobotClient(cfg, call=FakeTransport(), admin_call=admin).park_with_board(
+        {"xyz": [0, 0, 0], "rpy": [0, 0, 0]}
+    )
+    assert result.is_error and "nope" in result.text and admin.calls == []

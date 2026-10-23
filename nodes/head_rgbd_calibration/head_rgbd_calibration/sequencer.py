@@ -7,7 +7,9 @@ tier 1 (wrist_flex, wrist_roll) -> `allow_big_joints` (elbow_flex, shoulder_lift
 D63, easy retries): the whole path from the measured joints to `arm_sequence.park_pose` is checked with the board
 outline (the latest fitted board_mount when a result exists, else the configured one) and `park_board_sag_margin_m`
 added to the board floor, body and head clearances; a pass moves there at `speed_scale` and parks through mcp_server's
-`release_control(park_calibration_board=true)`, which ignores the holding load of the clamped stick and nothing else.
+internal `POST /admin/park_calibration_board` (own token, the board mount as the only request content): mcp_server
+ignores the holding load of the clamped stick and nothing else, and re-checks the board on every home leg from the
+measured joints. The agent-facing `release_control` has no board argument.
 
 Every motion goes through RobotClient (mcp_server's guarded tools) and every arm command waits for the FK path check
 from the measured joints to the target (`PoseChecker.check_path`); a refusal stops before anything moves. The gripper
@@ -585,8 +587,8 @@ class Sequencer:
             StepFailed: get_arm_state fails or reports no measured joints.
 
         Returns:
-            dict[str, Any]: The board for mcp_server's own check of the home legs: `points` (outline and lattice in
-                gripper_link), `margin_m` and `min_height_m`, the sag margin included.
+            dict[str, Any]: The board mount the check used, `{"xyz", "rpy"}`, which is all mcp_server's own check of the
+                home legs takes from the node (it owns the outline, the margins and the floor height).
         """
         seq = self.seq
         sag = seq.park_board_sag_margin_m
@@ -612,11 +614,7 @@ class Sequencer:
                 f"Park refused by the path check with the board on, nothing was moved and the arm keeps holding: "
                 f"{quoted}{more}"
             )
-        return {
-            "points": checker.board_local.tolist(),
-            "margin_m": margin,
-            "min_height_m": pose_check.min_board_height_m,
-        }
+        return {"xyz": list(fit.board_mount.xyz_init), "rpy": list(fit.board_mount.rpy_init)}
 
     # worker thread
 
@@ -625,7 +623,7 @@ class Sequencer:
 
         Args:
             previous: The phase before the park.
-            board: The board is on the gripper (the parameters check_board_park_path returned): move to `park_pose`
+            board: The board is on the gripper (the mount check_board_park_path returned): move to `park_pose`
                 first (its path was checked), then park through mcp_server's internal board park.
         """
         error: str | None = None
@@ -636,7 +634,7 @@ class Sequencer:
             lease = True
             if board is not None:
                 self.park_move()
-                result = self.call(self.robot.park_with_board(**board), "park_calibration_board")
+                result = self.call(self.robot.park_with_board(board), "park_calibration_board")
                 data = (result.data or {}).get("result") or {}
             else:
                 result = self.call(self.robot.release_arm(keep_position=False), "release_control (park)")

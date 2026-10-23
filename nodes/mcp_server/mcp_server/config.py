@@ -97,6 +97,9 @@ class ServerSettings(StrictModel):
     host: str = "0.0.0.0"
     port: int = Field(default=18200, ge=1, le=65535)
     path: str = "/mcp"
+    # File holding the token of POST /admin/park_calibration_board (read per request, at least MIN_TOKEN_LENGTH chars).
+    # Separate from the shared MCP token that claude_agent holds; None: the route answers 503.
+    board_park_token_file: str | None = None
 
     @field_validator("path")
     @classmethod
@@ -112,6 +115,28 @@ class ServerSettings(StrictModel):
         if not v.startswith("/"):
             raise ValueError("server.path must start with '/'")
         return v
+
+
+class CalibrationBoardSettings(StrictModel):
+    """The head calibration board on the gripper, for the board park (POST /admin/park_calibration_board).
+
+    mcp_server owns this geometry: the caller sends only the board mount pose, which must lie within the tolerance of
+    `mount_*`; the outline, the clearances and the floor height below are never taken from a request. Kept equal to
+    head_rgbd_calibration's `fit.board`, `fit.board_mount` and park margins by a root test.
+    """
+
+    squares_x: int = Field(default=6, ge=2)
+    squares_y: int = Field(default=5, ge=2)
+    square_mm: float = Field(default=40.0, gt=0)
+    outline_margin_m: float = Field(default=0.01, ge=0)  # plate margin beyond the outer squares
+    lattice_points: int = Field(default=5, ge=2)  # points per plate edge of the checked lattice
+    mount_xyz_m: tuple[float, float, float] = (-0.1665, 0.1938, -0.1181)  # board frame origin in gripper_link
+    mount_rpy_rad: tuple[float, float, float] = (3.141593, 0.0, 0.185886)  # fixed-axis xyz rotation
+    mount_tolerance_m: float = Field(default=0.03, gt=0)
+    mount_tolerance_deg: float = Field(default=10.0, gt=0)
+    # Clearance of the board from every body obstacle: 0.03 margin + 0.05 hand-measured-mount allowance + 0.01 sag.
+    margin_m: float = Field(default=0.09, ge=0, le=0.3)
+    min_height_m: float = Field(default=0.06, ge=0, le=0.5)  # lowest board point above the floor, sag included
 
 
 class TopicSettings(StrictModel):
@@ -1616,6 +1641,7 @@ class McpServerConfig(StrictModel):
     # rclpy EventsExecutor on its own thread (less executor overhead per wake), "main" = the main node (rollback).
     feeds_executor: Literal["events", "main"] = "events"
     server: ServerSettings = ServerSettings()
+    calibration_board: CalibrationBoardSettings = CalibrationBoardSettings()
     topics: TopicSettings = TopicSettings()
     limits: LimitSettings = LimitSettings()
     timeouts: TimeoutSettings = TimeoutSettings()

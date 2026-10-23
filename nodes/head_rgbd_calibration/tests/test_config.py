@@ -168,6 +168,7 @@ def test_robot_defaults() -> None:
     robot = NodeConfig().robot
     assert robot.mcp_url == "http://127.0.0.1:18200/mcp"
     assert robot.token_file == "/etc/ros2/mcp_server/token"
+    assert robot.board_park_token_file == "/etc/ros2/mcp_server/board_park_token"  # its own token, not the shared one
     assert robot.call_timeout_s == 60.0
     assert robot.move_timeout_s == 120.0
 

@@ -371,9 +371,11 @@ sequencer reads `get_control_state`:
   `park_board_sag_margin_m` added to the board floor (`min_board_height_m`), body and head clearances. A violation
   refuses with the named rules ("Park refused by the path check with the board on ...") and the arm keeps holding. A pass
   moves to `park_pose` through the guarded `move_arm_joints` at `arm_sequence.speed_scale` (0.1), then calls mcp_server's
-  internal `POST /admin/park_calibration_board` with the board outline and margins. mcp_server requires the arm at its
-  rest pose (the stored home, which `park_pose` equals), FK-checks the board on every home leg against the floor and
-  the body, and parks at 0.1 (see its README). The agent-facing `release_control` has no such argument.
+  internal `POST /admin/park_calibration_board` with the board mount as the only content (`robot.board_park_token_file`,
+  its own token). mcp_server owns the outline and margins, refuses a mount over 30 mm / 10 deg from its configured one,
+  requires the measured arm at its rest pose (the stored home, which `park_pose` equals), FK-checks the board on every
+  home leg from the measured joints against the floor and the body, and parks at 0.1 (see its README). The
+  agent-facing `release_control` has no such argument and claude_agent cannot read the board-park token.
 - Any carry reason other than the holding load (a held grasp, a carried radius) refuses with mcp_server's reasons quoted.
 
 ### The board record

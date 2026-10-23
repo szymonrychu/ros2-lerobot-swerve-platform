@@ -166,6 +166,7 @@ fit:
 robot:
   mcp_url: http://127.0.0.1:18200/mcp # mcp_server Streamable HTTP URL
   token_file: /etc/ros2/mcp_server/token # bearer token file, read per call
+  board_park_token_file: /etc/ros2/mcp_server/board_park_token # token of the park-with-board admin route
   call_timeout_s: 60.0 # timeout of a normal tool call, s (> 0)
   move_timeout_s: 120.0 # timeout of an arm move call, s (> 0)
 # Scripted arm sequence of the head-from-arm capture (design D37, D38). Poses are measured (follower) joint

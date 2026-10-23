@@ -71,6 +71,7 @@ RADIUS_KEY = "carried_object_radius_m"
 WAIT_S = 20.0
 GRIPPER = "gripper"
 ADMIN_PARK_BOARD = "/admin/park_calibration_board"
+BOARD_PARK_TOKEN = "board-park-token"
 
 
 class FakeClock:
@@ -119,7 +120,7 @@ class FakeRobot:
         return [args for called, args in self.calls if called == name]
 
     async def __call__(self, url: str, token: str, name: str, args: dict[str, Any]) -> RawToolResult:
-        assert token == TOKEN
+        assert token == (BOARD_PARK_TOKEN if name == ADMIN_PARK_BOARD else TOKEN)
         self.calls.append((name, dict(args)))
         self.log.append(("robot", name, dict(args)))
         number = self.count(name)
@@ -145,7 +146,8 @@ class FakeRobot:
             reset = {"arm": "kept", "head": "kept"} if keep else {"arm": self.reset_arm, "head": "homed"}
             return RawToolResult(False, "ok", {"released": ["arm"], "reset": reset, "state": {}})
         if name == ADMIN_PARK_BOARD:  # the internal admin route of mcp_server, not an MCP tool
-            assert set(args) == {"points", "margin_m", "min_height_m"}
+            assert set(args) == {"mount"}  # mcp_server owns the outline and margins: the request names the mount only
+            assert set(args["mount"]) == {"xyz", "rpy"}
             reset = {"arm": self.reset_arm, "head": "homed"}
             return RawToolResult(False, "ok", {"ok": True, "result": {"released": ["arm"], "reset": reset}})
         if name == "get_control_state":
@@ -209,7 +211,10 @@ class Rig:
         token = tmp_path / "token"
         token.write_text(f"MCP_SERVER_TOKEN={TOKEN}\n")
         base = cfg or NodeConfig()
-        self.cfg = base.model_copy(update={"robot": base.robot.model_copy(update={"token_file": str(token)})})
+        board_token = tmp_path / "board_park_token"
+        board_token.write_text("board-park-token\n")
+        robot_cfg = base.robot.model_copy(update={"token_file": str(token), "board_park_token_file": str(board_token)})
+        self.cfg = base.model_copy(update={"robot": robot_cfg})
         self.log: list[tuple[str, str, dict[str, Any]]] = []
         self.robot = FakeRobot(self.log)
         self.capture = FakeCapture(self.log)
@@ -602,11 +607,10 @@ def test_park_with_the_board_on_is_checked_moved_then_parked_through_the_interna
     assert move == {"targets": seq_cfg.park_pose, "speed_scale": seq_cfg.speed_scale} and seq_cfg.speed_scale == 0.1
     # No release_control after the sequence's hold: the park is the admin route, which checks the board itself.
     assert all(args["keep_position"] is True for args in rig.robot.named("release_control"))
-    park = rig.robot.named(ADMIN_PARK_BOARD)[-1]
-    pose_check = seq_cfg.pose_check
-    assert len(park["points"]) > 4 and all(len(point) == 3 for point in park["points"])
-    assert park["margin_m"] == pytest.approx(seq_cfg.board_margin_m(True) + seq_cfg.park_board_sag_margin_m)
-    assert park["min_height_m"] == pytest.approx(pose_check.min_board_height_m + seq_cfg.park_board_sag_margin_m)
+    mount = rig.cfg.fit.board_mount
+    assert rig.robot.named(ADMIN_PARK_BOARD)[-1] == {
+        "mount": {"xyz": list(mount.xyz_init), "rpy": list(mount.rpy_init)}
+    }
     assert "homed" in state["status"]
 
 
@@ -673,6 +677,17 @@ def test_park_with_the_board_failing_move_keeps_holding(tmp_path: Path) -> None:
     assert state["phase"] == HOLDING and "did not converge" in state["error"]
     assert rig.robot.count(ADMIN_PARK_BOARD) == 0
     assert rig.robot.named("release_control")[-1] == {"subsystem": "arm", "keep_position": True}
+
+
+def test_park_with_the_board_sends_the_fitted_mount_to_mcp_server(tmp_path: Path) -> None:
+    mount = small_cfg().fit.board_mount
+    fitted = {"xyz": [mount.xyz_init[0] + 0.004, mount.xyz_init[1], mount.xyz_init[2]], "rpy": list(mount.rpy_init)}
+    rig = Rig(tmp_path, small_cfg(), fitted_mount=lambda session_id: fitted)
+    rig.run_to_holding()
+    rig.robot.carrying = [BOARD_LOAD]
+    rig.seq.park(confirmed=True)
+    assert rig.finish()["phase"] == IDLE
+    assert rig.robot.named(ADMIN_PARK_BOARD)[-1] == {"mount": fitted}
 
 
 def test_park_with_the_board_uses_the_fitted_mount_when_a_result_exists(tmp_path: Path) -> None:
