@@ -146,3 +146,56 @@ def test_http_port_unique_in_client_vars() -> None:
     """Config blocks may hold Jinja, so the values are matched per line, comments stripped."""
     found = [int(m.group(1)) for m in PORT_LINE.finditer(CLIENT_VARS.read_text())]
     assert found.count(HTTP_PORT) == 1
+
+
+def node_entry(name: str) -> dict[str, Any]:
+    return next(n for n in client_vars()["ros2_nodes"] if n["name"] == name)
+
+
+def calib_config() -> dict[str, Any]:
+    return yaml.safe_load(node_entry("head_rgbd_calibration")["config"])
+
+
+def mcp_config() -> dict[str, Any]:
+    return yaml.safe_load(node_entry("mcp_server")["config"])
+
+
+def test_fit_joint_offsets_equal_mcp_server_arm() -> None:
+    assert calib_config()["fit"]["joint_offsets_rad"] == mcp_config()["arm"]["joint_offsets_rad"]
+
+
+def test_fit_base_in_base_link_equals_mcp_server_arm() -> None:
+    assert calib_config()["fit"]["base_in_base_link"] == mcp_config()["arm"]["base_in_base_link"]
+
+
+def test_pose_check_body_equals_mcp_server_body() -> None:
+    body = calib_config()["arm_sequence"]["pose_check"]["body"]
+    mcp_body = mcp_config()["body"]
+    assert body["boxes"] == mcp_body["boxes"]
+    assert body["cylinders"] == mcp_body["cylinders"]
+
+
+def test_arm_urdf_file_is_the_mcp_server_arm_urdf() -> None:
+    mcp_urdf = mcp_config()["arm"]["urdf_path"]
+    assert calib_config()["arm_urdf_file"].endswith("/" + mcp_urdf)
+
+
+def test_fit_board_equals_board() -> None:
+    config = calib_config()
+    assert config["fit"]["board"] == config["board"]
+
+
+def test_service_joins_mcp_token_group_created_by_mcp_server_setup() -> None:
+    # The role reads supplementary_groups from the node type defaults (as claude_agent).
+    assert "mcp-token" in client_vars()["ros2_node_type_defaults"]["head_rgbd_calibration"]["supplementary_groups"]
+    mcp_setup = yaml.safe_load((REPO_ROOT / "ansible" / "playbooks" / "tasks" / "mcp_server_setup.yml").read_text())
+    groups = [t["ansible.builtin.group"] for t in mcp_setup if "ansible.builtin.group" in t]
+    assert any(g["name"] == "mcp-token" and g.get("state", "present") == "present" for g in groups)
+
+
+def test_setup_creates_mcp_token_group_before_the_service_starts() -> None:
+    """The client playbook runs this setup before mcp_server_setup, so it must create the group itself."""
+    group = next(t for t in setup_tasks() if "ansible.builtin.group" in t)["ansible.builtin.group"]
+    assert group["name"] == "mcp-token"
+    assert group.get("state", "present") == "present"
+    assert group["system"] is True

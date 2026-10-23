@@ -1,3 +1,12 @@
+# The service joins group mcp-token (SupplementaryGroups=) to read the mcp_server token. This setup runs before
+# mcp_server_setup.yml in the client playbook, and systemd will not start a unit naming a missing group, so create it
+# here too (idempotent, same definition as mcp_server_setup.yml).
+- name: Ensure the group that may read the mcp_server token exists
+  ansible.builtin.group:
+    name: mcp-token
+    system: true
+  tags: [setup]
+
 # head_rgbd_calibration keeps sessions/ and applied/ here; the node runs as ansible_user. Nothing in this file removes,
 # truncates or overwrites their contents: committed calibration files only seed applied/ when a file is missing
 # (force: false), and the apply unit restarts the head nodes when applied/applied.json changes.

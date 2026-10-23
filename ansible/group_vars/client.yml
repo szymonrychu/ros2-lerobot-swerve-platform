@@ -237,6 +237,10 @@ ros2_node_type_defaults:
     cpu_weight: 100
     io_weight: 100
     oom_score_adjust: 0
+    # Group that may read the mcp_server bearer token (the node calls mcp_server's guarded arm tools); the group is
+    # created by playbooks/tasks/mcp_server_setup.yml and, for ordering, also by head_rgbd_calibration_setup.yml.
+    supplementary_groups:
+      - mcp-token
     config_path: /etc/ros2/head_rgbd_calibration
     env:
       - HEAD_RGBD_CALIBRATION_CONFIG=/etc/ros2/head_rgbd_calibration/config.yaml
