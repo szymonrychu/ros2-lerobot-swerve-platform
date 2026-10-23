@@ -56,6 +56,10 @@ At margin_m 0.03 with level-gripper poses, the upper-arm capsule comes within 30
 2. Fix it at nodes/head_rgbd_calibration (arm-board-pose-set shipped pose set, tier 2 shoulder_pan within max_big_delta_rad 0.35).
 3. Run the task verify command and confirm it passes.
 
+## Ruling
+
+- 2026-10-23 accepted: gate-repeat after verified; orchestrator on HEAD: test_arm_pose_set + test_config 85 passed
+
 ## Notes
 
 Discovered in task `arm-pose-safety-check` during run `drivable-ground-tof-filterin`.
