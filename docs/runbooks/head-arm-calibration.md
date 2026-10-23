@@ -72,7 +72,7 @@ mcp_server kills it; ask first). Telemetry only through topic_scraper_api /
 5. Live yaw and x/y check: arm at the base pose without the board, `head_look_at` on the tool point;
    the tool point's pixel offset from the image centre in the head camera image (web UI), converted to
    deg, before (CAD chain) and after. Record.
-6. The arm joint offset solve is epic arm-joint-offsets-from-the-g; this runbook does not do it.
+6. Note: the arm joint offset solve belongs to epic arm-joint-offsets-from-the-g.
 
 Retry notes: speed_scale stays 0.1 (fragile mount). A pose refused by the path check is recorded as
 skipped with its reason, not forced. After a long hold (about 4 h) the gripper servo can drop off the
@@ -81,19 +81,19 @@ bus under the board load: park with the board (D63) and unclip between sessions.
 ## Results
 
 Run 2026-10-23 by the orchestrator with the user (session `calib-20261023-074418`). This section was
-written from the run's record; a value marked "not recorded" was not captured and is not guessed.
+written from the run's record. Rows marked "BLOCKED" need a robot rerun with the user; no value was captured for them and none is guessed.
 
 | Step | Result | Notes |
 |---|---|---|
-| Full suite green | not recorded here | the integrated branch runs the full suite once before merge |
-| 1 Deploy | pass | services started; applied result survives reboot; logs `.logs/deploy-head-arm-calib.log` not retained in the record |
-| 2 Tilt range | not recorded | pinned limit is 45 deg (Hardware section) |
+| Full suite green | pass 2026-10-23 | root pytest, lint, lint-nodes, test-ansible, and the head_rgbd_calibration, mcp_server and web_ui pytest suites all exit 0 (last web_ui run: 1080 passed); frontend tsc/npm checks not run here; log `.logs/full-suite.log` |
+| 1 Deploy | pass | services started without ModuleNotFoundError (user-observed); the deploy log file was not kept, so this row rests on the user's observation |
+| 2 Tilt range | BLOCKED: robot rerun needed | pinned limit is 45 deg (Hardware section) |
 | 2a Board mount | done | `fit.board_mount` is the user's 2026-10-23 measurement (yaml comment "measured by the user 2026-10-23") |
-| 2b Dry run | not recorded | per-pose stops were not captured |
+| 2b Dry run | BLOCKED: robot rerun needed | per-pose stops were not captured |
 | 3 Head from arm | pass | see numbers below |
-| 4 Apply | pass, applied 11:52 | head_state_publisher, head_camera_cpp, head_rgbd_cpp restarted; `/ground/state` height delta not recorded |
-| 5 Yaw and x/y pixel offset | not recorded | before/after offsets were not captured |
-| 6 Arm joint offsets | note | solved by epic arm-joint-offsets-from-the-g |
+| 4 Apply | pass, applied 11:52 | head_state_publisher, head_camera_cpp, head_rgbd_cpp restarted; `/ground/state` height delta BLOCKED: robot rerun needed |
+| 5 Yaw and x/y pixel offset | BLOCKED: robot rerun needed | before/after offsets were not captured |
+| 6 Arm joint offsets | note | belongs to epic arm-joint-offsets-from-the-g |
 
 Calibration session `calib-20261023-074418`: speed_scale 0.1, board mass 214 g, robot docked.
 - 113 views, 29 arm poses. Tier 2 pose 10 (arm pose 29) refused by the path check: board point 45.9 mm
@@ -104,8 +104,8 @@ Calibration session `calib-20261023-074418`: speed_scale 0.1, board mass 214 g, 
 - Recompute `r-20261023-112701` PASSED: rms 2.93 px, held-out 2.88 px / 2.86 mm, largest floor delta
   1.43 deg.
 - Parameters: mount x 0.1655 m, y 0.1107 m, z 0.2456 m; roll 1.114 deg, pitch 1.452 deg, yaw 0.473 deg;
-  tilt_zero -6.495 deg; tilt_roll 0.312 deg; pan_axis x -0.0367 m, y -0.0105 m. Per-parameter sigma was
-  not recorded in this note; it is in the stored result `r-20261023-112701`.
+  tilt_zero -6.495 deg; tilt_roll 0.312 deg; pan_axis x -0.0367 m, y -0.0105 m. Per-parameter sigma: BLOCKED,
+  read it from stored result `r-20261023-112701` on the robot.
 - Applied 11:52; survives reboot.
 - Incident: after about 4 h holding the board (load 200) gripper servo 6 dropped off the bus and the
   robot was power-cycled; the arm returned to rest. Park with the board (D63) was added and reviewed.
