@@ -46,5 +46,11 @@
     "accept": true,
     "reason": "docs-only (tests/README.md +14, shared/README.md +1, commit 1bc919ae); verifier hung 49 min; orchestrator check on HEAD: README tests 74 passed, poe lint clean, tree clean",
     "at": "2026-10-23T00:18:44Z"
+  },
+  {
+    "task": "head-arm-sequence-http-api",
+    "accept": true,
+    "reason": "round-cap on AC a6 'node suite passes': orchestrator ran it on HEAD (clean tree): head_rgbd_calibration 376 passed, lint clean",
+    "at": "2026-10-23T01:11:24Z"
   }
 ]

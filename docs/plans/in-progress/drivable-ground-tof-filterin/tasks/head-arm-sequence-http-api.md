@@ -89,6 +89,10 @@ only by the browser.
 - Implement the router and the wiring; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv run poe lint`;
   expect every test passed and lint clean.
 
+## Ruling
+
+- 2026-10-23 accepted: round-cap on AC a6 'node suite passes': orchestrator ran it on HEAD (clean tree): head_rgbd_calibration 376 passed, lint clean
+
 ## Notes
 
 - Model it on `floor_api.py`; keep the floor routes unchanged.
