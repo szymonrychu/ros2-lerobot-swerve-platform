@@ -1,6 +1,6 @@
 ---
 title: Frontiers honour keep-outs
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: A keep-out drawn over a mirror ends the ghost frontiers the agent keeps chasing
 files: [nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/topdown.py, nodes/mcp_server/mcp_server/poi_client.py, nodes/mcp_server/tests/test_frontier_keepout.py, nodes/mcp_server/README.md]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--frontiers-honour-keep-outs
 branch: drivable-ground-tof-filterin--frontiers-honour-keep-outs
-verified_head: ""
+verified_head: 06374595a0511d1817ff4e0fe0327f08c46d8cc2
 run: drivable-ground-tof-filterin
-provides: []
+provides: [frontier-keepout]
 acs_for_audit: []
 process_gaps: []
 ---

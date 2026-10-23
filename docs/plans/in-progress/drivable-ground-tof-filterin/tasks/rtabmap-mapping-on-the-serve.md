@@ -1,6 +1,6 @@
 ---
 title: "rtabmap_mapping on the server logged 'Did not receive data since 5 seconds' for /uplink/scan_filtered and the /uplink/head_rgbd streams the whole time around 16:30 (Wi-Fi up), while map3d_uplink was sending about 100 KB/s to the server"
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The map3d uplink seems not to be feeding RTAB-Map even while the link is up.
 files: []
@@ -14,9 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--rtabmap-mapping-on-the-serve
 branch: drivable-ground-tof-filterin--rtabmap-mapping-on-the-serve
-verified_head: ""
-run: ""
+verified_head: 8c90b001886329e16d37c81b7554295d3af5ca7f
+run: drivable-ground-tof-filterin
 provides: []
+acs_for_audit: [AC1]
+process_gaps: []
 ---
 
 # rtabmap_mapping on the server logged 'Did not receive data since 5 seconds' for /uplink/scan_filtered and the /uplink/head_rgbd streams the whole time around 16:30 (Wi-Fi up), while map3d_uplink was sending about 100 KB/s to the server

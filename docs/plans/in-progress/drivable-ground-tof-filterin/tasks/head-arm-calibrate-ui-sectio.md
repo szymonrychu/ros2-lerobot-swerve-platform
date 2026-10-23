@@ -1,6 +1,6 @@
 ---
 title: Head arm calibrate UI section
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The user runs the head-from-arm calibration from a browser, step by step, confirming every big-joint motion, and applies only a passing result."
 files: [nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.tsx, nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx]
@@ -85,3 +85,5 @@ applies only a passing result.
 - Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
 
 - 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on calib-frontend-api
+
+- 2026-10-23 run drivable-ground-tof-filterin: dependency-failed on calib-frontend-api

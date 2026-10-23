@@ -1,6 +1,6 @@
 ---
 title: Map epoch reset event
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Every map reset the agent runs into is explained by an event with its cause
 files: [nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_map_epoch_event.py, nodes/mcp_server/README.md]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--map-epoch-reset-event
 branch: drivable-ground-tof-filterin--map-epoch-reset-event
-verified_head: ""
+verified_head: 75a7f4bd194b1dc2da0b415308e513c0adbe7fd0
 run: drivable-ground-tof-filterin
-provides: []
+provides: [map-epoch-event]
 acs_for_audit: []
 process_gaps: []
 ---

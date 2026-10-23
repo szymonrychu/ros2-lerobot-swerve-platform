@@ -81,7 +81,7 @@ live steps) is in design.md, decision D29.
 
 ## Time
 
-Estimate: 3490 min | Actual: 0 min | Remaining estimate: 1760 min
+Estimate: 3490 min | Actual: 0 min | Remaining estimate: 1485 min
 
 ## Review
 

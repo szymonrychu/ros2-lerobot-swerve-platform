@@ -1,6 +1,6 @@
 ---
 title: Calib frontend API
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The Calibrate page talks to the head-from-arm routes through one typed client checked against the node's fixtures."
 files: [nodes/web_ui/frontend/src/calibrate/headArmApi.ts, nodes/web_ui/frontend/src/calibrate/headArmApi.test.ts, nodes/web_ui/frontend/src/calibrate/headFloorApi.ts, nodes/web_ui/frontend/src/calibrate/headFloorApi.test.ts]
@@ -77,3 +77,5 @@ The Calibrate page talks to the head-from-arm routes through one typed client ch
 - Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
 
 - 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on head-arm-sequence-http-api
+
+- 2026-10-23 run drivable-ground-tof-filterin: dependency-failed on head-arm-sequence-http-api

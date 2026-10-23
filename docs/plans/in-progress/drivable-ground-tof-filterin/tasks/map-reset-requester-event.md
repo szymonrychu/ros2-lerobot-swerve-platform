@@ -1,6 +1,6 @@
 ---
 title: Map reset requester event
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A map reset from the web UI is no longer a mystery: the agent gets an event naming who asked"
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_map_reset_event.py, nodes/web_ui/README.md]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--map-reset-requester-event
 branch: drivable-ground-tof-filterin--map-reset-requester-event
-verified_head: ""
+verified_head: c9961a7b84384aead800f516a677ac828681489a
 run: drivable-ground-tof-filterin
-provides: []
+provides: [map-reset-event]
 acs_for_audit: []
 process_gaps: []
 ---

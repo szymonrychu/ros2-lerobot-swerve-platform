@@ -1,6 +1,6 @@
 ---
 title: Front camera ground points
-status: blocked
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Objects the agent sees with the head camera get real floor positions instead of 0.3-0.5 m guesses
 files: [nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/tests/test_front_ground_points.py, nodes/mcp_server/README.md]
@@ -14,9 +14,9 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--front-camera-ground-points
 branch: drivable-ground-tof-filterin--front-camera-ground-points
-verified_head: unknown
+verified_head: b2d1587a9ecb0784edee74db26c11e8aac226627
 run: drivable-ground-tof-filterin
-provides: []
+provides: [front-ground-points]
 acs_for_audit: []
 process_gaps: []
 ---

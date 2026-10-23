@@ -1,6 +1,6 @@
 ---
 title: Web UI applied head URDF
-status: blocked
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The web UI 3D view and head tab draw the head where it really is after a calibration.
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_head_urdf.py, ansible/group_vars/client.yml]
@@ -14,7 +14,7 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--web-ui-applied-head-urdf
 branch: drivable-ground-tof-filterin--web-ui-applied-head-urdf
-verified_head: unknown
+verified_head: a88e0010a385d1730dacbfcc7e02642cf84c3c2d
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []

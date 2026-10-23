@@ -1,6 +1,6 @@
 ---
 title: Tilt event evidence
-status: in-progress
+status: escalated
 repo: ros2-lerobot-sverve-platform
 value: A tilt warning can be judged real or an IMU glitch from the event itself
 files: [nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_tilt_event_evidence.py, nodes/mcp_server/README.md]
@@ -14,11 +14,11 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tilt-event-evidence
 branch: drivable-ground-tof-filterin--tilt-event-evidence
-verified_head: ""
+verified_head: unknown
 run: drivable-ground-tof-filterin
 provides: []
 acs_for_audit: []
-process_gaps: []
+process_gaps: ["No red/green evidence for the tilt tests against the merge-base monitor.py (tests.red and verification.evidence)"]
 ---
 
 # Tilt event evidence
