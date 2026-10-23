@@ -18,6 +18,8 @@ The table is the contract `nodes/rtabmap_mapping/config/map3d_topics.yaml` (type
 
 `/tf_static` carries explicit QoS overrides (reliable, transient_local, depth 100) on subscription and publisher: topic_tools copies the publisher QoS, so without them late joiners could miss static transforms depending on start order.
 
+Every relay and throttle also publishes with its contract `qos` (`qos_overrides.<dest>.publisher.*`). Without it topic_tools copies the client publisher's QoS, so a reliable source such as `/scan_filtered` crossed Wi-Fi reliable, stalled behind retransmissions and starved RTAB-Map ("Did not receive data since 5 seconds" while the link carried ~100 KB/s of TF) instead of the contract's best_effort.
+
 ## Lazy behaviour
 
 Every relay (except `/tf_static`) and the republisher is lazy: with no server subscriber nothing is subscribed upstream. So `head_rgbd_cpp` releases its inputs, `head_camera_cpp` encodes no mapping stream and returns to continuous autofocus (the focus lock holds only while the mapping stream has a subscriber).

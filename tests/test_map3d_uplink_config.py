@@ -83,7 +83,8 @@ def test_plugin_rate_and_lazy_per_entry(specs, contract) -> None:
         if stream.transport == "compressedDepth":
             depth_base = stream.dest.removesuffix("/compressedDepth")
             assert spec.plugin == REPUBLISHER
-            assert spec.parameters == {
+            base_params = {k: v for k, v in spec.parameters.items() if not k.startswith("qos_overrides.")}
+            assert base_params == {
                 "in_transport": "raw",
                 "out_transport": "compressedDepth",
                 f"{depth_base.strip('/').replace('/', '.')}.compressedDepth.png_level": 1,
@@ -189,3 +190,26 @@ def test_readme_documents_purpose_lazy_and_measuring() -> None:
     text = README.read_text()
     for needle in ("Cross-host", "map3d_topics", "lazy", "bandwidth", "continuous"):
         assert needle in text, needle
+
+
+def test_every_topic_tools_relay_publishes_with_its_contract_qos(specs, contract) -> None:
+    """topic_tools copies the client publisher QoS (e.g. reliable scans over Wi-Fi) unless the contract QoS is set."""
+    for stream in contract.uplink + contract.downlink:
+        if stream.transport != "raw":
+            continue
+        spec = spec_for(specs, stream.dest)
+        prefix = f"qos_overrides.{stream.dest}.publisher"
+        assert spec.parameters[f"{prefix}.reliability"] == stream.qos.reliability, stream.dest
+        assert spec.parameters[f"{prefix}.durability"] == stream.qos.durability, stream.dest
+        assert spec.parameters[f"{prefix}.depth"] == stream.qos.depth, stream.dest
+
+
+def test_depth_republisher_uses_contract_qos_both_sides(specs, contract) -> None:
+    """The compressedDepth Republisher must not cross Wi-Fi with the upstream QoS either."""
+    depth = next(s for s in contract.uplink if s.transport == "compressedDepth")
+    spec = next(s for s in specs if s.remappings_dict.get("in") == depth.source)
+    for topic, side in ((depth.dest, "publisher"), (depth.source, "subscription")):
+        prefix = f"qos_overrides.{topic}.{side}"
+        assert spec.parameters[f"{prefix}.reliability"] == depth.qos.reliability
+        assert spec.parameters[f"{prefix}.durability"] == depth.qos.durability
+        assert spec.parameters[f"{prefix}.depth"] == depth.qos.depth
