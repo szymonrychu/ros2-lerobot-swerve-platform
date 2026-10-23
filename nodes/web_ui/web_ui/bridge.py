@@ -211,6 +211,8 @@ GPS_TF_MAX_SKEW_S = 0.25
 SERIALIZE_MAP_SERVICE = "/slam_toolbox/serialize_map"
 # std_msgs/Empty published by map_guard after it backed up and reset the SLAM map.
 MAP_GUARD_RESET_TOPIC = "/map_guard/map_reset"
+ROBOT_EVENTS_TOPIC = "/robot_events"
+ROBOT_EVENTS_QOS_DEPTH = 10
 # Appended to an action name to get its cancel service (action_msgs/srv/CancelGoal).
 CANCEL_GOAL_SERVICE_SUFFIX = "/_action/cancel_goal"
 # A zero goal id with a zero stamp asks the action server to cancel all of its goals.
@@ -566,6 +568,14 @@ class BridgeNode(Node):
         self._map_status: MapStatus | None = None
         self._map_pending: dict[str, Future] = {}
         self._map_command_pub = self.create_publisher(String, COMMAND_TOPIC, DEFAULT_SUB_QOS_DEPTH)
+        self._robot_events_pub = self.create_publisher(
+            String,
+            ROBOT_EVENTS_TOPIC,
+            QoSProfile(
+                reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=ROBOT_EVENTS_QOS_DEPTH
+            ),
+        )
+        self._robot_event_seq = 0
         self._grasp_pending: dict[str, Future] = {}
         self._grasp_command_pub = (
             self.create_publisher(String, grasp_command_topic, DEFAULT_SUB_QOS_DEPTH) if grasp_command_topic else None
@@ -2059,6 +2069,30 @@ class BridgeNode(Node):
         request.pause_new_measurements = False
         log.info("reset_map_requested", service=service)
         return self.call_service(client, request)
+
+    def publish_robot_event(
+        self, event_type: str, severity: str, source: str, message: str, data: dict[str, Any]
+    ) -> None:
+        """Publish one /robot_events event (std_msgs/String JSON {seq, ts, type, severity, source, message, data}).
+
+        Args:
+            event_type (str): Event type, e.g. "map_reset".
+            severity (str): "info", "warning" or "critical".
+            source (str): Publisher name, e.g. "web_ui".
+            message (str): Human-readable text.
+            data (dict[str, Any]): JSON-serializable detail fields.
+        """
+        self._robot_event_seq += 1
+        payload = {
+            "seq": self._robot_event_seq,
+            "ts": time.time(),
+            "type": event_type,
+            "severity": severity,
+            "source": source,
+            "message": message,
+            "data": data,
+        }
+        self._robot_events_pub.publish(String(data=json.dumps(payload, ensure_ascii=False)))
 
     def cancel_all_goals_async(self, action: str) -> Any:
         """Cancel every goal of a NavigateToPose action server (zero goal id and zero stamp = all goals).

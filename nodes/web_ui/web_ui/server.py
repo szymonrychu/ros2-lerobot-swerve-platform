@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 from ros2_common.battery import BatteryGuard
+from ros2_common.head_rgbd_calibration.urdf_text import apply_overrides
 from ros2_common.maps import MapCommand
 from ros2_common.photos import PhotoSelector
 from ros2_metrics import render_latest
@@ -69,6 +70,28 @@ from .ws_clients import (
 )
 
 log = structlog.get_logger(__name__)
+
+MAP_RESET_EVENT_TYPE = "map_reset"
+MAP_RESET_EVENT_SEVERITY = "critical"
+MAP_RESET_EVENT_SOURCE = "web_ui"
+FORWARDED_FOR_HEADER = "x-forwarded-for"
+UNKNOWN_REQUESTER = "unknown"
+
+
+def requester_address(request: Request) -> str:
+    """Name the client of a request: first X-Forwarded-For hop (behind the proxy), else the socket peer.
+
+    Args:
+        request (Request): Incoming HTTP request.
+
+    Returns:
+        str: Client address, or "unknown" when neither header nor peer is available.
+    """
+    forwarded = request.headers.get(FORWARDED_FOR_HEADER, "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else UNKNOWN_REQUESTER
+
 
 # Seconds to wait for slam_toolbox's serialize_map response before reporting a timeout.
 SAVE_MAP_TIMEOUT_S = 15.0
@@ -153,6 +176,7 @@ HTTP_NOT_FOUND = 404
 # URDF and mesh files (arm meshes are tens of MB) are revalidated on each load (ETag / 304), so model changes show
 # after a reload without re-downloading unchanged meshes.
 URDF_CACHE_CONTROL = "no-cache"
+HEAD_URDF_DEFAULT = "head.urdf"
 # index.html must be revalidated so a deploy is picked up; hashed /assets/* files keep Starlette's default caching.
 INDEX_CACHE_CONTROL = "no-cache"
 NON_SPA_PREFIXES = ("api/", "ws")
@@ -793,13 +817,15 @@ def build_app(
                     ]
         return JSONResponse(body)
 
+    head_urdf_names = {t.head_urdf for t in config.tabs if t.head_urdf} | {HEAD_URDF_DEFAULT}
+
     @app.get("/api/urdf/status")
     async def get_urdf_status() -> JSONResponse:
         results = scan_urdf_directory(urdf_dir)
         return JSONResponse({"files": [r.model_dump() for r in results]})
 
     @app.get("/api/urdf/{path:path}")
-    async def get_urdf_file(path: str) -> FileResponse:
+    async def get_urdf_file(path: str) -> Response:
         requested = (urdf_dir / path).resolve()
         if not str(requested).startswith(str(urdf_dir.resolve()) + "/"):
             log.warning("path_traversal_attempt", path=path)
@@ -807,6 +833,11 @@ def build_app(
         if not requested.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         log.debug("urdf_file_served", path=path, size_bytes=requested.stat().st_size)
+        if config.head_applied_calibration_dir is not None and path in head_urdf_names:
+            text, warnings = apply_overrides(requested.read_text(), Path(config.head_applied_calibration_dir))
+            for warning in warnings:
+                log.warning("head_urdf_override_skipped", warning=warning)
+            return Response(text, media_type="application/xml", headers={"Cache-Control": "no-store"})
         return FileResponse(requested, headers={"Cache-Control": URDF_CACHE_CONTROL})
 
     async def serve_tile(source_id: str | None, z: int, x: int, y: int) -> Response:
@@ -868,8 +899,15 @@ def build_app(
 
         return await coalesce(inflight_calls, f"map_save:{save_path}", run_save)
 
-    @app.post("/api/map/reset")
-    async def reset_map(tab: str) -> JSONResponse:
+    async def run_map_reset(tab: str) -> JSONResponse:
+        """Reset slam_toolbox and clear the live POIs and photos for one map_nav tab.
+
+        Args:
+            tab (str): map_nav tab id.
+
+        Returns:
+            JSONResponse: Action response (200 ok, 404 no tab, 5xx failure, 503 battery cut-off).
+        """
         if (blocked := battery_block("map_reset")) is not None:
             return blocked
         tab_cfg = find_map_nav_tab(tab)
@@ -929,6 +967,35 @@ def build_app(
             return await clear_live_set(node, map3d)
 
         return await coalesce(inflight_calls, f"map_reset:{service}", run_reset)
+
+    @app.post("/api/map/reset")
+    async def reset_map(tab: str, request: Request) -> JSONResponse:
+        requester = requester_address(request)
+        user_agent = request.headers.get("user-agent", "")
+        log.warning("map_reset_requested", tab=tab, requester=requester, user_agent=user_agent)
+        response = await run_map_reset(tab)
+        body = json.loads(response.body)
+        ok = bool(body.get("ok"))
+        counts = body.get("data") or {}
+        pois, photos = int(counts.get("pois_removed", 0)), int(counts.get("photos_removed", 0))
+        message = str(body.get("message", ""))
+        log.warning("map_reset_outcome", tab=tab, requester=requester, user_agent=user_agent, ok=ok, message=message)
+        if bridge_node is not None:
+            bridge_node.publish_robot_event(
+                event_type=MAP_RESET_EVENT_TYPE,
+                severity=MAP_RESET_EVENT_SEVERITY,
+                source=MAP_RESET_EVENT_SOURCE,
+                message=f"map reset on tab {tab!r} requested by {requester}: {'ok' if ok else 'failed'}: {message}",
+                data={
+                    "tab": tab,
+                    "requester": requester,
+                    "user_agent": user_agent,
+                    "ok": ok,
+                    "pois_removed": pois,
+                    "photos_removed": photos,
+                },
+            )
+        return response
 
     async def map_command(tab: str, op: str, request: Request, timeout_s: float) -> JSONResponse:
         """Run one named map command (save, load, delete) against map_manager.

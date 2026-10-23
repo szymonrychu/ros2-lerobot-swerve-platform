@@ -715,6 +715,9 @@ def register_tools(
         server.servo_released = robot.servo_released
         server.begin_motion = getattr(robot, "begin_motion", None)  # RosRobot; tool test doubles have none
         server.end_motion = getattr(robot, "end_motion", None)
+    monitor.job_running = queue.busy
+    frontiers = FrontierTracker(config.frontiers, footprint_width_m=config.footprint.width_m)
+    frontiers.on_epoch_reset = monitor.on_map_epoch_reset
     ctx = ToolContext(
         server=server,
         robot=robot,
@@ -725,7 +728,7 @@ def register_tools(
         control=control,
         lookups=lookup_tools.make_recorder(robot, config),
         engine=engine,
-        frontiers=FrontierTracker(config.frontiers, footprint_width_m=config.footprint.width_m),
+        frontiers=frontiers,
         footprint=footprint,
         poi_writes=server.poi_writes if isinstance(server, RobotMCPServer) else PoiWriteCounter(),
     )

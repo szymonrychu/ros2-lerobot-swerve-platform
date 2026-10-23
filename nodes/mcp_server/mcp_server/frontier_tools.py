@@ -447,11 +447,14 @@ def build_frontier_list(ctx: ToolContext, max_count: int | None, reachable_only:
         views = views[:cap]
     retired = [RetiredView(id=r.id, reason=r.reason, successor=r.successor) for r in fc.tracker.pop_retired()]
     fc.compute_ms["total"] = round((time.perf_counter() - t0) * 1000.0, ROUND_MS)
+    epoch_changed_at, epoch_cause = fc.tracker.epoch_info()
     return FrontierList(
         frontiers=views,
         map_version=list(fc.snapshot.version),
         map_age_s=map_age_s(fc.snapshot.grid),
         epoch=fc.snapshot.epoch,
+        epoch_changed_at=epoch_changed_at,
+        epoch_cause=epoch_cause,
         retired_since_last_call=retired,
         compute_ms=fc.compute_ms,
         robot_pose=fc.robot_pose_dict(),
@@ -711,7 +714,11 @@ def build_exploration_status(ctx: ToolContext) -> ExplorationStatus:
             f"largest {largest.area_m2:.1f} m2 near x={largest.x:.2f}, y={largest.y:.2f}): "
             "drive there and call mark_survey_spot"
         )
+    epoch_changed_at, epoch_cause = fc.tracker.epoch_info()
     return ExplorationStatus(
+        epoch=fc.snapshot.epoch,
+        epoch_changed_at=epoch_changed_at,
+        epoch_cause=epoch_cause,
         complete=not reasons,
         reasons=reasons,
         frontiers=frontiers,

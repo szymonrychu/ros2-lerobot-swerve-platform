@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
+import structlog
+from fastapi.testclient import TestClient
 
 from web_ui.urdf_scanner import scan_urdf_directory
 
@@ -174,3 +177,85 @@ def test_scanner_reports_head_urdf_ok() -> None:
     results = scan_urdf_directory(URDF_DIR)
     head = [r for r in results if r.path.endswith("head.urdf")]
     assert head and all(r.status == "ok" for r in head), results
+
+
+# --- applied head chain served over /api/urdf ----------------------------------------------------------------------
+
+
+def make_client(applied: Path | None, head_urdf: str | None = None) -> TestClient:
+    """TestClient on the shipped URDF directory with the given applied dir and optional tab head_urdf."""
+    from web_ui.config import AppConfig, TabConfig
+    from web_ui.server import build_app
+
+    tabs = [TabConfig(id="h", type="head", label="H", head_urdf=head_urdf)] if head_urdf else []
+    cfg = AppConfig(tabs=tabs, head_applied_calibration_dir=str(applied) if applied else None)
+    return TestClient(build_app(config=cfg, urdf_dir=URDF_DIR, static_dir=URDF_DIR))
+
+
+def write_chain(applied: Path, mount: list[float]) -> None:
+    """Write a head_chain.json moving only head_mount_joint."""
+    base = {"head_mount_joint": {"xyz": mount, "rpy": [0, 0, 0.1]}}
+    (applied / "head_chain.json").write_text(json.dumps({"note": "test", "joints": base}))
+
+
+def mount_xyz(text: str) -> list[float]:
+    """head_mount_joint origin xyz from URDF text."""
+    root = ET.fromstring(text)
+    joint = next(j for j in root.findall("joint") if j.get("name") == "head_mount_joint")
+    return vec(joint.find("origin").get("xyz"))  # type: ignore[union-attr]
+
+
+def test_served_head_urdf_has_applied_chain(tmp_path: Path) -> None:
+    """A valid head_chain.json changes the served head URDF, no-store."""
+    write_chain(tmp_path, [0.2, 0.11, 0.33])
+    resp = make_client(tmp_path).get("/api/urdf/head.urdf")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/xml")
+    assert resp.headers["cache-control"] == "no-store"
+    assert mount_xyz(resp.text) == pytest.approx([0.2, 0.11, 0.33])
+
+
+def test_head_urdf_raw_without_applied_dir() -> None:
+    """Without head_applied_calibration_dir the file is served unchanged."""
+    resp = make_client(None).get("/api/urdf/head.urdf")
+    assert resp.content == HEAD_URDF.read_bytes()
+
+
+def test_custom_tab_head_urdf_name_is_overridden(tmp_path: Path) -> None:
+    """A tab's head_urdf name is treated as a head URDF."""
+    (tmp_path / "x").mkdir()
+    write_chain(tmp_path, [0.2, 0.11, 0.33])
+    custom = tmp_path / "urdfs"
+    custom.mkdir()
+    (custom / "myhead.urdf").write_bytes(HEAD_URDF.read_bytes())
+    from web_ui.config import AppConfig, TabConfig
+    from web_ui.server import build_app
+
+    cfg = AppConfig(
+        tabs=[TabConfig(id="h", type="head", label="H", head_urdf="myhead.urdf")],
+        head_applied_calibration_dir=str(tmp_path),
+    )
+    client = TestClient(build_app(config=cfg, urdf_dir=custom, static_dir=custom))
+    assert mount_xyz(client.get("/api/urdf/myhead.urdf").text) == pytest.approx([0.2, 0.11, 0.33])
+
+
+def test_invalid_override_serves_chain_and_logs(tmp_path: Path) -> None:
+    """An invalid head_chain.json leaves the repo chain and logs a warning."""
+    (tmp_path / "head_chain.json").write_text("{not json")
+    with structlog.testing.capture_logs() as logs:
+        resp = make_client(tmp_path).get("/api/urdf/head.urdf")
+    assert resp.status_code == 200
+    assert mount_xyz(resp.text) == pytest.approx([0.15, 0.10, 0.31])
+    assert any(entry["log_level"] == "warning" and "head_chain.json" in str(entry) for entry in logs)
+
+
+def test_other_urdfs_untouched(tmp_path: Path) -> None:
+    """Non-head URDF files and traversal checks are unchanged."""
+    write_chain(tmp_path, [0.2, 0.11, 0.33])
+    client = make_client(tmp_path)
+    other = next(p for p in URDF_DIR.glob("*.urdf") if p.name != "head.urdf")
+    resp = client.get(f"/api/urdf/{other.name}")
+    assert resp.content == other.read_bytes()
+    assert resp.headers["cache-control"] != "no-store"
+    assert client.get("/api/urdf/status").status_code == 200
+    assert client.get("/api/urdf/nothere.urdf").status_code == 404

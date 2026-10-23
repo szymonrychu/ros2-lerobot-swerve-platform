@@ -749,6 +749,8 @@ class RosRobot:
             self.subscribe(BatteryState, config.battery.topic, on_battery)
 
         self.events_pub = self.node.create_publisher(String, t.robot_events, EVENT_QOS)
+        # Causes of a map epoch reset (web_ui map_reset, map_guard map_guard_reset); our own events echo back and are ignored.
+        self.subscribe(String, t.robot_events, lambda msg: self.monitor.on_robot_event(msg.data), EVENT_QOS)
         self.monitor.set_sink(self.publish_event)  # sink fan-out: the auto POI marker is added once self.poi exists
         self.monitor.set_nav_canceller(self.cancel_all_goals)  # run off the callback thread, retried
 

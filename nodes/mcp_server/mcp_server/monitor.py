@@ -8,6 +8,7 @@ digest, which waits for in-flight deliveries so those annotations are not missed
 """
 
 import functools
+import json
 import logging
 import math
 import threading
@@ -15,7 +16,7 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,6 +24,7 @@ from pydantic import ValidationError
 from ros2_common.battery import BatteryGuard
 
 from .config import MonitorSettings
+from .frontiers import EpochChange
 from .metrics import ROBOT_EVENTS
 from .models import (
     BaseSpeed,
@@ -62,6 +64,13 @@ BASE_INTERRUPTS = frozenset(
 )
 ARM_INTERRUPTS = frozenset({"overheat", "cpu_overheat", "servo_error", "battery_cutoff", "human_takeover", "stall"})
 SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
+# /robot_events types that explain a map reset (web_ui map reset service, map_guard auto reset) and how long one stays a cause.
+MAP_RESET_CAUSE_TYPES = frozenset({"map_reset", "map_guard_reset"})
+MAP_RESET_CAUSE_WINDOW_S = 30.0
+MAP_RESET_CAUSES_KEPT = 8
+MAP_EPOCH_EVENT_TYPE = "map_epoch_reset"
+MAP_EPOCH_EVENT_SOURCE = "mcp_server"
+UNEXPLAINED_CAUSE = "unexplained"
 COLLISION_STOP_ACTION = 1  # nav2_msgs/CollisionMonitorState STOP
 # Feetech STS status register bits (STS3215 datasheet): set bit = error.
 SERVO_STATUS_BITS = {0: "voltage", 1: "sensor", 2: "overheat", 3: "overcurrent", 5: "overload"}
@@ -337,6 +346,10 @@ class RobotMonitor:
         self.cpu: tuple[float, float | None] | None = None
         self.tilt_guard: tuple[float, TiltGuardState] | None = None  # (receive time, last /tilt_guard/state)
         self.nav_canceller: Callable[[], bool] | None = None
+        # Whether a queued job (motion queue) runs; set by register_tools. A map reset during one is critical.
+        self.job_running: Callable[[], bool] = lambda: False
+        # (receive time, cause) of recent map_reset / map_guard_reset events seen on /robot_events.
+        self.reset_causes: deque[tuple[float, dict[str, Any]]] = deque(maxlen=MAP_RESET_CAUSES_KEPT)
 
     # --- plumbing ---------------------------------------------------------------------------------------------------
 
@@ -860,6 +873,64 @@ class RobotMonitor:
             wz (float): Yaw rate (rad/s).
         """
         self.rf2o = (self.clock(), vx, vy, wz)
+
+    def on_robot_event(self, raw: str) -> None:
+        """Record a map_reset / map_guard_reset event from /robot_events as a candidate cause of a map epoch reset.
+
+        Args:
+            raw (str): std_msgs/String JSON of a /robot_events event; other types and malformed payloads are ignored.
+        """
+        try:
+            event = json.loads(raw)
+        except ValueError:
+            return
+        if not isinstance(event, dict) or event.get("type") not in MAP_RESET_CAUSE_TYPES:
+            return
+        data = event.get("data")
+        cause: dict[str, Any] = {
+            "type": event["type"],
+            "source": str(event.get("source", "")),
+            "requester": data.get("requester") if isinstance(data, dict) else None,
+            "message": str(event.get("message", "")),
+        }
+        with self.lock:
+            self.reset_causes.append((self.clock(), cause))
+
+    @delivers
+    def on_map_epoch_reset(self, change: EpochChange) -> dict[str, Any]:
+        """Emit the map_epoch_reset event for a frontier tracker epoch start and name its cause.
+
+        Args:
+            change (EpochChange): Epoch, known cell and resolution before and after.
+
+        Returns:
+            dict[str, Any]: The cause: the latest map_reset / map_guard_reset event within 30 s (type, source,
+                requester, message), else type "unexplained" with the cell counts.
+        """
+        now = self.clock()
+        recent = [c for t, c in self.reset_causes if now - t <= MAP_RESET_CAUSE_WINDOW_S]
+        if recent:
+            cause = dict(recent[-1])
+        else:
+            cause = {
+                "type": UNEXPLAINED_CAUSE,
+                "source": None,
+                "requester": None,
+                "message": f"no map_reset or map_guard_reset event within {MAP_RESET_CAUSE_WINDOW_S:g} s before",
+                "known_before": change.known_before,
+                "known_after": change.known_after,
+            }
+        data = {**asdict(change), "cause": cause}
+        severity: EventSeverity = "critical" if self.motion_depth > 0 or self.job_running() else "warning"
+        fields = ", ".join(f"{k}={v}" for k, v in asdict(change).items())
+        self.emit(
+            MAP_EPOCH_EVENT_TYPE,
+            severity,
+            MAP_EPOCH_EVENT_SOURCE,
+            f"map epoch reset ({fields}); cause {cause['type']}: {cause['message']}",
+            data,
+        )
+        return cause
 
     @delivers
     def on_collision(self, action_type: int, polygon: str) -> None:

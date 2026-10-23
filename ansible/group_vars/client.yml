@@ -2405,6 +2405,8 @@ ros2_nodes:
     config: |
       http_port: 8080
       ws_broadcast_hz: 20
+      # Applied head calibration laid over the served head URDF (3D view, head tab).
+      head_applied_calibration_dir: /var/lib/ros2/head_rgbd_calibration/applied
       # Nav goals are refused when the tilt guard state (1 Hz) is older than this many seconds.
       tilt_guard_stale_s: 5
       bridge:
