@@ -1,0 +1,56 @@
+{
+  "sequence": {
+    "running": true,
+    "phase": "capturing",
+    "session_id": "calib-20261022-140000",
+    "tier": 1,
+    "arm_pose": 7,
+    "total_poses": 24,
+    "captured": 30,
+    "skipped": {},
+    "status": "capturing tier 1",
+    "error": null,
+    "big_joints": [
+      "elbow_flex",
+      "shoulder_lift",
+      "shoulder_pan"
+    ],
+    "waiting_since": null
+  },
+  "applied": {
+    "session": "calib-20261022-140000",
+    "result": "r-20261022-140000",
+    "note": "head-from-arm fit 2026-10-22, RMS 0.42 px, held-out board error 0.48 mm",
+    "source": "head_arm",
+    "floor": {
+      "session": "floor-20261022-064337",
+      "result": "r-20261022-065211"
+    },
+    "joints": {
+      "head_mount_joint": {
+        "xyz": [
+          0.15595283,
+          0.099876684,
+          0.313029429
+        ],
+        "rpy": [
+          -2.8722e-05,
+          -3.5987e-05,
+          0.017781748
+        ]
+      },
+      "head_tilt": {
+        "xyz": [
+          0.0,
+          0.0,
+          0.04
+        ],
+        "rpy": [
+          4.6192e-05,
+          0.00709162,
+          0.0
+        ]
+      }
+    }
+  }
+}

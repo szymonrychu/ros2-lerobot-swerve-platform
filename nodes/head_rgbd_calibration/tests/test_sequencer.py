@@ -456,7 +456,8 @@ def test_every_exit_holds_position(tmp_path: Path, exit_kind: str) -> None:
         press_stop_on(rig, 2)
     seq.move_to_base(confirmed=True)
     if exit_kind in ("stop-waiting-board", "timeout-waiting-board"):
-        rig.wait_phase(WAITING_BOARD)
+        # The fake clock runs the confirm timeout out in milliseconds, so a slow poller may only see the end state.
+        rig.wait_for(lambda s: s["phase"] == WAITING_BOARD or not s["running"])
         if exit_kind == "stop-waiting-board":
             seq.stop()
         expected_phase = IDLE
@@ -464,7 +465,7 @@ def test_every_exit_holds_position(tmp_path: Path, exit_kind: str) -> None:
         rig.wait_phase(WAITING_BOARD)
         seq.board_attached()
         if exit_kind in ("end", "end-skipped-tier2", "stop-waiting-big-joints", "timeout-waiting-big-joints"):
-            rig.wait_phase(WAITING_BIG_JOINTS)
+            rig.wait_for(lambda s: s["phase"] == WAITING_BIG_JOINTS or not s["running"])
             if exit_kind == "end":
                 seq.allow_big_joints(True)
             elif exit_kind == "end-skipped-tier2":
