@@ -71,3 +71,7 @@ The head can look 60 deg down at the floor board and at grasp scenes next to the
 - Design: the epic design.md (`ticket.py path drivable-ground-tof-filterin design`) (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
 
 - 2026-10-22 re-plan: the floor fit epic delivered the override, the FK core and head_state_publisher; dependencies and design references updated to the head-from-arm plan.
+
+## User answer (2026-10-23)
+
+The reprinted mount allows 45 deg tilt down, not 60: use -30..+45 deg (+ is down) everywhere the range is pinned.

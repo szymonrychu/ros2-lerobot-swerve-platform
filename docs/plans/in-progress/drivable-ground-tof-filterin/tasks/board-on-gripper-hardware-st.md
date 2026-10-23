@@ -86,3 +86,4 @@ safety check use real geometry.
 - User 2026-10-23: the board is mounted with its printed face on the gripper camera side; the camera/ToF bracket has
   not changed since the 2026-10-21 RGB-D calibration (no RGB-D re-calibration needed). Still open: the head tilt-down
   limit of the reprinted mount.
+- User 2026-10-23: the reprinted mount allows 45 deg tilt down (not 60): head-tilt-range-widened uses +45 deg as the down limit.
