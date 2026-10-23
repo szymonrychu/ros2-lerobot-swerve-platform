@@ -83,3 +83,6 @@ safety check use real geometry.
 - User 2026-10-22: "mount is fragile, so please don't move too fast". The calibration run uses half the planned arm
   speed (speed_scale <= 0.15 instead of 0.3) and the gentlest acceleration the follower supports; the live step sets
   this in the arm sequence config before the first move, and the board is checked for slip after the dry run.
+- User 2026-10-23: the board is mounted with its printed face on the gripper camera side; the camera/ToF bracket has
+  not changed since the 2026-10-21 RGB-D calibration (no RGB-D re-calibration needed). Still open: the head tilt-down
+  limit of the reprinted mount.
