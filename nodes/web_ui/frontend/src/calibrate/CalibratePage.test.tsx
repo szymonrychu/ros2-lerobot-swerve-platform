@@ -97,6 +97,36 @@ describe('CalibratePage', () => {
     expect(screen.queryByText('Head floor fit')).toBeNull()
   })
 
+  it('shows the Head from arm section after Head floor fit only with rgbd configured', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/head-arm/state')) {
+        const sequence = { running: false, phase: 'idle', session_id: null, tier: 0, arm_pose: 0, total_poses: 0, captured: 0, skipped: {}, status: 'idle', error: null, big_joints: [], waiting_since: null }
+        return new Response(JSON.stringify({ sequence, applied: null }))
+      }
+      if (url.endsWith('/head-arm/sessions')) return new Response('[]')
+      if (url.endsWith('/floor/state')) {
+        const sweep = { running: false, session_id: null, pose: 0, total: 0, observations: 0, skipped: 0, status: 'idle', error: null }
+        return new Response(JSON.stringify({ sweep, applied: null }))
+      }
+      if (url.endsWith('/state')) {
+        const capture = { running: false, session_id: null, status: 'idle', pose_count: 0, started_at: null, stops_at: null }
+        const compute = { running: false, session_id: null, result_id: null, started_at: null, error: null }
+        return new Response(JSON.stringify({ capture, compute, applied: null }))
+      }
+      return new Response(JSON.stringify({ imu: false, rgbd: true }))
+    }))
+    render(<CalibratePage onBack={() => {}} />)
+    const floor = await screen.findByText('Head floor fit')
+    const arm = await screen.findByText('Head from arm')
+    expect(floor.compareDocumentPosition(arm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('Arm calibration - deferred')).toBeTruthy()
+    cleanup()
+    respond(200, { imu: true, rgbd: false })
+    render(<CalibratePage onBack={() => {}} />)
+    await screen.findByText('IMU calibration')
+    expect(screen.queryByText('Head from arm')).toBeNull()
+  })
+
   it('imu only with rgbd false', async () => {
     respond(200, { imu: true, rgbd: false })
     render(<CalibratePage onBack={() => {}} />)
