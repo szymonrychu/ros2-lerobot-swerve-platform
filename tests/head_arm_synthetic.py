@@ -55,6 +55,11 @@ SYNTH_CAMERA_MATRIX = np.array([[440.0, 0.0, 288.0], [0.0, 440.0, 162.0], [0.0, 
 SYNTH_DIST = np.zeros(5)
 TOOL_POINT = (-0.0079, -0.000218121, -0.0981274)
 BOARD_STANDOFF_M = 0.02
+TOOL_AXIS = (0.0, 0.0, -1.0)  # tool direction in gripper_link (gripper_frame_joint lies along -z)
+# The user's mount (2026-10-23): the 250 x 210 mm sheet glued at the middle of its lower long edge to a stick held in
+# the closed gripper; the lower edge this far above the tool axis when parked (the stick offset).
+BOARD_OUTER_HEIGHT_M = 0.21
+BOARD_EDGE_ABOVE_AXIS_M = 0.015
 MIN_FACING_COS = 0.2
 # Board centre about 0.37 m in front of the head camera, lifted to about the camera height, clear of the body.
 BASE_ARM_POSE = {
@@ -176,6 +181,47 @@ def nominal_board_mount(cfg: HeadArmFitConfig) -> tuple[tuple[float, float, floa
     return xyz_rpy_from_pose(pose)
 
 
+def park_up_in_gripper(cfg: HeadArmFitConfig, park_pose: dict[str, float]) -> np.ndarray:
+    """Unit vector in gripper_link, normal to the tool axis, that points up (base_link +z) at the parked arm.
+
+    Args:
+        cfg: Fit config (`joint_offsets_rad`; the arm base is only yawed in base_link, so its z is up).
+        park_pose: Measured (follower) joints of the parked arm (rad).
+
+    Returns:
+        np.ndarray: (3,) unit vector in gripper_link.
+    """
+    gripper = UrdfChain.from_text(synth_arm_urdf()).transform(GRIPPER_LINK, park_pose, offsets=cfg.joint_offsets_rad)
+    axis = np.array(TOOL_AXIS)
+    up = gripper[:3, :3].T @ np.array([0.0, 0.0, 1.0])
+    up -= (up @ axis) * axis
+    return up / np.linalg.norm(up)
+
+
+def measured_board_mount(
+    cfg: HeadArmFitConfig, park_pose: dict[str, float]
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """The user's board mount: the plane across the tool axis `BOARD_STANDOFF_M` past the gripper_frame_link point,
+    the print (board -z) toward the arm, the long edges level and board y down when parked, the centre
+    `BOARD_EDGE_ABOVE_AXIS_M` plus half `BOARD_OUTER_HEIGHT_M` above the tool axis on the side up when parked.
+
+    Args:
+        cfg: Fit config (board geometry, joint offsets).
+        park_pose: Measured (follower) joints of the parked arm (rad), which define "up".
+
+    Returns:
+        tuple[xyz, rpy]: Board frame origin (m) and fixed-axis rotation (rad) in gripper_link.
+    """
+    axis = np.array(TOOL_AXIS)
+    up = park_up_in_gripper(cfg, park_pose)
+    rotation = np.column_stack([np.cross(-up, axis), -up, axis])
+    centre = np.array(TOOL_POINT) + BOARD_STANDOFF_M * axis + (BOARD_EDGE_ABOVE_AXIS_M + BOARD_OUTER_HEIGHT_M / 2) * up
+    pose = np.eye(4)
+    pose[:3, :3] = rotation
+    pose[:3, 3] = centre - rotation @ board_centre(cfg.board)
+    return xyz_rpy_from_pose(pose)
+
+
 def perturbed_board_mount(
     xyz: tuple[float, float, float], rpy: tuple[float, float, float], shift_m: float, turn_deg: float
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
@@ -230,8 +276,9 @@ def synth_truth(
     deltas: dict[str, float] | None = None,
     extra: dict[str, Origin] | None = None,
     cfg: HeadArmFitConfig | None = None,
+    mount: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None,
 ) -> HeadArmTruth:
-    """Truth of a scene: the chain of `head_urdf` moved by `deltas`, plus `extra` origins, and the nominal board mount.
+    """Truth of a scene: the chain of `head_urdf` moved by `deltas`, plus `extra` origins, and the board mount.
 
     Args:
         head_urdf: Head URDF text (the start chain).
@@ -239,11 +286,12 @@ def synth_truth(
             when None.
         extra: Further origin overrides (e.g. a head_pan origin), applied after `deltas`.
         cfg: Fit config whose board geometry places the nominal mount; the default config when None.
+        mount: Board mount (xyz m, rpy rad) in gripper_link; `nominal_board_mount` when None.
 
     Returns:
         HeadArmTruth: The truth.
     """
-    xyz, rpy = nominal_board_mount(cfg or HeadArmFitConfig())
+    xyz, rpy = mount or nominal_board_mount(cfg or HeadArmFitConfig())
     moved = perturbed_origins(head_urdf, SYNTH_TRUTH_DELTAS if deltas is None else deltas)
     return HeadArmTruth(origins={**moved, **(extra or {})}, board_xyz=xyz, board_rpy=rpy)
 

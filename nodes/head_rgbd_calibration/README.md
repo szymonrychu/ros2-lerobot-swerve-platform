@@ -109,12 +109,12 @@ keys are rejected.
 | `thumbnail_width_px` | 320 | `rgb_thumb.jpg` width (never enlarged) |
 | `coverage.cols` / `coverage.rows` | 4 / 3 | Coverage grid |
 | `board`, `selection`, `limits` | core defaults | ChArUco board, still-pose selection (`selection.amplitude_percentiles` also normalises the ToF thumbnail), fit limits |
-| `fit.board_mount` | jaw-geometry estimate | Start value of the board pose in `gripper_link`: plane normal to the tool axis, centre 2 cm past the URDF tool point. Estimated from the URDF jaw and the board outline, not measured (design D47); the fit solves the real mount |
+| `fit.board_mount` | measured by the user 2026-10-23 | Start value of the board pose in `gripper_link`: the board on a stick in the closed gripper, plane across the tool axis 2 cm past the URDF tool point, print toward the arm, centre 0.12 m above the tool axis on the side that is up at the parked arm (FK of `scripts/gen_nav_footprint.yaml` `parked_arm_joints`), long edges level there. Hand-measured, not fit-solved (design D47); the fit solves the real mount |
 | `arm_sequence.base_pose`, `gripper_rad` | board ~0.34 m in front of the head camera, 0.4 rad | Base pose (measured joint angles, the `move_arm_joints` space: `urdf = measured + fit.joint_offsets_rad`) and the gripper sent once with it (at most `pose_check.max_roll_gripper_rad`) |
 | `arm_sequence.tier0_poses` / `tier1_poses` / `tier2_poses` | 10 / 9 / 14 poses | Tier 0 moves only wrist_roll (within `max_roll_delta_rad` 1.2), tier 1 also wrist_flex (`max_flex_delta_rad` 0.4), tier 2 also elbow_flex, shoulder_lift, shoulder_pan (`max_big_delta_rad` 0.35). Load errors name the tier, pose and joint |
-| `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.2 (<= 0.3), 1.0, 600 | Arm speed, wait after a move, unanswered confirm timeout |
+| `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.1 (<= 0.3), 1.0, 600 | Arm speed (slow for the fragile board mount; `move_arm_joints` has no acceleration option, its quintic peak acceleration scales with the speed squared), wait after a move, unanswered confirm timeout |
 | `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, 6]]` | (pan, tilt) offsets added to the aimed head angles, one view each |
-| `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` for the jaw-geometry mount estimate |
+| `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` while the mount is the shipped hand-measured start |
 
 ## Compute
 

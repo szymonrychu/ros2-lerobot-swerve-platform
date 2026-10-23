@@ -185,7 +185,8 @@ def test_arm_sequence_defaults() -> None:
     assert seq.max_roll_delta_rad == 1.2
     assert seq.max_flex_delta_rad == 0.4
     assert seq.max_big_delta_rad == 0.35
-    assert seq.speed_scale == 0.2
+    assert seq.speed_scale == 0.1  # half the 0.2 of the jaw-mount set: the board on a stick is fragile
+    assert load_config(SHIPPED).arm_sequence.speed_scale == 0.1
     assert seq.settle_s == 1.0
     assert seq.confirm_timeout_s == 600.0
     assert seq.head_offsets_deg == [(0, 0), (10, 0), (-10, 0), (0, 6)]
@@ -289,9 +290,9 @@ def test_arm_sequence_error_names_every_bad_pose() -> None:
     assert "tier 2 pose 2" in message and "shoulder_pan" in message
 
 
-def test_fit_board_mount_default_is_the_nominal_jaw_mount() -> None:
+def test_fit_board_mount_default_is_the_measured_mount() -> None:
     mount = NodeConfig().fit.board_mount
     assert mount.xyz_init != (0.0, 0.0, 0.0)
-    assert mount.rpy_init[0] == pytest.approx(3.141593)
+    assert mount == load_config(SHIPPED).fit.board_mount
     assert mount.outline_margin_m == 0.01
-    assert "board_mount: # jaw-geometry estimate, not a measurement" in SHIPPED.read_text()
+    assert "board_mount: # measured by the user 2026-10-23, not fit-solved" in SHIPPED.read_text()
