@@ -40,5 +40,11 @@
     "accept": true,
     "reason": "round-cap only on the parking-marker false positive ('the head-arm runbook dry run checks them on the robot before the first capture' is design D47 wording); verified True on HEAD",
     "at": "2026-10-22T21:46:34Z"
+  },
+  {
+    "task": "tests-readme-md-has-no-entry",
+    "accept": true,
+    "reason": "docs-only (tests/README.md +14, shared/README.md +1, commit 1bc919ae); verifier hung 49 min; orchestrator check on HEAD: README tests 74 passed, poe lint clean, tree clean",
+    "at": "2026-10-23T00:18:44Z"
   }
 ]

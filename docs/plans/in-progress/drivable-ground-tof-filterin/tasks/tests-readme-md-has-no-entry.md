@@ -53,6 +53,10 @@ tests/README.md has no entry for tests/test_arm_pose_check.py, and the head_rgbd
 2. Fix it at tests/README.md, shared/README.md.
 3. Run the task verify command and confirm it passes.
 
+## Ruling
+
+- 2026-10-23 accepted: docs-only (tests/README.md +14, shared/README.md +1, commit 1bc919ae); verifier hung 49 min; orchestrator check on HEAD: README tests 74 passed, poe lint clean, tree clean
+
 ## Notes
 
 Discovered in task `arm-pose-safety-check` during run `drivable-ground-tof-filterin`.
