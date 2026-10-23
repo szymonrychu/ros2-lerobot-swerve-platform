@@ -722,6 +722,7 @@ class RobotMonitor:
                     f"tilt guard still warning, base drive enabled again: {tilt}. {TILT_MANUAL_HINT}",
                     data,
                     debounce=False,
+                    log_fields=TILT_EVIDENCE_KEYS,
                 )
             return False
         if state.level == "ok":
