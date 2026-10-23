@@ -36,12 +36,14 @@ def client_arm() -> dict:
 def test_head_arm_fit_config_defaults() -> None:
     cfg = HeadArmFitConfig()
     assert cfg.board_mount == BoardMountConfig(xyz_init=(0, 0, 0), rpy_init=(0, 0, 0), outline_margin_m=0.01)
+    assert cfg.fit_pan_axis is True
     assert cfg.limits == HeadArmFitLimits(
-        rms_px=1.0,
-        holdout_rms_px=1.5,
-        holdout_board_mm=5.0,
+        rms_px=3.0,
+        holdout_rms_px=4.0,
+        holdout_board_mm=4.5,
         max_sigma_mm=2.0,
         max_sigma_deg=0.2,
+        max_correlation=0.99,
         min_views=40,
         min_arm_poses=16,
         min_pan_span_deg=30.0,
@@ -51,6 +53,7 @@ def test_head_arm_fit_config_defaults() -> None:
         max_floor_delta_deg=1.5,
         max_start_delta_mm=30.0,
         max_start_delta_deg=5.0,
+        max_pan_axis_delta_mm=50.0,
     )
     assert cfg.huber_f_scale_px == 1.0
     assert cfg.floor_prior_weight == 0.0

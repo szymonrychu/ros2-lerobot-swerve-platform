@@ -1,12 +1,17 @@
 """Head-from-arm head chain fit: the ChArUco board clipped to the gripper, moved by the trusted arm and seen by the
-head camera, gives the head mount x, y, z, roll, pitch, yaw and the head_tilt origin pitch (tilt zero) and roll
-(design D31-D35).
+head camera, gives the head mount x, y, z, roll, pitch, yaw, the head_tilt origin pitch (tilt zero) and roll (design
+D31-D35) and, with `fit_pan_axis`, the head pan axis position relative to the head.
 
 Model per view: board corner -> board pose in gripper_link (fitted, 6 DOF) -> arm FK (measured joints plus the joint
 offsets) -> arm root in robot base_link (`base_in_base_link`) -> inverse of the head_camera_optical_frame pose of the
 head chain at the measured pan/tilt with the fitted origins -> `cv2.projectPoints` with the head camera intrinsics.
-The pan zero is folded into `mount_yaw_deg` (D33); the head_pan origin, head_tilt xyz, head_camera_joint and the
-optical joints keep the head URDF values (D32). numpy, scipy and OpenCV only, no ROS.
+The pan zero is folded into `mount_yaw_deg` (D33). The pan axis parameters move the head_pan origin x, y in
+head_pan_base and the head_tilt origin back by the same shift, so the head stays where it is at pan 0 and only the
+axis it turns about moves: the 2026-10-23 session put that axis 38 mm behind the head URDF value, which the
+fixed-axis model could not absorb (13 px at the +-10 deg pan offsets). The head_pan rpy and z, head_tilt z,
+head_camera_joint and the optical joints keep the head URDF values (D32; the pan axis direction relative to the head
+is the tilt roll and zero already, and a pan scale factor is degenerate with the axis shift). numpy, scipy and OpenCV
+only, no ROS.
 """
 
 import math
@@ -38,8 +43,9 @@ PARAM_NAMES = (
     "tilt_zero_deg",
     "tilt_roll_deg",
 )
+PAN_AXIS_PARAMS = ("pan_axis_x_m", "pan_axis_y_m")
 FLOOR_PARAMS = floor_fit.PARAM_NAMES
-LENGTH_PARAMS = ("mount_x_m", "mount_y_m", "mount_z_m")
+LENGTH_PARAMS = ("mount_x_m", "mount_y_m", "mount_z_m", *PAN_AXIS_PARAMS)
 ANGLE_PARAMS = tuple(name for name in PARAM_NAMES if name not in LENGTH_PARAMS)
 START_DELTA_PARAMS = ("mount_x_m", "mount_y_m", "mount_yaw_deg")
 BOARD_PARAM_COUNT = 6
@@ -52,6 +58,7 @@ SOLVER_TOLERANCE = 1e-12
 AIM_TOLERANCE = 1e-15
 JACOBIAN_STEP = 1e-6
 PAN_ZERO_NOTE = "pan zero folded into mount_yaw_deg"
+PAN_AXIS_NOTE = "pan axis free: head_pan origin x, y moved, head_tilt origin moved back (head unchanged at pan 0)"
 
 LimitCheck = tuple[str, float, float, bool]
 
@@ -79,11 +86,11 @@ class HeadArmFit:
     """Result of `fit_head_from_arm`.
 
     Attributes:
-        origins: New `head_mount_joint` and `head_tilt` origins (full xyz/rpy); every component that is not fitted is
-            the head URDF value.
-        params: Fitted value per `PARAM_NAMES` entry (m or deg).
-        sigma: One-sigma uncertainty per `PARAM_NAMES` entry (m or deg); inf when it cannot be computed.
-        start_params: Start value per `PARAM_NAMES` entry, read from the head URDF (the applied chain).
+        origins: New `head_mount_joint` and `head_tilt` origins, plus `head_pan` when the pan axis is fitted (full
+            xyz/rpy); every component that is not fitted is the head URDF value.
+        params: Fitted value per fitted parameter (`fit_param_names`, m or deg).
+        sigma: One-sigma uncertainty per fitted parameter (m or deg); inf when it cannot be computed.
+        start_params: Start value per fitted parameter, read from the head URDF (the applied chain).
         floor_delta: Fitted minus floor value per `floor_fit.PARAM_NAMES` entry (m or deg); empty without a floor.
         max_correlation: The head parameter pair with the largest absolute correlation.
         board_mount: Fitted board frame in gripper_link, `{"xyz": [m] * 3, "rpy": [rad] * 3}` (fixed-axis xyz).
@@ -97,6 +104,8 @@ class HeadArmFit:
         pan_span_deg: Peak-to-peak of the measured head_pan over all views (deg).
         tilt_span_deg: Peak-to-peak of the measured head_tilt over all views (deg).
         per_view: Reprojection RMS per view, held-out views included.
+        offset_rms_px: Corner reprojection RMS per head offset index over all views, held-out views included (px).
+        offset_views: Number of views per head offset index.
         failed_limits: Names of the limits exceeded, in check order.
         passed: True only when no limit is exceeded.
     """
@@ -117,6 +126,8 @@ class HeadArmFit:
     pan_span_deg: float
     tilt_span_deg: float
     per_view: list[ViewError]
+    offset_rms_px: dict[int, float]
+    offset_views: dict[int, int]
     failed_limits: list[str]
     passed: bool
 
@@ -157,6 +168,10 @@ class HeadArmFit:
                 }
                 for entry in self.per_view
             ],
+            "offset_rms_px": [
+                {"head_offset": int(k), "views": int(self.offset_views[k]), "rms_px": json_float(v)}
+                for k, v in sorted(self.offset_rms_px.items())
+            ],
             "failed_limits": list(self.failed_limits),
             "passed": bool(self.passed),
         }
@@ -166,7 +181,7 @@ def param_scale(name: str) -> float:
     """Factor from the internal unit (m, rad) to the reported unit (m, deg) of a parameter.
 
     Args:
-        name: Entry of `PARAM_NAMES`.
+        name: Entry of `PARAM_NAMES` or `PAN_AXIS_PARAMS`.
 
     Returns:
         float: 1 for lengths, degrees per radian for angles.
@@ -174,48 +189,83 @@ def param_scale(name: str) -> float:
     return 1.0 if name in LENGTH_PARAMS else DEG_PER_RAD
 
 
-def head_vector(chain: UrdfChain) -> np.ndarray:
-    """The `PARAM_NAMES` values of a head chain in metres and radians.
+def fit_param_names(cfg: HeadArmFitConfig) -> tuple[str, ...]:
+    """The head parameters a config fits.
+
+    Args:
+        cfg: Fit config.
+
+    Returns:
+        tuple[str, ...]: `PARAM_NAMES`, followed by `PAN_AXIS_PARAMS` when `cfg.fit_pan_axis`.
+    """
+    return (*PARAM_NAMES, *PAN_AXIS_PARAMS) if cfg.fit_pan_axis else PARAM_NAMES
+
+
+def head_vector(chain: UrdfChain, names: tuple[str, ...] = PARAM_NAMES) -> np.ndarray:
+    """The values of the named head parameters of a head chain in metres and radians.
 
     Args:
         chain: Head URDF chain.
+        names: `PARAM_NAMES`, optionally followed by `PAN_AXIS_PARAMS` (see `fit_param_names`).
 
     Returns:
-        np.ndarray: (8,) [mount x, y, z (m), mount roll, pitch, yaw, tilt origin pitch, tilt origin roll (rad)].
+        np.ndarray: [mount x, y, z (m), mount roll, pitch, yaw, tilt origin pitch, tilt origin roll (rad)], then the
+        head_pan origin x, y (m) when the pan axis parameters are named.
     """
     (mx, my, mz), (mroll, mpitch, myaw) = chain.origin(MOUNT_JOINT)
     troll, tpitch, _ = chain.origin(TILT_JOINT)[1]
-    return np.array([mx, my, mz, mroll, mpitch, myaw, tpitch, troll], dtype=float)
+    values = [mx, my, mz, mroll, mpitch, myaw, tpitch, troll]
+    if names[len(PARAM_NAMES) :]:
+        values += list(chain.origin(PAN_JOINT)[0][:2])
+    return np.array(values, dtype=float)
 
 
-def start_params(chain: UrdfChain) -> dict[str, float]:
-    """Start value of every parameter, read from the head chain (the applied chain).
+def start_params(chain: UrdfChain, names: tuple[str, ...] = PARAM_NAMES) -> dict[str, float]:
+    """Start value of every named parameter, read from the head chain (the applied chain).
 
     Args:
         chain: Head URDF chain.
+        names: `PARAM_NAMES`, optionally followed by `PAN_AXIS_PARAMS`.
 
     Returns:
-        dict[str, float]: Value per `PARAM_NAMES` entry (m or deg).
+        dict[str, float]: Value per name (m or deg).
     """
-    x = head_vector(chain)
-    return {name: float(x[i] * param_scale(name)) for i, name in enumerate(PARAM_NAMES)}
+    x = head_vector(chain, names)
+    return {name: float(x[i] * param_scale(name)) for i, name in enumerate(names)}
 
 
-def head_origins(chain: UrdfChain, x: np.ndarray) -> dict[str, Origin]:
-    """Mount and tilt origins for a parameter vector; head_tilt xyz and yaw stay at the URDF values.
+def head_origins(chain: UrdfChain, x: np.ndarray, names: tuple[str, ...] = PARAM_NAMES) -> dict[str, Origin]:
+    """Head origins for a parameter vector.
+
+    The mount takes x[0:6] and the head_tilt origin roll and pitch x[7], x[6]; its yaw stays at the chain value. With
+    the pan axis parameters the head_pan origin x, y become x[8], x[9] (its z and rpy stay) and the head_tilt origin
+    xyz moves back by the same shift, expressed in the head_pan frame, so the camera pose at pan 0 does not change;
+    without them head_pan is not returned and head_tilt keeps the chain xyz.
 
     Args:
-        chain: Head URDF chain.
-        x: (8,) parameters in `PARAM_NAMES` order, metres and radians.
+        chain: Head URDF chain (the start chain the shift is measured from).
+        x: Parameters in `names` order, metres and radians.
+        names: `PARAM_NAMES`, optionally followed by `PAN_AXIS_PARAMS`.
 
     Returns:
-        dict[str, Origin]: Origins of head_mount_joint and head_tilt; every other joint keeps its URDF origin.
+        dict[str, Origin]: Origins of head_mount_joint, head_tilt and, with the pan axis, head_pan; every other joint
+        keeps its URDF origin.
     """
     txyz, (_, _, tyaw) = chain.origin(TILT_JOINT)
-    return {
+    origins = {
         MOUNT_JOINT: Origin((float(x[0]), float(x[1]), float(x[2])), (float(x[3]), float(x[4]), float(x[5]))),
         TILT_JOINT: Origin(txyz, (float(x[7]), float(x[6]), tyaw)),
     }
+    if names[len(PARAM_NAMES) :]:
+        pxyz, prpy = chain.origin(PAN_JOINT)
+        moved = np.array([float(x[8]), float(x[9]), pxyz[2]])
+        back = pose_from_xyz_rpy(pxyz, prpy)[:3, :3].T @ (np.asarray(pxyz, dtype=float) - moved)
+        origins[PAN_JOINT] = Origin((float(moved[0]), float(moved[1]), float(moved[2])), prpy)
+        tilt_xyz = np.asarray(txyz, dtype=float) + back
+        origins[TILT_JOINT] = Origin(
+            (float(tilt_xyz[0]), float(tilt_xyz[1]), float(tilt_xyz[2])), origins[TILT_JOINT].rpy
+        )
+    return origins
 
 
 def board_centre(board: BoardConfig) -> np.ndarray:
@@ -387,6 +437,7 @@ def initial_board_mount(
 def corner_errors(
     chain: UrdfChain,
     x: np.ndarray,
+    names: tuple[str, ...],
     mount_start: np.ndarray,
     views: list[ArmBoardView],
     grippers: list[np.ndarray],
@@ -399,7 +450,8 @@ def corner_errors(
 
     Args:
         chain: Head URDF chain.
-        x: (14,) head parameters (`PARAM_NAMES` order, m and rad) then the board mount change (`board_mount_pose`).
+        x: Head parameters (`names` order, m and rad) then the 6 board mount changes (`board_mount_pose`).
+        names: The head parameter names (`fit_param_names`).
         mount_start: 4x4 board mount the change applies to.
         views: Views.
         grippers: 4x4 gripper_link pose in base_link per view.
@@ -411,8 +463,8 @@ def corner_errors(
     Returns:
         list[np.ndarray]: (N, 2) pixel errors per view.
     """
-    origins = head_origins(chain, x[: len(PARAM_NAMES)])
-    mount = board_mount_pose(mount_start, x[len(PARAM_NAMES) :])
+    origins = head_origins(chain, x[: len(names)], names)
+    mount = board_mount_pose(mount_start, x[len(names) :])
     errors = []
     for view, gripper, obj, img in zip(views, grippers, objects, images, strict=True):
         board = np.linalg.solve(camera_pose(chain, view.joints, origins), gripper @ mount)
@@ -448,26 +500,27 @@ def rms_px(errors: list[np.ndarray]) -> float:
     return float(np.sqrt(np.mean(np.sum(np.square(np.concatenate(errors)), axis=1))))
 
 
-def largest_correlation(cov: np.ndarray) -> Correlation:
+def largest_correlation(cov: np.ndarray, names: tuple[str, ...] = PARAM_NAMES) -> Correlation:
     """The head parameter pair with the largest absolute correlation.
 
     Args:
-        cov: Covariance whose first `len(PARAM_NAMES)` rows and columns are the head parameters.
+        cov: Covariance whose first `len(names)` rows and columns are the head parameters.
+        names: The head parameter names in covariance order.
 
     Returns:
         Correlation: Pair and signed value; value nan when the covariance is not finite.
     """
-    n = len(PARAM_NAMES)
+    n = len(names)
     head = cov[:n, :n]
     sd = np.sqrt(np.abs(np.diag(head)))
     with np.errstate(invalid="ignore", divide="ignore"):
         corr = head / np.outer(sd, sd)
-    best = Correlation((PARAM_NAMES[0], PARAM_NAMES[1]), math.nan)
+    best = Correlation((names[0], names[1]), math.nan)
     for i in range(n):
         for j in range(i + 1, n):
             value = float(corr[i, j])
             if math.isfinite(value) and not abs(value) <= abs(best.value):
-                best = Correlation((PARAM_NAMES[i], PARAM_NAMES[j]), value)
+                best = Correlation((names[i], names[j]), value)
     return best
 
 
@@ -482,8 +535,9 @@ def fit_head_from_arm(
 ) -> HeadArmFit:
     """Fit the head chain from views of the gripper board (design D31-D35).
 
-    Free: the eight `PARAM_NAMES` and the 6-DOF board mount in gripper_link. Every other head origin, the arm, the
-    joint offsets, the gauge and the intrinsics are fixed. Every `limits.holdout_every`-th distinct arm pose (sorted)
+    Free: the eight `PARAM_NAMES`, the two `PAN_AXIS_PARAMS` with `cfg.fit_pan_axis`, and the 6-DOF board mount in
+    gripper_link. Every other head origin component, the arm, the joint offsets, the gauge and the intrinsics are
+    fixed. Every `limits.holdout_every`-th distinct arm pose (sorted)
     is held out with all its views. One Huber least squares over the fit views' corner residuals (px); with
     `cfg.floor_prior_weight > 0` and a floor, one residual per floor parameter
     `floor_prior_weight * (value - floor[name]) / unit` (1 mm, 0.1 deg). Sigma from `(J^T J)^-1 * sum(r^2) / (m - n)`
@@ -534,12 +588,13 @@ def fit_head_from_arm(
         return [views[i] for i in idx], [grippers[i] for i in idx], [objects[i] for i in idx], [images[i] for i in idx]
 
     fit_set = subset(fit_idx)
-    x_start = head_vector(chain)
+    names = fit_param_names(cfg)
+    x_start = head_vector(chain, names)
     nominal = pose_from_xyz_rpy(cfg.board_mount.xyz_init, cfg.board_mount.rpy_init)
-    mount_start = initial_board_mount(chain, head_origins(chain, x_start), *fit_set, k, d, nominal)
+    mount_start = initial_board_mount(chain, head_origins(chain, x_start, names), *fit_set, k, d, nominal)
 
     def corner_residuals(x: np.ndarray) -> np.ndarray:
-        return np.concatenate([e.ravel() for e in corner_errors(chain, x, mount_start, *fit_set, k, d)])
+        return np.concatenate([e.ravel() for e in corner_errors(chain, x, names, mount_start, *fit_set, k, d)])
 
     floor_values = floor or {}
     prior = list(FLOOR_PARAMS) if floor_values and cfg.floor_prior_weight > 0 else []
@@ -547,7 +602,7 @@ def fit_head_from_arm(
     def residuals(x: np.ndarray) -> np.ndarray:
         terms = [
             cfg.floor_prior_weight
-            * (x[PARAM_NAMES.index(name)] * param_scale(name) - floor_values[name])
+            * (x[names.index(name)] * param_scale(name) - floor_values[name])
             / (PRIOR_UNIT_M if name in LENGTH_PARAMS else PRIOR_UNIT_DEG)
             for name in prior
         ]
@@ -577,9 +632,9 @@ def fit_head_from_arm(
             cov = unknown
     sigma_x = np.sqrt(np.abs(np.diag(cov)))
 
-    origins = head_origins(chain, solution[: len(PARAM_NAMES)])
-    mount = board_mount_pose(mount_start, solution[len(PARAM_NAMES) :])
-    errors = corner_errors(chain, solution, mount_start, views, grippers, objects, images, k, d)
+    origins = head_origins(chain, solution[: len(names)], names)
+    mount = board_mount_pose(mount_start, solution[len(names) :])
+    errors = corner_errors(chain, solution, names, mount_start, views, grippers, objects, images, k, d)
     centre = np.append(board_centre(cfg.board), 1.0)
     board_mm = []
     for i in hold_idx:
@@ -591,17 +646,19 @@ def fit_head_from_arm(
             continue
         board_mm.append(float(np.linalg.norm((camera @ board @ centre - from_arm @ centre)[:3])) * MM_PER_M)
 
-    params = {name: float(solution[i] * param_scale(name)) for i, name in enumerate(PARAM_NAMES)}
+    params = {name: float(solution[i] * param_scale(name)) for i, name in enumerate(names)}
+    offsets = sorted({v.head_offset for v in views})
+    offset_idx = {offset: [i for i, v in enumerate(views) if v.head_offset == offset] for offset in offsets}
     pans = [math.degrees(v.joints[PAN_JOINT]) for v in views]
     tilts = [math.degrees(v.joints[TILT_JOINT]) for v in views]
     mount_xyz, mount_rpy = xyz_rpy_from_pose(mount)
     result = HeadArmFit(
         origins=origins,
         params=params,
-        sigma={name: float(sigma_x[i] * param_scale(name)) for i, name in enumerate(PARAM_NAMES)},
-        start_params=start_params(chain),
+        sigma={name: float(sigma_x[i] * param_scale(name)) for i, name in enumerate(names)},
+        start_params=start_params(chain, names),
         floor_delta={name: params[name] - floor_values[name] for name in FLOOR_PARAMS} if floor_values else {},
-        max_correlation=largest_correlation(cov),
+        max_correlation=largest_correlation(cov, names),
         board_mount={"xyz": list(mount_xyz), "rpy": list(mount_rpy)},
         rms_px=rms_px([errors[i] for i in fit_idx]),
         holdout_rms_px=rms_px([errors[i] for i in hold_idx]),
@@ -614,6 +671,8 @@ def fit_head_from_arm(
         per_view=[
             ViewError(v.view_id, int(v.arm_pose), rms_px([errors[i]]), v.arm_pose in held) for i, v in enumerate(views)
         ],
+        offset_rms_px={offset: rms_px([errors[i] for i in idx]) for offset, idx in offset_idx.items()},
+        offset_views={offset: len(idx) for offset, idx in offset_idx.items()},
         failed_limits=[],
         passed=False,
     )
@@ -629,10 +688,12 @@ def limit_checks(fit: HeadArmFit, limits: HeadArmFitLimits) -> list[LimitCheck]:
         limits: Acceptance limits.
 
     Returns:
-        list[LimitCheck]: (name, value, limit, ok); lengths in mm, angles in deg. NaN values fail.
+        list[LimitCheck]: (name, value, limit, ok); lengths in mm, angles in deg, the correlation as its absolute
+        value. NaN values fail.
     """
-    sigma_mm = float(np.max([fit.sigma[name] for name in LENGTH_PARAMS])) * MM_PER_M
+    sigma_mm = float(np.max([fit.sigma[name] for name in LENGTH_PARAMS if name in fit.sigma])) * MM_PER_M
     sigma_deg = float(np.max([fit.sigma[name] for name in ANGLE_PARAMS]))
+    correlation = abs(fit.max_correlation.value)
     checks: list[LimitCheck] = [
         ("rms_px", fit.rms_px, limits.rms_px, fit.rms_px <= limits.rms_px),
         ("holdout_rms_px", fit.holdout_rms_px, limits.holdout_rms_px, fit.holdout_rms_px <= limits.holdout_rms_px),
@@ -644,6 +705,7 @@ def limit_checks(fit: HeadArmFit, limits: HeadArmFitLimits) -> list[LimitCheck]:
         ),
         ("max_sigma_mm", sigma_mm, limits.max_sigma_mm, sigma_mm <= limits.max_sigma_mm),
         ("max_sigma_deg", sigma_deg, limits.max_sigma_deg, sigma_deg <= limits.max_sigma_deg),
+        ("max_correlation", correlation, limits.max_correlation, correlation <= limits.max_correlation),
         ("min_views", fit.views, limits.min_views, fit.views >= limits.min_views),
         ("min_arm_poses", fit.arm_poses, limits.min_arm_poses, fit.arm_poses >= limits.min_arm_poses),
         ("min_pan_span_deg", fit.pan_span_deg, limits.min_pan_span_deg, fit.pan_span_deg >= limits.min_pan_span_deg),
@@ -669,6 +731,12 @@ def limit_checks(fit: HeadArmFit, limits: HeadArmFitLimits) -> list[LimitCheck]:
             else (delta, limits.max_start_delta_deg)
         )
         checks.append((f"start_delta:{name}", value, limit, value <= limit))
+    for name in PAN_AXIS_PARAMS:
+        if name in fit.params:
+            value = abs(fit.params[name] - fit.start_params[name]) * MM_PER_M
+            checks.append(
+                (f"start_delta:{name}", value, limits.max_pan_axis_delta_mm, value <= limits.max_pan_axis_delta_mm)
+            )
     if not fit.floor_delta:
         checks.append(("floor_cross_check", math.nan, math.nan, False))
     return checks
@@ -689,8 +757,8 @@ def head_arm_report_markdown(fit: HeadArmFit, cfg: HeadArmFitConfig, session: st
         date: Report date (YYYY-MM-DD).
 
     Returns:
-        str: The report: parameter table, residuals, coverage, the largest correlation, the board mount and every
-        limit with PASS or FAIL.
+        str: The report: parameter table, residuals (overall and per head offset), coverage, the largest
+        correlation, the board mount and every limit with PASS or FAIL.
     """
     lines = [
         f"# Head-from-arm fit {session}",
@@ -698,6 +766,7 @@ def head_arm_report_markdown(fit: HeadArmFit, cfg: HeadArmFitConfig, session: st
         f"- Date: {date}",
         f"- Result: {'PASS' if fit.passed else 'FAIL'}",
         f"- Note: {PAN_ZERO_NOTE}",
+        *([f"- Note: {PAN_AXIS_NOTE}"] if any(name in fit.params for name in PAN_AXIS_PARAMS) else []),
         "",
         "## Parameters",
         "",
@@ -706,7 +775,7 @@ def head_arm_report_markdown(fit: HeadArmFit, cfg: HeadArmFitConfig, session: st
         "| parameter | start | fitted | delta | sigma | floor | floor delta |",
         "|---|---|---|---|---|---|---|",
     ]
-    for name in PARAM_NAMES:
+    for name in fit.params:
         value_spec, change = (".4f", MM_PER_M) if name in LENGTH_PARAMS else (".3f", 1.0)
         start, fitted = fit.start_params[name], fit.params[name]
         floor_cells = ["-", "-"]
@@ -727,6 +796,17 @@ def head_arm_report_markdown(fit: HeadArmFit, cfg: HeadArmFitConfig, session: st
         f"- rms_px (fit views): {number(fit.rms_px, '.3f')}",
         f"- holdout_rms_px: {number(fit.holdout_rms_px, '.3f')}",
         f"- holdout_board_mm: {number(fit.holdout_board_mm, '.2f')}",
+        "",
+        "## Residuals per head offset",
+        "",
+        "Head offset index into arm_sequence.head_offsets_deg; all views, held-out views included.",
+        "",
+        "| head offset | views | rms px |",
+        "|---|---|---|",
+        *[
+            f"| {offset} | {fit.offset_views[offset]} | {number(value, '.3f')} |"
+            for offset, value in sorted(fit.offset_rms_px.items())
+        ],
         "",
         "## Coverage",
         "",

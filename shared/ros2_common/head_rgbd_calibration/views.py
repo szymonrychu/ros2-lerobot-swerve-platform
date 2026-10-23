@@ -11,13 +11,16 @@ ARM_JOINTS = ARM_JOINT_NAMES
 
 @dataclass(frozen=True)
 class ArmBoardView:
-    """One still view of the gripper board: `joints` are the measured rad of all seven joints, never defaults."""
+    """One still view of the gripper board: `joints` are the measured rad of all seven joints, never defaults;
+    `head_offset` is the index of the (pan, tilt) head offset the view was taken at (`arm_sequence.head_offsets_deg`).
+    """
 
     view_id: str
     arm_pose: int
     tier: int
     joints: dict[str, float]
     detection: Detection
+    head_offset: int = 0
 
 
 def require_joints(view: ArmBoardView) -> None:

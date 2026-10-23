@@ -45,7 +45,7 @@ def test_constants(ut: ModuleType) -> None:
     assert ut.HEAD_CHAIN_FILE == "head_chain.json"
     assert ut.TOF_JOINT_FILE == "tof_joint.json"
     assert ut.APPLIED_MARKER_FILE == "applied.json"
-    assert ut.HEAD_CHAIN_JOINTS == ("head_mount_joint", "head_tilt", "head_camera_joint")
+    assert ut.HEAD_CHAIN_JOINTS == ("head_mount_joint", "head_pan", "head_tilt", "head_camera_joint")
 
 
 def test_head_chain_json_round_trip(ut: ModuleType) -> None:
@@ -104,6 +104,19 @@ def test_apply_overrides_chain_then_tof(ut: ModuleType, urdf_text: str, tmp_path
     assert "<!-- tof_joint calibrated: tof -->" in out
     assert 'xyz="9.000000000 8.000000000 7.000000000"' in out
     assert 'xyz="0.500000000 0.600000000 0.700000000"' in out
+
+
+def test_apply_overrides_head_pan_origin(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:
+    """The head-from-arm pan axis (head_pan origin) is a head chain joint: every consumer of apply_overrides gets it."""
+    write_chain(tmp_path, {"head_pan": valid_joint((-0.038, -0.011, 0.0), (0.0, 0.0, 0.0))})
+    out, warnings = ut.apply_overrides(urdf_text, tmp_path)
+    assert warnings == []
+    assert "<!-- head_pan calibrated: chain -->" in out
+    assert 'xyz="-0.038000000 -0.011000000 0.000000000"' in out
+    assert '<axis xyz="0 0 1"/>' in out
+    zero = '<origin xyz="0 0 0" rpy="0 0 0"/>'  # the head_pan origin line, shared with other joints of the URDF
+    assert out.count(zero) == urdf_text.count(zero) - 1
+    assert len(out.splitlines()) == len(urdf_text.splitlines()) + 1  # only the calibration comment is added
 
 
 def test_empty_dir_gives_identical_text(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:

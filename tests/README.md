@@ -36,13 +36,58 @@ URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.p
 | `test_xyz_rpy_round_trip` | xyz/rpy to pose and back within 1e-12. |
 | `test_arm_in_robot_base_default_gauge` | The default gauge maps the arm root to (0.0592, -0.05, 0.100); yaw rotates the arm axes. |
 
+### `test_head_arm_fit.py`
+
+Head-from-arm fit (`shared/ros2_common/head_rgbd_calibration/head_arm_fit.py`, design D31-D35) on synthetic scenes from
+`tests/head_arm_synthetic.py`: the applied floor-fit chain of 2026-10-22 moved by known amounts, 24 arm poses, four
+head offsets, 0.3 px noise.
+
+| Test | Description |
+|------|-------------|
+| `test_recovers_perturbed_head_chain_with_noise` | Every fitted parameter (pan axis included) within 1.5 mm / 0.15 deg and 3 sigma of the truth; rms, held-out and board errors small; passes. |
+| `test_fit_reports_coverage_and_holdout` | Hold-out of every fifth arm pose, view counts, spans, floor deltas, the largest correlation below `max_correlation`, JSON origins (mount, pan, tilt) and `offset_rms_px` per head offset. |
+| `test_noiseless_recovery_exact` | Without noise every parameter and the board mount are exact. |
+| `test_pan_zero_folds_into_mount_yaw` | A 1 deg head_pan yaw lands in `mount_yaw_deg` (D33). |
+| `test_narrow_pan_span_fails` | Views within 5 deg of pan fail `min_pan_span_deg`. |
+| `test_floor_cross_check_limits` | A floor value 2 deg off fails its `floor_delta`; no floor fails `floor_cross_check`. |
+| `test_floor_prior_weight_pulls` | A floor prior pulls the tilt zero toward the floor value. |
+| `test_noisy_views_fail_a_sigma_limit` | 3 px noise fails a sigma limit. |
+| `test_fixed_components_stay_at_urdf` | The head_pan origin carries the pan axis x, y (z and rpy kept), head_tilt xyz moves back by the same shift, `head_origins` reproduces the fitted origins, head_camera_joint is not overridden. |
+| `test_fixed_pan_axis_keeps_mount_and_tilt_only` | `fit_pan_axis: false` fits the eight mount/tilt parameters and writes head_mount_joint and head_tilt only. |
+| `test_pan_axis_parameters_move_the_axis_not_the_head` | The pan axis parameters leave the camera pose at pan 0 unchanged and make the head turn about the moved axis. |
+| `test_pan_axis_fit_recovers_moved_pan_axis` | A pan axis 30 mm behind and 10 mm right of the URDF value is recovered (with the rest of the chain), every head offset fits below 0.5 px, the result passes. |
+| `test_fixed_pan_axis_fit_cannot_absorb_moved_pan_axis` | The fixed-axis fit of the same views stays above 2 px, worst at the +-10 deg pan offsets, and fails `rms_px`. |
+| `test_max_correlation_limit` | `max_correlation` is a limit check; a 0.1 limit fails only it. |
+| `test_pan_axis_delta_limit` | Each pan axis parameter has a `start_delta` check against `max_pan_axis_delta_mm`; a 60 mm shift fails only it. |
+| `test_aim_head` | `aim_head` puts points on the optical axis and clamps to the head limits. |
+| `test_report_names_every_parameter` | report.md names every fitted parameter, the pan zero note, the held-out board error, the per head offset table and PASS. |
+| `test_synthetic_start_chain_is_applied_floor_fit` | The synthetic start chain is the applied floor fit; x, y, yaw stay at the URDF. |
+| `test_synth_arm_poses_cover_joints_above_floor` | The synthetic arm poses vary four joints and keep the tool above the floor. |
+| `test_view_missing_a_joint_raises` | A view without wrist_flex raises naming it. |
+| `test_fewer_than_three_views_raise` | Fewer than three views raise. |
+
+### `test_head_arm_real_session.py`
+
+The head-from-arm fit on the real session calib-20261023-074418 (`tests/fixtures/head_arm/calib-20261023-074418.json`:
+corner detections and measured joints of the 113 views, the applied intrinsics, head_chain.json, floor values and board
+mount start) and the floor sweep floor-20261022-064337 (`tests/fixtures/head_arm/floor-20261022-064337.json`: its
+per-cloud floor planes and the applied tof_joint). Pins the diagnosis and the evidence behind the `fit.limits` values.
+
+| Test | Description |
+|------|-------------|
+| `test_fixed_pan_axis_reproduces_live_failure` | The fixed pan axis reproduces the live result: rms 12.2 px, the +-10 deg pan offsets at least 2 px worse than the aimed view. |
+| `test_pan_axis_fit_meets_accuracy_limits` | The free pan axis passes every residual, sigma, correlation and pan axis limit, sits at -37.9 / -11.2 mm (+-3 mm), and every head offset fits alike. |
+| `test_real_session_outcome` | Only the floor cross-checks of mount roll, mount pitch and tilt zero fail (the two fits disagree on the pan axis direction; mount pitch plus tilt zero agree within 0.1 deg). |
+| `test_floor_values_do_not_depend_on_pan_axis` | Refitting the floor sweep with the arm-fitted pan axis reproduces the applied floor values and changes them by less than 0.1 deg / 0.5 mm, so the cross-check compares like with like. |
+| `test_leave_poses_out_within_limits` | Five folds, each holding out five arm poses: every fold meets the residual, sigma, correlation and pan axis limits. |
+
 ### `test_head_arm_calib_config.py`
 
 Head-from-arm fit config, board corner geometry and view types (`shared/ros2_common/head_rgbd_calibration/{config,charuco,views}.py`).
 
 | Test | Description |
 |------|-------------|
-| `test_head_arm_fit_config_defaults` | `HeadArmFitConfig` defaults: board mount, every `HeadArmFitLimits` value, Huber scale, floor prior weight and the `base_in_base_link` gauge (0.0592, -0.05, 0.100). |
+| `test_head_arm_fit_config_defaults` | `HeadArmFitConfig` defaults: board mount, `fit_pan_axis` on, every `HeadArmFitLimits` value (the evidence-based rms 3.0 px, held-out 4.0 px / 4.5 mm, `max_correlation` 0.99, `max_pan_axis_delta_mm` 50), Huber scale, floor prior weight and the `base_in_base_link` gauge (0.0592, -0.05, 0.100). |
 | `test_board_is_the_existing_charuco_board` | The default board equals the `charuco` spec in the markers YAML. |
 | `test_unknown_keys_and_bad_joint_set_rejected` | Unknown keys, a joint-offset set missing `wrist_roll` or containing `gripper`, and `holdout_every=1` raise `ValidationError`. |
 | `test_arm_gauge_matches_client_yml` | Default joint offsets and `base_in_base_link` equal the arm config in `client.yml`. |
@@ -589,13 +634,14 @@ The `head_chain.json` format and `apply_overrides` in `urdf_text.py` (design D1,
 
 | Test | What it covers |
 |---|---|
-| `test_constants` | File name constants and `HEAD_CHAIN_JOINTS`. |
+| `test_constants` | File name constants and `HEAD_CHAIN_JOINTS` (head_mount_joint, head_pan, head_tilt, head_camera_joint). |
 | `test_head_chain_json_round_trip` | `head_chain_json` output has sorted keys and 9 decimals and `parse_head_chain` returns the same origins. |
 | `test_each_chain_joint_rewritten_only` | Each chain joint rewrite changes only its origin line and comment; a second rewrite replaces the comment. |
 | `test_head_tilt_keeps_axis_and_limit` | A head_tilt rewrite keeps `<axis>` and `<limit>`. |
 | `test_rewrite_tof_joint_is_rewrite_joint_origin` | `rewrite_tof_joint` equals `rewrite_joint_origin` for tof_joint with the `tof_joint calibrated` marker. |
 | `test_rewrite_unknown_joint_raises` | An unknown joint raises ValueError. |
 | `test_apply_overrides_chain_then_tof` | `apply_overrides` applies the chain joints and then the tof override. |
+| `test_apply_overrides_head_pan_origin` | A head_chain.json `head_pan` entry (the head-from-arm pan axis) rewrites only the head_pan origin line (plus its comment), keeping the axis. |
 | `test_empty_dir_gives_identical_text` | No override files give the identical text and no warnings. |
 | `test_invalid_override_files_warn_and_keep_urdf` | Bad JSON, unknown joint, 2-vector, NaN, bool and empty joints each give one warning and leave the text unchanged. |
 | `test_invalid_chain_does_not_block_tof` | An invalid head_chain.json still lets tof_joint.json apply. |

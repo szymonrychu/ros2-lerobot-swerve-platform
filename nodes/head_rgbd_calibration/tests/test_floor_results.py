@@ -40,6 +40,7 @@ NOW = datetime(2026, 10, 21, 12, 30, 0, tzinfo=UTC)
 MOUNT = "head_mount_joint"
 TILT = "head_tilt"
 CAMERA = "head_camera_joint"
+PAN = "head_pan"
 TRUTH_DZ_M = 0.03
 TRUTH_ROLL_DEG = 1.5
 TRUTH_PITCH_DEG = -3.0
@@ -138,6 +139,20 @@ def fake_run(args: list[str], **_: Any) -> SimpleNamespace:
 
 def failing_state(state: Path) -> None:
     write_observations(state, SID, per_pose=0)
+
+
+def test_compute_keeps_applied_pan_axis(cfg: NodeConfig, state: Path) -> None:
+    """A head-from-arm pan axis in the applied chain (head_pan origin) survives a floor compute."""
+    write_observations(state, SID)
+    applied = state / "applied"
+    applied.mkdir()
+    pan = Origin((-0.038, -0.011, 0.0), (0.0, 0.0, 0.0))
+    (applied / "head_chain.json").write_text(head_chain_json({PAN: pan}, "head-from-arm", "calib-1", "r-1"))
+    result = compute_floor(cfg, SID, NOW)
+    assert result["passed"] is True, result["failed_limits"]
+    chain = json.loads((state / "floor_fit" / SID / "results" / result["id"] / "head_chain.json").read_text())
+    assert set(chain["joints"]) == {MOUNT, TILT, PAN}
+    assert chain["joints"][PAN] == {"rpy": list(pan.rpy), "xyz": list(pan.xyz)}
 
 
 def test_compute_writes_result_and_head_chain(cfg: NodeConfig, state: Path) -> None:
