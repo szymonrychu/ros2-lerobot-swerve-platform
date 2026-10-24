@@ -20,6 +20,15 @@ option requires localization and runs online_sync.
 - 3D obstacles and cliffs: `/tof/points_filtered` (head ToF cloud, self-filtered by `nodes/laser_filter`) in the local costmap `tof_voxel_layer` (see [ToF obstacle layer](#tof-obstacle-layer)) and the collision monitor sources `tof_obstacles` / `tof_cliff` (see [Collision monitor](#collision-monitor)).
 - Goals: `/goal_pose` (bt_navigator) or the `navigate_to_pose` action.
 
+## Lidar-only (2026-10-24)
+
+User decision 2026-10-24: the lidar (`/scan_filtered`) is the only obstacle source for path planning and the collision monitor, until a RealSense D435 replaces the head ToF. Every head ToF / ground input stays configured but disabled in `config/nav2_params.yaml` (each line carries the comment "disabled (user 2026-10-24) ..."):
+
+- Local costmap: `tof_voxel_layer`, `ground_voxel_layer` and `ground_cost_filter` have `enabled: false`. The global costmap never had a ToF input. The speed-zone filter (POI slow zones) is unchanged.
+- Collision monitor: `StopBox.sources_names` is `["scan"]`, `CliffStop.enabled` is `false`, and the `tof_obstacles` / `tof_cliff` sources are `enabled: false` (still declared, so the stale-source stop no longer applies to them).
+
+To re-enable (or point at the D435 cloud): set `enabled: true` on the layers, filter, sources and CliffStop, put `"tof_obstacles"` back in `StopBox.sources_names`, change the source `topic`, then redeploy `nav2_bringup`. Runtime test without redeploy: `ros2 param set /local_costmap/local_costmap tof_voxel_layer.enabled true` (same for the others, and `/collision_monitor tof_cliff.enabled true`). The sections below describe the ToF behaviour when enabled. `tests/test_nav_lidar_only.py` pins the disabled state.
+
 ## Servers configured in `config/nav2_params.yaml`
 
 The repo `launch/navigation_launch.py` (copy of nav2_bringup 1.3.13) starts all of these in one container; each has a section, because a server without its

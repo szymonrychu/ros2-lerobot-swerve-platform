@@ -220,8 +220,8 @@ local_costmap:
       # which controller_server honours (slow-down, not a stop). Local costmap only (the global planner has no notion).
       ground_cost_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
-        # On: warning areas cost something; runtime off with `ros2 param set /local_costmap/local_costmap ground_cost_filter.enabled false`.
-        enabled: true
+        # Warning areas cost something when on; runtime: `ros2 param set /local_costmap/local_costmap ground_cost_filter.enabled true`.
+        enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
         # Absolute topic (costmap_zones publishes it latched): a relative name would resolve under the costmap namespace.
         filter_info_topic: /costmap_filter_info/ground_cost
         # Same TF tolerance as keepout_filter.
@@ -262,7 +262,7 @@ local_costmap:
       # clearing only decays ToF voxels and lidar raytracing never clears them (U5). STVL is not used for the lidar.
       tof_voxel_layer:
         plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
-        enabled: true
+        enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
         # Voxel decay: a voxel the ToF no longer sees clears 15 s after its last mark (decay_model 0 = linear), so
         # obstacles behind the robot or outside the narrow head view still count for a short manoeuvre.
         voxel_decay: 15.0
@@ -360,7 +360,7 @@ local_costmap:
         # Off since 2026-10-22: live, the 15 s decay piled the estimator's flickering lethal points into dozens of false
         # lethal cells and Nav2 found no path. Turn it on (both mark, combined by max) once the live ground acceptance
         # passes; runtime: `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled true`.
-        enabled: false
+        enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
         # Same decay as tof_voxel_layer: a voxel the estimator no longer publishes clears 15 s after its last mark.
         voxel_decay: 15.0
         # 0 = linear decay over voxel_decay seconds.
@@ -701,7 +701,8 @@ collision_monitor:
       visualize: false
       enabled: true
       holonomic: true
-      sources_names: ["scan", "tof_obstacles"]
+      # StopBox reads the lidar only, tof_obstacles dropped: disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here: add "tof_obstacles" (or the D435 source) back here.
+      sources_names: ["scan"]
       # >>> gen_nav_footprint: stopbox
       velocity_polygons: ["rotate", "forward", "forward_left", "left", "back_left", "back", "back_right", "right", "forward_right"]
       rotate:
@@ -808,8 +809,8 @@ collision_monitor:
       simulation_time_step: 0.05
       min_points: 4
       visualize: false
-      enabled: true
-      sources_names: ["tof_cliff"]
+      enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
+      sources_names: ["tof_cliff"]   # kept defined (source tof_cliff is disabled too) for the D435 swap
       # >>> gen_nav_footprint: cliffstop
       velocity_polygons: ["rotate", "forward", "back"]
       rotate:
@@ -860,14 +861,14 @@ collision_monitor:
       min_height: 0.10
       max_height: 0.6
       min_range: 0.0
-      enabled: true
+      enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
     tof_cliff:
       type: "pointcloud"
       topic: "/tof/points_filtered"
       min_height: -1.0
       max_height: -0.10
       min_range: 0.0
-      enabled: true
+      enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
 
 # No docks are defined (no dock_database / docks): docking_server configures with an empty database and only
 # accepts docking requests that carry an explicit dock pose. The plugin list must be non-empty to configure.

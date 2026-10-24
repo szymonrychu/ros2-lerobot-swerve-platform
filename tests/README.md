@@ -2961,6 +2961,10 @@ Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, ST
 | `test_readme_tof_section_has_no_parking_wording` | The nav2_bringup README "ToF obstacle layer" section states what the values are and how to check them, with no wording that defers the values to a later change. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 
+### test_nav_lidar_only.py
+
+Lidar-only path planning (user 2026-10-24): no enabled costmap layer (local or global) reads a /tof, /ground or /head_rgbd topic or the ground cost filter, the head layers and filter are defined but `enabled: false`, enabled collision-monitor polygons use only enabled lidar sources (StopBox `["scan"]`, CliffStop and the two ToF sources disabled), and every disabled line carries the "disabled (user 2026-10-24)" comment. The ToF voxel, ToF collision, ground layer and stack config tests were updated to the disabled state.
+
 ### test_nav_tof_collision.py
 
 Static checks of the collision_monitor ToF sources `tof_obstacles` / `tof_cliff`, the per-polygon source sets and the direction-aware CliffStop approach polygon (design D4, D5; U1, U5). Reads `nav2_params.yaml` (values and comments), the generator output of `scripts/gen_nav_footprint.py` and the READMEs; replays the nav2 1.3.13 approach model (`VelocityPolygon::isInRange`, `Polygon::getCollisionTime`, translation only) on the CliffStop sub-polygons.

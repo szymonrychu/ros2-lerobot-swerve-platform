@@ -30,7 +30,7 @@ STVL_BAND = {"tof_obstacles": "tof_mark", "tof_cliff": "tof_cliff_mark"}
 OBSERVATION_SOURCES = ["scan", "tof_obstacles", "tof_cliff"]
 POLYGONS = ["StopBox", "ArmStop", "CliffStop"]
 POLYGON_SOURCES = {
-    "StopBox": ["scan", "tof_obstacles"],
+    "StopBox": ["scan"],
     "ArmStop": ["scan"],
     "CliffStop": ["tof_cliff"],
 }
@@ -41,7 +41,7 @@ EXPECTED_TOF_SOURCES = {
         "min_height": 0.10,
         "max_height": 0.6,
         "min_range": 0.0,
-        "enabled": True,
+        "enabled": False,
     },
     "tof_cliff": {
         "type": "pointcloud",
@@ -49,7 +49,7 @@ EXPECTED_TOF_SOURCES = {
         "min_height": -1.0,
         "max_height": -0.10,
         "min_range": 0.0,
-        "enabled": True,
+        "enabled": False,
     },
 }
 PARKING_PHRASES = ("to tune", "starting value", "later", "follow-up", "todo", "phase 2", "out of scope")
@@ -282,7 +282,7 @@ def test_cliffstop_is_a_direction_aware_approach_polygon_with_the_generated_poin
     assert cliff["holonomic"] is True
     assert cliff["action_type"] == "approach"
     assert cliff["time_before_collision"] > 0
-    assert cliff["enabled"] is True
+    assert cliff["enabled"] is False
     assert cliff["velocity_polygons"] == CLIFFSTOP_SUBS
     gen = generated()
     for sub in ("rotate", "forward"):
@@ -323,7 +323,7 @@ def test_tof_sources_keep_the_stale_source_stop() -> None:
     assert cm["source_timeout"] == 1.0
     for source in TOF_SOURCES:
         assert "source_timeout" not in cm[source], f"{source} overrides the node source_timeout"
-        assert cm[source]["enabled"] is True
+        assert cm[source]["enabled"] is False
 
 
 def test_comments_explain_the_outage_stop_and_the_runtime_switch() -> None:
