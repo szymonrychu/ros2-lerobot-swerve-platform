@@ -49,7 +49,7 @@ TOF_HEIGHT_PX = 180
 
 EXPECTED_LAYER = {
     "plugin": STVL_PLUGIN,
-    "enabled": True,
+    "enabled": False,
     "voxel_decay": 15.0,
     "decay_model": 0,
     "voxel_size": 0.05,

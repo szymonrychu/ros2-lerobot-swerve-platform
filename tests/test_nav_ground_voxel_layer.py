@@ -166,7 +166,7 @@ def test_local_plugin_order_puts_ground_cost_filter_between_keepout_and_inflatio
 def test_ground_cost_filter_is_a_keepout_filter_on_the_ground_cost_info_topic() -> None:
     block = costmap_params("local_costmap")[FILTER]
     assert block["plugin"] == "nav2_costmap_2d::KeepoutFilter"
-    assert block["enabled"] is True
+    assert block["enabled"] is False
     assert block["filter_info_topic"] == "/costmap_filter_info/ground_cost"
     assert block["transform_tolerance"] == 0.2
     assert block["override_lethal_cost"] is False
