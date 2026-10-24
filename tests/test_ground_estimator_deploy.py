@@ -119,7 +119,7 @@ def test_ros2_nodes_entry() -> None:
     names = [n["name"] for n in nodes]
     entry = nodes[names.index(NAME)]
     assert entry["node_type"] == NAME
-    assert entry["present"] is True and entry["enabled"] is True
+    assert entry["present"] is True and entry["enabled"] is False  # disabled (user 2026-10-24)
     assert "#" in entry["config"]
     parsed = yaml.safe_load(entry["config"])
     assert parsed == {**yaml.safe_load(DEFAULTS.read_text()), "metrics_port": METRICS_PORT}
@@ -140,9 +140,10 @@ def test_config_keys_equal_the_shipped_yaml_keys() -> None:
     assert key_paths(entry_config(NAME)) == key_paths(yaml.safe_load(DEFAULTS.read_text()))
 
 
-def test_metrics_target_is_present() -> None:
+def test_metrics_target_is_absent_while_disabled() -> None:
+    """A disabled node is not scraped (it would read as down); add the target back when enabling."""
     targets = client_vars()["monitoring_agent_node_targets"]
-    assert {"node": NAME, "address": f"127.0.0.1:{METRICS_PORT}", "path": "/metrics"} in targets
+    assert NAME not in {t["node"] for t in targets}
 
 
 def test_client_playbook_step_order() -> None:

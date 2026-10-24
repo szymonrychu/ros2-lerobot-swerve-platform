@@ -173,7 +173,7 @@ def test_head_camera_mapping_stream_and_rgbd_node_present() -> None:
     camera = yaml.safe_load(nodes["head_camera_cpp"]["config"])
     assert camera["mapping"]["enabled"] is True and camera["mapping"]["lock_focus"] is True
     assert camera.get("af_mode", "continuous") == "continuous"
-    assert nodes["head_rgbd_cpp"]["present"] is True and nodes["head_rgbd_cpp"]["enabled"] is True
+    assert nodes["head_rgbd_cpp"]["present"] is True and nodes["head_rgbd_cpp"]["enabled"] is False
 
 
 def test_playbook_step_after_head_camera_cpp() -> None:

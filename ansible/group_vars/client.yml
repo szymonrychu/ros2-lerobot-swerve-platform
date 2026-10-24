@@ -1448,7 +1448,7 @@ ros2_nodes:
   - name: head_rgbd_cpp
     node_type: head_rgbd_cpp
     present: true
-    enabled: true
+    enabled: false  # disabled (user 2026-10-24): RGB-D pipeline off until the RealSense D435 replaces the head ToF
     config: |
       # Input topics.
       tof_depth_topic: /tof/depth/image_raw                      # sensor_msgs/Image 16UC1 depth, mm
@@ -2146,7 +2146,7 @@ ros2_nodes:
   - name: ground_estimator_cpp
     node_type: ground_estimator_cpp
     present: true
-    enabled: true
+    enabled: false  # disabled (user 2026-10-24): RGB-D pipeline off until the RealSense D435 replaces the head ToF
     config: |
       cloud_topic: /tof/points_filtered  # PointCloud2 of the head ToF, 10 Hz, used for the plane fit
       imu_topic: /imu/data  # sensor_msgs/Imu, prior of the floor normal
@@ -3656,8 +3656,7 @@ monitoring_agent_node_targets:
   - {node: marker_detector, address: "127.0.0.1:19118", path: /metrics}
   - {node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}
   - {node: head_camera_cpp, address: "127.0.0.1:19116", path: /metrics}
-  - {node: head_rgbd_cpp, address: "127.0.0.1:19117", path: /metrics}
-  - {node: ground_estimator_cpp, address: "127.0.0.1:19119", path: /metrics}
+  # head_rgbd_cpp (19117) and ground_estimator_cpp (19119) are disabled (user 2026-10-24): add their targets when enabling.
   - {node: base_servos, address: "127.0.0.1:19115", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}

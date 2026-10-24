@@ -2306,9 +2306,10 @@ Static invariants of the head RGB-D fusion deploy (`head_rgbd_cpp` in `ansible/g
 | `test_config_path_and_env` | `/etc/ros2/head_rgbd_cpp` and `HEAD_RGBD_CONFIG`. |
 | `test_colcon_sources_order_and_build` | `ros2_common_cpp` then `head_rgbd_cpp`, Release, `BUILD_TESTING=OFF`, `-j2`, `base_paths`, `stamp_apt_packages` installed. |
 | `test_tof_calibration_file_is_deployed_when_present` | `config_files` maps `tof_calibration.yaml` into the config dir; the role copies existing repo files with `remote_src`. |
-| `test_ros2_nodes_entry` | Present and enabled, after `head_camera_cpp` and `arducam_tof`; the config block equals the node defaults and carries comments. |
+| `test_ros2_nodes_entry` | Present and disabled (user 2026-10-24), after `head_camera_cpp` and `arducam_tof`; the config block equals the node defaults and carries comments. |
 | `test_upsampling_is_enabled_for_ground_guidance` | `upsampling.enabled` is true in the deployed config and the node defaults (input of ground guidance). |
-| `test_metrics_target_is_present` | Alloy scrapes `127.0.0.1:19117/metrics`. |
+| `test_metrics_target_is_absent_while_disabled` | No Alloy target for `head_rgbd_cpp` while it is disabled. |
+| `test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed` | `head_rgbd_cpp` and `ground_estimator_cpp` are present and disabled, `arducam_tof`, `tof_obstacle_cloud`, `head_camera_cpp` stay enabled, no scrape targets for the two. |
 | `test_head_camera_mapping_and_focus_lock` | `lens_position: 1.0`, the `mapping` block (2 Hz, 576x324, JPEG 80, `lock_focus`), `af_mode` continuous. |
 | `test_arducam_tof_stamp_latency` | The `arducam_tof` block sets `stamp_latency_ms: 0.0`. |
 | `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, python, build, config]`. |
