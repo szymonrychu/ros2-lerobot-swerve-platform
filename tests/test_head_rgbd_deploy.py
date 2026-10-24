@@ -132,7 +132,7 @@ def test_ros2_nodes_entry() -> None:
     names = [n["name"] for n in nodes]
     entry = nodes[names.index("head_rgbd_cpp")]
     assert entry["node_type"] == "head_rgbd_cpp"
-    assert entry["present"] is True and entry["enabled"] is True
+    assert entry["present"] is True and entry["enabled"] is False  # disabled (user 2026-10-24)
     config = entry["config"]
     assert "#" in config
     parsed = yaml.safe_load(config)
@@ -142,9 +142,10 @@ def test_ros2_nodes_entry() -> None:
     assert names.index("head_rgbd_cpp") > names.index("arducam_tof")
 
 
-def test_metrics_target_is_present() -> None:
+def test_metrics_target_is_absent_while_disabled() -> None:
+    """A disabled node is not scraped (it would read as down); add the target back when enabling."""
     targets = client_vars()["monitoring_agent_node_targets"]
-    assert {"node": "head_rgbd_cpp", "address": f"127.0.0.1:{METRICS_PORT}", "path": "/metrics"} in targets
+    assert "head_rgbd_cpp" not in {t["node"] for t in targets}
 
 
 def test_head_camera_mapping_and_focus_lock() -> None:
@@ -173,3 +174,14 @@ def test_client_playbook_step_order() -> None:
     assert include["apply"]["tags"] == ["head_rgbd_cpp"]
     assert step["vars"] == {"_deploy_node_name": "head_rgbd_cpp"}
     assert step["tags"] == ["head_rgbd_cpp", "apt", "python", "build", "config"]
+
+
+def test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed() -> None:
+    """User 2026-10-24: no RGB-D fusion and no ground estimate for driving; the raw ToF and head camera stay on."""
+    nodes = {n["name"]: n for n in client_vars()["ros2_nodes"]}
+    for name in ("head_rgbd_cpp", "ground_estimator_cpp"):
+        assert nodes[name]["present"] is True and nodes[name]["enabled"] is False, name
+    for name in ("arducam_tof", "tof_obstacle_cloud", "head_camera_cpp"):
+        assert nodes[name]["present"] is True and nodes[name]["enabled"] is True, name
+    targets = {t["node"] for t in client_vars()["monitoring_agent_node_targets"]}
+    assert not targets & {"head_rgbd_cpp", "ground_estimator_cpp"}

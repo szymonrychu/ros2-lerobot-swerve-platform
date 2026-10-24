@@ -81,11 +81,10 @@ def test_background_tier_holds_only_throttles_and_previews() -> None:
         )
         == BACKGROUND_TIER
     ]
-    # The retired Pi camera nodes (D7, D9) are gone: the throttle relays, head_camera_cpp and head_rgbd_cpp are left.
+    # The retired Pi camera nodes (D7, D9) are gone: the throttle relays and head_camera_cpp are left.
     assert sorted(running) == [
         "head_camera_cpp",
         "head_rgbd_calibration",
-        "head_rgbd_cpp",
         "joint_state_throttle_follower",
         "joint_state_throttle_swerve",
         "map3d_uplink",
