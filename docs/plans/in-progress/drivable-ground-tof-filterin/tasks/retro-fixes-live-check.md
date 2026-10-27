@@ -1,6 +1,6 @@
 ---
 title: Retro fixes live check
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Proof on the robot that the final turns, backing, mirror keep-out and front-camera positions work"
 files: [docs/runbooks/agent-retro-fixes.md, tests/test_agent_retro_runbook.py, tests/README.md]
@@ -8,11 +8,11 @@ verify: "uv run pytest tests/test_agent_retro_runbook.py -q && uv run poe lint"
 depends_on: [nav2-goal-across-the-scene, collision-source-stall-fix, stopbox-backing-and-turns, frontiers-honour-keep-outs, front-camera-ground-points, agent-retro-skill-lessons, tilt-event-evidence, map-epoch-reset-event]
 model: ""
 review: ""
-verified_head: ""
+verified_head: 7af26697
 points: 5
 expected_minutes: 60
 expected_tokens: 3750000
-points_actual: ""
+points_actual: 1
 actual_minutes: ""
 actual_tokens: ""
 actual_roles: ""
@@ -81,6 +81,10 @@ passes.
 
 - LIVE step 4 of D29 (user at the robot, undocked by the user; short slow goals only), after nav2-goal-across-the-scene.
 - Driving only through mcp_server's guarded tools under the base lease; no rclpy, `ros2` CLI or SSH on the client.
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/nav2-live-check-on-d435 (needed the retired ToF ground layer / front camera)
+
+- 2026-10-27 actuals: no agent records
 
 ## Added 2026-10-23
 
