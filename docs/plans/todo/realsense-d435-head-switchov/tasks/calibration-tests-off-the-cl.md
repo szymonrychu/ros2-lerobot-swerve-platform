@@ -4,7 +4,7 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: The offline CLI can be deleted without breaking the shared calibration tests.
 files: [tests/test_head_rgbd_calib_core.py, tests/test_head_rgbd_calib_intrinsics.py, tests/test_head_rgbd_calib_extrinsics.py, tests/test_head_rgbd_calibrate_cli.py, tests/README.md]
-verify: "uv run pytest tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_calib_intrinsics.py tests/test_head_rgbd_calib_extrinsics.py tests/test_head_rgbd_calibrate_cli.py tests/test_web_ui_agent_tab.py -q && uv run poe lint"
+verify: "uv run pytest tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_calib_intrinsics.py tests/test_head_rgbd_calib_extrinsics.py tests/test_head_rgbd_calibrate_cli.py -q && uv run poe lint"
 depends_on: []
 model: sonnet
 review: ""
@@ -34,7 +34,7 @@ No behaviour change (test refactor): the moved and re-imported tests pass before
 
 - AC1: no shared-library test imports the CLI package [evidence: command:! grep -n "scripts.head_rgbd_calibration" tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_calib_intrinsics.py tests/test_head_rgbd_calib_extrinsics.py]
 - AC2: the moved CLI pipeline tests pass in the CLI test file [evidence: command:uv run pytest tests/test_head_rgbd_calibrate_cli.py -q]
-- AC3: the shared calibration tests pass [evidence: command:uv run pytest tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_calib_intrinsics.py tests/test_head_rgbd_calib_extrinsics.py tests/test_web_ui_agent_tab.py -q]
+- AC3: the shared calibration tests pass [evidence: command:uv run pytest tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_calib_intrinsics.py tests/test_head_rgbd_calib_extrinsics.py -q]
 
 ## Files
 
@@ -54,9 +54,12 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Run `uv run pytest tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_calib_intrinsics.py tests/test_head_rgbd_calib_extrinsics.py tests/test_head_rgbd_calibrate_cli.py -q`; note the pass count (baseline).
+- Move the CLI tests and switch the imports; rerun; the same count passes.
+- Run the verify command; commit `test(calibration): shared library tests independent of the offline CLI` (refactor, no behaviour change).
 
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 amended: drop an unrelated README pin from AC3
