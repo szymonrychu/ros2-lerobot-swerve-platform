@@ -1,6 +1,6 @@
 ---
 title: Guidance replay acceptance
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The approved edge, no-return and safety numbers locked in on real recordings"
 files: [nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/src/core/edge_points.cpp, nodes/ground_estimator_cpp/src/core/no_return.cpp, nodes/ground_estimator_cpp/test/core/test_edge_points.cpp, nodes/ground_estimator_cpp/test/core/test_no_return.cpp, nodes/ground_estimator_cpp/README.md]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-replay-acceptance
 branch: drivable-ground-tof-filterin--guidance-replay-acceptance
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # Guidance replay acceptance
@@ -79,3 +80,7 @@ No new interfaces: replay assertions over part guidance-replay-harness on part g
 - 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
 
 - 2026-10-22 amended: planner: umbrella re-plan (approval G1, D23): the live-scene replay tests of ground-estimator-live-scene keep passing with the guidance on
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/tune-ground-estimator-on-d43
+
+- 2026-10-27 actuals: no agent records
