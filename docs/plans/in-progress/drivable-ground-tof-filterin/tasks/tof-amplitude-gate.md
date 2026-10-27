@@ -1,6 +1,6 @@
 ---
 title: ToF amplitude gate
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Dark-surface depth bias removed at the source, so the board stops reading as a step"
 files: [nodes/bridges/arducam_tof/arducam_tof/amplitude.py, nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_amplitude.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/README.md, ansible/group_vars/client.yml, tests/test_arducam_tof_config.py]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tof-amplitude-gate
 branch: drivable-ground-tof-filterin--tof-amplitude-gate
-verified_head: ""
+verified_head: 7dece440b9162fb337d1706af8a2a5f44f5a93d8
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # ToF amplitude gate
@@ -91,3 +92,7 @@ Topics, encodings and the z-depth meaning of /tof/depth/image_raw are unchanged 
 - The head floor fit and the RGB-D calibration read this depth too (contract consumers): the floor retention test is their guard. Deploy with `scripts/deploy-nodes.sh client arducam_tof` (orchestrator).
 
 - 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/laser-filter-on-the-d435-clo
+
+- 2026-10-27 actuals: no agent records
