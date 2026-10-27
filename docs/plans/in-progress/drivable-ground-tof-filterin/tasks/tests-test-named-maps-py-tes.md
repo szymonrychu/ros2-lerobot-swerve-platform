@@ -1,6 +1,6 @@
 ---
 title: "tests/test_named_maps.py::test_concurrent_identical_loads_share_one_command is flaky (fails in 2 of 3 isolated runs)"
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: It makes the full web_ui suite fail intermittently and has nothing to do with the map reset change.
 files: [nodes/web_ui/tests/test_named_maps.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/web_ui && for i in 1 2 3 4 5; do uv run pytest tests/test_name
 depends_on: []
 model: ""
 review: ""
-verified_head: ""
+verified_head: 339e3a78
 points: 2
 expected_minutes: ""
 expected_tokens: ""
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 5
+actual_tokens: 459523
+actual_roles: "impl 4, review 1"
+actual_role_tokens: "impl 378129, review 81394"
 ---
 
 # tests/test_named_maps.py::test_concurrent_identical_loads_share_one_command is flaky (fails in 2 of 3 isolated runs)
@@ -55,3 +55,4 @@ tests/test_named_maps.py::test_concurrent_identical_loads_share_one_command is f
 
 Discovered in task `map-reset-requester-event` during run `drivable-ground-tof-filterin`.
 
+- 2026-10-27 done
