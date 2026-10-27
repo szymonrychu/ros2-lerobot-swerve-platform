@@ -56,7 +56,7 @@ Two other node memory comments in client.yml still say 'Not measured yet (C++ re
 
 Discovered in task `laser-filter-tof-self-filter` during run `tof-3d-obstacle-detection-fo`.
 
-- 2026-10-27 done: re-verified 2026-10-27: grep finds no 'Not measured yet (C++ relay' in client.yml
+- 2026-10-27 done: CORRECTION 2026-10-27: NOT delivered - grep still finds 2 'Not measured yet (C++ relay' comments in client.yml; carried into realsense-d435-head-switchov as client-yml-stale-memory-comm
 
 - 2026-10-27 actuals: no agent records
 
