@@ -408,6 +408,7 @@ Plan inputs from the briefs, each placed:
 
 ## Open questions
 - Q1: Zoom (head_camera_cpp full-resolution crop) has no D435 equivalent: retire it with head_camera_cpp in mcp_server (get_camera_image zoom), web_ui click-to-zoom and marker_detector, rather than emulate it as a digital crop of the 640x360 D435 frame? [recommended: yes, retire it everywhere; mcp-zoom-retired, web-ui-zoom-route-retired and marker-detector-zoom-retired assume this]
+- Q2: Tool point: fit tool_offset_m in the plate solve as the fitted board pose composed with the clip's CAD board-to-jaw-tip offset (new config plate_mount.tool_in_board_m), so the 2026-10-10 tool point is re-done from the same D435 views? [recommended: yes; accepted only if the held-out tool error is under 5 mm, else the 2026-10-10 value stays and the report says so]
 
 ## Irreversible operations in scope
 
