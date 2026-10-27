@@ -467,6 +467,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m laser_filter"
     node_src_dir: "nodes/laser_filter"
+    # Imports shared/ros2_metrics (stall metrics on 127.0.0.1:19120): shared/ changes restart and re-sync it.
+    src_shared: true
     env:
       - LASER_FILTER_CONFIG={{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml
     # point_cloud2 for the ToF cloud (sensor_msgs_py reads /tof/points and writes /tof/points_filtered).
@@ -3657,6 +3659,7 @@ monitoring_agent_node_targets:
   - {node: map_guard_cpp, address: "127.0.0.1:19110", path: /metrics}
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
   - {node: marker_detector, address: "127.0.0.1:19118", path: /metrics}
+  - {node: laser_filter, address: "127.0.0.1:19120", path: /metrics}
   - {node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}
   - {node: head_camera_cpp, address: "127.0.0.1:19116", path: /metrics}
   # head_rgbd_cpp (19117) and ground_estimator_cpp (19119) are disabled (user 2026-10-24): add their targets when enabling.

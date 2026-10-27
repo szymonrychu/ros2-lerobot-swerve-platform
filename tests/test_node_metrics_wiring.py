@@ -57,7 +57,13 @@ HTTP_PORTS = {
     "mcp_server": 18200,
     "claude_agent": 18300,
 }
-CONTRACT_NODES = set(CONFIG_METRICS_PORTS) | set(ENV_METRICS_PORTS) | set(HTTP_PORT_KEYS)
+# Nodes whose config is the repo file named by their env, not a group_vars block: node -> (config path, port).
+REPO_CONFIG_METRICS_PORTS = {
+    "laser_filter": (REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml", 19120),
+}
+CONTRACT_NODES = (
+    set(CONFIG_METRICS_PORTS) | set(ENV_METRICS_PORTS) | set(HTTP_PORT_KEYS) | set(REPO_CONFIG_METRICS_PORTS)
+)
 # Node types that import ros2_metrics (venv nodes through shared/, rplidar_a1 through PYTHONPATH).
 SHARED_NODE_TYPES = [
     "feetech_servos",
@@ -76,6 +82,7 @@ SHARED_NODE_TYPES = [
     "topic_scraper_api",
     "mcp_server",
     "web_ui",
+    "laser_filter",
 ]
 
 
@@ -141,6 +148,8 @@ def expected_port(entry: dict) -> int:
     name = entry["name"]
     if name in ENV_METRICS_PORTS:
         return int(node_env(entry)["METRICS_PORT"])
+    if name in REPO_CONFIG_METRICS_PORTS:
+        return yaml.safe_load(REPO_CONFIG_METRICS_PORTS[name][0].read_text())["metrics_port"]
     config = node_config(entry)
     if name in CONFIG_METRICS_PORTS:
         return config["metrics_port"]
@@ -168,6 +177,12 @@ def node_targets() -> dict[str, dict]:
 def test_config_metrics_port(node: str, port: int) -> None:
     """Nodes without an HTTP server have the contract metrics_port at the top level of their config."""
     assert node_config(client_nodes()[node]).get("metrics_port") == port
+
+
+@pytest.mark.parametrize(("node", "port"), sorted((n, p) for n, (_, p) in REPO_CONFIG_METRICS_PORTS.items()))
+def test_repo_config_metrics_port(node: str, port: int) -> None:
+    """Nodes configured by a repo file serve the contract metrics_port from it."""
+    assert expected_port(client_nodes()[node]) == port
 
 
 @pytest.mark.parametrize(("node", "port"), sorted(ENV_METRICS_PORTS.items()))
@@ -218,7 +233,8 @@ def all_contract_ports() -> dict[str, int]:
     Returns:
         dict[str, int]: Node name to its contract port.
     """
-    return {**CONFIG_METRICS_PORTS, **ENV_METRICS_PORTS, **HTTP_PORTS}
+    repo_config = {n: p for n, (_, p) in REPO_CONFIG_METRICS_PORTS.items()}
+    return {**CONFIG_METRICS_PORTS, **ENV_METRICS_PORTS, **HTTP_PORTS, **repo_config}
 
 
 def is_running(entry: dict) -> bool:
