@@ -1,6 +1,6 @@
 ---
 title: laser_filter metrics scraped
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Stall telemetry reaches Mimir so the live check can name the cause
 files: [ansible/group_vars/client.yml, tests/test_node_metrics_wiring.py]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_node_metrics_wiring.py -q && uv run poe test-a
 depends_on: [collision-source-stall-fix]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: 00b7b630
 points: 1
 expected_minutes: 67
 expected_tokens: 115858
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 1
+actual_minutes: 3
+actual_tokens: 360642
+actual_roles: "impl 2, review 1"
+actual_role_tokens: "impl 279786, review 80856"
 ---
 
 # laser_filter metrics scraped
@@ -52,3 +52,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 done
