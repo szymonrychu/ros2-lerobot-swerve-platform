@@ -1,6 +1,6 @@
 ---
 title: Capture baseline recordings
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Before numbers on the real scene, so every later improvement is proven, not assumed"
 files: [scripts/ground_scenes.yaml, scripts/ground_record.yaml, scripts/ground_replay_scenes.yaml, nodes/ground_estimator_cpp/test/data/replay_rgbd/, nodes/bridges/arducam_tof/tests/data/amplitude_frames.npz, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/README.md]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--capture-baseline-recordings
 branch: drivable-ground-tof-filterin--capture-baseline-recordings
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # Capture baseline recordings
@@ -93,3 +94,7 @@ Five fixture files and the ToF subset committed; `scripts/cpp-node-test.sh groun
 - 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
 
 - 2026-10-22 amended: planner: umbrella re-plan (approvals G1, G2, G3; D21, D22, D26, D28): head chain applied first, raw depth, the live layout and failure poses, box frames in the ToF subset, user conditions
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/record-d435-ground-replay-fi
+
+- 2026-10-27 actuals: no agent records
