@@ -1,6 +1,6 @@
 ---
 title: Calib docs and test index
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "A mid-level ROS2 developer can understand, run and extend the head-from-arm calibration from the READMEs."
 files: [shared/README.md, nodes/head_rgbd_calibration/README.md, nodes/head_state_publisher/README.md, nodes/mcp_server/README.md, nodes/web_ui/README.md, ansible/README.md, docs/markers.md, tests/README.md]
@@ -8,15 +8,15 @@ verify: "grep -q 'head_arm_fit' shared/README.md && grep -q 'head-arm' nodes/hea
 depends_on: [head-arm-calibrate-ui-sectio, head-tilt-range-widened]
 model: ""
 review: skip
-verified_head: ""
+verified_head: 10af862c
 points: 5
 expected_minutes: 60
 expected_tokens: 3750000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 7
+actual_tokens: 5724647
+actual_roles: "impl 6, review 2"
+actual_role_tokens: "impl 5445233, review 279414"
 ---
 
 # Calib docs and test index
@@ -77,3 +77,5 @@ A mid-level ROS2 developer can understand, run and extend the head-from-arm cali
 
 - Prose task: review skip; the scope audit reads it.
 - Design: `ticket.py path drivable-ground-tof-filterin design` (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
+
+- 2026-10-27 done
