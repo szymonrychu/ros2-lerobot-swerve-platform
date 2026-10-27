@@ -1,6 +1,6 @@
 ---
 title: ToF filter live check
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Proof on the robot that the retuned filter keeps the ground fit fed (removed share <= 10 %, plane valid >= 95 %)"
 files: [nodes/bridges/arducam_tof/README.md]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tof-filter-live-check
 branch: drivable-ground-tof-filterin--tof-filter-live-check
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # ToF filter live check
@@ -82,3 +83,7 @@ The README `## Live check` table shows the live removed shares (flying-pixel <= 
   moves allowed). No rclpy, no `ros2` CLI, no SSH on the client (MEMORY feedback_no_rclpy_probes_on_client).
 - The metric labels on Mimir follow the node's metrics port scrape (`tests/test_arducam_tof_config.py::
   test_metrics_port_is_scraped_exactly_when_the_node_is_enabled`); select the client series by its job/host label.
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/d435-obstacle-cloud-node
+
+- 2026-10-27 actuals: no agent records
