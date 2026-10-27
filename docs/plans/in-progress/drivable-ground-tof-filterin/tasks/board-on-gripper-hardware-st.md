@@ -8,7 +8,7 @@ verify: "test -f docs/runbooks/head-arm-calibration.md && grep -q '^## Hardware'
 depends_on: []
 model: ""
 review: skip
-verified_head: ""
+verified_head: "0fd95f88"
 points: 3
 expected_minutes: 30
 expected_tokens: 2250000

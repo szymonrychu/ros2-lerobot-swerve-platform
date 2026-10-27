@@ -8,7 +8,7 @@ verify: "cd nodes/web_ui/frontend && npx vitest run src/calibrate/headArmApi.tes
 depends_on: [head-arm-sequence-http-api]
 model: ""
 review: ""
-verified_head: ""
+verified_head: "9cf952c6"
 points: 3
 expected_minutes: 45
 expected_tokens: 2250000

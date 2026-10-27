@@ -8,7 +8,7 @@ verify: "uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q &&
 depends_on: [head-arm-sequence-http-api, web-ui-applied-head-urdf]
 model: ""
 review: ""
-verified_head: ""
+verified_head: "f3a021ad"
 points: 3
 expected_minutes: 45
 expected_tokens: 2250000

@@ -8,7 +8,7 @@ verify: "cd nodes/web_ui/frontend && npx vitest run src/calibrate/HeadArmCalibra
 depends_on: [calib-frontend-api]
 model: ""
 review: ""
-verified_head: ""
+verified_head: "1e677a1e"
 points: 8
 expected_minutes: 75
 expected_tokens: 6000000

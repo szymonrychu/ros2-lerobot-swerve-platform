@@ -8,7 +8,7 @@ verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
-verified_head: ""
+verified_head: "e6cdcaed"
 points: 1
 expected_minutes: ""
 expected_tokens: ""

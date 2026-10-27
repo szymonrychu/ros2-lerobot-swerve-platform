@@ -8,7 +8,7 @@ verify: "grep -q '^## Results' docs/runbooks/head-arm-calibration.md && (cd node
 depends_on: [calib-docs-and-test-index]
 model: ""
 review: skip
-verified_head: ""
+verified_head: "325dd5e8"
 points: 8
 expected_minutes: 90
 expected_tokens: 6000000
