@@ -3507,6 +3507,17 @@ Guards for `docs/runbooks/ground-robustness.md` (static ground robustness runboo
 | `test_runbook_commands_exist` | Every `scripts/` file the runbook names is tracked (`git ls-files`). |
 | `test_runbook_forbids_driving` | Safety section: parked and charging, no drive commands, only head pan/tilt, no arm motion. |
 
+### `test_realsense_d435_udev.py`
+
+Parses `ansible/playbooks/tasks/realsense_d435_setup.yml`, `deploy_nodes_client.yml` and `ros2_base/tasks/main.yml`: the D435 udev rule comes with the node deploy.
+
+| Test | Covers |
+|---|---|
+| `test_rule_matches_the_d435_product_id` | `99-realsense-d435.rules` matches 8086:0b07 only (not 0b3a), `MODE="0666", GROUP="video"`, autosuspend `-1`, power control `on`, no IIO rules. |
+| `test_d435i_rules_are_gone` | The stale `99-realsense-d435i.rules` is `state: absent`; ros2_base has no RealSense/uvcvideo task; the uvcvideo quirks file stays, commented as unverified. |
+| `test_setup_reloads_udev_on_change` | `udevadm control --reload-rules` and `udevadm trigger` run. |
+| `test_setup_is_part_of_the_node_deploy` | The setup file is included once, tagged `realsense_d435` and `setup`, before the `realsense_d435` deploy step. |
+
 ### `test_wifi_powersave_boot.py`
 
 Parses `ansible/roles/system_optimize/tasks/main.yml`: Wi-Fi power save stays off after a reboot on systemd-networkd hosts.

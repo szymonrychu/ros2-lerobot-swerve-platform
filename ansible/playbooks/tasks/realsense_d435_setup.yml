@@ -1,0 +1,49 @@
+# Device permissions and USB power for the Intel RealSense D435 (plain D435, USB PID 8086:0b07; no IMU, so no IIO/HID rules).
+# Applied by the realsense_d435 node deploy, not by the base playbook.
+- name: Install the RealSense D435 udev rule
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-realsense-d435.rules
+    content: |
+      # Intel RealSense D435 - USB device access and no autosuspend
+      SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b07", MODE="0666", GROUP="video"
+      SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b07", ATTR{power/autosuspend}="-1"
+      SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b07", ATTR{power/control}="on"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: realsense_d435_udev_rule
+  tags: [setup]
+
+- name: Remove the stale RealSense D435i udev rule (PID 0b3a)
+  ansible.builtin.file:
+    path: /etc/udev/rules.d/99-realsense-d435i.rules
+    state: absent
+  become: true
+  register: realsense_d435_udev_stale
+  tags: [setup]
+
+# Unverified by Intel documentation (docs brief 3.15): quirks=640 is kept as a stability measure for uvcvideo.
+- name: Keep the uvcvideo quirks for RealSense stability
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/99-realsense-uvcvideo.conf
+    content: "options uvcvideo quirks=640\n"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  tags: [setup]
+
+- name: Reload udev rules
+  ansible.builtin.command: udevadm control --reload-rules
+  become: true
+  changed_when: true
+  when: realsense_d435_udev_rule.changed or realsense_d435_udev_stale.changed
+  tags: [setup]
+
+- name: Trigger udev
+  ansible.builtin.command: udevadm trigger
+  become: true
+  changed_when: true
+  when: realsense_d435_udev_rule.changed or realsense_d435_udev_stale.changed
+  tags: [setup]

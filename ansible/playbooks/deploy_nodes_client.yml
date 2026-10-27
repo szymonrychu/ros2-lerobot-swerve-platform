@@ -291,6 +291,12 @@
             _deploy_node_name: rplidar_a1
           tags: [rplidar_a1, apt, python, build, config]
 
+        - name: RealSense D435 udev rule and uvcvideo quirks
+          ansible.builtin.include_tasks:
+            file: tasks/realsense_d435_setup.yml
+            apply:
+              tags: [realsense_d435, setup]
+          tags: [realsense_d435, setup]
         - name: Deploy realsense_d435
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml
