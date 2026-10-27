@@ -1,6 +1,6 @@
 ---
 title: Head remount floor runbook
-status: blocked
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The robot is re-zeroed, recalibrated and shown to see a flat floor and a clear costmap, with the numbers written down."
 files: [docs/runbooks/head-remount-floor-check.md, tests/test_head_remount_runbook.py, docs/runbooks/ground-estimation.md, docs/runbooks/head-rgbd-fusion.md, docs/head-rgbd-fusion-methodology.md, MEMORY.md, tests/README.md]
@@ -14,11 +14,12 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--head-remount-floor-runbook
 branch: tof-depth-fix-and-ground-noi--head-remount-floor-runbook
-verified_head: c3a9ba2435424a46e7799c858b05dad6ef1111c3
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: tof-depth-fix-and-ground-noi
 provides: []
 acs_for_audit: [a5]
 process_gaps: ["Results section must be filled from the robot run after merge and deploy (date, numbers, pass/fail per check)."]
+points_actual: 1
 ---
 
 # Head remount floor runbook
@@ -69,3 +70,7 @@ Uses `tof-depth-z`, `head-pan-sign`, `tof-mark-band`, `ground-cell-median` (name
 ## Notes
 
 Pan check amplitude 0.3 rad, head only (servo safety). topic_scraper_api must be enabled in group_vars and deployed before the scraper workflow (CLAUDE.md). Ask before deploying mcp_server if an agent session runs.
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/d435-recalibration-runs
+
+- 2026-10-27 actuals: no agent records
