@@ -3,10 +3,10 @@ title: Laser filter on the D435 cloud
 status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The D435 cloud reaches Nav2 and ground estimation without the robot's own body in it."
-files: [nodes/laser_filter/config/footprint_filter.yaml, nodes/laser_filter/laser_filter/config.py, nodes/laser_filter/tests/test_cloud_filter.py, nodes/laser_filter/tests/test_config.py, nodes/laser_filter/README.md, tests/test_tof_obstacle_wiring.py, tests/test_d435_obstacle_wiring.py, tests/README.md]
-verify: "cd nodes/laser_filter && uv run --frozen pytest tests/test_cloud_filter.py tests/test_config.py -q && uv run poe lint && cd ../.. && uv run pytest tests/test_d435_obstacle_wiring.py tests/test_web_ui_agent_tab.py -q && uv run poe lint"
+files: [nodes/laser_filter/config/footprint_filter.yaml, nodes/laser_filter/laser_filter/config.py, nodes/laser_filter/tests/test_cloud_filter.py, nodes/laser_filter/tests/test_config.py, tests/test_nav_stack_config.py, tests/test_tof_obstacle_wiring.py, tests/test_d435_obstacle_wiring.py, tests/README.md]
+verify: "cd nodes/laser_filter && uv run --frozen pytest tests/test_cloud_filter.py tests/test_config.py -q && uv run poe lint && cd ../.. && uv run pytest tests/test_d435_obstacle_wiring.py tests/test_nav_stack_config.py -q && uv run poe lint"
 depends_on: [d435-obstacle-cloud-node]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 2
@@ -28,7 +28,7 @@ Goal G3: "... obstacle cloud and self-filter re-pointed ..." Design D5.
 - `nodes/laser_filter/config/footprint_filter.yaml`: `cloud_topic: /head/d435/points`, `cloud_filtered_topic: /head/d435/points_filtered`; comments say "D435 cloud self filter" (not ToF).
 - `nodes/laser_filter/laser_filter/config.py`: the pydantic defaults of `cloud_topic` / `cloud_filtered_topic` match the D435 names (no ToF default left).
 - `nodes/laser_filter/tests/test_cloud_filter.py` and `tests/test_config.py`: the cloud fixtures use frame `d435_depth_optical_frame` and the new topic names (the ToF names are no longer accurate); behaviour assertions unchanged.
-- `git mv tests/test_tof_obstacle_wiring.py tests/test_d435_obstacle_wiring.py`: the wiring chain is d435_obstacle_cloud `/head/d435/points` -> laser_filter -> `/head/d435/points_filtered` (the ToF chain is no longer accurate). Nav2 consumers are re-pointed by nav2-obstacle-inputs-on-d435, so this task pins only producer -> filter. tests/README.md and `nodes/laser_filter/README.md` updated.
+- `git mv tests/test_tof_obstacle_wiring.py tests/test_d435_obstacle_wiring.py`: the wiring chain is d435_obstacle_cloud `/head/d435/points` -> laser_filter -> `/head/d435/points_filtered` (the ToF chain is no longer accurate). Nav2 consumers are re-pointed by nav2-obstacle-inputs-on-d435, so this task pins only producer -> filter. `tests/test_nav_stack_config.py` pins the laser_filter cloud topics (around line 1216); that pin is updated to the D435 names (no longer accurate otherwise). tests/README.md updated; the laser_filter README is updated by node-readmes-and-diagrams-on.
 
 ## Acceptance conditions
 
@@ -58,9 +58,12 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the tests first (D435 frame and topics, the new wiring test); run `cd nodes/laser_filter && uv run --frozen pytest tests -q` and `uv run pytest tests/test_d435_obstacle_wiring.py -q`; expect failures.
+- Change the defaults and footprint_filter.yaml; rerun; expect pass.
+- Run the verify command; commit `feat(laser_filter): self-filter the D435 cloud`.
 
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 amended: root nav stack pin of the laser_filter topics added to the task
