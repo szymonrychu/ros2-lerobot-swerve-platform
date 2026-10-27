@@ -1,7 +1,7 @@
 ---
 title: "Drivable ground, ToF filtering and head-from-arm calibration"
 blockers: []
-stage: build
+stage: review
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-22
