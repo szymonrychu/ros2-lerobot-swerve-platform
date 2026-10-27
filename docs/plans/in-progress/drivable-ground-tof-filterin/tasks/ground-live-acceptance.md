@@ -1,6 +1,6 @@
 ---
 title: Ground live acceptance
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The robot's ground detection is proven on the real scene, so Nav2 can trust it: the acceptance moved from ground-detection-robustness, with real numbers"
 files: [docs/runbooks/ground-robustness.md, tests/test_ground_robustness_runbook.py, scripts/ground_acceptance_record.yaml, tests/README.md]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-live-acceptance
 branch: drivable-ground-tof-filterin--ground-live-acceptance
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # Ground live acceptance
@@ -98,3 +99,7 @@ layout; `uv run pytest tests/test_ground_robustness_runbook.py -q` PASS.
 - Runs right after guidance-live-check-and-cpu on the same deploy; it may reuse that task's captures only when they
   cover 2 x 60 s per scene at the poses above.
 - Live data only through the web_ui websocket/API (user decision, approval A8); no rclpy, `ros2` CLI or SSH.
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/ground-live-acceptance-on-d4
+
+- 2026-10-27 actuals: no agent records
