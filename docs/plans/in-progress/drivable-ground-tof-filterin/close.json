@@ -1,0 +1,33 @@
+{
+  "epic": "drivable-ground-tof-filterin",
+  "base": "main",
+  "baseBefore": "5be64444472e9c41b80c74633348ec8461bd2a7c",
+  "baseAfter": "05c97fbb21db5da05177fe44b094aaf4d92d00f1",
+  "epicTip": "05c97fbb21db5da05177fe44b094aaf4d92d00f1",
+  "integrationVerify": {
+    "command": "uv run poe lint && uv run poe test-ansible && uv run pytest tests -q && (cd nodes/laser_filter && uv run pytest tests -q) && (cd nodes/claude_agent && uv run pytest tests -q) && (cd nodes/mcp_server && uv run pytest tests -q)",
+    "passed": true
+  },
+  "mainVerify": {
+    "command": "uv run poe lint && uv run poe test-ansible && uv run pytest tests -q && (cd nodes/laser_filter && uv run pytest tests -q) && (cd nodes/claude_agent && uv run pytest tests -q) && (cd nodes/mcp_server && uv run pytest tests -q)",
+    "passed": true,
+    "tail": [
+      "ansible-playbook -i inventory playbooks/deploy_topic_scraper_client_config.yml --syntax-check",
+      "ansible-playbook -i inventory playbooks/docker_cleanup.yml --syntax-check",
+      "ansible-playbook -i inventory playbooks/optimize.yml --syntax-check",
+      "\u001b[2mWARNING  Directory expansion discovered 136 file(s). If this is more than expected, use 'exclude_paths' in your ansible-lint configuration to narrow the scope. See: https://docs.ansible.com/projects/lint/configuring/\u001b[0m",
+      "",
+      "\u001b[32mPassed\u001b[0m: 0 failure(s), 0 warning(s) in 146 files processed of 162 encountered. Profile 'basic' was required, but 'production' profile passed.",
+      "warning: `VIRTUAL_ENV=/Users/szymonri/Documents/ros2-lerobot-sverve-platform/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead",
+      "   Building laser-filter @ file:///Users/szymonri/Documents/ros2-lerobot-sverve-platform/nodes/laser_filter",
+      "   Building ros2-metrics @ file:///Users/szymonri/Documents/ros2-lerobot-sverve-platform/shared/ros2_metrics",
+      "      Built ros2-metrics @ file:///Users/szymonri/Documents/ros2-lerobot-sverve-platform/shared/ros2_metrics",
+      "      Built laser-filter @ file:///Users/szymonri/Documents/ros2-lerobot-sverve-platform/nodes/laser_filter",
+      "Uninstalled 1 package in 1ms",
+      "Installed 3 packages in 2ms",
+      "warning: `VIRTUAL_ENV=/Users/szymonri/Documents/ros2-lerobot-sverve-platform/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead",
+      "warning: `VIRTUAL_ENV=/Users/szymonri/Documents/ros2-lerobot-sverve-platform/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead"
+    ]
+  },
+  "at": "2026-10-27T21:09:39+00:00"
+}
