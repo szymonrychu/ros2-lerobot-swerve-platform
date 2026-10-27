@@ -52,7 +52,7 @@ MEASURED_SPACE_PHRASE = (
     "Joint name -> target rad in measured (follower) joint space, as reported by get_arm_state (clamped to URDF "
     "limits minus margin, applied in URDF space: urdf = measured + offset)"
 )
-WIDENED_TILT_RAD = (-0.5236, 1.0472)  # -30..+60 deg, the reprinted mount's range (head-tilt-range-widened)
+WIDENED_TILT_RAD = (-0.5236, 0.7854)  # -30..+45 deg, the reprinted mount's range (head-tilt-range-widened)
 CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 MOUNT_MEASURED_NOTE = "measured by the user"
 TOOL_AXIS = np.array([0.0, 0.0, -1.0])  # tool direction in gripper_link (gripper_frame_joint lies along -z)
@@ -121,8 +121,8 @@ def with_tilt_limits(urdf: str, lower: float, upper: float) -> str:
 HEADS = {"shipped": SHIPPED_HEAD, "applied": APPLIED_HEAD}
 SAFETY_HEADS = {
     **HEADS,
-    "shipped-tilt-60": with_tilt_limits(SHIPPED_HEAD, *WIDENED_TILT_RAD),
-    "applied-tilt-60": with_tilt_limits(APPLIED_HEAD, *WIDENED_TILT_RAD),
+    "shipped-tilt-45": with_tilt_limits(SHIPPED_HEAD, *WIDENED_TILT_RAD),
+    "applied-tilt-45": with_tilt_limits(APPLIED_HEAD, *WIDENED_TILT_RAD),
 }
 
 
