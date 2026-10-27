@@ -82,6 +82,20 @@ def required_clearance_m(length_m: float, width_m: float, margin_m: float) -> fl
     return math.hypot(length_m / 2, width_m / 2) + margin_m
 
 
+def nearest_inside(obstacles: list[SectorObstacle], required_m: float) -> SectorObstacle | None:
+    """Nearest lidar return inside the rotation circle.
+
+    Args:
+        obstacles (list[SectorObstacle]): Nearest return per sector.
+        required_m (float): Free radius needed (m).
+
+    Returns:
+        SectorObstacle | None: The nearest return closer than required_m, None when the circle is free.
+    """
+    close = [o for o in obstacles if o.nearest_m is not None and o.nearest_m < required_m]
+    return min(close, key=lambda o: o.nearest_m or 0.0) if close else None
+
+
 def check_clearance(obstacles: list[SectorObstacle] | None, required_m: float) -> str | None:
     """Refusal reason when the lidar shows an obstacle inside the rotation circle (or no lidar at all).
 
@@ -90,18 +104,36 @@ def check_clearance(obstacles: list[SectorObstacle] | None, required_m: float) -
         required_m (float): Free radius needed (m).
 
     Returns:
-        str | None: Reason to refuse, None when the robot may rotate.
+        str | None: Reason to refuse (naming the nearest return's distance, bearing and sector), None when the robot
+            may rotate.
     """
     if obstacles is None:
         return "lidar scan missing or stale: cannot verify the rotation clearance"
-    close = [o for o in obstacles if o.nearest_m is not None and o.nearest_m < required_m]
-    if not close:
+    worst = nearest_inside(obstacles, required_m)
+    if worst is None:
         return None
-    worst = min(close, key=lambda o: o.nearest_m or 0.0)
+    bearing = "" if worst.bearing_rad is None else f" at bearing {math.degrees(worst.bearing_rad):+.0f} deg"
     return (
-        f"obstacle too close for an in-place rotation: {worst.nearest_m:.2f} m in sector {worst.sector} "
+        f"obstacle too close for an in-place rotation: {worst.nearest_m:.2f} m{bearing} in sector {worst.sector} "
         f"(needs {required_m:.2f} m = footprint circumscribed radius + margin)"
     )
+
+
+def escape_translation(obstacle: SectorObstacle, required_m: float, extra_m: float) -> tuple[float, float] | None:
+    """Straight translation (base_link) directly away from a return that clears the rotation circle by extra_m.
+
+    Args:
+        obstacle (SectorObstacle): Return inside the rotation circle.
+        required_m (float): Free radius needed (m).
+        extra_m (float): Clearance beyond required_m after the move (m).
+
+    Returns:
+        tuple[float, float] | None: (dx, dy) in m, None when the return has no distance or bearing.
+    """
+    if obstacle.nearest_m is None or obstacle.bearing_rad is None:
+        return None
+    distance = max(0.0, required_m - obstacle.nearest_m) + extra_m
+    return -distance * math.cos(obstacle.bearing_rad), -distance * math.sin(obstacle.bearing_rad)
 
 
 def heading_label(heading_rad: float) -> str:

@@ -39,7 +39,7 @@ from . import (
     perception_tools,
 )
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
-from .base_motion import DriveError, DriveOutcome
+from .base_motion import STRAIGHT_MOVE_MAX_M, DriveError, DriveOutcome
 from .calibration_board import BoardPark
 from .camera_scene import camera_setup, pixel_scale
 from .config import (
@@ -1011,7 +1011,13 @@ def register_core_tools(ctx: ToolContext) -> None:
             "Move relative to the robot's current pose (base_link frame) through Nav2, e.g. dx=0.5 drives half a "
             "metre forward, dyaw=1.57 turns left 90 degrees. Same blocking/obstacle-avoiding behaviour as "
             "navigate_to_pose (needs the base lease). Small relative moves (a few cm) now really move the robot. "
-            f"{nav_note}"
+            f"{nav_note} Exception: a backing (dx < 0) or sideways (dy != 0) move of at most "
+            f"{STRAIGHT_MOVE_MAX_M:g} m with dyaw=0 is one straight slow move without turning first (no Nav2 path "
+            "planning; the collision monitor still checks the travel direction), the way to back away from a close "
+            "obstacle. A turn (dyaw != 0, or a Nav2 goal to the side or behind) is refused before moving when the "
+            "lidar shows a return inside the rotation circle (footprint circumscribed radius + look_around margin) or "
+            "has no fresh scan; the error names the nearest return and suggests a translation: translate away first, "
+            "then turn."
         )
     )
     def move_relative(

@@ -49,15 +49,19 @@ from .arm import ArmController, ArmError, JointSample
 from .auto_poi import AutoPoiMarker, attach_auto_poi
 from .base_dock import DockGoal, DockResult, run_dock
 from .base_motion import (
+    STRAIGHT_MOVE_SPEED_MPS,
     DriveError,
     DriveOutcome,
     NavPort,
     SpinOutcome,
+    needs_in_place_turn,
     run_base_stop,
     run_drive,
     run_nav,
     run_spin,
     run_stop,
+    run_translate,
+    straight_move,
 )
 from .config import McpServerConfig
 from .control import ControlManager, LeaderActivity, NavGoalRegistry
@@ -70,6 +74,7 @@ from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, re
 from .grasp_tools import GraspService
 from .head import HEAD_FRAME_ID, AppliedHeadKinematics, HeadController
 from .ik import ArmKinematics, load_joint_limits
+from .look_around import check_clearance, escape_translation, nearest_inside, read_sectors, required_clearance_m
 from .map3d import cloud_from_message
 from .map_client import MapRequests
 from .metrics import set_sample_age_source
@@ -207,6 +212,8 @@ DUAL_RATE_TOPICS = tuple(DUAL_RATE_SUBSYSTEM)
 # Dual-rate topic fields with a consumer that needs full rate while its subsystem is idle (README joint-state consumer
 # audit): read at full rate permanently. The audit found none.
 FULL_RATE_AT_REST: tuple[str, ...] = ()
+# A refused turn suggests a translation away from the nearest return that clears the rotation circle by this much.
+ESCAPE_EXTRA_M = 0.05
 
 
 def polygon_msg(points: list[Point2]) -> PolygonMsg:
@@ -2594,23 +2601,110 @@ class RosRobot:
     def move_relative(
         self, dx: float, dy: float, dyaw: float, timeout_s: float, precise: bool = False
     ) -> NavigationResult:
-        """Navigate to a displacement expressed in base_link (converted to a map goal via TF).
+        """Move by a displacement expressed in base_link.
+
+        A backing or sideways move of at most STRAIGHT_MOVE_MAX_M with dyaw 0 (straight_move) is one straight twist on
+        cmd_vel_nav (translate): no Nav2 goal, so no in-place turn to face it first. Anything else is a Nav2 goal
+        (converted to a map goal via TF); one that turns in place (needs_in_place_turn) is refused before any command
+        when the scan shows a return inside the rotation circle, or there is no fresh scan (rotation_sweep_refusal).
 
         Args:
             dx (float): Forward (m).
             dy (float): Left (m).
             dyaw (float): Yaw change (rad).
             timeout_s (float): Timeout (s).
-            precise (bool): As in navigate.
+            precise (bool): As in navigate (for a straight move: the goal tolerance instead of the intermediate one).
 
         Returns:
             NavigationResult: Outcome.
+
+        Raises:
+            RobotError: No pose, a non-finite displacement or a turn into a return.
         """
+        if not all(math.isfinite(v) for v in (dx, dy, dyaw)):
+            raise RobotError("displacement must be finite")
         pose = self.robot_pose()
         if pose is None:
             raise RobotError("robot pose (map->base_link) unavailable; cannot plan a relative move")
+        if straight_move(dx, dy, dyaw):
+            return self.translate(dx, dy, timeout_s, precise)
+        if needs_in_place_turn(dx, dy, dyaw):
+            refusal = self.rotation_sweep_refusal()
+            if refusal is not None:
+                raise RobotError(f"move_relative refused before moving: {refusal}")
         gx, gy, gyaw = compose_relative(pose.x, pose.y, pose.yaw, dx, dy, dyaw)
         return self.navigate(gx, gy, gyaw, pose.frame, timeout_s, precise)
+
+    def rotation_sweep_refusal(self) -> str | None:
+        """look_around's rotation check on the latest scan (footprint circumscribed radius + look_around clearance
+        margin), with a suggested straight translation away from the nearest return.
+
+        Returns:
+            str | None: Refusal reason, None when the rotation circle is free.
+        """
+        required = required_clearance_m(
+            self.cfg.footprint.length_m, self.cfg.footprint.width_m, self.cfg.look_around.clearance_margin_m
+        )
+        obstacles, _ = read_sectors(self)
+        refusal = check_clearance(obstacles, required)
+        if refusal is None or obstacles is None:
+            return refusal
+        worst = nearest_inside(obstacles, required)
+        escape = None if worst is None else escape_translation(worst, required, ESCAPE_EXTRA_M)
+        if escape is None:
+            return f"{refusal}; translate away from it first, then turn"
+        return (
+            f"{refusal}; translate away from it first, e.g. move_relative(dx={escape[0]:.2f}, dy={escape[1]:.2f}) "
+            "(a straight move, no turn), then turn"
+        )
+
+    def translate(self, dx: float, dy: float, timeout_s: float, precise: bool) -> NavigationResult:
+        """Straight translation on cmd_vel_nav (run_translate) under the base motion lock, stop flag and critical
+        events, like drive.
+
+        Args:
+            dx (float): Forward (m).
+            dy (float): Left (m).
+            timeout_s (float): Timeout (s).
+            precise (bool): Use nav.goal_*_tolerance instead of nav.intermediate_*_tolerance.
+
+        Returns:
+            NavigationResult: Outcome.
+
+        Raises:
+            BaseMotionBusyError: Another base motion is running.
+            RobotError: No pose at the start.
+        """
+        nav = self.cfg.nav
+        xy_m = nav.goal_xy_tolerance_m if precise else nav.intermediate_xy_tolerance_m
+        yaw_deg = nav.goal_yaw_tolerance_deg if precise else nav.intermediate_yaw_tolerance_deg
+        if not self.base_motion.acquire(blocking=False):
+            raise BaseMotionBusyError("another base motion is running; call stop first")
+        try:
+            self.base_stop.clear()
+            start = self.robot_pose()
+            if start is None:
+                raise RobotError("robot pose (map->base_link) unavailable; cannot measure a relative move")
+            with self.monitor.base_motion(), self.motion_rate("base"):
+                watch = self.monitor.watch(BASE_INTERRUPTS)
+                return run_translate(
+                    self.publish_twist,
+                    time.monotonic,
+                    time.sleep,
+                    self.base_stop.is_set,
+                    watch.check,
+                    self.robot_pose,
+                    start,
+                    dx,
+                    dy,
+                    min(STRAIGHT_MOVE_SPEED_MPS, self.cfg.limits.max_linear_mps),
+                    self.cfg.limits.drive_rate_hz,
+                    xy_m,
+                    math.radians(yaw_deg),
+                    timeout_s,
+                )
+        finally:
+            self.base_motion.release()
 
     def drive(self, vx: float, vy: float, wz: float, duration_s: float) -> DriveOutcome:
         """Timed velocity on cmd_vel_nav (smoother + collision monitor downstream), then zero.

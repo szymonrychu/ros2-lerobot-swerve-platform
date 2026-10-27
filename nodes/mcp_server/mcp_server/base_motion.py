@@ -1,5 +1,5 @@
-"""Timed base velocity streaming (drive tool) and the stop sequence: clamp, publish at a fixed rate, always finish
-with a zero twist."""
+"""Timed base velocity streaming (drive tool), the straight translation of move_relative and the stop sequence: clamp,
+publish at a fixed rate, always finish with a zero twist."""
 
 import math
 from collections.abc import Callable
@@ -7,9 +7,19 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
-from .geometry import clamp_twist, normalize_angle
+from .geometry import clamp_twist, compose_relative, normalize_angle, relative_pose
 from .metrics import NAV_DURATION, NAV_GOALS
 from .models import BasePose, NavigationResult, RobotError, StopResult
+
+# move_relative near obstacles (README "StopBox on backing and turning"): a translation up to STRAIGHT_MOVE_MAX_M with
+# dyaw 0 that backs (dx < 0) or slides (dy != 0) runs as one straight twist on cmd_vel_nav (velocity_smoother and
+# collision_monitor downstream, so StopBox checks the sub-polygon of the travel direction) at STRAIGHT_MOVE_SPEED_MPS
+# (the drive speed that freed the robot on 2026-10-22), never as a Nav2 goal that would turn the robot to face it first.
+STRAIGHT_MOVE_MAX_M = 0.5
+STRAIGHT_MOVE_SPEED_MPS = 0.1
+# nav2_params.yaml FollowPath.angular_dist_threshold: RotationShimController turns in place first when the path heading
+# is further off than this.
+SHIM_TURN_THRESHOLD_RAD = 0.785
 
 
 class DriveError(ValueError):
@@ -428,3 +438,115 @@ def run_nav(
         sleep(poll_s)
     status, error = port.result()
     return nav_result(status, error, goal, port.pose(), now() - started)
+
+
+def straight_move(dx: float, dy: float, dyaw: float) -> bool:
+    """Whether a relative move runs as one straight twist instead of a Nav2 goal: no heading change, a translation of
+    at most STRAIGHT_MOVE_MAX_M, backing (dx < 0) or with a sideways component (dy != 0).
+
+    Args:
+        dx (float): Forward (m).
+        dy (float): Left (m).
+        dyaw (float): Yaw change (rad).
+
+    Returns:
+        bool: True for a straight backing or sideways move.
+    """
+    return dyaw == 0.0 and 0.0 < math.hypot(dx, dy) <= STRAIGHT_MOVE_MAX_M and (dx < 0.0 or dy != 0.0)
+
+
+def needs_in_place_turn(dx: float, dy: float, dyaw: float) -> bool:
+    """Whether a relative Nav2 goal turns the robot in place: a heading change (RotationShimController
+    rotate_to_goal_heading), or a goal direction more than SHIM_TURN_THRESHOLD_RAD off the heading (the shim turns to
+    face the path first; the straight line to the goal stands in for the path heading).
+
+    Args:
+        dx (float): Forward (m).
+        dy (float): Left (m).
+        dyaw (float): Yaw change (rad).
+
+    Returns:
+        bool: True when the goal starts or ends with an in-place rotation.
+    """
+    return dyaw != 0.0 or (math.hypot(dx, dy) > 0.0 and abs(math.atan2(dy, dx)) > SHIM_TURN_THRESHOLD_RAD)
+
+
+def run_translate(
+    publish: Callable[[float, float, float], None],
+    now: Callable[[], float],
+    sleep: Callable[[float], None],
+    should_abort: Callable[[], bool],
+    interrupt: Callable[[], str | None],
+    pose: Callable[[], BasePose | None],
+    start: BasePose,
+    dx: float,
+    dy: float,
+    speed_mps: float,
+    rate_hz: float,
+    xy_tolerance_m: float,
+    yaw_tolerance_rad: float,
+    timeout_s: float,
+) -> NavigationResult:
+    """Translate straight by (dx, dy) in the start base_link frame with a constant twist (no rotation), measured on the
+    pose: the twist stops once the progress along the direction is within xy_tolerance_m of the distance. A stop
+    request, a critical event, a lost pose or the timeout end it early; a zero twist always follows.
+
+    Args:
+        publish (Callable[[float, float, float], None]): Sends one twist (vx, vy, wz) on cmd_vel_nav.
+        now (Callable[[], float]): Monotonic clock (s).
+        sleep (Callable[[float], None]): Sleeps.
+        should_abort (Callable[[], bool]): True after the stop tool.
+        interrupt (Callable[[], str | None]): Critical event type that ends the move, or None.
+        pose (Callable[[], BasePose | None]): Current fresh map pose, None when unknown.
+        start (BasePose): Pose at the start (map).
+        dx (float): Forward displacement (m).
+        dy (float): Left displacement (m).
+        speed_mps (float): Translation speed (m/s, > 0).
+        rate_hz (float): Publish rate.
+        xy_tolerance_m (float): Position tolerance of the goal (m).
+        yaw_tolerance_rad (float): Heading tolerance of the goal (rad).
+        timeout_s (float): Longest move (s).
+
+    Returns:
+        NavigationResult: succeeded (the final pose within the tolerances of the goal), aborted (lost pose, or ended
+            outside the tolerances), canceled (stop), interrupted (critical event) or timeout.
+    """
+    distance = math.hypot(dx, dy)
+    ux, uy = dx / distance, dy / distance
+    gx, gy, gyaw = compose_relative(start.x, start.y, start.yaw, dx, dy, 0.0)
+    goal = BasePose(frame=start.frame, x=gx, y=gy, yaw=gyaw)
+    period = 1.0 / rate_hz
+    started = now()
+    status, message, event = "succeeded", "", None
+    try:
+        while True:
+            if should_abort():
+                status, message = "canceled", "stop requested; base zeroed"
+                break
+            event = interrupt()
+            if event is not None:
+                status, message = "interrupted", f"stopped early: critical event {event}; base zeroed"
+                break
+            current = pose()
+            if current is None:
+                status, message = "aborted", "robot pose unavailable: cannot measure the translation; base zeroed"
+                break
+            rx, ry, _ = relative_pose(start.x, start.y, start.yaw, current.x, current.y, current.yaw)
+            if rx * ux + ry * uy >= distance - xy_tolerance_m:
+                break
+            if now() - started >= timeout_s:
+                status, message = "timeout", f"translation not finished after {timeout_s:g} s; base zeroed"
+                break
+            publish(ux * speed_mps, uy * speed_mps, 0.0)
+            sleep(period)
+    finally:
+        publish(0.0, 0.0, 0.0)
+    final = pose()
+    if status == "succeeded":
+        if final is None or not within_tolerance(final, goal, xy_tolerance_m, yaw_tolerance_rad):
+            error = "unknown" if final is None else f"{math.hypot(final.x - goal.x, final.y - goal.y):.3f} m"
+            status = "aborted"
+            message = f"straight translation ended outside the goal tolerance ({error} from the goal)"
+        else:
+            message = "straight translation on cmd_vel_nav without turning (velocity smoother + collision monitor)"
+    return nav_result(status, message, goal, final, now() - started, event)
