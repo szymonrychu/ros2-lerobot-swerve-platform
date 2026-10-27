@@ -1,7 +1,7 @@
 ---
 title: RGB-D ground estimation and plane-relative obstacles
 blockers: []
-stage: build
+stage: review
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-20
