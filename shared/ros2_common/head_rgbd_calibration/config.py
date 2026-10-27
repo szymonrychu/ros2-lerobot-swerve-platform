@@ -28,11 +28,16 @@ class BoardConfig(StrictModel):
 
 
 class SelectionConfig(StrictModel):
-    """Still-frame selection. MADs are mean absolute differences between consecutive frames."""
+    """Still-frame selection. MADs are mean absolute differences between consecutive frames.
+
+    still_depth_mad is the mean absolute change between consecutive aligned depth frames as a fraction of the median
+    depth.
+    """
 
     still_window_s: float = Field(default=0.5, gt=0)
     still_rgb_mad: float = Field(default=2.0, ge=0)
     still_tof_mad: float = Field(default=0.01, ge=0)
+    still_depth_mad: float = Field(default=0.01, ge=0)
     max_pair_dt_s: float = Field(default=0.05, gt=0)
     skip_start_s: float = Field(default=2.0, ge=0)
     amplitude_percentiles: tuple[float, float] = (1, 99)
@@ -56,6 +61,9 @@ class LimitsConfig(StrictModel):
     plane_max_bias_mm: float = Field(default=40.0, gt=0)
     plane_max_spread_mm: float = Field(default=50.0, gt=0)
     min_views: int = Field(default=12, ge=1)
+    intrinsics_max_rms_px: float = Field(default=0.5, gt=0)
+    intrinsics_max_focal_diff_pct: float = Field(default=1.0, gt=0)
+    intrinsics_max_principal_diff_px: float = Field(default=5.0, gt=0)
 
 
 class FloorPlaneConfig(StrictModel):

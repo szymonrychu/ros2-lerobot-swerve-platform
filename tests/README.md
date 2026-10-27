@@ -3063,6 +3063,20 @@ Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof 
 
 Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan proves no module imports `scripts`, `rosbags` or `subprocess`; the core `detect` finds the synthetic board of `tests/rgbd_synthetic.py`.
 
+### `test_head_rgbd_intrinsics_check.py`
+
+D435 intrinsics check (`calibrate.py`: `check_intrinsics`, `board_plane_bias_mm`, `intrinsics_report_markdown`) on synthetic ChArUco views of `tests/rgbd_synthetic.py`.
+
+| Test | Covers |
+|---|---|
+| `test_factory_matching_truth_passes` | Factory K equal to the truth passes all intrinsics limits. |
+| `test_focal_offset_fails_the_limit` | A factory focal length 3 % off fails `limits.intrinsics_max_focal_diff_pct`. |
+| `test_principal_and_rms_limits_are_reported` | A shifted principal point and a tight RMS limit are named in `failed_limits`. |
+| `test_too_few_views_raises` | Fewer than `min_views` views raise ValueError naming the count. |
+| `test_board_plane_bias` | A 15 mm plane offset in synthetic aligned depth gives bias 15 +- 1 mm; too few board pixels give None. |
+| `test_limits_defaults` | The new `LimitsConfig` and `SelectionConfig.still_depth_mad` defaults. |
+| `test_report_names_the_failures_and_the_bias` | The report shows PASS/FAIL, failed limit keys and the bias. |
+
 ### `test_head_rgbd_calib_intrinsics.py`
 
 Tests for `shared/ros2_common/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
