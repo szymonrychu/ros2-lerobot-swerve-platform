@@ -22,7 +22,7 @@ Call `get_exploration_status()` once more and visit any reachable frontier still
 
 ## Map resets
 
-A `map_epoch_reset` or `map_reset` robot event: say so to the person, call `get_exploration_status()` again (frontier ids restart) and do not retry old frontier ids.
+A robot event of type map_epoch_reset or map_reset: say so to the person, call `get_exploration_status()` again (frontier ids restart) and do not retry old frontier ids.
 
 ## Stop when
 
