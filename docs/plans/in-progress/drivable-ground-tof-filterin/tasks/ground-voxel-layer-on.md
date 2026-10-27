@@ -1,6 +1,6 @@
 ---
 title: Ground voxel layer on
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 avoids what the ground estimator sees (steps, drops) again, now that its output is stable"
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_ground_voxel_layer.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-voxel-layer-on
 branch: drivable-ground-tof-filterin--ground-voxel-layer-on
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # Ground voxel layer on
@@ -74,3 +75,7 @@ other Nav2 key unchanged; README switch-over section updated.
 - Do not start before every Results row of the ground-robustness runbook is PASS.
 
 - 2026-10-22: also ordered after stopbox-backing-and-turns (and through it collision-source-stall-fix): both may edit nodes/nav2_bringup/config/nav2_params.yaml in run 1.
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/nav2-ground-layer-and-keepou
+
+- 2026-10-27 actuals: no agent records
