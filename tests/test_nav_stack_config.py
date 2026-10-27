@@ -1367,15 +1367,17 @@ def test_costmaps_add_no_margin_beyond_the_footprint(costmap: str) -> None:
 def test_safety_polygons_hug_the_footprint() -> None:
     """The self-filter polygon reaches at most 1.5 cm beyond the footprint (1 cm + mitred corners) and every StopBox
     sub-polygon at most its 2 cm sweep (2.45 cm on a 70 deg diagonal sector), so far obstacles never trigger it;
-    rotation in place checks the bounding box + 2 cm."""
+    rotation in place checks the swept circle (circumscribed radius + 2 cm)."""
     gen = footprint_geometry()
     footprint = Polygon(gen.footprint)
     reach = {"laser": Polygon(gen.laser_polygon)}
     stop = ros_params(nav2(), "collision_monitor")["StopBox"]
     for sub in stop["velocity_polygons"]:
         reach[sub] = Polygon(yaml.safe_load(stop[sub]["points"]))
-    minx, miny, maxx, maxy = footprint.bounds
-    assert reach.pop("rotate").bounds == pytest.approx((minx - 0.02, miny - 0.02, maxx + 0.02, maxy + 0.02), abs=2e-4)
+    rotate = reach.pop("rotate")
+    swept = circumscribed_radius(gen.footprint) + 0.02
+    assert rotate.buffer(2e-4).contains(Point(0.0, 0.0).buffer(swept))
+    assert max(math.hypot(x, y) for x, y in rotate.exterior.coords) <= swept / math.cos(math.pi / 32) + 2e-4
     for name, shape in reach.items():
         far = max(footprint.distance(Point(pt)) for pt in shape.exterior.segmentize(0.001).coords)
         assert far <= (0.0151 if name == "laser" else 0.0246), (name, far)
