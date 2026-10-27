@@ -880,6 +880,12 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
+    # The ToF+CM3 offline CLI tests (moved here from the core test file) check the ToF/RGB stereo_rms of the fit.
+    (
+        "tests/test_head_rgbd_calibrate_cli.py",
+        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
+        "rgbd-calibration",
+    ),
     # pinned-build: part of the libcamera build stamp, changing it would rebuild.
     ("nodes/head_camera_cpp/patches/**", r"overview_camera", "pinned-build"),
 )
