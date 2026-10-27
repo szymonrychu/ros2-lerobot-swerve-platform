@@ -64,7 +64,7 @@ python scripts/topic_scraper_collect.py --source client=http://client.ros2.lan:1
 
 Run one collection each for `/ground/state`, `/ground/obstacle_points` and `/ground/drop_points`, and read
 `ground_temporal_cells` and `ground_plane_vs_base_deg` on the metrics port 19119. Defaults in effect (from
-`nodes/ground_estimator_cpp/config/ground_estimator.yaml`): cell_size_m 0.10, window_frames 8, min_frames 4.
+`nodes/ground_estimator_cpp/config/ground_estimator.yaml`): cell_size_m 0.10, window_frames 12, min_frames 6 (frames at 15 Hz).
 
 - Plane height 0 +-1 cm.
 - plane_vs_base < 0.6 deg.

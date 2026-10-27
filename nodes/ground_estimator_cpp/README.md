@@ -27,13 +27,13 @@ below the tracked floor plane), so they stay correct on a slope or a tilted base
 
 | Direction | Topic | Type | QoS | Frame | Notes |
 |---|---|---|---|---|---|
-| in | `/tof/points_filtered` | `sensor_msgs/PointCloud2` | reliable, depth 1 | ToF frame, transformed to base_link | 10 Hz, drives the plane fit and every output but `/ground/labelled_points` |
+| in | `/head/d435/points_filtered` | `sensor_msgs/PointCloud2` | reliable, depth 1 | D435 depth optical frame, transformed to base_link | D435 cloud, 15 Hz, drives the plane fit and every output but `/ground/labelled_points` |
 | in | `/imu/data` | `sensor_msgs/Imu` | sensor data | IMU frame | prior of the floor normal; older than `imu.timeout_s` it is not used |
 | in | `/head_rgbd/points` | `sensor_msgs/PointCloud2` (XYZRGB) | best_effort, depth 1 | base_link or camera | coloured cloud for the floor colour model; only with `colour.enabled` |
-| in | `/head_rgbd/depth_upsampled/image_raw` | `sensor_msgs/Image` (16UC1, mm) | best_effort, depth 5 | RGB optical frame | guidance pair: upsampled depth at the RGB size (2 Hz); only with `guidance.enabled` (see RGB and amplitude guidance) |
-| in | `/head_rgbd/depth_upsampled/camera_info` | `sensor_msgs/CameraInfo` | best_effort, depth 5 | RGB optical frame | guidance pair: calibration of the upsampled depth; only with `guidance.enabled` |
+| in | `/head_rgbd/depth/image_raw` | `sensor_msgs/Image` (16UC1, mm) | best_effort, depth 5 | RGB optical frame | guidance pair: depth registered to the RGB (2 Hz); only with `guidance.enabled` (see RGB and amplitude guidance) |
+| in | `/head_rgbd/depth/camera_info` | `sensor_msgs/CameraInfo` | best_effort, depth 5 | RGB optical frame | guidance pair: calibration of that depth image; only with `guidance.enabled` |
 | in | `/head_rgbd/rgb/image_raw/compressed` | `sensor_msgs/CompressedImage` (JPEG) | best_effort, depth 5 | RGB optical frame | guidance pair: the RGB image, same header as the depth; only with `guidance.enabled` |
-| in | `/tof/camera_info` | `sensor_msgs/CameraInfo` | sensor data | ToF optical frame | ToF model of the no-return test (the latest is kept); only with `guidance.enabled` |
+| in | `/head/d435/depth/camera_info` | `sensor_msgs/CameraInfo` | sensor data | D435 depth optical frame | depth camera model of the no-return test (the latest is kept); only with `guidance.enabled` |
 | out | `/ground/obstacle_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | the lethal marks above the plane (see Robustness, lethal marks), up to `bands.obstacle_max_m`, within `bands.max_range_m` |
 | out | `/ground/drop_points` | `sensor_msgs/PointCloud2` | reliable, depth 1 | base_link | the lethal marks below the plane, down to `bands.drop_max_m` |
 | out | `/ground/labelled_points` | `sensor_msgs/PointCloud2` | best_effort, depth 1 | base_link | RGB-D cloud with a uint8 `label` field (see Labels); only with `colour.enabled` |
@@ -133,7 +133,7 @@ cells that collapse to one height; it was not measured by this task. Test `CellM
 in-cell gradient on a noise-free 14 deg incline (points stay within 4 mm of the surface; a collapsed cell is 12 mm off).
 
 Warm-up: a cell outputs nothing until it has `min_frames` values, so after start, after the plane is lost (the filter
-is reset then) or when the robot looks at new floor, obstacles and drops appear after `min_frames` / 10 Hz = 0.4 s with
+is reset then) or when the robot looks at new floor, obstacles and drops appear after `min_frames` / 15 Hz = 0.4 s with
 the defaults. Set `temporal.enabled: false` for the raw per-frame behaviour.
 
 ## Configuration
@@ -142,7 +142,7 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 
 | Key | Default | Meaning |
 |---|---|---|
-| `cloud_topic` | `/tof/points_filtered` | PointCloud2 of the head ToF, 10 Hz, used for the plane fit |
+| `cloud_topic` | `/head/d435/points_filtered` | D435 cloud, 15 Hz: PointCloud2 of the head D435, used for the plane fit |
 | `imu_topic` | `/imu/data` | sensor_msgs/Imu, prior of the floor normal |
 | `rgbd_cloud_topic` | `/head_rgbd/points` | coloured PointCloud2, used for the floor colour model |
 | `output_namespace` | `/ground` | prefix of obstacle_points, drop_points, labelled_points, state, warning_areas |
@@ -200,26 +200,26 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `state.rate_hz` | `2.0` | state topic rate, hertz, 0 < v <= 10 |
 | `temporal.enabled` | `true` | take a per-cell temporal median of the plane-relative heights before segmentation |
 | `temporal.cell_size_m` | `0.10` | edge of a fixed-frame cell, metres, 0.02 <= v <= 0.5 |
-| `temporal.window_frames` | `8` | per-frame values a cell keeps, 1..30 |
-| `temporal.min_frames` | `4` | per-frame values a cell needs before its points are output, 1..window_frames |
+| `temporal.window_frames` | `12` | per-frame values a cell keeps, frames at 15 Hz, 1..30 |
+| `temporal.min_frames` | `6` | per-frame values a cell needs before its points are output, frames at 15 Hz, 1..window_frames |
 | `temporal.max_age_s` | `1.5` | per-frame values older than this are dropped, seconds, 0 < v <= 5 |
 | `temporal.max_spread_m` | `0.025` | largest robust spread of a cell's per-frame medians before the cell is unknown, metres, 0 < v <= 0.2 |
 | `hysteresis.enabled` | `true` | keep a cell's class until a different class holds enough of the recent frames |
-| `hysteresis.window_frames` | `5` | recent frames a cell's class is judged over, 1..30 |
-| `hysteresis.enter_frames` | `3` | frames of a class (within the window) needed to enter it, exit_frames..window_frames, a strict majority of the window |
-| `hysteresis.exit_frames` | `1` | frames of the new class needed to leave the current one, 1..enter_frames |
-| `hysteresis.area_enter_frames` | `3` | active frames (voted or stable) before a stable warning cell joins a new area, 1..30 |
-| `hysteresis.area_join_frames` | `8` | active frames before a cell joins an area that is already published, area_enter_frames..30 |
+| `hysteresis.window_frames` | `8` | recent frames a cell's class is judged over, frames at 15 Hz, 1..30 |
+| `hysteresis.enter_frames` | `5` | frames of a class (within the window) needed to enter it, frames at 15 Hz, exit_frames..window_frames, a strict majority of the window |
+| `hysteresis.exit_frames` | `2` | frames of the new class needed to leave the current one, frames at 15 Hz, 1..enter_frames |
+| `hysteresis.area_enter_frames` | `5` | active frames (voted or stable) before a stable warning cell joins a new area, frames at 15 Hz, 1..30 |
+| `hysteresis.area_join_frames` | `12` | active frames before a cell joins an area that is already published, frames at 15 Hz, area_enter_frames..30 |
 | `hysteresis.area_min_cells` | `3` | smallest new warning area published, in cells (smaller components keep their cells' class only), 1..100 |
-| `hysteresis.area_kind_frames` | `10` | frames another kind must have most of an area's cells before the area's kind changes, 1..30 |
-| `hysteresis.area_history_frames` | `20` | frames of voting history behind the area densities, 1..120 |
+| `hysteresis.area_kind_frames` | `15` | frames another kind must have most of an area's cells before the area's kind changes, frames at 15 Hz, 1..30 |
+| `hysteresis.area_history_frames` | `30` | frames of voting history behind the area densities, frames at 15 Hz, 1..120 |
 | `hysteresis.area_enter_density` | `0.75` | share of the history frames a cell voted in to join an area, 0 < v <= 1 |
 | `hysteresis.area_exit_density` | `0.25` | share of the history frames a cell must stay at or above to remain in an area, 0 <= v <= area_enter_density |
 | `guidance.enabled` | `true` | use the guidance frame |
-| `guidance.depth_topic` | `/head_rgbd/depth_upsampled/image_raw` | upsampled depth image, produced by head_rgbd_cpp |
-| `guidance.info_topic` | `/head_rgbd/depth_upsampled/camera_info` | camera info of the upsampled depth, produced by head_rgbd_cpp |
+| `guidance.depth_topic` | `/head_rgbd/depth/image_raw` | depth image registered to the RGB, produced by head_rgbd_cpp |
+| `guidance.info_topic` | `/head_rgbd/depth/camera_info` | camera info of that depth image, produced by head_rgbd_cpp |
 | `guidance.rgb_topic` | `/head_rgbd/rgb/image_raw/compressed` | RGB image, produced by head_rgbd_cpp |
-| `guidance.tof_info_topic` | `/tof/camera_info` | ToF camera info, produced by arducam_tof |
+| `guidance.depth_info_topic` | `/head/d435/depth/camera_info` | camera model of the sensor that produced the cloud (no-return areas), produced by realsense_d435 |
 | `guidance.max_age_s` | `0.6` | oldest guidance frame still used, relative to the cloud stamp, seconds, 0 < v <= 2 |
 | `guidance.sample_step_px` | `2` | pixel stride of the sampling grid, pixels, 1..8 |
 | `guidance.max_range_m` | `2.0` | farthest range sampled, metres, 0 < v <= bands.max_range_m |
@@ -231,11 +231,11 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `guidance.no_return.min_range_m` | `0.3` | nearer cells are not judged, metres, 0 <= v < guidance.max_range_m |
 | `guidance.no_return.cell_min_samples` | `6` | samples a cell needs before it is judged, >= 1 |
 | `guidance.no_return.cell_min_share` | `0.8` | share of a cell's samples without a return for it to count, 0 < v <= 1 |
-| `guidance.no_return.window_frames` | `4` | frames a cell is judged over, 1..20 |
-| `guidance.no_return.enter_frames` | `3` | frames of no return that make a cell a no-return cell, 1..window_frames |
+| `guidance.no_return.window_frames` | `6` | frames a cell is judged over, frames at 15 Hz, 1..20 |
+| `guidance.no_return.enter_frames` | `5` | frames of no return that make a cell a no-return cell, frames at 15 Hz, 1..window_frames |
 | `guidance.no_return.min_cells` | `2` | smallest area published, in cells, >= 1 |
 | `guidance.no_return.clearance_cells` | `1` | cells around an area kept clear of valid returns, 0..3 |
-| `guidance.no_return.tof_margin_px` | `4` | margin inside the ToF image border where nothing is judged, pixels, 0..20 |
+| `guidance.no_return.margin_px` | `4` | margin inside the depth camera image border where nothing is judged, pixels, 0..20 |
 | `metrics_port` | `19119` | Prometheus port, 1..65535, or null to disable |
 
 The spread in `temporal.max_spread_m` is computed over the per-frame cell medians. With fewer than 5 values it is 1.4826 * MAD (1.4826 turns the MAD into a Gaussian sigma). From 5 values on it is the standard deviation after dropping the most deviant value, times 1.3: it is as robust to one outlier frame as the MAD but varies far less between windows (8 frames: a plain MAD slips under the limit by chance). Dropping a value shrinks the estimate to ~0.77 of sigma, so 1.3 is the consistent factor (1.35 was tried and failed the >= 95 % floor-visibility bound). Measured bounds (20+ seeds, 8-frame window): far-band cells of 43-90 mm spread leak in at most 5 % of cell-frames, floor cells of 4-20 mm stay visible in at least 95 % of cell-frames (a single 20 mm cell about 85 %); the class hysteresis and lethal point gates downstream absorb the leaks. A gated cell is unknown (no points, so never lethal, a step, a drop or part of a cluster), keeps its history, and is known again as soon as its spread is back under the limit. No range cap is used.
@@ -374,11 +374,11 @@ ramp 0.000.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `hysteresis.area_enter_frames` | `3` | active frames before a stable warning cell joins a new area, 1..30 |
-| `hysteresis.area_join_frames` | `8` | active frames before a cell joins a published area, area_enter_frames..30 |
+| `hysteresis.area_enter_frames` | `5` | active frames before a stable warning cell joins a new area, 1..30 |
+| `hysteresis.area_join_frames` | `12` | active frames before a cell joins a published area, area_enter_frames..30 |
 | `hysteresis.area_min_cells` | `3` | smallest new area published, in cells, 1..100 |
-| `hysteresis.area_kind_frames` | `10` | frames another kind must hold most of an area's cells to change its kind, 1..30 |
-| `hysteresis.area_history_frames` | `20` | frames of voting history behind the densities, 1..120 |
+| `hysteresis.area_kind_frames` | `15` | frames another kind must hold most of an area's cells to change its kind, 1..30 |
+| `hysteresis.area_history_frames` | `30` | frames of voting history behind the densities, 1..120 |
 | `hysteresis.area_enter_density` | `0.75` | share of the history a cell voted in to join an area, 0 < v <= 1 |
 | `hysteresis.area_exit_density` | `0.25` | share of the history a cell keeps to stay in an area, 0 <= v <= area_enter_density |
 
@@ -387,21 +387,22 @@ ramp 0.000.
 Design D1, D3, D4, D5, D12 (part guided-node). Depth stays the only height source: RGB decides where a lethal boundary
 sits and which unseen floor is not floor, never how high anything is.
 
-**Inputs.** While `guidance.enabled`, a `message_filters` ExactTime synchronizer (queue 5) pairs the upsampled depth,
+**Inputs.** While `guidance.enabled`, a `message_filters` ExactTime synchronizer (queue 5) pairs the registered depth,
 its camera info and the JPEG of head_rgbd_cpp (`guidance.depth_topic`, `guidance.info_topic`, `guidance.rgb_topic`,
-one header per pair, best effort, 2 Hz), and the latest `guidance.tof_info_topic` camera info gives the ToF model. On
+one header per pair, best effort, 2 Hz), and the latest `guidance.depth_info_topic` camera info gives the depth camera
+model (the sensor that produced the cloud). On
 a pair (`GroundNode::on_guidance`):
 
 1. `decode_guidance` (16UC1 depth, plumb_bob camera info of the same size, a JPEG of the same size);
 2. TF at the pair stamp, waiting up to `tf_timeout_s`: base_link <- the pair's optical frame, `fixed_frame` <-
-   base_link, and the ToF camera info's frame <- base_link;
+   base_link, and the depth camera info's frame <- base_link;
 3. the tracked plane at the pair stamp (as for the RGB-D cloud: no plane, no use);
 4. `sample_guidance` on the `guidance.sample_step_px` grid up to `guidance.max_range_m`;
 5. the depth samples replace the kept guidance points (`GuidancePoints`, fixed frame), and the no-return samples are
    voted into the `NoReturnTracker` with the stable lethal and ToF warning cells as blocked cells.
 
 A failure at any step drops the whole pair (nothing from it is used): `guidance_bad_input` (undecodable pair, or no
-usable ToF camera info yet), `guidance_tf` or `guidance_no_plane`, counted in `ground_clouds_dropped_total{reason}`
+usable depth camera info yet), `guidance_tf` or `guidance_no_plane`, counted in `ground_clouds_dropped_total{reason}`
 and `ground_guidance_frames_total{result}`. A guidance pair is used only while it is no older than
 `guidance.max_age_s` at the ToF cloud stamp (D12); an older one contributes nothing to that cloud.
 
@@ -416,8 +417,8 @@ first appear in and every other output are unchanged; the state and gauge point 
 adds nothing (`NodeTest.GuidanceWithoutLethalRegionAddsNoLethalPoint`), and stale or TF-less guidance adds nothing
 (`StaleGuidanceAddsNothing`, `PairWithoutTfIsDroppedAndCounted`).
 
-**no_return areas.** A sampled RGB pixel without upsampled depth whose ray meets the tracked floor within
-[`guidance.no_return.min_range_m`, `guidance.max_range_m`] and lands inside the ToF image (`tof_margin_px` margin) is
+**no_return areas.** A sampled RGB pixel without depth whose ray meets the tracked floor within
+[`guidance.no_return.min_range_m`, `guidance.max_range_m`] and lands inside the depth camera image (`margin_px` margin) is
 a no-return sample. A fixed-frame temporal cell is a no-return cell of the pair when it has `cell_min_samples`
 samples and a share of at least `cell_min_share` of them do not match the floor colour model (trained by the RGB-D
 cloud path; a model that is not ready claims nothing), and no blocked cell lies within `clearance_cells`. An N-of-M
@@ -433,13 +434,13 @@ metrics and publishes exactly what it published before (`NodeTest.GuidanceDisabl
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `guidance.enabled` | `true` | subscribe to the guidance pair and the ToF camera info |
-| `guidance.depth_topic`, `guidance.info_topic`, `guidance.rgb_topic` | `/head_rgbd/depth_upsampled/image_raw`, `/head_rgbd/depth_upsampled/camera_info`, `/head_rgbd/rgb/image_raw/compressed` | the pair |
-| `guidance.tof_info_topic` | `/tof/camera_info` | the ToF model of the no-return test |
+| `guidance.enabled` | `true` | subscribe to the guidance pair and the depth camera info |
+| `guidance.depth_topic`, `guidance.info_topic`, `guidance.rgb_topic` | `/head_rgbd/depth/image_raw`, `/head_rgbd/depth/camera_info`, `/head_rgbd/rgb/image_raw/compressed` | the pair |
+| `guidance.depth_info_topic` | `/head/d435/depth/camera_info` | the depth camera model of the no-return test |
 | `guidance.max_age_s` | `0.6` | oldest pair used, relative to the ToF cloud stamp, seconds |
 | `guidance.sample_step_px`, `guidance.max_range_m` | `2`, `2.0` | sampling stride (pixels) and farthest range (m) |
 | `guidance.edge.*` | see Configuration | `enabled`, `max_shift_m`, `min_height_m`, `voxel_m` of the edge points |
-| `guidance.no_return.*` | see Configuration | `enabled`, `min_range_m`, `cell_min_samples`, `cell_min_share`, `window_frames`, `enter_frames`, `min_cells`, `clearance_cells`, `tof_margin_px` |
+| `guidance.no_return.*` | see Configuration | `enabled`, `min_range_m`, `cell_min_samples`, `cell_min_share`, `window_frames`, `enter_frames`, `min_cells`, `clearance_cells`, `margin_px` |
 
 Metrics: `ground_guidance_frames_total{result}` (`ok` or the drop reason), `ground_guidance_seconds` (pair processing
 time), `ground_edge_points` (edge points of the last cloud), `ground_no_return_areas` (no_return areas of the last
@@ -650,7 +651,7 @@ version 2 fixture:
 - each pair goes out at its restamped time, after the clouds stamped before it: the upsampled depth (`16UC1`) on
   `guidance.depth_topic`, its camera_info (the RGB model) on `guidance.info_topic` and the JPEG `CompressedImage` on
   `guidance.rgb_topic`, all with one header (RGB frame, restamped pair stamp);
-- the ToF camera_info (ToF model) goes out once per cloud on `guidance.tof_info_topic`, with the cloud's stamp;
+- the fixture's depth camera model (`ReplayScene::tof_model`) goes out once per cloud on `guidance.depth_info_topic`, with the cloud's stamp;
 - TF holds `base_link <- RGB frame` and `odom <- base_link` at every pair stamp;
 - at most once per second an XYZRGB cloud goes out on `rgbd_cloud_topic` (it feeds the floor colour model as
   `head_rgbd_cpp` does): the depth halved by the minimum valid depth of each 2x2 block (0 when none), the JPEG decoded

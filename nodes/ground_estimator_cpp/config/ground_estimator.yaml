@@ -30,7 +30,7 @@ bands:  # bands settings
   obstacle_max_m: 0.6  # obstacle band top above the plane, metres, > traversability max step
   drop_max_m: 1.0  # drop band depth below the plane, metres, > traversability max step
   max_range_m: 2.0  # farthest point published in the bands, metres, > 0
-  min_range_m: 0.42  # nearest point (from base_link) in the bands: the robot's own parked gripper and its mixed pixels lie closer, metres, 0 <= v < max_range_m
+  min_range_m: 0.42  # nearest point from base_link in the bands (the parked gripper lies closer), metres, 0 <= v < max_range_m
   floor_band_m: 0.04  # temporary (user 2026-10-23): heights within this of the floor plane are floor; revert when live ground acceptance passes, metres
 
 traversability:  # traversability settings
@@ -89,7 +89,7 @@ temporal:  # temporal settings
 hysteresis:  # per-cell class hysteresis settings
   enabled: true  # keep a cell's class until a different class holds enough of the recent frames
   window_frames: 8  # recent frames a cell's class is judged over, frames at 15 Hz, 1..30
-  enter_frames: 5  # frames of a class (within the window) needed to enter it, frames at 15 Hz, exit_frames..window_frames, a strict majority of the window
+  enter_frames: 5  # frames of a class (within the window) needed to enter it, frames at 15 Hz, exit_frames..window_frames, a strict majority
   exit_frames: 2  # frames of the new class needed to leave the current one, frames at 15 Hz, 1..enter_frames
   area_enter_frames: 5  # active frames (voted or stable) before a stable warning cell joins a new area, frames at 15 Hz, 1..30
   area_join_frames: 12  # active frames before a cell joins an area that is already published, frames at 15 Hz, area_enter_frames..30

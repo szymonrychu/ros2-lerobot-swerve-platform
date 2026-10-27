@@ -19,7 +19,7 @@ REQUIRED_SECTIONS = (
     "## Plane tracking",
     "## No placeholder data",
 )
-INPUT_TOPICS = ("/tof/points_filtered", "/imu/data", "/head_rgbd/points")
+INPUT_TOPICS = ("/head/d435/points_filtered", "/imu/data", "/head_rgbd/points")
 OUTPUT_TOPICS = (
     "/ground/obstacle_points",
     "/ground/drop_points",

@@ -5,6 +5,7 @@ background work). Its config must agree with the nodes it listens to and the lim
 """
 
 import math
+import re
 from pathlib import Path
 
 import yaml
@@ -14,8 +15,6 @@ CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 NODE_DIR = REPO_ROOT / "nodes" / "ground_estimator_cpp"
 DEFAULTS = NODE_DIR / "config" / "ground_estimator.yaml"
-ARDUCAM_BRIDGE = REPO_ROOT / "nodes" / "bridges" / "arducam_tof" / "arducam_tof" / "bridge.py"
-LASER_FILTER_DEFAULTS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
 NAME = "ground_estimator_cpp"
 WORKSPACE = "/opt/ros2-ws"
 METRICS_PORT = 19119
@@ -70,6 +69,16 @@ def entry_config(name: str) -> dict:
     """
     entry = next(n for n in client_vars()["ros2_nodes"] if n["name"] == name)
     return yaml.safe_load(entry["config"])
+
+
+def d435_cloud_remaps() -> dict[str, str]:
+    """Return the `-r from:=to` remaps of the d435_obstacle_cloud launch command.
+
+    Returns:
+        dict[str, str]: Remapped name to topic.
+    """
+    command = client_vars()["ros2_node_type_defaults"]["d435_obstacle_cloud"]["node_launch_command"]
+    return dict(re.findall(r"-r (\S+):=(\S+)", command))
 
 
 def test_node_type_keys() -> None:
@@ -164,16 +173,18 @@ def test_client_playbook_step_order() -> None:
 
 def test_topics_match_their_producers() -> None:
     ground = entry_config(NAME)
-    laser = yaml.safe_load(LASER_FILTER_DEFAULTS.read_text())
-    assert ground["cloud_topic"] == laser["cloud_filtered_topic"]
+    # The D435 obstacle cloud, after the laser_filter self filter (the `_filtered` suffix of that filter).
+    d435 = d435_cloud_remaps()
+    assert ground["cloud_topic"] == d435["cloud"] + "_filtered"
     assert ground["imu_topic"] == entry_config("bno055_imu")["topic"]
     assert ground["rgbd_cloud_topic"] == entry_config("head_rgbd_cpp")["output_namespace"] + "/points"
     head_ns = entry_config("head_rgbd_cpp")["output_namespace"]
     guidance = ground["guidance"]
-    assert guidance["depth_topic"] == head_ns + "/depth_upsampled/image_raw"
-    assert guidance["info_topic"] == head_ns + "/depth_upsampled/camera_info"
+    assert guidance["depth_topic"] == head_ns + "/depth/image_raw"
+    assert guidance["info_topic"] == head_ns + "/depth/camera_info"
     assert guidance["rgb_topic"] == head_ns + "/rgb/image_raw/compressed"
-    assert f'CAMERA_INFO_TOPIC = "{guidance["tof_info_topic"]}"' in ARDUCAM_BRIDGE.read_text()
+    # The camera model of the depth stream the cloud is made from.
+    assert guidance["depth_info_topic"] == d435["depth/camera_info"]
 
 
 def test_limits_match_tilt_guard_and_swerve() -> None:
@@ -196,14 +207,14 @@ def test_robustness_keys_present() -> None:
     assert config["temporal"]["max_spread_m"] == 0.025
     assert config["hysteresis"] == {
         "enabled": True,
-        "window_frames": 5,
-        "enter_frames": 3,
-        "exit_frames": 1,
-        "area_enter_frames": 3,
-        "area_join_frames": 8,
+        "window_frames": 8,
+        "enter_frames": 5,
+        "exit_frames": 2,
+        "area_enter_frames": 5,
+        "area_join_frames": 12,
         "area_min_cells": 3,
-        "area_kind_frames": 10,
-        "area_history_frames": 20,
+        "area_kind_frames": 15,
+        "area_history_frames": 30,
         "area_enter_density": 0.75,
         "area_exit_density": 0.25,
     }

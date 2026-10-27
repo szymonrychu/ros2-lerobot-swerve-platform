@@ -695,7 +695,7 @@ ros2_node_type_defaults:
       - libeigen3-dev
       - libyaml-cpp-dev
       - prometheus-cpp-dev
-  # Ground estimator (nodes/ground_estimator_cpp/README.md): fits the floor plane from the filtered head ToF cloud with
+  # Ground estimator (nodes/ground_estimator_cpp/README.md): fits the floor plane from the filtered head D435 cloud with
   # the IMU prior, publishes /ground/* (obstacle and drop points, state, warning areas) for the Nav2 local costmap, the
   # mcp_server map summary and floor_guard. Normal tier: it feeds the local costmap, so it is protected above the
   # background work. The memory figures are initial estimates; sizing rule: MemoryLow is the measured p50 working set
@@ -2148,7 +2148,7 @@ ros2_nodes:
     node_type: laser_filter
     present: true
     enabled: true
-  # Ground estimator: /tof/points_filtered + /imu/data (+ /head_rgbd/points colour) -> /ground/* for the Nav2 local
+  # Ground estimator: /head/d435/points_filtered + /imu/data (+ /head_rgbd/points colour) -> /ground/* for the Nav2 local
   # costmap and the consumers. Defaults of nodes/ground_estimator_cpp/config/ground_estimator.yaml; the imu level
   # reference and slope limits mirror tilt_guard, wheel_radius_m mirrors swerve_controller (tests pin them equal).
   - name: ground_estimator_cpp
@@ -2156,7 +2156,7 @@ ros2_nodes:
     present: true
     enabled: false  # disabled (user 2026-10-24): RGB-D pipeline off until the RealSense D435 replaces the head ToF
     config: |
-      cloud_topic: /tof/points_filtered  # PointCloud2 of the head ToF, 10 Hz, used for the plane fit
+      cloud_topic: /head/d435/points_filtered  # D435 cloud, 15 Hz: PointCloud2 of the head D435, used for the plane fit
       imu_topic: /imu/data  # sensor_msgs/Imu, prior of the floor normal
       rgbd_cloud_topic: /head_rgbd/points  # coloured PointCloud2, used for the floor colour model
       output_namespace: /ground  # prefix of obstacle_points, drop_points, labelled_points, state, warning_areas
@@ -2236,30 +2236,30 @@ ros2_nodes:
       temporal:  # temporal settings
         enabled: true  # take a per-cell temporal median of the plane-relative heights before segmentation
         cell_size_m: 0.10  # edge of a fixed-frame cell, metres, 0.02 <= v <= 0.5
-        window_frames: 8  # per-frame values a cell keeps, 1..30
-        min_frames: 4  # per-frame values a cell needs before its points are output, 1..window_frames
+        window_frames: 12  # per-frame values a cell keeps, frames at 15 Hz, 1..30
+        min_frames: 6  # per-frame values a cell needs before its points are output, frames at 15 Hz, 1..window_frames
         max_age_s: 1.5  # per-frame values older than this are dropped, seconds, 0 < v <= 5
         max_spread_m: 0.025  # largest robust spread of a cell's per-frame medians before the cell is unknown, metres, 0 < v <= 0.2
 
       hysteresis:  # per-cell class hysteresis settings
         enabled: true  # keep a cell's class until a different class holds enough of the recent frames
-        window_frames: 5  # recent frames a cell's class is judged over, 1..30
-        enter_frames: 3  # frames of a class (within the window) needed to enter it, exit_frames..window_frames, a strict majority of the window
-        exit_frames: 1  # frames of the new class needed to leave the current one, 1..enter_frames
-        area_enter_frames: 3  # active frames (voted or stable) before a stable warning cell joins a new area, 1..30
-        area_join_frames: 8  # active frames before a cell joins an area that is already published, area_enter_frames..30
+        window_frames: 8  # recent frames a cell's class is judged over, frames at 15 Hz, 1..30
+        enter_frames: 5  # frames of a class (within the window) needed to enter it, frames at 15 Hz, exit_frames..window_frames, a strict majority
+        exit_frames: 2  # frames of the new class needed to leave the current one, frames at 15 Hz, 1..enter_frames
+        area_enter_frames: 5  # active frames (voted or stable) before a stable warning cell joins a new area, frames at 15 Hz, 1..30
+        area_join_frames: 12  # active frames before a cell joins an area that is already published, frames at 15 Hz, area_enter_frames..30
         area_min_cells: 3  # smallest new warning area published, in cells (smaller components keep their cells' class only), 1..100
-        area_kind_frames: 10  # frames another kind must have most of an area's cells before the area's kind changes, 1..30
-        area_history_frames: 20  # frames of voting history behind the area densities, 1..120
+        area_kind_frames: 15  # frames another kind must have most of an area's cells before the area's kind changes, frames at 15 Hz, 1..30
+        area_history_frames: 30  # frames of voting history behind the area densities, frames at 15 Hz, 1..120
         area_enter_density: 0.75  # share of the history frames a cell voted in to join an area, 0 < v <= 1
         area_exit_density: 0.25  # share of the history frames a cell must stay at or above to remain in an area, 0 <= v <= area_enter_density
 
-      guidance:  # ToF guidance frame: upsampled depth plus RGB beside the ToF cloud (design D3, D5, D12)
+      guidance:  # guidance frame: the head_rgbd depth plus RGB beside the D435 cloud (design D3, D5, D12)
         enabled: true  # use the guidance frame
-        depth_topic: /head_rgbd/depth_upsampled/image_raw  # upsampled depth image, produced by head_rgbd_cpp
-        info_topic: /head_rgbd/depth_upsampled/camera_info  # camera info of the upsampled depth, produced by head_rgbd_cpp
+        depth_topic: /head_rgbd/depth/image_raw  # depth image registered to the RGB, produced by head_rgbd_cpp
+        info_topic: /head_rgbd/depth/camera_info  # camera info of that depth image, produced by head_rgbd_cpp
         rgb_topic: /head_rgbd/rgb/image_raw/compressed  # RGB image, produced by head_rgbd_cpp
-        tof_info_topic: /tof/camera_info  # ToF camera info, produced by arducam_tof
+        depth_info_topic: /head/d435/depth/camera_info  # camera model of the sensor that produced the cloud (no-return areas), produced by realsense_d435
         max_age_s: 0.6  # oldest guidance frame still used, relative to the cloud stamp, seconds, 0 < v <= 2
         sample_step_px: 2  # pixel stride of the sampling grid, pixels, 1..8
         max_range_m: 2.0  # farthest range sampled, metres, 0 < v <= bands.max_range_m
@@ -2268,16 +2268,16 @@ ros2_nodes:
           max_shift_m: 0.06  # largest xy distance of an edge point from a stable lethal point of the frame, metres, 0 < v <= 0.15
           min_height_m: 0.06  # smallest absolute height of an edge point, metres, 0 < v <= the max step (0.06)
           voxel_m: 0.02  # voxel of the edge point decimation, metres, 0.005 <= v <= 0.05
-        no_return:  # areas the ToF should see but returns nothing from
+        no_return:  # areas the depth camera should see but returns nothing from
           enabled: true  # detect no-return areas
           min_range_m: 0.3  # nearer cells are not judged, metres, 0 <= v < guidance.max_range_m
           cell_min_samples: 6  # samples a cell needs before it is judged, >= 1
-          cell_min_share: 0.8  # share of a cell's samples without a return for it to count, 0 < v <= 1
-          window_frames: 4  # frames a cell is judged over, 1..20
-          enter_frames: 3  # frames of no return that make a cell a no-return cell, 1..window_frames
+          cell_min_share: 0.8  # share of a cell's no-return samples whose colour does not match the floor, for it to count, 0 < v <= 1
+          window_frames: 6  # frames a cell is judged over, frames at 15 Hz, 1..20
+          enter_frames: 5  # frames of no return that make a cell a no-return cell, frames at 15 Hz, 1..window_frames
           min_cells: 2  # smallest area published, in cells, >= 1
-          clearance_cells: 1  # cells around an area kept clear of valid returns, 0..3
-          tof_margin_px: 4  # margin inside the ToF image border where nothing is judged, pixels, 0..20
+          clearance_cells: 1  # distance, in cells, from blocked lethal or warning depth cells, 0..3
+          margin_px: 4  # margin inside the depth camera image border where nothing is judged, pixels, 0..20
 
       metrics_port: 19119 # Prometheus /metrics on 127.0.0.1
   - name: slam_toolbox
