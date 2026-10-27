@@ -6,7 +6,7 @@ value: "Each touched node's README and the topic flow describe the D435 pipeline
 files: [nodes/tof_obstacle_cloud/README.md, nodes/d435_obstacle_cloud/README.md, nodes/head_state_publisher/README.md, nodes/head_rgbd_calibration/README.md, nodes/laser_filter/README.md, shared/README.md, docs/diagrams/topic_flow.puml]
 verify: "! grep -ni 'arducam\\|/tof/\\|camera_0' nodes/d435_obstacle_cloud/README.md nodes/head_state_publisher/README.md nodes/head_rgbd_calibration/README.md nodes/laser_filter/README.md docs/diagrams/topic_flow.puml && uv run poe lint"
 depends_on: [retire-tof-and-head-rgb-urdf, calibrate-head-and-arm-ui-se, retire-tof-stereo-calibratio]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 2
@@ -55,8 +55,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Run the AC greps; expect them to fail.
+- `git mv` the README and update every listed doc.
+- Rerun the greps; commit `docs: node READMEs and topic flow on the D435` (doc edit).
 
 ## Notes
 

@@ -58,8 +58,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the two tests; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_tools.py -q`; expect failures.
+- Remove the parameter, client, protocol method, config topics and the two test files; rerun the full mcp_server suite; expect pass.
+- Run the verify command; commit `refactor(mcp_server): retire head camera zoom with head_camera_cpp`.
 
 ## Notes
 

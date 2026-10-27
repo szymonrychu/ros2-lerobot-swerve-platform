@@ -67,8 +67,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Extend `tests/head_arm_synthetic.py` with `plate_scene` and write `tests/test_arm_offsets_fit.py`; run `uv run pytest tests/test_arm_offsets_fit.py -q`; expect failures (module missing).
+- Implement `arm_offsets_fit.py` and the config fields; rerun; expect pass.
+- Run the verify command; commit `feat(calibration): arm offsets and tool point from the head D435`.
 
 ## Notes
 

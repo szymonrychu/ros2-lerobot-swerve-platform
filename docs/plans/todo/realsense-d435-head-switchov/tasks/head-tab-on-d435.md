@@ -58,8 +58,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update `src/tabs/HeadTab.test.tsx` (new cases, drop amplitude/zoom); run `cd nodes/web_ui/frontend && npx vitest run src/tabs/HeadTab.test.tsx`; expect failures.
+- Change types, HeadTab and RgbdView; `git rm` the zoom client and test; rerun; expect pass.
+- Run the verify command; commit `feat(web_ui): Head tab on the D435`.
 
 ## Notes
 

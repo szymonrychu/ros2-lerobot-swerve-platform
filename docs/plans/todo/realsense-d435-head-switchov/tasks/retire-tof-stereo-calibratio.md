@@ -4,7 +4,7 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: No ToF-to-RGB stereo code is left to maintain.
 files: [shared/ros2_common/head_rgbd_calibration/extrinsics.py, shared/ros2_common/head_rgbd_calibration/urdf_handoff.py, shared/ros2_common/head_rgbd_calibration/chain.py, shared/ros2_common/head_rgbd_calibration/hints.py, shared/ros2_common/head_rgbd_calibration/config.py, tests/test_head_rgbd_urdf_handoff.py, tests/test_head_rgbd_calib_retired.py, tests/README.md]
-verify: "uv run pytest tests/test_head_rgbd_calib_retired.py tests/test_head_rgbd_calib_hints.py tests/test_head_chain_override.py tests/test_head_floor_fit.py tests/test_head_arm_fit.py -q && uv run poe lint && cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q"
+verify: "uv run pytest tests/test_head_rgbd_calib_retired.py tests/test_head_rgbd_calib_hints.py tests/test_head_chain_override.py tests/test_head_floor_fit.py tests/test_head_arm_fit.py tests/test_arm_offsets_fit.py -q && uv run poe lint && cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q"
 depends_on: [retire-tof-fits-in-calibrati, arm-offsets-compute-apply]
 model: opus
 review: ""

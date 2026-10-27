@@ -58,8 +58,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_compute_arm.py` and the apply/jobs tests; run them; expect failures.
+- Implement jobs, compute and apply for kind arm; rerun the node suite; expect pass.
+- Run the verify command; commit `feat(head_rgbd_calibration): arm offsets compute and apply`.
 
 ## Notes
 

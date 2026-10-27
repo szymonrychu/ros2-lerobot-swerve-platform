@@ -4,7 +4,7 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Nav2's use of the D435 is proven on the real floor before anyone relies on it."
 files: [docs/runbooks/d435-switchover.md, tests/test_d435_runbook.py, tests/README.md]
-verify: "uv run pytest tests/test_d435_runbook.py tests/test_web_ui_agent_tab.py -q && uv run poe lint"
+verify: "uv run pytest tests/test_d435_runbook.py -q && uv run poe lint"
 depends_on: [nav2-ground-layer-and-keepou, ground-live-acceptance-on-d4]
 model: sonnet
 review: ""
@@ -52,8 +52,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add `test_nav2_section_is_recorded`; run `uv run pytest tests/test_d435_runbook.py -q`; expect a failure.
+- Run the live steps with the user present; record observations and evidence paths.
+- Rerun; commit `docs(runbooks): Nav2 on the D435, live check`.
 
 ## Notes
 

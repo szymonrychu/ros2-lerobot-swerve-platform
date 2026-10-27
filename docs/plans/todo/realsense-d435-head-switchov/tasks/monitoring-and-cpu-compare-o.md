@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the four tests; run them; expect failures.
+- Edit the yaml, the dashboard, the skill table; rerun; expect pass.
+- Run the verify command; commit `chore(monitoring): D435 units in CPU compare, dashboards and the deploy skill`.
 
 ## Notes
 

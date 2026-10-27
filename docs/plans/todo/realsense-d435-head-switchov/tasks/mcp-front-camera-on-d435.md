@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The agent's front camera is the D435 colour, posed through the pan/tilt chain."
 files: [ansible/group_vars/client.yml, nodes/mcp_server/mcp_server/config.py, tests/test_mcp_camera_config.py, tests/test_mcp_server_config.py, nodes/mcp_server/tests/test_camera_scene_head.py, nodes/mcp_server/README.md, tests/README.md]
-verify: "uv run pytest tests/test_mcp_camera_config.py tests/test_mcp_server_config.py tests/test_head_camera_live_refs.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && uv run poe test-ansible && cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_scene_head.py -q && uv run poe lint"
+verify: "uv run pytest tests/test_mcp_camera_config.py tests/test_mcp_server_config.py tests/test_head_camera_live_refs.py -q && uv run poe lint && uv run poe test-ansible && cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_scene_head.py -q && uv run poe lint"
 depends_on: [mcp-intrinsics-from-camera-i, d435-frames-on-the-head-urdf, d435-live-bring-up-and-topic]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -56,8 +56,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new tests and update the pins; run `uv run pytest tests/test_mcp_camera_config.py tests/test_mcp_server_config.py -q` and the mcp_server head scene test; expect failures.
+- Edit client.yml and the config defaults; rerun; expect pass.
+- Run the verify command; commit `feat(mcp_server): front camera is the D435 colour`.
 
 ## Notes
 

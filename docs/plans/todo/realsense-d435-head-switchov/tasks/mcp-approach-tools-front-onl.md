@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new tests and convert gripper cases; run the four test files; expect failures.
+- Change approach, frontier, config and tracker; rerun; expect pass.
+- Run the verify command; commit `refactor(mcp_server): approach and frontier tools on the front D435 camera`.
 
 ## Notes
 

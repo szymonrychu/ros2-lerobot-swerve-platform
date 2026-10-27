@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The ToF+CM3 bag calibration CLI no longer has to be kept working."
 files: [scripts/head_rgbd_calibrate.py, scripts/head_rgbd_calibrate.yaml, scripts/head_rgbd_calibration/, tests/test_head_rgbd_calibrate_cli.py, tests/test_head_rgbd_validate.py, tests/test_head_rgbd_calib_frames.py, tests/test_head_rgbd_calib_retired.py, tests/README.md]
-verify: "uv run pytest tests/test_head_rgbd_calib_retired.py tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_calib_intrinsics.py tests/test_web_ui_agent_tab.py -q && uv run poe lint"
+verify: "uv run pytest tests/test_head_rgbd_calib_retired.py tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_calib_intrinsics.py -q && uv run poe lint"
 depends_on: [calibration-tests-off-the-cl]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 2
@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add `test_offline_cli_is_gone`; run `uv run pytest tests/test_head_rgbd_calib_retired.py -q`; expect a failure.
+- `git rm` the CLI, its package and its tests; trim test_head_rgbd_calib_frames.py; rerun; expect pass.
+- Run the verify command; commit `refactor(scripts): remove the ToF+CM3 offline calibration CLI` (deletion pinned by a retirement test).
 
 ## Notes
 

@@ -6,7 +6,7 @@ value: "MCP camera tools use the D435 factory intrinsics, never a hand-copied ca
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tool_context.py, nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/tests/fakes.py, nodes/mcp_server/tests/test_camera_scene.py, nodes/mcp_server/tests/test_camera_config.py]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_scene.py tests/test_camera_config.py tests/test_camera_tools.py -q && uv run poe lint"
 depends_on: [shared-d435-camera-geometry]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the four tests; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_scene.py tests/test_camera_config.py -q`; expect failures.
+- Add the config field, the protocol method, the ros_iface subscription, the fake, and the load_intrinsics branch; rerun; expect pass.
+- Run the verify command; commit `feat(mcp_server): camera intrinsics from camera_info`.
 
 ## Notes
 

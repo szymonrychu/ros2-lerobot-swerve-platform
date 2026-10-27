@@ -55,8 +55,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the two runbook/README tests; run them; expect failures.
+- Run every suite in step 1; fix nothing outside this task (a failure is a `discovered` entry with the output); run the deploys.
+- Record the summary lines; rerun; commit `docs(runbooks): D435 switchover deployed`.
 
 ## Notes
 

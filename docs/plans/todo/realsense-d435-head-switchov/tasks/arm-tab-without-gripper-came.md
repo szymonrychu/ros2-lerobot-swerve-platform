@@ -59,8 +59,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the two tests; run `cd nodes/web_ui/frontend && npx vitest run src/tabs/ArmTab.test.tsx src/arm/ArmView.test.tsx`; expect failures.
+- Remove the stream, the mode, the types and the subscription; `git rm` armCamera.ts and its test; rerun; expect pass.
+- Run the verify command; commit `refactor(web_ui): Arm tab without the gripper camera`.
 
 ## Notes
 

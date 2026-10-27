@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The robot gets a 3D obstacle cloud from the D435 depth, the input of the self-filter, Nav2 and ground estimation."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml, nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml, tests/test_tof_obstacle_cloud_config.py, tests/test_d435_obstacle_cloud_config.py, tests/test_ansible_deploy_speed.py, tests/README.md]
-verify: "uv run pytest tests/test_d435_obstacle_cloud_config.py tests/test_ansible_deploy_speed.py tests/test_unit_cgroups.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && uv run poe test-ansible"
+verify: "uv run pytest tests/test_d435_obstacle_cloud_config.py tests/test_ansible_deploy_speed.py tests/test_unit_cgroups.py -q && uv run poe lint && uv run poe test-ansible"
 depends_on: [d435-node-type-and-profile, d435-frames-on-the-head-urdf]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -60,8 +60,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- `git mv` the params file and the test; rewrite the test for the D435; run `uv run pytest tests/test_d435_obstacle_cloud_config.py -q`; expect failures.
+- Add the node type, instance, playbook step and new params; rerun; expect pass.
+- Run the verify command; commit `feat(ansible): d435_obstacle_cloud from the D435 depth stream`.
 
 ## Notes
 

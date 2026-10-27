@@ -55,8 +55,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the two new tests and update the stale assertions; run `cd nodes/claude_agent && uv run --frozen pytest tests/test_config.py tests/test_prompt.py -q`; expect failures.
+- Rewrite the camera note and prompt sections; rerun with the root guards; expect pass.
+- Run the verify command; commit `feat(claude_agent): prompt and camera note for the head D435`.
 
 ## Notes
 

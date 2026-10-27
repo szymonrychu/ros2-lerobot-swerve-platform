@@ -6,7 +6,7 @@ value: Ground scenes can be recorded from the D435 pipeline to rebuild the repla
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/ground_recorder.py, nodes/web_ui/web_ui/ground_session.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_ground_recorder.py, nodes/web_ui/tests/test_ground_recorder_api.py]
 verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_ground_recorder.py tests/test_ground_recorder_api.py tests/test_config.py -q && uv run poe lint"
 depends_on: [laser-filter-on-the-d435-clo, head-rgb-d-node-on-d435-alig]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -58,8 +58,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new tests and drop the ToF-frame ones; run `cd nodes/web_ui && uv run --frozen pytest tests/test_ground_recorder.py tests/test_ground_recorder_api.py -q`; expect failures.
+- Change config, recorder, session, bridge wiring and default.yaml; rerun; expect pass.
+- Run the verify command; commit `feat(web_ui): ground recorder on the D435 topics (layout 3)`.
 
 ## Notes
 

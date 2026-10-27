@@ -54,8 +54,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update `tests/test_config.test.ts`; run `cd nodes/steamdeck_ui && npx jest tests/test_config.test.ts`; expect a failure.
+- Remove the subscription and config entries; rerun; expect pass; run `./scripts/test_steamdeck_ui.sh` if it covers the bridge.
+- Run the verify command; commit `refactor(steamdeck_ui): drop the retired gripper camera relay`.
 
 ## Notes
 

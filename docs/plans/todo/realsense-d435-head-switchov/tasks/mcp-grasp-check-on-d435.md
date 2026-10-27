@@ -56,8 +56,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the front-camera tests, remove the gripper ones; run the grasp test files; expect failures.
+- Add the head aim and the front projection; rerun; expect pass.
+- Run the verify command; commit `feat(mcp_server): grasp verification image from the head D435`.
 
 ## Notes
 

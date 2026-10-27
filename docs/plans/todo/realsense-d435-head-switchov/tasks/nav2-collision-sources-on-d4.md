@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The collision monitor stops the robot for obstacles and drops the D435 sees, as it did with the ToF."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_tof_collision.py, tests/test_nav_depth_collision.py, tests/test_nav_d435_inputs.py, tests/test_nav_stack_config.py, tests/test_nav_footprint.py, nodes/nav2_bringup/README.md, tests/README.md]
-verify: "uv run pytest tests/test_nav_d435_inputs.py tests/test_nav_depth_collision.py tests/test_nav_stack_config.py tests/test_nav_footprint.py tests/test_web_ui_agent_tab.py -q && uv run poe lint"
+verify: "uv run pytest tests/test_nav_d435_inputs.py tests/test_nav_depth_collision.py tests/test_nav_stack_config.py tests/test_nav_footprint.py -q && uv run poe lint"
 depends_on: [nav2-voxel-layer-on-d435-clo]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- `git mv` and update the collision test, add the inputs test, update the two pins; run them; expect failures.
+- Edit nav2_params.yaml; rerun; expect pass.
+- Run the verify command; commit `feat(nav2): collision monitor and CliffStop on the D435 cloud`.
 
 ## Notes
 

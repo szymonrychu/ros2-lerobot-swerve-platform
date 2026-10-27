@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: D435 recordings become replay fixtures with one shared deprojection.
 files: [scripts/ground_replay_export.py, scripts/ground_replay_scenes.yaml, nodes/ground_estimator_cpp/test/replay_fixture.hpp, nodes/ground_estimator_cpp/test/data/replay/tiny_v2.bin, tests/test_ground_replay_export.py, tests/README.md]
-verify: "uv run pytest tests/test_ground_replay_export.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && scripts/cpp-node-test.sh ground_estimator_cpp"
+verify: "uv run pytest tests/test_ground_replay_export.py -q && uv run poe lint && scripts/cpp-node-test.sh ground_estimator_cpp"
 depends_on: [ground-recorder-on-d435-topi, shared-d435-camera-geometry, ground-estimator-on-d435-inp]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -58,8 +58,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update `tests/test_ground_replay_export.py` (layout 3, refusal, deprojection helper); run `uv run pytest tests/test_ground_replay_export.py -q`; expect failures.
+- Change the export, the scenes yaml and the C++ fixture names; regenerate tiny_v2.bin with `UPDATE_TINY_V2=1`; rerun; `scripts/cpp-node-test.sh ground_estimator_cpp` PASS.
+- Run the verify command; commit `feat(scripts): replay export of D435 recordings with a depth model`.
 
 ## Notes
 

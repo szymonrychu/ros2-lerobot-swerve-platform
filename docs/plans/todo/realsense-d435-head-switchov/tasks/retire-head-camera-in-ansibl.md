@@ -54,8 +54,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the retirement test and update the pins; run them; expect failures.
+- Edit client.yml; rerun; expect pass.
+- Run the verify command; commit `chore(ansible): retire head_camera_cpp`.
 
 ## Notes
 

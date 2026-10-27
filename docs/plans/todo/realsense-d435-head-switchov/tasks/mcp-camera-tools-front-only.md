@@ -56,8 +56,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the two new tests and convert or remove the gripper cases; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_scene.py tests/test_camera_tools.py -q`; expect failures.
+- Consolidate the Literal and remove the gripper branches; rerun with test_camera_calib.py and test_camera_overlay.py; expect pass.
+- Run the verify command; commit `refactor(mcp_server): camera tools on the front D435 camera only`.
 
 ## Notes
 

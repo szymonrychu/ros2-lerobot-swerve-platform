@@ -55,8 +55,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new tests and drop the two stale ones; run `uv run pytest tests/test_pi_camera_boot_config.py tests/test_pi_cameras_retired.py -q`; expect failures.
+- Edit the boot config task, delete the SDK task and its include, update ansible/README.md; rerun; expect pass.
+- Run the verify command; commit `chore(ansible): remove the CSI camera overlays and the ToF SDK install`.
 
 ## Notes
 

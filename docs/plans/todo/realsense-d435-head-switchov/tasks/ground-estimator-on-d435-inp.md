@@ -62,8 +62,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update `test/core/test_config.cpp` (new defaults, renamed keys, rejected old keys); run `scripts/cpp-node-test.sh ground_estimator_cpp`; expect failures.
+- Rename the fields and defaults, scale the windows, update node, guidance and the two node tests; rerun until `cpp-node-test: ground_estimator_cpp PASS`.
+- Run the lint-only pass; commit `feat(ground_estimator_cpp): D435 inputs and a sensor-neutral no-return model`.
 
 ## Notes
 

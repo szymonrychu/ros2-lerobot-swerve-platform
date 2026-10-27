@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: The calibration service is configured for the D435 streams and frames.
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py, nodes/head_rgbd_calibration/head_rgbd_calibration/images.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/tests/test_config.py, nodes/head_rgbd_calibration/tests/test_capture.py, nodes/head_rgbd_calibration/tests/test_images.py]
 verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv run poe lint && cd ../.. && uv run poe test-ansible"
-depends_on: [calibration-library-d435-fra, d435-live-bring-up-and-topic]
+depends_on: [calibration-library-d435-fra, d435-live-bring-up-and-topic, d435-intrinsics-check-maths]
 model: opus
 review: ""
 verified_head: ""
@@ -61,9 +61,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-- Write the three tests; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_config.py -q`; expect failures.
-- Change the pydantic model, the yaml and the client.yml block; rerun; expect pass. Other node modules that read removed keys are fixed in calibration-capture-on-d435 (it depends on this task); keep this commit green by leaving their call sites compiling (adjust names only).
-- Run the verify command; commit `feat(head_rgbd_calibration): D435 config`.
+- Write the config, capture and image tests; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_config.py tests/test_capture.py tests/test_images.py -q`; expect failures.
+- Change the pydantic model, the yaml, the client.yml block, capture.py and images.py; rerun the node suite; expect pass.
+- Run the verify command; commit `feat(head_rgbd_calibration): D435 config and capture`.
 
 ## Notes
 

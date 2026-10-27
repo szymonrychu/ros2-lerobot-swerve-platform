@@ -6,7 +6,7 @@ value: Applying a calibration restarts exactly the nodes that read it.
 files: [ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.service.j2, ansible/playbooks/tasks/head_rgbd_calibration_setup.yml, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, tests/test_head_rgbd_calibration_deploy.py]
 verify: "uv run pytest tests/test_head_rgbd_calibration_deploy.py -q && uv run poe lint && uv run poe test-ansible && cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_config.py -q"
 depends_on: [d435-intrinsics-check-comput, floor-sweep-on-d435-depth, head-arm-calibration-on-d435]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 2
@@ -54,8 +54,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update and add the deploy tests; run `uv run pytest tests/test_head_rgbd_calibration_deploy.py -q`; expect failures.
+- Edit the template, the setup task, the config defaults and client.yml; rerun; expect pass.
+- Run the verify command; commit `chore(ansible): calibration apply restarts the D435 consumers only`.
 
 ## Notes
 

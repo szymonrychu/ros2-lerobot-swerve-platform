@@ -63,8 +63,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new gtests in `test/test_node.cpp` and `test/core/test_config.cpp`, remove the listed ToF ones; run `scripts/cpp-node-test.sh head_rgbd_cpp`; expect failures (config keys and node behaviour missing).
+- Rework config and node per the Requirement; rerun until `cpp-node-test: head_rgbd_cpp PASS`.
+- Run `scripts/cpp-node-test.sh head_rgbd_cpp --lint-only`; commit `feat(head_rgbd_cpp): D435 aligned depth and colour as the input`.
 
 ## Notes
 

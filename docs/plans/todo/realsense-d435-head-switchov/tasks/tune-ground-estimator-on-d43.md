@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Run `scripts/cpp-node-test.sh ground_estimator_cpp`; list the failing replay assertions with their metric values (red).
+- Change one limit at a time with its cited metric; rerun after each; stop when every assertion passes.
+- Run the lint-only pass and `uv run pytest tests/test_ground_estimator_deploy.py -q`; commit `fix(ground_estimator_cpp): limits tuned on the D435 replays`.
 
 ## Notes
 

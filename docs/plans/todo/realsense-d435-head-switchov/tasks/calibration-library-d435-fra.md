@@ -56,8 +56,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Move the synthetic scenes to the D435 frames and write the two new tests; run `uv run pytest tests/test_head_floor_fit.py tests/test_head_arm_fit.py -q`; expect failures.
+- Replace the constants with arguments and update the free parameters; rerun with test_head_arm_calib_chain.py; expect pass.
+- Run the verify command; commit `feat(calibration): floor and head-arm fits on the D435 frames`.
 
 ## Notes
 

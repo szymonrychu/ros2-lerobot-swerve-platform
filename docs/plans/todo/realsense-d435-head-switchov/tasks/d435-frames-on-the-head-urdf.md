@@ -4,7 +4,7 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: Every node computes the D435 pose through the pan/tilt chain from one URDF.
 files: [nodes/web_ui/urdf/head.urdf, nodes/web_ui/tests/test_head_urdf.py, tests/test_head_state_publisher_config.py, tests/README.md]
-verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q && uv run poe lint && cd ../.. && uv run pytest tests/test_head_state_publisher_config.py tests/test_web_ui_agent_tab.py -q && uv run poe lint"
+verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q && uv run poe lint && cd ../.. && uv run pytest tests/test_head_state_publisher_config.py -q && uv run poe lint"
 depends_on: []
 model: sonnet
 review: ""
@@ -56,8 +56,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new tests in `nodes/web_ui/tests/test_head_urdf.py` and `tests/test_head_state_publisher_config.py`; run them; expect failures (no d435 links).
+- Add the d435 joints and links to head.urdf; rerun; expect pass.
+- Run the verify command; commit `feat(urdf): D435 frames on the pan/tilt head`.
 
 ## Notes
 

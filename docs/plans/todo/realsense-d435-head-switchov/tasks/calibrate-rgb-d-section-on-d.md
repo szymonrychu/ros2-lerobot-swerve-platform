@@ -59,8 +59,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the four tests for the D435 check; run `cd nodes/web_ui/frontend && npx vitest run src/calibrate/Rgbd*.test.tsx src/calibrate/rgbdApi.test.ts`; expect failures.
+- Change the API types and the three components; rerun; expect pass.
+- Run the verify command; commit `feat(web_ui): Calibrate page D435 intrinsics check`.
 
 ## Notes
 

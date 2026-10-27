@@ -58,8 +58,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the retirement test; run it; expect a failure.
+- `git rm -r` the node and its config test; trim the stub and the three lists; rerun; run `uv run poe lint-nodes`.
+- Run the verify command; commit `refactor: delete the arducam_tof bridge` (deletion pinned by a retirement test).
 
 ## Notes
 

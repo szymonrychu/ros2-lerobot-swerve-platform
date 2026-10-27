@@ -6,7 +6,7 @@ value: "The D435 pipeline's real cost on the Pi is known and its cgroup figures 
 files: [ansible/group_vars/client.yml, ansible/README.md, scripts/node_cpu_compare.yaml, docs/runbooks/d435-switchover.md, tests/test_d435_runbook.py, tests/test_unit_cgroups.py]
 verify: "uv run pytest tests/test_unit_cgroups.py tests/test_d435_runbook.py tests/test_node_cpu_compare.py -q && uv run poe lint && uv run poe test-ansible"
 depends_on: [web-ui-and-mcp-live-check-on, nav2-live-check-on-d435, monitoring-and-cpu-compare-o]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -56,8 +56,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add `test_budget_section_is_recorded`; run it; expect a failure.
+- Run the live steps after 24 h of uptime; save outputs under `.logs/`.
+- Update client.yml, ansible/README.md and the CPU compare yaml; rerun `uv run pytest tests/test_unit_cgroups.py tests/test_d435_runbook.py -q`; commit `chore(ansible): measured D435 pipeline memory and CPU`.
 
 ## Notes
 

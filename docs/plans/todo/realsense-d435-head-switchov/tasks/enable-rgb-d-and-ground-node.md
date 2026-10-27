@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: Ground estimation and the RGB-D stage run again on the robot.
 files: [ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, tests/test_ground_estimator_deploy.py, tests/test_cpp_cutover.py, tests/test_map3d_uplink_config.py, tests/test_unit_cgroups.py, tests/README.md]
-verify: "uv run pytest tests/test_head_rgbd_deploy.py tests/test_ground_estimator_deploy.py tests/test_cpp_cutover.py tests/test_map3d_uplink_config.py tests/test_unit_cgroups.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && uv run poe test-ansible"
-depends_on: [head-rgb-d-build-deps-cleanu, ground-estimator-on-d435-inp, laser-filter-on-the-d435-clo, d435-live-bring-up-and-topic, retire-arducam-tof-in-ansibl, retire-gripper-camera-in-ansi]
-model: sonnet
+verify: "uv run pytest tests/test_head_rgbd_deploy.py tests/test_ground_estimator_deploy.py tests/test_cpp_cutover.py tests/test_map3d_uplink_config.py tests/test_unit_cgroups.py -q && uv run poe lint && uv run poe test-ansible"
+depends_on: [head-rgb-d-build-deps-cleanu, ground-estimator-on-d435-inp, laser-filter-on-the-d435-clo, d435-live-bring-up-and-topic, retire-arducam-tof-in-ansibl, retire-gripper-camera-in-ans]
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -60,8 +60,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the four deploy tests; run `uv run pytest tests/test_head_rgbd_deploy.py tests/test_ground_estimator_deploy.py tests/test_cpp_cutover.py tests/test_map3d_uplink_config.py -q`; expect failures.
+- Edit client.yml; rerun with tests/test_unit_cgroups.py; expect pass.
+- Run the verify command; commit `feat(ansible): enable head_rgbd_cpp and ground_estimator_cpp on the D435`.
 
 ## Notes
 

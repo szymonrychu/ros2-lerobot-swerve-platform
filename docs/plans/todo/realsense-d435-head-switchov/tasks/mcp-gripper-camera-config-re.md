@@ -4,8 +4,8 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: No MCP config or calibration file refers to the retired gripper camera.
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/calibration/gripper_camera.yaml, ansible/group_vars/client.yml, nodes/mcp_server/tests/test_config.py, nodes/mcp_server/tests/test_on_demand_subscriptions.py, tests/test_mcp_server_config.py, tests/README.md]
-verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_config.py tests/test_on_demand_subscriptions.py -q && uv run poe lint && cd ../.. && uv run pytest tests/test_mcp_server_config.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && uv run poe test-ansible"
-depends_on: [mcp-approach-tools-front-onl, mcp-grasp-check-on-d435, mcp-zoom-retired, web-ui-arm-tab-config-withou]
+verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_config.py tests/test_on_demand_subscriptions.py -q && uv run poe lint && cd ../.. && uv run pytest tests/test_mcp_server_config.py -q && uv run poe lint && uv run poe test-ansible"
+depends_on: [mcp-approach-tools-front-onl, mcp-grasp-check-on-d435, mcp-zoom-retired]
 model: opus
 review: ""
 verified_head: ""
@@ -59,8 +59,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new tests, delete the mount-equality test; run them; expect failures.
+- Remove the settings, the topic, the client.yml block and the yaml file; rerun; expect pass.
+- Run the verify command; commit `refactor(mcp_server): remove the retired gripper camera`.
 
 ## Notes
 

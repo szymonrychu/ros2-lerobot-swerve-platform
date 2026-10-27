@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new compute/apply tests and update the fixtures; run `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_compute.py tests/test_apply.py tests/test_app.py -q`; expect failures.
+- Rework compute and apply; rerun the node suite; expect pass.
+- Run the verify command; commit `feat(head_rgbd_calibration): D435 intrinsics check session`.
 
 ## Notes
 

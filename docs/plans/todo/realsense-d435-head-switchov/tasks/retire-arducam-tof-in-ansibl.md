@@ -54,8 +54,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_old_sensors_retired.py::test_arducam_tof_is_retired` and update the three pins; run them; expect failures.
+- Edit client.yml; rerun; expect pass.
+- Run the verify command; commit `chore(ansible): retire arducam_tof`.
 
 ## Notes
 

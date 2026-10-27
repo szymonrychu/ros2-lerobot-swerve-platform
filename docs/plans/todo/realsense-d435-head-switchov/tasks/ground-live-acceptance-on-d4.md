@@ -4,7 +4,7 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Ground estimation is proven live on the D435 with measured rates and CPU, and the runbook says how to repeat it."
 files: [docs/runbooks/ground-estimation.md, tests/test_ground_docs.py, scripts/ground_noise_report.yaml, MEMORY.md, tests/README.md]
-verify: "uv run pytest tests/test_ground_docs.py tests/test_ground_estimator_readme.py tests/test_web_ui_agent_tab.py -q && uv run poe lint"
+verify: "uv run pytest tests/test_ground_docs.py tests/test_ground_estimator_readme.py -q && uv run poe lint"
 depends_on: [tune-ground-estimator-on-d43]
 model: sonnet
 review: ""
@@ -55,8 +55,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update `tests/test_ground_docs.py` for the D435 runbook (sections, topics, rates); run `uv run pytest tests/test_ground_docs.py -q`; expect failures.
+- Run the live steps; outputs in `.logs/`; write the runbook and MEMORY.md entry from them.
+- Rerun; run the verify command; commit `docs(runbooks): ground estimation on the D435, live acceptance`.
 
 ## Notes
 

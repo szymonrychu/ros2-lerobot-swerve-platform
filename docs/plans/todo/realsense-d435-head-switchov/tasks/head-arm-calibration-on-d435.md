@@ -56,8 +56,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the three tests and update the stale assertions; run them; expect failures.
+- Change results, sequencer and the pose check; rerun the node suite and tests/test_arm_pose_check.py; expect pass.
+- Run the verify command; commit `feat(head_rgbd_calibration): head-from-arm on the D435 with a min-Z rule`.
 
 ## Notes
 

@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the two retirement tests; run them; expect failures listing the remaining names.
+- Remove the URDF frames, the tof_joint handling and the override test; rerun; expect pass.
+- Run the verify command; commit `refactor(urdf): remove the ToF and head camera frames`.
 
 ## Notes
 

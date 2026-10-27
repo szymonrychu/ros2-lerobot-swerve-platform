@@ -60,8 +60,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new tests and update stale ones; run `cd nodes/web_ui && uv run --frozen pytest tests/test_config.py tests/test_msg_serializer.py tests/test_head_rgbd.py -q`; expect failures.
+- Rename fields, drop amplitude, update default.yaml and client.yml; rerun the web_ui suite; expect pass.
+- Run the verify command; commit `feat(web_ui): head tab backend on the D435`.
 
 ## Notes
 

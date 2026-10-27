@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: The last ToF-only image code leaves head_rgbd_cpp.
 files: [nodes/head_rgbd_cpp/src/core/upsample.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/upsample.hpp, nodes/head_rgbd_cpp/test/core/test_upsample.cpp, nodes/head_rgbd_cpp/src/core/tof_filter.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/tof_filter.hpp, nodes/head_rgbd_cpp/test/core/test_tof_filter.cpp, tests/test_tof_paths_retired.py, tests/README.md]
-verify: "uv run pytest tests/test_tof_paths_retired.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && scripts/cpp-node-test.sh head_rgbd_cpp"
+verify: "uv run pytest tests/test_tof_paths_retired.py -q && uv run poe lint && scripts/cpp-node-test.sh head_rgbd_cpp"
 depends_on: [retire-rgb-d-registration-an]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 2
@@ -55,8 +55,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add the retirement test; run `uv run pytest tests/test_tof_paths_retired.py -q`; expect a failure.
+- `git rm` the six files; rerun; expect pass; `scripts/cpp-node-test.sh head_rgbd_cpp` PASS.
+- Run the verify command; commit `refactor(head_rgbd_cpp): remove ToF upsampling and flying-pixel filter` (deletion pinned by a retirement test).
 
 ## Notes
 

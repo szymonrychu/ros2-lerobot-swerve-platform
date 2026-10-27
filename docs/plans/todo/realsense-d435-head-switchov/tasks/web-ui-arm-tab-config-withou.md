@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: The web UI stops serving a camera that is gone.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_bridge_on_demand.py, nodes/web_ui/tests/test_map3d_backend.py, nodes/web_ui/tests/test_msg_serializer.py]
 verify: "cd nodes/web_ui && uv run --frozen pytest tests -q && uv run poe lint && cd ../.. && uv run poe test-ansible"
-depends_on: [web-ui-obstacles-topic-on-d4]
+depends_on: [web-ui-obstacles-topic-on-d4, mcp-gripper-camera-config-re]
 model: opus
 review: ""
 verified_head: ""
@@ -58,8 +58,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the two tests and convert /camera_0 cases; run the four test files; expect failures.
+- Remove the fields and hints, update default.yaml and client.yml; rerun the web_ui suite; expect pass.
+- Run the verify command; commit `refactor(web_ui): arm tab backend without the gripper camera`.
 
 ## Notes
 

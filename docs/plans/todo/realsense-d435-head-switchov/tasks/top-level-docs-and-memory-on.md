@@ -6,7 +6,7 @@ value: "Anyone reading the repo sees the D435 robot, not three retired sensors."
 files: [nodes/bridges/realsense_d435i/README.md, nodes/bridges/realsense_d435/README.md, README.md, nodes/README.md, nodes/bridges/README.md, ansible/README.md, MEMORY.md]
 verify: "! grep -n 'D435i\\|/camera/imu' README.md nodes/README.md nodes/bridges/README.md MEMORY.md nodes/bridges/realsense_d435/README.md && uv run poe lint"
 depends_on: [d435-live-bring-up-and-topic, delete-uvc-camera-source, delete-head-camera-cpp-sourc, monitoring-and-cpu-compare-o]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 2
@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Run the AC greps; expect them to fail (stale names present).
+- `git mv` the README and rewrite it; update the other docs.
+- Rerun the greps; expect pass; commit `docs: D435 head in the READMEs and MEMORY.md` (doc edit).
 
 ## Notes
 

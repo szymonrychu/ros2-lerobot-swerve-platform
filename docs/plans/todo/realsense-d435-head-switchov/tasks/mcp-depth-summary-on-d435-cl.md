@@ -59,8 +59,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- `git mv` and update the summary test, update test_tof_obstacles.py; run them; expect failures.
+- Rename config, protocol, ros_iface and tool code; update client.yml; rerun; expect pass.
+- Run the verify command; commit `refactor(mcp_server): map summary depth from the D435 cloud`.
 
 ## Notes
 

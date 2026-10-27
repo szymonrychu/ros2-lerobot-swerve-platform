@@ -52,8 +52,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the new test and update the two files; run `uv run pytest tests/test_head_chain_override.py tests/test_head_chain_launch.py -q`; expect failures.
+- Change HEAD_CHAIN_JOINTS and the launch comment; rerun; expect pass.
+- Run the verify command; commit `feat(calibration): head chain overrides on d435_joint`.
 
 ## Notes
 

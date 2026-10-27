@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The ToF-only registration and motion code no longer has to be built, tested or understood."
 files: [nodes/head_rgbd_cpp/src/core/registration.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/registration.hpp, nodes/head_rgbd_cpp/test/core/test_registration.cpp, nodes/head_rgbd_cpp/src/core/motion.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/motion.hpp, nodes/head_rgbd_cpp/test/core/test_motion.cpp, tests/test_tof_paths_retired.py, tests/README.md]
-verify: "uv run pytest tests/test_tof_paths_retired.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && scripts/cpp-node-test.sh head_rgbd_cpp"
+verify: "uv run pytest tests/test_tof_paths_retired.py -q && uv run poe lint && scripts/cpp-node-test.sh head_rgbd_cpp"
 depends_on: [head-rgb-d-node-on-d435-alig]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 2
@@ -55,8 +55,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_tof_paths_retired.py::test_head_rgbd_registration_and_motion_are_gone`; run `uv run pytest tests/test_tof_paths_retired.py -q`; expect a failure naming the tracked files.
+- `git rm` the six files; rerun; expect pass; run `scripts/cpp-node-test.sh head_rgbd_cpp`; expect PASS.
+- Run the verify command; commit `refactor(head_rgbd_cpp): remove ToF registration and motion compensation` (deletion pinned by a retirement test).
 
 ## Notes
 

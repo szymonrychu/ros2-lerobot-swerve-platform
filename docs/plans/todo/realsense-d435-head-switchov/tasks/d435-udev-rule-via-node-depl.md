@@ -4,7 +4,7 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: scripts/deploy-nodes.sh client realsense_d435 gives the D435 the right device permissions and no USB autosuspend.
 files: [ansible/roles/ros2_base/tasks/main.yml, ansible/playbooks/tasks/realsense_d435_setup.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_realsense_d435_udev.py, tests/README.md]
-verify: "uv run pytest tests/test_realsense_d435_udev.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && uv run poe test-ansible"
+verify: "uv run pytest tests/test_realsense_d435_udev.py -q && uv run poe lint && uv run poe test-ansible"
 depends_on: [d435-node-type-and-profile]
 model: sonnet
 review: ""
@@ -54,8 +54,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_realsense_d435_udev.py`; run `uv run pytest tests/test_realsense_d435_udev.py -q`; expect failures.
+- Move the rule into `ansible/playbooks/tasks/realsense_d435_setup.yml`, include it from the node step, drop the ros2_base tasks; rerun; expect pass.
+- Run the verify command; commit `fix(ansible): D435 udev rule for 0b07 applied by the node deploy`.
 
 ## Notes
 

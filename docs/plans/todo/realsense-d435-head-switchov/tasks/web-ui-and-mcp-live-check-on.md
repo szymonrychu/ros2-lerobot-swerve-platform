@@ -54,8 +54,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add `test_views_and_tools_section_is_recorded`; run `uv run pytest tests/test_d435_runbook.py -q`; expect a failure.
+- Run the live steps; save outputs and screenshots.
+- Write the section; rerun; commit `docs(runbooks): web_ui, MCP and agent on the D435, live check`.
 
 ## Notes
 

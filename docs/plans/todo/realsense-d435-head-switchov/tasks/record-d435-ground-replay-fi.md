@@ -6,7 +6,7 @@ value: Ground estimation is tested against what the D435 really sees in the thre
 files: [nodes/ground_estimator_cpp/test/data/replay/home.bin, nodes/ground_estimator_cpp/test/data/replay/box.bin, nodes/ground_estimator_cpp/test/data/replay/ramp.bin, scripts/ground_record.yaml, scripts/ground_replay_scenes.yaml, tests/test_ground_replay_export.py, tests/test_d435_runbook.py, docs/runbooks/d435-switchover.md]
 verify: "uv run pytest tests/test_ground_replay_export.py tests/test_d435_runbook.py -q && uv run poe lint"
 depends_on: [enable-rgb-d-and-ground-node, replay-export-depth-model, ground-recorder-on-d435-topi]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 5
@@ -60,8 +60,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Add `tests/test_ground_replay_export.py::test_committed_fixtures_are_d435_recordings` (read_replay of each committed .bin: cloud frame `d435_depth_optical_frame`, version 2, a depth model present) and the runbook test; run them; expect failures.
+- Run the numbered live steps; outputs under `.logs/`.
+- Rerun the tests; run `scripts/cpp-node-test.sh ground_estimator_cpp` and record its result in the runbook; commit `test(ground_estimator_cpp): D435 replay fixtures`.
 
 ## Notes
 

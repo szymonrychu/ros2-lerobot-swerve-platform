@@ -58,8 +58,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- `git mv` the plane module and its test, write the two new tests; run `cd nodes/marker_detector && uv run --frozen pytest tests -q`; expect failures.
+- Change the config, the module and the pipeline import; update client.yml; rerun with the root pin; expect pass.
+- Run the verify command; commit `feat(marker_detector): D435 colour and depth`.
 
 ## Notes
 

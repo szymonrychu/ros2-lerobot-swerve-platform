@@ -53,8 +53,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the two tests; run `uv run pytest tests/test_map3d_topics.py -q`; expect failures.
+- Change the launch file and the yaml; rerun with the other map3d pins; expect pass.
+- Run the verify command; commit `feat(rtabmap_mapping): sources from the map3d contract, D435 frames`.
 
 ## Notes
 

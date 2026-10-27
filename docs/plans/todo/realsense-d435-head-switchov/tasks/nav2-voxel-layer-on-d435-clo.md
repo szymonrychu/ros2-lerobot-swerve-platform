@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The local costmap sees obstacles above and below the lidar plane again, from the D435."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_lidar_only.py, tests/test_nav_d435_inputs.py, tests/test_nav_tof_voxel_layer.py, tests/test_nav_depth_voxel_layer.py, nodes/nav2_bringup/README.md, tests/README.md]
-verify: "uv run pytest tests/test_nav_d435_inputs.py tests/test_nav_depth_voxel_layer.py tests/test_nav_stack_config.py tests/test_web_ui_agent_tab.py -q && uv run poe lint"
+verify: "uv run pytest tests/test_nav_d435_inputs.py tests/test_nav_depth_voxel_layer.py tests/test_nav_stack_config.py -q && uv run poe lint"
 depends_on: [laser-filter-on-the-d435-clo]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -57,8 +57,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- `git mv` the voxel layer test and update it; write `tests/test_nav_d435_inputs.py`; `git rm tests/test_nav_lidar_only.py`; run `uv run pytest tests/test_nav_d435_inputs.py tests/test_nav_depth_voxel_layer.py -q`; expect failures.
+- Edit nav2_params.yaml; rerun; expect pass.
+- Run the verify command; commit `feat(nav2): STVL head layer on the D435 cloud`.
 
 ## Notes
 

@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "Every D435 live check (USB, firmware, errors, topics, rates) is one read-only command, without rclpy probes."
 files: [scripts/d435_diag.sh, scripts/README.md, .claude/skills/d435-diagnostics/SKILL.md, ansible/group_vars/client.yml, tests/test_d435_diag_script.py, tests/README.md]
-verify: "uv run pytest tests/test_d435_diag_script.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && uv run poe test-ansible"
+verify: "uv run pytest tests/test_d435_diag_script.py -q && uv run poe lint && uv run poe test-ansible"
 depends_on: []
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -62,8 +62,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_d435_diag_script.py` (stub `ssh` and `curl` on PATH); run `uv run pytest tests/test_d435_diag_script.py -q`; expect failures (no script).
+- Write `scripts/d435_diag.sh` modelled on `scripts/bno055_diag.sh`, the skill and the README entry, add CameraInfo to the scraper allowed_types; rerun; expect pass.
+- Run the verify command; commit `feat(scripts): read-only D435 diagnostics`.
 
 ## Notes
 

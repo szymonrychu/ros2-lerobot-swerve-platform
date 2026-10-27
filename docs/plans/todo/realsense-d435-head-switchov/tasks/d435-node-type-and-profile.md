@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: "The D435 starts on the client from Ansible with a hardware-synced, Pi-sized profile and explicit names."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, nodes/bridges/realsense_d435/config/realsense_d435.yaml, tests/test_realsense_d435_deploy.py, tests/test_ansible_deploy_speed.py, tests/test_unit_cgroups.py, tests/README.md]
-verify: "uv run pytest tests/test_realsense_d435_deploy.py tests/test_ansible_deploy_speed.py tests/test_unit_cgroups.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && uv run poe test-ansible"
+verify: "uv run pytest tests/test_realsense_d435_deploy.py tests/test_ansible_deploy_speed.py tests/test_unit_cgroups.py -q && uv run poe lint && uv run poe test-ansible"
 depends_on: []
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -62,8 +62,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `tests/test_realsense_d435_deploy.py`; run `uv run pytest tests/test_realsense_d435_deploy.py -q`; expect failures (no realsense_d435 type, no config file).
+- Edit client.yml, add the parameter YAML, rename the playbook step, update the FOLDED_LAUNCH_COMMANDS and tier entries; rerun; expect pass.
+- Run the verify command; commit `feat(ansible): realsense_d435 node type with a synced 640x360@15 profile`.
 
 ## Notes
 

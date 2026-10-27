@@ -4,9 +4,9 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: head_rgbd_cpp builds and deploys without the ToF-era OpenCV contrib and calibration dependencies.
 files: [nodes/head_rgbd_cpp/CMakeLists.txt, nodes/head_rgbd_cpp/package.xml, nodes/head_rgbd_cpp/test/core/synthetic_scene.hpp, nodes/head_rgbd_cpp/test/data/tof_calibration.yaml, ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, tests/test_tof_paths_retired.py, tests/README.md]
-verify: "uv run pytest tests/test_head_rgbd_deploy.py tests/test_tof_paths_retired.py tests/test_web_ui_agent_tab.py -q && uv run poe lint && uv run poe test-ansible && scripts/cpp-node-test.sh head_rgbd_cpp"
+verify: "uv run pytest tests/test_head_rgbd_deploy.py tests/test_tof_paths_retired.py -q && uv run poe lint && uv run poe test-ansible && scripts/cpp-node-test.sh head_rgbd_cpp"
 depends_on: [retire-rgb-d-upsampling-and]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 2
@@ -60,8 +60,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update `tests/test_head_rgbd_deploy.py` and add the retirement test; run `uv run pytest tests/test_head_rgbd_deploy.py tests/test_tof_paths_retired.py -q`; expect failures.
+- Trim CMakeLists.txt, package.xml and client.yml; `git rm` the fixtures; rerun; `scripts/cpp-node-test.sh head_rgbd_cpp` PASS.
+- Run the verify command; commit `chore(head_rgbd_cpp): drop ToF build dependencies and fixtures, D435 config`.
 
 ## Notes
 

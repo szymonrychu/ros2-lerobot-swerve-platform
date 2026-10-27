@@ -4,7 +4,7 @@ status: todo
 repo: ros2-lerobot-sverve-platform
 value: Every node uses the D435 factory intrinsics and one tested depth deprojection instead of hand-rolled copies.
 files: [shared/ros2_common/camera_geometry.py, tests/test_shared_camera_geometry.py, shared/README.md, tests/README.md]
-verify: "uv run pytest tests/test_shared_camera_geometry.py tests/test_web_ui_agent_tab.py -q && uv run poe lint"
+verify: "uv run pytest tests/test_shared_camera_geometry.py -q && uv run poe lint"
 depends_on: []
 model: sonnet
 review: ""
@@ -56,8 +56,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write the three tests; run `uv run pytest tests/test_shared_camera_geometry.py -q`; expect failures (missing functions).
+- Implement both helpers; rerun; expect pass.
+- Run the verify command; commit `feat(shared): CameraIntrinsics.from_camera_info and depth_to_points`.
 
 ## Notes
 

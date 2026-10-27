@@ -6,7 +6,7 @@ value: MCP head pointing and projection use the D435 frames and one shared URDF 
 files: [nodes/mcp_server/mcp_server/head_kinematics.py, nodes/mcp_server/mcp_server/sag.py, nodes/mcp_server/mcp_server/head_tools.py, nodes/mcp_server/tests/test_head_kinematics.py, nodes/mcp_server/tests/test_front_ground_points.py, nodes/mcp_server/tests/test_head_tools.py]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py tests/test_head_tools.py tests/test_front_ground_points.py tests/test_sag.py -q && uv run poe lint"
 depends_on: [d435-frames-on-the-head-urdf]
-model: sonnet
+model: opus
 review: ""
 verified_head: ""
 points: 3
@@ -55,8 +55,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write and update the tests; run `cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py tests/test_head_tools.py tests/test_front_ground_points.py -q`; expect failures.
+- Change the frames, swap in the shared helper in head_kinematics.py and sag.py, update descriptions; rerun; expect pass.
+- Run the verify command; commit `refactor(mcp_server): head kinematics on the D435 frames, shared origin helper`.
 
 ## Notes
 

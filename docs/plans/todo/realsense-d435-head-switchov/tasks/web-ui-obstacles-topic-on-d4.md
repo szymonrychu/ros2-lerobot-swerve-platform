@@ -54,8 +54,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Update the tests; run `cd nodes/web_ui && uv run --frozen pytest tests/test_obstacle_points.py tests/test_map_nav.py tests/test_config.py -q`; expect failures.
+- Change the default, default.yaml and client.yml; rerun with the root pin; expect pass.
+- Run the verify command; commit `feat(web_ui): 3D obstacles layer reads the D435 cloud`.
 
 ## Notes
 

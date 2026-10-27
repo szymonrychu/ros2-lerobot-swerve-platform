@@ -66,8 +66,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+- Write `ArmCalibration.test.tsx` and update the three other tests; run `cd nodes/web_ui/frontend && npx vitest run src/calibrate/ArmCalibration.test.tsx src/calibrate/CalibratePage.test.tsx src/calibrate/HeadFloorFit.test.tsx src/calibrate/HeadArmCalibration.test.tsx`; expect failures.
+- Implement ArmCalibration and update the page and the two sections; rerun; expect pass.
+- Run the verify command; commit `feat(web_ui): Calibrate page arm section and D435 head sections`.
 
 ## Notes
 
