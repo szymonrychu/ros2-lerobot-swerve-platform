@@ -16,6 +16,10 @@ polygon with z <= cloud_self_max_height_m (polygon_frame) are removed; the kept 
 cloud with the input header (same frame, same stamp) on cloud_filtered_topic. An input cloud with zero points gives an
 empty cloud with its real header (still only with TF at its stamp). Nothing is published for a cloud without TF; the
 expiry timer never publishes.
+
+Stall telemetry (laser_filter.metrics, served by shared ros2_metrics on 127.0.0.1:metrics_port): the gap and lag of
+every /scan reaching on_scan and every /scan_filtered published, and the gap between executor ticks (one timer every
+TICK_PERIOD_S, which also expires the pending cloud).
 """
 
 import time
@@ -33,11 +37,13 @@ from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.task import Future
 from rclpy.time import Time
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .config import LaserFilterConfig
+from .metrics import LaserFilterMetrics
 from .self_filter import PendingSlot, SelfFilter, apply_polygon_param, parse_polygon, quaternion_matrix
 
 NODE_NAME = "laser_filter"
@@ -47,8 +53,10 @@ SCAN_OUT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=Histor
 # Reliable output reaches both reliable and best-effort (sensor-data) subscribers (STVL, collision monitor, web_ui).
 CLOUD_OUT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=5)
 TF_WARN_THROTTLE_S = 5.0
-# How often the pending cloud is checked for expiry (s); the check only drops, it never publishes.
-CLOUD_EXPIRY_PERIOD_S = 0.05
+# Executor tick (s): records the executor tick gap, refreshes the open scan gaps and checks the pending cloud for
+# expiry (the check only drops, it never publishes).
+TICK_PERIOD_S = 0.05
+NS_PER_S = 1e9
 XYZ_FIELDS = ("x", "y", "z")
 
 
@@ -63,14 +71,16 @@ class PendingCloud:
 class LaserFilterNode(Node):
     """Self filter node (see the module docstring)."""
 
-    def __init__(self, config: LaserFilterConfig) -> None:
-        """Create the parameter, TF listener, publisher and subscription.
+    def __init__(self, config: LaserFilterConfig, metrics: LaserFilterMetrics | None = None) -> None:
+        """Create the parameter, TF listener, publishers, subscriptions and the executor tick.
 
         Args:
             config (LaserFilterConfig): Node configuration.
+            metrics (LaserFilterMetrics | None): Stall telemetry; None uses the process registry.
         """
         super().__init__(NODE_NAME)
         self.cfg = config
+        self.metrics = LaserFilterMetrics() if metrics is None else metrics
         self.filter = SelfFilter(parse_polygon(config.polygon))
         self.declare_parameter(
             POLYGON_PARAM,
@@ -89,7 +99,7 @@ class LaserFilterNode(Node):
         if config.cloud_topic is not None:
             self.cloud_pub = self.create_publisher(PointCloud2, config.cloud_filtered_topic, CLOUD_OUT_QOS)
             self.create_subscription(PointCloud2, config.cloud_topic, self.on_cloud, qos_profile_sensor_data)
-            self.create_timer(CLOUD_EXPIRY_PERIOD_S, self.expire_pending_cloud)
+        self.create_timer(TICK_PERIOD_S, self.on_tick)
         cloud = (
             f"{config.cloud_topic} -> {config.cloud_filtered_topic}" if config.cloud_topic else "cloud path disabled"
         )
@@ -125,6 +135,7 @@ class LaserFilterNode(Node):
         Args:
             msg (LaserScan): Raw scan.
         """
+        self.metrics.scan_input.record(time.monotonic(), self.scan_lag_s(msg))
         frame = msg.header.frame_id
         if not self.filter.ready(frame):
             try:
@@ -148,6 +159,18 @@ class LaserFilterNode(Node):
         out.ranges = self.filter.filter_ranges(np.asarray(msg.ranges), msg.angle_min, msg.angle_increment).tolist()
         out.intensities = msg.intensities
         self.pub.publish(out)
+        self.metrics.scan_output.record(time.monotonic(), self.scan_lag_s(msg))
+
+    def scan_lag_s(self, msg: LaserScan) -> float:
+        """Wall clock minus the scan header stamp.
+
+        Args:
+            msg (LaserScan): Raw scan (its header stamp is kept on the output).
+
+        Returns:
+            float: Lag (s).
+        """
+        return time.time() - Time.from_msg(msg.header.stamp).nanoseconds / NS_PER_S
 
     def on_cloud(self, msg: PointCloud2) -> None:
         """Filter and publish a cloud whose TF at its stamp is known, else hold it (newest wins) until the TF arrives.
@@ -197,6 +220,12 @@ class LaserFilterNode(Node):
         self.cloud_slot.take()
         self.publish_cloud(pending.msg, future.result())
 
+    def on_tick(self) -> None:
+        """Timer: record the executor tick, refresh the open scan gaps, expire the pending cloud."""
+        self.metrics.tick(time.monotonic())
+        if self.cfg.cloud_topic is not None:
+            self.expire_pending_cloud()
+
     def expire_pending_cloud(self) -> None:
         """Timer: drop the pending cloud once it waited longer than cloud_transform_timeout_s (never publishes)."""
         expired = self.cloud_slot.expire(time.monotonic())
@@ -230,7 +259,7 @@ class LaserFilterNode(Node):
             msg (PointCloud2): The dropped cloud.
             reason (str): Why it was dropped.
         """
-        stamp = Time.from_msg(msg.header.stamp).nanoseconds / 1e9
+        stamp = Time.from_msg(msg.header.stamp).nanoseconds / NS_PER_S
         self.get_logger().warning(
             f"laser_filter: cloud {msg.header.frame_id} @ {stamp:.3f} dropped ({reason}; TF "
             f"{self.cfg.polygon_frame} <- {msg.header.frame_id}); {self.cloud_slot.dropped} clouds dropped so far",
@@ -263,6 +292,7 @@ def run(config: LaserFilterConfig) -> None:
     Args:
         config (LaserFilterConfig): Node configuration.
     """
+    start_metrics_server(resolve_metrics_port(config.metrics_port), NODE_NAME)
     rclpy.init()
     node = LaserFilterNode(config)
     executor = make_executor(config.executor)

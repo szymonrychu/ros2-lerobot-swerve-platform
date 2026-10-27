@@ -1210,6 +1210,7 @@ def test_laser_filter_polygon_matches_the_h_outline() -> None:
         "cloud_filtered_topic",
         "cloud_self_max_height_m",
         "cloud_transform_timeout_s",
+        "metrics_port",
     }
     assert params["polygon_frame"] == "base_link"
     assert (params["scan_topic"], params["scan_filtered_topic"]) == ("/scan", FILTERED_SCAN)

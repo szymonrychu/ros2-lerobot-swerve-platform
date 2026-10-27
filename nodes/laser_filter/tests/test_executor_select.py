@@ -101,3 +101,14 @@ def test_run_keyboard_interrupt_still_shuts_down(node_module: ModuleType) -> Non
     node_module.make_executor("single_threaded").spin.side_effect = KeyboardInterrupt
     node_module.run(LaserFilterConfig(polygon=POLYGON))
     rclpy.try_shutdown.assert_called_once_with()
+
+
+def test_run_starts_the_metrics_server_with_the_config_port(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[int | None, str]] = []
+    monkeypatch.setattr(node_module, "start_metrics_server", lambda port, node: calls.append((port, node)) or True)
+    monkeypatch.delenv("METRICS_PORT", raising=False)
+    node_module.run(LaserFilterConfig(polygon=POLYGON, metrics_port=19120))
+    node_module.run(LaserFilterConfig(polygon=POLYGON))
+    assert calls == [(19120, "laser_filter"), (None, "laser_filter")]

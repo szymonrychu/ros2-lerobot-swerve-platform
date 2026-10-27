@@ -39,6 +39,21 @@ The head ToF cloud (`tof_obstacle_cloud`, rtabmap_util `point_cloud_xyz`) sees t
 | `cloud_filtered_topic` | `/tof/points_filtered` | ToF cloud without the robot's own points (input frame and stamp) |
 | `cloud_self_max_height_m` | 1.0 | points inside the polygon with z <= this (m, `polygon_frame`) are the robot; > 0 |
 | `cloud_transform_timeout_s` | 0.2 | longest wait for the TF at a cloud's stamp before it is dropped and counted; > 0 |
+| `metrics_port` | `null` | Prometheus `/metrics` on 127.0.0.1 (shared `ros2_metrics`); `null` falls back to `METRICS_PORT`, else off. Deployed: 19120 |
+
+## Stall telemetry (`metrics.py`)
+
+Added after the 2026-10-22 16:30:35 invalid-source stop, when both outputs stopped for ~1.9 s and nothing stored could
+say which side stalled (nodes/nav2_bringup/README.md, "Invalid source stop during the final turn"). One executor timer
+every 0.05 s records its own gap, refreshes the open scan gaps and expires the pending cloud.
+
+| Metric | Meaning |
+|---|---|
+| `laser_filter_scan_gap_seconds{stream}` (histogram) and `_max` (gauge) | time between consecutive scans: `stream="input"` is `/scan` reaching `on_scan`, `"output"` is `/scan_filtered` after publish. `_max` is the longest gap of the last 60 s including the open gap since the latest scan |
+| `laser_filter_scan_lag_seconds{stream}` and `_max` | wall clock minus the scan header stamp at the same points |
+| `laser_filter_executor_tick_gap_seconds` and `_max` | time between executor ticks (a stalled executor) |
+
+Buckets 0.05-5 s; the `le="1.0"` bucket splits gaps at the collision monitor `source_timeout`.
 
 ## Code layout
 
@@ -46,7 +61,8 @@ The head ToF cloud (`tof_obstacle_cloud`, rtabmap_util `point_cloud_xyz`) sees t
 |---|---|---|
 | `self_filter.py` | no | `parse_polygon` (finite, valid simple polygon), `apply_polygon_param` (runtime parameter: replace or refuse), `quaternion_matrix`, `transform_points`, `cloud_self_mask` (ToF point keep mask), `PendingSlot` (newest-wins cloud waiting for TF, drop count), `SelfFilter` (transform, runtime polygon replacement, beam test, `filter_cloud`) |
 | `config.py` | no | pydantic config, `LASER_FILTER_CONFIG` |
-| `node.py` | yes | `LaserFilterNode`: `polygon` parameter with validation, TF lookup, scan in / out, ToF cloud in / out (non-blocking TF at the stamp, pending slot, expiry timer) |
+| `metrics.py` | no | stall telemetry: `create_families`, `GapLagWindow` (gap and lag histograms, 60 s window max), `LaserFilterMetrics` (input, output, executor tick) |
+| `node.py` | yes | `LaserFilterNode`: `polygon` parameter with validation, TF lookup, scan in / out, ToF cloud in / out (non-blocking TF at the stamp, pending slot), the 0.05 s tick (executor gap, open scan gaps, cloud expiry), metrics server start |
 | `__main__.py` | yes | entry point |
 
 ## Development
@@ -58,6 +74,6 @@ uv run pytest tests/ -v
 uv run poe lint
 ```
 
-Tests: `tests/test_self_filter.py` (polygon parsing and rejection incl. NaN / inf coordinates, a bow tie and a zero-area polygon, NaN marking inside the polygon, the polygon -> scan frame transform with a turned and offset lidar, runtime polygon replacement keeping the transform, an invalid runtime polygon (wrong type, bow tie, NaN) keeping the old one, `quaternion_matrix` against known rotations and an unnormalised quaternion, no scipy in the node or its dependencies, not ready without the transform), `tests/test_executor_select.py` (`executor` key default, values and rejection; `make_executor` picks the class; `run` spins the chosen executor, not the global one), `tests/test_config.py` (the deployed config validates; bad polygon and unknown keys rejected; config path from `LASER_FILTER_CONFIG`), `tests/test_cloud_filter.py` (ToF cloud against the deployed polygon: side frame and parked gripper points removed, front and rear notch kept, points above `cloud_self_max_height_m` kept, below-floor points outside the polygon kept, non-finite removed, a vertex list and an empty cloud; a replaced runtime polygon with a released arm shadow removes arm points and the restored static one keeps the notch; `transform_points` round-trips a yawed and tilted transform; `filter_cloud` keeps obstacles unmoved in the cloud frame through a panned and tilted head transform and passes an empty cloud as empty; `PendingSlot` newest wins, expiry and drop counting; cloud config defaults, `cloud_topic: null`, rejection of non-positive values and unknown keys, the four cloud keys set in the deployed config outside the generated region; `LaserFilterNode` against ROS doubles (rclpy is not installed on dev machines): a cloud is published with its input header only once the TF at its stamp arrives (not for a TF at another stamp, not from the expiry timer), the expiry timer drops and counts a cloud without TF and never publishes, a newer cloud supersedes the waiting one, an empty cloud is passed through with its header, and a scan is published while a cloud still waits for its TF).
+Tests: `tests/test_self_filter.py` (polygon parsing and rejection incl. NaN / inf coordinates, a bow tie and a zero-area polygon, NaN marking inside the polygon, the polygon -> scan frame transform with a turned and offset lidar, runtime polygon replacement keeping the transform, an invalid runtime polygon (wrong type, bow tie, NaN) keeping the old one, `quaternion_matrix` against known rotations and an unnormalised quaternion, no scipy in the node or its dependencies, not ready without the transform), `tests/test_executor_select.py` (`executor` key default, values and rejection; `make_executor` picks the class; `run` spins the chosen executor, not the global one and starts the metrics server with the config port), `tests/test_metrics.py` (a first record observes lag only, then gaps; a 1.9 s stall lands above the `le="1.0"` bucket and in the window max with a late backlog lag; `refresh` reports the open gap of a stopped stream; a stall older than 60 s leaves the window max; the executor window has no lag; `metrics_port` default, range and the deployed 19120; `LaserFilterNode` records input and output gap and lag per scan, a scan dropped for missing TF as input only, and the tick records the executor gap and the open scan gaps), `tests/test_config.py` (the deployed config validates; bad polygon and unknown keys rejected; config path from `LASER_FILTER_CONFIG`), `tests/test_cloud_filter.py` (ToF cloud against the deployed polygon: side frame and parked gripper points removed, front and rear notch kept, points above `cloud_self_max_height_m` kept, below-floor points outside the polygon kept, non-finite removed, a vertex list and an empty cloud; a replaced runtime polygon with a released arm shadow removes arm points and the restored static one keeps the notch; `transform_points` round-trips a yawed and tilted transform; `filter_cloud` keeps obstacles unmoved in the cloud frame through a panned and tilted head transform and passes an empty cloud as empty; `PendingSlot` newest wins, expiry and drop counting; cloud config defaults, `cloud_topic: null`, rejection of non-positive values and unknown keys, the four cloud keys set in the deployed config outside the generated region; `LaserFilterNode` against ROS doubles (rclpy is not installed on dev machines): a cloud is published with its input header only once the TF at its stamp arrives (not for a TF at another stamp, not from the expiry timer), the expiry timer drops and counts a cloud without TF and never publishes, a newer cloud supersedes the waiting one, an empty cloud is passed through with its header, and a scan is published while a cloud still waits for its TF).
 
 Consumers: `slam_toolbox` (`scan_topic`), Nav2 global/local costmap obstacle layers and `collision_monitor` (`nodes/nav2_bringup/config/nav2_params.yaml`) for `/scan_filtered`; the local costmap ToF voxel layer, `collision_monitor`, web_ui and mcp_server for `/tof/points_filtered`.
