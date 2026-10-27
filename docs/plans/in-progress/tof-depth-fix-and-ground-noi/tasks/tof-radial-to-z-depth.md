@@ -6,19 +6,17 @@ value: "The ToF floor is flat again: the 2.7 cm dome from treating radial distan
 files: [nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/tests/test_config.py, nodes/bridges/arducam_tof/tests/data/floor_capture.json, nodes/bridges/arducam_tof/README.md]
 verify: "cd nodes/bridges/arducam_tof && uv run --frozen pytest tests -q && uv run poe lint"
 depends_on: []
-owns: [tof-depth-z]
-uses: []
 model: sonnet
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--tof-radial-to-z-depth
-branch: tof-depth-fix-and-ground-noi--tof-radial-to-z-depth
 verified_head: 006637eaba64527ac71159037001b5c3c731c55c
-run: tof-depth-fix-and-ground-noi
-provides: [tof-radial-to-z, floor-capture-fixture]
-acs_for_audit: [a8]
-process_gaps: []
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # ToF radial to z depth

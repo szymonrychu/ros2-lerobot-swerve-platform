@@ -6,19 +6,17 @@ value: "A positive pan command turns the head left again, so head TF, calibratio
 files: [ansible/group_vars/client.yml, tests/test_head_servo_config.py, tests/README.md]
 verify: "uv run pytest tests/test_head_servo_config.py -q && uv run poe lint && uv run poe test-ansible"
 depends_on: []
-owns: [head-pan-sign]
-uses: []
 model: sonnet
-estimate: 30
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--head-pan-inverted
-branch: tof-depth-fix-and-ground-noi--head-pan-inverted
 verified_head: 71c9cb0f1f2a38c34cf6c4ff18097b980ce84bc1
-run: tof-depth-fix-and-ground-noi
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 30
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Head pan inverted

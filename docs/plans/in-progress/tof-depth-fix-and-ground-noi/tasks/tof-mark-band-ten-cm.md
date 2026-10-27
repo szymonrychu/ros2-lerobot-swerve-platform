@@ -6,19 +6,17 @@ value: The local costmap and the collision monitor stop collecting floor noise a
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_tof_voxel_layer.py, tests/test_nav_tof_collision.py, tests/test_nav_ground_voxel_layer.py, nodes/mcp_server/mcp_server/perception.py, nodes/mcp_server/mcp_server/tools.py, nodes/nav2_bringup/README.md, tests/README.md]
 verify: "uv run pytest tests/test_nav_tof_voxel_layer.py tests/test_nav_tof_collision.py tests/test_nav_ground_voxel_layer.py tests/test_tof_obstacle_wiring.py -q && uv run poe lint && cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint"
 depends_on: []
-owns: [tof-mark-band]
-uses: []
 model: sonnet
-estimate: 40
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--tof-mark-band-ten-cm
-branch: tof-depth-fix-and-ground-noi--tof-mark-band-ten-cm
 verified_head: d612a7e41a79745424b4ba37a64202031cddf88d
-run: tof-depth-fix-and-ground-noi
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 40
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: 33
+actual_tokens: 835265
+actual_roles: "impl 1, review 33"
+actual_role_tokens: "impl 73988, review 761277"
 ---
 
 # ToF mark band ten cm

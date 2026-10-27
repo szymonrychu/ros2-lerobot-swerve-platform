@@ -6,20 +6,17 @@ value: "The robot is re-zeroed, recalibrated and shown to see a flat floor and a
 files: [docs/runbooks/head-remount-floor-check.md, tests/test_head_remount_runbook.py, docs/runbooks/ground-estimation.md, docs/runbooks/head-rgbd-fusion.md, docs/head-rgbd-fusion-methodology.md, MEMORY.md, tests/README.md]
 verify: "uv run pytest tests/test_head_remount_runbook.py -q && uv run poe lint"
 depends_on: [head-pan-inverted, tof-radial-to-z-depth, tof-calibrated-k-deploy, ground-temporal-wiring, tof-mark-band-ten-cm]
-owns: []
-uses: [tof-depth-z, head-pan-sign, tof-mark-band, ground-cell-median]
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--head-remount-floor-runbook
-branch: tof-depth-fix-and-ground-noi--head-remount-floor-runbook
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: tof-depth-fix-and-ground-noi
-provides: []
-acs_for_audit: [a5]
-process_gaps: ["Results section must be filled from the robot run after merge and deploy (date, numbers, pass/fail per check)."]
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
 points_actual: 1
+actual_minutes: 10
+actual_tokens: 659926
+actual_roles: "impl 3, review 8"
+actual_role_tokens: "impl 183135, review 476791"
 ---
 
 # Head remount floor runbook

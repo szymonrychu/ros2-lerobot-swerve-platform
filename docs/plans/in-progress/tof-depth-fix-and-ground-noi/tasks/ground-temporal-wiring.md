@@ -6,19 +6,17 @@ value: "The ground node publishes steps, drops and obstacles from denoised cell 
 files: [nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/README.md]
 verify: "scripts/cpp-node-test.sh ground_estimator_cpp && uv run pytest tests/test_ground_estimator_deploy.py tests/test_ground_estimator_readme.py tests/test_ground_docs.py -q && uv run poe lint && uv run poe test-ansible"
 depends_on: [ground-cell-temporal-median, tof-calibrated-k-deploy]
-owns: []
-uses: [ground-cell-median]
 model: sonnet
-estimate: 80
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-depth-fix-and-ground-noi--ground-temporal-wiring
-branch: tof-depth-fix-and-ground-noi--ground-temporal-wiring
 verified_head: 64b3ebd63af7e0494fd4829a02a5934c23aa1248
-run: tof-depth-fix-and-ground-noi
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 8
+expected_minutes: 80
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 21
+actual_tokens: 904475
+actual_roles: "impl 6, review 15"
+actual_role_tokens: "impl 354927, review 549548"
 ---
 
 # Ground temporal wiring
