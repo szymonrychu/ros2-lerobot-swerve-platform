@@ -2907,6 +2907,25 @@ Unit tests for `scripts/agent_retrospectives.py` (pulls the agent's retrospectiv
 | `test_main_exit_1_on_connection_error` | A connection error gives exit 1 with the reason. |
 | `test_main_exit_2_on_bad_config` | An invalid or missing config gives exit 2. |
 
+### test_d435_diag_script.py
+
+Tests for `scripts/d435_diag.sh` (read-only RealSense D435 diagnostic), run with `/bin/bash` (3.2 on macOS). `ssh` and `curl` are stubbed on PATH: the ssh stub logs every remote command and answers `systemctl is-active` with `STUB_UNIT_STATE`; the curl stub serves a canned topic_scraper_api `/topics` answer.
+
+| Test | What it covers |
+|---|---|
+| `test_script_parses_with_bash_n` | `bash -n` passes. |
+| `test_help_lists_every_mode` | `--help` names `--topics`, `--rates`, `--device`, `--watch`, `--lines`, `--since`, `--interval`, `--help` and the `D435_CLIENT_HOST`, `D435_SSH_USER`, `SCRAPER_PORT` env vars, without any SSH call. |
+| `test_unknown_option_fails` | An unknown option exits 1 with `Unknown option`. |
+| `test_since_with_a_quote_is_rejected` | A `--since` value with a single quote exits 1 before any SSH call (it is quoted into the remote journalctl command). |
+| `test_no_rclpy_or_python_on_the_client` | The script code (comments aside) has no `python` and no `ros2 ` command; every remote command logged across the default mode, `--topics`, `--rates` and `--device` has neither. |
+| `test_default_mode_reads_service_usb_firmware_psu_and_errors` | The default mode runs `systemctl is-active ros2-realsense_d435`, `lsusb -d 8086:0b07`, the sysfs `speed` read, the `Device FW version` / `Device USB type` journal grep, `vcgencmd get_config usb_max_current_enable`, the `5A` PSU journal grep, the three error counts with `--since`, and the `--lines` journal tail. |
+| `test_device_mode_refuses_a_running_unit` | `--device` with the unit active exits non-zero, says it refuses and never runs `rs-enumerate-devices`. |
+| `test_device_mode_enumerates_a_stopped_camera` | `--device` with the unit inactive runs `rs-enumerate-devices -s` and `-c` and prints their output. |
+| `test_topics_lists_only_d435_topics_with_type` | `--topics` prints the `/head/d435/` topics with their types and leaves out others. |
+| `test_scraper_unreachable_exits_2_with_a_hint` | `--topics` and `--rates` exit 2 with the enable-and-deploy hint when topic_scraper_api does not answer. |
+| `test_rates_from_header_stamps` | `--rates` polls only the `/head/d435/*/camera_info` endpoints on the client for `--interval` seconds and prints 30.0 Hz from 31 distinct stamps 33.3 ms apart (each seen twice, so not a lower bound), and `no sample` for a topic with only 404 answers. |
+| `test_scraper_allows_camera_info` | The client topic_scraper_api `allowed_types` includes `sensor_msgs/msg/CameraInfo` and still not raw `sensor_msgs/msg/Image`. |
+
 ### test_agent_skills_docs.py
 
 Docs guard for the driving-agent skills suite.

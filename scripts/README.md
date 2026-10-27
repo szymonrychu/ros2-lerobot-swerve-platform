@@ -174,6 +174,26 @@ Read-only check that the patched `nav2_mppi_controller` overlay is built and loa
 ./scripts/mppi_overlay_diag.sh --lines 40
 ```
 
+## d435_diag.sh
+
+Read-only RealSense D435 diagnostic for the client (`ros2-realsense_d435`). It never starts a ROS participant or Python on the client (no rclpy probes there): SSH runs only `systemctl`, `journalctl`, `lsusb`, sysfs and device-tree reads, `vcgencmd`, `curl` to the local topic_scraper_api, and with `--device` `rs-enumerate-devices`. How to read the output: `.claude/skills/d435-diagnostics/SKILL.md`.
+
+- **default**: unit state; `lsusb -d 8086:0b07` and the sysfs `speed` of the camera (expect `5000`, USB 3); the latest `Device FW version` / `Device USB type` startup lines of the unit's journal; PSU and USB current (`vcgencmd get_config usb_max_current_enable`, the PSU max current and USB over-current flag from `/proc/device-tree/chosen/power`, any `5A` PSU line of this boot's journal); counts of `VIDIOC_QBUF`, `No such device`, `Frame didn't arrive` over `--since` (default `30 min ago`); the last `--lines` journal lines.
+- **--topics**: every `/head/d435/` topic with its type from topic_scraper_api `GET /topics`.
+- **--rates**: the rate of every `/head/d435/*/camera_info` topic from its header stamps. The scraper keeps only the latest sample per topic (its `sample_seq` is global), so the script polls those endpoints with curl on the client for `--interval` seconds and computes (distinct stamps - 1) / stamp span; when every poll saw a new frame it marks the rate as a lower bound.
+- **--device**: `rs-enumerate-devices -s` and `-c` (serial, firmware, intrinsics, Depth-to-Color extrinsic), only while the unit is inactive or failed; it refuses (exit 1) while the unit runs, since the driver holds the camera.
+- `--watch` repeats the mode every `--interval` seconds (default 10). `--topics` and `--rates` exit 2 with a hint when topic_scraper_api is unreachable (it is disabled by default; `enabled: true` in `ansible/group_vars/client.yml`, then `scripts/deploy-nodes.sh client topic_scraper_api`). Its `allowed_types` include `sensor_msgs/msg/CameraInfo` for `--rates`.
+
+Env: `D435_CLIENT_HOST` (default `client.ros2.lan`), `D435_SSH_USER` (default from `ansible/inventory` or `$USER`), `SCRAPER_PORT` (default 18100).
+
+```bash
+./scripts/d435_diag.sh
+./scripts/d435_diag.sh --since "2 hours ago" --lines 40
+./scripts/d435_diag.sh --topics
+./scripts/d435_diag.sh --rates --interval 5
+./scripts/d435_diag.sh --device
+```
+
 ## mppi_cpu_compare.py
 
 Compares the CPU of `ros2-nav2_bringup.service` before and after the overlay deploy from the server's Mimir (`prometheus_url: http://server.ros2.lan:9009/prometheus`, `host: client`). Queries `rate(container_cpu_usage_seconds_total{host, id="/system.slice/<unit>"}[1m])` over `[switch - window_h, switch]` and `[switch + settle_min, switch + settle_min + window_h]` (the settle period after the restart is left out) and prints mean and p95 of both windows. PASS when after <= `max(before * (1 + rel_limit), before + abs_limit_cores)` for both statistics; exit 1 on FAIL, exit 2 when a series is empty or Mimir is unreachable (never a PASS). `switch_time: auto` takes the latest `container_start_time_seconds` of the unit (the deploy restart), or set an epoch in seconds. Configured by `scripts/mppi_cpu_compare.yaml` (pydantic-validated: defaults `window_h` 6, `settle_min` 10, `rel_limit` 0.05, `abs_limit_cores` 0.01). Mimir keeps 1 d of metrics, so the before window must still be in retention. See `nodes/nav2_bringup/README.md` (Verifying the MPPI overlay).

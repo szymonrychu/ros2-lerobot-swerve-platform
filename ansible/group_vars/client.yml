@@ -1216,6 +1216,8 @@ ros2_nodes:
         # No raw sensor_msgs/msg/Image: deserializing the 640x480 raw frames (~20 MB/s) cost ~0.4 cores (2026-10-11);
         # previews come from the compressed topics.
         - sensor_msgs/msg/CompressedImage
+        # Small; gives the D435 stream rates (scripts/d435_diag.sh --rates) without raw images.
+        - sensor_msgs/msg/CameraInfo
         - sensor_msgs/msg/LaserScan
         - sensor_msgs/msg/PointCloud2
         - sensor_msgs/msg/Imu
