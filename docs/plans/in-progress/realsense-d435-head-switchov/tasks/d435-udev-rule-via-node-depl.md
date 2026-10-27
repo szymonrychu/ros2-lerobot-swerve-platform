@@ -1,6 +1,6 @@
 ---
 title: D435 udev rule via node deploy
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: scripts/deploy-nodes.sh client realsense_d435 gives the D435 the right device permissions and no USB autosuspend.
 files: [ansible/roles/ros2_base/tasks/main.yml, ansible/playbooks/tasks/realsense_d435_setup.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_realsense_d435_udev.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_realsense_d435_udev.py -q && uv run poe lint &
 depends_on: [d435-node-type-and-profile]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: 5fff7840
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 12
+actual_tokens: 487766
+actual_roles: "impl 4, review 7"
+actual_role_tokens: "impl 308133, review 179633"
 ---
 
 # D435 udev rule via node deploy
@@ -61,3 +61,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
