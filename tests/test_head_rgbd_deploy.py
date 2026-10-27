@@ -176,11 +176,12 @@ def test_client_playbook_step_order() -> None:
 
 
 def test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed() -> None:
-    """User 2026-10-24: no RGB-D fusion and no ground estimate for driving; the raw ToF and head camera stay on."""
+    """User 2026-10-24: no RGB-D fusion and no ground estimate for driving; the raw ToF, the head obstacle cloud
+    (d435_obstacle_cloud, D5) and the head camera stay on."""
     nodes = {n["name"]: n for n in client_vars()["ros2_nodes"]}
     for name in ("head_rgbd_cpp", "ground_estimator_cpp"):
         assert nodes[name]["present"] is True and nodes[name]["enabled"] is False, name
-    for name in ("arducam_tof", "tof_obstacle_cloud", "head_camera_cpp"):
+    for name in ("arducam_tof", "d435_obstacle_cloud", "head_camera_cpp"):
         assert nodes[name]["present"] is True and nodes[name]["enabled"] is True, name
     targets = {t["node"] for t in client_vars()["monitoring_agent_node_targets"]}
     assert not targets & {"head_rgbd_cpp", "ground_estimator_cpp"}

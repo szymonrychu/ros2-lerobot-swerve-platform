@@ -26,13 +26,13 @@ COLLISION_TOF_SOURCES = ("tof_obstacles", "tof_cliff")
 BAND_PAIRS = {"tof_obstacles": "tof_mark", "tof_cliff": "tof_cliff_mark"}
 TOF_FRAME = "tof_optical_frame"
 NEW_NODE_TESTS = (
-    "test_tof_obstacle_cloud_config.py",
+    "test_d435_obstacle_cloud_config.py",
     "test_nav_tof_voxel_layer.py",
     "test_nav_tof_collision.py",
     "test_tof_obstacle_wiring.py",
     "test_nav_ground_voxel_layer.py",
 )
-NEW_NODE_NAMES = ("tof_obstacle_cloud",)
+NEW_NODE_NAMES = ("d435_obstacle_cloud",)
 
 
 def load_client() -> dict[str, Any]:

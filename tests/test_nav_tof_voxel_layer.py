@@ -17,7 +17,8 @@ NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yam
 NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
-CLOUD_PARAMS = REPO_ROOT / "nodes" / "tof_obstacle_cloud" / "config" / "point_cloud_xyz.yaml"
+CLOUD_PARAMS = REPO_ROOT / "nodes" / "d435_obstacle_cloud" / "config" / "point_cloud_xyz.yaml"
+CLOUD_NODE = "d435_obstacle_cloud"
 LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
 
 STVL_PLUGIN = "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
@@ -137,12 +138,12 @@ def tof_fov_rad() -> tuple[float, float]:
 
 
 def cloud_max_depth() -> float:
-    """max_depth of the tof_obstacle_cloud point_cloud_xyz params.
+    """max_depth of the d435_obstacle_cloud point_cloud_xyz params.
 
     Returns:
         float: Farthest point the cloud contains (m).
     """
-    return yaml.safe_load(CLOUD_PARAMS.read_text())["tof_obstacle_cloud"]["ros__parameters"]["max_depth"]
+    return yaml.safe_load(CLOUD_PARAMS.read_text())[CLOUD_NODE]["ros__parameters"]["max_depth"]
 
 
 def lines_before(key: str, text: str) -> list[str]:
@@ -258,7 +259,7 @@ def test_ranges_stay_inside_the_cloud_max_depth() -> None:
     for name in MARK_SOURCES:
         assert layer[name]["obstacle_range"] <= max_depth
     # The clearing frustum starts where the cloud starts (point_cloud_xyz min_depth).
-    min_depth = yaml.safe_load(CLOUD_PARAMS.read_text())["tof_obstacle_cloud"]["ros__parameters"]["min_depth"]
+    min_depth = yaml.safe_load(CLOUD_PARAMS.read_text())[CLOUD_NODE]["ros__parameters"]["min_depth"]
     assert layer[CLEAR_SOURCE]["min_z"] >= min_depth
 
 
