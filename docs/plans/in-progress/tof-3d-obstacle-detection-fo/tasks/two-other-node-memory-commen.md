@@ -8,11 +8,11 @@ verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
-verified_head: ""
+verified_head: 271aae7d
 points: 1
 expected_minutes: ""
 expected_tokens: ""
-points_actual: ""
+points_actual: 1
 actual_minutes: ""
 actual_tokens: ""
 actual_roles: ""
@@ -56,6 +56,9 @@ Two other node memory comments in client.yml still say 'Not measured yet (C++ re
 
 Discovered in task `laser-filter-tof-self-filter` during run `tof-3d-obstacle-detection-fo`.
 
+- 2026-10-27 done: re-verified 2026-10-27: grep finds no 'Not measured yet (C++ relay' in client.yml
+
+- 2026-10-27 actuals: no agent records
 
 ## Ruling
 
