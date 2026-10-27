@@ -141,7 +141,10 @@ class RobotApi(Protocol):
     def move_relative(
         self, dx: float, dy: float, dyaw: float, timeout_s: float, precise: bool = False
     ) -> NavigationResult:
-        """Blocking NavigateToPose relative to base_link."""
+        """Blocking move relative to base_link: a backing or sideways move of at most 0.5 m with dyaw 0 is one straight
+        twist on cmd_vel_nav (no turn first); a turn (dyaw != 0, or a goal Nav2 starts with an in-place turn) is
+        refused (RobotError) before any command when the scan has a return inside the rotation circle or no fresh
+        scan; anything else is a NavigateToPose goal."""
         ...
 
     def dock(self, goal: DockGoal, timeout_s: float) -> DockResult:
