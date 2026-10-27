@@ -8,11 +8,11 @@ verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
-verified_head: ""
+verified_head: 271aae7d
 points: 1
 expected_minutes: ""
 expected_tokens: ""
-points_actual: ""
+points_actual: 1
 actual_minutes: ""
 actual_tokens: ""
 actual_roles: ""
@@ -56,6 +56,9 @@ The verification environment resolves uv to Python 3.15, which has no manifold3d
 
 Discovered in task `tof-obstacle-cloud-node` during run `tof-3d-obstacle-detection-fo`.
 
+- 2026-10-27 done: re-verified 2026-10-27: root suite green on main (2156 passed)
+
+- 2026-10-27 actuals: no agent records
 
 ## Ruling
 
