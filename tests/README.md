@@ -1946,7 +1946,8 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_laser_polygon_is_the_footprint_plus_margin_and_keeps_the_notches` | The laser polygon is simple, contains the footprint + 1 cm, reaches at most 1.5 cm beyond it and leaves the rear notch point outside. |
 | `test_offset_polygon_grows_by_the_margin` | A square grows by exactly the margin (mitred corners). |
 | `test_stopbox_sub_polygons_sweep_the_footprint_toward_their_motion` | Nine sub-polygons (rotate + 8 sectors), each simple with 4+ points, containing the footprint and reaching beyond the self-filter polygon; each directional one contains the footprint moved 2 cm along every direction of its sector but not the footprint moved 1.5 cm away. |
-| `test_stopbox_rotate_is_the_bounding_box_plus_margin` | `rotate` is the 4-point footprint bounding box + 2 cm. |
+| `test_stopbox_rotate_covers_every_footprint_corner_through_a_full_turn` | Every footprint vertex turned through 360 deg (1 deg steps) stays inside the `rotate` polygon. |
+| `test_stopbox_rotate_is_the_swept_circle_plus_margin` | `rotate` contains the circle of circumscribed radius + 2 cm and is a tight tangent polygon around it. |
 | `test_stopbox_polygons_function_matches_generate` | `stopbox_polygons` gives the same result as `generate`. |
 | `test_nav2_params_equal_the_generator_output` | Re-rendering `nav2_params.yaml` changes nothing. |
 | `test_laser_filter_equals_the_generator_output` | Re-rendering `footprint_filter.yaml` changes nothing. |

@@ -12,7 +12,7 @@ derives:
   up to max_cost_scaling_factor that keeps the cost >= 1 at the circumscribed radius; the formula lives in
   footprint_geometry, mcp_server applies it to the dynamic footprint),
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
-  the bounding box + margin for rotation in place,
+  the circle swept by the footprint turning in place (circumscribed radius + margin) for rotation in place,
 - the collision_monitor CliffStop: the footprint + cliff_margin_m (the head ToF sees the floor beyond a cliff) for
   rotation and every command with a forward or sideways component, the footprint alone while backing away,
 - the laser_filter self polygon (footprint + laser_filter_margin_m),
@@ -40,7 +40,7 @@ from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
-from shapely.geometry import MultiPoint, Polygon, box
+from shapely.geometry import MultiPoint, Polygon
 from shapely.ops import unary_union
 
 DEFAULT_CONFIG = Path(__file__).resolve().with_suffix(".yaml")
@@ -77,8 +77,10 @@ SECTORS: tuple[tuple[str, float, float], ...] = (
     ("right", -1.7453, -1.3963),
     ("forward_right", -1.3963, -0.1745),
 )
-# Rotation in place (|v| below this) checks the bounding box: the turning frame sweeps the notches and corners.
+# Rotation in place (|v| below this) checks the circle the turning footprint sweeps (circumscribed radius + margin),
+# approximated by a ROTATE_SIDES-gon with edges tangent to it.
 ROTATE_LINEAR_MAX = 0.005
+ROTATE_SIDES = 32
 LINEAR_MAX = 10.0
 THETA_LIMIT = 10.0
 FULL_TURN = 3.1416
@@ -316,6 +318,25 @@ def sweep_polygon(points: list[Point2], start: float, end: float, margin: float)
     return unary_union(pieces)
 
 
+def circumscribing_polygon(radius: float, sides: int) -> Polygon:
+    """Regular polygon around base_link whose edges are tangent to the circle of `radius` (so it contains the circle).
+
+    Args:
+        radius (float): Circle radius (m).
+        sides (int): Number of edges.
+
+    Returns:
+        Polygon: Regular polygon, first edge centred on the +x axis.
+    """
+    vertex = radius / math.cos(math.pi / sides)
+    return Polygon(
+        [
+            (vertex * math.cos((2 * k + 1) * math.pi / sides), vertex * math.sin((2 * k + 1) * math.pi / sides))
+            for k in range(sides)
+        ]
+    )
+
+
 def stopbox_polygons(points: list[Point2], margin: float, decimals: int) -> dict[str, dict]:
     """collision_monitor StopBox velocity sub-polygons.
 
@@ -327,8 +348,7 @@ def stopbox_polygons(points: list[Point2], margin: float, decimals: int) -> dict
     Returns:
         dict[str, dict]: Sub-polygon name -> points and selection ranges, in Nav2 selection order.
     """
-    minx, miny, maxx, maxy = Polygon(points).bounds
-    rotate = box(minx - margin, miny - margin, maxx + margin, maxy + margin)
+    rotate = circumscribing_polygon(circumscribed_radius(points) + margin, ROTATE_SIDES)
     subs: dict[str, dict] = {
         "rotate": {
             "points": to_points(rotate, decimals),

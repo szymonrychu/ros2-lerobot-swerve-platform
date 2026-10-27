@@ -462,15 +462,28 @@ def test_stopbox_sub_polygons_sweep_the_footprint_toward_their_motion() -> None:
         assert not poly.contains(away), name
 
 
-def test_stopbox_rotate_is_the_bounding_box_plus_margin() -> None:
+def test_stopbox_rotate_covers_every_footprint_corner_through_a_full_turn() -> None:
+    """Rotating in place sweeps the circumscribed circle: each footprint vertex, turned 0..360 deg, stays inside."""
+    gen = generated()
+    rotate = Polygon(gen.stopbox["rotate"]["points"])
+    assert LinearRing(gen.stopbox["rotate"]["points"]).is_simple
+    for x, y in gen.footprint:
+        radius, bearing = math.hypot(x, y), math.atan2(y, x)
+        for degrees in range(360):
+            angle = bearing + math.radians(degrees)
+            point = Point(radius * math.cos(angle), radius * math.sin(angle))
+            assert rotate.buffer(TOL).contains(point), f"({x}, {y}) turned {degrees} deg leaves the rotate polygon"
+
+
+def test_stopbox_rotate_is_the_swept_circle_plus_margin() -> None:
     settings = load_settings(DEFAULT_CONFIG)
     gen = generated()
-    minx, miny, maxx, maxy = Polygon(gen.footprint).bounds
-    m = settings.stopbox_margin_m
-    assert Polygon(gen.stopbox["rotate"]["points"]).bounds == pytest.approx(
-        (minx - m, miny - m, maxx + m, maxy + m), abs=TOL
-    )
-    assert len(gen.stopbox["rotate"]["points"]) == 4
+    reach = circumscribed_radius(gen.footprint) + settings.stopbox_margin_m
+    rotate = Polygon(gen.stopbox["rotate"]["points"])
+    assert rotate.buffer(TOL).contains(Point(0.0, 0.0).buffer(reach))
+    # Tight: no vertex farther than the circle's circumscribing polygon needs (cos(pi / n) at the edge midpoints).
+    n = len(gen.stopbox["rotate"]["points"])
+    assert max(math.hypot(x, y) for x, y in gen.stopbox["rotate"]["points"]) <= reach / math.cos(math.pi / n) + TOL
 
 
 def test_stopbox_polygons_function_matches_generate() -> None:
