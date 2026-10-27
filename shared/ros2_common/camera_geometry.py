@@ -10,6 +10,7 @@ Conventions (ROS REP-103):
 """
 
 import math
+from collections.abc import Sequence
 from pathlib import Path
 
 import cv2
@@ -28,6 +29,10 @@ UNDISTORT_CRITERIA = (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 100, 1.0e
 # REP-103 camera_link (x fwd, y left, z up) -> optical (z fwd, x right, y down): roll -pi/2, yaw -pi/2.
 OPTICAL_ROLL = -math.pi / 2
 OPTICAL_YAW = -math.pi / 2
+CAMERA_MATRIX_LEN = 9
+PLUMB_BOB_COEFFS = 5
+DEFAULT_DEPTH_SCALE_M = 0.001
+SUPPORTED_DISTORTION_MODELS = ("", "plumb_bob")
 
 
 class CameraIntrinsics(BaseModel):
@@ -72,6 +77,46 @@ class CameraIntrinsics(BaseModel):
             cx=float(k[2]),
             cy=float(k[5]),
             distortion=[float(d) for d in dist],
+        )
+
+    @classmethod
+    def from_camera_info(
+        cls, width: int, height: int, k: Sequence[float], d: Sequence[float], distortion_model: str
+    ) -> "CameraIntrinsics":
+        """Build intrinsics from the fields of a sensor_msgs/CameraInfo (no ROS import needed).
+
+        Args:
+            width: CameraInfo.width in pixels.
+            height: CameraInfo.height in pixels.
+            k: CameraInfo.k, the row-major 3x3 camera matrix (9 values).
+            d: CameraInfo.d distortion coefficients; the first 5 (plumb_bob) are kept.
+            distortion_model: CameraInfo.distortion_model; only "plumb_bob" or "" is supported.
+
+        Returns:
+            CameraIntrinsics: Parsed intrinsics.
+
+        Raises:
+            ValueError: If k is not 9 finite values with positive fx and fy, or the distortion model is
+                unsupported or d is shorter than 5 for plumb_bob.
+        """
+        if distortion_model not in SUPPORTED_DISTORTION_MODELS:
+            raise ValueError(f"unsupported distortion_model {distortion_model!r}; expected 'plumb_bob' or ''")
+        k_arr = np.asarray(k, dtype=np.float64)
+        if k_arr.shape != (CAMERA_MATRIX_LEN,) or not np.all(np.isfinite(k_arr)) or k_arr[0] <= 0 or k_arr[4] <= 0:
+            raise ValueError(f"invalid k {list(k)}: need 9 finite values with fx and fy > 0")
+        distortion: list[float] = []
+        if distortion_model == "plumb_bob" and len(d) > 0:
+            if len(d) < PLUMB_BOB_COEFFS or not np.all(np.isfinite(np.asarray(d[:PLUMB_BOB_COEFFS], dtype=np.float64))):
+                raise ValueError(f"invalid d {list(d)}: plumb_bob needs 5 finite coefficients")
+            distortion = [float(c) for c in d[:PLUMB_BOB_COEFFS]]
+        return cls(
+            width=int(width),
+            height=int(height),
+            fx=float(k_arr[0]),
+            fy=float(k_arr[4]),
+            cx=float(k_arr[2]),
+            cy=float(k_arr[5]),
+            distortion=distortion,
         )
 
     @classmethod
@@ -304,6 +349,54 @@ def project_point_to_pixel(
     if not (0.0 <= u < intr.width and 0.0 <= v < intr.height):
         return None
     return u, v
+
+
+def depth_to_points(
+    depth: np.ndarray,
+    intrinsics: CameraIntrinsics,
+    depth_scale_m: float = DEFAULT_DEPTH_SCALE_M,
+    step: int = 1,
+    min_m: float | None = None,
+    max_m: float | None = None,
+) -> np.ndarray:
+    """Deproject a depth image into points in the optical frame (pinhole model, distortion ignored).
+
+    Args:
+        depth: (height, width) depth image; integer dtypes (16UC1) are scaled by depth_scale_m, floating
+            dtypes (32FC1) are taken as metres already.
+        intrinsics: Intrinsics whose width and height match the image.
+        depth_scale_m: Metres per unit of an integer depth image (0.001 for millimetres).
+        step: Take every step-th pixel in both directions (1 keeps all).
+        min_m: Drop points nearer than this many metres, when given.
+        max_m: Drop points farther than this many metres, when given.
+
+    Returns:
+        np.ndarray: (N, 3) float64 points (x right, y down, z forward) in metres; zero, non-finite and
+        out-of-range pixels are dropped.
+
+    Raises:
+        ValueError: If the image size differs from the intrinsics or step is below 1.
+    """
+    if step < 1:
+        raise ValueError(f"step must be >= 1, got {step}")
+    if depth.shape != (intrinsics.height, intrinsics.width):
+        raise ValueError(
+            f"depth size {depth.shape[::-1]} does not match intrinsics size {(intrinsics.width, intrinsics.height)}"
+        )
+    sub = depth[::step, ::step]
+    z = sub.astype(np.float64)
+    if not np.issubdtype(depth.dtype, np.floating):
+        z = z * depth_scale_m
+    v, u = np.mgrid[0 : depth.shape[0] : step, 0 : depth.shape[1] : step]
+    valid = np.isfinite(z) & (z > 0.0)
+    if min_m is not None:
+        valid &= z >= min_m
+    if max_m is not None:
+        valid &= z <= max_m
+    z = z[valid]
+    x = (u[valid] - intrinsics.cx) * z / intrinsics.fx
+    y = (v[valid] - intrinsics.cy) * z / intrinsics.fy
+    return np.column_stack((x, y, z))
 
 
 def solve_mount_pose(

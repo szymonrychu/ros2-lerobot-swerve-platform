@@ -164,13 +164,19 @@ Conventions (ROS REP-103):
   `T_frame_optical = optical_from_mount(T_frame_parent @ T_parent_mount)`.
 - Pixels are (u right, v down). `T_a_b` maps points of frame b into frame a.
 
-API: models `CameraIntrinsics` (`from_calibration_yaml(path)`, `from_hfov(w, h, hfov_deg)` - an approximation: square
+API: models `CameraIntrinsics` (`from_camera_info(width, height, k, d, distortion_model)` takes the plain fields of a
+sensor_msgs/CameraInfo, keeps the 5 plumb_bob coefficients and raises `ValueError` naming the field for a zero,
+non-finite or wrong-length `k` or a model other than `plumb_bob`/empty; `from_calibration_yaml(path)`, `from_hfov(w, h, hfov_deg)` - an approximation: square
 pixels, centred principal point, no distortion), `MountPose` (`to_matrix()`), `CameraModel` (`calibrated`);
 functions `undistort_pixel`, `pixel_to_ray_camera`, `camera_ray_in_frame`, `intersect_ground` (None if parallel or
 behind), `pixel_to_ground(intr, T_frame_optical, u, v, ground_z)` (None if the ray misses the floor),
 `project_point_to_pixel` (None if behind the camera or off-image), `optical_from_mount`, and
 `solve_mount_pose(samples, intr, initial)` returning `(MountPose, rms_px)` (RMS Euclidean reprojection error per
-sample; at least 3 samples, each `(T_frame_parent, (u, v), (x, y, z))`).
+sample; at least 3 samples, each `(T_frame_parent, (u, v), (x, y, z))`), and
+`depth_to_points(depth, intrinsics, depth_scale_m=0.001, step=1, min_m=None, max_m=None)`: numpy-only deprojection of a
+16UC1 (scaled by `depth_scale_m`, mm by default) or float32 (metres) depth image of the intrinsics' size into an
+N x 3 optical-frame array (x right, y down, z forward); zero, non-finite and out-of-range pixels are dropped, `step`
+subsamples, a size mismatch raises `ValueError`. Distortion is ignored (the D435 depth stream is rectified).
 
 Calibration procedure:
 

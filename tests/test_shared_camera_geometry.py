@@ -19,6 +19,7 @@ from shared.ros2_common.camera_geometry import (  # noqa: E402
     CameraModel,
     MountPose,
     camera_ray_in_frame,
+    depth_to_points,
     intersect_ground,
     optical_from_mount,
     pixel_to_ground,
@@ -246,3 +247,51 @@ def test_solve_camera_mount_script(tmp_path: Path) -> None:
     assert solved["parent_frame"] == "base_link"
     assert solved["z"] == pytest.approx(KNOWN_MOUNT.z, abs=1e-3)
     assert "# rms_px:" in out
+
+
+D435_K = [640.0, 0.0, 320.0, 0.0, 600.0, 240.0, 0.0, 0.0, 1.0]
+D435_D = [0.1, -0.2, 0.001, 0.002, 0.3]
+
+
+def test_from_camera_info_round_trip_and_rejects_zero_k() -> None:
+    intr = CameraIntrinsics.from_camera_info(640, 480, D435_K, D435_D, "plumb_bob")
+    assert (intr.width, intr.height) == (640, 480)
+    assert (intr.fx, intr.fy, intr.cx, intr.cy) == (640.0, 600.0, 320.0, 240.0)
+    assert intr.distortion == D435_D
+    assert CameraIntrinsics.from_camera_info(640, 480, D435_K, [], "").distortion == []
+    with pytest.raises(ValueError, match="k"):
+        CameraIntrinsics.from_camera_info(640, 480, [0.0] * 9, D435_D, "plumb_bob")
+    with pytest.raises(ValueError, match="k"):
+        CameraIntrinsics.from_camera_info(640, 480, [float("nan")] + D435_K[1:], D435_D, "plumb_bob")
+    with pytest.raises(ValueError, match="distortion_model"):
+        CameraIntrinsics.from_camera_info(640, 480, D435_K, D435_D, "rational_polynomial")
+
+
+def test_depth_to_points_plane_and_invalid_pixels() -> None:
+    intr = CameraIntrinsics.from_camera_info(640, 480, D435_K, [], "plumb_bob")
+    depth = np.full((480, 640), 1000, dtype=np.uint16)
+    pts = depth_to_points(depth, intr)
+    assert pts.shape == (640 * 480, 3)
+    assert np.allclose(pts[:, 2], 1.0, atol=1e-6)
+    assert np.allclose(pts[0], [(0 - 320.0) / 640.0, (0 - 240.0) / 600.0, 1.0], atol=1e-6)
+    assert np.allclose(pts[-1], [(639 - 320.0) / 640.0, (479 - 240.0) / 600.0, 1.0], atol=1e-6)
+    depth[0, :] = 0
+    assert depth_to_points(depth, intr).shape[0] == 640 * 479
+    fdepth = np.full((480, 640), 2.0, dtype=np.float32)
+    fdepth[0, 0] = np.nan
+    fdepth[0, 1] = np.inf
+    fdepth[0, 2] = 9.0
+    fpts = depth_to_points(fdepth, intr, depth_scale_m=1.0, max_m=5.0)
+    assert fpts.shape[0] == 640 * 480 - 3
+    assert np.allclose(fpts[:, 2], 2.0)
+    assert depth_to_points(depth, intr, min_m=1.5).shape == (0, 3)
+
+
+def test_depth_to_points_size_mismatch_and_step() -> None:
+    intr = CameraIntrinsics.from_camera_info(640, 480, D435_K, [], "plumb_bob")
+    with pytest.raises(ValueError, match="size"):
+        depth_to_points(np.ones((240, 320), dtype=np.uint16), intr)
+    depth = np.full((480, 640), 500, dtype=np.uint16)
+    pts = depth_to_points(depth, intr, step=4)
+    assert pts.shape == (120 * 160, 3)
+    assert np.allclose(pts[1], [(4 - 320.0) / 640.0 * 0.5, (0 - 240.0) / 600.0 * 0.5, 0.5], atol=1e-6)

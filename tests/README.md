@@ -288,6 +288,9 @@ Tests of `shared/ros2_common/camera_geometry.py` and `scripts/solve_camera_mount
 | `test_from_calibration_yaml` | Loads a camera_calibration yaml. |
 | `test_solver_recovers_known_mount` | Noisy samples recover the mount (< 5 mm, < 0.5 deg, rms < 0.5 px). |
 | `test_solver_needs_three_samples` | Fewer than 3 samples raises ValueError. |
+| `test_from_camera_info_round_trip_and_rejects_zero_k` | CameraInfo fields become fx/fy/cx/cy and 5 coefficients; zero or NaN K and non-plumb_bob models raise. |
+| `test_depth_to_points_plane_and_invalid_pixels` | A 1 m plane gives z = 1 and the expected corner x/y; zero, NaN, inf and out-of-range pixels are dropped. |
+| `test_depth_to_points_size_mismatch_and_step` | A wrong-size image raises ValueError; step subsamples. |
 | `test_solve_camera_mount_script` | The CLI prints the solved mount as YAML plus rms. |
 
 ### `test_shared_scan_agreement.py`
