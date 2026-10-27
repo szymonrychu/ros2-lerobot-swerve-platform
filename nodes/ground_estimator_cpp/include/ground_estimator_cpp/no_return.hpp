@@ -1,6 +1,6 @@
-// No-return areas (design D1, D5): fixed-frame cells where the RGB sees a colour that is not the floor's and the ToF
-// returns nothing (the black ramp). Pure core code, no ROS node wiring. The tracker keeps no points and outputs only
-// caution warning areas (kind no_return, source rgb, no height, no slope), so it can never make anything lethal.
+// No-return areas (design D1, D5): fixed-frame cells where the RGB sees a colour that is not the floor's and the depth
+// camera returns nothing (the black ramp). Pure core code, no ROS node wiring. The tracker keeps no points and outputs
+// only caution warning areas (kind no_return, source rgb, no height, no slope), so it can never make anything lethal.
 #ifndef GROUND_ESTIMATOR_CPP__NO_RETURN_HPP_
 #define GROUND_ESTIMATOR_CPP__NO_RETURN_HPP_
 
@@ -27,7 +27,7 @@ class NoReturnTracker
 {
 public:
   // @param cfg the no-return settings (cell_min_samples, cell_min_share, window_frames, enter_frames, min_cells,
-  //        clearance_cells; enabled, min_range_m and tof_margin_px belong to the caller and to sample_guidance).
+  //        clearance_cells; enabled, min_range_m and margin_px belong to the caller and to sample_guidance).
   // @param cell_size_m edge of a fixed-frame cell in metres (temporal.cell_size_m), > 0.
   // @param floor_band_m half thickness of the floor band (fit.distance_m): depth samples with |height| <= it count
   //        as floor returns of their cell.
@@ -43,7 +43,7 @@ public:
   // @param colour the floor colour model.
   // @param colour_cfg supplies max_mahalanobis.
   // @param fixed_T_base pose of base_link in the fixed frame at the frame's stamp.
-  // @param blocked_cells fixed-frame cells already seen by depth (the stable lethal and stable warning ToF cells,
+  // @param blocked_cells fixed-frame cells already seen by depth (the stable lethal and stable warning depth cells,
   //        CellClassFilter::blocking_cells), whose occlusion shadows are not no-return cells.
   void observe(
     const GuidanceSamples & samples_base, const FloorColourModel & colour, const ColourConfig & colour_cfg,

@@ -168,7 +168,7 @@ std::optional<GuidanceFrame> decode_guidance(
 
 GuidanceSamples sample_guidance(
   const GuidanceFrame & frame, const RayGrid & grid, const Eigen::Isometry3d & base_T_cam, const Plane & plane,
-  const CameraModel & tof, const Eigen::Isometry3d & tof_T_base, const GuidanceConfig & config)
+  const CameraModel & depth_model, const Eigen::Isometry3d & depth_T_base, const GuidanceConfig & config)
 {
   GuidanceSamples out;
   const bool consistent = frame.depth_mm.type() == CV_16UC1 && frame.bgr.type() == CV_8UC3 &&
@@ -214,12 +214,14 @@ GuidanceSamples sample_guidance(
       if (horizontal < min_range || horizontal > max_range) {
         continue;
       }
-      const Eigen::Vector3d in_tof = tof_T_base * hit;
-      if (in_tof.z() <= 0.0) {
+      const Eigen::Vector3d in_depth = depth_T_base * hit;
+      if (in_depth.z() <= 0.0) {
         continue;
       }
-      const cv::Point2d px = project(tof, in_tof);
-      if (px.x < margin || px.y < margin || px.x > tof.width - 1 - margin || px.y > tof.height - 1 - margin) {
+      const cv::Point2d px = project(depth_model, in_depth);
+      const bool outside = px.x < margin || px.y < margin || px.x > depth_model.width - 1 - margin ||
+                           px.y > depth_model.height - 1 - margin;
+      if (outside) {
         continue;
       }
       out.no_return.push_back(to_pcl(hit));

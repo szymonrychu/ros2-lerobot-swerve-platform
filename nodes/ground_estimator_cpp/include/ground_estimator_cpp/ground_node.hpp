@@ -1,10 +1,10 @@
-// The ground estimator node (design D1, D3, D4, D6, D7, D11, D14, D15): fits the floor plane from the ToF cloud with
+// The ground estimator node (design D1, D3, D4, D6, D7, D11, D14, D15): fits the floor plane from the depth cloud with
 // an IMU prior, publishes the lethal obstacle and drop clouds selected by the plane-relative bands and the obstacle
 // versus warning rule (base_link coordinates, the cloud stamp), the warning areas in the map frame, the RGB-D cloud
 // labelled against the tracked plane and the JSON state. Only real data with valid TF is published: no plane, no cloud.
 //
-// Stable classes (ground-detection-robustness D3, D5, D7, D8; part stable-warning-areas): every ToF frame votes the
-// rule's lethal points and warning areas (ToF and colour) into a CellClassFilter on the temporal cell grid of the fixed
+// Stable classes (ground-detection-robustness D3, D5, D7, D8; part stable-warning-areas): every depth frame votes the
+// rule's lethal points and warning areas (depth, colour) into a CellClassFilter on the temporal cell grid of the fixed
 // frame. The lethal clouds carry only this frame's points whose cell is stable lethal (a lethal observation in a cell
 // that is not yet stable is withheld, a held cell publishes nothing it did not see this frame), a region is an obstacle
 // when a cell holding its cluster's points is stable lethal, and the warning areas are the stable warning cell groups
@@ -21,11 +21,12 @@
 // the refit fails its slope is unknown.
 //
 // Guidance (part guided-node; design D3, D4, D5, D12), only while guidance.enabled: an ExactTime synchronizer over the
-// upsampled depth, its camera info and the JPEG of head_rgbd_cpp (one header per pair) plus the latest ToF camera info.
+// registered depth, its camera info and the JPEG of head_rgbd_cpp (one header per pair) plus the latest depth
+// camera info.
 // A pair is decoded, moved to base_link and the fixed frame at its stamp, judged against the tracked plane at its
 // stamp and sampled (guidance.hpp); its depth samples are kept for the edge points (edge_points.hpp) and its
-// no-return samples voted into the NoReturnTracker (no_return.hpp) with the stable lethal and ToF warning cells as the
-// blocked cells. Any failure drops the whole pair. On each ToF cloud with a plane and guidance no older than
+// no-return samples voted into the NoReturnTracker (no_return.hpp) with the stable lethal and depth warning cells as
+// blocked cells. Any failure drops the whole pair. On each depth cloud with a plane and guidance no older than
 // guidance.max_age_s, the edge points of this frame's stable lethal marks are appended to the lethal clouds (never
 // without a stable lethal point, never removing one) and the tracker's no_return areas join the warning areas; they
 // are cell-aligned and stable on their own and skip the PublishedArea continuity. The executor is single-threaded:
@@ -137,7 +138,7 @@ constexpr const char * DROP_REASON_TF = "tf";                        // a cloud 
 constexpr const char * DROP_REASON_NO_PLANE_RGBD = "no_plane_rgbd";  // an RGB-D cloud without a plane at its stamp
 constexpr const char * DROP_REASON_NO_MAP_TF = "no_map_tf";          // warning areas without TF to warnings.frame
 constexpr const char * DROP_REASON_BAD_INPUT = "bad_input";          // a cloud without float32 x, y, z (or rgb)
-constexpr const char * DROP_REASON_GUIDANCE_BAD_INPUT = "guidance_bad_input";  // undecodable pair or no ToF model
+constexpr const char * DROP_REASON_GUIDANCE_BAD_INPUT = "guidance_bad_input";  // undecodable pair or no depth model
 constexpr const char * DROP_REASON_GUIDANCE_TF = "guidance_tf";                // a pair without TF at its stamp
 constexpr const char * DROP_REASON_GUIDANCE_NO_PLANE = "guidance_no_plane";    // a pair without a plane at its stamp
 
@@ -171,7 +172,7 @@ private:
     double stamp_s = 0.0;
   };
 
-  // What the last ToF cloud produced, for the state.
+  // What the last depth cloud produced, for the state.
   struct Cycle
   {
     std::vector<Region> regions;        // cls from the stable cell classes
@@ -208,7 +209,7 @@ private:
   void on_guidance(
     const sensor_msgs::msg::Image::ConstSharedPtr & depth, const sensor_msgs::msg::CameraInfo::ConstSharedPtr & info,
     const sensor_msgs::msg::CompressedImage::ConstSharedPtr & rgb);
-  void on_tof_info(const sensor_msgs::msg::CameraInfo::ConstSharedPtr & msg);
+  void on_depth_info(const sensor_msgs::msg::CameraInfo::ConstSharedPtr & msg);
   // Decode, move, judge and sample a pair, then keep its samples and vote its no-return cells.
   // @param detail set to the reason of a drop.
   // @return nullptr when the pair was used, else its drop reason (DROP_REASON_GUIDANCE_*).
@@ -261,7 +262,7 @@ private:
   std::optional<ImuSample> latest_imu_;
   std::optional<Eigen::Quaterniond> imu_to_base_;  // static rotation of IMU-frame vectors into base_frame
   std::string imu_frame_;                          // the frame imu_to_base_ was looked up for
-  Prior prior_;                                    // of the last ToF cloud
+  Prior prior_;                                    // of the last depth cloud
   std::size_t last_inliers_ = 0;
   double last_inlier_ratio_ = 0.0;
   std::optional<FitReject> last_reject_;
@@ -309,9 +310,9 @@ private:
   message_filters::Subscriber<sensor_msgs::msg::CameraInfo> info_sub_;
   message_filters::Subscriber<sensor_msgs::msg::CompressedImage> rgb_sub_;
   std::unique_ptr<message_filters::Synchronizer<GuidancePolicy>> guidance_sync_;  // after its subscribers
-  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr tof_info_sub_;
-  std::optional<CameraModel> tof_model_;  // of the latest ToF camera info with a usable calibration
-  std::string tof_frame_;                 // its frame
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr depth_info_sub_;
+  std::optional<CameraModel> depth_model_;  // of the latest depth camera info with a usable calibration
+  std::string depth_frame_;                 // its frame
   RayGrid guidance_grid_;
   GuidancePoints guidance_points_;
   NoReturnTracker no_return_;           // on the cell_filter_ grid; reset with it

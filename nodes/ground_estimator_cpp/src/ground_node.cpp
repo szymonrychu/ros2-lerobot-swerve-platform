@@ -42,7 +42,7 @@ constexpr std::array<const char *, 4> ALL_DROP_REASONS = {
   DROP_REASON_TF, DROP_REASON_NO_PLANE_RGBD, DROP_REASON_NO_MAP_TF, DROP_REASON_BAD_INPUT};
 constexpr std::array<const char *, 3> GUIDANCE_DROP_REASONS = {
   DROP_REASON_GUIDANCE_BAD_INPUT, DROP_REASON_GUIDANCE_TF, DROP_REASON_GUIDANCE_NO_PLANE};
-constexpr const char * FITS_HELP = "Plane fits of ToF clouds, by result (ok or the reject reason)";
+constexpr const char * FITS_HELP = "Plane fits of depth clouds, by result (ok or the reject reason)";
 constexpr const char * GUIDANCE_FRAMES_HELP =
   "Guidance pairs (upsampled depth, camera info, JPEG), by result (ok or the drop reason)";
 constexpr const char * DROPPED_HELP = "Clouds, guidance pairs or warning-area messages dropped, by reason";
@@ -58,7 +58,7 @@ constexpr std::array<GaugeSpec, 13> GAUGES = {{
   {METRIC_SLOPE, "Floor slope against gravity of the last cloud with a plane and a fresh IMU, degrees"},
   {METRIC_PLANE_VS_BASE, "Angle between the floor normal and base_link +z of the last cloud with a plane, degrees"},
   {METRIC_REGIONS, "Step and drop regions of the last cloud with a plane"},
-  {METRIC_WARNING_AREAS, "Warning areas (ToF, colour and no_return) of the last cloud with a plane"},
+  {METRIC_WARNING_AREAS, "Warning areas (depth, colour and no_return) of the last cloud with a plane"},
   {METRIC_OBSTACLE_POINTS, "Points of the last obstacle_points cloud"},
   {METRIC_DROP_POINTS, "Points of the last drop_points cloud"},
   {METRIC_TEMPORAL_CELLS, "Cells the temporal median currently holds"},
@@ -66,7 +66,7 @@ constexpr std::array<GaugeSpec, 13> GAUGES = {{
    "Temporal cells unknown in the last cloud because their spread exceeded temporal.max_spread_m"},
   {METRIC_STABLE_LETHAL, "Fixed-frame cells whose stable class is obstacle or drop"},
   {METRIC_STABLE_WARNING, "Fixed-frame cells whose stable class is warning"},
-  {METRIC_OCCLUDED_POINTS, "Points of the last ToF cloud with a plane dropped by the occlusion shadow gate"},
+  {METRIC_OCCLUDED_POINTS, "Points of the last depth cloud with a plane dropped by the occlusion shadow gate"},
   {METRIC_MISMATCH_RATIO, "Floor colour mismatch share of the floor band of the last labelled RGB-D cloud"},
 }};
 
@@ -327,7 +327,7 @@ GroundNode::GroundNode(
   }
   labelled_ = &metrics_.counter(METRIC_LABELLED, "Labelled RGB-D clouds published");
   fit_seconds_ = &metrics_.histogram(
-    METRIC_FIT_SECONDS, "Plane fit and segmentation time per ToF cloud",
+    METRIC_FIT_SECONDS, "Plane fit and segmentation time per depth cloud",
     std::vector<double>(FIT_SECONDS_BUCKETS.begin(), FIT_SECONDS_BUCKETS.end()));
   for (const GaugeSpec & spec : GAUGES) {
     gauges_[spec.name] = &prometheus::BuildGauge().Name(spec.name).Help(spec.help).Register(*metrics_.registry());
@@ -377,9 +377,9 @@ GroundNode::GroundNode(
       GuidancePolicy(GUIDANCE_QUEUE), depth_sub_, info_sub_, rgb_sub_);
     guidance_sync_->registerCallback(
       std::bind(&GroundNode::on_guidance, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
-    tof_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
+    depth_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
       config_.guidance.depth_info_topic, rclcpp::SensorDataQoS(),
-      [this](const sensor_msgs::msg::CameraInfo::ConstSharedPtr & m) { on_tof_info(m); });
+      [this](const sensor_msgs::msg::CameraInfo::ConstSharedPtr & m) { on_depth_info(m); });
   }
 
   state_timer_ = rclcpp::create_timer(
@@ -481,7 +481,7 @@ void GroundNode::on_cloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & 
 
   const auto started = std::chrono::steady_clock::now();
   if (!read_xyz(*msg, base_T_cloud, base_cloud_)) {
-    drop(DROP_REASON_BAD_INPUT, "ToF cloud without float32 x, y, z");
+    drop(DROP_REASON_BAD_INPUT, "depth cloud without float32 x, y, z");
     return;
   }
   have_cloud_ = true;
@@ -545,8 +545,8 @@ void GroundNode::drop_occluded(const Plane & plane, const Eigen::Vector3d & sens
   floor_reference_.points.reserve(n);
   std::size_t kept = 0;
   for (std::size_t i = 0; i < n; ++i) {
-    // A shadowed point within the ToF floor noise is floor whatever hides it: it cannot make a step, ramp or drop, and
-    // it keeps the floor level beside an obstacle.
+    // A shadowed point within the depth floor noise is floor whatever hides it: it cannot make a step, ramp or drop,
+    // and it keeps the floor level beside an obstacle.
     if (!occluded[i] || std::fabs(floor_reference_.heights[i]) <= FLOOR_NOISE_KEEP_M) {
       floor_reference_.points.push_back(filtered_cloud_[i]);
       floor_reference_.heights[kept++] = floor_reference_.heights[i];
@@ -821,10 +821,10 @@ void GroundNode::on_rgbd(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & m
   }
 }
 
-void GroundNode::on_tof_info(const sensor_msgs::msg::CameraInfo::ConstSharedPtr & msg)
+void GroundNode::on_depth_info(const sensor_msgs::msg::CameraInfo::ConstSharedPtr & msg)
 {
-  tof_model_ = camera_model_of(*msg);
-  tof_frame_ = msg->header.frame_id;
+  depth_model_ = camera_model_of(*msg);
+  depth_frame_ = msg->header.frame_id;
 }
 
 void GroundNode::on_guidance(
@@ -855,22 +855,22 @@ const char * GroundNode::use_guidance(
     detail = "guidance pair: " + why;
     return DROP_REASON_GUIDANCE_BAD_INPUT;
   }
-  if (!tof_model_) {
+  if (!depth_model_) {
     detail = "guidance pair before a usable depth camera_info on " + config_.guidance.depth_info_topic;
     return DROP_REASON_GUIDANCE_BAD_INPUT;
   }
   // 2. TF at the pair stamp: the pair's optical frame (the depth is registered to the RGB) in base_link, base_link in
-  // the fixed frame and in the ToF optical frame.
+  // the fixed frame and in the depth camera optical frame.
   const builtin_interfaces::msg::Time & stamp = depth.header.stamp;
   Eigen::Isometry3d base_T_cam;
   Eigen::Isometry3d fixed_T_base;
-  Eigen::Isometry3d tof_T_base;
+  Eigen::Isometry3d depth_T_base;
   if (
     !lookup(config_.base_frame, frame->frame_id, stamp, base_T_cam) ||
     !lookup(config_.fixed_frame, config_.base_frame, stamp, fixed_T_base) ||
-    !lookup(tof_frame_, config_.base_frame, stamp, tof_T_base)) {
+    !lookup(depth_frame_, config_.base_frame, stamp, depth_T_base)) {
     detail = "no TF " + config_.base_frame + " <- " + frame->frame_id + ", " + config_.fixed_frame + " <- " +
-             config_.base_frame + " or " + tof_frame_ + " <- " + config_.base_frame + " at the pair stamp";
+             config_.base_frame + " or " + depth_frame_ + " <- " + config_.base_frame + " at the pair stamp";
     return DROP_REASON_GUIDANCE_TF;
   }
   // 3. The tracked plane at the pair stamp (the rule of the RGB-D cloud: no plane, no use).
@@ -882,7 +882,7 @@ const char * GroundNode::use_guidance(
   // 4. Sample.
   guidance_grid_.ensure(frame->model, config_.guidance.sample_step_px);
   const GuidanceSamples samples =
-    sample_guidance(*frame, guidance_grid_, base_T_cam, tracked->plane, *tof_model_, tof_T_base, config_.guidance);
+    sample_guidance(*frame, guidance_grid_, base_T_cam, tracked->plane, *depth_model_, depth_T_base, config_.guidance);
   // 5. Keep the depth samples for the edge points and vote the no-return cells; the cells depth already sees are the
   // occlusion shadows of what it sees, never no-return cells.
   guidance_points_.set(samples, fixed_T_base, frame->stamp_ns);

@@ -105,7 +105,7 @@ struct GuidanceSamples
   pcl::PointCloud<pcl::PointXYZ> points;
   std::vector<float> heights;  // signed height above the plane, one per point
   std::vector<cv::Vec3b> colours;
-  pcl::PointCloud<pcl::PointXYZ> no_return;  // floor points the ToF should have seen
+  pcl::PointCloud<pcl::PointXYZ> no_return;  // floor points the depth camera should have seen
   std::vector<cv::Vec3b> no_return_colours;
 };
 
@@ -113,18 +113,18 @@ struct GuidanceSamples
 // A pixel with depth z gives the point ray * z moved to base_link, with its height above the plane, when its range
 // from the camera is <= max_range_m. A pixel without depth gives a no-return sample when its ray meets the plane in
 // front of the camera, the hit is within [no_return.min_range_m, max_range_m] horizontally of the camera, and the hit
-// projected into the ToF image lands at least no_return.tof_margin_px inside it. Other pixels give nothing.
+// projected into the depth camera image lands at least no_return.margin_px inside it. Other pixels give nothing.
 // @param frame the decoded frame.
 // @param grid the grid built from frame.model (a differing model gives no samples).
 // @param base_T_cam camera optical frame in base_link.
 // @param plane the floor plane in base_link.
-// @param tof the ToF camera model.
-// @param tof_T_base base_link in the ToF optical frame.
+// @param depth_model the camera model of the sensor that produced the cloud.
+// @param depth_T_base base_link in the depth camera optical frame.
 // @param config the guidance settings.
 // @return the samples.
 GuidanceSamples sample_guidance(
   const GuidanceFrame & frame, const RayGrid & grid, const Eigen::Isometry3d & base_T_cam, const Plane & plane,
-  const CameraModel & tof, const Eigen::Isometry3d & tof_T_base, const GuidanceConfig & config);
+  const CameraModel & depth_model, const Eigen::Isometry3d & depth_T_base, const GuidanceConfig & config);
 
 }  // namespace ground_estimator_cpp
 
