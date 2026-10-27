@@ -263,7 +263,7 @@ arm_sequence:
     min_board_height_m: 0.05 # every board outline point above the floor, m
     link_radius_m: 0.025 # radius of the upper arm, forearm and wrist capsules, m
     head_radius_m: 0.075 # head envelope radius about the pan axis (grown to the URDF head), m
-    head_height_m: 0.075 # head envelope top above the head mount (grown to the URDF head), m
+    head_height_m: 0.09 # head envelope top above the head mount (grown to the URDF head), m
     roll_min_tool_height_m: 0.15 # tool point height while wrist_roll changes, m
     max_roll_gripper_rad: 0.8 # gripper at most this open while wrist_roll changes (half open), rad
     stretched_shoulder_lift_max_rad: 1.85 # refused above this with a negative (stretched) elbow_flex, rad

@@ -129,7 +129,7 @@ class PoseCheckConfig(StrictModel):
     min_board_height_m: float = Field(default=0.05, ge=0)
     link_radius_m: float = Field(default=0.025, ge=0)
     head_radius_m: float = Field(default=0.075, ge=0)
-    head_height_m: float = Field(default=0.075, ge=0)
+    head_height_m: float = Field(default=0.09, ge=0)
     roll_min_tool_height_m: float = Field(default=0.15, ge=0)
     max_roll_gripper_rad: float = Field(default=0.8, gt=0)
     stretched_shoulder_lift_max_rad: float = 1.85
