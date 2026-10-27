@@ -1,7 +1,7 @@
 ---
 title: ToF 3D obstacle detection for Nav2
 blockers: [Pan tilt head control with agent and web UI, Head camera 30 fps stream with full-res zoom, Remove the Jetson coprocessor]
-stage: build
+stage: review
 owner: Szymon Richert
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-18
