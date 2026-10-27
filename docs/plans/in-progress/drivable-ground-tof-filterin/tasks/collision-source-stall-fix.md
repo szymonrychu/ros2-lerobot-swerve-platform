@@ -57,13 +57,17 @@ sensor.
   this epic) is reported as a `discovered` entry with the exact change, not edited here.
 - Type hints, docstrings with types, constants on top (CLAUDE.md).
 
+Amended 2026-10-27: the 2026-10-22 telemetry window has expired (earliest client data in Mimir 2026-10-27 18:44:54 CET, Loki 19:00 CET) and the saved unit logs are empty, so the cause cannot be named from stored data. This task now delivers the fail-safe pin (lidar-only aware) plus instrumentation that names the cause at the next stall; naming, reproducing and fixing the cause moves to retro-fixes-live-check (live step 4).
+- laser_filter exports, through the existing shared ros2_metrics exporter, the scan receive gap (seconds since the previous /scan arrived) and the scan lag (arrival time minus header stamp), and the same for its published output, so a stall shows whether delivery into laser_filter, its executor or its output stopped. Test first.
+- The nav2_bringup README section `### Invalid source stop during the final turn` records that the window expired, the metrics to read at the next stall, and that the cause is pending the live check.
+
 ## Acceptance conditions
 
-- a1: the cause of the 16:30:35 invalid-source stop is named in the nav2_bringup README with Loki and Mimir numbers [evidence: doc-section:nodes/nav2_bringup/README.md#Invalid source stop during the final turn]
-- a2: a regression test reproduces the cause and passes with the fix [evidence: command:uv run pytest tests/test_collision_source_stall.py -q]
-- a3: the stale-source fail-safe is kept: every source enabled and source_timeout 1.0 s [evidence: test:tests/test_collision_source_stall.py::test_fail_safe_stale_source_stop_kept]
+- a1: the README section records the expired window, the new metrics to read and that the cause is pending retro-fixes-live-check [evidence: doc-section:nodes/nav2_bringup/README.md#Invalid source stop during the final turn]
+- a2: laser_filter exports scan receive gap and lag for input and output, with a test seen failing first [evidence: command:cd nodes/laser_filter && uv run --frozen pytest tests -q]
+- a3: the stale-source fail-safe is kept: source_timeout 1.0 s, no override, every source a polygon reads is enabled [evidence: test:tests/test_collision_source_stall.py::test_fail_safe_stale_source_stop_kept]
 - a4: root lint and the laser_filter suite pass [evidence: command:uv run poe lint && cd nodes/laser_filter && uv run --frozen pytest tests -q && uv run poe lint]
-- a5: the fix acts on the named cause, not on the timeout or the fail-safe [evidence: judgement]
+- a5: no timeout raised and no source disabled by this task [evidence: judgement]
 
 ## Files
 
@@ -97,3 +101,5 @@ passes with a test that failed before the fix; the fail-safe pin passes; no time
 - Saved evidence: `/Users/szymonri/Documents/ros2-lerobot-sverve-platform/.logs/agent-retro-2026-10-22/` (nav2_bringup,
   mcp_server, web_ui, slam_toolbox, map_guard_cpp, bno055_imu, claude_agent logs 16:20-16:34 CEST and the
   retrospectives JSON); Loki keeps more units (robot_localization_ekf and laser_filter had no lines in the window).
+
+- 2026-10-27 amended: 2026-10-22 telemetry expired; cause naming moved to retro-fixes-live-check, instrumentation added
