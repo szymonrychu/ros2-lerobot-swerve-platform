@@ -67,3 +67,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-27: the head_rgbd_cpp client.yml config rewrite and tests/test_head_rgbd_deploy.py update landed early in head-rgb-d-node-on-d435-alig (fix round, to keep the root suite green); this task keeps the build-deps part.
