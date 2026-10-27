@@ -1,6 +1,6 @@
 ---
 title: Nav2 goal across the scene
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Proof that the robot drives around the box on the ground layer instead of finding no path
 files: [docs/runbooks/ground-nav2-check.md, tests/test_ground_nav2_check_runbook.py, tests/README.md]
@@ -8,11 +8,11 @@ verify: "uv run pytest tests/test_ground_nav2_check_runbook.py -q && uv run poe 
 depends_on: [ground-voxel-layer-on]
 model: ""
 review: ""
-verified_head: ""
+verified_head: 7af26697
 points: 3
 expected_minutes: 45
 expected_tokens: 2250000
-points_actual: ""
+points_actual: 1
 actual_minutes: ""
 actual_tokens: ""
 actual_roles: ""
@@ -90,3 +90,7 @@ the user present, no contact, and no lethal cell on the board or the empty floor
   `nodes/claude_agent/claude_agent/robot_stop.py::call_robot_tool`); a refused lease or battery gate is reported,
   never worked around.
 - Deploying mcp_server kills a running agent session (MEMORY): nothing is deployed in this task.
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/nav2-live-check-on-d435 (needed the retired ToF ground layer / front camera)
+
+- 2026-10-27 actuals: no agent records
