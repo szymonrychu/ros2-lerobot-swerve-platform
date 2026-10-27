@@ -1,6 +1,6 @@
 ---
 title: D435 diagnostics script
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Every D435 live check (USB, firmware, errors, topics, rates) is one read-only command, without rclpy probes."
 files: [scripts/d435_diag.sh, scripts/README.md, .claude/skills/d435-diagnostics/SKILL.md, ansible/group_vars/client.yml, tests/test_d435_diag_script.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_d435_diag_script.py -q && uv run poe lint && u
 depends_on: []
 model: opus
 review: ""
-verified_head: ""
+verified_head: b300f65a
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 10
+actual_tokens: 2710526
+actual_roles: "impl 9, review 1"
+actual_role_tokens: "impl 2613498, review 97028"
 ---
 
 # D435 diagnostics script
@@ -69,3 +69,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 done
