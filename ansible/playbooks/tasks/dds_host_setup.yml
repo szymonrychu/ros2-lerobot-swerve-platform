@@ -35,6 +35,16 @@
   register: ros2_dds_profile
   tags: [config]
 
+- name: Install Fast DDS non-blocking Wi-Fi bridge profile
+  ansible.builtin.template:
+    src: fastdds_wifi_bridge.xml.j2
+    dest: "{{ ros2_dds_bridge_profiles_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: ros2_dds_bridge_profile
+  tags: [config]
+
 # Nodes run as a regular user; with logind's default RemoveIPC=yes every SSH logout of that user deletes
 # its POSIX shared memory, i.e. the FastDDS SHM segments of all running nodes (data silently stops while
 # discovery still works). Keep IPC, and restart the nodes once when this is first applied.
@@ -74,5 +84,5 @@
   args:
     executable: /bin/bash
   changed_when: true
-  when: ros2_keep_ipc.changed or ros2_dds_profile.changed
+  when: ros2_keep_ipc.changed or ros2_dds_profile.changed or ros2_dds_bridge_profile.changed
   tags: [config]

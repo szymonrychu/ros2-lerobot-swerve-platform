@@ -6,6 +6,10 @@ Exactly one client process carrying the map3d streams to the server and the 3D m
 
 Per the ansible README "Cross-host" rule, one process per route exchanges DDS traffic with the server: this container has `ROS_STATIC_PEERS={{ ros2_server_hostname }}`, every other node stays on localhost discovery. The container subscribes the client topics locally and republishes them under new names (`/uplink/...`, downlink `/map3d/...`), so the server only ever sees the contract topics and no client topic crosses the link under its own name.
 
+## Non-blocking Wi-Fi sends
+
+Fast DDS 2.14 `UDPTransportInterface::send` sets `SO_SNDTIMEO` to the remaining `max_blocking_time` and to 0 (no timeout) once it has passed, so during a Wi-Fi stall a bridge blocks in `sendto` until the carrier is lost (720 UDP `SndbufErrors` in the 16:30 outage). This unit, `leader_bridge` and `master2master` therefore set `FASTRTPS_DEFAULT_PROFILES_FILE={{ ros2_dds_bridge_profiles_file }}` (`/etc/ros2/fastdds_wifi_bridge.xml`, from `ansible/playbooks/templates/fastdds_wifi_bridge.xml.j2`, installed by `dds_host_setup.yml`): a UDPv4 user transport with `non_blocking_send` true and `useBuiltinTransports` false, plus the same localhost `initialPeersList` as the shared profile. A full socket buffer now drops the datagram instead of blocking. Check on the client: `systemctl show ros2-map3d_uplink -p Environment` lists the file, and during a stall `ss -uanp` Send-Q of the process does not pin it. Tests: `tests/test_map3d_leader_bridge_nonblocking_send.py`.
+
 ## Streams
 
 The table is the contract `nodes/rtabmap_mapping/config/map3d_topics.yaml` (typed by `nodes/rtabmap_mapping/map3d_topics.py`, `load_map3d_topics`); the launch file calls `build_uplink_nodes(topics)`, so there is no second list to keep in sync. One composable node per entry:

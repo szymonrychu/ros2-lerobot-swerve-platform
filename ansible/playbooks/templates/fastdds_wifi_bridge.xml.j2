@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Managed by Ansible (playbooks/tasks/dds_host_setup.yml). Default participant profile of the static-peer Wi-Fi
+     bridges (master2master, leader_bridge, map3d_uplink). Fast DDS 2.14 UDPTransportInterface::send sets SO_SNDTIMEO to
+     the remaining max_blocking_time and to 0 (no timeout) once it has passed, so during a Wi-Fi stall a blocking send
+     holds the process until the carrier is lost. The UDPv4 user transport below sets non_blocking_send: a full socket
+     buffer drops the datagram instead. Same localhost initialPeersList as fastdds_localhost_peers.xml.j2 (IDs
+     {{ ros2_dds_extra_peer_first_id }}..{{ ros2_dds_extra_peer_last_id }}, domain {{ ros2_dds_domain_id }}). -->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>udp_nonblocking</transport_id>
+      <type>UDPv4</type>
+      <non_blocking_send>true</non_blocking_send>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="wifi_bridge_nonblocking" is_default_profile="true">
+    <rtps>
+      <useBuiltinTransports>false</useBuiltinTransports>
+      <userTransports>
+        <transport_id>udp_nonblocking</transport_id>
+      </userTransports>
+      <builtin>
+        <initialPeersList>
+{% for id in range(ros2_dds_extra_peer_first_id, ros2_dds_extra_peer_last_id + 1) %}
+          <locator><udpv4><address>127.0.0.1</address><port>{{ 7400 + 250 * ros2_dds_domain_id + 10 + 2 * id }}</port></udpv4></locator>
+{% endfor %}
+        </initialPeersList>
+      </builtin>
+    </rtps>
+  </participant>
+</profiles>

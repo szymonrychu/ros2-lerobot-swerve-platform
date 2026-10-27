@@ -160,7 +160,10 @@ def test_node_type_env_apt_tier_and_paths() -> None:
     }
     assert (node_type["cpu_weight"], node_type["io_weight"], node_type["oom_score_adjust"]) == (100, 100, 0)
     assert (node_type["memory_low"], node_type["memory_max"]) == ("48M", "256M")
-    assert node_type["env"] == ["ROS_STATIC_PEERS={{ ros2_server_hostname }}"]
+    assert node_type["env"] == [
+        "ROS_STATIC_PEERS={{ ros2_server_hostname }}",
+        "FASTRTPS_DEFAULT_PROFILES_FILE={{ ros2_dds_bridge_profiles_file }}",
+    ]
 
 
 def test_ros2_nodes_entry_present_and_enabled() -> None:

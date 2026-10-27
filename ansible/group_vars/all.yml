@@ -40,6 +40,11 @@ ros2_dds_env:
   - "FASTRTPS_DEFAULT_PROFILES_FILE={{ ros2_dds_profiles_file }}"
 
 ros2_dds_profiles_file: /etc/ros2/fastdds_localhost_peers.xml
+# Profile of the static-peer Wi-Fi bridges (master2master, leader_bridge, map3d_uplink; their env overrides the file above):
+# the same localhost peers plus a UDPv4 transport with non_blocking_send. Fast DDS 2.14 UDPTransportInterface::send sets
+# SO_SNDTIMEO to the remaining max_blocking_time and to 0 (no timeout) once it has passed, so a blocking send stalls
+# the whole process for as long as the Wi-Fi carrier is stuck.
+ros2_dds_bridge_profiles_file: /etc/ros2/fastdds_wifi_bridge.xml
 ros2_dds_domain_id: 0 # ROS_DOMAIN_ID of every node; part of the metatraffic port formula
 ros2_dds_extra_peer_first_id: 32
 ros2_dds_extra_peer_last_id: 99

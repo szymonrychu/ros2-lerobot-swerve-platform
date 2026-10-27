@@ -83,6 +83,7 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/master2master
     env:
       - "ROS_STATIC_PEERS={{ ros2_server_hostname }}"
+      - "FASTRTPS_DEFAULT_PROFILES_FILE={{ ros2_dds_bridge_profiles_file }}" # non-blocking UDP sends, see all.yml
       - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
       # ROS2_SERVER_HOST passed per-node below so master2master can connect to Server's ROS2 master
   leader_bridge:
@@ -99,6 +100,7 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/leader_bridge
     env:
       - "ROS_STATIC_PEERS={{ ros2_server_hostname }}"
+      - "FASTRTPS_DEFAULT_PROFILES_FILE={{ ros2_dds_bridge_profiles_file }}" # non-blocking UDP sends, see all.yml
       - LEADER_BRIDGE_CONFIG=/etc/ros2/leader_bridge/config.yaml
   feetech_servos:
     deploy_mode: native
@@ -821,6 +823,7 @@ ros2_node_type_defaults:
     oom_score_adjust: 0
     env:
       - ROS_STATIC_PEERS={{ ros2_server_hostname }}
+      - "FASTRTPS_DEFAULT_PROFILES_FILE={{ ros2_dds_bridge_profiles_file }}" # non-blocking UDP sends, see all.yml
   robot_localization_ekf:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/robot_localization_ekf/launch/ekf.launch.py"
