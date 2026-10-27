@@ -6,19 +6,17 @@ value: "The RGB-D colour tells floor from obstacle, including flat objects the d
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/colour.hpp, nodes/ground_estimator_cpp/src/core/colour.cpp, nodes/ground_estimator_cpp/test/core/test_colour.cpp]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [ground-band-segmentation]
-owns: [ground-colour-labels]
-uses: [ground-config, ground-segmentation, ground-synthetic-scene]
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-colour-labels
-branch: rgb-d-ground-estimation-and--ground-colour-labels
 verified_head: 231ffa0da147e2009a845fb45c76d84b2a4cb555
-run: rgb-d-ground-estimation-and
-provides: [rgb-to-lab]
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 35
+actual_tokens: 1925708
+actual_roles: "impl 7, review 10"
+actual_role_tokens: "impl 969722, review 955986"
 ---
 
 # Ground colour labels

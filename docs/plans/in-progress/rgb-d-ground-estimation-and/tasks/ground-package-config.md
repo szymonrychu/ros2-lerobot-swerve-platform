@@ -6,19 +6,17 @@ value: "The ground estimator has a buildable, tested C++ package with a validate
 files: [nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/package.xml, nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, scripts/cpp-node-test.Dockerfile, .github/workflows/ci.yml]
 verify: "scripts/cpp-node-test.sh ground_estimator_cpp && uv run pytest tests/test_ci_workflow.py tests/test_node_lint_coverage.py tests/test_cpp_scaffolding.py -q"
 depends_on: []
-owns: [ground-config]
-uses: []
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-package-config
-branch: rgb-d-ground-estimation-and--ground-package-config
 verified_head: f45710ed598fc2e7db1680835eb1f5fb620303ba
-run: rgb-d-ground-estimation-and
-provides: [ground-config]
-acs_for_audit: []
-process_gaps: ["Deviation from the plan (ament_lint_common not in test deps) is explained only in the implementer report, not in the plan or package.xml."]
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 15
+actual_tokens: 1780049
+actual_roles: "impl 13, review 3"
+actual_role_tokens: "impl 1493482, review 286567"
 ---
 
 # Ground package config

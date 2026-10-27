@@ -6,19 +6,17 @@ value: "Operators and later builders find every topic, state key, label, config 
 files: [nodes/ground_estimator_cpp/README.md, tests/test_ground_estimator_readme.py, tests/README.md]
 verify: "uv run pytest tests/test_ground_estimator_readme.py -q && uv run poe lint"
 depends_on: [ground-node-wiring]
-owns: []
-uses: [ground-topics, ground-state, ground-metrics, ground-config]
 model: sonnet
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-node-readme
-branch: rgb-d-ground-estimation-and--ground-node-readme
 verified_head: dbfc3bd147f313f89a5c4680819853df4cc87553
-run: rgb-d-ground-estimation-and
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Ground node README

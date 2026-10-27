@@ -6,19 +6,17 @@ value: "Obstacles and drop-offs are measured against the real floor, so floor ti
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/segmentation.hpp, nodes/ground_estimator_cpp/src/core/segmentation.cpp, nodes/ground_estimator_cpp/test/core/test_segmentation.cpp]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [ground-plane-fit]
-owns: [ground-segmentation]
-uses: [ground-config, ground-plane-fit, ground-synthetic-scene]
 model: sonnet
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-band-segmentation
-branch: "current worktree branch (commit d09d5f91)"
 verified_head: d09d5f9132552041e1b9843316fc283707cda304
-run: rgb-d-ground-estimation-and
-provides: [ground-segmentation]
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: 36
+actual_tokens: 651124
+actual_roles: "impl 1, review 7"
+actual_role_tokens: "impl 146340, review 504784"
 ---
 
 # Ground band segmentation

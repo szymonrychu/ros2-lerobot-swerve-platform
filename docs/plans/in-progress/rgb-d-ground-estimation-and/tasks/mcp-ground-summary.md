@@ -6,19 +6,17 @@ value: "The agent sees the floor height, slope, steps and drop-offs in get_map_s
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/tests/test_ground_summary.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint"
 depends_on: [costmap-ground-warnings]
-owns: [mcp-ground-state-client]
-uses: [ground-state, ground-topics, ground-node-unit]
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--mcp-ground-summary
-branch: rgb-d-ground-estimation-and--mcp-ground-summary
 verified_head: 4e39a3ba9a62cb26c602093745f94d3790cedb4a
-run: rgb-d-ground-estimation-and
-provides: [mcp-ground-state-client, ground-regions-to-surfaces]
-acs_for_audit: []
-process_gaps: ["The failing-first (red) output of test_ground_summary.py was not saved"]
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # MCP ground summary

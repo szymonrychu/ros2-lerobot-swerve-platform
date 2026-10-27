@@ -6,19 +6,17 @@ value: Steps and drop-offs become surface regions the arm floor_guard and the ag
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/edges.hpp, nodes/ground_estimator_cpp/src/core/edges.cpp, nodes/ground_estimator_cpp/test/core/test_edges.cpp]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [ground-band-segmentation]
-owns: [ground-edges]
-uses: [ground-config, ground-segmentation, ground-synthetic-scene]
 model: sonnet
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-step-edges
-branch: rgb-d-ground-estimation-and--ground-step-edges
 verified_head: 33a8ca65e0943cda4be2b304593ae60eb5da191c
-run: rgb-d-ground-estimation-and
-provides: [ground-edges]
-acs_for_audit: []
-process_gaps: []
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 40
+actual_tokens: 2044449
+actual_roles: "impl 10, review 15"
+actual_role_tokens: "impl 1278294, review 766155"
 ---
 
 # Ground step edges

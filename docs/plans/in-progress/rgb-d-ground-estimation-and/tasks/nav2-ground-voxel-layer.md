@@ -6,19 +6,17 @@ value: "Nav2 avoids plane-relative obstacles and drop-offs alongside the fixed b
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_ground_voxel_layer.py, tests/test_nav_tof_voxel_layer.py, tests/test_tof_obstacle_wiring.py, tests/test_nav_tof_collision.py, nodes/nav2_bringup/README.md, tests/README.md]
 verify: "uv run pytest tests/test_nav_ground_voxel_layer.py tests/test_nav_tof_voxel_layer.py tests/test_tof_obstacle_wiring.py tests/test_nav_tof_collision.py tests/test_nav_stack_config.py tests/test_nav_footprint.py -q && uv run poe lint"
 depends_on: [ground-node-type, costmap-ground-warnings]
-owns: []
-uses: [ground-topics, ground-node-unit, ground-cost-mask]
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--nav2-ground-voxel-layer
-branch: rgb-d-ground-estimation-and--nav2-ground-voxel-layer
 verified_head: 95e6ecd3934e83c3fa5092609fda5af412e3504f
-run: rgb-d-ground-estimation-and
-provides: []
-acs_for_audit: [a4]
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 10
+actual_tokens: 424515
+actual_roles: "impl 2, review 8"
+actual_role_tokens: "impl 83304, review 341211"
 ---
 
 # Nav2 ground voxel layer

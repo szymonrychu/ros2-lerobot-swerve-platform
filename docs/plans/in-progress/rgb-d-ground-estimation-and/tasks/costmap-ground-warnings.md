@@ -6,19 +6,17 @@ value: "Nav2 slows down over traversable steps, ramps and flagged flat objects t
 files: [nodes/costmap_zones/costmap_zones/config.py, nodes/costmap_zones/costmap_zones/node.py, nodes/costmap_zones/costmap_zones/raster.py, nodes/costmap_zones/costmap_zones/ground_warnings.py, nodes/costmap_zones/tests/test_ground_warnings.py, nodes/costmap_zones/README.md, ansible/group_vars/client.yml]
 verify: "(cd nodes/costmap_zones && uv run --frozen pytest tests -q && uv run --frozen poe lint) && uv run poe test-ansible"
 depends_on: [ground-node-type]
-owns: [ground-cost-mask]
-uses: [ground-warning-areas, ground-topics, ground-node-unit]
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--costmap-ground-warnings
-branch: rgb-d-ground-estimation-and--costmap-ground-warnings
 verified_head: 21a4c45f04383ddebccc15b624f0c0d0bbaa8cef
-run: rgb-d-ground-estimation-and
-provides: [ground-cost-mask]
-acs_for_audit: []
-process_gaps: ["TDD red phase not shown: implementer admits tests were written alongside the code; the red/green revert proof (merge-base file vs HEAD) is not recorded in tests.red or verification.evidence"]
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 6
+actual_tokens: 640739
+actual_roles: "impl 2, review 4"
+actual_role_tokens: "impl 328487, review 312252"
 ---
 
 # Costmap ground warnings

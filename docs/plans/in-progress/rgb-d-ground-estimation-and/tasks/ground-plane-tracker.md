@@ -6,19 +6,17 @@ value: "The plane survives short occlusions, follows the robot in odom and repor
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/tracker.hpp, nodes/ground_estimator_cpp/src/core/tracker.cpp, nodes/ground_estimator_cpp/test/core/test_tracker.cpp]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [ground-plane-fit]
-owns: [ground-tracker]
-uses: [ground-config, ground-plane-fit, ground-synthetic-scene]
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-plane-tracker
-branch: rgb-d-ground-estimation-and--ground-plane-tracker
 verified_head: 196263e30c70e3b317430eb44bb0d8d0a36b13ac
-run: rgb-d-ground-estimation-and
-provides: [ground-tracker]
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 38
+actual_tokens: 1065724
+actual_roles: "impl 2, review 11"
+actual_role_tokens: "impl 275138, review 790586"
 ---
 
 # Ground plane tracker

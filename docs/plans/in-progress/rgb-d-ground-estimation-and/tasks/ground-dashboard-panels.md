@@ -6,19 +6,17 @@ value: "Grafana shows the ground estimator's health and its CPU against the budg
 files: [ansible/roles/monitoring/files/robot-slam.json, tests/test_monitoring_dashboards.py, scripts/node_cpu_compare.yaml, tests/test_node_cpu_compare.py, tests/README.md]
 verify: "uv run pytest tests/test_monitoring_dashboards.py tests/test_node_cpu_compare.py -q && uv run poe lint"
 depends_on: [ground-node-type]
-owns: []
-uses: [ground-metrics, ground-node-unit]
 model: sonnet
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-dashboard-panels
-branch: rgb-d-ground-estimation-and--ground-dashboard-panels
 verified_head: 36db64c70608d3194dac54d7eb85f14c725cabc1
-run: rgb-d-ground-estimation-and
-provides: []
-acs_for_audit: [a1, a2]
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Ground dashboard panels

@@ -6,19 +6,17 @@ value: "The ground estimator runs as a ROS node: real plane-relative clouds, lab
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/src/main.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/CMakeLists.txt]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [ground-state-json]
-owns: [ground-topics, ground-metrics]
-uses: [ground-config, ground-tracker, ground-segmentation, ground-colour-labels, ground-state, ground-synthetic-scene, ground-traversability, ground-edges]
 model: opus
-estimate: 90
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-node-wiring
-branch: rgb-d-ground-estimation-and--ground-node-wiring
 verified_head: 908cf51a4bb5f60a586343e5c8ee809b5bd99fb2
-run: rgb-d-ground-estimation-and
-provides: [ground-topics, ground-metrics]
-acs_for_audit: [a4]
-process_gaps: []
+points: 8
+expected_minutes: 90
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 30
+actual_tokens: 1686238
+actual_roles: "impl 6, review 25"
+actual_role_tokens: "impl 672975, review 1013263"
 ---
 
 # Ground node wiring

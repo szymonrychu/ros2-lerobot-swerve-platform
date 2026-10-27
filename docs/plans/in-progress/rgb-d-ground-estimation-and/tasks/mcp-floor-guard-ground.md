@@ -6,19 +6,17 @@ value: "Arm motions can opt in to the measured steps and drop-offs as floor_guar
 files: [nodes/mcp_server/mcp_server/floor_guard.py, nodes/mcp_server/mcp_server/grasp_tools.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/arm.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/test_floor_guard_ground.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint"
 depends_on: [mcp-ground-summary]
-owns: []
-uses: [mcp-ground-state-client, ground-state]
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--mcp-floor-guard-ground
-branch: rgb-d-ground-estimation-and--mcp-floor-guard-ground
 verified_head: ""
-run: rgb-d-ground-estimation-and
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 28
+actual_tokens: 794337
+actual_roles: "impl 5, review 24"
+actual_role_tokens: "impl 335383, review 458954"
 ---
 
 # MCP floor guard ground

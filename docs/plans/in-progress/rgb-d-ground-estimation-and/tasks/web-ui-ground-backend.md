@@ -6,19 +6,17 @@ value: The web UI backend streams the labelled ground cloud and the ground state
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/cloud_serializer.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_ground_layer.py, ansible/group_vars/client.yml, nodes/web_ui/README.md]
 verify: "(cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint) && uv run poe test-ansible"
 depends_on: [mcp-ground-summary]
-owns: [web-ground-roles]
-uses: [ground-state, ground-topics, ground-colour-labels]
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--web-ui-ground-backend
-branch: rgb-d-ground-estimation-and--web-ui-ground-backend
 verified_head: e730abde0fc87f067ed377670bec974d8a4f3647
-run: rgb-d-ground-estimation-and
-provides: [web-ground-roles]
-acs_for_audit: [a2]
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Web UI ground backend

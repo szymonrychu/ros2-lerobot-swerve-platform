@@ -6,20 +6,17 @@ value: The epic is proven green end to end and the robot run that validates the 
 files: [docs/runbooks/ground-estimation.md, MEMORY.md, docs/diagrams/topic_flow.puml, tests/README.md, tests/test_ground_docs.py]
 verify: "uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && (cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint)"
 depends_on: [nav2-ground-voxel-layer, mcp-floor-guard-ground, web-ui-ground-frontend, ground-dashboard-panels, ground-node-readme]
-owns: []
-uses: [ground-node-unit]
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/rgb-d-ground-estimation-and--ground-final-suite-runbook
-branch: rgb-d-ground-estimation-and--ground-final-suite-runbook
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: rgb-d-ground-estimation-and
-provides: []
-acs_for_audit: [a2]
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
 points_actual: 1
+actual_minutes: 59
+actual_tokens: 1668708
+actual_roles: "impl 18, review 40"
+actual_role_tokens: "impl 1336144, review 332564"
 ---
 
 # Ground final suite runbook
