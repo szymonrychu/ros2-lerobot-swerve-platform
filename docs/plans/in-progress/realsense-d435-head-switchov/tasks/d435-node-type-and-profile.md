@@ -1,6 +1,6 @@
 ---
 title: D435 node type and profile
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The D435 starts on the client from Ansible with a hardware-synced, Pi-sized profile and explicit names."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, nodes/bridges/realsense_d435/config/realsense_d435.yaml, tests/test_realsense_d435_deploy.py, tests/test_ansible_deploy_speed.py, tests/test_unit_cgroups.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_realsense_d435_deploy.py tests/test_ansible_de
 depends_on: []
 model: opus
 review: ""
-verified_head: ""
+verified_head: 30644008
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 26
+actual_tokens: 1754795
+actual_roles: "impl 11, review 7"
+actual_role_tokens: "impl 1531625, review 223170"
 ---
 
 # D435 node type and profile
@@ -69,3 +69,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 done
