@@ -1,6 +1,6 @@
 ---
 title: Live report guidance metrics
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The live check judges no_return areas against the same truth as the replay
 files: [scripts/ground_noise_report.py, scripts/ground_noise_report.yaml, tests/test_ground_noise_report.py, tests/README.md]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--live-report-guidance-metrics
 branch: drivable-ground-tof-filterin--live-report-guidance-metrics
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # Live report guidance metrics
@@ -69,3 +70,7 @@ Builds part live-report: `scripts/ground_noise_report.py` gains the `truth` conf
 ## Notes
 
 The ROI rectangles were corrected by ground-detection-robustness/runbook-rois-and-ramp-limit; keep them as the fallback. Read the truth YAML with pyyaml; shapely is available for the polygon coverage.
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/tune-ground-estimator-on-d43
+
+- 2026-10-27 actuals: no agent records
