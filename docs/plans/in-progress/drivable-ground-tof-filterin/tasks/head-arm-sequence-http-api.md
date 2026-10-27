@@ -6,18 +6,17 @@ value: "The web UI can drive the guided head-from-arm calibration, with every co
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/head_arm_api.py, nodes/head_rgbd_calibration/head_rgbd_calibration/__main__.py, nodes/head_rgbd_calibration/tests/test_head_arm_api.py, nodes/head_rgbd_calibration/tests/test_main.py, nodes/head_rgbd_calibration/tests/contract.py, nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_state.json, nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_result.json, nodes/head_rgbd_calibration/tests/fixtures/api/head_arm_sessions.json]
 verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv run poe lint"
 depends_on: [head-arm-pose-capture-sequen, head-arm-compute-and-apply]
-owns: [head-arm-calib-api]
-uses: [calib-sequencer, calib-robot-client, calib-head-arm-results]
 model: ""
-estimate: 75
-actual: ""
 review: ""
-branch: main
 verified_head: a57b0859fee2aaa2c99266d35f10539901fe95ce
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: [Acceptance conditions a1-a4 have no test refs attached to them in the tests, "Independent verification reported TDD red evidence missing: no tests.red / verification.evidence pasted for the red-then-green runs"]
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Head arm sequence HTTP API

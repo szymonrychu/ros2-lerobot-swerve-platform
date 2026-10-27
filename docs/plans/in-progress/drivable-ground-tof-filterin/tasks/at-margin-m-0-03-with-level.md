@@ -6,18 +6,17 @@ value: "Tier-2 poses that turn shoulder_pan right by 0.3-0.35 rad from a pan-0 b
 files: []
 verify: ""
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-branch: main
 verified_head: 60811e79aa9945e34dbad0e36e1376f3322a4756
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: [AC1]
-process_gaps: ["TDD skipped without a listed exception; prove the tests catch the change - commit first, then for each changed non-test file: git show <merge-base>:<path> > <path>; run the test (must fail); git show HEAD:<path> > <path>; run again (must pass); paste both tails into tests.red and verification.evidence"]
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # At margin_m 0.03 with level-gripper poses, the upper-arm capsule comes within 30 mm of frame_right once shoulder_pan > ~0.25 rad. For example, `link_clearance: upper arm to frame_right 28.4 mm` at pan 0.3 with tool at 0.20 m. Negative pan is clear down to about -0.3, and by -0.5 the upper arm/forearm come within 30 mm of the lidar and the head envelope.

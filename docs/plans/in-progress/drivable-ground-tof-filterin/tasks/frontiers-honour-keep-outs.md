@@ -6,18 +6,17 @@ value: A keep-out drawn over a mirror ends the ghost frontiers the agent keeps c
 files: [nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/topdown.py, nodes/mcp_server/mcp_server/poi_client.py, nodes/mcp_server/tests/test_frontier_keepout.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_frontier_keepout.py -q && uv run poe lint"
 depends_on: [map-epoch-reset-event]
-owns: [frontier-keepout]
-uses: []
 model: ""
-estimate: 60
-actual: ""
 review: ""
-branch: main
 verified_head: 06374595a0511d1817ff4e0fe0327f08c46d8cc2
-run: drivable-ground-tof-filterin
-provides: [frontier-keepout]
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Frontiers honour keep-outs

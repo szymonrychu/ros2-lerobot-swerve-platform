@@ -6,18 +6,17 @@ value: "The estimator passes the user's live acceptance on the recorded scene be
 files: [nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/test/replay_fixture.hpp, nodes/ground_estimator_cpp/src/, nodes/ground_estimator_cpp/include/ground_estimator_cpp/, nodes/ground_estimator_cpp/test/core/, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/README.md]
 verify: "scripts/cpp-node-test.sh ground_estimator_cpp && uv run pytest tests/test_ground_estimator_deploy.py -q && uv run poe test-ansible"
 depends_on: [capture-gated-recordings, guidance-node-wiring, guidance-replay-metrics]
-owns: [live-scene-estimator]
-uses: [guidance-replay-harness, gated-fixtures, scene-truth, guided-node]
 model: opus
-estimate: 90
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-estimator-live-scene
-branch: drivable-ground-tof-filterin--ground-estimator-live-scene
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: ""
-provides: []
+points: 8
+expected_minutes: 90
+expected_tokens: 6000000
 points_actual: 1
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Ground estimator live scene fixes

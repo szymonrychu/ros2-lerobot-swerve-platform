@@ -6,19 +6,17 @@ value: "One validated place for the board mount, the fit limits, the trusted arm
 files: [shared/ros2_common/head_rgbd_calibration/config.py, shared/ros2_common/head_rgbd_calibration/charuco.py, shared/ros2_common/head_rgbd_calibration/views.py, tests/test_head_arm_calib_config.py]
 verify: "uv run --frozen pytest tests/test_head_arm_calib_config.py tests/test_head_rgbd_calib_core.py -q && uv run poe lint"
 depends_on: []
-owns: [head-arm-calib-config, head-arm-view-types]
-uses: []
 model: ""
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--calib-config-and-view-types
-branch: drivable-ground-tof-filterin--calib-config-and-view-types
 verified_head: af62058cdccc0fa7372f33f80729ec238b28ab1f
-run: drivable-ground-tof-filterin
-provides: [head-arm-calib-config, head-arm-view-types]
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: 127
+actual_tokens: 1103183
+actual_roles: "impl 3, review 5"
+actual_role_tokens: "impl 682424, review 420759"
 ---
 
 # Calib config and view types

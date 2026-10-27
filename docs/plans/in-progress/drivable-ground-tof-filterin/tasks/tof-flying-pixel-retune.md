@@ -6,18 +6,17 @@ value: "The ToF filter goes back on without starving the ground fit, so mixed pi
 files: [nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_flying_pixel_real.py, nodes/bridges/arducam_tof/tests/test_config.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/README.md, ansible/group_vars/client.yml, tests/test_arducam_tof_config.py]
 verify: "(cd nodes/bridges/arducam_tof && uv run pytest tests -q && uv run poe lint) && uv run pytest tests/test_arducam_tof_config.py -q && uv run poe test-ansible"
 depends_on: [tof-amplitude-gate, capture-baseline-recordings]
-owns: [flying-pixel-retune]
-uses: [baseline-fixtures, amplitude-gate]
 model: opus
-estimate: 90
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tof-flying-pixel-retune
-branch: drivable-ground-tof-filterin--tof-flying-pixel-retune
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: ""
-provides: []
+points: 8
+expected_minutes: 90
+expected_tokens: 6000000
 points_actual: 1
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # ToF flying pixel retune

@@ -6,19 +6,17 @@ value: "Each view pairs a still head image of the board with the head and arm jo
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/tests/test_capture.py, nodes/head_rgbd_calibration/tests/test_config.py, nodes/head_rgbd_calibration/tests/conftest.py]
 verify: "(cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_capture.py tests/test_config.py tests/test_store.py -q && uv run poe lint) && uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q"
 depends_on: [session-kinds-joint-poses, web-ui-ground-recorder-api]
-owns: [calib-still-capture]
-uses: [calib-session-kinds, head-arm-calib-config]
 model: ""
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--joint-state-still-capture
-branch: drivable-ground-tof-filterin--joint-state-still-capture
 verified_head: 231f004fdbf4ce5134dfd172b47b919a3f4e9a5f
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: [a6]
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 209
+actual_tokens: 910819
+actual_roles: "impl 1, review 7"
+actual_role_tokens: "impl 118603, review 792216"
 ---
 
 # Joint state still capture

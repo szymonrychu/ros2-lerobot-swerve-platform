@@ -6,19 +6,17 @@ value: "Each RGB-D pair turned into floor-relative depth samples and no-return f
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/guidance.hpp, nodes/ground_estimator_cpp/src/core/guidance.cpp, nodes/ground_estimator_cpp/test/core/test_guidance.cpp]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [guidance-config-keys, replay-format-v2]
-owns: [guidance-frame]
-uses: [guidance-config]
 model: ""
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-frame-core
-branch: drivable-ground-tof-filterin--guidance-frame-core
 verified_head: 7363ecfe7e78e916350331fc67fb71836c02b2b7
-run: drivable-ground-tof-filterin
-provides: [guidance-frame]
-acs_for_audit: []
-process_gaps: ["No red-phase output reported for the seven Guidance tests (TDD tests-first evidence)."]
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Guidance frame core

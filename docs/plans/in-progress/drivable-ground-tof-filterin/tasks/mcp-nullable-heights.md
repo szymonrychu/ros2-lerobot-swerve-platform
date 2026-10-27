@@ -6,19 +6,17 @@ value: "The agent's ground summary keeps working and names no_return areas"
 files: [nodes/mcp_server/mcp_server/models.py, nodes/mcp_server/tests/test_ground_summary.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_ground_summary.py tests/test_floor_guard_ground.py -q && uv run --frozen poe lint"
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: 30
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--mcp-nullable-heights
-branch: drivable-ground-tof-filterin--mcp-nullable-heights
 verified_head: 391e135d24885b16f96bda83d4fbf795a559475a
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: [a3]
-process_gaps: []
+points: 3
+expected_minutes: 30
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: 127
+actual_tokens: 705442
+actual_roles: "impl 2, review 4"
+actual_role_tokens: "impl 330161, review 375281"
 ---
 
 # MCP nullable heights

@@ -6,18 +6,17 @@ value: The live check judges no_return areas against the same truth as the repla
 files: [scripts/ground_noise_report.py, scripts/ground_noise_report.yaml, tests/test_ground_noise_report.py, tests/README.md]
 verify: "uv run pytest tests/test_ground_noise_report.py -q && uv run poe lint && uv run ruff check scripts/ground_noise_report.py && uv run ruff format --check scripts/ground_noise_report.py"
 depends_on: [capture-baseline-recordings]
-owns: [live-report]
-uses: [scene-truth, baseline-fixtures]
 model: ""
-estimate: 50
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--live-report-guidance-metrics
-branch: drivable-ground-tof-filterin--live-report-guidance-metrics
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: ""
-provides: []
+points: 5
+expected_minutes: 50
+expected_tokens: 3750000
 points_actual: 1
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Live report guidance metrics

@@ -6,19 +6,17 @@ value: "Warning areas without a measured height are published honestly as null, 
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/traversability.hpp, nodes/ground_estimator_cpp/src/core/traversability.cpp, nodes/ground_estimator_cpp/src/core/cell_class.cpp, nodes/ground_estimator_cpp/src/core/state.cpp, nodes/ground_estimator_cpp/test/core/test_state.cpp, nodes/ground_estimator_cpp/test/core/test_cell_class.cpp, nodes/ground_estimator_cpp/src/ground_node.cpp]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: []
-owns: [nullable-area-heights]
-uses: []
 model: ""
-estimate: 50
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--area-heights-nullable
-branch: drivable-ground-tof-filterin--area-heights-nullable
 verified_head: 3c4b9e262c454989978302fc5d523a336d916230
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: [a3]
-process_gaps: []
+points: 5
+expected_minutes: 50
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 130
+actual_tokens: 2257984
+actual_roles: "impl 24, review 42"
+actual_role_tokens: "impl 838057, review 1419927"
 ---
 
 # Area heights nullable

@@ -6,16 +6,17 @@ value: Caused by my merge command running outside a worktree after cd failed
 files: []
 verify: ""
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-branch: main
 verified_head: ""
-run: ""
-provides: []
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Main checkout has an accidental merge commit 560f9a53 on main; needs reset to b73a4f24 by someone allowed to do so

@@ -6,18 +6,17 @@ value: "CLAUDE.md requires every test file and test to be documented in tests/RE
 files: []
 verify: ""
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-branch: main
 verified_head: ""
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # tests/README.md has no entry for tests/test_arm_pose_check.py, and the head_rgbd_calibration/shared README does not describe arm_pose_check.py

@@ -6,19 +6,17 @@ value: The operator sees where the ToF is blind but the camera sees something
 files: [nodes/web_ui/frontend/src/map3d/groundLayer.ts, nodes/web_ui/frontend/src/map3d/groundLayer.test.ts, nodes/web_ui/README.md]
 verify: "cd nodes/web_ui/frontend && npx vitest run src/map3d && npx tsc --noEmit && npm run lint"
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--web-ui-no-return-areas
-branch: drivable-ground-tof-filterin--web-ui-no-return-areas
 verified_head: 52c22f456bf5b43612d59d442bc3d5310a1bf0f1
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: 127
+actual_tokens: 706456
+actual_roles: "impl 3, review 5"
+actual_role_tokens: "impl 289487, review 416969"
 ---
 
 # Web UI no return areas

@@ -6,19 +6,17 @@ value: "The agent's head aiming and head-camera geometry use the measured chain,
 files: [nodes/mcp_server/mcp_server/head_kinematics.py, nodes/mcp_server/mcp_server/head.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/tests/test_head_kinematics.py, nodes/mcp_server/tests/test_head_controller.py, nodes/mcp_server/tests/test_config.py]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py tests/test_head_controller.py tests/test_head_tools.py tests/test_camera_scene_head.py tests/test_config.py -q && uv run poe lint"
 depends_on: []
-owns: []
-uses: [head-chain-override]
 model: ""
-estimate: 70
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--mcp-head-kinematics-applied
-branch: drivable-ground-tof-filterin--mcp-head-kinematics-applied
 verified_head: ed83ccc72e222c46b59ddfd9a550574ea2ba42ec
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 70
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 224
+actual_tokens: 2685400
+actual_roles: "impl 6, review 10"
+actual_role_tokens: "impl 1214177, review 1471223"
 ---
 
 # MCP head kinematics applied

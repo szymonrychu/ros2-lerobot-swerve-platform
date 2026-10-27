@@ -6,17 +6,17 @@ value: "Proof on the robot that the final turns, backing, mirror keep-out and fr
 files: [docs/runbooks/agent-retro-fixes.md, tests/test_agent_retro_runbook.py, tests/README.md]
 verify: "uv run pytest tests/test_agent_retro_runbook.py -q && uv run poe lint"
 depends_on: [nav2-goal-across-the-scene, collision-source-stall-fix, stopbox-backing-and-turns, frontiers-honour-keep-outs, front-camera-ground-points, agent-retro-skill-lessons, tilt-event-evidence, map-epoch-reset-event]
-owns: []
-uses: [collision-source-fix, move-relative-clearance, frontier-keepout, front-ground-points]
 model: ""
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--retro-fixes-live-check
-branch: drivable-ground-tof-filterin--retro-fixes-live-check
 verified_head: ""
-run: ""
-provides: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Retro fixes live check

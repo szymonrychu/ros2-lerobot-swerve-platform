@@ -6,16 +6,17 @@ value: "The orchestrator's tree creation for this task was skipped or failed. Ot
 files: []
 verify: ""
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-branch: main
 verified_head: ""
-run: ""
-provides: []
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # The assigned worktree and branch drivable-ground-tof-filterin--guidance-node-wiring did not exist when the task started. The agent created them at the assigned path with the workbench worktree-create script.

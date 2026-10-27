@@ -6,19 +6,17 @@ value: "No arm pose or transit with the board on the gripper is commanded unless
 files: [shared/ros2_common/head_rgbd_calibration/arm_pose_check.py, tests/test_arm_pose_check.py]
 verify: "uv run --frozen pytest tests/test_arm_pose_check.py -q && uv run poe lint"
 depends_on: [calib-config-and-view-types]
-owns: [arm-pose-check]
-uses: [head-arm-calib-config, urdf-chain-fk]
 model: opus
-estimate: 75
-actual: ""
 review: full
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--arm-pose-safety-check
-branch: drivable-ground-tof-filterin--arm-pose-safety-check
 verified_head: 8efd29ed2722218b63b8129374d765f2266fcc7c
-run: drivable-ground-tof-filterin
-provides: [obstacle-set-distances, head-envelope, board-points-fk, arm-pose-check]
-acs_for_audit: []
-process_gaps: ["tests/README.md has no entry for tests/test_arm_pose_check.py, and no README describes arm_pose_check.py. The implementer recorded this in discovered, so it becomes an epic task and is not a finding."]
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 201
+actual_tokens: 1215522
+actual_roles: "impl 1, review 7"
+actual_role_tokens: "impl 185555, review 1029967"
 ---
 
 # Arm pose safety check

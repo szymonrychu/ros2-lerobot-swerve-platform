@@ -6,19 +6,17 @@ value: "Head yaw, mount x/y and the rest of the head chain are measured against 
 files: [shared/ros2_common/head_rgbd_calibration/head_arm_fit.py, tests/head_arm_synthetic.py, tests/test_head_arm_fit.py]
 verify: "uv run --frozen pytest tests/test_head_arm_fit.py tests/test_head_arm_calib_config.py -q && uv run poe lint"
 depends_on: [calib-config-and-view-types]
-owns: [head-arm-fit, head-aim, head-arm-synthetic-scenes]
-uses: [head-arm-calib-config, head-arm-view-types, urdf-chain-fk, head-chain-override]
 model: opus
-estimate: 90
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-from-arm-board-solver
-branch: drivable-ground-tof-filterin--head-from-arm-board-solver
 verified_head: 308c875d50411ea747d2a2131fb0f604fc6161b2
-run: drivable-ground-tof-filterin
-provides: [head-arm-limit-checks, head-camera-pose, synthetic-board-mount, synthetic-start-chain, head-arm-synthetic-truth, head-arm-synthetic-fit-config, applied-floor-head-urdf]
-acs_for_audit: []
-process_gaps: ["tests/README.md does not list test_head_arm_fit.py or test_head_arm_calib_config.py (project rule: list each test file); shared/README.md does not mention head_arm_fit"]
+points: 8
+expected_minutes: 90
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 206
+actual_tokens: 1522619
+actual_roles: "impl 2, review 10"
+actual_role_tokens: "impl 347225, review 1175394"
 ---
 
 # Head from arm board solver

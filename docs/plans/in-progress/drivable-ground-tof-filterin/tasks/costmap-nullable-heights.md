@@ -6,19 +6,17 @@ value: The costmap slows down in no_return areas instead of rejecting the whole 
 files: [nodes/costmap_zones/costmap_zones/ground_warnings.py, nodes/costmap_zones/tests/test_ground_warnings.py, nodes/costmap_zones/README.md]
 verify: "cd nodes/costmap_zones && uv run --frozen pytest tests -q && uv run --frozen poe lint"
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: 30
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--costmap-nullable-heights
-branch: "current worktree branch (committed)"
 verified_head: 8becd545693b13e52df19b86887b818fdf58a9f1
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 30
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: 127
+actual_tokens: 516483
+actual_roles: "impl 1, review 3"
+actual_role_tokens: "impl 145834, review 370649"
 ---
 
 # Costmap nullable heights

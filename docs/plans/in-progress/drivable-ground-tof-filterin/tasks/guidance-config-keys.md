@@ -6,19 +6,17 @@ value: "One validated, documented place for every guidance setting, mirrored in 
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, tests/test_ground_estimator_deploy.py, tests/README.md]
 verify: "scripts/cpp-node-test.sh ground_estimator_cpp && uv run pytest tests/test_ground_estimator_deploy.py -q && uv run poe test-ansible"
 depends_on: [rgbd-upsampling-on]
-owns: [guidance-config]
-uses: [upsampled-depth-on]
 model: ""
-estimate: 50
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-config-keys
-branch: drivable-ground-tof-filterin--guidance-config-keys
 verified_head: 8b08182264f4cdfabd69d504d9b3ce4eba9f70e4
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: ["No red-green evidence recorded: the guidance block was committed in 432cb1e5 before this run and no red cycle was shown. Needs the revert-the-non-test-files run (git show bbd9abd0:<path>) with both tails in tests.red and verification.evidence."]
+points: 5
+expected_minutes: 50
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 233
+actual_tokens: 993884
+actual_roles: "impl 5, review 47"
+actual_role_tokens: "impl 196799, review 797085"
 ---
 
 # Guidance config keys

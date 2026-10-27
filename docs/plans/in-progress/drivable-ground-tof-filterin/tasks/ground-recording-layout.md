@@ -6,19 +6,17 @@ value: "Recordings with RGB, amplitude and depth in one replayable file, so ever
 files: [nodes/web_ui/web_ui/ground_recorder.py, nodes/web_ui/tests/test_ground_recorder.py]
 verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_ground_recorder.py -q && uv run --frozen poe lint"
 depends_on: []
-owns: [ground-recording-layout]
-uses: []
 model: ""
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-recording-layout
-branch: drivable-ground-tof-filterin--ground-recording-layout
 verified_head: 846d00a10135026ae65b34fe0c9f1f97f6ae97d0
-run: drivable-ground-tof-filterin
-provides: [ground-recording-layout]
-acs_for_audit: []
-process_gaps: ["nodes/web_ui/README.md and tests/README.md not updated, as CLAUDE.md requires for new modules and tests (the implementer reported this)"]
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: 127
+actual_tokens: 668778
+actual_roles: "impl 2, review 3"
+actual_role_tokens: "impl 226577, review 442201"
 ---
 
 # Ground recording layout

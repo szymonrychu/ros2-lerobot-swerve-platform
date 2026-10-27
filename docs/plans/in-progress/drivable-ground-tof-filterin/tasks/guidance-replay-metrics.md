@@ -6,19 +6,17 @@ value: "Edge, no-return and board metrics against the truth, printed for every r
 files: [nodes/ground_estimator_cpp/test/replay_fixture.hpp, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/test/data/replay/tiny_truth.yaml, nodes/ground_estimator_cpp/README.md]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [replay-format-v2, scene-truth-from-board, guidance-config-keys]
-owns: [guidance-replay-harness]
-uses: [replay-format-v2, scene-truth, guidance-config]
 model: ""
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-replay-metrics
-branch: drivable-ground-tof-filterin--guidance-replay-metrics
 verified_head: fbc75e79d464c5e535ebea13e0945c7e553fa45b
-run: drivable-ground-tof-filterin
-provides: [guidance-replay-harness, truth-replay-metrics]
-acs_for_audit: [a4]
-process_gaps: [The implementer states the red-green cycle was not redone for the already-committed harness commit 7a4f9156.]
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 224
+actual_tokens: 1698915
+actual_roles: "impl 6, review 56"
+actual_role_tokens: "impl 110079, review 1588836"
 ---
 
 # Guidance replay metrics

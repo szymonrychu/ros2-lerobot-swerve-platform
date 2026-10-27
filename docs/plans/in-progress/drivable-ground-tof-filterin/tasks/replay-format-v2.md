@@ -6,19 +6,17 @@ value: "Replay fixtures that carry the RGB-D pairs, so the guidance is tested on
 files: [scripts/ground_replay_export.py, tests/test_ground_replay_export.py, nodes/ground_estimator_cpp/test/replay_fixture.hpp, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/test/data/replay/tiny_v2.bin, nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/README.md, tests/README.md]
 verify: "uv run pytest tests/test_ground_replay_export.py -q && uv run poe lint && uv run ruff check scripts/ground_replay_export.py && uv run ruff format --check scripts/ground_replay_export.py && scripts/cpp-node-test.sh ground_estimator_cpp"
 depends_on: [ground-recording-layout]
-owns: [replay-format-v2]
-uses: [ground-recording-layout]
 model: ""
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--replay-format-v2
-branch: drivable-ground-tof-filterin--replay-format-v2
 verified_head: 90d81b0b82dca36e97a3b8ead5044b73e99af577
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 220
+actual_tokens: 2272665
+actual_roles: "impl 8, review 60"
+actual_role_tokens: "impl 645291, review 1627374"
 ---
 
 # Replay format v2

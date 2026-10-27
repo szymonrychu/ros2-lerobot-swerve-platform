@@ -6,19 +6,17 @@ value: "Obstacle and drop boundaries placed where the camera sees them, within a
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/edge_points.hpp, nodes/ground_estimator_cpp/src/core/edge_points.cpp, nodes/ground_estimator_cpp/test/core/test_edge_points.cpp]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [guidance-frame-core]
-owns: [edge-points]
-uses: [guidance-frame, guidance-config]
 model: ""
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--edge-points-core
-branch: drivable-ground-tof-filterin--edge-points-core
 verified_head: c10866de7401ab5fd9fbf7bbff801f9fe4b41f5b
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: [a3]
-process_gaps: ["The implementer states no red-first test was run, with no stated TDD exception."]
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 144
+actual_tokens: 1009243
+actual_roles: "impl 4, review 37"
+actual_role_tokens: "impl 346709, review 662534"
 ---
 
 # Edge points core

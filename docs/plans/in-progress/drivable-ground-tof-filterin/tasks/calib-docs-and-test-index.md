@@ -6,17 +6,17 @@ value: "A mid-level ROS2 developer can understand, run and extend the head-from-
 files: [shared/README.md, nodes/head_rgbd_calibration/README.md, nodes/head_state_publisher/README.md, nodes/mcp_server/README.md, nodes/web_ui/README.md, ansible/README.md, docs/markers.md, tests/README.md]
 verify: "grep -q 'head_arm_fit' shared/README.md && grep -q 'head-arm' nodes/head_rgbd_calibration/README.md && grep -q 'test_head_arm_fit.py' tests/README.md && grep -q 'arm-joint-offsets-from-the-g' nodes/head_rgbd_calibration/README.md"
 depends_on: [head-arm-calibrate-ui-sectio, head-tilt-range-widened]
-owns: []
-uses: []
 model: ""
-estimate: 60
-actual: ""
 review: skip
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--calib-docs-and-test-index
-branch: drivable-ground-tof-filterin--calib-docs-and-test-index
 verified_head: ""
-run: ""
-provides: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Calib docs and test index

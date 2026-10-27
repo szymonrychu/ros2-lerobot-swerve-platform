@@ -6,19 +6,17 @@ value: "A captured session becomes a checked head chain result that is applied t
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/head_arm_results.py, nodes/head_rgbd_calibration/head_rgbd_calibration/floor_results.py, nodes/head_rgbd_calibration/tests/test_head_arm_results.py, nodes/head_rgbd_calibration/tests/test_floor_results.py]
 verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_head_arm_results.py tests/test_floor_results.py tests/test_floor_api.py tests/test_apply.py -q && uv run poe lint"
 depends_on: [head-from-arm-board-solver, joint-state-still-capture]
-owns: [calib-head-arm-results]
-uses: [head-arm-fit, head-arm-synthetic-scenes, calib-session-kinds, head-chain-override, head-chain-applied-record, head-rgbd-applied-calibration, rgbd-result-pose-errors]
 model: ""
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-arm-compute-and-apply
-branch: drivable-ground-tof-filterin--head-arm-compute-and-apply
 verified_head: 5f5b4cf2ac8a3e86dc32db3eb5e1173fa441a687
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 204
+actual_tokens: 1150621
+actual_roles: "impl 2, review 11"
+actual_role_tokens: "impl 150496, review 1000125"
 ---
 
 # Head arm compute and apply

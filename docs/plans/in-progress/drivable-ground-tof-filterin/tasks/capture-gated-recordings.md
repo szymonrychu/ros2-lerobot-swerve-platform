@@ -6,18 +6,17 @@ value: "Real RGB-D replay data with the gate on, the test bed of the guided acce
 files: [scripts/ground_replay_scenes.yaml, nodes/ground_estimator_cpp/test/data/replay_rgbd/, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/README.md]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [tof-amplitude-gate, tof-flying-pixel-retune]
-owns: [gated-fixtures]
-uses: [record-script, guidance-replay-harness, baseline-fixtures, amplitude-gate]
 model: ""
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--capture-gated-recordings
-branch: drivable-ground-tof-filterin--capture-gated-recordings
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: ""
-provides: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
 points_actual: 1
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Capture gated recordings

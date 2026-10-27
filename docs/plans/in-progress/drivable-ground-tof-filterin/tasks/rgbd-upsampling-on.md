@@ -6,19 +6,17 @@ value: "Depth edges that follow the RGB edges at camera resolution, the source o
 files: [nodes/head_rgbd_cpp/test/core/test_upsample.cpp, nodes/head_rgbd_cpp/src/core/upsample.cpp, nodes/head_rgbd_cpp/config/head_rgbd.yaml, ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, nodes/head_rgbd_cpp/README.md]
 verify: "scripts/cpp-node-test.sh head_rgbd_cpp && uv run pytest tests/test_head_rgbd_deploy.py -q && uv run poe test-ansible"
 depends_on: []
-owns: [upsampled-depth-on]
-uses: []
 model: ""
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--rgbd-upsampling-on
-branch: drivable-ground-tof-filterin--rgbd-upsampling-on
 verified_head: f566789e007839e8f81bc3ba974fc8caf921d495
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 240
+actual_tokens: 2908406
+actual_roles: "impl 16, review 48"
+actual_role_tokens: "impl 1556748, review 1351658"
 ---
 
 # RGBD upsampling on

@@ -6,18 +6,17 @@ value: "Dark-surface depth bias removed at the source, so the board stops readin
 files: [nodes/bridges/arducam_tof/arducam_tof/amplitude.py, nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_amplitude.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/README.md, ansible/group_vars/client.yml, tests/test_arducam_tof_config.py]
 verify: "(cd nodes/bridges/arducam_tof && uv run pytest tests -q && uv run poe lint) && uv run pytest tests/test_arducam_tof_config.py -q && uv run poe test-ansible"
 depends_on: [capture-baseline-recordings]
-owns: [amplitude-gate]
-uses: [baseline-fixtures]
 model: ""
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tof-amplitude-gate
-branch: drivable-ground-tof-filterin--tof-amplitude-gate
 verified_head: 7dece440b9162fb337d1706af8a2a5f44f5a93d8
-run: ""
-provides: []
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
 points_actual: 1
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # ToF amplitude gate

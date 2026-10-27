@@ -6,16 +6,17 @@ value: A literal placeholder ended up in the merge command where the branch name
 files: []
 verify: ""
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-branch: main
 verified_head: ""
-run: ""
-provides: []
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # The dependency merge command for costmap-nullable-heights was malformed: 'git merge --no-edit current worktree branch (committed)'. The agent merged branch drivable-ground-tof-filterin--costmap-nullable-heights instead.

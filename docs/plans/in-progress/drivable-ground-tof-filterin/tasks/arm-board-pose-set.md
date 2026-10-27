@@ -6,19 +6,17 @@ value: "A shipped arm pose set that is proven safe by FK, keeps the board in vie
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/tests/test_arm_pose_set.py, nodes/head_rgbd_calibration/tests/test_config.py]
 verify: "(cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py tests/test_config.py -q && uv run poe lint) && uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q"
 depends_on: [robot-mcp-client, arm-pose-safety-check, head-from-arm-board-solver]
-owns: [arm-sequence-config]
-uses: [arm-pose-check, head-aim, head-arm-fit, head-arm-synthetic-scenes]
 model: opus
-estimate: 75
-actual: ""
 review: full
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--arm-board-pose-set
-branch: drivable-ground-tof-filterin--arm-board-pose-set
 verified_head: 3125be849dc861f09746ee23c16452545aed3d1c
-run: drivable-ground-tof-filterin
-provides: [arm-sequence-board-margin, pose-check-board-margin, applied-head-urdf-fixture, arm-sequence-config]
-acs_for_audit: []
-process_gaps: []
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 194
+actual_tokens: 3617190
+actual_roles: "impl 17, review 26"
+actual_role_tokens: "impl 1941595, review 1675595"
 ---
 
 # Arm board pose set

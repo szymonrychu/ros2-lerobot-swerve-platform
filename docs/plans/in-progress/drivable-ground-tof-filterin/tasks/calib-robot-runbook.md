@@ -6,16 +6,17 @@ value: The head chain measured against the arm is applied on the robot and check
 files: [docs/runbooks/head-arm-calibration.md, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml]
 verify: "grep -q '^## Results' docs/runbooks/head-arm-calibration.md && (cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py tests/test_config.py -q) && uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q"
 depends_on: [calib-docs-and-test-index]
-owns: []
-uses: []
 model: ""
-estimate: 90
-actual: ""
 review: skip
-branch: main
 verified_head: ""
-run: ""
-provides: []
+points: 8
+expected_minutes: 90
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Calib robot runbook

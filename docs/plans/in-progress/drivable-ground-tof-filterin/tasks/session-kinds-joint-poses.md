@@ -6,19 +6,17 @@ value: "Board-on-gripper views are stored with all seven measured joints in the 
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/store.py, nodes/head_rgbd_calibration/tests/test_store.py, nodes/head_rgbd_calibration/tests/pose_factory.py]
 verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_store.py tests/test_images.py -q && uv run poe lint"
 depends_on: [calib-config-and-view-types]
-owns: [calib-session-kinds]
-uses: [head-arm-view-types, rgbd-pose-hints]
 model: ""
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--session-kinds-joint-poses
-branch: drivable-ground-tof-filterin--session-kinds-joint-poses
 verified_head: 84493bf9730fa5921a948ed051950aca3005ebab
-run: drivable-ground-tof-filterin
-provides: [write-pose-dir, calib-session-kinds]
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 216
+actual_tokens: 1317453
+actual_roles: "impl 1, review 8"
+actual_role_tokens: "impl 214912, review 1102541"
 ---
 
 # Session kinds joint poses

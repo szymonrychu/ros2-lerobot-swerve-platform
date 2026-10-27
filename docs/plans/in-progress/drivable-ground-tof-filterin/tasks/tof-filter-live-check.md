@@ -6,18 +6,17 @@ value: "Proof on the robot that the retuned filter keeps the ground fit fed (rem
 files: [nodes/bridges/arducam_tof/README.md]
 verify: "cd nodes/bridges/arducam_tof && uv run poe lint"
 depends_on: [capture-gated-recordings, tof-flying-pixel-retune]
-owns: []
-uses: [flying-pixel-retune, gated-fixtures]
 model: ""
-estimate: 30
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tof-filter-live-check
-branch: drivable-ground-tof-filterin--tof-filter-live-check
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: ""
-provides: []
+points: 3
+expected_minutes: 30
+expected_tokens: 2250000
 points_actual: 1
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # ToF filter live check

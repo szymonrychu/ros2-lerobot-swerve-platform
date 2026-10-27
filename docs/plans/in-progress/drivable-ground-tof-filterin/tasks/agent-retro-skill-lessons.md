@@ -6,19 +6,17 @@ value: "The agent stops repeating the retro mistakes: mirror frontiers, guessed 
 files: [nodes/claude_agent/claude_agent/agent_plugin/skills/sightseeing/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/survey/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/recover-from-failure/SKILL.md, nodes/claude_agent/claude_agent/workflow_templates/discovery.yaml, nodes/claude_agent/tests/test_skill_retro_lessons.py, nodes/claude_agent/README.md]
 verify: "cd nodes/claude_agent && uv run --frozen pytest tests/test_skill_retro_lessons.py tests/test_workflows.py tests/test_skill_survey.py -q && uv run poe lint"
 depends_on: [frontiers-honour-keep-outs, front-camera-ground-points, stopbox-backing-and-turns, map-epoch-reset-event]
-owns: []
-uses: [frontier-keepout, front-ground-points, move-relative-clearance, map-epoch-event]
 model: ""
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--agent-retro-skill-lessons
-branch: drivable-ground-tof-filterin--agent-retro-skill-lessons
 verified_head: ""
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Agent retro skill lessons

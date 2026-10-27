@@ -6,18 +6,17 @@ value: "The full ground_estimator_cpp suite reports 8 failures there. This task 
 files: [nodes/ground_estimator_cpp/test/test_node.cpp]
 verify: ""
 depends_on: [guidance-node-wiring]
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-branch: main
 verified_head: e358f01af44ec6e19b191646d795e57257e376ce
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: ["No failing output was captured for the reported failures; the no-change outcome rests on non-reproduction."]
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # test_node.cpp has failing tests: NodeTest stamp-limit checks at lines 997 and 1002, and PlaneLossResetsTheCellHistoryAndGauge at line 1251

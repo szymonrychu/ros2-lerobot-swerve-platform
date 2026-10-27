@@ -6,18 +6,17 @@ value: "The approved edge, no-return and safety numbers locked in on real record
 files: [nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/src/core/edge_points.cpp, nodes/ground_estimator_cpp/src/core/no_return.cpp, nodes/ground_estimator_cpp/test/core/test_edge_points.cpp, nodes/ground_estimator_cpp/test/core/test_no_return.cpp, nodes/ground_estimator_cpp/README.md]
 verify: "scripts/cpp-node-test.sh ground_estimator_cpp && uv run pytest tests/test_ground_estimator_deploy.py -q && uv run poe test-ansible"
 depends_on: [guidance-node-wiring, capture-gated-recordings, ground-estimator-live-scene]
-owns: []
-uses: [guided-node, guidance-replay-harness, gated-fixtures]
 model: opus
-estimate: 90
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-replay-acceptance
-branch: drivable-ground-tof-filterin--guidance-replay-acceptance
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: ""
-provides: []
+points: 8
+expected_minutes: 90
+expected_tokens: 6000000
 points_actual: 1
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Guidance replay acceptance

@@ -6,18 +6,17 @@ value: "The agent's front camera tools become calibrated: pixel rays use the app
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/camera_scene.py, ansible/group_vars/client.yml, nodes/mcp_server/tests/test_camera_config.py, nodes/mcp_server/tests/test_camera_scene_head.py]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_config.py tests/test_camera_scene_head.py tests/test_config.py -q && uv run poe lint"
 depends_on: [mcp-head-kinematics-applied, arm-board-pose-set]
-owns: []
-uses: [head-chain-override]
 model: ""
-estimate: 60
-actual: ""
 review: ""
-branch: main
 verified_head: cabdd10b8914fbd5ecf2e189e77bac6e4142b14e
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: [Fix-round test edits in test_config.py and test_arm_pose_set.py are not named by a finding or tests.added]
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # MCP front camera applied

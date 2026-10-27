@@ -6,19 +6,17 @@ value: "Dark obstacles the ToF cannot see (the black ramp) become caution areas 
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/no_return.hpp, nodes/ground_estimator_cpp/src/core/no_return.cpp, nodes/ground_estimator_cpp/test/core/test_no_return.cpp, nodes/ground_estimator_cpp/include/ground_estimator_cpp/cell_class.hpp, nodes/ground_estimator_cpp/src/core/cell_class.cpp]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [guidance-frame-core, area-heights-nullable]
-owns: [no-return-tracker]
-uses: [guidance-frame, guidance-config, nullable-area-heights]
 model: opus
-estimate: 90
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--no-return-core
-branch: drivable-ground-tof-filterin--no-return-core
 verified_head: a5286847d6ef16c9f8eac5a957dbc306c931ea7a
-run: drivable-ground-tof-filterin
-provides: [no-return-tracker, cell-outline, cell-components, blocking-cells]
-acs_for_audit: [a3]
-process_gaps: []
+points: 8
+expected_minutes: 90
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # No return core

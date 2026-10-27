@@ -6,19 +6,17 @@ value: "Centimetre-true box, board and ramp positions, so edge errors of 1-2 cm 
 files: [scripts/ground_scene_truth.py, tests/test_ground_scene_truth.py, tests/README.md]
 verify: "uv run pytest tests/test_ground_scene_truth.py -q && uv run poe lint && uv run ruff check scripts/ground_scene_truth.py && uv run ruff format --check scripts/ground_scene_truth.py"
 depends_on: [ground-recording-layout]
-owns: [scene-truth]
-uses: [ground-recording-layout]
 model: ""
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--scene-truth-from-board
-branch: drivable-ground-tof-filterin--scene-truth-from-board
 verified_head: 3cdfafe401af157d68588f2c8d52452df78ece69
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: ["New test test_board_frame_off_axis_board_to_the_right has no row in the tests/README.md table for test_ground_scene_truth.py (project rule: document each test).", "No red run recorded for test_board_frame_off_axis_board_to_the_right (implementer says it was not run against the old code)."]
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 220
+actual_tokens: 2164255
+actual_roles: "impl 2, review 10"
+actual_role_tokens: "impl 438462, review 1725793"
 ---
 
 # Scene truth from board

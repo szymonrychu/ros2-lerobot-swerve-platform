@@ -6,18 +6,17 @@ value: A tilt warning can be judged real or an IMU glitch from the event itself
 files: [nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_tilt_event_evidence.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_tilt_event_evidence.py -q && uv run poe lint"
 depends_on: [map-epoch-reset-event]
-owns: []
-uses: []
 model: ""
-estimate: 50
-actual: ""
 review: ""
-branch: main
 verified_head: unknown
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: ["No red/green evidence for the tilt tests against the merge-base monitor.py (tests.red and verification.evidence)"]
+points: 5
+expected_minutes: 50
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Tilt event evidence

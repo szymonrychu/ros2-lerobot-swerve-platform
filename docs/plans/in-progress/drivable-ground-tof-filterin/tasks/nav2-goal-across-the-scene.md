@@ -6,17 +6,17 @@ value: Proof that the robot drives around the box on the ground layer instead of
 files: [docs/runbooks/ground-nav2-check.md, tests/test_ground_nav2_check_runbook.py, tests/README.md]
 verify: "uv run pytest tests/test_ground_nav2_check_runbook.py -q && uv run poe lint"
 depends_on: [ground-voxel-layer-on]
-owns: []
-uses: [ground-layer-on]
 model: ""
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--nav2-goal-across-the-scene
-branch: drivable-ground-tof-filterin--nav2-goal-across-the-scene
 verified_head: ""
-run: ""
-provides: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Nav2 goal across the scene

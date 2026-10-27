@@ -6,19 +6,17 @@ value: "The node captures the board-on-gripper views by itself, moving only chec
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/sequencer.py, nodes/head_rgbd_calibration/tests/test_sequencer.py]
 verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_sequencer.py tests/test_arm_pose_set.py -q && uv run poe lint"
 depends_on: [arm-board-pose-set]
-owns: [calib-sequencer]
-uses: [calib-still-capture, calib-robot-client, arm-sequence-config, arm-pose-check, head-aim]
 model: opus
-estimate: 90
-actual: ""
 review: full
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-arm-pose-capture-sequen
-branch: drivable-ground-tof-filterin--head-arm-pose-capture-sequen
 verified_head: bfc290f824ce18a6e3f69d82d010286736c30f22
-run: drivable-ground-tof-filterin
-provides: [calib-sequencer]
-acs_for_audit: []
-process_gaps: []
+points: 8
+expected_minutes: 90
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 90
+actual_tokens: 734570
+actual_roles: "impl 3, review 12"
+actual_role_tokens: "impl 367288, review 367282"
 ---
 
 # Head arm pose capture sequence

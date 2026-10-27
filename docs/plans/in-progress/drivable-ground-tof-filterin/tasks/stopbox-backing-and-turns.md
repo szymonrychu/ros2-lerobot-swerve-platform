@@ -6,19 +6,17 @@ value: "The robot can back away from a nearby obstacle, and a turn that would hi
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/look_around.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/mcp_server/tests/test_move_relative_clearance.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_move_relative_clearance.py -q && uv run poe lint"
 depends_on: [collision-source-stall-fix, mcp-head-kinematics-applied]
-owns: [move-relative-clearance]
-uses: []
 model: opus
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--stopbox-backing-and-turns
-branch: drivable-ground-tof-filterin--stopbox-backing-and-turns
 verified_head: ""
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # StopBox backing and turns

@@ -6,18 +6,17 @@ value: "Operators who tune these keys would get the wrong meaning. Those files b
 files: []
 verify: ""
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-branch: main
 verified_head: unknown
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # The documentation for guidance.no_return.cell_min_share and clearance_cells describes different semantics from the approved requirement. It calls cell_min_share the share of samples without a return, but the requirement uses the share of no-return samples whose colour does not match the floor. It calls clearance_cells the cells kept clear of valid returns, but the requirement uses the distance from blocked lethal or warning ToF cells.

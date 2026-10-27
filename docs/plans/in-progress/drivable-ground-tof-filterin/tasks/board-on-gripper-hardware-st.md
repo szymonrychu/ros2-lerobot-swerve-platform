@@ -6,16 +6,17 @@ value: "The board clip, its pose on the jaw and the mount's tilt limit are recor
 files: [docs/runbooks/head-arm-calibration.md]
 verify: "test -f docs/runbooks/head-arm-calibration.md && grep -q '^## Hardware' docs/runbooks/head-arm-calibration.md"
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: 30
-actual: ""
 review: skip
-branch: main
 verified_head: ""
-run: ""
-provides: []
+points: 3
+expected_minutes: 30
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Board on gripper hardware step

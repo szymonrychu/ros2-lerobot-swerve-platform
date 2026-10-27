@@ -6,18 +6,17 @@ value: Every map reset the agent runs into is explained by an event with its cau
 files: [nodes/mcp_server/mcp_server/frontiers.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/monitor.py, nodes/mcp_server/tests/test_map_epoch_event.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_map_epoch_event.py -q && uv run poe lint"
 depends_on: [map-reset-requester-event]
-owns: [map-epoch-event]
-uses: [map-reset-event]
 model: ""
-estimate: 60
-actual: ""
 review: ""
-branch: main
 verified_head: 75a7f4bd194b1dc2da0b415308e513c0adbe7fd0
-run: drivable-ground-tof-filterin
-provides: [map-epoch-event]
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Map epoch reset event

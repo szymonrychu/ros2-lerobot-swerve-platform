@@ -6,18 +6,17 @@ value: "A map reset from the web UI is no longer a mystery: the agent gets an ev
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/tests/test_map_reset_event.py, nodes/web_ui/README.md]
 verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_map_reset_event.py -q && uv run poe lint"
 depends_on: [web-ui-ground-recorder-api, web-ui-applied-head-urdf]
-owns: [map-reset-event]
-uses: []
 model: ""
-estimate: 50
-actual: ""
 review: ""
-branch: main
 verified_head: c9961a7b84384aead800f516a677ac828681489a
-run: drivable-ground-tof-filterin
-provides: [map-reset-event]
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 50
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Map reset requester event

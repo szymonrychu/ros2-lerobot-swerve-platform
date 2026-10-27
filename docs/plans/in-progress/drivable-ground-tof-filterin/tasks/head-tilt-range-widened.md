@@ -6,17 +6,17 @@ value: The head can look further down at the board on the gripper and at grasp s
 files: [nodes/web_ui/urdf/head.urdf, ansible/group_vars/client.yml, nodes/web_ui/config/default.yaml, nodes/web_ui/web_ui/config.py, nodes/web_ui/frontend/src/tabs/HeadTab.tsx, tests/test_head_servo_config.py, nodes/web_ui/tests/test_head_urdf.py, nodes/mcp_server/tests/test_head_kinematics.py]
 verify: "uv run --frozen pytest tests/test_head_servo_config.py tests/test_head_config_consistency.py -q && (cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q) && (cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematics.py -q) && uv run poe lint-ansible && uv run --frozen pytest tests/test_arm_pose_check.py -q && (cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py -q)"
 depends_on: [calib-ansible-deploy-config, board-on-gripper-hardware-st, arm-pose-safety-check, arm-board-pose-set]
-owns: []
-uses: []
 model: ""
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--head-tilt-range-widened
-branch: drivable-ground-tof-filterin--head-tilt-range-widened
 verified_head: ""
-run: ""
-provides: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Head tilt range widened

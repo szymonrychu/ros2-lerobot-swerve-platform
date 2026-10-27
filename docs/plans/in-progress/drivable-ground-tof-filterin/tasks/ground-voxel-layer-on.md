@@ -6,18 +6,17 @@ value: "Nav2 avoids what the ground estimator sees (steps, drops) again, now tha
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_ground_voxel_layer.py, nodes/nav2_bringup/README.md, tests/README.md]
 verify: "uv run pytest tests/test_nav_ground_voxel_layer.py tests/test_ground_docs.py -q && uv run poe lint"
 depends_on: [ground-live-acceptance, stopbox-backing-and-turns]
-owns: [ground-layer-on]
-uses: [live-acceptance]
 model: ""
-estimate: 20
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-voxel-layer-on
-branch: drivable-ground-tof-filterin--ground-voxel-layer-on
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: ""
-provides: []
+points: 2
+expected_minutes: 20
+expected_tokens: 1500000
 points_actual: 1
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Ground voxel layer on

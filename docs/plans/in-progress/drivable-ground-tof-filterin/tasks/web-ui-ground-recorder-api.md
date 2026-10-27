@@ -6,19 +6,17 @@ value: Replay recordings captured from the robot without rclpy probes or SSH
 files: [nodes/web_ui/web_ui/bridge.py, nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/tests/test_ground_recorder_api.py, nodes/web_ui/tests/test_config.py, nodes/web_ui/config/default.yaml, nodes/web_ui/README.md, ansible/group_vars/client.yml]
 verify: "(cd nodes/web_ui && uv run --frozen pytest tests/test_ground_recorder_api.py tests/test_ground_recorder.py tests/test_config.py -q && uv run --frozen poe lint) && uv run poe test-ansible"
 depends_on: [ground-recording-layout, guidance-config-keys]
-owns: [ground-recorder-api]
-uses: [ground-recording-layout]
 model: ""
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--web-ui-ground-recorder-api
-branch: drivable-ground-tof-filterin--web-ui-ground-recorder-api
 verified_head: 8ee14ac37fc5642fa298822588c49c5bfc4d2578
-run: drivable-ground-tof-filterin
-provides: [ground-recorder-api, ground-recorder-bridge-api]
-acs_for_audit: []
-process_gaps: ["No red (failing-first) run recorded for the recorder tests in this task's run"]
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 218
+actual_tokens: 2177593
+actual_roles: "impl 2, review 12"
+actual_role_tokens: "impl 315439, review 1862154"
 ---
 
 # Web UI ground recorder API

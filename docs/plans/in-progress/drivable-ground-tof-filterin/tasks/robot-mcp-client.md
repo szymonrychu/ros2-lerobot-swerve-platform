@@ -6,19 +6,17 @@ value: "The calibrator moves the head and arm only through mcp_server's guarded 
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/robot_client.py, nodes/head_rgbd_calibration/pyproject.toml, nodes/head_rgbd_calibration/uv.lock, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/tests/test_robot_client.py, nodes/head_rgbd_calibration/tests/test_config.py]
 verify: "(cd nodes/head_rgbd_calibration && uv lock --check && uv run --frozen pytest tests/test_robot_client.py tests/test_config.py -q && uv run poe lint) && uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q"
 depends_on: [joint-state-still-capture]
-owns: [calib-robot-client]
-uses: []
 model: ""
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--robot-mcp-client
-branch: drivable-ground-tof-filterin--robot-mcp-client
 verified_head: 9a0b69b4d76662f76bf2fd838dc6095adff64a1e
-run: drivable-ground-tof-filterin
-provides: [robot-mcp-client]
-acs_for_audit: []
-process_gaps: ["Implementer made no commit; the deliverables come from commit a2f620ba reached through the merged dependency. I reviewed that commit's content in the tree, so I did not review a task-specific diff."]
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: 207
+actual_tokens: 816310
+actual_roles: "impl 1, review 6"
+actual_role_tokens: "impl 140520, review 675790"
 ---
 
 # Robot MCP client

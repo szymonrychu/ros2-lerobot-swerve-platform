@@ -6,18 +6,17 @@ value: The web UI 3D view and head tab draw the head where it really is after a 
 files: [nodes/web_ui/web_ui/server.py, nodes/web_ui/web_ui/config.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_head_urdf.py, ansible/group_vars/client.yml]
 verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py tests/test_server.py -q && uv run poe lint"
 depends_on: [mcp-front-camera-applied]
-owns: []
-uses: [head-chain-override]
 model: ""
-estimate: 45
-actual: ""
 review: ""
-branch: main
 verified_head: a88e0010a385d1730dacbfcc7e02642cf84c3c2d
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Web UI applied head URDF

@@ -6,18 +6,17 @@ value: "The Calibrate page talks to the head-from-arm routes through one typed c
 files: [nodes/web_ui/frontend/src/calibrate/headArmApi.ts, nodes/web_ui/frontend/src/calibrate/headArmApi.test.ts, nodes/web_ui/frontend/src/calibrate/headFloorApi.ts, nodes/web_ui/frontend/src/calibrate/headFloorApi.test.ts]
 verify: "cd nodes/web_ui/frontend && npx vitest run src/calibrate/headArmApi.test.ts src/calibrate/headFloorApi.test.ts && npx tsc --noEmit && npm run lint"
 depends_on: [head-arm-sequence-http-api]
-owns: []
-uses: [head-arm-calib-api]
 model: ""
-estimate: 45
-actual: ""
 review: ""
-branch: main
 verified_head: ""
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Calib frontend API

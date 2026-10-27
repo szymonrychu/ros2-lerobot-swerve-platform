@@ -6,18 +6,17 @@ value: "The user runs the head-from-arm calibration from a browser, step by step
 files: [nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.tsx, nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.test.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx, nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx]
 verify: "cd nodes/web_ui/frontend && npx vitest run src/calibrate/HeadArmCalibration.test.tsx src/calibrate/CalibratePage.test.tsx && npx tsc --noEmit && npm run lint && npm run build"
 depends_on: [calib-frontend-api]
-owns: []
-uses: [head-arm-calib-api]
 model: ""
-estimate: 75
-actual: ""
 review: ""
-branch: main
 verified_head: ""
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Head arm calibrate UI section

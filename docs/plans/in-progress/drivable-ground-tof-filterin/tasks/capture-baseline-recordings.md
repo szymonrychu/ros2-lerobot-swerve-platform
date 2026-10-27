@@ -6,18 +6,17 @@ value: "Before numbers on the real scene, so every later improvement is proven, 
 files: [scripts/ground_scenes.yaml, scripts/ground_record.yaml, scripts/ground_replay_scenes.yaml, nodes/ground_estimator_cpp/test/data/replay_rgbd/, nodes/bridges/arducam_tof/tests/data/amplitude_frames.npz, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/README.md]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [ground-record-script, scene-truth-from-board, guidance-replay-metrics, rgbd-upsampling-on, calib-robot-runbook]
-owns: [baseline-fixtures]
-uses: [record-script, scene-truth, replay-format-v2, guidance-replay-harness, upsampled-depth-on]
 model: ""
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--capture-baseline-recordings
-branch: drivable-ground-tof-filterin--capture-baseline-recordings
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: ""
-provides: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
 points_actual: 1
+actual_minutes: 18
+actual_tokens: 4332269
+actual_roles: "impl 11, review 7"
+actual_role_tokens: "impl 4264178, review 68091"
 ---
 
 # Capture baseline recordings

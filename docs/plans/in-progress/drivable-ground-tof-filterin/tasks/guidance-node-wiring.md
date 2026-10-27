@@ -6,19 +6,17 @@ value: The running ground estimator publishes sharper lethal edges and no_return
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/ground_node.hpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/CMakeLists.txt, nodes/ground_estimator_cpp/package.xml, nodes/ground_estimator_cpp/README.md]
 verify: scripts/cpp-node-test.sh ground_estimator_cpp
 depends_on: [edge-points-core, no-return-core, area-heights-nullable, costmap-nullable-heights, mcp-nullable-heights, web-ui-no-return-areas]
-owns: [guided-node]
-uses: [guidance-config, guidance-frame, edge-points, no-return-tracker, nullable-area-heights]
 model: opus
-estimate: 90
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-node-wiring
-branch: drivable-ground-tof-filterin--guidance-node-wiring
 verified_head: 09ea88dbb894abc18e5bef912d1f52b986e70e30
-run: drivable-ground-tof-filterin
-provides: [guidance-pair-test-render, node-test-twin]
-acs_for_audit: [a4]
-process_gaps: ["Worktree for this task was missing and the costmap-nullable-heights merge command held a literal placeholder; the implementer worked around both."]
+points: 8
+expected_minutes: 90
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Guidance node wiring

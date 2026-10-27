@@ -6,18 +6,17 @@ value: "The deployed node can call mcp_server, and its copies of the arm gauge, 
 files: [ansible/group_vars/client.yml, ansible/playbooks/tasks/head_rgbd_calibration_setup.yml, tests/test_head_rgbd_calibration_deploy.py]
 verify: "uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q && uv run poe lint-ansible && uv run poe test-ansible"
 depends_on: [head-arm-sequence-http-api, web-ui-applied-head-urdf]
-owns: []
-uses: [arm-sequence-config]
 model: ""
-estimate: 45
-actual: ""
 review: ""
-branch: main
 verified_head: ""
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Calib ansible deploy config

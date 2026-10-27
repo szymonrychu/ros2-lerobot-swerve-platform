@@ -6,18 +6,17 @@ value: "CLAUDE.md requires tests/README.md to list and describe every test file,
 files: [tests/README.md]
 verify: ""
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-branch: main
 verified_head: be91b0e2729712fd9fee128fcbcbee6daa8be3ec
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: [AC1]
-process_gaps: []
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # tests/README.md has no entries for tests/test_arm_pose_check.py or tests/test_head_arm_calib_config.py (from calib-config-and-view-types)

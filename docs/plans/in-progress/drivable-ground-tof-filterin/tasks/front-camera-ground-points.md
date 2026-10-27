@@ -6,18 +6,17 @@ value: Objects the agent sees with the head camera get real floor positions inst
 files: [nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/tests/test_front_ground_points.py, nodes/mcp_server/README.md]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_front_ground_points.py tests/test_camera_config.py -q && uv run poe lint"
 depends_on: [mcp-front-camera-applied]
-owns: [front-ground-points]
-uses: []
 model: ""
-estimate: 60
-actual: ""
 review: ""
-branch: main
 verified_head: b2d1587a9ecb0784edee74db26c11e8aac226627
-run: drivable-ground-tof-filterin
-provides: [front-ground-points]
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Front camera ground points

@@ -6,18 +6,17 @@ value: Proof on the robot that the guidance works and what it costs on the Pi 5
 files: [docs/runbooks/ground-guidance.md, tests/test_ground_guidance_runbook.py, tests/README.md, scripts/ground_guidance_cpu.yaml, MEMORY.md]
 verify: "uv run pytest tests/test_ground_guidance_runbook.py -q && uv run poe lint"
 depends_on: [guidance-replay-acceptance, live-report-guidance-metrics]
-owns: []
-uses: [record-script, live-report]
 model: ""
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-live-check-and-cpu
-branch: drivable-ground-tof-filterin--guidance-live-check-and-cpu
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: ""
-provides: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
 points_actual: 1
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Guidance live check and CPU

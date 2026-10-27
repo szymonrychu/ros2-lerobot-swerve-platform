@@ -6,19 +6,17 @@ value: "One command records every scene from the Mac through web_ui, head moves 
 files: [scripts/ground_record.py, scripts/ground_record.yaml, tests/test_ground_record.py, tests/README.md, pyproject.toml, uv.lock]
 verify: "uv run pytest tests/test_ground_record.py -q && uv run poe lint && uv run ruff check scripts/ground_record.py && uv run ruff format --check scripts/ground_record.py"
 depends_on: [web-ui-ground-recorder-api]
-owns: [record-script]
-uses: [ground-recorder-api]
 model: ""
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-record-script
-branch: drivable-ground-tof-filterin--ground-record-script
 verified_head: 958468d3b036c0fed31e461666c4d362671a940b
-run: drivable-ground-tof-filterin
-provides: []
-acs_for_audit: []
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 210
+actual_tokens: 1819117
+actual_roles: "impl 3, review 7"
+actual_role_tokens: "impl 522999, review 1296118"
 ---
 
 # Ground record script
