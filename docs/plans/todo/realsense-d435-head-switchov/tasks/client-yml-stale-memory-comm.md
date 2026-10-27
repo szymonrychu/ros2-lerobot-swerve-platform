@@ -44,8 +44,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+1. Read the measured memory of the two C++ relay nodes from Mimir (method of d435-memory-and-cpu-budget).
+2. Replace both 'Not measured yet' comments and their memory_low/memory_max with the measured values and date.
+3. Run the verify; expect grep finds nothing and the tests pass.
 
 ## Notes
 

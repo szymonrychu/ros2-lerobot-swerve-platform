@@ -45,8 +45,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+1. Add laser_filter to SHARED_NODE_TYPES and the scrape-target expectation in tests/test_node_metrics_wiring.py; `uv run pytest tests/test_node_metrics_wiring.py -q` fails.
+2. Add the monitoring_agent_node_targets entry and `src_shared: true` on the laser_filter node type in ansible/group_vars/client.yml.
+3. Run the verify; expect all passed and `Passed: 0 failure(s)`.
 
 ## Notes
 
