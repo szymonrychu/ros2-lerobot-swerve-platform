@@ -1,6 +1,6 @@
 ---
 title: StopBox rotate polygon covers the rotation sweep
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Nav2 in-place turns stop for returns anywhere in the swept circle
 files: [scripts/gen_nav_footprint.py, scripts/gen_nav_footprint.yaml, nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_footprint.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests -q -k \"nav_footprint or stopbox\" && uv run poe li
 depends_on: [stopbox-backing-and-turns]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: 2680a81f
 points: 3
 expected_minutes: 127
 expected_tokens: 687110
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 7
+actual_tokens: 825470
+actual_roles: "impl 6, review 2"
+actual_role_tokens: "impl 762331, review 63139"
 ---
 
 # StopBox rotate polygon covers the rotation sweep
@@ -57,3 +57,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 done
