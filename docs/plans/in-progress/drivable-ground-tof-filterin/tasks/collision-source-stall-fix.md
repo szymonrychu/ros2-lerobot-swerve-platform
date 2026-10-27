@@ -1,6 +1,6 @@
 ---
 title: Collision source stall fix
-status: blocked
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Nav2 goals finish their final turn instead of being cut by a spurious invalid-source stop
 files: [nodes/laser_filter/laser_filter/node.py, nodes/nav2_bringup/config/nav2_params.yaml, tests/test_collision_source_stall.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_collision_source_stall.py -q && uv run poe lin
 depends_on: []
 model: opus
 review: ""
-verified_head: 4e1bb311090bbd43fd870bda05cced9dad9fbc5b
+verified_head: bd109691
 points: 8
 expected_minutes: 75
 expected_tokens: 6000000
-points_actual: ""
-actual_minutes: 116
-actual_tokens: 13874864
-actual_roles: "impl 26, review 2"
-actual_role_tokens: "impl 13771824, review 103040"
+points_actual: 5
+actual_minutes: 7463
+actual_tokens: 20800651
+actual_roles: "impl 44, review 3"
+actual_role_tokens: "impl 20543224, review 257427"
 ---
 
 # Collision source stall fix
@@ -103,3 +103,5 @@ passes with a test that failed before the fix; the fail-safe pin passes; no time
   retrospectives JSON); Loki keeps more units (robot_localization_ekf and laser_filter had no lines in the window).
 
 - 2026-10-27 amended: 2026-10-22 telemetry expired; cause naming moved to retro-fixes-live-check, instrumentation added
+
+- 2026-10-27 done
