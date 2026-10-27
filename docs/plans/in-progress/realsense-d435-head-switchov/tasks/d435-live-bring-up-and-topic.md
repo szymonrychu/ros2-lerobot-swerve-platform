@@ -73,3 +73,4 @@ What is true and observable when the task is done.
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 
 - 2026-10-27 amended: clarify how the unit is kept stopped for --device
+- 2026-10-27 probed (d435-diagnostics-script live run): D435 firmware 5.16.0.1 (< 5.17.3.10, flash per gate Q4); client PSU negotiates 3000 mA with usb_max_current_enable=1 forced in config.txt (not the 5 V 5 A the design assumed) - user decision pending.
