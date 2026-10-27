@@ -1,6 +1,6 @@
 ---
 title: ToF flying pixel retune
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The ToF filter goes back on without starving the ground fit, so mixed pixels at object edges stop faking ramps and drops"
 files: [nodes/bridges/arducam_tof/arducam_tof/bridge.py, nodes/bridges/arducam_tof/arducam_tof/config.py, nodes/bridges/arducam_tof/tests/test_flying_pixel_real.py, nodes/bridges/arducam_tof/tests/test_config.py, nodes/bridges/arducam_tof/tests/test_bridge.py, nodes/bridges/arducam_tof/README.md, ansible/group_vars/client.yml, tests/test_arducam_tof_config.py]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--tof-flying-pixel-retune
 branch: drivable-ground-tof-filterin--tof-flying-pixel-retune
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # ToF flying pixel retune
@@ -131,3 +132,7 @@ block has `flying_pixel_filter: true` with the retuned keys; the README has the 
   registered RGB-D image).
 
 - 2026-10-22 amended: User 2026-10-22 Q10: yes, but floor retention with filter plus amplitude gate stays 95 % (not 90 %)
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/laser-filter-on-the-d435-clo
+
+- 2026-10-27 actuals: no agent records
