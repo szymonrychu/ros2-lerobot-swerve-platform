@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <yaml-cpp/yaml.h>
 
+#include <cmath>
 #include <fstream>
 #include <regex>
 #include <sstream>
@@ -51,7 +52,7 @@ TEST(Config, DefaultsMatchTheSpecification)
 {
   EXPECT_TRUE(errors_of("{}").empty());
   const Config c = ground_estimator_cpp::from_yaml(YAML::Load("{}"));
-  EXPECT_EQ(c.cloud_topic, "/tof/points_filtered");
+  EXPECT_EQ(c.cloud_topic, "/head/d435/points_filtered");
   EXPECT_EQ(c.imu_topic, "/imu/data");
   EXPECT_EQ(c.rgbd_cloud_topic, "/head_rgbd/points");
   EXPECT_EQ(c.output_namespace, "/ground");
@@ -97,19 +98,19 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.state.rate_hz, 2.0);
   EXPECT_TRUE(c.temporal.enabled);
   EXPECT_DOUBLE_EQ(c.temporal.cell_size_m, 0.10);
-  EXPECT_EQ(c.temporal.window_frames, 8);
-  EXPECT_EQ(c.temporal.min_frames, 4);
+  EXPECT_EQ(c.temporal.window_frames, 12);
+  EXPECT_EQ(c.temporal.min_frames, 6);
   EXPECT_DOUBLE_EQ(c.temporal.max_age_s, 1.5);
   EXPECT_DOUBLE_EQ(c.temporal.max_spread_m, 0.025);
   EXPECT_TRUE(c.hysteresis.enabled);
-  EXPECT_EQ(c.hysteresis.window_frames, 5);
-  EXPECT_EQ(c.hysteresis.enter_frames, 3);
-  EXPECT_EQ(c.hysteresis.exit_frames, 1);
-  EXPECT_EQ(c.hysteresis.area_enter_frames, 3);
+  EXPECT_EQ(c.hysteresis.window_frames, 8);
+  EXPECT_EQ(c.hysteresis.enter_frames, 5);
+  EXPECT_EQ(c.hysteresis.exit_frames, 2);
+  EXPECT_EQ(c.hysteresis.area_enter_frames, 5);
   EXPECT_EQ(c.hysteresis.area_min_cells, 3);
-  EXPECT_EQ(c.hysteresis.area_join_frames, 8);
-  EXPECT_EQ(c.hysteresis.area_kind_frames, 10);
-  EXPECT_EQ(c.hysteresis.area_history_frames, 20);
+  EXPECT_EQ(c.hysteresis.area_join_frames, 12);
+  EXPECT_EQ(c.hysteresis.area_kind_frames, 15);
+  EXPECT_EQ(c.hysteresis.area_history_frames, 30);
   EXPECT_DOUBLE_EQ(c.hysteresis.area_enter_density, 0.75);
   EXPECT_DOUBLE_EQ(c.hysteresis.area_exit_density, 0.25);
   EXPECT_EQ(c.traversability.lethal_min_points, 2);
@@ -184,6 +185,21 @@ TEST(Config, ShippedYamlLoadsWithTheDefaults)
   const Config shipped = ground_estimator_cpp::from_yaml(node);
   const Config defaults = ground_estimator_cpp::from_yaml(YAML::Load("{}"));
   EXPECT_EQ(shipped.cloud_topic, defaults.cloud_topic);
+  EXPECT_EQ(shipped.guidance.depth_topic, defaults.guidance.depth_topic);
+  EXPECT_EQ(shipped.guidance.info_topic, defaults.guidance.info_topic);
+  EXPECT_EQ(shipped.guidance.depth_info_topic, defaults.guidance.depth_info_topic);
+  EXPECT_EQ(shipped.guidance.no_return.margin_px, defaults.guidance.no_return.margin_px);
+  EXPECT_EQ(shipped.temporal.window_frames, defaults.temporal.window_frames);
+  EXPECT_EQ(shipped.temporal.min_frames, defaults.temporal.min_frames);
+  EXPECT_EQ(shipped.hysteresis.window_frames, defaults.hysteresis.window_frames);
+  EXPECT_EQ(shipped.hysteresis.enter_frames, defaults.hysteresis.enter_frames);
+  EXPECT_EQ(shipped.hysteresis.exit_frames, defaults.hysteresis.exit_frames);
+  EXPECT_EQ(shipped.hysteresis.area_enter_frames, defaults.hysteresis.area_enter_frames);
+  EXPECT_EQ(shipped.hysteresis.area_join_frames, defaults.hysteresis.area_join_frames);
+  EXPECT_EQ(shipped.hysteresis.area_kind_frames, defaults.hysteresis.area_kind_frames);
+  EXPECT_EQ(shipped.hysteresis.area_history_frames, defaults.hysteresis.area_history_frames);
+  EXPECT_EQ(shipped.guidance.no_return.window_frames, defaults.guidance.no_return.window_frames);
+  EXPECT_EQ(shipped.guidance.no_return.enter_frames, defaults.guidance.no_return.enter_frames);
   EXPECT_DOUBLE_EQ(shipped.fit.distance_m, defaults.fit.distance_m);
   EXPECT_DOUBLE_EQ(shipped.traversability.max_step_fraction, defaults.traversability.max_step_fraction);
   EXPECT_DOUBLE_EQ(shipped.slope.pitch_error_deg, defaults.slope.pitch_error_deg);
@@ -296,7 +312,7 @@ TEST(Config, RejectsRobustnessKeys)
   expect_accepted("hysteresis: {enabled: false}");
   expect_accepted("hysteresis: {window_frames: 30, enter_frames: 16, exit_frames: 16}");
   expect_rejected("hysteresis: {window_frames: 6, enter_frames: 3}", "hysteresis.enter_frames");
-  expect_rejected("hysteresis: {exit_frames: 4}", "hysteresis.exit_frames");
+  expect_rejected("hysteresis: {exit_frames: 6}", "hysteresis.exit_frames");
   expect_rejected("hysteresis: {exit_frames: 0}", "hysteresis.exit_frames");
   expect_rejected("hysteresis: {window_frames: 31}", "hysteresis.window_frames");
   expect_rejected("hysteresis: {window_frames: 2, enter_frames: 3}", "hysteresis.enter_frames");
@@ -304,16 +320,16 @@ TEST(Config, RejectsRobustnessKeys)
   expect_rejected("hysteresis: {foo: 1}", "hysteresis.foo");
   expect_accepted("hysteresis: {area_enter_frames: 1}");
   expect_accepted("hysteresis: {area_enter_frames: 30, area_join_frames: 30}");
-  expect_rejected("hysteresis: {area_enter_frames: 9}", "hysteresis.area_join_frames");
+  expect_rejected("hysteresis: {area_enter_frames: 13}", "hysteresis.area_join_frames");
   expect_rejected("hysteresis: {area_enter_frames: 0}", "hysteresis.area_enter_frames");
   expect_rejected("hysteresis: {area_enter_frames: 31}", "hysteresis.area_enter_frames");
   expect_accepted("hysteresis: {area_min_cells: 1}");
   expect_accepted("hysteresis: {area_min_cells: 100}");
   expect_rejected("hysteresis: {area_min_cells: 0}", "hysteresis.area_min_cells");
   expect_rejected("hysteresis: {area_min_cells: 101}", "hysteresis.area_min_cells");
-  expect_accepted("hysteresis: {area_join_frames: 3}");
+  expect_accepted("hysteresis: {area_join_frames: 5}");
   expect_accepted("hysteresis: {area_join_frames: 30}");
-  expect_rejected("hysteresis: {area_join_frames: 2}", "hysteresis.area_join_frames");
+  expect_rejected("hysteresis: {area_join_frames: 4}", "hysteresis.area_join_frames");
   expect_rejected("hysteresis: {area_join_frames: 31}", "hysteresis.area_join_frames");
   expect_accepted("hysteresis: {area_kind_frames: 1}");
   expect_accepted("hysteresis: {area_kind_frames: 30}");
@@ -440,10 +456,10 @@ TEST(Config, GuidanceDefaults)
 {
   const Config c = ground_estimator_cpp::from_yaml(YAML::Load("{}"));
   EXPECT_TRUE(c.guidance.enabled);
-  EXPECT_EQ(c.guidance.depth_topic, "/head_rgbd/depth_upsampled/image_raw");
-  EXPECT_EQ(c.guidance.info_topic, "/head_rgbd/depth_upsampled/camera_info");
+  EXPECT_EQ(c.guidance.depth_topic, "/head_rgbd/depth/image_raw");
+  EXPECT_EQ(c.guidance.info_topic, "/head_rgbd/depth/camera_info");
   EXPECT_EQ(c.guidance.rgb_topic, "/head_rgbd/rgb/image_raw/compressed");
-  EXPECT_EQ(c.guidance.tof_info_topic, "/tof/camera_info");
+  EXPECT_EQ(c.guidance.depth_info_topic, "/head/d435/depth/camera_info");
   EXPECT_DOUBLE_EQ(c.guidance.max_age_s, 0.6);
   EXPECT_EQ(c.guidance.sample_step_px, 2);
   EXPECT_DOUBLE_EQ(c.guidance.max_range_m, 2.0);
@@ -455,11 +471,11 @@ TEST(Config, GuidanceDefaults)
   EXPECT_DOUBLE_EQ(c.guidance.no_return.min_range_m, 0.3);
   EXPECT_EQ(c.guidance.no_return.cell_min_samples, 6);
   EXPECT_DOUBLE_EQ(c.guidance.no_return.cell_min_share, 0.8);
-  EXPECT_EQ(c.guidance.no_return.window_frames, 4);
-  EXPECT_EQ(c.guidance.no_return.enter_frames, 3);
+  EXPECT_EQ(c.guidance.no_return.window_frames, 6);
+  EXPECT_EQ(c.guidance.no_return.enter_frames, 5);
   EXPECT_EQ(c.guidance.no_return.min_cells, 2);
   EXPECT_EQ(c.guidance.no_return.clearance_cells, 1);
-  EXPECT_EQ(c.guidance.no_return.tof_margin_px, 4);
+  EXPECT_EQ(c.guidance.no_return.margin_px, 4);
   expect_accepted("{}");
 }
 
@@ -478,7 +494,7 @@ TEST(Config, RejectsGuidanceRanges)
   expect_accepted("guidance: {max_range_m: 0.31}");
   expect_rejected("guidance: {max_range_m: 0}", "guidance.max_range_m");
   expect_rejected("guidance: {max_range_m: -1}", "guidance.max_range_m");
-  expect_accepted("guidance: {depth_topic: /a, info_topic: /b, rgb_topic: /c, tof_info_topic: /d}");
+  expect_accepted("guidance: {depth_topic: /a, info_topic: /b, rgb_topic: /c, depth_info_topic: /d}");
   expect_rejected("guidance: {depth_topic: [1]}", "guidance.depth_topic");
 
   expect_accepted("guidance: {edge: {max_shift_m: 0.15}}");
@@ -511,10 +527,10 @@ TEST(Config, RejectsGuidanceRanges)
   expect_accepted("guidance: {no_return: {clearance_cells: 3}}");
   expect_rejected("guidance: {no_return: {clearance_cells: -1}}", "guidance.no_return.clearance_cells");
   expect_rejected("guidance: {no_return: {clearance_cells: 4}}", "guidance.no_return.clearance_cells");
-  expect_accepted("guidance: {no_return: {tof_margin_px: 0}}");
-  expect_accepted("guidance: {no_return: {tof_margin_px: 20}}");
-  expect_rejected("guidance: {no_return: {tof_margin_px: -1}}", "guidance.no_return.tof_margin_px");
-  expect_rejected("guidance: {no_return: {tof_margin_px: 21}}", "guidance.no_return.tof_margin_px");
+  expect_accepted("guidance: {no_return: {margin_px: 0}}");
+  expect_accepted("guidance: {no_return: {margin_px: 20}}");
+  expect_rejected("guidance: {no_return: {margin_px: -1}}", "guidance.no_return.margin_px");
+  expect_rejected("guidance: {no_return: {margin_px: 21}}", "guidance.no_return.margin_px");
   expect_rejected("guidance: {no_return: {enabled: maybe}}", "guidance.no_return.enabled");
 }
 
@@ -526,7 +542,7 @@ TEST(Config, RejectsGuidanceCrossKeyViolations)
   expect_accepted(
     "traversability: {wheel_radius_m: 0.09, max_step_fraction: 0.5}\nguidance: {edge: {min_height_m: 0.089}}");
   expect_rejected("traversability: {wheel_radius_m: 0.02}\nfit: {distance_m: 0.01}", "guidance.edge.min_height_m");
-  expect_rejected("guidance: {no_return: {enter_frames: 5}}", "guidance.no_return.enter_frames");
+  expect_rejected("guidance: {no_return: {enter_frames: 7}}", "guidance.no_return.enter_frames");
   expect_accepted("guidance: {no_return: {window_frames: 5, enter_frames: 5}}");
   expect_rejected("guidance: {no_return: {min_range_m: 2.0}}", "guidance.no_return.min_range_m");
   expect_rejected("guidance: {max_range_m: 0.3}", "guidance.no_return.min_range_m");
@@ -538,4 +554,31 @@ TEST(Config, RejectsUnknownGuidanceKeys)
   expect_rejected("guidance: {foo: 1}", "guidance.foo");
   expect_rejected("guidance: {edge: {foo: 1}}", "guidance.edge.foo");
   expect_rejected("guidance: {no_return: {foo: 1}}", "guidance.no_return.foo");
+}
+
+TEST(Config, TheToFKeysAreRejectedAsUnknown)
+{
+  // Renamed for the D435 (design D7), with no backward compatibility: the old names are unknown keys.
+  expect_rejected("guidance: {tof_info_topic: /tof/camera_info}", "guidance.tof_info_topic");
+  expect_rejected("guidance: {no_return: {tof_margin_px: 4}}", "guidance.no_return.tof_margin_px");
+  expect_accepted("guidance: {depth_info_topic: /head/d435/depth/camera_info, no_return: {margin_px: 4}}");
+}
+
+TEST(Config, FrameWindowsKeepTheTenHertzSpansAtFifteenHertz)
+{
+  // Every frame-count window default is its 10 Hz value times 1.5, rounded up (design D7): the same time span at the
+  // 15 Hz of the D435 cloud.
+  const Config c = ground_estimator_cpp::from_yaml(YAML::Load("{}"));
+  const auto at_15_hz = [](int frames_at_10_hz) { return static_cast<int>(std::ceil(frames_at_10_hz * 1.5)); };
+  EXPECT_EQ(c.temporal.window_frames, at_15_hz(8));
+  EXPECT_EQ(c.temporal.min_frames, at_15_hz(4));
+  EXPECT_EQ(c.hysteresis.window_frames, at_15_hz(5));
+  EXPECT_EQ(c.hysteresis.enter_frames, at_15_hz(3));
+  EXPECT_EQ(c.hysteresis.exit_frames, at_15_hz(1));
+  EXPECT_EQ(c.hysteresis.area_enter_frames, at_15_hz(3));
+  EXPECT_EQ(c.hysteresis.area_join_frames, at_15_hz(8));
+  EXPECT_EQ(c.hysteresis.area_kind_frames, at_15_hz(10));
+  EXPECT_EQ(c.hysteresis.area_history_frames, at_15_hz(20));
+  EXPECT_EQ(c.guidance.no_return.window_frames, at_15_hz(4));
+  EXPECT_EQ(c.guidance.no_return.enter_frames, at_15_hz(3));
 }

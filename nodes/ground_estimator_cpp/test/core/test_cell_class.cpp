@@ -75,9 +75,24 @@ void area_frame(CellClassFilter & f, const std::vector<WarningArea> & areas)
   f.end_frame();
 }
 
-HysteresisConfig disabled()
+// The 10 Hz frame-count windows the tests of this file were written for (window 5, enter 3, exit 1, area_enter 3,
+// area_join 8, area_kind 10, area_history 20); the shipped defaults are these times 1.5 for the 15 Hz D435 cloud.
+HysteresisConfig ten_hz()
 {
   HysteresisConfig cfg;
+  cfg.window_frames = 5;
+  cfg.enter_frames = 3;
+  cfg.exit_frames = 1;
+  cfg.area_enter_frames = 3;
+  cfg.area_join_frames = 8;
+  cfg.area_kind_frames = 10;
+  cfg.area_history_frames = 20;
+  return cfg;
+}
+
+HysteresisConfig disabled()
+{
+  HysteresisConfig cfg = ten_hz();
   cfg.enabled = false;
   return cfg;
 }
@@ -95,10 +110,10 @@ void expect_polygon_eq(const Polygon & actual, const Polygon & expected)
 
 TEST(CellClass, OneLethalVoteNeverMakesACellLethal)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   frame(f, CellClass::obstacle);
   EXPECT_EQ(f.stable_at(BOX_XY), CellClass::none);
-  for (int i = 0; i < HysteresisConfig{}.window_frames; ++i) {
+  for (int i = 0; i < ten_hz().window_frames; ++i) {
     frame(f, CellClass::none);
     EXPECT_EQ(f.stable_at(BOX_XY), CellClass::none);
   }
@@ -107,7 +122,7 @@ TEST(CellClass, OneLethalVoteNeverMakesACellLethal)
 
 TEST(CellClass, ThreeConsecutiveLethalVotesMakeItLethalOnTheThirdFrame)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   frame(f, CellClass::obstacle);
   EXPECT_EQ(f.stable_at(BOX_XY), CellClass::none);
   frame(f, CellClass::obstacle);
@@ -121,7 +136,7 @@ TEST(CellClass, ThreeConsecutiveLethalVotesMakeItLethalOnTheThirdFrame)
 
 TEST(CellClass, BoxCellAlternatingObstacleAndWarningStaysObstacleOnceEntered)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   bool entered = false;
   for (int i = 0; i < STABLE_FRAMES; ++i) {
     frame(f, i % 2 == 0 ? CellClass::obstacle : CellClass::warning);
@@ -135,7 +150,7 @@ TEST(CellClass, BoxCellAlternatingObstacleAndWarningStaysObstacleOnceEntered)
 
 TEST(CellClass, LethalCellLeavesLethalAfterWindowFramesWithoutLethalVotes)
 {
-  const HysteresisConfig cfg;  // window 5, enter 3, exit 1
+  const HysteresisConfig cfg = ten_hz();  // window 5, enter 3, exit 1
   CellClassFilter f(cfg, CELL_M);
   for (int i = 0; i < cfg.enter_frames; ++i) {
     frame(f, CellClass::obstacle);
@@ -154,7 +169,7 @@ TEST(CellClass, LethalCellLeavesLethalAfterWindowFramesWithoutLethalVotes)
 
 TEST(CellClass, CellAlternatingWarningAndNoneStaysWarningOnceEntered)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   bool entered = false;
   for (int i = 0; i < STABLE_FRAMES; ++i) {
     frame(f, i % 2 == 0 ? CellClass::warning : CellClass::none);
@@ -168,21 +183,21 @@ TEST(CellClass, CellAlternatingWarningAndNoneStaysWarningOnceEntered)
 
 TEST(CellClass, WarningBlockGivesOneAreaWithAStablePolygonUnderJitter)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   std::mt19937 rng(SEED);
   std::uniform_real_distribution<double> jitter(-JITTER_M, JITTER_M);
   // 3 x 2 cells: x 0.3..0.6, y 0.0..0.2.
   const Polygon expected = rect(0.3, 0.0, 0.6, 0.2);
   Polygon first;
   int frames_with_area = 0;
-  for (int i = 0; i < STABLE_FRAMES + HysteresisConfig{}.enter_frames; ++i) {
+  for (int i = 0; i < STABLE_FRAMES + ten_hz().enter_frames; ++i) {
     Polygon observed = expected;
     for (auto & v : observed) {
       v += Eigen::Vector2d(jitter(rng), jitter(rng));
     }
     area_frame(f, {area_of(observed)});
     const std::vector<StableArea> areas = f.warning_areas();
-    if (i + 1 < HysteresisConfig{}.enter_frames) {
+    if (i + 1 < ten_hz().enter_frames) {
       EXPECT_TRUE(areas.empty());
       continue;
     }
@@ -203,10 +218,10 @@ TEST(CellClass, WarningBlockGivesOneAreaWithAStablePolygonUnderJitter)
 
 TEST(CellClass, TwoSeparateBlocksGiveTwoAreasInKeyOrder)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   const Polygon far = rect(1.0, 0.0, 1.2, 0.2);
   const Polygon near = rect(0.3, -0.3, 0.5, -0.1);
-  for (int i = 0; i < HysteresisConfig{}.enter_frames; ++i) {
+  for (int i = 0; i < ten_hz().enter_frames; ++i) {
     area_frame(f, {area_of(far, "ramp"), area_of(near, "colour", "colour")});
   }
   const std::vector<StableArea> areas = f.warning_areas();
@@ -278,7 +293,7 @@ TEST(CellClassFilter, AreaWithoutRecordedSlopeHasNoSlope)
 
 TEST(CellClass, DropOrObstacleByTheLatestLethalVote)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   for (int i = 0; i < 3; ++i) {
     frame(f, CellClass::obstacle);
   }
@@ -346,7 +361,7 @@ TEST(CellClass, CellsAreInTheFixedFrame)
 
 TEST(CellClass, ResetForgetsEverything)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   for (int i = 0; i < 3; ++i) {
     f.begin_frame();
     f.observe_points(points_at(BOX_XY, 0.05F), CellClass::obstacle, IDENTITY);
@@ -368,7 +383,7 @@ TEST(CellClass, ResetForgetsEverything)
 
 TEST(CellClass, BlockingCellsAreTheStableLethalAndTofWarningCells)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   for (int i = 0; i < 3; ++i) {
     f.begin_frame();
     f.observe_points(points_at(BOX_XY, 0.05F), CellClass::obstacle, IDENTITY);
@@ -401,7 +416,7 @@ const Polygon CORE_WITH_BORDER = {{0.0, 0.0}, {0.4, 0.0}, {0.4, 0.1}, {0.3, 0.2}
 // Class votes that flip a cell's stable class every frame (2 of 3 to enter, 2 to stay), no area gating.
 HysteresisConfig ungated_flickering()
 {
-  HysteresisConfig cfg;
+  HysteresisConfig cfg = ten_hz();
   cfg.window_frames = 3;
   cfg.enter_frames = 2;
   cfg.exit_frames = 2;
@@ -413,10 +428,10 @@ HysteresisConfig ungated_flickering()
   return cfg;
 }
 
-// The same class votes with the shipped area settings.
+// The same class votes with the 10 Hz area settings of ten_hz().
 HysteresisConfig gated_flickering()
 {
-  HysteresisConfig cfg;
+  HysteresisConfig cfg = ten_hz();
   cfg.window_frames = 3;
   cfg.enter_frames = 2;
   cfg.exit_frames = 2;
@@ -456,7 +471,7 @@ TEST(CellClass, BorderCellFlickeringEveryOtherFrameLeavesOneIdenticalAreaEveryFr
 
 TEST(CellClass, BorderCellJoinsAPublishedAreaOnItsAreaJoinFramesThActiveFrame)
 {
-  const HysteresisConfig cfg;  // area_join_frames 8
+  const HysteresisConfig cfg = ten_hz();  // area_join_frames 8
   CellClassFilter f(cfg, CELL_M);
   for (int i = 0; i < 3; ++i) {
     area_frame(f, {area_of(CORE)});
@@ -475,7 +490,7 @@ TEST(CellClass, BorderCellJoinsAPublishedAreaOnItsAreaJoinFramesThActiveFrame)
 
 TEST(CellClass, ACellVotingTwoFramesOfThreeIsStableButNeverJoinsAnArea)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   for (int i = 0; i < 30; ++i) {
     std::vector<WarningArea> seen{area_of(CORE)};
     if (i % 3 != 2) {
@@ -493,7 +508,7 @@ TEST(CellClass, ACellVotingTwoFramesOfThreeIsStableButNeverJoinsAnArea)
 
 TEST(CellClass, AJoinedCellVotingOnceInFiveFramesStaysStableButLeavesTheArea)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   for (int i = 0; i < 20; ++i) {
     area_frame(f, {area_of(CORE), area_of(BORDER_CELL)});
   }
@@ -514,13 +529,13 @@ TEST(CellClass, AJoinedCellVotingOnceInFiveFramesStaysStableButLeavesTheArea)
 
 TEST(CellClass, AreaIsGoneAsSoonAsItsCellsAreNoLongerStableWarningCells)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   for (int i = 0; i < 6; ++i) {
     area_frame(f, {area_of(CORE)});
   }
   ASSERT_EQ(f.warning_areas().size(), 1u);
   // exit_frames 1: the cells stay stable until window_frames - 1 empty frames have passed, then nothing is kept.
-  for (int i = 0; i < HysteresisConfig{}.window_frames - 1; ++i) {
+  for (int i = 0; i < ten_hz().window_frames - 1; ++i) {
     area_frame(f, {});
     EXPECT_EQ(f.warning_areas().size(), 1u) << "empty frame " << i;
   }
@@ -531,7 +546,7 @@ TEST(CellClass, AreaIsGoneAsSoonAsItsCellsAreNoLongerStableWarningCells)
 
 TEST(CellClass, ABlipSmallerThanAreaMinCellsIsNotPublishedButItsCellsKeepTheirClass)
 {
-  const HysteresisConfig cfg;  // area_min_cells 3
+  const HysteresisConfig cfg = ten_hz();  // area_min_cells 3
   CellClassFilter f(cfg, CELL_M);
   for (int i = 0; i < 6; ++i) {
     area_frame(f, {area_of(rect(0.0, 0.0, 0.2, 0.1))});  // two cells
@@ -549,7 +564,7 @@ TEST(CellClass, ABlipSmallerThanAreaMinCellsIsNotPublishedButItsCellsKeepTheirCl
 
 TEST(CellClass, ABlockFlipFloppingBetweenStepAndRampKeepsItsPublishedKind)
 {
-  const HysteresisConfig cfg;  // area_kind_frames 10
+  const HysteresisConfig cfg = ten_hz();  // area_kind_frames 10
   CellClassFilter f(cfg, CELL_M);
   for (int i = 0; i < 3; ++i) {
     area_frame(f, {area_of(CORE, "step")});
@@ -570,7 +585,7 @@ TEST(CellClass, ABlockFlipFloppingBetweenStepAndRampKeepsItsPublishedKind)
 
 TEST(CellClass, ANewKindNeedsMostOfTheAreasCellsNotJustSome)
 {
-  CellClassFilter f(HysteresisConfig{}, CELL_M);
+  CellClassFilter f(ten_hz(), CELL_M);
   for (int i = 0; i < 3; ++i) {
     area_frame(f, {area_of(CORE, "step")});
   }

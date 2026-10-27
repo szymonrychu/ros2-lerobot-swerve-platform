@@ -330,6 +330,23 @@ constexpr double LEGACY_FLOOR_BAND_M = 0.02;
 constexpr double LEGACY_STEP_FRACTION = 0.3333;
 constexpr double LEGACY_EDGE_MIN_HEIGHT_M = 0.02;
 
+// The 10 Hz frame-count windows the fixtures of this file were calibrated for; the shipped defaults are these times 1.5
+// for the 15 Hz D435 cloud (exercised by shipped_config()).
+void pin_ten_hz_windows(Config & c)
+{
+  c.temporal.window_frames = 8;
+  c.temporal.min_frames = 4;
+  c.hysteresis.window_frames = 5;
+  c.hysteresis.enter_frames = 3;
+  c.hysteresis.exit_frames = 1;
+  c.hysteresis.area_enter_frames = 3;
+  c.hysteresis.area_join_frames = 8;
+  c.hysteresis.area_kind_frames = 10;
+  c.hysteresis.area_history_frames = 20;
+  c.guidance.no_return.window_frames = 4;
+  c.guidance.no_return.enter_frames = 3;
+}
+
 // The floor band, lethal step and edge point height the fixtures of this file were calibrated for.
 void pin_legacy_rule(Config & c)
 {
@@ -604,20 +621,21 @@ protected:
     const std::string prefix = "/gt" + std::to_string(g_test_index++);
     Config c;
     c.metrics_port = std::nullopt;
-    c.cloud_topic = prefix + "/tof/points_filtered";
+    c.cloud_topic = prefix + "/head/d435/points_filtered";
     c.imu_topic = prefix + "/imu/data";
     c.rgbd_cloud_topic = prefix + "/head_rgbd/points";
     c.output_namespace = prefix + "/ground";
-    c.guidance.depth_topic = prefix + "/head_rgbd/depth_upsampled/image_raw";
-    c.guidance.info_topic = prefix + "/head_rgbd/depth_upsampled/camera_info";
+    c.guidance.depth_topic = prefix + "/head_rgbd/depth/image_raw";
+    c.guidance.info_topic = prefix + "/head_rgbd/depth/camera_info";
     c.guidance.rgb_topic = prefix + "/head_rgbd/rgb/image_raw/compressed";
-    c.guidance.tof_info_topic = prefix + "/tof/camera_info";
+    c.guidance.depth_info_topic = prefix + "/head/d435/depth/camera_info";
     c.imu.level_reference_roll_deg = 0.0;
     c.imu.level_reference_pitch_deg = 0.0;
     c.temporal.enabled = false;  // the static scenes below are single clouds; the temporal tests switch it on
     // The fixtures of this file are calibrated for the 20 mm floor band and the 40 mm lethal step; the temporary
     // shipped values (40 mm band, 60 mm step) are exercised by shipped_rule_config().
     pin_legacy_rule(c);
+    pin_ten_hz_windows(c);
     return c;
   }
 
@@ -664,7 +682,7 @@ protected:
     depth_pub_ = probe_->create_publisher<sensor_msgs::msg::Image>(config.guidance.depth_topic, pair_qos);
     info_pub_ = probe_->create_publisher<sensor_msgs::msg::CameraInfo>(config.guidance.info_topic, pair_qos);
     rgb_pub_ = probe_->create_publisher<sensor_msgs::msg::CompressedImage>(config.guidance.rgb_topic, pair_qos);
-    tof_info_pub_ = probe_->create_publisher<sensor_msgs::msg::CameraInfo>(config.guidance.tof_info_topic, pair_qos);
+    tof_info_pub_ = probe_->create_publisher<sensor_msgs::msg::CameraInfo>(config.guidance.depth_info_topic, pair_qos);
     const auto reliable = rclcpp::QoS(50).reliable();
     obstacle_sub_ = probe_->create_subscription<sensor_msgs::msg::PointCloud2>(
       config.obstacle_points(), reliable,
@@ -1591,7 +1609,7 @@ constexpr int FAR_BAND_FRAMES = 80;
 constexpr int BOX_FRAMES = 40;
 constexpr int SILL_FRAMES = 30;
 constexpr int RAMP_FRAMES = 40;
-constexpr int SLOPE_TRANSIENT_FRAMES = 8;  // temporal.window_frames: the frames before a new incline's history is full
+constexpr int SLOPE_TRANSIENT_FRAMES = 8;  // pinned temporal.window_frames: frames to fill a new incline's history
 constexpr int CHURN_FRAMES = 40;
 constexpr int COLOUR_FRAMES = 8;
 constexpr double LETHAL_FREE_SHARE = 0.95;

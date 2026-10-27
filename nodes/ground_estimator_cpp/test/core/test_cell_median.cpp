@@ -32,6 +32,16 @@ constexpr double FRAME_DT_S = 0.1;
 constexpr double GRID_STEP_M = 0.04;
 constexpr int FRAMES = 20;
 
+// The 10 Hz frame-count windows the tests of this file were written for (window 8, min 4); the shipped defaults are
+// these times 1.5 for the 15 Hz D435 cloud.
+TemporalConfig ten_hz()
+{
+  TemporalConfig cfg;
+  cfg.window_frames = 8;
+  cfg.min_frames = 4;
+  return cfg;
+}
+
 double max_abs_z(const Cloud & c)
 {
   double m = 0.0;
@@ -67,7 +77,7 @@ Cloud cell_cloud(double x0, double x1, const std::function<double(int, int)> & v
 
 TEST(CellMedian, NoisyFlatFloorHasNoStepOrDrop)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   const Plane plane;
   const Cloud truth = grid_cloud(-1.0, 1.0, -1.0, 1.0, GRID_STEP_M);
@@ -90,7 +100,7 @@ TEST(CellMedian, NoisyFlatFloorHasNoStepOrDrop)
 
 TEST(CellMedian, PlateAndDropKeepTheirHeights)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   const Plane plane;
   Cloud truth = grid_cloud(-1.0, 1.0, -1.0, 1.0, GRID_STEP_M);
@@ -124,7 +134,7 @@ TEST(CellMedian, PlateAndDropKeepTheirHeights)
 
 TEST(CellMedian, YoungCellsAreNotOutput)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   const Cloud cloud = grid_cloud(0.0, 0.1, 0.0, 0.1, 0.02);
   for (int i = 0; i < cfg.min_frames - 1; ++i) {
@@ -137,7 +147,7 @@ TEST(CellMedian, YoungCellsAreNotOutput)
 
 TEST(CellMedian, CellsStayInTheFixedFrame)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   const Cloud fixed_points = grid_cloud(0.52, 0.58, 0.02, 0.08, 0.02, 0.1);
   for (int i = 0; i < cfg.min_frames; ++i) {
@@ -160,7 +170,7 @@ TEST(CellMedian, CellsStayInTheFixedFrame)
 
 TEST(CellMedian, OldValuesExpire)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   const Cloud cloud = grid_cloud(0.0, 0.1, 0.0, 0.1, 0.02);
   const Cloud far_cloud = grid_cloud(1.0, 1.1, 1.0, 1.1, 0.02);
@@ -177,7 +187,7 @@ TEST(CellMedian, OldValuesExpire)
 
 TEST(CellMedian, DisabledPassesThrough)
 {
-  TemporalConfig cfg;
+  TemporalConfig cfg = ten_hz();
   cfg.enabled = false;
   CellMedianFilter filter(cfg);
   const Cloud cloud = add_z_noise(grid_cloud(0.0, 0.5, 0.0, 0.5, 0.05), 0.02, 0.0, 0.0, 3);
@@ -193,7 +203,7 @@ TEST(CellMedian, DisabledPassesThrough)
 // median keeps its own height of this frame for the lethal marks.
 TEST(CellMedian, RawHeightsComeOutParallelToTheOutput)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   Plane plane;
   plane.d = -0.01;  // floor at z = 0.01
@@ -227,7 +237,7 @@ TEST(CellMedian, RawHeightsComeOutParallelToTheOutput)
 
 TEST(CellMedian, StampGoingBackResets)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   const Cloud cloud = grid_cloud(0.0, 0.1, 0.0, 0.1, 0.02);
   for (int i = 0; i < cfg.min_frames; ++i) {
@@ -256,7 +266,7 @@ struct Visibility
 // uniform is true, Gaussian otherwise. Counts cell-frames after window_frames.
 Visibility measure_visibility(double x0, double x1, double sigma_lo, double sigma_hi, bool uniform)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   Visibility result;
   for (int seed = 1; seed <= SEED_COUNT; ++seed) {
     CellMedianFilter filter(cfg);
@@ -310,7 +320,7 @@ TEST(CellMedian, MeasuredFloorNoiseStaysVisible)
 // noisy values leave the window, +-16 mm alternation (estimated spread ~23 mm) is visible in every frame.
 TEST(CellMedian, GatedCellIsReleasedAsSoonAsSpreadIsUnderTheLimit)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   for (int i = 0; i < 40; ++i) {
     const double noisy = (i % 2 == 0 ? 1.0 : -1.0) * 0.1;
@@ -326,7 +336,7 @@ TEST(CellMedian, GatedCellIsReleasedAsSoonAsSpreadIsUnderTheLimit)
 
 TEST(CellMedian, StaticBoxTopIsOutputEveryFrame)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   std::mt19937 rng(21);
   std::normal_distribution<double> noise(0.0, 0.0045);
@@ -344,7 +354,7 @@ TEST(CellMedian, StaticBoxTopIsOutputEveryFrame)
 
 TEST(CellMedian, SingleOutlierFrameDoesNotGateASteadyCell)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   std::mt19937 rng(31);
   std::normal_distribution<double> noise(0.0, 0.003);
@@ -361,7 +371,7 @@ TEST(CellMedian, SingleOutlierFrameDoesNotGateASteadyCell)
 
 TEST(CellMedian, GatedCellRecoversWithinTheWindow)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   std::mt19937 rng(41);
   std::normal_distribution<double> quiet(0.0, 0.003);
@@ -387,7 +397,7 @@ TEST(CellMedian, GatedCellRecoversWithinTheWindow)
 
 TEST(CellMedian, DisabledReportsNoGatedCells)
 {
-  TemporalConfig cfg;
+  TemporalConfig cfg = ten_hz();
   cfg.enabled = false;
   CellMedianFilter filter(cfg);
   filter.apply(grid_cloud(0.0, 0.5, 0.0, 0.5, 0.05), Plane(), Eigen::Isometry3d::Identity(), 0.0);
@@ -397,7 +407,7 @@ TEST(CellMedian, DisabledReportsNoGatedCells)
 // steady_at (the node's lethal vote gate): a steady box top is steady from its first output on.
 TEST(CellMedian, SteadyBoxTopIsSteadyFromItsFirstOutput)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   std::mt19937 rng(51);
   std::normal_distribution<double> noise(0.0, 0.004);
@@ -416,7 +426,7 @@ TEST(CellMedian, SteadyBoxTopIsSteadyFromItsFirstOutput)
 // is under the gate but over the stricter max_spread_m is not steady either.
 TEST(CellMedian, RecentlyGatedOrMildlyNoisyCellIsNotSteady)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   const Eigen::Vector2d centre(0.65, 0.05);
   const int quiet_frames = 2 * cfg.window_frames;
@@ -460,7 +470,7 @@ TEST(CellMedian, RecentlyGatedOrMildlyNoisyCellIsNotSteady)
 // A gated cell two cells away does not.
 TEST(CellMedian, SteadyCellNextToARecentlyGatedCellIsNotSteady)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   const int quiet_frames = 2 * cfg.window_frames;
   const Eigen::Vector2d steady(0.65, 0.05);
   const auto run = [&](CellMedianFilter & filter, double noisy_x0, int frames, int first_frame, bool noisy) {
@@ -491,7 +501,7 @@ TEST(CellMedian, SteadyCellNextToARecentlyGatedCellIsNotSteady)
 // cell is steady from its first output, so a new real obstacle is lethal without waiting quiet_frames (A13).
 TEST(CellMedian, ObjectPlacedOnASteadyCellIsSteadyOnceItsHistoryTurnsOver)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   const Eigen::Vector2d centre(0.65, 0.05);
   const int quiet_frames = 2 * cfg.window_frames;
@@ -520,7 +530,7 @@ TEST(CellMedian, ObjectPlacedOnASteadyCellIsSteadyOnceItsHistoryTurnsOver)
 // A noisy run between two steady levels is noise, not a turnover: the cell still needs quiet_frames ungated frames.
 TEST(CellMedian, NoisyRunBetweenTwoSteadyLevelsStillNeedsQuietFrames)
 {
-  const TemporalConfig cfg;
+  const TemporalConfig cfg = ten_hz();
   CellMedianFilter filter(cfg);
   const Eigen::Vector2d centre(0.65, 0.05);
   const int quiet_frames = 2 * cfg.window_frames;
@@ -549,7 +559,7 @@ TEST(CellMedian, NoisyRunBetweenTwoSteadyLevelsStillNeedsQuietFrames)
 
 TEST(CellMedian, DisabledIsAlwaysSteadyAndUnknownCellsAreNot)
 {
-  TemporalConfig cfg;
+  TemporalConfig cfg = ten_hz();
   CellMedianFilter enabled(cfg);
   EXPECT_FALSE(enabled.steady_at(Eigen::Vector2d(0.65, 0.05), cfg.max_spread_m, 0));
   cfg.enabled = false;
@@ -594,7 +604,7 @@ TEST(CellMedian, RobotRampSlopeSurvivesTheCells)
     Eigen::Isometry3d fixed_T_base = Eigen::Isometry3d::Identity();
     fixed_T_base.translate(Eigen::Vector3d(offset(rng), offset(rng), 0.0));
     fixed_T_base.rotate(Eigen::AngleAxisd(yaw(rng) * DEG, Eigen::Vector3d::UnitZ()));
-    CellMedianFilter filter{TemporalConfig{}};
+    CellMedianFilter filter{ten_hz()};
     Cloud filtered;
     for (int frame = 0; frame < RAMP_FRAMES; ++frame) {
       const unsigned frame_seed = seed * 1000U + static_cast<unsigned>(frame);
@@ -637,7 +647,7 @@ TEST(CellMedian, SlopeInsideACellIsKept)
       truth.push_back(pcl::PointXYZ(static_cast<float>(x), static_cast<float>(y), static_cast<float>(SLOPE * x)));
     }
   }
-  CellMedianFilter filter{TemporalConfig{}};
+  CellMedianFilter filter{ten_hz()};
   Cloud out;
   Cloud in;
   for (int i = 0; i < 10; ++i) {
@@ -709,7 +719,7 @@ TEST(CellMedian, SillEdgeCellsKeepTheirMedianHeight)
 {
   for (unsigned seed = 1; seed <= STEP_SEEDS; ++seed) {
     const Eigen::Isometry3d fixed_T_base = random_cell_alignment(seed);
-    CellMedianFilter filter{TemporalConfig{}};
+    CellMedianFilter filter{ten_hz()};
     Cloud filtered;
     for (int frame = 0; frame < STEP_FRAMES; ++frame) {
       std::mt19937 rng(seed * 1000U + static_cast<unsigned>(frame));
@@ -738,8 +748,8 @@ TEST(CellMedian, BoxEdgeCellsKeepTheStep)
   const double limit = ground_estimator_cpp::max_step_m(rule);
   for (unsigned seed = 1; seed <= STEP_SEEDS; ++seed) {
     const Eigen::Isometry3d fixed_T_base = random_cell_alignment(seed);
-    CellMedianFilter filter{TemporalConfig{}};
-    const TemporalConfig cfg;
+    CellMedianFilter filter{ten_hz()};
+    const TemporalConfig cfg = ten_hz();
     for (int frame = 0; frame < STEP_FRAMES; ++frame) {
       std::mt19937 rng(seed * 1000U + static_cast<unsigned>(frame));
       std::normal_distribution<double> floor_noise(0.0, BOX_FLOOR_NOISE_M);

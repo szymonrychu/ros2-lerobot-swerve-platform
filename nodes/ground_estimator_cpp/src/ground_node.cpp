@@ -378,7 +378,7 @@ GroundNode::GroundNode(
     guidance_sync_->registerCallback(
       std::bind(&GroundNode::on_guidance, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
     tof_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
-      config_.guidance.tof_info_topic, rclcpp::SensorDataQoS(),
+      config_.guidance.depth_info_topic, rclcpp::SensorDataQoS(),
       [this](const sensor_msgs::msg::CameraInfo::ConstSharedPtr & m) { on_tof_info(m); });
   }
 
@@ -390,9 +390,9 @@ GroundNode::GroundNode(
     config_.colour.enabled ? (", " + config_.rgbd_cloud_topic + " -> labelled_points").c_str() : "");
   if (config_.guidance.enabled) {
     RCLCPP_INFO(
-      get_logger(), "guidance: %s + %s + %s, ToF model from %s (edge points %s, no_return areas %s)",
+      get_logger(), "guidance: %s + %s + %s, depth camera_info from %s (edge points %s, no_return areas %s)",
       config_.guidance.depth_topic.c_str(), config_.guidance.info_topic.c_str(), config_.guidance.rgb_topic.c_str(),
-      config_.guidance.tof_info_topic.c_str(), config_.guidance.edge.enabled ? "on" : "off",
+      config_.guidance.depth_info_topic.c_str(), config_.guidance.edge.enabled ? "on" : "off",
       config_.guidance.no_return.enabled ? "on" : "off");
   }
 }
@@ -856,7 +856,7 @@ const char * GroundNode::use_guidance(
     return DROP_REASON_GUIDANCE_BAD_INPUT;
   }
   if (!tof_model_) {
-    detail = "guidance pair before a usable ToF camera_info on " + config_.guidance.tof_info_topic;
+    detail = "guidance pair before a usable depth camera_info on " + config_.guidance.depth_info_topic;
     return DROP_REASON_GUIDANCE_BAD_INPUT;
   }
   // 2. TF at the pair stamp: the pair's optical frame (the depth is registered to the RGB) in base_link, base_link in

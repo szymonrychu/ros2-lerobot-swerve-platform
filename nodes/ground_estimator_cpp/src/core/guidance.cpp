@@ -32,7 +32,7 @@ pcl::PointXYZ to_pcl(const Eigen::Vector3d & p)
   return pcl::PointXYZ(static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z()));
 }
 
-// The pixel of a point in the ToF optical frame, plumb_bob distortion applied.
+// The pixel of a point in the depth camera optical frame, plumb_bob distortion applied.
 cv::Point2d project(const CameraModel & m, const Eigen::Vector3d & p)
 {
   const double x = p.x() / p.z();
@@ -179,7 +179,7 @@ GuidanceSamples sample_guidance(
   }
   const double max_range = config.max_range_m;
   const double min_range = config.no_return.min_range_m;
-  const double margin = static_cast<double>(config.no_return.tof_margin_px);
+  const double margin = static_cast<double>(config.no_return.margin_px);
   const Eigen::Vector3d origin = base_T_cam.translation();
   const Eigen::Matrix3d rot = base_T_cam.linear();
   for (int j = 0; j < grid.rows(); ++j) {

@@ -365,14 +365,14 @@ protected:
     EXPECT_TRUE(errors.empty()) << (errors.empty() ? "" : errors.front());
     Config c = ground_estimator_cpp::from_yaml(node);
     const std::string prefix = "/rp" + std::to_string(g_test_index++);
-    c.cloud_topic = prefix + "/tof/points_filtered";
+    c.cloud_topic = prefix + c.cloud_topic;
     c.imu_topic = prefix + "/imu/data";
     c.rgbd_cloud_topic = prefix + "/head_rgbd/points";
     c.output_namespace = prefix + "/ground";
     c.guidance.depth_topic = prefix + c.guidance.depth_topic;
     c.guidance.info_topic = prefix + c.guidance.info_topic;
     c.guidance.rgb_topic = prefix + c.guidance.rgb_topic;
-    c.guidance.tof_info_topic = prefix + c.guidance.tof_info_topic;
+    c.guidance.depth_info_topic = prefix + c.guidance.depth_info_topic;
     c.guidance.enabled = guidance == Guidance::on;
     c.metrics_port = std::nullopt;
     return c;
@@ -393,7 +393,7 @@ protected:
     info_pub_ = probe_->create_publisher<sensor_msgs::msg::CameraInfo>(g.info_topic, rclcpp::QoS(10).reliable());
     rgb_pub_ = probe_->create_publisher<sensor_msgs::msg::CompressedImage>(g.rgb_topic, rclcpp::QoS(10).reliable());
     tof_info_pub_ =
-      probe_->create_publisher<sensor_msgs::msg::CameraInfo>(g.tof_info_topic, rclcpp::QoS(10).reliable());
+      probe_->create_publisher<sensor_msgs::msg::CameraInfo>(g.depth_info_topic, rclcpp::QoS(10).reliable());
     rgbd_pub_ =
       probe_->create_publisher<sensor_msgs::msg::PointCloud2>(config.rgbd_cloud_topic, rclcpp::QoS(1).best_effort());
     // What the harness sent on those topics, for the tests of the harness itself.
@@ -407,7 +407,7 @@ protected:
       g.rgb_topic, rclcpp::QoS(10).reliable(),
       [this](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) { rgb_in_.add(ns_of(m->header.stamp), *m); });
     tof_info_sub_ = probe_->create_subscription<sensor_msgs::msg::CameraInfo>(
-      g.tof_info_topic, rclcpp::QoS(10).reliable(),
+      g.depth_info_topic, rclcpp::QoS(10).reliable(),
       [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr m) { tof_info_in_.add(ns_of(m->header.stamp), *m); });
     rgbd_sub_ = probe_->create_subscription<sensor_msgs::msg::PointCloud2>(
       config.rgbd_cloud_topic, rclcpp::QoS(1).best_effort(),
@@ -1411,7 +1411,7 @@ TEST_F(Harness, GuidanceOffOverridesTheConfig)
   EXPECT_TRUE(on.guidance.enabled);
   EXPECT_FALSE(off.guidance.enabled);
   EXPECT_NE(off.guidance.depth_topic.find("/rp"), std::string::npos);  // topics are unique per test
-  EXPECT_NE(off.guidance.tof_info_topic.find("/rp"), std::string::npos);
+  EXPECT_NE(off.guidance.depth_info_topic.find("/rp"), std::string::npos);
 }
 
 // --- the scenes through GroundNode -------------------------------------------------------------------------------

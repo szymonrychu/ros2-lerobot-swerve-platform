@@ -46,7 +46,7 @@ constexpr double MIN_EDGE_VOXEL_M = 0.005;
 constexpr double MAX_EDGE_VOXEL_M = 0.05;
 constexpr int MAX_NO_RETURN_WINDOW_FRAMES = 20;
 constexpr int MAX_CLEARANCE_CELLS = 3;
-constexpr int MAX_TOF_MARGIN_PX = 20;
+constexpr int MAX_MARGIN_PX = 20;
 constexpr double MAX_STEP_TOLERANCE_M = 1e-4;  // the default step is 0.039996 m, documented as 0.04
 
 // The value under node[key] as T (fallback when missing or invalid) with the lax pydantic-style coercions; errors
@@ -424,7 +424,7 @@ void parse_guidance_no_return(const YAML::Node & guidance, Config & c, Errors & 
   rc::forbid_unknown(
     node,
     {"enabled", "min_range_m", "cell_min_samples", "cell_min_share", "window_frames", "enter_frames", "min_cells",
-     "clearance_cells", "tof_margin_px"},
+     "clearance_cells", "margin_px"},
     errors, "guidance.no_return");
   if (!node.IsMap()) {
     return;
@@ -448,16 +448,16 @@ void parse_guidance_no_return(const YAML::Node & guidance, Config & c, Errors & 
   n.clearance_cells = read<int>(node, p, "clearance_cells", n.clearance_cells, errors);
   rc::ge<int>(p + "clearance_cells", n.clearance_cells, 0, errors);
   rc::le<int>(p + "clearance_cells", n.clearance_cells, MAX_CLEARANCE_CELLS, errors);
-  n.tof_margin_px = read<int>(node, p, "tof_margin_px", n.tof_margin_px, errors);
-  rc::ge<int>(p + "tof_margin_px", n.tof_margin_px, 0, errors);
-  rc::le<int>(p + "tof_margin_px", n.tof_margin_px, MAX_TOF_MARGIN_PX, errors);
+  n.margin_px = read<int>(node, p, "margin_px", n.margin_px, errors);
+  rc::ge<int>(p + "margin_px", n.margin_px, 0, errors);
+  rc::le<int>(p + "margin_px", n.margin_px, MAX_MARGIN_PX, errors);
 }
 
 void parse_guidance(const YAML::Node & root, Config & c, Errors & errors)
 {
   const YAML::Node s = section(
     root, "guidance",
-    {"enabled", "depth_topic", "info_topic", "rgb_topic", "tof_info_topic", "max_age_s", "sample_step_px",
+    {"enabled", "depth_topic", "info_topic", "rgb_topic", "depth_info_topic", "max_age_s", "sample_step_px",
      "max_range_m", "edge", "no_return"},
     errors);
   if (s.IsDefined()) {
@@ -467,7 +467,7 @@ void parse_guidance(const YAML::Node & root, Config & c, Errors & errors)
     g.depth_topic = read<std::string>(s, p, "depth_topic", g.depth_topic, errors);
     g.info_topic = read<std::string>(s, p, "info_topic", g.info_topic, errors);
     g.rgb_topic = read<std::string>(s, p, "rgb_topic", g.rgb_topic, errors);
-    g.tof_info_topic = read<std::string>(s, p, "tof_info_topic", g.tof_info_topic, errors);
+    g.depth_info_topic = read<std::string>(s, p, "depth_info_topic", g.depth_info_topic, errors);
     g.max_age_s = read<double>(s, p, "max_age_s", g.max_age_s, errors);
     in_open_closed(p + "max_age_s", g.max_age_s, MAX_GUIDANCE_AGE_S, errors);
     g.sample_step_px = read<int>(s, p, "sample_step_px", g.sample_step_px, errors);

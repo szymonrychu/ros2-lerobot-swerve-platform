@@ -132,8 +132,8 @@ struct TemporalConfig
 {
   bool enabled = true;
   double cell_size_m = 0.10;    // > 0; edge of a fixed-frame cell
-  int window_frames = 8;        // >= 1; per-frame values a cell keeps
-  int min_frames = 4;           // 1..window_frames; values a cell needs before its points are output
+  int window_frames = 12;       // 1..30, frames at 15 Hz; per-frame values a cell keeps
+  int min_frames = 6;           // 1..window_frames, frames at 15 Hz; values a cell needs before its points are output
   double max_age_s = 1.5;       // > 0; older per-frame values are dropped
   double max_spread_m = 0.025;  // 0 < v <= 0.2; largest robust spread of a cell's per-frame medians, above it unknown
 };
@@ -142,24 +142,24 @@ struct TemporalConfig
 struct HysteresisConfig
 {
   bool enabled = true;
-  int window_frames = 5;  // 1..30
-  int enter_frames = 3;   // exit_frames..window_frames, enter_frames * 2 > window_frames
-  int exit_frames = 1;    // 1..enter_frames
+  int window_frames = 8;  // 1..30, frames at 15 Hz
+  int enter_frames = 5;   // exit_frames..window_frames, enter_frames * 2 > window_frames, frames at 15 Hz
+  int exit_frames = 2;    // 1..enter_frames, frames at 15 Hz
   // Warning area stability (CellClassFilter): a stable warning cell joins an area once it has been active (voted or
   // stable) for this many consecutive frames, so a cell flickering at an area's border does not reshape it.
-  int area_enter_frames = 3;  // 1..30, frames; new areas only
+  int area_enter_frames = 5;  // 1..30, frames at 15 Hz; new areas only
   // Components of fewer area cells are not published (their cells keep their class), so a lone blip is no area.
   int area_min_cells = 3;  // 1..100, cells
   // A cell next to a published area joins it only after this many active frames (a new area needs area_enter_frames),
   // so a border cell that appears for a few frames does not reshape the area.
-  int area_join_frames = 8;  // area_enter_frames..30, frames
+  int area_join_frames = 12;  // area_enter_frames..30, frames at 15 Hz
   // Frames another kind must have most of an area's cells before the area's kind changes.
-  int area_kind_frames = 10;  // 1..30, frames
+  int area_kind_frames = 15;  // 1..30, frames at 15 Hz
   // A cell reaches an area only while it voted in at least area_enter_density of the last area_history_frames frames
   // (of the frames since its first vote while fewer have passed) and, once in an area, stays while at or above
   // area_exit_density, so cells that vote now and then at an area's border or on a bare floor do not make or reshape
   // areas.
-  int area_history_frames = 20;      // 1..120, frames
+  int area_history_frames = 30;      // 1..120, frames at 15 Hz
   double area_enter_density = 0.75;  // > 0, <= 1, share of the history frames
   double area_exit_density = 0.25;   // 0..area_enter_density, share of the history frames
 };
@@ -173,28 +173,29 @@ struct EdgeGuidanceConfig
   double voxel_m = 0.02;       // 0.005..0.05, metres; voxel of the edge point decimation
 };
 
-// Guidance no-return areas: image areas the ToF should see but returns nothing from (design D12).
+// Guidance no-return areas: image areas the depth camera should see but returns nothing from (design D12).
 struct NoReturnConfig
 {
   bool enabled = true;
   double min_range_m = 0.3;     // 0 <= v < guidance.max_range_m, metres; nearer cells are not judged
   int cell_min_samples = 6;     // >= 1; samples a cell needs before it is judged
   double cell_min_share = 0.8;  // 0 < v <= 1; share of no-return samples off the floor colour
-  int window_frames = 4;        // 1..20; frames a cell is judged over
-  int enter_frames = 3;         // 1..window_frames; frames of no return that make a cell a no-return cell
+  int window_frames = 6;        // 1..20, frames at 15 Hz; frames a cell is judged over
+  int enter_frames = 5;         // 1..window_frames, frames at 15 Hz; frames of no return that make a no-return cell
   int min_cells = 2;            // >= 1; smallest area published, in cells
-  int clearance_cells = 1;      // 0..3; distance, in cells, from blocked lethal or warning ToF cells
-  int tof_margin_px = 4;        // 0..20, pixels; margin inside the ToF image border where nothing is judged
+  int clearance_cells = 1;      // 0..3; distance, in cells, from blocked lethal or warning depth cells
+  int margin_px = 4;            // 0..20, pixels; margin inside the depth camera image border where nothing is judged
 };
 
-// The guidance frame: upsampled depth plus RGB beside the ToF cloud (design D3).
+// The guidance frame: the head_rgbd depth plus RGB beside the D435 cloud (design D3, epic D435 D1, D7).
 struct GuidanceConfig
 {
   bool enabled = true;
-  std::string depth_topic = "/head_rgbd/depth_upsampled/image_raw";
-  std::string info_topic = "/head_rgbd/depth_upsampled/camera_info";
+  std::string depth_topic = "/head_rgbd/depth/image_raw";
+  std::string info_topic = "/head_rgbd/depth/camera_info";
   std::string rgb_topic = "/head_rgbd/rgb/image_raw/compressed";
-  std::string tof_info_topic = "/tof/camera_info";
+  // The camera model of the sensor that produced the cloud, for the no-return areas.
+  std::string depth_info_topic = "/head/d435/depth/camera_info";
   double max_age_s = 0.6;    // 0 < v <= 2, seconds; oldest guidance frame used, relative to the cloud stamp
   int sample_step_px = 2;    // 1..8, pixels; stride of the sampling grid
   double max_range_m = 2.0;  // 0 < v <= bands.max_range_m, metres; farthest range sampled
@@ -205,7 +206,7 @@ struct GuidanceConfig
 // Every setting of the node.
 struct Config
 {
-  std::string cloud_topic = "/tof/points_filtered";
+  std::string cloud_topic = "/head/d435/points_filtered";  // D435 cloud, 15 Hz
   std::string imu_topic = "/imu/data";
   std::string rgbd_cloud_topic = "/head_rgbd/points";
   std::string output_namespace = "/ground";
