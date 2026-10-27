@@ -115,11 +115,14 @@ def test_autonomy_and_web_ui_may_command_the_head_directly() -> None:
 
 
 def test_head_pan_and_tilt_servos_are_mounted_reversed() -> None:
-    """Tilt found 2026-10-20 (positive tilt looked up); pan found 2026-10-21 (+30 deg pan turned right)."""
+    """Tilt found 2026-10-20 (positive tilt looked up); pan found 2026-10-21 (+30 deg pan turned right).
+
+    Tilt range -30..+45 deg (+ is down, reprinted mount, tilt-down limit 45 deg): +45 deg -> 1536, -30 deg -> 2389.
+    """
     joints = head_joints()
     assert joints["head_pan"].get("inverted") is True
     assert joints["head_tilt"].get("inverted") is True
-    assert (joints["head_tilt"]["command_min_steps"], joints["head_tilt"]["command_max_steps"]) == (1707, 2389)
+    assert (joints["head_tilt"]["command_min_steps"], joints["head_tilt"]["command_max_steps"]) == (1536, 2389)
     assert rad_to_steps(joints["head_tilt"]["startup_position_rad"], True) == 1707
 
 

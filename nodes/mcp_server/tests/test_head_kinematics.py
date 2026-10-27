@@ -21,13 +21,14 @@ TOF_HOME_XYZ = (0.17, 0.125, 0.35)
 # Optical frame columns at zero angles in base_link: x right (-y), y down (-z), z forward (+x).
 OPTICAL_HOME_ROTATION = np.array([[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]])
 RESIDUAL_LIMIT_DEG = 0.2
-# Reachable points in base_link (m): left, right, near, far, raised, and close to the lowest view (tilt limit 30 deg).
+# Reachable points in base_link (m): left, right, near, far, raised, near the home view, and close to the lowest view (tilt limit 45 deg).
 REACHABLE_POINTS = (
     (1.0, 0.5, 0.0),  # floor, left
     (1.0, -0.5, 0.0),  # floor, right
     (0.9, 0.3, 0.0),  # floor, near
     (3.0, 0.0, 0.0),  # floor, far
-    (0.85, 0.1, 0.0),  # floor, close to the lowest view (tilt near 30 deg)
+    (0.85, 0.1, 0.0),  # floor, near the home view (tilt near 30 deg)
+    (0.52, 0.075, 0.0),  # floor, close to the lowest view (tilt near 43 deg)
     (0.3, 0.9, 0.3),  # raised, far left (pan about 80 deg)
     (0.4, -0.7, 0.2),  # raised, far right
     (2.0, 1.0, 0.5),  # raised above the camera, left
@@ -61,7 +62,7 @@ def test_default_urdf_is_the_web_ui_head_urdf() -> None:
 def test_limits_come_from_the_urdf(head: HeadKinematics) -> None:
     assert head.limits == {
         "head_pan": pytest.approx((-1.5708, 1.5708)),
-        "head_tilt": pytest.approx((-0.5236, 0.5236)),
+        "head_tilt": pytest.approx((-0.5236, 0.7854)),
     }
 
 
@@ -151,11 +152,11 @@ def test_point_straight_behind_is_refused_with_the_angles(head: HeadKinematics) 
     assert f"{math.degrees(err.pan):.1f}" in str(err)
 
 
-def test_point_needing_tilt_past_30_deg_is_refused_with_the_angles(head: HeadKinematics) -> None:
+def test_point_needing_tilt_past_45_deg_is_refused_with_the_angles(head: HeadKinematics) -> None:
     with pytest.raises(HeadAimError) as info:
         head.look_at(np.array([0.3, 0.075, 0.0]))
     err = info.value
-    assert err.tilt > math.radians(30.0)
+    assert err.tilt > math.radians(45.0)
     assert abs(err.pan) < math.radians(90.0)
     assert err.limits == head.limits
     assert f"{math.degrees(err.tilt):.1f}" in str(err)

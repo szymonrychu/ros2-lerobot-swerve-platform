@@ -32,7 +32,7 @@ def test_head_tab_defaults() -> None:
     assert tab.head_command_topic == CMD
     assert tab.head_joint_states_topic == "/head/joint_states"
     assert tab.head_pan_range_deg == (-90.0, 90.0)
-    assert tab.head_tilt_range_deg == (-30.0, 30.0)
+    assert tab.head_tilt_range_deg == (-30.0, 45.0)
     assert tab.head_home_deg == (0.0, 30.0)
 
 

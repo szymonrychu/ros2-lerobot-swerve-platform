@@ -11,6 +11,7 @@
   Servo centre 2048 = 0 rad = head straight ahead and level.
   Sign conventions (REP 103): head_pan positive = looking left (CCW seen from above, +z);
   head_tilt positive = looking down (pitch about +y, decided in ruling R3).
+  head_tilt range -30..+45 deg: the reprinted mount allows 45 deg down (docs/runbooks/head-arm-calibration.md).
   Optical frames: z forward, x right, y down (rpy -1.5708 0 -1.5708 from the body frame).
   Velocity limits 1.0 rad/s are the D3 caps.
 
@@ -81,7 +82,7 @@
     <child link="head_link"/>
     <origin xyz="0 0 0.04" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-0.5236" upper="0.5236" effort="2.0" velocity="1.0"/>
+    <limit lower="-0.5236" upper="0.7854" effort="2.0" velocity="1.0"/>
   </joint>
 
   <link name="head_camera_link"/>

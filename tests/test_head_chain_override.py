@@ -76,7 +76,7 @@ def test_each_chain_joint_rewritten_only(ut: ModuleType, urdf_text: str, joint: 
 def test_head_tilt_keeps_axis_and_limit(ut: ModuleType, urdf_text: str) -> None:
     out = ut.rewrite_joint_origin(urdf_text, "head_tilt", ut.Origin((0, 0, 0.05), (0.0, 0.02, 0.0)), "n")
     assert '<axis xyz="0 1 0"/>' in out
-    assert '<limit lower="-0.5236" upper="0.5236" effort="2.0" velocity="1.0"/>' in out
+    assert '<limit lower="-0.5236" upper="0.7854" effort="2.0" velocity="1.0"/>' in out
 
 
 def test_rewrite_tof_joint_is_rewrite_joint_origin(ut: ModuleType, urdf_text: str) -> None:

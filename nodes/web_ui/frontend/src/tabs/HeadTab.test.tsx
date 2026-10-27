@@ -151,6 +151,14 @@ describe('HeadTab', () => {
       expect(screen.getByTestId('head-measured').textContent).toContain('-15')
     })
 
+    it('defaults the tilt slider to -30..45 deg (reprinted mount) when the tab gives no tilt range', () => {
+      setViewport(1400)
+      const { head_tilt_range_deg: _omitted, ...withoutTilt } = HEAD_TAB
+      renderTab({ ...FRAMES, ...SAMPLE }, vi.fn(), withoutTilt as TabConfig)
+      const [, tilt] = sliderInputs()
+      expect([Number(tilt.min), Number(tilt.max)]).toEqual([-30, 45])
+    })
+
     function release(): void {
       fireEvent.mouseUp(document, { clientX: 150, clientY: 5 })
     }

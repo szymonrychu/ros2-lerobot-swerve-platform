@@ -34,7 +34,7 @@ const HEAD_JOINTS = ['head_pan', 'head_tilt']
 const HEAD_MSG_TYPE = 'sensor_msgs/JointState'
 const HEAD_PUBLISH_INTERVAL_MS = 200
 const DEFAULT_PAN_RANGE_DEG: [number, number] = [-90, 90]
-const DEFAULT_TILT_RANGE_DEG: [number, number] = [-30, 30]
+const DEFAULT_TILT_RANGE_DEG: [number, number] = [-30, 45]
 const DEFAULT_HOME_DEG: [number, number] = [0, 30]
 const COMMAND_ARRIVED_DEG = 1
 // Full pan range (pi rad) at the 1.0 rad/s head speed cap is 3.14 s, rounded up to the next half second.
