@@ -185,7 +185,7 @@ Calibration procedure:
 
 The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subprocess` or ssh code, so node venvs can use it.
 
-- `config`: `StrictModel` (pydantic, unknown keys rejected) and the `BoardConfig`, `SelectionConfig`, `LimitsConfig` settings, plus the floor fit models `FloorPlaneConfig` (RANSAC distance, iterations, `min_inliers`, `min_inlier_ratio`, `max_range_m`, `candidate_band_m` > the RANSAC distance, `seed`), `FloorFitLimits` (observation, pose and pan span minimums; pose-mean height and normal RMS, sigma and delta-from-URDF maximums) and `FloorFitConfig` (`plane`, `limits`, the residual scales `sigma_height_mm` / `sigma_normal_deg` and `huber_scale`).
+- `config`: `StrictModel` (pydantic, unknown keys rejected) and the `BoardConfig`, `SelectionConfig`, `LimitsConfig` settings, plus the floor fit models `FloorPlaneConfig` (RANSAC distance, iterations, `min_inliers`, `min_inlier_ratio`, `max_range_m`, `candidate_band_m` > the RANSAC distance, `seed`), `FloorFitLimits` (observation, pose and pan span minimums; pose-mean height and normal RMS, sigma and delta-from-URDF maximums) and `FloorFitConfig` (`plane`, `limits`, the residual scales `sigma_height_mm` / `sigma_normal_deg` and `huber_scale`). The head-from-arm models are `BoardMountConfig`, `HeadArmFitLimits`, `BaseInBaseLink` and `HeadArmFitConfig` (see "Head from arm fit").
 - `charuco`: `make_board`, `detect` and `Detection` (ChArUco detection for the RGB image and the normalised ToF amplitude).
 - `frames`: `FrameSet`, `StampedImage`, `CameraInfoData`, `FramePair`, `normalise_amplitude`, `rgb_difference` (stillness measure with mains flicker removed), `tof_diff_fraction` and `still_pairs` (one RGB and ToF pair per still window).
 - `poses`: `PoseCounter(board, sel, start_count=0)`, the live pose counter. `add(kind, frame, raw=None)` takes `RGB`, `AMPLITUDE` and `DEPTH` frames and returns a `PoseEvent(status, pose)` per judged RGB frame; `pose` is a `CapturedPose` (number, RGB frame and its compressed bytes, amplitude, the depth frame nearest the amplitude within `max_pair_dt_s` or None, and both detections) when a new still window has the board in both cameras. `status` is `WAITING` until frames arrived. Same stillness and pairing rules as `still_pairs`; history is kept `TOF_HISTORY_S`.
@@ -195,11 +195,140 @@ The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subproc
 - `calibrate` per-pose quality: `calibrate_detections(..., pose_ids=None)` fills `CalibrationRun.poses`, a tuple of `PoseErrors(pose_id, rgb_px, tof_px, stereo_px, outlier)`; `flag_outliers(errors, limit)` flags errors above `max(OUTLIER_MEDIAN_FACTOR x median, limit)`; `outlier_pose_ids(run)`, `pose_report_lines(run)` (report section) and `failed_limits` naming flagged poses. `extrinsics.ExtrinsicResult` gains `pair_indices` and `per_pair_errors` (stereo error per pair). Hints only: no view is dropped.
 - `urdf_handoff`: `read_chain`, `tof_joint_origin`, `check_drift` and the matrix helpers; re-exports `rewrite_tof_joint`.
 - `chain`: `UrdfChain` (numpy forward kinematics over URDF text: `from_text`, `transform(link, positions, origins, offsets)` with urdf_angle = measured + offset, `joint_names`, `origin`, `limits`), `pose_from_xyz_rpy`, `xyz_rpy_from_pose` and `arm_in_robot_base`. Shared by the head fit, the arm fit and the arm pose sequence.
+- `views`: `ArmBoardView` (one still view of the gripper board: view id, arm pose index, tier, the seven measured joints, the board `Detection`, the head offset index) and `require_joints`; see "Head from arm fit" below.
+- `head_arm_fit`: the head-from-arm head chain fit, `aim_head` and the report; see "Head from arm fit" below.
 - `arm_pose_check`: the FK safety check of arm poses and joint paths with the board on the gripper (numpy, no ROS). `PoseChecker(...)` evaluates `urdf = measured + offset` FK placed in base_link by `arm_in_robot_base`; `check_pose(joints, gripper_rad, rolling)` returns named rule violations (body collisions, head envelope, board margin, roll rules, stretched arm, joint limits) and `check_path(start, target, gripper_rad)` samples the path between two poses. The body is `BodyConfig` (boxes and vertical cylinders, equal to the client.yml mcp_server `body` block), configured through `PoseCheckConfig`; `head_envelope(head_urdf, cfg)` gives the vertical cylinder containing the head at every pan/tilt. Distances are signed (negative = penetration). Tests: `tests/test_arm_pose_check.py`.
 - `floor_fit`: the floor-plane head chain fit (numpy and scipy, no ROS). `predicted_floor(chain, pan, tilt, origins)` gives the floor (base_link z = 0) in `tof_optical_frame` as (unit normal toward the sensor, sensor height); `fit_plane(points, prior, cfg, rng)` gates finite points by range and by `candidate_band_m` around the prior plane, runs RANSAC and an SVD refit and returns a `PlaneFit(normal, height_m, inliers, candidates, rms_m)` or None; `fit_head_chain_floor(observations, urdf_text, cfg)` fits `head_mount_joint` z, roll, pitch and the `head_tilt` origin pitch (tilt zero) and roll from `FloorObservation(pose, pan_rad, tilt_rad, plane)` with a Huber `least_squares`, every other origin component kept at the URDF value (the RGB-ToF extrinsic stays rigid), and returns a `FloorFitResult` (`passed`, `failed_limits`, `params` value/sigma/urdf for `mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`, `tilt_zero_deg`, `tilt_roll_deg`, the pose-mean `height_rms_mm` / `normal_rms_deg` the RMS limits apply to, the per-observation `observation_height_rms_mm` / `observation_normal_rms_deg`, per-pose pose-mean and per-observation residuals, the new `origins`, `to_json()` with non-finite numbers as null). `pose_mean_errors` gives one pose's mean height error and the angle between its mean observed and predicted normals. Fewer than `min_observations` skips the solver.
 - `urdf_text`: `rewrite_joint_origin`, `rewrite_tof_joint`, `Origin`, `format_vec`, and the override pieces: the `head_chain.json` format `{"joints": {head_mount_joint|head_tilt|head_camera_joint: {"xyz": [3], "rpy": [3]}}, "note", "session", "result"}` (`parse_head_chain`, `head_chain_json`) and `apply_overrides(urdf_text, applied_dir)`, the one applier that applies `head_chain.json` then `tof_joint.json` and returns the text plus one warning per unreadable or invalid file. It must stay standard-library only (no numpy, scipy or package-relative imports): the head_state_publisher launch loads it by file path on the system Python.
 
 Imported by the calibration CLI under `scripts/head_rgbd_calibration/` and by the head_rgbd_calibration node.
+
+## Head from arm fit
+
+The head-from-arm fit calibrates the head chain against the trusted arm: the ChArUco board is on the gripper, the arm
+(measured joints plus the trusted joint offsets) says where the board is, and the head camera sees it at different arm
+poses and head pan/tilt angles. Everything is numpy, scipy and OpenCV, no ROS. The node side (capture, sequence, apply)
+is in `nodes/head_rgbd_calibration/README.md`.
+
+### Views (`views.py`)
+
+`ArmBoardView(view_id, arm_pose, tier, joints, detection, head_offset)` is one still frame with the board detected.
+`joints` holds the measured radians of all seven joints (`head_pan`, `head_tilt` and the five arm joints, never
+defaults); `arm_pose` is the index of the scripted arm pose, `head_offset` the index of the (pan, tilt) offset the view
+was taken at. `require_joints(view)` raises `ValueError` naming the view and every missing joint.
+
+### Model and parameters (`head_arm_fit.py`)
+
+For each detected board corner the model chains: board corner -> board pose in `gripper_link` (fitted, 6 DOF) -> arm FK
+at the measured joints plus `joint_offsets_rad` (`urdf = measured + offset`) -> arm root in robot `base_link`
+(`base_in_base_link`) -> the inverse of the `head_camera_optical_frame` pose of the head chain at the measured pan/tilt
+-> `cv2.projectPoints` with the head camera intrinsics. The residual is the pixel distance to the detected corner,
+under a Huber loss (`huber_f_scale_px`).
+
+Free parameters (`fit_head_from_arm`):
+
+- `PARAM_NAMES`: `mount_x_m`, `mount_y_m`, `mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`, `mount_yaw_deg` (the
+  `head_mount_joint` origin), `tilt_zero_deg` (the `head_tilt` origin pitch) and `tilt_roll_deg` (its roll).
+- `PAN_AXIS_PARAMS` with `fit_pan_axis: true` (the default): `pan_axis_x_m`, `pan_axis_y_m`, the `head_pan` origin x, y.
+  The `head_tilt` origin is moved back by the same shift (`head_origins`), so the head stays where it is at pan 0 and
+  only the axis it turns about moves. The real session `calib-20261023-074418` put that axis 38 mm behind the URDF
+  value, which a fixed axis cannot absorb (about 13 px at the +-10 deg pan offsets).
+- The board pose in `gripper_link` (6 values), solved from a start built by `initial_board_mount`: each view's
+  `solvePnP` seeded from the configured `board_mount` and mapped through the start chain into `gripper_link`, median
+  translation and mean rotation.
+
+Fixed: every other head origin component (`head_pan` rpy and z, `head_tilt` z, `head_camera_joint`, the optical
+joints), the arm URDF, the joint offsets, the arm gauge (`base_in_base_link`) and the intrinsics. The pan zero is folded
+into `mount_yaw_deg` (the result's `PAN_ZERO_NOTE`): a pan scale or zero offset is degenerate with the mount yaw and
+the axis shift, so it is not a parameter.
+
+Start values are read from the head URDF text passed in. The node passes the head URDF with the applied overrides, so
+after a floor fit has been applied the start is the floor fit's chain. `floor` is a
+dict of the floor fit values per `floor_fit.PARAM_NAMES` entry (`mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`,
+`tilt_zero_deg`, `tilt_roll_deg`), or None.
+
+### Floor cross-check and prior
+
+The floor fit sees the ground plane and the arm fit sees the board; the two must agree on the five shared parameters.
+
+- Cross-check: every shared parameter whose fitted value differs from the floor value by more than `max_floor_delta_mm`
+  (10 mm) or `max_floor_delta_deg` (1.5 deg) fails `floor_delta:<name>`. Without floor values the fit fails
+  `floor_cross_check` (it never silently skips).
+- Prior: with `floor_prior_weight > 0` (default 10) and floor values, one extra residual per shared parameter,
+  `weight * (value - floor) / unit` (1 mm or 0.1 deg), pulls the fit toward the floor values. Weight 0 turns it off.
+  Without it the real session's arm views put the pan axis direction 2-3 deg off the floor fit.
+
+### Held-out views, validation and limits
+
+Every `holdout_every`-th distinct arm pose (sorted, default every 5th) is held out with all its views and is not in the
+fit. `HeadArmFit` reports the fit-view corner RMS (`rms_px`), the held-out RMS (`holdout_rms_px`), the held-out board
+error in mm (arm FK board centre against the view's `solvePnP` through the fitted chain, `holdout_board_mm`), one-sigma
+per parameter from `(J^T J)^-1 * sum(r^2) / (m - n)` on the corner residuals, the largest parameter correlation, view
+and arm pose counts, pan and tilt spans, the RMS per head offset and per view, and the new `origins`.
+`limit_checks(fit, limits)` lists every check (name, value, limit, ok) in order and `failed_limits` names the failed
+ones: `rms_px`, `holdout_rms_px`, `holdout_board_mm`, `max_sigma_mm`, `max_sigma_deg`, `max_correlation`, `min_views`,
+`min_arm_poses`, `min_pan_span_deg`, `min_tilt_span_deg`, `floor_delta:*`, `start_delta:mount_x_m` /
+`mount_y_m` / `mount_yaw_deg` (a start chain more than 30 mm / 5 deg off is refused) and `start_delta:pan_axis_*`
+(`max_pan_axis_delta_mm`, 50). NaN fails. `passed` is true only with no failed limit.
+
+Limits of the method: the fit trusts the arm to about 2 mm; it needs a pan span of at least 30 deg and a tilt span of
+at least 10 deg (a result below them is refused); parameter pairs that are nearly degenerate
+(mount y with mount yaw reach about 0.97) are caught by `max_correlation` 0.99; at least 3 views are required
+(`ValueError` below that); the calibrated head camera intrinsics are taken as given. The limit values are evidence from
+five leave-poses-out folds of the real session (`HeadArmFitLimits` docstring, `tests/test_head_arm_real_session.py`).
+`head_arm_report_markdown(fit, cfg, session, date)` renders the report (parameter table, residuals per head offset,
+coverage, the largest correlation, the limit table).
+
+### `aim_head`
+
+`aim_head(chain, point_base)` returns the (pan, tilt) in radians (+ tilt is down) that put a base_link point on the
+optical axis of `head_camera_optical_frame`, solved numerically on the given chain (the camera is off the pan and tilt
+axes), clamped to the chain's `head_pan` and `head_tilt` limits (the tilt range of the head URDF is -30..+45 deg). The
+node's sequence uses it with the applied head chain and the board centre from arm FK to aim the head at the board.
+
+### Arm pose check (`arm_pose_check.py`)
+
+`PoseChecker(arm_urdf, head_urdf, fit, cfg, board_margin_m=None)` decides whether an arm pose or a joint path is safe
+with the board on the gripper. Poses are evaluated in base_link: arm URDF FK with `urdf = measured + offset`, placed by
+`arm_in_robot_base`. `check_pose(joints, gripper_rad, rolling)` returns a list of violation strings, each starting with
+the rule name; an empty list is safe. `check_path(start, target, gripper_rad)` samples the joint-linear path with no
+joint step over `path_step_rad` and returns the violations of every sample, each ending "at path fraction <f>".
+Distances are signed (negative = penetration). Rules (`PoseCheckConfig`, m and rad):
+
+| Rule | Meaning |
+|---|---|
+| `joint_limits` | A joint (measured + offset, the gripper without offset) is outside the arm URDF limits. |
+| `stretched_shoulder_lift_max_rad` | `shoulder_lift` above 1.85 rad with `elbow_flex` below 0 (stretched arm). |
+| `min_tool_height_m` | The tool point (`gripper_frame_link`) is lower than 0.10 m. |
+| `max_roll_gripper_rad`, `roll_min_tool_height_m` | While `wrist_roll` changes the gripper must be at most 0.8 rad open (half open) and the tool at least 0.15 m high. |
+| `min_board_height_m` | A board point is lower than 0.05 m. |
+| `board_clearance` | The board outline and grid points keep `board_margin_m` from every body obstacle and the head. |
+| `link_clearance` | The upper arm, forearm and wrist capsules (`link_radius_m` 0.025) keep `margin_m` (0.03) from the body and the head; the upper arm is exempt from the crossbar it stands on. |
+| `board_link_clearance` | The board keeps `board_margin_m` from the upper arm and forearm capsules. |
+
+`board_margin_m` defaults to `margin_m`; the sequencer passes `margin_m + provisional_margin_m` while the board mount is
+the hand-measured start value, because the mount uncertainty moves the board and not the arm links.
+
+The body is `BodyConfig` (`BoxObstacle` and `CylinderObstacle` lists): a copy of the client.yml `mcp_server` `body`
+block (frame rails, crossbar, four wheels, lidar), pinned equal by `tests/test_arm_pose_check.py`. It is a copy on
+purpose: the shared package must not import mcp_server, and mcp_server keeps its own, stricter checks on top of this
+one. The head is not in the body block: `head_envelope(head_urdf, cfg)` builds a vertical cylinder about the pan axis
+(the `head_mount_joint` x, y of the given, applied head URDF) standing on the crossbar top, which contains every head
+visual at every pan/tilt inside the URDF's limits (sampled at the limits and every 15 deg, grown by the largest arc sag
+between samples). Pass the applied chain: a head that reaches further, or a wider tilt range, grows the envelope.
+
+### Config models (`config.py`)
+
+`HeadArmFitConfig` (`board`, `fit_pan_axis`, `board_mount`, `limits`, `huber_f_scale_px`, `base_in_base_link`,
+`joint_offsets_rad` (exactly the five arm joints), `floor_prior_weight`), `BoardMountConfig` (`xyz_init`, `rpy_init`,
+`outline_margin_m`: the start of the board frame in `gripper_link` and the plate margin the pose check uses),
+`HeadArmFitLimits` (every limit above, with `holdout_every` >= 2) and `BaseInBaseLink` (`x`, `y`, `z`, `yaw`, default
+0.0592, -0.05, 0.100, 0). The defaults of the joint offsets and the base gauge equal the arm config in `client.yml`
+(pinned by `tests/test_head_arm_calib_config.py`). `charuco.board_corners_3d` and `board_outline` give the board corner
+geometry the fit and the pose check use. Unknown keys are rejected by every model.
+
+Tests: `tests/test_head_arm_fit.py`, `tests/test_head_arm_real_session.py`, `tests/test_arm_pose_check.py`,
+`tests/test_head_arm_calib_config.py`, `tests/test_head_arm_calib_chain.py`.
 
 ## ros2_common_cpp (C++)
 

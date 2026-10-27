@@ -26,7 +26,7 @@ At launch, `launch/head_description.py` (standard library only) builds the `robo
 `head.urdf` plus the files in `/var/lib/ros2/head_rgbd_calibration/applied/`, using `apply_overrides` from
 `shared/ros2_common/head_rgbd_calibration/urdf_text.py` (loaded by path):
 
-- `head_chain.json` rewrites the `head_mount_joint`, `head_pan`, `head_tilt` and `head_camera_joint` origins (floor-plane fit, head-from-arm fit and head calibration; the head-from-arm fit writes the `head_pan` origin x, y as the pan axis position and moves the `head_tilt` origin back by the same shift).
+- `head_chain.json` rewrites the `head_mount_joint`, `head_pan`, `head_tilt` and `head_camera_joint` origins. It comes from either fit of the head_rgbd_calibration node, whichever was applied last: the floor-plane fit (mount z, roll, pitch, tilt zero and roll) or the head-from-arm fit (the whole mount, tilt zero and roll and, with the pan axis free, the `head_pan` origin x, y as the pan axis position, with the `head_tilt` origin moved back by the same shift). `applied.json` records which one (`head_chain.source` `floor` or `head_arm`); the file format is the same. The head-from-arm fit starts from and keeps the joints of the chain applied before it, so the file always holds the complete chain.
 - `tof_joint.json` (`{"xyz": [...], "rpy": [...], "note": "..."}`) rewrites the `tof_joint` origin.
 
 Every other line stays as in the repo. A missing file is skipped; an unreadable or invalid file is skipped whole and

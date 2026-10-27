@@ -178,6 +178,8 @@ The camera hangs on `head_camera_link` with a zero mount, so its pose is the app
 CURRENT measured `head_pan` / `head_tilt`. `pixel_to_ground` and `mark_candidate_points` with `camera: "front"` therefore
 return floor points with `approximate_intrinsics: false`; an Apply on the Calibrate page reaches them without a restart.
 
+The applied head chain is reloaded, not read once: `AppliedHeadKinematics` (`mcp_server/head.py`, `head.applied_dir`, default `/var/lib/ros2/head_rgbd_calibration/applied`) builds `HeadKinematics` from the repo `head.urdf` with `apply_overrides` (the `head_chain.json` of the floor fit or of the head-from-arm fit, then `tof_joint.json`) and compares the mtime of `applied/applied.json` on each `current()` call. A new, changed or removed marker rebuilds it on the next call, with a log line naming the applied session and result; a failed rebuild is logged and the previous kinematics stay. So an Apply of either fit moves `head_look_at`, the head limits, the front camera pose and the pixel-to-floor maths without restarting mcp_server. The front camera is mounted on `head_camera_link` (zero mount; the applied chain supplies its pose at the measured `head_pan` / `head_tilt`), with the applied intrinsics scaled to the stream size.
+
 - Picture sizes: `get_camera_image` returns `limits.default_camera_px` on the longest side at the camera's calibrated
   aspect: 384x216 for `front`, 384x288 for the 4:3 gripper (`camera_scene.default_picture_size` / `picture_sizes`). The
   tool descriptions name these sizes. Pass a pixel of that picture with `image_width` / `image_height`; it is scaled to the

@@ -306,7 +306,7 @@ stops capture, kills a running compute child and destroys the node.
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
   the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
   shifted +-1 cm / turned
-  +-5 deg (`test_safe_under_board_mount_uncertainty`), both also with a -30..+60 deg tilt URDF, the base pose in front
+  +-5 deg (`test_safe_under_board_mount_uncertainty`), both also with a -30..+45 deg tilt URDF (`shipped-tilt-45`, `applied-tilt-45`), the base pose in front
   of the head, at least 12 board corners in view for 3 of 4 head offsets (`test_board_visible_from_aimed_head`), the
   aimed pan/tilt span and pose count (`test_coverage_limits`), a passing synthetic `fit_head_from_arm`
   (`test_synthetic_fit_on_shipped_set_passes`), and the measured-space phrase of `move_arm_joints`
@@ -324,6 +324,12 @@ stops capture, kills a running compute child and destroys the node.
   `test_session_matches_contract_fixture` against `fixtures/api/session.json`), `tests/test_compute.py`
   (`test_outlier_pose_named_in_result_and_report`, `test_clean_session_has_pose_errors_without_outliers`,
   `test_error_result_has_empty_pose_lists`).
+- `tests/test_robot_client.py` - the tool helpers' names and arguments, structured data, the move timeout, tool errors, unreachable (also inside an exception group), a missing token file, the token never in any text, `release_arm(keep_position)`, and the board-park admin route (own transport and token file, bearer header, missing token file).
+- `tests/test_head_arm_api.py` - the `/api/head-arm/*` routes over a fake sequencer: state and sessions bodies against the contract fixtures, the confirms (base, park, big joints), 409 for busy and wrong-phase requests, sequencer errors mapped to 400, only head_arm sessions listed, compute and apply, a failed result not applicable, an rgbd session 400 on the result routes, unknown ids 404.
+- `tests/test_head_arm_results.py` - compute writes `result.json`, `report.md` and (passed only) `head_chain.json`, fitted joints merged over the applied chain, the pan axis, missing intrinsics and size mismatch as error results, a failed limit writes no chain, floor values from the applied record (also the legacy record, and none failing the cross-check), apply writes the applied chain and the record with `source` and `floor`, a failed result refused, `latest_board_mount`, `head_arm_session_exists`.
+- `tests/test_floor_api.py`, `tests/test_floor_results.py` - the floor fit routes and results, including that a floor compute keeps the applied `head_pan` origin and that apply writes `source: floor`.
+- `tests/test_runtime_deps.py` - `httpx`, imported at runtime by the robot client, is a runtime dependency in `pyproject.toml`.
+- `tests/contract.py`, `tests/fixtures/api/*.json` - structural match of a real API body against a literal fixture (helpers and data, not tests).
 - `tests/test_images.py` - RGB thumbnail width, corners drawn, input untouched; ToF thumbnail 2x with corners, `None`
   for an empty frame.
 - `tests/test_capture.py` - ToF subscriptions RELIABLE, mapping BEST_EFFORT, stop / timeout / failed start leave
@@ -361,6 +367,159 @@ or not applicable).
 A passing compute also writes `head_chain.json` (the applied joints kept, `head_mount_joint` and `head_tilt` replaced; a
 `head_pan` origin from a head-from-arm fit is kept, and so is the `head_tilt` xyz it moved). Apply
 copies it to `applied/` and adds `head_chain` to `applied/applied.json`, which starts the apply path unit.
+
+## Head from arm calibration
+
+The head-from-arm calibration fits the head chain against the trusted arm: the ChArUco board (6x5, 40 mm, see
+`docs/markers.md`) is on the gripper, the arm moves it through scripted poses, the node aims the head at it, and the
+fit (`shared/ros2_common/head_rgbd_calibration/head_arm_fit.py`, see "Head from arm fit" in `shared/README.md`) solves
+the head mount, the tilt zero and roll and the head pan axis position from the head camera views. It writes the same
+`head_chain.json` as the floor fit, so every consumer of the applied chain (head_state_publisher, mcp_server, web_ui) is
+served by either fit. The arm joint offset solve (the arm's own zero errors) is epic arm-joint-offsets-from-the-g; this
+calibration trusts the offsets in `fit.joint_offsets_rad`.
+
+Order of use: the floor fit first (it gives the start chain and the cross-check values), then the Calibrate page
+section "Head from arm" (`nodes/web_ui/README.md`) or the routes below.
+
+### Session kind `head_arm`
+
+A session has a `kind` in `session.json`: `rgbd` (the RGB-D capture, default for sessions without the key) or `head_arm`.
+A `head_arm` session holds still RGB views only. Each pose directory has `rgb.jpg` (as received), `rgb_thumb.jpg` (corners
+drawn) and `pose.json` with the stamps (`rgb`, `joints`), the detected corner ids and points, the measured `joints` (all
+seven: `head_pan`, `head_tilt` and the five arm joints, never defaults), `arm_pose` (index into the whole scripted set),
+`tier` and `head_offset`. `SessionStore.add_still_pose` refuses a session of the other kind, a missing joint, a tier
+other than 0/1/2, a negative index and an image size other than the session's; `load_arm_board_views` turns the poses
+into `ArmBoardView`s (view id = pose id). Results live in `results/<rid>/` as for the other kinds.
+
+### Still capture
+
+`CaptureController.start_still_session` and `capture_still` are described under "Still capture (head_arm sessions)"
+above. Topics: the mapping RGB stream `topics.rgb` (BEST_EFFORT, depth `qos.rgb_depth`) and the measured joints
+`topics.head_joint_states` (`/head/joint_states`) and `topics.arm_joint_states` (`/follower/joint_states`), both with
+the same BEST_EFFORT profile. The still rule: a frame is stored only when the last `still.window_s` (0.6 s) of frames
+differ by at most `still.rgb_mad` (2.0 grey levels, flicker-free difference) and every one of the seven joints moved
+less than `still.joint_still_rad` (0.002 rad) over the window, with the head and arm samples within
+`still.max_joint_dt_s` (0.1 s) of the frame stamp; after `still.timeout_s` (6 s) the view is skipped. A frame without a
+detected board is skipped (`no board`), and a view whose joints are missing or stale is skipped (`joints stale`). Nothing
+is filled with zeros: no joint sample means no view.
+
+### Robot client and token
+
+The node never drives the robot itself. `robot_client.RobotClient` calls the guarded tools of mcp_server over
+Streamable HTTP (`robot.mcp_url`): `take_control` (arm), `move_arm_joints`, `set_head_angles`, `get_arm_state`,
+`get_control_state` and `release_control`. The bearer token is read per call from `robot.token_file`
+(`/etc/ros2/mcp_server/token`, a `MCP_SERVER_TOKEN=<token>` line or the bare token); the node's service user joins the
+`mcp-token` group for it (Ansible, `ansible/README.md`). A call never raises: it returns a `ToolResult` with `is_error`,
+the text (the token replaced by `<token>`), `unreachable` when nothing answers at the URL, and the structured `data`.
+Calls have `robot.call_timeout_s` (60 s), arm moves `robot.move_timeout_s` (120 s). The park with the board on uses a
+separate plain HTTP admin route and its own token (`robot.board_park_token_file`, group `board-park`, see "Park with the
+board on" below).
+
+### The sequence
+
+`sequencer.Sequencer` runs one worker thread; HTTP threads only request steps and read the state. Phases (`phase` in
+the state): `idle`, `moving_to_base`, `waiting_board`, `capturing`, `waiting_big_joints`, `returning_to_base`,
+`holding`, `parking`.
+
+1. `POST /api/head-arm/sequence/base` (confirm): builds the `PoseChecker` on the arm URDF and the applied head URDF,
+   takes the arm lease and moves, without the board, to `arm_sequence.base_pose` (the gripper `gripper_rad` is sent once,
+   with this move).
+2. Phase `waiting_board`: the user clips the board to the gripper and presses Board attached
+   (`POST .../sequence/board-attached`). The board record is written (see "The board record").
+3. Phase `capturing`: a still session is started; tier 0 then tier 1 run.
+4. Phase `waiting_big_joints`: tier 2 moves `elbow_flex`, `shoulder_lift` and `shoulder_pan`, so the user must allow it
+   (`POST .../sequence/big-joints {"confirm": true}`) or skip it (`false`, or no body).
+5. Tier 2 (if allowed), then phase `returning_to_base` back to the base pose, and the worker ends.
+
+Tiers (`arm_sequence`, validated at load: a pose that moves a joint its tier may not, or beyond its delta, names the tier,
+pose and joint): tier 0 moves `wrist_roll` only (10 poses, within `max_roll_delta_rad` 1.2), tier 1 also `wrist_flex`
+(9 poses, `max_flex_delta_rad` 0.4), tier 2 also the big joints (14 poses, `max_big_delta_rad` 0.35). Poses are measured
+joint angles, the `move_arm_joints` space (`urdf = measured + fit.joint_offsets_rad`).
+
+For every pose: the path from the measured joints (`get_arm_state`) to the pose is checked by `PoseChecker.check_path`
+and a refusal stops before anything moves (the named rules are quoted); then `move_arm_joints` at
+`arm_sequence.speed_scale` (0.1, at most 0.3); then the board centre from arm FK is passed to `aim_head` on the applied
+head chain and one view is taken per `arm_sequence.head_offsets_deg` entry (default `[0,0]`, `[10,0]`, `[-10,0]`, `[0,6]`
+deg added to the aimed pan/tilt). A head target outside the head URDF limits is skipped and counted with its reason; a
+head move that does not converge is skipped; each view waits `settle_s` and then the still rule above. The state carries
+`captured` and `skipped` (reason -> count).
+
+Safety and the holding exits: nothing moves without its confirm, enforced in the routes and again in the sequencer.
+Every exit of the sequence (done, stop, tool error, exception, unanswered confirm after `confirm_timeout_s` 600 s)
+stops the still capture and releases the arm with `keep_position=True`: the arm and the head stay where they are, at a
+pose that was path-checked. With the board attached the phase is then `holding` (the board is still on the gripper);
+otherwise `idle`. The sequence never parks on its own and never sends a carried object radius. A new base move is
+refused while `holding`: press Park first.
+
+### Pose set and its tests
+
+`tests/test_arm_pose_set.py` proves the shipped set before it can reach the robot: tier rules, short transits between
+poses, every pose and every transit (home -> base -> tiers -> base) safe by `PoseChecker` with the provisional board
+margin and with the mount shifted +-1 cm / turned +-5 deg, on the shipped and the applied head URDF and with the widened
+-30..+45 deg tilt range; the board in view (at least 12 corners for 3 of 4 head offsets); enough pan and tilt span for the
+limits; and a passing synthetic fit on the set. The sequencer re-checks every move from the measured joints at run
+time, so a robot that is not where the test assumed is still refused. The tests of the sequence over a fake mcp_server
+are `tests/test_sequencer.py`.
+
+### Compute and apply
+
+`POST /api/head-arm/sessions/{sid}/compute` (`head_arm_results.compute_head_arm`, synchronous) fits the session. Inputs:
+the stored views, the applied `head_camera_calibration.yaml` (intrinsics and image size; no applied calibration, or a
+different image size, gives an error result), the head URDF with the applied overrides as the start chain
+(`floor_results.base_urdf`), the arm URDF, `fit` and, as the cross-check, the floor values of the floor result named by
+the `head_chain.floor` reference in `applied/applied.json` (none gives a failed `floor_cross_check`). The result
+directory `results/<rid>/` holds:
+
+- `result.json`: `passed`, `failed_limits`, `error`, rms, held-out rms and board error, views, arm poses, spans,
+  `max_correlation`, `params` (per fitted parameter: `value`, `sigma`, `start`, `floor`, `floor_delta`), `board_mount`,
+  `per_view`, `offset_rms_px`, `limits` (name, value, limit, ok) and `floor` (the session/result referenced). An input
+  error gives `passed: false` and `error` only.
+- `report.md`: the human-readable report.
+- `head_chain.json`: only when the result passed; the applied chain's joints with the fitted `head_mount_joint`,
+  `head_tilt` and (with the pan axis) `head_pan` origins merged over them.
+
+`POST .../sessions/{sid}/results/{rid}/apply` goes through the writer shared with the floor fit,
+`floor_results.apply_head_chain_file`: it copies `head_chain.json` into `applied/` and records it in `applied/applied.json`
+as `head_chain: {session, result, applied_at, source, floor}`, which starts the apply path unit that restarts the head
+nodes (`restart_units`); the answer lists each unit's state. `source` is `head_arm` for this fit and `floor` for a floor
+fit; `floor` is the floor result the applied chain was checked against, carried forward from the current record. A
+result that did not pass, or an apply while no RGB-D calibration is applied, is refused with 409.
+
+### Routes
+
+All under `/api/head-arm` (web_ui proxies them as `/api/calibration/rgbd/head-arm/*`); errors use the common
+`{ok: false, message}` body: 400 for a refused step (a missing confirm, a refusal of the path check, a session of the
+wrong kind), 404 for an unknown or malformed id, 409 for a busy or wrong-phase request.
+
+| Route | Body |
+|---|---|
+| `GET /state` | `{sequence, applied}`: the sequencer state (`running`, `phase`, `session_id`, `tier`, `arm_pose` (0-based), `total_poses`, `captured`, `skipped`, `status`, `error`, `big_joints`, `waiting_since`, `board_record`) and the applied head chain (`{session, result, note, source, floor, joints}`, null when none) |
+| `POST /sequence/base {"confirm": true}` | state; 409 while a sequence, an RGB-D capture, a floor sweep or a compute runs |
+| `POST /sequence/board-attached` | state; 409 outside `waiting_board` |
+| `POST /sequence/big-joints {"confirm": bool}` | state; 409 outside `waiting_big_joints` |
+| `POST /sequence/stop` | state (also when idle) |
+| `POST /park {"confirm": true, "board_on": bool}` | state; see "Park with the board on" |
+| `GET /sessions` | `[{id, created, views, arm_poses, results}]` (head_arm sessions only) |
+| `POST /sessions/{sid}/compute` | the result; 409 while a sequence runs |
+| `GET /sessions/{sid}/results/{rid}` | result.json |
+| `POST /sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at, source, floor}, units}` |
+
+The bodies are pinned by the contract fixtures `tests/fixtures/api/head_arm_state.json`, `head_arm_sessions.json` and
+`head_arm_result.json` (the web UI validators in `frontend/src/calibrate/headArmApi.ts` are tested against the same
+files), checked in `tests/test_head_arm_api.py` with `tests/contract.py`.
+
+### Config keys of the head-from-arm calibration
+
+| Key | Default | Meaning |
+|---|---|---|
+| `topics.head_joint_states`, `topics.arm_joint_states` | `/head/joint_states`, `/follower/joint_states` | Measured joints of the still capture |
+| `still.window_s`, `rgb_mad`, `joint_still_rad`, `max_joint_dt_s`, `timeout_s` | 0.6, 2.0, 0.002, 0.1, 6.0 | The still rule |
+| `arm_urdf_file` | deployed checkout `so101_arm.urdf` | Arm URDF for the fit and the pose check |
+| `fit.*` | see "Config keys" | Board, board mount start, pan axis, limits, Huber scale, arm gauge, joint offsets, floor prior weight |
+| `robot.mcp_url`, `token_file`, `board_park_token_file`, `call_timeout_s`, `move_timeout_s` | `http://127.0.0.1:18200/mcp`, `/etc/ros2/mcp_server/token`, `/etc/ros2/mcp_server/board_park_token`, 60, 120 | The mcp_server the node moves the robot through |
+| `arm_sequence.*` | see "Config keys" | Base pose, gripper, the three tiers, speeds, confirm timeout, head offsets, pose check, margins, park |
+
+`fit.board` must equal `board` (checked at load). Unknown keys are rejected.
 
 ## Park with the board on (design D63)
 

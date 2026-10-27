@@ -84,6 +84,8 @@ The same generator prints the ChArUco board that `scripts/head_rgbd_calibrate.py
 
 Why 6x5 with 40 mm squares: the plate must fit the 256 mm Bambu bed, so 6 x 40 mm plus margins is 250 mm; 40 mm squares are large enough for the 576x324 mapping image and the low-resolution ToF amplitude image to resolve corners; the row count stays odd so the legacy OpenCV ChArUco layout (even-row change) cannot flip the board origin. Print at 100 % and mount rigid, like the markers.
 
+The same board is also the gripper board of the head-from-arm calibration (`nodes/head_rgbd_calibration/README.md`, "Head from arm calibration"): the sequence stops at "Clip the board to the fixed jaw" and the user clips the printed plate to the gripper's fixed jaw before the arm moves it in front of the head camera. The fit solves the real board pose in `gripper_link`; the start value is the hand-measured mount of the plate on a stick in the closed gripper (`fit.board_mount`). Keep the plate flat and rigid on the gripper, and print at 100 % so the 40 mm squares are exact: the fit takes the board geometry from the config, not from the print.
+
 ## Detection
 
 `marker_detector` runs on the client next to `poi_store`; defaults are in `nodes/marker_detector/README.md`.

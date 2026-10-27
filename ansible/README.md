@@ -581,7 +581,7 @@ BNO055 calibration offsets there (`calibration.json`); delete the file to reset 
 
 The **head_rgbd_calibration** node (`node_type: head_rgbd_calibration`, HTTP `127.0.0.1:18110`, proxied by web_ui) runs the
 web UI Calibrate page: capture, review, compute and apply the head RGB-D calibration. It sits below every robot tier
-(`cpu_weight`/`io_weight` 200, `memory_low` 64M, `memory_max` 768M, `oom_score_adjust` 0); its compute child is niced.
+(`cpu_weight`/`io_weight` 100, `memory_low` 64M, `memory_max` 768M, `oom_score_adjust` 0); its compute child is niced.
 
 `playbooks/tasks/head_rgbd_calibration_setup.yml` (tags `setup`, `head_rgbd_calibration`) runs before the node is deployed:
 
@@ -590,9 +590,20 @@ web UI Calibrate page: capture, review, compute and apply the head RGB-D calibra
 - Seeding rule: each committed calibration file that exists in the repo on the Pi (`nodes/head_camera_cpp/config/head_camera_calibration.yaml`,
   `nodes/head_rgbd_cpp/config/tof_calibration.yaml`, `nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml`) is copied into
   `applied/` with `force: false`, so it only fills a missing file and never replaces an applied one. Missing sources are skipped.
+- The node's service user joins the groups `mcp-token` (reads the mcp_server bearer token the node moves the arm and head with) and `board-park` (reads the board-park token), through `supplementary_groups` of the `head_rgbd_calibration` node type in `group_vars/client.yml`. Both groups are created by `mcp_server_setup.yml` and, for ordering, also by `head_rgbd_calibration_setup.yml`, so the node can be deployed before mcp_server.
 - Installs `ros2-head-rgbd-calibration-apply.path` (watches `applied/applied.json`, enabled and started) and
   `ros2-head-rgbd-calibration-apply.service` (oneshot `systemctl try-restart` of `ros2-head_camera_cpp`,
   `ros2-head_rgbd_cpp`, `ros2-head_state_publisher` and `ros2-arducam_tof`, whose `tof_calibration_file` is the applied ToF file), so Apply picks up the new calibration without a redeploy.
+
+Config keys of the head-from-arm calibration in the `config:` block of the `head_rgbd_calibration` entry (every key is shown at its default in `group_vars/client.yml`; meanings in `nodes/head_rgbd_calibration/README.md`):
+
+- `topics.head_joint_states` / `topics.arm_joint_states`: the measured joints of the still capture.
+- `still.*`: the still rule (`window_s`, `rgb_mad`, `joint_still_rad`, `max_joint_dt_s`, `timeout_s`).
+- `fit.*`: the printed board (equal to `board`), `board_mount` start, `fit_pan_axis`, `limits`, `huber_f_scale_px`, `base_in_base_link` and `joint_offsets_rad` (equal to the arm config of mcp_server, pinned by a test), `floor_prior_weight`.
+- `robot.*`: `mcp_url`, `token_file`, `board_park_token_file`, `call_timeout_s`, `move_timeout_s`.
+- `arm_sequence.*`: `base_pose`, `gripper_rad`, `tier0_poses` / `tier1_poses` / `tier2_poses`, the deltas, `speed_scale`, `settle_s`, `confirm_timeout_s`, `head_offsets_deg`, `pose_check`, `provisional_margin_m`, `park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s`.
+
+The head tilt range of the reprinted mount is -30..+45 deg: the `head` group of `base_servos` (tilt steps 1536..2389) and the web_ui head tab (`head_tilt_range_deg: [-30, 45]`) equal the `head.urdf` limits.
 
 ### web_ui tile cache directory
 

@@ -674,7 +674,7 @@ The pan/tilt head servo group in `ansible/group_vars/client.yml`: an `extra_grou
 | `test_head_steps_equal_the_urdf_limits` | `command_min_steps`/`command_max_steps` equal the URDF joint limits converted to steps (swapped if `inverted`). |
 | `test_head_caps_are_present_and_positive` | `max_speed_rad_s` and `max_acceleration_rad_s2` set and > 0. |
 | `test_head_startup_positions_are_inside_the_limits` | Home pose is inside the URDF limits and the command steps. |
-| `test_head_pan_and_tilt_servos_are_mounted_reversed` | Both `head_pan` (found 2026-10-21: +30 deg turned right) and `head_tilt` (found 2026-10-20) are `inverted: true`; tilt steps 1707..2389 and the 0.5236 rad home maps to step 1707. |
+| `test_head_pan_and_tilt_servos_are_mounted_reversed` | Both `head_pan` (found 2026-10-21: +30 deg turned right) and `head_tilt` (found 2026-10-20) are `inverted: true`; tilt steps 1536..2389 (the -30..+45 deg range of the reprinted mount, + is down) and the 0.5236 rad home maps to step 1707. |
 | `test_head_pan_steps_are_symmetric_around_centre` | Pan min + max steps = 2 * 2048, so inverting only flips the sign. |
 | `test_autonomy_and_web_ui_may_command_the_head_directly` | `autonomy` and `web_ui` are in `direct_command_sources`. |
 
@@ -3224,6 +3224,13 @@ Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nod
 | `test_playbook_setup_before_deploy` | The setup include precedes `Deploy head_rgbd_calibration` in the client playbook, with the right tags and node name. |
 | `test_arducam_tof_reads_the_applied_tof_calibration` | arducam_tof's `tof_calibration_file` is the same applied `tof_calibration.yaml` as head_rgbd_cpp's, and `depth_is_radial` is true. |
 | `test_http_port_unique_in_client_vars` | The node's HTTP port appears exactly once in `client.yml`. |
+| `test_fit_joint_offsets_equal_mcp_server_arm` | `fit.joint_offsets_rad` of the node config equals mcp_server's `arm.joint_offsets_rad`. |
+| `test_fit_base_in_base_link_equals_mcp_server_arm` | `fit.base_in_base_link` equals mcp_server's `arm.base_in_base_link`. |
+| `test_pose_check_body_equals_mcp_server_body` | `arm_sequence.pose_check.body` boxes and cylinders equal mcp_server's `body` block. |
+| `test_arm_urdf_file_is_the_mcp_server_arm_urdf` | The node's `arm_urdf_file` is the arm URDF mcp_server loads. |
+| `test_fit_board_equals_board` | `fit.board` equals `board` in the node config. |
+| `test_service_joins_mcp_token_group_created_by_mcp_server_setup` | The node type's `supplementary_groups` has `mcp-token`, and `mcp_server_setup.yml` creates that group. |
+| `test_setup_creates_mcp_token_group_before_the_service_starts` | `head_rgbd_calibration_setup.yml` creates the system group `mcp-token` itself (it runs before mcp_server_setup). |
 
 ### Per-pose hints in the node and web_ui tests
 
