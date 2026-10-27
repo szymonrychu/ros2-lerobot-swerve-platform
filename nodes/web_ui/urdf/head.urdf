@@ -110,4 +110,44 @@
     <child link="tof_optical_frame"/>
     <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
   </joint>
+
+  <!-- Intel RealSense D435 on the head (design D4): the driver publishes no TF, this URDF owns every d435 frame.
+       d435_joint xyz 0.02 0 0 is the CAD start at the old head unit's centre; the head-from-arm fit refines it.
+       d435_color_joint y -0.015 is nominal until the factory depth-to-colour extrinsic is captured at bring-up. -->
+  <link name="d435_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.090 0.025 0.025"/></geometry>
+      <material name="d435_silver"><color rgba="0.7 0.7 0.72 1"/></material>
+    </visual>
+  </link>
+  <joint name="d435_joint" type="fixed">
+    <parent link="head_link"/>
+    <child link="d435_link"/>
+    <origin xyz="0.02 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="d435_depth_frame"/>
+  <joint name="d435_depth_joint" type="fixed">
+    <parent link="d435_link"/>
+    <child link="d435_depth_frame"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="d435_depth_optical_frame"/>
+  <joint name="d435_depth_optical_joint" type="fixed">
+    <parent link="d435_depth_frame"/>
+    <child link="d435_depth_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+  </joint>
+  <link name="d435_color_frame"/>
+  <joint name="d435_color_joint" type="fixed">
+    <parent link="d435_link"/>
+    <child link="d435_color_frame"/>
+    <origin xyz="0 -0.015 0" rpy="0 0 0"/>
+  </joint>
+  <link name="d435_color_optical_frame"/>
+  <joint name="d435_color_optical_joint" type="fixed">
+    <parent link="d435_color_frame"/>
+    <child link="d435_color_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+  </joint>
 </robot>

@@ -604,6 +604,9 @@ The `head_state_publisher` node (robot_state_publisher on `nodes/web_ui/urdf/hea
 | `test_launch_file_reads_head_urdf_relative_to_itself` | The URDF path comes from `__file__` and names `web_ui/urdf/head.urdf`. |
 | `test_playbook_step_exists_with_tags` | `Deploy head_state_publisher` exists with its node tag and `apt`. |
 | `test_readme_documents_frames_and_check` | The node README names `/tf_static` and the `tf2_echo` check. |
+| `test_d435_frames_resolve_from_head_urdf` | Every `d435_*` frame in head.urdf is a link with exactly one parent joint and reaches `base_link`, so robot_state_publisher publishes it once. |
+
+`nodes/web_ui/tests/test_head_urdf.py` also pins the D435 chain: `test_d435_chain_hangs_on_head_link` (fixed `d435_link` on `head_link`, depth and colour frames, 0.090 x 0.025 x 0.025 box) and `test_d435_optical_frames_are_rotated` (the standard optical rotation on both optical joints).
 
 ### `test_head_tof_joint_override.py`
 

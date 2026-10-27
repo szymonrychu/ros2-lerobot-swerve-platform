@@ -119,6 +119,39 @@ def test_optical_rpy(joints: dict[str, ET.Element]) -> None:
         assert origin(joints[name]) == pytest.approx([0, 0, 0])
 
 
+D435_OPTICAL_RPY = (-1.5707963, 0.0, -1.5707963)
+
+
+def test_d435_chain_hangs_on_head_link(urdf: ET.Element, joints: dict[str, ET.Element]) -> None:
+    """d435_link is fixed on head_link; depth and colour frames and their optical frames hang below it."""
+    expected = {
+        "d435_joint": ("head_link", "d435_link"),
+        "d435_depth_joint": ("d435_link", "d435_depth_frame"),
+        "d435_depth_optical_joint": ("d435_depth_frame", "d435_depth_optical_frame"),
+        "d435_color_joint": ("d435_link", "d435_color_frame"),
+        "d435_color_optical_joint": ("d435_color_frame", "d435_color_optical_frame"),
+    }
+    links = {link.get("name") for link in urdf.findall("link")}
+    for name, pc in expected.items():
+        assert parent_child(joints[name]) == pc, name
+        assert joints[name].get("type") == "fixed", name
+        assert set(pc) <= links, name
+    assert origin(joints["d435_joint"]) == pytest.approx([0.02, 0, 0])
+    assert origin(joints["d435_depth_joint"]) == pytest.approx([0, 0, 0])
+    assert origin(joints["d435_depth_joint"], "rpy") == pytest.approx([0, 0, 0])
+    assert origin(joints["d435_color_joint"]) == pytest.approx([0, -0.015, 0])
+    link = next(lk for lk in urdf.findall("link") if lk.get("name") == "d435_link")
+    boxes = [shape for shape, _ in visual_boxes_and_cylinders(link)]
+    assert [vec(b.get("size")) for b in boxes] == [pytest.approx([0.090, 0.025, 0.025])]
+
+
+def test_d435_optical_frames_are_rotated(joints: dict[str, ET.Element]) -> None:
+    """Both D435 optical joints carry the REP 103 optical rotation with no translation."""
+    for name in ("d435_depth_optical_joint", "d435_color_optical_joint"):
+        assert origin(joints[name], "rpy") == pytest.approx(list(D435_OPTICAL_RPY), abs=1e-6)
+        assert origin(joints[name]) == pytest.approx([0, 0, 0])
+
+
 def test_tof_left_of_rgb_with_spacing(joints: dict[str, ET.Element]) -> None:
     """ToF (left, +y) sits 0.05 +- 0.015 m from the RGB camera (right, -y); the calibration may nudge it."""
     rgb, tof = origin(joints["head_camera_joint"]), origin(joints["tof_joint"])

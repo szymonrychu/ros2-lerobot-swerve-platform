@@ -1,6 +1,7 @@
 """head_state_publisher: robot_state_publisher on the head URDF, wired through Ansible (client host)."""
 
 import ast
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
@@ -113,3 +114,31 @@ def test_readme_documents_frames_and_check() -> None:
     text = README.read_text()
     assert "/tf_static" in text
     assert "tf2_echo base_link head_camera_optical_frame" in text
+
+
+D435_FRAMES = [
+    "d435_link",
+    "d435_depth_frame",
+    "d435_depth_optical_frame",
+    "d435_color_frame",
+    "d435_color_optical_frame",
+]
+
+
+def test_d435_frames_resolve_from_head_urdf() -> None:
+    """Each d435 frame is a link with one parent joint that reaches base_link, so it is published once."""
+    root = ET.parse(HEAD_URDF).getroot()
+    links = {link.get("name") for link in root.findall("link")}
+    parents: dict[str, list[str]] = {}
+    for joint in root.findall("joint"):
+        parent = joint.find("parent").get("link", "")  # type: ignore[union-attr]
+        child = joint.find("child").get("link", "")  # type: ignore[union-attr]
+        parents.setdefault(child, []).append(parent)
+    for frame in D435_FRAMES:
+        assert frame in links, frame
+        assert len(parents.get(frame, [])) == 1, f"{frame} must have exactly one parent"
+        node, hops = frame, 0
+        while node != "base_link":
+            node = parents[node][0]
+            hops += 1
+            assert hops < 20, f"{frame} does not reach base_link"
