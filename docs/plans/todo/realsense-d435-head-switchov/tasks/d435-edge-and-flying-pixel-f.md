@@ -48,8 +48,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+1. Write tests/test_d435_edge_filter.py replaying the recorded D435 depth (record-d435-ground-replay-fi) with labelled floor, box-edge and box-top masks; it fails without filtering.
+2. Choose realsense2_camera post-processing filters (spatial/temporal) in the node config; replay them offline (pyrealsense2 or an equivalent numpy model of the same filter) until a1-a2 hold.
+3. Deploy, read the node CPU (node_cpu_compare.py) for a3; run the verify.
 
 ## Notes
 
