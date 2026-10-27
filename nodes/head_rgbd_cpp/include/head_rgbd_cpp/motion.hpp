@@ -12,11 +12,28 @@
 
 #include <Eigen/Geometry>
 #include <cstdint>
-
-#include "head_rgbd_cpp/config.hpp"
+#include <string>
 
 namespace head_rgbd_cpp
 {
+
+// ToF-RGB pairing.
+struct SyncConfig
+{
+  double max_pair_dt_s = 0.06;  // 0 < v <= 0.2
+  int queue_size = 10;          // >= 2
+};
+
+// Motion compensation of the capture offset between the two stamps.
+struct MotionConfig
+{
+  bool compensate = true;
+  std::string fixed_frame = "odom";
+  double max_angular_rate_deg_s = 10.0;  // > 0
+  double max_linear_rate_m_s = 0.3;      // > 0
+  double rate_window_s = 0.05;           // > 0
+  double tf_timeout_s = 0.05;            // >= 0
+};
 
 // Drop reason labels of head_rgbd_pairs_dropped_total{reason}.
 constexpr const char * DROP_REASON_PAIR_DT = "pair_dt";

@@ -1,51 +1,28 @@
-# head_rgbd_cpp: registers the head ToF depth into the Camera Module 3 frame. Unknown keys are rejected.
+# head_rgbd_cpp: the D435 adapter. Pairs the aligned depth with the colour image by exact stamp, throttles the sets,
+# downscales the depth and JPEG-encodes the colour into the /head_rgbd contract. Unknown keys are rejected.
 # Every key below is shown with its default.
 
-# Input topics.
-tof_depth_topic: /tof/depth/image_raw                      # sensor_msgs/Image 16UC1 depth, mm
-rgb_image_topic: /head_camera/mapping/image_raw/compressed # sensor_msgs/CompressedImage, the mapping stream
-rgb_info_topic: /head_camera/mapping/camera_info           # sensor_msgs/CameraInfo of the mapping stream
+# Input topics (realsense_d435, camera_namespace head, camera_name d435, align_depth on).
+depth_topic: /head/d435/aligned_depth_to_color/image_raw # sensor_msgs/Image 16UC1 depth, mm, registered to colour
+rgb_image_topic: /head/d435/color/image_raw              # sensor_msgs/Image rgb8 or bgr8, raw colour
+rgb_info_topic: /head/d435/color/camera_info             # sensor_msgs/CameraInfo of the colour stream
 
 # Prefix of every output topic: <ns>/depth/image_raw, depth/camera_info, rgb/image_raw/compressed, rgb/camera_info,
-# points, depth_upsampled/image_raw, depth_upsampled/camera_info.
+# points.
 output_namespace: /head_rgbd
 
-# ToF intrinsics, a camera_calibration YAML file (written by the calibration tool).
-tof_calibration_file: /etc/ros2/head_rgbd_cpp/tof_calibration.yaml
-
 output:
-  divisor: 2 # output size = RGB size / divisor; 1 or 2
-
-sync:
-  max_pair_dt_s: 0.06 # largest ToF-RGB stamp difference accepted as a pair, s (0 < v <= 0.2)
-  queue_size: 10      # approximate-time sync queue length, messages (>= 2)
-
-motion:
-  compensate: true               # correct the ToF-RGB capture offset with the robot motion between the two stamps
-  fixed_frame: odom              # TF frame that does not move with the robot
-  max_angular_rate_deg_s: 10.0   # above this angular rate the pair is dropped, deg/s (> 0)
-  max_linear_rate_m_s: 0.3       # above this linear rate the pair is dropped, m/s (> 0)
-  rate_window_s: 0.05            # window the rates are measured over, s (> 0)
-  tf_timeout_s: 0.05             # wait for a TF transform, s (>= 0)
-
-filter:
-  jump_rel: 0.05             # depth jump between neighbours, relative to depth, that marks a flying pixel (0 < v < 1)
-  jump_abs_mm: 30            # minimum absolute jump, mm (>= 0)
-  min_valid_neighbours: 3    # valid neighbours (of 8) a pixel needs to be kept (0..8)
+  divisor: 2        # depth size = colour size / divisor (1 or 2); the colour is published at full size
+  rate_hz: 2.0      # published sets per second, Hz (0 < v <= 15); the mapping rate RTAB-Map is budgeted for
+  jpeg_quality: 80  # JPEG quality of the published colour (1..100)
 
 depth:
-  min_m: 0.1 # nearer depth is invalid, m
-  max_m: 4.0 # farther depth is invalid, m (> min_m)
-
-upsampling:
-  enabled: true      # guided-filter upsampling to the RGB size; input of ground_estimator_cpp guidance
-  radius: 4          # guided filter radius, px (1..16)
-  eps: 0.001         # guided filter regularisation (> 0)
-  min_support: 0.5   # minimum filter support for a pixel to be valid (0 < v <= 1)
+  min_m: 0.15 # nearer depth is published as 0 (no depth), m; the D435 min-Z at 640x360
+  max_m: 4.0  # farther depth is published as 0, m (> min_m)
 
 cloud:
   enabled: true # publish the coloured point cloud
-  rate_hz: 1.0  # point cloud rate, Hz (0 < v <= 10)
+  rate_hz: 1.0  # point cloud rate, Hz (0 < v <= 10); never above output.rate_hz in practice
 
 lazy:
   idle_unsubscribe_s: 5.0 # drop the input subscriptions this long after the last output subscriber left, s (>= 0)

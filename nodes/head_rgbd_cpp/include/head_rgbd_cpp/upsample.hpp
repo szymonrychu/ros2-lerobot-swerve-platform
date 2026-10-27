@@ -6,10 +6,17 @@
 
 #include <opencv2/core.hpp>
 
-#include "head_rgbd_cpp/config.hpp"
-
 namespace head_rgbd_cpp
 {
+
+// Guided-filter upsampling to the RGB resolution.
+struct UpsamplingConfig
+{
+  bool enabled = true;
+  int radius = 4;            // 1..16
+  double eps = 0.001;        // > 0
+  double min_support = 0.5;  // 0 < v <= 1
+};
 
 // Divisor between the guide size and the depth size.
 constexpr int UPSAMPLE_FACTOR = 2;

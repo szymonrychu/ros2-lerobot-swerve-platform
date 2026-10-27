@@ -31,6 +31,15 @@ constexpr double BASELINE_M = 0.05;
 constexpr uint16_t GUARD_VALUE = 0xBEEF;
 constexpr int GUARD_PX = 7;
 
+// The ToF depth range these tests were written for, 0.1 .. 4.0 m (DepthConfig's default is the D435 one).
+DepthConfig tof_range()
+{
+  DepthConfig range;
+  range.min_m = 0.1;
+  range.max_m = 4.0;
+  return range;
+}
+
 // A model with plumb_bob distortion.
 PinholeModel distorted(PinholeModel m, double k1, double k2, double p1, double p2, double k3)
 {
@@ -102,7 +111,7 @@ cv::Mat register_with_guard_band(
 {
   cv::Mat big(rgb.height + 2 * GUARD_PX, rgb.width + 2 * GUARD_PX, CV_16UC1, cv::Scalar(GUARD_VALUE));
   cv::Mat view = big(cv::Rect(GUARD_PX, GUARD_PX, rgb.width, rgb.height));
-  register_depth_into(tof_depth, rays, T, rgb, DepthConfig{}, view);
+  register_depth_into(tof_depth, rays, T, rgb, tof_range(), view);
   int touched = 0;
   for (int v = 0; v < big.rows; ++v) {
     for (int u = 0; u < big.cols; ++u) {
@@ -272,7 +281,7 @@ TEST(RegisterDepth, IdenticalModelsAndIdentityTransformReproduceTheInputExactly)
     const RayTable rays(m);
     const synth::Rig rig = synth::identity_rig(m);
     RegistrationStats stats;
-    const cv::Mat out = register_depth(depth, rays, rig.T_rgb_tof(), rig.rgb, DepthConfig{}, &stats);
+    const cv::Mat out = register_depth(depth, rays, rig.T_rgb_tof(), rig.rgb, tof_range(), &stats);
     ASSERT_EQ(out.type(), CV_16UC1);
     ASSERT_EQ(out.size(), depth.size());
     EXPECT_EQ(cv::countNonZero(out != depth), 0);
@@ -297,8 +306,8 @@ TEST(RegisterDepth, FrontoParallelPlaneShiftsByTheBaselineAndKeepsItsDepth)
 
   const synth::Rig at_tof = synth::offset_rig(tof, rgb, Eigen::Isometry3d::Identity());
   const synth::Rig offset = synth::offset_rig(tof, rgb, synth::translation(BASELINE_M, 0.0, 0.0));
-  const cv::Mat reference = register_depth(tof_depth, rays, at_tof.T_rgb_tof(), rgb, DepthConfig{});
-  const cv::Mat shifted = register_depth(tof_depth, rays, offset.T_rgb_tof(), rgb, DepthConfig{});
+  const cv::Mat reference = register_depth(tof_depth, rays, at_tof.T_rgb_tof(), rgb, tof_range());
+  const cv::Mat shifted = register_depth(tof_depth, rays, offset.T_rgb_tof(), rgb, tof_range());
 
   const double expected_shift = -rgb.K(0, 0) * BASELINE_M / 1.0;
   ASSERT_DOUBLE_EQ(expected_shift, -11.0);
@@ -328,7 +337,7 @@ TEST(RegisterDepth, SlantedPlaneMatchesTheRenderedRgbGroundTruth)
   const synth::Rig rig = synth::offset_rig(tof, rgb, synth::translation(BASELINE_M, 0.01, -0.005) * rotation_y(2.0));
   const cv::Mat tof_depth = synth::render_tof_depth_mm(scene, tof, rig.T_world_tof);
   const cv::Mat truth = synth::render_rgb_truth_m(scene, rgb, rig.T_world_rgb);
-  const cv::Mat out = register_depth(tof_depth, RayTable(tof), rig.T_rgb_tof(), rgb, DepthConfig{});
+  const cv::Mat out = register_depth(tof_depth, RayTable(tof), rig.T_rgb_tof(), rgb, tof_range());
 
   int covered = 0;
   int within = 0;
@@ -369,12 +378,12 @@ TEST(RegisterDepth, OcclusionKeepsTheNearestDepthAndLeavesTheShadowEmpty)
     const synth::Rig rig = synth::offset_rig(tof, rgb, synth::translation(offset, 0.0, 0.0));
     const synth::Render tof_view = synth::render(scene, tof, rig.T_world_tof);
     const cv::Mat tof_depth = synth::to_depth_mm(tof_view.depth_m);
-    const cv::Mat out = register_depth(tof_depth, tof_rays, rig.T_rgb_tof(), rgb, DepthConfig{});
+    const cv::Mat out = register_depth(tof_depth, tof_rays, rig.T_rgb_tof(), rgb, tof_range());
 
     // Every output pixel a box footprint lands on holds box depth: nearest wins over the wall footprints.
     cv::Mat box_only;
     tof_depth.copyTo(box_only, tof_view.index == box);
-    const cv::Mat box_footprints = register_depth(box_only, tof_rays, rig.T_rgb_tof(), rgb, DepthConfig{});
+    const cv::Mat box_footprints = register_depth(box_only, tof_rays, rig.T_rgb_tof(), rgb, tof_range());
     ASSERT_GT(cv::countNonZero(box_footprints), 500);
     EXPECT_EQ(cv::countNonZero((out != box_mm) & (box_footprints != 0)), 0);
 
@@ -430,7 +439,7 @@ TEST(RegisterDepth, PlanePartlyOutsideTheRgbViewFillsTheBorderColumnsAndWritesNo
     SCOPED_TRACE(offset);
     const synth::Rig rig = synth::offset_rig(tof, rgb, synth::translation(offset, 0.0, 0.0));
     const cv::Mat out = register_with_guard_band(tof_depth, tof_rays, rig.T_rgb_tof(), rgb);
-    EXPECT_EQ(cv::countNonZero(out != register_depth(tof_depth, tof_rays, rig.T_rgb_tof(), rgb, DepthConfig{})), 0);
+    EXPECT_EQ(cv::countNonZero(out != register_depth(tof_depth, tof_rays, rig.T_rgb_tof(), rgb, tof_range())), 0);
 
     const int covered_col = offset > 0 ? 0 : rgb.width - 1;
     const int empty_col = offset > 0 ? rgb.width - 1 : 0;
@@ -467,7 +476,7 @@ TEST(RegisterDepth, DefaultOutputFromTheDefaultTofCoversTheOverlapOnAWall)
   ASSERT_EQ(rgb.height, 162);
   const synth::Rig rig = synth::offset_rig(tof, rgb, synth::translation(BASELINE_M, 0.0, 0.0));
   const cv::Mat tof_depth = synth::render_tof_depth_mm(scene, tof, rig.T_world_tof);
-  const cv::Mat out = register_depth(tof_depth, RayTable(tof), rig.T_rgb_tof(), rgb, DepthConfig{});
+  const cv::Mat out = register_depth(tof_depth, RayTable(tof), rig.T_rgb_tof(), rgb, tof_range());
   const RayTable rgb_rays(rgb);
   int overlap = 0;
   int covered = 0;
@@ -498,7 +507,7 @@ TEST(RegisterDepth, RgbDistortionMovesPointsToTheCvProjectPointsPositions)
   for (const cv::Point & tof_px : {cv::Point(20, 15), cv::Point(220, 160), cv::Point(120, 90), cv::Point(30, 150)}) {
     SCOPED_TRACE(testing::Message() << tof_px);
     const cv::Mat out =
-      register_depth(single_pixel_depth(tof, tof_px.x, tof_px.y, depth_mm), rays, T, rgb, DepthConfig{});
+      register_depth(single_pixel_depth(tof, tof_px.x, tof_px.y, depth_mm), rays, T, rgb, tof_range());
     // The footprint expected from cv::projectPoints of the pixel's four corners at the same depth.
     double u_min = 1e9;
     double v_min = 1e9;
@@ -546,7 +555,7 @@ TEST(RegisterDepth, SkipsPointsWhereTheRgbDistortionFoldsBack)
   ASSERT_LT(folded.x, rgb.width - 1.0);
   RegistrationStats stats;
   const cv::Mat out =
-    register_depth(single_pixel_depth(tof, 120, 90, 1000), RayTable(tof), T, rgb, DepthConfig{}, &stats);
+    register_depth(single_pixel_depth(tof, 120, 90, 1000), RayTable(tof), T, rgb, tof_range(), &stats);
   EXPECT_EQ(cv::countNonZero(out), 0);
   EXPECT_EQ(stats.valid_points, 1U);
   EXPECT_EQ(stats.folded_points, 1U);
@@ -558,7 +567,7 @@ TEST(RegisterDepth, SkipsDepthsOutsideTheRangeAndPointsBehindTheRgbCamera)
   const PinholeModel m = synth::default_tof_model();
   const RayTable rays(m);
   const Eigen::Isometry3d identity = Eigen::Isometry3d::Identity();
-  DepthConfig range;  // 0.1 .. 4.0 m
+  const DepthConfig range = tof_range();
   cv::Mat depth(m.height, m.width, CV_16UC1, cv::Scalar(0));
   depth(cv::Rect(0, 0, 50, 50)).setTo(99);
   depth(cv::Rect(60, 0, 50, 50)).setTo(4001);
@@ -587,7 +596,7 @@ TEST(RegisterDepth, CountsPointsOutsideTheRgbImage)
   cv::Mat wall(m.height, m.width, CV_16UC1, cv::Scalar(1000));
   RegistrationStats stats;
   // The RGB turned 80 deg away: every point lands behind it or outside its image.
-  const cv::Mat out = register_depth(wall, RayTable(m), rotation_y(-80.0), m, DepthConfig{}, &stats);
+  const cv::Mat out = register_depth(wall, RayTable(m), rotation_y(-80.0), m, tof_range(), &stats);
   EXPECT_EQ(cv::countNonZero(out), 0);
   EXPECT_EQ(stats.valid_points, static_cast<std::size_t>(m.width * m.height));
   EXPECT_EQ(stats.outside_points + stats.behind_points, stats.valid_points);
@@ -601,15 +610,14 @@ TEST(RegisterDepth, RejectsInputsOfTheWrongTypeOrSize)
   const RayTable rays(m);
   const Eigen::Isometry3d identity = Eigen::Isometry3d::Identity();
   EXPECT_THROW(
-    register_depth(cv::Mat(m.height, m.width, CV_32FC1, cv::Scalar(1.0)), rays, identity, m, DepthConfig{}),
+    register_depth(cv::Mat(m.height, m.width, CV_32FC1, cv::Scalar(1.0)), rays, identity, m, tof_range()),
     std::invalid_argument);
   EXPECT_THROW(
-    register_depth(cv::Mat(m.height + 1, m.width, CV_16UC1, cv::Scalar(0)), rays, identity, m, DepthConfig{}),
+    register_depth(cv::Mat(m.height + 1, m.width, CV_16UC1, cv::Scalar(0)), rays, identity, m, tof_range()),
     std::invalid_argument);
   cv::Mat wrong_out(m.height, m.width + 1, CV_16UC1);
   EXPECT_THROW(
-    register_depth_into(
-      cv::Mat(m.height, m.width, CV_16UC1, cv::Scalar(0)), rays, identity, m, DepthConfig{}, wrong_out),
+    register_depth_into(cv::Mat(m.height, m.width, CV_16UC1, cv::Scalar(0)), rays, identity, m, tof_range(), wrong_out),
     std::invalid_argument);
   PinholeModel empty = m;
   empty.height = 0;

@@ -4,10 +4,16 @@
 
 #include <opencv2/core.hpp>
 
-#include "head_rgbd_cpp/config.hpp"
-
 namespace head_rgbd_cpp
 {
+
+// Flying-pixel filter of the ToF depth.
+struct FilterConfig
+{
+  double jump_rel = 0.05;        // 0 < v < 1
+  double jump_abs_mm = 30.0;     // >= 0
+  int min_valid_neighbours = 3;  // 0..8
+};
 
 // Pixels removed by one filter pass.
 struct FilterStats
