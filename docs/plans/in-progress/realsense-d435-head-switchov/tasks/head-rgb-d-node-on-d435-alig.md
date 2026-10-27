@@ -1,6 +1,6 @@
 ---
 title: Head RGB-D node on D435 aligned input
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "RTAB-Map, ground guidance, marker_detector and web_ui keep their /head_rgbd contract, now fed by the D435."
 files: [nodes/head_rgbd_cpp/src/head_rgbd_node.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/head_rgbd_node.hpp, nodes/head_rgbd_cpp/src/core/config.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/config.hpp, nodes/head_rgbd_cpp/test/test_node.cpp, nodes/head_rgbd_cpp/test/core/test_config.cpp, nodes/head_rgbd_cpp/config/head_rgbd.yaml, nodes/head_rgbd_cpp/README.md]
@@ -8,15 +8,15 @@ verify: "scripts/cpp-node-test.sh head_rgbd_cpp && scripts/cpp-node-test.sh head
 depends_on: []
 model: opus
 review: ""
-verified_head: ""
+verified_head: 1f1be4aa
 points: 8
 expected_minutes: 91
 expected_tokens: 6000000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 8
+actual_minutes: 31
+actual_tokens: 8801952
+actual_roles: "impl 25, review 6"
+actual_role_tokens: "impl 8641622, review 160330"
 ---
 
 # Head RGB-D node on D435 aligned input
@@ -70,3 +70,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 done
