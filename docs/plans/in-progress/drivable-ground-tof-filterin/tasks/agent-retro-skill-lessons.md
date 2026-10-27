@@ -1,6 +1,6 @@
 ---
 title: Agent retro skill lessons
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent stops repeating the retro mistakes: mirror frontiers, guessed object positions, unparked arm, turn budget"
 files: [nodes/claude_agent/claude_agent/agent_plugin/skills/sightseeing/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/survey/SKILL.md, nodes/claude_agent/claude_agent/agent_plugin/skills/recover-from-failure/SKILL.md, nodes/claude_agent/claude_agent/workflow_templates/discovery.yaml, nodes/claude_agent/tests/test_skill_retro_lessons.py, nodes/claude_agent/README.md]
@@ -8,15 +8,15 @@ verify: "cd nodes/claude_agent && uv run --frozen pytest tests/test_skill_retro_
 depends_on: [frontiers-honour-keep-outs, front-camera-ground-points, stopbox-backing-and-turns, map-epoch-reset-event]
 model: ""
 review: ""
-verified_head: ""
+verified_head: 01499fd1
 points: 3
 expected_minutes: 45
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 3
+actual_tokens: 530734
+actual_roles: "impl 2, review 1"
+actual_role_tokens: "impl 375921, review 154813"
 ---
 
 # Agent retro skill lessons
@@ -93,3 +93,5 @@ passes; the new tests failed before the skill edits.
   first (MEMORY).
 
 - 2026-10-22 run drivable-ground-tof-filterin: dependency-failed on frontiers-honour-keep-outs, front-camera-ground-points, stopbox-backing-and-turns, map-epoch-reset-event
+
+- 2026-10-27 done
