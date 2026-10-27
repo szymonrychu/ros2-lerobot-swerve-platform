@@ -122,8 +122,8 @@ def test_apply_units_content() -> None:
 def test_arducam_tof_reads_the_applied_tof_calibration() -> None:
     wanted = ("head_rgbd_cpp", "arducam_tof")
     nodes = {n["name"]: yaml.safe_load(n["config"]) for n in client_vars()["ros2_nodes"] if n["name"] in wanted}
-    applied = nodes["head_rgbd_cpp"]["tof_calibration_file"]
-    assert applied == f"{STATE_DIR}/applied/tof_calibration.yaml"
+    applied = f"{STATE_DIR}/applied/tof_calibration.yaml"
+    assert "tof_calibration_file" not in nodes["head_rgbd_cpp"]  # the D435 adapter reads no ToF intrinsics
     assert nodes["arducam_tof"]["tof_calibration_file"] == applied
     assert nodes["arducam_tof"]["depth_is_radial"] is True
 

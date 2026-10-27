@@ -18,7 +18,7 @@ instead of the earlier ~18 mm; `plane_max_bias_mm` 40 is unchanged. After a head
 
 1. Deploy `./scripts/deploy-nodes.sh client arducam_tof head_camera_cpp head_rgbd_cpp`. head_rgbd_cpp has no ToF
    calibration yet, so `ros2 topic hz /head_rgbd/depth/image_raw` and `/head_rgbd/points` must print nothing and
-   `head_rgbd_pairs_published_total` stays 0 (placeholder check, part 1).
+   `head_rgbd_sets_published_total` stays 0 (placeholder check, part 1).
 2. Warm up the ToF 20 minutes. Print the ChArUco board (6x5, 40 mm squares): `uv run python -m scripts.markers_generate`,
    PDF at 100 % on matte laser paper on a rigid plate (or the two-colour STL/3MF); one square 40 +- 0.2 mm with a caliper.
    Capture and compute run on the robot from the web UI: open the hamburger menu, the Calibrate page, its RGB-D section, and

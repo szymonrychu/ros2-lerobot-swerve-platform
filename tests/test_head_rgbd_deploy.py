@@ -1,7 +1,7 @@
 """Static invariants of the head_rgbd_cpp deploy: node type, ros2_nodes entry, head camera mapping, ToF stamp setting.
 
-head_rgbd_cpp registers the head ToF depth into the Camera Module 3 frame. It is background work (a map input, not a
-safety path), so it gets the background cgroup tier, not protection.
+head_rgbd_cpp adapts the D435 aligned depth and colour to the /head_rgbd contract. It is background work (a map input,
+not a safety path), so it gets the background cgroup tier, not protection.
 """
 
 from pathlib import Path
@@ -15,7 +15,8 @@ NODE_DIR = REPO_ROOT / "nodes" / "head_rgbd_cpp"
 DEFAULTS = NODE_DIR / "config" / "head_rgbd.yaml"
 WORKSPACE = "/opt/ros2-ws"
 METRICS_PORT = 19117
-APPLIED_TOF_FILE = "/var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml"
+# Floor distances the ground guidance needs in the depth range, m (design D2: the floor at 0.3-2 m).
+FLOOR_RANGE_M = (0.3, 2.0)
 TIER = {"cpu_weight": 100, "io_weight": 100, "oom_score_adjust": 0, "memory_low": "48M", "memory_max": "256M"}
 REQUIRED_APT_PACKAGES = (
     "build-essential",
@@ -116,15 +117,13 @@ def test_colcon_sources_order_and_build() -> None:
     assert set(stamp) <= set(node_type()["apt_packages"])
 
 
-def test_tof_calibration_file_is_the_applied_file() -> None:
-    assert "config_files" not in node_type()
-    assert entry_config("head_rgbd_cpp")["tof_calibration_file"] == APPLIED_TOF_FILE
-
-
-def test_upsampling_is_enabled_for_ground_guidance() -> None:
-    """The guided upsampling is on: its depth edges are the input of ground_estimator_cpp guidance."""
-    assert entry_config("head_rgbd_cpp")["upsampling"]["enabled"] is True
-    assert yaml.safe_load(DEFAULTS.read_text())["upsampling"]["enabled"] is True
+def test_depth_output_feeds_ground_guidance() -> None:
+    """Ground guidance and RTAB-Map read <ns>/depth/* (no upsampled depth): namespace, halved depth, floor in range."""
+    for config in (entry_config("head_rgbd_cpp"), yaml.safe_load(DEFAULTS.read_text())):
+        assert config["output_namespace"] == "/head_rgbd"
+        assert config["output"]["divisor"] == 2
+        assert config["depth"]["min_m"] <= FLOOR_RANGE_M[0] and config["depth"]["max_m"] >= FLOOR_RANGE_M[1]
+        assert "upsampling" not in config
 
 
 def test_ros2_nodes_entry() -> None:
@@ -137,7 +136,7 @@ def test_ros2_nodes_entry() -> None:
     assert "#" in config
     parsed = yaml.safe_load(config)
     defaults = yaml.safe_load(DEFAULTS.read_text())
-    assert parsed == {**defaults, "metrics_port": METRICS_PORT, "tof_calibration_file": APPLIED_TOF_FILE}
+    assert parsed == {**defaults, "metrics_port": METRICS_PORT}
     assert names.index("head_rgbd_cpp") > names.index("head_camera_cpp")
     assert names.index("head_rgbd_cpp") > names.index("arducam_tof")
 
