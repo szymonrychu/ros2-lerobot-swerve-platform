@@ -1987,7 +1987,7 @@ Pins the collision_monitor stale-source fail-safe kept through the 2026-10-22 16
 
 | Test | Covers |
 |---|---|
-| `test_fail_safe_stale_source_stop_kept` | `source_timeout` is 1.0 s, the observation sources are scan, tof_obstacles and tof_cliff, each is enabled and none overrides the timeout. |
+| `test_fail_safe_stale_source_stop_kept` | `source_timeout` is 1.0 s and no observation source overrides it; every source a polygon reads is a declared observation source and enabled, except a polygon that is itself disabled and reads disabled sources only (CliffStop under the 2026-10-24 lidar-only decision); at least one enabled polygon reads only enabled sources. Holds for any source (lidar, ToF, the D435). |
 
 ### test_costmap_zones_config.py
 

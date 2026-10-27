@@ -543,8 +543,9 @@ The local costmap keeps cliff voxels for 15 s after the head looked away, so the
 ### Invalid source stop during the final turn
 
 Cause (2026-10-22 16:30:35, robot retro "explore other end of the room"): both laser_filter outputs stopped for ~1.9 s
-during a Wi-Fi drop on the client; the stale-source stop itself worked as designed. Fix: none landed yet (D55) - the
-path from the Wi-Fi drop into laser_filter is not visible in the stored telemetry (below); the fail-safe stays.
+during a Wi-Fi drop on the client; the stale-source stop itself worked as designed. Fix: none (D55) - the path from the
+Wi-Fi drop into laser_filter is not visible in the stored telemetry (below), so no layer is named to fix; the fail-safe
+stays (`tests/test_collision_source_stall.py`: `source_timeout` 1.0 s, every source a polygon reads enabled).
 
 Evidence (Loki, Mimir; times CEST, `t` = 16:30:t):
 
@@ -567,6 +568,8 @@ Evidence (Loki, Mimir; times CEST, `t` = 16:30:t):
   leader_bridge (the static-peer bridges); laser_filter (participant id above 3) sent none, and its KEEP_LAST writers
   do not wait for acknowledgements (Fast DDS 2.14). Which shared resource tied laser_filter, or its delivery, to the
   Wi-Fi drop needs a reproduction with per-message timing; 15 s scrapes and the silent laser_filter cannot show it.
+  The stored window is gone: on 2026-10-27 the earliest client data in Mimir is 18:44:54 CET and in Loki 19:00 CET, so
+  only the unit logs saved under `.logs/agent-retro-2026-10-22/` remain (laser_filter, rplidar, EKF and rf2o: no lines).
 
 ### Validating StopBox on the robot (after changing the lidar, filter or footprint)
 
