@@ -543,9 +543,25 @@ The local costmap keeps cliff voxels for 15 s after the head looked away, so the
 ### Invalid source stop during the final turn
 
 Cause (2026-10-22 16:30:35, robot retro "explore other end of the room"): both laser_filter outputs stopped for ~1.9 s
-during a Wi-Fi drop on the client; the stale-source stop itself worked as designed. Fix: none (D55) - the path from the
-Wi-Fi drop into laser_filter is not visible in the stored telemetry (below), so no layer is named to fix; the fail-safe
-stays (`tests/test_collision_source_stall.py`: `source_timeout` 1.0 s, every source a polygon reads enabled).
+during a Wi-Fi drop on the client; the stale-source stop itself worked as designed. Why laser_filter stalled is pending
+retro-fixes-live-check (live step 4): the stored window expired before it was named (below). Change made: laser_filter
+exports stall telemetry that names the stalled side at the next stop; the fail-safe stays
+(`tests/test_collision_source_stall.py`: `source_timeout` 1.0 s, no per-source override, every source a polygon reads
+enabled).
+
+At the next invalid-source stop, read laser_filter's metrics (`127.0.0.1:19120/metrics`, Mimir `{node="laser_filter"}`
+once Alloy scrapes it) for the minute around it; the `_max` gauges hold the longest value of the last 60 s, so a 15 s
+scrape catches a 1-2 s stall, and the histograms keep every gap above 1.0 s (`le="1.0"` bucket):
+
+| Reading | Stalled side |
+|---|---|
+| `laser_filter_executor_tick_gap_seconds_max` > 1 s | laser_filter's executor (the 20 Hz tick did not run) |
+| `laser_filter_scan_gap_seconds_max{stream="input"}` > 1 s with a short tick gap and rplidar `lidar_scan_gap_seconds_max` short | delivery of `/scan` into laser_filter |
+| `stream="output"` gap > 1 s with a short input gap | filtering or publishing in laser_filter |
+| all three short, collision monitor still reports a stale `/scan_filtered` | delivery from laser_filter to the consumers |
+
+`laser_filter_scan_lag_seconds_max` (wall clock minus the header stamp) tells a late backlog (lag near the gap) from
+scans that were never delivered (lag stays short after the gap).
 
 Evidence (Loki, Mimir; times CEST, `t` = 16:30:t):
 
