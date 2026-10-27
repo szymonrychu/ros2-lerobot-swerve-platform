@@ -1,6 +1,6 @@
 ---
 title: Shared D435 camera geometry helpers
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Every node uses the D435 factory intrinsics and one tested depth deprojection instead of hand-rolled copies.
 files: [shared/ros2_common/camera_geometry.py, tests/test_shared_camera_geometry.py, shared/README.md, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_shared_camera_geometry.py -q && uv run poe lin
 depends_on: []
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: 46843038
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 19
+actual_tokens: 495474
+actual_roles: "impl 13, review 6"
+actual_role_tokens: "impl 355024, review 140450"
 ---
 
 # Shared D435 camera geometry helpers
@@ -63,3 +63,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 done
