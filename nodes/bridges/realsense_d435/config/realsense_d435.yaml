@@ -1,0 +1,21 @@
+# realsense2_camera parameters of the head D435, loaded by rs_launch.py config_file:= (flat keys, applied after the
+# launch arguments, so they override the rs_launch.py defaults). The camera identity (camera_namespace head,
+# camera_name d435, serial_no) is on the launch line in ansible/group_vars/client.yml.
+# Depth stream WIDTHxHEIGHTxFPS: 640x360 keeps min-Z at about 150 mm (gripper-held board 0.2-0.5 m, floor 0.3-2 m).
+depth_module.depth_profile: 640x360x15
+# Colour stream at the depth fps: one fps for both is what RGB-depth hardware sync needs (datasheet Table 4-6).
+rgb_camera.color_profile: 640x360x15
+# Depth registered to the colour frame (/head/d435/aligned_depth_to_color/*), consumed by head_rgbd_cpp.
+align_depth.enable: true
+# No driver point cloud (full resolution on the Pi CPU): d435_obstacle_cloud builds a decimated one from the depth.
+pointcloud.enable: false
+# Left IR stream off: nothing consumes it.
+enable_infra1: false
+# Right IR stream off: nothing consumes it.
+enable_infra2: false
+# Colour stream on.
+enable_color: true
+# Depth stream on.
+enable_depth: true
+# No TF from the driver: head.urdf owns every d435 frame (D4).
+publish_tf: false

@@ -2929,6 +2929,18 @@ Tests for `scripts/d435_diag.sh` (read-only RealSense D435 diagnostic), run with
 | `test_rates_from_header_stamps` | `--rates` polls only the `/head/d435/*/camera_info` endpoints on the client for `--interval` seconds and prints 30.0 Hz from 31 distinct stamps 33.3 ms apart (each seen twice, so not a lower bound), and `no sample` for a topic with only 404 answers. |
 | `test_scraper_allows_camera_info` | The client topic_scraper_api `allowed_types` includes `sensor_msgs/msg/CameraInfo` and still not raw `sensor_msgs/msg/Image`. |
 
+### test_realsense_d435_deploy.py
+
+Tests for the `realsense_d435` node (head D435, serial 935723024187, `realsense2_camera` from `rs_launch.py`): the launch line and instance in `ansible/group_vars/client.yml`, the parameter file `nodes/bridges/realsense_d435/config/realsense_d435.yaml` and the step of `ansible/playbooks/deploy_nodes_client.yml`.
+
+| Test | What it covers |
+|---|---|
+| `test_launch_command_names_the_camera_and_config_file` | The launch line is exactly `rs_launch.py camera_namespace:=head camera_name:=d435 serial_no:=_935723024187 config_file:=<repo>/nodes/bridges/realsense_d435/config/realsense_d435.yaml`, with no `enable_accel` / `enable_gyro`; native, `src_paths` `[nodes/bridges/realsense_d435]`, apt `ros-jazzy-realsense2-camera`. |
+| `test_profile_is_hardware_synced_and_minimal` | Depth and colour are both `640x360x15` (one fps: RGB-depth hardware sync), `align_depth.enable` true, `pointcloud.enable`, `enable_infra1`, `enable_infra2` false, colour and depth on, `publish_tf` false, no IMU keys. |
+| `test_profile_comments_every_key` | Every parameter line of the config file has a comment line above it. |
+| `test_instance_enabled_and_old_name_gone` | One `realsense_d435` instance, present and enabled, normal tier weights (500/500/-500) and 128M/512M; no `realsense_d435i` type, instance or text in client.yml or the client playbook. |
+| `test_playbook_step_deploys_realsense_d435` | The `Deploy realsense_d435` step includes `tasks/resolve_and_deploy.yml` with apply tag, `_deploy_node_name` and tags `realsense_d435`, `apt`, `python`, `build`, `config`. |
+
 ### test_agent_skills_docs.py
 
 Docs guard for the driving-agent skills suite.

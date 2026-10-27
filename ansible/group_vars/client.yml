@@ -315,15 +315,18 @@ ros2_node_type_defaults:
     # The launcher sources /opt/ros/jazzy/setup.bash, which prepends the ROS paths and keeps this entry.
     env:
       - "PYTHONPATH={{ ros2_repo_dest }}/shared/ros2_metrics"
-  realsense_d435i:
+  # Intel RealSense D435 (no IMU) on the pan/tilt head, serial 935723024187: the realsense2_camera node of
+  # rs_launch.py. Only the camera identity is a launch argument (rs_launch.py builds the node name /head/d435 from
+  # it); the stream profile and every other parameter is in the config file.
+  realsense_d435:
     deploy_mode: native
     node_launch_command: >-
-      ros2 launch realsense2_camera rs_launch.py enable_accel:=false enable_gyro:=false
-      depth_module.depth_profile:=848x480x90 rgb_camera.color_profile:=1280x720x30 align_depth.enable:=true
+      ros2 launch realsense2_camera rs_launch.py camera_namespace:=head camera_name:=d435 serial_no:=_935723024187
+      config_file:={{ ros2_repo_dest }}/nodes/bridges/realsense_d435/config/realsense_d435.yaml
     node_src_dir: ""
-    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
-    src_paths: [nodes/bridges/realsense_d435i]
-    # Not running on 2026-10-11 (no series): MemoryLow estimated from comparable nodes, MemoryMax 2x it or more.
+    # Repo paths whose change restarts the node (no Python package dir): its config file.
+    src_paths: [nodes/bridges/realsense_d435]
+    # Estimates, no series yet: d435-memory-and-cpu-budget sets them from Mimir (MemoryLow ~ p50, MemoryMax >= 2x peak).
     memory_low: "128M"
     memory_max: "512M"
     cpu_weight: 500
@@ -1409,11 +1412,12 @@ ros2_nodes:
       - METRICS_PORT=19106
       # By id: a second USB-serial adapter can take the first kernel-assigned ttyUSB number at boot, so the lidar must not rely on it.
       - RPLIDAR_SERIAL_PORT=/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
-  # Retired earlier: present false uninstalls the unit on the next deploy.
-  - name: realsense_d435i
-    node_type: realsense_d435i
-    present: false
-    enabled: false
+  # Head depth + RGB camera: /head/d435/* (aligned depth and colour at 640x360 @ 15 fps,
+  # nodes/bridges/realsense_d435/config/realsense_d435.yaml). No TF: head.urdf owns the d435 frames.
+  - name: realsense_d435
+    node_type: realsense_d435
+    present: true
+    enabled: true
   # Retired (D7): the overview camera is gone from the Pi (the CSI ports carry the front preview and the ToF).
   # present: false uninstalls the unit, launcher and config on the next deploy.
   - name: overview_camera

@@ -291,14 +291,14 @@
             _deploy_node_name: rplidar_a1
           tags: [rplidar_a1, apt, python, build, config]
 
-        - name: Deploy realsense_d435i
+        - name: Deploy realsense_d435
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml
             apply:
-              tags: [realsense_d435i]
+              tags: [realsense_d435]
           vars:
-            _deploy_node_name: realsense_d435i
-          tags: [realsense_d435i, apt, python, build, config]
+            _deploy_node_name: realsense_d435
+          tags: [realsense_d435, apt, python, build, config]
 
         - name: Deploy overview_camera
           ansible.builtin.include_tasks:
