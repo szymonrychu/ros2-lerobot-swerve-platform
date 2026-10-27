@@ -64,3 +64,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28: also update ansible/README.md (lines ~446, 468, 504 name realsense_d435i; describe the D435 udev step from d435-udev-rule-via-node-depl) and .claude/skills/ansible-deploy/SKILL.md node table (realsense_d435i, arducam_tof, head_camera_cpp, gripper_uvc_camera, tof_obstacle_cloud rows).
