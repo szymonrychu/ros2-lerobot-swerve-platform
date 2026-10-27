@@ -27,6 +27,11 @@ Report it with `agent.complete_phase`, using its failure types:
 
 Set `p_retry_success` honestly. It is your estimate that one more attempt succeeds, not a hope. If you cannot name what would be different, it is low.
 
+## 3b. Near an obstacle
+
+- A StopBox stop or a `move_relative` refusal near an obstacle: translate away first, with a short `drive` nudge (<= 0.1 m/s, <= 1 s) or a backing `move_relative`, before any turn. A turn near the obstacle is refused or stopped again.
+- An 'invalid source' collision stop is a sensor outage, not an obstacle: report it and retry the goal once.
+
 ## 4. Retry only with a change
 
 - A retry must differ from the failed attempt: another approach angle, a slower speed, a different grasp or a clearer view. Write it in `retry_change`.

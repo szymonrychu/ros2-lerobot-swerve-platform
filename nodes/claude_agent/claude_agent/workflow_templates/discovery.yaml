@@ -44,16 +44,16 @@ plan:
         name: Visit frontiers
         goal: >-
           Visit up to 3 reachable frontiers of {area} (look_toward_frontier, go_to_frontier) and survey at each
-          (mark_survey_spot).
+          (mark_survey_spot). Batch independent calls in one turn.
         rw_cap: 60
-        turn_cap: 60
+        turn_cap: 80
         skill: survey
     - type: phase
       id: summary
       name: Summary
       goal: >-
-        Report to the person: complete or not and why, coverage surveyed, frontiers left, POIs per category, battery
-        and time used.
+        Take the arm lease and release_control(subsystem='all') so the arm parks, then report to the person: complete
+        or not and why, coverage surveyed, frontiers left, POIs per category, battery and time used.
       rw_cap: 5
       turn_cap: 10
       mandatory: true

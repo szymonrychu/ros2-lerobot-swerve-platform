@@ -10,11 +10,19 @@ Explore until the surroundings are complete, surveying every area. Never enter a
 ## Loop
 
 1. `get_exploration_status()`. Read complete, reasons, the reachable frontiers (id, path distance, looked), coverage with its unsurveyed areas, and battery.
-2. Check the stop conditions below. If none applies, choose the next reachable frontier: prefer ones not yet looked at, then the nearest by path distance, and weigh unsurveyed areas (go where they are).
+2. Check the stop conditions below. If none applies, read `get_topdown_view()` and `list_pois()` before choosing. Skip every frontier behind or inside a mirror, window or glass problem POI: it is ghost free space, not a real opening. When a mirror makes ghost frontiers, ask the person once to draw a keep-out over the ghost area (frontiers in a keep-out are excluded from the status). Then choose the next reachable frontier: prefer ones not yet looked at, then the nearest by path distance, and weigh unsurveyed areas (go where they are).
 3. `look_toward_frontier(frontier_id)` to see it before committing.
 4. `go_to_frontier(frontier_id)`. If it fails or is refused, note why, pick the next one and do not retry the same frontier without a change.
 5. Run the survey skill at the new spot (finishing with `mark_survey_spot`).
 6. Repeat from 1.
+
+## After the last survey
+
+Call `get_exploration_status()` once more and visit any reachable frontier still left before reporting.
+
+## Map resets
+
+A `map_epoch_reset` or `map_reset` robot event: say so to the person, call `get_exploration_status()` again (frontier ids restart) and do not retry old frontier ids.
 
 ## Stop when
 

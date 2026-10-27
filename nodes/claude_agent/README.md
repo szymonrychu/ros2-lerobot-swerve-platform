@@ -362,6 +362,14 @@ loads them on demand under the qualified name `robot-skills:<name>`. `claude_age
   `sightseeing` (explore, map or look around the whole place), `approach-and-verify` (drive to a target and confirm
   arrival), `safe-pick-place` (pick up, carry, put down), `recover-from-failure` (stuck, refused or interrupted
   motion), `poi-categories` (map found things onto POI categories) and `retrospective` (look back at the ended job).
+- **Retrospective lessons (2026-10-22).** `sightseeing` skips frontiers behind mirror, window or glass problem POIs
+  (asks once for a keep-out over ghost areas), re-reads `get_exploration_status` after the last survey and re-reads it
+  after a `map_epoch_reset` / `map_reset` event (frontier ids restart). `survey` takes object positions from
+  `pixel_to_ground` on a fresh picture, never a montage tile, and says so when the camera is not calibrated.
+  `recover-from-failure` translates away (short `drive` nudge or backing `move_relative`) before any turn after a
+  StopBox stop or refusal, and treats an 'invalid source' stop as a sensor outage. The `discovery` visit phase has
+  `turn_cap` 80 and asks to batch independent calls; its summary phase parks the arm first. Pinned by
+  `tests/test_skill_retro_lessons.py`.
 - **Adding a skill.** Create `agent_plugin/skills/<name>/SKILL.md` with frontmatter `name` (= directory name) and a
   `description` of at most 1024 characters that starts with "Use when ...", then the body. Run
   `uv run pytest tests/test_skills.py` here and `uv run pytest tests/test_agent_skills.py` at the repo root.
