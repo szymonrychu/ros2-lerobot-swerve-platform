@@ -358,7 +358,7 @@ The mains of mcp_server and claude_agent return `os.EX_CONFIG` (78) for config/t
 | `test_background_tier_is_below_every_robot_and_agent_tier` | The background tier has the default weight 100 and `oom_score_adjust` 0; every robot and agent tier has a higher weight and a lower `oom_score_adjust`. |
 | `test_tiers_dominate_default_system_work` | Every tier is above the default weight 100 with a negative `OOMScoreAdjust`, ordered critical > normal > agent. |
 | `test_tiers_do_not_overlap` | A node type is in one tier only (background included). |
-| `test_every_client_type_is_tiered` | Every client type but the uninstalled `fastdds_discovery_server` is in a robot, agent or background tier. |
+| `test_every_client_type_is_tiered` | Every client type but the uninstalled ones (`fastdds_discovery_server`, the retired camera, depth and bridge types, `tof_obstacle_cloud`) is in a robot, agent or background tier; those carry no tier keys. |
 | `test_every_robot_type_has_memory_low_below_memory_max` | Every tiered type (background included) has `memory_low` >= 32 MiB and `memory_max` at least 2x it; mcp_server at least 1G. |
 | `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect at most `MAX_MEMORY_LOW_SUM_MIB`, under a third of the 8 GB Pi. |
 | `test_server_keeps_its_limits_without_tiers` | Server types keep `CPUQuota` / `MemoryMax`, carry no tier keys, render no `MemoryHigh` / `MemoryLow`. |
@@ -2324,7 +2324,7 @@ Static invariants of the head RGB-D fusion deploy (`head_rgbd_cpp` in `ansible/g
 | `test_ros2_nodes_entry` | Present and disabled (user 2026-10-24), after `head_camera_cpp` and `arducam_tof`; the config block equals the node defaults and carries comments. |
 | `test_upsampling_is_enabled_for_ground_guidance` | `upsampling.enabled` is true in the deployed config and the node defaults (input of ground guidance). |
 | `test_metrics_target_is_absent_while_disabled` | No Alloy target for `head_rgbd_cpp` while it is disabled. |
-| `test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed` | `head_rgbd_cpp` and `ground_estimator_cpp` are present and disabled, `arducam_tof`, `tof_obstacle_cloud`, `head_camera_cpp` stay enabled, no scrape targets for the two. |
+| `test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed` | `head_rgbd_cpp` and `ground_estimator_cpp` are present and disabled, `arducam_tof`, `d435_obstacle_cloud`, `head_camera_cpp` stay enabled, no scrape targets for the two. |
 | `test_head_camera_mapping_and_focus_lock` | `lens_position: 1.0`, the `mapping` block (2 Hz, 576x324, JPEG 80, `lock_focus`), `af_mode` continuous. |
 | `test_arducam_tof_stamp_latency` | The `arducam_tof` block sets `stamp_latency_ms: 0.0`. |
 | `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, python, build, config]`. |
@@ -2410,7 +2410,7 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_docs_say_build_and_config_filters_skip_apt` | `ansible/README.md` states that `--tags build` / `--tags config` do not install apt packages. |
 | `test_apt_packages_are_installed_in_one_batched_task` | (client, server) the playbook sets `ros2_apt_batched`, includes `apt_nodes.yml` (one apt call, hourly cache) and the role's per-node apt is skipped then. |
 | `test_verify_role_checks_all_units_in_one_command_per_round` | The verify role runs one `systemctl is-active` over all units per round instead of looping per node. |
-
+| `test_wrapped_launch_commands_render_byte_identical` | (per folded type: realsense_d435, nav2_bringup, d435_obstacle_cloud and the tof_obstacle_cloud uninstall stub) the folded `>-` launch command in client.yml renders to the pinned single-line command. |
 | `test_verify_runs_after_the_end_of_play_restarts` | (client, server) the `start_ros_nodes.yml` include comes before the verify role, followed only by the lock release. |
 | `test_every_restart_causing_task_is_followed_directly_by_a_queue_task` | Every role/colcon task that notifies the restart handler registers its result and is followed at once by a lineinfile task appending the node to the persistent queue (only when changed and the node is enabled). |
 | `test_source_stamp_is_written_after_config_launcher_and_unit` | The source stamp task comes after the config, launcher and unit tasks and before the handler flush. |
@@ -2981,7 +2981,7 @@ Static checks of the plane-relative `ground_voxel_layer` and the `ground_cost_fi
 
 ### test_nav_tof_voxel_layer.py
 
-Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, STVL) in the Nav2 local costmap and of its lidar separation (U5). Reads `nav2_params.yaml`, `client.yml`, the tof_obstacle_cloud and laser_filter params and the READMEs.
+Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, STVL) in the Nav2 local costmap and of its lidar separation (U5). Reads `nav2_params.yaml`, `client.yml`, the d435_obstacle_cloud and laser_filter params and the READMEs.
 
 | Test | Covers |
 |---|---|
@@ -2994,7 +2994,7 @@ Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, ST
 | `test_mcp_tof_obstacle_band_equals_tof_mark` | `TOF_OBSTACLE_BAND_M` in mcp_server `perception.py` (read with ast, no import) equals the `tof_mark` (`min_obstacle_height`, `max_obstacle_height`) band, so the agent fixed-band summary matches the costmap. |
 | `test_cliff_band_is_strictly_below_the_floor_noise` | Cliff band ends strictly below -0.05 m. |
 | `test_bands_do_not_overlap` | The cliff band ends below the obstacle band start. |
-| `test_ranges_stay_inside_the_cloud_max_depth` | `max_z` and both `obstacle_range` <= tof_obstacle_cloud `max_depth`; `min_z` >= its `min_depth`. |
+| `test_ranges_stay_inside_the_cloud_max_depth` | `max_z` and both `obstacle_range` <= d435_obstacle_cloud `max_depth`; `min_z` >= its `min_depth`. |
 | `test_clearing_fov_is_inside_the_tof_fov` | Clearing FOV angles are below the ToF horizontal/vertical FOV (70 deg diagonal, 240 x 180). |
 | `test_tof_fov_constants_match_the_design` | The FOV constants give 58.5 x 45.6 deg. |
 | `test_tof_topic_is_the_laser_filter_output` | `/tof/points_filtered` is laser_filter's `cloud_filtered_topic`. |
@@ -3038,25 +3038,28 @@ Static checks of the collision_monitor ToF sources `tof_obstacles` / `tof_cliff`
 | `test_readme_sections_have_no_parking_wording` | Neither README section defers anything to a later change. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 
-### test_tof_obstacle_cloud_config.py
+### test_d435_obstacle_cloud_config.py
 
-Static checks of the `tof_obstacle_cloud` deployment (config-only rtabmap_util point_cloud_xyz, Client only).
+Static checks of the `d435_obstacle_cloud` deployment (config-only rtabmap_util point_cloud_xyz on the full-FOV D435 depth, Client only, design D5) and of the uninstall of the retired `tof_obstacle_cloud`.
 
 | Test | Covers |
 |---|---|
-| `test_launch_command_runs_point_cloud_xyz_with_params_file` | The launch command runs `ros2 run rtabmap_util point_cloud_xyz` with the repo params file. |
-| `test_launch_command_remaps_topics_and_node_name` | Remaps are exactly depth/image, depth/camera_info, cloud -> `/tof/points` and `__node:=tof_obstacle_cloud`. |
-| `test_node_type_is_native_config_only_with_apt_package` | Native, no src dir, `src_paths`, `ros-jazzy-rtabmap-util`, no pyproject. |
+| `test_launch_command_runs_point_cloud_xyz_with_params_file` | The launch command runs `ros2 run rtabmap_util point_cloud_xyz` with `nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml`. |
+| `test_remaps_read_the_d435_depth` | Remaps are exactly depth/image -> `/head/d435/depth/image_rect_raw`, depth/camera_info -> `/head/d435/depth/camera_info`, cloud -> `/head/d435/points` and `__node:=d435_obstacle_cloud`; not the aligned depth. |
+| `test_node_type_is_native_config_only_with_apt_package` | Native, no src dir, `src_paths` `[nodes/d435_obstacle_cloud]`, `ros-jazzy-rtabmap-util`, no pyproject. |
 | `test_node_type_is_normal_tier_with_estimated_memory` | Normal tier weights, `memory_low` 64M, `memory_max` 192M. |
-| `test_params_file_values` | The params file holds the expected values and types plus a `qos`. |
-| `test_params_file_comments_every_key` | Every param has a comment line above it. |
-| `test_max_depth_within_arducam_range_and_min_depth_positive` | `max_depth` within the configured `range_mode` range (far 4 m, near 2 m), `min_depth` > 0. |
-| `test_arducam_frame_id_is_tof_optical_frame` | arducam_tof `frame_id` is `tof_optical_frame`. |
+| `test_params_fit_the_d435_profile` | The realsense_d435 depth profile is 640x360; the params hold the expected values and types (decimation 4, min_depth 0.15, max_depth 3.0, voxel 0.05, NaN filter, exact sync, radius noise filter 0.1 m / 2, `qos` 0); the decimation divides 640x360 and gives at most 160x90; min_depth >= the D435 min-Z 0.15 m. |
+| `test_params_file_has_only_the_expected_keys` | No other key (no empty-cloud or placeholder publish option): only real depth frames publish. |
+| `test_params_file_comments_every_key` | Every param has a comment line above it; the file names 640x360 and no ToF. |
+| `test_depth_frame_is_a_head_urdf_link` | `d435_depth_optical_frame` (the depth header frame of the cloud) is a link of `nodes/web_ui/urdf/head.urdf`. |
 | `test_no_tf_publishing_argument_and_slam_toolbox_owns_map_odom` | No TF argument; no other client type publishes `map -> odom` (amcl, static transform); slam_toolbox exists. |
-| `test_playbook_deploys_node_after_arducam_tof` | The client playbook has the deploy block after arducam_tof. |
-| `test_ros2_nodes_entry_present_enabled_after_arducam_tof` | The `ros2_nodes` entry is present, enabled and right after arducam_tof. |
+| `test_playbook_deploys_node_after_realsense_d435` | The client playbook has a `Deploy d435_obstacle_cloud` step (resolve_and_deploy include, node apply tag, node + phase tags) after `Deploy realsense_d435`. |
+| `test_playbook_keeps_the_tof_step_so_the_uninstall_runs` | The `tof_obstacle_cloud` deploy step stays so its uninstall runs. |
+| `test_old_instance_uninstalls_new_enabled` | `tof_obstacle_cloud` is `present: false` with no config or enabled key; `d435_obstacle_cloud` is present, enabled and right after realsense_d435 in `ros2_nodes`. |
+| `test_old_node_type_keeps_only_what_the_uninstall_path_needs` | The `tof_obstacle_cloud` type has only `deploy_mode: native` and a launch command. |
+| `test_old_params_file_is_moved` | `nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml` is gone. |
 | `test_node_is_not_on_the_server` | Not in server.yml. |
-| `test_readme_documents_topics_and_placeholder_rule` | README names the topic, frame, rationale and empty-cloud rule. |
+
 ### test_tof_obstacle_wiring.py
 
 Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof -> tof_obstacle_cloud -> laser_filter -> Nav2 STVL, collision_monitor, web_ui, mcp_server). Reads the YAML only.
@@ -3072,7 +3075,7 @@ Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof 
 | `test_ranges_and_collision_sources_are_listed` | The collision monitor observes scan, tof_obstacles and tof_cliff. |
 | `test_slam_toolbox_publishes_map_to_odom` | slam_toolbox `transform_publish_period` > 0 with map and odom frames. |
 | `test_no_other_client_node_publishes_map_to_odom` | No other client node sets `publish_tf: true` (but the EKF, odom -> base_link), the static TF publisher has no map parent or odom child, tof_obstacle_cloud has no TF argument. |
-| `test_new_nodes_and_tests_are_in_the_tests_readme` | tof_obstacle_cloud and the four ToF obstacle test files have a section here. |
+| `test_new_nodes_and_tests_are_in_the_tests_readme` | d435_obstacle_cloud and the obstacle pipeline test files (its config test, the voxel layer, collision, wiring and ground voxel layer tests) have a section here. |
 
 ### `test_head_rgbd_calib_core.py`
 

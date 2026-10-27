@@ -1,0 +1,27 @@
+# ROS params of rtabmap_util point_cloud_xyz (rtabmap_ros 0.23.13). Node name: d435_obstacle_cloud (set by -r __node).
+# Input: the full-FOV D435 depth (depth_module.depth_profile 640x360x15, nodes/bridges/realsense_d435/config).
+d435_obstacle_cloud:
+  ros__parameters:
+    # Keep every 4th pixel per axis: 640x360 depth -> 160x90 = 14400 points, the upper bound for obstacles on the
+    # Pi 5 CPU budget (640 and 360 divide by 4, so no edge column or row is dropped).
+    decimation: 4
+    # The D435 min-Z at 640x360 is about 0.15 m: nearer pixels are invalid (0) or the robot's own arm and gripper.
+    min_depth: 0.15
+    # Obstacles matter inside 3 m; the D435 depth RMS error grows with the square of the distance, so farther points
+    # are too coarse for the 5 cm voxels of the costmap layer.
+    max_depth: 3.0
+    # 5 cm voxel grid merges neighbouring points: bounded cloud size for the costmap layer.
+    voxel_size: 0.05
+    # Pixels with no valid depth (0 mm) become NaN; drop them so no placeholder point is published.
+    filter_nans: true
+    # Depth image and depth camera_info come from one realsense2_camera stream with identical stamps: exact sync is
+    # enough, no queue delay.
+    approx_sync: false
+    # Radius filter: a point with fewer than min_neighbors inside 0.1 m is flying-pixel noise and is removed.
+    noise_filter_radius: 0.1
+    # See noise_filter_radius: at least 2 neighbours keep real surfaces and drop isolated pixels.
+    noise_filter_min_neighbors: 2
+    # rmw reliability enum (0 system default, 1 reliable, 2 best effort) for the depth and camera_info subscriptions
+    # and the cloud publisher. realsense2_camera publishes depth with SYSTEM_DEFAULT (IMAGE_QOS) and camera_info with
+    # DEFAULT (reliable), so 0 matches both; the reliable cloud also reaches best-effort subscribers (laser_filter).
+    qos: 0

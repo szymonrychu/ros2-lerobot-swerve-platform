@@ -1122,6 +1122,19 @@ FOLDED_LAUNCH_COMMANDS = {
         "config_file:={{ ros2_repo_dest }}/nodes/bridges/realsense_d435/config/realsense_d435.yaml"
     ),
     "nav2_bringup": "ros2 launch {{ ros2_repo_dest }}/nodes/nav2_bringup/launch/nav2_launch.py",
+    "d435_obstacle_cloud": (
+        "ros2 run rtabmap_util point_cloud_xyz --ros-args "
+        "--params-file {{ ros2_repo_dest }}/nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml "
+        "-r depth/image:=/head/d435/depth/image_rect_raw -r depth/camera_info:=/head/d435/depth/camera_info "
+        "-r cloud:=/head/d435/points -r __node:=d435_obstacle_cloud"
+    ),
+    # Uninstall stub (present: false): the retired command, unchanged while the stub exists.
+    "tof_obstacle_cloud": (
+        "ros2 run rtabmap_util point_cloud_xyz --ros-args "
+        "--params-file {{ ros2_repo_dest }}/nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml "
+        "-r depth/image:=/tof/depth/image_raw -r depth/camera_info:=/tof/camera_info "
+        "-r cloud:=/tof/points -r __node:=tof_obstacle_cloud"
+    ),
 }
 
 

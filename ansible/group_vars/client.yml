@@ -152,8 +152,9 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/arducam_tof
     env:
       - ARDUCAM_TOF_CONFIG=/etc/ros2/arducam_tof/config.yaml
-  # Config-only node: rtabmap_util point_cloud_xyz turns the ToF depth image into /tof/points (see
-  # nodes/tof_obstacle_cloud/README.md). It publishes no TF; slam_toolbox keeps map -> odom.
+  # Retired (D5): the D435 replaces the head ToF and d435_obstacle_cloud replaces this node. present: false makes a
+  # deploy of this name run only the uninstall path of roles/ros2_node_deploy/tasks/main.yml (deploy_mode and a launch
+  # command, nothing else). ros-jazzy-rtabmap-util stays installed: d435_obstacle_cloud runs the same executable.
   tof_obstacle_cloud:
     deploy_mode: native
     node_launch_command: >-
@@ -163,18 +164,6 @@ ros2_node_type_defaults:
       -r depth/camera_info:=/tof/camera_info
       -r cloud:=/tof/points
       -r __node:=tof_obstacle_cloud
-    node_src_dir: ""
-    # Repo paths whose change restarts the node (no Python package dir): its params file.
-    src_paths: [nodes/tof_obstacle_cloud]
-    # Sized by analogy: one decimated 60x45 depth frame per cycle is small, MemoryLow follows arducam_tof
-    # (p50 ~64 MiB incl. the rtabmap shared libraries), MemoryMax 3x. Same basis as the other unmeasured types.
-    memory_low: "64M"
-    memory_max: "192M"
-    cpu_weight: 500
-    io_weight: 500
-    oom_score_adjust: -500
-    apt_packages:
-      - ros-jazzy-rtabmap-util
   filter_node:
     deploy_mode: native
     node_launch_command: "python3 -m filter_node"
@@ -334,6 +323,31 @@ ros2_node_type_defaults:
     oom_score_adjust: -500
     apt_packages:
       - ros-jazzy-realsense2-camera
+  # Config-only node (D5): rtabmap_util point_cloud_xyz turns the full-FOV D435 depth (not the colour-aligned depth,
+  # cropped to the colour FOV) into /head/d435/points in d435_depth_optical_frame. It publishes no TF; slam_toolbox
+  # keeps map -> odom.
+  d435_obstacle_cloud:
+    deploy_mode: native
+    node_launch_command: >-
+      ros2 run rtabmap_util point_cloud_xyz --ros-args
+      --params-file {{ ros2_repo_dest }}/nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml
+      -r depth/image:=/head/d435/depth/image_rect_raw
+      -r depth/camera_info:=/head/d435/depth/camera_info
+      -r cloud:=/head/d435/points
+      -r __node:=d435_obstacle_cloud
+    node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its params file.
+    src_paths: [nodes/d435_obstacle_cloud]
+    # Estimate, no series yet: one 640x360 16-bit depth frame (~450 KiB) decimated to 160x90 per cycle is small next to
+    # the rtabmap shared libraries, so MemoryLow keeps the 64 MiB of the ToF cloud it replaces and MemoryMax 3x.
+    # d435-memory-and-cpu-budget sets them from Mimir.
+    memory_low: "64M"
+    memory_max: "192M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
+    apt_packages:
+      - ros-jazzy-rtabmap-util
   # Retired (D7): the cameras are physically gone from the Pi. present: false makes a deploy of this name run only the
   # uninstall path of roles/ros2_node_deploy/tasks/main.yml (deploy_mode and a launch command, nothing else). Boot
   # overlays: playbooks/tasks/pi_camera_boot_config.yml.
@@ -1397,12 +1411,11 @@ ros2_nodes:
       # /tof/depth/image_raw
       # /tof/amplitude/image_raw
       # /tof/camera_info
-  # ToF point cloud: /tof/depth/image_raw + /tof/camera_info (arducam_tof) -> /tof/points (PointCloud2 in
-  # tof_optical_frame, stamp copied from the depth header). Params: nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml.
+  # Retired (D5): d435_obstacle_cloud builds the head obstacle cloud from the D435 depth. present: false uninstalls the
+  # unit and launcher on the next deploy.
   - name: tof_obstacle_cloud
     node_type: tof_obstacle_cloud
-    present: true
-    enabled: true
+    present: false
   - name: rplidar_a1
     node_type: rplidar_a1
     present: true
@@ -1416,6 +1429,13 @@ ros2_nodes:
   # nodes/bridges/realsense_d435/config/realsense_d435.yaml). No TF: head.urdf owns the d435 frames.
   - name: realsense_d435
     node_type: realsense_d435
+    present: true
+    enabled: true
+  # D435 point cloud: /head/d435/depth/image_rect_raw + /head/d435/depth/camera_info (realsense_d435) ->
+  # /head/d435/points (PointCloud2 in d435_depth_optical_frame, stamp copied from the depth header).
+  # Params: nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml.
+  - name: d435_obstacle_cloud
+    node_type: d435_obstacle_cloud
     present: true
     enabled: true
   # Retired (D7): the overview camera is gone from the Pi (the CSI ports carry the front preview and the ToF).

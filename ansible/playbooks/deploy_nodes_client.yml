@@ -300,6 +300,15 @@
             _deploy_node_name: realsense_d435
           tags: [realsense_d435, apt, python, build, config]
 
+        - name: Deploy d435_obstacle_cloud
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [d435_obstacle_cloud]
+          vars:
+            _deploy_node_name: d435_obstacle_cloud
+          tags: [d435_obstacle_cloud, apt, python, build, config]
+
         - name: Deploy overview_camera
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml
