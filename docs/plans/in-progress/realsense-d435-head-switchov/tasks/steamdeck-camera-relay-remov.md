@@ -1,6 +1,6 @@
 ---
 title: Steamdeck camera relay removed
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The legacy Steam Deck UI stops waiting for a camera that is gone.
 files: [nodes/steamdeck_ui/bridge/bridge_server.py, nodes/steamdeck_ui/config/default.yaml, ansible/roles/steamdeck_ui/templates/config.yaml.j2, nodes/steamdeck_ui/tests/test_config.test.ts, nodes/steamdeck_ui/README.md]
@@ -8,15 +8,15 @@ verify: "cd nodes/steamdeck_ui && npx jest tests/test_config.test.ts && cd ../..
 depends_on: []
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: 07853dd4
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 10
+actual_tokens: 381166
+actual_roles: "impl 6, review 4"
+actual_role_tokens: "impl 267619, review 113547"
 ---
 
 # Steamdeck camera relay removed
@@ -61,3 +61,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 done
