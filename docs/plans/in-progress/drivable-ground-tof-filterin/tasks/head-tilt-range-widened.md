@@ -1,6 +1,6 @@
 ---
 title: Head tilt range widened
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The head can look further down at the board on the gripper and at grasp scenes next to the robot.
 files: [nodes/web_ui/urdf/head.urdf, ansible/group_vars/client.yml, nodes/web_ui/config/default.yaml, nodes/web_ui/web_ui/config.py, nodes/web_ui/frontend/src/tabs/HeadTab.tsx, tests/test_head_servo_config.py, nodes/web_ui/tests/test_head_urdf.py, nodes/mcp_server/tests/test_head_kinematics.py]
@@ -8,15 +8,15 @@ verify: "uv run --frozen pytest tests/test_head_servo_config.py tests/test_head_
 depends_on: [calib-ansible-deploy-config, board-on-gripper-hardware-st, arm-pose-safety-check, arm-board-pose-set]
 model: ""
 review: ""
-verified_head: ""
+verified_head: c02d118a
 points: 3
 expected_minutes: 45
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 18
+actual_tokens: 1877040
+actual_roles: "impl 17, review 2"
+actual_role_tokens: "impl 1739275, review 137765"
 ---
 
 # Head tilt range widened
@@ -71,6 +71,8 @@ The head can look 60 deg down at the floor board and at grasp scenes next to the
 - Design: the epic design.md (`ticket.py path drivable-ground-tof-filterin design`) (decisions D31-D51; head-and-arm-calibration-fro's D<n> is D<n+30> here, review focus).
 
 - 2026-10-22 re-plan: the floor fit epic delivered the override, the FK core and head_state_publisher; dependencies and design references updated to the head-from-arm plan.
+
+- 2026-10-27 done
 
 ## User answer (2026-10-23)
 
