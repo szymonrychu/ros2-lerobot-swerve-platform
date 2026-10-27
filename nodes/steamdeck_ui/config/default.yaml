@@ -3,11 +3,6 @@ bridge:
   port: 9090
 
 tabs:
-  - id: gripper_camera
-    type: camera
-    label: "Gripper Cam"
-    topic: /controller/camera_0/image_raw
-
   - id: imu_graphs
     type: sensor_graph
     label: "IMU"

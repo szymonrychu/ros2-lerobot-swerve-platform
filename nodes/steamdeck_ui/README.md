@@ -94,7 +94,7 @@ steamdeck_ui/
 
 | `type` | Description | Required fields |
 |---|---|---|
-| `camera` | Live JPEG feed from ROS2 Image/CompressedImage | `topic` |
+| `camera` | Live JPEG feed from ROS2 Image/CompressedImage (generic tab type; no default config uses it since the gripper camera was retired) | `topic` |
 | `sensor_graph` | uPlot rolling time-series (e.g. IMU) | `topics[].topic`, `topics[].fields[].path` |
 | `effector_graph` | uPlot for joint states (e.g. arm servos) | same as sensor_graph |
 | `nav_local` | Canvas: OccupancyGrid + LaserScan + Odometry, tap-to-navigate | `scan_topic`, `costmap_topic`, `odom_topic`, `goal_topic` |
@@ -112,11 +112,6 @@ bridge:
   port: 9090
 
 tabs:
-  - id: gripper_camera
-    type: camera
-    label: "Gripper Cam"
-    topic: /controller/camera_0/image_raw
-
   - id: imu_graphs
     type: sensor_graph
     label: "IMU"

@@ -20,7 +20,7 @@ tabs:
   - id: cam
     type: camera
     label: "Camera"
-    topic: /controller/camera_0/image_raw
+    topic: /controller/head_rgbd/image_raw
 overlays: []
 `);
     const cfg = loadConfig(p);
@@ -74,5 +74,20 @@ tabs: []
 `);
     const cfg = loadConfig(p);
     expect(cfg.overlays).toEqual([]);
+  });
+
+  test("no config names the retired camera_0 gripper camera", () => {
+    const root = path.resolve(__dirname, "..", "..", "..");
+    const files = [
+      path.join(root, "nodes/steamdeck_ui/config/default.yaml"),
+      path.join(root, "nodes/steamdeck_ui/bridge/bridge_server.py"),
+      path.join(root, "ansible/roles/steamdeck_ui/templates/config.yaml.j2"),
+    ];
+    for (const f of files) {
+      expect(fs.readFileSync(f, "utf-8")).not.toContain("camera_0");
+    }
+    expect(loadConfig(files[0]).tabs.map((t) => t.topic)).not.toContain(
+      "/controller/camera_0/image_raw",
+    );
   });
 });
