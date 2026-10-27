@@ -8,11 +8,11 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --froz
 depends_on: [mcp-ground-summary]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: fcc0cbc6
 points: 5
 expected_minutes: 60
 expected_tokens: 3750000
-points_actual: ""
+points_actual: 1
 actual_minutes: 28
 actual_tokens: 794337
 actual_roles: "impl 5, review 24"
@@ -75,3 +75,5 @@ surfaces.py `SurfaceRegion`/`Terrain` (46-330), floor_guard.py `surface()` (550-
 - 2026-10-20 amended: builder check 2026-10-20: stamp rule, staleness, port 19119, region conversion, wording, concrete ACs
 
 - 2026-10-20 run rgb-d-ground-estimation-and: dependency-failed on mcp-ground-summary
+
+- 2026-10-27 done
