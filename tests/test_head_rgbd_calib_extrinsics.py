@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import yaml
 from ros2_common.head_rgbd_calibration.charuco import Detection, detect, make_board
+from ros2_common.head_rgbd_calibration.config import BoardConfig, LimitsConfig
 from ros2_common.head_rgbd_calibration.extrinsics import (
     ExtrinsicResult,
     common_points,
@@ -16,10 +17,9 @@ from ros2_common.head_rgbd_calibration.extrinsics import (
     stereo_calibrate,
     write_extrinsics_yaml,
 )
+from ros2_common.head_rgbd_calibration.frames import normalise_amplitude
 from ros2_common.head_rgbd_calibration.intrinsics import KIND_RGB, KIND_TOF, IntrinsicsResult
 
-from scripts.head_rgbd_calibration.config import BoardConfig, LimitsConfig
-from scripts.head_rgbd_calibration.frames import normalise_amplitude
 from tests.rgbd_synthetic import (
     SyntheticCamera,
     board_poses,

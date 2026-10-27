@@ -3039,7 +3039,7 @@ Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof 
 
 ### `test_head_rgbd_calib_core.py`
 
-Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan proves no module imports `scripts`, `rosbags` or `subprocess`; `BoardConfig`, `SelectionConfig`, `LimitsConfig` reject unknown keys and their defaults equal the `board`, `selection`, `limits` blocks of `scripts/head_rgbd_calibrate.yaml`; the core `detect` finds the synthetic board of `tests/rgbd_synthetic.py`.
+Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan proves no module imports `scripts`, `rosbags` or `subprocess`; the core `detect` finds the synthetic board of `tests/rgbd_synthetic.py`.
 
 ### `test_head_rgbd_calib_intrinsics.py`
 
@@ -3195,6 +3195,9 @@ Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pi
 | `test_session_defaults_to_newest_calibration_bag` | The default session is the newest bag, validation bags excluded. |
 | `test_sweep_offset_is_zero_for_synchronous_streams` | A synchronous synthetic sweep gives a time offset under 10 ms. |
 | `test_wall_metrics_on_registered_board` | Registration bias, edge alignment and valid ratio of a synthetic registered board are finite and in range. |
+| `test_core_config_defaults_match_cli_yaml` | `BoardConfig`, `SelectionConfig`, `LimitsConfig` reject unknown keys and their defaults equal the `board`, `selection`, `limits` blocks of `scripts/head_rgbd_calibrate.yaml`. |
+| `test_calibrate_detections_matches_run_calibration` | The core `calibrate_detections` on detected views of the in-memory CLI scene equals `run_calibration` to 1e-9 (single-thread cv2). |
+| `test_calibrate_detections_requires_tof_info` | `calibrate_detections` without ToF camera_info raises `no ToF camera_info`. |
 
 ### `test_head_rgbd_urdf_handoff.py`
 

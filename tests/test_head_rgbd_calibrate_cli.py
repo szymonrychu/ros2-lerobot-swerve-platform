@@ -3,17 +3,26 @@
 import os
 import shutil
 import subprocess
+from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 import yaml
 from pydantic import ValidationError
+from ros2_common.head_rgbd_calibration.calibrate import PoseView, calibrate_detections, detect_tof
 from ros2_common.head_rgbd_calibration.charuco import detect, make_board
-from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
 from ros2_common.head_rgbd_calibration.extrinsics import load_extrinsics_yaml
-from ros2_common.head_rgbd_calibration.frames import normalise_amplitude
+from ros2_common.head_rgbd_calibration.frames import (
+    CameraInfoData,
+    FrameSet,
+    StampedImage,
+    normalise_amplitude,
+    still_pairs,
+)
 from ros2_common.head_rgbd_calibration.urdf_handoff import read_chain, tof_joint_origin
 from rosbags.rosbag2 import StoragePlugin, Writer
 from scipy.spatial.transform import Rotation
@@ -21,7 +30,13 @@ from scipy.spatial.transform import Rotation
 from scripts import head_rgbd_calibrate as cli
 from scripts.head_rgbd_calibration.config import DEFAULT_CONFIG, load_calibration_config
 from scripts.head_rgbd_calibration.frames import TopicNames
-from scripts.head_rgbd_calibration.pipeline import load_calibration, newest_session, sweep_offset, wall_metrics
+from scripts.head_rgbd_calibration.pipeline import (
+    load_calibration,
+    newest_session,
+    run_calibration,
+    sweep_offset,
+    wall_metrics,
+)
 from tests.rgbd_synthetic import (
     board_poses,
     centred_pose,
@@ -56,6 +71,9 @@ RGB_SIZE_RC = (324, 576)
 IMAGE = "sensor_msgs/msg/Image"
 COMPRESSED = "sensor_msgs/msg/CompressedImage"
 INFO = "sensor_msgs/msg/CameraInfo"
+CALIBRATE_YAML = REPO_ROOT / "scripts" / "head_rgbd_calibrate.yaml"
+FIT_TOL = 1e-9
+SDK_K = np.array([191.0, 0.0, 120.0, 0.0, 191.0, 90.0, 0.0, 0.0, 1.0])
 URDF_REPO = REPO_ROOT / "nodes" / "web_ui" / "urdf" / "head.urdf"
 
 
@@ -417,3 +435,76 @@ def test_wall_metrics_on_registered_board(calibrated: Path, tmp_path: Path) -> N
     assert abs(metrics["bias"]) < 5.0
     assert 0.0 < metrics["valid"] <= 1.0
     assert 0.0 < metrics["edge"] < 8.0
+
+
+@pytest.mark.parametrize(
+    ("model", "block"), [(BoardConfig, "board"), (SelectionConfig, "selection"), (LimitsConfig, "limits")]
+)
+def test_core_config_defaults_match_cli_yaml(model: type, block: str) -> None:
+    with pytest.raises(ValidationError):
+        model(bogus=1)
+    yaml_block = yaml.safe_load(CALIBRATE_YAML.read_text())[block]
+    assert model.model_validate(yaml_block) == model()
+
+
+def scene_frames() -> FrameSet:
+    """The CLI synthetic scene in memory: one still window per view, moving noise between windows."""
+    views = scene()
+    rng = np.random.default_rng(0)
+    noise_depth = views[0][2]
+    frames = FrameSet(tof_info=CameraInfoData(240, 180, "plumb_bob", np.zeros(5), SDK_K, np.zeros(12)))
+    for i in range(int((START_S + len(views) * CYCLE_S) * TOF_HZ)):
+        t = i / TOF_HZ
+        ns = T0_NS + int(t * 1e9)
+        index = int((t - START_S) // CYCLE_S) if t >= START_S else -1
+        still = index >= 0 and (t - START_S) - index * CYCLE_S < WINDOW_S
+        if still:
+            rgb, amp, depth = views[index]
+        else:
+            rgb = rng.integers(0, 255, RGB_SIZE_RC + (3,), dtype=np.uint8)
+            amp = rng.integers(500, 4000, TOF_SIZE_RC, dtype=np.uint16)
+            depth = noise_depth
+        frames.amplitude.append(StampedImage(ns, amp))
+        frames.depth.append(StampedImage(ns, depth))
+        if i % RGB_EVERY == 0:
+            frames.rgb.append(StampedImage(ns + 5_000_000, rgb))
+    return frames
+
+
+@pytest.fixture
+def single_thread_cv2() -> Iterator[None]:
+    """Multithreaded cv2 reductions are not bit-reproducible; one thread makes two fits comparable at 1e-9."""
+    previous = cv2.getNumThreads()
+    cv2.setNumThreads(1)
+    yield
+    cv2.setNumThreads(previous)
+
+
+@pytest.mark.usefixtures("single_thread_cv2")
+def test_calibrate_detections_matches_run_calibration() -> None:
+    cfg = load_calibration_config(DEFAULT_CONFIG)
+    frames = scene_frames()
+    expected = run_calibration(frames, cfg)
+    board = make_board(cfg.board)
+    pairs = still_pairs(frames, cfg.selection)
+    views = [PoseView(detect(p.rgb, board), detect_tof(p.amplitude, board, cfg.selection), p.depth) for p in pairs]
+    rgb_size = (pairs[0].rgb.shape[1], pairs[0].rgb.shape[0])
+    tof_size = (pairs[0].amplitude.shape[1], pairs[0].amplitude.shape[0])
+    run = calibrate_detections(views, rgb_size, tof_size, frames.tof_info, cfg.board, cfg.limits)
+    assert run.pair_count == expected.pair_count == len(views)
+    assert run.rgb.view_count == expected.rgb.view_count
+    assert run.tof.view_count == expected.tof.view_count
+    assert run.extrinsic.pair_count == expected.extrinsic.pair_count
+    for got, want in ((run.rgb, expected.rgb), (run.tof, expected.tof)):
+        assert abs(got.rms - want.rms) < FIT_TOL
+        np.testing.assert_allclose(got.k, want.k, atol=FIT_TOL, rtol=0)
+    assert abs(run.extrinsic.stereo_rms - expected.extrinsic.stereo_rms) < FIT_TOL
+    np.testing.assert_allclose(run.extrinsic.t, expected.extrinsic.t, atol=1e-9, rtol=0)
+    assert abs(run.plane.median_mm - expected.plane.median_mm) < FIT_TOL
+    assert run.sdk_diff_pct == pytest.approx(expected.sdk_diff_pct, abs=FIT_TOL)
+
+
+def test_calibrate_detections_requires_tof_info() -> None:
+    cfg = load_calibration_config(DEFAULT_CONFIG)
+    with pytest.raises(ValueError, match="no ToF camera_info"):
+        calibrate_detections([], (1, 1), (1, 1), None, cfg.board, cfg.limits)

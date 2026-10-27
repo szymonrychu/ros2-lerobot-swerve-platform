@@ -4,7 +4,6 @@ import ast
 import difflib
 import subprocess
 import sys
-from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,22 +11,15 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 import pytest
-import yaml
-from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration import charuco as core_charuco
 from ros2_common.head_rgbd_calibration.calibrate import (
     CalibrationRun,
-    PoseView,
-    calibrate_detections,
-    detect_tof,
     failed_limits,
     report_markdown,
 )
-from ros2_common.head_rgbd_calibration.charuco import detect, make_board
 from ros2_common.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
 from ros2_common.head_rgbd_calibration.extrinsics import ExtrinsicResult, PlaneCheck, stereo_calibrate
 from ros2_common.head_rgbd_calibration.frames import (
-    CameraInfoData,
     FrameSet,
     StampedImage,
     decode_camera_info,
@@ -40,18 +32,14 @@ from ros2_common.head_rgbd_calibration.frames import (
 from ros2_common.head_rgbd_calibration.intrinsics import KIND_RGB, KIND_TOF, IntrinsicsResult, calibrate
 from ros2_common.head_rgbd_calibration.urdf_text import NOTE_MARKER, Origin, rewrite_tof_joint
 
-from scripts.head_rgbd_calibration.config import DEFAULT_CONFIG, load_calibration_config
-from scripts.head_rgbd_calibration.pipeline import run_calibration
 from tests.rgbd_synthetic import board_poses, render_rgb, rgb_camera
 from tests.test_head_rgbd_calib_extrinsics import BOARD, RGB, TOF, TRUE, detection_pairs, rotation_error_deg
-from tests.test_head_rgbd_calibrate_cli import RGB_SIZE_RC, TOF_SIZE_RC, scene
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_DIR = ROOT / "shared" / "ros2_common" / "head_rgbd_calibration"
 URDF_TEXT = CORE_DIR / "urdf_text.py"
 HEAD_URDF = ROOT / "nodes" / "web_ui" / "urdf" / "head.urdf"
 FIXED_ORIGIN = Origin(xyz=(0.01, -0.02, 0.03), rpy=(0.1, -0.2, 0.3))
-CALIBRATE_YAML = ROOT / "scripts" / "head_rgbd_calibrate.yaml"
 FORBIDDEN_MODULES = {"scripts", "rosbags", "subprocess"}
 
 
@@ -71,16 +59,6 @@ def test_core_imports_no_scripts_rosbags_or_subprocess() -> None:
     assert {f.name for f in files} >= {"__init__.py", "config.py", "charuco.py", "frames.py", "intrinsics.py"}
     for f in files:
         assert not imported_roots(f) & FORBIDDEN_MODULES, f.name
-
-
-@pytest.mark.parametrize(
-    ("model", "block"), [(BoardConfig, "board"), (SelectionConfig, "selection"), (LimitsConfig, "limits")]
-)
-def test_core_config_defaults_match_cli_yaml(model: type, block: str) -> None:
-    with pytest.raises(ValidationError):
-        model(bogus=1)
-    yaml_block = yaml.safe_load(CALIBRATE_YAML.read_text())[block]
-    assert model.model_validate(yaml_block) == model()
 
 
 def test_core_detect_finds_synthetic_board() -> None:
@@ -192,14 +170,6 @@ def test_core_stereo_extrinsic_recovers_synthetic_pose() -> None:
     assert rotation_error_deg(result.r, TRUE.r) < 0.2
 
 
-T0_NS = 1_700_000_000 * 10**9
-TOF_HZ = 10
-RGB_EVERY = 5
-START_S = 2.5
-CYCLE_S = 3.0
-WINDOW_S = 2.0
-FIT_TOL = 1e-9
-SDK_K = np.array([191.0, 0.0, 120.0, 0.0, 191.0, 90.0, 0.0, 0.0, 1.0])
 GOLDEN_REPORT = """# Head RGB-D calibration calib-test
 
 Date: 2026-01-02T03:04:05
@@ -227,30 +197,6 @@ Extrinsic (tof_optical_frame in head_camera_optical_frame), metres: 0.01000, -0.
 """
 
 
-def scene_frames() -> FrameSet:
-    """The CLI synthetic scene in memory: one still window per view, moving noise between windows."""
-    views = scene()
-    rng = np.random.default_rng(0)
-    noise_depth = views[0][2]
-    frames = FrameSet(tof_info=CameraInfoData(240, 180, "plumb_bob", np.zeros(5), SDK_K, np.zeros(12)))
-    for i in range(int((START_S + len(views) * CYCLE_S) * TOF_HZ)):
-        t = i / TOF_HZ
-        ns = T0_NS + int(t * 1e9)
-        index = int((t - START_S) // CYCLE_S) if t >= START_S else -1
-        still = index >= 0 and (t - START_S) - index * CYCLE_S < WINDOW_S
-        if still:
-            rgb, amp, depth = views[index]
-        else:
-            rgb = rng.integers(0, 255, RGB_SIZE_RC + (3,), dtype=np.uint8)
-            amp = rng.integers(500, 4000, TOF_SIZE_RC, dtype=np.uint16)
-            depth = noise_depth
-        frames.amplitude.append(StampedImage(ns, amp))
-        frames.depth.append(StampedImage(ns, depth))
-        if i % RGB_EVERY == 0:
-            frames.rgb.append(StampedImage(ns + 5_000_000, rgb))
-    return frames
-
-
 def fixed_run() -> CalibrationRun:
     """A hand-built run for the report golden."""
     k = np.eye(3)
@@ -258,45 +204,6 @@ def fixed_run() -> CalibrationRun:
     tof = IntrinsicsResult(k, np.zeros(5), 0.1, np.zeros(13), 13, (240, 180), KIND_TOF, zero_distortion_rms=0.12)
     extrinsic = ExtrinsicResult(np.eye(3), np.array([0.01, -0.02, 0.03]), 0.6, 12)
     return CalibrationRun(rgb, tof, extrinsic, PlaneCheck([-3.5], -3.5), {"fx": 0.5, "fy": -0.25}, 15)
-
-
-@pytest.fixture
-def single_thread_cv2() -> Iterator[None]:
-    """Multithreaded cv2 reductions are not bit-reproducible; one thread makes two fits comparable at 1e-9."""
-    previous = cv2.getNumThreads()
-    cv2.setNumThreads(1)
-    yield
-    cv2.setNumThreads(previous)
-
-
-@pytest.mark.usefixtures("single_thread_cv2")
-def test_calibrate_detections_matches_run_calibration() -> None:
-    cfg = load_calibration_config(DEFAULT_CONFIG)
-    frames = scene_frames()
-    expected = run_calibration(frames, cfg)
-    board = make_board(cfg.board)
-    pairs = still_pairs(frames, cfg.selection)
-    views = [PoseView(detect(p.rgb, board), detect_tof(p.amplitude, board, cfg.selection), p.depth) for p in pairs]
-    rgb_size = (pairs[0].rgb.shape[1], pairs[0].rgb.shape[0])
-    tof_size = (pairs[0].amplitude.shape[1], pairs[0].amplitude.shape[0])
-    run = calibrate_detections(views, rgb_size, tof_size, frames.tof_info, cfg.board, cfg.limits)
-    assert run.pair_count == expected.pair_count == len(views)
-    assert run.rgb.view_count == expected.rgb.view_count
-    assert run.tof.view_count == expected.tof.view_count
-    assert run.extrinsic.pair_count == expected.extrinsic.pair_count
-    for got, want in ((run.rgb, expected.rgb), (run.tof, expected.tof)):
-        assert abs(got.rms - want.rms) < FIT_TOL
-        np.testing.assert_allclose(got.k, want.k, atol=FIT_TOL, rtol=0)
-    assert abs(run.extrinsic.stereo_rms - expected.extrinsic.stereo_rms) < FIT_TOL
-    np.testing.assert_allclose(run.extrinsic.t, expected.extrinsic.t, atol=1e-9, rtol=0)
-    assert abs(run.plane.median_mm - expected.plane.median_mm) < FIT_TOL
-    assert run.sdk_diff_pct == pytest.approx(expected.sdk_diff_pct, abs=FIT_TOL)
-
-
-def test_calibrate_detections_requires_tof_info() -> None:
-    cfg = load_calibration_config(DEFAULT_CONFIG)
-    with pytest.raises(ValueError, match="no ToF camera_info"):
-        calibrate_detections([], (1, 1), (1, 1), None, cfg.board, cfg.limits)
 
 
 def test_failed_limits_names_limit_keys() -> None:
@@ -333,9 +240,8 @@ def test_report_markdown_golden() -> None:
 def test_moved_modules_left_scripts() -> None:
     """The four transitional re-export modules are gone and nothing imports them."""
     root = Path(__file__).resolve().parent.parent
-    paths = [
-        f"scripts/head_rgbd_calibration/{name}.py" for name in ("charuco", "intrinsics", "extrinsics", "urdf_handoff")
-    ]
+    package = Path("scripts") / "head_rgbd_calibration"
+    paths = [str(package / f"{name}.py") for name in ("charuco", "intrinsics", "extrinsics", "urdf_handoff")]
     tracked = subprocess.run(["git", "ls-files", *paths], cwd=root, capture_output=True, text=True, check=True)
     assert tracked.stdout.strip() == ""
     pattern = r"scripts\.head_rgbd_calibration(\.| import )(charuco|intrinsics|extrinsics|urdf_handoff)\b"

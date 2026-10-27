@@ -1,4 +1,4 @@
-"""Tests for scripts/head_rgbd_calibration charuco detection and intrinsics on synthetic scenes and real ToF frames."""
+"""Tests for the shared head_rgbd_calibration charuco detection and intrinsics on synthetic and real ToF frames."""
 
 from functools import lru_cache
 from pathlib import Path
@@ -9,6 +9,8 @@ import pytest
 import yaml
 from ros2_common.head_rgbd_calibration.calibrate import detect_tof
 from ros2_common.head_rgbd_calibration.charuco import Detection, detect, make_board
+from ros2_common.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
+from ros2_common.head_rgbd_calibration.frames import CameraInfoData, normalise_amplitude
 from ros2_common.head_rgbd_calibration.intrinsics import (
     IntrinsicsResult,
     calibrate,
@@ -17,8 +19,6 @@ from ros2_common.head_rgbd_calibration.intrinsics import (
     write_camera_calibration_yaml,
 )
 
-from scripts.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
-from scripts.head_rgbd_calibration.frames import CameraInfoData, normalise_amplitude
 from tests.rgbd_synthetic import (
     board_poses,
     centred_pose,
