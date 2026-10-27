@@ -50,8 +50,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+1. Add the 360 deg sweep test; `uv run pytest tests/test_nav_footprint.py -q` fails.
+2. Change gen_nav_footprint.py/.yaml so the rotate polygon covers the circumscribed sweep + 2 cm; regenerate into nav2_params.yaml.
+3. Run the verify.
 
 ## Notes
 
