@@ -1,6 +1,6 @@
 ---
 title: Ground estimator live scene fixes
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The estimator passes the user's live acceptance on the recorded scene before anything is deployed: box lethal, board never lethal, empty floor clean, churn under 10 %"
 files: [nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/test/replay_fixture.hpp, nodes/ground_estimator_cpp/src/, nodes/ground_estimator_cpp/include/ground_estimator_cpp/, nodes/ground_estimator_cpp/test/core/, nodes/ground_estimator_cpp/config/ground_estimator.yaml, ansible/group_vars/client.yml, nodes/ground_estimator_cpp/README.md]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--ground-estimator-live-scene
 branch: drivable-ground-tof-filterin--ground-estimator-live-scene
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # Ground estimator live scene fixes
@@ -113,3 +114,7 @@ threshold, run 4's replay tests unchanged and green; README `## Live scene accep
   fixtures already. The box is exactly 5 cm; reading 3.4-3.5 cm at pan -30 is under-reading by 1.5 cm, which a
   2 deg plane tilt explains at about 0.6 m: check the plane first.
 - `nodes/ground_estimator_cpp/src/` covers `src/core/*.cpp` and `src/ground_node.cpp`.
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/ground-live-acceptance-on-d4
+
+- 2026-10-27 actuals: no agent records
