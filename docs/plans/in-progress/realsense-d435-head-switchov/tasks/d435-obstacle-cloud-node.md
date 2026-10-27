@@ -1,6 +1,6 @@
 ---
 title: D435 obstacle cloud node
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The robot gets a 3D obstacle cloud from the D435 depth, the input of the self-filter, Nav2 and ground estimation."
 files: [ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml, nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml, tests/test_tof_obstacle_cloud_config.py, tests/test_d435_obstacle_cloud_config.py, tests/test_ansible_deploy_speed.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_d435_obstacle_cloud_config.py tests/test_ansib
 depends_on: [d435-node-type-and-profile, d435-frames-on-the-head-urdf]
 model: opus
 review: ""
-verified_head: ""
+verified_head: f53eef54
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 24
+actual_tokens: 3965457
+actual_roles: "impl 20, review 4"
+actual_role_tokens: "impl 3775301, review 190156"
 ---
 
 # D435 obstacle cloud node
@@ -67,3 +67,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
