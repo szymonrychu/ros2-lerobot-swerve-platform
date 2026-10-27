@@ -6,19 +6,17 @@ value: "The agent gets a compact, testable summary of nearby 3D obstacles and cl
 files: [nodes/mcp_server/mcp_server/perception.py, nodes/mcp_server/mcp_server/perception_models.py, nodes/mcp_server/tests/test_tof_obstacles.py]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_tof_obstacles.py tests/test_perception.py -q && uv run --frozen poe lint"
 depends_on: []
-owns: [tof-sector-summary]
-uses: []
 model: sonnet
-estimate: 45
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--tof-obstacle-sector-summary
-branch: worktree branch checked out in tof-3d-obstacle-detection-fo--tof-obstacle-sector-summary
 verified_head: c5b12f7f4d6f7a2263515df1e833688b61bad719
-run: tof-3d-obstacle-detection-fo
-provides: [tof-sector-summary, sector-indices]
-acs_for_audit: []
-process_gaps: []
+points: 3
+expected_minutes: 45
+expected_tokens: 2250000
+points_actual: ""
+actual_minutes: 2
+actual_tokens: 303376
+actual_roles: "impl 2, review 1"
+actual_role_tokens: "impl 202842, review 100534"
 ---
 
 # ToF obstacle sector summary

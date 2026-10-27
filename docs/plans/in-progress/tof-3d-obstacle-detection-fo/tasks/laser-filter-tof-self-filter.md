@@ -6,19 +6,17 @@ value: "The ToF cloud no longer contains the robot body, the arm or a carried ob
 files: [nodes/laser_filter/laser_filter/config.py, nodes/laser_filter/laser_filter/node.py, nodes/laser_filter/laser_filter/self_filter.py, nodes/laser_filter/config/footprint_filter.yaml, nodes/laser_filter/tests/test_cloud_filter.py, nodes/laser_filter/README.md, ansible/group_vars/client.yml, tests/test_nav_stack_config.py]
 verify: "cd nodes/laser_filter && uv run --frozen pytest tests -q && uv run --frozen poe lint && cd ../.. && uv run pytest tests/test_nav_stack_config.py tests/test_nav_footprint.py -q && uv run poe test-ansible"
 depends_on: [tof-obstacle-cloud-node]
-owns: [tof-points-filtered-topic]
-uses: [tof-points-topic]
 model: opus
-estimate: 75
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--laser-filter-tof-self-filter
-branch: tof-3d-obstacle-detection-fo--laser-filter-tof-self-filter
 verified_head: f8fde6c11babf46564892bf2cdaf7f25d10abf76
-run: tof-3d-obstacle-detection-fo
-provides: [tof-points-filtered-topic, cloud-self-mask]
-acs_for_audit: [a4]
-process_gaps: ["tests/README.md rows for test_laser_filter_ansible_wiring / polygon-keys test and nodes/laser_filter/pyproject.toml description not updated (implementer already routed these to the epic)"]
+points: 8
+expected_minutes: 75
+expected_tokens: 6000000
+points_actual: ""
+actual_minutes: 22
+actual_tokens: 4236773
+actual_roles: "impl 16, review 7"
+actual_role_tokens: "impl 3667997, review 568776"
 ---
 
 # Laser filter ToF self filter

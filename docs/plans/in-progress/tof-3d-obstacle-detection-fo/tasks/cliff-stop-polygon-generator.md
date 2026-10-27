@@ -6,19 +6,17 @@ value: The collision monitor gets a cliff guard area derived from the real footp
 files: [scripts/gen_nav_footprint.py, scripts/gen_nav_footprint.yaml, tests/test_nav_footprint.py, nodes/nav2_bringup/config/nav2_params.yaml, nodes/nav2_bringup/README.md, tests/README.md]
 verify: "uv run pytest tests/test_nav_stack_config.py tests/test_nav_footprint.py -q && uv run poe lint"
 depends_on: [laser-filter-tof-self-filter]
-owns: [cliffstop-polygon]
-uses: []
 model: sonnet
-estimate: 50
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--cliff-stop-polygon-generator
-branch: tof-3d-obstacle-detection-fo--cliff-stop-polygon-generator
 verified_head: 81f876d02257de7810085e9543b7a436bec02178
-run: tof-3d-obstacle-detection-fo
-provides: [cliffstop-polygon]
-acs_for_audit: [a5]
-process_gaps: []
+points: 5
+expected_minutes: 50
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 7
+actual_tokens: 409634
+actual_roles: "impl 1, review 6"
+actual_role_tokens: "impl 100783, review 308851"
 ---
 
 # Cliff stop polygon generator

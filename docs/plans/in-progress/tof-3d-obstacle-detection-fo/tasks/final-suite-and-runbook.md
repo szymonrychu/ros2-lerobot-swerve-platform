@@ -6,20 +6,17 @@ value: "Every suite is green, the ToF pipeline is wired consistently end to end,
 files: [tests/test_tof_obstacle_wiring.py, tests/README.md, scripts/node_cpu_compare.yaml, MEMORY.md]
 verify: "uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && uv run poe lint-cpp && (cd nodes/laser_filter && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)"
 depends_on: [web-ui-obstacle-points-layer, map-summary-tof-obstacles]
-owns: []
-uses: []
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--final-suite-and-runbook
-branch: tof-3d-obstacle-detection-fo--final-suite-and-runbook
 verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
-run: tof-3d-obstacle-detection-fo
-provides: []
-acs_for_audit: []
-process_gaps: ["The full verify command was not run by the implementer, so the report quotes no summary lines. Per the prompt, the full suite runs once over the integrated branch before merge."]
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
 points_actual: 1
+actual_minutes: 68
+actual_tokens: 935563
+actual_roles: "impl 7, review 62"
+actual_role_tokens: "impl 194145, review 741418"
 ---
 
 # Final suite and runbook

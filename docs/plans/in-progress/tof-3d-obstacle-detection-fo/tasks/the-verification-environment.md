@@ -6,17 +6,17 @@ value: "Without the pin, every task's verification fails at uv sync regardless o
 files: [.python-version]
 verify: ""
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-worktree: ""
-branch: ""
 verified_head: ""
-run: ""
-provides: []
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # The verification environment resolves uv to Python 3.15, which has no manifold3d wheel and fails on the tbb source build. Pin the Python version (a .python-version file with 3.12, or UV_PYTHON=3.12 in the verify step).

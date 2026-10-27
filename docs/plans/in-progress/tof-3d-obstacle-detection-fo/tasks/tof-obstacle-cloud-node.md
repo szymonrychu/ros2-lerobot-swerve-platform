@@ -6,19 +6,17 @@ value: "Real ToF frames become a small, decimated 3D point cloud on the Pi 5 tha
 files: [nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml, nodes/tof_obstacle_cloud/README.md, ansible/group_vars/client.yml, ansible/playbooks/deploy_nodes_client.yml, tests/test_tof_obstacle_cloud_config.py, tests/test_unit_cgroups.py, tests/README.md, nodes/README.md]
 verify: "uv run pytest tests/test_tof_obstacle_cloud_config.py tests/test_unit_cgroups.py -q && uv run poe lint && uv run poe test-ansible"
 depends_on: []
-owns: [tof-points-topic]
-uses: []
 model: sonnet
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--tof-obstacle-cloud-node
-branch: tof-3d-obstacle-detection-fo--tof-obstacle-cloud-node
 verified_head: eb4daa9d6fe41f1e2cbba45bb30a62186d177247
-run: tof-3d-obstacle-detection-fo
-provides: [tof-points-topic]
-acs_for_audit: [a3]
-process_gaps: []
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 6
+actual_tokens: 982892
+actual_roles: "impl 4, review 3"
+actual_role_tokens: "impl 806688, review 176204"
 ---
 
 # ToF obstacle cloud node

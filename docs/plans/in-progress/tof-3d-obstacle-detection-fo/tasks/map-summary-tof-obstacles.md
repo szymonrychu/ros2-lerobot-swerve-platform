@@ -6,19 +6,17 @@ value: The agent can ask get_map_summary what 3D obstacles and cliffs are near t
 files: [nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tool_context.py, nodes/mcp_server/mcp_server/perception_tools.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/fakes.py, nodes/mcp_server/tests/test_map_summary_tof.py, nodes/mcp_server/README.md, ansible/group_vars/client.yml]
 verify: "cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint && cd ../.. && uv run pytest tests/test_mcp_server_config.py -q"
 depends_on: [tof-obstacle-sector-summary, web-ui-obstacle-points-api]
-owns: []
-uses: [tof-sector-summary, tof-points-filtered-topic]
 model: sonnet
-estimate: 70
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--map-summary-tof-obstacles
-branch: tof-3d-obstacle-detection-fo--map-summary-tof-obstacles
 verified_head: 9ba93ff46cbb186c97942fc1e1538e7d9ffb275b
-run: tof-3d-obstacle-detection-fo
-provides: []
-acs_for_audit: [a3]
-process_gaps: []
+points: 5
+expected_minutes: 70
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Map summary ToF obstacles

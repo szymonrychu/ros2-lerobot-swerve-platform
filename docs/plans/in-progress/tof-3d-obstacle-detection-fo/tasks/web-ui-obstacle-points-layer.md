@@ -6,19 +6,17 @@ value: The operator can switch on a 3D obstacles view that shows what the ToF an
 files: [nodes/web_ui/frontend/src/types.ts, nodes/web_ui/frontend/src/map3d/obstaclePoints.ts, nodes/web_ui/frontend/src/map3d/obstaclePoints.test.ts, nodes/web_ui/frontend/src/map3d/layers.ts, nodes/web_ui/frontend/src/map3d/layers.test.ts, nodes/web_ui/frontend/src/map3d/sceneLayers.tsx, nodes/web_ui/frontend/src/tabs/MapNavTab.tsx, nodes/web_ui/frontend/src/hooks/subscription.ts]
 verify: "cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build"
 depends_on: [web-ui-obstacle-points-api]
-owns: []
-uses: [obstacle-points-payload]
 model: sonnet
-estimate: 70
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--web-ui-obstacle-points-layer
-branch: tof-3d-obstacle-detection-fo--web-ui-obstacle-points-layer
 verified_head: 05be88c263ac186466242023076ecd1d2778d533
-run: tof-3d-obstacle-detection-fo
-provides: []
-acs_for_audit: [a3]
-process_gaps: []
+points: 5
+expected_minutes: 70
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Web UI obstacle points layer

@@ -6,19 +6,17 @@ value: The web UI backend can stream the ToF obstacle cloud and the lidar points
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/msg_serializer.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_obstacle_points.py, nodes/web_ui/README.md]
 verify: "cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint && cd ../.. && uv run poe test-ansible"
 depends_on: [collision-monitor-tof-stop]
-owns: [obstacle-points-payload]
-uses: [tof-points-filtered-topic]
 model: sonnet
-estimate: 70
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--web-ui-obstacle-points-api
-branch: tof-3d-obstacle-detection-fo--web-ui-obstacle-points-api
 verified_head: 79b5cbbcd8a9406b233e1efca7e780904f203863
-run: tof-3d-obstacle-detection-fo
-provides: [obstacle-points-payload]
-acs_for_audit: [a5]
-process_gaps: []
+points: 5
+expected_minutes: 70
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Web UI obstacle points API

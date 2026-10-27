@@ -6,17 +6,17 @@ value: "This is the same parking wording the review flagged, but it predates thi
 files: [ansible/group_vars/client.yml]
 verify: ""
 depends_on: []
-owns: []
-uses: []
 model: ""
-estimate: ""
-actual: ""
 review: ""
-worktree: ""
-branch: ""
 verified_head: ""
-run: ""
-provides: []
+points: ""
+expected_minutes: ""
+expected_tokens: ""
+points_actual: ""
+actual_minutes: ""
+actual_tokens: ""
+actual_roles: ""
+actual_role_tokens: ""
 ---
 
 # Two other node memory comments in client.yml still say 'Not measured yet (C++ relay ...): MemoryLow is an estimate'.

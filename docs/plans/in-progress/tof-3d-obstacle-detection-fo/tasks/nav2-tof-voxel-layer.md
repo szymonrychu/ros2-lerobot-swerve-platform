@@ -6,19 +6,17 @@ value: 3D obstacles and cliffs seen by the head ToF appear in the local costmap 
 files: [nodes/nav2_bringup/config/nav2_params.yaml, ansible/group_vars/client.yml, tests/test_nav_tof_voxel_layer.py, tests/test_nav_stack_config.py, nodes/nav2_bringup/README.md, tests/README.md]
 verify: "uv run pytest tests/test_nav_tof_voxel_layer.py tests/test_nav_stack_config.py tests/test_nav_footprint.py -q && uv run poe lint && uv run poe test-ansible"
 depends_on: [cliff-stop-polygon-generator]
-owns: []
-uses: [tof-points-filtered-topic]
 model: opus
-estimate: 60
-actual: ""
 review: ""
-worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/tof-3d-obstacle-detection-fo--nav2-tof-voxel-layer
-branch: tof-3d-obstacle-detection-fo--nav2-tof-voxel-layer
 verified_head: f1e210fb8532cc952db741b3e8940a7087b5612f
-run: tof-3d-obstacle-detection-fo
-provides: []
-acs_for_audit: [a3]
-process_gaps: ["The fix round changed tests/README.md and tests/test_nav_tof_voxel_layer.py (new guard test test_readme_tof_section_has_no_parking_wording) without tests.added naming them"]
+points: 5
+expected_minutes: 60
+expected_tokens: 3750000
+points_actual: ""
+actual_minutes: 12
+actual_tokens: 793301
+actual_roles: "impl 4, review 9"
+actual_role_tokens: "impl 414264, review 379037"
 ---
 
 # Nav2 ToF voxel layer
