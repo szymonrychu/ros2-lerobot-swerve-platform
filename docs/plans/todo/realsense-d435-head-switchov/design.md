@@ -407,7 +407,7 @@ Plan inputs from the briefs, each placed:
   the launch file and pins them.
 
 ## Open questions
-
+- Q1: Zoom (head_camera_cpp full-resolution crop) has no D435 equivalent: retire it with head_camera_cpp in mcp_server (get_camera_image zoom), web_ui click-to-zoom and marker_detector, rather than emulate it as a digital crop of the 640x360 D435 frame? [recommended: yes, retire it everywhere; mcp-zoom-retired, web-ui-zoom-route-retired and marker-detector-zoom-retired assume this]
 
 ## Irreversible operations in scope
 
