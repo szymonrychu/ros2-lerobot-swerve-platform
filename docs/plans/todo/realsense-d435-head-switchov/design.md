@@ -410,6 +410,7 @@ Plan inputs from the briefs, each placed:
 - Q1: Zoom (head_camera_cpp full-resolution crop) has no D435 equivalent: retire it with head_camera_cpp in mcp_server (get_camera_image zoom), web_ui click-to-zoom and marker_detector, rather than emulate it as a digital crop of the 640x360 D435 frame? [recommended: yes, retire it everywhere; mcp-zoom-retired, web-ui-zoom-route-retired and marker-detector-zoom-retired assume this]
 - Q2: Tool point: fit tool_offset_m in the plate solve as the fitted board pose composed with the clip's CAD board-to-jaw-tip offset (new config plate_mount.tool_in_board_m), so the 2026-10-10 tool point is re-done from the same D435 views? [recommended: yes; accepted only if the held-out tool error is under 5 mm, else the 2026-10-10 value stays and the report says so]
 - Q3: The superseded ToF tasks in drivable-ground-tof-filterin, tof-3d-obstacle-detection-fo, rgb-d-ground-estimation-and and tof-depth-fix-and-ground-noi are this epic's blockers (ticket.py file-overlap rule) and cannot be marked wontfix: may the orchestrator amend each superseded task (ticket.py amend) to a note pointing at the task here that replaces it and close those epics, after the independent tasks listed in design D15 finish? [recommended: yes]
+- Q4: If the D435 firmware reads below 5.17.3.10 at bring-up, flash it with rs-fw-update (unit stopped, flash backup with -b first) without a further stop? [recommended: yes; it is listed as an irreversible operation]
 
 ## Irreversible operations in scope
 
