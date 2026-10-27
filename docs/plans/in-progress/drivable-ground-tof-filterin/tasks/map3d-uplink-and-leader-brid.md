@@ -3,13 +3,13 @@ title: "map3d_uplink and leader_bridge (the static-peer Wi-Fi bridges) make bloc
 status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "This is a likely part of how Wi-Fi outages spread into the robot graph. To check at the live reproduction: does a blocked bridge stall same-host topics?"
-files: []
-verify: ""
+files: [docs/plans/in-progress/drivable-ground-tof-filterin/tasks/map3d-uplink-and-leader-brid.md]
+verify: "uv run poe test-ansible && uv run pytest tests -q -k 'map3d or leader_bridge'"
 depends_on: []
 model: ""
 review: ""
 verified_head: ""
-points: ""
+points: 3
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

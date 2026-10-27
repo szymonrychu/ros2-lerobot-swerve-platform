@@ -4,12 +4,12 @@ status: done
 repo: ros2-lerobot-sverve-platform
 value: "Without the pin, every task's verification fails at uv sync regardless of the code."
 files: [.python-version]
-verify: ""
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: ""
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

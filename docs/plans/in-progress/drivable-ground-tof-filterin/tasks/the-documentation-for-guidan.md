@@ -3,13 +3,13 @@ title: "The documentation for guidance.no_return.cell_min_share and clearance_ce
 status: done
 repo: ros2-lerobot-sverve-platform
 value: "Operators who tune these keys would get the wrong meaning. Those files belong to guidance-config-keys, not this task."
-files: []
-verify: ""
+files: [docs/plans/in-progress/drivable-ground-tof-filterin/tasks/the-documentation-for-guidan.md]
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: unknown
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

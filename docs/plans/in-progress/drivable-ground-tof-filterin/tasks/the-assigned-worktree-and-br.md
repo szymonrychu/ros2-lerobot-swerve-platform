@@ -3,13 +3,13 @@ title: The assigned worktree and branch drivable-ground-tof-filterin--guidance-n
 status: done
 repo: ros2-lerobot-sverve-platform
 value: "The orchestrator's tree creation for this task was skipped or failed. Other tasks may be dispatched against missing trees too."
-files: []
-verify: ""
+files: [docs/plans/in-progress/drivable-ground-tof-filterin/tasks/the-assigned-worktree-and-br.md]
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: ""
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

@@ -4,12 +4,12 @@ status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: It makes the full web_ui suite fail intermittently and has nothing to do with the map reset change.
 files: [nodes/web_ui/tests/test_named_maps.py]
-verify: ""
+verify: "cd nodes/web_ui && for i in 1 2 3 4 5; do uv run pytest tests/test_named_maps.py -q -p no:randomly || exit 1; done && uv run poe lint"
 depends_on: []
 model: ""
 review: ""
 verified_head: ""
-points: ""
+points: 2
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

@@ -4,12 +4,12 @@ status: done
 repo: ros2-lerobot-sverve-platform
 value: "CLAUDE.md requires tests/README.md to list and describe every test file, and H7 asks for it. This task's requirement names only the two code files, so committing the README is outside its file ownership."
 files: [tests/README.md]
-verify: ""
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: be91b0e2729712fd9fee128fcbcbee6daa8be3ec
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

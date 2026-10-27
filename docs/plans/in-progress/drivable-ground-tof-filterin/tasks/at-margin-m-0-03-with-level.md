@@ -3,13 +3,13 @@ title: "At margin_m 0.03 with level-gripper poses, the upper-arm capsule comes w
 status: done
 repo: ros2-lerobot-sverve-platform
 value: "Tier-2 poses that turn shoulder_pan right by 0.3-0.35 rad from a pan-0 base would be refused by PoseChecker. The pose set has to keep pan within about [-0.3, 0.2] or start from a different base pan."
-files: []
-verify: ""
+files: [docs/plans/in-progress/drivable-ground-tof-filterin/tasks/at-margin-m-0-03-with-level.md]
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: 60811e79aa9945e34dbad0e36e1376f3322a4756
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

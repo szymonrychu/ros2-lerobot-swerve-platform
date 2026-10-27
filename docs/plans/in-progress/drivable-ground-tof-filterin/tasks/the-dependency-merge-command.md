@@ -3,13 +3,13 @@ title: "The dependency merge command for costmap-nullable-heights was malformed:
 status: done
 repo: ros2-lerobot-sverve-platform
 value: A literal placeholder ended up in the merge command where the branch name should be.
-files: []
-verify: ""
+files: [docs/plans/in-progress/drivable-ground-tof-filterin/tasks/the-dependency-merge-command.md]
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: ""
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

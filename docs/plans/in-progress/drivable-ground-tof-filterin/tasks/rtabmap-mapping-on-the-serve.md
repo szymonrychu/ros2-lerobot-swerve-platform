@@ -3,13 +3,13 @@ title: "rtabmap_mapping on the server logged 'Did not receive data since 5 secon
 status: done
 repo: ros2-lerobot-sverve-platform
 value: The map3d uplink seems not to be feeding RTAB-Map even while the link is up.
-files: []
-verify: ""
+files: [docs/plans/in-progress/drivable-ground-tof-filterin/tasks/rtabmap-mapping-on-the-serve.md]
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: 8c90b001886329e16d37c81b7554295d3af5ca7f
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

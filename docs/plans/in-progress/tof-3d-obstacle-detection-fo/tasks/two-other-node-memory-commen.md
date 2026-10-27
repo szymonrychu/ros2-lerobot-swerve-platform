@@ -4,12 +4,12 @@ status: done
 repo: ros2-lerobot-sverve-platform
 value: "This is the same parking wording the review flagged, but it predates this task and belongs to other nodes' entries, so I left it alone."
 files: [ansible/group_vars/client.yml]
-verify: ""
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: ""
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

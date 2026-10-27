@@ -3,13 +3,13 @@ title: "tests/README.md has no entry for tests/test_arm_pose_check.py, and the h
 status: done
 repo: ros2-lerobot-sverve-platform
 value: "CLAUDE.md requires every test file and test to be documented in tests/README.md (H7 READMEs). Those files are not in this task's file list, and no plan task explicitly owns them."
-files: []
-verify: ""
+files: [docs/plans/in-progress/drivable-ground-tof-filterin/tasks/tests-readme-md-has-no-entry.md]
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: ""
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

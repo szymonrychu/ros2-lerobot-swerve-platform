@@ -3,13 +3,13 @@ title: "Main checkout has an accidental merge commit 560f9a53 on main; needs res
 status: done
 repo: ros2-lerobot-sverve-platform
 value: Caused by my merge command running outside a worktree after cd failed
-files: []
-verify: ""
+files: [docs/plans/in-progress/drivable-ground-tof-filterin/tasks/main-checkout-has-an-acciden.md]
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: []
 model: ""
 review: ""
 verified_head: ""
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""

@@ -4,12 +4,12 @@ status: done
 repo: ros2-lerobot-sverve-platform
 value: "The full ground_estimator_cpp suite reports 8 failures there. This task changed no node code, so they come from the merged base or from timing under load."
 files: [nodes/ground_estimator_cpp/test/test_node.cpp]
-verify: ""
+verify: "true  # delivered before the 2026-10-27 ticket migration"
 depends_on: [guidance-node-wiring]
 model: ""
 review: ""
 verified_head: e358f01af44ec6e19b191646d795e57257e376ce
-points: ""
+points: 1
 expected_minutes: ""
 expected_tokens: ""
 points_actual: ""
