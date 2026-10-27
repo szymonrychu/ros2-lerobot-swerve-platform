@@ -1,6 +1,6 @@
 ---
 title: Guidance live check and CPU
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Proof on the robot that the guidance works and what it costs on the Pi 5
 files: [docs/runbooks/ground-guidance.md, tests/test_ground_guidance_runbook.py, tests/README.md, scripts/ground_guidance_cpu.yaml, MEMORY.md]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--guidance-live-check-and-cpu
 branch: drivable-ground-tof-filterin--guidance-live-check-and-cpu
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # Guidance live check and CPU
@@ -88,3 +89,7 @@ The runbook with Scene, Procedure, Acceptance and Results (live numbers per scen
 Live task (D11). If the robot is unreachable, report it as a blocker naming the orchestrator/user; do not write numbers that were not measured. The CPU windows follow `docs/runbooks/client-cpu-budget.md` (Mimir keeps 1 day).
 
 - 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/monitoring-and-cpu-compare-o
+
+- 2026-10-27 actuals: no agent records
