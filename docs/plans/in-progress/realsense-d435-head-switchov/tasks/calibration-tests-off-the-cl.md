@@ -1,6 +1,6 @@
 ---
 title: Calibration tests off the CLI config
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The offline CLI can be deleted without breaking the shared calibration tests.
 files: [tests/test_head_rgbd_calib_core.py, tests/test_head_rgbd_calib_intrinsics.py, tests/test_head_rgbd_calib_extrinsics.py, tests/test_head_rgbd_calibrate_cli.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_head_rgbd_calib_core.py tests/test_head_rgbd_c
 depends_on: []
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: 20cefe6d
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 3
+actual_tokens: 573681
+actual_roles: "impl 3, review 1"
+actual_role_tokens: "impl 504697, review 68984"
 ---
 
 # Calibration tests off the CLI config
@@ -63,3 +63,5 @@ What is true and observable when the task is done.
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 
 - 2026-10-27 amended: drop an unrelated README pin from AC3
+
+- 2026-10-27 done
