@@ -86,3 +86,12 @@ Estimate: 3490 min | Actual: 0 min | Remaining estimate: 1195 min
 ## Review
 
 Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-27)
+
+Epic review 2026-10-27 (this session's integration branch, 18 commits over main).
+- Whole-diff review: no Act-on. Dropped: duplicate FASTRTPS_DEFAULT_PROFILES_FILE (systemd takes the node env, same as the shared profile); server bridges (server.yml has no ROS_STATIC_PEERS senders); rotate hold-stop (intended); runbook -30..+60 line (allows the recorded 45 deg).
+- Scope audit: gap 3 (ToF flying-pixel/amplitude intent not covered by D435 replacements) -> new task realsense-d435-head-switchov/d435-edge-and-flying-pixel-f. Dropped: gap 1 (auditor read pre-amend AC; amended a1 met; cause naming carried to nav2-live-check-on-d435 step 6); gap 2 (head-tilt a2 test name encodes a false premise - pan is also inverted; reviewer accepted test_head_pan_and_tilt_servos_are_mounted_reversed).
+- Full suite: one root failure (test_agent_skills unknown tools from the sightseeing skill) fixed in fbc95611; root 2167 passed, 9 skipped; lint, lint-nodes, test-ansible clean; laser_filter 67, mcp_server 2937, web_ui 1080, claude_agent 936, head_rgbd_calibration 407, frontend 1273 + tsc.
+- Verified heads backfilled from merge commits for 6 old tasks; 3 process-finding tasks (main-checkout-has-an-acciden, the-assigned-worktree-and-br, the-dependency-merge-command) point at the migration commit e6cdcaed (no recorded verification).
+- Superseded (D435 gate Q3): 11 ToF tasks + nav2-goal-across-the-scene + retro-fixes-live-check, each with a dated note naming its D435 replacement.
