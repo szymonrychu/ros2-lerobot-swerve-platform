@@ -1,6 +1,6 @@
 ---
 title: Capture gated recordings
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Real RGB-D replay data with the gate on, the test bed of the guided acceptance"
 files: [scripts/ground_replay_scenes.yaml, nodes/ground_estimator_cpp/test/data/replay_rgbd/, nodes/ground_estimator_cpp/test/test_replay.cpp, nodes/ground_estimator_cpp/README.md]
@@ -14,9 +14,10 @@ actual: ""
 review: ""
 worktree: /Users/szymonri/Documents/ros2-lerobot-sverve-platform/.claude/worktrees/drivable-ground-tof-filterin--capture-gated-recordings
 branch: drivable-ground-tof-filterin--capture-gated-recordings
-verified_head: ""
+verified_head: 1f35ad68592fa438d2e1cd10f76606bad24846ac
 run: ""
 provides: []
+points_actual: 1
 ---
 
 # Capture gated recordings
@@ -74,3 +75,7 @@ Live task (D11): the orchestrator deploys arducam_tof with the gate and confirms
 - 2026-10-22 amended: planner: builder check (run-4 metric names, tof frame keys, pair fixture cap, per-node CPU windows, probe subscriber)
 
 - 2026-10-22 amended: planner: umbrella re-plan (approval G2, D26): the retuned flying-pixel filter is deployed with the amplitude gate before the gated recordings; ndjson kept for the live filter check
+
+- 2026-10-27 done: superseded by realsense-d435-head-switchov/record-d435-ground-replay-fi
+
+- 2026-10-27 actuals: no agent records
