@@ -60,3 +60,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-27: head tilt range is now -30..+45 deg (drivable-ground head-tilt-range-widened); head_rgbd_calibration MAX_FLOOR_TILT_DEG = 30.0 and its README/yaml comments still cap the floor sweep at -30..30 - decide and align it here.
