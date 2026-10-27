@@ -67,3 +67,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28: ground-estimator-on-d435-inp fix round brought forward the client.yml ground_estimator_cpp config block (D435 keys) and the README config-key names to keep the root suite green; this task keeps the rest.
