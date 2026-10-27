@@ -1,6 +1,6 @@
 ---
 title: D435 frames on the head URDF
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Every node computes the D435 pose through the pan/tilt chain from one URDF.
 files: [nodes/web_ui/urdf/head.urdf, nodes/web_ui/tests/test_head_urdf.py, tests/test_head_state_publisher_config.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_head_urdf.py -q &&
 depends_on: []
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: 9c53078c
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 3
+actual_tokens: 596626
+actual_roles: "impl 2, review 1"
+actual_role_tokens: "impl 483554, review 113072"
 ---
 
 # D435 frames on the head URDF
@@ -63,3 +63,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-27 done
