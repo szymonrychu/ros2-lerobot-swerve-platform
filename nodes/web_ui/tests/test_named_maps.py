@@ -19,7 +19,7 @@ from web_ui import server
 from web_ui.config import AppConfig, TabConfig
 from web_ui.server import build_app
 
-SETTLE_S = 0.05
+WAIT_S = 5.0
 GOAL_TOPIC = "/goal"
 MAP_TOPIC = "/slam/map"
 NAV_ACTION = "/nav"
@@ -234,13 +234,27 @@ async def test_concurrent_identical_loads_share_one_command(client_factory: Any)
     bridge = make_bridge()
     pending: Future = Future()
     bridge.map_request_async.return_value = pending
-    async with client_factory(bridge) as client:
-        first = asyncio.create_task(client.post("/api/maps/load?tab=map", json={"name": "lab"}))
-        await asyncio.sleep(SETTLE_S)
-        second = asyncio.create_task(client.post("/api/maps/load?tab=map", json={"name": "lab"}))
-        await asyncio.sleep(SETTLE_S)
-        pending.set_result({"request_id": "x", "ok": True, "message": "loaded"})
-        r1, r2 = await asyncio.gather(first, second)
+    command_sent = asyncio.Event()
+    bridge.map_request_async.side_effect = lambda _command: (command_sent.set(), pending)[1]
+    coalesce_entries = 0
+    both_entered = asyncio.Event()
+    real_coalesce = server.coalesce
+
+    async def counting_coalesce(*args: Any, **kwargs: Any) -> Any:
+        nonlocal coalesce_entries
+        coalesce_entries += 1
+        if coalesce_entries == 2:
+            both_entered.set()
+        return await real_coalesce(*args, **kwargs)
+
+    with patch.object(server, "coalesce", counting_coalesce):
+        async with client_factory(bridge) as client:
+            first = asyncio.create_task(client.post("/api/maps/load?tab=map", json={"name": "lab"}))
+            await asyncio.wait_for(command_sent.wait(), WAIT_S)
+            second = asyncio.create_task(client.post("/api/maps/load?tab=map", json={"name": "lab"}))
+            await asyncio.wait_for(both_entered.wait(), WAIT_S)
+            pending.set_result({"request_id": "x", "ok": True, "message": "loaded"})
+            r1, r2 = await asyncio.gather(first, second)
     assert bridge.map_request_async.call_count == 1
     assert r1.status_code == r2.status_code == 200
 
