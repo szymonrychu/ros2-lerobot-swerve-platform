@@ -1,6 +1,6 @@
 ---
 title: RealSense D435 head switchover
-blockers: []
+blockers: ["Drivable ground, ToF filtering and head-from-arm calibration", ToF 3D obstacle detection for Nav2, RGB-D ground estimation and plane-relative obstacles, ToF depth fix and ground noise robustness after head remount]
 stage: build
 owner: ""
 repos: [ros2-lerobot-sverve-platform]
