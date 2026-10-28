@@ -1,7 +1,7 @@
 """Compute, store and apply the head floor fit (design D6, D7, D8).
 
 Layout under state_dir: floor_fit/<sid>/observations.json (written by the sweep) and
-floor_fit/<sid>/results/<rid>/{result.json, head_chain.json}. Applying copies head_chain.json into applied/ and adds a
+floor_fit/<sid>/results/<rid>/{result.json, head_chain.json, head.urdf}. Applying copies head_chain.json into applied/ and adds a
 head_chain key to applied/applied.json, which starts the apply path unit (it restarts head_state_publisher).
 """
 
@@ -21,9 +21,9 @@ from ros2_common.head_rgbd_calibration.floor_fit import FloorObservation, PlaneF
 from ros2_common.head_rgbd_calibration.urdf_text import (
     HEAD_CHAIN_FILE,
     Origin,
-    apply_overrides,
     head_chain_json,
     parse_head_chain,
+    rewrite_joint_origin,
 )
 
 from head_rgbd_calibration.apply import APPLIED_DIR, APPLIED_MARKER, NotApplicable, unit_state
@@ -36,6 +36,7 @@ from head_rgbd_calibration.store import (
     InvalidId,
     NotFound,
     SessionStore,
+    write_bytes_atomic,
     write_json_atomic,
 )
 
@@ -43,6 +44,7 @@ LOGGER = logging.getLogger(__name__)
 
 FLOOR_SESSION_ID_RE = re.compile(r"^floor-\d{8}-\d{6}(?:-\d+)?$", re.ASCII)
 RESULTS_DIR = "results"
+HEAD_URDF_FILE = "head.urdf"
 HEAD_CHAIN_KEY = "head_chain"
 NOTE_DATE_FORMAT = "%Y-%m-%d"
 SOURCE_FLOOR = "floor"
@@ -104,18 +106,40 @@ def result_ids(cfg: NodeConfig, sid: str) -> list[str]:
 
 
 def base_urdf(cfg: NodeConfig) -> str:
-    """The head URDF with the applied overrides (tof_joint and head chain).
+    """The head URDF with the applied head chain overrides (head_chain.json only).
 
     Args:
         cfg: Node config (head_urdf_file, state_dir).
 
     Returns:
-        URDF text; every override warning is logged.
+        URDF text; an unreadable or invalid head_chain.json is logged and skipped.
     """
-    text, warnings = apply_overrides(Path(cfg.head_urdf_file).read_text(), Path(cfg.state_dir) / APPLIED_DIR)
-    for warning in warnings:
-        LOGGER.warning("head override skipped: %s", warning)
-    return text
+    text = Path(cfg.head_urdf_file).read_text()
+    path = Path(cfg.state_dir) / APPLIED_DIR / HEAD_CHAIN_FILE
+    if not path.is_file():
+        return text
+    try:
+        data = json.loads(path.read_text())
+        return apply_head_chain(text, parse_head_chain(data), str(data.get("note", "")))
+    except (OSError, ValueError) as error:
+        LOGGER.warning("head override skipped: %s: %s", path, error)
+        return text
+
+
+def apply_head_chain(urdf_text: str, origins: dict[str, Origin], note: str) -> str:
+    """Rewrite each joint origin of a URDF.
+
+    Args:
+        urdf_text: Head URDF text.
+        origins: Origin per joint name.
+        note: Calibration comment written above each joint.
+
+    Returns:
+        The new URDF text.
+    """
+    for name, origin in origins.items():
+        urdf_text = rewrite_joint_origin(urdf_text, name, origin, note)
+    return urdf_text
 
 
 def read_observations(path: Path) -> tuple[list[FloorObservation], dict[str, Any]]:
@@ -167,14 +191,15 @@ def compute_floor(cfg: NodeConfig, sid: str, now: datetime) -> dict[str, Any]:
         The result.json content {id, session, created, passed, failed_limits, params, height_rms_mm, normal_rms_deg,
         observation_height_rms_mm, observation_normal_rms_deg, poses, skipped}: height_rms_mm and normal_rms_deg are
         the pose-mean RMS the limits apply to, the observation_* keys the per-observation RMS. head_chain.json is
-        written next to it only when the result passed.
+        written next to it (with head.urdf, the base URDF with the fitted origins) only when the result passed.
 
     Raises:
         InvalidId, NotFound: unknown or malformed session id.
     """
     session = existing_floor_session_dir(cfg, sid)
     observations, doc = read_observations(session / OBSERVATIONS_FILE)
-    fit = fit_head_chain_floor(observations, base_urdf(cfg), cfg.floor.fit)
+    urdf = base_urdf(cfg)
+    fit = fit_head_chain_floor(observations, urdf, cfg.floor.fit, sensor_frame=cfg.floor.sensor_frame)
     rid = SessionStore.new_result_id(now)
     body = fit.to_json()
     result = {
@@ -196,6 +221,7 @@ def compute_floor(cfg: NodeConfig, sid: str, now: datetime) -> dict[str, Any]:
         directory.mkdir(parents=True, exist_ok=True)
         chain_path = directory / HEAD_CHAIN_FILE
         chain_path.unlink(missing_ok=True)
+        (directory / HEAD_URDF_FILE).unlink(missing_ok=True)
         if fit.passed:
             origins = {**applied_chain_origins(Path(cfg.state_dir) / APPLIED_DIR), **fit.origins}
             note = (
@@ -205,6 +231,7 @@ def compute_floor(cfg: NodeConfig, sid: str, now: datetime) -> dict[str, Any]:
             tmp = directory / f"{TEMP_PREFIX}{HEAD_CHAIN_FILE}"
             tmp.write_text(head_chain_json(origins, note, sid, rid))
             os.replace(tmp, chain_path)
+            write_bytes_atomic(directory / HEAD_URDF_FILE, apply_head_chain(urdf, fit.origins, note).encode())
         write_json_atomic(directory / RESULT_FILE, result)
     return result
 

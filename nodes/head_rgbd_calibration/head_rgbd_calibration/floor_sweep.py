@@ -1,4 +1,4 @@
-"""Guided head sweep (design D5, D11): command a pan/tilt grid, wait for stillness, fit one ToF floor plane per cloud.
+"""Guided head sweep (design D5, D11): command a pan/tilt grid, wait for stillness, fit one D435 floor plane per cloud.
 
 Threads: `start`, `stop` and `state` run on HTTP threads; one worker thread runs the sweep; the subscription callbacks
 run on the ROS executor thread. `lock` guards the shared fields and is only held for short updates; the worker
@@ -46,6 +46,7 @@ ERROR = "error"
 REASON_NO_JOINT = "no joint state within max_stamp_dt_s"
 REASON_OFF_TARGET = "head not at the target at the cloud stamp"
 REASON_NO_PLANE = "no floor plane in the cloud"
+REASON_WRONG_FRAME = "cloud not in {frame}"
 REASON_NO_CLOUD = "no cloud within cloud_timeout_s"
 REASON_PARTLY_BLOCKED = "partly blocked: {found} of {clouds} clouds"
 POINT_FIELDS = ("x", "y", "z")
@@ -324,7 +325,7 @@ class FloorSweep:
             self.samples.append(sample)
 
     def on_cloud(self, msg: Any) -> None:
-        """Queue a ToF cloud; decoding happens on the worker thread."""
+        """Queue a D435 cloud; decoding happens on the worker thread."""
         with self.lock:
             self.cloud_seq += 1
             self.clouds.append((self.cloud_seq, stamp_ns(msg), msg))
@@ -422,8 +423,10 @@ class FloorSweep:
         tol = self.floor.reach_tol_deg
         if abs(math.degrees(sample.pan) - target[0]) > tol or abs(math.degrees(sample.tilt) - target[1]) > tol:
             return REASON_OFF_TARGET
+        if msg.header.frame_id != self.floor.sensor_frame:
+            return REASON_WRONG_FRAME.format(frame=self.floor.sensor_frame)
         points = np.asarray(point_cloud2.read_points_numpy(msg, field_names=POINT_FIELDS, skip_nans=True), dtype=float)
-        prior = predicted_floor(chain, sample.pan, sample.tilt, None)
+        prior = predicted_floor(chain, sample.pan, sample.tilt, None, self.floor.sensor_frame)
         plane = fit_plane(points, prior, self.floor.fit.plane, rng)
         if plane is None:
             return REASON_NO_PLANE
@@ -555,6 +558,7 @@ class FloorSweep:
             {
                 "session": run.session_id,
                 "created": run.created.isoformat(),
+                "sensor_frame": self.floor.sensor_frame,
                 "grid": [{"pose": i, "pan_deg": pan, "tilt_deg": tilt} for i, (pan, tilt) in enumerate(run.grid)],
                 "observations": run.observations,
                 "skipped": run.skipped,

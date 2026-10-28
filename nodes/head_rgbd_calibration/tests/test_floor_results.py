@@ -132,7 +132,7 @@ def put_applied(state: Path, **extra: Any) -> None:
         "session": "calib-20261019-120000",
         "result": "r-20261019-123045",
         "applied_at": "2026-10-19T12:31:00+00:00",
-        "files": ["tof_joint.json"],
+        "files": ["head_camera_calibration.yaml"],
         **extra,
     }
     (applied / "applied.json").write_text(json.dumps(marker))
@@ -230,7 +230,7 @@ def test_compute_rejects_bad_and_unknown_ids(cfg: NodeConfig, state: Path) -> No
         read_result(cfg, SID, "r-20200101-000000")
 
 
-def test_base_urdf_applies_tof_joint_and_head_chain(cfg: NodeConfig, state: Path) -> None:
+def test_base_urdf_applies_only_the_head_chain(cfg: NodeConfig, state: Path) -> None:
     applied = state / "applied"
     applied.mkdir()
     (applied / "head_chain.json").write_text(
@@ -241,7 +241,29 @@ def test_base_urdf_applies_tof_joint_and_head_chain(cfg: NodeConfig, state: Path
     )
     chain = UrdfChain.from_text(base_urdf(cfg))
     assert chain.origin(MOUNT)[0] == pytest.approx((0.1, 0.2, 0.9))
-    assert chain.origin("tof_joint")[0] == pytest.approx((0.01, 0.02, 0.03))
+    assert chain.origin("tof_joint") == UrdfChain.from_text(URDF_PATH.read_text()).origin("tof_joint")
+
+
+def test_result_has_no_tof_joint(cfg: NodeConfig, state: Path) -> None:
+    write_observations(state, SID)
+    result = compute_floor(cfg, SID, NOW)
+    assert result["passed"] is True, result["failed_limits"]
+    directory = state / "floor_fit" / SID / "results" / result["id"]
+    assert sorted(p.name for p in directory.iterdir()) == ["head.urdf", "head_chain.json", "result.json"]
+    assert not list(directory.glob("tof_joint*"))
+    chain = json.loads((directory / "head_chain.json").read_text())
+    assert "tof_joint" not in chain["joints"]
+    fitted = UrdfChain.from_text((directory / "head.urdf").read_text())
+    for name, joint in chain["joints"].items():
+        assert fitted.origin(name)[0] == pytest.approx(joint["xyz"], abs=1e-6)
+    assert fitted.origin("tof_joint") == UrdfChain.from_text(URDF_PATH.read_text()).origin("tof_joint")
+
+
+def test_failed_result_writes_no_head_urdf(cfg: NodeConfig, state: Path) -> None:
+    failing_state(state)
+    result = compute_floor(cfg, SID, NOW)
+    directory = state / "floor_fit" / SID / "results" / result["id"]
+    assert [p.name for p in directory.iterdir()] == ["result.json"]
 
 
 def test_apply_keeps_applied_keys_and_adds_record(cfg: NodeConfig, state: Path) -> None:
@@ -254,7 +276,7 @@ def test_apply_keeps_applied_keys_and_adds_record(cfg: NodeConfig, state: Path) 
     assert (applied / "head_chain.json").read_bytes() == source.read_bytes()
     marker = json.loads((applied / "applied.json").read_text())
     assert marker["session"] == "calib-20261019-120000"
-    assert marker["files"] == ["tof_joint.json"]
+    assert marker["files"] == ["head_camera_calibration.yaml"]
     record = {
         "session": SID,
         "result": result["id"],

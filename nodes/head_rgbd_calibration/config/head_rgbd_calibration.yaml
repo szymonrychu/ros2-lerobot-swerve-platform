@@ -74,7 +74,7 @@ floor:
   sensor_frame: d435_depth_optical_frame # frame of the cloud points the floor planes are fitted in
   command_frame_id: head_rgbd_calibration # header.frame_id of the commands
   pan_deg: [-30, -15, 0, 15, 30, 45] # pan grid, deg (-90..90); -60 sees the parked arm
-  tilt_deg: [20, 24, 28] # tilt grid, deg, + is down (each -30..30); near floor only
+  tilt_deg: [20, 24, 28] # tilt grid, deg, + is down (each -30..45); the D435 58 deg vertical FOV sees floor from 0.41-0.45 m out to 1.8 m at these tilts, 32+ sees floor under 0.4 m
   reach_tol_deg: 1.0 # a pose counts as reached within this of the target, deg (> 0)
   still_tol_deg: 0.2 # head still when the joint spread over still_window_s is under this, deg (> 0)
   still_window_s: 0.5 # window the stillness is judged over, s (> 0)

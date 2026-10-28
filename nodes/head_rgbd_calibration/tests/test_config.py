@@ -190,7 +190,7 @@ def test_floor_defaults_and_tilt_range() -> None:
 @pytest.mark.parametrize(
     "text",
     [
-        "floor:\n  tilt_deg: [12, 31]\n",
+        "floor:\n  tilt_deg: [12, 45.5]\n",
         "floor:\n  tilt_deg: [-30.5]\n",
         "floor:\n  tilt_deg: []\n",
         "floor:\n  pan_deg: []\n",
@@ -211,8 +211,8 @@ def test_floor_out_of_range_rejected(tmp_path: Path, text: str) -> None:
 
 def test_floor_tilt_range_edges_accepted(tmp_path: Path) -> None:
     path = tmp_path / "c.yaml"
-    path.write_text("floor:\n  tilt_deg: [-30, 30]\n")
-    assert load_config(path).floor.tilt_deg == [-30, 30]
+    path.write_text("floor:\n  tilt_deg: [-30, 45]\n")
+    assert load_config(path).floor.tilt_deg == [-30, 45]
 
 
 def test_still_capture_defaults() -> None:

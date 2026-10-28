@@ -226,7 +226,7 @@ that real responses have exactly the fixture's keys and value types.
 ## Head floor fit
 
 `head_rgbd_calibration/floor_sweep.py` (`FloorSweep`, design D5, D11) is the capture half of the floor-plane head chain fit
-(mount z, roll, pitch and the head_tilt tilt zero and roll from the ToF floor plane; the maths is
+(mount z, roll, pitch and the head_tilt tilt zero and roll from the D435 depth floor plane in `floor.sensor_frame`; the maths is
 `ros2_common.head_rgbd_calibration.floor_fit`). Clear a flat floor in front of the robot (a half-disc of about 1.8 m;
 robot level, not on blocks), then start the sweep. Only the head moves.
 
@@ -236,11 +236,11 @@ robot level, not on blocks), then start the sweep. Only the head moves.
   One sweep at a time, on a worker thread; a stop is `stop()`.
 - Grid: `floor.tilt_deg` rows, the `floor.pan_deg` direction alternating per row (serpentine); defaults pan
   -30..45 by tilt 20/24/28 deg down, 18 poses, about a minute (pan -60 sees the parked arm; tilt 12 sees the floor
-  2 m out, where a room floor is often not one plane). Each pose is a `sensor_msgs/JointState` (`head_pan`,
+  to 1.8 m, where a room floor is often not one plane). Each pose is a `sensor_msgs/JointState` (`head_pan`,
   `head_tilt`, radians, `header.frame_id` = `command_frame_id`), the same command as the web UI head tab. A pose counts
   once both joints are within `reach_tol_deg` of the target and still (spread under `still_tol_deg` over
   `still_window_s`); not within `move_timeout_s` it is skipped with `did not reach pan/tilt`.
-- After `settle_s` the next `clouds_per_pose` clouds stamped after the still time are fitted. A cloud takes the head
+- After `settle_s` the next `clouds_per_pose` clouds stamped after the still time are fitted. A cloud whose `header.frame_id` is not `floor.sensor_frame` is dropped and counted (`cloud not in <frame>`). A cloud takes the head
   pan/tilt of the joint state nearest its header stamp within `max_stamp_dt_s` (no such state: the cloud is dropped and
   counted); points are read with `sensor_msgs_py.point_cloud2.read_points_numpy(skip_nans=True)` and fitted with
   `floor_fit.fit_plane` against the plane the URDF predicts. A pose without a valid plane is skipped with its reason; a
@@ -253,34 +253,34 @@ robot level, not on blocks), then start the sweep. Only the head moves.
   `starting`, `running`, `done`, `stopped` or `error`.
 
 `floor` keys (all in the shipped YAML at their defaults): `joint_states_topic`, `command_topic`, `cloud_topic`,
-`command_frame_id`, `pan_deg` (each -90..90), `tilt_deg` (each -30..30, + is down), `reach_tol_deg`, `still_tol_deg`,
+`command_frame_id`, `pan_deg` (each -90..90), `sensor_frame`, `tilt_deg` (each -30..45, + is down, the head tilt range), `reach_tol_deg`, `still_tol_deg`,
 `still_window_s`, `move_timeout_s`, `settle_s`, `clouds_per_pose` (>= 1, default 10), `min_clouds_per_pose`
 (1..`clouds_per_pose`; absent or null: half of `clouds_per_pose`, rounded up, so 5 for 10 and 3 for 5),
 `cloud_timeout_s`, `max_stamp_dt_s` and `fit` (the shared `FloorFitConfig`: plane, limits, residual scales).
 
 Compute: `height_rms_mm` and `normal_rms_deg` are the RMS over the poses of the pose-mean residuals (the mean of a
 pose's observations against the chain) and the `max_height_rms_mm` / `max_normal_rms_deg` limits apply to them; the
-same pose gives plane normals about 1 deg apart cloud to cloud (structured ToF noise no chain explains), so a
+same pose gives plane normals about 1 deg apart cloud to cloud (depth noise no chain explains), so a
 per-observation limit could never pass. `observation_height_rms_mm` and `observation_normal_rms_deg` report the
 per-observation RMS; each pose has its signed pose-mean `height_residual_mm`, its pose-mean `normal_residual_deg` and
 the per-observation `observation_height_rms_mm` / `observation_normal_rms_deg`. `params` holds `mount_z_m`,
 `mount_roll_deg`, `mount_pitch_deg`, `tilt_zero_deg` and `tilt_roll_deg` (each value, sigma, urdf); the fitted
-`head_tilt` roll and pitch go into head_chain.json with the mount origin, the RGB-ToF extrinsic stays rigid.
+`head_tilt` roll and pitch go into head_chain.json with the mount origin, d435_joint stays as applied.
 
 Files:
 
 ```
-floor_fit/<sid>/observations.json   session, created, grid, observations, skipped, dropped (cloud drop counts by reason)
-floor_fit/<sid>/results/<rid>/      result.json and head_chain.json of a compute
+floor_fit/<sid>/observations.json   session, created, sensor_frame, grid, observations, skipped, dropped (cloud drop counts by reason)
+floor_fit/<sid>/results/<rid>/      result.json of a compute; head_chain.json and head.urdf when it passed (no tof_joint.json)
 applied/head_chain.json             the applied head chain override; applied.json gains head_chain {session, result, applied_at}
 ```
 
 Session ids are `floor-YYYYMMDD-HHMMSS` (`-N` when that second is taken). `observations.json` is written atomically when the
 sweep ends, also after a stop or an error (the poses done so far); each observation is `{pose, pan_rad, tilt_rad, normal,
-height_m, inliers, candidates, rms_m, stamp_ns}` (plane in `d435_depth_optical_frame`, the frame `fit_head_chain_floor` predicts the floor in) and each skip `{pose, pan_deg, tilt_deg, reason}`.
+height_m, inliers, candidates, rms_m, stamp_ns}` (plane in `floor.sensor_frame` = `d435_depth_optical_frame`, the frame `fit_head_chain_floor` predicts the floor in) and each skip `{pose, pan_deg, tilt_deg, reason}`.
 
-Limits: the head must see the floor (tilt 12..28 deg down, flat empty floor within 1.8 m); `/head/joint_states` and the
-`/tof/points` header stamps must share a clock (both are stamped by the robot); the sweep never drives anything but the head.
+Limits: the head must see the floor (tilt 20..28 deg down by default, flat empty floor 0.4..1.8 m out); `/head/joint_states` and the
+`/head/d435/points` header stamps must share a clock (both are stamped by the robot); the sweep never drives anything but the head.
 
 HTTP routes (proxied by the web UI under `/api/calibration/rgbd/`):
 

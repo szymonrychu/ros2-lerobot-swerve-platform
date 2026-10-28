@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 from ros2_common.head_rgbd_calibration.chain import UrdfChain
+from ros2_common.head_rgbd_calibration.floor_fit import predicted_floor
 
 from head_rgbd_calibration import floor_sweep
 from head_rgbd_calibration.config import FloorSweepConfig, NodeConfig
@@ -33,6 +34,10 @@ CLOUD_EVERY_TICKS = 2
 SPEED_DEG_S = 60.0
 START_DEG = (10.0, 5.0)
 RAYS = (30, 20)
+D435_DEPTH_FRAME = "d435_depth_optical_frame"
+D435_CLOUD_TOPIC = "/head/d435/points"
+MIN_FLOOR_RANGE_M = 0.4
+MAX_FLOOR_RANGE_M = 2.0
 SID_PATTERN = re.compile(r"^floor-\d{8}-\d{6}$")
 CHAIN = UrdfChain.from_text(URDF_TEXT)
 
@@ -95,6 +100,7 @@ class World:
         self.cloud_offsets: Callable[[int], float] = lambda _n: 0.0
         self.cloud_empty: Callable[[int, float, float], bool] = lambda _n, _pan, _tilt: False
         self.on_tick: Callable[[float], None] | None = None
+        self.cloud_frame = D435_DEPTH_FRAME
         self.cloud_count = 0
         self.ticks = 0
 
@@ -142,7 +148,7 @@ class World:
             self.cloud_count += 1
             cloud_cb(
                 SimpleNamespace(
-                    header=SimpleNamespace(stamp=self.stamp(stamp), frame_id="tof_optical_frame"),
+                    header=SimpleNamespace(stamp=self.stamp(stamp), frame_id=self.cloud_frame),
                     pan=self.pan,
                     tilt=self.tilt,
                     empty=empty,
@@ -473,3 +479,44 @@ def test_partly_blocked_pose_is_skipped(tmp_path: Path) -> None:
         (3, "partly blocked: 2 of 4 clouds"),
     ]
     assert {o["pose"] for o in data["observations"]} == {0, 2}
+
+
+def test_planes_in_the_d435_depth_frame(tmp_path: Path) -> None:
+    world = World()
+    sweep, node = make_sweep(tmp_path, world)
+    sid = run(sweep)
+    assert D435_CLOUD_TOPIC in {s.topic for s in node.created if getattr(s, "kind", "") == "sub"}
+    data = json.loads((sweep_dir(tmp_path, sid) / "observations.json").read_text())
+    assert data["sensor_frame"] == D435_DEPTH_FRAME
+    assert len(data["observations"]) == 8
+    for obs in data["observations"]:
+        normal, height = predicted_floor(CHAIN, obs["pan_rad"], obs["tilt_rad"], {}, D435_DEPTH_FRAME)
+        assert np.degrees(np.arccos(np.clip(np.dot(obs["normal"], normal), -1.0, 1.0))) < 0.5
+        assert obs["height_m"] == pytest.approx(height, abs=0.01)
+
+
+def test_cloud_in_another_frame_is_dropped(tmp_path: Path) -> None:
+    world = World()
+    world.cloud_frame = "tof_optical_frame"
+    sweep, _node = make_sweep(tmp_path, world)
+    sid = run(sweep)
+    data = json.loads((sweep_dir(tmp_path, sid) / "observations.json").read_text())
+    assert data["observations"] == []
+    assert len(data["skipped"]) == 4
+    assert set(data["dropped"]) == {f"cloud not in {D435_DEPTH_FRAME}"}
+    assert f"cloud not in {D435_DEPTH_FRAME}" in data["skipped"][0]["reason"]
+
+
+def test_default_tilts_keep_the_floor_in_d435_view() -> None:
+    """Every default tilt sees floor 0.4-2 m away through the D435 depth FOV (87 x 58 deg)."""
+    floor = FloorSweepConfig()
+    dirs = synthetic.ray_grid((60, 40))
+    for tilt in floor.tilt_deg:
+        pose = synthetic.sensor_pose(CHAIN, 0.0, math.radians(tilt), {})
+        down = dirs @ pose[:3, :3].T[:, 2]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ranges = np.where(down < 0, -pose[2, 3] / down, np.inf)
+        seen = ranges[np.isfinite(ranges)]
+        assert seen.size > 0
+        assert seen.min() >= MIN_FLOOR_RANGE_M - 0.01, f"tilt {tilt} sees floor closer than {MIN_FLOOR_RANGE_M} m"
+        assert (seen <= MAX_FLOOR_RANGE_M).any(), f"tilt {tilt} sees no floor within {MAX_FLOOR_RANGE_M} m"

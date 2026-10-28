@@ -54,12 +54,15 @@ DEFAULT_FLOOR_CLOUD_TOPIC = "/head/d435/points"
 DEFAULT_FLOOR_SENSOR_FRAME = "d435_depth_optical_frame"
 DEFAULT_FLOOR_COMMAND_FRAME_ID = "head_rgbd_calibration"
 DEFAULT_FLOOR_PAN_DEG = (-30.0, -15.0, 0.0, 15.0, 30.0, 45.0)
+# D435 depth FOV is 58 deg vertical: at these tilts the nearest floor in view is 0.41-0.45 m (above the 0.4 m floor
+# fit minimum) and the far edge reaches 1.8 m; tilt 32+ sees floor under 0.4 m, tilt 12 only 0.53 m and beyond.
 DEFAULT_FLOOR_TILT_DEG = (20.0, 24.0, 28.0)
 DEFAULT_FLOOR_CLOUDS_PER_POSE = 10
 MIN_CLOUDS_KEY = "min_clouds_per_pose"
 CLOUDS_KEY = "clouds_per_pose"
 MAX_FLOOR_PAN_DEG = 90.0
-MAX_FLOOR_TILT_DEG = 30.0
+MIN_FLOOR_TILT_DEG = -30.0  # head tilt range, + is down (drivable-ground head-tilt-range-widened)
+MAX_FLOOR_TILT_DEG = 45.0
 DEFAULT_ROBOT_MCP_URL = "http://127.0.0.1:18200/mcp"
 DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
 DEFAULT_ROBOT_BOARD_PARK_TOKEN_FILE = "/etc/ros2/mcp_server/board_park_token"
@@ -308,8 +311,8 @@ class FloorSweepConfig(StrictModel):
     @classmethod
     def check_tilt(cls, values: list[float]) -> list[float]:
         for value in values:
-            if abs(value) > MAX_FLOOR_TILT_DEG:
-                raise ValueError(f"tilt_deg value {value:g} is outside -{MAX_FLOOR_TILT_DEG:g}..{MAX_FLOOR_TILT_DEG:g}")
+            if not MIN_FLOOR_TILT_DEG <= value <= MAX_FLOOR_TILT_DEG:
+                raise ValueError(f"tilt_deg value {value:g} is outside {MIN_FLOOR_TILT_DEG:g}..{MAX_FLOOR_TILT_DEG:g}")
         return values
 
 
