@@ -1,6 +1,6 @@
 ---
 title: Head-arm calibration on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The D435 mount is solved from the trusted arm holding the board, with every pose in the D435's range."
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/head_arm_results.py, nodes/head_rgbd_calibration/head_rgbd_calibration/sequencer.py, shared/ros2_common/head_rgbd_calibration/arm_pose_check.py, nodes/head_rgbd_calibration/tests/test_head_arm_results.py, nodes/head_rgbd_calibration/tests/test_sequencer.py, nodes/head_rgbd_calibration/tests/test_arm_pose_set.py, tests/test_arm_pose_check.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv
 depends_on: [calibration-config-on-d435, calibration-library-d435-fra]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 27e3bb63
 points: 5
 expected_minutes: 57
 expected_tokens: 3750000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 45
+actual_tokens: 20728276
+actual_roles: "impl 38, review 7"
+actual_role_tokens: "impl 20380176, review 348100"
 ---
 
 # Head-arm calibration on D435
@@ -65,3 +65,5 @@ What is true and observable when the task is done.
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28 (from calibration-config-on-d435): head-arm stills store no CameraInfo and read head_camera_calibration.yaml, which is no longer written; head-arm must take the D435 factory intrinsics from CameraInfo stored with each still (CameraIntrinsics.from_camera_info).
 - 2026-10-28 (user): the board is the same 3D-printed 6x5 ChArUco (same dimensions as before), 4 mm thick; it is in front of the robot and the D435 head is mounted. Account for the 4 mm thickness where the board surface vs mount face matters (plate_mount / tool_in_board_m, board-plane depth bias).
+
+- 2026-10-28 done
