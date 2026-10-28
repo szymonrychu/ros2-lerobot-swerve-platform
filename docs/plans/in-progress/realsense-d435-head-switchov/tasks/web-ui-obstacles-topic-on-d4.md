@@ -1,6 +1,6 @@
 ---
 title: Web UI obstacles topic on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The 3D obstacles layer draws the D435 cloud.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_obstacle_points.py, nodes/web_ui/tests/test_map_nav.py, nodes/web_ui/tests/test_config.py, tests/test_nav_stack_config.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_obstacle_points.py
 depends_on: [web-ui-head-tab-config-on-d4, laser-filter-on-the-d435-clo, nav2-collision-sources-on-d4]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 23563773
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 25
+actual_tokens: 1461362
+actual_roles: "impl 17, review 9"
+actual_role_tokens: "impl 1288603, review 172759"
 ---
 
 # Web UI obstacles topic on D435
@@ -61,3 +61,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
