@@ -1,6 +1,6 @@
 ---
 title: D435 live bring-up and topic pin
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The D435 is proven on the real Pi 5 (USB3, firmware, power, 30 min soak) and its real topic names are pinned."
 files: [nodes/bridges/realsense_d435/config/topics.yaml, nodes/bridges/realsense_d435/config/realsense_d435.yaml, nodes/web_ui/urdf/head.urdf, tests/test_d435_topics.py, tests/test_d435_runbook.py, docs/runbooks/d435-switchover.md, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_d435_topics.py tests/test_d435_runbook.py test
 depends_on: [d435-node-type-and-profile, d435-udev-rule-via-node-depl, d435-diagnostics-script, d435-frames-on-the-head-urdf]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 2d1d0304
 points: 5
 expected_minutes: 57
 expected_tokens: 3750000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 80
+actual_tokens: 27967812
+actual_roles: "impl 66, review 14"
+actual_role_tokens: "impl 27319940, review 647872"
 ---
 
 # D435 live bring-up and topic pin
@@ -78,3 +78,5 @@ Context the implementer needs: pitfalls, existing code to reuse, decisions alrea
 - 2026-10-28 blocked: blocked: git push rejected (GitHub email privacy); deploy clones from GitHub. whoCanClear: user. Also needs user answers on PSU 3 A and board.
 
 - 2026-10-28 in-progress: unblocked 2026-10-28: push works, D435 progress merged to main at 9e44171c (user-approved mid-epic merge); PSU 3 A accepted by user
+
+- 2026-10-28 done: live: fw 5.17.3.10, 14.9 Hz colour/depth/aligned, 0 USB/driver errors over uptime; compressed/theora depth transports emit cv_bridge 16UC1 errors when subscribed (unconfirmed frame ids)
