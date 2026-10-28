@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: Ground estimation and the RGB-D stage run again on the robot.
 files: [ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, tests/test_ground_estimator_deploy.py, tests/test_cpp_cutover.py, tests/test_map3d_uplink_config.py, tests/test_unit_cgroups.py, tests/README.md]
 verify: "uv run pytest tests/test_head_rgbd_deploy.py tests/test_ground_estimator_deploy.py tests/test_cpp_cutover.py tests/test_map3d_uplink_config.py tests/test_unit_cgroups.py -q && uv run poe lint && uv run poe test-ansible"
-depends_on: [head-rgb-d-build-deps-cleanu, ground-estimator-on-d435-inp, laser-filter-on-the-d435-clo, d435-live-bring-up-and-topic, retire-arducam-tof-in-ansibl]
+depends_on: [head-rgb-d-build-deps-cleanu, ground-estimator-on-d435-inp, laser-filter-on-the-d435-clo, d435-live-bring-up-and-topic]
 model: opus
 review: ""
 verified_head: ""
