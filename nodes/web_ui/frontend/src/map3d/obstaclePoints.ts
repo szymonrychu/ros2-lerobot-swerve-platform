@@ -7,17 +7,17 @@ import * as THREE from 'three'
 import { decodeMap3dCloud } from './cloudDecode'
 import { SCENE_COLORS } from './palette'
 
-/** Map-frame height bands (metres above the floor), matching the Nav2 ToF layers (design D2/D5). */
+/** Map-frame height bands (metres above the floor), matching the Nav2 depth_voxel_layer marking sources depth_mark and depth_cliff_mark (nodes/nav2_bringup/config/nav2_params.yaml). */
 export const CLIFF_MAX_Z = -0.1
-export const OBSTACLE_MIN_Z = 0.06
+export const OBSTACLE_MIN_Z = 0.1
 export const OBSTACLE_MAX_Z = 0.6
 
 export const CLOUD_STRIDE = 3
 export const SCAN_STRIDE = 2
 
-export const TOF_CLIFF_COLOR = SCENE_COLORS.obstacleCliff
-export const TOF_OBSTACLE_COLOR = SCENE_COLORS.obstacle
-export const TOF_OTHER_COLOR = SCENE_COLORS.obstacleOther
+export const DEPTH_CLIFF_COLOR = SCENE_COLORS.obstacleCliff
+export const DEPTH_OBSTACLE_COLOR = SCENE_COLORS.obstacle
+export const DEPTH_OTHER_COLOR = SCENE_COLORS.obstacleOther
 export const LIDAR_COLOR = SCENE_COLORS.lidar
 
 export interface FramePose {
@@ -94,7 +94,7 @@ export function transformPoints(pts: ArrayLike<number>, pose: FramePose): Float3
 }
 
 /**
- * ToF cloud to map-frame positions.
+ * D435 depth cloud to map-frame positions.
  *
  * @param data - raw "cloud" topic value
  * @returns flat x, y, z in the map frame, or null for a malformed payload
@@ -122,16 +122,16 @@ export function scanToMapPoints(data: unknown): Float32Array | null {
 }
 
 /**
- * Per-point ToF colours by map-frame height: cliff (below the floor), obstacle band, everything else.
+ * Per-point D435 depth colours by map-frame height: cliff (below the floor), obstacle band, everything else.
  *
  * @param xyz - flat x, y, z in the map frame
  * @returns flat r, g, b (0..1), one triple per point
  */
-export function tofColors(xyz: ArrayLike<number>): Float32Array {
+export function depthColors(xyz: ArrayLike<number>): Float32Array {
   const out = new Float32Array(xyz.length)
-  const cliff = new THREE.Color(TOF_CLIFF_COLOR)
-  const obstacle = new THREE.Color(TOF_OBSTACLE_COLOR)
-  const other = new THREE.Color(TOF_OTHER_COLOR)
+  const cliff = new THREE.Color(DEPTH_CLIFF_COLOR)
+  const obstacle = new THREE.Color(DEPTH_OBSTACLE_COLOR)
+  const other = new THREE.Color(DEPTH_OTHER_COLOR)
   for (let i = 0; i < xyz.length; i += 3) {
     const z = xyz[i + 2]
     const c = z <= CLIFF_MAX_Z ? cliff : z >= OBSTACLE_MIN_Z && z <= OBSTACLE_MAX_Z ? obstacle : other

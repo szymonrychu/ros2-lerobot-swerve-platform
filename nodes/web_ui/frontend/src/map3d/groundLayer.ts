@@ -26,7 +26,7 @@ export const GROUND_EDGE_LEGEND: readonly (readonly [string, string])[] = [
   ['Obstacle edge', GROUND_COLORS.edgeObstacle],
   ['Warning edge', GROUND_COLORS.edgeWarning],
   ['Warning area (slow down)', GROUND_COLORS.warningFill],
-  ['No ToF return (caution)', GROUND_COLORS.noReturnFill],
+  ['No depth return (caution)', GROUND_COLORS.noReturnFill],
 ]
 
 const LABEL_COLOURS: readonly string[] = [

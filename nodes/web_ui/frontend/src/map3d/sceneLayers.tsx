@@ -26,7 +26,7 @@ import {
 import { mapPlacement } from './groundMath'
 import { buildLidarWalls, measuredColumnsFromCloud, type WallGrid } from './lidarWalls'
 import { MapLabel } from './MapLabel'
-import { cloudToMapPoints, LIDAR_COLOR, rgbdCloudToMap, scanToMapPoints, tofColors } from './obstaclePoints'
+import { cloudToMapPoints, depthColors, LIDAR_COLOR, rgbdCloudToMap, scanToMapPoints } from './obstaclePoints'
 import { SCENE_COLORS } from './palette'
 import { cropUvs, type TileCrop } from './tileSources'
 import { recordTileResult, tileFailureCaption, type TileResult, type TileResults } from './tileStatus'
@@ -470,7 +470,7 @@ function PointSet({
 }
 
 /**
- * 3D obstacles layer: ToF cloud (coloured by height band) and lidar scan points, both already carrying the pose of
+ * 3D obstacles layer: D435 depth cloud (coloured by height band) and lidar scan points, both already carrying the pose of
  * their sensor frame in the map frame. Malformed or cleared payloads draw nothing.
  */
 export const ObstaclePointsLayer = memo(function ObstaclePointsLayer({
@@ -482,9 +482,9 @@ export const ObstaclePointsLayer = memo(function ObstaclePointsLayer({
   scan: unknown
   visible: boolean
 }) {
-  const tof = useMemo(() => {
+  const depth = useMemo(() => {
     const xyz = visible ? cloudToMapPoints(cloud) : null
-    return xyz && xyz.length > 0 ? { positions: rosXyzToThree(xyz), colors: tofColors(xyz) } : null
+    return xyz && xyz.length > 0 ? { positions: rosXyzToThree(xyz), colors: depthColors(xyz) } : null
   }, [cloud, visible])
   const lidar = useMemo(() => {
     const xyz = visible ? scanToMapPoints(scan) : null
@@ -493,7 +493,7 @@ export const ObstaclePointsLayer = memo(function ObstaclePointsLayer({
   if (!visible) return null
   return (
     <>
-      {tof && <PointSet positions={tof.positions} colors={tof.colors} />}
+      {depth && <PointSet positions={depth.positions} colors={depth.colors} />}
       {lidar && <PointSet positions={lidar} color={LIDAR_COLOR} />}
     </>
   )

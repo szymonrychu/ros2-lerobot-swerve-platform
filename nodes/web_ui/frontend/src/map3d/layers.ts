@@ -53,7 +53,7 @@ export const LAYER_LABELS: Record<LayerKey, string> = {
   head: 'Head',
   pois: 'POIs',
   photos: 'Photos',
-  obstacles3d: '3D obstacles (ToF + lidar)',
+  obstacles3d: '3D obstacles (D435 + lidar)',
   map3dCloud: '3D map (measured)',
   headRgbd: 'Head RGB-D',
   ground: 'Ground',

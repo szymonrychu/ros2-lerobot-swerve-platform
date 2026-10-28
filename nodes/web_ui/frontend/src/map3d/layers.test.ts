@@ -116,7 +116,7 @@ describe('layer persistence', () => {
 
 describe('obstacles3d layer', () => {
   it('is labelled, off by default and depends on both obstacle topics', () => {
-    expect(LAYER_LABELS.obstacles3d).toBe('3D obstacles (ToF + lidar)')
+    expect(LAYER_LABELS.obstacles3d).toBe('3D obstacles (D435 + lidar)')
     expect(DEFAULT_LAYERS.obstacles3d).toBe(false)
     expect(parseLayerState(null).obstacles3d).toBe(false)
     expect(LAYER_TOPIC_FIELDS.obstacles3d).toEqual(['obstacle_cloud_topic', 'scan_points_topic'])

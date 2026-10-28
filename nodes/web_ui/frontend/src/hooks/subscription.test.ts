@@ -51,12 +51,12 @@ describe('subscribedTopics', () => {
 })
 
 describe('3D obstacles on demand', () => {
-  const m = { ...map, obstacle_cloud_topic: '/tof/points_filtered', scan_points_topic: '/scan_filtered' } as TabConfig
+  const m = { ...map, obstacle_cloud_topic: '/head/d435/points_filtered', scan_points_topic: '/scan_filtered' } as TabConfig
   it('requests both topics only while the layer is on', () => {
-    expect(subscribedTopics(cfg([m]), m)).not.toContain('/tof/points_filtered')
+    expect(subscribedTopics(cfg([m]), m)).not.toContain('/head/d435/points_filtered')
     expect(subscribedTopics(cfg([m]), m)).not.toContain('/scan_filtered')
     const on = subscribedTopics(cfg([m]), m, true)
-    expect(on).toEqual(expect.arrayContaining(['/tof/points_filtered', '/scan_filtered']))
+    expect(on).toEqual(expect.arrayContaining(['/head/d435/points_filtered', '/scan_filtered']))
   })
   it('adds the map3d cloud topic only while the 3D map layer is on', () => {
     const m3 = { ...map, map3d_cloud_topic: '/map3d/cloud' } as TabConfig

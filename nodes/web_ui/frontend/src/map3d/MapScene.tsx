@@ -80,7 +80,7 @@ export interface MapSceneProps {
   onArmReady: (ready: boolean) => void
   map: GridImageMsg | null | undefined
   costmap: GridImageMsg | null | undefined
-  /** Raw ToF cloud and lidar scan payloads (with frame_pose) of the 3D obstacles layer. */
+  /** Raw D435 depth cloud and lidar scan payloads (with frame_pose) of the 3D obstacles layer. */
   obstacleCloud?: unknown
   scanPoints?: unknown
   /** Raw map3d_cloud payload, the tab's map3d_frame_id and the lidar wall height. */

@@ -191,7 +191,7 @@ describe('no_return areas', () => {
     expect(GROUND_COLORS.noReturnFill).not.toBe(GROUND_COLORS.mismatch)
     expect(warningAreaColour('no_return')).toBe(GROUND_COLORS.noReturnFill)
     expect(warningAreaColour('step')).toBe(GROUND_COLORS.warningFill)
-    expect(GROUND_EDGE_LEGEND).toContainEqual(['No ToF return (caution)', GROUND_COLORS.noReturnFill])
+    expect(GROUND_EDGE_LEGEND).toContainEqual(['No depth return (caution)', GROUND_COLORS.noReturnFill])
     const polys = warningPolygons(state({ warnings: [noReturn, step] } as unknown as Partial<GroundState>))
     expect(polys.map((w) => warningAreaColour(w.kind))).toEqual([GROUND_COLORS.noReturnFill, GROUND_COLORS.warningFill])
   })

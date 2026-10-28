@@ -8,7 +8,7 @@ import {
   rgbdCloudToMap,
   parsePointsPayload,
   scanToMapPoints,
-  tofColors,
+  depthColors,
   type PointsPayload,
 } from './obstaclePoints'
 
@@ -18,7 +18,7 @@ const IDENTITY = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
 const YAW90 = { x: 1, y: 2, z: 0.5, qx: 0, qy: 0, qz: Math.SQRT1_2, qw: Math.SQRT1_2 }
 
 function payload(points: number[], pose = IDENTITY): PointsPayload {
-  return { stamp: 1, frame: 'tof', points, frame_pose: pose }
+  return { stamp: 1, frame: 'd435_depth_optical_frame', points, frame_pose: pose }
 }
 
 describe('parsePointsPayload', () => {
@@ -67,9 +67,14 @@ describe('scanToMapPoints', () => {
   })
 })
 
-describe('tofColors', () => {
+describe('depthColors', () => {
+  it('uses the Nav2 depth_voxel_layer bands (nav2_params.yaml depth_mark, depth_cliff_mark)', () => {
+    expect(CLIFF_MAX_Z).toBe(-0.1)
+    expect(OBSTACLE_MIN_Z).toBe(0.1)
+    expect(OBSTACLE_MAX_Z).toBe(0.6)
+  })
   it('colours by height band: cliff, obstacle, other', () => {
-    const c = tofColors(new Float32Array([0, 0, CLIFF_MAX_Z - 0.01, 0, 0, OBSTACLE_MIN_Z + 0.01, 0, 0, OBSTACLE_MAX_Z + 0.2, 0, 0, 0]))
+    const c = depthColors(new Float32Array([0, 0, CLIFF_MAX_Z - 0.01, 0, 0, OBSTACLE_MIN_Z + 0.01, 0, 0, OBSTACLE_MAX_Z + 0.2, 0, 0, 0]))
     const rgb = (i: number) => Array.from(c.slice(i * 3, i * 3 + 3)).map((v) => Math.round(v * 1000))
     expect(c.length).toBe(12)
     expect(new Set([rgb(0).join(), rgb(1).join(), rgb(2).join()]).size).toBe(3)

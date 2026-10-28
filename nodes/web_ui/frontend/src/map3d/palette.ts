@@ -39,8 +39,8 @@ export const SCENE_COLORS = {
   free: '#fefefe',
   occupied: '#000000',
   unknown: '#cdcdcd',
-  obstacleCliff: TOKENS.error, // 3D obstacles layer: ToF below the floor (reuses the keepout hue)
-  obstacle: TOKENS.warning, // ToF in the 0.06-0.6 m obstacle band (reuses the slow-zone hue)
+  obstacleCliff: TOKENS.error, // 3D obstacles layer: D435 depth points below the floor (reuses the keepout hue)
+  obstacle: TOKENS.warning, // D435 depth points in the 0.10-0.6 m obstacle band (reuses the slow-zone hue)
   obstacleOther: '#8a8a8a',
   lidar: '#f2f2f2',
   map3dPoints: '#e6e6e6', // measured 3D map points without a colour
