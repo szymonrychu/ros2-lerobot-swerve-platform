@@ -1,6 +1,6 @@
 ---
 title: Map 3D obstacles layer on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The 3D view says what it shows: the D435 cloud and the lidar."
 files: [nodes/web_ui/frontend/src/map3d/layers.ts, nodes/web_ui/frontend/src/map3d/obstaclePoints.ts, nodes/web_ui/frontend/src/map3d/sceneLayers.tsx, nodes/web_ui/frontend/src/map3d/MapScene.tsx, nodes/web_ui/frontend/src/map3d/layers.test.ts, nodes/web_ui/frontend/src/map3d/obstaclePoints.test.ts, nodes/web_ui/frontend/src/hooks/subscription.test.ts]
@@ -8,15 +8,15 @@ verify: "cd nodes/web_ui/frontend && npx vitest run src/map3d/layers.test.ts src
 depends_on: [web-ui-obstacles-topic-on-d4]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 10cc77fe
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 21
+actual_tokens: 2267958
+actual_roles: "impl 20, review 12"
+actual_role_tokens: "impl 1972666, review 295292"
 ---
 
 # Map 3D obstacles layer on D435
@@ -64,3 +64,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
