@@ -76,7 +76,7 @@ the local costmap, then drive at the prop with a nav goal. Obstacle rule: max st
 - red sheet flat on the floor: `floor_colour_mismatch` labels in the web UI Ground layer and a colour warning area
   (slow-down, passable). Compare the fixed and the ground marks in the web UI local costmap with the layers toggled at
   runtime: `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false|true` and
-  `ros2 param set /local_costmap/local_costmap tof_voxel_layer.enabled false|true`; restore both to `true` afterwards.
+  `ros2 param set /local_costmap/local_costmap depth_voxel_layer.enabled false|true`; restore both to `true` afterwards.
 
 ## CPU and memory
 
@@ -118,11 +118,11 @@ The values equal `nodes/ground_estimator_cpp/config/ground_estimator.yaml` and t
 ## Switch-over checklist
 
 The criteria of the nav2_bringup README ("Switch-over criteria"), each with its measured result in Results. The switch-over
-itself (disabling `tof_mark` and `tof_cliff_mark` in `tof_voxel_layer`) is its own change after every result passes.
+itself (disabling `depth_mark` and `depth_cliff_mark` in `depth_voxel_layer`) is its own change after every result passes.
 
 1. Level-floor check passes: plane height within 1 cm, slope and plane_vs_base below 1 deg.
 2. The 3 cm sill, 5 cm sill, 10 cm drop at 1 m, box and ramp scenes mark as expected with `ground_voxel_layer` enabled and
-   `tof_voxel_layer` disabled at runtime.
+   `depth_voxel_layer` disabled at runtime.
 3. No false marks on the floor over a 5 min drive.
 4. CPU within the budget of the ground estimator (0.10 core) and Nav2 (+0.05 core) on the Pi 5.
 

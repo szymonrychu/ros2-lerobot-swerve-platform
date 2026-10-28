@@ -96,7 +96,7 @@ def test_floor_thresholds_and_scraper_workflow() -> None:
     assert "60 s" in floor
 
 
-def test_costmap_band_equals_nav2_tof_mark() -> None:
+def test_costmap_band_equals_nav2_depth_mark() -> None:
     """Part of test_runbook_values_equal_the_shipped_config."""
     params = yaml.safe_load(NAV2_PARAMS.read_text())
     layer = params["local_costmap"]["local_costmap"]["ros__parameters"]["depth_voxel_layer"]
@@ -105,6 +105,7 @@ def test_costmap_band_equals_nav2_tof_mark() -> None:
     costmap = section("Costmap")
     assert f"{band:.2f}" in costmap and "10 cm" in costmap
     assert "30 s" in costmap
+    assert "depth_voxel_layer" in costmap and "depth_mark" in costmap and "tof_voxel_layer" not in costmap
 
 
 def test_temporal_defaults_match_ground_estimator_config() -> None:
@@ -169,7 +170,7 @@ def test_tests_readme_lists_this_file() -> None:
 
 def test_runbook_values_equal_the_shipped_config() -> None:
     test_floor_thresholds_and_scraper_workflow()
-    test_costmap_band_equals_nav2_tof_mark()
+    test_costmap_band_equals_nav2_depth_mark()
     test_temporal_defaults_match_ground_estimator_config()
 
 

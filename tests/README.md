@@ -3405,7 +3405,7 @@ Static pins for `docs/runbooks/head-remount-floor-check.md`, the robot runbook a
 | `test_pan_direction_check` | +0.3 rad turns the head left (CCW), user confirms. |
 | `test_rezero_and_recalibration_reference_their_runbooks` | Links to servo-torque-neutral and head-rgbd-fusion; plane bias +-10 mm and the 40 mm limit. |
 | `test_floor_thresholds_and_scraper_workflow` | +-1 cm, 0.6 deg, 60 s, topic_scraper_collect.py, ground_temporal_cells. |
-| `test_costmap_band_equals_nav2_tof_mark` | The 0.10 band equals nav2_params.yaml depth_mark (depth_voxel_layer); 30 s clear check. |
+| `test_costmap_band_equals_nav2_depth_mark` | The 0.10 band equals nav2_params.yaml depth_mark (depth_voxel_layer) and the Costmap section names both; 30 s clear check. |
 | `test_temporal_defaults_match_ground_estimator_config` | Quoted cell size, window and min frames equal config/ground_estimator.yaml. |
 | `test_every_scripts_path_exists` | Every `scripts/` path (and `docs/` path) named exists. |
 | `test_results_section_has_a_check_table` | The Results table rows. |

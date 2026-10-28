@@ -165,7 +165,7 @@ def test_runbook_scenes_cover_both_sides_of_the_rule() -> None:
         "15 deg",
         "CliffStop",
         "ground_voxel_layer.enabled",
-        "tof_voxel_layer.enabled",
+        "depth_voxel_layer.enabled",
         "/speed_limit",
     ]:
         assert text in scenes, text
