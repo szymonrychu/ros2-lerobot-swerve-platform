@@ -8,15 +8,16 @@
 //   uint32 point_count, int16[point_count * 3] x y z mm in the cloud frame;
 //   uint32 imu_count, per sample: int64 stamp_ns, float64[10] orientation x y z w, linear_acceleration x y z,
 //   angular_velocity x y z (frame imu_link); float64[7] base_T_imu.
-// Version 2 appends the guidance section: the RGB and ToF camera models (float64[9] K, float64[5] D, uint32 width,
-// uint32 height, uint32 frame_len + frame id), uint32 pair_count, per pair int64 stamp_ns, float64[7] base_T_rgb,
-// float64[7] odom_T_base, uint32 jpeg_len + JPEG bytes, uint32 png_len + PNG bytes (16-bit depth, mm).
+// Version 2 appends the guidance section: the RGB and D435 depth camera models (float64[9] K, float64[5] D,
+// uint32 width, uint32 height, uint32 frame_len + frame id), uint32 pair_count, per pair int64 stamp_ns,
+// float64[7] base_T_rgb, float64[7] odom_T_base, uint32 jpeg_len + JPEG bytes, uint32 png_len + PNG bytes (16-bit
+// depth, mm).
 //
 // Metrics (D14, base_link, every one ignores points and areas with x < GRIPPER_X_MAX, the robot's parked gripper):
 // the frames counted are those at least WARM_UP_S after the first frame that the node answered with a plane.
 //   plane_share              answered frames / frames after the warm-up
 //   box_lethal_share         share of answered frames with an obstacle point in BOX_LETHAL_ROI
-//   box_warning_share        share of answered frames with a ToF step warning area whose polygon centroid (vertex
+//   box_warning_share        share of answered frames with a depth step warning area whose polygon centroid (vertex
 //                            mean) lies in BOX_LETHAL_ROI (the 5 cm box under the temporary 60 mm lethal step)
 //   board_lethal_frames      answered frames with an obstacle or drop point in BOARD_ROI
 //   stray_lethal_share       share of answered frames with an obstacle or drop point in the stray zone: x >= 0.37,
@@ -165,9 +166,9 @@ struct ReplayScene
   std::vector<ReplayImu> imu;
   Eigen::Isometry3d base_T_imu = Eigen::Isometry3d::Identity();  // base_link <- imu_link
   uint32_t version = REPLAY_VERSION;
-  std::optional<CameraModel> rgb_model;  // empty for version 1
-  std::optional<CameraModel> tof_model;  // empty for version 1
-  std::vector<ReplayPair> pairs;         // empty for version 1
+  std::optional<CameraModel> rgb_model;    // empty for version 1
+  std::optional<CameraModel> depth_model;  // empty for version 1
+  std::vector<ReplayPair> pairs;           // empty for version 1
 };
 using Replay = ReplayScene;
 
@@ -295,7 +296,7 @@ inline ReplayPair read_pair(ByteReader & in, uint32_t index)
 
 // Decode a replay binary (version 1 or 2).
 // @param bytes the file content.
-// @return the scene; rgb_model, tof_model and pairs are empty for version 1.
+// @return the scene; rgb_model, depth_model and pairs are empty for version 1.
 // @throws std::runtime_error on a wrong magic or an unknown version, a truncated section, a PNG that does not decode
 //         to 16-bit, or trailing bytes.
 inline ReplayScene decode_replay(const std::string & bytes)
@@ -346,7 +347,7 @@ inline ReplayScene decode_replay(const std::string & bytes)
   scene.base_T_imu = in.pose();
   if (version == REPLAY_VERSION_PAIRS) {
     scene.rgb_model = read_camera_model(in);
-    scene.tof_model = read_camera_model(in);
+    scene.depth_model = read_camera_model(in);
     const uint32_t pairs = in.u32();
     for (uint32_t p = 0; p < pairs; ++p) {
       scene.pairs.push_back(read_pair(in, p));
@@ -485,14 +486,14 @@ inline double box_lethal_share(const std::vector<ReplayFrame> & frames)
   });
 }
 
-// @return the share of counted frames with a ToF step warning area centred in BOX_LETHAL_ROI.
+// @return the share of counted frames with a depth step warning area centred in BOX_LETHAL_ROI.
 inline double box_warning_share(const std::vector<ReplayFrame> & frames)
 {
   return share_of_frames(frames, [](const ReplayFrame & f) {
     for (const auto & a : areas_of(f)) {
       const Eigen::Vector2d c = centroid_in_base(a, f.base_T_warnings);
-      const bool tof_step = a["kind"] == "step" && a["source"] == "depth";
-      if (tof_step && c.x() >= GRIPPER_X_MAX && BOX_LETHAL_ROI.contains(c.x(), c.y())) {
+      const bool depth_step = a["kind"] == "step" && a["source"] == "depth";
+      if (depth_step && c.x() >= GRIPPER_X_MAX && BOX_LETHAL_ROI.contains(c.x(), c.y())) {
         return true;
       }
     }

@@ -19,15 +19,18 @@ Binary layout, little-endian, version 1:
     per IMU sample int64 stamp_ns, float64[10] orientation x y z w, linear_acceleration x y z, angular_velocity x y z
     base_T_imu     float64[7] x y z qx qy qz qw
 
-Version 2 (input with layout_version 2, the recorder npz of nodes/web_ui/web_ui/ground_recorder.py) writes the same
+Version 2 (input with layout_version 3, the D435 recorder npz of nodes/web_ui/web_ui/ground_recorder.py: the keys
+above plus rgb_K/rgb_D/rgb_size/rgb_frame, depth_K/depth_D/depth_size/depth_frame and the pair_* keys) writes the same
 sections with header version 2, then the guidance section:
     rgb model      float64[9] K, float64[5] D, uint32 width, uint32 height, uint32 frame_len + UTF-8 frame id
-    tof model      the same fields
+    depth model    the same fields, the D435 depth stream that produced the clouds
     pair_count     uint32
     per pair       int64 stamp_ns, float64[7] base_T_rgb, float64[7] odom_T_base, uint32 jpeg_len + JPEG bytes,
-                   uint32 png_len + PNG bytes (the upsampled depth, uint16 mm, lossless cv2.imencode(".png"))
+                   uint32 png_len + PNG bytes (the pair depth, uint16 mm, lossless cv2.imencode(".png"))
 Pairs inside the same trim window as the clouds are kept; pairs=False writes pair_count 0. A file above
-MAX_FIXTURE_BYTES (MAX_PAIR_FIXTURE_BYTES with pairs) is refused and nothing is written.
+MAX_FIXTURE_BYTES (MAX_PAIR_FIXTURE_BYTES with pairs) is refused and nothing is written. A recording of any other
+layout (layout 2 held the retired Arducam ToF model) is refused, and so is a layout-3 recording whose depth or RGB
+camera_info never arrived (size 0 x 0, K zeros).
 
 Usage:
     uv run python scripts/ground_replay_export.py <input.npz> <output.bin>   (one file, constants below)
@@ -44,6 +47,8 @@ import cv2
 import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict
+from ros2_common.camera_geometry import CameraIntrinsics, depth_to_points
+from scipy.spatial.transform import Rotation
 
 LOG = logging.getLogger("ground_replay_export")
 
@@ -53,18 +58,15 @@ MAGIC = b"GRNDRPLY"
 VERSION = 1  # the layout without guidance pairs
 VERSION_PAIRS = 2  # the layout with the guidance section
 LAYOUT_VERSION_KEY = "layout_version"
+LAYOUT_V1 = 1  # the 2026-10-22 recordings, no layout_version key
+LAYOUT_D435 = 3  # nodes/web_ui/web_ui/ground_recorder.py LAYOUT_VERSION
 MAX_FIXTURE_BYTES = 3_000_000  # cap of an export without pairs
 MAX_PAIR_FIXTURE_BYTES = 6_000_000  # cap of an export with pairs
 SCENES_CONFIG = Path(__file__).with_name("ground_replay_scenes.yaml")
 CAMERA_K_FIELDS = 9
 CAMERA_D_FIELDS = 5
+DISTORTION_MODEL = "plumb_bob"  # the 5 coefficients of a camera model
 PNG_EXT = ".png"
-RANSAC_INLIER_M = 0.01  # floor plane inlier distance
-RANSAC_ITERATIONS = 200
-RANSAC_MAX_POINTS = 50_000
-RANSAC_SEED = 0
-MM_PER_M = 1000.0
-TRUTH_KEYS = ("board", "ramp", "empty", "box")
 NS_PER_S = 1_000_000_000
 POSE_FIELDS = 7  # x y z qx qy qz qw
 IMU_FIELDS = 11  # stamp_ns plus 10 values
@@ -127,25 +129,12 @@ class FixtureEntry(BaseModel):
     pairs: bool = True
 
 
-class TofFramesEntry(BaseModel):
-    """One ToF frame subset of the scenes config."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    input: list[Path]
-    output: Path
-    every_n: int
-    max_frames: int
-    truth_yaml: Path
-
-
 class ScenesConfig(BaseModel):
     """scripts/ground_replay_scenes.yaml."""
 
     model_config = ConfigDict(extra="forbid")
 
     fixtures: list[FixtureEntry] = []
-    tof_frames: list[TofFramesEntry] = []
 
 
 @dataclass
@@ -163,7 +152,7 @@ class Replay:
         base_T_imu: base_link <- imu_link (np.ndarray, 7).
         version: file version, 1 or 2 (int).
         rgb_model: RGB camera model, None in version 1 (CameraModel | None).
-        tof_model: ToF camera model, None in version 1 (CameraModel | None).
+        depth_model: D435 depth camera model, None in version 1 (CameraModel | None).
         pairs: RGB-D pairs, empty in version 1 (list[ReplayPair]).
     """
 
@@ -177,7 +166,7 @@ class Replay:
     base_T_imu: np.ndarray
     version: int = VERSION
     rgb_model: CameraModel | None = None
-    tof_model: CameraModel | None = None
+    depth_model: CameraModel | None = None
     pairs: list[ReplayPair] = field(default_factory=list)
 
     def cloud(self, i: int) -> np.ndarray:
@@ -189,33 +178,51 @@ class Replay:
         return self.points_mm[self.offsets[i] : self.offsets[i + 1]]
 
 
-def camera_model(arrays: dict[str, np.ndarray], prefix: str, frame_key: str) -> CameraModel:
-    """Read one camera model of a layout-2 recording; an unset or shorter D is zero-padded to 5.
+def intrinsics_of(model: CameraModel) -> CameraIntrinsics:
+    """The shared camera_geometry intrinsics of a camera model.
+
+    :param model: the model (CameraModel).
+    :return: the intrinsics, plumb_bob distortion D (CameraIntrinsics).
+    :raises ValueError: when K is not finite or fx or fy is not positive.
+    """
+    return CameraIntrinsics.from_camera_info(model.width, model.height, model.K, model.D, DISTORTION_MODEL)
+
+
+def camera_model(arrays: dict[str, np.ndarray], prefix: str) -> CameraModel:
+    """Read one camera model of a layout-3 recording; an unset or shorter D is zero-padded to 5.
 
     :param arrays: the recording's arrays (dict[str, np.ndarray]).
-    :param prefix: "rgb" or "tof" (str).
-    :param frame_key: key of the frame id, "rgb_frame" or "tof_frame" (str).
+    :param prefix: "rgb" or "depth": the keys <prefix>_K, _D, _size and _frame (str).
     :return: the model (CameraModel).
-    :raises ValueError: when K is not 9 values or D has more than 5.
+    :raises ValueError: when K is not 9 values or D has more than 5, or when the model is empty because no
+        camera_info arrived during the recording (size 0 x 0, K zeros, no frame id).
     """
     k = np.asarray(arrays[f"{prefix}_K"], dtype=np.float64).ravel()
     d = np.asarray(arrays[f"{prefix}_D"], dtype=np.float64).ravel()
     if len(k) != CAMERA_K_FIELDS or len(d) > CAMERA_D_FIELDS:
         raise ValueError(f"{prefix} model needs K of {CAMERA_K_FIELDS} and D of at most {CAMERA_D_FIELDS} values")
     width, height = (int(v) for v in np.asarray(arrays[f"{prefix}_size"]).ravel())
-    return CameraModel(
+    model = CameraModel(
         K=k,
         D=np.concatenate([d, np.zeros(CAMERA_D_FIELDS - len(d))]),
         width=width,
         height=height,
-        frame_id=str(arrays[frame_key]),
+        frame_id=str(arrays[f"{prefix}_frame"]),
     )
+    empty = f"{prefix} camera model is empty (size {width} x {height}, K {k.tolist()}, frame {model.frame_id!r})"
+    if width <= 0 or height <= 0 or not model.frame_id:
+        raise ValueError(f"{empty}: no camera_info arrived during the recording; re-record it")
+    try:
+        intrinsics_of(model)
+    except ValueError as err:
+        raise ValueError(f"{empty}: no valid camera_info arrived during the recording ({err}); re-record it") from err
+    return model
 
 
 def trim_pairs(arrays: dict[str, np.ndarray], lo: int, hi: int) -> list[ReplayPair]:
     """Keep the RGB-D pairs stamped in [lo, hi).
 
-    :param arrays: the layout-2 recording's arrays (dict[str, np.ndarray]).
+    :param arrays: the layout-3 recording's arrays (dict[str, np.ndarray]).
     :param lo: window start, ns (int).
     :param hi: window end, exclusive, ns (int).
     :return: the pairs in the window (list[ReplayPair]).
@@ -243,13 +250,21 @@ def trim(
 ) -> Replay:
     """Keep the clouds, IMU samples and pairs stamped inside the window after the first cloud.
 
-    :param arrays: the recording's arrays (dict[str, np.ndarray], keys as in the module docstring; a layout_version
-        of 2 adds the guidance keys of ground_recorder.py).
+    :param arrays: the recording's arrays (dict[str, np.ndarray], keys as in the module docstring; layout_version 3
+        adds the camera models and pairs of ground_recorder.py).
     :param start_s: window start after the first cloud, seconds (float).
     :param duration_s: window length, seconds (float).
-    :param pairs: keep the RGB-D pairs of a layout-2 recording (bool); False writes a pair count of 0.
-    :return: the trimmed recording, offsets rebuilt (Replay), version 2 for a layout-2 input.
+    :param pairs: keep the RGB-D pairs of a layout-3 recording (bool); False writes a pair count of 0.
+    :return: the trimmed recording, offsets rebuilt (Replay), version 2 for a layout-3 input.
+    :raises ValueError: on a layout other than 1 or 3 (layout 2 is the retired Arducam ToF recording), or a layout-3
+        recording without a depth or RGB camera model.
     """
+    layout = int(arrays.get(LAYOUT_VERSION_KEY, LAYOUT_V1))
+    if layout not in (LAYOUT_V1, LAYOUT_D435):
+        raise ValueError(
+            f"recording layout {layout} is not supported: the export reads layout {LAYOUT_D435} (the D435 ground "
+            f"recorder, depth_K/depth_D/depth_size/depth_frame); re-record it in layout {LAYOUT_D435}"
+        )
     stamps = np.asarray(arrays["stamps_ns"], dtype=np.int64)
     offsets = np.asarray(arrays["offsets"], dtype=np.int64)
     points = np.asarray(arrays["points_mm"], dtype=np.int16)
@@ -270,10 +285,10 @@ def trim(
         imu=imu[(imu_stamps >= lo) & (imu_stamps < hi)],
         base_T_imu=np.asarray(arrays["base_T_imu"], dtype=np.float64).reshape(POSE_FIELDS),
     )
-    if int(arrays.get(LAYOUT_VERSION_KEY, 1)) >= VERSION_PAIRS:
+    if layout == LAYOUT_D435:
         replay.version = VERSION_PAIRS
-        replay.rgb_model = camera_model(arrays, "rgb", "rgb_frame")
-        replay.tof_model = camera_model(arrays, "tof", "tof_frame")
+        replay.rgb_model = camera_model(arrays, "rgb")
+        replay.depth_model = camera_model(arrays, "depth")
         replay.pairs = trim_pairs(arrays, lo, hi) if pairs else []
     return replay
 
@@ -336,9 +351,9 @@ def encode(replay: Replay) -> bytes:
     imu["values"] = replay.imu[:, 1:]
     parts += [U32.pack(len(imu)), imu.tobytes(), replay.base_T_imu.astype(POSE_DTYPE).tobytes()]
     if replay.version == VERSION_PAIRS:
-        if replay.rgb_model is None or replay.tof_model is None:
-            raise ValueError("a version 2 replay needs the RGB and ToF models")
-        parts += [encode_model(replay.rgb_model), encode_model(replay.tof_model), U32.pack(len(replay.pairs))]
+        if replay.rgb_model is None or replay.depth_model is None:
+            raise ValueError("a version 2 replay needs the RGB and depth models")
+        parts += [encode_model(replay.rgb_model), encode_model(replay.depth_model), U32.pack(len(replay.pairs))]
         parts += [encode_pair(pair) for pair in replay.pairs]
     return b"".join(parts)
 
@@ -395,10 +410,10 @@ def decode(data: bytes) -> Replay:
     imu[:, 0] = records["stamp_ns"].astype(np.float64)
     imu[:, 1:] = records["values"]
     base_T_imu = np.frombuffer(take(POSE_FIELDS * POSE_DTYPE.itemsize), dtype=POSE_DTYPE).astype(np.float64)
-    rgb_model = tof_model = None
+    rgb_model = depth_model = None
     pairs: list[ReplayPair] = []
     if version == VERSION_PAIRS:
-        rgb_model, tof_model = take_model(), take_model()
+        rgb_model, depth_model = take_model(), take_model()
         (pair_count,) = U32.unpack(take(U32.size))
         for _ in range(pair_count):
             header = np.frombuffer(take(PAIR_HEADER.itemsize), dtype=PAIR_HEADER)[0]
@@ -430,7 +445,7 @@ def decode(data: bytes) -> Replay:
         base_T_imu=base_T_imu,
         version=version,
         rgb_model=rgb_model,
-        tof_model=tof_model,
+        depth_model=depth_model,
         pairs=pairs,
     )
 
@@ -458,10 +473,10 @@ def export(
     :param output_path: the .bin to write (Path).
     :param start_s: window start after the first cloud, seconds (float).
     :param duration_s: window length, seconds (float).
-    :param pairs: write the RGB-D pairs of a layout-2 recording (bool).
+    :param pairs: write the RGB-D pairs of a layout-3 recording (bool).
     :return: what was written (Replay).
-    :raises ValueError: when the file would exceed MAX_FIXTURE_BYTES (MAX_PAIR_FIXTURE_BYTES with pairs); nothing is
-        written then.
+    :raises ValueError: when the file would exceed MAX_FIXTURE_BYTES (MAX_PAIR_FIXTURE_BYTES with pairs), or the
+        recording is refused by trim; nothing is written then.
     """
     with np.load(input_path, allow_pickle=False) as npz:
         replay = trim({key: npz[key] for key in npz.files}, start_s, duration_s, pairs)
@@ -495,176 +510,26 @@ def load_scenes(path: Path = SCENES_CONFIG) -> ScenesConfig:
 
 
 def export_all(config: Path = SCENES_CONFIG) -> None:
-    """Export every fixture and ToF frame subset of a scenes config.
+    """Export every fixture of a scenes config.
 
     :param config: the scenes YAML (Path).
     """
-    scenes = load_scenes(config)
-    for entry in scenes.fixtures:
+    for entry in load_scenes(config).fixtures:
         export(entry.input, entry.output, entry.start_s, entry.duration_s, entry.pairs)
-    for frames in scenes.tof_frames:
-        export_tof_frames(frames.input, frames.output, frames.every_n, frames.max_frames, frames.truth_yaml)
 
 
-def truth_polygon(truth: dict, key: str) -> np.ndarray:
-    """Read one truth polygon as 4 xy corners.
+def depth_points_in_base(depth_mm: np.ndarray, model: CameraModel, base_T: np.ndarray) -> np.ndarray:
+    """Deproject a depth image of the depth model (z along the optical axis) into base_link, through
+    ros2_common.camera_geometry.depth_to_points (pinhole, distortion ignored: the D435 depth stream is rectified).
 
-    :param truth: the parsed truth YAML (dict); each polygon a list of 4 [x, y] corners.
-    :param key: board, ramp, empty or box (str).
-    :return: corners in base_link m (np.ndarray, 4 x 2).
-    :raises ValueError: when the polygon is missing or is not 4 xy corners.
-    """
-    if key not in truth:
-        raise ValueError(f"truth YAML has no '{key}' polygon")
-    corners = np.asarray(truth[key], dtype=np.float64)
-    if corners.shape != (4, 2):
-        raise ValueError(f"truth '{key}' must be 4 xy corners, got shape {corners.shape}")
-    return corners
-
-
-def inside_convex(points_xy: np.ndarray, polygon: np.ndarray) -> np.ndarray:
-    """Test points against a convex polygon, either winding.
-
-    :param points_xy: points (np.ndarray, N x 2).
-    :param polygon: corners in order (np.ndarray, K x 2).
-    :return: True where a point lies inside or on an edge (np.ndarray, N bool).
-    """
-    edges = np.roll(polygon, -1, axis=0) - polygon
-    rel = points_xy[:, None, :] - polygon[None, :, :]
-    cross = edges[None, :, 0] * rel[..., 1] - edges[None, :, 1] * rel[..., 0]
-    return (cross >= 0).all(axis=1) | (cross <= 0).all(axis=1)
-
-
-def quat_to_matrix(q: np.ndarray) -> np.ndarray:
-    """Rotation matrix of a quaternion x y z w.
-
-    :param q: quaternion (np.ndarray, 4).
-    :return: rotation (np.ndarray, 3 x 3).
-    """
-    x, y, z, w = q / np.linalg.norm(q)
-    return np.array(
-        [
-            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-        ]
-    )
-
-
-def depth_points_in_base(depth_mm: np.ndarray, k: np.ndarray, d: np.ndarray, base_T: np.ndarray) -> np.ndarray:
-    """Back-project a depth image (z along the optical axis) into base_link.
-
-    :param depth_mm: depth, 0 for no return (np.ndarray, H x W uint16).
-    :param k: camera matrix (np.ndarray, 9).
-    :param d: distortion coefficients (np.ndarray, 5).
+    :param depth_mm: depth, 0 for no return (np.ndarray, H x W uint16, mm).
+    :param model: the depth camera model, size matching the image (CameraModel).
     :param base_T: base_link <- optical frame x y z qx qy qz qw (np.ndarray, 7).
     :return: points of the valid pixels, m (np.ndarray, N x 3).
+    :raises ValueError: when the image size differs from the model or the model's K is invalid.
     """
-    v, u = np.nonzero(depth_mm)
-    z = depth_mm[v, u].astype(np.float64) / MM_PER_M
-    pixels = np.stack([u, v], axis=1).astype(np.float64).reshape(-1, 1, 2)
-    norm = cv2.undistortPoints(pixels, k.reshape(3, 3), d).reshape(-1, 2)
-    cam = np.column_stack([norm * z[:, None], z])
-    return cam @ quat_to_matrix(base_T[3:]).T + base_T[:3]
-
-
-def fit_plane(points: np.ndarray) -> np.ndarray:
-    """RANSAC plane (inlier distance RANSAC_INLIER_M) refined by a least-squares fit of the inliers.
-
-    :param points: points, m (np.ndarray, N x 3).
-    :return: nx ny nz d with n.p + d = 0, unit n with nz >= 0 (np.ndarray, 4).
-    :raises ValueError: with fewer than 3 points.
-    """
-    if len(points) < 3:
-        raise ValueError(f"floor plane needs at least 3 points, got {len(points)}")
-    rng = np.random.default_rng(RANSAC_SEED)
-    if len(points) > RANSAC_MAX_POINTS:
-        points = points[rng.choice(len(points), RANSAC_MAX_POINTS, replace=False)]
-    best = np.zeros(len(points), dtype=bool)
-    for _ in range(RANSAC_ITERATIONS):
-        a, b, c = points[rng.choice(len(points), 3, replace=False)]
-        normal = np.cross(b - a, c - a)
-        norm = np.linalg.norm(normal)
-        if norm < 1e-12:
-            continue
-        inliers = np.abs((points - a) @ (normal / norm)) <= RANSAC_INLIER_M
-        if inliers.sum() > best.sum():
-            best = inliers
-    if best.sum() < 3:
-        raise ValueError("no floor plane found among the points")
-    inlier_points = points[best]
-    centre = inlier_points.mean(axis=0)
-    normal = np.linalg.svd(inlier_points - centre)[2][-1]
-    if normal[2] < 0:
-        normal = -normal
-    return np.append(normal, -normal @ centre)
-
-
-def export_tof_frames(
-    input_npzs: list[Path], output_npz: Path, every_n: int, max_frames: int, truth_yaml: Path
-) -> None:
-    """Write a compressed npz of ToF depth + amplitude frames with the scene truth, for the amplitude gate and the
-    flying-pixel retune tests.
-
-    Every every_n-th frame of each input, at most max_frames // len(input_npzs) per input (the remainder goes to the
-    first inputs), so every scene is present. Keys: tof_depth_mm, tof_amplitude (F x H x W uint16), tof_base_T (F x 7),
-    tof_stamps_ns (F), tof_K (9), tof_D (5), tof_size (2), scene (F str, the recording name), truth_board,
-    truth_ramp, truth_empty, truth_box (4 x 2, base_link m), box_height_m (scalar) and floor_plane (4, n.p + d = 0 in
-    base_link: RANSAC at RANSAC_INLIER_M then least squares over the depth points whose xy lies in truth_empty).
-
-    :param input_npzs: layout-2 recordings with tof_* keys (list[Path]).
-    :param output_npz: the npz to write (Path).
-    :param every_n: keep every n-th frame (int).
-    :param max_frames: frame cap over all inputs (int).
-    :param truth_yaml: truth YAML with board, ramp, empty, box (4 xy corners each) and box_height_m (Path).
-    :raises ValueError: on inputs with differing camera models or no frames.
-    """
-    truth = yaml.safe_load(Path(truth_yaml).read_text())
-    polygons = {key: truth_polygon(truth, key) for key in TRUTH_KEYS}
-    quota, extra = divmod(max_frames, len(input_npzs))
-    depth, amp, base_t, stamps, scenes = [], [], [], [], []
-    model: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
-    for n, path in enumerate(input_npzs):
-        with np.load(path, allow_pickle=False) as npz:
-            this = (npz["tof_K"], npz["tof_D"], npz["tof_size"])
-            if model is not None and not all(np.array_equal(a, b) for a, b in zip(model, this, strict=True)):
-                raise ValueError(f"{path}: ToF camera model differs from the first input")
-            model = model or this
-            pick = np.arange(0, len(npz["tof_stamps_ns"]), every_n)[: quota + (1 if n < extra else 0)]
-            name = str(npz["name"]) if "name" in npz.files else Path(path).stem
-            depth.append(npz["tof_depth_mm"][pick])
-            amp.append(npz["tof_amplitude"][pick])
-            base_t.append(npz["tof_base_T"][pick])
-            stamps.append(npz["tof_stamps_ns"][pick])
-            scenes += [name] * len(pick)
-    if model is None or not scenes:
-        raise ValueError("no ToF frames selected")
-    k, d, size = model
-    d = np.concatenate([np.ravel(d), np.zeros(CAMERA_D_FIELDS)])[:CAMERA_D_FIELDS]
-    depth_all, base_all = np.concatenate(depth), np.concatenate(base_t)
-    floor = []
-    for frame, pose7 in zip(depth_all, base_all, strict=True):
-        pts = depth_points_in_base(frame, np.ravel(k), d, pose7)
-        floor.append(pts[inside_convex(pts[:, :2], polygons["empty"])])
-    output_npz.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        output_npz,
-        tof_depth_mm=depth_all.astype(np.uint16),
-        tof_amplitude=np.concatenate(amp).astype(np.uint16),
-        tof_base_T=base_all.astype(np.float64),
-        tof_stamps_ns=np.concatenate(stamps).astype(np.int64),
-        tof_K=np.ravel(k).astype(np.float64),
-        tof_D=d.astype(np.float64),
-        tof_size=np.ravel(size).astype(np.int64),
-        scene=np.asarray(scenes, dtype=str),
-        truth_board=polygons["board"],
-        truth_ramp=polygons["ramp"],
-        truth_empty=polygons["empty"],
-        truth_box=polygons["box"],
-        box_height_m=np.asarray(float(truth["box_height_m"])),
-        floor_plane=fit_plane(np.concatenate(floor)),
-    )
-    LOG.info("%d ToF frames of %d recordings -> %s", len(scenes), len(input_npzs), output_npz)
+    cam = depth_to_points(depth_mm, intrinsics_of(model))
+    return cam @ Rotation.from_quat(base_T[3:]).as_matrix().T + base_T[:3]
 
 
 def main() -> None:

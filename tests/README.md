@@ -3465,13 +3465,16 @@ README, Replay tests). Synthetic recordings with the real key layout are written
 | `test_export_round_trip` | A recording inside the window decodes (`read_replay`) back to the same cloud stamps, poses, points, IMU samples, `base_T_imu` and frame id. |
 | `test_export_trims_window` | Only clouds and IMU samples stamped in [first cloud + `START_S`, + `DURATION_S`) are kept; the offsets are rebuilt from the kept clouds. |
 | `test_read_rejects_wrong_magic` | A file without the `GRNDRPLY` magic is rejected with `ValueError`. |
-| `test_v2_round_trip_pairs` | A layout-2 recording gives a version-2 file; both camera models, the pairs (stamps, poses, JPEG bytes, lossless uint16 depth) and the v1 sections decode back unchanged. |
+| `test_layout3_depth_model_round_trips` | A layout-3 (D435 ground recorder) recording gives a version-2 file; the depth model (`depth_K`, `depth_D`, `depth_size`, `depth_frame`) in the slot of the old ToF model, the RGB model, the pairs (stamps, poses, JPEG bytes, lossless uint16 depth) and the v1 sections decode back unchanged. |
 | `test_v1_output_unchanged` | A layout-1 input still gives the version-1 file without models or pairs. |
+| `test_layout2_is_refused` | A layout-2 (Arducam ToF, `tof_*` keys) recording raises a `ValueError` naming layout 3 and writes nothing. |
+| `test_unknown_layout_is_refused` | A layout newer than 3 raises a `ValueError` naming layout 3 and writes nothing. |
+| `test_recording_without_camera_info_is_refused` | A layout-3 recording whose depth (or RGB) camera_info never arrived (size 0 x 0, K zeros, D empty, no frame, as the recorder writes it) is refused and nothing is written; parametrised over `depth` and `rgb`. |
 | `test_pairs_false_writes_zero_pairs` | `pairs=False` writes version 2 with both models and a pair count of 0. |
 | `test_fixture_size_cap` | An export above `MAX_FIXTURE_BYTES` / `MAX_PAIR_FIXTURE_BYTES` (3 MB / 6 MB) raises with the size and writes nothing. |
-| `test_scenes_config_validates` | `ground_replay_scenes.yaml` parses (pydantic), unknown keys are rejected, `export_all` writes every fixture. |
-| `test_export_tof_frames_subset` | `export_tof_frames` keeps every n-th frame per recording with the documented keys and dtypes, the truth polygons, `box_height_m`, and a floor plane within 2 mm of a synthetic floor. |
-| `test_tiny_v2_fixture_is_current` | `ground_estimator_cpp/test/data/replay/tiny_v2.bin` (3 clouds, 2 pairs) equals a fresh export of the synthetic recording (`UPDATE_TINY_V2=1` rewrites it). |
+| `test_scenes_config_validates` | `ground_replay_scenes.yaml` parses (pydantic), unknown keys (also the retired `tof_frames`) are rejected, `export_all` writes every fixture. |
+| `test_depth_points_in_base_matches_depth_to_points` | `depth_points_in_base` equals `ros2_common.camera_geometry.depth_to_points` on the depth model moved into base_link: a synthetic floor view lands on z = 0 within 2 mm, every valid pixel once, and a shift of the shared helper's points moves the result too. |
+| `test_tiny_v2_fixture_is_current` | `ground_estimator_cpp/test/data/replay/tiny_v2.bin` (3 clouds, 2 pairs, the `d435_depth_optical_frame` depth model) equals a fresh export of the synthetic layout-3 recording (`UPDATE_TINY_V2=1` rewrites it). |
 
 ### `test_ground_scene_truth.py`
 

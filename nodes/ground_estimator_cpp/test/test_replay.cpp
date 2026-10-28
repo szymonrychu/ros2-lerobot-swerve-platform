@@ -61,6 +61,7 @@ constexpr const char * MAP = "map";
 constexpr const char * ODOM = "odom";
 constexpr const char * BASE = "base_link";
 constexpr const char * TOF_FRAME = "tof_optical_frame";
+constexpr const char * DEPTH_FRAME = "d435_depth_optical_frame";  // tiny_v2 depth model and clouds
 constexpr const char * IMU_FRAME = "imu_link";  // frame of the recorded IMU samples (brief ground-live.md)
 constexpr const char * SCENES[] = {"home", "box", "ramp"};
 constexpr double MAX_STRAY_LETHAL_SHARE = 0.05;  // frames with a lethal point within 1.2 m outside the box (p95)
@@ -578,11 +579,11 @@ protected:
       const int64_t stamp_ns = cloud.stamp_ns + offset_ns;
       publish_pairs_until(stamp_ns - 1);
       sleep_until(stamp_ns);
-      if (scene.tof_model) {
+      if (scene.depth_model) {
         std_msgs::msg::Header header;
-        header.frame_id = scene.tof_model->frame;
+        header.frame_id = scene.depth_model->frame;
         header.stamp = stamp_of_ns(stamp_ns);
-        tof_info_pub_->publish(camera_info_of(*scene.tof_model, header));
+        tof_info_pub_->publish(camera_info_of(*scene.depth_model, header));
       }
       for (; next_imu < scene.imu.size() && scene.imu[next_imu].stamp_ns + offset_ns <= stamp_ns; ++next_imu) {
         publish_imu(scene.imu[next_imu], scene.imu[next_imu].stamp_ns + offset_ns);
@@ -714,14 +715,14 @@ TEST(ReplayReader, DecodesV2Pairs)
   EXPECT_EQ(scene.version, ground_replay::REPLAY_VERSION_PAIRS);
   EXPECT_EQ(scene.clouds.size(), 3u);
   ASSERT_TRUE(scene.rgb_model.has_value());
-  ASSERT_TRUE(scene.tof_model.has_value());
+  ASSERT_TRUE(scene.depth_model.has_value());
   EXPECT_EQ(scene.rgb_model->width, 16u);
   EXPECT_EQ(scene.rgb_model->height, 12u);
   EXPECT_EQ(scene.rgb_model->frame, "rgb_optical_frame");
   EXPECT_DOUBLE_EQ(scene.rgb_model->K[0], 30.0);
   EXPECT_DOUBLE_EQ(scene.rgb_model->D[4], 0.03);
-  EXPECT_EQ(scene.tof_model->frame, TOF_FRAME);
-  EXPECT_DOUBLE_EQ(scene.tof_model->K[4], 20.0);
+  EXPECT_EQ(scene.depth_model->frame, DEPTH_FRAME);
+  EXPECT_DOUBLE_EQ(scene.depth_model->K[4], 20.0);
   ASSERT_EQ(scene.pairs.size(), 2u);
   EXPECT_GT(scene.pairs[1].stamp_ns, scene.pairs[0].stamp_ns);
   for (const auto & pair : scene.pairs) {
@@ -743,7 +744,7 @@ TEST(ReplayReader, V1FixturesStillRead)
   const ReplayScene scene = ground_replay::read_replay(replay_path("home"));
   EXPECT_EQ(scene.version, ground_replay::REPLAY_VERSION);
   EXPECT_FALSE(scene.rgb_model.has_value());
-  EXPECT_FALSE(scene.tof_model.has_value());
+  EXPECT_FALSE(scene.depth_model.has_value());
   EXPECT_TRUE(scene.pairs.empty());
   EXPECT_GE(scene.clouds.size(), MIN_CLOUDS);
 }
@@ -1382,8 +1383,8 @@ TEST_F(Harness, PublishesPairsOfTinyV2)
   for (const auto & cloud : scene.clouds) {
     const auto tof = tof_info_in_.get(cloud.stamp_ns + offset_ns_);
     ASSERT_TRUE(tof);
-    EXPECT_EQ(tof->header.frame_id, scene.tof_model->frame);
-    EXPECT_DOUBLE_EQ(tof->k[4], scene.tof_model->K[4]);
+    EXPECT_EQ(tof->header.frame_id, scene.depth_model->frame);
+    EXPECT_DOUBLE_EQ(tof->k[4], scene.depth_model->K[4]);
   }
   // The derived XYZRGB cloud: at most 1 Hz, so the 2 pairs of the fixture give one or two; each in the RGB frame at
   // a pair stamp, with float x y z and a packed rgb.
