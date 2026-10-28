@@ -1572,6 +1572,7 @@ ros2_nodes:
         still_window_s: 0.5
         still_rgb_mad: 2.0 # mean abs difference between consecutive frames, 8-bit grey levels
         still_tof_mad: 0.01 # same, as a fraction of the amplitude range
+        still_depth_mad: 0.01 # D435 aligned depth, as a fraction of the median depth
         max_pair_dt_s: 0.05
         skip_start_s: 2.0 # focus lock settling
         amplitude_percentiles: [1.0, 99.0]
@@ -1587,6 +1588,9 @@ ros2_nodes:
         plane_max_bias_mm: 40.0
         plane_max_spread_mm: 50.0
         min_views: 12
+        intrinsics_max_rms_px: 0.5 # D435 intrinsics check against factory
+        intrinsics_max_focal_diff_pct: 1.0
+        intrinsics_max_principal_diff_px: 5.0
       # Guided head floor sweep (Head floor fit): the head only moves, then returns to where it started.
       floor:
         joint_states_topic: /head/joint_states # measured head pan/tilt
