@@ -370,9 +370,9 @@ Packages missing from the Jazzy apt distribution are built from a pinned git com
 
 **Ground estimator (`ground_estimator_cpp`).** Native C++ node type in `group_vars/client.yml` (`ros2 run ground_estimator_cpp ground_estimator_node`, config in `/etc/ros2/ground_estimator_cpp/config.yaml` via `GROUND_ESTIMATOR_CONFIG`) that fits the floor plane from the filtered head ToF cloud with the IMU prior and publishes `/ground/*` (obstacle and drop points, state, warning areas). It builds with colcon into `/opt/ros2-ws` (`ros2_common_cpp`, then the node; Release, `-j2`). It runs in the normal tier (`cpu_weight` / `io_weight` 500, `oom_score_adjust` -500) because it feeds the Nav2 local costmap; `memory_low` 48M / `memory_max` 256M are initial estimates; the sizing rule is the measured p50 for `memory_low` and 2x the measured peak for `memory_max`. Its `config: |` block holds the commented defaults of `nodes/ground_estimator_cpp/config/ground_estimator.yaml` and `metrics_port` 19119; `tests/test_ground_estimator_deploy.py` pins its topics, the IMU level reference, the slope limits (tilt_guard) and `wheel_radius_m` (swerve_controller) equal to their sources. Playbook step `Deploy ground_estimator_cpp` (tags: node name, `apt`, `build`, `config`) after `Deploy arducam_tof`, `Deploy head_rgbd_cpp` and `Deploy laser_filter`.
 
-**RGB-D fusion and ground estimate disabled (user 2026-10-24).** `head_rgbd_cpp` and `ground_estimator_cpp` are `present: true`, `enabled: false` in `group_vars/client.yml` (RGB-D pipeline off until the RealSense D435 replaces the head ToF); their metrics targets (19117, 19119) are removed from `monitoring_agent_node_targets` and come back with the node. `arducam_tof`, `tof_obstacle_cloud` and `head_camera_cpp` stay enabled: depth and the head image feed the agent's MCP tools only. Test: `tests/test_head_rgbd_deploy.py::test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed`.
+**RGB-D adapter and ground estimate enabled on the D435 (user 2026-10-28).** `head_rgbd_cpp` and `ground_estimator_cpp` are `present: true`, `enabled: true` in `group_vars/client.yml` (slope and obstacle estimation from the head D435) and scraped on 19117 and 19119. To fit the enabled `memory_low` sum under 2560 MiB, `arducam_tof` and `gripper_uvc_camera` stay `present: true` but are `enabled: false` and unscraped until their retirement makes them `present: false`; mcp_server's ToF depth summary (`/tof/points_filtered`) has no data until it reads the D435 cloud. `realsense_d435`, `d435_obstacle_cloud` and `head_camera_cpp` stay enabled. Test: `tests/test_head_rgbd_deploy.py::test_rgbd_and_ground_nodes_are_enabled`.
 
-**Arducam ToF camera (`arducam_tof`).** Native node type in `group_vars/client.yml` (`python3 -m arducam_tof` from `nodes/bridges/arducam_tof`, `src_shared: true` for `shared/ros2_metrics`, config in `/etc/ros2/arducam_tof/config.yaml` via `ARDUCAM_TOF_CONFIG`, normal cgroup tier, `memory_low` 64M / `memory_max` 192M). Its `ros2_nodes` entry is `present: true`, `enabled: true`: the camera sits on CSI cam1 (`csi_device: 1f00128000.csi`, resolved to its `csi2_ch0` video node at each open; `dtoverlay=arducam-pivariety,cam1` from `pi_camera_boot_config.yml`). The `config: |` block holds only keys the driver accepts (`metrics_port: 19112`, `csi_device` (or `camera_index`), `range_mode` near or far, `confidence_threshold`, `frame_id: tof_optical_frame`, `publish_rate_hz`, `stamp_latency_ms`, `tof_calibration_file` = the applied `tof_calibration.yaml` and `depth_is_radial: true` for the radial-to-z conversion); the driver rejects any other key. Topics are fixed in the driver: `/tof/depth/image_raw`, `/tof/amplitude/image_raw`, `/tof/camera_info` (read by the web UI head tab). Alloy scrapes it via `monitoring_agent_node_targets` (`127.0.0.1:19112`). Deploy: `./scripts/deploy-nodes.sh client arducam_tof`. See `nodes/bridges/arducam_tof/README.md`.
+**Arducam ToF camera (`arducam_tof`).** Native node type in `group_vars/client.yml` (`python3 -m arducam_tof` from `nodes/bridges/arducam_tof`, `src_shared: true` for `shared/ros2_metrics`, config in `/etc/ros2/arducam_tof/config.yaml` via `ARDUCAM_TOF_CONFIG`, normal cgroup tier, `memory_low` 64M / `memory_max` 192M). Its `ros2_nodes` entry is `present: true`, `enabled: false` (user 2026-10-28: memory room for the D435 ground nodes): the camera sits on CSI cam1 (`csi_device: 1f00128000.csi`, resolved to its `csi2_ch0` video node at each open; `dtoverlay=arducam-pivariety,cam1` from `pi_camera_boot_config.yml`). The `config: |` block holds only keys the driver accepts (`metrics_port: 19112`, `csi_device` (or `camera_index`), `range_mode` near or far, `confidence_threshold`, `frame_id: tof_optical_frame`, `publish_rate_hz`, `stamp_latency_ms`, `tof_calibration_file` = the applied `tof_calibration.yaml` and `depth_is_radial: true` for the radial-to-z conversion); the driver rejects any other key. Topics are fixed in the driver: `/tof/depth/image_raw`, `/tof/amplitude/image_raw`, `/tof/camera_info` (read by the web UI head tab). Alloy scrapes it via `monitoring_agent_node_targets` (`127.0.0.1:19112`) only while it is enabled; the target is removed while it is disabled. Deploy: `./scripts/deploy-nodes.sh client arducam_tof`. See `nodes/bridges/arducam_tof/README.md`.
 
 **Retired stereo nodes (`stereo_depth`, `stereo_depth_cpp`, D7).** The Pi's stereo pipeline never produced depth and saturated its CPU; its sources are deleted and nothing publishes `/stereo/*` any more (the Head tab shows the Arducam ToF). Both `ros2_nodes` entries are `present: false`, and their node types in `group_vars/client.yml` keep only `deploy_mode` and `node_launch_command` (what the uninstall path of `roles/ros2_node_deploy/tasks/main.yml` needs): `./scripts/deploy-nodes.sh client stereo_depth stereo_depth_cpp` stops and removes the units, launchers, venv and config directories. They have no tier, no memory figures and no metrics target. `map_guard_cpp` stays the one side-by-side C++ port: `node_src_dir: ""`, `src_paths: []` (the build stamp restarts it), `colcon_source` = the local `shared/ros2_common_cpp` package then `nodes/map_guard_cpp` (workspace `/opt/ros2-ws`, see above), launch `ros2 run map_guard_cpp map_guard_node`, config through `MAP_GUARD_CONFIG`, normal tier with map_guard's memory, an entry right after `map_guard` with an identical `config: |` block (so the same metrics port 19110: only one of the pair may run, `tests/test_node_metrics_wiring.py`), live since the cut-over, see [Cut-over and rollback](#cut-over-and-rollback). `tests/test_stereo_depth_config.py` pins the retirement.
 
@@ -490,8 +490,10 @@ estimate.
 | map_manager | sized like laser_filter (python node); no Mimir measurement available | 64M | 256M |
 | costmap_zones | not measured (initial values; re-measure in Mimir after 24 h) | 96M | 256M |
 | marker_detector | sized from opencv + numpy at 2 Hz on 4608x2592 stills (~36 MB per BGR frame, a few live copies); no Mimir measurement available | 128M | 512M |
-| gripper_uvc_camera (`uvc_camera`) | 66.7 / 68.2 | 72M | 256M |
+| gripper_uvc_camera (`uvc_camera`, disabled) | 66.7 / 68.2 | 72M | 256M |
 | arducam_tof (disabled) | no data (estimate from uvc_camera plus the SDK and numpy; re-measure once enabled) | 64M | 192M |
+| head_rgbd_cpp | not measured (sized from the 576x324 working set; re-measure in Mimir after 24 h) | 48M | 256M |
+| ground_estimator_cpp | not measured (re-measure in Mimir after 24 h) | 48M | 256M |
 | head_camera_cpp | sized from the retired pi_cameras unit (94.6 / 95.6 MiB, camera_ros, one camera) | 128M | 384M |
 | map3d_uplink | launch parent plus one container, sized at ~64 MiB p50 including the rtabmap shared libraries | 48M | 256M |
 | test_joint_api | 57.6 / 58.2 | 64M | 128M |
@@ -503,7 +505,7 @@ estimate.
 | haptic_controller (disabled) | no data | 48M | 128M |
 | realsense_d435i (retired) | no data | 128M | 512M |
 
-The enabled nodes protect **1672 MiB** in total: under a quarter of the 8 GB Pi 5, which leaves about 6.3 GB for the
+The enabled nodes protect **2520 MiB** in total (cap 2560 MiB, `tests/test_unit_cgroups.py`): under a third of the 8 GB Pi 5, which leaves about 5.5 GB for the
 OS, page cache, monitoring and unprotected work.
 
 ### Host slices (`playbooks/tasks/cgroup_headroom.yml`)
@@ -786,7 +788,7 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 | `filter_node` | 19102 | `metrics_port` |
 | `bno055_imu` | 19103 | `metrics_port` |
 | `gps_rtk_rover` | 19104 | `metrics_port` |
-| `gripper_uvc_camera` | 19105 | env `METRICS_PORT` |
+| `gripper_uvc_camera` (disabled: add its target when enabling) | 19105 | env `METRICS_PORT` |
 | `rplidar_a1` (scan supervisor) | 19106 | env `METRICS_PORT` |
 | `swerve_controller` | 19107 | `metrics_port` |
 | `rf2o_odom_relay` | 19108 | `metrics_port` |
@@ -794,6 +796,7 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 | `map_manager` | 19113 | `metrics_port` |
 | `map_guard` | 19110 | `metrics_port` |
 | `map_guard_cpp` (live; `map_guard` is the disabled rollback, never both enabled) | 19110 | `metrics_port` |
+| `head_rgbd_cpp` | 19117 | `metrics_port` |
 | `ground_estimator_cpp` | 19119 | `metrics_port` |
 | `costmap_zones` | 19111 | `metrics_port` |
 | `marker_detector` | 19118 | `metrics_port` |

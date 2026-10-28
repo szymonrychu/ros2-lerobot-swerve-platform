@@ -631,11 +631,6 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         "retirement-doc",
     ),
     ("tests/README.md", "^\\|\\ `test_deploy_script_rejects_the_jetson_target`\\ \\|\\ T", "retirement-doc"),
-    (
-        "tests/README.md",
-        "^\\|\\ `test_background_tier_holds_only_throttles_and_previews`\\ \\|\\ Among\\ running\\ nodes\\ the\\ background\\ tier\\ \\(100/100/0\\)\\ holds\\ only\\ the\\ two\\ joint\\-state\\ throttle\\ nodes\\ \\(the\\ stereo\\ nodes\\ are\\ r",
-        "retirement-doc",
-    ),
     ("tests/README.md", "^\\#\\#\\ test_jetson_retired\\.py", "retirement-doc"),
     ("tests/README.md", "^Retirement\\ pin\\ for\\ the\\ Jetson\\ coprocessor\\.\\ Ex", "retirement-doc"),
     ("tests/README.md", "^\\|\\ `test_jetson_bridge_entry_is_uninstalled_by", "retirement-doc"),
