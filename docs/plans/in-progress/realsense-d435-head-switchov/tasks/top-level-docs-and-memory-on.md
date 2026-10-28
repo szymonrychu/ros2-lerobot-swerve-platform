@@ -67,3 +67,4 @@ Context the implementer needs: pitfalls, existing code to reuse, decisions alrea
 - 2026-10-28: also update ansible/README.md (lines ~446, 468, 504 name realsense_d435i; describe the D435 udev step from d435-udev-rule-via-node-depl) and .claude/skills/ansible-deploy/SKILL.md node table (realsense_d435i, arducam_tof, head_camera_cpp, gripper_uvc_camera, tof_obstacle_cloud rows).
 - 2026-10-28: also docs/markers.md:96 and the ansible-deploy SKILL.md marker_detector row still name tof.* keys / "ToF plane"; marker_detector now uses depth_plane.* (marker-detector-on-d435).
 - 2026-10-28: nodes/README.md, docs/markers.md and the ansible-deploy skill still describe marker_detector zoom stills (retired by marker-detector-zoom-retired).
+- 2026-10-28: MEMORY.md:228 still names the collision sources tof_obstacles/tof_cliff (now depth_obstacles/depth_cliff) and the voxel layer tof_voxel_layer (now depth_voxel_layer).
