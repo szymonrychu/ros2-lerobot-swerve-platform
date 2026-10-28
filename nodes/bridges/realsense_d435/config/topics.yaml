@@ -1,0 +1,118 @@
+# Live /head/d435/* topics on the client, pinned by tests/test_d435_topics.py. Captured 2026-10-28 (D435 firmware
+# 5.17.3.10, realsense2_camera 4.58.4, the profile of realsense_d435.yaml) with scripts/d435_diag.sh --topics against
+# topic_scraper_api with allowed_types: [] for the capture (every type listed), and each topic's header frame_id read
+# from the scraper's latest sample. Not read by any node: it is the reference the configs are checked against.
+#
+# Per topic: type, frame_id (header frame of the live messages; head.urdf owns every frame, design D4) and node (the
+# ros2_nodes instance that publishes it). published: false marks a topic that is advertised but never carries a message.
+topics:
+  # Colour stream, 640x360 @ 15 (rgb8).
+  /head/d435/color/camera_info:
+    type: sensor_msgs/msg/CameraInfo
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  # Raw colour; its frame_id is the header its compressed, zstd and theora transports carried (the raw topic had no
+  # sample under the all-types capture load).
+  /head/d435/color/image_raw:
+    type: sensor_msgs/msg/Image
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  /head/d435/color/image_raw/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  # image_transport's compressedDepth plugin rejects rgb8: advertised, never published.
+  /head/d435/color/image_raw/compressedDepth:
+    type: sensor_msgs/msg/CompressedImage
+    frame_id: null
+    node: realsense_d435
+    published: false
+  /head/d435/color/image_raw/theora:
+    type: theora_image_transport/msg/Packet
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  /head/d435/color/image_raw/zstd:
+    type: sensor_msgs/msg/CompressedImage
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  /head/d435/color/metadata:
+    type: realsense2_camera_msgs/msg/Metadata
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  # Depth stream, 640x360 @ 15 (16UC1, mm).
+  /head/d435/depth/camera_info:
+    type: sensor_msgs/msg/CameraInfo
+    frame_id: d435_depth_optical_frame
+    node: realsense_d435
+  /head/d435/depth/image_rect_raw:
+    type: sensor_msgs/msg/Image
+    frame_id: d435_depth_optical_frame
+    node: realsense_d435
+  /head/d435/depth/image_rect_raw/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    frame_id: d435_depth_optical_frame
+    node: realsense_d435
+  /head/d435/depth/image_rect_raw/compressedDepth:
+    type: sensor_msgs/msg/CompressedImage
+    frame_id: d435_depth_optical_frame
+    node: realsense_d435
+  /head/d435/depth/image_rect_raw/theora:
+    type: theora_image_transport/msg/Packet
+    frame_id: d435_depth_optical_frame
+    node: realsense_d435
+  /head/d435/depth/image_rect_raw/zstd:
+    type: sensor_msgs/msg/CompressedImage
+    frame_id: d435_depth_optical_frame
+    node: realsense_d435
+  /head/d435/depth/metadata:
+    type: realsense2_camera_msgs/msg/Metadata
+    frame_id: d435_depth_optical_frame
+    node: realsense_d435
+  # Depth registered to the colour frame (align_depth.enable), 640x360 @ 15 (16UC1, mm).
+  /head/d435/aligned_depth_to_color/camera_info:
+    type: sensor_msgs/msg/CameraInfo
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  /head/d435/aligned_depth_to_color/image_raw:
+    type: sensor_msgs/msg/Image
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  /head/d435/aligned_depth_to_color/image_raw/compressed:
+    type: sensor_msgs/msg/CompressedImage
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  /head/d435/aligned_depth_to_color/image_raw/compressedDepth:
+    type: sensor_msgs/msg/CompressedImage
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  /head/d435/aligned_depth_to_color/image_raw/theora:
+    type: theora_image_transport/msg/Packet
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  /head/d435/aligned_depth_to_color/image_raw/zstd:
+    type: sensor_msgs/msg/CompressedImage
+    frame_id: d435_color_optical_frame
+    node: realsense_d435
+  # Static extrinsics (latched, no header).
+  /head/d435/extrinsics/depth_to_color:
+    type: realsense2_camera_msgs/msg/Extrinsics
+    node: realsense_d435
+  /head/d435/extrinsics/depth_to_depth:
+    type: realsense2_camera_msgs/msg/Extrinsics
+    node: realsense_d435
+  # On-chip calibration action of the driver (no goal sent).
+  /head/d435/triggered_calibration/_action/feedback:
+    type: realsense2_camera_msgs/action/TriggeredCalibration_FeedbackMessage
+    node: realsense_d435
+  /head/d435/triggered_calibration/_action/status:
+    type: action_msgs/msg/GoalStatusArray
+    node: realsense_d435
+  # Obstacle cloud from the depth image, and its footprint-filtered copy.
+  /head/d435/points:
+    type: sensor_msgs/msg/PointCloud2
+    frame_id: d435_depth_optical_frame
+    node: d435_obstacle_cloud
+  /head/d435/points_filtered:
+    type: sensor_msgs/msg/PointCloud2
+    frame_id: d435_depth_optical_frame
+    node: laser_filter

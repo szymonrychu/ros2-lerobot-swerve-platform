@@ -13,6 +13,8 @@ from ros2_common.head_rgbd_calibration.chain import (
 
 URDF_DIR = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf"
 OPTICAL_RPY = (-1.5707963, 0.0, -1.5707963)
+# d435_color_joint: the factory Color-to-Depth extrinsic of the head D435 in body axes (captured 2026-10-28).
+COLOR_JOINT = ((0.0001761, 0.0150171, -0.0000698), (0.0082621, -0.0014919, 0.0056971))
 CAMERA = "d435_color_optical_frame"
 ZERO_HEAD = {"head_pan": 0.0, "head_tilt": 0.0}
 DEFAULT_GAUGE = {"x": 0.0592, "y": -0.05, "z": 0.100, "yaw": 0.0}
@@ -37,7 +39,7 @@ def test_d435_colour_pose_at_zero_matches_urdf_origins(head: UrdfChain) -> None:
         translate(0.15, 0.10, 0.31)
         @ translate(0, 0, 0.04)
         @ translate(0.02, 0, 0)
-        @ translate(0, -0.015, 0)
+        @ pose_from_xyz_rpy(*COLOR_JOINT)
         @ pose_from_xyz_rpy((0, 0, 0), OPTICAL_RPY)
     )
     np.testing.assert_allclose(head.transform(CAMERA, ZERO_HEAD), expected, atol=1e-12)
@@ -58,7 +60,8 @@ def test_pan_left_and_tilt_down_signs(head: UrdfChain) -> None:
     assert np.arctan2(forward1[1], forward1[0]) - np.arctan2(forward0[1], forward0[0]) == pytest.approx(0.5)
     tilted = head.transform(CAMERA, {"head_pan": 0.0, "head_tilt": 0.3})
     assert tilted[2, 2] < -0.2
-    assert base[2, 2] == pytest.approx(0.0, abs=1e-4)
+    # Level at zero up to the factory colour pitch (-0.0014919 rad): the axis rises by -sin(pitch).
+    assert base[2, 2] == pytest.approx(-np.sin(COLOR_JOINT[1][1]), abs=1e-6)
 
 
 def test_origin_override_and_offsets(head: UrdfChain) -> None:

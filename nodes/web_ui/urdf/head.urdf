@@ -113,7 +113,7 @@
 
   <!-- Intel RealSense D435 on the head (design D4): the driver publishes no TF, this URDF owns every d435 frame.
        d435_joint xyz 0.02 0 0 is the CAD start at the old head unit's centre; the head-from-arm fit refines it.
-       d435_color_joint y -0.015 is nominal until the factory depth-to-colour extrinsic is captured at bring-up. -->
+       d435_link is the depth frame (left imager); d435_color_joint is the factory extrinsic, see its comment. -->
   <link name="d435_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -139,10 +139,14 @@
     <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
   </joint>
   <link name="d435_color_frame"/>
+  <!-- Factory Color-to-Depth extrinsic of the head D435 (device serial 935422070045, ASIC serial / firmware update id
+       935723024187), read 2026-10-28 by the device mode of scripts/d435_diag.sh (rs-enumerate-devices -c). Optical axes:
+       t = (-0.0150171, 0.0000698, 0.0001761) m; rotated to body axes (x = z_opt, y = -x_opt, z = -y_opt), as
+       realsense2_camera would publish it: the colour imager sits 15 mm to the camera's left (+y) of the left imager. -->
   <joint name="d435_color_joint" type="fixed">
     <parent link="d435_link"/>
     <child link="d435_color_frame"/>
-    <origin xyz="0 -0.015 0" rpy="0 0 0"/>
+    <origin xyz="0.0001761 0.0150171 -0.0000698" rpy="0.0082621 -0.0014919 0.0056971"/>
   </joint>
   <link name="d435_color_optical_frame"/>
   <joint name="d435_color_optical_joint" type="fixed">

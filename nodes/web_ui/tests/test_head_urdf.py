@@ -21,6 +21,9 @@ LIDAR_RADIUS = 0.035
 FOOTPRINT_LENGTH = 0.47
 FOOTPRINT_WIDTH = 0.386
 OPTICAL_RPY = (-1.5708, 0.0, -1.5708)
+# d435_color_joint: the factory Color-to-Depth extrinsic of the head D435 in body axes (captured 2026-10-28).
+D435_COLOR_XYZ = (0.0001761, 0.0150171, -0.0000698)
+D435_COLOR_RPY = (0.0082621, -0.0014919, 0.0056971)
 TOL = 1e-6
 PRIMITIVES = {"box", "cylinder", "sphere"}
 
@@ -139,7 +142,8 @@ def test_d435_chain_hangs_on_head_link(urdf: ET.Element, joints: dict[str, ET.El
     assert origin(joints["d435_joint"]) == pytest.approx([0.02, 0, 0])
     assert origin(joints["d435_depth_joint"]) == pytest.approx([0, 0, 0])
     assert origin(joints["d435_depth_joint"], "rpy") == pytest.approx([0, 0, 0])
-    assert origin(joints["d435_color_joint"]) == pytest.approx([0, -0.015, 0])
+    assert origin(joints["d435_color_joint"]) == pytest.approx(list(D435_COLOR_XYZ), abs=TOL)
+    assert origin(joints["d435_color_joint"], "rpy") == pytest.approx(list(D435_COLOR_RPY), abs=TOL)
     link = next(lk for lk in urdf.findall("link") if lk.get("name") == "d435_link")
     boxes = [shape for shape, _ in visual_boxes_and_cylinders(link)]
     assert [vec(b.get("size")) for b in boxes] == [pytest.approx([0.090, 0.025, 0.025])]

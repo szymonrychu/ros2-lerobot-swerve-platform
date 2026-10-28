@@ -19,11 +19,18 @@ from mcp_server.head_kinematics import (
 HEAD_URDF = REPO_ROOT / "nodes/web_ui/urdf/head.urdf"
 ARM_URDF = REPO_ROOT / "nodes/web_ui/urdf/so101_arm.urdf"
 # URDF origins at pan = tilt = 0: mount (0.15, 0.10, 0.31) + tilt axis (0, 0, 0.04) + d435_joint (0.02, 0, 0), then
-# the depth frame at d435_link and the colour frame 0.015 m to its right (d435_color_joint).
-COLOR_HOME_XYZ = (0.17, 0.085, 0.35)
+# the depth frame at d435_link and the colour frame at the factory Color-to-Depth extrinsic (d435_color_joint): 15 mm
+# to the camera's left (+y) and turned by under 0.6 deg.
+COLOR_JOINT_XYZ = (0.0001761, 0.0150171, -0.0000698)
+COLOR_JOINT_RPY = (0.0082621, -0.0014919, 0.0056971)
+COLOR_HOME_XYZ = (0.1701761, 0.1150171, 0.3499302)
 DEPTH_HOME_XYZ = (0.17, 0.10, 0.35)
 # Optical frame columns at zero angles in base_link: x right (-y), y down (-z), z forward (+x).
 OPTICAL_HOME_ROTATION = np.array([[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]])
+COLOR_JOINT_ROTATION = chain.pose_from_xyz_rpy((0.0, 0.0, 0.0), COLOR_JOINT_RPY)[:3, :3]
+COLOR_HOME_ROTATION = COLOR_JOINT_ROTATION @ OPTICAL_HOME_ROTATION
+# Angle between the colour optical axis at zero and base_link x: the factory rotation (yaw 0.0057, pitch -0.0015 rad).
+COLOR_AXIS_TILT_DEG = 0.34
 RESIDUAL_LIMIT_DEG = 0.2
 # Reachable points in base_link (m): left, right, near, far, raised, near the home view, and close to the lowest view (tilt limit 45 deg).
 REACHABLE_POINTS = (
@@ -72,7 +79,8 @@ def test_limits_come_from_the_urdf(head: HeadKinematics) -> None:
 
 def test_optical_axis_is_base_link_x_at_zero(head: HeadKinematics) -> None:
     _origin, axis = optical_axis(head, 0.0, 0.0)
-    np.testing.assert_allclose(axis, [1.0, 0.0, 0.0], atol=1e-4)
+    np.testing.assert_allclose(axis, COLOR_HOME_ROTATION[:, 2], atol=1e-6)
+    assert math.degrees(math.acos(axis[0])) == pytest.approx(COLOR_AXIS_TILT_DEG, abs=0.01)
 
 
 def test_d435_optical_frames_resolve(head: HeadKinematics) -> None:
@@ -82,7 +90,7 @@ def test_d435_optical_frames_resolve(head: HeadKinematics) -> None:
     depth = head.link_pose(0.0, 0.0, DEPTH_FRAME)
     np.testing.assert_allclose(color[:3, 3], COLOR_HOME_XYZ, atol=1e-9)
     np.testing.assert_allclose(depth[:3, 3], DEPTH_HOME_XYZ, atol=1e-9)
-    np.testing.assert_allclose(color[:3, :3], OPTICAL_HOME_ROTATION, atol=1e-6)
+    np.testing.assert_allclose(color[:3, :3], COLOR_HOME_ROTATION, atol=1e-6)
     np.testing.assert_allclose(depth[:3, :3], OPTICAL_HOME_ROTATION, atol=1e-6)
     np.testing.assert_allclose(color[3], [0.0, 0.0, 0.0, 1.0])
 
@@ -103,13 +111,18 @@ def test_uses_the_shared_origin_helper(head: HeadKinematics) -> None:
 
 
 def test_link_pose_follows_pan_and_tilt_signs(head: HeadKinematics) -> None:
-    # pan +90 deg looks left: the colour frame offset (0.02, -0.015) rotates to (0.015, 0.02) about the pan axis.
+    # pan +90 deg looks left: the colour frame offset (0.0201761, 0.0150171) rotates to (-0.0150171, 0.0201761) about
+    # the pan axis.
     left = head.link_pose(math.pi / 2, 0.0, "d435_color_frame")
-    np.testing.assert_allclose(left[:3, 3], [0.165, 0.12, 0.35], atol=1e-9)
-    np.testing.assert_allclose(left[:3, 0], [0.0, 1.0, 0.0], atol=1e-9)
-    # tilt +30 deg looks down: the optical axis points forward and below horizontal.
+    np.testing.assert_allclose(left[:3, 3], [0.1349829, 0.1201761, 0.3499302], atol=1e-9)
+    quarter_turn = chain.pose_from_xyz_rpy((0.0, 0.0, 0.0), (0.0, 0.0, math.pi / 2))[:3, :3]
+    np.testing.assert_allclose(left[:3, 0], quarter_turn @ COLOR_JOINT_ROTATION[:, 0], atol=1e-9)
+    np.testing.assert_allclose(left[:3, 0], [0.0, 1.0, 0.0], atol=0.01)
+    # tilt +30 deg looks down: the home optical axis turns 30 deg about the tilt (y) axis, forward and below horizontal.
     _origin, axis = optical_axis(head, 0.0, math.radians(30.0))
-    np.testing.assert_allclose(axis, [math.cos(math.radians(30.0)), 0.0, -math.sin(math.radians(30.0))], atol=1e-4)
+    tilt_down = chain.pose_from_xyz_rpy((0.0, 0.0, 0.0), (0.0, math.radians(30.0), 0.0))[:3, :3]
+    np.testing.assert_allclose(axis, tilt_down @ COLOR_HOME_ROTATION[:, 2], atol=1e-6)
+    assert axis[0] > 0.0 > axis[2]
     # the tilt axis sits 0.04 m above the pan base, so tilting does not move head_link.
     np.testing.assert_allclose(head.link_pose(0.3, 0.5, "head_link")[:3, 3], [0.15, 0.10, 0.35], atol=1e-9)
     np.testing.assert_allclose(head.link_pose(0.3, 0.5, "base_link"), np.eye(4), atol=1e-12)
@@ -144,7 +157,7 @@ def test_look_at_hits_a_point_two_metres_away_within_two_millimetres(head: HeadK
 
 
 def test_look_at_accounts_for_camera_offsets(head: HeadKinematics) -> None:
-    # The offset-free atan2 from the pan axis would miss: the colour camera sits 0.015 m right and 0.02 m forward.
+    # The offset-free atan2 from the pan axis would miss: the colour camera sits 0.015 m left and 0.02 m forward.
     target = np.array([0.5, 0.6, 0.0])
     pan, tilt = head.look_at(target)
     naive_pan = math.atan2(0.6 - 0.10, 0.5 - 0.15)
@@ -158,7 +171,8 @@ def test_home_view_floor_point_gives_tilt_near_30_deg(head: HeadKinematics) -> N
     camera, _axis = optical_axis(head, 0.0, 0.0)
     target = np.array([camera[0] + 0.6, camera[1], 0.0])
     pan, tilt = head.look_at(target)
-    assert pan == pytest.approx(0.0, abs=1e-3)
+    # The factory colour yaw (0.0057 rad, axis turned left) makes look_at pan slightly right of zero.
+    assert pan == pytest.approx(0.0, abs=0.01)
     assert math.degrees(tilt) == pytest.approx(30.0, abs=2.0)
 
 

@@ -326,10 +326,16 @@ def test_pan_axis_fit_recovers_moved_pan_axis(pan_axis_views: list) -> None:
 
 
 def test_fixed_pan_axis_fit_cannot_absorb_moved_pan_axis(pan_axis_views: list) -> None:
-    result = fit(pan_axis_views, cfg=synth_fit_config(fit_pan_axis=False))
+    cfg = synth_fit_config(fit_pan_axis=False)
+    result = fit(pan_axis_views, cfg=cfg)
     assert result.rms_px > FIXED_PAN_MISFIT_PX
-    # The free camera mount drifts to absorb the axis (its yaw and the mount yaw run off the start, the sigma grows).
-    assert {"max_sigma_deg", "start_delta:camera_yaw_deg"} <= set(result.failed_limits)
+    # The free camera mount drifts to absorb the axis (the truth leaves it at its start): its yaw and x run off the
+    # start and the sigma grows. With the factory colour extrinsic in d435_color_joint the yaw stops just short of
+    # its 5 deg limit, so the drift is pinned by value.
+    assert "max_sigma_deg" in result.failed_limits
+    drift = {name: value for name, value, _, _ in limit_checks(result, cfg.limits)}
+    assert drift["start_delta:camera_yaw_deg"] > 4.0
+    assert drift["start_delta:camera_x_m"] > 20.0
     assert not result.passed
     # With the camera mount fixed as well (the model of the 2026-10-23 session) the +-10 deg pan offsets carry the
     # misfit, as in that session (13 px against 10 px); a free camera x absorbs part of it at the aimed view.

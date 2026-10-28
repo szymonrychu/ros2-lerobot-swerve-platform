@@ -24,8 +24,8 @@ URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.p
 
 | Test | Description |
 |------|-------------|
-| `test_d435_colour_pose_at_zero_matches_urdf_origins` | `d435_color_optical_frame` at pan = tilt = 0 equals the hand-computed product of the URDF origins (mount, tilt, d435_joint, d435_color_joint, optical); `joint_names` lists root to link. |
-| `test_pan_left_and_tilt_down_signs` | Pan +0.5 turns the camera CCW about +z; tilt + gives the optical z axis a negative z component. |
+| `test_d435_colour_pose_at_zero_matches_urdf_origins` | `d435_color_optical_frame` at pan = tilt = 0 equals the hand-computed product of the URDF origins (mount, tilt, d435_joint, the factory colour extrinsic of d435_color_joint, optical); `joint_names` lists root to link. |
+| `test_pan_left_and_tilt_down_signs` | Pan +0.5 turns the camera CCW about +z; tilt + gives the optical z axis a negative z component; at zero the axis is level up to the factory colour pitch. |
 | `test_origin_override_and_offsets` | An origin override moves only that joint's translation; offsets add to the measured angle. |
 | `test_offsets_add_to_measured` | Angle = measured + offset. |
 | `test_missing_joint_raises` | A missing movable joint or unknown link raises KeyError naming it. |
@@ -58,7 +58,7 @@ head offsets, 0.3 px noise, the board seen in the D435 colour camera (`d435_colo
 | `test_fixed_pan_axis_keeps_mount_tilt_and_camera_only` | `fit_pan_axis: false` fits the eight mount/tilt and four camera mount parameters and writes head_mount_joint, head_tilt and d435_joint only. |
 | `test_pan_axis_parameters_move_the_axis_not_the_head` | The pan axis parameters leave the camera pose at pan 0 unchanged and make the head turn about the moved axis. |
 | `test_pan_axis_fit_recovers_moved_pan_axis` | A pan axis 30 mm behind and 10 mm right of the URDF value is recovered (with the rest of the chain), every head offset fits below 0.5 px, the result passes. |
-| `test_fixed_pan_axis_fit_cannot_absorb_moved_pan_axis` | The fixed-axis fit of the same views stays above 2 px and fails (the free camera yaw runs off its start, `max_sigma_deg`); with the camera mount fixed too it is worst at the +-10 deg pan offsets and fails `rms_px`. |
+| `test_fixed_pan_axis_fit_cannot_absorb_moved_pan_axis` | The fixed-axis fit of the same views stays above 2 px and fails `max_sigma_deg` (the free camera yaw runs more than 4 deg and its x more than 20 mm off the start); with the camera mount fixed too it is worst at the +-10 deg pan offsets and fails `rms_px`. |
 | `test_fixed_camera_mount_keeps_d435_joint_at_urdf` | `fit_camera_mount: false` fits the mount, tilt and pan axis only, writes no d435_joint and passes. |
 | `test_max_correlation_limit` | `max_correlation` is a limit check; a 0.1 limit fails only it. |
 | `test_pan_axis_delta_limit` | Each pan axis parameter has a `start_delta` check against `max_pan_axis_delta_mm`; a 60 mm shift fails only it. |
@@ -2973,6 +2973,28 @@ Tests for the `realsense_d435` node (head D435, device serial 935422070045, `rea
 | `test_profile_comments_every_key` | Every parameter line of the config file has a comment line above it. |
 | `test_instance_enabled_and_old_name_gone` | One `realsense_d435` instance, present and enabled, normal tier weights (500/500/-500) and 128M/512M; no `realsense_d435i` type, instance or text in client.yml or the client playbook. |
 | `test_playbook_step_deploys_realsense_d435` | The `Deploy realsense_d435` step includes `tasks/resolve_and_deploy.yml` with apply tag, `_deploy_node_name` and tags `realsense_d435`, `apt`, `python`, `build`, `config`. |
+
+### test_d435_topics.py
+
+Pins of the live D435 bring-up (2026-10-28). `nodes/bridges/realsense_d435/config/topics.yaml` is the `/head/d435/*` topic list read from the running client through topic_scraper_api (`scripts/d435_diag.sh --topics`), with each topic's type, live header `frame_id` and producing node; head.urdf `d435_color_joint` is the factory Color-to-Depth extrinsic read with `scripts/d435_diag.sh --device`.
+
+| Test | What it covers |
+|---|---|
+| `test_every_configured_d435_topic_is_pinned` | Every `/head/d435/` topic named anywhere in `ansible/group_vars/client.yml` (values and comments) is in topics.yaml with the type its name implies (`*/camera_info` CameraInfo, `*/compressed`, `*/compressedDepth`, `*/zstd` CompressedImage, `*/image_raw` / `*/image_rect_raw` Image, `points` / `points_filtered` PointCloud2; an unknown suffix fails). |
+| `test_topics_yaml_lists_the_consumed_streams` | topics.yaml lists the colour compressed topic, the aligned depth, the depth `image_rect_raw` and the camera_info of colour, aligned depth and depth, with their types. |
+| `test_pinned_types_follow_the_naming_rule` | Every pinned topic is under `/head/d435/`, names its producing node, and every `sensor_msgs` entry has the type its name implies. |
+| `test_pinned_frame_ids_are_head_urdf_links` | Every recorded header `frame_id` is a link of head.urdf (design D4: head.urdf owns every d435 frame) and every published `sensor_msgs` entry records one; an advertised topic that never carries a message (`published: false`) has `frame_id: null`. |
+| `test_factory_extrinsics_are_mutual_inverses` | The captured Color-to-Depth and Depth-to-Color extrinsics invert each other (rotation to 2e-6, translation to 1e-8 m). |
+| `test_head_urdf_colour_joint_is_the_factory_extrinsic` | `d435_color_joint` is the Color-to-Depth extrinsic conjugated into body axes (xyz to 1e-7 m, rpy to 1e-6 rad), the colour imager 15 mm to the camera's left (+y), and the comment above the joint names the device serial 935422070045, the ASIC serial 935723024187 and the capture date. |
+
+### test_d435_runbook.py
+
+Static pins of `docs/runbooks/d435-switchover.md`.
+
+| Test | What it covers |
+|---|---|
+| `test_bring_up_section_is_recorded` | The `Bring-up` section names every bring-up command (the realsense_d435 and topic_scraper_api deploys, `d435_diag.sh --device`, `rs-fw-update -l`, the backup `-s 935723024187 -b`, the signed 5.17.3.10 flash `-s 935723024187 -f`, the recovery `-r -f`, `d435_diag.sh --since`, `--topics`, `--rates`) and records the evidence with no placeholder: firmware >= 5.17.3.10, `8086:0b07` at `speed: 5000 Mb/s`, `Device USB type: 3.x`, `usb_max_current_enable=1`, the 30 min window with `VIDIOC_QBUF`, `No such device` and `Frame didn't arrive` at 0, and colour and depth camera_info at >= 14 Hz. |
+| `test_tests_readme_documents_the_bring_up_tests` | This README has a section for both bring-up test files. |
 
 ### test_agent_skills_docs.py
 
