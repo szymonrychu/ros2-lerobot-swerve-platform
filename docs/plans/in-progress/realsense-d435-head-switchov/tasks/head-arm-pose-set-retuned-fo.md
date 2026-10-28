@@ -1,6 +1,6 @@
 ---
 title: Head-arm pose set retuned for the D435 view
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Every calibration pose yields usable D435 views
 files: [nodes/head_rgbd_calibration/config, nodes/head_rgbd_calibration/tests/test_arm_pose_set.py, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/README.md]
@@ -8,15 +8,15 @@ verify: "(cd nodes/head_rgbd_calibration && uv run pytest tests -q && uv run poe
 depends_on: [board-thickness-in-the-pose]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 2eaa64ac
 points: 3
 expected_minutes: 25
 expected_tokens: 969224
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 28
+actual_tokens: 5471879
+actual_roles: "impl 25, review 3"
+actual_role_tokens: "impl 5375614, review 96265"
 ---
 
 # Head-arm pose set retuned for the D435 view
@@ -54,3 +54,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-29 done: root suite on 2eaa64ac: 2196 passed, 9 skipped (implementer); poses t2p10-t2p12 pass the FOV rule by only 3-11 px - watch at the live run
