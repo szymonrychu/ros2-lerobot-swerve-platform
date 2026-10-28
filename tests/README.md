@@ -3195,63 +3195,13 @@ another still pose at 0.33 m.
 
 ### `test_head_rgbd_calib_retired.py`
 
-Retirement pin for the ssh-streamed live pose counter (replaced by the web UI Calibrate page).
+Retirement pins for the ssh-streamed live pose counter and the ToF+CM3 offline calibration CLI (both replaced by the web UI Calibrate page).
 
 | Test | What it checks |
 |---|---|
 | `test_live_counter_files_untracked` | `git ls-files` returns nothing for the three removed live-counter files (counter, relay script and their test file). |
 | `test_no_live_counter_references` | `git grep` finds no relay script name, start function or dotted config key of the live counter under `scripts/` and `tests/` (this file excluded). |
-| `test_capture_config_has_no_live_field` | `CaptureConfig` has no `live` attribute. |
-| `test_config_still_setting_live_fails_naming_it` | A config that still sets the old `live` key under `capture` fails validation and the message names `live`. |
-
-### `test_head_rgbd_calib_frames.py`
-
-Tests for `scripts/head_rgbd_calibration` (config, capture commands, bag reading, still-pair selection). Synthetic bags are written with the `rosbags` writer.
-
-| `test_defaults_load_from_shipped_yaml` | Shipped `scripts/head_rgbd_calibrate.yaml` loads with the documented defaults. |
-| `test_unknown_key_rejected_naming_it` | An unknown key fails validation and the message names it. |
-| `test_topics_without_mapping_image_rejected` | `topics` and `validation_topics` without the mapping image topic are rejected. |
-| `test_duration_range_enforced` | `duration_s` outside 10..600 is rejected. |
-| `test_board_matches_marker_generator_charuco` | `board` equals the `charuco` spec of `markers_generate.yaml`. |
-| `test_capture_commands_contents`, `test_capture_commands_custom_topics` | ssh target, the exported robot ROS CLI environment before `ros2 bag record`, duration, storage, topics, scp destination and remote `rm -rf`. |
-| `test_capture_bag_runs_steps_in_order`, `test_capture_bag_names_failed_step` | Fake runner: record, copy, remove order; a failed step is named in the error. |
-| `test_capture_bag_rejects_an_empty_bag_and_still_removes_the_remote_copy` | A copied bag with `message_count: 0` raises "recorded no messages" after all three steps ran. |
-| `test_normalise_amplitude_*` | 1st/99th percentiles map to 0/255; an empty frame returns None. |
-| `test_read_frames_decodes_everything` | Decoded RGB, amplitude, depth, stamps and camera infos. |
-| `test_still_pairs_two_windows`, `test_still_pairs_ignores_skip_start`, `test_still_pairs_none_when_always_moving` | Two still windows give two pairs with dt <= 50 ms; the first `skip_start_s` is ignored; constant motion gives none. |
-| `test_rgb_difference_ignores_mains_flicker_of_a_still_scene`, `test_rgb_difference_sees_the_board_move_one_pixel` | On two real flickering frames of a still board the plain difference exceeds 2x `still_rgb_mad` while `rgb_difference` stays under 0.8x; moving only the board by 1 px exceeds it. |
-| `test_still_pairs_finds_a_still_board_under_flicker` | Alternating real flickering frames with a still ToF give one pair. |
-
-### `test_head_rgbd_validate.py`
-
-Covers `scripts/head_rgbd_calibration/validate.py` on synthetic data: `depth_accuracy` (flat target at 1.0 m with +12 mm bias and 8 mm noise gives bias 12 +- 2 mm and RMSE within 2 mm of the truth; zeros excluded; no valid pixel raises), `registration_bias`, `valid_ratio`, `edge_alignment` (board in front of a wall: median 0 +- 0.3 px unshifted, 2 +- 0.3 px with the depth shifted 2 px; no board raises), `time_offset` (pan-sweep corner tracks with a true 25 ms / 0 ms offset give 25 / 0 +- 3 ms; slow pairs ignored; a static scene raises), and `check_targets` (limit flags, per-range depth limits, unmeasured targets fail, lower-bound valid ratio).
-
-### `test_head_rgbd_calibrate_cli.py`
-
-Tests for `scripts/head_rgbd_calibrate.py` and `scripts/head_rgbd_calibration/pipeline.py` on synthetic rosbags written with the rosbags writer from `tests/rgbd_synthetic.py` renders.
-
-| Test | What it checks |
-|---|---|
-| `test_scene_has_enough_views` | The synthetic scene yields 20 board poses seen by both cameras. |
-| `test_calibrate_writes_three_files_matching_truth` | `calibrate` on a 20-still-pose bag writes RGB, ToF and extrinsics files whose intrinsics are within tolerance and extrinsic within 2 mm / 0.2 deg, with the lens position and SDK differences recorded. |
-| `test_calibrate_writes_report` | The markdown report lists RMS, views, SDK differences, plane bias and lens position. |
-| `test_too_few_still_poses_exits_one_and_writes_nothing` | Five poses exit 1 naming the view count and write no file. |
-| `test_rms_limit_failure_names_limit_and_writes_nothing` | An exceeded `limits.*` key exits 1 naming it and writes no file. |
-| `test_urdf_rewrites_tof_joint_and_check_is_read_only` | `urdf --check` leaves the URDF byte-identical; `urdf` rewrites `tof_joint` and the drift afterwards is 0. |
-| `test_validate_passes_on_accurate_distance_bags` | Distance bags within the targets print a passing table and exit 0. |
-| `test_validate_fails_when_bias_exceeds_target` | A 40 mm bias at 1 m prints FAIL and exits 1. |
-| `test_validate_missing_distance_bag_exits_one` | A missing `<session>-<d>m` bag exits 1 naming it. |
-| `test_capture_runs_only_record_copy_remove` | `capture` runs exactly the ssh record, scp copy and ssh remove commands and nothing else. |
-| `test_capture_live_key_rejected` | A config setting the removed `live` key under `capture` fails validation and the message names `live`. |
-| `test_capture_prints_bag_path` | `capture` with a fake runner runs exactly the ssh record, scp copy and ssh remove commands, nothing else, and prints the bag path. |
-| `test_capture_validation_names_bag_and_uses_validation_topics` | `capture-validation 0.5m` names the bag `<session>-0.5m`, records the validation topics and runs no live counter. |
-| `test_capture_validation_rejects_unknown_suffix` | An unknown suffix is rejected. |
-| `test_session_defaults_to_newest_calibration_bag` | The default session is the newest bag, validation bags excluded. |
-| `test_sweep_offset_is_zero_for_synchronous_streams` | A synchronous synthetic sweep gives a time offset under 10 ms. |
-| `test_wall_metrics_on_registered_board` | Registration bias, edge alignment and valid ratio of a synthetic registered board are finite and in range. |
-| `test_core_config_defaults_match_cli_yaml` | `BoardConfig`, `SelectionConfig`, `LimitsConfig` reject unknown keys and their defaults equal the `board`, `selection`, `limits` blocks of `scripts/head_rgbd_calibrate.yaml`. |
-| `test_calibrate_detections_matches_run_calibration` | The core `calibrate_detections` on detected views of the in-memory CLI scene equals `run_calibration` to 1e-9 (single-thread cv2). |
-| `test_calibrate_detections_requires_tof_info` | `calibrate_detections` without ToF camera_info raises `no ToF camera_info`. |
+| `test_offline_cli_is_gone` | `git ls-files` returns nothing for the offline CLI script, its yaml and its `scripts/head_rgbd_calibration/` package, and no tracked file outside `docs/` (this file excluded) names the CLI script. |
 
 ### `test_head_rgbd_urdf_handoff.py`
 
@@ -3304,8 +3254,9 @@ Run in their own projects, not from `tests/`.
 Shared helper module (no tests) for the head RGB-D calibration and validation tests: `SyntheticCamera` pinholes for the
 576x324 RGB and 240x180 ToF, `Extrinsic`, board poses, and renderers (`render_rgb`, `render_tof_amplitude`,
 `render_depth`) that draw the ChArUco board through a known pose so results compare with ground truth. Used by
-`test_head_rgbd_calib_intrinsics.py`, `test_head_rgbd_calib_extrinsics.py`, `test_head_rgbd_validate.py` and
-`test_head_rgbd_calibrate_cli.py`.
+`test_head_rgbd_calib_intrinsics.py`, `test_head_rgbd_calib_extrinsics.py`, `test_head_rgbd_calib_core.py`,
+`test_head_rgbd_calib_poses.py`, `test_head_rgbd_calib_quality.py`, `test_head_rgbd_intrinsics_check.py`,
+`test_head_arm_calib_config.py`, `test_ground_scene_truth.py` and the head_rgbd_calibration node tests.
 
 ### `test_map3d_topics.py`
 

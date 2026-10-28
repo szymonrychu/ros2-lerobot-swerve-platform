@@ -389,37 +389,3 @@ Times marker decode and pose on the client RPi 5 with `python -m marker_detector
 ```
 
 Env: `MARKER_BENCH_CLIENT_HOST` (default `client.ros2.lan`), `MARKER_BENCH_SSH_USER` (default from `ansible/inventory`), `MARKER_BENCH_REMOTE_VENV` (default `/opt/ros2-nodes/marker_detector/venv`). Needs the node deployed with this bench module.
-
-## head_rgbd_calibrate.py
-
-Calibrates the head Camera Module 3 and the ToF sensor against each other and hands the result to the nodes and the URDF. This CLI is for bags, validation captures (`capture-validation`) and offline calibration; the on-robot capture, compute and apply is the web UI Calibrate page (see `docs/runbooks/head-rgbd-fusion.md`). The maths lives in `ros2_common.head_rgbd_calibration` (`shared/ros2_common/head_rgbd_calibration/`: detection, intrinsics, extrinsics, `calibrate_detections`, the limits check and the report) and this CLI wraps it: it only captures and decodes bags, detects the board per still pair and passes the detections to the core, so a run from stored poses gives identical results. One script, one config (`scripts/head_rgbd_calibrate.yaml`); the only arguments are the mode, an optional `--config FILE` and, for `capture-validation`, a suffix. `session` in the yaml names the bag every mode uses (default: the newest calibration bag under `capture.local_dir`).
-
-```bash
-uv run python -m scripts.head_rgbd_calibrate capture            # prints the local bag path
-uv run python -m scripts.head_rgbd_calibrate calibrate
-uv run python -m scripts.head_rgbd_calibrate urdf [--check]
-uv run python -m scripts.head_rgbd_calibrate capture-validation 1.0m   # 0.5m 1.0m 2.0m 3.0m sweep wall
-uv run python -m scripts.head_rgbd_calibrate validate
-```
-
-**Board.** Print the ChArUco board of the yaml `board` block (it must equal the `charuco` block of `markers_generate.yaml`): `uv run python -m scripts.markers_generate` (marker-and-calibration-board) writes the print-ready file. Mount it flat and rigid.
-
-**Capture protocol.** `capture` records `capture.duration_s` (default 180 s) of `capture.topics` on the robot over ssh and copies the bag back. The terminal flow has no live pose counter: for robot-side capture with a usable pose count use the web UI Calibrate page, which captures from the live topics on the robot. It subscribes `/head_camera/mapping/image_raw/compressed`, which engages the head camera focus lock (`lens_position`), so the RGB intrinsics are valid at that one focus; changing `lens_position` invalidates the calibration. Let the ToF warm up for several minutes first (its depth drifts while it heats). Rest the board on a support for about 3 s in each of 20 or more poses (the mapping stream runs at 2 Hz; a hand-held board does not pass `selection.still_rgb_mad`), between 0.25 and 0.45 m (the 240x180 ToF only resolves the 40 mm board's markers this close; ToF detection enlarges the amplitude `selection.tof_upscale` times, 2 by default), tilted up to about 40 degrees, covering the periphery of both images and moving between poses; the first 2 s of the bag are ignored (focus settling). For validation record one bag per `capture-validation` suffix: a flat wall at the tape-measured 0.5, 1.0, 2.0 and 3.0 m (`0.5m` ... `3.0m`, camera facing the wall square-on), a `wall` bag with the board in front of a farther background while `head_rgbd_cpp` runs, and a `sweep` bag panning the head across the board. They are named `<session>-<suffix>` and record `capture.validation_topics` (the fused `/head_rgbd/*` topics too).
-
-**Modes.**
-- `capture` / `capture-validation <suffix>`: described above.
-- `calibrate`: picks still RGB and ToF pairs, fits RGB intrinsics, ToF intrinsics (compared with the SDK `/tof/camera_info`) and the ToF-to-RGB extrinsic, checks the board plane depth, then writes the three files and `<report_dir>/<session>-calibration.md` (RMS values, view counts, SDK differences, plane bias, lens position read from the head camera node config named in the yaml `head_camera` block). Any exceeded `limits.*` exits 1 naming it and writes nothing.
-- `urdf`: prints the drift between the head URDF and the extrinsic, then rewrites only the `tof_joint` origin of `outputs.urdf`; `urdf --check` only prints the drift.
-- `validate`: depth accuracy per `validation.distances_m` from the `<session>-<d>m` bags, edge alignment, registration bias and valid ratio from the `wall` bag, time offset from the `sweep` bag, plus the calibration RMS values and plane bias from the extrinsics file. It prints and writes `<report_dir>/<session>-validation.md` and exits 1 when a target fails. Targets with no input (CPU p95, placeholder messages, motion edge: measured elsewhere; wall or sweep bag or calibration files absent) show SKIP and do not gate; a missing distance bag is an error.
-
-**Outputs and consumers.** `outputs.rgb_calibration` is read by `head_camera_cpp` (`camera_info_file`), `outputs.tof_calibration` and `outputs.extrinsics` by `head_rgbd_cpp` (which takes the transform itself from TF), and `outputs.urdf` (`nodes/web_ui/urdf/head.urdf`, the `tof_joint` origin) feeds the TF tree that `robot_state_publisher` publishes. Redeploy those nodes after calibrating.
-
-## head_rgbd_calibration/ (frames, config and pipeline)
-
-Head RGB-D calibration tool, configured by `scripts/head_rgbd_calibrate.yaml` (pydantic `CalibrationConfig` in `head_rgbd_calibration/config.py`: `capture`, `board`, `selection`, `limits`, `outputs`, `validation`; unknown keys are rejected and `capture.topics` must include the mapping image topic so the focus lock engages). `board` must equal the `charuco` block of `markers_generate.yaml` (a test pins this).
-
-`frames.py`: `capture_bag` records on the robot over ssh (`timeout -s INT` around `ros2 bag record -s sqlite3`, in the robot's ROS CLI environment `ROS_CLI_ENV`; without it the recorder discovers the topics but writes an empty bag), `scp -r`s the bag to `capture.local_dir/<name>`, removes the remote copy and fails when the bag holds no messages; `read_frames` decodes a bag with `rosbags`; `still_pairs` picks one RGB and ToF pair per still window (after `skip_start_s`, pair dt <= `max_pair_dt_s`); `rgb_difference` is the RGB stillness measure: blurred frames compared row by row after scaling out the mains flicker bands of the rolling shutter (a still board under room light differs by about 5 grey levels in the plain difference, under 1.5 with it); `normalise_amplitude` percentile-stretches ToF amplitude to uint8 (None for an empty frame).
-
-Detection, intrinsics, extrinsics and the URDF text edit live only in `ros2_common.head_rgbd_calibration` (`shared/ros2_common/head_rgbd_calibration/`); no re-export modules remain here. Synthetic scenes for all calibration tests live in `tests/rgbd_synthetic.py`.
-
-`pipeline.py`: the steps behind `head_rgbd_calibrate.py` (session lookup, calibration run, limit checks, output and report writers, validation session, wall and sweep metrics).

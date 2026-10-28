@@ -210,7 +210,7 @@
 
 ## Head RGB-D fusion (2026-10-19)
 
-- **Decision**: head ToF depth is registered on the client by `head_rgbd_cpp` into the head camera mapping image (576x324, default output 288x162) and published as exact-stamp pairs (RGB stamp on depth, camera_infos, RGB and cloud). RTAB-Map consumes the pair. The head URDF is the only extrinsic source (`scripts/head_rgbd_calibrate.py urdf` rewrites `tof_joint`); the node never reads the extrinsics file. Focus is locked only while the mapping stream has subscribers (the node subscribes lazily). Methodology and targets: `docs/head-rgbd-fusion-methodology.md`.
+- **Decision**: head ToF depth is registered on the client by `head_rgbd_cpp` into the head camera mapping image (576x324, default output 288x162) and published as exact-stamp pairs (RGB stamp on depth, camera_infos, RGB and cloud). RTAB-Map consumes the pair. The head URDF is the only extrinsic source; the node never reads the extrinsics file. Focus is locked only while the mapping stream has subscribers (the node subscribes lazily). Methodology and targets: `docs/head-rgbd-fusion-methodology.md`.
 ## 3D mapping (RTAB-Map on the server)
 
 - **D1**: RTAB-Map runs in one component_container on the Pi 4b (`rtabmap_mapping`), installed from the split `ros-jazzy-rtabmap-*` apt packages, never the `rtabmap_ros` metapackage (pulls rtabmap_viz and Qt); the Pi 5 has no CPU headroom.
@@ -240,7 +240,7 @@
 
 - **Decision**: fixed places (base, charger, drop-off, button, switch, tool station) are marked with printed QR Model 2 symbols carrying the P1 text payload `P1/K:<KIND>/N:<NAME>/S:<MM>[/KEY:VAL]`, not AprilTag/ArUco. QR carries the meaning and the true side length itself (no id table), is printable on paper and in two colours on the Bambu AMS, and zxing-cpp plus OpenCV IPPE give a full 6-DoF pose from 24 refined finder corners. AprilTag `tagStandard41h12` via `apriltag_ros` is the documented alternative if field range proves insufficient (it replaces only the decode and pose stages).
 - **POIs**: the detector (`nodes/marker_detector`) sends `upsert_marker` to `poi_store`, which keeps one `marker` POI per `marker.key` (`<kind>/<N>`), refines its pose by confidence-weighted mean, replaces it on relocation and never overwrites user name/note/status. Automatic zoom requests are controlled by `zoom.auto_zoom` (default `false`; set `true` to enable).
-- **ChArUco spec owned by the generator**: the 6x5, 40 mm board lives in the `charuco` block of `scripts/markers_generate.yaml`; `scripts/head_rgbd_calibrate.yaml` must equal it (pinned by a test). Guide: `docs/markers.md`.
+- **ChArUco spec owned by the generator**: the 6x5, 40 mm board lives in the `charuco` block of `scripts/markers_generate.yaml`; the calibration `BoardConfig` (`ros2_common.head_rgbd_calibration`) must equal it (pinned by `tests/test_head_arm_calib_config.py`). Guide: `docs/markers.md`.
 
 ## Head RGB-D calibration on the robot (2026-10-19)
 

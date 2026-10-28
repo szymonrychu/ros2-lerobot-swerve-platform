@@ -716,31 +716,6 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     # rgbd-calibration: the head ToF-to-RGB extrinsic is an OpenCV stereo calibration (cv2.stereoCalibrate and its
     # RMS), a new pair unrelated to the retired Jetson stereo depth.
     (
-        "scripts/head_rgbd_calibrate.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
-        "scripts/head_rgbd_calibrate.yaml",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
-        "scripts/head_rgbd_calibration/config.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
-        "scripts/head_rgbd_calibration/pipeline.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
-        "scripts/head_rgbd_calibration/validate.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
         "tests/test_head_rgbd_calib_extrinsics.py",
         r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
@@ -878,12 +853,6 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     (
         "tests/test_head_rgbd_calib_core.py",
         r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    # The ToF+CM3 offline CLI tests (moved here from the core test file) check the ToF/RGB stereo_rms of the fit.
-    (
-        "tests/test_head_rgbd_calibrate_cli.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
     # pinned-build: part of the libcamera build stamp, changing it would rebuild.

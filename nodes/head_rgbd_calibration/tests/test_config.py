@@ -13,7 +13,6 @@ from head_rgbd_calibration.config import CONFIG_ENV, ArmSequenceConfig, NodeConf
 NODE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = NODE_DIR.parents[1]
 SHIPPED = NODE_DIR / "config" / "head_rgbd_calibration.yaml"
-TOOL_YAML = REPO_ROOT / "scripts" / "head_rgbd_calibrate.yaml"
 CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 
 
@@ -78,14 +77,6 @@ def test_out_of_range_rejected(tmp_path: Path, text: str) -> None:
     path.write_text(text)
     with pytest.raises(ValidationError):
         load_config(path)
-
-
-def test_core_blocks_equal_calibrate_tool_yaml() -> None:
-    tool = yaml.safe_load(TOOL_YAML.read_text())
-    cfg = NodeConfig()
-    assert cfg.board.model_dump(mode="json") == {**tool["board"]}
-    assert cfg.selection.model_dump(mode="json") == {**tool["selection"]}
-    assert cfg.limits.model_dump(mode="json") == tool["limits"]
 
 
 def test_floor_defaults_and_tilt_range() -> None:

@@ -1,4 +1,4 @@
-"""Head RGB-D calibration core, shared by the calibration CLI (scripts/) and the head_rgbd_calibration node.
+"""Head RGB-D calibration core, used by the head_rgbd_calibration node.
 
 Modules:
     config: StrictModel and the BoardConfig, SelectionConfig, LimitsConfig settings.
