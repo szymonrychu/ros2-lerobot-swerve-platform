@@ -67,3 +67,4 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28: calibration-config-on-d435 made only the minimal frontend changes the new fixtures need; the RGB-D section redesign is here.
+- 2026-10-29 (from calibration-apply-restart-un): an intrinsics Accept now restarts nothing (restart only on head_chain.json change), but RgbdResults.tsx still polls and shows "restarting" until timeout; fix the UI to not wait for a restart after an intrinsics accept.

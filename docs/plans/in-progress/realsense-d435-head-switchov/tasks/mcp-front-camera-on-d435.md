@@ -63,3 +63,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-29 (from calibration-apply-restart-un): mcp_server front.intrinsics.calibration_file still reads applied/head_camera_calibration.yaml (no longer written); switch the D435 camera to camera_info_topic intrinsics (mcp-intrinsics-from-camera-i).
