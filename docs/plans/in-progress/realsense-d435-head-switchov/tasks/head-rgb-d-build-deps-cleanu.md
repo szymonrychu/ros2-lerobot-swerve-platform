@@ -69,3 +69,4 @@ What is true and observable when the task is done.
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-27: the head_rgbd_cpp client.yml config rewrite and tests/test_head_rgbd_deploy.py update landed early in head-rgb-d-node-on-d435-alig (fix round, to keep the root suite green); this task keeps the build-deps part.
 - 2026-10-28: CMakeLists.txt comments at lines 16 and 30 still name registration/motion (removed by retire-rgb-d-registration-an) - clean up here.
+- 2026-10-28: after retire-rgb-d-upsampling-and, nodes/head_rgbd_cpp/test/core/synthetic_scene.hpp and test/data/tof_calibration.yaml have no users (delete with a retirement test); package.xml description still says it registers ToF depth.
