@@ -1,7 +1,8 @@
 """Static invariants of the arducam_tof deployment (Ansible group_vars, SDK install task, playbook wiring).
 
 arducam_tof runs on the client and publishes the Arducam ToF depth, amplitude and camera_info topics from CSI cam1. It
-deploys enabled and scraped by Alloy, and its SDK install never fails a deploy.
+stays installed but disabled (user 2026-10-28, memory room for the D435 ground nodes), is scraped by Alloy only while
+enabled, and its SDK install never fails a deploy.
 """
 
 import importlib.util
@@ -89,11 +90,12 @@ def test_node_type_has_no_dds_peer() -> None:
     assert not any(e.startswith("ROS_STATIC_PEERS") for e in client_node(NODE).get("env", []))
 
 
-def test_ros2_nodes_entry_deploys_enabled() -> None:
+def test_ros2_nodes_entry_deploys_disabled() -> None:
+    """User 2026-10-28: stopped (still installed) so the enabled memory_low sum has room for the D435 ground nodes."""
     node = client_node(NODE)
     assert node["node_type"] == NODE
     assert node["present"] is True
-    assert node["enabled"] is True
+    assert node["enabled"] is False
     assert isinstance(node["config"], str)
 
 

@@ -19,6 +19,7 @@ LASER_FILTER_CONFIG = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footpri
 NAME = "ground_estimator_cpp"
 WORKSPACE = "/opt/ros2-ws"
 METRICS_PORT = 19119
+D435_CLOUD = "/head/d435/points_filtered"
 TIER = {"cpu_weight": 500, "io_weight": 500, "oom_score_adjust": -500, "memory_low": "48M", "memory_max": "256M"}
 REQUIRED_APT_PACKAGES = (
     "build-essential",
@@ -129,7 +130,7 @@ def test_ros2_nodes_entry() -> None:
     names = [n["name"] for n in nodes]
     entry = nodes[names.index(NAME)]
     assert entry["node_type"] == NAME
-    assert entry["present"] is True and entry["enabled"] is False  # disabled (user 2026-10-24)
+    assert entry["present"] is True and entry["enabled"] is True
     assert "#" in entry["config"]
     parsed = yaml.safe_load(entry["config"])
     assert parsed == {**yaml.safe_load(DEFAULTS.read_text()), "metrics_port": METRICS_PORT}
@@ -150,10 +151,35 @@ def test_config_keys_equal_the_shipped_yaml_keys() -> None:
     assert key_paths(entry_config(NAME)) == key_paths(yaml.safe_load(DEFAULTS.read_text()))
 
 
-def test_metrics_target_is_absent_while_disabled() -> None:
-    """A disabled node is not scraped (it would read as down); add the target back when enabling."""
-    targets = client_vars()["monitoring_agent_node_targets"]
-    assert NAME not in {t["node"] for t in targets}
+def test_metrics_target_is_present() -> None:
+    """The enabled node is scraped by Alloy on its metrics port."""
+    targets = {t["node"]: t for t in client_vars()["monitoring_agent_node_targets"]}
+    assert targets[NAME]["address"] == f"127.0.0.1:{METRICS_PORT}"
+    assert targets[NAME].get("path", "/metrics") == "/metrics"
+
+
+def test_deployed_config_reads_the_d435() -> None:
+    """Design D7: the deployed config reads the filtered D435 cloud, the /head_rgbd guidance frame and the D435 depth
+    camera model, with the sensor-neutral key names and the frame windows scaled by 1.5 for 15 Hz."""
+    entry = next(n for n in client_vars()["ros2_nodes"] if n["name"] == NAME)
+    assert entry["present"] is True and entry["enabled"] is True
+    config = yaml.safe_load(entry["config"])
+    assert config["cloud_topic"] == D435_CLOUD
+    assert config["rgbd_cloud_topic"] == "/head_rgbd/points"
+    guidance = config["guidance"]
+    assert guidance["depth_topic"] == "/head_rgbd/depth/image_raw"
+    assert guidance["info_topic"] == "/head_rgbd/depth/camera_info"
+    assert guidance["rgb_topic"] == "/head_rgbd/rgb/image_raw/compressed"
+    assert guidance["depth_info_topic"] == "/head/d435/depth/camera_info"
+    assert "tof_info_topic" not in guidance
+    assert "margin_px" in guidance["no_return"] and "tof_margin_px" not in guidance["no_return"]
+    assert (config["temporal"]["window_frames"], config["temporal"]["min_frames"]) == (12, 6)
+    hysteresis = config["hysteresis"]
+    assert (hysteresis["window_frames"], hysteresis["enter_frames"], hysteresis["exit_frames"]) == (8, 5, 2)
+    assert (guidance["no_return"]["window_frames"], guidance["no_return"]["enter_frames"]) == (6, 5)
+    assert "/tof/" not in entry["config"]
+    header = CLIENT_VARS.read_text().split(f"  - name: {NAME}\n", 1)[0].rsplit("\n  - name: ", 1)[1]
+    assert "D435" in header.split("\n  #", 1)[1]
 
 
 def test_client_playbook_step_order() -> None:

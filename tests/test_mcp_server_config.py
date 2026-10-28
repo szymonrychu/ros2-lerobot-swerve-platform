@@ -252,9 +252,10 @@ def test_filter_node_autonomy_params() -> None:
         assert cfg[key] == topic, key
 
 
-def test_gripper_camera_enabled() -> None:
+def test_gripper_camera_disabled_for_memory() -> None:
+    """User 2026-10-28: stopped (still installed) so the enabled memory_low sum has room for the D435 ground nodes."""
     entry = node_entry("gripper_uvc_camera")
-    assert entry["present"] is True and entry["enabled"] is True
+    assert entry["present"] is True and entry["enabled"] is False
 
 
 def test_gripper_camera_rotated_180_at_source() -> None:

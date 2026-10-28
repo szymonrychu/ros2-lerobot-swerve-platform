@@ -1829,18 +1829,18 @@ Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and
 
 ### test_arducam_tof_config.py
 
-Static checks of the `arducam_tof` deployment (Arducam ToF depth camera for the web UI head tab, Client only, deployed disabled).
+Static checks of the `arducam_tof` deployment (Arducam ToF depth camera for the web UI head tab, Client only, installed but disabled (user 2026-10-28, memory room for the D435 ground nodes)).
 
 | Test | Covers |
 |---|---|
 | `test_node_type_is_declared_on_the_client` | Native node type `python3 -m arducam_tof`, `nodes/bridges/arducam_tof`, `/etc/ros2/arducam_tof`, `ARDUCAM_TOF_CONFIG`. |
 | `test_node_type_is_in_the_normal_cgroup_tier_with_memory_limits` | Normal-tier cgroup weights with `memory_low` and `memory_max`. |
 | `test_node_type_has_no_dds_peer` | No `ROS_STATIC_PEERS` on the node type. |
-| `test_ros2_nodes_entry_deploys_enabled` | `ros2_nodes` entry is `present: true`, `enabled: true` with a `config` string. |
+| `test_ros2_nodes_entry_deploys_disabled` | `ros2_nodes` entry is `present: true`, `enabled: false` (user 2026-10-28) with a `config` string. |
 | `test_deployed_config_holds_only_keys_the_driver_accepts` | Deployed YAML keys are exactly the driver config keys (including the three `flying_pixel_*` keys and `min_range_m`; unknown keys are rejected by the driver), `csi_device: 1f00128000.csi`, metrics port, `range_mode` near or far. |
 | `test_deployed_config_loads_in_the_real_driver_load_config` | The deployed YAML loads in the driver's real `load_config`; runs unconditionally. |
 | `test_head_tab_topics_are_documented_in_the_config_comments` | The fixed depth, amplitude and camera_info topics are listed in the config comments. |
-| `test_metrics_port_is_scraped` | The metrics port is in `monitoring_agent_node_targets`. |
+| `test_metrics_port_is_scraped_exactly_when_the_node_is_enabled` | The metrics port is in `monitoring_agent_node_targets` when the node is enabled, and absent while it is disabled. |
 | `test_sdk_task_adds_the_arducam_repo_and_installs_the_sdk` | `arducam_tof_sdk.yml` adds the Arducam apt repo and installs `arducam-tof-sdk-dev`. |
 | `test_sdk_task_is_idempotent_and_never_fails_the_deploy` | The SDK task tolerates an unavailable repo or package. |
 | `test_client_playbook_includes_the_sdk_task_and_deploys_the_node` | `deploy_nodes_client.yml` includes the SDK task and the tagged `Deploy arducam_tof` block. |
@@ -2082,7 +2082,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_node_entry_and_config` | Present + enabled `ros2_nodes` entry; config block keys (incl. `control`), server 0.0.0.0:18200 `/mcp`, repo-relative arm URDF that exists, home file `/var/lib/ros2/arm/home.yaml`; the `grasp_check` block is an allowed key. |
 | `test_mcp_server_topics_match_filter_node_lease` | mcp_server autonomy command/release/active source and follower feedback topics equal filter_node's. |
 | `test_filter_node_autonomy_params` | filter_node config sets `autonomy_input_topic`, `autonomy_release_topic`, `active_source_topic`. |
-| `test_gripper_camera_enabled` | `gripper_uvc_camera` is present and enabled again. |
+| `test_gripper_camera_disabled_for_memory` | `gripper_uvc_camera` is present and disabled (user 2026-10-28: memory_low room for the D435 ground nodes). |
 | `test_shoulder_lift_upper_limit_allows_reaching_below_the_floor` | mcp_server `arm.joint_limit_overrides_rad` widens shoulder_lift to [-1.745, 1.9] rad (tested on the robot: 1.87 rad reached without collision, the stretched arm cannot be lifted beyond about 1.85). |
 | `test_gripper_camera_rotated_180_at_source` | `gripper_uvc_camera` env sets `UVC_ROTATE_DEG=180` exactly once (the wrist image is upside down at wrist roll 0; rotation happens in the camera node, not downstream). |
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
@@ -2340,7 +2340,7 @@ Keeps `nodes/ground_estimator_cpp/README.md` in sync with the node. Parses `STAT
 
 ### `test_ground_estimator_deploy.py`
 
-Static invariants of the `ground_estimator_cpp` deploy: node type keys, apt list, normal tier values, env, colcon source order, `ros2_nodes` entry (equal to the shipped yaml plus `metrics_port` 19119), metrics scrape target and playbook step order. Consistency (design D3): topics equal the laser_filter, bno055_imu and head_rgbd_cpp outputs; the IMU level reference and slope limits equal tilt_guard; `wheel_radius_m` equals swerve_controller and the max step is one third of the wheel diameter; `max_slope_deg` is at most the smaller tilt_guard error limit (`test_limits_match_tilt_guard_and_swerve`). `test_robustness_keys_present` pins the robustness settings in the client config: `temporal.max_spread_m` 0.025, the `hysteresis` section (5/3/1), `traversability.lethal_min_points` 2, `edges.slope_bin_m` 0.10 and `edges.slope_min_cells` 3. `test_config_keys_equal_the_shipped_yaml_keys` also covers the `guidance` block; `test_topics_match_their_producers` maps the four guidance topics to head_rgbd_cpp (depth_upsampled image and info, RGB) and arducam_tof (`/tof/camera_info`); `test_guidance_block_is_in_the_client_config` pins the client block to the shipped yaml.
+Static invariants of the `ground_estimator_cpp` deploy: node type keys, apt list, normal tier values, env, colcon source order, `ros2_nodes` entry (present and enabled, equal to the shipped yaml plus `metrics_port` 19119), metrics scrape target `127.0.0.1:19119` (`test_metrics_target_is_present`) and playbook step order. `test_deployed_config_reads_the_d435` (design D7): the enabled entry reads `/head/d435/points_filtered`, `/head_rgbd/points`, the `/head_rgbd/depth/*` and RGB guidance topics and `guidance.depth_info_topic` `/head/d435/depth/camera_info`, has `no_return.margin_px` and no ToF key names or `/tof/` topics, the 1.5x scaled frame windows (temporal 12/6, hysteresis 8/5/2, no_return 6/5), and its header comment names the D435. Consistency (design D3): topics equal the laser_filter, bno055_imu and head_rgbd_cpp outputs; the IMU level reference and slope limits equal tilt_guard; `wheel_radius_m` equals swerve_controller and the max step is one third of the wheel diameter; `max_slope_deg` is at most the smaller tilt_guard error limit (`test_limits_match_tilt_guard_and_swerve`). `test_robustness_keys_present` pins the robustness settings in the client config: `temporal.max_spread_m` 0.025, the `hysteresis` section (8/5/2), `traversability.lethal_min_points` 2, `edges.slope_bin_m` 0.10 and `edges.slope_min_cells` 3. `test_config_keys_equal_the_shipped_yaml_keys` also covers the `guidance` block; `test_topics_match_their_producers` maps the cloud to the laser_filter output of the d435_obstacle_cloud cloud and the four guidance topics to head_rgbd_cpp (depth image and info, RGB) and realsense_d435 (`depth/camera_info`); `test_guidance_block_is_in_the_client_config` pins the client block to the shipped yaml.
 
 ### `test_head_rgbd_deploy.py`
 
@@ -2354,12 +2354,12 @@ Static invariants of the head RGB-D adapter deploy (`head_rgbd_cpp` in `ansible/
 | `test_config_path_and_env` | `/etc/ros2/head_rgbd_cpp` and `HEAD_RGBD_CONFIG`. |
 | `test_colcon_sources_order_and_build` | `ros2_common_cpp` then `head_rgbd_cpp`, Release, `BUILD_TESTING=OFF`, `-j2`, `base_paths`; the `head_rgbd_cpp` `stamp_apt_packages` list is exact, installed, and carries no ToF-only package. |
 | `test_depth_output_feeds_ground_guidance` | `/head_rgbd` namespace, depth divisor 2, the 0.3-2 m floor inside the depth range, no `upsampling` block (deployed config and defaults). |
-| `test_ros2_nodes_entry` | Present and disabled (user 2026-10-24), after `head_camera_cpp` and `arducam_tof`; the config block equals the node defaults plus `metrics_port` and carries comments. |
-| `test_metrics_target_is_absent_while_disabled` | No Alloy target for `head_rgbd_cpp` while it is disabled. |
+| `test_ros2_nodes_entry` | Present and enabled, after `head_camera_cpp` and `arducam_tof`; the config block equals the node defaults plus `metrics_port` and carries comments. |
+| `test_metrics_targets_are_present` | Alloy targets `127.0.0.1:19117` (`head_rgbd_cpp`) and `127.0.0.1:19119` (`ground_estimator_cpp`), path `/metrics`. |
 | `test_inputs_are_the_d435_aligned_pair` | The deployed config and the defaults read `/head/d435/aligned_depth_to_color/image_raw`, `/head/d435/color/image_raw` and `/head/d435/color/camera_info` at `output.rate_hz` 2.0; `realsense_d435` launches as `head`/`d435` with `align_depth.enable: true`. |
 | `test_output_rate_matches_the_mapping_budget` | `output.rate_hz` equals the `expected_rate_hz` of all four `/head_rgbd/*` uplink streams of `nodes/rtabmap_mapping/config/map3d_topics.yaml`. |
 | `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, python, build, config]`. |
-| `test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed` | `head_rgbd_cpp` and `ground_estimator_cpp` are present and disabled, `arducam_tof`, `d435_obstacle_cloud`, `head_camera_cpp` stay enabled, no scrape targets for the two. |
+| `test_rgbd_and_ground_nodes_are_enabled` | User 2026-10-28: `head_rgbd_cpp`, `ground_estimator_cpp`, `realsense_d435`, `d435_obstacle_cloud` and `head_camera_cpp` are present and enabled and the two are scraped; `arducam_tof` and `gripper_uvc_camera` are present and disabled (memory_low room, D14) and not scraped. |
 
 ### `test_pi_camera_boot_config.py`
 
@@ -2507,7 +2507,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 | `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
 | `test_a_port_is_shared_only_by_a_python_and_cpp_pair` | Two contract nodes share a port only as `<name>`/`<name>_cpp` (at least one such pair exists). |
 | `test_a_python_and_cpp_pair_is_never_both_enabled` | Of every `<name>`/`<name>_cpp` pair in `ros2_nodes` (map_guard at least) at most one is present and enabled: both would bind the same port and publish the same topics. |
-| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api are only members of a Python/C++ pair. |
+| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api, arducam_tof and gripper_uvc_camera (user 2026-10-28) are only members of a Python/C++ pair. |
 
 ### `monitoring_helpers.py`
 
@@ -2711,7 +2711,7 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_python_node_stays_present_and_disabled_for_rollback` | `map_guard` stays `present: true`, `enabled: false` (rollback). |
 | `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19110). |
 | `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
-| `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds only the two joint-state throttle nodes (the stereo nodes are retired, D7). |
+| `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds exactly `head_camera_cpp`, `head_rgbd_calibration`, `head_rgbd_cpp`, the two joint-state throttle nodes and `map3d_uplink`. |
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |
 
@@ -3374,7 +3374,7 @@ The client `map3d_uplink` node type (`nodes/map3d_uplink`, D2): the single stati
 | `test_launch_file_defines_one_container_named_map3d_uplink` | One container named `map3d_uplink`, nothing else. |
 | `test_node_type_env_apt_tier_and_paths` | `group_vars/client.yml`: `ROS_STATIC_PEERS`, apt packages, background tier with `memory_low` / `memory_max`, source paths including the contract. |
 | `test_ros2_nodes_entry_present_and_enabled` | The `ros2_nodes` entry is present and enabled. |
-| `test_head_camera_mapping_stream_and_rgbd_node_present` | The head camera mapping stream (2 Hz, 576x324) and `head_rgbd_cpp` it depends on are configured. |
+| `test_head_camera_mapping_stream_and_rgbd_node_present` | The head camera mapping stream (2 Hz, 576x324) and `head_rgbd_cpp` it depends on are configured, `head_rgbd_cpp` present and enabled. |
 | `test_playbook_step_after_head_camera_cpp` | The client playbook deploys `map3d_uplink` after `head_camera_cpp`. |
 | `test_readme_documents_purpose_lazy_and_measuring` | The node README explains the single static-peer process, lazy behaviour and how to measure bandwidth. |
 

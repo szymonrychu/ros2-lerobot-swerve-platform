@@ -17,6 +17,7 @@ NODE_DIR = REPO_ROOT / "nodes" / "head_rgbd_cpp"
 DEFAULTS = NODE_DIR / "config" / "head_rgbd.yaml"
 WORKSPACE = "/opt/ros2-ws"
 METRICS_PORT = 19117
+GROUND_METRICS_PORT = 19119
 # Floor distances the ground guidance needs in the depth range, m (design D2: the floor at 0.3-2 m).
 FLOOR_RANGE_M = (0.3, 2.0)
 TIER = {"cpu_weight": 100, "io_weight": 100, "oom_score_adjust": 0, "memory_low": "48M", "memory_max": "256M"}
@@ -158,7 +159,7 @@ def test_ros2_nodes_entry() -> None:
     names = [n["name"] for n in nodes]
     entry = nodes[names.index("head_rgbd_cpp")]
     assert entry["node_type"] == "head_rgbd_cpp"
-    assert entry["present"] is True and entry["enabled"] is False  # disabled (user 2026-10-24)
+    assert entry["present"] is True and entry["enabled"] is True
     config = entry["config"]
     assert "#" in config
     parsed = yaml.safe_load(config)
@@ -168,10 +169,12 @@ def test_ros2_nodes_entry() -> None:
     assert names.index("head_rgbd_cpp") > names.index("arducam_tof")
 
 
-def test_metrics_target_is_absent_while_disabled() -> None:
-    """A disabled node is not scraped (it would read as down); add the target back when enabling."""
-    targets = client_vars()["monitoring_agent_node_targets"]
-    assert "head_rgbd_cpp" not in {t["node"] for t in targets}
+def test_metrics_targets_are_present() -> None:
+    """The enabled RGB-D adapter and ground estimator are scraped by Alloy on their metrics ports."""
+    targets = {t["node"]: t for t in client_vars()["monitoring_agent_node_targets"]}
+    for name, port in (("head_rgbd_cpp", METRICS_PORT), ("ground_estimator_cpp", GROUND_METRICS_PORT)):
+        assert targets[name]["address"] == f"127.0.0.1:{port}", name
+        assert targets[name].get("path", "/metrics") == "/metrics", name
 
 
 def test_inputs_are_the_d435_aligned_pair() -> None:
@@ -215,13 +218,15 @@ def test_client_playbook_step_order() -> None:
     assert step["tags"] == ["head_rgbd_cpp", "apt", "python", "build", "config"]
 
 
-def test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed() -> None:
-    """User 2026-10-24: no RGB-D fusion and no ground estimate for driving; the raw ToF, the head obstacle cloud
-    (d435_obstacle_cloud, D5) and the head camera stay on."""
+def test_rgbd_and_ground_nodes_are_enabled() -> None:
+    """User 2026-10-28: ground (slope and obstacle) estimation runs on the D435 (design D1, D7). The RGB-D adapter, the
+    ground estimator and their D435 inputs run and are scraped; arducam_tof and gripper_uvc_camera stay installed but
+    stopped, so the enabled memory_low sum stays within the cap (D14), and are not scraped."""
     nodes = {n["name"]: n for n in client_vars()["ros2_nodes"]}
-    for name in ("head_rgbd_cpp", "ground_estimator_cpp"):
-        assert nodes[name]["present"] is True and nodes[name]["enabled"] is False, name
-    for name in ("arducam_tof", "d435_obstacle_cloud", "head_camera_cpp"):
+    for name in ("head_rgbd_cpp", "ground_estimator_cpp", "realsense_d435", "d435_obstacle_cloud", "head_camera_cpp"):
         assert nodes[name]["present"] is True and nodes[name]["enabled"] is True, name
+    for name in ("arducam_tof", "gripper_uvc_camera"):
+        assert nodes[name]["present"] is True and nodes[name]["enabled"] is False, name
     targets = {t["node"] for t in client_vars()["monitoring_agent_node_targets"]}
-    assert not targets & {"head_rgbd_cpp", "ground_estimator_cpp"}
+    assert {"head_rgbd_cpp", "ground_estimator_cpp"} <= targets
+    assert not targets & {"arducam_tof", "gripper_uvc_camera"}
