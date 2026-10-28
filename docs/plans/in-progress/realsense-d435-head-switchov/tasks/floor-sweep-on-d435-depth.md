@@ -1,6 +1,6 @@
 ---
 title: Floor sweep on D435 depth
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The head chain floor fit runs on the D435 depth.
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/floor_sweep.py, nodes/head_rgbd_calibration/head_rgbd_calibration/floor_results.py, nodes/head_rgbd_calibration/tests/test_floor_sweep.py, nodes/head_rgbd_calibration/tests/test_floor_results.py, nodes/head_rgbd_calibration/tests/test_floor_api.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_flo
 depends_on: [calibration-config-on-d435, calibration-library-d435-fra, d435-obstacle-cloud-node]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: ed0a3946
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 15
+actual_tokens: 1601949
+actual_roles: "impl 12, review 3"
+actual_role_tokens: "impl 1456942, review 145007"
 ---
 
 # Floor sweep on D435 depth
@@ -61,3 +61,5 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-27: head tilt range is now -30..+45 deg (drivable-ground head-tilt-range-widened); head_rgbd_calibration MAX_FLOOR_TILT_DEG = 30.0 and its README/yaml comments still cap the floor sweep at -30..30 - decide and align it here.
+
+- 2026-10-29 done: root suite on ed0a3946: 2196 passed, 9 skipped (implementer)
