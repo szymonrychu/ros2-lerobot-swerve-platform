@@ -1,6 +1,6 @@
 ---
 title: Web UI head tab config on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The Head tab backend serves D435 colour, depth and RGB-D data."
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/msg_serializer.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/config/default.yaml, ansible/group_vars/client.yml, nodes/web_ui/tests/test_config.py, nodes/web_ui/tests/test_msg_serializer.py, nodes/web_ui/tests/test_head_rgbd.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/web_ui && uv run --frozen pytest tests -q && uv run poe lint &
 depends_on: [ground-recorder-on-d435-topi, d435-live-bring-up-and-topic]
 model: opus
 review: ""
-verified_head: ""
+verified_head: a3996ab6
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 33
+actual_tokens: 6579584
+actual_roles: "impl 24, review 9"
+actual_role_tokens: "impl 6265798, review 313786"
 ---
 
 # Web UI head tab config on D435
@@ -67,3 +67,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
