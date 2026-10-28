@@ -41,12 +41,18 @@ interface Row {
 }
 
 const ROWS: Row[] = [
-  { label: 'RGB RMS', field: 'rgb_rms_px', limitKey: 'rgb_max_rms_px', limitPrefix: '<=', unit: 'px' },
-  { label: 'ToF RMS', field: 'tof_rms_px', limitKey: 'tof_max_rms_px', limitPrefix: '<=', unit: 'px' },
-  { label: 'Stereo RMS', field: 'stereo_rms_px', limitKey: 'stereo_max_rms_px', limitPrefix: '<=', unit: 'px' },
-  { label: 'Plane bias', field: 'plane_bias_mm', limitKey: 'plane_max_bias_mm', limitPrefix: '|bias| <=', unit: 'mm' },
-  { label: 'RGB views', field: 'rgb_views', limitKey: 'min_views', limitPrefix: '>=', unit: '' },
-  { label: 'ToF views', field: 'tof_views', limitKey: 'min_views', limitPrefix: '>=', unit: '' },
+  { label: 'RGB RMS', field: 'rms_px', limitKey: 'intrinsics_max_rms_px', limitPrefix: '<=', unit: 'px' },
+  { label: 'Focal difference', field: 'focal_diff_pct', limitKey: 'intrinsics_max_focal_diff_pct', limitPrefix: '<=', unit: '%' },
+  {
+    label: 'Principal point difference',
+    field: 'principal_diff_px',
+    limitKey: 'intrinsics_max_principal_diff_px',
+    limitPrefix: '<=',
+    unit: 'px',
+  },
+  { label: 'Plane bias', field: 'plane_bias_median_mm', limitKey: 'plane_max_bias_mm', limitPrefix: '|bias| <=', unit: 'mm' },
+  { label: 'Plane spread', field: 'plane_bias_spread_mm', limitKey: 'plane_max_spread_mm', limitPrefix: '<=', unit: 'mm' },
+  { label: 'RGB views', field: 'views', limitKey: 'min_views', limitPrefix: '>=', unit: '' },
 ]
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null

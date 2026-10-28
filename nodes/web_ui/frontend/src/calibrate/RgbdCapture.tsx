@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
 import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -24,10 +23,10 @@ import {
   thumbnailUrl,
 } from './rgbdApi'
 
-/** Caption of one pose's errors; `-` where the pose has no such view. */
+/** Caption of one still's colour error and plane bias; `-` where not measured. */
 const errorCaption = (e: PoseError): string => {
-  const f = (v: number | null) => (v === null ? '-' : v.toFixed(3))
-  return `RGB ${f(e.rgb_error_px)} / ToF ${f(e.tof_error_px)} / stereo ${f(e.stereo_error_px)} px`
+  const f = (v: number | null, digits: number) => (v === null ? '-' : v.toFixed(digits))
+  return `RGB ${f(e.error_px, 3)} px / plane bias ${f(e.plane_bias_mm, 1)} mm`
 }
 
 /** Edge of one pose thumbnail in px. */
@@ -117,14 +116,8 @@ export function RgbdCapture({ capture, compute, sessionId, onState }: Props) {
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
             {detail.poses.map((p) => {
               const err = errors.get(p.id)
-              const flagged = err !== undefined && err.outlier.length > 0
               return (
-              <Box
-                key={p.id}
-                data-testid={`pose-card-${p.id}`}
-                data-outlier={flagged ? 'true' : 'false'}
-                sx={{ border: 1, borderColor: flagged ? 'error.main' : 'divider', p: 0.5 }}
-              >
+              <Box key={p.id} data-testid={`pose-card-${p.id}`} sx={{ border: 1, borderColor: 'divider', p: 0.5 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Typography variant="caption">{p.id}</Typography>
                   <IconButton
@@ -137,10 +130,10 @@ export function RgbdCapture({ capture, compute, sessionId, onState }: Props) {
                 </Box>
                 <Box sx={{ display: 'flex', gap: 0.5 }}>
                   <Box component="img" alt={`RGB ${p.id}`} src={thumbnailUrl(detail.id, p.id, 'rgb')} sx={{ width: THUMB_PX }} />
-                  <Box component="img" alt={`ToF ${p.id}`} src={thumbnailUrl(detail.id, p.id, 'tof')} sx={{ width: THUMB_PX }} />
+                  <Box component="img" alt={`Depth ${p.id}`} src={thumbnailUrl(detail.id, p.id, 'depth')} sx={{ width: THUMB_PX }} />
                 </Box>
                 <Typography variant="caption" component="div">
-                  {`RGB ${p.rgb_corners} corners, ToF ${p.tof_corners} corners`}
+                  {`RGB ${p.rgb_corners} corners, ${p.plane_bias_samples} depth px on the board`}
                 </Typography>
                 {(p.hints ?? []).map((h) => (
                   <Typography key={h} variant="caption" component="div" color="warning.main">
@@ -152,17 +145,11 @@ export function RgbdCapture({ capture, compute, sessionId, onState }: Props) {
                     {errorCaption(err)}
                   </Typography>
                 )}
-                {flagged && (
-                  <Typography variant="caption" component="div" color="error.main">
-                    high error - delete and Compute again
-                  </Typography>
-                )}
-                {p.has_depth && <Chip size="small" label="depth" />}
               </Box>
               )
             })}
           </Box>
-          <CoverageGrid rgb={detail.coverage.rgb} tof={detail.coverage.tof} />
+          <CoverageGrid rgb={detail.coverage.rgb} />
         </Box>
       )}
       <ConfirmDialog

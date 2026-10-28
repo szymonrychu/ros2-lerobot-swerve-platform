@@ -46,12 +46,11 @@ function Grid({ label, coverage }: GridProps) {
   )
 }
 
-/** RGB and ToF image-area coverage of the stored poses. */
-export function CoverageGrid({ rgb, tof }: { rgb: Coverage; tof: Coverage }) {
+/** Colour image-area coverage of the stored stills. */
+export function CoverageGrid({ rgb }: { rgb: Coverage }) {
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', my: 1 }}>
       <Grid label="RGB" coverage={rgb} />
-      <Grid label="ToF" coverage={tof} />
     </Box>
   )
 }

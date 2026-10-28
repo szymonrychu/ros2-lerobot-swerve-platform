@@ -14,7 +14,7 @@ const cov = (counts: number[][]): Coverage => ({ cols: counts[0].length, rows: c
 
 interface World {
   capture: typeof IDLE
-  poses: { id: string; rgb_corners: number; tof_corners: number; has_depth: boolean }[]
+  poses: { id: string; rgb_corners: number; plane_bias_samples: number }[]
   calls: string[]
 }
 
@@ -22,9 +22,8 @@ function session(w: World) {
   return {
     id: 's1',
     created: '2026-10-19T10:00:00',
-    lens_position: null,
     poses: w.poses,
-    coverage: { rgb: cov([[1, 0], [0, 0]]), tof: cov([[1, 1], [0, 0]]) },
+    coverage: { rgb: cov([[1, 0], [0, 0]]) },
     results: [],
   }
 }
@@ -55,7 +54,7 @@ function install(w: World): void {
   )
 }
 
-const pose = (id: string) => ({ id, rgb_corners: 12, tof_corners: 9, has_depth: true })
+const pose = (id: string) => ({ id, rgb_corners: 12, plane_bias_samples: 4200 })
 const stateCalls = (w: World) => w.calls.filter((c) => c.endsWith('/state')).length
 
 describe('RgbdCapture', () => {
@@ -93,8 +92,9 @@ describe('RgbdCapture', () => {
     expect(screen.getByText(/Poses: 1/)).toBeTruthy()
     const rgb = await screen.findByAltText('RGB p1')
     expect(rgb.getAttribute('src')).toBe('/api/calibration/rgbd/sessions/s1/poses/p1/rgb.jpg')
-    expect(screen.getByAltText('ToF p1').getAttribute('src')).toContain('/poses/p1/tof.jpg')
-    expect(screen.getByText(/RGB 12 corners/)).toBeTruthy()
+    expect(screen.getByAltText('Depth p1').getAttribute('src')).toBe('/api/calibration/rgbd/sessions/s1/poses/p1/depth.jpg')
+    expect(screen.queryByAltText('ToF p1')).toBeNull()
+    expect(screen.getByText('RGB 12 corners, 4200 depth px on the board')).toBeTruthy()
   })
 
   it('delete goes through the dialog, calls DELETE and refreshes', async () => {
@@ -162,11 +162,10 @@ describe('RgbdCapture', () => {
 
 describe('CoverageGrid', () => {
   afterEach(cleanup)
-  it('shows the empty-area hint for RGB and ToF', () => {
-    render(<CoverageGrid rgb={cov([[1, 0], [0, 0]])} tof={cov([[1, 1], [0, 0]])} />)
+  it('shows the empty-area hint for the colour image', () => {
+    render(<CoverageGrid rgb={cov([[1, 0], [0, 0]])} />)
     expect(screen.getByText('3 of 4 image areas without corners')).toBeTruthy()
-    expect(screen.getByText('2 of 4 image areas without corners')).toBeTruthy()
-    expect(screen.getAllByTestId('coverage-cell-empty').length).toBe(5)
+    expect(screen.getAllByTestId('coverage-cell-empty').length).toBe(3)
   })
 })
 
@@ -199,7 +198,7 @@ describe('RgbdCapture with the node contract fixtures', () => {
 
   it('RgbdCalibration shows the started capture from the Start answer', async () => {
     const sid = captureStartFx.capture.session_id
-    const detail = { id: sid, created: 'c', lens_position: null, poses: [], coverage: { rgb: cov([[0]]), tof: cov([[0]]) }, results: [] }
+    const detail = { id: sid, created: 'c', poses: [], coverage: { rgb: cov([[0]]) }, results: [] }
     const f = vi.fn(async (url: string) => {
       const body = url.endsWith('/capture/start')
         ? captureStartFx
@@ -224,17 +223,16 @@ describe('RgbdCapture pose hints and errors', () => {
     cleanup()
     vi.unstubAllGlobals()
   })
-  const pe = (id: string, outlier: string[]) => ({ id, rgb_error_px: 0.21, tof_error_px: 0.12, stereo_error_px: null, outlier })
+  const pe = (id: string) => ({ id, error_px: 0.21, plane_bias_mm: -1.5, plane_spread_mm: 2.0 })
   const detailWith = (results: unknown[]) => ({
     id: 's1',
     created: 'c',
-    lens_position: null,
     poses: [
       { ...pose('p1'), hints: ['few corners: 6 RGB - move the board closer', 'second hint'] },
       pose('p2'),
       pose('p3'),
     ],
-    coverage: { rgb: cov([[1]]), tof: cov([[1]]) },
+    coverage: { rgb: cov([[1]]) },
     results,
   })
   const serve = (getBody: () => unknown) => {
@@ -253,17 +251,12 @@ describe('RgbdCapture pose hints and errors', () => {
     expect(screen.queryByText(/RGB 0\.210/)).toBeNull()
   })
 
-  it('shows the error caption, flags outliers, and skips poses absent from the result', async () => {
-    serve(() => detailWith([{ id: 'r2', passed: false, poses: [pe('p1', []), pe('p2', ['rgb'])] }]))
+  it('shows the error caption and skips poses absent from the result', async () => {
+    serve(() => detailWith([{ id: 'r2', passed: false, poses: [pe('p1'), { ...pe('p2'), plane_bias_mm: null }] }]))
     mount()
-    const captions = await screen.findAllByText('RGB 0.210 / ToF 0.120 / stereo - px')
-    expect(captions.length).toBe(2)
-    expect(screen.getAllByText('high error - delete and Compute again').length).toBe(1)
-    expect(screen.getByTestId('pose-card-p2').getAttribute('data-outlier')).toBe('true')
-    expect(screen.getByTestId('pose-card-p1').getAttribute('data-outlier')).toBe('false')
-    const p3 = screen.getByTestId('pose-card-p3')
-    expect(p3.textContent).not.toMatch(/ToF 0\.120/)
-    expect(p3.textContent).not.toMatch(/high error/)
+    expect(await screen.findByText('RGB 0.210 px / plane bias -1.5 mm')).toBeTruthy()
+    expect(screen.getByText('RGB 0.210 px / plane bias - mm')).toBeTruthy()
+    expect(screen.getByTestId('pose-card-p3').textContent).not.toMatch(/plane bias/)
     expect(screen.getByRole('button', { name: 'Delete pose p2' })).toBeTruthy()
   })
 
@@ -272,11 +265,11 @@ describe('RgbdCapture pose hints and errors', () => {
     const f = serve(() => detailWith(results))
     const { rerender } = mount({ ...COMPUTE, running: true })
     await screen.findByAltText('RGB p2')
-    expect(screen.queryByText(/ToF 0\.120/)).toBeNull()
+    expect(screen.queryByText(/plane bias/)).toBeNull()
     const before = f.mock.calls.length
-    results = [{ id: 'r2', passed: false, poses: [pe('p2', ['rgb'])] }]
+    results = [{ id: 'r2', passed: false, poses: [pe('p2')] }]
     rerender(<RgbdCapture capture={IDLE} compute={COMPUTE} sessionId="s1" onState={vi.fn()} />)
-    await screen.findByText('RGB 0.210 / ToF 0.120 / stereo - px')
+    await screen.findByText('RGB 0.210 px / plane bias -1.5 mm')
     expect(f.mock.calls.length).toBeGreaterThan(before)
   })
 })

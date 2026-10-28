@@ -28,12 +28,12 @@ export interface UnitRestart {
   restarted: boolean
 }
 
-/** applied.json as the node writes it (`session`, `result`, `applied_at`, `files`); `units` is added by the apply answer and GET /applied. */
+/** The accepted D435 intrinsics check in applied.json (`kind`, `session`, `result`, `applied_at`); `units` is added by the apply answer and GET /applied. */
 export interface AppliedRecord {
+  kind: string
   session: string
   result: string
   applied_at: string
-  files: string[]
   units?: UnitRestart[]
 }
 
@@ -59,8 +59,8 @@ export interface SessionSummary {
 export interface PoseSummary {
   id: string
   rgb_corners: number
-  tof_corners: number
-  has_depth: boolean
+  /** Aligned depth pixels with a value inside the detected board corners (the plane bias samples). */
+  plane_bias_samples: number
   /** Capture-time quality hints; absent on a node from before the hints. */
   hints?: string[]
 }
@@ -72,23 +72,21 @@ export interface Coverage {
   counts: number[][]
 }
 
-/** Reprojection errors of one pose in a compute result; null where the pose has no such view. */
+/** Colour reprojection error and board-plane depth bias of one still in a check result; null where not measured. */
 export interface PoseError {
   id: string
-  rgb_error_px: number | null
-  tof_error_px: number | null
-  stereo_error_px: number | null
-  outlier: string[]
+  error_px: number | null
+  plane_bias_mm: number | null
+  plane_spread_mm: number | null
 }
 
-/** result.json of one compute run. */
+/** result.json of one intrinsics check run. */
 export interface ResultSummary {
   id: string
   created?: string | number
   passed: boolean
-  /** Per-pose reprojection errors; absent on a result from before the pose errors. */
+  /** Per-still errors; absent on a result from before the pose errors. */
   poses?: PoseError[]
-  outlier_poses?: string[]
   [key: string]: unknown
 }
 
@@ -99,9 +97,8 @@ export interface ResultDetail extends ResultSummary {
 export interface SessionDetail {
   id: string
   created: string | number
-  lens_position: number | null
   poses: PoseSummary[]
-  coverage: { rgb: Coverage; tof: Coverage }
+  coverage: { rgb: Coverage }
   results: ResultSummary[]
 }
 
@@ -140,10 +137,10 @@ function isCompute(v: unknown): boolean {
 const isUnit = (v: unknown) => isObj(v) && isStr(v.name) && typeof v.restarted === 'boolean'
 const isApplied = (v: unknown) =>
   isObj(v) &&
+  isStr(v.kind) &&
   isStr(v.session) &&
   isStr(v.result) &&
   isStr(v.applied_at) &&
-  isArrayOf(isStr)(v.files) &&
   (v.units === undefined || isArrayOf(isUnit)(v.units))
 
 /** applied.json is read back with `units`; the apply answer without it is rejected so the UI never shows a guess. */
@@ -159,8 +156,7 @@ const isPose = (v: unknown) =>
   isObj(v) &&
   isStr(v.id) &&
   isNum(v.rgb_corners) &&
-  isNum(v.tof_corners) &&
-  typeof v.has_depth === 'boolean' &&
+  isNum(v.plane_bias_samples) &&
   (v.hints === undefined || isArrayOf(isStr)(v.hints))
 
 const isCoverage = (v: unknown) =>
@@ -169,26 +165,22 @@ const isCoverage = (v: unknown) =>
 const isPoseError = (v: unknown) =>
   isObj(v) &&
   isStr(v.id) &&
-  isNullOr(isNum)(v.rgb_error_px) &&
-  isNullOr(isNum)(v.tof_error_px) &&
-  isNullOr(isNum)(v.stereo_error_px) &&
-  isArrayOf(isStr)(v.outlier)
+  isNullOr(isNum)(v.error_px) &&
+  isNullOr(isNum)(v.plane_bias_mm) &&
+  isNullOr(isNum)(v.plane_spread_mm)
 
 const isResult = (v: unknown) =>
   isObj(v) &&
   isStr(v.id) &&
   typeof v.passed === 'boolean' &&
-  (v.poses === undefined || isArrayOf(isPoseError)(v.poses)) &&
-  (v.outlier_poses === undefined || isArrayOf(isStr)(v.outlier_poses))
+  (v.poses === undefined || isArrayOf(isPoseError)(v.poses))
 
 const isSession = (v: unknown) =>
   isObj(v) &&
   isStr(v.id) &&
-  isNullOr(isNum)(v.lens_position ?? null) &&
   isArrayOf(isPose)(v.poses) &&
   isObj(v.coverage) &&
   isCoverage(v.coverage.rgb) &&
-  isCoverage(v.coverage.tof) &&
   isArrayOf(isResult)(v.results)
 
 const isResultDetail = (v: unknown) => isResult(v) && isNullOr(isStr)((v as Record<string, unknown>).report)
@@ -216,7 +208,7 @@ const seg = encodeURIComponent
 const sessionPath = (sid: string) => `${BASE}/sessions/${seg(sid)}`
 
 /** URL of the stored thumbnail (corners drawn) of one pose. */
-export function thumbnailUrl(sid: string, pid: string, kind: 'rgb' | 'tof'): string {
+export function thumbnailUrl(sid: string, pid: string, kind: 'rgb' | 'depth'): string {
   return `${sessionPath(sid)}/poses/${seg(pid)}/${kind}.jpg`
 }
 

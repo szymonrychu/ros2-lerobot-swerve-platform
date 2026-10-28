@@ -20,9 +20,9 @@ const state = {
 }
 const coverage = { cols: 2, rows: 2, counts: [[1, 0], [0, 3]] }
 const detail = {
-  id: 's1', created: 'c', lens_position: 1.5,
-  poses: [{ id: 'p1', rgb_corners: 30, tof_corners: 28, has_depth: true }],
-  coverage: { rgb: coverage, tof: coverage }, results: [{ id: 'r1', created: 'c', passed: true }],
+  id: 's1', created: 'c',
+  poses: [{ id: 'p1', rgb_corners: 30, plane_bias_samples: 4200 }],
+  coverage: { rgb: coverage }, results: [{ id: 'r1', created: 'c', passed: true }],
 }
 const result = { id: 'r1', created: 'c', passed: false, report: '# rep' }
 const applied = appliedFx
@@ -37,7 +37,7 @@ afterEach(() => {
 })
 
 describe('rgbdApi helpers', () => {
-  it('emptyCells counts zero cells over rgb or tof grid', () => {
+  it('emptyCells counts zero cells over the colour grid', () => {
     expect(emptyCells(coverage)).toBe(2)
     expect(emptyCells({ cols: 1, rows: 1, counts: [[0]] })).toBe(1)
   })
@@ -45,13 +45,12 @@ describe('rgbdApi helpers', () => {
     expect(statusSeverity('pose 3 captured - move to the next pose')).toBe('success')
     expect(statusSeverity('moving')).toBe('info')
     expect(statusSeverity('waiting for frames')).toBe('info')
-    expect(statusSeverity('still - no board in the RGB image')).toBe('warning')
-    expect(statusSeverity('still - board not found by the ToF: move closer')).toBe('warning')
-    expect(statusSeverity('still - no ToF frame close in time')).toBe('warning')
+    expect(statusSeverity('still - no board in the colour image')).toBe('warning')
+    expect(statusSeverity('still - no colour camera_info yet')).toBe('warning')
   })
   it('urls encode ids and map kinds', () => {
     expect(thumbnailUrl('a/b', 'p 1', 'rgb')).toBe(`${B}/sessions/a%2Fb/poses/p%201/rgb.jpg`)
-    expect(thumbnailUrl('s', 'p', 'tof')).toBe(`${B}/sessions/s/poses/p/tof.jpg`)
+    expect(thumbnailUrl('s', 'p', 'depth')).toBe(`${B}/sessions/s/poses/p/depth.jpg`)
     expect(downloadUrl('s?', 'r#')).toBe(`${B}/sessions/s%3F/results/r%23/download`)
   })
 })
@@ -137,13 +136,17 @@ describe('rgbdApi calls', () => {
     expect((await getState()).ok).toBe(false)
     stub(200, [{ id: 1 }])
     expect((await listSessions()).ok).toBe(false)
-    stub(200, { ...detail, coverage: { rgb: { cols: 1 }, tof: coverage } })
+    stub(200, { ...detail, coverage: { rgb: { cols: 1 } } })
     expect((await getSession('s')).ok).toBe(false)
     stub(200, { result_id: 3 })
     expect((await computeSession('s')).ok).toBe(false)
     stub(200, { id: 'r1', passed: true })
     expect((await getResult('s', 'r1')).ok).toBe(false)
     stub(200, { units: 'x' })
+    expect((await getApplied()).ok).toBe(false)
+    const { kind: _kind, ...withoutKind } = appliedFx
+    void _kind
+    stub(200, withoutKind)
     expect((await getApplied()).ok).toBe(false)
   })
 })
@@ -188,7 +191,7 @@ describe('rgbdApi pose hints and errors', () => {
     stub(200, sessionFx)
     expect(await getSession('s')).toEqual({ ok: true, value: sessionFx })
   })
-  it('getResult accepts result.json with poses and outlier_poses', async () => {
+  it('getResult accepts result.json with the per-still errors', async () => {
     stub(200, resultFx)
     expect(await getResult('s', 'r')).toEqual({ ok: true, value: resultFx })
   })
@@ -207,15 +210,15 @@ describe('rgbdApi pose hints and errors', () => {
     expect((await getSession('s')).ok).toBe(false)
     stub(200, { ...result, poses: {} })
     expect((await getResult('s', 'r1')).ok).toBe(false)
-    stub(200, { ...result, poses: [{ id: '1', rgb_error_px: 'a', tof_error_px: null, stereo_error_px: null, outlier: [] }] })
+    stub(200, { ...result, poses: [{ id: '1', error_px: 'a', plane_bias_mm: null, plane_spread_mm: null }] })
     expect((await getResult('s', 'r1')).ok).toBe(false)
-    stub(200, { ...result, outlier_poses: 'x' })
-    expect((await getResult('s', 'r1')).ok).toBe(false)
+    stub(200, { ...detail, poses: [{ id: 'p1', rgb_corners: 30 }] })
+    expect((await getSession('s')).ok).toBe(false)
   })
 })
 
 describe('poseErrors', () => {
-  const pe = { id: '001', rgb_error_px: 0.2, tof_error_px: null, stereo_error_px: 0.4, outlier: [] }
+  const pe = { id: '001', error_px: 0.2, plane_bias_mm: -1.5, plane_spread_mm: null }
   it('is empty without results or without poses', () => {
     expect(poseErrors({ ...detail, results: [] }).size).toBe(0)
     expect(poseErrors(detail).size).toBe(0)
