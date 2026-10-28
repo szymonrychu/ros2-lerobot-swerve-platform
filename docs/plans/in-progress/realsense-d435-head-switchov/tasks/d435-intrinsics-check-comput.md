@@ -1,6 +1,6 @@
 ---
 title: D435 intrinsics check compute
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The calibration screen can prove the D435 factory intrinsics on this unit.
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py, nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py, nodes/head_rgbd_calibration/tests/fixtures/api/, nodes/head_rgbd_calibration/tests/test_compute.py, nodes/head_rgbd_calibration/tests/test_apply.py, nodes/head_rgbd_calibration/tests/test_app.py]
@@ -8,11 +8,11 @@ verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv
 depends_on: [calibration-config-on-d435, d435-intrinsics-check-maths]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 3d44192b
 points: 5
 expected_minutes: 57
 expected_tokens: 3750000
-points_actual: ""
+points_actual: 5
 actual_minutes: ""
 actual_tokens: ""
 actual_roles: ""
@@ -65,3 +65,7 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28: delivered together with calibration-config-on-d435 (option A, the capture change cascades into store/app/compute/fixtures); review it on the same commit range against its own ACs.
+
+- 2026-10-28 done
+
+- 2026-10-28 actuals: no agent records
