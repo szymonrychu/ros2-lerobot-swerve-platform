@@ -66,3 +66,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28 (user): the board is the same 3D-printed 6x5 ChArUco (same dimensions as before), 4 mm thick; it is in front of the robot and the D435 head is mounted. Account for the 4 mm thickness where the board surface vs mount face matters (plate_mount / tool_in_board_m, board-plane depth bias).

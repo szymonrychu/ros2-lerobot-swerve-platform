@@ -64,3 +64,4 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28 (from calibration-config-on-d435): head-arm stills store no CameraInfo and read head_camera_calibration.yaml, which is no longer written; head-arm must take the D435 factory intrinsics from CameraInfo stored with each still (CameraIntrinsics.from_camera_info).
+- 2026-10-28 (user): the board is the same 3D-printed 6x5 ChArUco (same dimensions as before), 4 mm thick; it is in front of the robot and the D435 head is mounted. Account for the 4 mm thickness where the board surface vs mount face matters (plate_mount / tool_in_board_m, board-plane depth bias).
