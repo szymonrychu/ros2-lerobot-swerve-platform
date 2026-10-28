@@ -15,6 +15,7 @@ NUMBER_FORMAT = "{:.9f}"
 HEAD_CHAIN_FILE = "head_chain.json"
 TOF_JOINT_FILE = "tof_joint.json"
 APPLIED_MARKER_FILE = "applied.json"
+LEGACY_CHAIN_JOINT = "head_camera_joint"
 HEAD_CHAIN_JOINTS = ("head_mount_joint", "head_pan", "head_tilt", "d435_joint")
 
 
@@ -115,6 +116,10 @@ def parse_head_chain(data: object) -> dict[str, Origin]:
         raise ValueError("joints must be a non-empty object")
     origins: dict[str, Origin] = {}
     for name, entry in joints.items():
+        if name == LEGACY_CHAIN_JOINT:
+            raise ValueError(
+                f"joints.{name}: this fit predates the D435 (the joint is gone); re-run head-from-arm calibration"
+            )
         if name not in HEAD_CHAIN_JOINTS:
             raise ValueError(f"joints.{name}: unknown joint")
         if not isinstance(entry, dict):

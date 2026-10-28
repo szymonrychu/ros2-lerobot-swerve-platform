@@ -209,3 +209,12 @@ def test_override_moves_the_d435_frames(ut: ModuleType, urdf_text: str, tmp_path
         before, after = frame_pose(urdf_text, frame), frame_pose(out, frame)
         assert not np.allclose(before[:3, 3], after[:3, 3]), frame
         assert not np.allclose(before[:3, :3], after[:3, :3]), frame
+
+
+def test_legacy_head_camera_joint_chain_warns_and_keeps_urdf(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:
+    write_chain(tmp_path, {"head_tilt": valid_joint(), "head_camera_joint": valid_joint()})
+    out, warnings = ut.apply_overrides(urdf_text, tmp_path)
+    assert out == urdf_text
+    assert len(warnings) == 1
+    assert "head_camera_joint" in warnings[0] and "predates the D435" in warnings[0]
+    assert "head-from-arm" in warnings[0]
