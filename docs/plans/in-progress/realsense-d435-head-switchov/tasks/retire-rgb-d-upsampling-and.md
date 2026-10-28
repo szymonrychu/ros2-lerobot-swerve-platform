@@ -1,6 +1,6 @@
 ---
 title: Retire RGB-D upsampling and ToF filter code
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The last ToF-only image code leaves head_rgbd_cpp.
 files: [nodes/head_rgbd_cpp/src/core/upsample.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/upsample.hpp, nodes/head_rgbd_cpp/test/core/test_upsample.cpp, nodes/head_rgbd_cpp/src/core/tof_filter.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/tof_filter.hpp, nodes/head_rgbd_cpp/test/core/test_tof_filter.cpp, tests/test_tof_paths_retired.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_tof_paths_retired.py -q && uv run poe lint && 
 depends_on: [retire-rgb-d-registration-an]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 8982ec7c
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 18
+actual_tokens: 1106563
+actual_roles: "impl 17, review 12"
+actual_role_tokens: "impl 911579, review 194984"
 ---
 
 # Retire RGB-D upsampling and ToF filter code
@@ -62,3 +62,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
