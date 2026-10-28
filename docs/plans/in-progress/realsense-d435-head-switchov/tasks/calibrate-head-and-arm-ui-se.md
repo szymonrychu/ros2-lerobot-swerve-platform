@@ -73,3 +73,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28: the fit now frees d435_joint x/z/roll/yaw (camera_* params, fit_camera_mount flag; design D32b); HeadArmCalibration.tsx PARAM_ROWS must show them.
