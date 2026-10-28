@@ -2500,8 +2500,9 @@ ros2_nodes:
         base_poll_hz: 1.0
         stale_after_s: 5.0
         base_timeout_s: 2.0
-      # Ground recorder: operator tool (POST /api/ground/recordings), idle when not recording. Captures ToF, RGB +
-      # amplitude, IMU and ground state replay files without rclpy probes on the client. Defaults in default.yaml.
+      # Ground recorder: operator tool (POST /api/ground/recordings), idle when not recording. Captures the head D435
+      # cloud, the D435 depth camera model, the /head_rgbd depth + RGB pairs, IMU and ground state replay files without
+      # rclpy probes on the client. Defaults in default.yaml.
       ground_recorder:
         enabled: true
       # Calibrate page (hamburger menu, #/calibrate): the IMU section reads bno055_imu's calibration status and calls
