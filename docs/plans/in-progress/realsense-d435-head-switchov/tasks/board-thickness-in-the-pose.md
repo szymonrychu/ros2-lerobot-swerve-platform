@@ -49,8 +49,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+1. Pin the 4 mm thickness in both models in tests; fails.
+2. Add the config value to both board models.
+3. Run the verify.
 
 ## Notes
 

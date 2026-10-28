@@ -47,8 +47,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+1. Add a test that every shipped pose keeps the minimum views under the D435 rule; it fails on tier 1 pose 8.
+2. Retune head aims / poses within the envelope.
+3. Run the verify.
 
 ## Notes
 

@@ -5,7 +5,7 @@ repo: ros2-lerobot-sverve-platform
 value: "The head, the D435 mount, the arm offsets and the tool point are all calibrated on the D435."
 files: [ansible/group_vars/client.yml, docs/calibration/, docs/runbooks/d435-switchover.md, tests/test_d435_runbook.py, MEMORY.md]
 verify: "uv run pytest tests/test_d435_runbook.py tests/test_head_rgbd_calibration_deploy.py tests/test_mcp_server_config.py -q && uv run poe lint && uv run poe test-ansible"
-depends_on: [calibrate-head-and-arm-ui-se, calibration-apply-restart-un, head-chain-overrides-on-d435, mcp-front-camera-on-d435, d435-live-bring-up-and-topic]
+depends_on: [head-arm-pose-set-retuned-fo, calibrate-head-and-arm-ui-se, calibration-apply-restart-un, head-chain-overrides-on-d435, mcp-front-camera-on-d435, d435-live-bring-up-and-topic]
 model: sonnet
 review: ""
 verified_head: ""
