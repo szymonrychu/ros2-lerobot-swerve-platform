@@ -21,15 +21,14 @@ from std_msgs.msg import String
 
 from marker_detector import metrics
 from marker_detector.config import MarkerDetectorConfig
-from marker_detector.pipeline import SOURCE_STREAM, SOURCE_ZOOM, FrameOutput, MarkerPipeline
+from marker_detector.pipeline import FrameOutput, MarkerPipeline
 
 NODE_NAME = "marker_detector"
 NS_PER_S = 1_000_000_000
 DEPTH_ENCODING = "16UC1"
-SENT_STATUS = "sent"
+SOURCE_STREAM = "stream"
 SENSOR_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
 COMMAND_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=20)
-STILL_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=4)
 REPORT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
 
 LOG = logging.getLogger(__name__)
@@ -63,15 +62,11 @@ class MarkerDetectorRos:
         topics = cfg.topics
         self.poi_pub = node.create_publisher(String, topics.poi_command, COMMAND_QOS)
         self.report_pub = node.create_publisher(String, topics.detections, REPORT_QOS)
-        self.zoom_pub = node.create_publisher(String, topics.zoom_command, REPORT_QOS)
         node.create_subscription(CompressedImage, topics.image, self.on_image, SENSOR_QOS, raw=True)
         node.create_subscription(CameraInfo, topics.camera_info, self.on_camera_info, SENSOR_QOS, raw=True)
         if cfg.depth_plane.enabled:
             node.create_subscription(Image, topics.depth, self.on_depth, SENSOR_QOS)
             node.create_subscription(CameraInfo, topics.depth_info, self.on_depth_info, SENSOR_QOS)
-        if cfg.zoom.process_stills or cfg.zoom.auto_zoom:
-            node.create_subscription(CompressedImage, topics.zoom_image, self.on_zoom_image, STILL_QOS)
-            node.create_subscription(String, topics.zoom_result, self.on_zoom_result, STILL_QOS)
         node.create_timer(1.0 / cfg.process_hz, self.on_timer)
         self.depth_intrinsics: CameraIntrinsics | None = None
         self.depth_info_rejected = False
@@ -147,37 +142,17 @@ class MarkerDetectorRos:
             )
         msg = deserialize_message(raw_image, CompressedImage)
         start = time.perf_counter()
-        out = self.pipeline.process_frame(stamp_ns(msg.header.stamp), bytes(msg.data), SOURCE_STREAM, self.lookup_tf)
-        self.publish(out, SOURCE_STREAM, time.perf_counter() - start)
+        out = self.pipeline.process_frame(stamp_ns(msg.header.stamp), bytes(msg.data), self.lookup_tf)
+        self.publish(out, time.perf_counter() - start)
 
-    def on_zoom_result(self, msg: String) -> None:
-        """Handle a zoom result; count the outcome of our own request."""
-        try:
-            result = json.loads(msg.data)
-        except json.JSONDecodeError:
-            LOG.warning("malformed zoom result")
-            return
-        outstanding = self.pipeline.planner.outstanding
-        if outstanding is not None and outstanding[0] == str(result.get("request_id", "")):
-            metrics.ZOOM_REQUESTS.labels(str(result.get("status", "unknown"))).inc()
-        self.process_pair(self.pipeline.on_zoom_result(result))
+    def publish(self, out: FrameOutput, seconds: float) -> None:
+        """Publish a stream frame's outputs and update the metrics.
 
-    def on_zoom_image(self, msg: CompressedImage) -> None:
-        """Handle a zoom still."""
-        self.process_pair(self.pipeline.on_zoom_image(stamp_ns(msg.header.stamp), bytes(msg.data)))
-
-    def process_pair(self, pair: tuple | None) -> None:
-        """Process a paired zoom still, if any."""
-        if pair is None:
-            return
-        start = time.perf_counter()
-        out = self.pipeline.process_zoom(pair[0], pair[1], self.lookup_tf)
-        self.publish(out, SOURCE_ZOOM, time.perf_counter() - start)
-
-    def publish(self, out: FrameOutput, source: str, seconds: float) -> None:
-        """Publish a frame's outputs and update the metrics."""
-        metrics.FRAMES_PROCESSED.labels(source).inc()
-        metrics.PROCESS_SECONDS.labels(source).observe(seconds)
+        Args:
+            out: Pipeline output of the frame. seconds: processing time.
+        """
+        metrics.FRAMES_PROCESSED.labels(SOURCE_STREAM).inc()
+        metrics.PROCESS_SECONDS.labels(SOURCE_STREAM).observe(seconds)
         for reason, count in out.rejections.items():
             metrics.REJECTIONS.labels(reason).inc(count)
         for command in out.commands:
@@ -185,9 +160,6 @@ class MarkerDetectorRos:
             metrics.DETECTIONS_ACCEPTED.inc()
         if out.report is not None:
             self.report_pub.publish(String(data=out.report))
-        if out.zoom_request is not None:
-            self.zoom_pub.publish(String(data=json.dumps(out.zoom_request)))
-            metrics.ZOOM_REQUESTS.labels(SENT_STATUS).inc()
 
 
 def make_executor(kind: str) -> Executor:

@@ -11,7 +11,6 @@ from ros2_common.marker_payload import decode_payload
 
 from marker_detector.config import MarkerDetectorConfig
 from marker_detector.decode import Candidate
-from marker_detector.geometry import zoom_intrinsics
 from marker_detector.pipeline import FrameOutput, MarkerPipeline
 from marker_detector.synthetic import (
     STREAM_K,
@@ -26,10 +25,8 @@ from tests.ros_stubs import install_ros_stubs
 
 FRAME = "d435_color_optical_frame"
 PAYLOAD = "P1/K:BASE/N:HOME/S:150"
-SMALL_PAYLOAD = "P1/K:BASE/N:HOME/S:60"
 AMBIGUOUS_PAYLOAD = "P1/K:BASE/N:HOME/S:100"
 STAMP = 5_000_000_000
-FULL_SIZE = (4608, 2592)
 IDENTITY = (np.zeros(3), np.array([0.0, 0.0, 0.0, 1.0]))
 DEPTH_SIZE = (288, 162)
 DEPTH_SCALE = DEPTH_SIZE[0] / STREAM_SIZE[0]
@@ -61,7 +58,7 @@ def to_jpeg(grey: np.ndarray) -> bytes:
 
 def make_pipeline(calibrated: bool = True, **overrides) -> MarkerPipeline:
     cfg = MarkerDetectorConfig.model_validate(overrides)
-    pipeline = MarkerPipeline(cfg, clock=lambda: 100.0)
+    pipeline = MarkerPipeline(cfg)
     if calibrated:
         pipeline.on_camera_info(STREAM_K, np.zeros(5), STREAM_SIZE, FRAME)
     return pipeline
@@ -101,7 +98,7 @@ def patch_decode(monkeypatch, candidates: list[Candidate]) -> None:
 def test_one_marker_gives_one_upsert_and_report():
     pipeline = make_pipeline()
     pose = pose_facing(1.0, yaw_deg=20.0, offset_m=(0.05, -0.03))
-    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose), "stream", identity_tf)
+    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose), identity_tf)
     assert isinstance(out, FrameOutput)
     assert len(out.commands) == 1
     cmd = out.commands[0]
@@ -116,38 +113,38 @@ def test_one_marker_gives_one_upsert_and_report():
     assert report["stamp_ns"] == STAMP and report["source"] == "stream"
     assert report["markers"][0]["key"] == decode_payload(PAYLOAD).key
     assert report["markers"][0]["chooser"] == "reprojection"
-    assert out.zoom_request is None
+    assert not hasattr(out, "zoom_request")
 
 
 def test_no_camera_info_gives_nothing():
     pipeline = make_pipeline(calibrated=False)
-    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose_facing(1.0)), "stream", identity_tf)
-    assert out.commands == [] and out.report is None and out.zoom_request is None
+    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose_facing(1.0)), identity_tf)
+    assert out.commands == [] and out.report is None
 
 
 def test_zero_camera_matrix_counts_as_no_camera_info():
     pipeline = make_pipeline(calibrated=False)
     pipeline.on_camera_info(np.zeros((3, 3)), np.zeros(5), STREAM_SIZE, FRAME)
-    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose_facing(1.0)), "stream", identity_tf)
+    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose_facing(1.0)), identity_tf)
     assert out.commands == []
 
 
 def test_tf_failure_gives_nothing():
     pipeline = make_pipeline()
-    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose_facing(1.0, yaw_deg=15.0)), "stream", no_tf)
+    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose_facing(1.0, yaw_deg=15.0)), no_tf)
     assert out.commands == [] and out.report is None
     assert out.rejections.get("tf") == 1
 
 
 def test_undecodable_jpeg_gives_nothing():
-    out = make_pipeline().process_frame(STAMP, b"not a jpeg", "stream", identity_tf)
+    out = make_pipeline().process_frame(STAMP, b"not a jpeg", identity_tf)
     assert out.commands == [] and out.report is None
 
 
 def test_invalid_payload_gives_payload_rejection():
     pipeline = make_pipeline()
     grey = render_marker_scene(["HELLO WORLD"], [150.0], [pose_facing(1.0)], STREAM_K, STREAM_SIZE)
-    out = pipeline.process_frame(STAMP, to_jpeg(grey), "stream", identity_tf)
+    out = pipeline.process_frame(STAMP, to_jpeg(grey), identity_tf)
     assert out.commands == [] and out.report is None
     assert out.rejections.get("payload") == 1
 
@@ -156,7 +153,7 @@ def test_ambiguous_without_depth_gives_nothing(monkeypatch):
     jpeg, candidate, _ = ambiguous_candidate(1)
     patch_decode(monkeypatch, [candidate])
     pipeline = make_pipeline(pose={"min_module_px": 1.0})
-    out = pipeline.process_frame(STAMP, jpeg, "stream", identity_tf)
+    out = pipeline.process_frame(STAMP, jpeg, identity_tf)
     assert out.commands == []
     assert out.rejections.get("ambiguous") == 1
 
@@ -166,7 +163,7 @@ def test_ambiguous_with_depth_plane_gives_depth_command(monkeypatch):
     patch_decode(monkeypatch, [candidate])
     pipeline = make_pipeline(pose={"min_module_px": 1.0})
     pipeline.on_depth(STAMP + 50_000_000, depth_of_plane(pose), DEPTH_INTRINSICS)
-    out = pipeline.process_frame(STAMP, jpeg, "stream", identity_tf)
+    out = pipeline.process_frame(STAMP, jpeg, identity_tf)
     assert len(out.commands) == 1
     assert json.loads(out.report)["markers"][0]["chooser"] == "depth"
     position = np.array([out.commands[0]["poi"][axis] for axis in "xyz"])
@@ -178,7 +175,7 @@ def test_depth_too_old_is_not_used(monkeypatch):
     patch_decode(monkeypatch, [candidate])
     pipeline = make_pipeline(pose={"min_module_px": 1.0})
     pipeline.on_depth(STAMP + 2_000_000_000, depth_of_plane(pose), DEPTH_INTRINSICS)
-    assert pipeline.process_frame(STAMP, jpeg, "stream", identity_tf).commands == []
+    assert pipeline.process_frame(STAMP, jpeg, identity_tf).commands == []
 
 
 def test_depth_plane_disabled_ignores_depth(monkeypatch):
@@ -186,7 +183,7 @@ def test_depth_plane_disabled_ignores_depth(monkeypatch):
     patch_decode(monkeypatch, [candidate])
     pipeline = make_pipeline(pose={"min_module_px": 1.0}, depth_plane={"enabled": False})
     pipeline.on_depth(STAMP, depth_of_plane(pose), DEPTH_INTRINSICS)
-    assert pipeline.process_frame(STAMP, jpeg, "stream", identity_tf).commands == []
+    assert pipeline.process_frame(STAMP, jpeg, identity_tf).commands == []
 
 
 def test_depth_of_another_size_than_its_camera_info_is_dropped(monkeypatch):
@@ -195,7 +192,7 @@ def test_depth_of_another_size_than_its_camera_info_is_dropped(monkeypatch):
     pipeline = make_pipeline(pose={"min_module_px": 1.0})
     pipeline.on_depth(STAMP, depth_of_plane(pose)[:, :-1], DEPTH_INTRINSICS)
     assert len(pipeline.depth_frames) == 0
-    assert pipeline.process_frame(STAMP, jpeg, "stream", identity_tf).commands == []
+    assert pipeline.process_frame(STAMP, jpeg, identity_tf).commands == []
 
 
 def test_new_depth_intrinsics_drop_the_older_frames(monkeypatch):
@@ -211,82 +208,9 @@ def test_new_depth_intrinsics_drop_the_older_frames(monkeypatch):
 
 def test_low_confidence_sends_nothing():
     pipeline = make_pipeline(pose={"min_confidence": 1.0})
-    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose_facing(1.0, yaw_deg=20.0)), "stream", identity_tf)
+    out = pipeline.process_frame(STAMP, scene(PAYLOAD, 150.0, pose_facing(1.0, yaw_deg=20.0)), identity_tf)
     assert out.commands == [] and out.report is None
     assert out.rejections.get("low_confidence") == 1
-
-
-# --- zoom ---------------------------------------------------------------------------------------------------------
-
-FAR_POSE = pose_facing(2.5, yaw_deg=15.0)
-CROP = (2304 - 200, 1296 - 120, 400, 240)
-ZOOM_OUT = (1000, 600)
-
-
-def zoom_still(pose, stamp: int = STAMP + 1) -> tuple[dict, bytes]:
-    k = zoom_intrinsics(STREAM_K, STREAM_SIZE, FULL_SIZE, CROP, ZOOM_OUT)
-    grey = render_marker_scene([SMALL_PAYLOAD], [60.0], [pose], k, ZOOM_OUT, noise_px=0.5)
-    result = {
-        "request_id": "ext-1",
-        "status": "ok",
-        "stamp_ns": stamp,
-        "crop": list(CROP),
-        "full": list(FULL_SIZE),
-        "out": list(ZOOM_OUT),
-    }
-    return result, to_jpeg(grey)
-
-
-def test_default_has_no_zoom_request_for_small_marker():
-    pipeline = make_pipeline()
-    jpeg = scene(SMALL_PAYLOAD, 60.0, pose_facing(1.6), noise=0.0)
-    out = pipeline.process_frame(STAMP, jpeg, "stream", identity_tf)
-    assert out.zoom_request is None
-
-
-def test_external_zoom_still_gives_command():
-    pipeline = make_pipeline()
-    result, jpeg = zoom_still(FAR_POSE)
-    assert pipeline.process_frame(STAMP, scene(SMALL_PAYLOAD, 60.0, FAR_POSE), "stream", identity_tf).commands == []
-    paired = pipeline.on_zoom_result(result)
-    assert paired is None
-    paired = pipeline.on_zoom_image(result["stamp_ns"], jpeg)
-    assert paired is not None
-    frame, paired_result = paired
-    out = pipeline.process_zoom(frame, paired_result, identity_tf)
-    assert len(out.commands) == 1
-    position = np.array([out.commands[0]["poi"][axis] for axis in "xyz"])
-    assert np.linalg.norm(position - np.asarray(FAR_POSE[1])) < 0.02 * np.linalg.norm(FAR_POSE[1])
-    assert json.loads(out.report)["source"] == "zoom"
-
-
-def test_zoom_still_without_geometry_gives_nothing():
-    pipeline = make_pipeline()
-    result, jpeg = zoom_still(FAR_POSE)
-    del result["crop"]
-    pipeline.on_zoom_result(result)
-    frame, paired_result = pipeline.on_zoom_image(result["stamp_ns"], jpeg)
-    assert pipeline.process_zoom(frame, paired_result, identity_tf).commands == []
-
-
-def test_auto_zoom_requests_then_still_gives_command():
-    pipeline = make_pipeline(zoom={"auto_zoom": True})
-    out = pipeline.process_frame(STAMP, scene(SMALL_PAYLOAD, 60.0, pose_facing(1.6), noise=0.0), "stream", identity_tf)
-    request = out.zoom_request
-    assert request is not None and request["zoom"] in (2, 4, 8) and 0 < request["u"] < 1
-    assert pipeline.planner.outstanding is not None
-    result, jpeg = zoom_still(FAR_POSE)
-    result["request_id"] = request["request_id"]
-    assert pipeline.on_zoom_result(result) is None
-    frame, paired_result = pipeline.on_zoom_image(result["stamp_ns"], jpeg)
-    assert len(pipeline.process_zoom(frame, paired_result, identity_tf).commands) == 1
-
-
-def test_auto_zoom_rate_limited_to_one_outstanding():
-    pipeline = make_pipeline(zoom={"auto_zoom": True})
-    jpeg = scene(SMALL_PAYLOAD, 60.0, pose_facing(1.6), noise=0.0)
-    assert pipeline.process_frame(STAMP, jpeg, "stream", identity_tf).zoom_request is not None
-    assert pipeline.process_frame(STAMP + 1, jpeg, "stream", identity_tf).zoom_request is None
 
 
 # --- node wiring --------------------------------------------------------------------------------------------------
@@ -302,9 +226,6 @@ def test_node_module_imports_and_wires_topics():
             "topics": {
                 "image": "/x/image",
                 "camera_info": "/x/info",
-                "zoom_command": "/x/zoom_cmd",
-                "zoom_image": "/x/zoom_img",
-                "zoom_result": "/x/zoom_res",
                 "depth": "/x/depth",
                 "depth_info": "/x/depth_info",
                 "poi_command": "/x/poi",
@@ -315,9 +236,9 @@ def test_node_module_imports_and_wires_topics():
     node = MagicMock()
     MarkerDetectorRos(cfg, node, MarkerPipeline(cfg))
     subscribed = {call.args[1] for call in node.create_subscription.call_args_list}
-    assert subscribed == {"/x/image", "/x/info", "/x/depth", "/x/depth_info", "/x/zoom_img", "/x/zoom_res"}
+    assert subscribed == {"/x/image", "/x/info", "/x/depth", "/x/depth_info"}
     publishers = {call.args[1]: call.args[2] for call in node.create_publisher.call_args_list}
-    assert set(publishers) == {"/x/poi", "/x/detections", "/x/zoom_cmd"}
+    assert set(publishers) == {"/x/poi", "/x/detections"}
     command_qos = publishers["/x/poi"]
     assert (command_qos.reliability.name, command_qos.history.name, command_qos.depth) == ("RELIABLE", "KEEP_LAST", 20)
     image_qos = next(c.args[3] for c in node.create_subscription.call_args_list if c.args[1] == "/x/image")
@@ -325,11 +246,11 @@ def test_node_module_imports_and_wires_topics():
     assert node.create_timer.call_args.args[0] == pytest.approx(0.25)
 
 
-def test_node_skips_depth_and_zoom_subscriptions_when_disabled():
+def test_node_skips_depth_subscriptions_when_disabled():
     install_ros_stubs()
     from marker_detector.node import MarkerDetectorRos
 
-    cfg = MarkerDetectorConfig.model_validate({"depth_plane": {"enabled": False}, "zoom": {"process_stills": False}})
+    cfg = MarkerDetectorConfig.model_validate({"depth_plane": {"enabled": False}})
     node = MagicMock()
     MarkerDetectorRos(cfg, node, MarkerPipeline(cfg))
     subscribed = [call.args[1] for call in node.create_subscription.call_args_list]

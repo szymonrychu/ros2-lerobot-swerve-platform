@@ -37,7 +37,7 @@ def rig(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(node_module, "deserialize_message", counting)
     ros_node, pipeline = MagicMock(), MagicMock()
-    pipeline.process_frame.return_value = SimpleNamespace(rejections={}, commands=[], report=None, zoom_request=None)
+    pipeline.process_frame.return_value = SimpleNamespace(rejections={}, commands=[], report=None)
     wrapper = node_module.MarkerDetectorRos(MarkerDetectorConfig(), ros_node, pipeline)
     return wrapper, ros_node, pipeline, calls
 

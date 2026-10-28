@@ -1,7 +1,7 @@
 [project]
 name = "marker_detector"
 version = "0.1.0"
-description = "Printed QR metadata marker detector (decode, pose, ToF disambiguation, zoom stills, map POIs)"
+description = "Printed QR metadata marker detector (decode, pose, depth plane disambiguation, map POIs)"
 readme = "README.md"
 requires-python = ">=3.12,<4"
 dependencies = [

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from ros2_common.marker_payload import decode_payload
 
-from marker_detector.decode import decode_frame, find_undecoded, order_corners
+from marker_detector.decode import decode_frame, order_corners
 from marker_detector.synthetic import (
     STREAM_K,
     STREAM_SIZE,
@@ -90,32 +90,14 @@ def test_sub_pixel_modules_not_decoded():
     assert candidates == []
 
 
-def test_noisy_marker_zxing_misses_is_located_for_zoom():
-    """100 mm marker at 1.2 m (~2.5 px/module) with blur 0.8 px and noise sigma 40 grey levels: zxing fails, the
-    Aruco quad finder still locates it, so it becomes a zoom target."""
-    pose = pose_facing(1.2)
-    grey = scene([PAYLOAD_2], [100.0], [pose], blur_px=0.8, noise_px=40)
-    candidates, _ = decode_frame(grey)
-    assert candidates == []
-    quads = find_undecoded(grey, candidates)
-    centre = truth(100.0, pose).mean(axis=0)
-    assert any(np.linalg.norm(q.mean(axis=0) - centre) < 10 for q in quads)
-
-
 def test_measured_decode_limit_documented():
     """Measured limit (noise free, version 3 symbol): zxing decodes down to about 1.4 px/module (100 mm at 2.5 m) and
-    fails with blur sigma >= 0.8 px at 1.2 px/module; the Aruco finder is no more sensitive when blur is the cause."""
+    fails with blur sigma >= 0.8 px at 1.2 px/module."""
     sharp, _ = decode_frame(scene([PAYLOAD_2], [100.0], [pose_facing(2.5)]))
     assert len(sharp) == 1
     assert sharp[0].module_px == pytest.approx(1.4, abs=0.15)
     blurred, _ = decode_frame(scene([PAYLOAD_2], [100.0], [pose_facing(2.5)], blur_px=1.6))
     assert blurred == []
-
-
-def test_find_undecoded_skips_decoded_markers():
-    grey = scene([PAYLOAD], [150.0], [pose_facing(1.0)])
-    candidates, _ = decode_frame(grey)
-    assert find_undecoded(grey, candidates) == []
 
 
 def test_render_marker_scene_is_public_package_api():

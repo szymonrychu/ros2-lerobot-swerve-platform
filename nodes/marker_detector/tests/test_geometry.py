@@ -1,29 +1,17 @@
-"""Tests for marker_detector.geometry (map composition, zoom intrinsics, POI command and report JSON)."""
+"""Tests for marker_detector.geometry (map composition, POI command and report JSON)."""
 
 import json
 
-import cv2
 import numpy as np
 import pytest
 from ros2_common.marker_payload import MarkerInfo, decode_payload
 from scipy.spatial.transform import Rotation
 
-from marker_detector.config import ZoomConfig
 from marker_detector.decode import Candidate
-from marker_detector.geometry import (
-    detection_report,
-    marker_in_map,
-    sighting_command,
-    zoom_factor,
-    zoom_intrinsics,
-    zoom_request,
-)
+from marker_detector.geometry import detection_report, marker_in_map, sighting_command
 from marker_detector.pose import PoseResult
-from marker_detector.synthetic import STREAM_K, STREAM_SIZE
 
 PAYLOAD_TEXT = "P1/K:BASE/N:HOME/S:150"
-FULL_SIZE = (4608, 2592)
-OUT_SIZE = (1024, 576)
 IDENTITY_Q = np.array([0.0, 0.0, 0.0, 1.0])
 
 
@@ -50,45 +38,6 @@ def test_known_tf_maps_marker_ahead() -> None:
     pos, _ = marker_in_map(np.zeros(3), np.array([1.0, 0.0, 0.0]), tf)
     assert pos == pytest.approx([1.0, 3.0, 0.5])
     assert np.linalg.norm(quat) == pytest.approx(1.0)
-
-
-def test_zoom_intrinsics_centred_zoom4() -> None:
-    crop = (1728, 972, 1152, 648)
-    k = zoom_intrinsics(STREAM_K, STREAM_SIZE, FULL_SIZE, crop, OUT_SIZE)
-    scale = 4.0 / 1.125
-    assert k[0, 0] == pytest.approx(887.0 * scale)
-    assert k[1, 1] == pytest.approx(887.0 * scale)
-    assert k[0, 2] == pytest.approx(OUT_SIZE[0] / 2)
-    assert k[1, 2] == pytest.approx(OUT_SIZE[1] / 2)
-    assert k[2] == pytest.approx([0, 0, 1])
-
-
-def test_zoom_intrinsics_matches_cropped_projection() -> None:
-    crop = (1000, 600, 1152, 648)
-    k = zoom_intrinsics(STREAM_K, STREAM_SIZE, FULL_SIZE, crop, OUT_SIZE)
-    k_full = zoom_intrinsics(STREAM_K, STREAM_SIZE, FULL_SIZE, (0, 0, *FULL_SIZE), FULL_SIZE)
-    assert k_full[0, 0] == pytest.approx(887.0 * 4)
-    point = np.array([[0.3, 0.1, 2.0]])
-    zero = np.zeros(3)
-    full_px, _ = cv2.projectPoints(point, zero, zero, k_full, None)
-    zoom_px, _ = cv2.projectPoints(point, zero, zero, k, None)
-    expected = (full_px[0, 0] - crop[:2]) * (OUT_SIZE[0] / crop[2])
-    assert zoom_px[0, 0] == pytest.approx(expected)
-
-
-@pytest.mark.parametrize(
-    ("module_px", "expected"),
-    [(12.0, 2), (6.0, 2), (5.0, 4), (3.0, 4), (2.0, 8), (1.5, 8), (0.1, 8)],
-)
-def test_zoom_factor(module_px: float, expected: int) -> None:
-    assert zoom_factor(module_px, ZoomConfig()) == expected
-
-
-def test_zoom_request_fields() -> None:
-    cfg = ZoomConfig()
-    req = zoom_request(0.25, 0.75, 3.0, cfg, "abc")
-    assert req == {"request_id": "abc", "u": 0.25, "v": 0.75, "zoom": 4, "max_px": cfg.max_px, "af": True}
-    assert json.loads(json.dumps(req)) == req
 
 
 def test_sighting_command_matches_poi_contract() -> None:
@@ -124,7 +73,5 @@ def test_detection_report_round_trips() -> None:
         "module_px": 8.0,
         "chooser": "reprojection",
     }
-    text = detection_report(123, "zoom", [item])
-    assert json.loads(text) == {"stamp_ns": 123, "source": "zoom", "markers": [item]}
-    with pytest.raises(ValueError, match="source"):
-        detection_report(1, "bogus", [])
+    text = detection_report(123, [item])
+    assert json.loads(text) == {"stamp_ns": 123, "source": "stream", "markers": [item]}

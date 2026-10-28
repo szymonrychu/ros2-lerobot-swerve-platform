@@ -119,25 +119,3 @@ def decode_frame(grey: np.ndarray) -> tuple[list[Candidate], list[Rejection]]:
         edges = np.linalg.norm(corners - np.roll(corners, -1, axis=0), axis=1)
         candidates.append(Candidate(payload, result.text, corners, version, float(edges.mean() / modules)))
     return candidates, rejections
-
-
-def find_undecoded(grey: np.ndarray, decoded: list[Candidate]) -> list[np.ndarray]:
-    """Locate QR quads that were not decoded (zoom targets).
-
-    Args:
-        grey: Grey uint8 image.
-        decoded: Candidates already decoded from this frame.
-
-    Returns:
-        List of (4, 2) float quads whose centre is outside every decoded candidate.
-    """
-    found, points = cv2.QRCodeDetectorAruco().detectMulti(grey)
-    if not found or points is None:
-        return []
-    quads = []
-    for quad in np.asarray(points, dtype=float).reshape(-1, 4, 2):
-        centre = (float(quad[:, 0].mean()), float(quad[:, 1].mean()))
-        inside = any(cv2.pointPolygonTest(c.corners.astype(np.float32), centre, False) >= 0 for c in decoded)
-        if not inside:
-            quads.append(quad)
-    return quads

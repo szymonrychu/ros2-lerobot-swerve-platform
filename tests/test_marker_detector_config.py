@@ -55,6 +55,12 @@ def test_marker_detector_entry_after_poi_store_with_config() -> None:
     MarkerDetectorConfig(**config)
 
 
+def test_marker_detector_entry_has_no_zoom() -> None:
+    nodes = client_vars()["ros2_nodes"]
+    entry = next(n for n in nodes if n["name"] == "marker_detector")
+    assert "zoom" not in entry["config"]
+
+
 def test_metrics_target_for_marker_detector() -> None:
     assert METRICS_TARGET in client_vars()["monitoring_agent_node_targets"]
 

@@ -14,11 +14,8 @@ Detects printed QR metadata markers in the head camera image and turns them into
 |---|---|---|
 | `topics.image` | `/head/d435/color/image_raw/compressed` | in |
 | `topics.camera_info` | `/head/d435/color/camera_info` | in |
-| `topics.zoom_image` | `/head_camera/zoom/image` | in |
-| `topics.zoom_result` | `/head_camera/zoom/result` | in |
 | `topics.depth` | `/head_rgbd/depth/image_raw` | in |
 | `topics.depth_info` | `/head_rgbd/depth/camera_info` | in |
-| `topics.zoom_command` | `/head_camera/zoom/command` | out |
 | `topics.poi_command` | `/poi/command` | out |
 | `topics.detections` | `/markers/detections` | out |
 
@@ -38,15 +35,6 @@ File: `$MARKER_DETECTOR_CONFIG`, default `/etc/ros2/marker_detector/config.yaml`
 | `pose.max_rms_px` | 1.0 | max reprojection RMS |
 | `pose.min_module_px` | 4.0 | min module size for pose |
 | `pose.min_confidence` | 0.3 | min confidence |
-| `zoom.process_stills` | true | process every `ok`/`af_failed` zoom still, whoever requested it |
-| `zoom.auto_zoom` | false | node requests zoom stills itself |
-| `zoom.min_interval_s` | 10 | rate limit for automatic requests |
-| `zoom.min_module_px` | 6.0 | below this, zoom is wanted |
-| `zoom.target_module_px` | 12.0 | module size to zoom to |
-| `zoom.cooldown_s` | 30 | per-marker cooldown |
-| `zoom.timeout_s` | 8 | zoom request timeout |
-| `zoom.max_px` | 1024 | max still size |
-| `zoom.full_size` | [4608, 2592] | full sensor size |
 | `depth_plane.enabled` | true | use depth plane disambiguation |
 | `depth_plane.max_dt_s` | 0.15 | max depth/image time gap |
 | `depth_plane.max_angle_deg` | 20 | max plane angle difference |
@@ -57,23 +45,21 @@ File: `$MARKER_DETECTOR_CONFIG`, default `/etc/ros2/marker_detector/config.yaml`
 
 The node uses one default callback group and no `MultiThreadedExecutor`, so the `EventsExecutor` (which ignores callback groups) is safe here; the tf2 listener keeps its own spin thread. Rollback: set `executor: single_threaded` for this node in `ansible/group_vars/client.yml` and redeploy the node.
 
-Zoom thresholds must satisfy `target_module_px > min_module_px >= pose.min_module_px`.
+There is no zoom stage: the zoom stills came from head_camera_cpp's full-resolution crop, which the D435 has no equivalent of, so `zoom` and the `topics.zoom_*` keys are rejected like any unknown key.
 
 ## Tests
 
-`uv run --frozen pytest tests/ -q`. `tests/test_config.py` covers config defaults/validation and checks the venv imports OpenCV >= 4.8 and zxing-cpp.
+`uv run --frozen pytest tests/ -q`. `tests/test_config.py` covers config defaults/validation (including the rejected zoom keys), pins that `marker_detector/zoom.py` is no longer tracked, and checks the venv imports OpenCV >= 4.8 and zxing-cpp.
 
 ## Decode and synthetic scenes
 
-- `marker_detector/decode.py`: `decode_frame(grey)` reads QR codes with zxing-cpp and validates payloads (invalid ones become `Rejection(reason="payload")`); corners are top-left, top-right, bottom-right, bottom-left in the symbol's own orientation. `find_undecoded(grey, decoded)` returns QR quads (OpenCV `QRCodeDetectorAruco`) that zxing did not decode, as zoom targets.
+- `marker_detector/decode.py`: `decode_frame(grey)` reads QR codes with zxing-cpp and validates payloads (invalid ones become `Rejection(reason="payload")`); corners are top-left, top-right, bottom-right, bottom-left in the symbol's own orientation.
 - `marker_detector/synthetic.py`: `render_marker_scene`, `pose_facing`, `STREAM_K` render segno symbols through a pinhole camera for tests and the bench.
-- Measured limit: zxing decodes down to about 1.4 px/module sharp; blur sigma 1.6 px at that size defeats it. Heavy noise is where the Aruco finder still locates what zxing misses (`tests/test_decode.py`).
+- Measured limit: zxing decodes down to about 1.4 px/module sharp; blur sigma 1.6 px at that size defeats it (`tests/test_decode.py`).
 
 ## Pipeline
 
-`marker_detector/pipeline.py` (`MarkerPipeline`, no ROS) per frame: decode (zxing-cpp) -> pose (IPPE, 24 finder corners; when the two solutions are ambiguous and a depth frame lies within `depth_plane.max_dt_s`, the depth plane picks one, chooser `depth`) -> TF (map <- camera frame at the image stamp) -> `pose.min_confidence` gate -> one `upsert_marker` per accepted marker, a report, and (only with `zoom.auto_zoom`) at most one zoom request for a small decoded marker (module < `zoom.min_module_px`) or an undecoded QR quad. `process_frame` returns a `FrameOutput` (`commands`, `report`, `zoom_request`, `rejections`).
-
-Zoom stills (`zoom.process_stills`, from any requester) are paired with their result by `stamp_ns` and processed by `process_zoom` with intrinsics from the stream camera_info scaled to the result's `full` size, shifted by its `crop` origin and scaled by out/crop. The depth plane is not used for stills (the depth is aligned to the stream image only). A still whose result has no `crop` is rejected (`zoom_geometry`).
+`marker_detector/pipeline.py` (`MarkerPipeline`, no ROS) per frame: decode (zxing-cpp) -> pose (IPPE, 24 finder corners; when the two solutions are ambiguous and a depth frame lies within `depth_plane.max_dt_s`, the depth plane picks one, chooser `depth`) -> TF (map <- camera frame at the image stamp) -> `pose.min_confidence` gate -> one `upsert_marker` per accepted marker and a report. `process_frame(stamp_ns, jpeg, lookup_tf)` returns a `FrameOutput` (`commands`, `report`, `rejections`).
 
 `marker_detector/depth_plane.py`: `fit_plane` deprojects the valid depth pixels inside the marker polygon (scaled to the depth size) with the shared `ros2_common.camera_geometry.depth_to_points` on the `CameraIntrinsics.from_camera_info` of the depth camera_info (the node builds them; an invalid camera_info disables the depth plane) and fits a plane by SVD (rejected below `depth_plane.min_valid_px` pixels or above `depth_plane.max_residual_mm` RMS). `plane_chooser` picks the IPPE solution whose +z is within `depth_plane.max_angle_deg` of the plane normal. Tests: `tests/test_depth_plane.py`.
 
@@ -86,24 +72,22 @@ Nothing is sent without a real detection: no camera_info (or an all-zero K) -> n
 | Topic | QoS |
 |---|---|
 | image, camera_info, depth, depth_info (in) | best effort, keep last 1 |
-| zoom_image, zoom_result (in) | reliable, keep last 4 |
 | `/poi/command` (out, String JSON `upsert_marker`) | reliable, keep last 20 |
 | `/markers/detections` (out, String JSON) | reliable, keep last 10 |
-| zoom_command (out) | reliable, keep last 10 |
 
-`image` and `camera_info` are raw subscriptions (`raw=True`): the callbacks only keep the newest serialized bytes, and the `process_hz` timer deserializes (`rclpy.serialization.deserialize_message`) them, camera_info only when a new one arrived and before the image. A frame is decoded at most once and a tick without a new frame decodes nothing. Depth, depth_info and zoom subscriptions are normal. A timer at `process_hz` processes only the newest unprocessed stream frame. TF is looked up at the image stamp, waiting up to `tf_timeout_s`.
+`image` and `camera_info` are raw subscriptions (`raw=True`): the callbacks only keep the newest serialized bytes, and the `process_hz` timer deserializes (`rclpy.serialization.deserialize_message`) them, camera_info only when a new one arrived and before the image. A frame is decoded at most once and a tick without a new frame decodes nothing. Depth and depth_info subscriptions are normal. A timer at `process_hz` processes only the newest unprocessed stream frame. TF is looked up at the image stamp, waiting up to `tf_timeout_s`.
 
 ## Report format
 
-`/markers/detections`: `{"stamp_ns": int, "source": "stream"|"zoom", "markers": [{"key", "payload", "position" [x,y,z] map m, "quaternion" [x,y,z,w], "rms_px", "ratio" (null when single solution), "confidence", "module_px", "chooser": "reprojection"|"depth"}]}`.
+`/markers/detections`: `{"stamp_ns": int, "source": "stream", "markers": [{"key", "payload", "position" [x,y,z] map m, "quaternion" [x,y,z,w], "rms_px", "ratio" (null when single solution), "confidence", "module_px", "chooser": "reprojection"|"depth"}]}`.
 
 ## Metrics
 
-`marker_frames_processed_total{source}`, `marker_detections_accepted_total`, `marker_rejections_total{reason}` (payload, ambiguous, rms, module_too_small, behind_camera, pnp_failed, low_confidence, tf, image, zoom_geometry), `marker_zoom_requests_total{status}` (`sent` plus the result status of our requests), `marker_process_seconds{source}` histogram. Served by `ros2_metrics` on `metrics_port`.
+`marker_frames_processed_total{source}`, `marker_detections_accepted_total`, `marker_rejections_total{reason}` (payload, ambiguous, rms, module_too_small, behind_camera, pnp_failed, low_confidence, tf, image), `marker_process_seconds{source}` histogram (`source` is always `stream`). Served by `ros2_metrics` on `metrics_port`.
 
 ## Node tests
 
-`tests/test_pipeline.py` covers the pipeline on synthetic scenes (single marker, missing camera_info, TF failure, invalid payload, depth plane disambiguation, zoom stills, auto zoom, confidence gate) and the node wiring with `tests/ros_stubs.py` stubbing rclpy, tf2_ros, sensor_msgs and std_msgs.
+`tests/test_pipeline.py` covers the pipeline on synthetic scenes (single marker, missing camera_info, TF failure, invalid payload, depth plane disambiguation, confidence gate) and the node wiring with `tests/ros_stubs.py` stubbing rclpy, tf2_ros, sensor_msgs and std_msgs.
 
 ## Benchmark
 

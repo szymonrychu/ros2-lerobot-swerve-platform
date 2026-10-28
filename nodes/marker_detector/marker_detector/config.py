@@ -2,10 +2,10 @@
 
 import os
 from pathlib import Path
-from typing import Literal, Self
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 CONFIG_ENV = "MARKER_DETECTOR_CONFIG"
 DEFAULT_CONFIG_PATH = "/etc/ros2/marker_detector/config.yaml"
@@ -20,9 +20,6 @@ class StrictModel(BaseModel):
 class TopicsConfig(StrictModel):
     image: str = "/head/d435/color/image_raw/compressed"
     camera_info: str = "/head/d435/color/camera_info"
-    zoom_command: str = "/head_camera/zoom/command"
-    zoom_image: str = "/head_camera/zoom/image"
-    zoom_result: str = "/head_camera/zoom/result"
     depth: str = "/head_rgbd/depth/image_raw"
     depth_info: str = "/head_rgbd/depth/camera_info"
     poi_command: str = "/poi/command"
@@ -34,18 +31,6 @@ class PoseConfig(StrictModel):
     max_rms_px: float = Field(1.0, gt=0)
     min_module_px: float = Field(4.0, gt=0)
     min_confidence: float = Field(0.3, ge=0, le=1)
-
-
-class ZoomConfig(StrictModel):
-    process_stills: bool = True
-    auto_zoom: bool = False
-    min_interval_s: float = Field(10.0, ge=0)
-    min_module_px: float = 6.0
-    target_module_px: float = 12.0
-    cooldown_s: float = Field(30.0, ge=0)
-    timeout_s: float = Field(8.0, gt=0)
-    max_px: int = Field(1024, gt=0)
-    full_size: tuple[int, int] = (4608, 2592)
 
 
 class DepthPlaneConfig(StrictModel):
@@ -64,19 +49,9 @@ class MarkerDetectorConfig(StrictModel):
     map_frame: str = "map"
     tf_timeout_s: float = Field(0.2, gt=0)
     pose: PoseConfig = PoseConfig()
-    zoom: ZoomConfig = ZoomConfig()
     depth_plane: DepthPlaneConfig = DepthPlaneConfig()
     metrics_port: int | None = None
     executor: Literal["events", "single_threaded"] = "single_threaded"
-
-    @model_validator(mode="after")
-    def check_zoom_thresholds(self) -> Self:
-        """Require zoom.target_module_px > zoom.min_module_px >= pose.min_module_px."""
-        if not self.zoom.target_module_px > self.zoom.min_module_px:
-            raise ValueError("zoom.target_module_px must be greater than zoom.min_module_px")
-        if not self.zoom.min_module_px >= self.pose.min_module_px:
-            raise ValueError("zoom.min_module_px must be >= pose.min_module_px")
-        return self
 
 
 def config_path() -> Path:

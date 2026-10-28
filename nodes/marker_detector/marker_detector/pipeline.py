@@ -1,7 +1,6 @@
 """Marker detection pipeline (no ROS): decode -> pose (depth plane chooser) -> TF -> confidence gate -> commands and report."""
 
 import logging
-import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -12,24 +11,18 @@ from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.marker_payload import encode_payload
 
 from marker_detector.config import MarkerDetectorConfig
-from marker_detector.decode import Candidate, decode_frame, find_undecoded
+from marker_detector.decode import Candidate, decode_frame
 from marker_detector.depth_plane import fit_plane, nearest_depth, plane_chooser
-from marker_detector.geometry import detection_report, marker_in_map, sighting_command, zoom_intrinsics, zoom_request
+from marker_detector.geometry import detection_report, marker_in_map, sighting_command
 from marker_detector.pose import PoseResult, Solution, estimate_pose
-from marker_detector.zoom import ZoomFrame, ZoomPlanner, ZoomTarget
 
 LOG = logging.getLogger(__name__)
 REASON_TF = "tf"
 REASON_LOW_CONFIDENCE = "low_confidence"
 REASON_IMAGE = "image"
-REASON_ZOOM_GEOMETRY = "zoom_geometry"
-SOURCE_STREAM = "stream"
-SOURCE_ZOOM = "zoom"
 CHOOSER_REPROJECTION = "reprojection"
 CHOOSER_DEPTH = "depth"
 MAX_DEPTH_FRAMES = 8
-MAX_ZOOM_RESULTS = 8
-NS_PER_S = 1_000_000_000
 
 TfLookup = Callable[[str, int], tuple | None]
 
@@ -39,12 +32,11 @@ class FrameOutput:
     """What one frame produced.
 
     commands: ``upsert_marker`` dicts for ``/poi/command``. report: ``/markers/detections`` JSON, only when at least one
-    detection was accepted. zoom_request: zoom command dict or None. rejections: reason -> count.
+    detection was accepted. rejections: reason -> count.
     """
 
     commands: list[dict] = field(default_factory=list)
     report: str | None = None
-    zoom_request: dict | None = None
     rejections: dict[str, int] = field(default_factory=dict)
 
     def reject(self, reason: str) -> None:
@@ -57,25 +49,21 @@ class FrameOutput:
 
 
 class MarkerPipeline:
-    """Turns camera frames, depth frames and zoom stills into POI upsert commands (placeholder-free)."""
+    """Turns camera frames and depth frames into POI upsert commands (placeholder-free)."""
 
-    def __init__(self, cfg: MarkerDetectorConfig, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, cfg: MarkerDetectorConfig) -> None:
         """Create the pipeline.
 
         Args:
             cfg: Validated detector config.
-            clock: Monotonic seconds source (rate limits of the zoom planner).
         """
         self.cfg = cfg
-        self.clock = clock
-        self.planner = ZoomPlanner(cfg.zoom, clock)
         self.K: np.ndarray | None = None
         self.D: np.ndarray | None = None
         self.size: tuple[int, int] | None = None
         self.frame_id = ""
         self.depth_intrinsics: CameraIntrinsics | None = None
         self.depth_frames: deque[tuple[int, np.ndarray]] = deque(maxlen=MAX_DEPTH_FRAMES)
-        self.zoom_results: dict[int, dict] = {}
         self.request_count = 0
 
     def on_camera_info(self, K: np.ndarray, D: np.ndarray | None, size: tuple[int, int], frame_id: str) -> None:  # noqa: N803
@@ -110,20 +98,12 @@ class MarkerPipeline:
             self.depth_intrinsics = depth_intrinsics
         self.depth_frames.append((int(stamp_ns), depth_mm))
 
-    def process_frame(
-        self,
-        stamp_ns: int,
-        jpeg: bytes,
-        source: str,
-        lookup_tf: TfLookup,
-        K_override: np.ndarray | None = None,  # noqa: N803
-    ) -> FrameOutput:
-        """Process one compressed image.
+    def process_frame(self, stamp_ns: int, jpeg: bytes, lookup_tf: TfLookup) -> FrameOutput:
+        """Process one compressed stream image.
 
         Args:
-            stamp_ns: Image stamp. jpeg: compressed image bytes. source: ``stream`` or ``zoom``.
+            stamp_ns: Image stamp. jpeg: compressed image bytes.
             lookup_tf: (frame_id, stamp_ns) -> (translation, quaternion xyzw) of the frame in map, or None.
-            K_override: Intrinsics of this image instead of the stream camera_info (zoom stills).
 
         Returns:
             FrameOutput (empty without camera_info).
@@ -135,44 +115,33 @@ class MarkerPipeline:
         if grey is None:
             out.reject(REASON_IMAGE)
             return out
-        k = self.K if K_override is None else np.asarray(K_override, dtype=float)
-        stream = source == SOURCE_STREAM
         candidates, rejected = decode_frame(grey)
         for rejection in rejected:
             out.reject(rejection.reason)
         items = []
         for candidate in candidates:
-            item = self.accept(grey, candidate, k, stamp_ns, source, lookup_tf, out)
+            item = self.accept(grey, candidate, stamp_ns, lookup_tf, out)
             if item is not None:
                 items.append(item)
         if items:
-            out.report = detection_report(stamp_ns, source, items)
-        if stream:
-            out.zoom_request = self.propose_zoom(grey, candidates)
+            out.report = detection_report(stamp_ns, items)
         return out
 
     def accept(
-        self,
-        grey: np.ndarray,
-        candidate: Candidate,
-        k: np.ndarray,
-        stamp_ns: int,
-        source: str,
-        lookup_tf: TfLookup,
-        out: FrameOutput,
+        self, grey: np.ndarray, candidate: Candidate, stamp_ns: int, lookup_tf: TfLookup, out: FrameOutput
     ) -> dict | None:
         """Pose, TF and gate one candidate; append its command to ``out`` when accepted.
 
         Args:
-            grey: Grey image. candidate: decoded marker. k: intrinsics of ``grey``. stamp_ns: image stamp.
-            source: stream or zoom. lookup_tf: TF lookup. out: frame output to extend.
+            grey: Grey stream image. candidate: decoded marker. stamp_ns: image stamp. lookup_tf: TF lookup.
+            out: frame output to extend.
 
         Returns:
             The report item, or None when the candidate was rejected.
         """
         used_depth = []
-        choose = self.depth_chooser(candidate, stamp_ns, used_depth) if source == SOURCE_STREAM else None
-        pose = estimate_pose(grey, candidate, k, self.D, self.cfg.pose, choose)
+        choose = self.depth_chooser(candidate, stamp_ns, used_depth)
+        pose = estimate_pose(grey, candidate, self.K, self.D, self.cfg.pose, choose)
         if not pose.ok or pose.rvec is None or pose.tvec is None:
             out.reject(pose.reason or "pnp_failed")
             return None
@@ -242,91 +211,3 @@ class MarkerPipeline:
             "module_px": float(candidate.module_px),
             "chooser": CHOOSER_DEPTH if by_depth else CHOOSER_REPROJECTION,
         }
-
-    def propose_zoom(self, grey: np.ndarray, candidates: list[Candidate]) -> dict | None:
-        """Ask the planner for one zoom still of a small decoded marker or an undecoded QR quad.
-
-        Args:
-            grey: Stream grey image. candidates: markers decoded from it.
-
-        Returns:
-            The zoom command dict (already registered as outstanding), or None.
-        """
-        zoom = self.cfg.zoom
-        now = self.clock()
-        self.planner.expire(now)
-        if not zoom.auto_zoom or self.size is None:
-            return None
-        width, height = self.size
-        targets = [
-            ZoomTarget(float(c.corners[:, 0].mean()) / width, float(c.corners[:, 1].mean()) / height, c.module_px)
-            for c in candidates
-            if c.module_px < zoom.min_module_px
-        ]
-        for quad in find_undecoded(grey, candidates):
-            targets.append(ZoomTarget(float(quad[:, 0].mean()) / width, float(quad[:, 1].mean()) / height))
-        target = self.planner.propose(targets, now)
-        if target is None:
-            return None
-        self.request_count += 1
-        request = zoom_request(target.u, target.v, target.module_px, zoom, f"marker-zoom-{self.request_count}")
-        self.planner.sent(request["request_id"], target, now)
-        return request
-
-    def on_zoom_result(self, result: dict) -> tuple[ZoomFrame, dict] | None:
-        """Handle a zoom result message.
-
-        Args:
-            result: Parsed result dict.
-
-        Returns:
-            (frame, result) when the matching image already arrived, else None (the image will complete it).
-        """
-        pending = self.planner.on_result(result, self.clock())
-        if pending is None:
-            return None
-        if pending.frame is not None:
-            return pending.frame, result
-        self.zoom_results[pending.stamp_ns] = result
-        while len(self.zoom_results) > MAX_ZOOM_RESULTS:
-            del self.zoom_results[next(iter(self.zoom_results))]
-        return None
-
-    def on_zoom_image(self, stamp_ns: int, jpeg: bytes) -> tuple[ZoomFrame, dict] | None:
-        """Handle a zoom still image.
-
-        Args:
-            stamp_ns: image stamp (equals the result's ``stamp_ns``). jpeg: compressed bytes.
-
-        Returns:
-            (frame, result) when a result matches, else None.
-        """
-        frame = self.planner.on_image(stamp_ns, jpeg)
-        if frame is None:
-            return None
-        return frame, self.zoom_results.pop(stamp_ns, {})
-
-    def process_zoom(self, frame: ZoomFrame, result: dict, lookup_tf: TfLookup) -> FrameOutput:
-        """Process a zoom still with intrinsics derived from the stream camera_info and the result's crop.
-
-        Args:
-            frame: still paired with its result. result: result dict (``crop`` [x, y, w, h], ``full`` [w, h]).
-            lookup_tf: TF lookup.
-
-        Returns:
-            FrameOutput (empty without camera_info; a ``zoom_geometry`` rejection without a usable crop).
-        """
-        out = FrameOutput()
-        if self.K is None or self.size is None:
-            return out
-        grey = cv2.imdecode(np.frombuffer(frame.jpeg, np.uint8), cv2.IMREAD_GRAYSCALE)
-        crop = result.get("crop")
-        if grey is None:
-            out.reject(REASON_IMAGE)
-            return out
-        if not crop or len(crop) != 4 or min(crop[2], crop[3]) <= 0:
-            out.reject(REASON_ZOOM_GEOMETRY)
-            return out
-        full = tuple(result.get("full") or self.cfg.zoom.full_size)
-        k = zoom_intrinsics(self.K, self.size, (full[0], full[1]), tuple(crop), (grey.shape[1], grey.shape[0]))
-        return self.process_frame(frame.stamp_ns, frame.jpeg, SOURCE_ZOOM, lookup_tf, K_override=k)

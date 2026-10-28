@@ -1,5 +1,6 @@
-"""Tests for the marker_detector config models and the venv's OpenCV."""
+"""Tests for the marker_detector config models, the retired zoom stage and the venv's OpenCV."""
 
+import subprocess
 from pathlib import Path
 
 import cv2
@@ -7,6 +8,10 @@ import pytest
 from pydantic import ValidationError
 
 from marker_detector.config import MarkerDetectorConfig, config_path, load_config
+
+NODE_DIR = Path(__file__).resolve().parent.parent
+ZOOM_MODULE = "marker_detector/zoom.py"
+ZOOM_TESTS = "tests/test_zoom.py"
 
 
 def write(tmp_path: Path, text: str) -> Path:
@@ -21,7 +26,6 @@ def test_defaults_from_empty_yaml(tmp_path: Path) -> None:
     assert cfg.process_hz == 2.0
     assert cfg.map_frame == "map"
     assert cfg.pose.ambiguity_ratio == 2.0
-    assert cfg.zoom.full_size == (4608, 2592)
     assert cfg.depth_plane.max_residual_mm == 10
     assert cfg.metrics_port is None
 
@@ -43,31 +47,39 @@ def test_full_yaml(tmp_path: Path) -> None:
     cfg = load_config(
         write(
             tmp_path,
-            "process_hz: 5\nmetrics_port: 9100\nzoom:\n  auto_zoom: true\n  min_module_px: 7\n  target_module_px: 15\n",
+            "process_hz: 5\nmetrics_port: 9100\npose:\n  min_module_px: 5\n",
         )
     )
     assert cfg.process_hz == 5
     assert cfg.metrics_port == 9100
-    assert cfg.zoom.auto_zoom is True
+    assert cfg.pose.min_module_px == 5
     assert isinstance(cfg, MarkerDetectorConfig)
 
 
-def test_zoom_flag_defaults(tmp_path: Path) -> None:
-    cfg = load_config(write(tmp_path, ""))
-    assert cfg.zoom.auto_zoom is False
-    assert cfg.zoom.process_stills is True
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        ("zoom:\n  auto_zoom: false\n", "zoom"),
+        ("topics:\n  zoom_command: /head_camera/zoom/command\n", "zoom_command"),
+        ("topics:\n  zoom_image: /head_camera/zoom/image\n", "zoom_image"),
+        ("topics:\n  zoom_result: /head_camera/zoom/result\n", "zoom_result"),
+    ],
+)
+def test_zoom_keys_are_rejected(tmp_path: Path, text: str, key: str) -> None:
+    with pytest.raises(ValidationError, match=key):
+        load_config(write(tmp_path, text))
+
+
+def test_zoom_module_is_gone() -> None:
+    tracked = subprocess.run(
+        ["git", "ls-files", ZOOM_MODULE, ZOOM_TESTS], cwd=NODE_DIR, capture_output=True, text=True, check=True
+    ).stdout
+    assert tracked == ""
 
 
 def test_unknown_key_rejected_naming_key(tmp_path: Path) -> None:
     with pytest.raises(ValidationError, match="bogus_key"):
         load_config(write(tmp_path, "pose:\n  bogus_key: 1\n"))
-
-
-def test_inconsistent_zoom_threshold_rejected(tmp_path: Path) -> None:
-    with pytest.raises(ValidationError, match="target_module_px"):
-        load_config(write(tmp_path, "zoom:\n  target_module_px: 5\n"))
-    with pytest.raises(ValidationError, match="min_module_px"):
-        load_config(write(tmp_path, "zoom:\n  min_module_px: 3\n"))
 
 
 def test_process_hz_range(tmp_path: Path) -> None:

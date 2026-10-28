@@ -1049,14 +1049,14 @@ ros2_node_type_defaults:
     env:
       - COSTMAP_ZONES_CONFIG=/etc/ros2/costmap_zones/config.yaml
   marker_detector:
-    # Decodes printed QR metadata markers in the head camera stream and stills, estimates their pose and upserts marker
+    # Decodes printed QR metadata markers in the head D435 colour stream, estimates their pose and upserts marker
     # POIs in poi_store: see nodes/marker_detector/README.md.
     deploy_mode: native
     node_launch_command: "python3 -m marker_detector"
     node_src_dir: "nodes/marker_detector"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    # Sized for opencv + numpy at 2 Hz on 4608x2592 stills (~36 MB per BGR frame, a few live copies); MemoryMax is generous.
+    # Sized for opencv + numpy at 2 Hz on D435 colour frames plus the aligned depth frames kept; MemoryMax is generous.
     memory_low: "128M"
     memory_max: "512M"
     cpu_weight: 500
@@ -3547,9 +3547,6 @@ ros2_nodes:
         # D435 colour, and the D435 depth aligned to it and decimated by head_rgbd_cpp (same stamp as the colour set).
         image: /head/d435/color/image_raw/compressed
         camera_info: /head/d435/color/camera_info
-        zoom_command: /head_camera/zoom/command
-        zoom_image: /head_camera/zoom/image
-        zoom_result: /head_camera/zoom/result
         depth: /head_rgbd/depth/image_raw
         depth_info: /head_rgbd/depth/camera_info
         poi_command: /poi/command
@@ -3564,16 +3561,6 @@ ros2_nodes:
         max_rms_px: 1.0
         min_module_px: 4.0
         min_confidence: 0.3
-      zoom:
-        process_stills: true
-        auto_zoom: false
-        min_interval_s: 10.0
-        min_module_px: 6.0
-        target_module_px: 12.0
-        cooldown_s: 30.0
-        timeout_s: 8.0
-        max_px: 1024
-        full_size: [4608, 2592]
       # Marker plane from the aligned depth settles the planar IPPE ambiguity.
       depth_plane:
         enabled: true
