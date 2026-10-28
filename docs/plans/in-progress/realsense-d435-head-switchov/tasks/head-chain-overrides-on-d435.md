@@ -1,6 +1,6 @@
 ---
 title: Head chain overrides on d435_joint
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: A head calibration Apply moves the D435 frames every node uses.
 files: [shared/ros2_common/head_rgbd_calibration/urdf_text.py, nodes/head_state_publisher/launch/head_description.py, tests/test_head_chain_override.py, tests/test_head_chain_launch.py]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_head_chain_override.py tests/test_head_chain_l
 depends_on: [d435-frames-on-the-head-urdf]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: bdd3ce86
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 15
+actual_tokens: 1055714
+actual_roles: "impl 12, review 10"
+actual_role_tokens: "impl 869102, review 186612"
 ---
 
 # Head chain overrides on d435_joint
@@ -59,3 +59,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
