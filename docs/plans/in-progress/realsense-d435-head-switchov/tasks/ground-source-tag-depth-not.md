@@ -1,6 +1,6 @@
 ---
 title: Ground source tag depth not tof
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Ground warnings name the real sensor; no consumer depends on the retired ToF"
 files: [nodes/ground_estimator_cpp/src/core/cell_class.cpp, nodes/ground_estimator_cpp/src/core/traversability.cpp, nodes/ground_estimator_cpp/test, nodes/ground_estimator_cpp/README.md, nodes/web_ui/web_ui/ground_recorder.py, nodes/web_ui/tests]
@@ -8,15 +8,15 @@ verify: "scripts/cpp-node-test.sh ground_estimator_cpp && (cd nodes/web_ui && uv
 depends_on: [ground-estimator-on-d435-inp]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: 03a8e218
 points: 2
 expected_minutes: 5
 expected_tokens: 487766
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 29
+actual_tokens: 1374904
+actual_roles: "impl 20, review 9"
+actual_role_tokens: "impl 1064851, review 310053"
 ---
 
 # Ground source tag depth not tof
@@ -57,3 +57,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
