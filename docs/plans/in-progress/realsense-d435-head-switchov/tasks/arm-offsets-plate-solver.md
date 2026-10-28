@@ -1,6 +1,6 @@
 ---
 title: Arm offsets plate solver
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The arm joint offsets and tool point are measured against the head D435, which is what grasping from head images needs."
 files: [shared/ros2_common/head_rgbd_calibration/arm_offsets_fit.py, shared/ros2_common/head_rgbd_calibration/config.py, tests/head_arm_synthetic.py, tests/test_arm_offsets_fit.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_arm_offsets_fit.py tests/test_head_arm_fit.py 
 depends_on: [calibration-library-d435-fra]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 915da666
 points: 8
 expected_minutes: 91
 expected_tokens: 6000000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 8
+actual_minutes: 43
+actual_tokens: 10751514
+actual_roles: "impl 35, review 8"
+actual_role_tokens: "impl 10424248, review 327266"
 ---
 
 # Arm offsets plate solver
@@ -74,3 +74,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
