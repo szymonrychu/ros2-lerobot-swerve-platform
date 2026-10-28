@@ -50,8 +50,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+1. Change producer and consumer tests to expect "depth"; they fail.
+2. Rename the value in cell_class.cpp, traversability.cpp, ground_recorder.py and any other consumer found by grep.
+3. Run the verify.
 
 ## Notes
 
