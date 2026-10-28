@@ -23,15 +23,44 @@
   register: realsense_d435_udev_stale
   tags: [setup]
 
-# Unverified by Intel documentation (docs brief 3.15): quirks=640 is kept as a stability measure for uvcvideo.
+# Unverified by Intel documentation (docs brief 3.15): quirks=128 (UVC_QUIRK_FIX_BANDWIDTH) is kept as a stability
+# measure for uvcvideo. Not the former 640 (0x280): its UVC_QUIRK_RESTRICT_FRAME_RATE (0x200) makes uvcvideo report only
+# the default (highest) frame interval of each mode, so 640x360x15 did not exist and realsense2_camera fell back to
+# 1920x1080x30 colour and no depth (bring-up 2026-10-28).
 - name: Keep the uvcvideo quirks for RealSense stability
   ansible.builtin.copy:
     dest: /etc/modprobe.d/99-realsense-uvcvideo.conf
-    content: "options uvcvideo quirks=640\n"
+    content: "options uvcvideo quirks=128\n"
     owner: root
     group: root
     mode: "0644"
   become: true
+  tags: [setup]
+
+# uvcvideo reads its quirks when it probes a device: set them on the running module and re-enumerate the D435 (unit
+# stopped first; the deploy's start step starts it again). No-op when the module already has them or is not loaded.
+- name: Apply the uvcvideo quirks to the running module and re-enumerate the D435
+  ansible.builtin.shell: |
+    set -eu
+    param=/sys/module/uvcvideo/parameters/quirks
+    [ -w "$param" ] || exit 0
+    [ "$(cat "$param")" = 128 ] && exit 0
+    systemctl stop ros2-realsense_d435 || true
+    echo 128 > "$param"
+    for f in /sys/bus/usb/devices/*/idProduct; do
+      d=$(dirname "$f")
+      if [ "$(cat "$f")" = 0b07 ] && [ "$(cat "$d/idVendor")" = 8086 ]; then
+        echo 0 > "$d/authorized"
+        sleep 2
+        echo 1 > "$d/authorized"
+      fi
+    done
+    echo "uvcvideo quirks set to 128"
+  args:
+    executable: /bin/bash
+  become: true
+  register: realsense_d435_live_quirks
+  changed_when: "'quirks set' in realsense_d435_live_quirks.stdout"
   tags: [setup]
 
 - name: Reload udev rules

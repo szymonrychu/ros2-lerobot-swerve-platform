@@ -3512,6 +3512,8 @@ Parses `ansible/playbooks/tasks/realsense_d435_setup.yml`, `deploy_nodes_client.
 |---|---|
 | `test_rule_matches_the_d435_product_id` | `99-realsense-d435.rules` matches 8086:0b07 only (not 0b3a), `MODE="0666", GROUP="video"`, autosuspend `-1`, power control `on`, no IIO rules. |
 | `test_d435i_rules_are_gone` | The stale `99-realsense-d435i.rules` is `state: absent`; ros2_base has no RealSense/uvcvideo task; the uvcvideo quirks file stays, commented as unverified. |
+| `test_quirks_keep_every_frame_rate` | The quirks are 128 (`UVC_QUIRK_FIX_BANDWIDTH`) without `UVC_QUIRK_RESTRICT_FRAME_RATE` (0x200), which with the former 640 hid every fps but the highest per mode (no 640x360x15). |
+| `test_live_quirks_are_applied_and_the_d435_re_enumerated` | One become shell task writes 128 to `/sys/module/uvcvideo/parameters/quirks`, stops `ros2-realsense_d435` before re-authorizing the 8086:0b07 USB device, has a `changed_when` and the `setup` tag. |
 | `test_setup_reloads_udev_on_change` | `udevadm control --reload-rules` and `udevadm trigger` run. |
 | `test_setup_is_part_of_the_node_deploy` | The setup file is included once, tagged `realsense_d435` and `setup`, before the `realsense_d435` deploy step. |
 

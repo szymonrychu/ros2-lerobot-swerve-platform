@@ -12,6 +12,10 @@ BASE_TASKS = REPO_ROOT / "ansible" / "roles" / "ros2_base" / "tasks" / "main.yml
 RULE_PATH = "/etc/udev/rules.d/99-realsense-d435.rules"
 STALE_PATH = "/etc/udev/rules.d/99-realsense-d435i.rules"
 MODPROBE_PATH = "/etc/modprobe.d/99-realsense-uvcvideo.conf"
+# Linux drivers/media/usb/uvc/uvcvideo.h quirk bits.
+UVC_QUIRK_FIX_BANDWIDTH = 0x80
+UVC_QUIRK_RESTRICT_FRAME_RATE = 0x200
+UVC_QUIRKS = 128
 
 
 def setup_tasks() -> list[dict[str, Any]]:
@@ -79,8 +83,39 @@ def test_d435i_rules_are_gone() -> None:
     for needle in ("realsense", "8086", "0b3a", "uvcvideo"):
         assert needle not in text
     modprobe = task_for(MODPROBE_PATH)["ansible.builtin.copy"]
-    assert modprobe["content"] == "options uvcvideo quirks=640\n"
+    assert modprobe["content"] == f"options uvcvideo quirks={UVC_QUIRKS}\n"
     assert "unverified" in SETUP.read_text().lower()
+
+
+def test_quirks_keep_every_frame_rate() -> None:
+    """The quirks omit UVC_QUIRK_RESTRICT_FRAME_RATE, which hides every frame interval but the default one per mode.
+
+    With quirks=640 (0x280) uvcvideo listed only the highest fps of each mode, so the D2 profile 640x360x15 did not
+    exist and realsense2_camera fell back to 1920x1080x30 colour and no depth (bring-up 2026-10-28).
+    """
+    assert UVC_QUIRKS & UVC_QUIRK_RESTRICT_FRAME_RATE == 0
+    assert UVC_QUIRKS == UVC_QUIRK_FIX_BANDWIDTH
+    assert "RESTRICT_FRAME_RATE" in SETUP.read_text()
+
+
+def test_live_quirks_are_applied_and_the_d435_re_enumerated() -> None:
+    """The running uvcvideo gets the quirks and the D435 is re-enumerated with the unit stopped, only on a change.
+
+    uvcvideo reads its quirks when it probes a device, so the setup writes the module parameter and re-authorizes the
+    8086:0b07 USB device (the unit is stopped first; the deploy's start step starts it again).
+    """
+    shells = [t for t in setup_tasks() if "ansible.builtin.shell" in t]
+    assert len(shells) == 1
+    task = shells[0]
+    script = task["ansible.builtin.shell"]
+    assert f"echo {UVC_QUIRKS} > " in script
+    assert "/sys/module/uvcvideo/parameters/quirks" in script
+    assert "systemctl stop ros2-realsense_d435" in script
+    assert script.index("systemctl stop ros2-realsense_d435") < script.index("/authorized")
+    assert "0b07" in script and "8086" in script
+    assert task["become"] is True
+    assert "changed_when" in task
+    assert "setup" in task["tags"]
 
 
 def test_setup_reloads_udev_on_change() -> None:
